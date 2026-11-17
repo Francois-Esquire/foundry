@@ -1,13 +1,12 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { promisify } from "node:util";
+import { execFileRecorded } from "@foundry/lib/spawn-record";
 import { z } from "zod";
 import type { CliHarness, GuestAuth } from "~/lib/cli-harnesses";
 
-const execute = promisify(execFile);
+const execute = execFileRecorded;
 const claudeLogin = z.object({
   claudeAiOauth: z.object({
     accessToken: z.string().min(1),

@@ -177,10 +177,9 @@ export class ArtifactManager implements Artifacts {
             } finally {
               scope.open = false;
             }
-            if (scope.failed) {
-              throw new TransactionRolledBackError({
-                cause: scope.failed.error,
-              });
+            const failed = scope.failed ?? change.failure;
+            if (failed) {
+              throw new TransactionRolledBackError({ cause: failed.error });
             }
             await transaction.reclaim();
             attempted = change.write();

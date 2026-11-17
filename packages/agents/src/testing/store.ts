@@ -1,15 +1,115 @@
 import { describe, expect, it } from "vitest";
 
-import type { SessionMessage, SessionPart, SessionRecord } from "../schema";
+import type {
+  SessionChangeEvent,
+  SessionMessage,
+  SessionPart,
+  SessionRecord,
+} from "../schema";
 import type { SessionStore } from "../store";
 
 export type SessionStorage = (scope: string) => SessionStore;
 
+export interface RecordingSessionStorage {
+  readonly failNextCommit: () => void;
+  readonly recorded: () => Promise<readonly SessionChangeEvent[]>;
+  readonly storage: SessionStorage;
+}
+
+export type SessionStoreMode =
+  | { readonly hooked: false }
+  | {
+      readonly hooked: true;
+      readonly recording: () => Promise<RecordingSessionStorage>;
+    };
+
 export function describeSessionStore(
   name: string,
-  open: () => SessionStorage | Promise<SessionStorage>
+  open: () => SessionStorage | Promise<SessionStorage>,
+  mode: SessionStoreMode
 ): void {
   const fresh = async (): Promise<SessionStore> => (await open())("scope");
+
+  describe(`${name} (SessionStore events)`, () => {
+    it("keeps no event: a write's events change no record", async () => {
+      const store = await fresh();
+      await store.commit({
+        events: [created("s"), appended("s", ["m1"])],
+        putMessages: [message("m1", "s", 1)],
+        putSessions: [session("s")],
+      });
+      await store.commit({ events: [updated("s")] });
+
+      await expect(store.getSession("s")).resolves.toStrictEqual(session("s"));
+      await expect(store.listMessages("s")).resolves.toStrictEqual([
+        message("m1", "s", 1),
+      ]);
+    });
+
+    it("reads each of a write's events once: a value read again is never asked for", async () => {
+      const store = await fresh();
+
+      await store.commit({
+        events: [readableOnce(created("s"))],
+        putSessions: [session("s")],
+      });
+
+      await expect(store.getSession("s")).resolves.toStrictEqual(session("s"));
+    });
+
+    it("reads each of a write's events once through a transaction's view", async () => {
+      const store = await fresh();
+      if (store.transaction === undefined) {
+        return;
+      }
+
+      await store.transaction((view) =>
+        view.commit({
+          events: [readableOnce(created("s"))],
+          putSessions: [session("s")],
+        })
+      );
+
+      await expect(store.getSession("s")).resolves.toStrictEqual(session("s"));
+    });
+
+    it.each(UNPLAIN_EVENTS)(
+      "refuses whole, with a TypeError, a write whose events are %s",
+      async (_kind, events) => {
+        const store = await fresh();
+
+        await expect(
+          store.commit({ events: events(), putSessions: [session("s")] })
+        ).rejects.toThrow(TypeError);
+        await expect(store.getSession("s")).resolves.toBeNull();
+      }
+    );
+
+    it.each(UNPLAIN_EVENTS)(
+      "refuses through a transaction's view a write whose events are %s",
+      async (_kind, events) => {
+        const store = await fresh();
+        if (store.transaction === undefined) {
+          return;
+        }
+
+        await store.transaction(async (view) => {
+          await expect(
+            view.commit({ events: events(), putSessions: [session("s")] })
+          ).rejects.toThrow(TypeError);
+          await view.commit({ putSessions: [session("kept")] });
+        });
+        await expect(store.getSession("s")).resolves.toBeNull();
+        await expect(store.getSession("kept")).resolves.toStrictEqual(
+          session("kept")
+        );
+      }
+    );
+  });
+
+  if (mode.hooked) {
+    describeRecordedEvents(name, mode.recording);
+  }
 
   describe(`${name} (SessionStore)`, () => {
     it("reads nothing from an empty store", async () => {
@@ -122,6 +222,21 @@ export function describeSessionStore(
 
       await expect(ids(store, "a")).resolves.toEqual(["a2", "a3"]);
       await expect(ids(store, "b")).resolves.toEqual(["b1", "b2", "a1", "b3"]);
+    });
+
+    it("files each message after every one its session holds, after its last one moved away", async () => {
+      const store = await fresh();
+      await store.commit({
+        putMessages: [message("a1", "a", 1), message("a2", "a", 2)],
+        putSessions: [session("a"), session("b")],
+      });
+      await store.commit({ putMessages: [message("a2", "b", 2)] });
+      await store.commit({ putMessages: [message("a3", "a", 3)] });
+      await store.commit({ putMessages: [message("a2", "a", 2)] });
+      await store.commit({ putMessages: [message("a4", "a", 4)] });
+
+      await expect(ids(store, "a")).resolves.toEqual(["a1", "a3", "a2", "a4"]);
+      await expect(ids(store, "b")).resolves.toEqual([]);
     });
 
     it("places a message put more than once in one write as its puts, in order, leave it", async () => {
@@ -807,6 +922,276 @@ const EVERY_PART: SessionPart[] = [
     type: "harness_activity",
   },
 ];
+
+function describeRecordedEvents(
+  name: string,
+  recording: () => Promise<RecordingSessionStorage>
+): void {
+  const recorder = async () => {
+    const opened = await recording();
+    return { ...opened, store: opened.storage("scope") };
+  };
+
+  describe(`${name} (SessionStore events handed to the host)`, () => {
+    it("hands on each commit's events once, in order, and none for a write without", async () => {
+      const { recorded, store } = await recorder();
+      const first = [created("s"), appended("s", ["m1", "m2"])];
+      await store.commit({
+        events: first,
+        putMessages: [message("m1", "s", 1), message("m2", "s", 2)],
+        putSessions: [session("s")],
+      });
+      await store.commit({ putMessages: [message("m3", "s", 3)] });
+      await store.commit({ events: [updated("s")] });
+
+      await expect(recorded()).resolves.toStrictEqual([...first, updated("s")]);
+    });
+
+    it("hands on an event read once, as it read it", async () => {
+      const { recorded, store } = await recorder();
+
+      await store.commit({
+        events: [readableOnce(created("s"))],
+        putSessions: [session("s")],
+      });
+
+      await expect(recorded()).resolves.toStrictEqual([created("s")]);
+    });
+
+    it("hands on the events as they were when commit was called", async () => {
+      const { recorded, store } = await recorder();
+      const event = appended("s", ["m1"]);
+
+      const pending = store.commit({
+        events: [event],
+        putSessions: [session("s")],
+      });
+      if (event.type === "session.messages.appended") {
+        event.messageIds.push("later");
+      }
+      await pending;
+
+      await expect(recorded()).resolves.toStrictEqual([appended("s", ["m1"])]);
+    });
+
+    it("records nothing for a write whose events it refuses", async () => {
+      const { recorded, store } = await recorder();
+      for (const [, events] of UNPLAIN_EVENTS) {
+        await expect(
+          store.commit({ events: events(), putSessions: [session("s")] })
+        ).rejects.toThrow(TypeError);
+      }
+      await expect(recorded()).resolves.toStrictEqual([]);
+    });
+
+    it("records nothing for a write it refuses", async () => {
+      const { recorded, store } = await recorder();
+      const unstorable = message("m1", "s", 1);
+      Object.defineProperty(unstorable.parts[0], "text", {
+        enumerable: true,
+        get: () => {
+          throw new Error("unstorable");
+        },
+      });
+
+      await expect(
+        store.commit({
+          events: [created("s")],
+          putMessages: [unstorable],
+          putSessions: [session("s")],
+        })
+      ).rejects.toThrow("unstorable");
+      await expect(recorded()).resolves.toStrictEqual([]);
+    });
+
+    it("runs the hook inside the commit: a throw from it keeps neither the write nor its events", async () => {
+      const { failNextCommit, recorded, store } = await recorder();
+      failNextCommit();
+
+      await expect(
+        store.commit({ events: [created("s")], putSessions: [session("s")] })
+      ).rejects.toThrow();
+      await expect(store.getSession("s")).resolves.toBeNull();
+      await expect(recorded()).resolves.toStrictEqual([]);
+
+      await store.commit({
+        events: [created("s")],
+        putSessions: [session("s")],
+      });
+      await expect(recorded()).resolves.toStrictEqual([created("s")]);
+    });
+
+    it("records a transaction's events only when it is kept", async (context) => {
+      const { recorded, store } = await recorder();
+      if (store.transaction === undefined) {
+        context.skip();
+        return;
+      }
+
+      await expect(
+        store.transaction(async (view) => {
+          await view.commit({
+            events: [created("dropped")],
+            putSessions: [session("dropped")],
+          });
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+      await store.transaction(async (view) => {
+        await view.commit({
+          events: [created("s")],
+          putSessions: [session("s")],
+        });
+        await view.commit({
+          events: [appended("s", ["m1"])],
+          putMessages: [message("m1", "s", 1)],
+        });
+      });
+
+      await expect(recorded()).resolves.toStrictEqual([
+        created("s"),
+        appended("s", ["m1"]),
+      ]);
+    });
+  });
+}
+
+const AT = "2026-01-01T00:00:00.000Z";
+
+const UNPLAIN_EVENTS: [string, () => SessionChangeEvent[]][] = [
+  [
+    "a class instance",
+    () => {
+      class Created {
+        readonly at = AT;
+        readonly id = "e";
+        readonly sessionId = "s";
+        readonly type = "session.created";
+      }
+      return [new Created() as unknown as SessionChangeEvent];
+    },
+  ],
+  [
+    "an object with an own property a copy would not see",
+    () => {
+      const event = { ...created("s") };
+      Object.defineProperty(event, "id", { enumerable: false, value: "e" });
+      return [event];
+    },
+  ],
+  [
+    "an object with a symbol key",
+    () => [{ ...created("s"), [Symbol("extra")]: 1 } as SessionChangeEvent],
+  ],
+  [
+    "an object holding a Date",
+    () => [
+      { ...created("s"), at: new Date(0) } as unknown as SessionChangeEvent,
+    ],
+  ],
+  [
+    "an object holding undefined",
+    () => [
+      { ...created("s"), extra: undefined } as unknown as SessionChangeEvent,
+    ],
+  ],
+  [
+    "an object holding NaN",
+    () => [
+      { ...created("s"), extra: Number.NaN } as unknown as SessionChangeEvent,
+    ],
+  ],
+  [
+    "not an array",
+    () => ({ 0: created("s"), length: 1 }) as unknown as SessionChangeEvent[],
+  ],
+  [
+    "an Array subclass",
+    () => {
+      class Events extends Array<SessionChangeEvent> {}
+      return Events.from([created("s")]);
+    },
+  ],
+  [
+    "an array holding an Array subclass",
+    () => {
+      class Ids extends Array<string> {}
+      return [
+        {
+          ...created("s"),
+          extra: Ids.from(["a"]),
+        } as unknown as SessionChangeEvent,
+      ];
+    },
+  ],
+  [
+    "an array holding an array with a hidden function",
+    () => {
+      const items = ["a"];
+      Object.defineProperty(items, "hidden", { value: () => undefined });
+      return [
+        { ...created("s"), extra: items } as unknown as SessionChangeEvent,
+      ];
+    },
+  ],
+  [
+    "an array holding an array with a symbol key",
+    () => {
+      const items = Object.assign(["a"], { [Symbol("extra")]: 1 });
+      return [
+        { ...created("s"), extra: items } as unknown as SessionChangeEvent,
+      ];
+    },
+  ],
+  [
+    "an array with an own property beyond its items",
+    () => Object.assign([created("s")], { "-1": created("s") }),
+  ],
+];
+
+function readableOnce(event: SessionChangeEvent): SessionChangeEvent {
+  const { id, ...rest } = event;
+  let read = false;
+  return Object.defineProperty({ ...rest }, "id", {
+    configurable: true,
+    enumerable: true,
+    get: () => {
+      if (read) {
+        throw new Error("the event's id was read twice");
+      }
+      read = true;
+      return id;
+    },
+  }) as SessionChangeEvent;
+}
+
+function created(sessionId: string): SessionChangeEvent {
+  return {
+    at: AT,
+    id: `created-${sessionId}`,
+    sessionId,
+    type: "session.created",
+  };
+}
+
+function updated(sessionId: string): SessionChangeEvent {
+  return {
+    at: AT,
+    id: `updated-${sessionId}`,
+    sessionId,
+    type: "session.updated",
+  };
+}
+
+function appended(sessionId: string, messageIds: string[]): SessionChangeEvent {
+  return {
+    at: AT,
+    id: `appended-${sessionId}-${messageIds.join("-")}`,
+    messageIds,
+    sessionId,
+    type: "session.messages.appended",
+  };
+}
 
 const REFUSAL = /refused: .*use the view/;
 

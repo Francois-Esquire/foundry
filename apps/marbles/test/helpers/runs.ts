@@ -1,135 +1,296 @@
-import { ExecutionCoordinator } from "@foundry/workflows";
-import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
-import { and, eq } from "drizzle-orm";
-import { openDatabase, readDatabase } from "~/database/open";
-import { DatabaseRunStore } from "~/database/runs";
-import { marblesScheduleTicks, marblesWorkflowRuns } from "~/database/tables";
-import { stateDatabase } from "~/layout";
-import type { StoredScope } from "~/lib/run-store";
-import type { ScheduleHistory } from "~/lib/trigger-store";
+import { randomUUID } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import {
+  notPrivate,
+  SPAWN_OWNER_ENV,
+  startedAt,
+  writePrivate,
+} from "~/process/spawned";
+import {
+  type Marker,
+  otherKind,
+  type ProcessSystem,
+  type StopLimits,
+  signalReaches,
+  stopRecorded,
+  unrecordedMarked,
+} from "./processes";
 
-export interface StoredRunState {
-  readonly owner: number | null;
-  readonly recorded: StoredScope;
-  readonly status: string;
-  readonly suspensions: readonly string[];
+export interface Run {
+  finish(): Promise<void>;
+  readonly records: string;
+  readonly root: string;
 }
 
-export async function storedRun(
-  state: string,
-  runId: string,
-  scope = "test"
-): Promise<StoredRunState | undefined> {
-  const read = await readDatabase(
-    stateDatabase(state),
-    async (database): Promise<StoredRunState | undefined> => {
-      const workflows = new SqliteWorkflowStore({ database, scope });
-      const run = await workflows.getRun(runId);
-      if (run === null) {
-        return undefined;
-      }
-      const suspensions = await workflows.listSuspensions({
-        limit: 100,
-        runId,
-      });
-      const [owned] = await database
-        .select({ owner: marblesWorkflowRuns.ownerPid })
-        .from(marblesWorkflowRuns)
-        .where(
-          and(
-            eq(marblesWorkflowRuns.scope, scope),
-            eq(marblesWorkflowRuns.runId, runId)
-          )
-        );
-      return {
-        owner: owned?.owner ?? null,
-        recorded: await new DatabaseRunStore({ database, scope }).recorded(
-          runId
-        ),
-        status: run.status,
-        suspensions: suspensions.items.map((suspension) => suspension.status),
-      };
+export const RUN_ENV = SPAWN_OWNER_ENV;
+const RUN_PREFIX = "marbles-run-";
+const OWNER_FILE = "owner.json";
+const MOVED_FILE = "moved-from.json";
+const RECORDS = "spawned";
+const UNRECORDED_MS = 2000;
+
+interface Owner {
+  readonly pid: number;
+  readonly started: string;
+}
+
+export function runRecords(root: string): string {
+  return join(root, RECORDS);
+}
+
+export function privateBase(base: string): string {
+  try {
+    mkdirSync(base, { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw error;
     }
+  }
+  const problem = notPrivate(base, "directory");
+  if (problem !== undefined) {
+    throw new Error(`marbles tests: will not keep runs in ${base}: ${problem}`);
+  }
+  return base;
+}
+
+export function startRun(parent: string, limits?: StopLimits): Run {
+  privateBase(parent);
+  const root = mkdtempSync(join(parent, RUN_PREFIX));
+  const started = startedAt(process.pid);
+  if (typeof started !== "string") {
+    rmSync(root, { force: true, recursive: true });
+    throw new Error("marbles tests: could not read this process's start time");
+  }
+  writePrivate(
+    join(root, OWNER_FILE),
+    JSON.stringify({ pid: process.pid, started })
   );
-  return read ?? undefined;
-}
-
-export interface SeededRun {
-  readonly createdAt: number;
-  readonly id: string;
-  readonly owner: number | null;
-  readonly status: "complete" | "failed" | "running";
-}
-
-export async function seedRuns(
-  state: string,
-  scope: string,
-  runs: readonly SeededRun[]
-): Promise<void> {
-  const opened = await openDatabase(stateDatabase(state));
-  if (opened === undefined) {
-    throw new Error("no Marbles database to seed");
-  }
-  try {
-    const { database } = opened;
-    const store = new ExecutionCoordinator({
-      store: new SqliteWorkflowStore({ database, scope }),
-    });
-    const queue = await store.ensureQueue({ id: "qu-seeded", name: "marbles" });
-    for (const run of runs) {
-      await store.createRun({
-        id: run.id,
-        input: null,
-        queueId: queue.id,
-        step: "guides",
-      });
-      await store.updateRun(run.id, {
-        status: "running",
-        timestamps: { createdAt: run.createdAt },
-      });
-      if (run.status !== "running") {
-        await store.updateRun(run.id, { status: run.status });
+  return {
+    async finish() {
+      if (await clear(root, limits)) {
+        warnKept(
+          await removeRoot(root, limits === undefined ? {} : { limits })
+        );
       }
-      await database.insert(marblesWorkflowRuns).values({
-        ledger: {},
-        literals: {},
-        ownerId: run.owner === null ? null : "seeded",
-        ownerPid: run.owner,
-        runId: run.id,
-        scope,
-      });
+    },
+    records: runRecords(root),
+    root,
+  };
+}
+
+export async function sweepFinishedRuns(
+  parent: string,
+  limits?: StopLimits,
+  system?: ProcessSystem
+): Promise<void> {
+  const base = notPrivate(parent, "directory");
+  if (base !== undefined) {
+    console.warn(`marbles tests: not sweeping ${parent}: ${base}`);
+    return;
+  }
+  const roots = readdirSync(parent)
+    .filter((name) => name.startsWith(RUN_PREFIX))
+    .map((name) => join(parent, name));
+  const removal: RootRemoval = {
+    ...(limits === undefined ? {} : { limits }),
+    ...(system === undefined ? {} : { system }),
+  };
+  for (const root of roots) {
+    if (sweepable(root) && (await clear(root, limits, system))) {
+      warnKept(await removeRoot(root, removal));
     }
-  } finally {
-    opened.close();
   }
 }
 
-export interface SeededTick {
-  readonly key: string;
-  readonly last?: ScheduleHistory;
-  readonly owner: number | null;
+function sweepable(root: string): boolean {
+  const problem = notPrivate(root, "directory");
+  if (problem !== undefined) {
+    if (!problem.includes("ENOENT")) {
+      console.warn(`marbles tests: not sweeping ${root}: ${problem}`);
+    }
+    return false;
+  }
+  const owner = notPrivate(join(root, OWNER_FILE), "file");
+  if (owner === undefined) {
+    return isOver(root);
+  }
+  if (!owner.includes("ENOENT")) {
+    console.warn(`marbles tests: not sweeping ${root}: ${owner}`);
+    return false;
+  }
+  if (!holdsRecords(root)) {
+    return false;
+  }
+  console.warn(
+    `marbles tests: ${root} holds records and names no owner; its records are handled as any run's`
+  );
+  return true;
 }
 
-export async function seedTicks(
-  state: string,
-  scope: string,
-  ticks: readonly SeededTick[]
-): Promise<void> {
-  const opened = await openDatabase(stateDatabase(state));
-  if (opened === undefined) {
-    throw new Error("no Marbles database to seed");
+function holdsRecords(root: string): boolean {
+  try {
+    return readdirSync(runRecords(root)).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function isOver(root: string): boolean {
+  const owner = readOwner(root);
+  if (owner === undefined || otherKind(owner.started)) {
+    return false;
+  }
+  const started = startedAt(owner.pid);
+  if (started === undefined) {
+    return false;
+  }
+  return started === null
+    ? !signalReaches(owner.pid)
+    : started !== owner.started;
+}
+
+function readOwner(root: string): Owner | undefined {
+  try {
+    const owner = JSON.parse(readFileSync(join(root, OWNER_FILE), "utf8"));
+    return Number.isInteger(owner?.pid) && typeof owner?.started === "string"
+      ? { pid: owner.pid, started: owner.started }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function clear(
+  root: string,
+  limits?: StopLimits,
+  system?: ProcessSystem
+): Promise<boolean> {
+  const marker: Marker = { name: RUN_ENV, value: movedFrom(root) };
+  const problems: string[] = [];
+  try {
+    problems.push(
+      ...(await stopRecorded(runRecords(root), marker, limits, system))
+    );
+    const unrecorded = await outlast(() =>
+      unrecordedMarked(runRecords(root), marker)
+    );
+    for (const pid of unrecorded) {
+      problems.push(
+        `process ${String(pid)} carries ${RUN_ENV}=${root} but was never recorded; not signalled`
+      );
+    }
+  } catch (error) {
+    problems.push(String(error));
+  }
+  if (problems.length > 0) {
+    console.warn(`marbles tests: kept ${root}:\n  ${problems.join("\n  ")}`);
+  }
+  return problems.length === 0;
+}
+
+export async function outlast(find: () => number[]): Promise<number[]> {
+  const deadline = Date.now() + UNRECORDED_MS;
+  let found = find();
+  while (found.length > 0 && Date.now() < deadline) {
+    await sleep(100);
+    found = find();
+  }
+  return found;
+}
+
+export interface RootFiles {
+  remove(path: string): void;
+  rename(from: string, to: string): void;
+}
+
+const ROOT_FILES: RootFiles = {
+  remove: (path) =>
+    rmSync(path, { force: true, maxRetries: 3, recursive: true }),
+  rename: (from, to) => renameSync(from, to),
+};
+
+export interface RootRemoval {
+  readonly files?: RootFiles;
+  readonly limits?: StopLimits;
+  readonly system?: ProcessSystem;
+}
+
+export async function removeRoot(
+  root: string,
+  options: RootRemoval = {}
+): Promise<string[]> {
+  const files = options.files ?? ROOT_FILES;
+  const owner = readOwner(root);
+  const ran = movedFrom(root);
+  const aside = join(dirname(root), `${RUN_PREFIX}removing-${randomUUID()}`);
+  const kept: string[] = [];
+  try {
+    if (!existsSync(join(root, MOVED_FILE))) {
+      writePrivate(join(root, MOVED_FILE), JSON.stringify({ root: ran }));
+    }
+    files.rename(root, aside);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT"
+      ? []
+      : [`could not move ${root} aside to remove it: ${String(error)}`];
   }
   try {
-    for (const { key, last, owner } of ticks) {
-      await opened.database.insert(marblesScheduleTicks).values({
-        key,
-        ...(last ?? {}),
-        ownerId: owner === null ? null : "seeded",
-        ownerPid: owner,
-        scope,
-      });
+    const left = await stopRecorded(
+      runRecords(aside),
+      { name: RUN_ENV, value: ran },
+      options.limits,
+      options.system
+    );
+    if (left.length > 0) {
+      kept.push(`kept ${aside}, moved from ${root}:`, ...left);
+    } else {
+      files.remove(aside);
     }
+  } catch (error) {
+    kept.push(`kept ${aside}, moved from ${root}: ${String(error)}`);
   } finally {
-    opened.close();
+    if (existsSync(root)) {
+      restoreOwner(root, owner);
+      kept.push(
+        `${root} was made again after it was moved aside, by a process that recorded itself there; kept for the next sweep`
+      );
+    }
+  }
+  return kept;
+}
+
+function restoreOwner(root: string, owner: Owner | undefined): void {
+  if (owner === undefined || existsSync(join(root, OWNER_FILE))) {
+    return;
+  }
+  try {
+    writePrivate(join(root, OWNER_FILE), JSON.stringify(owner));
+  } catch {
+    // Its records still keep it in every sweep's view (see the sweep).
+  }
+}
+
+function movedFrom(root: string): string {
+  try {
+    const moved = JSON.parse(readFileSync(join(root, MOVED_FILE), "utf8"));
+    return typeof moved?.root === "string" ? moved.root : root;
+  } catch {
+    return root;
+  }
+}
+
+function warnKept(kept: readonly string[]): void {
+  if (kept.length > 0) {
+    console.warn(`marbles tests: ${kept.join("\n  ")}`);
   }
 }

@@ -23,6 +23,7 @@ import type {
   WorkspaceId,
   WorkspaceRegistration,
 } from "../schema";
+import { ownedWrite } from "./events";
 import type {
   WorkspaceSave,
   WorkspaceStore,
@@ -89,7 +90,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     let owned: WorkspaceStoreWrite;
     let unstorable: RangeError | undefined;
     try {
-      owned = structuredClone(write);
+      owned = ownedWrite(write);
       unstorable = refuseUnstorable(owned);
     } catch (error) {
       return Promise.reject(error);

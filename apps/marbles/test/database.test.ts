@@ -28,6 +28,7 @@ import {
 } from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
 import { transaction } from "~/database/transaction";
+import { recordSpawned } from "~/process/spawned";
 
 const SRC = resolve("src");
 const NEWER = /migrated by a newer Marbles/;
@@ -468,6 +469,9 @@ opened.close();
         stdio: ["ignore", "pipe", "pipe"],
       })
     );
+    for (const child of children) {
+      recordSpawned(child.pid, false);
+    }
     const exits = children.map(
       (child) =>
         new Promise<{ code: number | null; stderr: string }>((settle) => {
@@ -525,6 +529,7 @@ opened.close();
         stdio: ["ignore", "pipe", "pipe"],
       }
     );
+    recordSpawned(generated.pid, false);
     let output = "";
     generated.stdout?.on("data", (chunk: Buffer) => {
       output += chunk.toString();

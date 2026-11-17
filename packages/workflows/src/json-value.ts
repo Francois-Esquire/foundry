@@ -89,3 +89,48 @@ export function isPlainRecord(
   const prototype = Object.getPrototypeOf(value) as object | null;
   return prototype === Object.prototype || prototype === null;
 }
+
+export function jsonValuesEqual(left: JsonValue, right: JsonValue): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!(Array.isArray(left) && Array.isArray(right))) {
+      return false;
+    }
+    const leftArray = left as readonly JsonValue[];
+    const rightArray = right as readonly JsonValue[];
+    return (
+      leftArray.length === rightArray.length &&
+      leftArray.every((value, index) => {
+        const rightValue = rightArray[index];
+        return rightValue !== undefined && jsonValuesEqual(value, rightValue);
+      })
+    );
+  }
+  if (
+    typeof left !== "object" ||
+    left === null ||
+    typeof right !== "object" ||
+    right === null
+  ) {
+    return false;
+  }
+  const leftRecord = left as Readonly<Record<string, JsonValue>>;
+  const rightRecord = right as Readonly<Record<string, JsonValue>>;
+  const leftKeys = Object.keys(leftRecord).sort();
+  const rightKeys = Object.keys(rightRecord).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every((key, index) => key === rightKeys[index]) &&
+    leftKeys.every((key) => {
+      const leftValue = leftRecord[key];
+      const rightValue = rightRecord[key];
+      return (
+        leftValue !== undefined &&
+        rightValue !== undefined &&
+        jsonValuesEqual(leftValue, rightValue)
+      );
+    })
+  );
+}

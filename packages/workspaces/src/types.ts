@@ -23,6 +23,7 @@ import type {
 export type {
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceEvent,
   WorkspaceFile,
   WorkspaceId,
   WorkspaceRegistration,

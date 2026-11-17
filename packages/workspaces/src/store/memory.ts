@@ -7,6 +7,7 @@ import type {
   WorkspaceId,
   WorkspaceRegistration,
 } from "../types";
+import { ownedWrite } from "./events";
 import type {
   WorkspaceSave,
   WorkspaceStore,
@@ -231,7 +232,7 @@ function withOwnCopy(
 ): Promise<void> {
   let copy: WorkspaceStoreWrite;
   try {
-    copy = structuredClone(write);
+    copy = ownedWrite(write);
   } catch (error) {
     return Promise.reject(error);
   }
