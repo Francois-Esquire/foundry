@@ -118,12 +118,16 @@ Five buckets, each importing only what sits below it:
   the native driver blocks the thread while it waits for a lock. Nothing
   may open and close the database file or its side files outside SQLite:
   closing any descriptor to it drops this process's locks on it;
-  `migrate.ts` applies the committed migrations in `migrations/` in one
-  write transaction, and refuses an applied history that is not an exact
-  prefix of the shipped one. `schema.ts` composes every table, Marbles'
-  own (`tables.ts`) and each domain package's `@foundry/<pkg>/store/tables`,
-  one `export *` line per package; `bun run db:generate` writes the next
-  migration from it, and a test fails when one is missing. Marbles' own
+  `migrate.ts` applies the migrations in `migrations/` in one write
+  transaction, and refuses an applied history that is not an exact prefix
+  of the shipped one. `migrations/` is generated and not in source:
+  `bun run db:generate` (`drizzle.generate.ts`) writes one migration,
+  `0000_init`, that creates every table, and the build and the test run
+  both call it first. No release has shipped a database, so there is no
+  earlier migration to build on; a database made before a table changed
+  is refused, and is deleted by hand. `schema.ts` composes every table,
+  Marbles' own (`tables.ts`) and each domain package's
+  `@foundry/<pkg>/store/tables`, one `export *` line per package. Marbles' own
   stores sit beside the tables (`workspaces.ts`, the workspace registry,
   which leaves out any workspace whose `<state>/<id>` is a link, for every
   reader alike), and `tasks.ts`, a workspace's tasks: the package's
