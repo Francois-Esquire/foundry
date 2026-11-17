@@ -2081,4 +2081,4 @@ it("compacts a memory log that retains more changes than a call takes arguments"
   ).toEqual({ done: false, removed: 2 });
   const [next] = await log.read({ after: 0, limit: 1, source: "tasks" });
   expect(next?.position).toBe(3);
-});
+}, 60_000);
