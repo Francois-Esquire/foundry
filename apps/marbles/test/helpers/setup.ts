@@ -1,10 +1,12 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { generateMigrations } from "../../drizzle.generate";
 import { configureProviders } from "./providers";
 
 const RUN_PARENT = "/tmp";
 
 export default function setup(): () => void {
+  generateMigrations();
   const root = mkdtempSync(join(RUN_PARENT, "marbles-run-"));
   const home = join(root, "home");
   mkdirSync(home);
