@@ -111,6 +111,17 @@ app-server. The SDK's listing API exposes no child process handle, so
 Foundry cannot record that process for crash recovery or escalate the
 signal if it fails to exit.
 
+`claudeCodeModels({ binPath, env, signal? })` reads `supportedModels()`
+from the Agent SDK's startup handshake without sending a prompt. Supply
+`HOME` or `CLAUDE_CONFIG_DIR` in the provider environment. The loader
+closes the session and warm handle and uses Foundry's recorded CLI
+spawner. It preserves offered aliases and adds each canonical ID the SDK
+reports once. It orders the `default` alias first when present and
+leaves context and price metadata unspecified. The exported
+`CLAUDE_CODE_DEFAULT_MODELS` values and Marbles guest descriptor remain
+for compatibility with explicit callers and fixtures. Live routing
+uses the discovered catalog.
+
 | Subpath | What it holds |
 | --- | --- |
 | `/airplane` | `airplaneMode`: the offline-only policy for one manager |

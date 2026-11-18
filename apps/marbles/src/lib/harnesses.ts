@@ -38,12 +38,17 @@ export const CLI_PROVIDER_FACTS: Readonly<
   Record<
     CliHarness,
     {
+      readonly defaults?: { readonly text: string };
       readonly models: readonly ProviderModelDefinition[];
       readonly turnLimit: TurnLimit;
     }
   >
 > = {
-  "claude-code": { models: CLAUDE_CODE_DEFAULT_MODELS, turnLimit: "native" },
+  "claude-code": {
+    defaults: { text: CLAUDE_CODE.model },
+    models: CLAUDE_CODE_DEFAULT_MODELS,
+    turnLimit: "native",
+  },
   codex: { models: [], turnLimit: "unsupported" },
   pi: { models: PI_DEFAULT_MODELS, turnLimit: "unsupported" },
 };

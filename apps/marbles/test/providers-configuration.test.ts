@@ -1110,7 +1110,11 @@ it("gives the same entry another identity at another scope, and keeps it when on
 
 describe("instance identity", () => {
   const FIRST_PARTY = [
-    registered(claudeCodePlugin),
+    registered({
+      ...claudeCodePlugin,
+      list: () =>
+        Promise.resolve([{ id: "test", kind: "text", modelId: "test" }]),
+    }),
     registered({
       ...codexPlugin,
       list: () =>
@@ -1585,26 +1589,22 @@ describe("an instance that reads the process environment", () => {
   });
 });
 
-describe("first-party CLI plugins with supplied catalogs", () => {
-  it("keep an entry's configured defaults", async () => {
-    for (const each of [claudeCodePlugin, piPlugin]) {
-      const catalog = each.catalog({});
-      const text = catalog.at(-1)?.id as string;
-      const { provider } = each.create({
-        defaults: { text },
-        env: { PATH: "" },
-        id: each.id,
-        models: catalog,
-        scope: "machine",
-        settings: { binPath: "/bin/echo" },
-      });
-      try {
-        expect(provider.defaults).toEqual({ text });
-        const models = new ModelManager({ providers: [provider] });
-        expect(models.resolve("text", { provider: each.id }).model).toBe(text);
-      } finally {
-        await provider.dispose?.();
-      }
-    }
+it("keeps Pi's configured default with a supplied catalog", async () => {
+  const catalog = piPlugin.catalog({});
+  const text = catalog.at(-1)?.id as string;
+  const { provider } = piPlugin.create({
+    defaults: { text },
+    env: { PATH: "" },
+    id: piPlugin.id,
+    models: catalog,
+    scope: "machine",
+    settings: { binPath: "/bin/echo" },
   });
+  try {
+    expect(provider.defaults).toEqual({ text });
+    const models = new ModelManager({ providers: [provider] });
+    expect(models.resolve("text", { provider: piPlugin.id }).model).toBe(text);
+  } finally {
+    await provider.dispose?.();
+  }
 });

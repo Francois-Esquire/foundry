@@ -4,7 +4,7 @@ import type {
   ProviderModelDefinition,
 } from "@foundry/models";
 import {
-  CLAUDE_CODE_DEFAULT_MODELS,
+  claudeCodeModels,
   claudeCodeProvider,
 } from "@foundry/models/claude-code";
 import { codexModels, codexProvider } from "@foundry/models/codex";
@@ -115,18 +115,18 @@ export const claudeCodePlugin: ProviderPlugin<Bin> = {
     "CLOUD_ML_REGION",
     "VERTEX_REGION_*",
   ],
-  catalog: () => CLAUDE_CODE_DEFAULT_MODELS,
+  catalog: () => [],
   create: ({ defaults, env, id, models, settings }) => {
-    const path = cli("claude", settings, env);
+    const path = scopedCli("claude", settings, env);
     return {
       execution: guestOf("claude-code", env, path),
       provider: claudeCodeProvider({
         config: {
-          available: path !== null,
-          ...(settings.binPath
+          available: path !== null && models.length > 0,
+          ...(path
             ? {
                 defaultSettings: {
-                  pathToClaudeCodeExecutable: settings.binPath,
+                  pathToClaudeCodeExecutable: path,
                 },
               }
             : {}),
@@ -138,9 +138,15 @@ export const claudeCodePlugin: ProviderPlugin<Bin> = {
       }),
     };
   },
-  detect: ({ env }) => (which("claude", env.PATH) === null ? null : {}),
+  detect: ({ env }) => (scopedCli("claude", {}, env) === null ? null : {}),
   id: "claude-code",
   label: "Claude Code",
+  list: async ({ env, settings, signal }) => {
+    const binPath = scopedCli("claude", settings, env);
+    return binPath === null
+      ? []
+      : await claudeCodeModels({ binPath, env, signal });
+  },
   settings: BIN,
 };
 
@@ -148,7 +154,7 @@ export const codexPlugin: ProviderPlugin<Bin> = {
   accountEnv: ["HOME", "CODEX_*", "OPENAI_*", "AZURE_*"],
   catalog: () => [],
   create: ({ defaults, env, id, models, settings }) => {
-    const path = codexPath(settings, env);
+    const path = scopedCli("codex", settings, env);
     return {
       execution: guestOf("codex", env, path),
       provider: codexProvider({
@@ -164,23 +170,24 @@ export const codexPlugin: ProviderPlugin<Bin> = {
     };
   },
   detect: ({ env }) => {
-    const path = codexPath({}, env);
+    const path = scopedCli("codex", {}, env);
     return path === null ? null : { binPath: path };
   },
   id: "codex",
   label: "Codex",
   list: async ({ env, settings, signal }) => {
-    const binPath = codexPath(settings, env);
+    const binPath = scopedCli("codex", settings, env);
     return binPath === null ? [] : await codexModels({ binPath, env, signal });
   },
   settings: BIN,
 };
 
-function codexPath(
+function scopedCli(
+  name: "claude" | "codex",
   settings: Bin,
   env: Readonly<Record<string, string>>
 ): string | null {
-  return settings.binPath || which("codex", env.PATH || "");
+  return settings.binPath || which(name, env.PATH || "");
 }
 
 export const piPlugin: ProviderPlugin<Bin> = {

@@ -6,7 +6,7 @@ import type {
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { spawnRecordedCli } from "../claude-code-spawn";
 import { claudeCodeCallCost } from "../cost";
 import { ModelManager } from "../manager";
@@ -15,12 +15,12 @@ const VERSION_DIGIT_PATTERN = /\d/;
 
 const languageModel = vi.fn((modelId: string) => ({ modelId }));
 const createClaudeCode = vi.fn(() => ({ languageModel }));
+const startup = vi.fn();
 
-vi.mock("ai-sdk-provider-claude-code", () => ({ createClaudeCode }));
+vi.mock("ai-sdk-provider-claude-code", () => ({ createClaudeCode, startup }));
 
-const { CLAUDE_CODE_DEFAULT_MODELS, claudeCodeProvider } = await import(
-  "../claude-code"
-);
+const { CLAUDE_CODE_DEFAULT_MODELS, claudeCodeModels, claudeCodeProvider } =
+  await import("../claude-code");
 
 const env = Object.fromEntries(
   Object.entries(process.env).filter(
@@ -28,7 +28,109 @@ const env = Object.fromEntries(
   )
 );
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+  startup.mockReset();
+});
+
+describe("claudeCodeModels", () => {
+  it("asks the scoped CLI for models without yielding a prompt and preserves aliases and canonical IDs", async () => {
+    let promptRead: Promise<IteratorResult<unknown>> | undefined;
+    const closeQuery = vi.fn();
+    const closeWarm = vi.fn();
+    const query = vi.fn((prompt: AsyncIterable<unknown>) => {
+      promptRead = prompt[Symbol.asyncIterator]().next();
+      return {
+        close: closeQuery,
+        supportedModels: () =>
+          Promise.resolve([
+            {
+              displayName: "Sonnet",
+              resolvedModel: "claude-sonnet-5",
+              value: "sonnet",
+            },
+            {
+              displayName: "Default",
+              resolvedModel: "claude-opus-5-5",
+              value: "default",
+            },
+            {
+              displayName: "Opus variant",
+              resolvedModel: "claude-opus-5-5",
+              value: "opus[1m]",
+            },
+            { displayName: "Canonical Sonnet", value: "claude-sonnet-5" },
+          ]),
+      };
+    });
+    startup.mockResolvedValue({ close: closeWarm, query });
+    vi.stubEnv("ANTHROPIC_API_KEY", "ambient-key");
+    const rows = await claudeCodeModels({
+      binPath: "/tools/claude",
+      env: { CLAUDE_CONFIG_DIR: "/account", HOME: "/account-home" },
+    });
+    expect(rows.map(({ id, modelId }) => [id, modelId])).toEqual([
+      ["default", "default"],
+      ["sonnet", "sonnet"],
+      ["opus[1m]", "opus[1m]"],
+      ["claude-sonnet-5", "claude-sonnet-5"],
+      ["claude-opus-5-5", "claude-opus-5-5"],
+    ]);
+    expect(rows.find(({ id }) => id === "claude-sonnet-5")?.label).toBe(
+      "Canonical Sonnet"
+    );
+    expect(rows.every((row) => row.limits === undefined)).toBe(true);
+    expect(startup.mock.calls[0]?.[0]).toMatchObject({
+      initializeTimeoutMs: 4000,
+      options: {
+        allowedTools: [],
+        env: {
+          ANTHROPIC_API_KEY: undefined,
+          CLAUDE_CONFIG_DIR: "/account",
+          HOME: "/account-home",
+        },
+        mcpServers: {},
+        pathToClaudeCodeExecutable: "/tools/claude",
+        permissionMode: "dontAsk",
+        persistSession: false,
+        settingSources: [],
+        settings: { disableAllHooks: true },
+        spawnClaudeCodeProcess: spawnRecordedCli,
+        strictMcpConfig: true,
+        tools: [],
+      },
+    });
+    expect(await promptRead).toEqual({ done: true, value: undefined });
+    expect(closeQuery).toHaveBeenCalledOnce();
+    expect(closeWarm).toHaveBeenCalledOnce();
+  });
+
+  it("closes both handles on discovery failure and keeps SDK diagnostics out of the message", async () => {
+    const closeQuery = vi.fn();
+    const closeWarm = vi.fn();
+    startup.mockResolvedValue({
+      close: closeWarm,
+      query: () => ({
+        close: closeQuery,
+        supportedModels: () =>
+          Promise.reject(new Error("private SDK diagnostic")),
+      }),
+    });
+    await expect(
+      claudeCodeModels({ binPath: "/tools/claude", env })
+    ).rejects.toMatchObject({
+      message: "Claude Code SDK could not list models",
+    });
+    expect(closeQuery).toHaveBeenCalledOnce();
+    expect(closeWarm).toHaveBeenCalledOnce();
+  });
+});
+
 describe("claudeCodeProvider", () => {
+  it("starts with no catalog when none is supplied", () => {
+    expect(claudeCodeProvider({ env }).models).toEqual([]);
+  });
+
   it("is unavailable until the host says otherwise", () => {
     expect(claudeCodeProvider({ env }).available).toBe(false);
   });
@@ -95,7 +197,11 @@ it("refuses native limits for a provider that does not support them", () => {
   const manager = new ModelManager({
     providers: [
       {
-        ...claudeCodeProvider({ config: { available: true }, env }),
+        ...claudeCodeProvider({
+          config: { available: true },
+          env,
+          models: CLAUDE_CODE_DEFAULT_MODELS,
+        }),
         turnLimit: "unsupported",
       },
     ],

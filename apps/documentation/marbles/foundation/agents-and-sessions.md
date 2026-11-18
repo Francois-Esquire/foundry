@@ -88,14 +88,19 @@ Claude Code reads `CLAUDE_CODE_OAUTH_TOKEN` from the instance's environment,
 else the login for its `CLAUDE_CONFIG_DIR` (else `~/.claude`); Pi runs the
 configured `pi auth`.
 
-Marbles loads Codex and Vercel AI Gateway catalogs at engine startup and
-when provider configuration refreshes. Codex lists models using the
-configured CLI and account environment. Vercel uses the configured base
-URL and credential. A configured default must appear in the list.
-Without one, Codex uses its reported default when present. Otherwise
-Marbles uses the first listed model of the requested kind. An empty list
-leaves no routes for that provider. If a refresh fails, Marbles keeps any
-last successful list for the same configuration and environment.
+Marbles loads Claude Code, Codex, and Vercel AI Gateway catalogs at engine
+startup and when provider configuration refreshes. Claude Code and Codex
+list models with the configured CLI and account environment. Vercel uses
+the configured base URL and credential. A configured default must appear
+in the list. Without one, Claude Code uses its offered `default` alias,
+and Codex uses its reported default when present. Otherwise Marbles uses
+the first listed model of the requested kind. An empty list leaves no
+routes for that provider. If a refresh fails, Marbles keeps any last
+successful list for the same configuration and environment.
+
+Claude Code lists models without sending a prompt. Its catalog includes
+offered aliases and the canonical IDs reported by the SDK. The SDK's
+listing leaves context limits and prices unspecified.
 
 ## Choose the route when the step runs
 

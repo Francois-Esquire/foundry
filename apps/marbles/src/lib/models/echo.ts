@@ -102,8 +102,8 @@ function mockProvider(
     .map((model) => ({ id: model, kind: "text" as const, modelId: model }));
   return replying(
     {
+      ...facts,
       models: [...(facts?.models ?? []), ...named],
-      ...(facts ? { turnLimit: facts.turnLimit } : {}),
     },
     executor,
     reply,
