@@ -59,6 +59,28 @@ A prompt asking the agent not to edit is an instruction, not a filesystem
 permission. See [safety and limits](/marbles/reference/safety) for host and
 sandbox authority.
 
+## Write one prompt for several harnesses
+
+Set the agent's `prompt` to a `prompts.portable` template. After resolving the
+session's model and provider, Marbles renders the template for the harness
+that will run it.
+
+```ts
+import { agent, prompts, ref } from "@foundry.sh/marbles";
+
+const reviewer = agent({
+  prompt: prompts.portable`Use ${ref.skill("inspect")} to review ${ref.file("AGENTS.md")}.`,
+});
+
+const claudeReviewer = reviewer.extend({ model: "claude-code/sonnet" });
+const codexReviewer = reviewer.extend({ provider: "codex" });
+```
+
+Claude Code sees `/inspect` and Codex sees `$inspect`. Marbles renders the
+interpolated references and keeps the authored text as written. A provider
+without a prompt dialect receives the names and paths as plain text.
+The same template works as the prompt returned by a deferred agent.
+
 ## Session lifetime and provider
 
 A fresh `agents.session(reviewer)` opens a fresh conversation during normal

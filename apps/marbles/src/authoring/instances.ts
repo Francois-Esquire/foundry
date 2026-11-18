@@ -1,12 +1,13 @@
 import { resolve } from "node:path";
 import type { TurnOptions } from "@foundry/agents/harness";
 import type { SessionInput, SessionStream } from "@foundry/agents/session";
+import { PortablePrompt } from "@foundry/prompts";
 import type { Git } from "@foundry/workspaces/git";
 import type { Output } from "ai";
 
 import type { Bindings, ManagerArgs } from "~/lib/bindings";
 import type { AnyDefinition } from "~/lib/definition";
-import { AGENT_DEFINITION, SANDBOX_HANDLE } from "~/lib/handles";
+import { AGENT_DEFINITION, AGENT_PROMPT, SANDBOX_HANDLE } from "~/lib/handles";
 import { deferredStream } from "~/lib/managers/agent-turns";
 import type { AgentTurns } from "~/lib/managers/agents";
 import { inputSnapshot } from "~/lib/managers/agents";
@@ -177,7 +178,7 @@ export function agentInstance<OUTPUT extends Output.Output>(
 
 interface AgentFields<OUTPUT extends Output.Output> extends AgentRoute {
   readonly mcp?: AgentDefinition<OUTPUT>["mcp"];
-  readonly prompt: string;
+  readonly prompt: string | PortablePrompt;
   readonly settings?: AgentSettings<OUTPUT>;
   readonly skills?: AgentDefinition<OUTPUT>["skills"];
 }
@@ -208,6 +209,17 @@ interface AgentRecipe {
   readonly settings: readonly (AgentSettings<Output.Output> | undefined)[];
 }
 
+export function promptFields(
+  prompt: string | PortablePrompt
+): Pick<AgentDefinition, "prompt" | typeof AGENT_PROMPT> {
+  return typeof prompt === "string"
+    ? { prompt }
+    : {
+        [AGENT_PROMPT]: (harness) => prompt.render(harness).text,
+        prompt: prompt.text,
+      };
+}
+
 function checkedSpec(id: string, value: unknown): AgentSpec<Output.Output> {
   if (!isPlainObject(value)) {
     throw new Error(`agent "${id}": its function must return a definition`);
@@ -217,7 +229,13 @@ function checkedSpec(id: string, value: unknown): AgentSpec<Output.Output> {
       `agent "${id}": its function cannot name it; the id is fixed when agent() is called`
     );
   }
-  if (typeof value.prompt !== "string" || !value.prompt.trim()) {
+  const { prompt } = value;
+  if (
+    !(
+      (typeof prompt === "string" || prompt instanceof PortablePrompt) &&
+      promptFields(prompt).prompt.trim()
+    )
+  ) {
     throw new Error(`agent "${id}": its function returned no prompt`);
   }
   return value as unknown as AgentSpec<Output.Output>;
@@ -245,6 +263,7 @@ async function buildRecipe(
   );
   return {
     ...spec,
+    ...promptFields(spec.prompt),
     ...route,
     id: recipe.id,
     kind: "agent",

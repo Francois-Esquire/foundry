@@ -29,6 +29,24 @@ function thrown(run: () => unknown): unknown {
 }
 
 describe("authoring out of the box", () => {
+  it("renders a portable template for the chosen harness or as plain text", () => {
+    const review = prompts.portable`${ref.skill("inspect")} @literal`;
+
+    expect(review.render("claude-code").text).toBe("/inspect @literal");
+    expect(review.render("codex").text).toBe("$inspect @literal");
+    expect(review.render("pi").text).toBe("/skill:inspect @literal");
+    expect(review.render("direct").text).toBe("inspect @literal");
+  });
+
+  it("keeps a reference's arguments when a portable template renders as plain text", () => {
+    const review = prompts.portable`${ref.skill("inspect", "src/auth")}`;
+
+    expect(review.text).toBe("inspect src/auth");
+    expect(review.render("direct").text).toBe("inspect src/auth");
+    expect(review.render("unknown").text).toBe("inspect src/auth");
+    expect(review.render("codex").text).toBe("$inspect src/auth");
+  });
+
   it("returns a prompt whose text is what the harness receives", () => {
     const target = "src/auth";
     const review = prompts.claude`Review @${target} with /code-review.`;

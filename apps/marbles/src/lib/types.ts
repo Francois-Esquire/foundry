@@ -41,6 +41,7 @@ import type {
   ToolSet,
 } from "ai";
 import type { Exec } from "~/lib/command";
+import type { AGENT_PROMPT } from "~/lib/handles";
 import type { Log } from "~/lib/log";
 
 export interface SkillOp {
@@ -77,6 +78,7 @@ export interface AgentDefinition<OUTPUT extends Output.Output = never>
   readonly prompt: string;
   readonly settings?: AgentSettings<OUTPUT>;
   readonly skills?: SkillSet;
+  readonly [AGENT_PROMPT]?: (harness: string) => string;
 }
 
 export interface WorkspaceDefinition {
