@@ -40,7 +40,7 @@ export interface Snapshot {
   readonly limits: readonly Limit[];
   readonly monthly?: Window;
   readonly name: string;
-  readonly provider: string;
+  readonly provider?: string;
   readonly spendCap?: SpendCap;
   readonly unsupported?: string;
   readonly weekly?: Window;
@@ -69,7 +69,7 @@ const firstOf = <K extends Limit["kind"]>(
   );
 
 export const snapshotOf = (
-  account: { readonly name: string; readonly provider: string },
+  account: { readonly name: string; readonly provider?: string },
   at: Date,
   limits: PromiseSettledResult<Reading>,
   history: PromiseSettledResult<Consumption | undefined>
