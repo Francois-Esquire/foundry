@@ -18,6 +18,8 @@ as Claude Code or Codex)
 One account added to usage, under a name: the provider it belongs to and
 the credential that reaches it, such as a Claude Max login or a ChatGPT Pro
 login. One provider can have several accounts on one machine.
+A company-managed billing account can instead supply the combined spend
+for one allocation shared by several harnesses.
 _Avoid_: user, subscription (that is the plan), login (that is a
 credential), named credential
 
@@ -85,7 +87,8 @@ credits (those reset a window early; they are not capacity for work)
 **Limit**:
 One measure of an account's capacity. Every limit is exactly one of four
 kinds, one per billing model: a window, a spend cap, a balance, or a credit
-balance. A limit is always the provider's, never one Foundry sets.
+balance. Providers report limits for their accounts. For a company-managed
+budget, the account holder supplies the allocation.
 _Avoid_: budget, quota, cap
 
 **Window**:
@@ -105,6 +108,12 @@ _Avoid_: five-hour window, session limit
 A metered limit: the most money an account may be billed in one billing
 period, set by the account holder.
 _Avoid_: budget, spending limit
+
+**Budget**:
+A view of a dollar cap, period-to-date spend, and money left. The provider
+can report the cap, or the account holder can configure an allocation and
+supply spend for the same billing period. A configured allocation is used
+for reporting.
 
 **Balance**:
 A prepaid limit: the money left to draw down.

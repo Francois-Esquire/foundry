@@ -5,6 +5,7 @@ import { usage as shared } from "./usage";
 shared.use(anthropic);
 shared.use(openai);
 
+export type { BillingAccountOptions } from "./billing";
 export type {
   Charge,
   Consumption,
@@ -26,6 +27,7 @@ export type {
 export type { Identity, ProviderDetails, Snapshot } from "./snapshot";
 export type {
   Account,
+  Budget,
   DurationText,
   Provider,
   QueryAllOptions,

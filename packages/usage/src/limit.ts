@@ -36,7 +36,9 @@ export interface Window extends Resolution<Required<Headroom>> {
 export interface SpendCap extends Resolution<Required<Headroom>> {
   readonly cap: Money;
   readonly kind: "spend-cap";
+  readonly reportedThrough?: Date;
   readonly resetsAt?: Date;
+  readonly startsAt?: Date;
   readonly used: Money;
 }
 
@@ -98,15 +100,27 @@ export const window = {
 
 const usd = (amount: number): Money => ({ amount, unit: "usd" });
 
+export const spendHeadroom = (
+  limit: Reported<SpendCap>
+): Required<Headroom> => {
+  const remaining = Math.max(0, limit.cap.amount - limit.used.amount);
+  const share = limit.cap.amount > 0 ? remaining / limit.cap.amount : 0;
+  return { remaining, share, unit: "usd" };
+};
+
 export const spendCap = (fields: {
   readonly cap: number;
+  readonly reportedThrough?: Date;
   readonly resetsAt?: Date;
+  readonly startsAt?: Date;
   readonly used: number;
 }): Reported<SpendCap> =>
   compact({
     cap: usd(fields.cap),
     kind: "spend-cap",
+    reportedThrough: fields.reportedThrough,
     resetsAt: fields.resetsAt,
+    startsAt: fields.startsAt,
     used: usd(fields.used),
   });
 
@@ -133,11 +147,8 @@ const headroomOf = (limit: ReportedLimit): Headroom => {
       const remaining = Math.max(0, WHOLE - limit.usedPercent);
       return { remaining, share: remaining / WHOLE, unit: "percent" };
     }
-    case "spend-cap": {
-      const remaining = Math.max(0, limit.cap.amount - limit.used.amount);
-      const share = limit.cap.amount > 0 ? remaining / limit.cap.amount : 0;
-      return { remaining, share, unit: "usd" };
-    }
+    case "spend-cap":
+      return spendHeadroom(limit);
     case "balance":
       return { remaining: Math.max(0, limit.remaining.amount), unit: "usd" };
     case "credit-balance":
