@@ -45,7 +45,7 @@ import {
 import { createExtensions, mergeExtensions } from "./extensions";
 import type { JsonValue } from "./json-value";
 import { jsonValuesEqual } from "./json-value";
-import { rowToRecoverable } from "./metadata-codec";
+import { cancelledWorkflowMetadata, rowToRecoverable } from "./metadata-codec";
 import { defineOwnEntry } from "./own-entry";
 import { runEvents, withEvents } from "./run-events";
 import type {
@@ -880,7 +880,7 @@ export class ExecutionCoordinator implements OrchestratorStore {
         cancelSuspensionRecord(record, settledAt)
       );
       const nextRun = normalizeRunRecord(
-        applyRunPatch(run, { ...runPatch, status: "cancelled" })
+        applyCancellation(run, runPatch, settledAt)
       );
       if (suspensions.length > 0 || !asStored(storedRun, nextRun)) {
         await store.commit(
@@ -1300,6 +1300,32 @@ function applyRunPatch(existing: RunRecord, patch: UpdateRunInput): RunRecord {
       : {
           extensions: mergeExtensions(existing.extensions, patch.extensions),
         }),
+  };
+}
+
+function applyCancellation(
+  existing: RunRecord,
+  patch: Omit<UpdateRunInput, "status">,
+  settledAt: number
+): RunRecord {
+  const run = applyRunPatch(existing, { ...patch, status: "cancelled" });
+  const alreadyCancelled = existing.status === "cancelled";
+  const cancelledAt = alreadyCancelled
+    ? existing.timestamps.failedAt
+    : settledAt;
+  if (cancelledAt === null) {
+    return run;
+  }
+  return {
+    ...run,
+    metadata: cancelledWorkflowMetadata(
+      run.metadata,
+      cancelledAt,
+      alreadyCancelled && patch.metadata !== undefined
+        ? existing.metadata
+        : undefined
+    ),
+    timestamps: { ...run.timestamps, failedAt: cancelledAt },
   };
 }
 

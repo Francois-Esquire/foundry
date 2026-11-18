@@ -1,6 +1,7 @@
 import type { ChannelEvent } from "./channels";
 import type { RecoverableRun } from "./execution-commands";
 import { resolveInput } from "./helpers";
+import { isPlainRecord } from "./json-value";
 import { defineOwnEntry } from "./own-entry";
 import type { PersistedMetadata, RunRecord } from "./schema";
 import { PersistedMetadataSchema } from "./schema";
@@ -100,6 +101,59 @@ export function stepsFromMetadata(
   metadata: PersistedMetadata | null
 ): Record<string, StepSnapshot> | null {
   return metadata?.workflow?.steps ?? null;
+}
+
+export function cancelledWorkflowMetadata(
+  metadata: Record<string, unknown>,
+  cancelledAt: number,
+  settledMetadata?: Record<string, unknown>
+): Record<string, unknown> {
+  const { workflow } = metadata;
+  if (!isPlainRecord(workflow)) {
+    return metadata;
+  }
+  const completedAt = new Date(cancelledAt).toISOString();
+  const steps = isPlainRecord(workflow.steps) ? { ...workflow.steps } : {};
+  for (const [key, step] of Object.entries(steps)) {
+    if (
+      !isPlainRecord(step) ||
+      (step.status !== "running" &&
+        step.status !== "suspended" &&
+        step.status !== "paused")
+    ) {
+      continue;
+    }
+    const startedAt =
+      typeof step.startedAt === "string"
+        ? Date.parse(step.startedAt)
+        : Number.NaN;
+    defineOwnEntry(steps, key, {
+      ...step,
+      completedAt,
+      ...(Number.isFinite(startedAt)
+        ? { durationMs: Math.max(0, cancelledAt - startedAt) }
+        : {}),
+      status: "aborted",
+    });
+  }
+  const settledWorkflow = settledMetadata?.workflow;
+  const settledSteps = isPlainRecord(settledWorkflow) && settledWorkflow.steps;
+  for (const [key, step] of Object.entries(
+    isPlainRecord(settledSteps) ? settledSteps : {}
+  )) {
+    if (isPlainRecord(step) && step.status === "aborted") {
+      defineOwnEntry(steps, key, step);
+    }
+  }
+  return {
+    ...metadata,
+    workflow: {
+      ...workflow,
+      completedAt,
+      status: "cancelled",
+      ...(Object.keys(steps).length === 0 ? {} : { steps }),
+    },
+  };
 }
 
 export function streamFromMetadata(

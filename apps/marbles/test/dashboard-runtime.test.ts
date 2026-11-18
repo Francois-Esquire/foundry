@@ -8,8 +8,10 @@ import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import type { Engine } from "~/lib/engine";
 import type * as Harnesses from "~/lib/harnesses";
+import { runSteps } from "~/lib/run-trace";
 import { tick } from "~/lib/schedule";
 import { dashboardSnapshot } from "~/workspace/snapshot";
+import { startEngine } from "./helpers/engine";
 
 vi.mock("~/lib/harnesses", async (importOriginal) => ({
   ...(await importOriginal<typeof Harnesses>()),
@@ -184,6 +186,48 @@ it("shows a running step and cancels it on shutdown without starting queued work
       (await engine.runs()).every((run) => run.status === "cancelled")
     ).toBe(true);
     await expect(engine.run("wait", {})).rejects.toThrow("engine is stopping");
+  } finally {
+    await engine.dispose();
+  }
+});
+
+it("shows a parked step as cancelled and keeps its completed prerequisite", async () => {
+  const prepare = step("prepare").do(() => "draft");
+  const askForReview = step("ask-review")
+    .input(z.object({ draft: z.string() }))
+    .do(({ ask, input }) => ask.question({ title: `Keep ${input.draft}?` }));
+  workflow("review").do(() => askForReview({ draft: prepare({}) }));
+
+  const engine = await startEngine({ askable: true });
+  try {
+    const run = await engine.launch("review", {});
+    const result = run.result.catch((error: unknown) => error);
+    await vi.waitFor(async () => {
+      expect((await engine.runs())[0]?.status).toBe("suspended");
+    });
+
+    await engine.cancel(run.id);
+    expect(await result).toBeInstanceOf(Error);
+    const records = await engine.runs();
+    const [record] = records;
+    if (!record) {
+      throw new Error("Expected a cancelled run");
+    }
+    const steps = [
+      {
+        children: [{ name: "draft", status: "complete" }],
+        name: "review",
+        status: "cancelled",
+      },
+    ];
+    expect(runSteps(record)).toMatchObject(steps);
+    const snapshot = dashboardSnapshot(records, await view(engine));
+    expect(snapshot.runs[0]).toMatchObject({
+      id: run.id,
+      status: "cancelled",
+      steps,
+      timing: { endedAt: expect.any(Number), startedAt: expect.any(Number) },
+    });
   } finally {
     await engine.dispose();
   }
