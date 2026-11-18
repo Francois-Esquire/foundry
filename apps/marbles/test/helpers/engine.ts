@@ -4,7 +4,7 @@ import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { ArtifactManager } from "@foundry/artifacts";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
@@ -58,7 +58,7 @@ export function testInstances(
             allowedMountRoots: [root],
             instanceLabel: "marbles-test",
             runtime: createFakeContainerRuntime() as never,
-            store: createMemoryContainerStore(),
+            store: new MemoryContainerStore(),
           })
         )),
     git: gitOptions,

@@ -51,36 +51,100 @@ const CANNOT_STORE = "The SQLite container store cannot store";
 
 type StoredRow = typeof sandboxContainers.$inferInsert;
 
-export function createSqliteContainerStore(
-  options: SqliteContainerStoreOptions
-): ContainerStore {
-  const { scope } = options;
-  if (scope.length === 0 || !storableText(scope) || scope.includes(UNIT)) {
-    throw new RangeError(
-      "scope must be a nonempty string with no U+0000, no U+001F and no lone surrogate"
-    );
-  }
-  return storeOver(options);
-}
+export class SqliteContainerStore implements ContainerStore {
+  readonly #database: ContainerDatabase;
+  readonly #inScope: SQL;
+  readonly #location: string | undefined;
+  readonly #onCommit: SqliteContainerStoreOptions["onCommit"];
+  readonly #scope: string;
+  readonly #turns = new Turns(REENTRY);
+  #known: string | undefined;
 
-function storeOver(
-  options: SqliteContainerStoreOptions,
-  fixedIdentity?: string
-): ContainerStore {
-  const { database, location, onCommit, scope } = options;
-  const turns = new Turns(REENTRY);
-  const inScope = eq(sandboxContainers.scope, scope);
-  const identityRow = and(
-    eq(sandboxContainers.scope, identityScope(scope)),
-    eq(sandboxContainers.id, IDENTITY_ID)
-  );
-  let known = fixedIdentity;
-
-  const identityOf = async (): Promise<string> => {
-    if (known !== undefined) {
-      return known;
+  constructor(options: SqliteContainerStoreOptions) {
+    const { scope } = options;
+    if (scope.length === 0 || !storableText(scope) || scope.includes(UNIT)) {
+      throw new RangeError(
+        "scope must be a nonempty string with no U+0000, no U+001F and no lone surrogate"
+      );
     }
-    await database
+    this.#database = options.database;
+    this.#location = options.location;
+    this.#onCommit = options.onCommit;
+    this.#scope = scope;
+    this.#inScope = eq(sandboxContainers.scope, scope);
+  }
+
+  commit(write: ContainerStoreWrite): Promise<void> {
+    let owned: ContainerStoreWrite;
+    try {
+      owned = ownedWrite(write);
+    } catch (error: unknown) {
+      return Promise.reject(error);
+    }
+    return this.#turns.run(() => {
+      const field = unstorableField(owned);
+      if (field !== undefined) {
+        return Promise.reject(new RangeError(`${CANNOT_STORE} ${field}`));
+      }
+      const deletes = (owned.deleteContainers ?? []).filter(storableText);
+      const puts = owned.putContainers ?? [];
+      return this.#database.transaction(async (transaction) => {
+        await this.#remove(transaction, deletes);
+        await this.#put(transaction, puts);
+        await this.#onCommit?.(transaction, owned);
+      });
+    });
+  }
+
+  get(id: string): Promise<ContainerRow | undefined> {
+    return this.#turns.run(async () => {
+      if (!storableText(id)) {
+        return;
+      }
+      const [row] = await this.#database
+        .select(rowColumns)
+        .from(sandboxContainers)
+        .where(and(this.#inScope, eq(sandboxContainers.id, id)));
+      return row === undefined ? undefined : containerRow(row);
+    });
+  }
+
+  identity(): Promise<string> {
+    return this.#turns.run(() => this.#identity());
+  }
+
+  list(): Promise<readonly ContainerRow[]> {
+    return this.#turns.run(async () => {
+      const rows = await this.#database
+        .select(rowColumns)
+        .from(sandboxContainers)
+        .where(this.#inScope)
+        .orderBy(sandboxContainers.position);
+      return Object.freeze(rows.map(containerRow));
+    });
+  }
+
+  transaction<T>(work: (view: ContainerStore) => Promise<T>): Promise<T> {
+    return this.#turns.run(async () => {
+      const identity = await this.#identity();
+      return await this.#database.transaction((transaction) => {
+        const view = new SqliteContainerStore({
+          database: transaction,
+          scope: this.#scope,
+          ...(this.#onCommit === undefined ? {} : { onCommit: this.#onCommit }),
+        });
+        view.#known = identity;
+        return work(view);
+      });
+    });
+  }
+
+  async #identity(): Promise<string> {
+    if (this.#known !== undefined) {
+      return this.#known;
+    }
+    const scope = identityScope(this.#scope);
+    await this.#database
       .insert(sandboxContainers)
       .values({
         createdAt: 0,
@@ -88,35 +152,40 @@ function storeOver(
         id: IDENTITY_ID,
         nativeId: globalThis.crypto.randomUUID(),
         position: 0,
-        scope: identityScope(scope),
+        scope,
         spec: "{}",
         status: "stopped",
         updatedAt: 0,
       })
       .onConflictDoNothing();
-    const [row] = await database
+    const [row] = await this.#database
       .select({ nativeId: sandboxContainers.nativeId })
       .from(sandboxContainers)
-      .where(identityRow);
+      .where(
+        and(
+          eq(sandboxContainers.scope, scope),
+          eq(sandboxContainers.id, IDENTITY_ID)
+        )
+      );
     if (typeof row?.nativeId !== "string" || row.nativeId === "") {
       throw new Error("the container store's identity could not be read");
     }
-    known =
-      location === undefined
+    this.#known =
+      this.#location === undefined
         ? row.nativeId
-        : await digest(`${row.nativeId}\u0000${location}`);
-    return known;
-  };
+        : await digest(`${row.nativeId}\u0000${this.#location}`);
+    return this.#known;
+  }
 
-  const put = async (
+  async #put(
     transaction: ContainerTransaction,
     rows: readonly ContainerRow[]
-  ): Promise<void> => {
+  ): Promise<void> {
     const columns = Object.keys(getTableColumns(sandboxContainers)).length;
     const [last] = await transaction
       .select({ position: max(sandboxContainers.position) })
       .from(sandboxContainers)
-      .where(inScope);
+      .where(this.#inScope);
     const first = (last?.position ?? 0) + 1;
     const stored = rows.map(
       (row, index): StoredRow => ({
@@ -124,7 +193,7 @@ function storeOver(
         holder: row.holder ?? null,
         nativeId: row.nativeId ?? null,
         position: first + index,
-        scope,
+        scope: this.#scope,
       })
     );
     await inOrder(batches(stored, MAX_PARAMETERS / columns), (batch) =>
@@ -136,83 +205,18 @@ function storeOver(
           target: [sandboxContainers.scope, sandboxContainers.id],
         })
     );
-  };
+  }
 
-  const remove = async (
+  async #remove(
     transaction: ContainerTransaction,
     ids: readonly string[]
-  ): Promise<void> => {
+  ): Promise<void> {
     await inOrder(batches(ids, MAX_PARAMETERS - 1), (batch) =>
       transaction
         .delete(sandboxContainers)
-        .where(and(inScope, inArray(sandboxContainers.id, batch)))
+        .where(and(this.#inScope, inArray(sandboxContainers.id, batch)))
     );
-  };
-
-  return {
-    commit: (write) => {
-      let owned: ContainerStoreWrite;
-      try {
-        owned = ownedWrite(write);
-      } catch (error: unknown) {
-        return Promise.reject(error);
-      }
-      return turns.run(() => {
-        const field = unstorableField(owned);
-        if (field !== undefined) {
-          return Promise.reject(new RangeError(`${CANNOT_STORE} ${field}`));
-        }
-        const deletes = (owned.deleteContainers ?? []).filter(storableText);
-        const puts = owned.putContainers ?? [];
-        return database.transaction(async (transaction) => {
-          await remove(transaction, deletes);
-          await put(transaction, puts);
-          await onCommit?.(transaction, owned);
-        });
-      });
-    },
-
-    get: (id) =>
-      turns.run(async () => {
-        if (!storableText(id)) {
-          return;
-        }
-        const [row] = await database
-          .select(rowColumns)
-          .from(sandboxContainers)
-          .where(and(inScope, eq(sandboxContainers.id, id)));
-        return row === undefined ? undefined : containerRow(row);
-      }),
-
-    identity: () => turns.run(identityOf),
-
-    list: () =>
-      turns.run(async () => {
-        const rows = await database
-          .select(rowColumns)
-          .from(sandboxContainers)
-          .where(inScope)
-          .orderBy(sandboxContainers.position);
-        return Object.freeze(rows.map(containerRow));
-      }),
-
-    transaction: (work) =>
-      turns.run(async () => {
-        const identity = await identityOf();
-        return await database.transaction((transaction) =>
-          work(
-            storeOver(
-              {
-                database: transaction,
-                scope,
-                ...(onCommit === undefined ? {} : { onCommit }),
-              },
-              identity
-            )
-          )
-        );
-      }),
-  };
+  }
 }
 
 async function digest(text: string): Promise<string> {

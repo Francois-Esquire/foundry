@@ -12,7 +12,7 @@ import { ModelManager } from "@foundry/models";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import type { ContainerStore } from "@foundry/sandbox/store";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
@@ -393,7 +393,7 @@ function containersFor(
       instanceLabel: `marbles-${workspaceId}`,
       report: (line) => print(`[sandbox] ${line}`),
       runtime: await runtime(),
-      store: store ?? createMemoryContainerStore(),
+      store: store ?? new MemoryContainerStore(),
     });
   };
 }

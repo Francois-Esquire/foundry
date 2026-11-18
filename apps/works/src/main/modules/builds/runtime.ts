@@ -4,7 +4,7 @@ import {
   type Container,
   createContainers,
 } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import type { SandboxProcessesFacet } from "@foundry/sandbox/types";
 import type { BuildRuntime } from "./controller";
 import { auditBuildWorkspace } from "./workspace";
@@ -36,7 +36,7 @@ export async function createBuildRuntime(
         .digest("hex")
         .slice(0, 16),
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     }),
     runtime
   );

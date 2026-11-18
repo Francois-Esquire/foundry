@@ -244,7 +244,7 @@ built from another copy of the same class is a different type. Besides
 | `models` | `ModelManager`, `claudeCodeProvider`, `codexProvider`, `piProvider` | [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md) |
 | `sessions` | `InMemorySessionStore` | [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md); the published `Engine` given `state` keeps them in the [Marbles database](/marbles/reference/state#sessions). |
 | `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` | [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) |
-| `containers` | `createContainers`, `createMemoryContainerStore` | [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) |
+| `containers` | `createContainers`, `MemoryContainerStore` | [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) |
 | `artifacts` | `ArtifactManager`, `InMemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` | [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) |
 | `runs`, `executionStore`, `triggers`, `automationStore`, `usageStore` | `MemoryRunStore`, `MemoryExecutionStore`, `MemoryTriggerStore`, `MemoryAutomationStore`, `MemoryUsageStore` | Marbles' own stores; the published `Engine` keeps them in the Marbles database when `state` is set. |
 

@@ -51,13 +51,13 @@ package depending on the SDK.
 ```typescript
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createVirtualSystem } from "@foundry/sandbox/virtual/system";
 
 const containers = createContainers({
   instanceLabel: "example",
   runtime: createMicrosandboxRuntime(),
-  store: createMemoryContainerStore(),
+  store: new MemoryContainerStore(),
 });
 const c = await containers.start({
   format: "foundry.sandbox.container/1",
@@ -170,8 +170,8 @@ clone refuses, such as one holding a function, rejects and writes nothing.
 | Path                             | Holds                                                              |
 | -------------------------------- | ------------------------------------------------------------------ |
 | `@foundry/sandbox/store`         | `ContainerStore`, `ContainerStoreWrite`, and the row types.        |
-| `@foundry/sandbox/store/memory`  | `createMemoryContainerStore`, the default `createContainers` uses. |
-| `@foundry/sandbox/store/sqlite`  | `createSqliteContainerStore`, over a host's Drizzle database.      |
+| `@foundry/sandbox/store/memory`  | `MemoryContainerStore`, the default `createContainers` uses.       |
+| `@foundry/sandbox/store/sqlite`  | `SqliteContainerStore`, over a host's Drizzle database.            |
 | `@foundry/sandbox/store/tables`  | The Drizzle table it uses: `sandbox_containers`.                   |
 | `@foundry/sandbox/testing/store` | `describeContainerStore`, the suite every store passes.            |
 
@@ -230,7 +230,7 @@ waits for it, and a call to the store from inside its own transaction's work
 `ReentrantCallError` that says to use the view, instead of waiting on itself
 forever. The registry calls only the view inside a transaction.
 
-`createSqliteContainerStore` takes the host's database and never opens one.
+`SqliteContainerStore` takes the host's database and never opens one.
 The host composes the table from `./store/tables` into its own schema and
 owns the migrations; `drizzle-orm` is an optional peer dependency, needed
 only on the two SQLite paths. Every row carries a `scope`, an opaque
@@ -241,9 +241,9 @@ lists rows by it.
 
 ```ts
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
+import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 
-const store = createSqliteContainerStore({
+const store = new SqliteContainerStore({
   database, // a drizzle-orm/libsql database, or a transaction on one
   scope: workspaceId,
   // Optional: runs in the commit's transaction, after the store's statements.

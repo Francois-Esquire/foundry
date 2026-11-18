@@ -8,7 +8,7 @@ import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { catalog } from "~/authoring/catalog";
@@ -125,7 +125,7 @@ describe("the managers on the engine", () => {
           return { exitCode: 0, stderr: "", stdout: "ok" };
         },
       }),
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     engine = testEngine({ containers, root });
 

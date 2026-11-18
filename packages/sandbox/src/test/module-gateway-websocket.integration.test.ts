@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import { createContainers } from "../container/containers";
 import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
-import { createMemoryContainerStore } from "../store/memory";
+import { MemoryContainerStore } from "../store/memory";
 import { MODULE_GATEWAY_SERVER } from "./helpers/module-gateway-server";
 
 const APPLICATION_CLOSE_TIMEOUT_MS = 1000;
@@ -73,7 +73,7 @@ async function startVm(bunVersion: string): Promise<Endpoint> {
   const containers = createContainers({
     instanceLabel: `gateway-comparison-${crypto.randomUUID()}`,
     runtime,
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
   });
   try {
     const container = await containers.start({

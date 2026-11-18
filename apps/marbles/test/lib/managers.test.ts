@@ -7,7 +7,7 @@ import type { ArtifactId, ContentId } from "@foundry/artifacts";
 import { ArtifactManager } from "@foundry/artifacts";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
@@ -579,7 +579,7 @@ describe("sandboxes", () => {
       allowedMountRoots: allowedMountRoots([root]),
       instanceLabel: "test",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const manager = new SandboxesManager({
       containers: () => Promise.resolve(containers),
@@ -618,7 +618,7 @@ describe("sandboxes", () => {
       allowedMountRoots: allowedMountRoots([root, worktreeHome]),
       instanceLabel: "test",
       runtime: createFakeContainerRuntime(),
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const manager = new SandboxesManager({
       containers: () => Promise.resolve(containers),
@@ -649,7 +649,7 @@ describe("sandboxes", () => {
       allowedMountRoots: [],
       instanceLabel: "test",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const owned = await containers.start({
       format: "foundry.sandbox.container/1",
@@ -694,7 +694,7 @@ describe("sandboxes", () => {
       allowedMountRoots: allowedMountRoots([root]),
       instanceLabel: "test",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const a = args(root);
     const sandboxes = new SandboxesManager({

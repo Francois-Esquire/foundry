@@ -16,7 +16,7 @@ import {
 import { createModuleSystem } from "@foundry/modules/platform/system";
 import { ModuleRegistry } from "@foundry/modules/registry";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { moduleDirectory } from "../local-library";
 import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
 import { WORKS_MODULE_SETTINGS, worksModuleLaunch } from "./launch";
@@ -44,7 +44,7 @@ export async function createModuleRuntime(
     instanceLabel: createHash("sha256").update(root).digest("hex").slice(0, 16),
     mountTargetRoot: "/foundry",
     runtime,
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
   });
   const dataDirectories = new Map<InstallationId, InstallationId>();
   const running = new Map<string, Promise<void>>();

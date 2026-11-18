@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { afterEach, expect, it } from "vitest";
 import { DatabaseRecoveryLog, readLastRecovery } from "~/database/recoveries";
@@ -175,7 +175,7 @@ it("names, in its report, the VMs its sweep passed over as not provably this eng
   const other = createContainers({
     instanceLabel: "marbles-ws",
     runtime,
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
   });
   const held = await other.start(SPEC);
   const { report } = await recovery(ours(), []).recover(RUNS);
@@ -307,7 +307,7 @@ it("keeps the names of passed-over VMs in the report as the database keeps it an
   const other = createContainers({
     instanceLabel: "marbles-ws",
     runtime,
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
   });
   const held = await other.start(SPEC);
   const machine = machines.at(-1);

@@ -8,7 +8,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -243,7 +243,7 @@ describe("a workspace, a sandbox, or an artifact", () => {
           return { exitCode: 0, stderr: "", stdout: "ok" };
         },
       }) as never,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const engine = testEngine({
       containers: () => Promise.resolve(containers),
