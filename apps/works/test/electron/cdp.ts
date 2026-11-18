@@ -2,12 +2,6 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-/**
- * A small DevTools protocol client for driving the real app: one page, the
- * frames it attaches (a Module app's iframe may run out of process), and
- * script evaluation in either.
- */
-
 interface Message {
   error?: { message: string };
   id?: number;
@@ -22,16 +16,11 @@ interface FrameTree {
   frame: { id: string; url: string };
 }
 
-/** Where to evaluate: the page by default, a frame's context, or an attached session. */
 export interface EvaluationTarget {
   readonly contextId?: number;
   readonly sessionId?: string;
 }
 
-/**
- * The port Chromium chose for `--remote-debugging-port=0`, read from the
- * `DevToolsActivePort` file it writes into the user data directory.
- */
 async function activePort(userData: string): Promise<number> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const text = await readFile(
@@ -85,7 +74,6 @@ function moduleAppFrame(tree: FrameTree): string | null {
   return null;
 }
 
-/** Retries `check` until it returns something truthy. */
 export async function until(
   check: () => Promise<unknown>,
   what: string,
@@ -101,15 +89,12 @@ export async function until(
   throw new Error(`Timed out waiting for ${what}`);
 }
 
-/** Connects to the app launched with `--user-data-dir=userData --remote-debugging-port=0`. */
 export async function connectDevTools(userData: string) {
   const socket = new WebSocket(await pageSocket(await activePort(userData)));
   await new Promise((resolve) => socket.addEventListener("open", resolve));
   let requests = 0;
   const answers = new Map<number, (message: Message) => void>();
-  /** Out-of-process frames attached as sessions, with their URLs. */
   const frameSessions = new Map<string, string>();
-  /** Each in-page frame's default execution context, by frame id. */
   const frameContexts = new Map<number, string>();
 
   function send(
@@ -152,7 +137,6 @@ export async function connectDevTools(userData: string) {
       frameSessions.delete(params.sessionId as string);
       return;
     }
-    // Contexts of in-page frames; attached sessions are asked directly.
     if (message.sessionId) {
       return;
     }
@@ -204,9 +188,7 @@ export async function connectDevTools(userData: string) {
     return (result.result as { value?: unknown } | undefined)?.value;
   }
 
-  /** Evaluate in the Module app's frame, wherever Chromium put it. */
   async function inApp(expression: string): Promise<unknown> {
-    // An out-of-process frame attaches before it navigates: ask where it is.
     for (const sessionId of frameSessions.keys()) {
       const href = await evaluate("location.href", { sessionId }).catch(
         () => ""
@@ -236,10 +218,8 @@ export async function connectDevTools(userData: string) {
   return {
     close: () => socket.close(),
     evaluate,
-    /** What frames are known, for a failure report. */
     frames: () => [...frameSessions.values(), ...frameContexts.values()],
     inApp,
-    /** Retries `expression` in the page until it is truthy. */
     inPage: (expression: string, what: string, attempts?: number) =>
       until(() => evaluate(expression), what, attempts),
     send,

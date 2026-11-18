@@ -1,6 +1,5 @@
 const EVENT_PREFIX = /^data: /;
 
-/** Each server-sent event of one streamed response, parsed as JSON. */
 export async function* serverSentEvents<T>(
   response: Response
 ): AsyncGenerator<T> {

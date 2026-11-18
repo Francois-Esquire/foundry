@@ -15,12 +15,6 @@ import {
 import { editorState } from "./editor-state";
 import { serverSentEvents } from "./events";
 
-/**
- * The Documents Module's View. It knows only the binding in its URL; its
- * Program relays each request to Works, which checks it against this app's
- * runtime and Grants.
- */
-
 interface Bound {
   readonly binding: string;
   readonly contentId: string;
@@ -66,7 +60,6 @@ async function call<T>(alias: string, input: unknown): Promise<T> {
   return answer.output;
 }
 
-/** The whole entry, chunk by chunk; starts over if it changes mid-read. */
 async function readAll(): Promise<{ digest: string; text: string }> {
   for (;;) {
     const parts: Uint8Array[] = [];
@@ -146,7 +139,6 @@ async function reload(base: SavedBase): Promise<void> {
   render("Updated from a newer save");
 }
 
-/** Apply one watch event; false once the file is gone. */
 async function apply(event: WatchEvent): Promise<boolean> {
   if (!draft) {
     return false;
@@ -165,7 +157,6 @@ async function apply(event: WatchEvent): Promise<boolean> {
   return true;
 }
 
-/** Follows the bound entry; reconnects with what it last saw. */
 async function watch(after: SavedBase): Promise<void> {
   let last = after;
   for (;;) {
@@ -272,7 +263,6 @@ element("new").addEventListener("click", () => {
     render(`Could not create: ${error.message}`)
   );
 });
-// Closing with unsaved edits asks first.
 window.addEventListener("beforeunload", (event) => {
   if (draft && dirty(draft)) {
     event.preventDefault();

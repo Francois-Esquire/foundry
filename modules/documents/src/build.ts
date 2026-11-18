@@ -9,11 +9,6 @@ import { MODULE_SDK_EMITTED } from "@foundry/modules/sdk/emitted";
 import { build } from "bun";
 import { DOCUMENTS_MODULE_ID, DOCUMENTS_PACKAGE_PATH } from ".";
 
-/**
- * Builds Documents into a Module package: the Program and View bundled
- * with Bun, the emitted Module SDK beside them, and the Manifest, as one
- * frozen release Works imports through its package path.
- */
 const root = new URL("../", import.meta.url);
 
 async function bundle(entry: string, target: "browser" | "bun") {

@@ -24,7 +24,6 @@ function connection(data: unknown): data is Connection {
   );
 }
 
-/** The host owns navigation. Only its private, current port receives draft state. */
 export function editorState(
   binding: () => string | null,
   dirty: () => boolean

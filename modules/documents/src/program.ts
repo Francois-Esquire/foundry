@@ -1,16 +1,5 @@
-/**
- * The Documents Module's Program. Works connects to it over the Module
- * Gateway; its own Views reach it only through the routes Works' proxy
- * allows: `POST /_module/artifacts` for binding, read, save, create and the
- * scoped file list, `GET /_module/artifacts/watch` for an entry's changes,
- * `POST /_module/execution` to start and cancel host workflows, and
- * `GET /_module/execution/watch` to follow one. The Views hold nothing but
- * ids; every request is checked by the host.
- */
-
 import { file, serve, type WebSocketHandler } from "bun";
 
-/** The parts of the Module SDK (`outputs/sdk.js`) this Program uses. */
 interface GatewayClient {
   call(alias: string, input: unknown): Promise<unknown>;
   observe(
@@ -21,11 +10,9 @@ interface GatewayClient {
 }
 interface ProgramGateway {
   readonly client: GatewayClient | undefined;
-  /** Bun `websocket` handlers for the host's Gateway socket. */
   readonly websocket: WebSocketHandler<undefined>;
 }
 
-/** The requests a View may relay per route; each is an alias the Manifest selects. */
 const ARTIFACT_REQUESTS = new Set([
   "binding",
   "read",
@@ -54,7 +41,6 @@ function failureCode(error: unknown): string {
     : "provider-failure";
 }
 
-/** One Gateway call; the answer is always 200 so the proxy passes it on. */
 async function relay(
   request: Request,
   relayed: ReadonlySet<string>
@@ -80,7 +66,6 @@ async function relay(
   }
 }
 
-/** An entry's watch: the bound one, or an Artifact in the approved scope. */
 function watchEntry(request: Request): Response {
   const params = new URL(request.url).searchParams;
   const contentId = params.get("contentId");
@@ -92,7 +77,6 @@ function watchEntry(request: Request): Response {
   });
 }
 
-/** One Gateway stream as server-sent events, one event per update. */
 function observe(request: Request, alias: string, input: unknown): Response {
   const { client } = gateway;
   if (!client) {
@@ -123,7 +107,6 @@ function observe(request: Request, alias: string, input: unknown): Response {
               encoder.encode(`data: ${JSON.stringify(next.value)}\n\n`)
             );
           } catch {
-            // Denied, revoked or disconnected: the View reconnects.
             stream.close();
           }
         },

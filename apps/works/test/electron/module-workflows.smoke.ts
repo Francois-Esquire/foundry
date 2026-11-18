@@ -13,20 +13,11 @@ import { smokeWorks } from "../helpers/smoke-works";
 
 registerModuleScheme();
 
-/** Built by `bun run build` in modules/documents. */
 const FIXTURE_PACKAGE = path.resolve(
   "../../modules/documents/dist/documents.module.json"
 );
 const TICKER = "works.examples.ticker@1";
 
-/**
- * The core fixture's Workflows View, under Microsandbox, starts, follows and
- * cancels the host-registered ticker workflow and lists Markdown files in its
- * approved scope, all through its Program and the Gateway, in Works as main
- * composes it. Revoking Grants with the Access service (what the Catalog
- * Access panel calls) cancels the running workflow, refuses new starts, and
- * ends the broader file scope.
- */
 async function smoke(userData: string) {
   const works = await smokeWorks(userData);
   const { access, sessions } = works.rpc;
@@ -91,7 +82,6 @@ async function smoke(userData: string) {
       30_000
     );
 
-    // The approved scope lists the Markdown file.
     await click("list");
     await waitFor(
       async () => (await data("files")) === "1",
@@ -100,7 +90,6 @@ async function smoke(userData: string) {
     );
     results.push("list: the approved scope lists 1 Markdown file");
 
-    // Start, follow to the end.
     await ticker(3, 50);
     await waitFor(
       async () => (await data("status")) === "complete",
@@ -116,7 +105,6 @@ async function smoke(userData: string) {
       "start + watch: ticker ran to complete (3 ticks) on the Module's workflows queue"
     );
 
-    // Start, then cancel from the View.
     await ticker(50, 500);
     await waitFor(
       async () =>
@@ -134,7 +122,6 @@ async function smoke(userData: string) {
     assert.equal(execution.runs.get(cancelled ?? "")?.status, "cancelled");
     results.push("cancel: the View cancelled its run through the engine");
 
-    // Revoking the start Grant cancels a running workflow and refuses more.
     await ticker(50, 500);
     await waitFor(
       async () =>
@@ -161,7 +148,6 @@ async function smoke(userData: string) {
       "revoke start: running workflow cancelled, View saw it, next start unauthorized"
     );
 
-    // Revoking the broader scope ends listing.
     await access.revoke(imported.id, ARTIFACT_CAPABILITIES.list);
     await evaluate("document.body.dataset.error = ''");
     await click("list");

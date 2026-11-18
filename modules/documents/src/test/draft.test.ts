@@ -57,7 +57,6 @@ describe("the editor Draft", () => {
       text: "mine",
     });
     expect(dirty(lost)).toBe(true);
-    // Keeping mine bases it on theirs, so the next save replaces it on purpose.
     expect(keepMine(lost)).toMatchObject({
       base: { digest: "d9" },
       conflict: null,

@@ -3,7 +3,6 @@ interface Page<T> {
   readonly next: string | null;
 }
 
-/** Consume every host page, including empty pages with a continuation cursor. */
 export async function allFiles<T>(
   read: (input: { cursor?: string }) => Promise<Page<T>>
 ): Promise<T[]> {

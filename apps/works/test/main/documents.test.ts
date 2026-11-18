@@ -23,7 +23,6 @@ afterEach(async () => {
   }
 });
 
-/** The released Program from `artifact/`, run by Bun on the host instead of a VM. */
 async function startProgram(release: string): Promise<string> {
   const child = spawn("bun", [path.join(release, "outputs/program.js")], {
     env: { ...process.env, PORT: "0" },
@@ -41,7 +40,6 @@ async function startProgram(release: string): Promise<string> {
   return `http://127.0.0.1:${line.replace("listening ", "")}`;
 }
 
-/** Reads server-sent events from a streamed response, one JSON value each. */
 function events(response: Response) {
   const reader = response.body?.getReader();
   const decoder = new TextDecoder();
@@ -66,11 +64,6 @@ function events(response: Response) {
   };
 }
 
-/**
- * The built fixture imported into one Works "process" with the Artifact
- * and execution providers, its access approved, and its Program running on
- * the host behind the real Gateway and Works' proxy.
- */
 async function fixtureApp() {
   const root = await realpath(
     await mkdtemp(path.join(tmpdir(), "works-fixture-"))
@@ -81,8 +74,6 @@ async function fixtureApp() {
   const { execution, files } = works.testing;
   const explorer = works.rpc.artifacts;
 
-  // Loaded explicitly from its built package, not preinstalled: its editor
-  // is offered before any Installation exists.
   const imported = await works.rpc.modules.importPackage(
     await readFile(DOCUMENTS_PACKAGE_PATH, "utf8")
   );
@@ -116,8 +107,6 @@ async function fixtureApp() {
     throw new Error("Imported release missing");
   }
 
-  // The Program runs from its selected release's `artifact/`, connected to
-  // the real Gateway; the View's requests pass through Works' proxy.
   const app = await works.testing.runtime.start(
     version,
     new AbortController().signal
@@ -153,7 +142,6 @@ async function fixtureApp() {
   const proxy = createModuleProxy({ endpoint: () => endpoint }, fetch);
   const view = (pathname: string, init?: RequestInit) =>
     proxy(new Request(new URL(pathname, "module-app://token"), init));
-  /** A watch, as the fixture's Views ask for one: an event stream. */
   const follow = (pathname: string) =>
     view(pathname, { headers: { accept: "text/event-stream" } });
   const call = async <T>(
@@ -195,7 +183,6 @@ it("imports the built fixture and edits a Markdown File Artifact through its Vie
     view: "editor",
   });
 
-  // The View itself is served with its binding in the URL.
   const page = await view(`/?binding=${opened.binding}`);
   expect(page.status).toBe(200);
   expect(await page.text()).toContain('src="/view.js"');
@@ -231,7 +218,6 @@ it("imports the built fixture and edits a Markdown File Artifact through its Vie
   expect(await watch.next()).toMatchObject({ kind: "change" });
   await watch.stop();
 
-  // Reopened, the host reads what the fixture saved.
   const saved = await files.read(notes.artifactId, "notes.md", {
     length: 1024,
     offset: 0,
@@ -240,8 +226,6 @@ it("imports the built fixture and edits a Markdown File Artifact through its Vie
     "# Notes\n\nFrom the fixture.\n"
   );
 
-  // The fixture can create a file of its own and edit it through the
-  // binding it gets back. Anything but a relayed alias is refused.
   const created = await call<{ binding: string; digest: string }>("create", {
     content: "# New\n",
     mime: "text/markdown",
@@ -264,7 +248,6 @@ it("imports the built fixture and edits a Markdown File Artifact through its Vie
     code: "unknown-alias",
     ok: false,
   });
-  // A made-up binding confers nothing.
   expect(await call("read", { binding: "not-a-binding" })).toEqual({
     code: "unauthorized",
     ok: false,
@@ -280,7 +263,6 @@ it("starts, follows and cancels a registered workflow, and reads files in its sc
   expect(page.status).toBe(200);
   expect(await page.text()).toContain('src="/workflows.js"');
 
-  // The approved scope lists Markdown files, which it then reads by id.
   const listed = await call<{ items: { artifactId: string }[] }>("files", {});
   expect(listed).toMatchObject({
     ok: true,
@@ -338,13 +320,11 @@ it("starts, follows and cancels a registered workflow, and reads files in its sc
     status: "cancelled",
   });
 
-  // Revoking the start Grant refuses new starts through the View.
   await works.rpc.access.revoke(imported.id, EXECUTION_CAPABILITIES.start);
   expect(await start("after", 1, 5)).toEqual({
     code: "unauthorized",
     ok: false,
   });
-  // A guessed id names nothing this app may follow.
   const guessed = events(
     await follow("/_module/execution/watch?execution=rn-guessed")
   );

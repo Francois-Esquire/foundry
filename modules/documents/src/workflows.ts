@@ -2,13 +2,6 @@ import { editorState } from "./editor-state";
 import { serverSentEvents } from "./events";
 import { allFiles } from "./files";
 
-/**
- * The Documents Module's Workflows View: it starts host-registered workflows, follows
- * and cancels them, and lists Markdown files in its approved scope to
- * summarize one. Its Program relays each request to Works, which runs the
- * workflow on the host with the host's own credentials.
- */
-
 interface Execution {
   readonly error: { readonly code: string; readonly message?: string } | null;
   readonly execution: string;
@@ -86,7 +79,6 @@ function show(run: Execution): void {
   }
 }
 
-/** Follow one execution until it settles; a dropped watch reconnects for a fresh snapshot. */
 async function follow(execution: string): Promise<void> {
   for (;;) {
     let heard = false;
@@ -109,7 +101,6 @@ async function follow(execution: string): Promise<void> {
       // Reconnect below.
     }
     if (!heard) {
-      // Refused (or no host): stop rather than retry forever.
       document.body.dataset.status = "unwatched";
       report("This app can no longer follow the workflow");
       return;
@@ -142,7 +133,6 @@ async function start(workflow: string, input: unknown): Promise<void> {
   }
 }
 
-/** A Markdown file in scope, read whole by its id. */
 async function readText(artifactId: string): Promise<string> {
   const parts: string[] = [];
   let offset: number | null = 0;

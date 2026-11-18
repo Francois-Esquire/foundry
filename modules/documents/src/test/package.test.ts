@@ -6,7 +6,6 @@ import { ModuleRegistry } from "@foundry/modules/registry";
 import { expect, it } from "vitest";
 import { DOCUMENTS_PACKAGE_PATH } from "../index";
 
-/** The package `bun run build` wrote (the test task runs after the build). */
 it("imports as a strict release registering a Markdown write editor", async () => {
   const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
   const version = await importModulePackage({

@@ -6,25 +6,6 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { connectDevTools, until } from "./cdp";
 
-/**
- * The real built app (`dist/main/index.js`, the production `index.ts`
- * wiring), launched with a temporary HOME and user data so it never touches
- * the user's library, driven over the DevTools protocol through phase one's
- * core file journey:
- *
- * startup → the audit tabs render → import the built Documents Module
- * package in the Catalog → approve its Grants in Access (chat, Access and
- * on/off are wired, unlike the per-feature smokes) → create a Markdown file
- * in Artifacts → it opens in the fixture's editor View (a released Program
- * under Microsandbox, in the Works iframe) → save there → the save shows in
- * Artifact Saves as the Module's → quit with SIGTERM, cleanly: exit 0, the
- * Program's run complete, the save's result on its run.
- *
- * `--use-mock-keychain` keeps the vault's safeStorage off the login
- * keychain (a temporary-HOME launch hung at startup without it).
- * Microsandbox stays where it is installed (`MSB_HOME`), since HOME moves.
- */
-
 const FILE_NAME = "Smoke notes";
 const EDITED =
   "# Smoke notes\n\nSaved from the fixture editor in the real app.\n";
@@ -44,7 +25,6 @@ const child = spawn(
   [
     path.join(works, "dist/main/index.js"),
     `--user-data-dir=${userData}`,
-    // Any free port: Chromium names it in userData/DevToolsActivePort.
     "--remote-debugging-port=0",
     "--use-mock-keychain",
   ],
@@ -68,7 +48,6 @@ const exited = new Promise<{ code: number | null; signal: string | null }>(
   (resolve) => child.once("close", (code, signal) => resolve({ code, signal }))
 );
 
-/** The tab panel named by the tab labelled `name` (Radix links them by id). */
 const panel = (name: string) =>
   `document.getElementById([...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent === ${JSON.stringify(name)})?.getAttribute("aria-controls") ?? "")`;
 const panelText = (name: string) => `(${panel(name)}?.textContent ?? "")`;
@@ -120,7 +99,6 @@ try {
   }
   results.push("startup: shell and audit tabs rendered from the run store");
 
-  // Import the built fixture package through the Catalog's file input.
   await evaluate(`location.hash = "#/modules"`);
   await inPage(`!!document.getElementById("module-package")`, "the Catalog");
   const { root } = (await send("DOM.getDocument")) as {
@@ -139,7 +117,6 @@ try {
   );
   results.push(`import: Documents Module package → Module ${moduleId}`);
 
-  // Approve its requests in Access. Chat, Access and on/off are wired here.
   await inPage(
     `[...document.querySelectorAll("[role=tab]")].some((tab) => tab.textContent.startsWith("Access"))`,
     "the Module's tabs"
@@ -179,7 +156,6 @@ try {
   }
   results.push("wiring: chat, Access and on/off available on the Module page");
 
-  // A person creates a Markdown file in Artifacts; it opens in the fixture.
   await evaluate(`location.hash = "#/artifacts"`);
   await inPage(
     clickButton("New Markdown file"),
@@ -197,7 +173,6 @@ try {
   );
   results.push("create: New Markdown file → opened in the fixture editor");
 
-  // The released Program starts under Microsandbox and serves the View.
   await until(
     () => inApp(`document.body?.dataset.ready === "true"`),
     "the fixture editor View in the Works iframe",
@@ -219,7 +194,6 @@ try {
   );
   results.push("edit: read through the binding and saved in the View");
 
-  // The save is in Artifact Saves, attributed to the Module app.
   await evaluate(`location.hash = "#/modules?tab=saves"`);
   await inPage(
     `(() => { const rows = [...(${panel("Artifact Saves")}?.querySelectorAll("tbody tr") ?? [])].map((row) => row.textContent); return rows.some((row) => row.includes(${JSON.stringify(FILE_NAME)}) && row.includes("Module app")) && rows.some((row) => row.includes(${JSON.stringify(FILE_NAME)}) && row.includes("You")); })()`,
@@ -229,7 +203,6 @@ try {
     "audit: Artifact Saves lists the file's create (You) and save (Module app)"
   );
 
-  // Quit as the OS asks: cleanup drains, then the app exits.
   quit = true;
   child.kill("SIGTERM");
   const outcome = await Promise.race([exited, delay(90_000).then(() => null)]);

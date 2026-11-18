@@ -13,18 +13,10 @@ import { smokeWorks } from "../helpers/smoke-works";
 
 registerModuleScheme();
 
-/** Built by `bun run build` in modules/documents. */
 const FIXTURE_PACKAGE = path.resolve(
   "../../modules/documents/dist/documents.module.json"
 );
 
-/**
- * The Documents Module, imported from its built package (not
- * preinstalled), runs under Microsandbox and opens a Markdown File Artifact
- * in a sandboxed View through its host-owned binding: it reads, saves,
- * reopens, follows a save made elsewhere, keeps an unsaved Draft against a
- * newer save and reports the stale save as a conflict.
- */
 async function smoke(userData: string) {
   const works = await smokeWorks(userData);
   const { access, sessions } = works.rpc;
@@ -86,7 +78,6 @@ async function smoke(userData: string) {
     const view = value.views.find((candidate) => candidate.id === "editor");
     assert.ok(view);
 
-    /** A sandboxed window on the editor View, opened with one binding. */
     const show = async (binding: string) => {
       const window = new BrowserWindow({
         show: false,
@@ -116,13 +107,11 @@ async function smoke(userData: string) {
     const status = (evaluate: <T>(code: string) => Promise<T>) =>
       evaluate<string>("document.getElementById('status').textContent");
 
-    // Read through the binding the host opened the View with.
     const first = await open();
     const editor = await show(first.binding);
     assert.equal(await textOf(editor), "# Smoke\n");
     results.push(`opened ${first.entry} through binding (read)`);
 
-    // Save in place.
     await type(editor, "# Smoke\n\nSaved from the sandboxed View.\n");
     await editor("document.getElementById('save').click()");
     await waitFor(
@@ -145,7 +134,6 @@ async function smoke(userData: string) {
     );
     results.push("save: committed in place (same ready Content)");
 
-    // Reopen through a fresh binding.
     const second = await open();
     assert.notEqual(second.binding, first.binding);
     const reopened = await show(second.binding);
@@ -155,7 +143,6 @@ async function smoke(userData: string) {
     );
     results.push("reopen: a second binding on the same runtime reads it");
 
-    // A save made elsewhere reaches the clean View through its watch.
     const base = await editor<string>("document.body.dataset.digest");
     const elsewhere = await files.save({
       actor: { kind: "user" },
@@ -172,7 +159,6 @@ async function smoke(userData: string) {
     );
     results.push("watch: clean View reloaded the newer save");
 
-    // With unsaved edits, a newer save is surfaced and the Draft is kept.
     await type(editor, "My unsaved Draft\n");
     const latest = await editor<string>("document.body.dataset.digest");
     assert.equal(
@@ -198,7 +184,6 @@ async function smoke(userData: string) {
       "watch: dirty View kept its Draft and surfaced the newer base"
     );
 
-    // Saving that Draft is stale: a conflict, nothing overwritten.
     await editor("document.getElementById('save').click()");
     await waitFor(
       async () =>
