@@ -3,7 +3,6 @@ import type {
   Provider,
   ProviderModelDefinition,
 } from "@foundry/models";
-import { VERCEL_DEFAULT_MODELS } from "@foundry/models/catalog/defaults";
 import {
   CLAUDE_CODE_DEFAULT_MODELS,
   claudeCodeProvider,
@@ -11,7 +10,7 @@ import {
 import { codexModels, codexProvider } from "@foundry/models/codex";
 import { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
 import { PI_DEFAULT_MODELS, piProvider } from "@foundry/models/pi";
-import { vercelProvider } from "@foundry/models/vercel";
+import { vercelModels, vercelProvider } from "@foundry/models/vercel";
 import { z } from "zod";
 import type { CliHarness, CliHarnessDescriptor } from "~/lib/cli-harnesses";
 import { CLI_HARNESSES } from "~/lib/cli-harnesses";
@@ -237,16 +236,22 @@ const VERCEL = z.object({
   baseURL: z.string().optional(),
 });
 
+function vercelConfig(
+  settings: z.infer<typeof VERCEL>,
+  env: Readonly<Record<string, string>>
+) {
+  const apiKey = env[settings.apiKey];
+  return {
+    ...(apiKey === undefined ? {} : { apiKey }),
+    ...(settings.baseURL ? { baseURL: settings.baseURL } : {}),
+  };
+}
+
 export const vercelPlugin: ProviderPlugin<z.infer<typeof VERCEL>> = {
-  catalog: () => VERCEL_DEFAULT_MODELS,
+  catalog: () => [],
   create: ({ defaults, env, id, models, settings }) => ({
     provider: vercelProvider({
-      config: {
-        ...(env[settings.apiKey] === undefined
-          ? {}
-          : { apiKey: env[settings.apiKey] }),
-        ...(settings.baseURL ? { baseURL: settings.baseURL } : {}),
-      },
+      config: vercelConfig(settings, env),
       id,
       models: [...models],
       ...(defaults ? { defaults } : {}),
@@ -258,6 +263,8 @@ export const vercelPlugin: ProviderPlugin<z.infer<typeof VERCEL>> = {
       : { apiKey: "AI_GATEWAY_API_KEY" },
   id: "vercel",
   label: "Vercel AI Gateway",
+  list: ({ env, settings, signal }) =>
+    vercelModels(vercelConfig(settings, env), { signal }),
   secrets: ["apiKey"],
   settings: VERCEL,
 };

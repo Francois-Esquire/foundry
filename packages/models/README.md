@@ -11,13 +11,14 @@ can do.
 
 ```typescript
 import { ModelManager } from "@foundry/models";
-import { vercelProvider } from "@foundry/models/vercel";
+import { vercelModels, vercelProvider } from "@foundry/models/vercel";
 
+const config = { apiKey };
 const models = new ModelManager({
-  providers: [vercelProvider({ config: { apiKey } })],
+  providers: [vercelProvider({ config, models: await vercelModels(config) })],
 });
 
-const route = models.resolve("text", "vercel/openai/gpt-5.6-luna");
+const route = models.resolve("text", { provider: "vercel" });
 const model = route.open(); // AgentModel
 // … generateText({ model, … })
 route.release();
@@ -91,6 +92,15 @@ several instances; all but FAL and Replicate also take `defaults`. The root
 entry exports no provider. `gatewayProvider` has no models of its own and
 requires `models`. `gatewayModels(config)` reads them from the server's
 `GET <baseURL>/models`, each id as a text model with nothing else known.
+
+`vercelModels(config, { signal })` reads the Vercel AI Gateway's
+`GET /models` listing. It uses the configured base URL and sends a bearer
+token when supplied. It preserves response order for the language,
+embedding, and image models the adapter supports. It also normalizes
+token prices, cache rates, and pricing tiers. Pass those rows or an
+explicit catalog to `vercelProvider`. Without a configured default,
+the manager uses the first row of the requested kind.
+
 For Codex, `codexModels({ binPath, env, signal? })` lists models through the
 configured CLI's app-server and closes the listing client afterward. The
 supplied environment must include `CODEX_HOME` or `HOME`. The helper
