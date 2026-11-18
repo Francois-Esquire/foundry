@@ -10,7 +10,8 @@ import { join } from "node:path";
 
 export function snapshotTrees(
   roots: readonly string[],
-  ignored: ReadonlySet<string> = new Set()
+  ignored: ReadonlySet<string> = new Set(),
+  scratchDirectory?: string
 ): Record<string, string> {
   const found: Record<string, string> = {};
   const visit = (path: string): void => {
@@ -28,7 +29,10 @@ export function snapshotTrees(
       found[path] =
         `link ${mode} ${String(stats.mtimeMs)} -> ${readlinkSync(path)}`;
     } else if (stats.isDirectory()) {
-      found[path] = `directory ${mode} ${String(stats.mtimeMs)}`;
+      found[path] =
+        path === scratchDirectory
+          ? `directory ${mode}`
+          : `directory ${mode} ${String(stats.mtimeMs)}`;
       for (const name of readdirSync(path).sort()) {
         visit(join(path, name));
       }

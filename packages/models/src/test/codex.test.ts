@@ -1,6 +1,7 @@
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
+import { ModelManager } from "../manager";
 
 interface Settings {
   codexPath?: string;
@@ -29,7 +30,7 @@ vi.mock("ai-sdk-provider-codex-cli", () => ({ createCodexAppServer }));
 
 const CALL = { prompt: [] } as never;
 
-const { CODEX_DEFAULT_MODELS, codexProvider } = await import("../codex");
+const { codexModels, codexProvider } = await import("../codex");
 const { fromCodexListing } = await import("../catalog/codex");
 
 const env = Object.fromEntries(
@@ -59,6 +60,130 @@ describe("fromCodexListing", () => {
 
   it("skips entries with no usable id rather than inventing one", () => {
     expect(fromCodexListing([{ id: "" }, { id: "ok" }])).toHaveLength(1);
+  });
+});
+
+describe("codexModels", () => {
+  const binPath = "/configured/codex";
+
+  it("resolves a live family numerically without changing the provider default or exact IDs", async () => {
+    listModels.mockResolvedValueOnce({
+      models: [
+        { id: "gpt-6.2-sol" },
+        { id: "gpt-6.10-sol", model: "gpt-6.10-sol" },
+        { id: "gpt-5.6-sol", isDefault: true },
+        { hidden: true, id: "gpt-9.0-sol" },
+        { id: "gpt-8-sol", model: "other-model" },
+        { id: "gpt-7-sol-fast" },
+        { id: "gpt-7-sol-preview" },
+        { id: "gpt-7-preview" },
+        { id: "custom", name: "GPT-10 Sol" },
+      ],
+    });
+    const rows = await codexModels({ binPath, env });
+    const manager = new ModelManager({
+      providers: [
+        codexProvider({ config: { available: true }, env, models: [...rows] }),
+      ],
+    });
+    using family = manager.resolve("text", "codex/sol");
+    expect(manager.available("codex/sol")).toBe(true);
+    expect(family.definition.modelId).toBe("gpt-6.10-sol");
+    await family.open().doGenerate(CALL);
+    expect(languageModel).toHaveBeenLastCalledWith("gpt-6.10-sol", {});
+    expect(manager.resolve("text").model).toBe("gpt-5.6-sol");
+    expect(
+      manager.resolve("text", "codex/gpt-6.2-sol").definition.modelId
+    ).toBe("gpt-6.2-sol");
+    expect(manager.available("codex/gpt-7-sol-fast")).toBe(true);
+    expect(manager.available("codex/gpt-7-sol-preview")).toBe(true);
+    expect(manager.available("codex/gpt-6.3-sol")).toBe(false);
+    expect(manager.available("codex/luna")).toBe(false);
+    expect(manager.available("codex/preview")).toBe(false);
+  });
+
+  it("keeps an exact family name and avoids guessing between equally ranked stable IDs", async () => {
+    listModels.mockResolvedValueOnce({
+      models: [
+        { id: "gpt-6.10-sol" },
+        { id: "sol" },
+        { id: "gpt-6.10-terra" },
+        { id: "gpt-6.10.0-terra" },
+        { id: "gpt-6.2-terra" },
+        { id: "gpt-6.10-luna" },
+        { id: "gpt-6.10.0-luna" },
+        { id: "gpt-7-luna" },
+      ],
+    });
+    const rows = await codexModels({ binPath, env });
+    expect(
+      rows.filter(({ id }) => id === "sol").map(({ modelId }) => modelId)
+    ).toEqual(["sol"]);
+    expect(rows.some(({ id }) => id === "terra")).toBe(false);
+    expect(rows.find(({ id }) => id === "luna")?.modelId).toBe("gpt-7-luna");
+  });
+
+  it("lists with the configured account, closes the client, and puts the reported default first", async () => {
+    close.mockClear();
+    listModels.mockResolvedValueOnce({
+      models: [{ id: "other" }, { id: "preferred", isDefault: true }],
+    });
+    const languageCalls = languageModel.mock.calls.length;
+    const account = {
+      ...Object.fromEntries(
+        Object.entries(env).filter(([key]) => key !== "OPENAI_API_KEY")
+      ),
+      CODEX_HOME: "/configured",
+    };
+    vi.stubEnv("OPENAI_API_KEY", "ambient-test-key");
+    vi.stubEnv("CODEX_HOME", "/ambient");
+    try {
+      const rows = await codexModels({
+        binPath,
+        env: account,
+      });
+      expect(rows.map((row) => row.id)).toEqual(["preferred", "other"]);
+      expect(createCodexAppServer).toHaveBeenLastCalledWith({
+        defaultSettings: {
+          codexPath: binPath,
+          env: { CODEX_HOME: "/configured", OPENAI_API_KEY: "" },
+          logger: false,
+        },
+      });
+      expect(languageModel).toHaveBeenCalledTimes(languageCalls);
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("refuses to discover against an implicit OS login", async () => {
+    createCodexAppServer.mockClear();
+    await expect(codexModels({ binPath, env: {} })).rejects.toThrow(
+      "Codex discovery requires HOME or CODEX_HOME in the provider environment"
+    );
+    expect(createCodexAppServer).not.toHaveBeenCalled();
+  });
+
+  it("closes a failed listing and keeps CLI diagnostics out of the error message", async () => {
+    close.mockClear();
+    listModels.mockRejectedValueOnce(new Error("secret in CLI stderr"));
+    await expect(codexModels({ binPath, env })).rejects.toMatchObject({
+      message: "Codex app-server could not list models",
+    });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes an in-flight listing on abort and ignores its late result", async () => {
+    close.mockClear();
+    const pending = Promise.withResolvers<{ models: { id: string }[] }>();
+    listModels.mockReturnValueOnce(pending.promise);
+    const controller = new AbortController();
+    const listing = codexModels({ binPath, env, signal: controller.signal });
+    controller.abort(new Error("listing cancelled"));
+    await expect(listing).rejects.toThrow("listing cancelled");
+    pending.resolve({ models: [{ id: "late" }] });
+    expect(close).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -198,10 +323,7 @@ describe("codexProvider", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it("ships a floor that survives the catalog's own capability filter", () => {
-    for (const model of CODEX_DEFAULT_MODELS) {
-      expect(model.kind).toBe("text");
-      expect(model.capabilities?.functionCalling).toBe(true);
-    }
+  it("has an empty catalog without supplied models", () => {
+    expect(codexProvider({ env }).models).toEqual([]);
   });
 });

@@ -81,13 +81,13 @@ describe("default route", () => {
     expect(() => selectExecutor(mockModels([], reply))).toThrow(NO_PROVIDER);
   });
 
-  it("keeps a provider's configured text default over its harness's own", () => {
+  it("keeps a configured Claude Code default and otherwise follows the catalog order", () => {
     const configured = new ModelManager({
       providers: [serving("claude-code", { defaults: { text: "haiku" } })],
     });
     expect(selectExecutor(configured).model).toBe("haiku");
     const plain = new ModelManager({ providers: [serving("claude-code")] });
-    expect(selectExecutor(plain).model).toBe(CLAUDE_CODE.model);
+    expect(selectExecutor(plain).model).toBe(CLAUDE_CODE_DEFAULT_MODELS[0]?.id);
   });
 
   it("lets the manager skip a provider its policy refuses", () => {

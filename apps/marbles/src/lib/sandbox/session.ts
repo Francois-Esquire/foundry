@@ -78,6 +78,7 @@ export interface SandboxSessionSettings {
   sessionId: string;
   signal: AbortSignal;
   store: SessionStore;
+  wireModelId?: string;
   write: (value: unknown) => void;
 }
 
@@ -188,11 +189,12 @@ async function cliSession(
     harness,
     nativeId
   );
+  const modelId = settings.wireModelId ?? settings.modelId;
   const auth = await guestAuth(harness, {
     ...options,
     ...(execution ? { env: execution.env } : {}),
     ...(execution?.bin ? { bin: execution.bin } : {}),
-    modelId: settings.modelId,
+    modelId,
   });
   const guest = await prepareGuest(container, {
     auth,
@@ -203,7 +205,7 @@ async function cliSession(
   const driver = await (execution?.driver ?? FIRST_PARTY_DRIVERS[harness])({
     auth,
     guest,
-    settings,
+    settings: { ...settings, modelId },
   });
   return createDriverSession(
     {

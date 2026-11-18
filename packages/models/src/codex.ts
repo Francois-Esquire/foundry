@@ -3,6 +3,7 @@ import { once } from "node:events";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { recordChild } from "@foundry/lib/spawn-record";
 import { createCodexAppServer } from "ai-sdk-provider-codex-cli";
+import { fromCodexListing } from "./catalog/codex";
 import { environmentOverlay } from "./environment";
 import { modelErrors } from "./errors";
 import type { Provider } from "./provider";
@@ -28,22 +29,114 @@ export interface CodexProviderOptions {
   models?: ProviderModelDefinition[];
 }
 
-export const CODEX_DEFAULT_MODELS: ProviderModelDefinition[] = [
-  {
-    capabilities: { functionCalling: true },
-    id: "gpt-5.5",
-    kind: "text",
-    label: "GPT-5.5",
-    modelId: "gpt-5.5",
-    vendor: "openai",
-  },
-];
-
 const EXIT_GRACE_MS = 2000;
 const KILL_GRACE_MS = 1000;
 const RECORD_POLL_MS = 10;
+const GPT_FAMILY =
+  /^gpt-([1-9]\d*(?:\.(?:0|[1-9]\d*))*)-(?!(?:fast|preview|alpha|beta|experimental|latest|snapshot)$)([a-z]+)$/;
 
 type AppServerClient = ReturnType<typeof createCodexAppServer>;
+type ListedModels = Awaited<
+  ReturnType<AppServerClient["listModels"]>
+>["models"];
+
+function appServer(
+  binPath: string | undefined,
+  env: Record<string, string>
+): AppServerClient {
+  return createCodexAppServer({
+    defaultSettings: {
+      ...(binPath ? { codexPath: binPath } : {}),
+      env,
+      logger: false,
+    },
+  });
+}
+
+export async function codexModels({
+  binPath,
+  env,
+  signal,
+}: {
+  readonly binPath: string;
+  readonly env: Readonly<Record<string, string>>;
+  readonly signal?: AbortSignal;
+}): Promise<readonly ProviderModelDefinition[]> {
+  signal?.throwIfAborted();
+  if (!(env.CODEX_HOME || env.HOME)) {
+    throw new Error(
+      "Codex discovery requires HOME or CODEX_HOME in the provider environment"
+    );
+  }
+  const client = appServer(binPath, environmentOverlay(env, ""));
+  const cancelled = Promise.withResolvers<never>();
+  const abort = () => cancelled.reject(signal?.reason);
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const { models } = await Promise.race([
+      client.listModels(),
+      cancelled.promise,
+    ]);
+    const preferred = models.find((model) => model.isDefault && model.id)?.id;
+    const rows = fromCodexListing(models).sort(
+      (a, b) => Number(b.id === preferred) - Number(a.id === preferred)
+    );
+    return [...rows, ...codexFamilies(models, rows)];
+  } catch (error) {
+    signal?.throwIfAborted();
+    throw new Error("Codex app-server could not list models", { cause: error });
+  } finally {
+    signal?.removeEventListener("abort", abort);
+    await client.close();
+  }
+}
+
+interface FamilyCandidate {
+  readonly id: string;
+  tied: boolean;
+  readonly version: readonly bigint[];
+}
+
+function compareVersions(a: readonly bigint[], b: readonly bigint[]): number {
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const left = a[index] ?? 0n;
+    const right = b[index] ?? 0n;
+    if (left !== right) {
+      return left > right ? 1 : -1;
+    }
+  }
+  return 0;
+}
+
+function codexFamilies(
+  models: ListedModels,
+  rows: readonly ProviderModelDefinition[]
+): ProviderModelDefinition[] {
+  const offered = new Map(rows.map((row) => [row.id, row]));
+  const latest = new Map<string, FamilyCandidate>();
+  for (const { hidden, id, model } of models) {
+    if (!offered.has(id) || hidden || (model !== undefined && model !== id)) {
+      continue;
+    }
+    const [, versionText, family] = GPT_FAMILY.exec(id) ?? [];
+    if (!(versionText && family) || offered.has(family)) {
+      continue;
+    }
+    const version = versionText.split(".").map(BigInt);
+    const kept = latest.get(family);
+    const order =
+      kept === undefined ? 1 : compareVersions(version, kept.version);
+    if (order > 0) {
+      latest.set(family, { id, tied: false, version });
+    } else if (order === 0 && kept && kept.id !== id) {
+      kept.tied = true;
+    }
+  }
+  return [...latest].flatMap(([id, { id: target, tied }]) => {
+    const row = offered.get(target);
+    return row && !tied ? [{ ...row, id }] : [];
+  });
+}
 
 interface AppServer {
   calls: number;
@@ -103,13 +196,7 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     }
     const server: AppServer = {
       calls: 0,
-      client: createCodexAppServer({
-        defaultSettings: {
-          ...(config.binPath ? { codexPath: config.binPath } : {}),
-          env,
-          logger: false,
-        },
-      }),
+      client: appServer(config.binPath, env),
       connections: new Set(),
       key,
       retired: false,
@@ -178,7 +265,7 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     id,
     languageModel: (modelId, opts) =>
       leasedModel(modelId, () => lease(modelId, opts?.workingDirectory)),
-    models: options.models ?? CODEX_DEFAULT_MODELS,
+    models: options.models ?? [],
     offline: false,
     setOffline: async (value) => {
       offline = value;

@@ -158,11 +158,15 @@ export interface EngineOptions {
 
 function contextOf(
   options: EngineOptions,
-  spawned: string | undefined
+  spawned: string | undefined,
+  currentModels: () => ModelManager | undefined
 ): ExecutionContext {
   return {
     cwd: options.cwd ?? options.root,
     environment: options.environment ?? environmentSnapshot(),
+    get models() {
+      return currentModels();
+    },
     ...(spawned === undefined ? {} : { spawned }),
     workspaceId: options.workspaceId,
   };
@@ -360,7 +364,9 @@ export class Engine {
       ...sessionListing(sessions, usage),
     });
     this.workspaceId = workspaceId;
-    this.context = contextOf(options, spawned);
+    this.context = contextOf(options, spawned, () =>
+      this.disposed ? undefined : models
+    );
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
     this.#executions = new Executions({
       ...(options.queues === undefined ? {} : { queues: options.queues }),

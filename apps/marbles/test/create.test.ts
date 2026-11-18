@@ -23,6 +23,7 @@ import { stateDatabase } from "~/layout";
 import { Engine } from "~/lib/engine";
 import { RunScope } from "~/lib/run-scope";
 
+import { fakeCodex } from "./helpers/codex";
 import { testInstances } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
 
@@ -214,7 +215,9 @@ it("builds an engine over the instances a host hands in", async () => {
 });
 
 it("runs model-free work without provider configuration, and refuses a session with guidance", async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "create-unconfigured-"));
+  const root = await mkdtemp(join(tmpdir(), "create-unconfigured-"));
+  const stateRoot = join(root, "state");
+  await mkdir(stateRoot);
   const reviewer = agent({ prompt: "Review." });
   step("count").do(() => 1);
   step("review").do(async ({ agents }) => {
@@ -236,7 +239,7 @@ it("runs model-free work without provider configuration, and refuses a session w
       "No model providers are configured. Run marbles without --dry-run in a terminal to set them up."
     );
     await engine.providers?.add(
-      { id: "codex", plugin: "codex" },
+      { id: "codex", plugin: "codex", settings: { binPath: fakeCodex(root) } },
       { scope: "machine" }
     );
     expect(engine.providers?.list().map((entry) => entry.id)).toEqual([
@@ -245,7 +248,7 @@ it("runs model-free work without provider configuration, and refuses a session w
     expect(await readdir(stateRoot)).toEqual([]);
   } finally {
     await engine.dispose();
-    await rm(stateRoot, { force: true, recursive: true });
+    await rm(root, { force: true, recursive: true });
   }
 });
 
@@ -253,7 +256,14 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
   const stateRoot = await mkdtemp(join(tmpdir(), "create-configured-"));
   await DatabaseProviderStore.forState(stateRoot).update(undefined, () => ({
     machine: {
-      providers: [{ enabled: true, id: "codex", plugin: "codex" }],
+      providers: [
+        {
+          enabled: true,
+          id: "codex",
+          plugin: "codex",
+          settings: { binPath: fakeCodex(stateRoot) },
+        },
+      ],
       version: 1,
     },
   }));

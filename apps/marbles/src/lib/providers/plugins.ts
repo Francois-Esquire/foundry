@@ -3,15 +3,14 @@ import type {
   Provider,
   ProviderModelDefinition,
 } from "@foundry/models";
-import { VERCEL_DEFAULT_MODELS } from "@foundry/models/catalog/defaults";
 import {
-  CLAUDE_CODE_DEFAULT_MODELS,
+  claudeCodeModels,
   claudeCodeProvider,
 } from "@foundry/models/claude-code";
-import { CODEX_DEFAULT_MODELS, codexProvider } from "@foundry/models/codex";
+import { codexModels, codexProvider } from "@foundry/models/codex";
 import { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
 import { PI_DEFAULT_MODELS, piProvider } from "@foundry/models/pi";
-import { vercelProvider } from "@foundry/models/vercel";
+import { vercelModels, vercelProvider } from "@foundry/models/vercel";
 import { z } from "zod";
 import type { CliHarness, CliHarnessDescriptor } from "~/lib/cli-harnesses";
 import { CLI_HARNESSES } from "~/lib/cli-harnesses";
@@ -116,18 +115,18 @@ export const claudeCodePlugin: ProviderPlugin<Bin> = {
     "CLOUD_ML_REGION",
     "VERTEX_REGION_*",
   ],
-  catalog: () => CLAUDE_CODE_DEFAULT_MODELS,
+  catalog: () => [],
   create: ({ defaults, env, id, models, settings }) => {
-    const path = cli("claude", settings, env);
+    const path = scopedCli("claude", settings, env);
     return {
       execution: guestOf("claude-code", env, path),
       provider: claudeCodeProvider({
         config: {
-          available: path !== null,
-          ...(settings.binPath
+          available: path !== null && models.length > 0,
+          ...(path
             ? {
                 defaultSettings: {
-                  pathToClaudeCodeExecutable: settings.binPath,
+                  pathToClaudeCodeExecutable: path,
                 },
               }
             : {}),
@@ -139,22 +138,28 @@ export const claudeCodePlugin: ProviderPlugin<Bin> = {
       }),
     };
   },
-  detect: ({ env }) => (which("claude", env.PATH) === null ? null : {}),
+  detect: ({ env }) => (scopedCli("claude", {}, env) === null ? null : {}),
   id: "claude-code",
   label: "Claude Code",
+  list: async ({ env, settings, signal }) => {
+    const binPath = scopedCli("claude", settings, env);
+    return binPath === null
+      ? []
+      : await claudeCodeModels({ binPath, env, signal });
+  },
   settings: BIN,
 };
 
 export const codexPlugin: ProviderPlugin<Bin> = {
   accountEnv: ["HOME", "CODEX_*", "OPENAI_*", "AZURE_*"],
-  catalog: () => CODEX_DEFAULT_MODELS,
+  catalog: () => [],
   create: ({ defaults, env, id, models, settings }) => {
-    const path = cli("codex", settings, env);
+    const path = scopedCli("codex", settings, env);
     return {
       execution: guestOf("codex", env, path),
       provider: codexProvider({
         config: {
-          available: path !== null,
+          available: path !== null && models.length > 0,
           ...(path === null ? {} : { binPath: path }),
         },
         env,
@@ -165,13 +170,25 @@ export const codexPlugin: ProviderPlugin<Bin> = {
     };
   },
   detect: ({ env }) => {
-    const path = which("codex", env.PATH);
+    const path = scopedCli("codex", {}, env);
     return path === null ? null : { binPath: path };
   },
   id: "codex",
   label: "Codex",
+  list: async ({ env, settings, signal }) => {
+    const binPath = scopedCli("codex", settings, env);
+    return binPath === null ? [] : await codexModels({ binPath, env, signal });
+  },
   settings: BIN,
 };
+
+function scopedCli(
+  name: "claude" | "codex",
+  settings: Bin,
+  env: Readonly<Record<string, string>>
+): string | null {
+  return settings.binPath || which(name, env.PATH || "");
+}
 
 export const piPlugin: ProviderPlugin<Bin> = {
   accountEnv: [
@@ -226,16 +243,22 @@ const VERCEL = z.object({
   baseURL: z.string().optional(),
 });
 
+function vercelConfig(
+  settings: z.infer<typeof VERCEL>,
+  env: Readonly<Record<string, string>>
+) {
+  const apiKey = env[settings.apiKey];
+  return {
+    ...(apiKey === undefined ? {} : { apiKey }),
+    ...(settings.baseURL ? { baseURL: settings.baseURL } : {}),
+  };
+}
+
 export const vercelPlugin: ProviderPlugin<z.infer<typeof VERCEL>> = {
-  catalog: () => VERCEL_DEFAULT_MODELS,
+  catalog: () => [],
   create: ({ defaults, env, id, models, settings }) => ({
     provider: vercelProvider({
-      config: {
-        ...(env[settings.apiKey] === undefined
-          ? {}
-          : { apiKey: env[settings.apiKey] }),
-        ...(settings.baseURL ? { baseURL: settings.baseURL } : {}),
-      },
+      config: vercelConfig(settings, env),
       id,
       models: [...models],
       ...(defaults ? { defaults } : {}),
@@ -247,6 +270,8 @@ export const vercelPlugin: ProviderPlugin<z.infer<typeof VERCEL>> = {
       : { apiKey: "AI_GATEWAY_API_KEY" },
   id: "vercel",
   label: "Vercel AI Gateway",
+  list: ({ env, settings, signal }) =>
+    vercelModels(vercelConfig(settings, env), { signal }),
   secrets: ["apiKey"],
   settings: VERCEL,
 };

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { ModelManager } from "@foundry/models";
 import type { TaskStore } from "@foundry/tasks";
 import type { Catalog } from "~/authoring/catalog";
 import { catalog } from "~/authoring/catalog";
@@ -17,6 +18,7 @@ export type InstanceRuntime = Pick<
   | "dispose"
   | "disposed"
   | "execute"
+  | "models"
   | "sandboxes"
   | "taskStore"
   | "workspaceId"
@@ -425,6 +427,18 @@ export function declaringCatalog(): Catalog {
 
 function activeHost(): InstanceRuntime | undefined {
   return answering()?.runtime;
+}
+
+export function hostModels(): ModelManager | undefined {
+  const context = activeContext();
+  if (
+    context !== undefined &&
+    !contextBindings.has(context) &&
+    !loadOfAnother(routeScope.getStore(), context)
+  ) {
+    return context.models;
+  }
+  return activeHost()?.models;
 }
 
 export function hostTaskStore(): TaskStore | undefined {

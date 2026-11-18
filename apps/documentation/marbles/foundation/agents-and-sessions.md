@@ -95,11 +95,12 @@ when you want several turns to share a conversation.
 `provider` names one of the configured providers, and `model` names a model
 in a provider's catalog. A model named alone goes to the first configured
 provider that lists it. A name that no catalog lists fails rather than
-reaching a provider. `"codex/gpt-5.5"` names both. Providers are configured
-once per machine, and per workspace where needed, in the Marbles database
-under the state root. The first interactive run offers what it detects on
-`PATH`; a dry run never writes it. A session stays on the provider and model
-it started with, and on that configured instance: it fails rather than
+reaching a provider. `"codex/gpt-5.6-sol"` is an example that names both.
+Providers are configured once per machine, and per workspace where needed,
+in the Marbles database under the state root. The first interactive run
+offers providers it detects on `PATH`. Dry runs keep provider edits in
+memory. A session stays on the provider, model, and configured instance
+it started with. It fails rather than
 resume after the entry moves to another scope or changes its settings or
 the environment that chooses its account, or when another entry with the
 same id takes its place. Authentication belongs to the providers' own CLIs. A
@@ -108,6 +109,33 @@ reads `auth.json` under the instance's `CODEX_HOME` (else `~/.codex`);
 Claude Code reads `CLAUDE_CODE_OAUTH_TOKEN` from the instance's environment,
 else the login for its `CLAUDE_CONFIG_DIR` (else `~/.claude`); Pi runs the
 configured `pi auth`.
+
+Marbles loads Claude Code, Codex, and Vercel AI Gateway catalogs at engine
+startup and when provider configuration refreshes. Claude Code and Codex
+list models with the configured CLI and account environment. Vercel uses
+the configured base URL and credential. A configured default must appear
+in the list. Without one, Claude Code uses its offered `default` alias,
+and Codex uses its reported default when present. Otherwise Marbles uses
+the first listed model of the requested kind. An empty list leaves no
+routes for that provider. If a refresh fails, Marbles keeps any last
+successful list for the same configuration and environment.
+
+Claude Code lists models without sending a prompt. Its catalog includes
+offered aliases and the canonical IDs reported by the SDK. The SDK's
+listing leaves context limits and prices unspecified.
+
+Use `codex/sol` to select the newest stable Sol version in the configured
+Codex listing. Version components compare numerically, so `6.10` comes
+after `6.2`. Qualified variants such as `-fast` and `-preview` keep their
+exact IDs. Codex adds a family name only when it can select a unique
+highest version and the name is free. Claude Code resolves
+`claude-code/sonnet` through its own offered alias.
+
+A refresh affects new resolutions. An open Codex session keeps the model
+it already resolved. When a saved session is reopened or a replay opens
+it again, a recorded family name resolves against the current catalog.
+Use an exact model ID if a session must keep the same version across
+reopens.
 
 ## Choose the route when the step runs
 
@@ -121,6 +149,38 @@ extended agent can be extended again.
 
 [Usage](/marbles/foundation/usage) shows a step that picks the route from
 what each Claude Code and Codex login has left.
+
+### Check model availability
+
+Import `models` from `@foundry.sh/marbles` to check the current engine's
+catalog before choosing a model.
+
+```ts
+import { agent, models, step } from "@foundry.sh/marbles";
+
+const reviewer = agent({ prompt: "Review README.md for clarity." });
+
+step("review").do(async () => {
+  const preferred = "codex/gpt-5.6-sol";
+  const selected = models.available(preferred)
+    ? reviewer.extend({ model: preferred })
+    : reviewer;
+  return (await selected.generate("What should change?")).text;
+});
+```
+
+`models.available(selection)` returns a boolean synchronously. It accepts
+bare model IDs, provider-qualified IDs, and explicit `{ provider, model }`
+selections. It returns `true` when the selection resolves for any model kind
+using the configured catalog, current provider availability, and policy
+such as Airplane Mode. If a string is ambiguous for a kind, use the
+explicit object form to choose its meaning.
+
+Use the check during a step or inside a deferred `agent(() => …)`
+configuration. It returns `false` if no engine is bound before the source
+has finished loading. The check uses local state only and leaves model
+opening and inference to the session. Account access can still fail when
+you use the model.
 
 ## Define the agent with a function
 

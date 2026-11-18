@@ -18,6 +18,7 @@ import {
 import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { expect, it, vi } from "vitest";
+import { readLiveGenerations } from "~/database/generations";
 import { layout } from "~/layout";
 import { daemonAlive } from "~/process/client";
 import { readProcess } from "~/process/instance";
@@ -934,7 +935,7 @@ it("leaves a live run and a root whose owner cannot be read alone, and handles t
 
 const left: { home?: string; pid?: number; started?: string | null } = {};
 
-it("records the Marbles process a test's CLI starts in the test's home", () => {
+it("records the Marbles process a test's CLI starts in the test's home", async () => {
   const home = testHome();
   const source = join(home.path, "marbles.ts");
   writeFileSync(
@@ -955,11 +956,14 @@ it("records the Marbles process a test's CLI starts in the test's home", () => {
   const daemon = recorded.find((record) => record.pid === daemonPid);
   expect(daemon?.group).toBe(true);
   expect(daemon?.started).toBe(startedAt(daemon?.pid));
+  const [generation] = await readLiveGenerations(home.layout.state);
+  expect(generation?.state).toBe("current");
   expect(
-    recorded.filter(
-      (record) => record.pid !== daemonPid && record.group === true
-    )
-  ).toHaveLength(1);
+    recorded.find((record) => record.pid === generation?.pid)
+  ).toMatchObject({
+    group: true,
+    started: generation?.started,
+  });
   left.home = home.path;
   left.pid = daemon?.pid;
   left.started = daemon?.started;

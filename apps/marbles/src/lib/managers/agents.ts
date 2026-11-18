@@ -922,6 +922,9 @@ async function openSandboxSession(
     sessionId: id,
     signal: site.signal(),
     store: deps.sessions,
+    ...(resolution.definition.modelId === executor.model
+      ? {}
+      : { wireModelId: resolution.definition.modelId }),
     write: site.write,
   });
   return deps.activities.attach(
