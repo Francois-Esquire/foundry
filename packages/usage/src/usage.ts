@@ -1,5 +1,12 @@
+import { type BillingAccountOptions, billingLimits } from "./billing";
 import type { Consumption } from "./consumption";
-import { type Duration, resolve, type Span } from "./limit";
+import {
+  compact,
+  type Duration,
+  resolve,
+  type Span,
+  spendHeadroom,
+} from "./limit";
 import {
   accountWide,
   type Reading,
@@ -14,6 +21,10 @@ export interface Account<C = unknown> {
   readonly name: string;
   readonly provider: Provider;
 }
+
+type RegisteredAccount = Omit<Account, "provider"> & {
+  readonly provider?: Provider;
+};
 
 export interface Provider {
   defaultAccount(): Promise<Account | undefined>;
@@ -30,8 +41,21 @@ export interface QueryAllOptions extends QueryOptions {
   readonly provider?: string;
 }
 
+export interface Budget {
+  readonly asOf: Date;
+  readonly cap: number;
+  readonly currency: "USD";
+  readonly remaining: number;
+  readonly reportedThrough?: Date;
+  readonly resetsAt?: Date;
+  readonly share: number;
+  readonly spent: number;
+  readonly startsAt?: Date;
+}
+
 export interface Usage {
-  add(account: Account): string;
+  add(account: Account | BillingAccountOptions): string;
+  budget(name: string): Promise<Budget | undefined>;
   initialize(): Promise<readonly Account[]>;
   query(name: string, options?: QueryOptions): Promise<Snapshot>;
   query(options?: QueryAllOptions): Promise<readonly Snapshot[]>;
@@ -68,7 +92,10 @@ const weekStart = (reading: Reading | undefined, at: Date): Date => {
     : new Date(at.getTime() - WEEK);
 };
 
-const read = async (account: Account, since?: Date): Promise<Snapshot> => {
+const read = async (
+  account: RegisteredAccount,
+  since?: Date
+): Promise<Snapshot> => {
   const at = new Date();
   const reading = account.limits();
   const [limits, history] = await Promise.allSettled([
@@ -80,23 +107,93 @@ const read = async (account: Account, since?: Date): Promise<Snapshot> => {
           .then((found) => account.history(weekStart(found, at))),
   ]);
   return snapshotOf(
-    { name: account.name, provider: account.provider.id },
+    { name: account.name, provider: account.provider?.id },
     at,
     limits,
     history
   );
 };
 
+const readBudget = async (
+  account: RegisteredAccount
+): Promise<Budget | undefined> => {
+  const reading = await account.limits();
+  const limit = reading.limits.find((entry) => entry.kind === "spend-cap");
+  const asOf = new Date();
+  if (
+    !(
+      limit &&
+      Number.isFinite(limit.cap.amount) &&
+      Number.isFinite(limit.used.amount)
+    ) ||
+    limit.cap.amount < 0 ||
+    (limit.resetsAt && !(limit.resetsAt > asOf)) ||
+    (limit.startsAt && !(limit.startsAt <= asOf))
+  ) {
+    return;
+  }
+  const { remaining, share } = spendHeadroom(limit);
+  return compact<Budget>({
+    asOf,
+    cap: limit.cap.amount,
+    currency: "USD",
+    remaining,
+    reportedThrough: limit.reportedThrough,
+    resetsAt: limit.resetsAt,
+    share: Math.min(1, share),
+    spent: limit.used.amount,
+    startsAt: limit.startsAt,
+  });
+};
+
 export const createUsage = (): Usage => {
   const providers = new Map<string, Provider>();
-  const accounts = new Map<string, Account>();
+  const accounts = new Map<string, RegisteredAccount>();
 
-  const add = (account: Account): string => {
-    if (accounts.has(account.name)) {
-      throw new Error(`A usage account named "${account.name}" is added.`);
+  const billedAccount = (options: BillingAccountOptions): RegisteredAccount => {
+    const { billing, name, provider: id } = options;
+    if (!Number.isFinite(billing.cap) || billing.cap < 0) {
+      throw new Error(`Billing for "${name}" requires a nonnegative USD cap.`);
     }
-    if (!providers.has(account.provider.id)) {
-      providers.set(account.provider.id, account.provider);
+    const account = {
+      credential: undefined,
+      history: async () => undefined,
+      limits: () => billingLimits(options),
+      name,
+    };
+    if (id === undefined) {
+      if (typeof billing.readSpend !== "function") {
+        throw new Error(`Billing for "${name}" requires a readSpend function.`);
+      }
+      return account;
+    }
+    const scope = id === "openai" ? billing.projectId : billing.workspaceId;
+    if (
+      typeof billing.adminKey !== "string" ||
+      !billing.adminKey.trim() ||
+      scope?.trim() === ""
+    ) {
+      throw new Error(
+        `Billing for "${name}" requires an admin key and a nonempty scope ID when scoped.`
+      );
+    }
+    return {
+      ...account,
+      provider: providers.get(id) ?? {
+        defaultAccount: async () => undefined,
+        id,
+      },
+    };
+  };
+
+  const add = (input: Account | BillingAccountOptions): string => {
+    if (accounts.has(input.name)) {
+      throw new Error(`A usage account named "${input.name}" is added.`);
+    }
+    const account = "limits" in input ? input : billedAccount(input);
+    const { provider } = account;
+    if (provider && !providers.has(provider.id)) {
+      providers.set(provider.id, provider);
     }
     accounts.set(account.name, account);
     return account.name;
@@ -116,13 +213,19 @@ export const createUsage = (): Usage => {
     const { provider, since } = nameOrOptions ?? {};
     const start = sinceDate(since);
     const selected = [...accounts.values()].filter(
-      (account) => (provider ?? account.provider.id) === account.provider.id
+      (account) => provider === undefined || provider === account.provider?.id
     );
     return Promise.all(selected.map((account) => read(account, start)));
   };
 
   return {
     add,
+    budget: (name) => {
+      const account = accounts.get(name);
+      return account
+        ? readBudget(account).catch(() => undefined)
+        : Promise.resolve(undefined);
+    },
     initialize: async () => {
       const free = [...providers.values()].filter(
         ({ id }) => !accounts.has(id)
@@ -133,7 +236,9 @@ export const createUsage = (): Usage => {
           add(account);
         }
       }
-      return [...accounts.values()].filter((a) => a.name === a.provider.id);
+      return [...accounts.values()].filter(
+        (account): account is Account => account.name === account.provider?.id
+      );
     },
     query: query as Usage["query"],
     share: async (name, span = "weekly") => {

@@ -58,6 +58,12 @@ claude.details?.anthropic?.extraUsage;
   the fraction remaining from 0 to 1. The span defaults to `"weekly"`.
   A missing account, failed read, or missing window returns `undefined`.
   It asks the provider for fresh limits and skips the consumption history.
+- **`usage.budget(name)`** reads the account's dollar cap and reported spend
+  without reading consumption history. It returns `cap`, `spent`, and
+  `remaining` in USD, `share` from 0 to 1, and `asOf` for the time of
+  the read. When known, it includes the period's `startsAt` and `resetsAt`
+  and the report's `reportedThrough` timestamp. An unavailable reading
+  returns `undefined`. Spending above the cap leaves zero remaining.
 - **`since`** is a `Date` or a span back from now: a number and `m`, `h`,
   `d` or `w`. Without it, consumption starts where the account's weekly
   window started, its `resetsAt` less its `duration`. With no weekly window,
@@ -81,6 +87,44 @@ if (work.weekly && work.weekly.headroom.share < 0.1) {
 }
 ```
 
+## API billing accounts
+
+Register your USD allocation using `usage.add`. The billing scope is the
+organization reached by the admin API key, optionally narrowed to the given
+project or workspace. Spend is read for the current UTC calendar month.
+
+```ts
+usage.add({
+  name: "work",
+  provider: "anthropic",
+  billing: {
+    adminKey: process.env.ANTHROPIC_ADMIN_KEY!,
+    cap: 500,
+    workspaceId: "wrkspc_work",
+  },
+});
+const budget = await usage.budget("work");
+```
+
+Use `provider: "openai"` and `projectId` for OpenAI. To change the allocation,
+change `billing.cap` where the account is registered. The provider manages
+any enforced limits. Values come from the provider's billing report and
+reflect that report's freshness and treatment of credits.
+[Anthropic Cost Analytics](https://platform.claude.com/docs/en/manage-claude/usage-cost-analytics-api)
+and [OpenAI Costs](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/costs)
+describe each report.
+
+For a company-managed allocation, omit `provider` and pass a
+`billing.readSpend` function alongside `billing.cap`. The reader returns
+`{ spent, startsAt, resetsAt, reportedThrough? }` for the active period.
+Amounts are in USD and timestamps are dates. The reader can return
+`undefined` when the period's spend is unavailable. Use one reader for
+all harnesses that charge the same billing scope.
+
+A named or unfiltered `usage.query` includes these accounts. Their
+snapshots omit `provider`. Filtering by provider selects the accounts tied
+to that provider.
+
 ## The model
 
 Four billing models cover the accounts Foundry works with, one kind of
@@ -102,7 +146,7 @@ plain data, with no methods, and survives JSON.
 ```ts
 interface Snapshot {
   readonly name: string; // "work"
-  readonly provider: string; // "anthropic"
+  readonly provider?: string; // e.g. "anthropic"
   readonly at: Date; // when its limits were read: stamped just before asking
   readonly identity?: Identity; // who the provider says it is; absent when the limits read failed
   readonly limits: readonly Limit[]; // every limit reported, resolved; empty when none was read
