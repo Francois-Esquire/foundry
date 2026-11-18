@@ -139,9 +139,7 @@ export class LiveCore {
       }
       this.#adapter.data(raw);
     },
-    error: () => {
-      // A transport error that is not a loss of the session is not a state
-    },
+    error: () => undefined,
     media: (media) => {
       if (this.#state !== "open") {
         return;
@@ -250,9 +248,7 @@ export class LiveCore {
               }
         )
       )
-      .catch(() => {
-        // Delivery failure is the transport's to report through `close`.
-      })
+      .catch(() => undefined)
       .finally(() => {
         this.#inFlight = false;
         this.#lastSendAt = Date.now();

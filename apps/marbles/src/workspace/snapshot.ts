@@ -211,11 +211,11 @@ function catalogOrigin(
   }
   const colon = origin.lastIndexOf(":");
   const file = colon > 0 ? origin.slice(0, colon) : origin;
-  let canonical = origin;
+  let canonical: string;
   try {
     canonical = realpathSync(file) + origin.slice(file.length);
   } catch {
-    // Not on disk (a bundled prebuilt, a test path): compare it as written.
+    canonical = origin;
   }
   const local = relative(root, canonical);
   const external =

@@ -499,14 +499,12 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager transactions", (kind) => {
     const failure = new Error("inner write failed");
     const rolledBack = artifacts.transaction(async () => {
       await artifacts.patchArtifactMetadata(created.id, { step: 1 });
-      try {
-        await artifacts.transaction(async (nested) => {
+      await artifacts
+        .transaction(async (nested) => {
           await nested.patchArtifactMetadata(created.id, { half: true });
           throw failure;
-        });
-      } catch {
-        // Caught, and the operation goes on.
-      }
+        })
+        .catch(() => undefined);
       await artifacts.patchArtifactMetadata(created.id, { step: 2 });
     });
     await expect(rolledBack).rejects.toBeInstanceOf(TransactionRolledBackError);

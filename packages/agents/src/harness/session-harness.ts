@@ -240,7 +240,7 @@ export class SessionHarness {
         limit,
       });
     } catch {
-      // Compaction is best-effort: a summarizer failure must not break the turn.
+      return undefined;
     }
   }
 

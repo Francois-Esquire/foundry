@@ -50,20 +50,17 @@ function toUIMessages(messages: SessionMessage[]): UIMessage[] {
   }
   const ctx: ConversionContext = { requests, responses, results };
 
-  return (
-    messages
-      .filter((m) => m.role !== "tool")
-      .map((m) => ({
-        id: m.id,
-        parts: m.parts.flatMap((p) => toUIPart(p, ctx)),
-        role: (m.role === "summary" ? "system" : m.role) as
-          | "user"
-          | "assistant"
-          | "system",
-      }))
-      // The AI SDK rejects empty messages, including system messages.
-      .filter((message) => message.parts.length > 0)
-  );
+  return messages
+    .filter((m) => m.role !== "tool")
+    .map((m) => ({
+      id: m.id,
+      parts: m.parts.flatMap((p) => toUIPart(p, ctx)),
+      role: (m.role === "summary" ? "system" : m.role) as
+        | "user"
+        | "assistant"
+        | "system",
+    }))
+    .filter((message) => message.parts.length > 0);
 }
 
 function toUIPart(
@@ -100,7 +97,6 @@ function toToolPart(
   response: ApprovalResponsePart | undefined
 ): UIMessage["parts"][number] {
   const type = `tool-${call.name}` as const;
-  // Replay needs provider metadata on every state to preserve thought signatures.
   const callProviderMetadata = call.providerOptions as
     | ProviderMetadata
     | undefined;
@@ -220,7 +216,6 @@ export class InvalidApprovalResponseError extends Error {
   }
 }
 
-/** An approval can resolve only a still-pending request in existing history. */
 export function validateApprovalResponse(
   history: SessionMessage[],
   response: ApprovalResponsePart

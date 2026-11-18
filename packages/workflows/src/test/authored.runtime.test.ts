@@ -99,7 +99,8 @@ afterEach(async () => {
     try {
       await orch?.stop();
     } catch {
-      /* best-effort teardown */
+      // biome-ignore lint/complexity/noUselessContinue: Finish tearing down the remaining orchestrators.
+      continue;
     }
   }
 });

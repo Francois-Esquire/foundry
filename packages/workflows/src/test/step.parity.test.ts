@@ -92,7 +92,8 @@ describe("Parity — lifecycle event sequence (modulo step.progress)", () => {
                 try: () => step.run(),
               }).pipe(Effect.either);
             } catch {
-              /* swallow — we only care about events */
+              yield* Effect.sleep(5);
+              return events;
             }
             yield* Effect.sleep(5);
             return events;

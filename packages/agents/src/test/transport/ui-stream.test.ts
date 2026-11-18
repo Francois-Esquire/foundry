@@ -23,7 +23,7 @@ function streamOf(events: SessionEvent[]): SessionStream {
     outcome: Promise.resolve("complete"),
     output: Promise.resolve(undefined as never),
     partialOutputStream: (async function* () {
-      // No structured output.
+      yield* [];
     })(),
     result: Promise.resolve(undefined),
     text: Promise.resolve(""),

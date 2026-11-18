@@ -486,9 +486,7 @@ describe.each(STORE_KINDS)("%s store: Staged blob bytes", (kind) => {
       }
       expect(listed).toEqual([]);
       const reading = async () => {
-        for await (const _ of files.read(name, { end: 1, start: 0 })) {
-          // Nothing: the read is refused before it opens a file.
-        }
+        await Array.fromAsync(files.read(name, { end: 1, start: 0 }));
       };
       await expect(reading()).rejects.toThrow("Invalid blob storage path");
       await expect(files.remove(name)).rejects.toThrow(

@@ -51,7 +51,7 @@ export class DispatchedWorkflow<
     this.#settled = Effect.runSync(Deferred.make<unknown>());
   }
 
-  /** @internal Queue calls this from #runOne after bookkeeping. Idempotent. */
+  /** @internal */
   _settle(value: unknown): Effect.Effect<void> {
     const self = this;
     return Effect.gen(function* () {
@@ -63,12 +63,12 @@ export class DispatchedWorkflow<
     });
   }
 
-  /** @internal Settle a handle whose durable row could not be admitted. */
+  /** @internal */
   _rejectAdmission(error: Error): Effect.Effect<void> {
     return this._rejectInfrastructure(error);
   }
 
-  /** @internal Settle a handle after an execution-infrastructure failure. */
+  /** @internal */
   _rejectInfrastructure(error: Error): Effect.Effect<void> {
     this.#admissionFailure = error;
     const result: WorkflowResult = { error, status: "failed" };
@@ -151,7 +151,7 @@ export class DispatchedWorkflow<
     return this.#withControl ? this.#withControl(operation) : operation();
   }
 
-  /** @internal Apply a cancellation whose durable authority already committed. */
+  /** @internal */
   _cancelAfterAuthority(reason?: string): Promise<void> {
     if (this.#admissionFailure) {
       return Promise.resolve();
@@ -160,7 +160,7 @@ export class DispatchedWorkflow<
     return this.#withControl ? this.#withControl(operation) : operation();
   }
 
-  /** @internal Queue control lock must already be held. */
+  /** @internal */
   _cancelAfterAuthorityUnlocked(reason?: string): Promise<void> {
     if (this.#admissionFailure) {
       return Promise.resolve();
@@ -176,7 +176,7 @@ export class DispatchedWorkflow<
     );
   }
 
-  /** @internal Cancel live work without settling the queue-owned result. */
+  /** @internal */
   _cancelLiveAfterAuthority(reason?: string): Promise<unknown> {
     if (this.#admissionFailure) {
       return Promise.resolve(undefined);
@@ -185,7 +185,7 @@ export class DispatchedWorkflow<
     return this.#withControl ? this.#withControl(operation) : operation();
   }
 
-  /** @internal Queue control lock must already be held. */
+  /** @internal */
   _cancelLiveAfterAuthorityUnlocked(reason?: string): Promise<unknown> {
     if (this.#admissionFailure) {
       return Promise.resolve(undefined);
@@ -211,7 +211,7 @@ export class DispatchedWorkflow<
     return this.workflow.resume(name, value);
   }
 
-  /** @internal Resume exactly one first-class suspension occurrence. */
+  /** @internal */
   resumeOccurrence(
     stepPath: readonly string[],
     name: string,

@@ -127,7 +127,8 @@ export function createContainers(options: CreateContainersOptions): Containers {
         ((text: string) => process.stderr.write(`foundry: ${text}\n`))
       )(line);
     } catch {
-      // What was to be said is lost; what the registry does is not.
+      // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+      return;
     }
   };
 
@@ -588,7 +589,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         (await recordedByAnother(machine.name, row.id))
       );
     } catch {
-      // A store that cannot be read says nothing either way: `undefined`.
+      return undefined;
     }
   };
 

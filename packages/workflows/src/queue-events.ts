@@ -88,7 +88,8 @@ export class QueueEvents {
       try {
         handler(payload);
       } catch {
-        /* swallow */
+        // biome-ignore lint/complexity/noUselessContinue: Keep delivering after a listener throws.
+        continue;
       }
     }
   }

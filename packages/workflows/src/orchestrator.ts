@@ -320,11 +320,7 @@ export class Orchestrator {
     return this.registry.names();
   }
 
-  /**
-   * @internal Effect-typed implementation. Resolves the factory, builds
-   * the instance under the caller's Scope, auto-wraps Step → Workflow,
-   * dispatches on queue, threading `name` into `runs.step` for recovery.
-   */
+  /** @internal */
   #run<I, O>(
     name: string,
     input: I,

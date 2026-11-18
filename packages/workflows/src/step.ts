@@ -234,7 +234,7 @@ export abstract class Step<
     return plan;
   }
 
-  /** @internal Compiler protocol; materializes a fresh placed runtime Step. */
+  /** @internal */
   [definitionMaterializer](
     input: unknown,
     binding: DefinitionBinding | undefined,
@@ -249,18 +249,7 @@ export abstract class Step<
     });
   }
 
-  /**
-   * @internal Allocate the substrate.
-   *
-   *   - Root path (`parent === null`): allocate fresh Scope and all slices.
-   *   - Child path (`parent !== null`): fork parent's snapshot/channels
-   *     (shared per Run), fork composer (forks executable), share scope.
-   *
-   * Then walk `#pendingChildren`: materialize StepSpec children and
-   * recursively bind Step instances.
-   *
-   * Throws if already bound.
-   */
+  /** @internal */
   #initialize(parent: Step | null): void {
     if (this.#substrate) {
       throw new Error(`Step "${this.#specName}" is already bound`);
@@ -328,19 +317,14 @@ export abstract class Step<
     }
   }
 
-  /**
-   * @internal Construct an unbound Step. Routes all construction through
-   * one site so the protected constructor needn't be reached via a cast.
-   */
+  /** @internal */
   static #new<Input, Output, Context extends BaseContext = BaseContext>(
     spec: StepSpec<Input, Output, Context>
   ): Step<Input, Output, Context> {
     return new RuntimeStep<Input, Output, Context>(spec);
   }
 
-  /**
-   * @internal Materialize a child Step from a spec under this Step's substrate.
-   */
+  /** @internal */
   #materializeSpecChild(spec: StepSpec): Step {
     const child = Step.#new(spec);
     child.#initialize(this as unknown as Step);
@@ -382,11 +366,11 @@ export abstract class Step<
     return this.#children;
   }
 
-  /** @internal Runtime projection; omitted from the published declaration. */
+  /** @internal */
   get snapshot(): Snapshot {
     return this.#s.snapshot;
   }
-  /** @internal Runtime event substrate; omitted from the published declaration. */
+  /** @internal */
   get channels(): Channels {
     return this.#s.channels;
   }
@@ -396,11 +380,11 @@ export abstract class Step<
   subscribe(signal?: AbortSignal): ReadableStream<ChannelMessage> {
     return this.#s.channels.subscribe(signal);
   }
-  /** @internal Effect execution substrate; omitted from the published declaration. */
+  /** @internal */
   get executable(): Executable<I, X> {
     return this.#s.executable;
   }
-  /** @internal Effect composition substrate; omitted from the published declaration. */
+  /** @internal */
   get composer(): Composer {
     return this.#s.composer;
   }
@@ -469,10 +453,7 @@ export abstract class Step<
     return state.steps[key]?.status ?? "pending";
   }
 
-  /**
-   * @internal Effect-Stream form of status transitions. Use the JS twin
-   * {@link statusChanges} (ReadableStream) on the consumer surface.
-   */
+  /** @internal */
   get #statusChanges(): Stream.Stream<StepStatus> {
     const key = this.path.join(".");
     return this.snapshot.stepsChanges.pipe(
@@ -491,9 +472,7 @@ export abstract class Step<
     return state.steps[key]?.output as O | undefined;
   }
 
-  /**
-   * @internal Effect-Stream of completion outputs for this step's path.
-   */
+  /** @internal */
   get #outputChanges(): Stream.Stream<O> {
     return this.channels.outputFor<O>(this.path);
   }
@@ -536,7 +515,7 @@ export abstract class Step<
     this.#publishProgress(value);
   }
 
-  /** @internal Effect-Stream of progress values. */
+  /** @internal */
   get #progressChanges(): Stream.Stream<number> {
     return this.channels.progressFor(this.path);
   }
@@ -580,9 +559,7 @@ export abstract class Step<
     return this.executable.onAbort(handler);
   }
 
-  /**
-   * @internal Effect-typed suspend.
-   */
+  /** @internal */
   #suspend<T>(
     args: SuspensionRequest,
     occurrence?: number
@@ -594,9 +571,7 @@ export abstract class Step<
     return runEffectPromise(this.#suspend<T>(args, occurrence));
   }
 
-  /**
-   * @internal Effect-typed resolve.
-   */
+  /** @internal */
   #resolve(name: string, value: unknown): Effect.Effect<void> {
     return this.executable.resolve(name, value);
   }
@@ -605,7 +580,7 @@ export abstract class Step<
     return runEffectPromise(this.#resolve(name, value));
   }
 
-  /** @internal Resolve one deterministic suspension occurrence. */
+  /** @internal */
   resolveOccurrence(
     stepPath: readonly string[],
     name: string,
@@ -650,13 +625,7 @@ export abstract class Step<
     return runEffectPromise(this.#waitWhilePaused());
   }
 
-  /**
-   * @internal Effect-typed pause gate. Reads the snapshot-derived status
-   * stream ({@link #statusChanges}); since the underlying SubscriptionRef
-   * replays its current value on subscribe, this both observes the current
-   * status and waits for the next non-paused transition in one filtered
-   * take — no separate "read current then subscribe" race window.
-   */
+  /** @internal */
   #waitWhilePaused(): Effect.Effect<void> {
     return this.#statusChanges.pipe(
       Stream.filter((s) => s !== "paused"),
@@ -665,9 +634,7 @@ export abstract class Step<
     );
   }
 
-  /**
-   * @internal Read the attempt number from the snapshot.
-   */
+  /** @internal */
   #attemptFromSnapshot(): number {
     const state = Effect.runSync(this.snapshot.current);
     const key = this.path.join(".");
@@ -740,11 +707,7 @@ export abstract class Step<
         }
       } finally {
         this.signal.removeEventListener("abort", onAbort);
-        try {
-          reader.releaseLock();
-        } catch {
-          // Lock may already be released by cancel().
-        }
+        releaseReader(reader);
       }
       return;
     }
@@ -767,9 +730,7 @@ export abstract class Step<
     }
   }
 
-  /**
-   * @internal Dev-mode JSON-serialization guard.
-   */
+  /** @internal */
   static #assertSerializable(value: unknown, where: string): void {
     if (process.env.NODE_ENV === "production") {
       return;
@@ -808,7 +769,7 @@ export abstract class Step<
     return Stream.toReadableStream(this.snapshot.changes);
   }
 
-  /** @internal Effect-typed write. */
+  /** @internal */
   #setWorkflow(workflow: WorkflowSnapshot): Effect.Effect<void> {
     return this.snapshot.setWorkflow(workflow);
   }
@@ -816,7 +777,7 @@ export abstract class Step<
     return runEffectPromise(this.#setWorkflow(workflow));
   }
 
-  /** @internal Effect-typed write. */
+  /** @internal */
   #setCursor(key: string | null): Effect.Effect<void> {
     return this.snapshot.setCursor(key);
   }
@@ -824,7 +785,7 @@ export abstract class Step<
     return runEffectPromise(this.#setCursor(key));
   }
 
-  /** @internal Effect-typed write. */
+  /** @internal */
   #markSkipped(path: readonly string[]): Effect.Effect<void> {
     return this.snapshot.markSkipped(path);
   }
@@ -832,7 +793,7 @@ export abstract class Step<
     return runEffectPromise(this.#markSkipped(path));
   }
 
-  /** @internal Effect-typed write. */
+  /** @internal */
   #markAborted(path: readonly string[]): Effect.Effect<void> {
     return this.snapshot.markAborted(path);
   }
@@ -840,7 +801,7 @@ export abstract class Step<
     return runEffectPromise(this.#markAborted(path));
   }
 
-  /** @internal Runtime bridge; preserves protected definition execute bodies. */
+  /** @internal */
   invoke(
     input: I,
     context: StepContext<I, O, X>
@@ -850,23 +811,7 @@ export abstract class Step<
     return this.execute(input, context);
   }
 
-  /**
-   * Drive this Step. Thin orchestration wrapper over the single engine
-   * {@link Executable.drive}: runs in `stepMode` so the engine applies
-   * the Step-only hooks (pre-exec short-circuits, pause gate, post-body
-   * child cascade, `progress=100`, abort-failed suppression, and the
-   * `ctx.next` / `ctx.pipe` affordances).
-   *
-   * `input` overrides this Step's bound input — useful when a parent's
-   * execute wants to feed a different value (e.g. piping in
-   * `sequence`-style composition). `ctxExtension` layers extra fields
-   * onto the body's `ctx` for this call only.
-   *
-   * @internal Effect-typed driver. Public consumers call {@link run}
-   * (Promise) which wraps this and throws {@link StepBailError} on bail.
-   * The Effect form preserves the `O | Bail<unknown>` discriminant so
-   * callers can branch in Effect land without throwing.
-   */
+  /** @internal */
   #run(
     input?: I,
     ctxExtension?: object
@@ -920,5 +865,14 @@ class RuntimeStep<
     | Promise<O | Bail<unknown>>
     | AsyncGenerator<unknown, O | Bail<unknown>, unknown> {
     return this.#body.call(this, input, context);
+  }
+}
+
+function releaseReader(reader: { releaseLock(): void }): void {
+  try {
+    reader.releaseLock();
+  } catch {
+    // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+    return;
   }
 }

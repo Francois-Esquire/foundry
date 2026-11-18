@@ -108,7 +108,7 @@ export function microsandboxEngineVersion(): string | undefined {
       directory = parent;
     }
   } catch {
-    // No installed SDK, or an unreadable manifest — reported without a version.
+    return undefined;
   }
   return undefined;
 }

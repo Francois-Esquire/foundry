@@ -40,9 +40,7 @@ export async function open(
   options: BrowserLiveOptions
 ): Promise<BrowserLiveInteraction> {
   const adapter: HostAdapter = {
-    data: () => {
-      // `onData` is the Node entry's surface; a browser caller has no use for
-    },
+    data: () => undefined,
     media: (media, direction) => {
       options.onStream?.(media as MediaStream, direction);
     },

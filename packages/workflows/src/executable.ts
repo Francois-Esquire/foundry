@@ -208,7 +208,8 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
       try {
         handler(reason);
       } catch {
-        // Handler responsible for its own errors.
+        // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+        return;
       }
     };
     if (signal.aborted) {

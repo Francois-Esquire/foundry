@@ -25,17 +25,18 @@ export async function codexSubscriptionTokens(
   env?: Readonly<Record<string, string>>
 ): Promise<{ accessToken: string; chatgptAccountId: string }> {
   const dir = env?.CODEX_HOME ?? join(env?.HOME ?? homedir(), ".codex");
+  let login: ReturnType<typeof codexLogin.safeParse> | undefined;
   try {
     const raw = await readFile(join(dir, "auth.json"), "utf8");
-    const result = codexLogin.safeParse(JSON.parse(raw));
-    if (result.success) {
-      return {
-        accessToken: result.data.tokens.access_token,
-        chatgptAccountId: result.data.tokens.account_id,
-      };
-    }
+    login = codexLogin.safeParse(JSON.parse(raw));
   } catch {
-    // Return a stable remedy without native errors that may contain credentials.
+    login = undefined;
+  }
+  if (login?.success) {
+    return {
+      accessToken: login.data.tokens.access_token,
+      chatgptAccountId: login.data.tokens.account_id,
+    };
   }
   throw new Error(
     "Codex subscription login is unavailable. Sign in with Codex on the host before starting a sandbox session."
@@ -131,16 +132,17 @@ export async function claudeSubscriptionToken(
     options.readCredentials ?? ((path: string) => readFile(path, "utf8"));
   sources.push(() => readCredentials(location.file));
   for (const read of sources) {
+    let login: ReturnType<typeof claudeLogin.safeParse>;
     try {
-      const result = claudeLogin.safeParse(JSON.parse(await read()));
-      if (
-        result.success &&
-        result.data.claudeAiOauth.expiresAt > Date.now() + 60_000
-      ) {
-        return result.data.claudeAiOauth.accessToken;
-      }
+      login = claudeLogin.safeParse(JSON.parse(await read()));
     } catch {
-      // A locked keychain or absent credential file is not a usable login.
+      continue;
+    }
+    if (
+      login.success &&
+      login.data.claudeAiOauth.expiresAt > Date.now() + 60_000
+    ) {
+      return login.data.claudeAiOauth.accessToken;
     }
   }
   throw new Error(
@@ -193,13 +195,14 @@ export async function piCredential(
       })
     ).stdout
 ): Promise<string> {
+  let key: string;
   try {
-    const key = (await readKey(modelId)).trim();
-    if (key) {
-      return key;
-    }
+    key = (await readKey(modelId)).trim();
   } catch {
-    // CLI errors can contain credential values, so keep the remedy stable.
+    key = "";
+  }
+  if (key) {
+    return key;
   }
   throw new Error(
     "Pi login is unavailable. Sign in with Pi on the host or supply a per-session API key."

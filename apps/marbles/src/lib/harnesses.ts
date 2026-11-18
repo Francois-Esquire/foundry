@@ -18,10 +18,10 @@ export function which(
     const candidate = join(dir, name);
     try {
       accessSync(candidate, constants.X_OK);
-      return candidate;
     } catch {
-      // Continue searching when a candidate is inaccessible.
+      continue;
     }
+    return candidate;
   }
   return null;
 }

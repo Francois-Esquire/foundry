@@ -205,9 +205,9 @@ describe.each(STORE_KINDS)("%s store: mutation hooks", (storeKind) => {
     async (applied, throws) => {
       const committed: ContentResolved[] = [];
       let receiver: unknown;
-      const logged = vi.spyOn(console, "error").mockImplementation(() => {
-        // The hook failure is logged, not thrown.
-      });
+      const logged = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
       const { artifact, artifacts, filesystem } = await fixture(
         { "notes.md": { bytes: "before" } },
         false,

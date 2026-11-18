@@ -341,7 +341,12 @@ Five buckets, each importing only what sits below it:
   generation that is not retiring is replaced when it exits. A run of a
   retired generation that parks later is let go as it parks and taken
   over by the current one (`Engine.adopt`, over `Orchestrator.adopt`,
-  which claims the run's suspensions at a new revision); the daemon also
+  which claims the run's suspensions at a new revision). The retiring
+  engine stops answering a parked run before it gives up its claim. A
+  failed release is retried with backoff while the engine lives. A
+  failed adoption clears the local scope, parked queue handle and router
+  entry, and gives up the claim through the same retry path. Taking the
+  claim again cancels any pending retry for the previous attempt. The daemon also
   sweeps the database for parked runs no live engine holds and offers
   them to the current generation. An answer is applied only by the engine
   that holds the run when it is written: the router resolves at the
@@ -361,7 +366,14 @@ Five buckets, each importing only what sits below it:
   (`process/fingerprint.ts`) is taken before a generation loads: every
   file under each workspace's root, by relative path and content, and
   every file the generation reports reading outside it (`onRead` in
-  `workspace/copies.ts`), recorded as it was when read.
+  `workspace/copies.ts`), recorded as it was when read. On load refusal,
+  `watching` keeps the outside paths the preceding generation read, with
+  their digests at the failed attempt. Restoring one of those files can
+  trigger a fresh load even when the candidate never read it.
+  A moved queued agent dispatch reopens its stored session in the engine
+  that starts the turn. `BackgroundRuns` reads and cancels workflow runs
+  through the engine's run and execution records when the host did not
+  start them.
   Commands about a run go to the generation whose process owns it, answers
   and activity stops to the one holding them, the rest to the current
   one (the table beside `RUN_METHODS` in `daemon.ts`); every signal to a

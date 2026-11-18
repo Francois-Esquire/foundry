@@ -292,7 +292,7 @@ export abstract class Workflow<
     return this.#definitionPlan;
   }
 
-  /** @internal Compiler protocol; nested Workflows become parent-tree Steps. */
+  /** @internal */
   [definitionMaterializer](
     input: unknown,
     binding: DefinitionBinding | undefined,
@@ -311,7 +311,7 @@ export abstract class Workflow<
     this.#auditSink = sink;
   }
 
-  /** @internal Wire granular progress and log signals to Run observation. */
+  /** @internal */
   setObservationCallbacks(callbacks: WorkflowObservationCallbacks): void {
     this.#observationCallbacks = callbacks;
   }
@@ -337,7 +337,7 @@ export abstract class Workflow<
     return Workflow.#allocate<Input, Output, Context>(step, input, persistence);
   }
 
-  /** @internal Allocate Workflow substrate and fork mirror fibers. */
+  /** @internal */
   static #allocate<Input, Output, Context extends BaseContext = BaseContext>(
     root: Step<Input, Output, Context>,
     input: Input,
@@ -468,16 +468,7 @@ export abstract class Workflow<
     );
   }
 
-  /**
-   * Terminal settlement: update `#state` (status + completedAt + any
-   * status-specific extra fields) → bump the event + status metrics →
-   * mirror `#status` → settle `#result` first-wins. Shared by the
-   * failed / bail / complete / cancel transitions. `completedAt` is only
-   * written if unset, so it is never double-booked against the
-   * status-mirror fiber (which owns `startedAt`).
-   *
-   * @internal Effect-typed.
-   */
+  /** @internal */
   #settle(opts: {
     status: RunStatus;
     eventMetric: string;
@@ -510,12 +501,7 @@ export abstract class Workflow<
     });
   }
 
-  /**
-   * Drive the workflow. Bail-tagged values are returned as-is; throws
-   * or returns suspension signals; success returns the output.
-   *
-   * @internal Effect-typed. Returns `O | Bail<unknown>`.
-   */
+  /** @internal */
   #run(
     input?: I,
     ctxExtension?: object
@@ -710,12 +696,7 @@ export abstract class Workflow<
     );
   }
 
-  /**
-   * Restore workflow state from persisted metadata (used on hydrate).
-   * Merges supplied partial onto existing state so fresh fields survive.
-   *
-   * @internal
-   */
+  /** @internal */
   #seedState(
     persisted: Partial<WorkflowState> & { status: RunStatus }
   ): Effect.Effect<void> {
@@ -749,7 +730,7 @@ export abstract class Workflow<
     return runEffectPromise(this.#seedState(persisted));
   }
 
-  /** @internal Package-private Effect adapter; stripped from declarations. */
+  /** @internal */
   [workflowEffectAccessKey](): WorkflowEffectAccess<I, O> {
     return {
       cancel: (reason) => this.#cancel(reason),

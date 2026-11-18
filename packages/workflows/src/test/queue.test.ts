@@ -583,10 +583,7 @@ describe("Queue — shutdown", () => {
   test("shutdown() with graceMs=0 proceeds immediately and still marks 'stopped'", async () => {
     const queue = new Queue({ concurrency: 1, store });
     const wf = Workflow.create({
-      execute: async () =>
-        new Promise<string>((_resolve) => {
-          /* never resolves */
-        }),
+      execute: async () => new Promise<string>((_resolve) => undefined),
       input: undefined,
       name: "shutdown-grace-0",
     });

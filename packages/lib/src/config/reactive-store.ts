@@ -43,12 +43,7 @@ export class ReactiveStore<T extends object> extends EventEmitter<
     this._values = structuredClone(initial);
   }
 
-  /**
-   * @internal Wire (or clear, with `null`) a forwarder invoked after every
-   * commit. `Config.mount` uses this to relay a mounted child's changes up
-   * under its prefix; `detach`/override clears it. Not for application use —
-   * a node forwards to at most one parent.
-   */
+  /** @internal */
   attachRelay(relay: CommitRelay<T> | null): void {
     this.#relay = relay;
   }

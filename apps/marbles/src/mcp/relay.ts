@@ -19,12 +19,12 @@ export function isServer(): boolean {
 
 export function protocolOutput(): Writable {
   delete process.env[SERVER];
-  let pipe = false;
+  let pipe: boolean;
   try {
     const stat = fstatSync(PROTOCOL_FD);
     pipe = stat.isFIFO() || stat.isSocket();
   } catch {
-    // Not open: refused below.
+    pipe = false;
   }
   if (!pipe) {
     throw new Error(

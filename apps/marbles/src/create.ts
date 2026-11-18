@@ -368,7 +368,7 @@ function realPath(file: string | undefined): string | undefined {
   try {
     return realpathSync(file);
   } catch {
-    // Then the identity is the one the database keeps, as without a file.
+    return undefined;
   }
 }
 

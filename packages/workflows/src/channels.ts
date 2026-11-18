@@ -47,12 +47,12 @@ export type ChannelMessage<S = unknown> =
   | { readonly _tag: "chunk"; readonly chunk: ChannelChunk<S> };
 
 export interface PubSubChannel<A> {
-  /** @internal Effect-typed write. */
+  /** @internal */
   readonly publish: (a: A) => Effect.Effect<void>;
-  /** @internal Raw PubSub. */
+  /** @internal */
   readonly pubsub: PubSub.PubSub<A>;
   readonly push: (a: A) => void;
-  /** @internal Effect Stream. */
+  /** @internal */
   readonly stream: Stream.Stream<A>;
 }
 
@@ -93,13 +93,7 @@ export class Channels<S = unknown> {
     this.#onLog?.(entry);
   }
 
-  /**
-   * Allocate Channels bound to a Snapshot. Events apply to Snapshot
-   * synchronously before broadcast, preserving "publish, then read"
-   * in a single fiber.
-   *
-   * @internal Effect-typed factory. Consumers receive Channels via Step/Workflow.
-   */
+  /** @internal */
   static make<Chunk = unknown>(
     snapshot: Snapshot
   ): Effect.Effect<Channels<Chunk>, never, Scope.Scope> {
@@ -147,11 +141,7 @@ export class Channels<S = unknown> {
         }
         log.record(msg);
         if (controller) {
-          try {
-            controller.enqueue(msg);
-          } catch {
-            /* downstream cancelled */
-          }
+          enqueueChunk(controller, msg);
         } else {
           buffer.push(msg);
         }
@@ -179,7 +169,8 @@ export class Channels<S = unknown> {
             try {
               controller.close();
             } catch {
-              /* already closed */
+              // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+              return;
             }
           }
         })
@@ -189,18 +180,15 @@ export class Channels<S = unknown> {
         start(c) {
           controller = c;
           for (const msg of buffer) {
-            try {
-              c.enqueue(msg);
-            } catch {
-              /* downstream cancelled */
-            }
+            enqueueChunk(c, msg);
           }
           buffer.length = 0;
           if (closed) {
             try {
               c.close();
             } catch {
-              /* already closed */
+              // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+              return;
             }
           }
         },
@@ -383,10 +371,7 @@ export class Channels<S = unknown> {
     );
   }
 
-  /**
-   * Stream of completion values for a step `path`.
-   * @internal Lazy Effect-Stream form. Step's `outputChanges` wraps this for JS.
-   */
+  /** @internal */
   outputFor<O = unknown>(path: readonly string[]): Stream.Stream<O> {
     return this.events.stream.pipe(
       Stream.filterMap((event) => {
@@ -401,10 +386,7 @@ export class Channels<S = unknown> {
     );
   }
 
-  /**
-   * Stream of progress values (0..100) for a step `path`.
-   * @internal Lazy Effect-Stream form. Step's `progressChanges` wraps this.
-   */
+  /** @internal */
   progressFor(path: readonly string[]): Stream.Stream<number> {
     return this.events.stream.pipe(
       Stream.filterMap((event) => {
@@ -419,12 +401,7 @@ export class Channels<S = unknown> {
     );
   }
 
-  /**
-   * Pre-subscribed status stream (race-free). Synchronously acquires
-   * the subscription under Scope to avoid missing early events.
-   *
-   * @internal Eager form used by Step to mirror events into `#status`.
-   */
+  /** @internal */
   subscribeStatus(
     path: readonly string[]
   ): Effect.Effect<Stream.Stream<StepStatus>, never, Scope.Scope> {
@@ -434,11 +411,7 @@ export class Channels<S = unknown> {
     );
   }
 
-  /**
-   * Pre-subscribed completion stream (race-free).
-   *
-   * @internal Eager form used by Step to mirror events into `#output`.
-   */
+  /** @internal */
   subscribeOutput<O = unknown>(
     path: readonly string[]
   ): Effect.Effect<Stream.Stream<O>, never, Scope.Scope> {
@@ -458,10 +431,7 @@ export class Channels<S = unknown> {
     );
   }
 
-  /**
-   * Stream of status values for a step `path` (filters by tag).
-   * @internal Lazy Effect-Stream form. See {@link subscribeStatus} for eager variant.
-   */
+  /** @internal */
   statusFor(path: readonly string[]): Stream.Stream<StepStatus> {
     return this.#statusStream(this.events.stream, path);
   }
@@ -531,7 +501,8 @@ export class Channels<S = unknown> {
         try {
           controllerRef.close();
         } catch {
-          /* already closed */
+          // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+          return;
         }
       }
     };
@@ -576,4 +547,16 @@ export class Channels<S = unknown> {
 
 function samePath(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((segment, i) => segment === b[i]);
+}
+
+function enqueueChunk<T>(
+  controller: ReadableStreamDefaultController<T>,
+  message: T
+): void {
+  try {
+    controller.enqueue(message);
+  } catch {
+    // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+    return;
+  }
 }

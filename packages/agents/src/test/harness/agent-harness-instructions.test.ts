@@ -24,9 +24,7 @@ function systemMessage(prompt: unknown): string | undefined {
 }
 
 async function drain(stream: AsyncIterable<unknown>) {
-  for await (const _event of stream) {
-    // exhaust
-  }
+  await Array.fromAsync(stream);
 }
 
 describe("AgentHarness — instructions", () => {

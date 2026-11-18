@@ -466,10 +466,7 @@ describe("Queue — events firehose (queue.on)", () => {
     queue.on("cancelled", (p) => seen.push(p.runId));
 
     const wf = Workflow.create({
-      execute: async () =>
-        new Promise<never>(() => {
-          /* never resolves */
-        }),
+      execute: async () => new Promise<never>(() => undefined),
       input: undefined,
       name: "ev-cancelled",
     });

@@ -38,9 +38,7 @@ export function sampleStream(
       });
     }, "image/jpeg");
   }, intervalMs);
-  video.play().catch(() => {
-    // A stream that will not play yields no frames; it is not a state change.
-  });
+  video.play().catch(() => undefined);
   return {
     stop() {
       stopped = true;

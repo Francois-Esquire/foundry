@@ -11,12 +11,12 @@ export interface QueueOptions {
   readonly extensions?: Extensions;
   readonly id?: string;
   readonly logger?: OrchestratorLogger;
-  /** @internal Atomically cancel the Run and every pending Suspension. */
+  /** @internal */
   readonly onRunCancelled?: (
     runId: string,
     runPatch: Omit<UpdateRunInput, "status">
   ) => Promise<void>;
-  /** @internal Persist first-class authority before exposing a parked Run. */
+  /** @internal */
   readonly onRunSuspended?: (
     runId: string,
     step: string,

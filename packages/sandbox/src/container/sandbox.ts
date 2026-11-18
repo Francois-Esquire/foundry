@@ -67,7 +67,8 @@ export async function startContainerSandbox<TNative>(
       try {
         options.onLeftBehind?.(cleanup);
       } catch {
-        // A callback that throws does not replace the setup's error.
+        // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+        return;
       }
     };
     if (options.mayRemove?.() === false) {
