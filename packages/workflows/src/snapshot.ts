@@ -11,21 +11,6 @@ import type {
   WorkflowStepNode,
 } from "./schema";
 
-/**
- * Projected runtime state: receives {@link applyEvent} updates via
- * Channels and serves as canonical read for persistence.
- *
- * Three stores under one SubscriptionRef (atomic updates):
- *   - `steps`: flat Record<key, StepSnapshot> by dot-joined path
- *   - `workflow`: tree + cursor + name + input (null if unwrapped)
- *   - `results`: denormalized outputs (kept separate from steps so
- *     result subscribers don't wake on status-only ticks)
- *
- * Identity-free (no `runId`/`queueId`). Consumers use per-store
- * derivations (stepsChanges/workflowChanges/resultsChanges) or full
- * state via changes.
- */
-
 export type {
   SnapshotState,
   StepSnapshot,
@@ -64,11 +49,6 @@ export class Snapshot {
     });
   }
 
-  /**
-   * Pure fold: `(state, event) → state`. Used by applyEventEffect and
-   * exposed for replay/hydration without a live Snapshot. Compile-time
-   * exhaustive via Match.exhaustive. Custom events are no-op.
-   */
   static apply(state: SnapshotState, event: ChannelEvent): SnapshotState {
     return Match.value(event).pipe(
       Match.tag("step.started", (e) =>
@@ -177,8 +157,6 @@ export class Snapshot {
         }));
         return clearCursorIf(stepped, keyOf(e.path));
       }),
-      // step.resolved: transient marker. Clears suspension so consumers
-      // don't see stale resolution. Follow-up replay fires step.started.
       Match.tag("step.resolved", (e) =>
         withStep(state, e.path, (prev) => {
           const next: StepSnapshot = {
@@ -206,7 +184,6 @@ export class Snapshot {
     );
   }
 
-  /** Sync apply — called by Channels.events.push. */
   applyEvent(event: ChannelEvent): void {
     Effect.runSync(this.applyEventEffect(event));
   }
@@ -249,13 +226,7 @@ export class Snapshot {
   }
 
   // @internal All four (setWorkflow, setCursor, markSkipped, markAborted)
-  // return Effect. Step/Workflow wrap with Promise at consumer surface.
 
-  /**
-   * Seed structural plan + cursor at workflow dispatch. Also seeds
-   * steps with `pending` entries so subscribers see full tree before
-   * any step runs.
-   */
   setWorkflow(workflow: WorkflowSnapshot): Effect.Effect<void> {
     return SubscriptionRef.update(this.#state, (prev) => {
       const seeded: Record<string, StepSnapshot> = { ...prev.steps };
@@ -307,10 +278,6 @@ export class Snapshot {
     );
   }
 
-  /**
-   * Snapshot is shared per Run (one state machine, all frames).
-   * Returns `this` so uniform `slice.fork()` contract holds.
-   */
   fork(): this {
     return this;
   }

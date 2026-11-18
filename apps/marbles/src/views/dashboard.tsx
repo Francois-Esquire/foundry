@@ -43,11 +43,9 @@ function describeFilter(
   return `${filter.kind}: ${name ?? filter.id}`;
 }
 
-/** Room for Runs beside Latest and Usage. */
 const WIDE = 110;
 const LATEST_ITEMS = 12;
 
-/** The Overview and Catalog run filter and search lines, and the Logs search. */
 function DashboardSearch({
   filterLabel,
   searching,
@@ -94,7 +92,6 @@ function DashboardSearch({
   );
 }
 
-/** One line of text for a steer or a resume prompt on a live step. */
 function PromptBar({
   prompt,
   draft,
@@ -126,7 +123,6 @@ function PromptBar({
   );
 }
 
-/** Work in flight, or the reason it failed. */
 function WorkStatus({
   busy,
   error,
@@ -144,7 +140,6 @@ function WorkStatus({
 
 type DashboardUi = ReturnType<typeof useDashboard>;
 
-/** Overview or Catalog: their lists, or the details opened from one. */
 function BrowserContent({
   ui,
   snapshot,
@@ -239,14 +234,12 @@ function BrowserContent({
   );
 }
 
-/** The host owns snapshots, additional toolbar controls, and shutdown. */
 export function DashboardView({
   toolbar,
   viewportWidth,
   ...options
 }: DashboardOptions & {
   readonly toolbar?: ReactNode;
-  /** Narrower than the terminal, for the preview's small-screen scenarios. */
   readonly viewportWidth?: number;
 }) {
   const { onClose, onLaunch, actions, hosted } = options;

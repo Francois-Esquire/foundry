@@ -10,17 +10,9 @@ export type AnswerHandler = (
   answer: FeedAnswer
 ) => Promise<void>;
 
-/**
- * Answering the selected input entry: number keys pick a choice; without
- * choices, `a` opens a text field. On an approval the number key opens the
- * field for an optional note first; Enter sends the choice with it. The
- * entry flips to answered on the next snapshot, which also closes the field.
- * The dashboard's command table maps the keys onto these.
- */
 function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState("");
-  /** The approval choice waiting on its note. */
   const [choosing, setChoosing] = useState<string>();
   const [target, setTarget] = useState<string>();
   const delivery = useAsyncAction();
@@ -55,7 +47,6 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
     [question, onAnswer, delivery.run, cancel]
   );
 
-  /** A choice: sent at once, or held for a note on an approval. */
   const choose = useCallback(
     (choice: string) => {
       if (approval) {
@@ -81,7 +72,6 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
     cancel,
     choices,
     choose,
-    /** Set while an approval choice waits for its optional note. */
     choosing: typing ? choosing : undefined,
     draft,
     error:
@@ -100,11 +90,6 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
 
 export type AnswerState = ReturnType<typeof useAnswer>;
 
-/**
- * Feed tab state: the workspace scope, the selected entry, and whether the
- * list or the reader has the keyboard. The reader's scrollbox handles its
- * own arrow keys while focused.
- */
 export function useFeed(
   entries: readonly FeedEntrySnapshot[],
   workspaceId?: string,
@@ -114,14 +99,12 @@ export function useFeed(
   const [selectedKey, setSelectedKey] = useState<string>();
   const [focus, setFocus] = useState<FeedFocus>("list");
   const scopes = feedScopes(entries, workspaceId);
-  // A workspace can vanish from the store; fall back rather than show nothing.
   const activeScope = scopes.find((item) => item.id === scope) ??
     scopes[0] ?? {
       id: ALL_WORKSPACES,
       label: "All workspaces",
     };
   const visible = scopedFeed(entries, activeScope.id);
-  // New entries arrive at the top; keep the reader on what the user chose.
   const selected =
     visible.find((entry) => feedKey(entry) === selectedKey) ?? visible[0];
 
@@ -151,7 +134,6 @@ export function useFeed(
     }
   }
 
-  /** The reader takes the keyboard, when there is an entry to read. */
   function read() {
     if (selected) {
       setFocus("reader");

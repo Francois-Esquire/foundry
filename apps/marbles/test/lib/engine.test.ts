@@ -1,10 +1,3 @@
-/**
- * The lib through the real engine: a named definition registered from
- * the catalog, an approval that parks the run as an open feed entry, the
- * dashboard's answer resuming it, reports landing as entries, and the run
- * scope closing when the run settles.
- */
-
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -142,7 +135,6 @@ describe("lib2 through the engine", () => {
         return approved;
       });
 
-    // Process one: park, then quit without cancelling the question.
     define();
     const first = bindMock(() => "ok", { root, sessions });
     const feedOne = openFeed(feedRoot, { id: "ws", root });
@@ -185,7 +177,6 @@ describe("lib2 through the engine", () => {
     });
     expect((await feedOne.read())[0]?.input?.status).toBe("open");
 
-    // Process two: adopt the parked run, answer, and finish it.
     catalog.reset();
     define();
     const second = bindMock(() => "ok", { root, sessions });
@@ -222,8 +213,6 @@ describe("lib2 through the engine", () => {
       (entry) => (entry as unknown as { status: string }).status === "complete"
     );
     expect(done).toBeDefined();
-    // The body ran once per process; the ledger gave the second run the
-    // session the first opened instead of a new one.
     expect(bodies).toHaveLength(2);
     expect(two.scopes.has(launched.id)).toBe(false);
     expect((await storedRun(state, launched.id))?.status).toBe("complete");
@@ -251,8 +240,6 @@ describe("lib2 through the engine", () => {
       );
     };
 
-    // Process one: one run parked on an approval, one mid-body; the
-    // dashboard quits with `cancel`.
     define();
     const first = bindMock(() => "ok", { root });
     const feedOne = openFeed(feedRoot, { id: "ws", root });
@@ -289,7 +276,6 @@ describe("lib2 through the engine", () => {
         ?.status
     ).toBe("open");
 
-    // Process two: the parked run is adopted; the cancelled one is not.
     catalog.reset();
     define();
     const second = bindMock(() => "ok", { root });
@@ -341,7 +327,6 @@ describe("lib2 through the engine", () => {
     await openEntry(feedOne.read, (entry) => entry.input?.status === "open");
     await one.stop();
 
-    // Not askable: the run is skipped, not adopted, and not cancelled.
     catalog.reset();
     step("release").do(
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
@@ -359,7 +344,6 @@ describe("lib2 through the engine", () => {
     expect(lines.join("\n")).toContain("nothing here can resume it");
     await quiet.stop();
 
-    // Askable, but the step was renamed: skipped with a warning, no crash.
     catalog.reset();
     step("ship").do(
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
@@ -399,7 +383,6 @@ describe("lib2 through the engine", () => {
       attempts.push(session.ref.id);
       const reply = await session.generate("look at the tests");
       stream.write("waiting\n");
-      // The step parks only once its attempt stops, so the wait honours the signal.
       await Promise.race([
         gate,
         new Promise((_, reject) => {
@@ -433,8 +416,6 @@ describe("lib2 through the engine", () => {
     expect(await status("suspended")).toBeDefined();
     expect(engine.pause(launched.id, "review")).toBe(false);
 
-    // Resume with a prompt: the body replays, the session is the same one,
-    // and the prompt leads its first turn.
     gate = Promise.resolve();
     release();
     await engine.resume(launched.id, "review", "focus on flaky ones");
@@ -467,7 +448,6 @@ describe("lib2 through the engine", () => {
       turns += 1;
       const turn = session.generate(turns === 1 ? "count slowly" : "again");
       if (turns === 1) {
-        // The mock holds this turn until its signal fires.
         await new Promise((resolve) => setTimeout(resolve, 20));
         stop?.();
       }
@@ -547,7 +527,6 @@ describe("lib2 through the engine", () => {
     };
     expect((await read()).status).toBe("suspended");
     await engine.answer(question.id, "approve");
-    // question is answered and the run is under way.
     await vi.waitFor(async () =>
       expect((await read()).status).not.toBe("suspended")
     );
@@ -659,7 +638,6 @@ describe("lib2 through the engine", () => {
       counting: { n: 1 },
     });
 
-    // The setup would now lock a different value; the recovered run keeps its own.
     seed = 2;
     catalog.reset();
     define();

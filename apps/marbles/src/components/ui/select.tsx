@@ -1,4 +1,3 @@
-// Adapted from termcn OpenTUI Select: controlled selection, scoped focus, and mouse support.
 import { useKeyboard } from "@opentui/react";
 import { Action } from "~/components/ui/action";
 import { theme } from "~/components/ui/theme";

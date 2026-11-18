@@ -26,13 +26,6 @@ import type {
   Run,
 } from "./types";
 
-/**
- * Builds the one object a body receives from the run scope, the frame, and
- * the package's step context. Everything here is pre-wired: the signal is
- * the frame's, the stream is the step's, and every ask or report is
- * identified by its position in the body.
- */
-
 const ASK_NAME = "marbles.ask";
 const APPROVE = "approve";
 const REJECT = "reject";
@@ -59,7 +52,6 @@ interface Answered {
   readonly note?: string;
 }
 
-/** A resolution is the choice, or the choice with a note. */
 function answered(resolution: unknown, mode: string): Answered {
   if (typeof resolution === "string") {
     return { choice: resolution };
@@ -96,8 +88,6 @@ async function suspendFor(
     ...parsed.data,
     key: parsed.data.key ?? `ask:${occurrence}`,
   };
-  // Each ask gets its own suspension name, so a name-level resolution can
-  // never answer a different ask in the same body.
   const resolution = await ctx.suspend<unknown>({
     kind: FEED_INPUT_KIND,
     name: parsed.data.key
@@ -144,7 +134,6 @@ function buildAsk(args: AskArgs): Ask {
 }
 
 interface ReportArgs extends AskArgs {
-  /** Writes an artifact version through the step's own view, so a replay returns the same one. */
   readonly artifacts: () => Artifacts;
   readonly root: string;
 }

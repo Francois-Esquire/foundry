@@ -236,8 +236,6 @@ describe("run-start compatibility", () => {
 
 describe("placement of an unavailable Step", () => {
   test("step-unavailable carries the reason; plan-only issues report; contract issues skip", () => {
-    // Whole-array equality: the skipped contract issue (unknown-input for the
-    // `bogus` key) must be absent, and the plan-only unknown-run-input present.
     expect(validateLinear(unavailablePlan, unavailableEntries)).toEqual({
       executable: false,
       issues: [

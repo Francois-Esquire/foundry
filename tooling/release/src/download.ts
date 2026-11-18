@@ -6,9 +6,7 @@ import { verifyReleaseArchives } from "./archives";
 import { verifyReleasePackages, type Workspace } from "./release";
 import type { resolveGitHubRelease } from "./resolve";
 
-/** The workflow whose main builds and manual recoveries produce release archives. */
 export const RELEASE_BUILD_WORKFLOW = ".github/workflows/ci.yml";
-/** The artifact name `ci.yml` uploads `.cache/release` under. */
 const RELEASE_BUILD_ARTIFACT = "release-packages";
 
 const COMMIT = /^[0-9a-f]{40}$/;
@@ -44,10 +42,6 @@ function requireRepository(): string {
   return repository;
 }
 
-/**
- * A successful main push or manual CI recovery at `sha`. Manual CI checks
- * that the commit belongs to main. Pull request runs never qualify.
- */
 export function selectReleaseBuild(
   runs: WorkflowRun[],
   repository: string,
@@ -72,10 +66,6 @@ export function selectReleaseBuild(
   return build;
 }
 
-/**
- * Checks the CI-built archives in `destination` against the released
- * package identities, and narrows `packages.json` to those packages.
- */
 export function verifyBuiltPackages(
   destination: string,
   expected: { name: string; version: string }[]
@@ -120,7 +110,6 @@ export function verifyBuiltPackages(
   return selected;
 }
 
-/** Downloads and verifies the archives CI built and tested at `sha`. */
 export function collectReleaseBuild(
   root: string,
   sha: string,

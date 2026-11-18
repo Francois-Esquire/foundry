@@ -24,7 +24,6 @@ interface PlacementSourceSymbol {
   id: string;
 }
 
-/** One package with internals; topology ids are the package's own, report ids root-relative. */
 export interface PlacementSourcePackage {
   dependencies: Pick<SurfaceDependencies, "primaryConsumer" | "shapeSignals">;
   id: string;
@@ -46,7 +45,6 @@ export interface PlacementSource {
   packages: PlacementSourcePackage[];
 }
 
-/** Where a place's consumer modules are: home, by other package, or in no indexed package. */
 interface Consumers {
   away: Map<string, Set<string>>;
   home: Set<string>;
@@ -82,14 +80,6 @@ function noCounts(): PlacementCounts {
   return { departs: 0, fits: 0, spread: 0, unconsumed: 0 };
 }
 
-/**
- * Each exported symbol declared in one of the package's source files, by id,
- * with its consumer modules: home from the topology's consumed surface, away
- * from the report's consumer modules that reference it. A symbol its module
- * does not export is not placed, since nothing outside the module can use it.
- * Two declarations sharing an id (an interface and a const of one name) are
- * one place.
- */
 function symbolConsumers(
   pkg: PlacementSourcePackage,
   sourceFiles: ReadonlySet<string>,
@@ -106,8 +96,6 @@ function symbolConsumers(
     };
     symbols.set(symbol.id, entry);
     for (const usage of symbol.consumerModuleUsage) {
-      // An entry with no reference imports the symbol without using it:
-      // only to forward it (`export … from`), or never at all.
       if (usage.references > 0) {
         placeConsumer(entry.consumers, usage.module, pkg.id, index);
       }
@@ -125,7 +113,6 @@ function symbolConsumers(
   return symbols;
 }
 
-/** Files the module index does not hold are unindexed; files of another kind than source are no consumers. */
 function placeConsumer(
   consumers: Consumers,
   module: string,
@@ -149,12 +136,10 @@ function placeConsumer(
   consumers.away.set(indexed.package, modules);
 }
 
-/** A label, with the package a departing place departs toward. */
 type Labelled =
   | { label: "fits" | "spread" }
   | { label: "departs"; toward: string };
 
-/** The label the consumer modules give, or `undefined` when there are none. */
 function labelOf(
   home: number,
   away: readonly { modules: readonly string[]; package: string }[]
@@ -174,7 +159,6 @@ function labelOf(
   return { label: home / total >= dominantShare ? "fits" : "spread" };
 }
 
-/** One place's label, and its placement when something away uses it. */
 function placeOf(
   place: { level: PlacementLevel; package: string; place: string },
   consumers: Consumers,
@@ -211,7 +195,6 @@ function placeOf(
   };
 }
 
-/** A package's folders, root-relative: every directory but its root and a technical root such as `src`, which only restate the package. */
 function foldersOf(pkg: PlacementSourcePackage): string[] {
   const technical = new Set(pkg.topology.policy.technicalRoots);
   return pkg.topology.directories
@@ -276,7 +259,6 @@ function derivePackage(
       module.startsWith(`${folder}/`)
     );
   }
-  // Every home module is inside the package, so a package never fits.
   place("package", pkg.root, whole, () => true);
 
   const { primaryConsumer, shapeSignals } = pkg.dependencies;
@@ -293,7 +275,6 @@ function derivePackage(
   };
 }
 
-/** Only the symbol fields the lens reads, so a package report is not kept once read. */
 function projectSymbols(
   symbols: readonly PlacementSourceSymbol[]
 ): PlacementSourceSymbol[] {
@@ -309,14 +290,6 @@ function projectSymbols(
   );
 }
 
-/**
- * Where each place is used against where it lives, at four levels: each
- * symbol, file, and folder of a package with internals, and the package.
- * A place's consumer modules are the symbols' own, so a barrel that only
- * forwards a symbol earns none of its use; a file's or folder's are the
- * union over the symbols declared in it, less the modules inside it. The
- * labels are observations: nothing here calls a place misplaced.
- */
 export const placementLens: Lens<"placement", PlacementSource> = {
   derive: ({ missing, modules, packages }) => {
     const index: ModuleIndex = new Map(
@@ -340,8 +313,6 @@ export const placementLens: Lens<"placement", PlacementSource> = {
     };
   },
   id: "placement",
-  // Package reports are large, so they are read one at a time and only the
-  // symbol and dependency fields are kept; the lens reader does not cache them.
   read: async (reader) => {
     const [index, { missing, packages: withInternals }] = await Promise.all([
       reader.moduleIndex(),

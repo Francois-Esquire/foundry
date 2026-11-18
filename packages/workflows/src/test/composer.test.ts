@@ -7,14 +7,6 @@ import { Channels } from "../channels";
 import { Composer } from "../composer";
 import { Executable } from "../executable";
 import { Snapshot } from "../snapshot";
-// ════════════════════════════════════════════════════════════════════════════
-// 4. Synthetic-wrapper guard (Tier 1 #7)
-// Wrapper frames (parallel / race / branch / sequence) publish step.started
-// + step.complete (or step.failed) for the wrapper path EXACTLY ONCE per
-// invocation. A regression that double-fired (e.g. routing the wrapper
-// through `drive` *and* the synthetic mount/complete) would produce two
-// events under the same path.
-// ════════════════════════════════════════════════════════════════════════════
 
 import { Step } from "../step";
 
@@ -131,7 +123,6 @@ describe("Composer.mount — publishes step.started", () => {
           const fiber = yield* Effect.fork(
             channels.events.stream.pipe(Stream.take(1), Stream.runCollect)
           );
-          // Yield to the runtime so the subscriber subscribes before the publish.
           yield* Effect.sleep(5);
 
           const returned = root.mount();
@@ -446,8 +437,6 @@ describe("Composer synthetic-wrapper guard — exactly once per primitive", () =
             input: undefined,
             name: "bad",
           });
-          // Use tryPromise so a Promise rejection becomes an Effect failure
-          // we can recover from. Effect.promise treats rejections as defects.
           const result = yield* Effect.tryPromise({
             catch: (e) => (e instanceof Error ? e : new Error(String(e))),
             try: () =>
@@ -473,7 +462,6 @@ describe("Composer synthetic-wrapper guard — exactly once per primitive", () =
           );
           expect(started).toHaveLength(1);
           expect(failed).toHaveLength(1);
-          // No `step.complete` on the wrapper — the body failed; only fail() fired.
           expect(complete).toHaveLength(0);
         })
       )

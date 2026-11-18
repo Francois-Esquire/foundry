@@ -4,7 +4,6 @@ import type { BackoffStrategy, Duration, RetryPolicy } from "../types";
 
 const DURATION_PATTERN = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/;
 
-/** Use a bound input only when the caller omitted one; explicit null is data. */
 export function resolveInput<T>(input: T | undefined, bound: T): T {
   if (input === undefined) {
     return bound;
@@ -12,11 +11,6 @@ export function resolveInput<T>(input: T | undefined, bound: T): T {
   return input;
 }
 
-/**
- * Run an Effect to Promise, preserving the original typed error (not
- * FiberFailure wrapper). Composite primitives and Workflow.execute cross
- * Effect → Promise; this ensures instanceof checks remain valid.
- */
 export function runEffectPromise<A>(
   effect: Effect.Effect<A, Error>
 ): Promise<A> {
@@ -47,7 +41,6 @@ export function runEffectPromise<A>(
   });
 }
 
-/** Parse a {@link Duration} (`number` ms or `"5s"` / `"3m"` / `"2h"` string) to ms. */
 export function parseDuration(d: Duration): number {
   if (typeof d === "number") {
     return d;

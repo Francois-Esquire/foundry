@@ -416,7 +416,6 @@ describe("the Marbles process", () => {
     const { machine } = fixture();
     const daemon = await daemonFor(machine);
     rmSync(join(machine.state, "locks", "process"));
-    // A successor took the path meanwhile: closing must not unlink it.
     rmSync(machine.socket);
     const successor = createServer((socket) => socket.end());
     await new Promise<void>((resolve) =>
@@ -452,14 +451,12 @@ describe("the Marbles process", () => {
     const client = await connect({ layout: machine, start: false });
     const summary = await client.attach(source);
     const workspace = client.workspace(summary);
-    // Written together: the daemon reads the shutdown before the others.
     const shutdown = client.shutdown();
     const attaching = client.attach(source);
     const rolling = workspace.roll("greet", { name: "late" });
     const describing = workspace.describe();
     await expect(attaching).rejects.toThrow("the Marbles process is stopping");
     await expect(rolling).rejects.toThrow("the Marbles process is stopping");
-    // Reading is still answered: only starting work is refused.
     expect((await describing).definitions.map((entry) => entry.name)).toEqual([
       "greet",
     ]);

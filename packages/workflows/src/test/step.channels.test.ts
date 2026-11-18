@@ -81,7 +81,6 @@ describe("Step.write — chunk delivery + envelope shape", () => {
       const collected = takePayloads(step, 1);
       await step.run();
       const payloads = await collected;
-      // Only the second write should appear; the first was a no-op.
       expect(payloads).toEqual([{ kind: "text", text: "after-noop" }]);
     }
   );
@@ -383,9 +382,6 @@ describe("Failure interleaving + post-abort", () => {
   });
 
   it("writes after abort() are best-effort: they never throw", async () => {
-    // PubSub.unbounded keeps accepting writes after publish; pin only the
-    // no-throw guarantee. Whether subscribers see the post-abort write is
-    // environment-dependent and not part of the contract.
     const step = await makeWriter("post-abort");
     step.abort("done");
     expect(() => {

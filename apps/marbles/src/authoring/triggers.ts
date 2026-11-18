@@ -13,13 +13,6 @@ import { parseAt } from "~/lib/schedule";
 import { jsonData } from "~/lib/state/json";
 import type { CalendarSlot, Trigger } from "~/lib/triggers";
 
-/**
- * Triggers. A schedule takes a definition, bare or locked, and a cadence; a
- * monitor takes one source string and a handler. Neither has a name of its
- * own: a schedule is known by its target and input, a monitor by its source.
- * Those keys name the state files and `roll <key>`.
- */
-
 const KEY_SEPARATORS = /[^a-z0-9]+/g;
 const KEY_TRIM = /^-+|-+$/g;
 const KEY_MAX = 40;
@@ -40,9 +33,7 @@ function sha256(text: string): string {
 }
 
 export interface ScheduleBuilder {
-  /** A calendar slot: `{ weekday: "fri", hour: 16 }`. */
   at(slot: CalendarSlot): void;
-  /** An interval: `"30m" | "6h" | "1d"`. */
   every(interval: string): void;
 }
 
@@ -77,23 +68,11 @@ export function schedule(target: AnyDefinition | LockedNode): ScheduleBuilder {
 }
 
 export interface MonitorBuilder {
-  /** The handler; a locked node returned from it is started. */
   do(handler: MonitorHandler): void;
-  /** Poll cadence; defaults to every minute. */
   every(interval: string): MonitorBuilder;
-  /**
-   * For an HTTP source: what each poll sends (headers, method, body), or a
-   * function called at every poll. Never part of the key, the state, or
-   * anything shown.
-   */
   request(init: MonitorRequest): MonitorBuilder;
 }
 
-/**
- * One string: `http://` or `https://` is polled and fires when the body
- * changes; anything else is a glob over the workspace root and fires
- * when a matching file changes.
- */
 export function monitor(source: string): MonitorBuilder {
   if (!source.trim()) {
     throw new Error("monitor(): a source is required");

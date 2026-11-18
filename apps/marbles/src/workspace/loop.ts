@@ -4,18 +4,9 @@ import { runSchedules } from "~/lib/schedule";
 export interface RunLoopOptions {
   readonly cancel?: AbortSignal;
   readonly print?: (line: string) => void;
-  /**
-   * Stops the loop. Without one the loop stops on SIGINT or SIGTERM; a host
-   * that passes one decides itself what stops it.
-   */
   readonly signal?: AbortSignal;
 }
 
-/**
- * Run the engine's schedules, including those agents add later, until
- * stopped. This is the process's steady state; `claimProcess` is what says
- * this is the one process doing it for the workspace.
- */
 export async function runSchedulesUntilStopped(
   engine: Engine,
   {

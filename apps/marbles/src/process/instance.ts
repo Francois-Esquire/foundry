@@ -12,38 +12,30 @@ const FILE = "process.json";
 export type ProcessHost = "daemon" | "worker";
 
 export interface ProcessInfo {
-  /** Where the daemon keeps the artifact store. */
   readonly artifacts?: string;
   readonly config?: string | null;
   readonly host: ProcessHost;
   readonly pid: number;
-  /** The Unix socket the daemon answers on. */
   readonly socket?: string;
   readonly startedAt: string;
-  /** The Marbles version the daemon runs. */
   readonly version?: string;
 }
 
-/** The claim this process holds; `release` runs once. */
 export interface ProcessInstance extends ProcessInfo {
   release(): void;
 }
 
-/** What `status` reads: the claim as the files describe it right now. */
 export interface ProcessStatus {
-  /** The lock names a pid, and that pid is running. */
   readonly alive: boolean;
   readonly artifacts: string | null;
   readonly config: string | null;
   readonly host: ProcessHost | null;
-  /** The lock's holder, else what `process.json` last recorded. */
   readonly pid: number | null;
   readonly socket: string | null;
   readonly startedAt: string | null;
   readonly version: string | null;
 }
 
-/** Another process owns this state dir; `holder` says who, for people. */
 export class ProcessHeldError extends Error {
   override readonly name = "ProcessHeldError";
   readonly holder: string;
@@ -87,8 +79,6 @@ export function claimProcess(
         return;
       }
       released = true;
-      // Only while the json still names this process: a late release must
-      // not remove what a process that took the claim over has written.
       if (readInfo(path)?.pid === process.pid) {
         rmSync(path, { force: true });
       }
@@ -97,7 +87,6 @@ export function claimProcess(
   };
 }
 
-/** The claim on `dir`, as the files describe it; `undefined` when nothing is recorded. */
 export function readProcess(dir: string): ProcessStatus | undefined {
   const owner = lockOwner(join(dir, "locks", LOCK));
   const holder = owner?.pid;
@@ -106,7 +95,6 @@ export function readProcess(dir: string): ProcessStatus | undefined {
     return undefined;
   }
   const alive = owner !== undefined && !isGone(owner);
-  // Metadata is the holder's only while it describes the holder.
   const described =
     info !== undefined && (holder === undefined || info.pid === holder);
   const field = <K extends keyof ProcessInfo>(

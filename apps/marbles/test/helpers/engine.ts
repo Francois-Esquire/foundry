@@ -22,21 +22,15 @@ import type { MockOptions, Reply } from "~/lib/models/echo";
 import { mockModels } from "~/lib/models/echo";
 import { Registry } from "~/lib/registry";
 
-/** A home with nothing in it, so no test reads the developer's own skills. */
 const NO_HOME = join(tmpdir(), "marbles-test-no-home");
 
 export interface TestEngineOptions extends Partial<EngineOptions> {
-  /** Executors the mock models answer for; the first is the default. */
   readonly executors?: readonly TurnExecutorRef[];
-  /** Turns to hold open until their signal fires; see `MockOptions`. */
   readonly hold?: MockOptions["hold"];
-  /** Run git for real; the default echoes every mutation. */
   readonly live?: boolean;
-  /** What a mock model answers; the prompt itself by default. */
   readonly reply?: Reply;
 }
 
-/** The instances a test engine is built from when the test names none. */
 export function testInstances(
   options: TestEngineOptions = {}
 ): Pick<
@@ -112,7 +106,6 @@ export function startEngine(options: TestEngineOptions = {}): Promise<Engine> {
   return testEngine(options).start();
 }
 
-/** What the authoring catalog declares, as an engine's registry would hold it. */
 export function declared(): Registry {
   const registry = new Registry();
   declareCatalog(registry, catalog);

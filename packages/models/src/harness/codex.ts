@@ -24,7 +24,6 @@ export interface CodexDriverOptions {
     signal: AbortSignal;
   }) => Promise<CodexSubscriptionTokens>;
   sandboxPolicy?: "workspace-write" | "read-only";
-  /** Host-provided guest launcher. No native host spawn fallback exists. */
   spawn: (
     argv: readonly string[],
     options: {
@@ -41,7 +40,6 @@ export interface CodexSubscriptionTokens {
   chatgptPlanType?: string;
 }
 
-/** One live app-server per session: parent response completion never kills child threads. */
 export function createCodexDriver(
   options: CodexDriverOptions
 ): HarnessTurnDriver {
@@ -121,7 +119,6 @@ export function createCodexDriver(
           ...run,
           permission: (request) => run.permission({ ...request, activityId }),
           question: (request) => run.question({ ...request, activityId }),
-          // Child requests can arrive after the parent response closes.
           signal: childTurn
             ? AbortSignal.any([signal, childTurn.abort.signal])
             : signal,
@@ -253,7 +250,6 @@ export function createCodexDriver(
       }
       run.signal.throwIfAborted();
       const sandbox = codexSandbox(run.profile, options.sandboxPolicy);
-      // Refused before any process starts: only text crosses to the CLI.
       const text = inputText(run.input);
       running = true;
       currentRun = run;
@@ -360,7 +356,6 @@ function structuredOutput(run: DriverRun) {
   return schema ? { outputSchema: outputSchema(schema) } : {};
 }
 
-/** Schema keywords the app server's structured output rejects. */
 const UNSUPPORTED_SCHEMA_KEYS = new Set([
   "$defs",
   "$id",
@@ -374,12 +369,6 @@ const UNSUPPORTED_SCHEMA_KEYS = new Set([
   "title",
 ]);
 
-/**
- * A turn's JSON schema as `turn/start` accepts it: the keywords Codex
- * rejects removed at every level, property names kept even when they
- * collide with one. Mirrors `ai-sdk-provider-codex-cli`, which does not
- * export its own.
- */
 function outputSchema(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(outputSchema);

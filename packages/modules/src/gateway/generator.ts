@@ -8,7 +8,6 @@ export {
   MODULE_GATEWAY_GENERATED_PATH,
 } from "../sdk/generator-core";
 
-/** Generates the selected typed client after canonical Manifest validation. */
 export function generateModuleGatewayClient(input: {
   readonly manifest: unknown;
   readonly catalog: ModuleCapabilityCatalog;

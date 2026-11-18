@@ -1,10 +1,3 @@
-/**
- * Marbles re-exports the shared `usage` and adds its default accounts
- * before any step runs, on a host and in a plain script. The providers are
- * faked: no login is looked for and no client is started. Each test loads
- * Marbles afresh, so each starts from a process that initialized nothing.
- */
-
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +6,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const fake = vi.hoisted(() => {
   const accounts = new Set<string>();
   const initialize = vi.fn(async () => {
-    // Slower than building an engine, so a step that ran first would miss it.
     await new Promise((resolve) => setTimeout(resolve, 20));
     accounts.add("anthropic");
     accounts.add("openai");
@@ -28,8 +20,6 @@ const fake = vi.hoisted(() => {
 });
 
 vi.mock("@foundry/usage", () => ({ usage: fake.usage }));
-// The host loads sources through a Bun plugin; vitest runs under Node, and
-// these tests load none.
 vi.mock("bun", () => ({ plugin: vi.fn() }));
 
 const UNKNOWN_ACCOUNT = /No usage account/;
@@ -62,7 +52,6 @@ async function marbles() {
     await runtime.dispose();
     catalog.reset();
   });
-  // A step returns plain data, and a snapshot holds dates.
   const check = authoring.step().do(async () => {
     const { name, provider } = await authoring.usage.query("anthropic");
     return { name, provider };

@@ -11,12 +11,10 @@ import { FIRST_PARTY_PLUGINS } from "~/lib/providers/plugins";
 import { ConfigurationError } from "~/lib/providers/store";
 
 export interface ProviderSetupOptions {
-  /** Ask a yes-or-no question; resolves true for yes. */
   readonly confirm: (question: string) => Promise<boolean>;
   readonly plugins?: readonly RegisteredPlugin[];
   readonly print: (line: string) => void;
   readonly state: string;
-  /** The workspace being run: its own configuration counts as configured. */
   readonly workspace?: Omit<ProviderWorkspace, "env">;
 }
 
@@ -68,7 +66,6 @@ export async function setupProviders(
   );
 }
 
-/** Write the confirmed entries, unless the machine was configured or an id taken meanwhile. */
 async function save(
   configuration: ProviderConfiguration,
   proposed: readonly Proposal[]
@@ -81,7 +78,6 @@ async function save(
       ? "Saved for every workspace on this machine."
       : "Providers were configured meanwhile, so those were kept and nothing was saved.";
   } catch (error) {
-    // A workspace took one of these ids while the question was open.
     if (
       error instanceof ConfigurationError &&
       error.code === "PROVIDER_ID_TAKEN"

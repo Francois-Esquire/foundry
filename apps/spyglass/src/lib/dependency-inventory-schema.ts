@@ -77,7 +77,6 @@ const inventorySchema = z.object({
     .optional(),
 });
 
-/** An optional artifact must be valid when a manifest advertises it. */
 export function verifyDependencyInventory(value: unknown): DependencyInventory {
   const result = inventorySchema.safeParse(value);
   if (!result.success) {

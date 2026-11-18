@@ -24,7 +24,6 @@ it.each(["completed", "failed", "cancelled"] as const)(
     const finalText = `${"x".repeat(100_000)}final burst 🌿`;
     const gone = vi.mocked(isGone);
     gone.mockImplementationOnce(() => {
-      // Simulate the owner writing after the zero-byte read, then exiting.
       output.text(finalText);
       output.finish(status);
       return true;

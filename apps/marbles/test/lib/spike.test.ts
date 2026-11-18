@@ -1,9 +1,3 @@
-/**
- * Spike: the mechanics tree materialization rests on, checked on
- * the raw workflows package with no Marbles code. A parent declares its
- * children on the spec and drives them from its own body with `child.run()`.
- */
-
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import type { StepContext } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
@@ -123,7 +117,6 @@ describe("spike: children driven from the parent body", () => {
 
     expect(wf.status).toBe("complete");
     expect(result).toEqual({ a: "A", b: "yes" });
-    // root replays, a is skipped (recorded output), b replays and completes.
     expect(ran).toEqual(["root", "a", "b", "root", "b"]);
   });
 

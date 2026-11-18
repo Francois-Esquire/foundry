@@ -5,14 +5,6 @@ import { operationsOf } from "../provider";
 import type { OperationName, ProviderModelDefinition } from "../types";
 import type { FalRuntime } from "./client";
 
-/**
- * `./auth` is absent from the pinned client's `exports` map, so
- * `getTemporaryAuthToken` is unreachable and the mint reaches FAL's REST token
- * endpoint from inside the Provider. The scope and expiry below reproduce that
- * function exactly (`src/auth.js:17,29,30`, `getRestApiUrl` at
- * `src/config.js:78`), so a caller sees the same token the client would have
- * minted for itself.
- */
 const FAL_REST_URL = "https://rest.fal.ai";
 const TOKEN_EXPIRATION_SECONDS = 120;
 
@@ -22,15 +14,9 @@ export interface FalGrantRequest {
   readonly operation: OperationName;
   readonly providerId: string;
   readonly proxyUrl?: string;
-  /** Present exactly when the Provider holds a key. */
   readonly runtime: FalRuntime | null;
 }
 
-/**
- * Live access for one Operation on one Model. `delivery` is deliberately not
- * consulted: the registry states the fact and stops there, so a grant on a
- * `continuous` row succeeds and the caller decides what to do with it.
- */
 export async function falGrant(request: FalGrantRequest): Promise<LiveAccess> {
   const row = request.models.find((model) => model.id === request.modelId);
   if (!row) {
@@ -78,8 +64,6 @@ async function mint(runtime: FalRuntime, endpointId: string): Promise<string> {
     method: "POST",
   });
   if (!response.ok) {
-    // The status alone: a token-mint body can echo the request, and nothing
-    // from this exchange may reach a log.
     throw new Error(
       `[fal] token minting failed with status ${String(response.status)}`
     );
@@ -88,7 +72,6 @@ async function mint(runtime: FalRuntime, endpointId: string): Promise<string> {
   if (typeof payload === "string") {
     return payload;
   }
-  // Old proxies wrap the token; the client tolerates both, so this does too.
   if (typeof payload === "object" && payload !== null) {
     const { detail } = payload as { detail?: unknown };
     if (typeof detail === "string") {

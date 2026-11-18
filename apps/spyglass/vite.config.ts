@@ -3,15 +3,8 @@ import { wgslVitePlugin } from "@vgpu/wgsl/loader-vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
-/** The id Vite gives the empty module it swaps in for a Node built-in. */
 const BROWSER_EXTERNAL = "__vite-browser-external";
 
-/**
- * The viewer reads the dataset through lib's browser-safe reader. A Node
- * built-in reaching the bundle becomes an empty stub that fails at runtime,
- * so importing one fails the build instead. A bare name such as `buffer` is
- * allowed when it resolves to a browser package.
- */
 function noNodeBuiltins(): Plugin {
   return {
     enforce: "pre",
@@ -36,8 +29,6 @@ function noNodeBuiltins(): Plugin {
 export default defineConfig({
   base: "./",
   build: { emptyOutDir: true, outDir: "dist/web" },
-  // `.wgsl` imports become prepared shader modules (`ShaderSource`), for
-  // the WebGPU renderer under src/web/islands/.
   plugins: [noNodeBuiltins(), wgslVitePlugin(), react()],
   publicDir: "public",
   root: import.meta.dirname,

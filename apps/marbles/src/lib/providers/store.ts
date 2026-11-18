@@ -10,7 +10,6 @@ export type ConfigurationErrorCode =
   | "PROVIDER_ID_TAKEN"
   | "PROVIDERS_NOT_CONFIGURED";
 
-/** Provider configuration that cannot be read, written, or used as asked. */
 export class ConfigurationError extends Error {
   override readonly name = "ConfigurationError";
   readonly code: ConfigurationErrorCode;
@@ -150,10 +149,6 @@ function parseConfiguration(what: string, text: string): ProvidersFile {
   return checked.data as ProvidersFile;
 }
 
-/**
- * Where a value fails a schema, by path and kind only. Parser and schema
- * messages can quote the value, and a misplaced key is a secret.
- */
 export function describeIssues(error: z.ZodError): string {
   return error.issues
     .map((issue) => {

@@ -1,7 +1,5 @@
 name: Publish VS Code Extension
 
-# Started by Prepare Releases once a new extension release has its verified
-# VSIX attached, or dispatched by hand to recover. It never dispatches anything.
 on:
   workflow_dispatch:
     inputs:
@@ -41,7 +39,6 @@ jobs:
       contents: read
       id-token: write
     steps:
-      # Only the locked vsce is installed here, without lifecycle scripts or caches.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -67,8 +64,6 @@ jobs:
           printf '%s  artifact/prompts.vsix\n' "$EXPECTED_SHA256" | sha256sum --check --strict
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)" = "$EXPECTED_SHA"
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.draft == false and .published_at != null' | grep -qx true
-      # A version already on the Marketplace is skipped, so a repeated
-      # dispatch or rerun cannot fail or publish twice.
       - name: Publish with Marketplace trusted publishing
         run: bun run --cwd tooling/vscode-extension vsce publish --packagePath "$GITHUB_WORKSPACE/artifact/prompts.vsix" --oidc --skip-duplicate
       - name: Record publication

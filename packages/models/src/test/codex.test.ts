@@ -2,10 +2,6 @@ import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
-/**
- * The SDK is stubbed wholesale: every test here is about our own gating and
- * mapping, and none of them should ever spawn a `codex app-server`.
- */
 interface Settings {
   codexPath?: string;
   env?: Record<string, string>;
@@ -36,7 +32,6 @@ const CALL = { prompt: [] } as never;
 const { CODEX_DEFAULT_MODELS, codexProvider } = await import("../codex");
 const { fromCodexListing } = await import("../catalog/codex");
 
-/** The ambient environment itself, so the overlay each model gets is empty. */
 const env = Object.fromEntries(
   Object.entries(process.env).filter(
     (entry): entry is [string, string] => entry[1] !== undefined
@@ -45,8 +40,6 @@ const env = Object.fromEntries(
 
 describe("fromCodexListing", () => {
   it("declares tool calling on every row", () => {
-    // Not detected — stated. The selectable catalog filters on this exact flag,
-    // so a row without it vanishes from the picker with no error to explain it.
     const rows = fromCodexListing([
       { id: "gpt-5.5", name: "GPT-5.5" },
       { id: "gpt-5.3-codex", modelProvider: "openai" },

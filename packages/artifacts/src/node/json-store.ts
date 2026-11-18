@@ -24,9 +24,7 @@ const REENTRY =
   "JsonArtifactStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
 export interface JsonArtifactStoreOptions {
-  /** How long a write waits for another process's lock before failing. */
   readonly lockTimeoutMs?: number;
-  /** The records file; `<path>.lock` guards writes across processes. */
   readonly path: string;
 }
 
@@ -168,7 +166,6 @@ export class JsonArtifactStore implements ArtifactStore {
     this.#version = version;
   }
 
-  /** The in-memory records, reloaded when another writer replaced the file. */
   async #current(): Promise<InMemoryArtifactStore> {
     const version = await fileVersion(this.#path);
     if (this.#memory && version === this.#version) {
@@ -195,11 +192,6 @@ async function fileVersion(path: string): Promise<string | undefined> {
     throw error;
   }
 }
-
-// ── Encoding ──
-// JSON has no Date or byte type; tag them so metadata keeps its shape. A
-// stored object that already looks like a tag is wrapped in `$object`, so
-// metadata such as `{ "$date": "…" }` reloads as written.
 
 const DATE_TAG = "$date";
 const BYTES_TAG = "$bytes";

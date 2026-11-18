@@ -42,7 +42,6 @@ function cli(config: string, ...args: string[]) {
   );
 }
 
-// Allow three CLI processes, each bounded by the helper's 10-second timeout.
 it("missing, empty, and import-only configs register no implicit definitions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "marbles-config-"));
   try {
@@ -58,7 +57,6 @@ it("missing, empty, and import-only configs register no implicit definitions", a
 }, 35_000);
 
 for (const starter of STARTERS) {
-  // Each starter is loaded and then executed in separate CLI processes.
   it(`generates a loadable ${starter.label} config with only the selected step`, async () => {
     const dir = await mkdtemp(join(tmpdir(), "marbles-starter-"));
     try {

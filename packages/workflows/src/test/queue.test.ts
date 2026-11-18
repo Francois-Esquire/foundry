@@ -1,13 +1,3 @@
-/**
- * Queue — basics and the smoke-level lifecycle.
- *
- * Construction, dispatch handle shape, FIFO at concurrency 1, the
- * concurrency cap, pause/resume/drain controls, queryable views, the
- * shutdown surface, and restart-recovery smoke. The deeper lifecycle /
- * suspension / events / cancel / retry-timeout / streaming surface
- * lives in queue.lifecycle.test.ts.
- */
-
 import { describe, expect, test } from "vitest";
 
 import { SuspendSignal } from "../executable";
@@ -63,7 +53,6 @@ describe("Queue — construction", () => {
     const sharedId = "qu_shared_test_id";
     const a = new Queue({ concurrency: 1, id: sharedId, store });
     expect(a.id).toBe(sharedId);
-    // Re-construct against the same id; should not throw on FK / unique conflict.
     expect(
       () => new Queue({ concurrency: 2, id: sharedId, store })
     ).not.toThrow();
@@ -190,7 +179,7 @@ describe("Queue.dispatch — handle shape", () => {
 
   test("returns a DispatchedWorkflow synchronously with id, step name, status='queued'", async () => {
     const queue = new Queue({ concurrency: 1, store });
-    await queue.pause(); // prevent the driver from picking it up before we inspect
+    await queue.pause();
 
     const wf = Workflow.create(makeEchoSpec("hello", "echo"));
     const dispatched = queue.dispatch(wf);
@@ -210,11 +199,10 @@ describe("Queue.dispatch — handle shape", () => {
 
   test("dispatch persists the run row with status='queued'", async () => {
     const queue = new Queue({ concurrency: 1, store });
-    await queue.pause(); // hold the run in queued state
+    await queue.pause();
 
     const wf = Workflow.create(makeEchoSpec("x", "persist-me"));
     const d = queue.dispatch(wf);
-    // Give the chained insert a moment to land.
     await sleep(20);
 
     const row = await store.getRun(d.id);
@@ -271,8 +259,6 @@ describe("Queue — FIFO ordering", () => {
     const dq = queue.dispatch(quick);
     await Promise.all([ds.result(), dq.result()]);
 
-    // At concurrency 1, slow's permit blocks quick from starting until slow
-    // finishes — so 'slow' must complete first even though 'quick' is faster.
     expect(completed).toEqual(["slow", "quick"]);
   });
 });
@@ -323,7 +309,6 @@ describe("Queue — concurrency cap", () => {
       queue.dispatch(wf)
     );
     await Promise.all(ds.map((d) => d.result()));
-    // Three runs at concurrency 1 should start sequentially, ~25ms apart.
     expect(startTimes).toHaveLength(3);
     const [t0, t1, t2] = startTimes;
     if (t0 === undefined || t1 === undefined || t2 === undefined) {
@@ -381,7 +366,6 @@ describe("Queue — pause / resume", () => {
 
     const wf = Workflow.create(makeEchoSpec("x", "paused"));
     const d = queue.dispatch(wf);
-    // Give the driver a chance to pick it up if it would.
     await sleep(30);
     expect(d.status).toBe("queued");
 
@@ -400,7 +384,6 @@ describe("Queue — pause / resume", () => {
     expect(d.status).toBe("queued");
     const sz = await queue.size();
     expect(sz.pending).toBeGreaterThanOrEqual(1);
-    // Cleanup so afterAll doesn't leave a hanging run.
     await queue.resume();
     await d.result();
   });
@@ -415,7 +398,6 @@ describe("Queue — pause / resume", () => {
     await queue.pause();
     await queue.resume();
 
-    // After all that toggling the queue should still process a dispatch.
     const wf = Workflow.create(makeEchoSpec("ok", "after-toggle"));
     const d = queue.dispatch(wf);
     const r = await d.result();
@@ -446,7 +428,6 @@ describe("Queue — drain", () => {
     for (const wf of wfs) {
       queue.dispatch(wf);
     }
-    // Don't await results — drain is what we're testing.
     await queue.drain();
     const sz = await queue.size();
     expect(sz.pending).toBe(0);
@@ -456,7 +437,6 @@ describe("Queue — drain", () => {
 
   test("includes pending (not yet started) runs in the wait", async () => {
     const queue = new Queue({ concurrency: 1, store });
-    // 3 sequential runs at concurrency 1 — drain must await all three.
     const wfs = Array.from({ length: 3 }, (_, i) =>
       Workflow.create({
         execute: async () => {
@@ -510,7 +490,6 @@ describe("Queue — queryable views", () => {
     for (const wf of wfs) {
       queue.dispatch(wf);
     }
-    // Wait for them to start running.
     await sleep(10);
     const running = queue.active();
     expect(running.length).toBe(2);
@@ -521,7 +500,6 @@ describe("Queue — queryable views", () => {
 
   test("pending() reflects queued runs only", async () => {
     const queue = new Queue({ concurrency: 1, store });
-    // First wf takes a permit; subsequent dispatches queue.
     const slow = Workflow.create({
       execute: async () => {
         await sleep(40);
@@ -592,9 +570,7 @@ describe("Queue — shutdown", () => {
       name: "shutdown-drain",
     });
     queue.dispatch(wf);
-    // Give the driver a moment to start the run.
     await sleep(10);
-    // Shutdown with ample grace; should wait for completion.
     await queue.shutdown({ graceMs: 500 });
     expect(runDone).toBe(true);
     const row = await queueRecord(queue.id);
@@ -652,10 +628,8 @@ describe("Restart recovery — findRecoverableRuns()", () => {
 
     const wf = Workflow.create(makeEchoSpec("payload-1", "echo-1"));
     const d1 = queueA.dispatch(wf);
-    // Wait for row insert to land.
     await sleep(20);
 
-    // Spin up a fresh Queue instance pointing at the same db row.
     const queueB = new Queue({
       concurrency: 1,
       id: sharedId,
@@ -716,7 +690,6 @@ describe("Restart recovery — findRecoverableRuns()", () => {
       name: "needs-approval",
     });
     const d = queueA.dispatch(wf);
-    // Wait for suspension to land + persist.
     await sleep(50);
 
     const queueB = new Queue({

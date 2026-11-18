@@ -482,8 +482,6 @@ describe("churn analysis", () => {
       p95: 50,
     });
     expect(report.distributions.linesChangedPerFile.max).toBe(99);
-    // Rank is the share of same-kind repository files strictly below; the
-    // 50-commit markdown file is another kind and does not move source ranks.
     expect(
       report.files.map((file) => [file.file, file.rank.commitPercentile])
     ).toEqual([

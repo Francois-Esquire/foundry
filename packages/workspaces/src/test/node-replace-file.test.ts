@@ -4,10 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 import { nodeFileSystem } from "../node";
 import { makeRoot } from "./helpers/temp-roots";
 
-/**
- * Kept apart from the other save tests because the module mock below is
- * hoisted over the whole file.
- */
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
   return { ...original, chmod: vi.fn(original.chmod) };

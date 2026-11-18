@@ -13,9 +13,7 @@ export default function Spyglass({
   mapOnly = false,
 }: {
   data: SpyglassData;
-  /** The readings read after load (`loadLateReadings`), merged when they arrive. */
   late?: Promise<LateReadings>;
-  /** A developer session; see `SpyglassState.developer`. */
   developer?: boolean;
   mapOnly?: boolean;
 }) {

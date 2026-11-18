@@ -81,7 +81,6 @@ function engineWith(
   return engine;
 }
 
-/** Stop delivery and give the records up, as a process exit would. */
 async function shutDown(engine: Engine): Promise<void> {
   await engine.dispose();
   engines.splice(engines.indexOf(engine), 1);

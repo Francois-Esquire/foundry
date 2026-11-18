@@ -66,7 +66,6 @@ function readPackage(
   };
 }
 
-/** Reuse discovery's exclusions; only source-language coverage is broadened. */
 export function collectDependencyInventory(
   root: string,
   discovery: DeclaredDiscovery

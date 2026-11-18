@@ -29,7 +29,6 @@ export default defineConfig({
       rollupOptions: {
         external: electron,
         input: { index: path.join(src, "preload.ts") },
-        // The sandboxed preload cannot run ESM, so it stays CommonJS.
         output: {
           chunkFileNames: "chunks/[name]-[hash].cjs",
           entryFileNames: "[name].cjs",

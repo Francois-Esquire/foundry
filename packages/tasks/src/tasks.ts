@@ -34,15 +34,8 @@ import { taskId } from "./types";
 
 export interface TasksOptions {
   readonly clock?: () => Date;
-  /**
-   * Whether something outside this package still references the task — a
-   * workflows Job carrying its id in `links`, say. `remove` refuses while it
-   * does. Nothing is referenced when omitted.
-   */
   readonly inUse?: (id: TaskId) => Promise<boolean>;
-  /** Open ancestors must start or settle before a child is ready. Off by default. */
   readonly parentGate?: boolean;
-  /** Persistence. Defaults to an in-memory store. */
   readonly store?: TaskStore;
 }
 
@@ -51,15 +44,6 @@ export interface CreateOptions {
   readonly parent?: TaskRef;
 }
 
-/**
- * The backlog: what there is to do, what is ready, what is done.
- *
- * Reads project the store. `change` batches are atomic; shorthands wrap a
- * single operation and `remove` is separate. Mutations serialize per instance;
- * a store transaction provides exclusion across instances when supported.
- * Execution belongs elsewhere — a runner takes `ready()`, starts a task,
- * does the work through whatever runs it, and completes or cancels the task.
- */
 export class Tasks {
   readonly #store: TaskStore;
   readonly #inUse: ((id: TaskId) => Promise<boolean>) | undefined;
@@ -75,7 +59,6 @@ export class Tasks {
     this.#clock = options.clock ?? (() => new Date());
   }
 
-  /** One task, with `depth` levels of subtasks beneath it. */
   async get(id: string, options: DepthOptions = {}): Promise<TaskNode | null> {
     const depth = requireDepth(options.depth);
     if (depth === 0) {
@@ -87,7 +70,6 @@ export class Tasks {
     return task === undefined ? null : expand(task, depth, childrenOf(tasks));
   }
 
-  /** A page of tasks, oldest first, optionally filtered by status, parent, or tags. */
   async list(query: TaskQuery = {}): Promise<Page<TaskNode, number>> {
     const depth = requireDepth(query.depth);
     const { tasks } = await this.#snapshot();
@@ -108,7 +90,6 @@ export class Tasks {
     return { ...page, items: expandAll(page.items, depth, childrenOf(tasks)) };
   }
 
-  /** What is next: open tasks nothing holds back, oldest first. */
   async ready(query: ReadyQuery = {}): Promise<Page<Task, number>> {
     const snapshot = await this.#snapshot();
     const readyIds = readyTaskIds(snapshot, { parentGate: this.#parentGate });
@@ -125,7 +106,6 @@ export class Tasks {
     });
   }
 
-  /** Direct children, each with `depth` further levels beneath it. */
   async children(
     id: string,
     options: DepthOptions = {}
@@ -157,14 +137,9 @@ export class Tasks {
     };
   }
 
-  /** Applies every operation or none. Serialized with mutations on this instance;
-   * shared-store exclusion requires `TaskStore.transaction`. */
   change(change: TaskChange): Promise<TaskChangeResult> {
     return this.#mutation(async (store) => {
       const snapshot = await this.#snapshot(store);
-      // Instants only ever move past what the store held when this write
-      // began, so writes that run one after another never share a token, across
-      // instances and restarts too. Writes from two instances that overlap can.
       this.#lastInstant = Math.max(this.#lastInstant, latestInstant(snapshot));
       const applied = applyChange(snapshot, change, () => this.#now(), {
         parentGate: this.#parentGate,
@@ -225,16 +200,6 @@ export class Tasks {
     return this.#setStatus(id, "cancelled", token);
   }
 
-  /**
-   * The one deletion, deliberately outside the batch language. Refuses while
-   * children exist or the host still references the task; drops dependency
-   * edges in both directions.
-   *
-   * The host's `inUse` is asked outside the store's transaction, so it may
-   * read or write the store through another `Tasks`. The task, its token, and
-   * its children are checked again inside the transaction, against the store
-   * as it is then, and the removal is refused if any check now fails.
-   */
   remove(id: string, token?: TaskToken): Promise<Task> {
     return this.#serialized(async () => {
       const checked = removable(await this.#snapshot(), id, token);
@@ -285,7 +250,6 @@ export class Tasks {
     });
   }
 
-  /** One operation; the batch always reports the task it named. */
   async #single(id: string, operation: TaskOperation): Promise<Task> {
     const result = await this.change({ operations: [operation] });
     const task = result.tasks.find((item) => item.id === id);
@@ -301,17 +265,11 @@ export class Tasks {
     return new Date(instant).toISOString();
   }
 
-  /** Every task as read, with `tags` on records written before there were any. */
   async #snapshot(store: TaskStore = this.#store): Promise<TaskSnapshot> {
     const snapshot = await store.snapshot();
     return { ...snapshot, tasks: snapshot.tasks.map(withTags) };
   }
 
-  /**
-   * One read-modify-write: serialized in this instance, and exclusive in the
-   * store when it offers transactions, so another `Tasks` over the same store
-   * cannot write between the read and the commit.
-   */
   #mutation<T>(work: (store: TaskStore) => Promise<T>): Promise<T> {
     return this.#serialized(() => this.#transaction(work));
   }
@@ -335,8 +293,6 @@ export class Tasks {
 
 type ChildrenIndex = ReadonlyMap<TaskId, readonly Task[]>;
 
-/** The one field a shorthand takes from its token; the operation itself comes
- *  from the shorthand's own arguments. */
 function expectation(token: TaskToken | undefined): TaskToken {
   return token?.expectedUpdatedAt === undefined
     ? {}
@@ -357,7 +313,6 @@ function ordered(tasks: readonly Task[]): Task[] {
   return [...tasks].sort(compareCreation);
 }
 
-/** The task `remove` may delete: present, at the token if one is given, and childless. */
 function removable(
   snapshot: TaskSnapshot,
   id: string,
@@ -391,12 +346,10 @@ function requireTask(tasks: readonly Task[], id: string): Task {
   return task;
 }
 
-/** A record stored before tasks had tags has none. */
 function withTags(task: Task): Task {
   return Array.isArray(task.tags) ? task : { ...task, tags: [] };
 }
 
-/** True when `task` has every tag in `query.all` and one in a nonempty `query.any`. */
 function hasTags(task: Task, query: TagQuery | undefined): boolean {
   const all = query?.all ?? [];
   const any = query?.any ?? [];
@@ -447,7 +400,6 @@ function expandAll(
   return tasks.map((task) => expand(task, depth, index));
 }
 
-/** The latest instant the store holds; new instants move strictly past it. */
 function latestInstant(snapshot: TaskSnapshot): number {
   let latest = 0;
   for (const task of snapshot.tasks) {

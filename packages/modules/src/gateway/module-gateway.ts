@@ -35,14 +35,8 @@ const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
 const DEFAULT_MAXIMUM_FRAME_BYTES = 1024 * 1024;
 const DEFAULT_MAXIMUM_IN_FLIGHT = 32;
-/**
- * The v1 protocol rejects duplicate request IDs for the life of a connection,
- * so the set of seen IDs can only grow. Bound the session instead of the
- * guarantee: past this many requests the connection is closed, not forgotten.
- */
 const MAXIMUM_SESSION_REQUESTS = 100_000;
 
-/** Creates the host-owned Gateway connection, framing, and session lifecycle. */
 export function createModuleGateway(
   options: CreateModuleGatewayOptions
 ): ModuleGateway {
@@ -144,9 +138,6 @@ class DefaultModuleGateway implements ModuleGateway {
         binding.mode,
         this.settings.handshakeTimeoutMs
       );
-      // The handshake has its own deadline, so re-read the selection the
-      // Program just answered for: a lifecycle transition may have superseded
-      // this attempt while it waited.
       if (binding.mode === "runtime") {
         await loadRuntimeGatewayContext(this.store, binding.runtime);
       }
@@ -195,7 +186,6 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
   readonly #iterator: AsyncIterator<unknown>;
   readonly #binding: ModuleGatewayBinding;
   readonly #runtimeDispatcher: ModuleGatewayRuntimeDispatcher | undefined;
-  // Widened so lint sees the flag as mutable; async paths set it later.
   #settled = false as boolean;
   #sendTail: Promise<void> = Promise.resolve();
   #heartbeatTimer: ReturnType<typeof setInterval> | undefined;
@@ -543,7 +533,6 @@ function helloFrame(binding: ModuleGatewayBinding): ModuleGatewayHelloFrame {
       generation: runtime.generation,
       installationId: runtime.installationId,
       moduleId: binding.moduleId,
-      // Protocol 1 names the pinned Content `releaseId` on the wire.
       releaseId: runtime.contentId,
       runtimeInstanceId: runtime.runtimeInstanceId,
     },
@@ -593,7 +582,6 @@ async function waitForReady(
   }
 }
 
-/** Program frames are exact: an unexpected member fails the frame closed. */
 const identitySchema = z.string().min(1).max(256);
 const readyFrameSchema = z.strictObject({
   kind: z.literal("ready"),
@@ -630,8 +618,6 @@ function parseProgramFrame(
         : "Gateway frame shape is invalid"
     );
   }
-  // `input` carries any JSON value, so its absence has to be rejected here
-  // rather than by the schema, which cannot tell missing from undefined.
   if (result.data.kind === "invoke" && !declaresInput(value)) {
     throw new ModuleGatewayError(
       "invalid-frame",

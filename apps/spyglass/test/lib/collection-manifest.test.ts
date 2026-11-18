@@ -19,7 +19,6 @@ import { resolveCollection } from "../../src/lib/state";
 
 const SCAN_TIMEOUT_MS = 120_000;
 
-/** A manifest's package entry with only what the collection manifest reads. */
 function pkg(
   id: string,
   declaredDependencies: SemanticsDeclaredDependencies = {}
@@ -33,7 +32,6 @@ function pkg(
   };
 }
 
-/** One workspace of literal manifests, rooted under `/repos`. */
 function workspace(
   id: string,
   packages: SemanticsManifestPackage[],
@@ -128,8 +126,6 @@ it("resolves an npm: alias to the package it names, and records the range as wri
       }),
     ]),
   ]);
-  // `@k/db` is aliased to left-pad, which no workspace holds, and a bare
-  // `npm:` names no package, so neither crosses.
   expect(manifest.crossings).toEqual([
     {
       from: "bbb:@p/app",
@@ -311,7 +307,6 @@ it("counts a skipped package toward ambiguity, but names only analyzed ones as c
   ]);
 });
 
-/** Every crossing's ends and every candidate that no workspace lists among its packages. */
 function unlisted(manifest: CollectionManifest): string[] {
   const listed = new Set(
     manifest.workspaces.flatMap((entry) => entry.packages)

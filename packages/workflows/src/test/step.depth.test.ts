@@ -1,8 +1,3 @@
-/**
- * Step depth — nested forks via step.fork(spec). Path composition, context
- * propagation, and snapshot tree shape under recursion and N-ary fanout.
- */
-
 import { describe, expect, test } from "vitest";
 
 import { Step } from "../step";
@@ -121,7 +116,6 @@ describe("Linear recursion via fork", () => {
 describe("N-ary fanout via fork", () => {
   test("fanout=K depth=D produces K^D leaf executions", async () => {
     let leafCalls = 0;
-    // K=3, D=2. Number of leaves should be 3^2 = 9
     const K = 3;
     const D = 2;
 

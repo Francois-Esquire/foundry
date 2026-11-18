@@ -23,8 +23,6 @@ export {
   WorkspaceSystemError,
 } from "./errors";
 export { Workspace } from "./instance";
-// `Git` itself is opt-in on `@foundry/workspaces/git`; only its result types
-// travel with the root.
 export type { GitPathStatus, GitSnapshot } from "./node/git";
 export { polling } from "./observation";
 export { scanDirectory } from "./scanner";

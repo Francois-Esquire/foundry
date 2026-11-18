@@ -22,27 +22,12 @@ import { bindingAt, callSite, canInfer, originOf } from "./identity";
 import type { StepDefinition, WorkflowDefinition } from "./lock";
 import { lockable } from "./lock";
 
-/**
- * `step(name?).describe(text).input(schema).output(schema).do(fn)`.
- * Schemas come before the body so `do` is typed from them. A name makes the
- * definition launchable from outside the module. Without one, the top-level
- * `const` it is assigned to names it; a definition made inside a function or
- * inline stays internal.
- */
-
 type Empty = Record<string, never>;
 
-/** What a node produces: the output schema's type, else the body's return. */
 type Produces<O, X> = unknown extends O ? X : O;
 
-/**
- * The name to register under (the given one, else the binding's, else
- * none), with where the call was and how to name it, in the words the
- * engine quotes back without knowing how names are inferred.
- */
 interface Identity {
   readonly fields: Pick<Shared, "name" | "nameHint" | "origin">;
-  /** The name came from the config's `const`, not the call. */
   readonly inferred: boolean;
 }
 
@@ -72,11 +57,6 @@ function identify(
   return { fields: { nameHint, origin }, inferred: false };
 }
 
-/**
- * `I`: parsed input the body sees. `R`: raw input a literal takes. `Ret`:
- * what the body must return (the output schema's input). `O`: what the node
- * produces for its parent (the output schema's output).
- */
 interface StepFields {
   readonly config?: StepConfig;
   readonly description?: string;
@@ -96,16 +76,10 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
     this.#fields = fields;
   }
 
-  /** Shown in the catalog and the launch form. */
   describe(text: string): StepBuilder<I, R, Ret, O> {
     return new StepBuilder({ ...this.#fields, description: text });
   }
 
-  /**
-   * How the step runs: `retry` (the workflows package's policy, e.g.
-   * `{ maxAttempts: 3, backoff: { kind: "exponential", initial: "1s" } }`)
-   * and `timeout` per attempt (`"30s"`, `"10m"`, or milliseconds).
-   */
   config(config: StepConfig): StepBuilder<I, R, Ret, O> {
     if (config.timeout !== undefined) {
       try {
@@ -132,15 +106,6 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
     return new StepBuilder({ ...this.#fields, output: schema });
   }
 
-  /**
-   * A step whose work is one command. A template is split into arguments
-   * now, not by a shell: `$name` fills one argument from the input (an
-   * array, one per element), so a value can never add an argument or a
-   * command. The program must be written out, and every placeholder must
-   * be an input key. A function returns the argument list instead. The
-   * output is `{ exitCode, stdout, stderr }`; a non-zero exit fails the
-   * step unless `{ check: false }`.
-   */
   exec(
     command:
       | string
@@ -151,7 +116,6 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
       typeof command === "string"
         ? templateCommand(command, this.#fields)
         : command;
-    // The result is the command's; an output schema does not apply.
     const { output: _output, ...fields } = this.#fields;
     const untyped = new StepBuilder<I, R>(fields);
     return untyped.do(async (context) =>
@@ -159,7 +123,6 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
     ) as unknown as StepDefinition<I, CommandResult, R>;
   }
 
-  /** The body; it may return `bail(error)` for a failure the run should not retry. */
   do<X extends Ret | Bail<unknown>>(
     fn: StepFn<I, X>
   ): StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R> {
@@ -271,7 +234,6 @@ export class WorkflowBuilder<I = Empty, R = Empty> {
     );
   }
 
-  /** Setup: prepares things and returns the tree. Not durable. */
   do<O>(setup: SetupFn<I, O>): WorkflowDefinition<I, O, R> {
     return this.#scope(() =>
       finishWorkflow<I, O, R>(

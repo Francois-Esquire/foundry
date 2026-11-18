@@ -1,14 +1,6 @@
 import type { SpyglassData, SpyglassFile, Territory } from "../data/types";
 import type { Chart, Described } from "./islands-api";
 
-/**
- * What a pick on the map names, in Spyglass's own terms: the package, the
- * building and the files in it, the file, or the bank and the dependencies
- * its packages share. Worked out from what Islands' "select" event gives
- * and the chart Spyglass handed it, so every id here is one the dataset
- * knows. `unmatched` lists what the event named that the dataset does not
- * have, which should stay empty.
- */
 export type PickIdentity =
   | {
       kind: "island";
@@ -19,11 +11,8 @@ export type PickIdentity =
     }
   | {
       kind: "building";
-      /** The building's id in the world plan, `building:<n>`. */
       id: string;
-      /** The package it stands on. */
       island: string | null;
-      /** Its files, by id: one household each. */
       files: string[];
       unmatched: string[];
     }
@@ -36,9 +25,7 @@ export type PickIdentity =
   | {
       kind: "bank";
       id: string;
-      /** The packages standing on it, by id. */
       islands: string[];
-      /** The dependencies they all share. */
       dependencies: { id: string; name: string; versions: readonly string[] }[];
       unmatched: string[];
     };
@@ -55,7 +42,6 @@ function filesIndex(
   return index;
 }
 
-/** The sole package among known files, or null if none or several are found. */
 function holderOf(
   files: readonly string[],
   index: ReadonlyMap<string, { territory: Territory }>
@@ -116,11 +102,6 @@ export function pickIdentity(
   return { files, id: described.id, island, kind: "building", unmatched };
 }
 
-/**
- * The viewer's selection for a building: its package, and its file when it
- * holds just one. A building whose files the dataset cannot place selects
- * nothing.
- */
 export function buildingSelection(
   described: Described,
   data: Pick<SpyglassData, "territories">

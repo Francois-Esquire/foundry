@@ -18,10 +18,6 @@ import type {
 export interface FakeProviderOptions {
   available?: boolean;
   defaults?: Partial<Record<ModelKind, string>>;
-  /**
-   * Which optional accessors the provider declares. `video`, `media`, and
-   * `grant` are opt-in so existing callers keep the defaults they had.
-   */
   kinds?: (
     | "embedding"
     | "image"
@@ -47,7 +43,6 @@ const DEFAULT_MODELS: ProviderModelDefinition[] = [
   { id: "embed", kind: "embedding", modelId: "upstream/embed" },
 ];
 
-/** A recording provider: every model build lands in `calls` as `kind:wireId`. */
 export function fakeProvider(
   id: string,
   options: FakeProviderOptions = {}

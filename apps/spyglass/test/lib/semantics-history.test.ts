@@ -117,10 +117,6 @@ const inProcessDerive: SemanticsDeriver = async (locals, context) => {
 
 const inProcess = { analyzeLocal: inProcessLocal, derive: inProcessDerive };
 
-/**
- * Four monthly commits: the semantics fixture, a new module and dependency,
- * a rename plus a cross-package move, then a package born and one removed.
- */
 function buildRepository(): { dir: string; commits: string[] } {
   const dir = realpathSync(
     mkdtempSync(join(tmpdir(), "semantics-history-fixture-"))
@@ -737,9 +733,6 @@ describe("history generation", () => {
       expect(second.get(file)).toBe(hash);
     }
 
-    // A policy change invalidates every snapshot, but the historical
-    // package-local reports are keyed by content alone and survive it: every
-    // checkpoint re-derives without analyzing a single package again.
     const invalidated = await generateSemanticsHistory({
       config: {
         ...DEFAULT_CONFIGURATION,
@@ -758,15 +751,11 @@ describe("history generation", () => {
     const reused = invalidated.manifest.generation.checkpoints.map(
       (c) => c.localsReused
     );
-    // the last checkpoint has one package removed and packages/d excluded
     expect(reused).toEqual([3, 3, 3, 2]);
   }, 240_000);
 
   it("records a failed checkpoint, keeps the others, and removes its worktree", async () => {
     const [, c2] = repo.commits;
-    // Locals unchanged since the previous checkpoint come from the content
-    // cache, so a per-package failure at c2 only loses that package; a
-    // derivation failure loses the whole checkpoint.
     const failing: SemanticsDeriver = (locals, context) => {
       if (existsSync(join(context.root, "packages/b/src/scale.ts"))) {
         throw new Error("historical workspace unsupported");
@@ -950,7 +939,6 @@ describe("history generation", () => {
       mode: "full",
     });
     expect(firstBuild.packages.analyzed).toBe(3);
-    // a commit-only change: the working tree sources are what they were
     write(repo.dir, "packages/d/NOTES.md", "notes\n");
     commit(repo.dir, "2026-05-20T12:00:00Z");
     const second = await generateSemantics({
@@ -965,9 +953,6 @@ describe("history generation", () => {
         .filter((i) => i.kind === "package-report")
         .map((i) => [i.id, i])
     );
-    // churn ranks every file against the whole repository's history, so a
-    // commit anywhere is an input to every assembled report — but Git is not
-    // an input to any package-local report, so no package is re-analyzed
     for (const id of ["@s/a", "@s/b", "@s/d"]) {
       expect(byId.get(id)?.reason).toEqual({
         cause: "evolution-changed",

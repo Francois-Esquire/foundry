@@ -12,15 +12,10 @@ import { cn } from "~/app/lib/cn";
 import "./page-vignette.css";
 
 interface PageVignetteProps {
-  /** Opacity of the vignette colour at the outer edge, as a percentage. */
   edgeStrength?: number;
-  /** Vertical position of the focal point, 0 to 100. */
   focalY?: number;
-  /** Ellipse x-radius as a percentage of the container width. */
   radiusX?: number;
-  /** Ellipse y-radius as a percentage of the container height. */
   radiusY?: number;
-  /** Where the clear center ends, 0 to 100. Lower is tighter and more dramatic. */
   spread?: number;
 }
 
@@ -181,17 +176,11 @@ export interface VignettePageProps
   fadeSize?: number | string;
   scrollAreaClassName?: string;
   surfaceColor?: string;
-  /** Decorative content rendered behind the vignette and scroll viewport. */
   underlay?: ReactNode;
-  /** Classes applied to the single route-level scrolling viewport. */
   viewportClassName?: string;
   vignette?: PageVignetteProps;
 }
 
-/**
- * A full-height page shell with one route-level vertical scroll owner. Put
- * headers, toolbars, and content inside so they share the same flow.
- */
 export function VignettePage({
   children,
   className,

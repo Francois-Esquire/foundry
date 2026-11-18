@@ -1,11 +1,3 @@
-// The height map: the land as a plate with a rim and a lip, the sea as the
-// sea's bathymetry (sea/bathymetry.wgsl): the platform under the whole
-// archipelago, each island's stack of the banks' plates on it from its top
-// silhouette to its bottom, the deep's rings round it, and a beach down
-// from every coast.
-// Chart units, sea level 0, continuous across the coast. The land is a
-// function of the distance alone; the sea of the distance, every island's
-// own distance (the coasts map), and which groups the islands are in.
 import {
   Banks,
   Bathymetry,
@@ -48,8 +40,6 @@ import { ease, MapFrame, texelCenter } from "./frame.wgsl";
 struct HeightParams {
   frame: MapFrame,
   land: Land,
-  // Chart units over which the rim's distance is eased, so the rim and lip
-  // follow the coast's course without its finest wiggles. 0 for none.
   rimSmoothing: f32,
   bed: Bathymetry,
   platform: Platform,
@@ -57,28 +47,18 @@ struct HeightParams {
   beach: Beach,
   coastColumns: u32,
   rowStart: u32,
-  // The open sea's floor past the platform's slope (sea/seascape.wgsl).
   seascape: Seascape,
 }
 
-// The height map's a on land, how far past the platform's edge it stands:
-// far inside it, so the open sea's floor reads none of it, filtered or not.
 const LAND_PAST = -1024.0;
-// The farthest past it the height map's a holds, well within half floats:
-// far past the slope's end, where the open sea's floor has all of it.
 const FAR_PAST = 16384.0;
 
-// One island as the banks see it: its rings, its size, and its own scale on
-// its stack's reach.
 struct BankIsland {
   rings: u32,
   size: f32,
   reach: f32,
 }
 
-// One bank, laid out by level (the deepest first): its members (a range of
-// `members`), its level, its index in the global order (banks.ts), and its
-// members as a bit per island index.
 struct Bank {
   memberStart: u32,
   memberCount: u32,
@@ -90,23 +70,14 @@ struct Bank {
 @group(0) @binding(0) var<uniform> params: HeightParams;
 @group(0) @binding(1) var distance: texture_2d<f32>;
 @group(0) @binding(2) var linear: sampler;
-// Layer i: island i's own signed distance (maps/coasts.wgsl).
 @group(0) @binding(3) var coasts: texture_2d_array<f32>;
 @group(0) @binding(4) var<storage, read> bankIslands: array<BankIsland>;
 @group(0) @binding(5) var<storage, read> banks: array<Bank>;
-// One record per member of a bank: the island's index, and how many of its
-// rings stand from this one up (1 for its top ring), so the ring's edge is
-// that many runs from its coast.
 @group(0) @binding(6) var<storage, read> members: array<vec2u>;
 
-// Pipeline specializations (bake-layout.ts `capacityOf`). Charts of up
-// to 64 islands keep each texel's island state in private arrays; larger
-// ones keep it in `states`, a stripe of rows at a time. Charts with banks
-// past the rings map's bits also write every bank's footprint.
 override SCALABLE_HEIGHT: bool = false;
 override WRITE_FOOTPRINTS: bool = false;
 
-// One island's state at the texel being baked (see `seaFloor`).
 struct IslandState {
   own: f32,
   delta: f32,
@@ -118,7 +89,6 @@ struct IslandState {
 @group(0) @binding(8) var<storage, read_write> masks: array<vec4u>;
 @group(0) @binding(9) var footprint: texture_storage_2d_array<rgba32uint, write>;
 
-// Where this texel's island states and footprint pages start.
 var<private> stateBase: u32;
 var<private> maskBase: u32;
 var<private> own: array<f32, 64>;
@@ -186,9 +156,6 @@ fn set_tread(i: u32, value: f32) {
   }
 }
 
-// An island's own distance at map uv. Large charts pack the coasts map as
-// an atlas, `coastColumns` cells a side per layer; a cell's uv is held half
-// a texel inside it, so bilinear reads never bleed into a neighbour.
 fn coastAt(uv: vec2f, island: u32) -> f32 {
   let columns = params.coastColumns;
   if (columns == 1u) {
@@ -202,16 +169,13 @@ fn coastAt(uv: vec2f, island: u32) -> f32 {
   return textureSampleLevel(coasts, linear, at, i32(island / cells), 0.0).r;
 }
 
-// Banks per footprint layer: the 128 bits of an rgba32uint texel.
+// Match maps/bake-layout.ts and view/selection-resolve.wgsl.
 const BANKS_PER_PAGE = 128u;
 
-// The footprint's layers: at least one.
 fn footprintPages() -> u32 {
   return max(1u, (params.banks.bankCount + BANKS_PER_PAGE - 1u) / BANKS_PER_PAGE);
 }
 
-// Every bank whose plate covers this texel, as `seaFloor` gathered them;
-// none on land.
 fn writeMasks(at: vec2u, land: bool) {
   if (!WRITE_FOOTPRINTS) {
     return;
@@ -222,9 +186,6 @@ fn writeMasks(at: vec2u, land: bool) {
 }
 const FAR = 3.0e38;
 
-// A fixed disc of taps for the rim's ease: the centre, an inner ring and an
-// outer ring offset by half a step, in units of the ease's radius, weighted
-// toward the centre.
 const RING_TAPS = 8u;
 const TAU = 6.2831853;
 
@@ -233,7 +194,6 @@ fn distanceNear(p: vec2f) -> f32 {
   return textureSampleLevel(distance, linear, (p - params.frame.origin) / side, 0.0).r;
 }
 
-// The mean distance over a disc of `radius` around p.
 fn easedDistance(p: vec2f, d: f32, radius: f32) -> f32 {
   var sum = d;
   var weight = 1.0;
@@ -247,9 +207,6 @@ fn easedDistance(p: vec2f, d: f32, radius: f32) -> f32 {
   return sum / weight;
 }
 
-// The distance at uv from mip `level` (a box-filtered pyramid), through a
-// cubic B-spline so the result is smooth to the second derivative: four
-// bilinear taps placed to weigh sixteen texels.
 fn distanceSpline(uv: vec2f, level: u32) -> f32 {
   let size = vec2f(textureDimensions(distance, level));
   let st = uv * size - 0.5;
@@ -272,9 +229,6 @@ fn distanceSpline(uv: vec2f, level: u32) -> f32 {
       + g1.x * textureSampleLevel(distance, linear, vec2f(h1.x, h1.y), lod).r);
 }
 
-// The distance smoothed over about `scale` chart units: the spline through
-// the two mip levels either side of that scale, mixed by a weight that is
-// the same everywhere, so the mix adds no seam.
 fn smoothedDistance(p: vec2f, scale: f32) -> f32 {
   let side = params.frame.texel * f32(params.frame.resolution);
   let uv = (p - params.frame.origin) / side;
@@ -285,9 +239,6 @@ fn smoothedDistance(p: vec2f, scale: f32) -> f32 {
   return mix(distanceSpline(uv, below), distanceSpline(uv, above), fract(lod));
 }
 
-// The exact distance blended into one smoothed over `scale` from a little
-// offshore on (sea/bathymetry.wgsl `nearDistance`), from the distance taps
-// it blends.
 fn blendedDistance(p: vec2f, d: f32, scale: f32) -> f32 {
   if (scale <= params.frame.texel) {
     return d;
@@ -295,11 +246,9 @@ fn blendedDistance(p: vec2f, d: f32, scale: f32) -> f32 {
   return nearDistance(d, easedDistance(p, d, 0.5 * scale), smoothedDistance(p, scale), scale);
 }
 
-// The hull's taps: a sunflower disc, even over its area.
 const HULL_TAPS = 16u;
 const GOLDEN_ANGLE = 2.3999632;
 
-// Island `island`'s own distance at uv, averaged over a disc of `radius`.
 fn hullDistance(uv: vec2f, island: u32, side: f32, radius: f32) -> f32 {
   var sum = 0.0;
   for (var k = 0u; k < HULL_TAPS; k++) {
@@ -312,7 +261,6 @@ fn hullDistance(uv: vec2f, island: u32, side: f32, radius: f32) -> f32 {
 }
 
 fn isMember(bank: Bank, island: u32) -> bool {
-  // Large charts: a binary search of the bank's members, sorted by island.
   if (SCALABLE_HEIGHT) {
     let end = bank.memberStart + bank.memberCount;
     var lo = bank.memberStart;
@@ -330,23 +278,16 @@ fn isMember(bank: Bank, island: u32) -> bool {
   return ((bank.mask[island / 32u] >> (island % 32u)) & 1u) == 1u;
 }
 
-// The sea floor at p; the bank whose plate it stands on, its id + 1, 0 on
-// the platform or the deep; and every bank whose plate covers it, under
-// whatever stands on it, a bit per id (the first RING_BITS ids).
 struct SeaFloor {
   height: f32,
   ring: u32,
   under: vec3u,
-  // How far p is past the platform's edge, chart units, negative inside
-  // it: how far the open sea's floor has taken over here goes by it
-  // (bathymetry.wgsl `openShareOf`).
   past: f32,
 }
 
-// The banks the rings map's footprint holds: 16 bits in each of g, b, a.
+// Match maps/bake-layout.ts and scene/water.wgsl.
 const RING_BITS = 48u;
 
-// The sea floor at p, `d` from the nearest coast (exact).
 fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
   let bed = params.bed;
   let platform = params.platform;
@@ -362,7 +303,6 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
   let scale = smoothingScale(params.beach, b);
   let smoothed = blendedDistance(p, d, scale);
 
-  // Every island's own distance, and the two least.
   var least = FAR;
   var second = FAR;
   for (var i = 0u; i < count; i++) {
@@ -371,9 +311,6 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
     least = min(least, get_own(i));
   }
 
-  // Each island's distance for its rings and beach: the smoothed nearest
-  // where it is the nearest, its own elsewhere. The coasts map's texel
-  // bounds how sharply one may hand over to the other.
   let coastsTexel = side / f32(textureDimensions(coasts).x / params.coastColumns);
   let blend = 2.0 * max(scale, coastsTexel);
   for (var i = 0u; i < count; i++) {
@@ -381,7 +318,6 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
     set_delta(i, islandDistance(smoothed, get_own(i), others, blend));
   }
 
-  // The platform's outline: the coasts merged, pushed out by its reach.
   let banked = hasBanks(b);
   var terms = 0.0;
   for (var i = 0u; i < count; i++) {
@@ -392,10 +328,7 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
   let lobes = platformLobes(platform, b, p);
   let outline = merged - reach;
 
-  // Each banked island's silhouettes and tread.
   var stacks = FAR;
-  // The treads here, each island's weighted toward the nearer coasts as
-  // the platform merges them, for the lift.
   var weights = 0.0;
   var treads = 0.0;
   for (var i = 0u; i < count; i++) {
@@ -412,7 +345,6 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
       set_top(i, topSilhouette(get_delta(i), hullDistance(uv, i, side, radius), radius));
     }
     let bottom = bottomSilhouette(b, get_top(i), outline, reach, island.reach, rings);
-    // The platform's lobes carry up into the top silhouette.
     set_top(i, get_top(i) - (b.topReach * lobes * island.reach));
     set_tread(i, treadOf(get_top(i), bottom, rings));
     stacks = min(stacks, bottom);
@@ -422,18 +354,10 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
   }
   let lift = liftOf(b, select(0.0, treads / weights, weights > 0.0));
 
-  // The platform runs its margin past its outline and every stack.
-  // Its top undulates as the levels do, fading out down its fall.
   let past = smoothMin(outline, stacks, platform.margin) - platform.margin;
   let base = platformHeight(bed, platform, b, p, past);
   let onTop = 1.0 - ease(0.0, b.step, -platform.base - base);
   var ground = base + platformUndulation(b, p) * onTop;
-  // Past the slope's end, on the deep floor, the open sea's floor sinks
-  // away from it in steps. It grows in past the calm in the seascape itself
-  // (as the seabed map's does), and here past the slope's end too; and
-  // it sinks only floor that has come down to the deep floor, so the
-  // slope's last riser, wandering out past its end, keeps its course and
-  // its height. The platform and its fall stand exactly as they are.
   let share = openShareOf(bed, past) * deepShareOf(bed, ground);
   if (share > 0.0) {
     let coast = openCoast(distance, params.frame, params.seascape, p);
@@ -441,16 +365,12 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
     ground = sunkGround(params.seascape, ground, sink, bed.floorDepth);
   }
 
-  // The plates, each over the platform; the highest wins. `shelf` leaves
-  // out the platform's fall past its edge: what a coast here stands on.
   var floor = ground;
   var shelf = -platform.base;
   var ring = 0u;
   var under = vec3u(0u);
   for (var g = 0u; g < select(0u, b.bankCount, banked); g++) {
     let bank = banks[g];
-    // How far p is outside the bank's rings joined; the nearer member's
-    // tread, handed over across the bridge, sets the riser.
     var outside = FAR;
     var run = b.run;
     for (var m = 0u; m < bank.memberCount; m++) {
@@ -460,8 +380,6 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
       }
       let past = ringPast(get_top(member.x), get_tread(member.x), member.y);
       run = mix(run, get_tread(member.x), clamp(0.5 + 0.25 * (outside - past) / max(b.bridge, 1e-3), 0.0, 1.0));
-      // Two members' rings whose edges come within the bridge of each
-      // other run across as one plate.
       outside = smoothMin(outside, past, 2.0 * b.bridge);
     }
     if (outside >= FAR) {
@@ -469,7 +387,6 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
     }
     let riser = riserWidth(b, run);
     let stray = wanderReach(b, run, riser, bank.level);
-    // Past the farthest the edge can stray and its riser: nothing here.
     if (outside - stray >= 0.5 * riser) {
       continue;
     }
@@ -492,7 +409,6 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
       under[bank.id / 16u] |= 1u << (bank.id % 16u);
     }
     if (cover > 0.0) {
-      // The coast's tier reads the level as it stands without the undulation.
       let level = levelHeight(platform, b, bank.level, lift);
       let plate = plateOver(ground, level + undulationAt(b, p, bank.level), cover);
       if (plate > floor) {
@@ -503,8 +419,6 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
     }
   }
 
-  // Every coast falls to the floor: a beach over a shallow shelf, a drop-off
-  // over a deep one.
   let beach = params.beach;
   let steep = shoreSteepness(beach, -shelf);
   var shore = select(floor, shoreHeight(beach, floor, d, d, beach.width, steep), count == 0u);
@@ -512,13 +426,9 @@ fn seaFloor(p: vec2f, d: f32) -> SeaFloor {
     let width = beachWidth(beach, bankIslands[i].size, steep);
     shore = max(shore, shoreHeight(beach, floor, get_top(i), get_delta(i), width, steep));
   }
-  // The floor runs on to the frame's edge as it stands, the platform's fall
-  // too where it runs into the margin: the seabed map carries it on past
-  // the edge from `past` (seabed.wgsl), with nothing flattened along it.
   return SeaFloor(shore, ring, under, past);
 }
 
-// The shore's height on the coast nearest land point p, `inland` of it.
 fn coastHeight(p: vec2f, inland: f32) -> f32 {
   if (inland >= params.land.rimWidth) {
     return 0.0;
@@ -533,24 +443,13 @@ fn coastHeight(p: vec2f, inland: f32) -> f32 {
 }
 
 struct Texel {
-  // r: the height. g, b: what the terrain rebuilds the land from, both
-  // smooth across texels: the rim's distance inland (negative at sea) and
-  // the floor at the coast (the floor itself at sea). a: how far past the
-  // platform's edge the floor is (`SeaFloor.past`), chart units, negative
-  // inside it, `LAND_PAST` on land: the water's seascape relief reads how
-  // far the open sea's floor has taken over from it, and the seabed map
-  // carries the platform's fall on past the frame's edge from it.
   @location(0) height: vec4f,
-  // r: the bank whose plate the sea floor stands on, its id + 1; 0 on
-  // land, the platform and the deep. g, b, a: every bank whose plate
-  // covers it, a bit per id.
   @location(1) ring: vec4u,
 }
 
 @fragment
 fn fs_main(@builtin(position) position: vec4f) -> Texel {
   let texel = vec2u(floor(position.xy));
-  // This texel's place in the stripe of rows the workspace holds.
   let pixel = (texel.y - params.rowStart) * params.frame.resolution + texel.x;
   stateBase = pixel * params.banks.islandCount;
   maskBase = pixel * footprintPages();
@@ -562,8 +461,6 @@ fn fs_main(@builtin(position) position: vec4f) -> Texel {
     let past = clamp(sea.past, LAND_PAST, FAR_PAST);
     return Texel(vec4f(sea.height, -d, sea.height, past), vec4u(sea.ring, sea.under));
   }
-  // The eased distance takes over from the exact one across the first
-  // `rimSmoothing` inland, so the rise still begins exactly on the coast.
   let inland = -d;
   var shaped = inland;
   if (params.rimSmoothing > 0.0) {
@@ -575,9 +472,6 @@ fn fs_main(@builtin(position) position: vec4f) -> Texel {
   return Texel(vec4f(landHeight(params.land, shaped, coast), shaped, coast, LAND_PAST), vec4u(0u));
 }
 
-// The vertex an effect would supply, for drawing this as a `draw`, which
-// takes the pipeline constants an effect can't: one triangle over the
-// target, uv 0 at its top left.
 struct FullscreenVertexOut {
   @builtin(position) position: vec4f,
   @location(0) uv: vec2f,

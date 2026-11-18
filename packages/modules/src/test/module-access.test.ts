@@ -146,7 +146,6 @@ describe("Module access", () => {
     expect(kept.map((grant) => grant.capability)).toEqual([WEATHER]);
     expect(invocations.revoke).not.toHaveBeenCalled();
 
-    // Wider constraints resolve to another digest: the Grant asks again.
     const wider = await publish("1.2.0", [weatherRequest(["Oslo", "Rome"])]);
     expect(
       await access.carryOver({

@@ -8,7 +8,6 @@ const QUERY_COUNT = 400;
 const TEXT_LENGTH = 40;
 const MAX_WIDTH = 8;
 
-/** A fixed sequence, so every run checks the same spans. */
 function sequence(seed: number): () => number {
   let state = seed;
   return () => {

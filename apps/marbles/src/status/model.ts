@@ -63,7 +63,6 @@ interface ScheduleStatus {
   readonly lastStatus: string | null;
   readonly name: string;
   readonly nextDue: string | null;
-  /** Pid of the live tick holding the lock, if any. */
   readonly running: number | null;
 }
 
@@ -72,7 +71,6 @@ interface ObserverStatus extends ObserverState {
 }
 
 interface RunsStatus {
-  /** Newest first, at most five. */
   readonly recent: readonly RunSummary[];
   readonly total: number;
 }
@@ -80,7 +78,6 @@ interface RunsStatus {
 interface RunSummary {
   readonly createdAt: number;
   readonly id: string;
-  /** Not settled, and the process that owned it is gone. */
   readonly orphaned: boolean;
   readonly sharedFrom?: string;
   readonly status: string;

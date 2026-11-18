@@ -16,7 +16,6 @@ import {
 import { page } from "./page";
 import type { ModuleCommands } from "./registry";
 
-/** Where a built Content carries its manifest. */
 export const MODULE_CONTENT_MANIFEST_PATH = `source/${MODULE_MANIFEST_SOURCE_PATH}`;
 
 export type ModuleVersionArtifacts = Pick<
@@ -25,17 +24,10 @@ export type ModuleVersionArtifacts = Pick<
 >;
 
 export interface ModuleVersions {
-  /** Frozen, SemVer-tagged Contents that validate, in Content id order. */
   list(input: {
     readonly moduleId: ModuleId;
     readonly page?: PageInput;
   }): Promise<Page<ModuleVersion>>;
-  /**
-   * The pinned Content as a validated version of the Module. `null` when the
-   * Module or the Content does not exist; throws
-   * `ModuleManifestValidationError` when the Content exists but is not a
-   * valid version of this Module.
-   */
   load(input: {
     readonly moduleId: ModuleId;
     readonly contentId: ContentId;
@@ -92,7 +84,6 @@ export function createModuleVersions(options: {
   return Object.freeze(resolver);
 }
 
-/** `null` when the Content embeds no manifest source. */
 export async function embeddedManifest(
   artifacts: Pick<Artifacts, "readFile">,
   contentId: ContentId
@@ -113,11 +104,6 @@ export async function embeddedManifest(
   return parseModuleManifestSourceText(text);
 }
 
-/**
- * Drops each retained manifest that its Content's embedded source reproduces.
- * What remains is exactly the set no Content can supply: output-only imports
- * and legacy disagreements. Idempotent; an unreadable Content keeps its row.
- */
 export async function pruneRetainedManifests(options: {
   readonly artifacts: Pick<Artifacts, "readFile">;
   readonly store: Pick<

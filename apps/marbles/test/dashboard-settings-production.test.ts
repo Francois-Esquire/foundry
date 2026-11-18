@@ -12,12 +12,6 @@ import type * as Client from "~/process/client";
 import { SPAWN_RECORD_ENV } from "~/process/spawned";
 import { testHome } from "./helpers/home";
 
-/**
- * The dashboard command's own settings action, from a real `runInteractive`
- * against a stand-in terminal and Marbles process: what it saves, what it
- * shows, and how a file it cannot use fails.
- */
-
 interface Captured {
   controller?: AbortController;
   settings?: (changes: SettingsChange) => Promise<void>;
@@ -46,7 +40,6 @@ vi.mock("~/dashboard/terminal", () => ({
   },
 }));
 
-// Only `--dry-run` hosts the workspace in this process, through Bun's loader.
 vi.mock("~/workspace/host", () => ({ hostWorkspace: vi.fn() }));
 vi.mock("~/workspace/open", () => ({ loadSource: vi.fn() }));
 
@@ -128,7 +121,6 @@ async function open() {
   return captured.settings;
 }
 
-/** Call the action as the dashboard does; it must not throw out of the key handler. */
 function change(
   settings: ((changes: SettingsChange) => Promise<void>) | undefined,
   changes: SettingsChange
@@ -177,7 +169,6 @@ it("rejects a save over a malformed settings file, changes nothing, and saves on
 });
 
 it("rejects a save the state root cannot hold, and a later save works", async () => {
-  // Root writes through a read-only directory.
   if (process.getuid?.() === 0) {
     return;
   }

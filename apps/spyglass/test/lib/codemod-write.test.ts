@@ -17,7 +17,6 @@ import {
 } from "../helpers/codemod-fixture";
 import { scanCacheSeeds } from "../helpers/scan-cache-seeds";
 
-/** Every scanned copy after the first of its kind starts from that copy's cache. */
 const seeds = scanCacheSeeds();
 afterAll(seeds.dispose);
 
@@ -25,7 +24,6 @@ describe("applyRecord, writing", () => {
   const INDEX = "packages/plans/src/index.ts";
   const directories: string[] = [];
   const WRITE_TIMEOUT = 120_000;
-  // Two cold history scans and an apply run exceed the ordinary write budget on CI.
   const HISTORY_WRITE_TIMEOUT = 240_000;
 
   afterAll(() => {
@@ -96,8 +94,6 @@ describe("applyRecord, writing", () => {
       expect(readFileSync(historyManifest, "utf8")).toBe(savedHistory);
       expect(existsSync(`${copy.workspace.output}.next`)).toBe(false);
 
-      // What apply published is what a later scan produces, from a cold
-      // cache in a fresh state directory, so nothing is reused from apply's.
       const applied = outputFiles(copy.workspace.output);
       const fresh = await scan(copy.root, {
         history: true,
@@ -133,7 +129,6 @@ describe("applyRecord, writing", () => {
         })),
       });
       expect(result.status).toBe("rolled-back");
-      // The staged scan of the write is discarded, and the published dataset is as it was.
       expect(outputFiles(copy.workspace.output)).toEqual(published);
       expect(existsSync(`${copy.workspace.output}.next`)).toBe(false);
       expect(
@@ -237,8 +232,6 @@ describe("applyRecord, writing", () => {
       expect(existsSync(copy.journal)).toBe(false);
       expect(signals.listenerCount("SIGINT")).toBe(0);
 
-      // A signal whose listener runs only after the last check still undoes
-      // the write, before it is marked verified.
       const late = new EventEmitter();
       await expect(
         copy.write({

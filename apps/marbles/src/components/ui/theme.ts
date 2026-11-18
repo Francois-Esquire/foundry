@@ -1,4 +1,3 @@
-// Adapted from termcn.
 import type { ThemeName } from "~/model/settings";
 
 interface Palette {
@@ -23,7 +22,6 @@ interface Palette {
   };
 }
 
-/** Gruvbox, dark by default and light on request. */
 const PALETTES: Readonly<Record<ThemeName, Palette>> = {
   dark: {
     border: { color: "#665c54", focusColor: "#fabd2f", style: "rounded" },
@@ -63,10 +61,6 @@ const PALETTES: Readonly<Record<ThemeName, Palette>> = {
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
-/**
- * The palette every view draws with. Views read it as they render, so
- * `applyTheme` swaps the colours in place and the next render shows them.
- */
 export const theme: {
   readonly border: Mutable<Palette["border"]>;
   readonly colors: Mutable<Palette["colors"]>;

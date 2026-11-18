@@ -12,19 +12,10 @@ import type {
   OperatorVerificationKind,
 } from "./operator-types";
 
-// V11.2 operator composition: several operators and their decompositions
-// combined into one structural action graph. Equivalent actions become one
-// action with provenance; dependencies merge and cross-operator ones are
-// inferred from fixed rules; contradictions are surfaced, never resolved.
-// Nothing here chooses intent or names a file.
-
-/** Independent of the operator and decomposition schemas: compositions may persist on their own. */
 export const COMPOSITION_SCHEMA_VERSION = 1;
 
-/** Bumps when a merge, inference, or conflict rule changes; part of the fingerprint. */
 export const COMPOSITION_RULES_VERSION = 1;
 
-/** Operator-independent identity of a structural action; ids are operator-scoped, keys are not. */
 export interface StructuralActionCanonicalKey {
   current?: string;
   kind: StructuralActionKind;
@@ -66,7 +57,6 @@ export type OperatorCompositionConflictKind =
 export interface OperatorCompositionConflict {
   actions: string[];
   detail: string;
-  /** Concepts, packages, boundaries, preservation ids: whatever the contradiction is about. */
   entities: string[];
   kind: OperatorCompositionConflictKind;
   operators: string[];
@@ -82,7 +72,6 @@ export interface CompositionPreservation {
   coverageActions: string[];
   entityIds: string[];
   kind: OperatorPreservationKind;
-  /** `kind:entityIds`, as V11.1 names it. */
   preservationId: string;
   requiredByOperators: string[];
   status: CompositionPreservationStatus;
@@ -90,7 +79,6 @@ export interface CompositionPreservation {
 
 type CompositionEffectRelation = "compatible" | "duplicate" | "conflicting";
 
-/** Operator effects on one dimension and change for one subject; never a new prediction. */
 export interface CompositionEffect {
   change: string;
   changes: OperatorExpectedEffect[];
@@ -116,7 +104,6 @@ export interface CompositionVerification {
 type CompositionGapResolutionStatus = "resolved" | "unresolved" | "conflicted";
 
 export interface CompositionGapResolution {
-  /** `<operator id>/<gap kind>:<entities>` */
   gapId: string;
   resolvedByActions: string[];
   resolvedByOperators: string[];
@@ -138,7 +125,6 @@ interface OperatorCompositionDiagnostics {
   inputActions: number;
   inputOperators: number;
   mergedActions: number;
-  /** Decompositions built here because none was supplied or the supplied one was behind its operator. */
   redecomposed: string[];
   sharedActions: number;
 }
@@ -148,12 +134,6 @@ interface CompositionFingerprint {
   hash: string;
 }
 
-/**
- * Precedence: `stale` (an operator or decomposition no longer matches the
- * facts) > `unsupported` (an operator has no decomposition) > `conflicted`
- * (no combined intent exists) > `blocked` (coherent, but an operator is
- * blocked) > `partial` (a gap remains) > `complete`.
- */
 export type OperatorCompositionStatus =
   | "complete"
   | "partial"
@@ -170,18 +150,14 @@ export interface OperatorComposition {
   effects: CompositionEffect[];
   fingerprint: CompositionFingerprint;
   groups: StructuralActionGroup[];
-  /** `composition:<hash>` over sorted operator ids, operator fingerprints, and the schema version. */
   id: string;
-  /** Operators whose input was stale, unsupported, or blocked, with the reason. */
   inputProblems: string[];
   operators: string[];
   preservations: CompositionPreservation[];
-  /** One entry per carried gap, resolved or not. */
   resolutions: CompositionGapResolution[];
   schemaVersion: typeof COMPOSITION_SCHEMA_VERSION;
   sharedActions: SharedStructuralAction[];
   status: OperatorCompositionStatus;
-  /** Every carried gap whose resolution is not `resolved`. */
   unresolved: OperatorCompositionGap[];
   verification: CompositionVerification[];
 }
@@ -190,7 +166,6 @@ type OperatorCompositionValidationStatus = "valid" | "invalid" | "stale";
 
 export interface OperatorCompositionValidation {
   compositionId: string;
-  /** Fingerprint over the same inputs read now; absent when an input no longer resolves. */
   currentFingerprint?: string;
   cycles: string[][];
   fingerprint: string;

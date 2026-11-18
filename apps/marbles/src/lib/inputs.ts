@@ -13,7 +13,6 @@ export interface InputField {
   readonly type: "text" | "multiline" | "number" | "boolean" | "select";
 }
 
-/** Omitted metadata means unknown input; an empty fields list explicitly means no arguments. */
 export interface DefinitionOptions {
   readonly description?: string;
   readonly input?: { readonly fields: readonly InputField[] };

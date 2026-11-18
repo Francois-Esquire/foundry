@@ -89,7 +89,6 @@ function stackSource(islandId: string, name: string, reliance: number) {
   } satisfies SeaStackSource;
 }
 
-/** Map units from a point to an island's coast, negative on its land. */
 function coastDistance(
   shore: { coast: readonly Polygon[]; x: number; y: number },
   x: number,
@@ -125,7 +124,6 @@ function coastDistance(
   return inside ? -nearest : nearest;
 }
 
-/** Every stack clear of every coast and every other stack, off its own island, on its shelf ring. */
 function expectClear(
   stacks: readonly SeaStack[],
   islands: readonly {
@@ -199,12 +197,10 @@ it("finds each package's own runtime dependencies and how much it relies on each
     { name: "unknown", reliance: reliance.unmeasured, territoryId: "b" },
     { name: "unused", reliance: reliance.declared, territoryId: "b" },
   ]);
-  // Without b on the chart, a alone reaches what it shared with b.
   expect(ownDependencies(data, ["a"]).map(({ name }) => name)).toEqual([
     "shared",
     "solo",
   ]);
-  // A package reached through another workspace package shares its dependencies.
   const through = {
     ...data,
     graph: data.graph && {
@@ -247,7 +243,6 @@ it("places stacks the same way for any input order", () => {
 });
 
 it("keeps stacks off land, apart, and on their own island's shelf", () => {
-  // Close islands: a stack must not sit nearer a neighbour's coast than its own.
   const islands = [
     island("a", -60),
     island("b", 60),

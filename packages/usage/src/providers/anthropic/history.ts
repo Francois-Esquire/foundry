@@ -4,15 +4,9 @@ import { quantities, type Work } from "../../consumption";
 import { historyFiles, jsonLines, mapLimit } from "../local";
 import { count, record, text } from "../values";
 
-/** The model Claude Code names for local placeholders that never reached the API. */
 const SYNTHETIC_MODEL = "<synthetic>";
 const USAGE_MARKER = '"usage"';
 
-/**
- * One assistant record as work, or nothing. Anthropic counts `input_tokens`
- * apart from cache reads and writes, so the fields are already disjoint;
- * thinking is part of output.
- */
 const workOf = (
   value: unknown,
   file: string
@@ -55,14 +49,6 @@ const workOf = (
   };
 };
 
-/**
- * Claude Code's work since `since`, from the session transcripts under
- * `<configDir>/projects/`, subagent transcripts included. Claude Code writes
- * one record per content block, each repeating its response's usage, and a
- * resumed or forked session copies records into a new file: a record is
- * deduplicated across files by available message and request IDs. Records with
- * neither ID are not deduplicated.
- */
 export const readClaudeHistory = async (
   configDir: string,
   since: Date

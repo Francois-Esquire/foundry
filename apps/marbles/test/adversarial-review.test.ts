@@ -51,10 +51,6 @@ afterEach(async () => {
   );
 });
 
-/**
- * A repository on `feature`, one commit past `main`, with an untracked file
- * and the instruction files the Standards axis should find.
- */
 async function fixture(): Promise<string> {
   const root = await realpath(await seedRepository());
   repositories.push(root);
@@ -158,8 +154,7 @@ it("reviews Standards and Spec separately, and counts only what a fresh challeng
                 },
               ],
             }
-          : // Answers for an id that was never asked about; P1 gets none.
-            {
+          : {
               verdicts: [
                 { evidence: "", id: "S1", reason: "", verdict: "confirmed" },
               ],
@@ -222,7 +217,6 @@ it("reviews Standards and Spec separately, and counts only what a fresh challeng
   expect(new Set(sessions).size).toBe(4);
   expect(calls.every(({ call }) => call.cwd === root)).toBe(true);
 
-  // Neither axis sees the other's remit or findings.
   const prompt = (role: Role, has: string) =>
     calls.find(({ call, role: r }) => r === role && call.prompt.includes(has))
       ?.call.prompt ?? "";
@@ -274,8 +268,6 @@ it("keeps one axis's result when the other's reviewer fails", async () => {
   expect(result.status).toBe("incomplete");
   expect(result.standards.status).toBe("completed");
   expect(result.spec.status).toBe("failed");
-  // The streamed turn loses the provider's own message; the SDK reports
-  // the reply it could not read.
   expect(result.spec.review.error).toContain("No object generated");
 });
 
@@ -512,7 +504,6 @@ it("reviewing commits only, finds instruction files at HEAD and asks agents to r
   expect(prompt).toContain(`read at ${result.head}: AGENTS.md, src/AGENTS.md`);
   expect(prompt).toContain(`git show ${result.head}:<path>, never from disk`);
 
-  // The working tree, by contrast, is read from disk.
   const working = await launch<AdversarialReviewOutput>(adversarialReview, {
     worktree: root,
   });

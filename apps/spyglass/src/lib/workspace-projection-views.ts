@@ -50,12 +50,6 @@ import type {
   WorkspaceReviewListProjection,
 } from "./workspace-projection-types";
 
-// V9.4 projection layer, part two: renderer-neutral graphs, the focused
-// concept graph, sparse matrices, ranked lists on one explicit metric each,
-// direction and review lists, and the typed query dispatcher. No
-// coordinates, no styling, no combined score; a preset is a field
-// selection over the same canonical edges.
-
 interface PresetSpec {
   dependency: boolean;
   edgeSource: string;
@@ -72,7 +66,6 @@ const ALL_ROLES: ConceptDirectionRole[] = [
   "conversion",
 ];
 
-/** Every preset, spelled out: which canonical edges it keeps. */
 const GRAPH_PRESETS: Record<WorkspaceGraphPreset, PresetSpec> = {
   "architecture-overview": {
     dependency: true,
@@ -790,10 +783,6 @@ export function listWorkspaceReviews(
   };
 }
 
-/**
- * One typed entry point over the projection functions. Entity queries take
- * an id or a name; a name matching several entities returns them all.
- */
 export function queryWorkspace(
   context: WorkspaceProjectionContext,
   query: WorkspaceQuery

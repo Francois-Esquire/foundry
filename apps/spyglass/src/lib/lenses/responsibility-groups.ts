@@ -21,7 +21,6 @@ interface ResponsibilityEvidence {
   >[];
 }
 
-/** One package's fields the lens reads; module ids are the package's own. */
 interface ResponsibilityGroupsSourcePackage {
   id: string;
   responsibilities: {
@@ -37,7 +36,6 @@ export interface ResponsibilityGroupsSource {
   packages: ResponsibilityGroupsSourcePackage[];
 }
 
-/** How strongly two responsibilities belong together: dampened import edges plus dampened symbol flow. */
 export function responsibilityAffinity(
   moduleEdges: number,
   symbolFlow: number
@@ -47,7 +45,6 @@ export function responsibilityAffinity(
 
 type Merged = Map<number, { members: number[]; strength: number }>;
 
-/** A group's id from its sorted member ids, made as a responsibility's id is. */
 function groupId(responsibilities: readonly string[]): string {
   const hash = createHash("sha256")
     .update(responsibilities.join("\n"))
@@ -55,11 +52,6 @@ function groupId(responsibilities: readonly string[]): string {
   return `responsibility-group:${hash.slice(0, 12)}`;
 }
 
-/**
- * Greedy modularity merge: joins the pair of groups with the largest gain
- * until no join gains, and names each group of two or more after its anchor,
- * the member with the most affinity to the others (ties by id).
- */
 export function groupResponsibilities(evidence: ResponsibilityEvidence): {
   groups: Omit<ResponsibilityGroup, "anchorModule" | "modules">[];
   independent: string[];
@@ -165,7 +157,6 @@ function mergeWhileGaining(
   }
 }
 
-/** The pair whose join gains most, above a floor that keeps rounding from joining anything. */
 function bestJoin(
   merged: Merged,
   weights: Float64Array<ArrayBuffer>,
@@ -231,11 +222,6 @@ function derivePackage(
   };
 }
 
-/**
- * Each package's responsibilities grouped by the greedy modularity merge,
- * each group anchored on its most connected member and, within that, on its
- * module with the highest internal fan-in.
- */
 export const responsibilityGroupsLens: Lens<
   "responsibility-groups",
   ResponsibilityGroupsSource

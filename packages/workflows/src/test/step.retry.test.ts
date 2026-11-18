@@ -1,11 +1,3 @@
-/**
- * Step retry — RetryPolicy on StepSpec.config translates to an Effect Schedule.
- *
- * Pins: maxAttempts, shouldRetry predicate, the four backoff strategies,
- * Bail bypassing the schedule, and the per-Step scope of the policy
- * (a parent's retry does NOT cascade into a forked child's run).
- */
-
 import { describe, expect, test } from "vitest";
 
 import { Step, StepBailError } from "../step";
@@ -98,7 +90,6 @@ describe("Step.retry — Bail vs throw", () => {
     } catch (err) {
       expect((err as StepBailError).bail).toEqual(bail("hard fail"));
     }
-    // Two run() calls above; each invokes execute once (Bail bypasses retry).
     expect(calls).toBe(2);
     expect(step.status).toBe("failed");
   });
@@ -240,15 +231,11 @@ describe("Step.retry — backoff strategies", () => {
     await step.run();
 
     expect(calls).toBe(3);
-    const diff1 = (timestamps[1] ?? 0) - (timestamps[0] ?? 0); // ~10ms
-    const diff2 = (timestamps[2] ?? 0) - (timestamps[1] ?? 0); // ~30ms
+    const diff1 = (timestamps[1] ?? 0) - (timestamps[0] ?? 0);
+    const diff2 = (timestamps[2] ?? 0) - (timestamps[1] ?? 0);
 
     expect(diff1).toBeGreaterThanOrEqual(5);
     expect(diff2).toBeGreaterThanOrEqual(25);
-    // Under a contended root test run the first timer may wake late; that
-    // scheduler delay must not make the correctly configured second delay
-    // look smaller by comparison. The two independent floors pin the
-    // exponential schedule without comparing wall-clock overshoot.
     expect(diff1 + diff2).toBeGreaterThanOrEqual(30);
   });
 
@@ -276,13 +263,11 @@ describe("Step.retry — backoff strategies", () => {
     await step.run();
 
     expect(calls).toBe(3);
-    const diff1 = (timestamps[1] ?? 0) - (timestamps[0] ?? 0); // ~10ms
-    const diff2 = (timestamps[2] ?? 0) - (timestamps[1] ?? 0); // ~30ms
+    const diff1 = (timestamps[1] ?? 0) - (timestamps[0] ?? 0);
+    const diff2 = (timestamps[2] ?? 0) - (timestamps[1] ?? 0);
 
     expect(diff1).toBeGreaterThanOrEqual(5);
     expect(diff2).toBeGreaterThanOrEqual(25);
-    // Compare against the configured floors, not against another timer whose
-    // wake-up may have been inflated by parallel package tests.
     expect(diff1 + diff2).toBeGreaterThanOrEqual(30);
   });
 

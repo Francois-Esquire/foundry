@@ -1,9 +1,3 @@
-/**
- * The managers on the engine itself, outside any step or run: a host calls
- * them directly, before the engine is even started. Each does what its
- * step-scoped view does, minus the frame bookkeeping.
- */
-
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,7 +55,6 @@ describe("the managers on the engine", () => {
 
     expect(reply.text).toBe(`${root}: Review.\nLook.`);
     expect(streamed.join("")).toBe(reply.text);
-    // Nothing is replayed outside a step: the same call is a second session.
     expect(second.ref.id).not.toBe(first.ref.id);
     const stored = await engine.sessions.getSession(first.ref.id);
     expect(stored?.parentSessionId).toBeNull();
@@ -98,7 +91,6 @@ describe("the managers on the engine", () => {
     expect((await engine.schedules()).map((schedule) => schedule.key)).toEqual([
       "notes",
     ]);
-    // A monitor's step is not something a host launches by hand.
     expect(engine.definitions().map((entry) => entry.name)).toEqual(["late"]);
     await engine.stop();
   });

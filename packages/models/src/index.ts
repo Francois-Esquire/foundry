@@ -1,9 +1,4 @@
-/**
- * The AI SDK model contract our providers hand back. Re-exported so hosts can
- * type a custom provider without depending on the SDK's provider spec package.
- */
 export type { LanguageModelV4, ProviderV4 } from "@ai-sdk/provider";
-/** Live access shapes only; the interaction itself is not in this entry. */
 export type { LiveAccess, LiveTarget } from "./live/types";
 export type { LanguageModelOptions, Provider, TurnLimit } from "./provider";
 // biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/models public API.
@@ -34,12 +29,7 @@ export type {
   TranscribeSegment,
 } from "./types";
 
-/**
- * Providers are not in this entry. Each is its own subpath so a host bundles
- * only what it registers: `@foundry/models/vercel`, `/gateway`, `/fal`,
- * `/replicate`, `/claude-code`, `/codex`, and the catalog adapters behind
- * `/catalog/*`.
- */
+// Providers ship through separate subpath exports.
 
 export { modelAudit } from "./audit";
 export type { CostBreakdown, CostUsageCounts } from "./cost";

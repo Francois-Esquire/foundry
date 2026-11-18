@@ -37,11 +37,6 @@ export interface NodeLiveOptions extends LiveOptions {
   readonly onTrack?: (track: LiveTrack, direction: number) => void;
 }
 
-/**
- * No `attach`: sampling frames out of a Node media track would mean decoding,
- * which the no-transcoding constraint excludes. A Node caller on the socket
- * path calls `supply` per frame.
- */
 export interface NodeLiveInteraction extends LiveInteraction {
   record(destination: string): LiveRecording;
   readonly tracks: readonly LiveTrack[];
@@ -62,9 +57,6 @@ export async function open(
     media: (media, direction) => {
       for (const track of tracksOf(media)) {
         tracks.push(track);
-        // Only vendor loss is terminal, and a host that throws forwarding one
-        // track must not cost it the rest of the session's media. The failure
-        // is the host's to recover; the session neither ends nor stalls.
         try {
           options.onTrack?.(track, direction);
         } catch {
@@ -78,11 +70,6 @@ export async function open(
     access,
     adapter,
     connect: falTransports,
-    // Both extensions take a `localStream`, so a Node caller's single track is
-    // wrapped in the `MediaStream` the runtime installed — the same
-    // constructor the client itself reaches for. It happens here, in the entry
-    // that owns Node media, rather than in a transport the browser shares.
-    // Presence is preserved exactly, so the fact checks are unaffected.
     options:
       options.feed === undefined
         ? options
@@ -94,8 +81,6 @@ export async function open(
 
   let recording: LiveRecording | null = null;
   core.addTeardown(() => {
-    // Whoever holds the LiveRecording still gets its segment: `stop` is
-    // idempotent and resolves the same promise for both callers.
     recording?.stop();
   });
 
@@ -120,8 +105,6 @@ export async function open(
         },
         tracks,
       });
-      // One *active* recording, not one ever: the slot is released when this
-      // one stops, so a caller can record a second segment on the same session.
       const handle: LiveRecording = {
         stop: async () => {
           const segment = await started.stop();
@@ -149,11 +132,6 @@ export async function open(
   };
 }
 
-/**
- * The client kernel publishes received media as a stream, and both extensions
- * build it from the `MediaStream` this runtime installed — so its tracks are
- * werift tracks. A track handed over directly is accepted too.
- */
 function tracksOf(media: unknown): LiveTrack[] {
   if (typeof media !== "object" || media === null) {
     return [];
@@ -165,7 +143,6 @@ function tracksOf(media: unknown): LiveTrack[] {
   return typeof stream.kind === "string" ? [media as LiveTrack] : [];
 }
 
-/** A Node feed is one track; both extensions negotiate a stream. */
 function asStream(feed: LiveTrack): unknown {
   const Stream = (
     globalThis as { MediaStream?: new (tracks: unknown[]) => unknown }

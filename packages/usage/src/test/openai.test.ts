@@ -9,7 +9,6 @@ import { FakeCodex, tempHome, touch, writeJsonl } from "./helpers/machine";
 
 const MINUTE = 60_000;
 
-/** `account/read` on a signed-in Pro account, as the CLI answered it live. */
 const PRO_ACCOUNT = {
   account: { email: "user@example.com", planType: "pro", type: "chatgpt" },
   requiresOpenaiAuth: true,
@@ -30,7 +29,6 @@ const PRO_SNAPSHOT = {
   secondary: null,
 };
 
-/** `account/rateLimits/read` on the same account: the primary window is the weekly one. */
 const PRO_RATE_LIMITS = {
   accountId: "workspace-1",
   rateLimitResetCredits: {
@@ -324,7 +322,7 @@ describe("Codex history", () => {
       "sessions/2026/10/28/rollout-a.jsonl": [
         meta("a", -100),
         context("gpt-5.5", -99),
-        count(-90, tokens(1000, 0, 10), tokens(1000, 0, 10)), // before the span: the baseline only
+        count(-90, tokens(1000, 0, 10), tokens(1000, 0, 10)),
         count(
           10,
           tokens(100_000, 100_000, 10_000, 4000),
@@ -334,8 +332,8 @@ describe("Codex history", () => {
           11,
           tokens(100_000, 100_000, 10_000, 4000),
           tokens(101_000, 100_000, 10_010, 4000)
-        ), // re-emitted
-        count(12, tokens(0, 0, 0), tokens(101_000, 100_000, 10_010, 4000)), // a context-size marker
+        ),
+        count(12, tokens(0, 0, 0), tokens(101_000, 100_000, 10_010, 4000)),
         context("gpt-mystery", 20),
         count(30, tokens(500, 200, 5), tokens(101_500, 100_200, 10_015, 4000)),
       ],

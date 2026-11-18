@@ -14,7 +14,6 @@ export interface ReleasePackage {
   name: string;
 }
 
-// Publication is opt-in even when another workspace has private: false.
 const PUBLISH_PACKAGES: ReleasePackage[] = [
   {
     component: "marbles",

@@ -30,7 +30,6 @@ function drainEvents(events: { ai?: AiField }[]) {
 }
 
 afterEach(() => {
-  // Restore the default so other suites and cases start enabled.
   configureModelObservability({ enabled: true });
 });
 
@@ -147,15 +146,12 @@ describe("traceModelDownload", () => {
       total: 8,
     });
 
-    // A small file finishing early is a terminal marker, but the weights are
-    // still streaming — the event must stay open for the whole download.
     trace.track({ file: "tokenizer.json", status: "done" });
     trace.finish("done");
     expect(events).toHaveLength(0);
 
     trace.track({ file: "weights.onnx", status: "done" });
     trace.finish("done");
-    // The trailing model-level `ready` must not emit a second event.
     trace.finish("ready");
 
     expect(events).toHaveLength(1);
@@ -198,7 +194,6 @@ describe("traceModelDownload", () => {
     drainDownloadEvents(events);
 
     const trace = traceModelDownload({ kind: "text", modelId: "test/model" });
-    // Cached weights skip byte progress and jump straight to terminals.
     trace.track({ file: "weights.onnx", status: "done" });
     trace.finish("done");
     trace.finish("ready");

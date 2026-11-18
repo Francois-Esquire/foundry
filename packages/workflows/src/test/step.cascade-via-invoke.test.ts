@@ -1,17 +1,3 @@
-/**
- * Cascade-via-invoke — regression lock for the engine-unification fix.
- *
- * Before cascade unification, `Executable.drive` (used by `ctx.invoke`,
- * `ctx.parallel`, and `ctx.race`) lacked the post-body child cascade that
- * `Step.#run` had. A step with declared children, when driven through a
- * composition primitive, never drained those children — the same step
- * via `.run()` did. Once the cascade moved into the single engine,
- * invoke/parallel paths drain children too.
- *
- * These tests pin: a step with declared children, invoked via
- * `ctx.invoke` (and `ctx.parallel`), runs those children to completion.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { Step } from "../step";
@@ -20,8 +6,6 @@ describe("cascade via ctx.invoke", () => {
   it("an invoked step with declared children drains them (post-body cascade)", async () => {
     const ran: string[] = [];
 
-    // A standalone step that declares its own children. When invoked, its
-    // body returns its own value; the declared children must still drain.
     const invoked = Step.create<void, "invoked-out">({
       children: [
         {
@@ -61,10 +45,8 @@ describe("cascade via ctx.invoke", () => {
 
     await root.run();
 
-    // Body ran, and BOTH declared children were drained (the bug fix).
     expect(ran).toEqual(["invoked-body", "leaf-a", "leaf-b"]);
 
-    // The children's completion is recorded on the invoked step's snapshot.
     const { steps } = invoked;
     expect(steps["invoked.leaf-a"]?.status).toBe("complete");
     expect(steps["invoked.leaf-b"]?.status).toBe("complete");

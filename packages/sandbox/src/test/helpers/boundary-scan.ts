@@ -67,10 +67,6 @@ export interface ParsedImport {
   readonly typeOnly: boolean;
 }
 
-/**
- * Import and re-export specifiers parsed from the AST, so comment mentions of a
- * specifier are never matched and `import type` versus value is exact.
- */
 export function parseImports(path: string, source: string): ParsedImport[] {
   const sourceFile = ts.createSourceFile(
     path,
@@ -139,10 +135,6 @@ export interface ImportSite {
   readonly relativePath: string;
 }
 
-/**
- * Every parsed import site across a file set, as repo-relative sites the rules
- * can filter and name in a failure message.
- */
 export function importSites(files: readonly string[]): ImportSite[] {
   return files.flatMap((path) => {
     const relativePath = repoRelative(path);

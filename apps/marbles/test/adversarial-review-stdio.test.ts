@@ -44,7 +44,6 @@ it("dispatches adversarial-review over STDIO MCP and reads both axes back", asyn
     args: ["--no-env-file", resolve("test/helpers/dry-mcp-host.ts"), source],
     command: "bun",
     cwd: root,
-    // The run's Foundry home, with its provider configuration.
     env: process.env as Record<string, string>,
     stderr: "pipe",
   });
@@ -86,8 +85,6 @@ it("dispatches adversarial-review over STDIO MCP and reads both axes back", asyn
     });
     expect(JSON.stringify(payload(config))).toContain('"adversarial-review"');
 
-    // Close the client only once runs settle: a dry server cancels work
-    // still running when its connection ends.
     const done = await settled(
       await dispatch({ spec: "Export x.", worktree: "." })
     );

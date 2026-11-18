@@ -31,7 +31,6 @@ function concept(
 
 const REPO = "core/repo.ts#Repo";
 
-/** app → store → core; Repo declared in core, implemented in store, used by app. */
 const chain: Spec = {
   concepts: [
     {
@@ -393,8 +392,6 @@ describe("usage-only edges and aggregators", () => {
     );
     expect(thing.presence.behaviorPackages).toEqual([]);
     expect(thing.centers?.behavior).toBe("C");
-    // The consumer's usage crosses into the aggregator; the aggregator's own
-    // edge onward carries no role, so it never becomes a behavior boundary.
     expect(thing.topology.edges.map((e) => [e.id, e.roles.join(",")])).toEqual([
       ["A→X", "semantic-use"],
     ]);

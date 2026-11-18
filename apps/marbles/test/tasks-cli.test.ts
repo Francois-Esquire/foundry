@@ -17,15 +17,11 @@ import { workspaceState } from "~/lib/state/workspace";
 import { cliArgs } from "./helpers/cli";
 import { type TestHome, testHome } from "./helpers/home";
 
-// The host loads sources through a Bun plugin; vitest runs under Node, and
-// these tests load none.
 vi.mock("bun", () => ({ plugin: vi.fn() }));
 
 const USAGE_REFUSAL = /^tasks list: unknown option --tags\n\nmarbles/;
 const TASK_LINE = /^tk-[0-9a-f]{8} {2}open {2}Write docs {2}\(task\)\n$/;
 
-// Each command boots a fresh CLI. Budget cumulative startup under CI load;
-// spawnSync still bounds every child independently. Other suites keep their defaults.
 describe("tasks CLI", { timeout: 30_000 }, () => {
   let root: string;
   let home: TestHome;
@@ -86,7 +82,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     expect(result.tasks[1].parentId).toBe(result.tasks[0].id);
   });
 
-  /** Every file under `dir`, relative to it; directories alone are not listed. */
   async function files(dir: string): Promise<string[]> {
     if (!existsSync(dir)) {
       return [];
@@ -333,7 +328,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     const { openHostDatabase } = await import("~/database/workspaces");
     const { DatabaseWorkspaceRecords } = await import("~/database/tasks");
     const { Tasks } = await import("@foundry/tasks");
-    // Never imported here or by the CLI: only its place names the workspace.
     const source = join(root, ".foundry", "marbles");
     await mkdir(source, { recursive: true });
     await writeFile(

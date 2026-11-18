@@ -4,11 +4,6 @@ import { anthropic } from "../../providers/anthropic";
 import { openai } from "../../providers/openai";
 import { createUsage } from "../../usage";
 
-/**
- * This machine's own default accounts, read live: no fakes. A provider with
- * no detected default account here is skipped. History starts where the
- * weekly window did, as it does by default.
- */
 const usage = createUsage();
 usage.use(anthropic);
 usage.use(openai);

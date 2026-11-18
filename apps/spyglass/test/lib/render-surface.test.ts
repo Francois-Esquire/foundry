@@ -17,11 +17,6 @@ cpSync(join(import.meta.dirname, "fixtures"), fixtures, {
   recursive: true,
 });
 afterAll(() => rmSync(fixtures, { force: true, recursive: true }));
-/**
- * Churn recency is measured against a clock; pin it so runs compare equal.
- * Commit counts still move whenever fixture files are committed, so a churn
- * line changing in a snapshot after a fixture edit is expected, not a defect.
- */
 const now = new Date("2027-01-01T00:00:00Z");
 
 const anchored: AnalysisConfig = {
@@ -60,11 +55,6 @@ const cases: Case[] = [
 
 const reports = new Map<string, SurfaceReport>();
 
-/**
- * Fixtures live inside this repository, so their Git-derived sections change
- * whenever anyone commits a fixture edit. Only the first case keeps real
- * history, to cover the available branches; the rest render as if outside Git.
- */
 function withoutHistory(report: SurfaceReport): SurfaceReport {
   const unavailable = {
     available: false,

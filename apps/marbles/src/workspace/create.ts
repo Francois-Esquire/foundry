@@ -3,7 +3,6 @@ import { dirname, join } from "node:path";
 import { isModulePath } from "~/workspace/source";
 import { renderModule, type SetupDraft } from "~/workspace/templates";
 
-/** Exclusive writes protect existing modules and concurrent setup attempts. */
 export async function createStarter(
   path: string,
   draft: SetupDraft

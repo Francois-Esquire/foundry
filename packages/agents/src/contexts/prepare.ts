@@ -1,8 +1,3 @@
-/**
- * Purely estimates the full history and reports whether it exceeds the limit.
- * It currently returns the history unchanged; no trimming or summarization is
- * performed.
- */
 import type {
   ContextBudget,
   SessionMessage,
@@ -14,7 +9,6 @@ export interface PrepareInput {
   budget: ContextBudget;
   counter: TokenCounter;
   history: SessionMessage[];
-  /** Effective token ceiling (high-water, lowered by any hard cap). */
   limit: number;
 }
 

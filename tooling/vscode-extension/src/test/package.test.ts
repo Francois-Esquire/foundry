@@ -40,7 +40,6 @@ test("the installable VSIX has the Marketplace identity and only its runtime and
   }
   expect(files).toContain("extension/LICENSE.txt");
   expect(files).toContain("extension/readme.md");
-  // Release Please creates the changelog with the first release PR.
   expect(files.includes("extension/changelog.md")).toBe(
     existsSync(resolve(root, "CHANGELOG.md"))
   );
@@ -65,7 +64,6 @@ test("the build record names this commit and the archive's exact bytes", () => {
     sha256: createHash("sha256").update(readFileSync(archive)).digest("hex"),
     version: workspace.version,
   });
-  // Attachment rejects a dirty build, so CI fails before a release exists.
   expect(record.clean).toEqual(process.env.CI ? true : expect.any(Boolean));
 });
 

@@ -2,12 +2,6 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 
-/**
- * A Gateway host played by a script over a real WebSocket: Bun accepts the
- * socket, prints what it receives as JSON lines and sends what it is told.
- * The host connects to the Program in production; here the Program's SDK
- * dials in, which leaves the frames and the socket lifecycle the same.
- */
 const HOST_SCRIPT = `
 let socket;
 const print = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
@@ -41,9 +35,7 @@ export interface HostEvent {
 
 export interface ScriptedHost extends AsyncDisposable {
   close(code: number, reason: string): void;
-  /** The next frame the Program sent. */
   frame(): Promise<Record<string, unknown>>;
-  /** The next event the host saw, waiting for it when none is queued. */
   next(): Promise<HostEvent>;
   send(frame: object): void;
   readonly url: string;
@@ -76,8 +68,6 @@ export async function startScriptedHost(): Promise<ScriptedHost> {
         clearTimeout(timer);
         resolve(value);
       };
-      // A waiter that gave up leaves the line, so the next event is queued
-      // for the next reader instead of going to a rejected promise.
       const timer = setTimeout(() => {
         waiting.splice(waiting.indexOf(waiter), 1);
         reject(new Error("The scripted host saw nothing"));

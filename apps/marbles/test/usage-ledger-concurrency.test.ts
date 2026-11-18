@@ -53,7 +53,6 @@ const TURNS = 50;
 const SOURCE = resolve(import.meta.dirname, "../src");
 const READY_MS = 20_000;
 
-/** One process recording `TURNS` direct facts once every writer is ready; it gives up if the barrier never opens. */
 function writer(id: number, barrier: string) {
   const script = `
     const { existsSync, writeFileSync } = await import("node:fs");
@@ -95,12 +94,10 @@ function writer(id: number, barrier: string) {
         : fail(new Error(`writer ${String(id)} exited ${String(code)}`))
     );
   });
-  // Readiness may still be pending when a child exits; retain the rejection for callers.
   done.catch(() => undefined);
   return { child, done };
 }
 
-/** Every writer's outcomes, once all are ready by `deadline`; none outlives it, whatever happens. */
 async function recordTogether(
   barrier: string,
   deadline: number,

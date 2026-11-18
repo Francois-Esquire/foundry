@@ -1,5 +1,3 @@
-// One mip level from the level above it: the mean of each 2×2 block. Map
-// sides are powers of two, so every block is whole.
 
 @group(0) @binding(0) var source: texture_2d<f32>;
 

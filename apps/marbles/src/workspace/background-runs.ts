@@ -139,7 +139,6 @@ function storedDetails(
   return record;
 }
 
-/** One host's background work, registered through the engine's live registry. */
 export class BackgroundRuns {
   readonly #engine: Engine;
   readonly #catalog: Catalog;
@@ -342,7 +341,6 @@ export class BackgroundRuns {
       await held.completion;
       this.#closing.signal.throwIfAborted();
     }
-    // Never expose timing-dependent result fields on a dispatch acknowledgement.
     return {
       ...meta,
       runId: record.runId,
@@ -385,7 +383,6 @@ export class BackgroundRuns {
       try {
         await this.#engine.cancel(runId);
       } catch (error) {
-        // Finishing concurrently with cancellation is already a settled outcome.
         if (!TERMINAL_RUN_STATUSES.has((await this.#lookup(runId)).status)) {
           throw error;
         }

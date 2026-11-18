@@ -2,7 +2,6 @@ import { StringDecoder } from "node:string_decoder";
 import type { CliProcess } from "./app-server";
 import { record } from "./shared";
 
-/** Pi uses typed JSONL records, rather than JSON-RPC method envelopes. */
 export class PiRpc {
   private readonly pending = new Map<
     string,

@@ -8,11 +8,9 @@ import { isGone } from "@foundry/lib/process-identity";
 export const PROCESS_LOCK = "process";
 
 export interface Lock {
-  /** Give the lock up, once; a lock someone else has taken since is left alone. */
   release(): void;
 }
 
-/** A lock someone else has; `holder` says who, for people: `pid 1234`, `this process`. */
 export interface HeldLock {
   readonly holder: string;
 }
@@ -39,7 +37,5 @@ function describeHolder(
   if (!isGone(owner ?? { pid: holder, started: null })) {
     return `pid ${String(holder)}`;
   }
-  // Only while another process has the turn to break it, or a crashed one
-  // left that turn behind.
   return `pid ${String(holder)}, which has exited (if no process is taking the lock over, remove ${path}.break)`;
 }

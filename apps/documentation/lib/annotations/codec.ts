@@ -107,7 +107,6 @@ function isAnnotationDocument(value: unknown): value is AnnotationDocument {
   );
 }
 
-/** Return null for unsupported or malformed data; never partially import it. */
 export function decodeDocument(source: string): AnnotationDocument | null {
   if (source.length > MAX_DOCUMENT_LENGTH) {
     return null;

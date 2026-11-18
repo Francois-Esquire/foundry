@@ -5,13 +5,11 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 
 export interface McpCountOptions {
   readonly home?: string;
-  /** The `count` module, or the project's `.foundry/marbles` folder. */
   readonly source: string;
 }
 
 const POLL_MS = 250;
 
-/** Marbles tools answer with JSON in one text block. */
 function json(result: unknown): Record<string, unknown> {
   const [block] = CallToolResultSchema.parse(result).content;
   if (block?.type !== "text") {
@@ -20,11 +18,6 @@ function json(result: unknown): Record<string, unknown> {
   return JSON.parse(block.text);
 }
 
-/**
- * Starts `count` through the Marbles MCP server and reads it back by run ID,
- * as an external agent would. Dispatch only acknowledges the run, so the
- * client asks `get_run` until the run is no longer queued or running.
- */
 export async function countOverMcp(
   options: McpCountOptions
 ): Promise<Record<string, unknown>> {

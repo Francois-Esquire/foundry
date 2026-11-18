@@ -1,5 +1,3 @@
-// Adapted from termcn OpenTUI SetupFlow; theme-aware steps with composable content.
-
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/react";
 import {

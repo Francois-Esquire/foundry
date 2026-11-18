@@ -21,7 +21,6 @@ import {
 
 export type { OrchestratorStoreSnapshot } from "./schema";
 
-/** Decode, clone, and cross-check a complete in-memory store image. */
 export function validateOrchestratorStoreSnapshot(
   input: unknown
 ): OrchestratorStoreSnapshot {

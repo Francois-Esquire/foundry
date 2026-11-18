@@ -63,16 +63,7 @@ import { FIRST_PARTY_PLUGINS } from "~/lib/providers/plugins";
 import { Registry } from "~/lib/registry";
 import { containerHolder } from "~/lib/sandbox/holders";
 
-/**
- * The engine as Marbles runs it. The machine is inspected and the flags are
- * read here, each instance the engine takes is built with the Marbles
- * default, and what the config declared is copied in. `--dry-run` is decided
- * here too: echo models, echoed git, a fake container runtime, and nothing
- * persisted.
- */
-
 export interface CreateEngineOptions {
-  /** The artifact store's directory, shared by every workspace. Omit for in-memory, which `--dry-run` always is. */
   readonly artifacts?: string;
   readonly askable?: boolean;
   readonly catalog: Catalog;
@@ -80,42 +71,25 @@ export interface CreateEngineOptions {
   readonly database?: StoreDatabase;
   readonly databaseFile?: string;
   readonly dry: boolean;
-  /** The machine environment and the workspace's Varlock values; the process's own when omitted. */
   readonly environment?: {
     readonly machine: Readonly<Record<string, string>>;
     readonly workspace: Readonly<Record<string, string>>;
   };
-  /** The user's home; defaults to the OS home. */
   readonly home?: string;
-  /** Definitions' own `log(...)` lines; to `print` when omitted. */
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
-  /** Provider plugins that configuration may name; the first-party ones when omitted. */
   readonly plugins?: readonly RegisteredPlugin[];
   readonly print: (line: string) => void;
-  /** A complete, ordered provider set that supersedes the stored configuration. */
   readonly providers?: readonly Provider[];
-  /** The workspace root: the config's directory, or the cwd without one. */
   readonly root: string;
   readonly spawned?: string;
-  /**
-   * This workspace's state dir. Under `dry` the engine gets none, so nothing
-   * is written there; omit it for an engine that persists nothing either way.
-   */
   readonly stateDir?: string;
-  /** The Marbles state root, holding the machine's provider configuration; the layout's when omitted. */
   readonly stateRoot?: string;
-  /** Identity of this workspace's state; part of a declared artifact's id. */
   readonly workspaceId: string;
 }
 
-/**
- * What `define`, `schedule` and `monitor` are called on: an engine, or a
- * bare registry, which has no `observe`.
- */
 type Declarable = Pick<Engine, "define" | "monitor" | "schedule"> &
   Partial<Pick<Engine, "observe">>;
 
-/** Tell `target` everything the config declared, definitions first. */
 export function declareCatalog(target: Declarable, catalog: Catalog): void {
   for (const definition of catalog.definitions.values()) {
     target.define(definition);
@@ -135,10 +109,8 @@ export function declareCatalog(target: Declarable, catalog: Catalog): void {
   }
 }
 
-/** What an engine would trigger: the config's declarations and what agents created. */
 export interface Triggers {
   readonly automations: AutomationService;
-  /** What the config declared, and the step agent-created monitors share. */
   readonly registry: Registry;
 }
 
@@ -212,19 +184,12 @@ function artifactsFor(
   };
 }
 
-/**
- * The models agents route to and the configuration that keeps them current:
- * a programmatic host's set as given, else the stored configuration, echoed
- * under `--dry-run`. With no configuration at all, nothing is guessed: the
- * set stays empty and opening a session fails with guidance.
- */
 function modelsFor(options: CreateEngineOptions): {
   readonly models: ModelManager;
   readonly providers: ProviderConfiguration;
 } {
   const models = new ModelManager();
   const echo = (provider: Provider) => echoInstance(provider, options.print);
-  // Wrapped once: a fresh wrapper per load would retire, and so dispose, the host's instance.
   const fixed =
     options.dry && options.providers
       ? options.providers.map(echo)
@@ -376,8 +341,6 @@ function containersFor(
   worktreeHome: string,
   store: ContainerStore | undefined
 ): () => Promise<Containers> {
-  // `--dry-run` echoes every command a sandbox would run, like git and the
-  // models, so a config with sandboxes runs end to end with nothing installed.
   const runtime = () =>
     dry
       ? Promise.resolve(createFakeContainerRuntime({ exec: echoExec(print) }))
@@ -409,7 +372,6 @@ function realPath(file: string | undefined): string | undefined {
   }
 }
 
-/** Build each instance, hand them to a new engine, and declare the config to it. Not yet started. */
 export function createEngine(options: CreateEngineOptions): Engine {
   const { catalog, dry, print, root, workspaceId } = options;
   const home = options.home ?? homedir();
@@ -418,7 +380,6 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
     ...(options.stateDir === undefined ? {} : { state: options.stateDir }),
   });
-  // Its sandboxes may mount what is cut there; see `containersFor`.
   const worktrees = Engine.worktreesFor(state);
   const database = dry ? undefined : options.database;
   const { changes, own, ...kept } = recordsFor(state, database, options);
@@ -512,7 +473,6 @@ export function createDefaultEngine({
   });
 }
 
-/** Prints the command a sandbox would run and returns a clean exit. */
 function echoExec(print: (line: string) => void): (
   command: readonly string[]
 ) => {
@@ -526,7 +486,6 @@ function echoExec(print: (line: string) => void): (
   };
 }
 
-/** Prints the git it would run and runs nothing. */
 export function echoGit(print: (line: string) => void): GitRun {
   return (cwd, args) => {
     print(`[git] ${cwd}: git ${args.join(" ")}`);

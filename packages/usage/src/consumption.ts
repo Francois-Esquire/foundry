@@ -4,11 +4,6 @@ import { costFromUsage } from "@foundry/models/cost";
 
 import type { Credits, Money } from "./limit";
 
-/**
- * What work used, in the provider's units. Absent means none reported. Input,
- * cached input, cache write and output tokens are disjoint; reasoning tokens
- * are the part of output spent reasoning, so they are not added to it.
- */
 export interface Quantities {
   readonly cachedInputTokens?: number;
   readonly cacheWriteTokens?: number;
@@ -19,13 +14,11 @@ export interface Quantities {
   readonly seconds?: number;
 }
 
-/** What work cost, and how that figure was reached. */
 export interface Charge {
   readonly amount: Money | Credits;
   readonly basis: "reported" | "priced" | "notional";
 }
 
-/** One of the client's own sessions within a span of consumption. */
 export interface SessionConsumption {
   readonly charge?: Charge;
   readonly model: string;
@@ -33,7 +26,6 @@ export interface SessionConsumption {
   readonly session: string;
 }
 
-/** What work used over a span, read from an account's history. */
 export interface Consumption {
   readonly bySession: readonly SessionConsumption[];
   readonly charge?: Charge;
@@ -41,7 +33,6 @@ export interface Consumption {
   readonly total: Quantities;
 }
 
-/** One piece of work as a client's history records it. */
 export interface Work {
   readonly at: number;
   readonly model: string;
@@ -80,7 +71,6 @@ export const listPrices = (vendor: string): Price => {
     }
     const cached = counts.cachedInputTokens ?? 0;
     const written = counts.cacheWriteTokens ?? 0;
-    // Reasoning is inside output, so it is not passed to be billed again.
     const { total } = costFromUsage(costs, {
       cacheReadTokens: cached,
       cacheWriteTokens: written,
@@ -91,7 +81,6 @@ export const listPrices = (vendor: string): Price => {
   };
 };
 
-/** Quantities with only positive values. */
 export const quantities = (counts: Quantities): Quantities =>
   Object.fromEntries(
     Object.entries(counts).filter(([, value]) => value > 0)
@@ -116,12 +105,6 @@ const addCharge = (
       }
     : undefined;
 
-/**
- * Work already filtered by the caller to `since`, one entry per session and
- * model. Each piece is priced on its own and the charge given `basis`. An entry
- * has a charge only when all of its work was priced, and the total only when
- * every entry has one.
- */
 export const consumptionOf = (
   works: Iterable<Work>,
   since: Date,

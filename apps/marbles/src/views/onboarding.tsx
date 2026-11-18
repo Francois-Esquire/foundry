@@ -53,7 +53,6 @@ export function OnboardingView({
   const [stage, setStage] = useState<"template" | "settings" | "review">(
     "template"
   );
-  /** Settings that cannot render into a module. */
   const [invalid, setInvalid] = useState<string>();
   const creation = useAsyncAction();
   const quit = useQuitGuard(onClose);

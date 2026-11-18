@@ -32,7 +32,6 @@ interface SuspensionLifecycleOptions {
   ) => Promise<T>;
 }
 
-/** Store-authoritative coordination for stable Suspension occurrences. */
 export class SuspensionLifecycle {
   readonly #store: OrchestratorStore;
   readonly #publish: (record: SuspensionRecord) => Promise<void>;
@@ -106,7 +105,6 @@ export class SuspensionLifecycle {
         await this.#publish(settlement.suspension);
       } catch {
         // Observation is subordinate to durable control state. The injected
-        // publisher records its own failure; replay must still be attempted.
       }
       await this.#resume(settlement.suspension, resolution);
       return settlement.suspension;

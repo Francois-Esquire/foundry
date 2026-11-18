@@ -9,7 +9,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/** An executable that records the environment it was started with, then fails. */
 export function envDumpExecutable(): {
   readonly bin: string;
   read(): Record<string, string> | undefined;
@@ -36,7 +35,6 @@ process.exit(1);
   };
 }
 
-/** An executable that stays alive, reading stdin and answering nothing, and records each pid it ran as. */
 export function silentExecutable(): {
   readonly bin: string;
   pids(): number[];

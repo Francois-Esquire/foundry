@@ -2,7 +2,6 @@ import type { MouseEvent } from "@opentui/core";
 import { useCallback } from "react";
 import { theme } from "~/components/ui/theme";
 
-/** Mouse action with keyboard equivalents supplied by the containing view. */
 export function Action<T>({
   label,
   value,

@@ -16,7 +16,6 @@ import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
 import { storedMonitorState } from "~/lib/trigger-store";
 import type { Context } from "~/lib/types";
 
-/** What a monitor watches: a glob under the workspace root, or a URL. */
 export const monitorSpecSchema = z.discriminatedUnion("kind", [
   z.object({ glob: z.string().min(1), kind: z.literal("files") }),
   z.object({ kind: z.literal("http"), url: z.string().url() }),
@@ -33,43 +32,32 @@ export interface FileChange {
   readonly added: readonly FileEntry[];
   readonly kind: "files";
   readonly modified: readonly FileEntry[];
-  /** Carries the checksum last seen. */
   readonly removed: readonly FileEntry[];
 }
 
 export interface HttpChange {
   readonly current: unknown;
   readonly kind: "http";
-  /** The body from the previous tick; `undefined` on the first. */
   readonly previous: unknown;
   readonly status: number;
 }
 
 export type Change = FileChange | HttpChange;
 
-/** A monitor's step takes no input. */
 export type MonitorInput = Record<string, never>;
 
-/**
- * What a monitor's handler receives: the step context plus what changed.
- * `files` for a glob, `response` (a fresh `Response` over the polled body)
- * for HTTP. `change` carries the diff detail.
- */
 export interface MonitorContext extends Context<MonitorInput> {
   readonly change: Change;
-  /** A glob's diff, the same object as `change`, so a handler can destructure it without narrowing. */
   readonly files?: FileChange;
   readonly response?: Response;
 }
 
 export type MonitorHandler = (context: MonitorContext) => unknown;
 
-/** What a detector does with a change: the launch to hand its tick, if any. */
 export type MonitorResponse = (
   context: MonitorContext
 ) => Launch | undefined | Promise<Launch | undefined>;
 
-/** The detector step's output; `launch` is what the handler asked to start. */
 export interface Detection {
   readonly changed: boolean;
   readonly launch?: Launch;
@@ -87,41 +75,28 @@ function sha256(text: string | Uint8Array): string {
 
 export type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
-/** Where a detector reads the tree and keeps what it last saw. */
 export interface MonitorHost extends HostBindings {
-  /** The config's directory; a glob is matched beneath it. */
   readonly root: string;
 }
 
-/** Request options for an HTTP poll; the monitor supplies its own signal. */
 type MonitorRequestInit = Omit<RequestInit, "signal">;
 
-/**
- * What an HTTP monitor sends: options, or a function called at every poll,
- * so a token is read when it is used rather than when the module loads.
- */
 export type MonitorRequest =
   | MonitorRequestInit
   | (() => MonitorRequestInit | Promise<MonitorRequestInit>);
 
 export interface DetectorOptions {
-  /** Stub for tests; `globalThis.fetch` otherwise. */
   readonly fetch?: Fetch;
-  /** For a detector called outside a run; inside one, the run scope's host is used. */
   readonly host?: () => MonitorHost;
-  /** For an HTTP source: headers, method, body. Never stored or shown. */
   readonly request?: MonitorRequest;
 }
 
-/** One tick's reading: the change to hand on (none when nothing moved) and the state to keep. */
 interface Observation {
   readonly change: Change | undefined;
-  /** For HTTP: the polled body as a `Response` the handler can read. */
   readonly response?: Response;
   readonly state: Record<string, unknown>;
 }
 
-/** The host a detector body runs against: the one given, else its run's. */
 function hostOf(key: string, options: DetectorOptions): MonitorHost {
   const given = options.host?.();
   if (given) {
@@ -136,7 +111,6 @@ function hostOf(key: string, options: DetectorOptions): MonitorHost {
   return { ...store.scope.host, root: store.scope.cwd };
 }
 
-/** A config handler as a detector's response: a locked node it returns is started. */
 export function handlerResponse(
   key: string,
   handler: MonitorHandler
@@ -156,7 +130,6 @@ function triggersOf(key: string, host: MonitorHost): TriggerStore {
   return host.triggers;
 }
 
-/** Read the source; a files monitor without a catalogue is the host's mistake, not a failed poll. */
 function observer(
   key: string,
   spec: MonitorSpec,
@@ -180,12 +153,6 @@ function observer(
   }
 }
 
-/**
- * The step body a monitor registers: read what is there, diff it against the
- * last tick, respond only when something changed. State is written after
- * the response resolves, so a throwing handler sees the same change again
- * next tick. A failed poll logs and keeps the last state.
- */
 export function detector(
   key: string,
   spec: MonitorSpec,
@@ -198,8 +165,6 @@ export function detector(
     const host = hostOf(key, options);
     const triggers = triggersOf(key, host);
     const kept = await triggers.monitorState(key);
-    // A launch from an earlier tick that was never started goes out again
-    // before anything is polled.
     if (kept?.pending) {
       return { changed: true, launch: kept.pending };
     }
@@ -292,20 +257,14 @@ async function observeFiles(
   };
 }
 
-/** Statuses whose response has no body; `new Response` refuses one. */
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
 const TEXTUAL =
   /^(text\/|application\/(json|xml|javascript)|[^;]*\+(json|xml))/i;
 
-/** A content type a person reads; without one the body is treated as text. */
 function isTextual(contentType: string | null): boolean {
   return contentType === null || TEXTUAL.test(contentType);
 }
 
-/**
- * The body as the handler and the diff see it: JSON parsed, other text as
- * text, anything else described by its size, since its bytes are hashed.
- */
 function bodyOf(bytes: Uint8Array, contentType: string | null): unknown {
   if (!isTextual(contentType)) {
     return { bytes: bytes.byteLength, contentType };
@@ -318,11 +277,6 @@ function bodyOf(bytes: Uint8Array, contentType: string | null): unknown {
   }
 }
 
-/**
- * Poll once. Any status is a reading: a move to a 404 or a 500 is a change
- * like any other. A 401 or 403 fails the poll instead, naming the status
- * and the URL, never what was sent. A network error fails it too.
- */
 async function observeHttp(
   spec: { readonly url: string },
   previous: unknown,
@@ -346,9 +300,6 @@ async function observeHttp(
     "the response body",
     jsonData(bodyOf(bytes, contentType))
   );
-  // A JSON or text body hashes as it always has, so a key order change is
-  // no change; other bytes hash as bytes. `jsonData`: JSON text can hold a
-  // number too large to be finite. A non-2xx status is part of the reading.
   const digest = isTextual(contentType)
     ? sha256(canonicalizeJson(jsonData(body)))
     : sha256(bytes);
@@ -371,7 +322,6 @@ async function observeHttp(
   };
 }
 
-/** A fresh `Response` over the bytes already read, as the original reported itself. */
 function replay(response: Response, bytes: Uint8Array): Response {
   const copy = new Response(
     NULL_BODY_STATUSES.has(response.status) ? null : bytes,
@@ -381,7 +331,6 @@ function replay(response: Response, bytes: Uint8Array): Response {
       statusText: response.statusText,
     }
   );
-  // Read-only on a constructed Response; own properties shadow the getters.
   Object.defineProperties(copy, {
     redirected: { value: response.redirected },
     url: { value: response.url },

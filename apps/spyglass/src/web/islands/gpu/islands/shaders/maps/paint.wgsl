@@ -1,8 +1,3 @@
-// The paint map: colour without light. On land the owner's pastel cap (the
-// terrain lays the cliff rock on its rim); off it the floor's colour (sea/
-// floor.wgsl): sand on the beaches, silt and the bands below. Eased by
-// coverage. Alpha: how much of a drop-off the nearest coast is, along the
-// shore.
 import { FloorPaint, floorPaint } from "../sea/floor.wgsl";
 import { ease, MapFrame } from "./frame.wgsl";
 
@@ -10,7 +5,6 @@ struct PaintParams {
   frame: MapFrame,
   floor: FloorPaint,
   islandCount: u32,
-  // sea/bathymetry.wgsl `shoreSteepness`'s depths, read `probe` offshore.
   sandDepth: f32,
   cliffDepth: f32,
   probe: f32,
@@ -20,7 +14,6 @@ struct PaintParams {
 @group(0) @binding(1) var islands: texture_2d<u32>;
 @group(0) @binding(2) var coverage: texture_2d<f32>;
 @group(0) @binding(3) var distance: texture_2d<f32>;
-// Each island's cap colour, linear, by index.
 @group(0) @binding(4) var<storage, read> colors: array<vec4f>;
 @group(0) @binding(5) var paint: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(6) var height: texture_2d<f32>;
@@ -38,7 +31,6 @@ fn heightAt(texel: vec2i) -> f32 {
   return textureLoad(height, clamped(texel), 0).r;
 }
 
-// How much of a drop-off the nearest coast is: the depth `probe` off it.
 fn steepness(texel: vec2i, d: f32) -> f32 {
   let grad = vec2f(
     distanceAt(texel + vec2i(1, 0)) - distanceAt(texel - vec2i(1, 0)),

@@ -1,9 +1,3 @@
-/**
- * Model-turn and tool-call observations: recorded on the run that owns the
- * session, for a workflow step and a host task alike, with identity, timing,
- * status, a safe error code and only the usage a provider reported.
- */
-
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -296,7 +290,6 @@ it("records a host task's agent turns on its run, correlated to the agent sessio
   ]);
 });
 
-/** A model whose n-th stream is `streams[n]`: parts to send, or how it fails. */
 function streaming(
   ...streams: (
     | { readonly parts: LanguageModelV4StreamPart[]; readonly error?: Error }
@@ -421,7 +414,6 @@ function message(status: SessionMessage["status"]): SessionMessage {
   };
 }
 
-/** A CLI harness session whose turn is `turn`, given the turn's options. */
 function cliHarness(
   turn: (options: Parameters<HarnessSession["stream"]>[1]) => {
     readonly message: Promise<SessionMessage>;
@@ -531,7 +523,6 @@ it("records a delegated child's tool calls under its own session, and still hand
   await vi.waitFor(() => expect(latest()).toHaveLength(2));
   expect(latest().map((item) => [item.id, item.status])).toEqual([
     ["cli:1", "complete"],
-    // Left open by the turn: it ends with it.
     ["cli:2", "cancelled"],
   ]);
   expect(seen).toEqual(["read", "bash"]);
@@ -549,7 +540,6 @@ it("stops a turn a host task left streaming before the task's run settles", asyn
         kind: "agent",
         prompt: "Stream.",
       });
-      // Returned without awaiting the turn.
       left = session.stream(prompt);
       return "returned";
     },
@@ -562,7 +552,6 @@ it("stops a turn a host task left streaming before the task's run settles", asyn
   expect(run?.status).toBe("complete");
   const [turn] = run?.observations ?? [];
   expect(turn).toMatchObject({ kind: "model-turn" });
-  // It ended, and was recorded ending, before the run settled.
   expect(turn?.status).toBe("cancelled");
   expect(turn?.endedAt).toEqual(expect.any(String));
   await expect(

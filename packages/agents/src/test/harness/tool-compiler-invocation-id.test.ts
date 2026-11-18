@@ -44,10 +44,6 @@ function registrationFor(
   };
 }
 
-/**
- * Invocation IDs must stay stable for one logical call because external
- * effects use them for idempotency. A fresh ID on replay could double-commit.
- */
 describe("tool compiler invocation ID stability", () => {
   it("derives the same invocationId for a replayed continuation with the same toolCallId", async () => {
     const registration = registrationFor(({ x }) => x * 2);
@@ -59,9 +55,6 @@ describe("tool compiler invocation ID stability", () => {
       sessionId: "sess-1",
     });
 
-    // Two independent calls sharing the same `toolCallId` — a suspend/resume
-    // or an approval continuation replaying the same logical call, not a
-    // fresh model turn (which would mint a new `toolCallId`).
     await compiled.execute?.(
       { x: 1 },
       { context: undefined, messages: [], toolCallId: "call-1" }

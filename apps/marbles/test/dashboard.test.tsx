@@ -129,7 +129,6 @@ test("empty snapshots remain navigable and explain the waiting state", async () 
     usage: undefined,
   };
   const ui = await render(empty);
-  // Nothing has run: the catalog opens first, with what can be added.
   expect(ui.captureCharFrame()).toContain("No schedules or monitors.");
   await press(ui, "3");
   expect(ui.captureCharFrame()).toContain(
@@ -138,7 +137,6 @@ test("empty snapshots remain navigable and explain the waiting state", async () 
   expect(ui.captureCharFrame()).toContain("Usage: no usage recorded");
   await press(ui, "m");
   expect(ui.captureCharFrame()).toContain("No workflows or steps.");
-  // Details of nothing, then back to the list that had focus.
   await press(ui, "RETURN");
   await press(ui, "ESCAPE");
   expect(ui.captureCharFrame()).toContain("definition ·");
@@ -408,7 +406,6 @@ test("Marbles remains visible and its details return to the same panel", async (
   await press(ui, "3");
   expect(ui.captureCharFrame()).toContain("3 Runs");
   await press(ui, "2");
-  // Marbles kept its selection while Overview had focus.
   expect(ui.captureCharFrame()).toContain("› [step] check-api");
   await press(ui, "a");
   await press(ui, "RETURN");

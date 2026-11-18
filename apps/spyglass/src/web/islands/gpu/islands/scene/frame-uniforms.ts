@@ -1,9 +1,3 @@
-/**
- * The frame's uniforms out of a `Look` and a `View`, as the terrain, water,
- * props and post read them: the frame's side of map-uniforms.ts. Pure, and
- * free of `vgpu` values, so scene.ts only orchestrates.
- */
-
 import { CLIP_CELLS, type ClipLayout, SUBTEXELS } from "../land/clipmap";
 import type { DebrisLight } from "../land/debris";
 import { VIEWED_MAPS } from "../maps/map-params";
@@ -17,11 +11,9 @@ import type { PostLook } from "../post/post";
 import type { View } from "../view/camera";
 import { floorColorOf, type Look } from "./look";
 
-/** 0 for the shaded view, else 1 + the map's index among the viewed (terrain.wgsl `Grid.view`). */
 const viewIndex = (view: Look["view"]): number =>
   view === "shaded" ? 0 : VIEWED_MAPS.indexOf(view) + 1;
 
-/** The eye and its aperture, the rays a screen uv casts (water.wgsl `Eye`, pick.wgsl `Pick`). */
 export const rayUniform = (view: View) => ({
   apertureX: view.aperture[0],
   apertureY: view.aperture[1],
@@ -32,13 +24,11 @@ export const rayUniform = (view: View) => ({
   up: view.up,
 });
 
-/** The seabed map's square, as the frame's shaders place it: its corner and side. */
 const seabedPlace = (seabed: MapFrame) => ({
   seabedOrigin: seabed.origin,
   seabedSide: sideOf(seabed),
 });
 
-/** The terrain's uniforms: both clipmap draws take the same. */
 export function terrainUniforms(
   view: View,
   clip: ClipLayout,
@@ -101,7 +91,6 @@ export function terrainUniforms(
   };
 }
 
-/** The water composite's uniforms. */
 export function waterUniforms(
   view: View,
   grid: MapFrame,
@@ -181,7 +170,6 @@ export function waterUniforms(
   };
 }
 
-/** What the props are lit and drawn with, into a film of `viewport` pixels. */
 export function debrisLightOf(
   view: View,
   look: Look,
@@ -205,7 +193,6 @@ export function debrisLightOf(
   };
 }
 
-/** What the post reads of the look. */
 export const postLookOf = (look: Look): PostLook => ({
   antialias: look.antialias,
   bloom: look.bloom,

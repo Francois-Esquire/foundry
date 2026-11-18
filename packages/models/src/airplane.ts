@@ -3,7 +3,6 @@ import { heldProviders } from "./manager";
 import type { Provider } from "./provider";
 
 export interface AirplaneMode {
-  /** Lift the policy and bring instances back online. */
   dispose(): void;
   readonly enabled: boolean;
   set(enabled: boolean): void;
@@ -16,13 +15,6 @@ const POLICY: ProviderPolicy = {
   id: "airplane",
 };
 
-/**
- * Airplane Mode for one manager: off when created, never persisted. Turning
- * it on installs the policy before anything else, so a failure afterwards
- * leaves it refusing; then each instance, including ones added later, is told
- * to stop what outlives a call. A failure to do so is reported as
- * `offline-failed` on the manager, or as a process warning when nobody listens.
- */
 export function airplaneMode(models: ModelManager): AirplaneMode {
   let lift: (() => void) | undefined;
   const offline = new Set<Provider>();
@@ -48,7 +40,6 @@ export function airplaneMode(models: ModelManager): AirplaneMode {
     }
   };
 
-  // Kept until disposed, so an instance a session still holds comes back online too.
   const retired = (provider: Provider) => {
     offline.delete(provider);
   };

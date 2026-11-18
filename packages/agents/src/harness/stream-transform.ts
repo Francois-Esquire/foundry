@@ -34,14 +34,10 @@ import type { HarnessActivityEvent, HarnessToolEvent } from "./turn-driver";
 
 type SdkStreamPart = TextStreamPart<ToolSet>;
 
-/** The SDK's tool call, carrying the provenance `withToolCallRegistration`
- *  stamps on it. */
 type RegisteredToolCallPart = Extract<SdkStreamPart, { type: "tool-call" }> & {
   provenance?: ToolProvenance;
 };
 
-/** The SDK's approval request, carrying the authority
- *  `withToolCallRegistration` stamps on it. Absent for an unregistered tool. */
 type RegisteredApprovalRequestPart = Extract<
   SdkStreamPart,
   { type: "tool-approval-request" }
@@ -50,8 +46,6 @@ type RegisteredApprovalRequestPart = Extract<
     Pick<AgentApprovalRequest, "agentGeneration" | "agentId" | "capability">
   >;
 
-/** Parts the harness mints beside the model's: a CLI driver session's native
- *  activity, tool, and approval observations. */
 export type HarnessStreamPart =
   | { type: "harness-activity"; event: HarnessActivityEvent }
   | { type: "harness-tool"; event: HarnessToolEvent }
@@ -70,12 +64,8 @@ export type StreamSource =
 export interface TransformOptions<OUTPUT extends Output.Output = never> {
   commit?: (message: SessionMessage) => Promise<SessionMessage>;
   handlers?: StreamHandlers;
-  /** The route that ran the turn — recorded on `metadata.model`. */
   model?: ModelRoute;
-  /** Parse the final step's text into a structured value. Parsed here, not
-   *  read off the SDK result, so a CLI harness's turn parses the same way. */
   output?: OUTPUT;
-  /** The SDK result behind `source`, when there is one. */
   result?: Promise<
     StreamTextResult<ToolSet, Record<string, unknown>, OUTPUT> | undefined
   >;
@@ -84,17 +74,6 @@ export interface TransformOptions<OUTPUT extends Output.Output = never> {
 
 type AccumulatingPart = Extract<SessionPart, { type: "text" | "reasoning" }>;
 
-/**
- * Transform a raw model stream into a {@link SessionStream}: map each model part
- * to {@link SessionEvent}s, fire {@link StreamHandlers} as events arrive,
- * enrich the assembled message with metadata, and optionally commit it through
- * an adapter seam.
- *
- * Deliberately session-free — no store, no prompt building, no agent. It is the
- * border between a raw model stream and the session/harness layer; adapters
- * (e.g. session persistence) compose around it via the {@link
- * TransformOptions.commit} callback.
- */
 export function transformStream<OUTPUT extends Output.Output = never>(
   source: StreamSource,
   options: TransformOptions<OUTPUT> = {}
@@ -127,8 +106,6 @@ export function transformStream<OUTPUT extends Output.Output = never>(
           : resolve(parsed.value as InferGenerateOutput<OUTPUT>);
     }
   );
-  // Rejects only when the turn asked for an `output`; a caller that never
-  // reads it must not see an unhandled rejection.
   structured.catch(() => undefined);
 
   const { handlers } = options;
@@ -183,8 +160,6 @@ export function transformStream<OUTPUT extends Output.Output = never>(
     const startedAt = Date.now();
     const parts: SessionPart[] = [];
     let textBuf = "";
-    // The text or reasoning part deltas are appending to. Any other part
-    // entering history closes it, so later deltas start a part after it.
     let open: AccumulatingPart | undefined;
     let usageAcc: SessionUsage = emptyUsage();
     let finish: Extract<SdkStreamPart, { type: "finish" }> | undefined;
@@ -203,8 +178,6 @@ export function transformStream<OUTPUT extends Output.Output = never>(
       }
       open.text += delta;
     };
-    // An end closes only its own kind: a reasoning block can end after text
-    // has started, and the text must stay one part.
     const close = (type: AccumulatingPart["type"]) => {
       if (open?.type === type) {
         open = undefined;
@@ -238,13 +211,7 @@ export function transformStream<OUTPUT extends Output.Output = never>(
       resolveUsage(usageAcc);
       resolveMessage(committed);
       settleOutput(parsed);
-      // A segment with an unresolved approval request is still a complete
-      // Session message — it just reports "awaiting-approval" so a caller
-      // (e.g. a workflow execution adapter) knows not to treat the turn as done.
       resolveOutcome(outcomeOf(kept, hasApprovalRequest));
-      // Emit the terminal event in the same tick as the resolves, so a consumer
-      // awaiting `text`/`message` without iterating still observes the
-      // finish/error handler having fired (no intervening microtask boundary).
       for (const event of terminalEvents(kept, status, error, usageAcc)) {
         emit(event);
       }
@@ -260,8 +227,6 @@ export function transformStream<OUTPUT extends Output.Output = never>(
         toolCallId,
         type: "tool_call",
       };
-      // Preserve provider metadata (e.g. Gemini 3's `thoughtSignature`)
-      // so a persisted + replayed tool call stays valid on the next turn.
       if (providerMetadata) {
         call.providerOptions = providerMetadata;
       }
@@ -280,8 +245,6 @@ export function transformStream<OUTPUT extends Output.Output = never>(
 
     const approvalRequest = (part: RegisteredApprovalRequestPart) => {
       const { approvalId, capability, signature, toolCall: call } = part;
-      // The emitting source attaches the capability at its registration seam;
-      // without one there is no authority the request could be resolved under.
       if (!capability) {
         throw new Error(
           `Approval request for "${call.toolName}" carries no registered capability.`
@@ -343,8 +306,6 @@ export function transformStream<OUTPUT extends Output.Output = never>(
           toolCall(part);
           break;
         case "tool-result":
-          // A generator tool yields interim results the SDK flags
-          // `preliminary`; only the final one belongs in history.
           if (part.preliminary) {
             emit({
               output: part.output,
@@ -388,7 +349,6 @@ export function transformStream<OUTPUT extends Output.Output = never>(
         case "harness-approval-request":
           emit({ ...part, type: "tool-approval-request" });
           break;
-        // Driver sessions persist native events immediately, before completion.
         case "harness-activity":
         case "harness-tool":
           emit(part);
@@ -452,21 +412,12 @@ type Parsed = { value: unknown } | { error: unknown };
 type OutputContext = Parameters<Output.Output["parseCompleteOutput"]>[1];
 
 interface OutputParser {
-  /** Parse the final step's text, or `false` for a turn that ended in
-   *  `error`. Without an `output` the value is `undefined`. */
   complete(context: OutputContext | false, error?: Error): Promise<Parsed>;
   readonly partials: AsyncIterable<unknown>;
-  /** A model step began: structured output is the final step's text. */
   step(): void;
   text(delta: string): void;
 }
 
-/**
- * Structured output, parsed from the text the way the AI SDK does it: a
- * partial per text delta (only when it changed), the complete value from the
- * final step's text at the end. Partials parse in order, off the event path,
- * so a slow parse never reorders events.
- */
 function createOutputParser(output: Output.Output | undefined): OutputParser {
   const partials = createEventQueue<unknown>();
   let stepText = "";
@@ -515,7 +466,6 @@ function createOutputParser(output: Output.Output | undefined): OutputParser {
   }
 }
 
-/** What the AI SDK puts on the error a failed parse throws. */
 function outputContext(
   id: string,
   model: ModelRoute | undefined,

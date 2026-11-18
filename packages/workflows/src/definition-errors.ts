@@ -1,4 +1,3 @@
-/** Deterministic authoring failure with the owning definition and local path. */
 export class DefinitionAuthoringError extends Error {
   readonly code:
     | "invalid-definition-key"

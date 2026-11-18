@@ -24,7 +24,6 @@ const BEARER = /\bBearer\s+[^\s"']+/gi;
 const URL_CREDENTIALS = /(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi;
 const MAX_SUMMARY = 240;
 
-/** Never records arbitrary string values or commands. Values can contain secrets. */
 export function summarizeHarnessInput(input: unknown): string {
   if (typeof input === "string") {
     return `[string: ${input.length} characters]`;
@@ -41,7 +40,6 @@ export function summarizeHarnessInput(input: unknown): string {
   return redactHarnessSummary(`fields: ${keys.join(", ")}`);
 }
 
-/** Limit persisted summaries by default; Infinity permits a full redacted live preview. */
 export function redactHarnessSummary(
   summary: string,
   maxLength = MAX_SUMMARY
@@ -83,7 +81,6 @@ function authorizationRequest(
   });
 }
 
-/** Resolve live native requests through the same policy and grants as compiled tools. */
 export function createHarnessPermission(
   settings: HarnessAuthoritySettings
 ): HarnessPermissionCallback {
@@ -202,7 +199,6 @@ async function resolveLiveApproval(
   );
 }
 
-/** Resolve the grant through policy and record the outcome in the transcript. */
 async function recordApprovalResponse(
   settings: Pick<HarnessAuthoritySettings, "store" | "policy">,
   auth: AgentAuthorizationRequest,
@@ -227,7 +223,6 @@ async function recordApprovalResponse(
   return decision;
 }
 
-/** A scheduled request grants authority for a future invocation, never replays the CLI turn. */
 export async function resolveHarnessApproval(
   settings: Pick<
     HarnessAuthoritySettings,

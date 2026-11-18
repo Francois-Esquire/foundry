@@ -28,7 +28,6 @@ function toolkitOver(options: FakeSandboxOptions = {}) {
   });
 }
 
-/** Every tool takes the same options shape; none of these calls need one. */
 const NO_OPTIONS = {};
 
 const TOOL_NAMES = [
@@ -176,7 +175,6 @@ describe("createSandboxToolkit", () => {
       toolkit.tools.glob.execute({ pattern: "**/*.ts" }, NO_OPTIONS)
     ).resolves.toBe("src/a.ts\nsrc/nested/b.ts");
 
-    // `*` does not cross a separator, so only the top-level file matches.
     await expect(
       toolkit.tools.glob.execute({ path: "src", pattern: "*.ts" }, NO_OPTIONS)
     ).resolves.toBe("src/a.ts");
@@ -374,7 +372,6 @@ describe("createSandboxToolkit — cd", () => {
       toolkit.tools.read.execute({ file_path: "other.txt" }, NO_OPTIONS)
     ).resolves.toContain("other");
 
-    // The traversal `cd` collapses is still refused on an ordinary path.
     await expect(
       toolkit.tools.read.execute({ file_path: "../top.txt" }, NO_OPTIONS)
     ).rejects.toMatchObject({ code: "invalid-contract" });
@@ -487,8 +484,6 @@ describe("createSandboxToolkit — guards", () => {
     ).rejects.toThrow(IDENTICAL_EDIT_ERROR);
 
     expect(events).toHaveLength(3);
-    // The allowed call records where it landed; a refusal records no path, so
-    // a denial never says where it would have gone.
     expect(events[0]).toMatchObject({
       outcome: "allowed",
       path: "/workspace/a.txt",
@@ -496,7 +491,6 @@ describe("createSandboxToolkit — guards", () => {
     });
     expect(events[1]).toMatchObject({ outcome: "refused", tool: "read" });
     expect(events[1]?.path).toBeUndefined();
-    // An ordinary tool error is a failure, not a refusal by the environment.
     expect(events[2]).toMatchObject({ outcome: "failed", tool: "edit" });
   });
 
@@ -532,7 +526,6 @@ describe("createSandboxToolkit — guards", () => {
   });
 });
 
-/** A minimally valid input per tool, for coverage sweeps. */
 function inputFor(name: (typeof TOOL_NAMES)[number]): Record<string, unknown> {
   const base = {
     case_insensitive: false,

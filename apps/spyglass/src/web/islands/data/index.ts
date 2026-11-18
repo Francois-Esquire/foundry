@@ -1,7 +1,3 @@
-/**
- * Lookups over a chart, built once: the chart keeps references by id, and
- * this resolves them into `Map`s.
- */
 import type {
   Chart,
   Foundation,
@@ -14,12 +10,9 @@ import type {
 export interface ChartIndex {
   readonly foundations: ReadonlyMap<string, Foundation>;
   readonly groups: ReadonlyMap<string, Group>;
-  /** Each island's position in `chart.islands`: its index for maps and palettes. */
   readonly islandOrder: ReadonlyMap<string, number>;
   readonly islands: ReadonlyMap<string, Island>;
-  /** Routes leaving each island (it depends on their `to`); every island has a list. */
   readonly routesFrom: ReadonlyMap<string, readonly Route[]>;
-  /** Routes arriving at each island (their `from` depends on it); every island has a list. */
   readonly routesTo: ReadonlyMap<string, readonly Route[]>;
   readonly suppliers: ReadonlyMap<string, Supplier>;
 }

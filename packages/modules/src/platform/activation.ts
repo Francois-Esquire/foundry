@@ -26,7 +26,6 @@ export interface ModuleActivationInput {
   readonly version: ModuleVersion;
 }
 
-/** A Version that may not start here: each blocking fact says why. */
 export class ModuleActivationRefusedError extends Error {
   override readonly name = "ModuleActivationRefusedError";
   readonly facts: readonly ActivationCompatibilityFact[];
@@ -39,7 +38,6 @@ export class ModuleActivationRefusedError extends Error {
   }
 }
 
-/** Canonical activation policy, also available to hosts resolving automatic launches. */
 export async function validateModuleActivation(
   input: ModuleActivationInput,
   options: {
@@ -75,10 +73,6 @@ export async function validateModuleActivation(
   return preflight;
 }
 
-/**
- * Launch choices the Module or host refuses: persistence must match the
- * Manifest, and resources must meet its minimums and the host's ceilings.
- */
 function unmetLaunchRequirements(input: {
   readonly launch: ModuleProgramLaunch;
   readonly settings: ModuleActivationInput["settings"];

@@ -121,14 +121,11 @@ test("attention reads in the warning colour, not the grey of other statuses", as
 test("run keys pause, steer, and cancel the selected step", async () => {
   const { actions, calls } = recordingActions();
   const ui = await render(dashboardSnapshot, actions);
-  // The running run is selected first; its root frame, keyed by the
-  // definition's name, is the target.
   expect(ui.captureCharFrame()).toContain("s steer · p pause · k cancel");
   await act(async () => ui.mockInput.pressKey("p"));
   await flush(ui);
   expect(calls).toEqual([["pause", "run-104", "docs"]]);
 
-  // Steer opens a prompt; typing does not reach the dashboard keys.
   await act(async () => ui.mockInput.pressKey("s"));
   await flush(ui);
   expect(ui.captureCharFrame()).toContain("steer docs ›");
@@ -144,7 +141,6 @@ test("run keys pause, steer, and cancel the selected step", async () => {
     "stop and summarise",
   ]);
 
-  // Esc drops a prompt without sending anything.
   await act(async () => ui.mockInput.pressKey("s"));
   await act(async () => ui.mockInput.typeText("nothing"));
   await act(async () => ui.mockInput.pressEscape());
@@ -220,7 +216,6 @@ test("a paused step resumes with an optional prompt", async () => {
     "docs",
     "focus on the tests",
   ]);
-  // Without actions the keys and the footer hint are absent.
   const bare = await render(paused);
   expect(bare.captureCharFrame()).not.toContain("p resume");
 });

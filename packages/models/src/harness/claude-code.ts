@@ -21,7 +21,6 @@ import { inputText } from "./shared";
 
 export interface ClaudeCodeDriverOptions {
   agentId: string;
-  /** Internal transport seam, also used by native protocol contract tests. */
   createModel?: (
     modelId: string,
     settings: ClaudeCodeSettings
@@ -29,13 +28,11 @@ export interface ClaudeCodeDriverOptions {
   cwd: string;
   modelId: string;
   settings?: ClaudeCodeSettings;
-  /** Injected by the host. The launcher must execute the Linux CLI in its VM. */
   spawnClaudeCodeProcess: NonNullable<
     ClaudeCodeSettings["spawnClaudeCodeProcess"]
   >;
 }
 
-/** The community provider transports one CLI loop; Foundry never wraps it in another loop. */
 export function createClaudeCodeDriver(
   options: ClaudeCodeDriverOptions
 ): HarnessTurnDriver {
@@ -78,8 +75,6 @@ export function createClaudeCodeDriver(
         run,
         signal: abort.signal,
       });
-      // The turn stays active until its activities have closed, so a next
-      // turn cannot start while this one's activities are still settling.
       const finish = async () => {
         await runActivities.close();
         activities = undefined;
@@ -110,7 +105,6 @@ export function createClaudeCodeDriver(
             ? "default"
             : "dontAsk",
         resume: run.nativeSessionId,
-        // No sdkOptions overlay may silently replace the run's declared authority.
         sdkOptions: undefined,
         sessionId: undefined,
         sessionStore: undefined,
@@ -129,7 +123,6 @@ export function createClaudeCodeDriver(
         const model = modelFactory(options.modelId, settings);
         const result = await model.doStream({
           abortSignal: abort.signal,
-          // The provider turns this into Claude Code's own `outputFormat`.
           ...(run.responseFormat ? { responseFormat: run.responseFormat } : {}),
           prompt: [
             {

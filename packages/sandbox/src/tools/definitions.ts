@@ -1,21 +1,3 @@
-/**
- * The formal definitions for the sandbox toolkit — one source of truth for
- * tool shape, shared by every binding of it (executing, or schema-only for a
- * client that intercepts the call and runs it itself). Field names are
- * snake_case.
- *
- * `read`, `write`, `edit`, `grep`, `glob`, `cd`, `bash`. Five come from the
- * container toolkit unchanged; `glob` comes from the host filesystem toolkit
- * unchanged apart from naming the working directory rather than a project
- * root; `cd` is this surface's own, so an agent can settle into a subtree
- * instead of repeating a long prefix on every call.
- *
- * Adding a tool is: a definition here, a line in `sandboxToolDefinitions`, a
- * line in `TOOL_LINES`, and the implementation in `toolkit.ts`. Nothing else
- * enumerates the set — `SandboxToolName`, the instruction block, and the
- * schema-only binding all derive from this record.
- */
-
 import { z } from "zod";
 
 import { COUNT_WORDS, DEFAULT_READ_LIMIT, TOOL_LINES } from "./constants";
@@ -154,7 +136,6 @@ export const bashDefinition = {
   }),
 };
 
-/** Every tool definition keyed by name, in canonical order. */
 // biome-ignore assist/source/useSortedKeys: Definition enumeration preserves the established prompt order.
 export const sandboxToolDefinitions = {
   read: readDefinition,
@@ -168,11 +149,6 @@ export const sandboxToolDefinitions = {
 
 export type SandboxToolName = keyof typeof sandboxToolDefinitions;
 
-/**
- * System-prompt instructions for the mounted tools. Describes exactly the
- * `names` given, in canonical order — an agent told about `write` that has no
- * `write` will try to use it, so a subset mount needs a matching block.
- */
 export function sandboxInstructions(
   workingDirectory: string,
   names: readonly SandboxToolName[] = Object.keys(

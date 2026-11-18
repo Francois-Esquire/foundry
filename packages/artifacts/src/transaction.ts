@@ -55,7 +55,6 @@ import type {
   WriteInput,
 } from "./substrate";
 
-/** What one operation changed, settled by the manager after commit or rollback. */
 export interface OperationEffects extends BlobEffects {
   readonly changed: Set<ArtifactId>;
 }
@@ -75,7 +74,6 @@ export interface TransactionLimits {
   readonly maxTreeBytes: number;
 }
 
-/** A located file entry and the object holding its bytes. */
 export interface LocatedFile {
   readonly blob: Blob;
   readonly entry: StoredFile;
@@ -405,7 +403,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     return this.#resolvedContent(content.id);
   }
 
-  /** Make Content immutable and publish its draft Artifact. */
   async freeze(
     id: ContentId,
     option: FreezeOption & { readonly expectedUpdatedAt?: Date } = {}
@@ -691,12 +688,10 @@ export class ArtifactTransaction implements ArtifactOperations {
     return { blobs: await this.#blobs.reclaimAll(), contents };
   }
 
-  /** Find a file entry and verify its object still describes the same bytes. */
   async locateFile(id: ContentId, path: string): Promise<LocatedFile | null> {
     return this.#locate(await this.#requireContent(id), path);
   }
 
-  /** Delete the blobs this transaction released, if nothing references them. */
   async reclaim(): Promise<void> {
     await this.#blobs.reclaim();
   }
@@ -737,11 +732,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     return { blob, entry, path };
   }
 
-  /**
-   * Apply tree changes to `base`. Within `owner` (Content edited in place), a
-   * file whose object no other reference holds is rewritten in place.
-   * Reference inputs resolve first, so every object they name counts as shared.
-   */
   async #applyChanges(
     base: ContentTree,
     changes: TreeChanges,
@@ -790,7 +780,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     return complete;
   }
 
-  /** The object at `path` when only that entry of `owner` references it. */
   async #ownedObject(
     previous: ContentTree[string] | undefined,
     owner: ContentId | undefined,
@@ -969,7 +958,6 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 }
 
-/** A ranged read of a located file, clamped to its length. */
 export function fileRange(
   located: LocatedFile,
   range: { readonly start: number; readonly end?: number },

@@ -90,7 +90,6 @@ function context(s: Spec = spec()): OperatorContext {
   );
 }
 
-/** A manual internalize operator: the synthetic workspace carries no legacy plans. */
 function internalize(
   symbolId: string,
   packageId: string,

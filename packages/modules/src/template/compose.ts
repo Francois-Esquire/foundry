@@ -33,10 +33,6 @@ export interface ModuleProjectIdentity {
   readonly packageName: string;
 }
 
-/**
- * The application a Module workspace is composed from: a file tree with a
- * runnable `package.json`, plus the facts composition reads.
- */
 export interface ModuleBase {
   readonly files: Readonly<Record<string, string>>;
   readonly id: string;
@@ -137,10 +133,6 @@ export async function composeModuleTemplate(
   });
 }
 
-/**
- * Why `base`'s files cannot become a Module workspace, or null when they can.
- * Composition applies the same rule, so a caller can check a base up front.
- */
 export function moduleTemplateBaseIssue(base: ModuleBase): string | null {
   if (!Object.hasOwn(base.files, "package.json")) {
     return `Module base ${base.id} does not contain package.json`;

@@ -2,7 +2,6 @@ import { usage } from "@foundry/usage";
 
 let initialized: Promise<void> | undefined;
 
-/** Add the default accounts once per process; resolves either way. */
 export function initializeUsage(
   warn: (line: string) => void = (line) => {
     process.stderr.write(`${line}\n`);

@@ -13,7 +13,6 @@ function fixture() {
     commands: {
       exec: vi.fn(async (command) => {
         if (typeof command !== "string" && command[3] === "check-absent") {
-          // `test -e "$1" || test -L "$1"`: present, or a dangling link.
           const target = command[4] ?? "";
           const present =
             target === "/workspace" ||
@@ -165,7 +164,6 @@ describe("sandbox coding tools", () => {
       call(moved.tools, "read", { file_path: "a.ts" })
     ).rejects.toThrow("canonical");
 
-    // A failed check is not remembered: once the root resolves, tools work.
     moved.links.delete("/workspace");
     expect(await call(moved.tools, "read", { file_path: "a.ts" })).toContain(
       "const x = 1;"

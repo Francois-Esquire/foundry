@@ -35,30 +35,21 @@ export interface CreateModuleProgramSupervisorOptions {
   readonly files: ModuleInstallationFiles;
   readonly gateway: ModuleGateway;
   readonly now?: () => Date;
-  /**
-   * Composition-boundary observation of settled Installation transitions.
-   * Invoked only after a status settles — never on begin, and never awaited:
-   * the observer can neither delay nor roll back the committed transition.
-   * Host-shutdown teardown is deliberately silent.
-   */
   readonly onSettledTransition?: (installationId: InstallationId) => void;
   readonly removeContainer: (containerId: string) => Promise<void>;
   readonly runtime: ModuleProgramRuntimeAdapter;
   readonly stopRetainedContainer: (containerId: string) => Promise<void>;
   readonly store: ModuleCommands;
-  /** Bounds caller/shutdown observation, never the underlying cleanup task. */
   readonly teardownObservationMs?: number;
   readonly versions: Pick<ModuleVersions, "load">;
 }
 
-/** Coordinates the complete Program lifetime as one Installation-scoped turn. */
 export function createModuleProgramSupervisor(
   options: CreateModuleProgramSupervisorOptions
 ): ModuleProgramSupervisor {
   return new DefaultModuleProgramSupervisor(options);
 }
 
-/** A published Program: present here only once its Installation is `active`. */
 interface ActiveRecord {
   readonly handle: ModuleProgramRuntimeHandle;
   readonly runtime: ModuleRuntimeIdentity;
@@ -78,7 +69,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
   readonly #active = new Map<InstallationId, ActiveRecord>();
   readonly #teardowns = new Map<InstallationId, TeardownRecord>();
   readonly #turns = new KeyedTurns<InstallationId>();
-  /** Aborted at host shutdown: refuses new starts and cancels running ones. */
   readonly #closing = new AbortController();
   readonly #now: () => Date;
   readonly #notifySettled: (installationId: InstallationId) => void;
@@ -136,7 +126,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     });
   }
 
-  /** User Disable: `stopping` → teardown → `disabled`. */
   stop(request: {
     readonly installationId: InstallationId;
     readonly expectedGeneration?: number;
@@ -179,8 +168,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
         now: this.#now(),
         status: "stopping",
       });
-      // The row stays `stopping` while cleanup is pending; late cleanup
-      // settles it `disabled`.
       const observed = await this.#observeCleanup(
         input.installationId,
         this.#beginTeardown(
@@ -205,7 +192,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
           `Installation ${input.installationId} cleanup is still pending`
         );
       }
-      // Teardown failed outright: the occurrence is not cleanly gone.
       await this.#settle(input.installationId, stopping.generation, "failed");
       throw observed.error;
     });
@@ -220,7 +206,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
       if (!(await this.#startingAt(installationId, expectedGeneration))) {
         return;
       }
-      // A Program this process runs is never cleaned up as a left one.
       if (this.#active.has(installationId)) {
         throw supervisorError(
           "already-active",
@@ -236,7 +221,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
           "Automatic start abandoned"
         )
       );
-      // As for a start, host shutdown leaves the attempt unspent.
       if (!this.#closing.signal.aborted) {
         const settled = await this.options.store.transaction(
           async (registry) => {
@@ -272,11 +256,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     });
   }
 
-  /**
-   * Host shutdown and Release change: release the live occurrence without any
-   * Store write, so an Installation left `starting` / `active` is restarted by
-   * the next activation, or by boot recovery if the host exits first.
-   */
   release(input: {
     readonly installationId: InstallationId;
     readonly expectedGeneration: number;
@@ -453,8 +432,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
 
   async shutdown(reason: string): Promise<void> {
     this.#closing.abort(new Error(reason));
-    // The registry's own shutdown does not wait for starts, so every turn
-    // already running must finish acquiring or cleaning up before it begins.
     await this.#turns.idle();
     const failures: unknown[] = [];
     for (const [installationId, teardown] of [...this.#teardowns]) {
@@ -505,8 +482,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
       );
     }
 
-    // Validate the generation before any durable data work, so a stale start
-    // fails cleanly with `stale-generation` rather than a Store conflict.
     const installation = await this.#installationAt(
       input.installationId,
       input.expectedGeneration
@@ -514,8 +489,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     if (installation.containerId !== null) {
       await this.options.stopRetainedContainer(installation.containerId);
     }
-    // A proposed version is selected atomically just before the occurrence
-    // begins, so the generation the Program runs under already names it.
     const baseGeneration = await this.#selectProposedVersion(input);
     const activating = await this.options.store.beginInstallationTransition({
       expectedGeneration: baseGeneration,
@@ -538,7 +511,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
         persistence: input.launch.files,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       });
-      // A failed or interrupted version change must retry from its original database.
       await this.options.files.restoreBackup(input.installationId);
       handle = await this.options.runtime.start({
         files,
@@ -549,8 +521,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       });
       input.signal?.throwIfAborted();
-      // Host-bound: every field comes from the Store row and the container
-      // the host opened, never from anything the guest reports.
       const runtime: ModuleRuntimeIdentity = Object.freeze({
         contentId: version.contentId,
         generation: activating.generation,
@@ -623,8 +593,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
         input.installationId,
         cleanup
       );
-      // A start cancelled by host shutdown stays `starting`, so the next boot
-      // recovers it without spending one of its attempts.
       if (!this.#closing.signal.aborted) {
         await this.#settle(
           input.installationId,
@@ -654,7 +622,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     }
   }
 
-  /** Selects a proposed version before start; returns the generation to begin at. */
   async #selectProposedVersion(input: {
     readonly installationId: InstallationId;
     readonly expectedGeneration: number;
@@ -671,8 +638,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
       return input.expectedGeneration;
     }
     const version = await this.#version(installation, input.contentId);
-    // Nothing of this Installation runs inside its own turn, so the copy is
-    // taken with every writer stopped.
     await this.options.files.backup(input.installationId);
     const selected = await this.options.store.selectInstallationVersion({
       expectedGeneration: input.expectedGeneration,
@@ -683,7 +648,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     return selected.generation;
   }
 
-  /** The pinned Content, re-validated as a version of the Installation's Module. */
   async #version(
     installation: Installation,
     contentId: ContentId
@@ -800,8 +764,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
               close.reason
             )
           );
-          // A crashed Program records a failed occurrence without touching the
-          // user's intent; v1 never restarts it in-process.
           // biome-ignore lint/suspicious/noNestedPromises: Settling is best-effort inside the queued turn; this catch swallows only #settle's rejection so the turn still completes.
           await this.#settle(installationId, generation, "failed").catch(
             () => undefined
@@ -820,9 +782,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     await attempt(() => active.session.close(reason), failures);
     const before = failures.length;
     await attempt(() => active.handle.stop(reason), failures);
-    // Files are released only after a confirmed stop: `none` files are
-    // removed then, never under a Program that may still be running. A
-    // retry repeats the stop first.
     if (failures.length === before) {
       await attempt(() => this.options.files.release(installationId), failures);
     }
@@ -861,11 +820,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     );
   }
 
-  /**
-   * Cleanup for an occurrence with no Program in this process, such as one a
-   * previous process left: its retained container is stopped first, so files
-   * are still released only after a confirmed stop.
-   */
   async #releaseRetained(installationId: InstallationId): Promise<void> {
     const context = await this.options.store.loadGatewayContext(installationId);
     const containerId = context?.installation.containerId ?? null;
@@ -904,10 +858,6 @@ class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
     return record;
   }
 
-  /**
-   * Waits a bounded time for cleanup. Settled cleanup is forgotten; pending
-   * cleanup is resolved late, settling `lateStatus` when given.
-   */
   async #observeCleanup(
     installationId: InstallationId,
     record: TeardownRecord,

@@ -1,4 +1,3 @@
-// Adapted from termcn's OpenTUI JSONView.
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useCallback, useEffect, useRef, useState } from "react";

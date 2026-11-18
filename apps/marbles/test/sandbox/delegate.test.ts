@@ -311,7 +311,6 @@ it("rebuilds host tools for the child's own session through the actual session f
   builtinSettings.length = 0;
   const parent = settings();
   parent.harness = "builtin";
-  // The built-in path needs a network model; the harness itself is stubbed.
   parent.model = {} as AgentModel;
   parent.hostToolsForSession = (sessionId) => ({
     owned: createTool({
@@ -383,7 +382,6 @@ it("records a delegated child's tool calls on the owning run, under the child's 
 
   await invoke(delegationTool(parent, open));
 
-  // The child inherits where to record.
   expect(open.mock.calls[0]?.[0].record).toBe(parent.record);
   expect(recorded.at(-1)).toEqual({
     id: "child:t1",

@@ -7,10 +7,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { writeFileAtomicSync } from "../atomic-file";
 
-/**
- * Kept apart from the other atomic-file tests because the module mock below
- * is hoisted over the whole file. It only observes: every call goes through.
- */
 vi.mock("node:fs", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs")>();
   return { ...original, writeFileSync: vi.fn(original.writeFileSync) };

@@ -1,7 +1,6 @@
 import type { DatasetReader } from "../dataset";
 import type { VisualizationInput } from "./types";
 
-/** Scan-time visualization reads analysis artifacts, never viewer state or GPU resources. */
 export async function readVisualizationInput(
   reader: DatasetReader
 ): Promise<VisualizationInput> {

@@ -1,4 +1,3 @@
-// Adapted from termcn.
 /* @jsxImportSource @opentui/react */
 
 import type { ReactNode } from "react";

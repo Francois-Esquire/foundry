@@ -11,7 +11,6 @@ import type {
   UsageNamespace,
 } from "./types";
 
-/** The report sections boundary interaction reads. */
 export type BoundarySource = Pick<
   SurfaceReport,
   "dependencies" | "summary" | "symbols" | "target"
@@ -82,7 +81,6 @@ function contributions(
     );
 }
 
-/** Modules carrying import sites; edge-only endpoints (barrels) are listed but not counted. */
 function carrying(modules: BoundaryModuleContribution[]): number {
   return modules.filter((module) => module.importSites > 0).length;
 }
@@ -270,11 +268,6 @@ function totals(
   };
 }
 
-/**
- * Aggregates existing per-consumer symbol usage, per-module usage, module
- * edges, and the target's own import declarations into per-boundary traffic.
- * Pure composition — no scanning, no thresholds, no judgement.
- */
 export function analyzeBoundaryInteractions(
   source: BoundarySource,
   outgoingImports: OutgoingImportSite[]

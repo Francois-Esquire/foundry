@@ -23,12 +23,7 @@ import {
 import { isSettled, taskId } from "./types";
 
 export interface AppliedChange {
-  /**
-   * Every task an operation named, in first-mention order: the one it created
-   * or acted on first, then its parent or `dependsOn` target.
-   */
   readonly changed: readonly ChangedTask[];
-  /** The record of every task in `changed`, in the same order. */
   readonly tasks: readonly Task[];
   readonly write: TaskStoreWrite;
 }
@@ -42,11 +37,6 @@ const ID_PREFIX = "tk-";
 const ID_HEX_LENGTH = 8;
 const UUID_DASHES = /-/g;
 
-/**
- * Applies one batch to a working copy of the snapshot and returns the write
- * that commits it. Nothing here touches the store, so a refusal anywhere in
- * the batch leaves it untouched.
- */
 export function applyChange(
   snapshot: TaskSnapshot,
   change: TaskChange,
@@ -136,10 +126,6 @@ class Batch {
     };
   }
 
-  /**
-   * The net change against the snapshot the batch began from: each task put,
-   * once, and only the edges that exist now and did not, or the reverse.
-   */
   private event(putTasks: readonly Task[]): TaskEvent | undefined {
     const before = new Map(this.original.tasks.map((task) => [task.id, task]));
     const existed = new Set(this.original.dependencies.map(edgeKey));
@@ -305,7 +291,6 @@ class Batch {
     this.note(dependsOn.id);
   }
 
-  /** The task an operation acts on, after its optimistic token is checked. */
   private target(ref: TaskRef, token: TaskToken): Task {
     const task = this.resolve(ref);
     if (
@@ -320,7 +305,6 @@ class Batch {
     return task;
   }
 
-  /** Refuses unless `task` is ready in the batch's working copy, as it stands now. */
   private requireReady(task: Task): void {
     const working: TaskSnapshot = {
       dependencies: [...this.edges.values()],
@@ -462,7 +446,6 @@ function checkedMetadata(metadata: JsonObject): JsonObject {
   return checked.data;
 }
 
-/** Each tag once, where it first appears. Tags are exact strings. */
 function uniqueTags(tags: readonly string[]): readonly string[] {
   return [...new Set(tags)];
 }

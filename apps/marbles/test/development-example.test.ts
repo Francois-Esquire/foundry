@@ -46,7 +46,6 @@ async function freshRepository() {
   return root;
 }
 
-/** Both agents share the default provider; the system prompt tells them apart. */
 function isReview(call: Call) {
   return call.prompt.includes("You review code");
 }

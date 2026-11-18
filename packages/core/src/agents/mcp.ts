@@ -1,11 +1,9 @@
 export interface McpServerMetadata {
   description?: string;
-  /** Stable key. Also the tool-name prefix: a server tool `x` becomes `${id}__x`. */
   id: string;
   name?: string;
 }
 
-/** A fully-resolved remote transport. Secret references are resolved by the host. */
 export interface McpRemoteTransportConfig<Auth = unknown> {
   authProvider?: Auth;
   headers?: Record<string, string>;
@@ -14,7 +12,6 @@ export interface McpRemoteTransportConfig<Auth = unknown> {
   url: string;
 }
 
-/** A fully-resolved subprocess transport. The host owns trust and secret resolution. */
 export interface McpStdioTransportConfig {
   args?: string[];
   command: string;
@@ -27,17 +24,11 @@ export type McpTransportConfig<Auth = unknown> =
   | McpRemoteTransportConfig<Auth>
   | McpStdioTransportConfig;
 
-/**
- * What a host hands the manager: the JSON that configures one server, plus
- * whether it should be running. An enabled definition connects on `define`;
- * a disabled one is registered and stays off.
- */
 export type McpServerDefinition<Auth = unknown> = McpServerMetadata & {
   transport: McpTransportConfig<Auth>;
   enabled?: boolean;
 };
 
-/** Connection details without headers, auth provider, or environment values. URLs and arguments may still contain secrets. */
 export type McpServerSummary = McpServerMetadata & {
   transport:
     | { kind: "remote"; protocol: "http" | "sse"; url: string }
@@ -50,25 +41,18 @@ export type McpServerSummary = McpServerMetadata & {
       };
 };
 
-/** Connection lifecycle of one client. `off` is both "disabled" and "closed". */
 export type McpClientStatus = "off" | "connecting" | "connected" | "failed";
 
-/** Live per-server state, for UI/status and a model-facing catalog. */
 export interface McpServerState {
   enabled: boolean;
-  /** Present when `status === "failed"`. */
   error?: string;
   id: string;
-  /** Usage guidance the server sent at initialize; hosts add it to the prompt. */
   instructions?: string;
-  /** The definition this state is for. */
   server: McpServerSummary;
   status: McpClientStatus;
-  /** Tools contributed once connected (0 otherwise). */
   toolCount: number;
 }
 
-/** A resource the server offers; read it with `McpClient.readResource`. */
 export interface McpResource {
   description?: string;
   mimeType?: string;
@@ -76,19 +60,16 @@ export interface McpResource {
   uri: string;
 }
 
-/** One block of a read resource: text, or base64 for binary. */
 export type McpResourceContent =
   | { uri: string; mimeType?: string; text: string }
   | { uri: string; mimeType?: string; blob: string };
 
-/** A prompt template the server offers; expand it with `McpClient.getPrompt`. */
 export interface McpPrompt {
   arguments?: { name: string; description?: string; required?: boolean }[];
   description?: string;
   name: string;
 }
 
-/** An expanded prompt message. Content the host cannot carry is stringified. */
 export interface McpPromptMessage {
   content:
     | { type: "text"; text: string }

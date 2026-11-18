@@ -1,16 +1,7 @@
 type Point = readonly [number, number];
 
-/** One sample at each cell's centre. */
 const centreSample: readonly Point[] = [[0.5, 0.5]];
 
-/**
- * Even-odd scanline fill of one polygon (an outer ring and its holes) into a
- * cell mask, in grid units: cell `(c, r)` covers `[c, c + 1) × [r, r + 1)`.
- * A cell is filled where any of its `samples`, offsets within the cell, lies
- * inside the polygon; by default its centre. A ring is closed by its last
- * edge, as a canvas path closes. Cells already set stay set, so successive
- * fills union.
- */
 export function fillPolygon(
   mask: Uint8Array,
   width: number,
@@ -33,7 +24,6 @@ export function fillPolygon(
   }
 }
 
-/** Where the rings' edges cross each row's sample line `row + sampleY`, by row. */
 function rowCrossings(
   rings: readonly (readonly Point[])[],
   height: number,
@@ -51,7 +41,6 @@ function rowCrossings(
   return crossings;
 }
 
-/** Adds one edge's crossing to every row whose sample line it spans, the top end in and the bottom out. */
 function crossEdge(
   crossings: number[][],
   a: Point,

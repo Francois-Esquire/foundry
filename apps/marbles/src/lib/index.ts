@@ -1,26 +1,7 @@
-/**
- * The lib entry, `@foundry.sh/marbles/lib`: everything the embedded entry
- * (`./embedded`) carries, which is the `Engine`, its Execution Runs and host
- * tasks, and the package classes an instance is built from, plus the CLI
- * harness providers and the types and constants (`CLI_HARNESS_IDS`,
- * `CLI_HARNESSES`, `TERMINAL_RUN_STATUSES`) a programmatic host reads. Build
- * the instances, hand them to the engine, tell it what can run with
- * `define`, `schedule`, `monitor` and `task`, start it, and launch by name;
- * read and follow every run through `engine.executions`; or call its
- * managers directly. The words an authoring module writes definitions with
- * live in the package's main entry; this one takes what they produce as
- * data.
- *
- * The package classes are re-exported because the package bundles them:
- * these are the copies an instance has to come from to be handed to the
- * engine.
- */
-
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for programmatic hosts.
 export { claudeCodeProvider } from "@foundry/models/claude-code";
 export { codexProvider } from "@foundry/models/codex";
 export { piProvider } from "@foundry/models/pi";
-// `containers`: where sandboxes run.
 export { createContainers } from "@foundry/sandbox/container/containers";
 export { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 export type { ChannelMessage } from "@foundry/workflows/channels";

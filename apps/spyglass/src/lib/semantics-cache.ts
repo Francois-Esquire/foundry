@@ -15,31 +15,24 @@ import type { SurfaceReport } from "./types";
 
 const listCachedPackagesPattern = /__/g;
 
-// Each entry is one atomic envelope containing its metadata and payload.
-// Schema 4 rejects the earlier split-file format, whose two renames could
-// publish a new payload under an old input fingerprint.
 export const SEMANTICS_CACHE_SCHEMA_VERSION = 4;
 export const DEFAULT_SEMANTICS_CACHE = ".foundry/cache/semantics";
 
 export type CacheEntryKind = "package-local" | "package-report";
 
 export interface CachedPackageMeta {
-  /** Informational only; never part of validation. */
   analyzedAt: string;
   cacheSchemaVersion: number;
-  /** Named fingerprint components; the shape depends on `kind`. */
   components: Record<string, string>;
   fingerprint: string;
   kind: CacheEntryKind;
   packageId: string;
   path: string;
-  /** Schema of the cached payload: local report or `SurfaceReport`. */
   reportSchemaVersion: number;
 }
 
 export interface WorkspaceInputsMeta {
   cacheSchemaVersion: number;
-  /** Root-relative path → content sha1 of the last build's workspace inputs. */
   files: Record<string, string>;
 }
 
@@ -76,7 +69,6 @@ function readJson(file: string): unknown {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
-/** Whole file or nothing, as compact JSON; missing directories are created. */
 export function writeJsonAtomic(file: string, value: unknown): void {
   writeFileAtomicSync(file, JSON.stringify(value), { createDirectory: true });
 }
@@ -153,7 +145,6 @@ export function lookupPackage<T>(
   }
 }
 
-/** The cached payload regardless of fingerprint, for canonical comparison after a fresh computation. */
 export function readCachedPackage(
   dir: string,
   id: string,
@@ -190,7 +181,6 @@ export function readCachedPackage(
   }
 }
 
-/** Entry counts and bytes under the cache, for the build report. */
 export function cacheStatistics(dir: string): {
   packageEntries: number;
   localEntries: number;
@@ -244,7 +234,6 @@ export function storePackage(dir: string, entry: StorePackageOptions): void {
   rmSync(files.payload, { force: true });
 }
 
-/** Re-point an entry whose fresh computation reproduced the cached payload. */
 export function refreshPackageMeta(
   dir: string,
   meta: CachedPackageMeta,
@@ -268,7 +257,6 @@ export function refreshPackageMeta(
   });
 }
 
-/** Package ids with an entry of `kind` on disk, valid or not. */
 export function listCachedPackages(
   dir: string,
   kind: CacheEntryKind = "package-report"

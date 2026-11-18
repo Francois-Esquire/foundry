@@ -22,11 +22,6 @@ const NOOP_SESSION: AiLoggerSession = {
   wrap: (model) => model,
 };
 
-// evlog's `wrap` accepts a gateway model id and every provider spec, so it
-// returns `string | LanguageModelV4 | LanguageModelV3 | LanguageModelV2`.
-// Providers hand it a v4 model object and get that same object back, so narrow
-// here — widening `ModelManager.model()` instead would push the union onto every
-// caller in agents and application hosts.
 const wrapModel =
   (ai: AILogger) =>
   (model: LanguageModelV4): LanguageModelV4 => {
@@ -37,24 +32,14 @@ const wrapModel =
   };
 
 let enabled = true;
-/** Per-1M-token list prices keyed by wire model id; the manager fills it from catalogs. */
 let costMap: Record<string, ModelCost> = {};
 
 export interface ModelObservabilityOptions {
-  /** Per-1M-token pricing, merged over what catalogs have reported so far. */
   cost?: Record<string, ModelCost>;
-  /** Turn capture on or off process-wide. Defaults to enabled. */
   enabled?: boolean;
-  /** Forwarded to evlog's `initLogger` — drain, sampling, redaction, etc. */
   logger?: LoggerConfig;
 }
 
-/**
- * App-level, call-once configuration. The library never invokes this itself;
- * the host (e.g. Electron main) calls it at startup to wire a drain, adjust
- * pricing, or disable capture. Passing `logger` runs evlog's global
- * `initLogger`, which must happen exactly once per process.
- */
 export function configureModelObservability(
   options: ModelObservabilityOptions = {}
 ): void {
@@ -69,33 +54,12 @@ export function configureModelObservability(
   }
 }
 
-/** Whether AI capture is currently active. */
 export function isModelObservabilityEnabled(): boolean {
   return enabled;
 }
 
-/**
- * A turn-scoped observation: one evlog wide event spanning a whole tool-loop
- * turn, exposed as three handles that all draw on a single `createAILogger`
- * accumulator. Returned by {@link beginTurnObservation}. The shape is the
- * agent package's own, so a host hands {@link observeAgentTurn} straight to
- * an agent surface.
- *
- * Splitting the handles is deliberate: they're consumed in different layers,
- * but they MUST share one accumulator or the model-level and agent-level
- * captures clobber each other's `ai` field. So we build the accumulator once
- * here and hand out `wrap` (the model: token usage / cost), `telemetry` (the
- * `ToolLoopAgent`: tool executions + total duration), and `emit` (the harness:
- * settling at the turn boundary the evlog library can't see).
- */
 export type { TurnObservation } from "@foundry/agents/agents/model";
 
-/**
- * Open a turn-scoped {@link TurnObservation}, or `null` when observability is
- * disabled (callers run raw — zero cost). The harness calls this per turn,
- * threads `wrap` down to `manager.model` and `telemetry` onto the agent, and
- * `emit`s at the turn's settle/catch.
- */
 export function beginTurnObservation(
   context: Record<string, unknown> = {}
 ): TurnObservation | null {
@@ -126,7 +90,6 @@ export function beginTurnObservation(
   };
 }
 
-/** {@link beginTurnObservation} in the shape an agent surface takes. */
 export const observeAgentTurn: ObserveTurn = ({ sessionId, model }) =>
   beginTurnObservation({
     model: model.id,
@@ -134,15 +97,6 @@ export const observeAgentTurn: ObserveTurn = ({ sessionId, model }) =>
     ...(model.provider ? { provider: model.provider } : {}),
   });
 
-/**
- * Run an AI-SDK operation inside an evlog wide event.
- *
- * Creates a fresh request logger scoped to `context`, builds the capture
- * session over it, runs `fn`, and emits the wide event once `fn` settles —
- * success or failure — so usage and errors are never dropped. Returns whatever
- * `fn` returns. When observability is disabled, `fn` runs against a no-op
- * session and no event is emitted.
- */
 export async function withAiLogger<T>(
   context: Record<string, unknown>,
   fn: (session: AiLoggerSession) => Promise<T>
@@ -208,22 +162,11 @@ interface TraceFile {
   total: number;
 }
 
-/** Typed evlog fields for a download wide event. */
 interface DownloadEventFields {
   download: Record<string, unknown>;
   task: string;
 }
 
-/**
- * The canonical evlog lifecycle applied to a download: open the logger at the
- * first real network tick (cache loads never open one, so they stay silent),
- * `set()` per-file context as files complete, and emit exactly once with the
- * audit attached — evlog stamps the event with the real start-to-emit
- * duration. transformers-js fires a terminal `done` per file (plus `ready`
- * for the model), so emitting on every terminal would scatter N bare audits
- * across one download; the latch + all-files-complete gate in `finish`
- * collapses that to a single event carrying the whole story.
- */
 class DownloadTraceImpl implements ModelDownloadTrace {
   private readonly files = new Map<string, TraceFile>();
   private readonly target: ModelDownloadTarget;
@@ -237,8 +180,6 @@ class DownloadTraceImpl implements ModelDownloadTrace {
   }
 
   track(tick: DownloadTick): void {
-    // Only a real fetch streams sub-100% byte progress; cache loads jump
-    // straight to terminal events. The first such tick opens the event.
     if (
       this.log === null &&
       tick.status === "progress" &&
@@ -269,13 +210,6 @@ class DownloadTraceImpl implements ModelDownloadTrace {
     }
   }
 
-  /**
-   * End the wide event at this terminal marker if the download is truly over.
-   * `ready` is the model-level all-done signal; a file-level terminal only
-   * counts once every tracked file has completed, so the first small file's
-   * `done` doesn't end the event while weights still stream. At most one
-   * emission per trace.
-   */
   finish(status: string): void {
     if (this.ended || this.log === null) {
       return;
@@ -307,7 +241,6 @@ class DownloadTraceImpl implements ModelDownloadTrace {
     };
   }
 
-  /** Aggregate stats so far: per-file bytes, totals, elapsed time. */
   private summary(): Record<string, unknown> {
     let totalBytes = 0;
     const files: { file: string; bytes: number }[] = [];
@@ -332,13 +265,6 @@ const NOOP_DOWNLOAD_TRACE: ModelDownloadTrace = {
   track: () => undefined,
 };
 
-/**
- * Start tracing one model download as a single wide event. Create a trace per
- * progress-callback binding, hand it every tick via `track`, and call
- * `finish` at terminal markers — the trace decides when (and whether) the
- * event opens and ends. Returns a no-op when observability is disabled, so
- * the download path pays nothing.
- */
 export function traceModelDownload(
   target: ModelDownloadTarget
 ): ModelDownloadTrace {

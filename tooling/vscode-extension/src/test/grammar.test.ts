@@ -23,7 +23,6 @@ import {
 
 const SUBSTITUTION = /\$\{[^}]*\}/;
 
-/** What the parser reads in a template literal's body: every reference and escape, holes left out. */
 function parsed(dialect: Dialect, body: string): Highlight[] {
   return new Parser(dialect)
     .tokenizeTemplate(body.split(SUBSTITUTION))
@@ -31,7 +30,6 @@ function parsed(dialect: Dialect, body: string): Highlight[] {
     .map(({ kind, text }) => ({ kind, text }));
 }
 
-/** Every scope a grammar gives a token: its `name` and `contentName` values. */
 function tokenScopes(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.flatMap(tokenScopes);
@@ -149,8 +147,6 @@ describe("tagged templates in TypeScript", () => {
   });
 
   it("keeps the prompt a string to the editor", async () => {
-    // A string, not code: brackets in prose are not matched or coloured,
-    // and quotes are not auto-closed.
     const types = await tokenTypes(
       "typescript",
       'prompts.claude`see (a) /review`; prompts.codex("use [b] $review");'
@@ -172,8 +168,6 @@ describe("tagged templates in TypeScript", () => {
 
 describe("known differences from the parser", () => {
   it("opens a message only on the backtick's own line", async () => {
-    // The parser skips blank lines to find the message start; a grammar
-    // matches one line at a time, so a command on the next line reads as a skill.
     const sample = "\n/clear";
     expect(parsed(claudeCode, sample)).toEqual([
       { kind: "command", text: "/clear" },
@@ -184,9 +178,6 @@ describe("known differences from the parser", () => {
   });
 
   it("does not open a reference right after a substitution", async () => {
-    // The parser scans each chunk on its own, so a sigil opening the chunk
-    // after a hole sits at a boundary. Raw, it follows a `}`, which is no
-    // boundary in prose, so the grammar leaves it.
     expect(parsed(claudeCode, "${skill}/review")).toEqual([
       { kind: "skill", text: "/review" },
     ]);
@@ -196,7 +187,6 @@ describe("known differences from the parser", () => {
   });
 
   it("does not read an escaped dollar as a placeholder", async () => {
-    // Cooked, `\$ARGUMENTS` is `$ARGUMENTS`; raw, the backslash is no sigil boundary.
     expect(parsed(claudeCode, "$ARGUMENTS")).toEqual([
       { kind: "argument", text: "$ARGUMENTS" },
     ]);
@@ -338,7 +328,6 @@ describe("stock themes set every reference apart", () => {
 
 describe("the manifest", () => {
   it("contributes the grammars as src/grammar.ts builds them", () => {
-    // Out of date: run `bun run grammar`.
     for (const [file, grammar] of Object.entries(grammars())) {
       const written = readFileSync(
         new URL(`../../syntaxes/${file}`, import.meta.url),

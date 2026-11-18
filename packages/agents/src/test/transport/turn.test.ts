@@ -38,8 +38,6 @@ function recordingAgent(): {
 } {
   const inputs: SessionInput[] = [];
   const calls: TurnOptions[] = [];
-  // `streamSessionAgent` only calls `.stream`, so a minimal fake cast to the
-  // class is enough — no need to construct a real harness.
   const agent = {
     stream(input: SessionInput, options: TurnOptions = {}) {
       inputs.push(input);

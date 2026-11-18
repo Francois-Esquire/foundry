@@ -140,7 +140,6 @@ it("records one fact per turn, attributed to the run, its root definition, and t
       runId: launched.id,
       workspaceId: "test",
     });
-    // The mock reports tokens; its catalog rows have no list price.
     expect(fact.tokens?.total).toBeGreaterThan(0);
     expect(fact.cost).toEqual({
       kind: "unknown",
@@ -186,9 +185,7 @@ it("a replayed one-turn call records nothing new; a turn run again records once 
   let attempts = 0;
   step("review").do(async ({ agents, signal }) => {
     attempts += 1;
-    // Recorded on the first pass; a replay returns the same message.
     await reviewer.generate("one-turn call");
-    // A session turn runs again on replay, so it is new consumption.
     const session = await agents.session(reviewer);
     await session.generate("session turn");
     await Promise.race([
@@ -247,7 +244,6 @@ it("turns outside a run are recorded as direct: their agent and session, no run 
     expect(fact).not.toHaveProperty("definitionId");
     expect(fact.tokens?.total).toBeGreaterThan(0);
   }
-  // Two turns on the opened session, one on the one-turn call's own session.
   expect(
     facts.filter((fact) => fact.sessionId === session.ref.id)
   ).toHaveLength(2);
@@ -300,8 +296,6 @@ it("estimates at the catalog's list price and keeps the rates it used", () => {
     { message: message("m1"), route: {}, source, workspaceId: "ws" },
     price
   );
-  // 600k uncached input at $3, 400k cached at $0.30, 100k output at $15;
-  // reasoning is part of output and is not billed again.
   expect(fact.cost).toEqual({
     amount: 1.8 + 0.12 + 1.5,
     currency: "USD",
@@ -408,8 +402,6 @@ it("after a restart, syntactically valid but malformed facts count as unreadable
 });
 
 it("a run read while it settles, before its file is written, is never counted as unreadable", async () => {
-  // The setup run's feed post is published to the artifact store on disk
-  // after the run settles and before its file is written.
   const built = testEngine({
     artifacts: new ArtifactManager({
       files: blobFiles(join(state, "artifacts", "blobs")),
@@ -434,7 +426,6 @@ it("a run read while it settles, before its file is written, is never counted as
     .finally(() => {
       settled = true;
     });
-  // A host polls while the run ends: no read may land in the gap for good.
   const reads: Awaited<ReturnType<Engine["readUsage"]>>[] = [];
   while (!settled) {
     reads.push(await engine.readUsage());
@@ -513,19 +504,15 @@ it("when the fact and its marker both fail, a new engine over the same disk find
   });
   const launched = await first.launch<string>("two", {});
   await expect(launched.result).resolves.toBe("done");
-  // In this process: the in-memory marker, until the transcript accounts for it.
   expect(await first.usage.read()).toMatchObject({ unsaved: 1 });
   await first.dispose();
 
-  // Before reconciliation, the ledger alone would read as one complete turn.
   expect(totalOf((await reread()).facts)).toMatchObject({
     missing: 0,
     turns: 1,
   });
-  // Price the saved leaf, as a provider could have, to show the label plainly.
   await reportStored(launched.id);
 
-  // A new engine, as a new process builds it: nothing in memory from the first.
   catalog.reset();
   const second = await startEngine({
     print: () => undefined,
@@ -536,7 +523,6 @@ it("when the fact and its marker both fail, a new engine over the same disk find
   const records = await second.readUsage();
   expect(records).toMatchObject({ recovered: 1, unreadable: 0, unsaved: 0 });
   const recovered = records.facts.find((fact) => fact.lost !== undefined);
-  // The session was opened in the run, but that proves no later turn's run or step.
   expect(recovered).toMatchObject({
     agentId: UNATTRIBUTED,
     cost: { kind: "unknown" },
@@ -567,7 +553,6 @@ it("when the fact and its marker both fail, a new engine over the same disk find
       snapshot.usage?.byWorkflow.find((group) => group.id === "two")?.total
     )
   ).toBe("$2.00 reported · may be incomplete: 1 unattributed turn");
-  // The workspace counts it, with its tokens, as not recorded.
   expect(snapshot.usage?.total).toMatchObject({ missing: 1, turns: 2 });
   expect(tokensLabel(snapshot.usage?.total)).toContain(
     "· 2 turns · 1 not recorded"
@@ -584,7 +569,6 @@ const NO_RECORDS = {
   unsavedTurns: new Set<string>(),
 };
 
-/** A new engine over `state`, as a new process builds it: nothing in memory from the writer. */
 async function reader(sessions: SessionStore = durableSessions(state)) {
   catalog.reset();
   const engine = await startEngine({
@@ -626,12 +610,10 @@ it("a separate reader sees a direct session's committed but unrecorded turn at o
   const session = await writer.agents.session(helper);
   await session.generate("one");
   await session.generate("two");
-  // Immediately: no settling delay hides the committed turn.
   const second = await reader();
   const first = await second.readUsage();
   expect(first).toMatchObject({ recovered: 1, unreadable: 0 });
   const recovered = first.facts.find((fact) => fact.lost !== undefined);
-  // Only direct facts name the session, but that proves no later turn direct.
   expect(recovered).toMatchObject({
     agentId: UNATTRIBUTED,
     lost: RECOVERED,
@@ -677,7 +659,6 @@ it("a transcript that failed to read is read again at the same stamp, keeps only
         ledger: { "marbles:flow|agents.session|0": { id: "deleted" } },
       }),
     sessions: Object.assign(sessions, {
-      // The first read fails, and later failures can occur without a stamp.
       listMessages: () => {
         reads += 1;
         return reads === 1 || fail
@@ -707,7 +688,6 @@ it("a transcript that failed to read is read again at the same stamp, keeps only
   );
   await evidence.unrecorded(NO_RECORDS, [], "ws");
   expect(reads).toBe(5);
-  // A session is filed before a run's file names it: not listed is missing.
   const running: ReconciledRun = {
     active: true,
     createdAt: 0,
@@ -745,7 +725,6 @@ it("an unreadable or missing transcript a settled run names is owned by nothing:
   const second = await reader();
   const records = await second.readUsage();
   expect(records).toMatchObject({ recovered: 0, unreadable: 1 });
-  // The run named the session, but that does not make the lost turns its.
   expect(records.unreadableAt).toEqual({
     direct: 0,
     runs: new Map(),
@@ -765,7 +744,6 @@ it("an unreadable or missing transcript a settled run names is owned by nothing:
     "unknown · 1 unreadable usage record may belong here"
   );
 
-  // A missing transcript cannot be verified either, and is no one's.
   await transcript.remove();
   const third = await reader();
   expect((await third.readUsage()).unreadableAt).toEqual({
@@ -773,7 +751,6 @@ it("an unreadable or missing transcript a settled run names is owned by nothing:
     runs: new Map(),
     unowned: 1,
   });
-  // A settled run's own file that cannot be read is that run's.
   const evidence = new UsageEvidence({
     recordedOf: () => Promise.resolve("unreadable"),
     sessions: new InMemorySessionStore(),
@@ -803,7 +780,6 @@ it("a direct session none of whose usage was saved is found through the store's 
   await orphan.generate("fact and marker both fail");
   await kept.generate("saved two");
   await writer.dispose();
-  // Nothing durable in the usage ledger names the orphan session.
   const ledger = await reread();
   expect(ledger.facts.some((fact) => fact.sessionId === orphan.ref.id)).toBe(
     false
@@ -822,12 +798,10 @@ it("a direct session none of whose usage was saved is found through the store's 
   const { usage } = workspaceUsage(records, "test");
   expect(usage.total).toMatchObject({ missing: 1, turns: 3 });
   expect(usage.unattributed).toBe(1);
-  // Not claimed as direct: outside runs keeps its two saved turns, and says one more may be its.
   expect(usage.outsideRuns).toMatchObject({ turns: 2, unattributed: 1 });
   expect(costLabel(usage.outsideRuns)).toContain(
     "may be incomplete: 1 unattributed turn"
   );
-  // Another workspace's state holds other sessions; this one never reads them.
   const elsewhere = await mkdtemp(join(tmpdir(), "marbles-usage-other-"));
   try {
     catalog.reset();
@@ -935,7 +909,6 @@ it("a direct turn in a session a workflow only continued is not claimed by the o
   expect(found).not.toHaveProperty("runId");
   const snapshot = snapshotOf(second, records, await second.runs());
   const run = snapshot.runs.find((item) => item.id === launched.id);
-  // The run may hold it, so it says so; it is not counted as the run's.
   expect(run?.usage).toMatchObject({ turns: 0, unattributed: 1 });
   expect(costLabel(run?.usage)).toBe(
     "unknown · 1 unattributed turn may belong here"
@@ -970,7 +943,6 @@ it("a saved marker's own attribution goes to the recovered leaf, which replaces 
     await session.generate("saved");
     return "done";
   });
-  // Writes 2 and 4 are the facts that fail; their markers (3 and 5) save.
   const writer = await startEngine({
     print: () => undefined,
     sessions: durableSessions(state),
@@ -1014,7 +986,6 @@ it("a saved marker's own attribution goes to the recovered leaf, which replaces 
 it("attributes a run's turn only on per-turn proof, a one-turn call's message, never on the session it was filed under or the run's window", async () => {
   const sessions = new InMemorySessionStore();
   const written = new Sessions({ store: sessions });
-  // A step named `a.b` is not `a`'s child `b`; a record kept before its path proves the run, no step.
   expect(
     ledgerNames({
       "marbles:flow.a.b|agent.turn|0": {
@@ -1036,7 +1007,6 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
       ["root", { path: ["flow"] }],
     ]),
   });
-  // Finished a second ago unless told otherwise: before any reader below was made.
   const turn = (sessionId: string, completedAt = Date.now() - 1000) =>
     written.appendMessage({
       metadata: {
@@ -1060,9 +1030,7 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
     id: "one-turn",
     parentSessionId: "run-session",
   });
-  // Opened before the run, outside any: the run only continued it.
   await written.createSession({ id: "continued" });
-  // A delegated child's: its parent's turn reports none of it.
   await written.createSession({
     id: "child",
     parentSessionId: "opened",
@@ -1102,7 +1070,6 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
     id: "run-1",
     status: "complete",
   };
-  // Listed, as the JSON store lists them: the child is named by nothing else.
   const stamps = () =>
     ["run-session", "opened", "one-turn", "continued", "child"].map((id) => ({
       id,
@@ -1113,7 +1080,6 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
     sessions,
     stamps,
   });
-  // Another agent continued the one-turn session later: its saved turn proves nothing of the call's.
   const later = usageFact(
     {
       message: await turn("one-turn"),
@@ -1142,13 +1108,10 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
     runId: "run-1",
   });
   const bySession = new Map(facts.map((fact) => [fact.sessionId, fact]));
-  // Filed under the run's session, named by its file, inside its window: still no proof of this turn.
   expect(bySession.get("opened")).toMatchObject({ scope: "unattributed" });
   expect(bySession.get("continued")).toMatchObject({ scope: "unattributed" });
   expect(bySession.get("child")).toMatchObject({ scope: "unattributed" });
   expect(facts).toHaveLength(5);
-  // Even a newest turn committed after the reader started must be visible.
-  // An active run naming its session is not proof that it will record it.
   const running = new UsageEvidence({
     recordedOf: () => Promise.resolve(recorded),
     sessions,
@@ -1170,11 +1133,9 @@ it("attributes a run's turn only on per-turn proof, a one-turn call's message, n
     "opened",
   ]);
   expect(live.facts.map((fact) => fact.turnId)).toContain(recording.id);
-  // A running run's file proves nothing yet: not even its one-turn call.
   expect(live.facts.every((fact) => fact.scope === "unattributed")).toBe(true);
 });
 
-/** Gates a step until the test lets it finish, and says when it is waiting. */
 function gated() {
   let release: () => void = () => undefined;
   const gate = new Promise<void>((resolve) => {
@@ -1222,7 +1183,6 @@ it("a turn the host takes directly in a session a run opened is not claimed by t
     await wait.gate;
     return "done";
   });
-  // Write 1 is the run's fact; every later fact and marker fails.
   const writer = await startEngine({
     print: () => undefined,
     sessions: durableSessions(state),
@@ -1294,7 +1254,6 @@ it("a workflow continuing another workflow's session keeps its unrecorded turn: 
   });
   const creating = await first.launch<string>("creator", {});
   await wait.ready;
-  // A second engine over the same disk: the consumer overlaps the creator.
   const other = await startEngine({
     print: () => undefined,
     sessions,
@@ -1320,15 +1279,11 @@ it("a workflow continuing another workflow's session keeps its unrecorded turn: 
   const snapshot = snapshotOf(second, records, await second.runs());
   const usageOf = (id: string) =>
     snapshot.runs.find((item) => item.id === id)?.usage;
-  // The creator keeps only its saved turn; both turns that finished while it ran may be its.
   expect(usageOf(creating.id)).toMatchObject({ turns: 1, unattributed: 2 });
-  // The consumer's own turn is not lost from it: it may be the consumer's.
   expect(usageOf(consuming.id)).toMatchObject({ turns: 0, unattributed: 1 });
   expect(costLabel(usageOf(consuming.id))).toBe(
     "unknown · 1 unattributed turn may belong here"
   );
-  // The consumer run's window clears it of the creator's earlier turn, but
-  // not its workflow: another run of it may have taken that turn.
   const workflow = snapshot.usage?.byWorkflow.find(
     (group) => group.id === "consumer"
   );
@@ -1388,7 +1343,6 @@ it("a direct session a workflow continues in another engine, whose fact and mark
       (item) => item.role === "assistant" && item.metadata?.usage
     );
     expect(turns).toHaveLength(2);
-    // Neither the workflow turn's fact nor its marker reached the disk.
     expect((await reread()).facts.map((fact) => fact.sessionId)).toEqual([
       direct.ref.id,
     ]);
@@ -1396,7 +1350,6 @@ it("a direct session a workflow continues in another engine, whose fact and mark
     const tokensOf = (turn: SessionMessage | undefined) =>
       turn?.metadata?.usage?.totalTokens ?? 0;
 
-    // A reader that cannot load the running run: nothing proves the turn direct.
     const active = await fresh();
     expect(await active.runs()).toEqual([]);
     const records = await active.readUsage();
@@ -1426,13 +1379,10 @@ it("a direct session a workflow continues in another engine, whose fact and mark
     expect(costLabel(snapshot.usage?.outsideRuns)).toContain(
       "may be incomplete: 1 unattributed turn"
     );
-    // The known workflow has no loaded run, yet it is not shown as empty.
     expect(labelOf(snapshot, "consumer")).toBe(
       "unknown · 1 unattributed turn may belong here"
     );
 
-    // The transcript cannot be read: its lost turn's tokens are gone, but
-    // only direct facts naming the session does not make the loss theirs.
     await transcript.damage();
     const blind = await fresh();
     const unread = await blind.readUsage();
@@ -1462,7 +1412,6 @@ it("a direct session a workflow continues in another engine, whose fact and mark
     await expect(consuming.result).resolves.toBe("consumed");
     await workflowEngine.dispose();
 
-    // Settled: the run is loaded, and says the turn may be its, not that it is.
     const settled = await fresh();
     const after = await settled.readUsage();
     expect(
@@ -1540,7 +1489,6 @@ it("a session one settled run names, which a workflow in another engine continue
     await expect(durableSessions(state).listMessages(ref.id)).rejects.toThrow();
 
     const blind = await fresh();
-    // Only the producer's settled run is loaded; it alone names the session.
     expect((await blind.runs()).map((item) => item.id)).toEqual([producing.id]);
     const records = await blind.readUsage();
     expect(records).toMatchObject({ recovered: 0, unreadable: 1 });
@@ -1559,7 +1507,6 @@ it("a session one settled run names, which a workflow in another engine continue
       costLabel(
         snapshot.usage?.byWorkflow.find((group) => group.id === id)?.total
       );
-    // The consumer's workflow, whose run this reader cannot load, is not empty.
     expect(workflowLabel("consumer")).toBe(
       "unknown · 1 unreadable usage record may belong here"
     );
@@ -1740,18 +1687,15 @@ it("a listing that fails on a new reader's first read still reads the named sess
   });
   engines.push(second);
   const records = await second.readUsage();
-  // The session a saved fact names is still read; nothing else can be ruled out.
   expect(records).toMatchObject({ recovered: 1, unreadable: 1 });
   expect(records.unreadableAt.unowned).toBe(1);
   const snapshot = snapshotOf(second, records, await second.runs());
   expect(snapshot.usage?.total).toMatchObject({ turns: 2, unreadable: 1 });
-  // The recovered turn has no per-turn proof, so it is not claimed as direct.
   expect(snapshot.usage?.outsideRuns).toMatchObject({
     turns: 1,
     unattributed: 1,
     unreadable: 1,
   });
-  // It finished before the idle run started, so only the unreadable record may be the run's.
   const run = snapshot.runs.find((item) => item.id === idle.id);
   expect(costLabel(run?.usage)).toBe(
     "unknown · 1 unreadable usage record may belong here"
@@ -1823,10 +1767,6 @@ async function recordLedger(runId: string, ledger: SQL): Promise<void> {
   }
 }
 
-/**
- * Sessions kept on disk behind a store that cannot list them, as a host
- * wrapping its own store hands the engine.
- */
 class UnlistedSessions implements SessionStore {
   readonly #inner: SessionStore;
 
@@ -1858,7 +1798,6 @@ class UnlistedSessions implements SessionStore {
 it("a store that cannot list sessions and outlives the process says every total may be incomplete, since a session only a lost marker named is never found", async () => {
   const sessions = state;
   const helper = agent({ name: "helper", prompt: "Help." });
-  // Writes 1 and 2: the only turn's fact and its marker.
   const writer = await started({
     sessions: new UnlistedSessions(sessions),
     state,
@@ -1866,7 +1805,6 @@ it("a store that cannot list sessions and outlives the process says every total 
   });
   const orphan = await writer.agents.session(helper);
   await orphan.generate("fact and marker both fail");
-  // In this process the marker held in memory still names the session.
   expect(await writer.readUsage()).toMatchObject({
     recovered: 1,
     unreadable: 1,
@@ -1879,7 +1817,6 @@ it("a store that cannot list sessions and outlives the process says every total 
     state,
   });
   const records = await restarted.readUsage();
-  // Nothing durable names the session, so its turn is not found: the totals say so.
   expect(records).toMatchObject({ recovered: 0, unreadable: 1 });
   expect(records.unreadableAt).toEqual({
     direct: 0,
@@ -1915,7 +1852,6 @@ it("a session store or a ledger kept in memory loses nothing a restart could hid
 it("a running run continuing a session recovers an earlier engine's lost turn immediately without claiming it", async () => {
   const sessions = state;
   const helper = agent({ name: "helper", prompt: "Help." });
-  // Writes 1 and 2: the direct turn's fact and its marker.
   const writer = await started({
     sessions: durableSessions(sessions),
     state,
@@ -1926,7 +1862,6 @@ it("a running run continuing a session recovers an earlier engine's lost turn im
   const { ref } = direct;
   await writer.dispose();
 
-  // A new engine, as a new process builds it, with a run that continues the session.
   catalog.reset();
   const wait = gated();
   step("continues").do(async ({ agents }) => {

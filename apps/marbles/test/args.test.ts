@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { parseArgs, UsageError } from "~/args";
 
-/** The Foundry home the defaults follow: the test run's own, else the user's. */
 function foundryHome(): string {
   return process.env.FOUNDRY_HOME ?? join(homedir(), ".foundry");
 }
@@ -143,7 +142,6 @@ it("refuses a command line that cannot run, before anything else happens", () =>
   }
   expect(parseArgs(["bogus", "--help"]).command).toBe("help");
   expect(parseArgs(["--help", "--harness", "foo"]).command).toBe("help");
-  // A default is decided where the line is read, not by the command.
   expect(parseArgs(["init"])).toMatchObject({ starter: "product" });
 });
 

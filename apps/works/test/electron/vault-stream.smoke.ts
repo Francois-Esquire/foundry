@@ -8,10 +8,8 @@ import { createMainWindow } from "~/main/window";
 import { registerWindowIpc } from "~/main/window-ipc";
 import { captureThemes, waitFor } from "../helpers/electron";
 
-// Keep main alive after the last window closes so cleanup can be asserted.
 app.on("window-all-closed", () => undefined);
 
-/** Real renderer/preload/main transport, isolated from the user's vault. */
 async function smoke(): Promise<void> {
   const [userData] = process.argv.slice(2);
   assert.ok(userData, "An isolated profile path is required");
@@ -102,8 +100,6 @@ async function smoke(): Promise<void> {
   }
 }
 
-// Electron waits for main-module evaluation before emitting ready. Do not
-// await smoke at the top level while it waits for that event.
 smoke()
   .then(() => app.quit())
   .catch((error: unknown) => {

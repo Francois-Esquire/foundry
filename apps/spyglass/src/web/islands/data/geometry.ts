@@ -1,14 +1,5 @@
-/**
- * Ring and polygon helpers for the chart: pure functions over plain points.
- *
- * Orientation is the shoelace sign in the chart's own axes: a ring is
- * counter-clockwise when its signed area is positive, that is when it turns
- * from +x toward +y. Chart `y` runs south, so on a page drawn y-down such a
- * ring looks clockwise; the sign, not the look, is the convention.
- */
 import type { Chart, Point, Polygon, Ring } from "./chart";
 
-/** An axis-aligned box in chart units. */
 export interface Bounds {
   readonly maxX: number;
   readonly maxY: number;
@@ -16,10 +7,6 @@ export interface Bounds {
   readonly minY: number;
 }
 
-/**
- * Below this share of its bounding box's area a ring counts as having no
- * area: its points are collinear but for rounding.
- */
 const FLAT_RING_SHARE = 1e-9;
 
 const MIN_RING_POINTS = 3;
@@ -30,7 +17,6 @@ const isFinitePoint = (p: Point): boolean =>
 const samePoint = (a: Point, b: Point): boolean =>
   a[0] === b[0] && a[1] === b[1];
 
-/** Signed area: positive counter-clockwise in chart space (see above). */
 function ringArea(ring: Ring): number {
   let twice = 0;
   for (const [index, [x0, y0]] of ring.entries()) {
@@ -40,7 +26,6 @@ function ringArea(ring: Ring): number {
   return twice / 2;
 }
 
-/** The box around a set of points, or null for none. */
 function pointsBounds(points: Iterable<Point>): Bounds | null {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
@@ -55,12 +40,6 @@ function pointsBounds(points: Iterable<Point>): Bounds | null {
   return minX <= maxX ? { maxX, maxY, minX, minY } : null;
 }
 
-/**
- * A ring fit for the chart, or null if nothing usable is left: non-finite
- * points dropped, consecutive repeats collapsed, the closing point (a repeat
- * of the first) dropped. Fewer than three points, or no area to speak of,
- * is not a ring: neither can be oriented or filled. Orientation is kept.
- */
 export function cleanRing(points: readonly Point[]): Ring | null {
   const kept: Point[] = [];
   for (const p of points) {
@@ -81,12 +60,10 @@ export function cleanRing(points: readonly Point[]): Ring | null {
   return Math.abs(ringArea(kept)) > boxArea * FLAT_RING_SHARE ? kept : null;
 }
 
-/** The ring turning the asked way: reversed if it does not already. */
 function orientRing(ring: Ring, counterClockwise: boolean): Ring {
   return ringArea(ring) > 0 === counterClockwise ? ring : [...ring].reverse();
 }
 
-/** Outer ring counter-clockwise, holes clockwise. */
 export function orientPolygon(polygon: Polygon): Polygon {
   return {
     holes: polygon.holes.map((hole) => orientRing(hole, false)),
@@ -94,7 +71,6 @@ export function orientPolygon(polygon: Polygon): Polygon {
   };
 }
 
-/** Whether a horizontal ray from `p` crosses `ring` an odd number of times. */
 function ringEncloses(ring: Ring, [x, y]: Point): boolean {
   let inside = false;
   for (const [index, [x0, y0]] of ring.entries()) {
@@ -106,7 +82,6 @@ function ringEncloses(ring: Ring, [x, y]: Point): boolean {
   return inside;
 }
 
-/** Whether `p` lies on a polygon's land: inside its outer ring, outside its holes. */
 export function polygonContains(polygon: Polygon, p: Point): boolean {
   return (
     ringEncloses(polygon.outer, p) &&
@@ -114,7 +89,6 @@ export function polygonContains(polygon: Polygon, p: Point): boolean {
   );
 }
 
-/** The box around a polygon's outer ring and holes. */
 export function polygonBounds(polygon: Polygon): Bounds {
   const box = pointsBounds([polygon.outer, ...polygon.holes].flat());
   if (!box) {
@@ -132,7 +106,6 @@ function unionBounds(a: Bounds, b: Bounds): Bounds {
   };
 }
 
-/** The box of the chart's extent, centred on the origin. */
 function extentBounds(chart: Pick<Chart, "extent">): Bounds {
   const { height, width } = chart.extent;
   return {
@@ -143,10 +116,6 @@ function extentBounds(chart: Pick<Chart, "extent">): Bounds {
   };
 }
 
-/**
- * The box around every island's coast: where the land is. A chart with no
- * islands has no land, and its bounds are its extent.
- */
 export function chartBounds(chart: Pick<Chart, "extent" | "islands">): Bounds {
   let bounds: Bounds | null = null;
   for (const island of chart.islands) {

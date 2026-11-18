@@ -7,13 +7,7 @@ import {
   snapshotOf,
 } from "./snapshot";
 
-/**
- * A credential with the name it is added under: what a provider function,
- * such as `anthropic({ name: "work", configDir })`, returns. Its reads are
- * bound to the credential, so the core invokes them without interpreting it.
- */
 export interface Account<C = unknown> {
-  /** The provider's own routing data, such as a config dir or a key. */
   readonly credential: C;
   history(since: Date): Promise<Consumption | undefined>;
   limits(): Promise<Reading>;
@@ -21,30 +15,22 @@ export interface Account<C = unknown> {
   readonly provider: Provider;
 }
 
-/** What `usage` needs of a provider: its id and its default account. */
 export interface Provider {
   defaultAccount(): Promise<Account | undefined>;
   readonly id: string;
 }
 
-/** A span back from now, such as `"7d"`: minutes, hours, days or weeks. */
 export type DurationText = `${number}${"m" | "h" | "d" | "w"}`;
 
 export interface QueryOptions {
-  /**
-   * Where consumption starts: a date, or a span back from now. Defaults to
-   * the start of the account's weekly window, else the 7 days before `at`.
-   */
   readonly since?: Date | DurationText;
 }
 
 export interface QueryAllOptions extends QueryOptions {
-  /** Only the accounts of this provider. */
   readonly provider?: string;
 }
 
 export interface Usage {
-  /** Adds an account, registers its provider if needed, and returns its name. Throws if the name is used. */
   add(account: Account): string;
   initialize(): Promise<readonly Account[]>;
   query(name: string, options?: QueryOptions): Promise<Snapshot>;
@@ -74,10 +60,6 @@ const sinceDate = (since: QueryOptions["since"]): Date | undefined => {
   return new Date(Date.now() - Number(match[1]) * unit);
 };
 
-/**
- * Where the account-wide weekly window started, else the 7 days before `at`:
- * consumption's start when the caller gives none.
- */
 const weekStart = (reading: Reading | undefined, at: Date): Date => {
   const weekly = accountWide(reading?.limits ?? [], "weekly");
   return weekly?.resetsAt
@@ -85,10 +67,6 @@ const weekStart = (reading: Reading | undefined, at: Date): Date => {
     : new Date(at.getTime() - WEEK);
 };
 
-/**
- * Limits and consumption are independent reads; one failing never hides the
- * other. With no `since`, history waits for the limits to know where to start.
- */
 const read = async (account: Account, since?: Date): Promise<Snapshot> => {
   const at = new Date();
   const reading = account.limits();
@@ -108,7 +86,6 @@ const read = async (account: Account, since?: Date): Promise<Snapshot> => {
   );
 };
 
-/** A usage with no providers and no accounts. */
 export const createUsage = (): Usage => {
   const providers = new Map<string, Provider>();
   const accounts = new Map<string, Account>();
@@ -151,7 +128,6 @@ export const createUsage = (): Usage => {
       );
       const found = await Promise.all(free.map((p) => p.defaultAccount()));
       for (const account of found) {
-        // Checked again: a name can be taken while the providers were asked.
         if (account && !accounts.has(account.name)) {
           add(account);
         }

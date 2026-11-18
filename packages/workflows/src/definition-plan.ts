@@ -16,7 +16,6 @@ import type { Step } from "./step";
 import type { StepContext } from "./step-types";
 import type { Bail } from "./types";
 
-/** Private executable source for the leaf-definition compiler. */
 export interface LeafDefinitionPlan<I, O, X extends BaseContext = BaseContext> {
   readonly definitionKey: string;
   readonly description?: string;
@@ -81,10 +80,6 @@ interface DefinitionMaterializer {
   ) => unknown;
 }
 
-/**
- * Runtime-only context seed. The definition stays detached while a factory
- * invocation makes its durable RunExecutionContext available to every frame.
- */
 export function definitionRuntimeSeed<X extends BaseContext>(
   binding: DefinitionBinding<X> | undefined
 ): Omit<X, "name"> | undefined {
@@ -97,7 +92,6 @@ export function definitionRuntimeSeed<X extends BaseContext>(
   } as unknown as Omit<X, "name">;
 }
 
-/** Compose reusable and invocation context; invocation values win. */
 export function definitionBindingFor<X extends BaseContext>(
   created: DefinitionContext<X> | undefined,
   invoked: DefinitionContext<X> | undefined
@@ -144,7 +138,6 @@ export function createLeafDefinitionPlan<
   });
 }
 
-/** Return a fresh, detached descriptor projection; never expose the plan. */
 export function describeLeafDefinition(plan: {
   readonly definitionKey: string;
   readonly name?: string;
@@ -254,7 +247,6 @@ function freezePlanNode(node: DefinitionPlanNode): DefinitionPlanNode {
   });
 }
 
-/** Clone graph data only; executable plan data never crosses this boundary. */
 function detachedNode(
   node: DefinitionNodeDescriptor,
   nodeKey = node.nodeKey

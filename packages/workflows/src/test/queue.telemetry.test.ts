@@ -1,9 +1,3 @@
-/**
- * Queue telemetry — counters track the lifecycle events the Queue
- * already emits, and the optional `logger` option receives the same
- * events the in-memory ring buffer does.
- */
-
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -24,8 +18,6 @@ async function dispatchAndAwait<O>(
       })
     )
   );
-  // Wait for the queue to finish settling lifecycle counters before
-  // tests inspect telemetry.
   await queue.drain();
   return result;
 }

@@ -51,8 +51,6 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile --ignore-scripts
-      # Missing assets come from successful CI at the tagged commit and are
-      # never replaced; the files attached to the release are what moves on.
       - name: Attach and verify the VSIX built by successful release-commit CI
         id: collect
         env:

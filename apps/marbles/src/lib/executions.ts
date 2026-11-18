@@ -31,13 +31,10 @@ export { DEFAULT_QUEUE } from "./execution-record";
 
 const DEFAULT_CONCURRENCY = 1;
 
-/** A run waiting for its queue to let it in. */
 interface Waiting {
-  /** Called when the run cannot be recorded as running, instead of `start`. */
   readonly fail: (error: unknown) => void;
   readonly id: string;
   readonly parent?: string;
-  /** Called with the run's input once it is admitted and recorded as running. */
   readonly start: (input: unknown) => Promise<void>;
   started?: Promise<void>;
 }
@@ -60,7 +57,6 @@ function validConcurrency(queue: string, concurrency: number): number {
   );
 }
 
-/** Named FIFO admission over one inherited record authority; no storage encoding or duplicate record cache. */
 export class Executions extends ExecutionRecords implements ExecutionRuns {
   readonly #lanes = new Map<string, Lane>();
   readonly #idle = new Set<() => void>();
@@ -94,13 +90,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     }));
   }
 
-  /**
-   * Wait in the run's queue. Once admitted, the run is recorded as running,
-   * which drops its input from the record, and `start` is called with that
-   * input; a run that cannot be recorded as running is recorded failed and
-   * handed to `fail` without starting. Returns the start when the queue let
-   * it in at once.
-   */
   admit(
     id: string,
     start: (input: unknown) => Promise<void>,
@@ -124,7 +113,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     return waiting.started;
   }
 
-  /** Give up a running run's slot; the run itself goes on. */
   release(id: string): void {
     const run = this.get(id);
     const lane = run && this.#lanes.get(run.queue);
@@ -139,7 +127,6 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     this.release(id);
   }
 
-  /** Back from a park: it takes its slot again without waiting. */
   resume(id: string): void {
     const run = this.get(id);
     if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
@@ -237,14 +224,12 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     return handed;
   }
 
-  /** Runs waiting in this process's queues, in admission order. */
   waiting(): readonly string[] {
     return [...this.#lanes.values()].flatMap((lane) =>
       lane.waiting.map((item) => item.id)
     );
   }
 
-  /** Resolves once no queue has a run waiting or holding a slot. */
   drained(): Promise<void> {
     return new Promise((resolve) => {
       this.#idle.add(resolve);
@@ -278,14 +263,12 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
       lane.waiting.splice(index, 1);
       lane.active.add(next.id);
       next.started = this.#start(next);
-      // Whoever awaits it sees the failure; `start` and `fail` handle it otherwise.
       next.started.catch(() => undefined);
     }
   }
 
   async #start({ fail, id, start }: Waiting): Promise<void> {
     const { input } = this.requireRecord(id);
-    // Running is on disk before the first effect, or the run does not start.
     try {
       await this.startRecord(id);
     } catch (error) {

@@ -451,10 +451,6 @@ export function setDefaultRuntime(
   createFallback = create;
 }
 
-/**
- * The root a definition outside a run resolves paths against: the host's
- * workspace root, else the directory the default runtime would use.
- */
 export function instanceRoot(): string {
   return activeHost()?.bindings.root ?? process.cwd();
 }
@@ -479,13 +475,10 @@ export function instanceRuntime(): Promise<InstanceRuntime> {
   }
   let runtime = fallbacks.get(dry);
   if (runtime === undefined) {
-    // A step it runs may query `usage`; its default accounts come first.
     runtime = Promise.all([createFallback({ dry }), initializeUsage()]).then(
       ([created]) => created
     );
     fallbacks.set(dry, runtime);
-    // A script that never calls `dispose` still exits once its work is
-    // done, unless something the runtime started holds the process open.
     process.once("beforeExit", () => {
       dispose().catch(() => undefined);
     });
@@ -493,11 +486,6 @@ export function instanceRuntime(): Promise<InstanceRuntime> {
   return runtime;
 }
 
-/**
- * Close the default runtime: its models (a Codex provider holds a child
- * process), workspaces, and sandboxes. A script that used a definition
- * outside a run calls it before exiting; the next call builds a new one.
- */
 export async function dispose(): Promise<void> {
   const pending = [...fallbacks.values()];
   fallbacks.clear();

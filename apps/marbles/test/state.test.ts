@@ -188,7 +188,6 @@ describe("locks", () => {
     if (!("release" in lock)) {
       throw new Error("expected the lock");
     }
-    // Taken over meanwhile, as by a breaker that judged this process gone.
     writeFileSync(join(state, "locks", "s"), "999999999");
     lock.release();
     expect(readFileSync(join(state, "locks", "s"), "utf8")).toBe("999999999");
@@ -310,7 +309,6 @@ describe("schedule state", () => {
         return Promise.resolve();
       },
     });
-    // Without the seed the first tick would wait until 110.
     expect(dispatched).toEqual([105]);
     expect(await triggers.lastTick("s")).toMatchObject({
       lastFinish: new Date(105).toISOString(),

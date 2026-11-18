@@ -45,7 +45,6 @@ export function removeRunOutput(state: string, runId: string): void {
   rmSync(outputPath(state, runId), { force: true });
 }
 
-/** Append-only output for a read-only watcher in another process. */
 export class RunOutput {
   readonly #path: string | undefined;
   readonly #warn: (line: string) => void;
@@ -133,7 +132,6 @@ function outputPath(workspaceState: string, runId: string): string {
 }
 
 function findOutput(state: string, runId: string): string {
-  // Validate even when the state root does not exist.
   outputPath(state, runId);
   const paths = existsSync(state)
     ? readdirSync(state, { withFileTypes: true })
@@ -185,7 +183,6 @@ class OutputReader {
   }
 }
 
-/** Replay the journal and follow appended records until its finalized end. */
 export async function* readRunOutput(
   state: string,
   runId: string,
@@ -219,7 +216,6 @@ export async function* readRunOutput(
           `run "${runId}" lost its owner before recording completion`
         );
       }
-      // Re-read after observing exit: the owner may have appended end after EOF.
       ownerExited = !reader.ownerAlive();
       if (!ownerExited) {
         await setTimeout(100, undefined, { signal });

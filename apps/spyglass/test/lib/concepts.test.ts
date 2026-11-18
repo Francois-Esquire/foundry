@@ -160,7 +160,6 @@ describe("relationships", () => {
 
   it("sees through generic wrappers and import aliases", () => {
     const id = family("WorkspaceId");
-    // load(id: WorkspaceId): Promise<WorkspaceId>, run(ids: Array<WorkspaceId>), handler(id: Wid): Wid
     expect(id.relationships["parameter-type"]).toBe(3);
     expect(id.relationships["return-type"]).toBe(2);
     expect(representations("WorkspaceId", "type-user").sort()).toEqual([
@@ -201,7 +200,6 @@ describe("distribution", () => {
       moduleCount: 2,
       modules: ["packages/core/src/ids.ts", "packages/impl/src/index.ts"],
       packageCount: 2,
-      // WorkspaceIdentifier (alias), load (type-user), load (factory)
       packagePublicRepresentations: 3,
       packages: ["@c/core", "@c/impl"],
       references: 6,
@@ -209,7 +207,6 @@ describe("distribution", () => {
   });
 
   it("only assesses package-public representations inside the target", () => {
-    // BaseStore, CachedStore, StoreOptions, createStore are public; SqliteStore and run are foreign.
     expect(family("Store").distribution.packagePublicRepresentations).toBe(4);
   });
 
@@ -228,7 +225,6 @@ describe("distribution", () => {
     const order = report.conceptInventory.families
       .slice(0, 3)
       .map((item) => item.seed.name);
-    // Store and WorkspaceId tie on 2 packages, 2 modules, 6 references; name breaks it.
     expect(order).toEqual(["Store", "WorkspaceId", "MemoryStore"]);
   });
 });

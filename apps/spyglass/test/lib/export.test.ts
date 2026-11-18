@@ -30,14 +30,9 @@ import { viewerRoot } from "../../src/lib/serve";
 import type { WorkspaceState } from "../../src/lib/state";
 import { lockState, workspaceState } from "../../src/lib/state";
 
-/**
- * Runs before each `rename` the export makes, so a test can make one fail.
- * Unset, `rename` behaves as it does without the mock.
- */
 const beforeRename = vi.hoisted(() => ({
   hook: undefined as ((from: string, to: string) => void) | undefined,
 }));
-/** Runs before each `cp` the export makes, as `beforeRename` does for `rename`. */
 const beforeCopy = vi.hoisted(() => ({
   hook: undefined as ((from: string, to: string) => void) | undefined,
 }));
@@ -124,7 +119,6 @@ it("writes the viewer at the root and the saved dataset under data/", async () =
 it("replaces a clean previous static viewer, entries an older viewer wrote included, and leaves no staging directory", async () => {
   const site = target("again");
   await exportViewer(root, site, { state });
-  // An entry an older viewer wrote and this one does not.
   writeFileSync(join(site, "old-viewer.js"), "from the last export");
   const marker = JSON.parse(readFileSync(join(site, MARKER), "utf8")) as {
     entries: string[];
@@ -312,7 +306,6 @@ describe("a collection", () => {
     product = await workspaceState(roots[1] as string, state);
   }, SCAN_TIMEOUT_MS);
 
-  /** The entries beside `site` whose names start with its own: itself, and any staging left behind. */
   const besides = (site: string) =>
     readdirSync(dirname(site)).filter((name) =>
       name.startsWith(basename(site))

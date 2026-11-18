@@ -38,7 +38,6 @@ afterEach(async () => {
   await rm(directory, { force: true, recursive: true });
 });
 
-/** A pid that was running a moment ago and is not now. */
 function exitedPid(): number {
   const { pid } = spawnSync(process.execPath, ["-e", ""]);
   if (pid === undefined || processAlive(pid)) {
@@ -200,7 +199,6 @@ describe("file locks", () => {
     await first();
     expect(await readFile(lock, "utf8")).toBe(lockContents());
 
-    // Removed by hand and taken by another process meanwhile.
     await writeFile(lock, "999999999");
     await second();
     expect(await readFile(lock, "utf8")).toBe("999999999");

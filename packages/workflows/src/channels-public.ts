@@ -1,5 +1,3 @@
-/** Public event and stream data contract. Runtime channel machinery is internal. */
-
 export type {
   ChannelChunk,
   ChannelEvent,

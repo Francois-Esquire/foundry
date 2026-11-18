@@ -5,11 +5,6 @@ import { Step } from "../step";
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
-/**
- * Fetch-style mock: resolves after `ms`, OR rejects with an AbortError
- * if `signal` aborts first. Mirrors the contract of `fetch`/`setTimeout`-
- * with-signal so we can pin the hand-off case without a real network call.
- */
 function delayWithSignal(ms: number, signal: AbortSignal): Promise<"ok"> {
   return new Promise<"ok">((resolve, reject) => {
     if (signal.aborted) {
@@ -47,8 +42,6 @@ describe("ctx.signal — identity", () => {
 
 describe("ctx.signal — pre-aborted state", () => {
   it("if step.abort() is called before run(), the body never opens", async () => {
-    // Confirms the existing short-circuit: a pre-aborted step skips
-    // execute() entirely. Used as the baseline for the next test.
     let opened = false;
     const step = await Step.make<void, "ok">({
       execute: async (): Promise<"ok"> => {
@@ -70,7 +63,6 @@ describe("ctx.signal — mid-flight abort", () => {
     let observedAbortedAfterAwait = false;
     const step = await Step.make<void, void>({
       execute: async (_input, ctx) => {
-        // Resume after abort to observe the signal state inside the body.
         await new Promise<void>((resolve) => {
           ctx.signal.addEventListener(
             "abort",
@@ -184,7 +176,6 @@ describe("ctx.signal — generator body", () => {
         ctx.signal.addEventListener("abort", () => {
           listenerFired = true;
         });
-        // Park until abort
         await new Promise<void>((resolve) => {
           ctx.signal.addEventListener(
             "abort",

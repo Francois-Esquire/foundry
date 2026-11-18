@@ -34,7 +34,6 @@ import { materialize } from "./materialize";
 import { descriptor, diffDirectory } from "./scan";
 
 const POLL_INTERVAL_MS = 1000;
-/** Kept conflict sets per Artifact unless `keptConflicts` says otherwise. */
 const KEPT_CONFLICTS = 20;
 
 export interface ArtifactFileSystem
@@ -57,55 +56,26 @@ export interface ArtifactRef {
   readonly artifactId: string;
 }
 
-/** One write to an Artifact's tree, as its transaction is about to make it. */
 export interface ArtifactFileMutation {
-  /** The Artifact as this transaction reads it, before the write. */
   readonly artifact: ArtifactResolved;
-  /** A call on this filesystem (`edit`), or disk edits a poll found (`disk`). */
   readonly kind: "disk" | "edit";
-  /** The transaction's own operations, for any record the check reads. */
   readonly operations: ArtifactOperations;
 }
 
-/** What a mutation hook adds to the write it checked. */
 export interface ArtifactFileStamp {
-  /**
-   * The Content the write produced, once its records are committed: after
-   * the outermost transaction commits (an enclosing manager transaction the
-   * write joined, or its own), and after the commit is applied to disk or
-   * that application fails with `ArtifactApplicationError`. Never called
-   * for a write that did not commit. A notification: a throw is logged, and
-   * neither fails the committed write nor replaces its application error.
-   */
   committed?(content: ContentResolved): void;
-  /** Content metadata merged into the same write (other keys are kept). */
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface ArtifactFileSystemOptions {
   readonly artifacts: Artifacts;
-  /** Told when conflicting disk edits were kept aside. */
   readonly conflicted?: (conflict: ArtifactDiskConflict) => void;
-  /**
-   * The Artifacts this filesystem mirrors; every one by default. Others
-   * never get a directory, and this filesystem refuses to write them.
-   */
   readonly includes?: (artifact: ArtifactResolved) => boolean;
-  /**
-   * How many kept conflict sets each Artifact retains under
-   * `<root>/.conflicts/`; the oldest beyond it are removed when a new one is
-   * kept. At least one; 20 by default.
-   */
   readonly keptConflicts?: number;
-  /**
-   * Runs inside each write's own transaction, before the write: it may
-   * refuse by throwing, and may stamp Content metadata on the write.
-   */
   readonly mutation?: (
     mutation: ArtifactFileMutation
   ) => Promise<ArtifactFileStamp | undefined>;
   readonly root: string;
-  /** Wraps each write of polled disk edits, such as in a host run. */
   readonly synchronize?: (
     artifactId: ArtifactId,
     write: () => Promise<void>
@@ -113,7 +83,6 @@ export interface ArtifactFileSystemOptions {
 }
 
 interface DirectoryState {
-  /** The Artifact last written to disk; polled while set. */
   applied: ArtifactResolved | undefined;
   readonly failures: Set<(error: unknown) => void>;
   readonly id: ArtifactId;
@@ -125,21 +94,10 @@ interface DirectoryState {
 }
 
 interface MutateOptions {
-  /** Refuse a path that already has an entry. */
   readonly exclusive?: boolean;
-  /** Replace only a file whose digest still matches. */
   readonly expectedDigest?: string;
 }
 
-/**
- * One directory per Artifact, mirroring its active Content. Artifact commits
- * apply to disk before returning; one that leaves the Content as applied
- * writes nothing there. Disk edits are polled and written back
- * through Artifact operations, fenced against the Content last applied.
- * Disk edits that a commit would replace are kept under
- * `<root>/.conflicts/` first, never silently discarded; each Artifact keeps
- * its newest `keptConflicts` sets.
- */
 export function artifactFileSystem(
   options: ArtifactFileSystemOptions
 ): ArtifactFileSystem {
@@ -252,7 +210,6 @@ export function artifactFileSystem(
     return artifact;
   }
 
-  /** Writes `artifact`'s Content to its directory, keeping disk edits it replaces. */
   async function materializeContent(
     state: DirectoryState,
     artifact: ArtifactResolved,
@@ -280,15 +237,7 @@ export function artifactFileSystem(
     await conflicts.applied(state.id, content?.tree ?? {});
   }
 
-  /**
-   * Makes `id`'s directory show its records. A commit that left the Content
-   * as applied (metadata, status) writes nothing unless `force`d, so disk
-   * edits not yet polled stay for the next poll instead of being reverted
-   * into a conflict set. Recovery and refused disk edits force it: there
-   * the records replace whatever disk holds.
-   */
   async function apply(id: ArtifactId, force = false): Promise<void> {
-    // Artifacts this filesystem never mirrors cost one read, not a write.
     const peek = await artifacts.get(id);
     if (peek && !includes(peek)) {
       return;
@@ -326,14 +275,9 @@ export function artifactFileSystem(
     );
   }
 
-  /** While above zero, every bound application is recovery's: forced. */
   let recovering = 0;
   const unbind = artifacts.bind((id) => apply(id, recovering > 0));
 
-  /**
-   * One write in its own transaction, after the mutation hook checked it
-   * there and stamped it.
-   */
   function stampedWrite(
     id: ArtifactId,
     kind: ArtifactFileMutation["kind"],
@@ -363,8 +307,6 @@ export function artifactFileSystem(
         ...(stamp?.metadata ? { metadata: stamp.metadata } : {}),
       });
       if (stamp?.committed) {
-        // After the outermost commit, even when applying it failed; a
-        // throwing hook cannot make committed records look unsaved.
         effects.afterCommit(async () => {
           try {
             stamp.committed?.(content);
@@ -423,7 +365,6 @@ export function artifactFileSystem(
     }
     const latest = await artifacts.get(state.id);
     const changedElsewhere = !(latest && sameContent(latest, state.applied));
-    // Records are authoritative: a removed directory is restored, never a deletion.
     if (changedElsewhere || !(await lstatOrNull(state.root))) {
       await apply(state.id);
       return;
@@ -456,8 +397,6 @@ export function artifactFileSystem(
         error instanceof StaleContentError ||
         error instanceof ContentStateError
       ) {
-        // The records moved on or refused the edits: they are kept aside,
-        // then replaced.
         await apply(state.id, true);
         return;
       }
@@ -567,7 +506,6 @@ export function artifactFileSystem(
           await apply(id);
         }
       }
-      // A note whose directory went with its Artifact while closed.
       await conflicts.sweep(async (id) => (await artifacts.get(id)) !== null);
     },
     reference: "artifactId",
@@ -617,7 +555,6 @@ export function artifactFileSystem(
   };
 }
 
-/** Whether two reads show the same Content, unchanged since: the same tree. */
 function sameContent(a: ArtifactResolved, b: ArtifactResolved): boolean {
   return (
     a.contentId === b.contentId &&
@@ -625,7 +562,6 @@ function sameContent(a: ArtifactResolved, b: ArtifactResolved): boolean {
   );
 }
 
-/** Archived Artifacts and unusable Content cannot back a directory. */
 function unavailable(artifact: ArtifactResolved): boolean {
   return (
     artifact.status === "archived" ||
@@ -647,7 +583,6 @@ function entryAt(
   return tree && Object.hasOwn(tree, path) ? tree[path] : undefined;
 }
 
-/** The entry at `path` once the mutation's preconditions hold. */
 async function checkMutation(
   transaction: ArtifactOperations,
   artifact: ArtifactResolved,
@@ -674,7 +609,6 @@ async function checkMutation(
   return existing;
 }
 
-/** Fence a write against the Content that `artifact` last showed. */
 function fenceOf(artifact: ArtifactResolved): WriteFence {
   return {
     expectedContentId: artifact.contentId,
@@ -684,7 +618,6 @@ function fenceOf(artifact: ArtifactResolved): WriteFence {
   };
 }
 
-/** A replacement file keeps the MIME type of the file it replaces. */
 function inheritMime(
   entry: EntryInput,
   existing: StorageNode | undefined

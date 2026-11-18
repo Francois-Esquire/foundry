@@ -1,10 +1,7 @@
 import type { ProviderModelDefinition } from "../types";
 
-// Rows are keyed by the real upstream model id (`id === modelId`) so live
 export const VERCEL_DEFAULT_MODELS: ProviderModelDefinition[] = [
   {
-    // Baseline so a freshly-keyed Vercel surfaces in chat (function-calling
-    // filter) before live `/models` discovery enriches the catalog.
     capabilities: { functionCalling: true },
     id: "openai/gpt-5.6-luna",
     kind: "text",

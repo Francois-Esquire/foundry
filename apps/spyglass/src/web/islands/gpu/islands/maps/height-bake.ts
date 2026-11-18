@@ -1,4 +1,3 @@
-/** Chart-sized scratch lives only during a bake; the frame still reads ordinary maps. */
 import type { Frame, Gpu, StorageBuffer, Texture } from "vgpu";
 import type { Chart } from "../../../data/chart";
 import { capacityOf } from "./bake-layout";
@@ -12,7 +11,6 @@ export interface BankBuffers {
   readonly members: StorageBuffer;
 }
 
-/** Bindings shared by the baker and its timing tests. */
 export function heightBindings(
   params: MapParams,
   mf: MapFrame,
@@ -37,7 +35,6 @@ export interface HeightWorkspace {
   readonly states: GPUBuffer;
 }
 
-/** Stripe width is the map width. Rows fit the device's storage-binding limit. */
 export function heightWorkspace(
   gpu: Gpu,
   chart: Chart,
@@ -81,14 +78,11 @@ export function heightWorkspace(
   };
 }
 
-/** Frees temporary scratch after submission or cancellation, including caller-owned frames. */
 export function releaseWorkspace(
   frame: Frame,
   workspace: HeightWorkspace
 ): void {
-  // Submitting replaces `frame.done`: until then it is a placeholder,
-  // already resolved, so read it once the frame's callback has returned.
-  // A canceled frame keeps the placeholder, which frees the scratch at once.
+  // Submission replaces the resolved frame.done placeholder after this callback.
   queueMicrotask(() => {
     frame.done.then(() => workspace.dispose());
   });

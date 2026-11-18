@@ -146,7 +146,6 @@ describe("guest environments", () => {
     expect(
       CLI_HARNESSES.codex.env("/state", { apiKey: "key", kind: "apiKey" })
     ).toEqual({ CODEX_HOME: "/state/codex", OPENAI_API_KEY: "key" });
-    // Subscription tokens reach Codex over the app-server, never the environment.
     expect(
       CLI_HARNESSES.codex.env("/state", {
         kind: "chatgpt",

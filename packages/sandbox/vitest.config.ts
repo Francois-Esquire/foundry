@@ -1,10 +1,5 @@
 import { defineConfig } from "vitest/config";
 
-/**
- * Two projects, each run on purpose by its script. `unit` is the default
- * gate. `integration` boots real microsandbox VMs and needs the runtime
- * installed.
- */
 export default defineConfig({
   test: {
     projects: [

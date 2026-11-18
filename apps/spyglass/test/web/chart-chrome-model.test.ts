@@ -11,7 +11,6 @@ const metrics: TextMetrics = {
   dispose: vi.fn(),
   measure: (text) => text.length * 0.55,
 };
-/** Every layer the viewer lays over the map, shown. */
 const everyLayer = {
   "chart-frame": true,
   coordinates: true,

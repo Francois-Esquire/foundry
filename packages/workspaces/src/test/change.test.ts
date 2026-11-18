@@ -84,7 +84,6 @@ describe("workspace change delivery", () => {
     const workspace = await load();
     const listener = vi.fn();
     system.on("change", listener);
-    // An orphan the layer reports unvalidated; the catalog refuses the tree.
     setEntries([{ name: "child", path: "missing/child", type: "directory" }]);
     await expect(workspace.refresh()).rejects.toThrow("Could not reconcile");
     expect(listener).not.toHaveBeenCalled();

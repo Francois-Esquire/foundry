@@ -5,7 +5,6 @@ import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { stateDatabase } from "~/layout";
 
-/** The CLI providers a test machine is configured with, in preference order. */
 const TEST_PROVIDERS = ["claude-code", "codex", "pi"] as const;
 
 export const PROVIDERS_TEMPLATE_ENV = "MARBLES_TEST_PROVIDERS_DB";

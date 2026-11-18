@@ -8,7 +8,6 @@ import type { RunScopes } from "~/lib/run-scope";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import { RunOutput } from "~/lib/state/output";
 
-/** A run that ended without completing; the message says how and why. */
 export class RunEndedError extends Error {
   override readonly name = "RunEndedError";
 }
@@ -17,7 +16,6 @@ export type Dispatched<O> = Awaited<
   ReturnType<typeof Orchestrator.prototype.run<unknown, O>>
 >;
 
-/** The step events a workflow run's progress records: where it has got to, not each tick. */
 const STEP_LIFECYCLE: ReadonlySet<string> = new Set([
   "step.started",
   "step.complete",
@@ -36,15 +34,10 @@ interface HeldWorkflow {
 
 interface HeldRun {
   finalized?: Promise<unknown>;
-  /**
-   * None of it depends on the run's output type, which the workflow's
-   * private runtime holds invariantly.
-   */
   readonly workflow: HeldWorkflow;
 }
 
 export interface HeldRunsOptions {
-  /** Where each run's progress, parks and resumes go on its Execution Run. */
   readonly executions: Pick<Executions, "progress" | "resume" | "suspend">;
   readonly orchestrator: Orchestrator;
   readonly print: (line: string) => void;
@@ -72,23 +65,16 @@ export class HeldRuns {
     });
   }
 
-  /** A held run's live workflow: its state and its stream. */
   workflow(runId: string): HeldWorkflow | undefined {
     return this.#held.get(runId)?.workflow;
   }
 
-  /** Held runs whose workflow is in one of `statuses`. */
   withStatus(statuses: readonly string[]): readonly string[] {
     return [...this.#held]
       .filter(([, held]) => statuses.includes(held.workflow.state.status))
       .map(([runId]) => runId);
   }
 
-  /**
-   * Hold a dispatched or adopted run until it ends, for the launcher to
-   * settle. A run left parked when the process stops has not ended: its
-   * record stays suspended.
-   */
   follow(name: string, dispatched: Dispatched<unknown>): DispatchedRun {
     const { orchestrator } = this.#options;
     return {
@@ -127,8 +113,6 @@ export class HeldRuns {
       signal: observing.signal,
       write: (text) => output.text(text),
     });
-    // The queue handle settles once its side effects are applied; the
-    // workflow's own result carries the typed value.
     const complete = async () => {
       try {
         const [execution, observation] = await Promise.allSettled([
@@ -168,7 +152,6 @@ export class HeldRuns {
       () => dispatched.workflow.state.status === "cancelled"
     );
     held.finalized = result;
-    // The host may attach after the first snapshot refresh.
     result.catch(() => undefined);
     return result;
   }

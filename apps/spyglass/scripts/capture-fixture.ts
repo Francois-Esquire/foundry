@@ -1,10 +1,3 @@
-/**
- * Capture renderer input from a freshly scanned Foundry dataset:
- * bun apps/spyglass/scripts/capture-fixture.ts <dataset output directory>
- *
- * Commit the resulting test/fixtures/spyglass.json to refresh the reference
- * geometry when the workspace's packages change.
- */
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadImports, loadSpyglass } from "../src/web/layout/load-spyglass";

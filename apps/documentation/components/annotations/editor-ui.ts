@@ -55,7 +55,6 @@ export function actionButton(label: string, action: () => void) {
   return button;
 }
 
-/** Popovers use viewport coordinates so a note near the article bottom remains usable. */
 export function placePanel(
   panel: HTMLElement,
   point?: { x: number; y: number }

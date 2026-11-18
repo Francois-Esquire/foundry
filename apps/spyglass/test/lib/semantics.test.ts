@@ -66,7 +66,6 @@ beforeAll(() => {
   cpSync(join(import.meta.dirname, "fixtures", "semantics"), fixture, {
     recursive: true,
   });
-  // Generated output is ignored by Git, so create this discovery fixture here.
   mkdirSync(join(fixture, "packages", "dist"), { recursive: true });
   writeFileSync(
     join(fixture, "packages", "dist", "index.ts"),
@@ -78,7 +77,6 @@ afterAll(() => {
   rmSync(fixture, { force: true, recursive: true });
 });
 
-/** In-process seams: the canonical analysis with the fixture tsconfig, no worker. */
 const inProcessLocal: SemanticsLocalAnalyzer = (unit, context) =>
   Promise.resolve(
     analyzePackageLocal({
@@ -108,7 +106,6 @@ const inProcessDerive: SemanticsDeriver = async (locals, context) => {
 
 const inProcess = { analyzeLocal: inProcessLocal, derive: inProcessDerive };
 
-/** A deriver that returns no report for the last package, `@s/c`. */
 const withoutLastReport: SemanticsDeriver = async (locals, context) => {
   const derived = await inProcessDerive(locals, context);
   return { ...derived, reports: derived.reports.slice(0, -1) };
@@ -136,10 +133,6 @@ function listFiles(dir: string): string[] {
   return [...hashTree(dir).keys()].sort();
 }
 
-/**
- * Package reports carry the V8 simulation `runtimeMs`, the analyzer's own
- * volatile field; every other value is deterministic under a fixed clock.
- */
 function stable(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(stable);
@@ -397,7 +390,6 @@ describe("generation", () => {
       ["@s/b", "complete", 2],
       ["@s/c", "complete", 3],
     ]);
-    // Ranges as each package.json writes them; a kind it lacks is omitted.
     expect(
       manifest.packages.map((p) => [p.id, p.declaredDependencies])
     ).toEqual([
@@ -497,8 +489,6 @@ describe("generation", () => {
       unmatched: [],
       violations: [],
     });
-    // This scan saves no internals, so every complete package is missing.
-    // The fixture is not a Git repository, so no package has churn.
     expect(readJson(dataset, "lenses/frequent-change.json")).toEqual({
       gate: {
         eligibleKinds: ANALYSIS_CONFIG.hotspots.eligibleKinds,
@@ -513,8 +503,6 @@ describe("generation", () => {
         packages: [],
       });
     }
-    // The tree comes from the module index, so it holds every package;
-    // path regions and seams need internals.
     const folder = (
       id: string,
       descendant: number,
@@ -566,15 +554,12 @@ describe("generation", () => {
       pathRegions: [],
       seams: [],
     });
-    // Without internals there are no responsibilities, and outside Git no
-    // co-change, so proximity observes nothing.
     expect(readJson(dataset, "lenses/proximity.json")).toEqual({
       apart: { coChanges: [], files: [] },
       close: [],
       missing: ["@s/a", "@s/b", "@s/c"],
       packages: [],
     });
-    // Without internals the home use is unknown, so no place is labelled.
     expect(readJson(dataset, "lenses/placement.json")).toEqual({
       missing: ["@s/a", "@s/b", "@s/c"],
       packages: [],
@@ -723,8 +708,6 @@ describe("generation", () => {
     expect(index.modules).toHaveLength(records.length);
     expect(codex.modules).toHaveLength(records.length);
     const edges = (await reader.moduleEdgeShards()).flatMap((s) => s.edges);
-    // The counts are the import edges in and out, as the edge shards hold
-    // them, for every indexed module; the viewer takes them as they are.
     for (const entry of index.modules) {
       expect([entry.fanIn, entry.fanOut]).toEqual([
         edges.filter((edge) => edge.target === entry.id).length,
@@ -751,7 +734,6 @@ describe("generation", () => {
     const reader = datasetReader(fileTransport(dataset));
     const codex = resolveCodex(await readCodexSource(reader));
     const edges = (await reader.moduleEdgeShards()).flatMap((s) => s.edges);
-    // The scan saves the pairs the edges cross, joined once.
     const index = await reader.moduleIndex();
     const traffic = await reader.lens("import-traffic");
     expect(traffic).toEqual({
@@ -760,7 +742,6 @@ describe("generation", () => {
         new Map(index.modules.map((m) => [m.id, m.package]))
       ),
     });
-    // Independently of the join: the fixture's two importers of b's barrel.
     expect(traffic.pairs).toEqual([
       {
         consumerFiles: ["apps/a/src/index.test.ts", "apps/a/src/index.ts"],
@@ -819,7 +800,6 @@ describe("generation", () => {
       "modules/edges/@s__c.json"
     ) as SemanticsModuleEdgeShard;
     expect(c.package).toBe("@s/c");
-    // Internal edges include index → pad → unit and a type-only index → unit.
     expect(c.edges).toEqual([
       {
         id: "tooling/c/src/index.ts→packages/b/src/index.ts",
@@ -1055,7 +1035,6 @@ describe("failure handling", () => {
     const edges = (await reader.moduleEdgeShards()).flatMap((s) => s.edges);
     const failed = index.modules.filter((m) => m.package === "@s/b");
     expect(failed.length).toBeGreaterThan(0);
-    // Imported from the other packages, with no gravity of its own to copy.
     const imported = failed.filter((m) => m.fanIn > 0);
     expect(imported.length).toBeGreaterThan(0);
     for (const entry of failed) {

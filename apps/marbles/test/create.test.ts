@@ -61,7 +61,6 @@ it("exposes the config directory and dry-run git through the engine's workspaces
     expect(loaded.root).toBe(root);
     expect(() => workspaces.current.git).toThrow(NOT_A_REPOSITORY);
 
-    // A `.git` entry is what marks a repository; the git itself is echoed.
     await mkdir(join(root, ".git"));
     const seen = await workspaces.current.git.withWorktree(
       { base: "HEAD" },
@@ -178,7 +177,6 @@ it("declares the config to the engine it builds", () => {
     workspaceId: "ws",
   });
   expect(engine.definitions().map((entry) => entry.name)).toEqual(["count"]);
-  // The engine keeps its own registry: what it adds never reaches the config's.
   expect([...catalog.definitions.keys()]).toEqual(["count"]);
   expect(engine.has("__automation_monitor")).toBe(true);
 });
@@ -286,7 +284,6 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
     expect(other.models.resolve("text", "codex/gpt-5.5").provider).toBe(
       "codex"
     );
-    // A dry session is stamped with an identity, but no key is written.
     const session = await other.agents.session({
       id: "reviewer",
       kind: "agent",

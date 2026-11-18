@@ -249,9 +249,6 @@ describe("WorkspaceCatalog", () => {
     const traveller = fileRecord(workspace.id, { path: "docs/README.md" });
     await catalog.create({ entries: [target, docs, traveller], workspace });
 
-    // `diffCatalog` cannot emit this shape — a candidate at an existing row's
-    // path matches that row — but the catalog must not depend on that: paths
-    // only have to be unique once the whole change is applied.
     const arrived: WorkspaceFile = {
       ...traveller,
       path: "README.md",
@@ -279,8 +276,6 @@ describe("WorkspaceCatalog", () => {
 
     const orphaning = change({ deleted: [parent] });
     const colliding = change({
-      // The edit and the delete would apply before the collision; none of
-      // them may survive the refusal.
       deleted: [child],
       inserted: [
         fileRecord(workspace.id, { path: "added.md" }),

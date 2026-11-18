@@ -99,7 +99,6 @@ export const verify = step("factory-verify")
         }
       );
     } catch (error) {
-      // Read the latest record so a failure after testing keeps its output.
       const latest = await requireRecord(work.issue.number);
       await recordEvent(
         { ...latest, status: "blocked" },

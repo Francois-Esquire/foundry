@@ -1,4 +1,3 @@
-// Gateway behavior from Agents' packages/modules/src/template/index.ts.
 export const MODULE_GATEWAY_SERVER = `
 const gatewayModes = new WeakMap();
 const closedSockets = [];

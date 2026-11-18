@@ -1,18 +1,3 @@
-/**
- * Caller-owned instrument for the Live vendor obligations, not a gate. Nothing
- * here runs without a key, and its absence of a run is the deferral.
- *
- *   FAL_KEY=… bun run --cwd=packages/models test:integration -- live/fal-vendor
- *
- * Each test names the specification.md "Evidence limits" row it would close:
- * token acceptance on `realtime.connect` and `realtime.open`, Node WebRTC
- * negotiation against the vendor endpoints including Lucy 2.5's ordering, and
- * whether the recorder muxes the negotiated codec into a playable segment.
- *
- * The Lucy test needs a local track the repository does not carry. It is built
- * from werift's dummy media device, so no file is required — but a run that
- * cannot acquire one skips rather than failing.
- */
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 

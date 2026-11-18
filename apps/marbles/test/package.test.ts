@@ -73,10 +73,6 @@ test("package import inspection checks declarations and dynamic imports, not con
 
 const CLI_SDK = /^ai-sdk-provider-(claude-code|codex-cli|pi)$/;
 
-/**
- * Every bare specifier loading `entry` loads, following its static imports
- * through the package's own chunks; dynamic imports are not followed.
- */
 function staticImports(dist: string, entry: string): string[] {
   const seen = new Set<string>();
   const specifiers = new Set<string>();
@@ -249,8 +245,6 @@ const review: Prompt = prompts.claude\`/code-review, then ask \${ref.agent("revi
 console.log(String(review), "|", String(prompts.codex\`Use \${ref.skill("review")}\`), "|", review instanceof Prompt);
 `
     );
-    // An embedded host (an Electron main process) takes the narrow entry:
-    // the engine and its host tasks, without the CLI harness providers.
     writeFileSync(
       join(consumer, "embedded.ts"),
       `
@@ -331,13 +325,11 @@ console.log("persisted", kept?.title, existsSync(join(state, "marbles.db")), exi
 console.log("host sessions", (await sessions.listMessages("host")).length, typeof sessions.transaction);
 `
     );
-    // Loading the engine entry loads no CLI SDK: they sit behind dynamic imports.
     expect(
       staticImports(join(installed, "dist"), "engine.js").filter((specifier) =>
         CLI_SDK.test(specifier)
       )
     ).toEqual([]);
-    // The statuses entry loads nothing: a renderer can read it.
     expect(staticImports(join(installed, "dist"), "statuses.js")).toEqual([]);
     run(
       "bun",
@@ -379,9 +371,6 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
     expect(run(cli, ["--help"], consumer)).toContain(
       "programmable workspace automation"
     );
-    // Bun started without --no-env-file would load this before the machine
-    // environment is recorded: the bin and bunx start cleanly, a bare `bun`
-    // on the entry is refused.
     writeFileSync(join(consumer, ".env"), "MARBLES_PACKAGE_PROBE=dotenv\n");
     expect(run("bunx", ["--bun", "marbles", "--help"], consumer)).toContain(
       "programmable workspace automation"
@@ -406,7 +395,6 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
         consumer
       )
     ).toContain("Hello tarball");
-    // Without --dry-run the packaged CLI starts the Marbles process from its
     const home = testHome();
     const { state } = home.layout;
     const marbles = (args: string[], env = home.env) =>

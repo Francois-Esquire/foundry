@@ -40,37 +40,25 @@ import type { Launcher, RunActions } from "./run-actions";
 import { type AnswerHandler, useFeed } from "./use-feed";
 import { showsOthers, workspaceScoped } from "./workspace-scope";
 
-/** The workspace shown, among those the Marbles process hosts. */
 export interface HostedWorkspace {
   readonly count: number;
   readonly error?: string;
-  /** Where this workspace sits in the process's list, from 1. */
   readonly position: number;
   readonly state: WorkspaceState;
 }
 
 export interface DashboardOptions {
-  /** Cancel, pause, resume, and steer live runs; absent in previews. */
   readonly actions?: RunActions;
-  /** How the Marbles process is doing with this workspace; absent in-process and in previews. */
   readonly hosted?: HostedWorkspace;
-  /** Answer an open input entry; absent where nothing can resume the run. */
   readonly onAnswer?: AnswerHandler;
   readonly onClose: () => void;
   readonly onLaunch?: Launcher;
-  /** Save global preferences; absent where they cannot be changed. */
   readonly onSettings?: (changes: SettingsChange) => Promise<void>;
-  /** Keys the dashboard leaves alone, for the preview's own controls. */
   readonly onShortcut?: (key: KeyEvent) => void;
-  /** Show the next workspace the Marbles process hosts. */
   readonly onSwitchWorkspace?: () => void;
   readonly snapshot: DashboardSnapshot;
 }
 
-/**
- * Select `entry` in the Logs tab, as the arrow keys would, and stop
- * following. The move is measured against the state it applies to.
- */
 function selectLog(
   previous: DashboardState,
   snapshot: DashboardSnapshot,
@@ -86,10 +74,6 @@ function selectLog(
   return reduce(previous, { by: target - from, type: "log-move" }, snapshot);
 }
 
-/**
- * The dashboard's keyboard and its effects. State lives in `reduce`, keys in
- * the command table; this hook connects them to the host's callbacks.
- */
 export function useDashboard({
   actions,
   hosted,
@@ -147,7 +131,6 @@ export function useDashboard({
     );
   }
 
-  // Merged and sorted once per snapshot; filtering follows the keys.
   const allLogs = useMemo(() => operatingLogs(snapshot), [snapshot]);
   const logs = filterLogs(allLogs, state.logs);
   const log = selectedLog(state, logs);
@@ -171,7 +154,6 @@ export function useDashboard({
     workspaces: { everywhere, others: showsOthers(whole) },
   };
   useKeyboard((key) => {
-    // The argument form has the keyboard, quitting included.
     if (form || quit.handleKey(key)) {
       return;
     }
@@ -197,7 +179,6 @@ export function useDashboard({
     ...visibleLists(state, snapshot),
     changeTab: (tab: InspectorTab) => send({ tab, type: "tab" }),
     clearFilters: () => send({ type: "clear-filters" }),
-    /** Run controls in flight, and the last one's failure. */
     control,
     feed,
     filterRuns: (filter: CatalogSelection) => send({ filter, type: "filter" }),
@@ -205,7 +186,6 @@ export function useDashboard({
     footer: footer(context),
     form,
     goHome: () => send({ type: "home" }),
-    /** A text field or overlay has the keys; panels show unfocused. */
     inputActive:
       state.searching ||
       state.help ||
@@ -215,11 +195,9 @@ export function useDashboard({
       send({ selection, type: "inspect" }),
     launch,
     leaveForm: () => send({ type: "launch-form" }),
-    /** The Logs tab's lines after its filters, and the selected one. */
     log,
     logs,
     logTotal: allLogs.length,
-    /** Open the run a clicked log line came from, or select a host line. */
     openLog: (entry: OperatingLogEntry) => {
       if (entry.runId === undefined) {
         setState((previous) => selectLog(previous, snapshot, entry));
@@ -235,7 +213,6 @@ export function useDashboard({
     setView: (view: DashboardViewKey) => send({ type: "view", view }),
     showRun: (id: string) => send({ id, type: "show-run" }),
     snapshot,
-    /** A direct launch in flight, and its failure. */
     starting,
     state,
     submitPrompt,

@@ -46,16 +46,6 @@ import { noopSink, Telemetry } from "./telemetry";
 import type { Bail, RunStatus } from "./types";
 import { isBail } from "./types";
 
-/**
- * Walk a Step's compositional tree into the {@link WorkflowSnapshot}
- * shape. The tree is identity-only
- * — `key` is the namespaced path (`a.b.c`), `name` is the local step
- * name, `index` is sibling order. Per-step status lives separately in
- * the flat steps map keyed by the same `key`.
- *
- * Reading `step.children` lazily binds the step's substrate, so this
- * is safe to call on a freshly-`Step.make`'d root.
- */
 export function deriveWorkflowTree<I, O, X extends BaseContext>(
   step: Step<I, O, X>,
   input: unknown
@@ -101,12 +91,6 @@ function pathsEqual(
 
 export type { ErrorShape } from "./schema";
 
-/**
- * Per-Workflow results-persistence policy read by the Queue at the one seam
- * where Run state becomes rows. `retained` (the default) keeps every value;
- * `transient` gates Step outputs, `step.complete` stream values, and the run
- * output out of the persisted row. `materializeLinear` sets `transient`.
- */
 export interface WorkflowPersistence {
   readonly results: "retained" | "transient";
 }
@@ -115,12 +99,6 @@ export interface WorkflowState {
   readonly attempt: number;
   readonly completedAt?: string;
   readonly createdAt: string;
-  /**
-   * Workflow-level error captured on the `failed` transition. Populated
-   * from `workflow.run()`'s catchAll for runtime errors and from the bail
-   * handler for `Bail`-typed business failures. Plain-TS shape so JS
-   * consumers can read it through `dispatched.error` synchronously.
-   */
   readonly error?: ErrorShape;
   readonly input: unknown;
   readonly metadata: Record<string, unknown>;
@@ -131,12 +109,6 @@ export interface WorkflowState {
   readonly suspendedAt?: string;
   readonly suspension?: SuspensionState;
   readonly telemetry: TelemetryState;
-  /**
-   * Structural workflow plan (`name`, `input`, tree of `WorkflowStepNode`,
-   * `cursor`). Mirrored from the underlying `SnapshotState.workflow` so
-   * persistence and downstream consumers can read the tree without
-   * separately routing the Step's snapshot.
-   */
   readonly tree: SnapshotState["workflow"];
 }
 
@@ -176,28 +148,14 @@ interface WorkflowRuntime<I, O, X extends BaseContext> {
   readonly telemetry: Telemetry;
 }
 
-/**
- * Workflow runtime handle. Wraps a {@link Step} and exposes a
- * workflow-centric surface (status, state, result, run) for dispatch
- * and orchestration. Subscriptions are multiplexed into a private lifecycle.
- */
 export abstract class Workflow<
   I = unknown,
   O = unknown,
   X extends BaseContext = BaseContext,
 > {
-  // Discriminator — Orchestrator dispatches Workflow as-is; Step factories
-  // get auto-wrapped on resolve.
   readonly kind = "workflow" as const;
 
   readonly definitionKey?: string;
-  /**
-   * Results-persistence policy the Queue reads at `#snapshotRunPatch`. A
-   * definition subclass overrides this initializer (`materializeLinear` sets
-   * `transient`); a bound runtime Workflow inherits its definition's policy
-   * through {@link Workflow.attach}. Any Workflow without an explicit policy
-   * stays `retained` and encodes as today.
-   */
   readonly persistence: WorkflowPersistence = { results: "retained" };
   declare readonly name: string;
   readonly description?: string;
@@ -207,19 +165,8 @@ export abstract class Workflow<
   readonly #runtime: WorkflowRuntime<I, O, X> | undefined;
   #definitionPlan: WorkflowDefinitionPlan<I, O, X> | undefined;
   #planningDefinition = false as boolean;
-  /**
-   * Swappable audit backend. Granular `ctx.log` lines are mirrored here via
-   * `record`, and one consolidated audit event is flushed on settle. Defaults
-   * to {@link noopSink}; a host swaps in a real sink with {@link setAuditSink}.
-   */
   #auditSink: LogSink = noopSink;
   #observationCallbacks: WorkflowObservationCallbacks | undefined;
-  /**
-   * Durable run id for the audit record. The `Workflow` is built before
-   * dispatch, so it has no durable run id of its own; the queue threads the real
-   * run id in via {@link setRunId}. Falls back to the root step id (ephemeral)
-   * until set — so an unwired sink still gets *an* id, just not the durable one.
-   */
   #runId: string | undefined;
 
   constructor(args?: WorkflowRuntime<I, O, X>) {
@@ -234,10 +181,6 @@ export abstract class Workflow<
       this.#auditSink.record(entry);
       this.#observationCallbacks?.onLog(entry);
     });
-    // Channels is shared per Run, so every step's progress lands here — but
-    // run-level progress means the root step's progress. Child steps each
-    // auto-emit 100 on completion; forwarding those would journal one
-    // duplicate progress frame per child.
     args.root.channels.setProgressCallback((value, path) => {
       if (!pathsEqual(path, args.root.path)) {
         return;
@@ -279,17 +222,14 @@ export abstract class Workflow<
     return this.#requireRuntime().scope;
   }
 
-  /** Public graph declaration; runtime Workflow handles never call it. */
   protected abstract define(
     graph: DefinitionGraphBuilder<I, O, Record<never, never>, X>
   ): void;
 
-  /** Inspectable detached projection of this reusable definition. */
   get definition(): DefinitionDescriptor {
     return describeWorkflowDefinition(this.#plan());
   }
 
-  /** Bind reusable shared context; `.run(input)` materializes fresh runtime. */
   create(context?: DefinitionContext<X>) {
     const source = this;
     return Object.freeze({
@@ -310,7 +250,6 @@ export abstract class Workflow<
     return Workflow.attach(root, input, this.persistence);
   }
 
-  /** Adapt this reusable definition to the existing Orchestrator contract. */
   factory(): Factory<I, O, X> {
     return (input, execution) => this.#materialize(input, { execution });
   }
@@ -368,10 +307,6 @@ export abstract class Workflow<
     );
   }
 
-  /**
-   * Swap in a concrete audit backend (e.g. the evlog wide-event sink). The
-   * host owns this seam — this package never configures a global logger.
-   */
   setAuditSink(sink: LogSink): void {
     this.#auditSink = sink;
   }
@@ -381,19 +316,10 @@ export abstract class Workflow<
     this.#observationCallbacks = callbacks;
   }
 
-  /**
-   * Set the durable run id stamped on the audit record. The queue calls this
-   * at dispatch with the `runs` row id so audit events correlate to the
-   * persisted run rather than the ephemeral step id.
-   */
   setRunId(runId: string): void {
     this.#runId = runId;
   }
 
-  /**
-   * Allocate and return a Workflow from a {@link StepSpec}. Supports
-   * immediate `.step()` chaining for child appends.
-   */
   static create<Input, Output, Context extends BaseContext = BaseContext>(
     spec: StepSpec<Input, Output, Context>
   ): Workflow<Input, Output, Context> {
@@ -403,12 +329,6 @@ export abstract class Workflow<
     );
   }
 
-  /**
-   * Plain-TS, sync factory. Wraps an existing Step instance — the inner
-   * Step IS the workflow's root (snapshot, channels, composer all shared).
-   * Use this when the Step tree is built or recovered separately and
-   * Workflow is layered on top.
-   */
   static attach<Input, Output, Context extends BaseContext = BaseContext>(
     step: Step<Input, Output, Context>,
     input: Input,
@@ -456,10 +376,6 @@ export abstract class Workflow<
       ).pipe(Effect.ensuring(ScopeMod.close(scope, Exit.void)))
     );
 
-    // Status-mirror fiber: propagates #status → #state.status and owns the
-    // single `startedAt` write. The `suspendedAt`/`completedAt` timestamps are
-    // written synchronously by run()/cancel() (the inline #state updates), so
-    // they are NOT derived here — one writer per timestamp, no double-booking.
     Effect.runFork(
       FxStream.runForEach(status.changes, (next) =>
         SubscriptionRef.update(state, (row) => ({
@@ -483,21 +399,6 @@ export abstract class Workflow<
     });
   }
 
-  /**
-   * Append a child to the inner root step. Symmetric with
-   * {@link Step.step} — accepts either a `StepSpec` (built into a fresh
-   * child) or a pre-built `Step` instance (claimed under this workflow's
-   * root). Returns `this` so factory chains read like
-   * `Workflow.create(spec).step(a).step(b)`.
-   *
-   * Re-derives the structural workflow tree after every append. The first
-   * derive (at construction) only sees the root because `.step()` chains
-   * run after; without this re-seed the snapshot's `workflow` and the
-   * `#state.tree` would stay frozen with no children. Both surfaces are updated
-   * synchronously so `queue.dispatch` (which runs immediately after the
-   * factory returns) sees the populated tree without waiting on the
-   * snapshot-mirror fiber.
-   */
   step<NewI, NewO, CX extends BaseContext = X>(
     specOrStep: StepSpec<NewI, NewO, CX> | Step<NewI, NewO, CX>
   ): this {
@@ -510,38 +411,26 @@ export abstract class Workflow<
     return this;
   }
 
-  /**
-   * Tear down the private Scope holding the state-mirror fibers.
-   * Idempotent. Standalone callers that build many short-lived Workflows
-   * can call this for explicit cleanup; queue/orchestrator-managed
-   * Workflows live until process exit, matching {@link Step}'s listener
-   * lifetime.
-   */
   dispose(): Promise<void> {
     return Effect.runPromise(ScopeMod.close(this.#scope, Exit.void));
   }
 
-  /** Current workflow status. */
   get status(): RunStatus {
     return Effect.runSync(SubscriptionRef.get(this.#status));
   }
 
-  /** Native stream that replays the current status to each subscriber. */
   get statusChanges(): ReadableStream<RunStatus> {
     return FxStream.toReadableStream(this.#status.changes);
   }
 
-  /** Current workflow state snapshot. */
   get state(): WorkflowState {
     return Effect.runSync(SubscriptionRef.get(this.#state));
   }
 
-  /** Native stream that replays the current state to each subscriber. */
   get stateChanges(): ReadableStream<WorkflowState> {
     return FxStream.toReadableStream(this.#state.changes);
   }
 
-  /** Await the first terminal workflow result. */
   result(): Promise<WorkflowResult<O>> {
     return runEffectPromise(Deferred.await(this.#result));
   }
@@ -610,7 +499,6 @@ export abstract class Workflow<
       const settled = yield* Deferred.poll(self.#result);
       if (Option.isNone(settled)) {
         yield* Deferred.succeed(self.#result, opts.result);
-        // First-win settle: flush exactly one consolidated audit event.
         yield* Effect.sync(() => {
           self.#auditSink.settle({
             at,
@@ -664,17 +552,9 @@ export abstract class Workflow<
             }
 
             if (isStepBailError(err)) {
-              // Re-surface the captured Bail value through the success
-              // channel — the bail-tagged downstream branch below handles
-              // status/metrics/Deferred settlement.
               return err.bail;
             }
 
-            // If the workflow was cancelled mid-flight, the step's
-            // abort signal is what surfaced this error — preserve the
-            // cancelled status set by `cancel()` rather than overwriting
-            // it with `failed`. The result deferred already holds the
-            // cancelled outcome (Deferred is first-wins).
             const currentStatus = yield* SubscriptionRef.get(self.#status);
             if (currentStatus === "cancelled") {
               return yield* Effect.fail(err);
@@ -690,8 +570,6 @@ export abstract class Workflow<
         )
       );
 
-      // Bail-tagged result — handle status/metrics/Deferred and surface
-      // the Bail to the caller.
       if (typeof result === "object" && result !== null && "_bail" in result) {
         const bail = result;
         const bailError = new Error(
@@ -716,10 +594,6 @@ export abstract class Workflow<
     });
   }
 
-  /**
-   * Plain-JS convenience: drive this workflow and resolve with `O`.
-   * Throws on bail or runtime error and settles the Workflow handle.
-   */
   run(input?: I, ctxExtension?: object): Promise<O> {
     if (this.#runtime === undefined) {
       return this.create().run(input as I, ctxExtension);
@@ -897,7 +771,6 @@ export abstract class Workflow<
   }
 }
 
-/** Bound runtime implementation behind legacy `Workflow.create(spec)`. */
 class RuntimeWorkflow<
   I = unknown,
   O = unknown,

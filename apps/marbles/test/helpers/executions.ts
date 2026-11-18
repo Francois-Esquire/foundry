@@ -12,7 +12,6 @@ import { parseStored } from "~/lib/execution-record";
 import type { ExecutionStore } from "~/lib/execution-store";
 import type { ExecutionRun } from "~/lib/executions";
 import { testEngine } from "./engine";
-/** Each suite owns its engines and directory; close engines before removing watched files. */
 export function executionFixture() {
   let root: string;
   const engines: Engine[] = [];
@@ -43,7 +42,6 @@ export function gate() {
   return { open: () => open(), opened };
 }
 
-/** Resolves once `check` holds, polling briefly. */
 export async function until(check: () => boolean): Promise<void> {
   const deadline = Date.now() + 3000;
   while (!check()) {
@@ -54,7 +52,6 @@ export async function until(check: () => boolean): Promise<void> {
   }
 }
 
-/** A task that records when it starts and waits for its gate. */
 export function blockingTask(
   engine: Engine,
   name: string,
@@ -76,7 +73,6 @@ export function blockingTask(
   });
 }
 
-/** A pid that has certainly exited. */
 export function exitedPid(): number {
   const { pid } = spawnSync(process.execPath, ["-e", ""]);
   if (pid === undefined) {
@@ -119,7 +115,6 @@ export async function seedExecution(
   await store.create(run);
 }
 
-/** Records as a crashed process would have left them. */
 export async function leftBehind(
   state: string,
   pid: number,
@@ -146,7 +141,6 @@ export async function leftBehind(
   });
 }
 
-/** An unsettled run an exited process left, written straight to `store`. */
 export async function orphan(
   store: ExecutionStore,
   run: Partial<ExecutionRun> & { readonly id: string }

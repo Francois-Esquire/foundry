@@ -3,10 +3,6 @@ import type { WorkspaceReport } from "../../../src/lib/workspace-types";
 
 import { WORKSPACE_SCHEMA_VERSION } from "../../../src/lib/workspace-types";
 
-// Synthetic WorkspaceReport builder for the V9.x workspace layers. Emits
-// exactly the canonical sections those analyzers read; the rest of the
-// report is irrelevant to them. Shared by the concept and pattern suites.
-
 interface Participation {
   conversions?: number;
   implementations?: number;
@@ -34,9 +30,7 @@ export interface ConceptSpec {
     implementations?: string[];
   };
   couplings?: string[];
-  /** Extra V7.0 evidence packages with no role (re-export paths). */
   evidencePackages?: string[];
-  /** Default `seed-report`. */
   foreign?: boolean;
   hotspotModules?: string[];
   id: string;
@@ -49,7 +43,6 @@ export interface ConceptSpec {
 
 interface OverlapSpec {
   bidirectional?: boolean;
-  /** `function@file:from>to` */
   conversions?: string[];
   left: string;
   right: string;
@@ -63,11 +56,9 @@ interface CouplingSpec {
 }
 
 export interface ReviewSpec {
-  /** Observed centers other than the declaring package, strongest first. */
   centers?: string[];
   conceptId: string;
   disposition: string;
-  /** Scenario kind whose alternative dominates the preserve-current baseline. */
   dominatedBy?: "rehome-behavior" | "rehome-semantic-center";
   unresolved?: {
     kind: string;
@@ -80,12 +71,10 @@ export interface Spec {
   anchored?: string[];
   concepts: ConceptSpec[];
   couplings?: CouplingSpec[];
-  /** `A→B` or `A→B:n` (module edges, default 1; 0 = usage-only). */
   edges?: string[];
   missing?: string[];
   overlaps?: OverlapSpec[];
   packages?: string[];
-  /** V6 architectural profile signals per package. */
   profiles?: Record<string, string[]>;
   reviews?: ReviewSpec[];
 }

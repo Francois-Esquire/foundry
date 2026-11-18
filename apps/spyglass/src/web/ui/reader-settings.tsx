@@ -9,14 +9,9 @@ import {
 } from "../settings/chart-settings";
 import { ParamSection, SettingsSelect } from "./settings-controls";
 
-/** The option the angle list shows for an elevation between the named angles. */
 const customAngle = "custom";
 const angleOrder: readonly CameraAngleId[] = ["top-down", "chart", "isometric"];
 
-/**
- * The camera's named angles, a preset over the elevation: choosing one
- * swings the camera there; an elevation between them shows as custom.
- */
 function CameraAngle({
   disabled,
   elevation,
@@ -55,11 +50,6 @@ function CameraAngle({
   );
 }
 
-/**
- * What a reader may change, drawn from `readerParams` in `readerLayout`'s
- * sections: the camera's elevation, with its named angles over it, and the
- * waves, which draw no data and move.
- */
 export function ReaderSettingsSection({
   disabled,
   onChange,

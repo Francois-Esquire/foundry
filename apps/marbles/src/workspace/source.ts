@@ -28,15 +28,9 @@ export function isModulePath(path: string): boolean {
 }
 
 export interface SourceFilesOptions {
-  /**
-   * Include leading-underscore files and directories. Discovery skips them
-   * (an entry imports a helper; nothing loads it on its own), but a watcher
-   * must see them change.
-   */
   readonly helpers?: boolean;
 }
 
-/** Discovery belongs to the host, never the engine. Symlinks are not followed. */
 export function sourceFiles(
   path: string,
   { helpers = false }: SourceFilesOptions = {}
@@ -74,7 +68,6 @@ export function sourceFiles(
   return files.sort();
 }
 
-/** Conventional authoring folders operate on the project above .foundry. */
 export function sourceRoot(path: string): string {
   const absolute = resolve(path);
   const isDirectory = existsSync(absolute) && statSync(absolute).isDirectory();

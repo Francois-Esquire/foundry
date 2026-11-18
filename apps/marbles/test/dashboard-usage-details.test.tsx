@@ -24,7 +24,6 @@ import {
 const WARNING = "may be incomplete: 1 unreadable usage record";
 const PANEL_TEXT = /[│█▀▄\s]+/g;
 
-/** The frame's words in order, so a value wrapped inside a panel still reads as one line. */
 function words(frame: string): string {
   return frame.replace(PANEL_TEXT, " ");
 }
@@ -44,10 +43,6 @@ afterEach(async () => {
   state = undefined;
 });
 
-/**
- * A real run with one priced leaf and one malformed leaf in its document on
- * disk, read back by a new engine the way the dashboard host reads it.
- */
 async function damagedSnapshot(): Promise<DashboardSnapshot> {
   state = mkdtempSync(join(tmpdir(), "marbles-details-"));
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
@@ -56,7 +51,6 @@ async function damagedSnapshot(): Promise<DashboardSnapshot> {
     await session.generate("one");
   });
   const dir = state;
-  // Durable sessions beside durable state, as the host builds an engine.
   const durable = () => ({
     print: () => undefined,
     sessions: durableSessions(dir),
@@ -117,19 +111,16 @@ test("run, step and workflow details at 80 columns say a total may be incomplete
     }
   );
   expect(ui.captureCharFrame()).toContain("$2.00+?");
-  // Run details, scrolled to the cost lines.
   await press(ui, "RETURN");
   await scrollToEnd(ui);
   let frame = words(ui.captureCharFrame());
   expect(frame).toContain(`$2.00 reported · ${WARNING}`);
-  // Step details.
   await press(ui, "ESCAPE");
   await press(ui, "ARROW_DOWN");
   await press(ui, "RETURN");
   await scrollToEnd(ui);
   frame = words(ui.captureCharFrame());
   expect(frame).toContain(`Cost here : $2.00 reported · ${WARNING}`);
-  // Workflow details in the catalog.
   await press(ui, "ESCAPE");
   await press(ui, "2");
   await press(ui, "RETURN");
@@ -137,7 +128,6 @@ test("run, step and workflow details at 80 columns say a total may be incomplete
   frame = words(ui.captureCharFrame());
   expect(frame).toContain("Available");
   expect(frame).toContain(`$2.00 reported · ${WARNING}`);
-  // Overview's usage breakdown names it too.
   await press(ui, "ESCAPE");
   await press(ui, "3");
   await press(ui, "u");
@@ -233,7 +223,6 @@ test("a known workflow whose running run the reader cannot load shows an unattri
     ...durable(),
     usageStore: new FailingUsageStore(new MemoryUsageStore(), () => true),
   });
-  // A fresh reader: the consumer's run is still running in another engine.
   const catalogDetails = async (): Promise<string> => {
     catalog.reset();
     consumer();
@@ -271,7 +260,6 @@ test("a known workflow whose running run the reader cannot load shows an unattri
       "Cost : unknown · 1 unattributed turn may belong here"
     );
     expect(frame).not.toContain("no usage recorded");
-    // Only direct facts name the unreadable transcript; its loss is not theirs alone.
     await transcript.damage();
     const blind = await catalogDetails();
     await transcript.restore();

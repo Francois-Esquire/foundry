@@ -68,7 +68,6 @@ describe("tasks", () => {
     expect(again.tasks).toBe(tasks);
   });
 
-  // First, while this file's process has never been a host.
   it("is held in memory in a script no host loaded", async () => {
     const task = await tasks.create({ title: "Scripted" });
     expect((await tasks.get(task.id))?.title).toBe("Scripted");
@@ -148,8 +147,6 @@ describe("tasks", () => {
     const state = temporaryDirectory("marbles-tasks-");
     const first = host(state, true);
     await first.start();
-    // The start's own pass has no items and no I/O; once it is over, the
-    // writer's commit is what starts the next pass, as its turn ends.
     await new Promise((done) => setTimeout(done, 0));
 
     await expect(writer.run()).resolves.toBe("nested");
@@ -168,7 +165,6 @@ describe("tasks", () => {
       (await first.runs()).find((run) => run.id === ids.writer)?.status
     ).toBe("complete");
 
-    // Parked on its own, it outlives the host and is answered in the next.
     await first.stop({ cancel: true });
     await first.dispose();
     engines.splice(engines.indexOf(first), 1);
@@ -218,7 +214,6 @@ describe("tasks", () => {
       throw new Error("unreachable");
     }
 
-    // Written outside any run, and again from inside another step.
     await new Tasks({ store: inner.taskStore }).create({ title: "Outside" });
     await vi.waitFor(() => expect(seen).toHaveLength(1));
     const store = inner.taskStore;

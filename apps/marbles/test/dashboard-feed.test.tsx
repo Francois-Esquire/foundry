@@ -29,7 +29,6 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
 
   await act(async () => ui.mockInput.pressKey("F"));
   frame = await frameWith(ui, "The docs workflow rewrote");
-  // Only the open question carries the pending marker.
   expect(frame).toContain("› ! Merge the docs update?");
   expect(frame).not.toContain("! Codebase summary");
   for (const label of [
@@ -186,8 +185,6 @@ test("an approval takes an optional note after the choice", async () => {
     { choice: "approve", note: "ship after the docs land" },
   ]);
 
-  // Esc drops the held choice; a second number key with an empty note sends
-  // the bare choice.
   await act(async () => ui.mockInput.pressKey("2"));
   await act(async () => ui.mockInput.pressEscape());
   await act(async () => ui.mockInput.pressKey("2"));

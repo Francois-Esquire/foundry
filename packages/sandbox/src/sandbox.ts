@@ -11,7 +11,6 @@ import type {
   SandboxListOptions,
 } from "./types";
 
-/** What a backend supplies; every path it receives is already normalized. */
 export interface SandboxAdapter
   extends Pick<StorageReader, "readFile">,
     StorageWriter {
@@ -48,7 +47,6 @@ function normalizedExecOptions(
   };
 }
 
-/** A {@link Sandbox} over a backend, with path normalization in one place. */
 export function sandboxFromAdapter(adapter: SandboxAdapter): Sandbox {
   const { workingDirectory } = adapter;
   const at = (path: string): string =>
@@ -93,7 +91,6 @@ export function sandboxFromAdapter(adapter: SandboxAdapter): Sandbox {
   });
 }
 
-/** Raises the shared cancellation error while preserving backend-specific context. */
 export function assertNotAborted(
   signal: AbortSignal | undefined,
   message: string,

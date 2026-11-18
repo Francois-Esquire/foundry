@@ -13,7 +13,6 @@ import {
 } from "~/views/operating-model";
 import { costCell, costLabel, tokensLabel } from "~/views/usage-format";
 
-/** Two lines over the runs: what is happening now, and what it has cost. */
 export function OperatingSummary({
   stats,
   usage,
@@ -102,7 +101,6 @@ export function OperatingSummary({
   );
 }
 
-/** Newest run starts, endings, and feed entries in this workspace. */
 export function LatestBlock({
   items,
   onSelect,
@@ -198,10 +196,6 @@ function BreakdownRows({
   );
 }
 
-/**
- * Every workflow's and agent's usage, at any width: what the Usage panel
- * shortens or, in narrow terminals, leaves out. Scrolls with the keyboard.
- */
 export function UsageBreakdown({
   active,
   usage,
@@ -264,7 +258,6 @@ export function UsageBreakdown({
   );
 }
 
-/** Agent consumption by workflow and by agent; `~` marks an estimate. */
 export function UsageBlock({ usage }: { readonly usage?: WorkspaceUsage }) {
   return (
     <Panel id="panel:usage" title="Usage · ~ estimate · ? unpriced">
@@ -280,7 +273,6 @@ export function UsageBlock({ usage }: { readonly usage?: WorkspaceUsage }) {
   );
 }
 
-/** Runs beside Latest and Usage when there is room, stacked when there is not. */
 export function OverviewPanels({
   runs,
   latest,

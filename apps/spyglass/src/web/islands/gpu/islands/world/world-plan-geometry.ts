@@ -1,19 +1,11 @@
-/**
- * Geometry for the world planner (world-plan.ts): seeded hashes and noise,
- * polylines measured by arclength, convex polygon tests and a spatial
- * index of roads and parcels. Everything works in one flat frame (the
- * island's own, town-land.ts); nothing here knows about the chart.
- */
 import type { Point } from "../../../data/chart";
 
 const TWO_32 = 2 ** 32;
 const TWO_16 = 2 ** 16;
-/** Two odd constants for the integer mix (from the murmur finaliser). */
 const MIX_A = 0x85_eb_ca_6b;
 const MIX_B = 0xc2_b2_ae_35;
 const GOLDEN = 0x9e_37_79_b9;
 
-/** A 32-bit mix of an integer, without bitwise operators: 0 to 2^32. */
 function mix(value: number): number {
   let h = Math.imul(value + GOLDEN, MIX_A);
   h = Math.imul(h + Math.floor((h + TWO_32) / TWO_16), MIX_B);
@@ -21,7 +13,6 @@ function mix(value: number): number {
   return ((h % TWO_32) + TWO_32) % TWO_32;
 }
 
-/** A stable number for a text (a path), 0 to 2^32. */
 export function hashText(text: string): number {
   let h = 7;
   for (let index = 0; index < text.length; index += 1) {
@@ -30,7 +21,6 @@ export function hashText(text: string): number {
   return h;
 }
 
-/** A number in [0, 1) from a seed and a few integers. */
 export function unit(seed: number, ...keys: number[]): number {
   let h = seed;
   for (const key of keys) {
@@ -39,13 +29,11 @@ export function unit(seed: number, ...keys: number[]): number {
   return mix(h) / TWO_32;
 }
 
-/** A number in [0, 1) from a text and a few integers. */
 export const unitOf = (text: string, ...keys: number[]): number =>
   unit(hashText(text), ...keys);
 
 const smooth = (t: number): number => t * t * (3 - 2 * t);
 
-/** Smooth one-dimensional value noise in [-1, 1], features about one unit of `x` apart. */
 export function noise1(seed: number, x: number): number {
   const i = Math.floor(x);
   const t = smooth(x - i);
@@ -54,7 +42,6 @@ export function noise1(seed: number, x: number): number {
   return (a + (b - a) * t) * 2 - 1;
 }
 
-/** Smooth two-dimensional value noise in [0, 1], features about one unit apart. */
 export function noise2(seed: number, x: number, y: number): number {
   const i = Math.floor(x);
   const j = Math.floor(y);
@@ -69,8 +56,6 @@ export function noise2(seed: number, x: number, y: number): number {
   return top + (bottom - top) * ty;
 }
 
-// ---------------------------------------------------------------- vectors
-
 export const add = (a: Point, b: Point): Point => [a[0] + b[0], a[1] + b[1]];
 export const sub = (a: Point, b: Point): Point => [a[0] - b[0], a[1] - b[1]];
 export const scale = (a: Point, k: number): Point => [a[0] * k, a[1] * k];
@@ -81,12 +66,10 @@ export const distance = (a: Point, b: Point): number => {
   const dv = a[1] - b[1];
   return Math.sqrt(du * du + dv * dv);
 };
-/** The direction at `angle`, radians from +u toward +v. */
 export const heading = (angle: number): Point => [
   Math.cos(angle),
   Math.sin(angle),
 ];
-/** A direction turned a quarter toward +v (the left of a road running along it). */
 export const leftOf = (a: Point): Point => [-a[1], a[0]];
 
 export function normalise(a: Point): Point {
@@ -94,7 +77,6 @@ export function normalise(a: Point): Point {
   return length > 0 ? [a[0] / length, a[1] / length] : [1, 0];
 }
 
-/** The angle between two angles, in [-pi, pi]. */
 export function angleBetween(a: number, b: number): number {
   let d = (b - a) % (2 * Math.PI);
   if (d > Math.PI) {
@@ -105,9 +87,6 @@ export function angleBetween(a: number, b: number): number {
   return d;
 }
 
-// -------------------------------------------------------------- polylines
-
-/** Each point's distance along a polyline from its first. */
 export function arclengths(points: readonly Point[]): number[] {
   const out = [0];
   for (let k = 1; k < points.length; k += 1) {
@@ -118,7 +97,6 @@ export function arclengths(points: readonly Point[]): number[] {
   return out;
 }
 
-/** The point and unit tangent at arclength `s`, clamped to the line. */
 export function pointAt(
   points: readonly Point[],
   cumulative: readonly number[],
@@ -148,7 +126,6 @@ export function pointAt(
   };
 }
 
-/** The nearest point on a segment to `p`, and how far along (0 to 1). */
 export function nearestOnSegment(
   p: Point,
   a: Point,
@@ -177,7 +154,6 @@ export function segmentDistance(p: Point, a: Point, b: Point): number {
   return Math.sqrt(du * du + dv * dv);
 }
 
-/** Whether segments ab and cd cross, touching ends excluded by `eps`. */
 function segmentsCross(
   a: Point,
   b: Point,
@@ -199,13 +175,8 @@ function segmentsCross(
   );
 }
 
-/** How near its chord a stretch of road stays and still counts as straight. */
 const STRAIGHT_SLACK = 0.5;
 
-/**
- * Whether the stretch from `points[from]` through `points[to]`, then on to
- * `extra` if given, stays within the slack of its chord.
- */
 export function isStraight(
   points: readonly Point[],
   from: number,
@@ -224,7 +195,6 @@ export function isStraight(
   return true;
 }
 
-/** The longest straight stretch (by `isStraight`) between any two of a polyline's points from `from` on. */
 export function longestStraight(points: readonly Point[], from = 0): number {
   let longest = 0;
   for (let i = from; i < points.length; i += 1) {
@@ -242,9 +212,6 @@ export function longestStraight(points: readonly Point[], from = 0): number {
   return longest;
 }
 
-// --------------------------------------------------------------- polygons
-
-/** Twice the signed area: positive when counter-clockwise (u right, v up). */
 export function signedArea(ring: readonly Point[]): number {
   let area = 0;
   for (const [k, p] of ring.entries()) {
@@ -254,7 +221,6 @@ export function signedArea(ring: readonly Point[]): number {
   return area / 2;
 }
 
-/** A rectangle's corners, counter-clockwise, from its middle, its x axis and half sizes. */
 export function rectangle(
   middle: Point,
   axis: Point,
@@ -269,7 +235,6 @@ export function rectangle(
   return [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)];
 }
 
-/** Whether a point lies inside a counter-clockwise convex polygon (edges included). */
 export function insideConvex(ring: readonly Point[], p: Point): boolean {
   const n = ring.length;
   for (let k = 0; k < n; k += 1) {
@@ -282,14 +247,12 @@ export function insideConvex(ring: readonly Point[], p: Point): boolean {
   return true;
 }
 
-/** Whether two boxes come within `gap` of each other. */
 export const boxesNear = (a: Bounds, b: Bounds, gap: number): boolean =>
   a.minU <= b.maxU + gap &&
   b.minU <= a.maxU + gap &&
   a.minV <= b.maxV + gap &&
   b.minV <= a.maxV + gap;
 
-/** Whether two convex polygons overlap by more than `eps` (touching edges don't). */
 export function convexOverlap(
   a: readonly Point[],
   b: readonly Point[],
@@ -298,7 +261,6 @@ export function convexOverlap(
   return !(separates(a, a, b, eps) || separates(a, b, b, eps));
 }
 
-/** Whether one of `ring`'s edge normals separates `a` from `b` by more than `eps`. */
 function separates(
   ring: readonly Point[],
   a: readonly Point[],
@@ -336,7 +298,6 @@ function separates(
   return false;
 }
 
-/** The least distance from a segment to a convex counter-clockwise polygon: 0 when they touch or cross. */
 export function segmentPolygonDistance(
   a: Point,
   b: Point,
@@ -361,7 +322,6 @@ export function segmentPolygonDistance(
   return best;
 }
 
-/** The smallest convex ring round a set of points, counter-clockwise. */
 export function convexHull(points: readonly Point[]): Point[] {
   const sorted = [...points].sort((p, q) => p[0] - q[0] || p[1] - q[1]);
   if (sorted.length < 3) {
@@ -412,15 +372,8 @@ export function boundsOf(points: readonly Point[], pad = 0): Bounds {
   };
 }
 
-// ---------------------------------------------------------- the index
-
-/** Chart units a side of an index bucket. */
 const BUCKET = 4;
 
-/**
- * Roads' segments and parcels' outlines by bucket, so a test near a point
- * reads only what stands near it.
- */
 export class SpatialIndex<T> {
   private readonly buckets = new Map<number, T[]>();
 
@@ -446,11 +399,6 @@ export class SpatialIndex<T> {
     }
   }
 
-  /**
-   * Every item whose bounds share a bucket with these. An item spanning
-   * several buckets may come more than once; every caller asks only
-   * whether any item passes a test, or which is nearest, so that is fine.
-   */
   near(bounds: Bounds): T[] {
     const i0 = Math.floor(bounds.minU / BUCKET);
     const i1 = Math.floor(bounds.maxU / BUCKET);

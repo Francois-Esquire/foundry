@@ -11,7 +11,6 @@ import {
 export type ThemeMode = "auto" | "dark" | "light";
 export type ResolvedTheme = Exclude<ThemeMode, "auto">;
 
-/** Where the chosen mode is cached so the next launch can paint it before React mounts. */
 export const THEME_MODE_STORAGE_KEY = "theme-mode";
 
 const THEME_MODES: readonly ThemeMode[] = ["auto", "dark", "light"];
@@ -58,10 +57,6 @@ function applyThemeClass(mode: ThemeMode): ResolvedTheme {
   return resolved;
 }
 
-/**
- * Put the stored theme on the document before React mounts, so the first
- * paint is already the right colour instead of being corrected afterwards.
- */
 export function applyStoredTheme(): void {
   applyThemeClass(readStoredMode());
 }

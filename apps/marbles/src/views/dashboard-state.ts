@@ -35,27 +35,18 @@ const INSPECTOR_TABS = [
 ] as const;
 export type InspectorTab = (typeof INSPECTOR_TABS)[number];
 const BROWSER_PANES = ["trigger", "definition", "run"] as const;
-/** The three lists; details opens from one of them. */
 export type BrowserPane = (typeof BROWSER_PANES)[number];
 export type Pane = BrowserPane | "details";
-/** Triggers and Marbles: the lists the Catalog tab shows. */
 type CatalogPane = Exclude<BrowserPane, "run">;
-/**
- * The top-level tabs. Overview and Catalog hold the three lists and their
- * details; the tab follows whichever list has focus.
- */
 export type DashboardViewKey =
   | "overview"
   | "catalog"
   | "logs"
   | "feed"
   | "settings";
-/** The tabs that hold a list and its details. */
 export type BrowserView = Extract<DashboardViewKey, "overview" | "catalog">;
 
-/** What the Logs tab filters by, the line it has selected, and whether it follows new lines. */
 export interface LogsState extends LogFilter {
-  /** Keep the newest line selected as lines arrive. */
   readonly follow: boolean;
   readonly selected?: string;
 }
@@ -68,32 +59,19 @@ export function isBrowserView(view: DashboardViewKey): view is BrowserView {
   return view === "overview" || view === "catalog";
 }
 
-/**
- * Everything the dashboard remembers between keys. The host's snapshot is not
- * here: it arrives with each event, and selections are looked up in it.
- */
 export interface DashboardState {
-  /** Overview shows every workflow's and agent's usage instead of its lists. */
   readonly breakdown: boolean;
-  /** The Catalog list focused last, so the Catalog tab returns to it. */
   readonly catalogPane: CatalogPane;
   readonly draft: string;
-  /** Selection keys of open run branches. */
   readonly expanded: ReadonlySet<string>;
-  /** Runs shown only for this trigger or definition. */
   readonly filter?: CatalogSelection;
-  /** The list with the keyboard, or the one details opened from. A selection is always of its kind. */
   readonly focus: BrowserPane;
   readonly help: boolean;
-  /** Details has the keyboard instead of `focus`. */
   readonly inspecting: boolean;
-  /** The definition whose argument form is open; the dashboard keys wait for it. */
   readonly launching?: string;
   readonly logs: LogsState;
-  /** A steer or resume prompt taking a line of text. */
   readonly prompt?: RunPrompt;
   readonly queries: Readonly<Record<BrowserPane, string>>;
-  /** Each list's last selection, restored when the list takes focus again. */
   readonly remembered: Readonly<
     Partial<Record<BrowserPane, DashboardSelection>>
   >;
@@ -106,45 +84,34 @@ export interface DashboardState {
 export type DashboardEvent =
   | { readonly type: "view"; readonly view: DashboardViewKey }
   | { readonly type: "focus"; readonly pane: BrowserPane }
-  /** Tab: the next list, or back out of details. */
   | { readonly type: "cycle"; readonly backwards: boolean }
   | { readonly type: "select"; readonly selection: DashboardSelection }
-  /** Open details, on `selection` when given. */
   | { readonly type: "inspect"; readonly selection?: DashboardSelection }
   | { readonly type: "back" }
   | { readonly type: "move"; readonly by: number }
-  /** Open, close, or (undefined) flip the selected run branch. */
   | { readonly type: "fold"; readonly open?: boolean }
   | { readonly type: "toggle"; readonly selection: DashboardSelection }
   | { readonly type: "tab"; readonly tab: InspectorTab }
   | { readonly type: "cycle-tab"; readonly by: number }
-  /** Select the latest running or failed step in the filtered runs. */
   | { readonly type: "jump"; readonly status: "running" | "failed" }
   | { readonly type: "filter"; readonly filter: CatalogSelection }
   | { readonly type: "clear-filters" }
   | { readonly type: "search"; readonly open: boolean }
   | { readonly type: "query"; readonly value: string }
-  /** Esc while searching: drop the focused list's query too. */
   | { readonly type: "cancel-search" }
   | { readonly type: "help"; readonly open: boolean }
   | { readonly type: "home" }
   | { readonly type: "prompt"; readonly prompt?: RunPrompt }
   | { readonly type: "draft"; readonly value: string }
-  /** Close any argument form, clear filters, and select a run that just started. */
   | { readonly type: "show-run"; readonly id: string }
   | { readonly type: "launch-form"; readonly id?: string }
-  /** Select another line in the Logs tab; following stops. */
   | { readonly type: "log-move"; readonly by: number }
-  /** Raise the minimum level, wrapping back to everything. */
   | { readonly type: "log-level" }
-  /** Cycle all lines, run lines, host lines. */
   | { readonly type: "log-source" }
   | { readonly type: "log-follow" }
   | { readonly type: "log-clear" }
-  /** Open or close Overview's usage breakdown. */
   | { readonly type: "breakdown"; readonly open: boolean };
 
-/** A definition with no arguments to ask for starts on `l`; the rest open the argument form. */
 export function launchesDirectly(definition: DefinitionSnapshot): boolean {
   return definition.input !== undefined && definition.input.fields.length === 0;
 }
@@ -153,7 +120,6 @@ export function paneOf(state: DashboardState): Pane {
   return state.inspecting ? "details" : state.focus;
 }
 
-/** The three lists after search and the run filter. */
 export function visibleLists(
   state: DashboardState,
   snapshot: DashboardSnapshot
@@ -196,7 +162,6 @@ function same(
   );
 }
 
-/** The running run, else the newest, else the first trigger or definition. */
 export function initialState(snapshot: DashboardSnapshot): DashboardState {
   const run =
     snapshot.runs.find((item) => item.status === "running") ?? snapshot.runs[0];
@@ -236,7 +201,6 @@ const NO_LOG_FILTERS: LogsState = {
   source: "all",
 };
 
-/** The Logs tab's lines after its filters, oldest first. */
 export function visibleLogs(
   state: DashboardState,
   snapshot: DashboardSnapshot
@@ -244,7 +208,6 @@ export function visibleLogs(
   return filterLogs(operatingLogs(snapshot), state.logs);
 }
 
-/** The line the Logs tab has selected: the newest while following, else the one chosen while it is still listed. */
 export function selectedLog(
   state: DashboardState,
   lines: readonly OperatingLogEntry[]
@@ -299,7 +262,6 @@ function toggled(expanded: ReadonlySet<string>, key: string): Set<string> {
   return next;
 }
 
-/** Focus a list, back on its remembered row while that row is still listed. */
 function focus(
   state: DashboardState,
   snapshot: DashboardSnapshot,
@@ -434,10 +396,6 @@ function cyclePane(
 
 const NO_QUERIES = { definition: "", run: "", trigger: "" } as const;
 
-/**
- * Overview and Catalog focus their list, back on its remembered row; the
- * other tabs leave the lists as they were.
- */
 function showView(
   state: DashboardState,
   snapshot: DashboardSnapshot,
@@ -452,7 +410,6 @@ function showView(
   return { ...state, searching: false, view };
 }
 
-/** Every dashboard state change, with no rendering or I/O. */
 export function reduce(
   state: DashboardState,
   event: DashboardEvent,

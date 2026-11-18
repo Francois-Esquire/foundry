@@ -20,7 +20,6 @@ const usage = {
   outputTokens: { reasoning: 0, text: 1, total: 1 },
 };
 
-/** A model that answers every turn with "ok". */
 function replying() {
   return new MockLanguageModelV4({
     doStream: async () => ({
@@ -40,7 +39,6 @@ function replying() {
   });
 }
 
-/** A CLI-like plugin whose account is chosen by `ACCOUNT_HOME`. */
 const cli = registered({
   accountEnv: ["ACCOUNT_HOME", "ACCOUNT_TOKEN"],
   catalog: () => [{ id: "m", kind: "text", modelId: "m" }],
@@ -93,7 +91,6 @@ async function engine(machine: Record<string, string> = {}) {
 function build(machine: Record<string, string>) {
   return createEngine({
     catalog,
-    // Persisted, so a later engine sees that a session ran.
     dry: false,
     environment: {
       machine: { ACCOUNT_HOME: "/accounts/personal", ...machine },
@@ -118,7 +115,6 @@ beforeEach(async () => {
   state = mkdtempSync(join(tmpdir(), "marbles-identity-"));
   workspaceDir = join(state, "ws1");
   mkdirSync(workspaceDir);
-  // One machine key for every engine here, as on one machine.
   await writeAsHost(state, (database) =>
     database.insert(marblesIdentityKeys).values({ id: 1, key: "a".repeat(64) })
   );
@@ -136,8 +132,6 @@ it("never resumes a session on the other scope's instance with the same id and p
     const ref = await opened(e);
     expect(ref.instance).toMatch(DIGEST);
 
-    // The workspace's entry is disabled and the machine's enabled: same id
-    // and plugin, another scope and account.
     await write("machine", [{ enabled: true, id: "work", plugin: "cli" }]);
     await write("workspace", [{ enabled: false, id: "work", plugin: "cli" }]);
     await e.providers?.refresh();
@@ -145,14 +139,12 @@ it("never resumes a session on the other scope's instance with the same id and p
       e.agents.session(reviewer, { session: ref })
     ).rejects.toMatchObject({ code: "SESSION_ROUTE_CONFLICT" });
 
-    // Removed rather than disabled: the same.
     await write("workspace", []);
     await e.providers?.refresh();
     await expect(
       e.agents.session(reviewer, { session: ref })
     ).rejects.toMatchObject({ code: "SESSION_ROUTE_CONFLICT" });
 
-    // Back as it was: the session's own instance, so it resumes.
     await write("machine", [{ enabled: false, id: "work", plugin: "cli" }]);
     await write("workspace", [{ enabled: true, id: "work", plugin: "cli" }]);
     await e.providers?.refresh();
@@ -170,7 +162,6 @@ it("keeps a session across edits that leave its account alone, and refuses one t
   ]);
   let e = await engine();
   const ref = await opened(e);
-  // Reordered, a default added, disabled and enabled again.
   await write("machine", [
     { defaults: { text: "m" }, enabled: true, id: "work", plugin: "cli" },
     { enabled: true, id: "other", plugin: "cli" },
@@ -181,7 +172,6 @@ it("keeps a session across edits that leave its account alone, and refuses one t
   const kept = await e.agents.session(reviewer, { session: ref });
   expect(kept.ref.instance).toBe(ref.instance);
 
-  // A settings change, or another account environment, is another instance.
   await e.providers?.update("work", { settings: { binPath: "/opt/cli" } });
   await expect(
     e.agents.session(reviewer, { session: ref })
@@ -191,8 +181,6 @@ it("keeps a session across edits that leave its account alone, and refuses one t
     { ACCOUNT_HOME: "/accounts/other" },
     { ACCOUNT_TOKEN: "set" },
   ];
-  // The control: a new engine on the same configuration and environment
-  // resumes, so the refusals below come from the account, not the engine.
   await write("machine", [
     { enabled: true, id: "other", plugin: "cli" },
     { enabled: true, id: "work", plugin: "cli" },

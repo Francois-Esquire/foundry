@@ -35,14 +35,6 @@ import type {
 import type { InstanceRuntime, Scope } from "./runtime";
 import { captureScope, instanceRoot, instanceRuntime } from "./runtime";
 
-/**
- * What a definition does when it is called rather than locked. Inside a
- * step body the call joins the body's run: it is cancelled with the step,
- * writes to its stream, and is replayed from the ledger. Anywhere else it
- * runs on the host's engine, or a default runtime in a plain script.
- */
-
-/** The step a body runs in, as its managers take it. */
 function inRun(): { bindings: Bindings; args: ManagerArgs } | undefined {
   const store = current.getStore();
   return (
@@ -72,7 +64,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
-/** `over` on top of `base`: plain objects merge, anything else replaces. */
 function deepMerge(
   base: Record<string, unknown>,
   over: Record<string, unknown>
@@ -88,10 +79,6 @@ function deepMerge(
   return merged;
 }
 
-/**
- * An extension's settings over the base's. `output` is a plain object too,
- * but one structured output, so it replaces rather than merges.
- */
 function mergeSettings(
   base: AgentSettings<Output.Output> | undefined,
   over: AgentSettings<Output.Output> | undefined
@@ -104,7 +91,6 @@ function mergeSettings(
   return Object.hasOwn(over, "output") ? { ...merged, output } : merged;
 }
 
-/** The route keys `changes` sets, `undefined` included: setting one to `undefined` clears it. */
 function routeOf(changes: AgentRoute): AgentRoute {
   return Object.fromEntries(
     ROUTE_KEYS.filter((key) => Object.hasOwn(changes, key)).map((key) => [
@@ -114,7 +100,6 @@ function routeOf(changes: AgentRoute): AgentRoute {
   );
 }
 
-/** The route keys that name something. */
 function pinned(route: AgentRoute): AgentRoute {
   return Object.fromEntries(
     ROUTE_KEYS.flatMap((key) =>
@@ -123,17 +108,11 @@ function pinned(route: AgentRoute): AgentRoute {
   );
 }
 
-/** What `extend` can change: the route and the settings. */
 type AgentChanges<OUTPUT extends Output.Output = Output.Output> = Pick<
   AgentDefinition<OUTPUT>,
   "model" | "provider" | "settings"
 >;
 
-/**
- * Give an agent `generate` and `stream`, one turn on a fresh session each,
- * and `extend`. They are not enumerable, so a spread of the agent is its
- * data alone.
- */
 function invocable<INSTANCE extends AgentLike<Output.Output>>(
   target: object,
   extend: (changes: AgentChanges) => AgentLike<Output.Output>
@@ -173,20 +152,13 @@ function invocable<INSTANCE extends AgentLike<Output.Output>>(
   }) as INSTANCE;
 }
 
-/**
- * Give an agent definition `generate`, `stream`, and `extend`. A spread of
- * the agent is a plain definition.
- */
 export function agentInstance<OUTPUT extends Output.Output>(
   definition: AgentDefinition<OUTPUT>
 ): Agent<OUTPUT> {
   const self = definition as AgentDefinition<Output.Output>;
-  // The id is copied, not claimed: an extension is the same subject, and
-  // the catalog keeps the agent it was declared as.
   const extend = <NEXT extends Output.Output = OUTPUT>(
     changes: AgentChanges<NEXT>
   ): Agent<NEXT> => {
-    // Only the route and settings change, whatever else the object carries.
     const merged = mergeSettings(
       self.settings,
       changes.settings as AgentSettings<Output.Output> | undefined
@@ -203,27 +175,20 @@ export function agentInstance<OUTPUT extends Output.Output>(
   );
 }
 
-/** What an agent is declared with, besides how it is named. */
 interface AgentFields<OUTPUT extends Output.Output> extends AgentRoute {
-  /** MCP servers whose tools every session of the agent has. Local sessions only. */
   readonly mcp?: AgentDefinition<OUTPUT>["mcp"];
   readonly prompt: string;
-  /** Model settings and structured output every turn starts from. */
   readonly settings?: AgentSettings<OUTPUT>;
   readonly skills?: AgentDefinition<OUTPUT>["skills"];
 }
 
-/** What `agent()` takes: a definition, and the name its id comes from. */
 export interface AgentDeclaration<OUTPUT extends Output.Output = never>
   extends AgentFields<OUTPUT> {
-  /** The agent's id; approvals and triggers it creates are kept under it. */
   readonly name?: string;
 }
 
-/** What a function declaring an agent returns: its definition, less the id it already has. */
 export interface AgentSpec<OUTPUT extends Output.Output = never>
   extends AgentFields<OUTPUT> {
-  /** The id is fixed when `agent()` is called, so the function cannot name it. */
   readonly name?: never;
 }
 
@@ -235,18 +200,14 @@ export type DefineAgent<
   input: INPUT | undefined
 ) => AgentSpec<OUTPUT> | Promise<AgentSpec<OUTPUT>>;
 
-/** An agent declared with a function, and what its extensions changed. */
 interface AgentRecipe {
   readonly define: DefineAgent<Output.Output, unknown>;
   readonly id: string;
   readonly input?: unknown;
-  /** The route the extensions set, the latest on top. */
   readonly route: AgentRoute;
-  /** Each extension's settings, merged in turn over what the function returns. */
   readonly settings: readonly (AgentSettings<Output.Output> | undefined)[];
 }
 
-/** What the function returned, checked before a session is opened with it. */
 function checkedSpec(id: string, value: unknown): AgentSpec<Output.Output> {
   if (!isPlainObject(value)) {
     throw new Error(`agent "${id}": its function must return a definition`);
@@ -262,13 +223,6 @@ function checkedSpec(id: string, value: unknown): AgentSpec<Output.Output> {
   return value as unknown as AgentSpec<Output.Output>;
 }
 
-/**
- * Build the definition for one session: the function, given the route the
- * session must keep (an extension's over a recorded session's), then the
- * extensions' settings over what it returned. A route field the function
- * set differently from the one it was given fails, rather than opening a
- * session whose skills and servers were chosen for another route.
- */
 async function buildRecipe(
   recipe: AgentRecipe,
   kept: AgentRoute,
@@ -353,7 +307,6 @@ export function recipeInstance<OUTPUT extends Output.Output, INPUT>(
   );
 }
 
-/** Direct calls use the current step, or the host engine outside a run. */
 export function runDefinition(
   definition: AnyDefinition,
   input: unknown,
@@ -367,11 +320,6 @@ export function runDefinition(
       );
 }
 
-/**
- * Give a workspace definition its handle: `root` resolved against the run's
- * or host's root, and the methods and `git` of the handle `workspaces.load`
- * returns, loaded at first use so nothing is watched until then.
- */
 export function workspaceInstance(
   definition: WorkspaceDefinition
 ): WorkspaceInstance {
@@ -420,7 +368,6 @@ export function workspaceInstance(
   }) as WorkspaceInstance;
 }
 
-/** The container facets a declared sandbox reaches; each starts it first. */
 const SANDBOX_FACETS = {
   commands: "commands",
   filesystem: "files",
@@ -431,7 +378,6 @@ const SANDBOX_FACETS = {
   volumes: "volumes",
 } as const satisfies Record<string, keyof SandboxHandle>;
 
-/** A facet whose every method starts the sandbox, then calls the real one. */
 function lazyFacet(
   started: () => Promise<SandboxHandle>,
   facet: keyof SandboxHandle
@@ -452,14 +398,6 @@ function lazyFacet(
   );
 }
 
-/**
- * A declared sandbox you can use: `exec`, `close`, and the container's
- * facets, the first call starting it. In a step body it starts through the
- * step's sandboxes, once per attempt, so a replay reopens the one it
- * started; outside a run, once per runtime. A proxy with only a `get`
- * trap: the record underneath answers `in`, keys, and spreads, so a spec's
- * `files` is never confused with the container's filesystem.
- */
 export function sandboxInstance(
   definition: SandboxDefinition
 ): SandboxInstance {
@@ -518,7 +456,6 @@ export function sandboxInstance(
   }) as SandboxInstance;
 }
 
-/** Give an artifact definition `write`, the same as `artifacts.write(def, files)`. */
 export function artifactInstance(
   definition: ArtifactDefinition
 ): ArtifactInstance {

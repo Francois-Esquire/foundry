@@ -1,12 +1,3 @@
-/**
- * Runs operations one at a time per key, in call order. A failed operation
- * does not block the ones queued behind it. Keys with nothing queued hold no
- * memory.
- *
- * Share one instance (a module constant) between every object that touches
- * the same resource, so two instances of a store over one file still take
- * turns.
- */
 export class KeyedQueue {
   readonly #tails = new Map<string, Promise<void>>();
 

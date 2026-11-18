@@ -53,7 +53,6 @@ export interface ActivityStore {
 const OPEN_STATUSES: ReadonlySet<string> = new Set(["running", "waiting"]);
 const CLOSED_OUT = "its process exited while it was running";
 
-/** A dashboard projection. The complete activity history remains in the session store. */
 export class HarnessActivities {
   readonly #records = new Map<string, ActivityRecord>();
   readonly #sessions = new Map<string, HarnessSession>();
@@ -76,12 +75,6 @@ export class HarnessActivities {
     }
   }
 
-  /**
-   * Track a live session so its activities can be stopped, and forget it
-   * when it closes. Returns the session to hold and close in its place. A
-   * `delegated` session is a child task whose session id is also its
-   * activity id in the parent, so stopping that activity interrupts it.
-   */
   attach(
     sessionId: string,
     session: HarnessSession,

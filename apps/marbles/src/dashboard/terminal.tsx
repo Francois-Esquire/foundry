@@ -14,14 +14,11 @@ import type { HostedWorkspace } from "~/views/use-dashboard";
 import type { AnswerHandler } from "~/views/use-feed";
 import type { SetupDraft } from "~/workspace/templates";
 
-/** What the dashboard can do in the host once its engine runs; published once. */
 interface HostActions {
   readonly answer: AnswerHandler;
   readonly launch: Launcher;
   readonly runs: RunActions;
-  /** Absent under `--dry-run`, which leaves the state root as it found it. */
   readonly settings?: (changes: SettingsChange) => Promise<void>;
-  /** Show the next workspace the Marbles process hosts; absent in-process. */
   readonly switchWorkspace?: () => void;
 }
 
@@ -30,7 +27,6 @@ interface Screen {
   readonly error?: string;
   readonly hasConfig: boolean;
   readonly host?: HostActions;
-  /** How the Marbles process is doing with the workspace shown; absent in-process. */
   readonly hosted?: HostedWorkspace;
   readonly setup?: {
     readonly path: string;
@@ -71,7 +67,6 @@ function DashboardApp({
     );
   }
   if (entered && snapshot) {
-    // Keyed by workspace: switching to another one starts its state afresh.
     return (
       <DashboardView
         actions={host?.runs}
@@ -106,7 +101,6 @@ function DashboardApp({
   );
 }
 
-/** Owns only the terminal lifecycle. Loading and execution stay with the command. */
 export async function openDashboard(
   workspace: string,
   controller: AbortController
@@ -165,7 +159,6 @@ export async function openDashboard(
     finish(false);
     listeners.clear();
   });
-  // OpenTUI creates a reconciler container on render(), so mount exactly once.
   createRoot(renderer).render(
     <DashboardApp
       onClose={actions.close}

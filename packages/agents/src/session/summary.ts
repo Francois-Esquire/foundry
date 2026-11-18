@@ -5,13 +5,11 @@ import type { SessionMessage } from "./types";
 
 export type { Summary } from "../schema";
 
-/** Session-keyed rolling store of digests. */
 export interface SummaryStore {
   get(subjectSessionId: string): Summary | undefined;
   upsert(summary: Summary): void;
 }
 
-/** In-memory `Map<SessionId, Summary>` implementation. */
 export function createSummaryStore(): SummaryStore {
   const byId = new Map<string, Summary>();
   return {

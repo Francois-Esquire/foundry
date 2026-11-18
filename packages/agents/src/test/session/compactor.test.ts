@@ -174,7 +174,7 @@ describe("compact", () => {
     const summarizer = fakeSummarizer();
     const { sessionId, ids } = await seed(store, ["m1", "m2", "m3", "m4"]);
 
-    await compact(store, summarizer, sessionId, req(ids[2])); // fold m1,m2 -> S1
+    await compact(store, summarizer, sessionId, req(ids[2]));
     expect(summarizer.lastSeen).toEqual(["m1", "m2"]);
 
     const m5 = await sessions.appendMessage({
@@ -188,15 +188,13 @@ describe("compact", () => {
       sessionId,
     });
 
-    const result = await compact(store, summarizer, sessionId, m5.id); // fold S1,m3,m4 -> S2
+    const result = await compact(store, summarizer, sessionId, m5.id);
     if (result === null) {
       throw new Error("expected compaction");
     }
 
-    // prior summary is fed back in (not filtered out), so S2 subsumes S1
     expect(summarizer.lastSeen).toEqual(["SUMMARY", "m3", "m4"]);
 
-    // only the latest summary surfaces, prepended to the recent tail
     const active = await sessions.activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user", "user"]);
     expect(active.map(labelOf)).toEqual(["SUMMARY", "m5", "m6"]);
@@ -277,7 +275,6 @@ describe("selectMarker", () => {
       mk("u2", "user"),
       mk("a2", "assistant"),
     ];
-    // keep last 2 tokens → boundary lands on u2; tool pair (a1/t1) folds together
     expect(selectMarker(msgs, 2, one)).toBe("u2");
   });
 
@@ -304,8 +301,6 @@ describe("selectMarker", () => {
       mk("u3", "user"),
       mk("a3", "assistant"),
     ];
-    // keep-window would normally land the boundary at u3, folding a1's
-    // unresolved request away — it must instead stay in the active tail.
     expect(selectMarker(msgs, 2, one)).toBe("a1");
   });
 
@@ -365,7 +360,7 @@ describe("maybeCompact", () => {
     const result = await maybeCompact(store, summarizer, sessionId, {
       counter: { count: () => 10 },
       keepTokens: 15,
-      limit: 25, // 4 messages * 10 = 40 > 25
+      limit: 25,
     });
 
     if (result === null) {

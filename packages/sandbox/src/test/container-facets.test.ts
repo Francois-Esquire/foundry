@@ -174,7 +174,6 @@ describe("container managed services", () => {
     await expect(service.terminate()).resolves.toMatchObject({
       exitCode: 137,
     });
-    // Close must stay clean: the dead session is an exit, not a failure.
     await container.close();
     expect(runtime.instances[0]?.removed).toBe(true);
   });

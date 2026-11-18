@@ -17,7 +17,6 @@ export interface WorkspaceEnvironment {
   readonly workspace: Readonly<Record<string, string>>;
 }
 
-/** A workspace `.env.schema` that did not resolve when it had to. */
 export class EnvironmentError extends Error {
   override readonly name = "EnvironmentError";
 }
@@ -25,7 +24,6 @@ export class EnvironmentError extends Error {
 const SCHEMA = ".env.schema";
 const INSTALL = "bun add -d varlock";
 
-/** The workspace's own `varlock`, else one on `PATH`. */
 function varlockAt(root: string): string | undefined {
   const local = join(root, "node_modules", ".bin", "varlock");
   if (existsSync(local)) {
@@ -75,7 +73,6 @@ function run(
   }
 }
 
-/** What the schema resolved, or why it did not. */
 function load(
   root: string
 ): { readonly problem: string } | { readonly values: Record<string, string> } {
@@ -105,11 +102,6 @@ function load(
   return { values };
 }
 
-/**
- * Load the workspace's environment. `require` fails with what is missing,
- * for `roll`; `warn` prints it and goes on, for the dashboard, headless
- * `run`, and listings, where only the work that reads a missing value fails.
- */
 export function loadEnvironment(
   root: string,
   mode: "require" | "warn",

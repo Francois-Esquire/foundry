@@ -4,7 +4,6 @@ import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import { helpSections } from "~/views/dashboard-commands";
 
-/** Every key binding, from the same table that handles the keys. */
 export function KeyboardHelp({ active = true }: { readonly active?: boolean }) {
   return (
     <Panel

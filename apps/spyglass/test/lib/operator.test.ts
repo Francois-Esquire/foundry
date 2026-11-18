@@ -37,7 +37,6 @@ const fixtureRoot = join(import.meta.dirname, "fixtures", "deps");
 
 const tempRoots: string[] = [];
 
-/** A copy of the deps fixture; committed to a fresh repository unless `git` is false. */
 function tempFixture(
   { git: inRepository = true }: { git?: boolean } = {},
   prepare: (dir: string) => void = () => undefined
@@ -69,7 +68,6 @@ function tempFixture(
 
 const INDEX = "packages/plans/src/index.ts";
 
-/** A write journals nothing in these tests; `spyglass apply` passes the real journal. */
 const noJournal = () => Promise.resolve();
 
 function gitStatus(dir: string): string {
@@ -560,7 +558,6 @@ describe("apply internalize-export", () => {
     const first = entry("first.ts");
     const stuck = entry("locked/stuck.ts");
     const last = entry("last.ts");
-    // No temporary can be created beside the stuck file.
     chmodSync(locked, 0o555);
     try {
       expect(() => restoreWritten(root, [first, stuck, last])).toThrow(
@@ -665,8 +662,6 @@ describe("apply internalize-export", () => {
     const plan = internalizePlan(report, "PlanAlpha");
     const index = join(root, "packages/plans/src/index.ts");
     const original = readFileSync(index, "utf8");
-    // the fingerprint covers input facts, not the derived delta — a wrong
-    // prediction passes validation and must be caught by verification
     const lying: InternalizeSymbolPlan = {
       ...plan,
       predictedDelta: { ...plan.predictedDelta, unusedExternalExports: -2 },

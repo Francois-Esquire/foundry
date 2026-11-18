@@ -181,7 +181,6 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
       name: "A",
       type: "text/plain",
     });
-    // b.txt joins a.txt's object before a.txt is written.
     const put = Object.fromEntries([
       ["b.txt", { bytes: "old" }],
       ["a.txt", { bytes: "new" }],
@@ -446,7 +445,6 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager transactions", (kind) => {
     });
     await artifacts.transaction(async (scoped) => {
       await scoped.patchArtifactMetadata(created.id, { step: 1 });
-      // Each of these waited on the open transaction before the manager joined it.
       expect((await artifacts.get(created.id))?.metadata).toMatchObject({
         step: 1,
       });
@@ -502,8 +500,6 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager transactions", (kind) => {
     const rolledBack = artifacts.transaction(async () => {
       await artifacts.patchArtifactMetadata(created.id, { step: 1 });
       try {
-        // A nested transaction that wrote, then failed: no savepoint undoes
-        // its write, so the outer transaction must not commit it.
         await artifacts.transaction(async (nested) => {
           await nested.patchArtifactMetadata(created.id, { half: true });
           throw failure;

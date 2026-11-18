@@ -27,7 +27,6 @@ const NOTE_TOO_LONG = /under 2000/;
 const NOT_A_CHOICE = /Choose one of: yes, no/;
 const NO_LONGER_WAITING = /no longer waiting/;
 const CANCELLED = /cancelled/;
-// Smallest valid PNG: 1x1, one transparent pixel.
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
   "base64"

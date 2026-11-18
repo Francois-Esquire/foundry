@@ -247,7 +247,6 @@ describe("cadence", () => {
         return Promise.resolve();
       },
     });
-    // Each run takes 25 > cadence 10; the next fires 10 after completion.
     expect(dispatched).toEqual([10, 45, 80]);
   });
 
@@ -444,7 +443,6 @@ describe("calendar", () => {
     trigger: { kind: "calendar", slot },
     workflow: "w",
   });
-  // Local-time constructors, never ISO strings, so the zone does not matter.
   const tuesday = new Date(2026, 8, 8, 10);
   expect(tuesday.getDay()).toBe(2);
 

@@ -1,10 +1,3 @@
-/**
- * A host whose usage cannot be read still snapshots its runs, Logs and Feed,
- * and says every usage total may be incomplete instead of showing nothing.
- * Source loads through `openWorkspace` (a Bun plugin), so each host runs in
- * its own `bun` process, as in `host-tasks.test.ts`.
- */
-
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -22,7 +15,6 @@ afterEach(async () => {
   );
 });
 
-/** Runs `body` with a host over `root`'s workspace in scope; resolves its JSON report. */
 async function inHost(
   root: string,
   body: string
@@ -128,11 +120,9 @@ report.listingDown = shown(await host.snapshot());`
 
     const healthy = first.healthy as Record<string, any>;
     expect(healthy.run.status).toBe("complete");
-    // Session `s` has no transcript to check: an unowned unreadable record.
     expect(healthy.run.usage).toMatchObject({ turns: 1, unreadable: 1 });
     expect(healthy.usageLines).toEqual([]);
 
-    // Recovery fails: the saved fact stays, and every total says it may be incomplete.
     const recoveryDown = first.recoveryDown as Record<string, any>;
     expect(recoveryDown.run).toMatchObject({
       id: healthy.run.id,
@@ -156,7 +146,6 @@ report.listingDown = shown(await host.snapshot());`
 
     expect((first.downAgain as Record<string, any>).usageLines).toHaveLength(2);
 
-    // Nothing can be listed: no facts, yet no total reads as none or zero.
     const listingDown = first.listingDown as Record<string, any>;
     expect(listingDown.run.id).toBe(healthy.run.id);
     expect(listingDown.unreadable).toBe(1);
@@ -171,7 +160,6 @@ report.listingDown = shown(await host.snapshot());`
     }
     expect(listingDown.usageLines).toHaveLength(3);
 
-    // A new host over the corrupted state: its first snapshot still renders.
     const second = await inHost(
       root,
       "report.firstFrame = shown(await host.snapshot());"

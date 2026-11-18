@@ -53,7 +53,6 @@ export function operatorSummaries(
   );
 }
 
-/** Each unsupported plan counts each of its distinct blocker reasons once. */
 function unsupportedReasons(plans: ReductionPlan[]): Record<string, number> {
   const counts = new Map<string, number>();
   for (const plan of plans) {

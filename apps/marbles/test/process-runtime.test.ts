@@ -16,7 +16,6 @@ import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
 let workspace: string;
 let scripts: string;
 
-/** A script that prints what Bun loaded from the workspace's `.env`, if anything. */
 function probe(shebang: string): string {
   const path = join(scripts, `probe-${Math.random().toString(36).slice(2)}`);
   writeFileSync(

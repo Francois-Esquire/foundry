@@ -67,14 +67,10 @@ import type {
 } from "./workspace-derive-types";
 import { WORKSPACE_SURFACE_DERIVATION_SCHEMA_VERSION } from "./workspace-derive-types";
 
-// Invariant: package-local facts describe the package; workspace-derived
-// facts describe the package's relationship to its current environment.
-
 export interface DeriveWorkspaceOptions {
   config?: AnalysisConfig;
   now?: Date;
   profile?: AnalysisProfile;
-  /** A workspace program to reuse; created from `root` when absent. */
   project?: Project;
   root?: string;
   tsconfig?: string;
@@ -116,7 +112,6 @@ function ownedSymbols(
   return nodesById;
 }
 
-/** `localComplexity` with `parameters.boolean` re-measured on the shared program. */
 export function patchBooleanParameters(
   complexity: LocalComplexityReport,
   counts: Record<string, number>
@@ -256,8 +251,6 @@ export async function deriveWorkspaceSurface(
   const conceptsMs = done();
 
   done = lap();
-  // Preserve the monolithic analyzer's last-symbol-wins behavior for duplicate
-  // IDs, regardless of symbol kind, until the overlap policy changes.
   const visitState = () => {
     for (const state of states) {
       const target = state.boundary.packageName ?? state.boundary.relPath;

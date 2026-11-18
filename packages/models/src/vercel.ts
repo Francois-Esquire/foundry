@@ -25,7 +25,6 @@ const VERCEL_DEFAULTS: Partial<Record<ModelKind, string>> = {
   text: "openai/gpt-5.6-luna",
 };
 
-/** The Vercel AI Gateway. Discovery replaces the floor with the live `/models` list. */
 export function vercelProvider(options: VercelProviderOptions = {}): Provider {
   const vendor = vendorClient(options.config ?? {}, build);
 
@@ -38,9 +37,6 @@ export function vercelProvider(options: VercelProviderOptions = {}): Provider {
     embeddingModel: (modelId) => vendor.client.embeddingModel(modelId),
     id: options.id ?? "vercel",
     imageModel: (modelId) => vendor.client.imageModel(modelId),
-    // Reasoning models served through the gateway (Qwen 3, etc.) stream their
-    // chain-of-thought inline as `<think>…</think>`; the middleware peels it
-    // into `reasoning-*` events. No-op for models that never emit the tag.
     languageModel: (modelId) =>
       wrapLanguageModel({
         middleware: extractReasoningMiddleware({ tagName: "think" }),

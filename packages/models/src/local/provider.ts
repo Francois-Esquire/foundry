@@ -51,13 +51,8 @@ export type {
 export { isLocalProvider } from "./surface";
 
 let configured = false;
-/**
- * Instances that are offline. `env` is shared by the whole process, so remote
- * loads stay forbidden while any of them is.
- */
 const offlineInstances = new Set<LocalProvider>();
 
-/** Remote weight fetches in flight, aborted the moment any instance goes offline. */
 const remoteFetches = new Set<AbortController>();
 const fetchRemote = env.fetch;
 
@@ -66,7 +61,6 @@ function isRemote(input: Parameters<typeof env.fetch>[0]): boolean {
   return url.startsWith("http:") || url.startsWith("https:");
 }
 
-/** transformers-js fetches every remote file through `env.fetch`; offline refuses and cuts them. */
 async function guardedFetch(
   input: Parameters<typeof env.fetch>[0],
   init?: RequestInit
@@ -98,7 +92,6 @@ async function guardedFetch(
   }
 }
 
-/** `body`, calling `done` once it ends, errors, or is cancelled. */
 function settled(
   body: ReadableStream<Uint8Array>,
   done: () => void
@@ -126,7 +119,6 @@ function settled(
   });
 }
 
-// Installed on import, so a fetch started before any offline toggle is tracked too.
 env.fetch = guardedFetch;
 
 function allowRemoteLoads(): void {
@@ -139,7 +131,6 @@ function allowRemoteLoads(): void {
   }
 }
 
-/** Point transformers-js at `cacheDir`. Honors an offline choice already made. */
 export function configureCache(cacheDir: string): void {
   if (configured) {
     return;
@@ -160,11 +151,6 @@ type AsrPipe = (
   opts: { language?: string; return_timestamps?: boolean }
 ) => Promise<AsrOutput>;
 
-// The Qwen rows declare tool-calling + reasoning: the transformers-js adapter
-// wires function tools through their chat template, and Qwen3 emits `<think>`
-// reasoning (peeled by the middleware in languageModel). The SmolLM2 rows stay
-// undeclared — no reliable tool calling — which keeps them out of surfaces
-// that require it (e.g. the chat picker's functionCalling filter).
 export const LOCAL_DEFAULT_MODELS: LocalModelDefinition[] = [
   {
     capabilities: { functionCalling: true, reasoning: true },
@@ -246,11 +232,6 @@ function downloadTarget(def: LocalModelDefinition): ModelDownloadTarget {
   };
 }
 
-/**
- * What both on-device providers share: the catalog, the role's fixed facts,
- * and the weight probes, which read the one transformers-js cache dir from
- * whichever process asks.
- */
 export abstract class OnDeviceProvider {
   readonly available = true;
   readonly defaults: Partial<Record<ModelKind, string>>;
@@ -260,16 +241,10 @@ export abstract class OnDeviceProvider {
 
   constructor(options: LocalProviderOptions = {}) {
     this.id = options.id ?? "local";
-    // On-device rows always carry explicit zero costs — see catalog/local.
     this.models = withLocalCosts(options.models ?? LOCAL_DEFAULT_MODELS);
     this.defaults = options.defaults ?? LOCAL_DEFAULTS;
   }
 
-  /**
-   * True when a row's weights are already in the transformers-js cache.
-   * transformers-js exposes no cache query, so this probes the layout directly.
-   * Unknown ids and an unset cache dir report not-downloaded rather than throw.
-   */
   async isDownloaded(id: string): Promise<boolean> {
     const def = this.models.find((m) => m.id === id);
     const { cacheDir } = env;
@@ -289,24 +264,13 @@ export abstract class OnDeviceProvider {
   }
 }
 
-/**
- * Download progress for the process. It is shared by every `LocalProvider`
- * because the model caches it reports on are: a model loads once, for every
- * instance, so its progress belongs to all of them.
- */
 interface DownloadState {
   readonly events: EventEmitter;
-  /**
-   * Per-file progress, keyed by modelId → file. A model pulls several files
-   * concurrently, so aggregating across them gives a more honest overall
-   * percent than `latest`'s single file.
-   */
   readonly files: Map<string, Map<string, LocalFileProgress>>;
   latest: LocalDownloadProgress | null;
   loaded: LocalLoadedModel | null;
 }
 
-/** On-device inference through transformers-js, in this process. */
 export class LocalProvider
   extends OnDeviceProvider
   implements LocalProviderSurface
@@ -331,21 +295,14 @@ export class LocalProvider
   private _preload: Promise<void> | null = null;
   private _preloadState: LocalLoadState = "idle";
 
-  /**
-   * Per-modelId caches **shared across all instances**. transformers-js holds
-   * tokenizer + processor + ONNX session in each model instance, so a second
-   * build of the same id would load another copy of the weights into RAM.
-   */
   private static readonly _languageCache = new Map<string, LanguageModelV4>();
   private static readonly _embeddingCache = new Map<string, EmbeddingModelV4>();
   private static readonly _transcriptionCache = new Map<
     string,
     TranscriptionModelV4
   >();
-  /** Raw ASR pipelines; segment timings only survive the raw pipeline. */
   private static readonly _asrCache = new Map<string, Promise<AsrPipe>>();
 
-  /** Test-only: the static caches, download state, and offline instances must be empty between cases. */
   static clearCache(): void {
     offlineInstances.clear();
     remoteFetches.clear();
@@ -360,10 +317,6 @@ export class LocalProvider
     downloads.loaded = null;
   }
 
-  /**
-   * In offline mode, forbid remote weight downloads so an uncached model fails
-   * fast instead of hanging on a fetch; cached models still load.
-   */
   setOffline(enabled: boolean): void {
     if (enabled) {
       offlineInstances.add(this);
@@ -373,7 +326,6 @@ export class LocalProvider
     allowRemoteLoads();
   }
 
-  /** A disposed instance no longer holds remote loads off. */
   dispose(): Promise<void> {
     offlineInstances.delete(this);
     allowRemoteLoads();
@@ -403,8 +355,6 @@ export class LocalProvider
   languageModel(modelId: string): LanguageModelV4 {
     const def = this.rowFor(modelId, "text");
     return this.cached(LocalProvider._languageCache, def.modelId, () =>
-      // Qwen3 emits reasoning inline as `<think>…</think>`; the middleware
-      // peels it into `reasoning-*` stream events. No-op for other rows.
       wrapLanguageModel({
         middleware: extractReasoningMiddleware({ tagName: "think" }),
         model: transformersJS.languageModel(
@@ -435,10 +385,6 @@ export class LocalProvider
     );
   }
 
-  /**
-   * Transcribe with timestamped segments. Runs the raw ASR pipeline, not the
-   * AI SDK transcription model, which drops segments.
-   */
   async transcribe(
     audio: TranscribeInput,
     opts: TranscribeOptions = {},
@@ -465,7 +411,6 @@ export class LocalProvider
     const progress = this.bindProgress<{
       rawInitProgressCallback?: (info: ProgressInfo) => void;
     }>({}, def);
-    // Boundary cast: the upstream pipeline call type widens to `any`.
     const created = pipeline("automatic-speech-recognition", def.modelId, {
       dtype: def.settings?.dtype ?? "fp32",
       progress_callback: progress.rawInitProgressCallback,
@@ -493,11 +438,6 @@ export class LocalProvider
           ...("total" in info ? { total: info.total } : {}),
         };
         trace.track(event);
-        // Terminal (`ready`, `done`, `progress >= 100`) clears the snapshot and
-        // marks loaded; `ready` alone is unreliable — transformers-js skips it
-        // on partial-cache loads — so `done` and the >=100 fallback are layered
-        // in. Lifecycle markers (`initiate`, `download`) are ignored so a tiny
-        // file's silent hop cannot clobber the cached percent with "0%".
         const progressVal = event.progress;
         const terminal =
           info.status === "ready" ||
@@ -540,7 +480,6 @@ export class LocalProvider
     files.set(event.file, { file: event.file, loaded, progress, total });
   }
 
-  /** Mean progress (0..1) across a model's in-flight files, or null when idle. */
   aggregateProgress(modelId: string): number | null {
     const files = LocalProvider.downloads.files.get(modelId);
     if (!files || files.size === 0) {
@@ -553,13 +492,11 @@ export class LocalProvider
     return clamp01(sum / files.size);
   }
 
-  /** Snapshot of the in-flight files for a model (empty when none). */
   downloadFiles(modelId: string): LocalFileProgress[] {
     const files = LocalProvider.downloads.files.get(modelId);
     return files ? [...files.values()].map((f) => ({ ...f })) : [];
   }
 
-  /** Mean progress (0..1) across every file in flight, or null when idle. */
   overallProgress(): number | null {
     let sum = 0;
     let count = 0;
@@ -572,10 +509,6 @@ export class LocalProvider
     return count > 0 ? clamp01(sum / count) : null;
   }
 
-  /**
-   * Warm the default embedding + transcription pipelines so the first real
-   * call is fast. Memoized; the first call triggers weight downloads.
-   */
   preload(): Promise<void> {
     if (this._preload) {
       return this._preload;
@@ -617,11 +550,6 @@ export class LocalProvider
     this.events.emit("model-loaded", loaded);
   }
 
-  /**
-   * Fetch + cache one catalog row's weights, by catalog id. Runs the minimal
-   * inference that warms the model for its kind, which is what triggers the
-   * transformers-js download. Throws on an unknown id.
-   */
   async download(id: string): Promise<void> {
     const def = this.row(id);
     const { kind } = def;
@@ -638,7 +566,6 @@ export class LocalProvider
     }
   }
 
-  /** In-flight download progress (0..1) by catalog id, or null when idle. */
   progress(id: string): number | null {
     const def = this.models.find((m) => m.id === id);
     return def ? this.aggregateProgress(def.modelId) : null;
@@ -657,12 +584,6 @@ export class LocalProvider
   }
 }
 
-/**
- * A model dir counts as downloaded when its `config.json` exists and at least
- * one non-empty `.onnx` weight file is present. dtype variants make the exact
- * weight filename unpredictable, so presence of any non-empty weight is the
- * signal. Shared with the worker-backed provider, which probes the same dir.
- */
 export async function modelWeightsPresent(dir: string): Promise<boolean> {
   try {
     await access(path.join(dir, "config.json"));

@@ -1,7 +1,6 @@
 import { Dialect } from "../dialect";
 import { notation } from "../notation";
 
-/** Built-in slash commands, a snapshot of the `/` menu. A `command` prompt source extends it. */
 const COMMANDS: readonly string[] = [
   "add-dir",
   "agents",
@@ -34,21 +33,12 @@ const COMMANDS: readonly string[] = [
   "vim",
 ];
 
-/** Values Claude Code substitutes inside a skill or command file. */
 const VARIABLES: readonly string[] = [
   "CLAUDE_PLUGIN_ROOT",
   "CLAUDE_SESSION_ID",
   "CLAUDE_SKILL_DIR",
 ];
 
-/**
- * Claude Code. Skills and commands share the `/` sigil; a built-in name that
- * opens the message is a command, anything else is a skill. `@path` mentions
- * a file, `@"name (agent)"` a subagent. Inside a skill or command file,
- * `$ARGUMENTS`, `$ARGUMENTS[N]`, `$N`, and `$name` are filled from the
- * invocation, `${CLAUDE_SKILL_DIR}` from the harness, and `` !`cmd` `` from
- * the shell.
- */
 export const claudeCode = new Dialect({
   id: "claude-code",
   known: { command: COMMANDS, variable: VARIABLES },

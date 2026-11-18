@@ -5,7 +5,6 @@ import { theme } from "~/components/ui/theme";
 import type { LogsState } from "~/views/dashboard-state";
 import type { OperatingLogEntry } from "~/views/operating-model";
 
-/** Local time for an ISO timestamp; anything else as it was recorded. */
 function shown(timestamp: string): string {
   const parsed = Date.parse(timestamp);
   return timestamp.includes("T") && !Number.isNaN(parsed)
@@ -23,10 +22,6 @@ function where(entry: OperatingLogEntry): string {
   return entry.stepId ? `${entry.runId} ${entry.stepId}` : (entry.runId ?? "");
 }
 
-/**
- * Every run's log lines and Marbles' own, oldest first, filtered by level,
- * source and search. The selected line can open its run.
- */
 export function LogsBlock({
   active,
   lines,
@@ -37,7 +32,6 @@ export function LogsBlock({
 }: {
   readonly active: boolean;
   readonly lines: readonly OperatingLogEntry[];
-  /** Lines before filtering, to say how many the filters hide. */
   readonly total: number;
   readonly filters: LogsState;
   readonly selected?: OperatingLogEntry;

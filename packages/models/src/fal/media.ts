@@ -9,14 +9,8 @@ import type {
 } from "../types";
 import type { FalRuntime } from "./client";
 
-/** A vendor payload, read field by field so nothing untranslated escapes. */
 type Payload = Record<string, unknown>;
 
-/**
- * The media seam for one FAL row. Vendor JSON is translated here and never
- * escapes: every field a caller sees is built from the declared endpoint
- * contract, and an unrecognised payload is a failure rather than a pass-through.
- */
 export function falMediaModel(
   endpointId: string,
   runtime: () => FalRuntime | null
@@ -69,10 +63,6 @@ async function run(
       return {
         operation: "segment-video",
         preview: await download(runtime, video, "video/mp4", signal),
-        // The pinned contract for `fal-ai/sam-3-1/video` declares one segmented
-        // video and no per-frame masks, so there is nothing to build a Track
-        // from. Reporting zero tracks with the video as the preview states what
-        // the endpoint returns instead of inventing what it does not.
         tracks: [],
       };
     }
@@ -176,8 +166,6 @@ async function toMasks(
     const box = toBox(meta?.box ?? boxes[index]);
     return {
       id: `mask-${String(number(meta?.index) ?? index)}`,
-      // SAM 3 returns no per-mask label; a text prompt is the concept every
-      // returned mask is an instance of, so it is the only honest label here.
       ...(prompt.kind === "text" ? { label: prompt.text } : {}),
       ...(score === undefined ? {} : { score }),
       ...(box ? { box } : {}),
@@ -236,7 +224,6 @@ function toBox(
   ) {
     return undefined;
   }
-  // Normalized cxcywh, as `MaskMetadata.box` declares it.
   return { height, width, x: cx - width / 2, y: cy - height / 2 };
 }
 
@@ -270,7 +257,6 @@ function string(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-/** Compile-time exhaustiveness, and a loud failure if a caller slips past it. */
 function unhandled(value: never): never {
   throw new Error(`[fal] unhandled media request: ${JSON.stringify(value)}`);
 }

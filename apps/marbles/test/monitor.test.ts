@@ -56,13 +56,11 @@ afterEach(async () => {
   await Promise.all(catalogues.splice(0).map((open) => open.closeAll()));
 });
 
-/** What the last `hostIn` wired: the host a detector reads, and what an engine over it takes. */
 let hosted: MonitorHost & { readonly triggers: TriggerStore } & Pick<
     EngineOptions,
     "root" | "state" | "workspaces"
   >;
 
-/** A host over `root`: what a files detector needs to read the tree. */
 function hostIn(root: string, state?: string) {
   const lines: string[] = [];
   const log = createLog((_level, message) => lines.push(message));
@@ -86,7 +84,6 @@ function hostIn(root: string, state?: string) {
   return { context: monitorContext(log), lines };
 }
 
-/** A detector body called directly, outside a run, reads the host `hostIn` wired. */
 const detectorIn = (
   key: string,
   spec: MonitorSpec,
@@ -287,8 +284,6 @@ describe("files detector", () => {
     expect(await hosted.triggers.monitorState("m")).toMatchObject({
       pending: expected.launch,
     });
-    // Nothing changed, but the launch was never started: out it goes again,
-    // without asking the handler.
     await expect(detect(context)).resolves.toEqual(expected);
     expect(handled).toBe(1);
     await hosted.triggers.clearPendingLaunch("m");
@@ -324,8 +319,6 @@ describe("files detector", () => {
       tick(engine, schedule, { print: () => undefined })
     ).rejects.toThrow("cannot ship guide.md");
     expect(attempts).toBe(1);
-    // Started is delivered: the file no longer holds the launch, and the
-    // next tick finds nothing changed.
     expect((await hosted.triggers.monitorState(key))?.pending).toBeUndefined();
     await expect(
       tick(engine, schedule, { print: () => undefined })
@@ -503,7 +496,6 @@ describe("files detector", () => {
       tick(engine, schedule, { print: () => undefined })
     ).rejects.toThrow();
     expect((await hosted.triggers.monitorState(key))?.pending).toBeUndefined();
-    // The next tick polls: the first sight of the file is a change, handled quietly.
     await expect(
       tick(engine, schedule, { print: () => undefined })
     ).resolves.toEqual({ value: { changed: true } });
@@ -825,7 +817,6 @@ describe("monitor factory", () => {
       kind: "interval",
       ms: 300_000,
     });
-    // Detectors are internal: they never appear as launchable entries.
     expect(registry.entries()).toEqual([]);
   });
 

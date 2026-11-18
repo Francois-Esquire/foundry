@@ -23,7 +23,6 @@ function stateDir() {
   return temporaryDirectory("marbles-process-");
 }
 
-/** A pid obtained from an exited process; the OS may reuse it. */
 function deadPid(): number {
   return spawnSync("true").pid;
 }

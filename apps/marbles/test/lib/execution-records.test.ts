@@ -322,7 +322,6 @@ it("prunes only settled runs, records the gap first, and drops a workflow's Run 
     [flow.id, held.id, "rn-unknown"],
     (run) => run.correlation.moduleId ?? "host"
   );
-  // The running one is untouched; only the settled workflow went.
   expect(removed.map((run) => run.id)).toEqual([flow.id]);
   expect(engine.executions.get(flow.id)).toBeUndefined();
   expect(engine.executions.get(held.id)?.status).toBe("running");
@@ -336,7 +335,6 @@ it("prunes only settled runs, records the gap first, and drops a workflow's Run 
   await held.result;
   await engine.dispose();
 
-  // The gap is durable: a later process reads it with the runs.
   const next = engineWith({ state });
   await next.start();
   expect(next.executions.gaps()).toEqual([gap]);
@@ -475,7 +473,6 @@ it("keeps an observation's start when a task completes it without one", async ()
 
   const [w, x] = engine.executions.get(launched.id)?.observations ?? [];
   expect(w).toMatchObject({ id: "w", startedAt: first, status: "complete" });
-  // One given explicitly replaces it.
   expect(x).toMatchObject({ id: "x", startedAt: "2026-02-01T00:00:00.000Z" });
 });
 
@@ -596,7 +593,6 @@ it("keeps a run's record when its cleanup fails, so pruning it again retries", a
     { removed: 1, scope: "host" },
   ]);
   expect(engine.executions.get(flow.id)).toBeUndefined();
-  // Gone from what the dashboard and usage read too.
   expect((await engine.runs()).map((run) => run.id)).not.toContain(flow.id);
 });
 
@@ -637,7 +633,6 @@ it("shows a workflow run still being set up on the dashboard, once", async () =>
   expect(await rows()).toEqual([[run?.id, "running"]]);
   finishSetup();
   const launched = await launching;
-  // The Orchestrator's record takes over the row: still one.
   expect((await rows()).map(([id]) => id)).toEqual([run?.id]);
   release();
   await launched.result;
@@ -651,7 +646,6 @@ it("accumulates retention across stale engines without counting the same removal
       (await first.enqueue({ kind: "task", name, queue: "default" })).run;
     const older = await make("older");
     const newer = await make("newer");
-    // Distinct settlements make a backwards through-watermark observable.
     for (const [run, settledAt] of [
       [older, "2026-01-01T00:00:00.000Z"],
       [newer, "2026-01-02T00:00:00.000Z"],
@@ -667,7 +661,6 @@ it("accumulates retention across stale engines without counting the same removal
         timestamps: { ...settled.timestamps, settledAt },
       });
     }
-    // Both readers predate either prune. The second must merge durable gaps.
     const reader = () => new Executions({ store, warn: () => undefined });
     const one = reader();
     const two = reader();

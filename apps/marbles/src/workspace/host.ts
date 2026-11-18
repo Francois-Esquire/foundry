@@ -38,41 +38,30 @@ import { dashboardSnapshot } from "~/workspace/snapshot";
 import { runTaskCommand } from "~/workspace/tasks";
 
 export interface HostWorkspaceOptions {
-  /** The shared artifact store. */
   readonly artifacts: string;
-  /** Whether something here can answer `ask`; the dashboard can. */
   readonly askable?: boolean;
   readonly cwd?: string;
   readonly database?: MarblesDatabase;
   readonly directory?: string;
-  /** Echo every model turn and git mutation, and persist nothing. */
   readonly dry?: boolean;
-  /** What a `.env.schema` that does not resolve does; `warn` when omitted. */
   readonly env?: "require" | "warn";
   readonly onClose?: (closing: Promise<void>) => void;
-  /** Nothing is at the source: offer to create it. Resolves true once something loads there. */
   readonly onMissing?: (configPath: string) => Promise<boolean>;
-  /** Runs on the built engine before it starts: host steps registered beside the source. */
   readonly prepare?: (engine: Engine) => void;
-  /** Receives each status line; the last one is the host's `status`. */
   readonly print?: (line: string) => void;
   readonly read?: (file: string) => void;
-  /** The authoring folder or module. */
   readonly source: string;
   readonly spawned?: string;
-  /** The Marbles state root. */
   readonly state: string;
 }
 
 export interface WorkspaceHost extends WorkspaceConnection {
   close(): Promise<void>;
-  /** Where the source is, or would be created. */
   readonly configPath: string;
   readonly engine: Engine;
   readonly files: readonly string[];
   run(signal: AbortSignal, cancel?: AbortSignal): Promise<void>;
   setStatus(line: string): void;
-  /** The last status line; shown in the dashboard's toolbar. */
   readonly status: string;
   readonly workspace: Workspace;
 }
@@ -81,7 +70,6 @@ class LaunchInputError extends Error {
   override readonly name = "LaunchInputError";
 }
 
-/** A rejected launch input in one line: what the definition takes, and where to get it. */
 async function inputHint(
   engine: Engine,
   name: string,
@@ -136,8 +124,6 @@ export interface StagedWorkspace {
 export async function stageWorkspace(
   options: HostWorkspaceOptions
 ): Promise<StagedWorkspace> {
-  // The lines of the call printing them: overlapping rolls, and the
-  // schedule loop beside them, each keep their own.
   const captured = new AsyncLocalStorage<string[]>();
   let status = "Loading marbles";
   const diagnostics = new Diagnostics();
@@ -207,7 +193,6 @@ export async function stageWorkspace(
   }
   try {
     options.prepare?.(engine);
-    // Defined before the engine starts: background agent dispatch is a step.
     dispatches = new BackgroundRuns(engine, opened.catalog);
   } catch (error) {
     await release(engine);
@@ -292,7 +277,6 @@ interface Status {
   readonly captured: AsyncLocalStorage<string[]>;
   readonly database: MarblesDatabase | undefined;
   readonly diagnostics: Diagnostics;
-  /** An error line: the status, and an error in the Logs tab. */
   readonly fail: (line: string) => void;
   readonly feed: FeedReader;
   readonly lastFinish: ReadonlyMap<string, number>;
@@ -303,14 +287,6 @@ interface Status {
   readonly status: () => string;
 }
 
-/**
- * What agent turns consumed, as much of it as can be read: a usage read
- * that fails must not take the runs, Logs and Feed down with it. The part
- * that failed counts as one unowned unreadable record, as a session listing
- * that fails does, so every total it may belong to says it is incomplete
- * rather than showing nothing or zero. Nothing is cached: the next snapshot
- * reads again. `read` hears each attempt: no error when it succeeded.
- */
 async function readUsage(
   engine: Engine,
   read: (error?: unknown) => void
@@ -323,7 +299,6 @@ async function readUsage(
     read(error);
   }
   try {
-    // The saved facts alone, without what the transcripts would recover.
     const saved = await engine.usage.read();
     return {
       ...saved,
@@ -382,8 +357,6 @@ function hosted(
   const { activities, automations } = engine;
   const tasks = hostTasks(engine);
   const startedAt = Date.now();
-  // Each poll would repeat it: a usage read failure is logged when it
-  // starts or changes, and again if it comes back after a read succeeds.
   let usageFailure: string | undefined;
   const usageRead = (error?: unknown): void => {
     if (error === undefined) {
@@ -404,8 +377,6 @@ function hosted(
       if (!dispatches.definitions().some((entry) => entry.name === name)) {
         throw new Error("This definition is not available for manual launch.");
       }
-      // The factory is the one parser: it validates at dispatch, a bad
-      // value rejects the launch, and a transform runs once.
       const launched = await engine.launch(name, inputFromFields(input ?? {}));
       launched.result.catch((error: unknown) => fail(`[run] ${String(error)}`));
       return launched.id;
@@ -433,7 +404,6 @@ function hosted(
     },
   };
 
-  /** Lines `work` printed, with its value. */
   async function capture<T>(
     work: () => Promise<T>
   ): Promise<{ readonly lines: string[]; readonly value: T }> {
@@ -528,7 +498,6 @@ function hosted(
       }),
     setStatus,
     async snapshot(): Promise<DashboardSnapshot> {
-      // First, so a failure it logs is in this snapshot's diagnostics.
       const usage = await readUsage(engine, usageRead);
       const now = Date.now();
       return dashboardSnapshot(await engine.runs(), {

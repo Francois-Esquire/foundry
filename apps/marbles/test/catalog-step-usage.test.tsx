@@ -9,7 +9,6 @@ import { mount, press, unmount } from "./helpers/render";
 
 const PANEL_TEXT = /[│█▀▄\s]+/g;
 
-/** The frame's words in order, so a value wrapped inside a panel still reads as one line. */
 function words(frame: string): string {
   return frame.replace(PANEL_TEXT, " ");
 }
@@ -45,7 +44,6 @@ test("a step definition that only ran inside another workflow says where its usa
     workspaceId: "test",
   });
   await engine.dispose();
-  // Its turn was recorded, under the run of `flow`: no run started from `shared`.
   expect(snapshot.runs[0]?.usage?.turns).toBe(1);
   expect(snapshot.usage?.byWorkflow.map((group) => group.id)).toEqual(["flow"]);
   const ui = await mount(

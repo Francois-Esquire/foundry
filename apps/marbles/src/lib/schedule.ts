@@ -15,7 +15,6 @@ const UNITS: Record<string, number> = {
 };
 const EVERY_PATTERN = /^(\d+)([smhd])$/;
 
-/** `"30m" | "6h" | "1d"` to milliseconds. */
 export function parseEvery(every: string): number {
   const match = EVERY_PATTERN.exec(every.trim());
   const unit = match?.[2] === undefined ? undefined : UNITS[match[2]];
@@ -23,7 +22,6 @@ export function parseEvery(every: string): number {
     throw new Error(`cannot read cadence "${every}" (want e.g. 30m, 6h, 1d)`);
   }
   const ms = Number(match[1]) * unit;
-  // Zero would fire in a hot loop; past a safe integer the sum in nextDue drifts.
   if (!Number.isSafeInteger(ms) || ms <= 0) {
     throw new Error(
       `cadence "${every}" must be a positive interval that fits in a safe integer`
@@ -32,7 +30,6 @@ export function parseEvery(every: string): number {
   return ms;
 }
 
-/** Milliseconds back to the largest unit that divides them: `30s`, `10m`, `6h`. */
 function cadence(ms: number): string {
   const match = Object.entries(UNITS).find(
     ([, size]) => ms >= size && ms % size === 0
@@ -44,7 +41,6 @@ function inRange(value: number, max: number): boolean {
   return Number.isInteger(value) && value >= 0 && value <= max;
 }
 
-/** The `at` option to a trigger; throws at registration so a bad slot never reaches the loop. */
 export function parseAt(at: string | CalendarSlot): Trigger {
   if (typeof at === "string") {
     return { kind: "interval", ms: parseEvery(at) };
@@ -64,13 +60,11 @@ function weekdays(slot: CalendarSlot): readonly Weekday[] {
     : (slot.weekday ?? []);
 }
 
-/** `09:05`. */
 function clock(slot: CalendarSlot): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(slot.hour)}:${pad(slot.minute ?? 0)}`;
 }
 
-/** When a trigger fires, for people: `every 30m`, `daily at 09:00`, `mon, fri at 16:30`. */
 export function describeTrigger(trigger: Trigger): string {
   if (trigger.kind === "interval") {
     return `every ${cadence(trigger.ms)}`;
@@ -79,11 +73,6 @@ export function describeTrigger(trigger: Trigger): string {
   return `${days} at ${clock(trigger.slot)}`;
 }
 
-/**
- * When a schedule fires next, given when it last finished (or when the loop
- * started). Measuring from completion rather than start is what makes a tick
- * that came due mid-run skip rather than queue.
- */
 export function nextDue(schedule: Schedule, last: number): number {
   const { trigger } = schedule;
   if (trigger.kind === "interval") {
@@ -101,20 +90,16 @@ export function nextDue(schedule: Schedule, last: number): number {
   return next.getTime();
 }
 
-/** What the scheduler needs of an engine: its live triggers, its store, and launching. */
 export type ScheduledEngine = Pick<
   Engine,
   "cancel" | "has" | "launch" | "schedules" | "triggers"
 >;
 
 export interface TickOptions {
-  /** Recheck a live trigger after taking its execution lock. */
   readonly canRun?: (schedule: Schedule) => boolean | Promise<boolean>;
   readonly now?: () => number;
   readonly print: (line: string) => void;
-  /** Loop ticks recheck persisted completion under lock; manual ticks are forced. */
   readonly scheduled?: boolean;
-  /** Cancels the run a tick started. */
   readonly signal?: AbortSignal;
   readonly stopped?: AbortSignal;
 }
@@ -127,12 +112,6 @@ export interface LoopOptions {
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
-/**
- * One firing of a schedule: take its lock, run, record the tick in the
- * engine's store. Shared by `roll <schedule>` and the loop. Resolves
- * `undefined` when another holder has the lock; rejects as the run does,
- * after the history is written.
- */
 export async function tick(
   engine: ScheduledEngine,
   schedule: Schedule,
@@ -221,22 +200,12 @@ async function shouldDispatch(
   return !noLongerDue && (await options.canRun?.(schedule)) !== false;
 }
 
-/** What a monitor's detector asked to start, if anything. */
 function pendingOf(detected: unknown): Launch | undefined {
   return isRecord(detected) && isLaunch(detected.launch)
     ? detected.launch
     : undefined;
 }
 
-/**
- * A monitor's handler may hand back something to start; it runs as its own
- * run, attributed to the monitor. The monitor holds the launch as pending
- * until it has been started, so a tick that dies in between hands it out
- * again; once started, it is the run's own to finish. A target that no
- * longer exists can never start: that launch is acknowledged and fails this
- * tick, not every tick after it. Any other failure to start (a setup that
- * threw) leaves the launch pending, so the next tick tries again.
- */
 async function startPending(
   engine: ScheduledEngine,
   key: string,
@@ -254,7 +223,6 @@ async function startPending(
   return await awaitRun(engine, started, signal);
 }
 
-/** A run's value; aborting `signal` cancels the run. */
 async function awaitRun(
   engine: ScheduledEngine,
   started: { readonly id: string; readonly result: Promise<unknown> },
@@ -286,16 +254,8 @@ function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-/** How long the loop sleeps before looking at the live triggers again. */
 const POLL_MS = 1000;
 
-/**
- * The engine's live triggers, until `signal` aborts: sleep to the soonest
- * due (at most a second, so triggers added meanwhile are seen), fire it,
- * recompute. A trigger is due a cadence after its last recorded finish in
- * the engine's store, so a restart keeps the cadence; one never recorded
- * counts from when it was registered, else from when the loop first saw it.
- */
 export async function runSchedules(
   engine: ScheduledEngine,
   options: LoopOptions
@@ -303,9 +263,6 @@ export async function runSchedules(
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? defaultSleep;
   const { signal } = options;
-  // When the loop first saw each trigger, then when it last tried one: a
-  // tick that recorded nothing (its lock was held, it was no longer live)
-  // waits a cadence from the attempt rather than firing again at once.
   const attempted = new Map<string, number>();
   const baseline = async (schedule: Schedule): Promise<number> => {
     const recorded = finishedAt(

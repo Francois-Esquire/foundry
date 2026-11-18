@@ -8,7 +8,6 @@ export default defineConfig({
     {
       hooks: {
         "astro:config:setup": ({ command, config, updateConfig }) => {
-          // Astro check optimizes production React; it must not replace dev's JSX runtime.
           updateConfig({
             vite: {
               cacheDir: fileURLToPath(

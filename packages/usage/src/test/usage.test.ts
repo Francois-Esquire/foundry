@@ -93,7 +93,6 @@ describe("adding accounts", () => {
     expect(added.map(({ name }) => name)).toEqual(["fake"]);
     expect(added[0]?.provider).toBe(provider);
     expect(await usage.initialize()).toEqual(added);
-    // The name is taken after the first call, so the provider is not asked again.
     expect(asked.detect).toBe(1);
     expect(signedOut.asked.detect).toBe(2);
     expect(asked.limits).toEqual([]);
@@ -117,7 +116,6 @@ describe("adding accounts", () => {
     await Promise.all([racing.usage.initialize(), racing.usage.initialize()]);
     expect(await racing.usage.query()).toHaveLength(1);
 
-    // An account of another provider under "fake" is not fake's default account.
     const borrowed = setup();
     borrowed.usage.add(
       fakeProvider({ id: "other" }).provider({ name: "fake" })
@@ -325,7 +323,6 @@ describe("querying", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const { asked, provider, usage } = setup({
       limits: (dir) => {
-        // The clock moves while the limits are read; `at` was stamped before.
         vi.setSystemTime(NOW.getTime() + HOUR);
         switch (dir) {
           case "model":
@@ -375,7 +372,6 @@ describe("querying", () => {
       exact,
       new Date(NOW.getTime() - 3 * DAY),
     ]);
-    // A per-model window is listed, but it is no account's weekly window.
     expect(model.weekly).toBeUndefined();
     expect(model.limits[0]).toMatchObject({ model: "Fable", span: "weekly" });
   });

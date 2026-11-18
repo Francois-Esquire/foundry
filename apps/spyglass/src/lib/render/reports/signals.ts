@@ -9,16 +9,9 @@ import type { RenderDensity } from "../context";
 import { evidenceLine, metricValue, percent, plural } from "../format";
 import type { BlockView } from "../views";
 
-/**
- * Signals fire from a handful of measurements, so several often say the
- * same thing. One group per measurement family carries every name that
- * fired and one sentence composed from the numbers those names share.
- */
 interface SignalGroup {
-  /** One line per distinct fact; pressure and history facts live here. */
   facts: string[];
   names: string[];
-  /** Raw metric lines, shown only at expanded density. */
   raw: string[];
   summary?: string;
 }
@@ -144,7 +137,6 @@ function surface(report: SurfaceReport): SignalGroup {
   };
 }
 
-/** Returns undefined when any interpolated metric is missing. */
 function when(
   strings: TemplateStringsArray,
   ...values: (string | undefined)[]
@@ -229,7 +221,6 @@ function pressure(report: SurfaceReport): SignalGroup {
   };
 }
 
-/** Only what analysis already gated by its own policy; no new thresholds. */
 function history(report: SurfaceReport): SignalGroup {
   const names: string[] = [];
   const facts: string[] = [];

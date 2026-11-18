@@ -88,7 +88,6 @@ describe("pinned native CLI control protocols in MicroSandbox", () => {
 
   it("installs SDK-matched Claude and completes its control handshake without a model turn", async () => {
     const abort = new AbortController();
-    // The handshake makes no model turn, so the key is never checked.
     const guest = await prepareGuest(container, {
       auth: { apiKey: "offline", kind: "apiKey" },
       harness: "claude-code",
@@ -142,7 +141,6 @@ describe("pinned native CLI control protocols in MicroSandbox", () => {
 
   it("installs pinned Codex and initializes a native thread without sending inference input", async () => {
     const abort = new AbortController();
-    // Subscription tokens go to the app-server, not the guest environment.
     const guest = await prepareGuest(container, {
       auth: {
         kind: "chatgpt",

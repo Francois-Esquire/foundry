@@ -66,7 +66,6 @@ it("queues stdin across an asynchronous launch and preserves deferred output", a
   const output = Array.fromAsync(child.stdout);
   child.stderr.resume();
   gate.resolve();
-  // Vitest's deep equality takes about a second on a MiB; Buffer.equals does not.
   const received = Buffer.concat(await output);
   expect(received.byteLength).toBe(data.byteLength);
   expect(received.equals(data)).toBe(true);

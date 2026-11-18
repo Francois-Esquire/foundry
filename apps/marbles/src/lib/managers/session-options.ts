@@ -3,7 +3,6 @@ import { createModelSummarizer } from "@foundry/agents/session";
 import { stepCountIs } from "ai";
 import type { SessionOptions } from "../types";
 
-/** Resolve automatic compaction once, with the same contract on every network-model session. */
 export function resolveCompaction(
   option: SessionOptions["compaction"],
   model: AgentModel
@@ -24,13 +23,11 @@ export type TurnLimit =
     }
   | { readonly kind: "native"; readonly turns: number };
 
-/** A turn limit the chosen route cannot enforce, refused before anything is filed. */
 export class TurnLimitUnsupportedError extends Error {
   readonly code = "TURN_LIMIT_UNSUPPORTED";
   override readonly name = "TurnLimitUnsupportedError";
 }
 
-/** SDK steps and a native harness loop are different execution limits. */
 export function resolveTurnLimit(
   turns: number | undefined,
   mode: TurnLimit["kind"]

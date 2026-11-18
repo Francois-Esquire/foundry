@@ -13,7 +13,6 @@ const defaults = {
   worktree: ".",
 };
 
-/** One schema gives the type, the launch form, and validation at launch. */
 export const argumentsSchema = z.object({
   focus: z.string().default(defaults.focus),
   includeTests: z
@@ -101,7 +100,6 @@ async function review({ agents, input, log, workspaces }: Context<Arguments>) {
   };
 }
 
-/** Registered when this module loads, through discovery or an explicit import. */
 export const reviewWorktree = step("review-worktree")
   .describe(
     "Choose a checkout, point at some code, and tune a read-only review."

@@ -49,7 +49,6 @@ interface PendingInput {
   readonly durable: boolean;
   question: FeedQuestionPayload;
   readonly source: Source;
-  /** The choice that reopens the question for a typed answer; cleared once used. */
   writeIn?: string;
 }
 
@@ -61,18 +60,12 @@ export interface HarnessInteractionsOptions {
   readonly sessions: SessionStore;
 }
 
-/** Human input waits in the host; it never suspends or replays the workflow. */
 export class HarnessInteractions {
   readonly #options: HarnessInteractionsOptions;
   readonly #pending = new Map<string, PendingInput>();
   readonly #deferred: DeferredApprovals;
   readonly #waits = new Set<Promise<unknown>>();
   readonly #shutdown = new AbortController();
-  /**
-   * Authorities this host built over its own policy. Only their deferred
-   * approvals are kept across restarts: a custom policy's grants would not
-   * be there to resolve them. Kept here so no caller can claim it.
-   */
   readonly #durable = new WeakSet<SandboxAuthority>();
 
   constructor(options: HarnessInteractionsOptions) {
@@ -203,7 +196,6 @@ export class HarnessInteractions {
     return new Map(loaded);
   }
 
-  /** Keep a session's deferred approvals across restarts, when `authority` came from this host's own policy. */
   registerSession(
     session: InteractionSession,
     authority: SandboxAuthority

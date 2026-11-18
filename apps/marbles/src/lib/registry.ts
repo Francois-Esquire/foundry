@@ -11,46 +11,24 @@ import { isNamed, quoteOrigin } from "./definition";
 import { fieldsFromJsonSchema, JSON_INPUT_FIELD, jsonSchemaOf } from "./schema";
 import type { Schedule, Trigger } from "./triggers";
 
-/**
- * What can run and what starts it: named definitions, the schedules that
- * launch them, and the monitors that watch a source. An engine owns one and
- * is the only writer of it; a host adds to it through the engine. A
- * definition without a name is internal and never appears here. Schedules
- * and monitors are keyed by what they trigger and watch. Everything is read
- * through read-only views and written through the methods.
- */
-
-/** A source to watch on a cadence, and what to do when it changes. */
 export interface MonitorRecord {
-  /** Called with what changed; a locked node it returns is started. */
   readonly handler: MonitorHandler;
-  /** Names the monitor's step, its schedule, and its state file. */
   readonly key: string;
-  /** Shown beside the trigger; the key when omitted. */
   readonly label?: string;
-  /**
-   * What an HTTP poll sends. Kept here, never on the spec: the spec is
-   * shown, listed, and persisted, and this may carry a credential.
-   */
   readonly request?: MonitorRequest;
   readonly source: MonitorSpec;
-  /** How often the source is polled. */
   readonly trigger: Trigger;
 }
 
-/** A launchable definition, as a host lists it. */
 export interface DefinitionEntry {
   readonly description?: string;
-  /** Launch-form fields; an empty list means no arguments. */
   readonly input: { readonly fields: readonly InputField[] };
   readonly inputSchema?: Record<string, unknown>;
   readonly kind: "step" | "workflow";
   readonly name: string;
-  /** Where the host declared it, as `file:line`, when it said. */
   readonly origin?: string;
 }
 
-/** The detector step agent-created monitors share; never launchable by hand. */
 export const AUTOMATION_MONITOR = "__automation_monitor";
 
 export class Registry {
@@ -62,7 +40,6 @@ export class Registry {
     return this.#definitions;
   }
 
-  /** Keyed like the detector step and the schedule each one adds. */
   get monitors(): ReadonlyMap<string, MonitorRecord> {
     return this.#monitors;
   }
@@ -91,16 +68,10 @@ export class Registry {
     this.#schedules.set(record.key, record);
   }
 
-  /** Stop starting what `key` schedules; a run it already started goes on. */
   unschedule(key: string): void {
     this.#schedules.delete(key);
   }
 
-  /**
-   * A monitor is three things under one key: a step that polls the source
-   * and calls the handler on a change, a schedule that runs that step, and
-   * the record a host lists.
-   */
   monitor(record: MonitorRecord): void {
     const { handler, key, request, source, trigger } = record;
     if (this.#schedules.has(key)) {
@@ -124,7 +95,6 @@ export class Registry {
     this.#monitors.set(key, record);
   }
 
-  /** Launchable definitions, without monitor detectors. */
   entries(): readonly DefinitionEntry[] {
     return [...this.#definitions.values()]
       .filter(
@@ -151,10 +121,6 @@ export class Registry {
   }
 }
 
-/**
- * No schema: no arguments. A schema the library cannot describe as JSON
- * Schema still takes input, as one JSON field.
- */
 function formFields(
   schema: StandardSchemaV1 | undefined,
   json: Record<string, unknown> | undefined

@@ -14,17 +14,11 @@ const statusPattern = /^\n/;
 const hashPattern = /\n$/;
 const isModulePathPattern = /\.tsx?$/;
 
-// V12.3 timeline facts: first-parent commits with TypeScript file events,
-// deterministic checkpoint selection, and module lineage replayed from the
-// renames Git reports. Read-only Git, no checkout.
-
 const run = promisify(execFile);
 const MAX_BUFFER = 2 ** 28;
 
-/** Rename detection threshold passed to `git log -M`; recorded in the manifest. */
 export const RENAME_DETECTION = "-M50%";
 
-/** Git on the repository at `root`, started outside it (`CHILD_CWD`). */
 async function git(root: string, args: string[]): Promise<string> {
   const { stdout } = await run("git", ["-C", resolve(root), ...args], {
     cwd: CHILD_CWD,
@@ -38,10 +32,8 @@ function isModulePath(file: string): boolean {
   return isModulePathPattern.test(file) && !file.endsWith(".d.ts");
 }
 
-/** A history range other than `all`: years, months, or days back from `HEAD`. */
 export const HISTORY_RANGE = /^(\d+)([ymd])$/;
 
-/** `1y` → the instant one year before `to`; `all` → undefined. */
 export function rangeStart(range: string, to: Date): Date | undefined {
   if (range === "all") {
     return undefined;
@@ -66,12 +58,6 @@ export function rangeStart(range: string, to: Date): Date | undefined {
 
 const NUMSTAT = /^(\d+|-)\t(\d+|-)\t(.*)$/s;
 
-/**
- * Parse `git log -z --numstat --format=%x01%H%x00%cI%x00%P`. Same token
- * layout as `parseGitLog` in git-history.ts, with parents in the third slot
- * and per-file records folded into add/remove/rename lists of module paths.
- * Newest first, as Git prints it.
- */
 export function parseTimelineLog(output: string): SemanticsHistoryCommit[] {
   const commits: SemanticsHistoryCommit[] = [];
   for (const chunk of output.split("\x01").slice(1)) {
@@ -142,11 +128,6 @@ function parseTimelineLogEntries(
   return index;
 }
 
-/**
- * Parse `git log -z --name-status --format=%x01%H` into per-commit
- * added/deleted module paths. Renames are taken from the numstat pass, so
- * `R` records are ignored here; `A` and `D` are the facts numstat lacks.
- */
 export function parseStatusLog(
   output: string
 ): Map<string, { added: string[]; removed: string[] }> {
@@ -166,19 +147,15 @@ export function parseStatusLog(
 }
 
 export interface TimelineOptions {
-  /** Commit to end at; defaults to HEAD. */
   head?: string;
-  /** Range expression from the history config. */
   range: string;
 }
 
 export interface Timeline {
   branch?: string;
-  /** Oldest first. */
   commits: SemanticsHistoryCommit[];
   head: string;
   headTimestamp: string;
-  /** Module paths present in the tree at the oldest commit's parent, when it has one. */
   seed: string[];
 }
 
@@ -213,12 +190,6 @@ function parseStatusLogEntries(
   return index;
 }
 
-/**
- * First-parent history of `root` ending at HEAD, newest `range` worth of
- * commits. Two log passes: numstat for line counts and renames, name-status
- * for additions and deletions. Merge commits diff against their first
- * parent so nothing landing through a merge is invisible to lineage.
- */
 export async function collectTimeline(
   root: string,
   options: TimelineOptions
@@ -292,25 +263,10 @@ export async function collectTimeline(
   };
 }
 
-// ---------------------------------------------------------------------------
-// CHECKPOINTS
-
 function monthKey(timestamp: string): string {
   return new Date(timestamp).toISOString().slice(0, 7);
 }
 
-/**
- * Deterministic checkpoint selection over an oldest-first commit list.
- * Every strategy includes HEAD (the newest commit) and never repeats a
- * commit; the result is oldest first.
- *
- * - `monthly`: the last first-parent commit in each UTC calendar month,
- *   newest `checkpoints` months kept when there are more.
- * - `evenly-spaced`: `checkpoints` indices spread over the commit list,
- *   first and last included.
- * - `every-n-commits`: HEAD, then every `every`th commit walking back, up
- *   to `checkpoints` commits.
- */
 export function selectCheckpoints(
   commits: SemanticsHistoryCommit[],
   policy: Pick<SemanticsHistoryConfig, "strategy" | "checkpoints" | "every">
@@ -355,28 +311,15 @@ export function selectCheckpoints(
   return [...new Set(picked)];
 }
 
-// ---------------------------------------------------------------------------
-// LINEAGE
-
 interface LineageState {
   segments: TemporalPathSegment[];
 }
 
 export interface LineageIndex {
-  /** checkpoint hash → path at that checkpoint → lineage id. */
   atCheckpoint: Map<string, Map<string, string>>;
   lineages: TemporalModuleLineage[];
 }
 
-/**
- * Replay the timeline oldest → newest. A rename carries the lineage to the
- * new path; an addition starts one; a deletion closes the open segment. A
- * path Git reports without a rename is delete + unrelated add, by
- * definition: no continuity is invented. The lineage id is its newest
- * path, so modules alive at HEAD keep their current dataset ids; two
- * lineages ending at the same path (delete, then recreate) are one
- * identity, as the same package path is the same module.
- */
 export function buildLineage(
   commits: SemanticsHistoryCommit[],
   seed: string[],
@@ -410,7 +353,6 @@ export function buildLineage(
   const wanted = new Set(checkpoints);
   const snapshots = new Map<string, Map<string, LineageState>>();
   buildLineageCommit(commits, close, open, live, wanted, snapshots);
-  // Merge lineages sharing a final path, oldest segments first.
   const byId = new Map<string, TemporalModuleLineage>();
   const idOf = new Map<LineageState, string>();
   for (const state of all) {

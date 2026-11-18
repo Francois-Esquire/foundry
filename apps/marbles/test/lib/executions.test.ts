@@ -261,8 +261,6 @@ it("cancels a workflow run whose dispatch is still in flight", async () => {
     }
   }
   const engine = engineWith();
-  // Its factory resolves only when let through: the run is recorded running
-  // while the Orchestrator has not stored it yet.
   const factory = new Record().factory();
   engine.register<string, string>("slow", async (input, context) => {
     await dispatch.opened;
@@ -348,7 +346,6 @@ it("keeps a long-lived run running after it gives up its slot, until it is stopp
       correlation: { kind: "program", moduleId: "notes" },
     }
   );
-  // Later work on the queue is not held up by the program's lifetime.
   expect(await engine.run("save", {})).toBe("saved");
   expect(engine.executions.get(program.id)?.status).toBe("running");
 
@@ -357,7 +354,6 @@ it("keeps a long-lived run running after it gives up its slot, until it is stopp
   await expect(program.result).rejects.toThrow("cancelled");
   expect(engine.executions.get(program.id)?.status).toBe("cancelled");
 
-  // One left running is stopped with the engine.
   const another = await engine.launch("program", {});
   await engine.stop();
   await expect(another.result).rejects.toThrow();
@@ -387,7 +383,6 @@ it("rejects names it cannot run, and one name held by two kinds of runnable", as
   expect(() => engine.task({ name: "taken", run: () => 1 })).toThrow(
     "already registered"
   );
-  // A raw factory may not take a task's name, or a definition's.
   const echo: Factory<string, string> = (input) =>
     Workflow.create({ execute: async (value) => value, input, name: "echo" });
   engine.task({ name: "save", run: () => 1 });
@@ -487,7 +482,6 @@ it("admits nothing on a cancelling stop while it waits on a dispatch in flight",
   await until(() => close.mock.calls.length > 0);
   closing.open();
   close.mockRestore();
-  // The task frees its slot while the stop still waits on the factory.
   holding.open();
   await new Promise((resolve) => setTimeout(resolve, 20));
   dispatch.open();

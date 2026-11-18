@@ -91,7 +91,6 @@ export function DefinitionsBlock({
   workspace,
 }: CatalogProps & {
   readonly items: readonly DefinitionSnapshot[];
-  /** The workspace whose source built these, where they are available. */
   readonly workspace: string;
 }) {
   return (

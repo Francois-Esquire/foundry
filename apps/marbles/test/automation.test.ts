@@ -292,7 +292,6 @@ it("does not relaunch an observed change after the started target fails", async 
 it("existing hosts observe persisted additions, pause, deletion and idempotent retries", async () => {
   const state = temp();
   step("target").do(() => 1);
-  // Two hosts over one state dir: each has its own registry.
   const first = await serviceAt(state);
   const second = await serviceAt(state);
   const spec = { at: "1s", key: "job", workflow: "target" };
@@ -447,7 +446,6 @@ it("cancels a running monitor request when the schedule loop signal aborts", asy
       })
   );
   step("target").do(() => 1);
-  // An agent may poll an origin the config already watches.
   monitor("https://example.com/status").do(() => undefined);
   const bound = bindMock(() => "", { state });
   const engine = await startEngine({ ...bound.instances, state });

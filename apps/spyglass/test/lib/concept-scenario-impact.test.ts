@@ -117,7 +117,6 @@ function scenarioFacts(overrides: Partial<ScenarioFacts> = {}): ScenarioFacts {
   };
 }
 
-/** B imports A across an edge that carries only the concept: exclusive at module granularity. */
 function boundary(
   overrides: Partial<RecenteringBoundaryUse> = {}
 ): RecenteringBoundaryUse {
@@ -772,7 +771,6 @@ describe("representation and implementation", () => {
         candidateItem.kind === "formalize-representation-boundary"
     );
     if (formalize === undefined) {
-      // Folded into the baseline: the code already matches the boundary.
       expect(scenarios[0]?.kind).toBe("preserve-current");
       return;
     }

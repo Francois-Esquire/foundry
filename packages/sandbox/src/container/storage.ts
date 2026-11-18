@@ -17,7 +17,6 @@ interface GuestFiles {
   write(path: string, bytes: Uint8Array): Promise<void>;
 }
 
-/** All paths and commands are guest-side; no host filesystem access. */
 export function guestStorage(
   fs: GuestFiles,
   exec: (argv: string[]) => Promise<SandboxExecResult>
@@ -26,7 +25,6 @@ export function guestStorage(
     if (kind === "file" || kind === "directory" || kind === "symlink") {
       return { type: kind };
     }
-    // The SDK groups special entries as "other"; POSIX mode preserves their type.
     // biome-ignore lint/suspicious/noBitwiseOperators: POSIX file types occupy masked mode bits.
     switch (mode & 0o17_0000) {
       case 0o14_0000:
@@ -56,7 +54,6 @@ export function guestStorage(
       const stats = await fs.stat(path);
       return classify(stats.kind, stats.mode);
     }
-    // The SDK's stat follows links. Directory entries describe the link itself.
     const entry = (await fs.list(posix.dirname(path))).find(
       (candidate) => posix.basename(candidate.path) === posix.basename(path)
     );

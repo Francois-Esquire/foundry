@@ -23,11 +23,6 @@ const WORKSPACES_REFRESH_MS = 3000;
 
 type Terminal = Awaited<ReturnType<typeof openDashboard>>;
 
-/**
- * The dashboard. Under `--dry-run` the workspace is hosted in this process
- * and quitting stops it; otherwise it is attached to the Marbles process,
- * which keeps hosting it after the dashboard closes.
- */
 export async function runInteractive(args: Flags): Promise<void> {
   const controller = new AbortController();
   const local = localState(args);
@@ -35,8 +30,6 @@ export async function runInteractive(args: Flags): Promise<void> {
     basename(sourceRoot(resolveSource(args.config, args.directory))),
     controller
   );
-  // The one place this process stops on a signal: everything below is
-  // handed the controller's signal and registers none of its own.
   const stop = () => controller.abort();
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
@@ -55,15 +48,9 @@ export async function runInteractive(args: Flags): Promise<void> {
   }
 }
 
-/**
- * What this dashboard process adds to the host's snapshot: the global
- * settings, which it reads and saves itself since they belong to no
- * workspace, and its own lines beside the host's in the Logs tab.
- */
 interface LocalState {
   readonly decorate: (snapshot: DashboardSnapshot) => DashboardSnapshot;
   readonly report: (line: string, level?: LogEntry["level"]) => void;
-  /** Absent under `--dry-run`, which leaves the state root as it found it. */
   readonly save?: (changes: SettingsChange) => void;
 }
 
@@ -77,7 +64,6 @@ function localState(args: Flags): LocalState {
   return {
     decorate: (snapshot) => ({
       ...snapshot,
-      // Distinct ids: the host numbers its own lines the same way.
       diagnostics: [
         ...(snapshot.diagnostics ?? []),
         ...diagnostics.entries.map((entry) => ({
@@ -105,7 +91,6 @@ function localState(args: Flags): LocalState {
   };
 }
 
-/** Refresh on an interval, one request at a time, until the signal aborts. */
 function every(
   ms: number,
   signal: AbortSignal,
@@ -141,7 +126,6 @@ async function runLocal(
   let stopping: Promise<void> | undefined;
   const stop = () => {
     stopping ??= stopAfterSchedules(loop, host?.engine);
-    // Attach immediately: cleanup below awaits and reports any failure.
     stopping.catch(() => undefined);
   };
   controller.signal.addEventListener("abort", stop, { once: true });
@@ -174,7 +158,6 @@ async function runLocal(
     }
     running.setStatus(await readyStatus(running.engine, hasConfig));
     await update();
-    // Engine reads are local; serialize refreshes so older snapshots cannot replace newer ones.
     refresh = every(REFRESH_MS, controller.signal, () =>
       update().catch((error: unknown) => {
         const line = `[dashboard] ${String(error)}`;
@@ -186,8 +169,6 @@ async function runLocal(
     await loop;
   } finally {
     refresh?.();
-    // Stop the engine here; the controller is aborted by whoever ends the
-    // session, so a failure still gets its screen before the terminal closes.
     stop();
     try {
       await stopping;
@@ -215,7 +196,6 @@ async function runRemote(
     }
     let attached: WorkspaceSummary | undefined;
     if (sourceFiles(configPath) === undefined) {
-      // fails the attach, and the onboarding view shows why.
       await terminal.onboard(configPath, async (draft) => {
         await createStarter(configPath, draft);
         attached = await client.attach(configPath, { setup: draft });
@@ -283,10 +263,6 @@ function placeholderSnapshot(
   };
 }
 
-/**
- * The dashboard's view of the Marbles process: the workspaces it hosts, the
- * one shown, and the snapshot polling that follows it when it changes.
- */
 function remoteSession(
   client: MarblesClient,
   attached: WorkspaceSummary,
@@ -352,8 +328,6 @@ function remoteSession(
   follow(attached);
 
   const { save } = local;
-  // Async so a file that cannot be read or written rejects, which the
-  // dashboard reports, rather than throwing out of its key handler.
   const settings = save
     ? async (changes: SettingsChange): Promise<void> => {
         save(changes);
@@ -418,7 +392,6 @@ function remoteSession(
       if (polled !== connection) {
         return;
       }
-      // catches the header up with it.
       publish({
         ...(lastSnapshot ?? placeholderSnapshot(summary, [])),
         status: String(error instanceof Error ? error.message : error),

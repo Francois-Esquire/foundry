@@ -1,4 +1,3 @@
-/** Large-chart footprint decoding is paid only when selection or baked maps change. */
 import {
   compute,
   type Frame,

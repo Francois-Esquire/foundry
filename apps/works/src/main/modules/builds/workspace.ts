@@ -14,7 +14,6 @@ function knownSource(path: string, source: Record<string, string>) {
   return Object.hasOwn(source, path) || path === "bun.lock";
 }
 
-/** Build scripts may create derived files, but cannot add or rewrite authored source. */
 export async function auditBuildWorkspace(
   files: Pick<SandboxFilesystemFacet, "readFile" | "list">,
   source: Record<string, string>,

@@ -255,7 +255,6 @@ describe.each(STORES)("containers registry over %s", (_name, open) => {
       store,
     });
     const c = await before.start(SPEC);
-    // Simulate the host dying: the row says running, the VM is still there.
     const after = createContainers({
       instanceLabel: "instance-a",
       runtime,

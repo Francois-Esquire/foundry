@@ -1,9 +1,3 @@
-/**
- * Two config layers: Step execution defaults (retry/timeout) and Queue
- * runtime config (concurrency, queue name) registered on the shared
- * @foundry/lib/config registry.
- */
-
 import type { Config } from "@foundry/lib/config";
 import { z } from "zod";
 
@@ -14,16 +8,8 @@ export interface StepExecutionDefaults {
   readonly timeout?: Duration;
 }
 
-/** Package-wide defaults applied to every Step that doesn't declare its own. */
-export const defaultStepExecution: StepExecutionDefaults = {
-  // No default retry — opt-in per Step.
-  // No default timeout — opt-in per Step.
-};
+export const defaultStepExecution: StepExecutionDefaults = {};
 
-/**
- * Resolve effective execution policy: Step-level fields win, defaults fill
- * gaps. Returned object only contains keys that resolved to a value.
- */
 export function resolveStepExecution(step: {
   readonly retry?: RetryPolicy;
   readonly timeout?: Duration;
@@ -41,16 +27,7 @@ export function resolveStepExecution(step: {
 }
 
 export const QueueConfigSchema = z.object({
-  /**
-   * Maximum number of concurrent runs the orchestrator's queue will
-   * execute. Defaults to 4.
-   */
   concurrency: z.number().int().positive(),
-  /**
-   * Name of the default queue row ensured by `Orchestrator.setup()`.
-   * Defaults to "default". Override via `contributeQueueConfig` when
-   * a composer wants to namespace its persisted queue.
-   */
   defaultName: z.string().min(1),
 });
 
@@ -63,11 +40,6 @@ export const defaultQueueConfig: QueueConfig = {
 
 export const QUEUE_CONFIG_PREFIX = "queue";
 
-/**
- * Register the queue config slice. `initial` shallow-merges on top of
- * defaults. Idempotent: no-op if already contributed. Called by
- * Orchestrator constructor.
- */
 export function contributeQueueConfig(
   config: Config,
   initial?: Partial<QueueConfig>

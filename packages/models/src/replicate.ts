@@ -14,13 +14,6 @@ export interface ReplicateProviderOptions {
   models?: ProviderModelDefinition[];
 }
 
-/**
- * Facts only for what `@ai-sdk/replicate` serves: its model-id unions name
- * image and video and nothing else. The video MIME is the adapter's own
- * declaration (`video/mp4`, hard-coded in its result); the image MIME is the
- * model's documented default output format, which the vendor instrument is
- * what proves.
- */
 export const REPLICATE_DEFAULT_MODELS: ProviderModelDefinition[] = [
   {
     id: "black-forest-labs/flux-schnell",
@@ -40,8 +33,6 @@ export const REPLICATE_DEFAULT_MODELS: ProviderModelDefinition[] = [
     vendor: "Black Forest Labs",
   },
   {
-    // No image input: the adapter forwards one to every video model alike, and
-    // that is the adapter's shape rather than evidence about this model.
     id: "minimax/video-01",
     kind: "video",
     label: "MiniMax Video 01",
@@ -60,7 +51,6 @@ export const REPLICATE_DEFAULT_MODELS: ProviderModelDefinition[] = [
   },
 ];
 
-/** Replicate, through the AI SDK adapter. The token lives here and nowhere else. */
 export function replicateProvider(
   options: ReplicateProviderOptions = {}
 ): Provider {
