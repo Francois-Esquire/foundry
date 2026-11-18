@@ -1,8 +1,4 @@
-/**
- * @vitest-environment happy-dom
- *
- * Runs the browser entry in happy-dom.
- */
+// @vitest-environment happy-dom
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 

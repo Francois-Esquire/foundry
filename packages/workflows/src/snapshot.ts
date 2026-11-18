@@ -35,10 +35,7 @@ export class Snapshot {
     this.#state = args.state;
   }
 
-  /**
-   * @internal Effect-typed factory. Step.make / Workflow.create seed
-   * snapshot under their scope. Consumers receive via parent.
-   */
+  /** @internal */
   static make(
     initial?: Partial<SnapshotState>
   ): Effect.Effect<Snapshot, never, Scope.Scope> {
@@ -188,10 +185,7 @@ export class Snapshot {
     Effect.runSync(this.applyEventEffect(event));
   }
 
-  /**
-   * @internal Effect-typed apply for in-fiber composition.
-   * Plain-JS callers use {@link applyEvent}.
-   */
+  /** @internal */
   applyEventEffect(event: ChannelEvent): Effect.Effect<void> {
     if (event._tag === "custom") {
       return Effect.void;
@@ -201,13 +195,7 @@ export class Snapshot {
     );
   }
 
-  /**
-   * One-shot step overwrite for recovery (seeds from persisted
-   * `runs.metadata.workflow.steps` before re-dispatch). Also derives
-   * `results` from complete steps with output (idempotent).
-   *
-   * @internal Effect-typed write. Queue recovery uses this.
-   */
+  /** @internal */
   seed(steps: Record<string, StepSnapshot>): Effect.Effect<void> {
     return SubscriptionRef.update(this.#state, (prev) => {
       const mergedResults: Record<string, unknown> = { ...prev.results };
@@ -224,8 +212,6 @@ export class Snapshot {
       };
     });
   }
-
-  // @internal All four (setWorkflow, setCursor, markSkipped, markAborted)
 
   setWorkflow(workflow: WorkflowSnapshot): Effect.Effect<void> {
     return SubscriptionRef.update(this.#state, (prev) => {
@@ -281,8 +267,6 @@ export class Snapshot {
   fork(): this {
     return this;
   }
-
-  // @internal Effect/Stream surface; Step/Workflow wrap to JS forms.
 
   get current(): Effect.Effect<SnapshotState> {
     return SubscriptionRef.get(this.#state);

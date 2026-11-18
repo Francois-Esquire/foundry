@@ -71,17 +71,9 @@ export function serialClient(
     const failed = current;
     current = options.connect();
     unset = settings.length > 0;
-    try {
-      failed.close();
-    } catch {
-      // It is given up either way; the caller hears the original error.
-    }
+    closeFailed(failed);
     collect();
-    try {
-      await prepared();
-    } catch {
-      // Left unset: the next turn applies them before anything else.
-    }
+    await prepared().catch(() => undefined);
   }
   async function inTurn<T>(work: (client: Client) => Promise<T>): Promise<T> {
     const release = await turn();
@@ -141,6 +133,15 @@ export function serialClient(
   };
 }
 
+function closeFailed(client: Client): void {
+  try {
+    client.close();
+  } catch {
+    // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+    return;
+  }
+}
+
 function collect(): void {
   const runtime = globalThis as {
     readonly Bun?: { gc(force: boolean): void };
@@ -190,7 +191,7 @@ function heldUntilSettled(
     try {
       await transaction.rollback();
     } catch {
-      // Closing the client discards what is left.
+      return undefined;
     }
   };
   const settle = async (

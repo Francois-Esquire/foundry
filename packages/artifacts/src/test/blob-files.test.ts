@@ -16,9 +16,7 @@ it("lists, reads and removes nothing in a missing directory, and makes none", as
   }
   expect(listed).toEqual([]);
   const read = async () => {
-    for await (const _chunk of files.read("0a1b2c3d", { end: 1, start: 0 })) {
-      // Nothing to read.
-    }
+    await Array.fromAsync(files.read("0a1b2c3d", { end: 1, start: 0 }));
   };
   await expect(read()).rejects.toMatchObject({ code: "ENOENT" });
   await files.remove("0a1b2c3d");

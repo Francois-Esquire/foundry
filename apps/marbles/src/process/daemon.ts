@@ -264,7 +264,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     try {
       claim.release();
     } catch {
-      // Reported through the error that is thrown instead.
+      // biome-ignore lint/style/useErrorCause: Preserve the original database initialization error.
+      throw error;
     }
     throw error;
   }

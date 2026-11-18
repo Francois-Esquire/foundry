@@ -196,21 +196,20 @@ Cancellation is a request; keep reading status until the run settles.
 Code inside workflow bodies must honor the context's `signal` to stop its
 external work. Cancellation cannot undo completed side effects.
 
-A dispatched run belongs to the engine generation that started it, not to
-the MCP connection. Closing stdin, ending the `marbles mcp` process, or SIGINT or
+A dispatched run belongs to its workspace's engine. Closing stdin, ending the
+`marbles mcp` process, or SIGINT or
 SIGTERM ends the server and nothing else. Shutdown takes a few seconds at
 most; a task call that does not finish in time is cut off. The Marbles process keeps hosting the workspace, its triggers
 keep running, and runs already dispatched run to completion. Several MCP
 clients can run at once against one process. `get_run` and `cancel_run`
-go to the engine generation that owns the run, the current one or one
-still finishing its runs after a switch, so any server for that workspace
-can read or cancel a run another one dispatched. That lookup is held in
-the owning generation's memory: once that generation has exited, after a
-source edit, `marbles stop`, or a crash, it is forgotten, though the run's
-[output journal](/marbles/reference/state#run-output) on disk stays
-watchable, and a run parked on a question or a pause is adopted by the
-current generation. The journal is not a persistent job queue, and output
-files have no automatic retention policy yet.
+go to the generation that owns the run. The returned run ID still works
+after queued or parked work moves to a new generation. A queued agent
+dispatch reopens the same saved session when the new engine starts the
+turn. The lookup also accepts other workflow run IDs the engine knows,
+including runs started by a schedule or by `launch`. Host task runs use
+their separate task controls. The
+[output journal](/marbles/reference/state#run-output) stays on disk, and
+its files have no automatic retention policy yet.
 
 Under `--dry-run` the server runs nothing. Its in-memory tasks end with
 the connection.

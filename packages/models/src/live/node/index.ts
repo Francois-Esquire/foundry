@@ -60,7 +60,8 @@ export async function open(
         try {
           options.onTrack?.(track, direction);
         } catch {
-          // The host can recover without ending the session.
+          // biome-ignore lint/complexity/noUselessContinue: A failed callback cannot suppress the remaining tracks.
+          continue;
         }
       }
     },

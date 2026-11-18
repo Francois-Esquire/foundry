@@ -302,7 +302,7 @@ export class Queue {
     return Promise.resolve(this.#all.get(runId) ?? null);
   }
 
-  /** @internal Serialize externally-triggered state transitions per Run. */
+  /** @internal */
   async withRunControl<T>(
     runId: string,
     operation: () => Promise<T>
@@ -351,7 +351,7 @@ export class Queue {
     });
   }
 
-  /** @internal Project already-committed cancellation into a local handle. */
+  /** @internal */
   async applyAuthoritativeCancellation(runId: string): Promise<void> {
     const run = this.#all.get(runId);
     if (!run) {
@@ -1452,7 +1452,8 @@ export class Queue {
     try {
       this.#logger.on(event);
     } catch {
-      // Observability must not affect execution.
+      // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+      return;
     }
   }
 }

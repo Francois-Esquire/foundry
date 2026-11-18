@@ -678,7 +678,7 @@ async function closeAfterRejectedHandshake(
   try {
     await transport.close("Gateway handshake rejected");
   } catch {
-    // The original handshake failure remains authoritative.
+    return undefined;
   }
 }
 

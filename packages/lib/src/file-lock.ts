@@ -121,7 +121,8 @@ function noteOwner(path: string, mode: number, file: OwnerNote): void {
   try {
     writeFileAtomicSync(ownerNotePath(path), JSON.stringify(file), { mode });
   } catch {
-    // Without it the lock is judged by its pid alone, as earlier versions judge it.
+    // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+    return;
   }
 }
 

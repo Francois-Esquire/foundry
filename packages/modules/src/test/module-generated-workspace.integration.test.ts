@@ -214,12 +214,8 @@ async function waitForReady(
         `generated server exited before becoming ready: ${output.join("")}`
       );
     }
-    try {
-      if (await isReady(port)) {
-        return;
-      }
-    } catch {
-      // The Program has not started listening yet.
+    if (await isReady(port).catch(() => false)) {
+      return;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }

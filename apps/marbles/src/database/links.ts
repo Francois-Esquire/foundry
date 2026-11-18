@@ -306,13 +306,9 @@ class LinkTree {
   async prepare(links: ReadonlyMap<string, WantedLink>): Promise<Prepared> {
     const prepared: Prepared = new Map();
     for (const [key, link] of links) {
-      try {
-        const path = await this.#temporary(link);
-        if (path !== undefined) {
-          prepared.set(key, { path, target: link.target });
-        }
-      } catch {
-        // Made under the lock, or refused there.
+      const path = await this.#temporary(link).catch(() => undefined);
+      if (path !== undefined) {
+        prepared.set(key, { path, target: link.target });
       }
     }
     return prepared;
@@ -320,12 +316,9 @@ class LinkTree {
 
   async discard(prepared: Prepared): Promise<void> {
     for (const { path } of prepared.values()) {
-      try {
-        await this.#checked(dirname(path));
-        await removeLink(path);
-      } catch {
-        // Its directory went away or was refused; nothing of ours is left there.
-      }
+      await this.#checked(dirname(path))
+        .then(() => removeLink(path))
+        .catch(() => undefined);
     }
   }
 

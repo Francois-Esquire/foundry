@@ -289,12 +289,12 @@ export function installationDigest(entry: string, version: string): string {
   const hash = createHash("sha256");
   hash.update(version);
   for (const file of installationFiles(root)) {
-    let stamp = "missing";
+    let stamp: string;
     try {
       const stat = statSync(file);
       stamp = `${String(stat.size)}:${String(stat.mtimeMs)}`;
     } catch {
-      // Gone since it was listed.
+      stamp = "missing";
     }
     hash.update(`\0${file}\0${stamp}`);
   }

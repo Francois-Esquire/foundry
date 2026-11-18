@@ -26,7 +26,8 @@ export class MessageLog<M> {
       try {
         controller.close();
       } catch {
-        // Already closed or cancelled.
+        // biome-ignore lint/complexity/noUselessContinue: Close the remaining stream controllers.
+        continue;
       }
     }
     this.#subscribers.clear();
@@ -42,9 +43,11 @@ export class MessageLog<M> {
       try {
         subscribed.close();
       } catch {
-        // Already closed or cancelled.
+        // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+        return;
+      } finally {
+        subscribed = undefined;
       }
-      subscribed = undefined;
     };
     return new ReadableStream<M>({
       cancel: () => {

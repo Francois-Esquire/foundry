@@ -53,8 +53,6 @@ export function RunStream({
             setText((previous) => (previous + delta).slice(-MAX_CHARS));
           }
         }
-      } catch {
-        // The subscription ended with the run or the tab.
       } finally {
         setLive(false);
       }

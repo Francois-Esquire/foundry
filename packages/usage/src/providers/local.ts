@@ -120,7 +120,8 @@ export async function* jsonLines(
     try {
       yield JSON.parse(line);
     } catch {
-      // Skip malformed lines, including a trailing line still being written.
+      // biome-ignore lint/complexity/noUselessContinue: Skip this rejected line within the generator.
+      continue;
     }
   }
 }

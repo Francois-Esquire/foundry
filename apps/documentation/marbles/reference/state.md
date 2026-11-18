@@ -432,17 +432,27 @@ The Marbles process hosts every registered workspace in one engine
 generation at a time, and starts the next on a source or installation
 change, a reload, or the death of the current one. The next generation
 loads every registered workspace up to engines not yet started; one that
-does not load means no switch. Then the current generation retires: it
+does not load leaves a working generation in place. The refused load keeps
+watching outside files the previous generation read. Restoring one of those
+files can trigger a fresh load even if the failed candidate never read it.
+Then the current generation retires: it
 starts no tick or delivery again, hands each of its queued Execution Runs
 to the next one in the same transaction that checks it is still queued and
 still its own, and gives up the claims of its parked Runs. Then the next
 generation starts, which adopts those parked Runs and lets the queued
-ones in. The retired one goes on with its running runs, whole; one of them
-that parks meanwhile gives up its claim the moment it parks, and the
-current generation adopts it then, so a retired generation never holds a
-parked Run. It exits once nothing of it is left running. An answer that
-reaches a retired generation is refused while its question moves, and the
-Marbles process asks the current one once it has taken the run over.
+ones in. A queued agent dispatch reopens its saved session when the new
+engine starts the turn. The retired generation finishes its running runs.
+A run that parks during retirement stops accepting answers there and its
+engine tries to release the claim. A failed release leaves the claim held
+and retries with backoff while the engine lives. Retirement can finish
+once the running work is done, with a final bulk release at engine stop.
+The Marbles process routes an answer to the current generation once it
+has adopted the run.
+
+If an engine fails while adopting a parked run, it removes the local
+adoption state and tries to release the claim so the run can be offered
+again. If that release fails, it retries with backoff. A successful
+adoption of the same run cancels any retry left from the failed attempt.
 
 A Run left queued or running by a process that died is never run again at
 start: nothing picks a run up mid-body. Its Execution Run is reconciled

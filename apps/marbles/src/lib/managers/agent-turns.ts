@@ -79,7 +79,7 @@ export function replayedStream<OUTPUT extends Output.Output>(
     outcome: Promise.resolve("complete"),
     output: Promise.resolve(reply.output),
     partialOutputStream: (async function* () {
-      // A replayed turn streams nothing.
+      yield* [];
     })(),
     result: Promise.resolve(undefined),
     text: Promise.resolve(reply.text),

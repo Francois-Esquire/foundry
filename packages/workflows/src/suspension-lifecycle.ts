@@ -101,11 +101,9 @@ export class SuspensionLifecycle {
         expectedRevision: options.expectedRevision ?? current.revision,
         outcome: { resolution, status: "resolved" },
       });
-      try {
-        await this.#publish(settlement.suspension);
-      } catch {
-        // Observation is subordinate to durable control state. The injected
-      }
+      await (async () => this.#publish(settlement.suspension))().catch(
+        () => undefined
+      );
       await this.#resume(settlement.suspension, resolution);
       return settlement.suspension;
     });

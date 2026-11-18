@@ -4,11 +4,11 @@ const WHOLE_PID = /^\d+\s*$/;
 
 export async function pidWritten(path: string): Promise<number> {
   for (let i = 0; i < 500; i += 1) {
-    let text = "";
+    let text: string;
     try {
       text = readFileSync(path, "utf8");
     } catch {
-      // Not made yet.
+      text = "";
     }
     if (WHOLE_PID.test(text)) {
       return Number(text.trim());

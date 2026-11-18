@@ -48,15 +48,11 @@ function probingModel() {
 }
 
 async function drainGeneric(stream: AsyncIterable<unknown>): Promise<void> {
-  for await (const _event of stream) {
-    // exhaust
-  }
+  await Array.fromAsync(stream);
 }
 
 async function drain(stream: AsyncIterable<SessionEvent>): Promise<void> {
-  for await (const _event of stream) {
-    // exhaust
-  }
+  await Array.fromAsync(stream);
 }
 
 describe("AgentHarness.policy", () => {

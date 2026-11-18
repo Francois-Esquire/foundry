@@ -607,12 +607,9 @@ async function hasNonEmptyOnnx(dir: string): Promise<boolean> {
         return true;
       }
     } else if (entry.name.endsWith(".onnx")) {
-      try {
-        if ((await stat(full)).size > 0) {
-          return true;
-        }
-      } catch {
-        // Unreadable file — keep scanning; another weight may qualify.
+      const info = await stat(full).catch(() => undefined);
+      if (info !== undefined && info.size > 0) {
+        return true;
       }
     }
   }

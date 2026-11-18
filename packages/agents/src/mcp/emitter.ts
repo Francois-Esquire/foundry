@@ -27,7 +27,8 @@ export class McpEmitter<Events> {
       try {
         (listener as McpListener<Events[K]>)(payload);
       } catch {
-        // Keep delivering to the remaining listeners.
+        // biome-ignore lint/complexity/noUselessContinue: Keep delivering after a listener throws.
+        continue;
       }
     }
   }
