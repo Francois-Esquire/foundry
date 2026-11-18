@@ -6,7 +6,6 @@ import {
 } from "../editor/artifact-host";
 import { serverSentEvents } from "../events";
 
-/** A streamed response whose body stays open until told otherwise. */
 function stream(...events: string[]) {
   const cancel = vi.fn();
   let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -75,7 +74,6 @@ it("closes the watch response once the editor stops reading it", async () => {
     after,
     new AbortController().signal
   )) {
-    // The session stops following a removed workbook.
     expect(event).toEqual(removed);
     break;
   }

@@ -1,4 +1,3 @@
-/** Why the workbook refused a change or a file. */
 export type WorkbookErrorCode =
   | "contents-too-long"
   | "duplicate-sheet-name"
@@ -11,7 +10,6 @@ export type WorkbookErrorCode =
   | "too-many-sheets"
   | "unknown-sheet";
 
-/** A refused change: the workbook is left as it was. */
 export class WorkbookError extends Error {
   override readonly name = "WorkbookError";
   readonly code: WorkbookErrorCode;

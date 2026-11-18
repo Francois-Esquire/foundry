@@ -47,7 +47,6 @@ it("saves typed contents, not values, and reopens them calculated", () => {
     kind: "number",
     value: 40,
   });
-  // Reopened, it still recalculates, and saves the same file.
   expect(reopened.toFile()).toBe(saved);
   reopened.enter({ cell: "B2", sheet: "Inputs" }, "6");
   expect(reopened.value({ cell: "A1", sheet: "Totals" })).toEqual({
@@ -114,15 +113,11 @@ it("refuses files that break the workbook's rules", () => {
   expect(refusedOpen(" ".repeat(WORKBOOK_MAX_BYTES + 1))).toBe("too-large");
 });
 
-/** UTF-8 bytes of a frame or string as JSON, how the Gateway measures frames. */
 const sentBytes = (value: unknown) =>
   new TextEncoder().encode(JSON.stringify(value)).byteLength;
-/** The Gateway's frame limit, in both directions. */
 const GATEWAY_FRAME_BYTES = 1_048_576;
 
 it("refuses an edit whose file would be too large to send and preserves the prior workbook", () => {
-  // Each backslash is 2 bytes in the file and 4 once the file is sent as
-  // a JSON string, so this workbook's file is half the limit when refused.
   const workbook = Workbook.create();
   const long = "\\".repeat(30_000);
   for (let row = 1; row <= 8; row += 1) {
@@ -153,8 +148,6 @@ it("refuses to open a file Sheets could not send back", () => {
 });
 
 it("fits every workbook it accepts in the Gateway frames that carry it", () => {
-  // Quotes, backslashes and control characters grow when escaped; the rest
-  // are multibyte in UTF-8, and slicing splits surrogate pairs too.
   const mixed = '\\"\n\t\u0001\u001fé漢😀'
     .repeat(4000)
     .slice(0, MAX_CONTENTS_LENGTH);
@@ -174,7 +167,6 @@ it("fits every workbook it accepts in the Gateway frames that carry it", () => {
   expect(sentBytes(text)).toBeLessThanOrEqual(WORKBOOK_MAX_BYTES);
   expect(sentBytes(text)).toBeGreaterThan(WORKBOOK_MAX_BYTES - 200_000);
 
-  // Every field at the longest the Gateway or Works' contract allows.
   const id = "i".repeat(256);
   const request = "r".repeat(200);
   const digest = "d".repeat(64);
@@ -204,7 +196,6 @@ it("fits every workbook it accepts in the Gateway frames that carry it", () => {
     kind: "invoke",
     mode: "unary",
   };
-  // What a lost save gets back when another Sheets editor saved this text.
   const conflict = {
     id,
     kind: "result",

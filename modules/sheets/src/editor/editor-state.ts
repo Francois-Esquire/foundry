@@ -11,7 +11,6 @@ const connectionSchema = z.strictObject({
 
 type Connection = z.infer<typeof connectionSchema>;
 
-/** The parent requests a private reporting channel; dirty state never uses window messages. */
 export class EditorStateConnection {
   readonly #page: Window;
   #connection: Connection | null = null;
@@ -75,7 +74,6 @@ export class EditorStateConnection {
         type: "foundry.editor-state/report",
       });
     } catch {
-      // Losing a report must not clear the host's last guard or fail an edit.
       this.#disconnect();
     }
   }
@@ -87,7 +85,6 @@ export class EditorStateConnection {
   }
 }
 
-/** React owns the current dirty value; the connection only retains it for handshakes. */
 export function useEditorState(dirty: boolean): void {
   const [connection] = useState(() => new EditorStateConnection(window));
   useLayoutEffect(() => connection.setDirty(dirty), [connection, dirty]);

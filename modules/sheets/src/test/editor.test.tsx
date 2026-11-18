@@ -69,7 +69,6 @@ it("moves the selection and focus with the arrow keys", async () => {
   fireEvent.keyDown(cell("B1"), { key: "ArrowDown" });
   expect(document.activeElement).toBe(cell("B2"));
   expect(screen.getByLabelText("B2")).toBe(contentsField());
-  // The edge of the visible grid stops the selection.
   fireEvent.keyDown(cell("B2"), { key: "ArrowUp" });
   fireEvent.keyDown(cell("B1"), { key: "ArrowUp" });
   expect(document.activeElement).toBe(cell("B1"));
@@ -153,7 +152,6 @@ it("keeps what the user is typing when a newer save loads underneath", async () 
   fireEvent.change(contentsField(), { target: { value: "draft" } });
   act(() => host.saveElsewhere(workbookFile({ A1: "remote", B1: "remote" })));
   await waitFor(() => expect(cell("B1").textContent).toBe("remote"));
-  // Same sheet, same cell: the text stays where it was typed, still focused.
   expect(contentsField().value).toBe("draft");
   expect(document.activeElement).toBe(contentsField());
   fireEvent.click(screen.getByRole("button", { name: "Enter" }));
@@ -161,7 +159,6 @@ it("keeps what the user is typing when a newer save loads underneath", async () 
   expect(savedContents(session, "B1")).toBe("remote");
 });
 
-/** Another writer saves a workbook whose first sheet is `first`. */
 function savedElsewhere(host: FakeHost, first: string, others: string[] = []) {
   const remote = workbooks.create();
   remote.renameSheet("Sheet1", first);
@@ -181,7 +178,6 @@ it("keeps typed text, unentered, when its sheet is renamed elsewhere", async () 
     "Not entered in Sheet1!A1"
   );
   expect(stranded.value).toBe("pending text");
-  // The field shows the renamed sheet's cell and takes no typing meanwhile.
   expect(contentsField().value).toBe("remote");
   expect(contentsField().readOnly).toBe(true);
   fireEvent.blur(contentsField());
@@ -200,13 +196,11 @@ it("keeps typed text, unentered, when its sheet is removed elsewhere", async () 
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(session.getSnapshot().dirty).toBe(false));
   fireEvent.change(contentsField(), { target: { value: "on sheet 2" } });
-  // Sheet2 is gone from the newer save; Sheet1 remains.
   savedElsewhere(host, "Sheet1");
   const stranded = await screen.findByLabelText<HTMLInputElement>(
     "Not entered in Sheet2!A1"
   );
   expect(stranded.value).toBe("on sheet 2");
-  // Choosing another cell does not drop it either.
   fireEvent.click(cell("B2"));
   expect(screen.getByLabelText("Not entered in Sheet2!A1")).toBe(stranded);
   expect(savedContents(session, "A1")).toBe("remote");
@@ -220,7 +214,6 @@ it("keeps stranded text however editing is started, until it is discarded", asyn
     screen.getByLabelText<HTMLInputElement>("Not entered in Sheet1!A1");
   await waitFor(() => expect(stranded().value).toBe("precious draft"));
   const attempts = {
-    // The field is read only; a change that gets through anyway is refused.
     "a change": () =>
       fireEvent.change(contentsField(), { target: { value: "typed over" } }),
     "a double click": () => fireEvent.doubleClick(cell("A1")),
@@ -252,8 +245,6 @@ it("never enters stranded text in a different sheet that takes its sheet's name"
   const notice = () =>
     screen.getByLabelText<HTMLInputElement>("Not entered in Sheet1!A1");
 
-  // Two later saves bring back a sheet named Sheet1. It is not the sheet
-  // the text was typed for, so blurring the field enters nothing.
   for (const others of [["Renamed"], []]) {
     savedElsewhere(host, "Sheet1", others);
     await screen.findByRole("button", { name: "Sheet1" });
@@ -278,7 +269,6 @@ const renameButton = () =>
 it("keeps a sheet name being typed when its sheet is renamed elsewhere", async () => {
   const { host, session } = await editor();
   fireEvent.change(sheetName(), { target: { value: "my unfinished name" } });
-  // A save that keeps the sheet keeps the name being typed.
   act(() => host.saveElsewhere(workbookFile({ A1: "remote" })));
   await waitFor(() => expect(cell("A1").textContent).toBe("remote"));
   expect(sheetName().value).toBe("my unfinished name");
@@ -292,7 +282,6 @@ it("keeps a sheet name being typed when its sheet is renamed elsewhere", async (
   expect(sheetName().readOnly).toBe(true);
   expect(renameButton().disabled).toBe(true);
 
-  // A different Sheet1 arriving later is not given the name either.
   savedElsewhere(host, "Sheet1", ["Renamed"]);
   await screen.findByRole("button", { name: "Sheet1" });
   fireEvent.change(sheetName(), { target: { value: "typed over" } });
@@ -343,7 +332,6 @@ it("enters the text when Enter is clicked with the mouse and returns focus to th
   const enter = screen.getByRole<HTMLButtonElement>("button", {
     name: "Enter",
   });
-  // A browser moves focus to the button on mousedown, unless prevented.
   if (fireEvent.mouseDown(enter)) {
     act(() => enter.focus());
   }

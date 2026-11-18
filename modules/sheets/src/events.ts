@@ -1,13 +1,5 @@
 const EVENT_PREFIX = /^data: /;
 
-/**
- * Each server-sent event of one streamed response, parsed as JSON.
- *
- * However iteration ends (the stream ends, the caller returns early, an
- * event is not JSON, or `signal` aborts while waiting for the next chunk),
- * the response body is cancelled and its reader released, so the
- * connection closes and the server sees the client leave.
- */
 export async function* serverSentEvents<T>(
   response: Response,
   signal?: AbortSignal
@@ -16,7 +8,6 @@ export async function* serverSentEvents<T>(
   if (!reader) {
     return;
   }
-  // A blocked read only returns once the reader is cancelled.
   const stop = () => {
     reader.cancel().catch(() => undefined);
   };

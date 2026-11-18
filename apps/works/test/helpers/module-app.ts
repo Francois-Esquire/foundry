@@ -11,12 +11,10 @@ import { createModuleProxy } from "~/main/modules/runtime/proxy";
 import { connectModuleSocket } from "~/main/modules/runtime/websocket";
 import { composeTestWorks } from "./works";
 
-/** Undone in reverse once the test ends. */
 export type Cleanups = (() => Promise<void>)[];
 
 const EVENT_PREFIX = /^data: /;
 
-/** The released Program from `artifact/`, run by Bun on the host instead of a VM. */
 async function startProgram(
   release: string,
   cleanups: Cleanups
@@ -37,7 +35,6 @@ async function startProgram(
   return `http://127.0.0.1:${line.replace("listening ", "")}`;
 }
 
-/** Reads server-sent events from a streamed response, one JSON value each. */
 export function events(response: Response) {
   const reader = response.body?.getReader();
   const decoder = new TextDecoder();
@@ -62,7 +59,6 @@ export function events(response: Response) {
   };
 }
 
-/** One Works "process" with the Artifact and execution providers, under a temporary folder. */
 export async function composeModuleWorks(cleanups: Cleanups) {
   const root = await realpath(
     await mkdtemp(path.join(tmpdir(), "works-fixture-"))
@@ -73,11 +69,6 @@ export async function composeModuleWorks(cleanups: Cleanups) {
   return composed;
 }
 
-/**
- * An imported Module with every capability its Manifest requests
- * approved, its Program running on the host behind the real Gateway and
- * its Views' requests passing through Works' proxy.
- */
 export async function runModuleApp({
   cleanups,
   composed: { programs, works },
@@ -104,8 +95,6 @@ export async function runModuleApp({
     await works.rpc.access.approve(moduleId, capability);
   }
 
-  // The Program runs from its selected release's `artifact/`, connected to
-  // the real Gateway; the View's requests pass through Works' proxy.
   const app = await works.testing.runtime.start(
     version,
     new AbortController().signal
@@ -134,7 +123,6 @@ export async function runModuleApp({
   const proxy = createModuleProxy({ endpoint: () => endpoint }, fetch);
   const view = (pathname: string, init?: RequestInit) =>
     proxy(new Request(new URL(pathname, "module-app://token"), init));
-  /** A watch, as the Module's Views ask for one: an event stream. */
   const follow = (pathname: string) =>
     view(pathname, { headers: { accept: "text/event-stream" } });
   const call = async <T>(

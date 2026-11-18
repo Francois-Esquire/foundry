@@ -20,7 +20,6 @@ async function opened(host = new FakeHost()) {
 }
 
 const snapshot = (session: EditorSession) => session.getSnapshot();
-/** The fake watch delivers in microtasks, so one macrotask lets it finish. */
 const watched = () => new Promise((resolve) => setTimeout(resolve, 0));
 const contents = (session: EditorSession) =>
   snapshot(session).workbook?.contents(A1);
@@ -115,7 +114,6 @@ it("does not let a reload read before a save replace the workbook after it", asy
   const releaseSave = host.hold("save");
   const loading = session.loadNewer();
   const saving = session.save();
-  // The read answers while the save is still in flight, then after it.
   releaseRead();
   await loading;
   expect(contents(session)).toBe("mine");
@@ -133,7 +131,6 @@ it("keeps edits made while a save is in flight on top of the saved version", asy
   const saving = session.save();
   expect(snapshot(session).saving).toBe(true);
   enter(session, "3");
-  // A second save waits for the first.
   await session.save();
   release();
   await saving;
@@ -150,7 +147,6 @@ it("loads a newer save the watch reported before its own save was answered", asy
   enter(session, "mine");
   const release = host.hold("answer");
   const saving = session.save();
-  // Saved as d2; another writer saves d3 before the answer arrives.
   await vi.waitFor(() => expect(host.saves).toHaveLength(1));
   host.saveElsewhere(workbookFile({ A1: "theirs" }));
   await vi.waitFor(() => expect(snapshot(session).newer).toBe(true));
@@ -187,7 +183,6 @@ it("treats its own save, watched before the answer, as not newer", async () => {
   enter(session, "mine");
   const release = host.hold("answer");
   const saving = session.save();
-  // The watch reports d2, this save, while the Draft still has base d1.
   await vi.waitFor(() => expect(snapshot(session).newer).toBe(true));
   release();
   await saving;
@@ -206,7 +201,6 @@ it("keeps a newer save reported after a lost save when keeping mine", async () =
   release();
   await saving;
   expect(snapshot(session).conflict).toBe(true);
-  // A third version lands, and is watched, before the user chooses.
   host.saveElsewhere(workbookFile({ A1: "third" }));
   await watched();
 

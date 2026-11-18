@@ -24,7 +24,6 @@ import type {
 import { ModuleGatewayError } from "./types";
 
 export interface CreateModuleGatewayOptions {
-  /** Maximum shutdown wait for provider work; unfinished request IDs are reported. */
   readonly cancellationGraceMs?: number;
   readonly handshakeTimeoutMs?: number;
   readonly heartbeatIntervalMs?: number;
@@ -384,7 +383,6 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
         trackWork: (work) => this.#work.track(request.id, work),
       });
       if (controller.signal.aborted && result.mode === "stream") {
-        // A result arriving after cancellation still owns an iterator to dispose.
         await result.events[Symbol.asyncIterator]().return?.();
       }
       controller.signal.throwIfAborted();
@@ -455,15 +453,12 @@ class DefaultModuleGatewaySession implements ModuleGatewaySession {
   }
 
   #send(frame: ModuleGatewayHostFrame): Promise<void> {
-    // A refused frame is a request failure, not a transport failure.
     try {
       assertFrameSize(frame, this.#settings);
     } catch (error) {
       return Promise.reject(error);
     }
     const send = this.#sendTail.then(() => this.#transport.send(frame));
-    // Teardown must not enter the send queue: it drains dispatches that may
-    // themselves be awaiting a queued send.
     this.#sendTail = send.catch(() => this.#transportFailed());
     return send;
   }

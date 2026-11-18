@@ -14,16 +14,6 @@ import type { SavedSheet } from "../workbook/file";
 import type { CellValue } from "../workbook/value";
 import { Calculation, FormulaEngine, type FormulaRewrite } from "./engine";
 
-/**
- * HyperFormula 3.5 behind the FormulaEngine specification. A temporary
- * choice: HyperFormula is GPL-3.0-only unless a proprietary key is bought
- * (see the README), and it is used here under the GPL. Nothing from the
- * `hyperformula` package leaves this file.
- *
- * HyperFormula would read `10%` or `$10` as numbers, so values reach it
- * already typed by `readContents`, and text goes in quoted. Only formulas
- * are left for it to parse.
- */
 export class HyperFormulaEngine extends FormulaEngine {
   calculate(sheets: readonly SavedSheet[]): Calculation {
     return new HyperFormulaCalculation(sheets);
@@ -36,9 +26,6 @@ export class HyperFormulaEngine extends FormulaEngine {
   ): readonly FormulaRewrite[] {
     const engine = build(sheets);
     try {
-      // HyperFormula stores references by sheet id and prints formulas
-      // anew, so compare its printed formulas before and after instead of
-      // replacing typed contents with its normalized spelling.
       const formulas = sheets.flatMap((sheet) =>
         Object.entries(sheet.cells)
           .filter(([, contents]) => contents.startsWith("="))
@@ -88,7 +75,6 @@ class HyperFormulaCalculation extends Calculation {
 
 function build(sheets: readonly SavedSheet[]): HyperFormula {
   const engine = HyperFormula.buildEmpty({
-    // No date or time parsing: typed dates stay text.
     dateFormats: [],
     licenseKey: "gpl-v3",
     maxColumns: MAX_COLUMNS,
@@ -97,8 +83,6 @@ function build(sheets: readonly SavedSheet[]): HyperFormula {
   });
   try {
     engine.suspendEvaluation();
-    // Every sheet exists before any formula is set, so references to a
-    // sheet listed later resolve.
     for (const sheet of sheets) {
       engine.addSheet(sheet.name);
     }
@@ -118,14 +102,12 @@ function build(sheets: readonly SavedSheet[]): HyperFormula {
   }
 }
 
-/** Contents as HyperFormula should take them, read the Sheets way. */
 function typed(contents: string): RawCellContent {
   const read = readContents(contents);
   switch (read.kind) {
     case "formula":
       return read.formula;
     case "text":
-      // HyperFormula reads a leading `'` as "the rest is text", too.
       return `'${read.value}`;
     default:
       return read.value;

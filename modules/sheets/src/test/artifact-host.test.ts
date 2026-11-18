@@ -8,11 +8,6 @@ import { WORKBOOK_MAX_BYTES } from "../workbook/file";
 
 const CHUNK = 4;
 
-/**
- * Works' read protocol for one entry, served in small chunks. `digests`
- * gives the digest each read request reports, in order; the binding always
- * reports `digest`.
- */
 function entry(
   text: string,
   { digest = "d1", digests = [] as string[], bytes = 0 } = {}
@@ -127,7 +122,6 @@ it("resumes a dropped watch after the last version it reported", async () => {
     request: () => Promise.reject(new Error("not requested")),
     watch: async (query) => {
       queries.push(query.toString());
-      // Each stream reports one change and then drops.
       return new Response(`data: ${JSON.stringify(event)}\n\n`);
     },
   };

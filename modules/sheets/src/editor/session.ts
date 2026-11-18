@@ -15,7 +15,6 @@ import type { CellValue } from "../workbook/value";
 import type { Workbook } from "../workbook/workbook";
 import type { OpenWorkbook, WorkbookHost } from "./host";
 
-/** The edits the editor can ask for; each one is applied atomically or refused. */
 export type WorkbookEdit =
   | {
       readonly kind: "enter";
@@ -31,12 +30,6 @@ export type WorkbookEdit =
     }
   | { readonly kind: "remove-sheet"; readonly sheet: string };
 
-/**
- * What the editor may read from the open workbook. A new view is published
- * whenever the workbook changes, so its identity is a render dependency.
- * Read it during the render it was published for; later calls answer for
- * the current workbook.
- */
 export interface WorkbookView {
   contents(reference: CellReference): string;
   readonly sheets: readonly string[];
@@ -45,14 +38,11 @@ export interface WorkbookView {
 
 export interface EditorSnapshot {
   readonly binding: string | null;
-  /** A save lost to another writer and the user has not chosen a version. */
   readonly conflict: boolean;
-  /** A new workbook is being created; it opens once the host answers. */
   readonly creating: boolean;
   readonly dirty: boolean;
   readonly message: string;
   readonly name: string;
-  /** A newer saved version exists; it was not loaded because edits are kept. */
   readonly newer: boolean;
   readonly ready: boolean;
   readonly saving: boolean;
@@ -60,22 +50,6 @@ export interface EditorSnapshot {
   readonly writable: boolean;
 }
 
-/**
- * One open workbook in the editor: its contents, its Draft against the saved
- * entry, and every asynchronous answer from the host. React subscribes to
- * snapshots and calls the methods; it owns none of this state.
- *
- * Guarantees:
- * - An answer that arrives after a local change it did not see (an edit, a
- *   save, a reload or a conflict choice) never replaces the workbook. A newer
- *   saved version is surfaced instead and local edits stay.
- * - At most one save is in flight. Edits made during it stay dirty on top of
- *   the saved base.
- * - A session opens at most one workbook and follows it with one watch.
- *   Opening and creating are serialized: a second `create()` while one is
- *   in flight waits for it instead of creating another workbook.
- * - After `close()` nothing is published and every host request is aborted.
- */
 export class EditorSession {
   readonly #host: WorkbookHost;
   readonly #workbooks: Workbooks;
@@ -86,11 +60,8 @@ export class EditorSession {
   #workbook?: Workbook;
   #view?: WorkbookView;
   #started: boolean;
-  /** The open (or create, then open) in flight, if any. */
   #opening: Promise<void> | null = null;
-  // Widened so lint sees the flag as mutable; opening sets it later.
   #following = false as boolean;
-  /** Bumped by every local change an in-flight answer must not overwrite. */
   #generation = 0;
   #state: EditorSnapshot;
 
@@ -124,7 +95,6 @@ export class EditorSession {
     return () => this.#listeners.delete(listener);
   };
 
-  /** Opens the bound workbook and follows its saves. Later calls do nothing. */
   async start(): Promise<void> {
     if (this.#started) {
       return;
@@ -137,7 +107,6 @@ export class EditorSession {
     await this.#serialized(this.#open(this.#binding));
   }
 
-  /** Applies one edit. Returns whether the workbook changed. */
   apply(change: WorkbookEdit): boolean {
     const workbook = this.#workbook;
     const draft = this.#draft;
@@ -198,10 +167,6 @@ export class EditorSession {
     await this.#reloadIfClean();
   }
 
-  /**
-   * Creates a blank workbook in the host and opens it. Does nothing once a
-   * workbook is bound; while a create is in flight it returns that one.
-   */
   create(): Promise<void> {
     if (this.#opening) {
       return this.#opening;
@@ -213,12 +178,10 @@ export class EditorSession {
     return this.#serialized(this.#createAndOpen());
   }
 
-  /** Drops local edits and loads the newer saved version. */
   async loadNewer(): Promise<void> {
     await this.#reload(true);
   }
 
-  /** Resolves a conflict by keeping local edits; the next save replaces theirs. */
   keepLocal(): void {
     if (!this.#draft?.conflict || this.#state.saving) {
       return;
@@ -230,7 +193,6 @@ export class EditorSession {
     });
   }
 
-  /** Resolves a conflict by showing the version saved elsewhere. */
   takeSaved(): void {
     if (!this.#draft?.conflict || this.#state.saving) {
       return;
@@ -287,7 +249,6 @@ export class EditorSession {
     let document: OpenWorkbook;
     try {
       document = await this.#host.read(binding, this.#abort.signal);
-      // The session binds once, so an answer for another binding is stale.
       if (this.#abort.signal.aborted || binding !== this.#binding) {
         return;
       }
@@ -342,7 +303,6 @@ export class EditorSession {
     }
   }
 
-  /** Loads a newer version the watch reported, now that nothing is lost. */
   async #reloadIfClean(): Promise<void> {
     const draft = this.#draft;
     if (draft?.newer && !dirty(draft)) {
@@ -369,8 +329,6 @@ export class EditorSession {
       return;
     }
     if (sameBase(document.base, draft.base)) {
-      // The version the watch reported before this read is not newer
-      // after all. One it reported during the read still is.
       this.#draft =
         draft.newer === reported ? { ...draft, newer: null } : draft;
       this.#publish({});
@@ -393,7 +351,6 @@ export class EditorSession {
     this.#loaded(document, "Updated from a newer save");
   }
 
-  /** Replaces the workbook, or throws and leaves the current one. */
   #install(text: string): void {
     const next = this.#workbooks.open(text);
     this.#workbook?.close();
@@ -403,8 +360,6 @@ export class EditorSession {
   }
 
   #loaded(document: OpenWorkbook, message: string): void {
-    // The Draft holds the workbook's own file, so a differently spelled
-    // but equal file is not mistaken for an edit.
     this.#draft = opened(
       document.base,
       this.#workbook?.toFile() ?? document.text
@@ -452,7 +407,6 @@ function viewOf(workbook: Workbook): WorkbookView {
   };
 }
 
-/** An edit that would leave the workbook as it is. */
 function unchanged(workbook: Workbook, change: WorkbookEdit): boolean {
   if (change.kind === "enter") {
     return workbook.contents(change) === change.contents;

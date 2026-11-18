@@ -36,7 +36,6 @@ export type ModuleConstraintsPrincipal = Omit<
 
 /** Transport adapter owned by the host. Frame parsing remains inside Gateway. */
 export interface ModuleTransport {
-  /** Must not await session.close(): the session itself awaits transport cleanup. */
   close(reason: string): Promise<void>;
   readonly closed: Promise<void>;
   readonly incoming: AsyncIterable<unknown>;
@@ -195,7 +194,6 @@ export class ModuleGatewayError extends Error {
 }
 
 export interface ModuleGatewayClose {
-  /** Provider work still running after shutdown grace; late failures stay observed. */
   readonly abandoned?: readonly string[];
   readonly code: ModuleGatewayCloseCode;
   readonly reason: string;
@@ -349,7 +347,6 @@ export interface ModuleGatewayRuntimeDispatcher {
     readonly capabilities: readonly ModuleCapabilityRequest[];
     readonly request: ModuleGatewayInvocationFrame;
     readonly signal: AbortSignal;
-    /** Retain ownership of work that can outlive a prompt cancellation response. */
     readonly trackWork?: (work: Promise<unknown>) => void;
   }): Promise<ModuleGatewayDispatchResult>;
   revoke(input: {

@@ -8,7 +8,6 @@ import { workbooks } from "./helpers/workbooks";
 
 specifyFormulaEngine("HyperFormulaEngine", () => new HyperFormulaEngine());
 
-/** HyperFormula, until told to fail the way a broken engine would. */
 class FailingEngine extends HyperFormulaEngine {
   failing: boolean;
 
@@ -60,9 +59,6 @@ it("refuses an edit whose calculation fails and keeps its previous state", () =>
 });
 
 it("depends on the FormulaEngine specification alone", () => {
-  // Shows the Workbook reaches its engine only through the specification.
-  // It says nothing about whether another real engine would pass the
-  // specification suite above.
   class Constant extends Calculation {
     value() {
       return { kind: "number", value: 42 } as const;
@@ -93,8 +89,6 @@ it("depends on the FormulaEngine specification alone", () => {
 });
 
 it("records HyperFormula's answers where the specification leaves the engine free", () => {
-  // Not part of the specification: another engine may differ here. Kept so
-  // a change of engine shows which of these workbooks would change.
   const workbook = workbooks.open(
     JSON.stringify({
       format: "foundry.workbook/1",
@@ -123,7 +117,6 @@ it("records HyperFormula's answers where the specification leaves the engine fre
   expect(at("A4")).toEqual({ kind: "number", value: 6 });
   expect(at("A5")).toMatchObject({ kind: "error", value: "#NAME?" });
   expect(at("A6")).toEqual({ kind: "boolean", value: true });
-  // Arrays spill into empty cells, which have no contents to save.
   expect(at("B2")).toEqual({ kind: "number", value: 2 });
   expect(workbook.contents({ cell: "B2", sheet: "Sheet1" })).toBe("");
   expect(JSON.parse(workbook.toFile()).sheets[0].cells.B2).toBeUndefined();

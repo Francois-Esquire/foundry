@@ -82,8 +82,6 @@ describe("authorized Module Gateway dispatch", () => {
           })
         )
       );
-      // A cancelled response frees canonical admission capacity, while shutdown
-      // separately retains the resolver that is still blocked above.
       transport.push({ ...request, id: "after-cancel" });
       await vi.waitFor(() =>
         expect(transport.send).toHaveBeenCalledWith({
