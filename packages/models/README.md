@@ -106,6 +106,10 @@ configured CLI's app-server and closes the listing client afterward. The
 supplied environment must include `CODEX_HOME` or `HOME`. The helper
 puts the CLI's reported default first. Pass the returned rows to
 `codexProvider`, which starts with an empty catalog when given no rows.
+The loader adds family selectors such as `sol` from visible, stable
+versioned GPT IDs. Each selector uses the highest unambiguous numeric
+version in the listing, subject to exact catalog names taking precedence.
+Exact IDs and the provider default keep their own routes.
 Cancellation closes the client, which sends SIGTERM to the listing
 app-server. The SDK's listing API exposes no child process handle, so
 Foundry cannot record that process for crash recovery or escalate the

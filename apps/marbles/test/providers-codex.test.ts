@@ -64,9 +64,23 @@ it("loads the configured Codex accounts independently and honors model defaults"
     expect(models.available("codex/gpt-5.5")).toBe(false);
     listing(machineHome, [
       { id: "gpt-5.5" },
+      { id: "gpt-6.2-sol" },
       { id: "machine-default", isDefault: true },
     ]);
     expect(await config.refresh()).toEqual([]);
+    expect(selectExecutor(models).model).toBe("machine-default");
+    expect(models.available("codex/sol")).toBe(true);
+    using held = models.resolve("text", "codex/sol");
+    expect(held.open().modelId).toBe("gpt-6.2-sol");
+    listing(machineHome, [
+      { id: "gpt-6.10-sol" },
+      { id: "gpt-6.2-sol" },
+      { id: "machine-default", isDefault: true },
+    ]);
+    expect(await config.refresh()).toEqual([]);
+    using newer = models.resolve("text", "codex/sol");
+    expect(newer.open().modelId).toBe("gpt-6.10-sol");
+    expect(held.open().modelId).toBe("gpt-6.2-sol");
     expect(selectExecutor(models).model).toBe("machine-default");
     expect(models.resolve("text", { provider: "work" }).model).toBe(
       "workspace-preferred"
@@ -84,6 +98,7 @@ it("loads the configured Codex accounts independently and honors model defaults"
     listing(machineHome, []);
     expect(await config.refresh()).toEqual([]);
     expect(models.available("codex/machine-default")).toBe(false);
+    expect(models.available("codex/sol")).toBe(false);
     expect(models.available("codex/gpt-5.5")).toBe(false);
     expect(config.list().find(({ id }) => id === "codex")?.state).toBe(
       "unavailable"

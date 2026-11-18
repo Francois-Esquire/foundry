@@ -32,8 +32,13 @@ export interface CodexProviderOptions {
 const EXIT_GRACE_MS = 2000;
 const KILL_GRACE_MS = 1000;
 const RECORD_POLL_MS = 10;
+const GPT_FAMILY =
+  /^gpt-([1-9]\d*(?:\.(?:0|[1-9]\d*))*)-(?!(?:fast|preview|alpha|beta|experimental|latest|snapshot)$)([a-z]+)$/;
 
 type AppServerClient = ReturnType<typeof createCodexAppServer>;
+type ListedModels = Awaited<
+  ReturnType<AppServerClient["listModels"]>
+>["models"];
 
 function appServer(
   binPath: string | undefined,
@@ -73,9 +78,10 @@ export async function codexModels({
       cancelled.promise,
     ]);
     const preferred = models.find((model) => model.isDefault && model.id)?.id;
-    return fromCodexListing(models).sort(
+    const rows = fromCodexListing(models).sort(
       (a, b) => Number(b.id === preferred) - Number(a.id === preferred)
     );
+    return [...rows, ...codexFamilies(models, rows)];
   } catch (error) {
     signal?.throwIfAborted();
     throw new Error("Codex app-server could not list models", { cause: error });
@@ -83,6 +89,53 @@ export async function codexModels({
     signal?.removeEventListener("abort", abort);
     await client.close();
   }
+}
+
+interface FamilyCandidate {
+  readonly id: string;
+  tied: boolean;
+  readonly version: readonly bigint[];
+}
+
+function compareVersions(a: readonly bigint[], b: readonly bigint[]): number {
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const left = a[index] ?? 0n;
+    const right = b[index] ?? 0n;
+    if (left !== right) {
+      return left > right ? 1 : -1;
+    }
+  }
+  return 0;
+}
+
+function codexFamilies(
+  models: ListedModels,
+  rows: readonly ProviderModelDefinition[]
+): ProviderModelDefinition[] {
+  const offered = new Map(rows.map((row) => [row.id, row]));
+  const latest = new Map<string, FamilyCandidate>();
+  for (const { hidden, id, model } of models) {
+    if (!offered.has(id) || hidden || (model !== undefined && model !== id)) {
+      continue;
+    }
+    const [, versionText, family] = GPT_FAMILY.exec(id) ?? [];
+    if (!(versionText && family) || offered.has(family)) {
+      continue;
+    }
+    const version = versionText.split(".").map(BigInt);
+    const kept = latest.get(family);
+    const order =
+      kept === undefined ? 1 : compareVersions(version, kept.version);
+    if (order > 0) {
+      latest.set(family, { id, tied: false, version });
+    } else if (order === 0 && kept && kept.id !== id) {
+      kept.tied = true;
+    }
+  }
+  return [...latest].flatMap(([id, { id: target, tied }]) => {
+    const row = offered.get(target);
+    return row && !tied ? [{ ...row, id }] : [];
+  });
 }
 
 interface AppServer {

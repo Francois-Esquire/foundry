@@ -1,4 +1,5 @@
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { ModelManager } from "@foundry/models";
 import { beforeEach, expect, it, vi } from "vitest";
 import { CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";
@@ -54,10 +55,10 @@ function deps(
   };
 }
 
-async function open(d: AgentsDeps) {
+async function open(d: AgentsDeps, definition = coder) {
   const manager = new AgentsManager(d);
   try {
-    await manager.session(coder, { sandbox });
+    await manager.session(definition, { sandbox });
   } finally {
     await manager.close();
   }
@@ -86,6 +87,24 @@ it("runs a configured CLI provider's own execution in the guest", async () => {
   const settings = await open(deps(() => execution));
   expect(settings?.harness).toBe("codex");
   expect(settings?.execution).toBe(execution);
+});
+
+it("passes the resolved wire ID to a guest while keeping the model selection", async () => {
+  const { execution, provider } = codexPlugin.create({
+    env: { CODEX_HOME: "/work" },
+    id: "codex",
+    models: [{ id: "sol", kind: "text", modelId: "gpt-6.10-sol" }],
+    scope: "machine",
+    settings: { binPath: "/configured/codex" },
+  });
+  const settings = await open(
+    deps(() => execution, new ModelManager({ providers: [provider] })),
+    { ...coder, model: "sol" }
+  );
+  expect(settings).toMatchObject({
+    modelId: "sol",
+    wireModelId: "gpt-6.10-sol",
+  });
 });
 
 it("reads the execution of the instance it resolved, even if the id is rebound before the session opens", async () => {

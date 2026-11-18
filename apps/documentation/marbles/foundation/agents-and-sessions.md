@@ -102,6 +102,19 @@ Claude Code lists models without sending a prompt. Its catalog includes
 offered aliases and the canonical IDs reported by the SDK. The SDK's
 listing leaves context limits and prices unspecified.
 
+Use `codex/sol` to select the newest stable Sol version in the configured
+Codex listing. Version components compare numerically, so `6.10` comes
+after `6.2`. Qualified variants such as `-fast` and `-preview` keep their
+exact IDs. Codex adds a family name only when it can select a unique
+highest version and the name is free. Claude Code resolves
+`claude-code/sonnet` through its own offered alias.
+
+A refresh affects new resolutions. An open Codex session keeps the model
+it already resolved. When a saved session is reopened or a replay opens
+it again, a recorded family name resolves against the current catalog.
+Use an exact model ID if a session must keep the same version across
+reopens.
+
 ## Choose the route when the step runs
 
 `reviewer.extend({ model?, provider?, settings? })` returns the same agent

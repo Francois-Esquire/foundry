@@ -1,6 +1,7 @@
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
+import { ModelManager } from "../manager";
 
 interface Settings {
   codexPath?: string;
@@ -64,6 +65,63 @@ describe("fromCodexListing", () => {
 
 describe("codexModels", () => {
   const binPath = "/configured/codex";
+
+  it("resolves a live family numerically without changing the provider default or exact IDs", async () => {
+    listModels.mockResolvedValueOnce({
+      models: [
+        { id: "gpt-6.2-sol" },
+        { id: "gpt-6.10-sol", model: "gpt-6.10-sol" },
+        { id: "gpt-5.6-sol", isDefault: true },
+        { hidden: true, id: "gpt-9.0-sol" },
+        { id: "gpt-8-sol", model: "other-model" },
+        { id: "gpt-7-sol-fast" },
+        { id: "gpt-7-sol-preview" },
+        { id: "gpt-7-preview" },
+        { id: "custom", name: "GPT-10 Sol" },
+      ],
+    });
+    const rows = await codexModels({ binPath, env });
+    const manager = new ModelManager({
+      providers: [
+        codexProvider({ config: { available: true }, env, models: [...rows] }),
+      ],
+    });
+    using family = manager.resolve("text", "codex/sol");
+    expect(manager.available("codex/sol")).toBe(true);
+    expect(family.definition.modelId).toBe("gpt-6.10-sol");
+    await family.open().doGenerate(CALL);
+    expect(languageModel).toHaveBeenLastCalledWith("gpt-6.10-sol", {});
+    expect(manager.resolve("text").model).toBe("gpt-5.6-sol");
+    expect(
+      manager.resolve("text", "codex/gpt-6.2-sol").definition.modelId
+    ).toBe("gpt-6.2-sol");
+    expect(manager.available("codex/gpt-7-sol-fast")).toBe(true);
+    expect(manager.available("codex/gpt-7-sol-preview")).toBe(true);
+    expect(manager.available("codex/gpt-6.3-sol")).toBe(false);
+    expect(manager.available("codex/luna")).toBe(false);
+    expect(manager.available("codex/preview")).toBe(false);
+  });
+
+  it("keeps an exact family name and avoids guessing between equally ranked stable IDs", async () => {
+    listModels.mockResolvedValueOnce({
+      models: [
+        { id: "gpt-6.10-sol" },
+        { id: "sol" },
+        { id: "gpt-6.10-terra" },
+        { id: "gpt-6.10.0-terra" },
+        { id: "gpt-6.2-terra" },
+        { id: "gpt-6.10-luna" },
+        { id: "gpt-6.10.0-luna" },
+        { id: "gpt-7-luna" },
+      ],
+    });
+    const rows = await codexModels({ binPath, env });
+    expect(
+      rows.filter(({ id }) => id === "sol").map(({ modelId }) => modelId)
+    ).toEqual(["sol"]);
+    expect(rows.some(({ id }) => id === "terra")).toBe(false);
+    expect(rows.find(({ id }) => id === "luna")?.modelId).toBe("gpt-7-luna");
+  });
 
   it("lists with the configured account, closes the client, and puts the reported default first", async () => {
     close.mockClear();

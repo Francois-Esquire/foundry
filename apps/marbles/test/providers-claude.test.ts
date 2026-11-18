@@ -32,6 +32,7 @@ it("loads scoped Claude Code catalogs and uses the reported or configured defaul
     writeFileSync(join(home, "models.json"), JSON.stringify(rows));
   listing(machine, [
     { value: "opus" },
+    { resolvedModel: "claude-sonnet-5", value: "sonnet" },
     { resolvedModel: "claude-opus-5-5", value: "default" },
   ]);
   listing(workspace, [
@@ -70,6 +71,14 @@ it("loads scoped Claude Code catalogs and uses the reported or configured defaul
     expect(await configuration.refresh()).toEqual([]);
     expect(selectExecutor(models).model).toBe("default");
     expect(models.available("claude-code/claude-opus-5-5")).toBe(true);
+    expect(models.available("claude-code/sonnet")).toBe(true);
+    expect(
+      models.resolve("text", "claude-code/sonnet").definition.modelId
+    ).toBe("sonnet");
+    expect(
+      models.resolve("text", "claude-code/claude-sonnet-5").definition.modelId
+    ).toBe("claude-sonnet-5");
+    expect(models.available("work/sonnet")).toBe(false);
     expect(models.available("claude-code/sonnet[1m]")).toBe(false);
     expect(models.available("work/claude-opus-5-5")).toBe(false);
     expect(models.available("work/claude-sonnet-5")).toBe(true);
