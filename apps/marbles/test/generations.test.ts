@@ -1021,7 +1021,8 @@ describe("engine generations", () => {
       await vi.waitFor(
         () =>
           expect(
-            logged(fixture).filter((line) => line.startsWith("where "))
+            logged(fixture).filter((line) => line.startsWith("where ")),
+            lines.join("\n")
           ).toHaveLength(1),
         { interval: 50, timeout: 30_000 }
       );

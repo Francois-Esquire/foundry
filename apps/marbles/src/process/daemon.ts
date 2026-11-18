@@ -45,6 +45,7 @@ import {
   installationDigest,
   printNow,
   type WorkspacePrint,
+  watching,
   withRead,
 } from "~/process/fingerprint";
 import type { ProcessInstance } from "~/process/instance";
@@ -824,9 +825,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
           STOP_TIMEOUT_MS,
           `stopping engine generation ${String(generation.number)}`
         );
-      } else if (signalProven(generation, "SIGTERM")) {
-        // than wait for it to come up.
-      } else {
+      } else if (!signalProven(generation, "SIGTERM")) {
         return;
       }
       await timeout(
@@ -991,7 +990,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     setups: Readonly<Record<string, SetupDraftParams>>
   ): Promise<void> {
     const previous = current;
-    const fingerprint = await announceSwitch(previous);
+    const { fingerprint, watched } = await announceSwitch(previous);
     const number = await records.begin(fingerprint.digest);
     refuseWhileStopping();
     const candidate = spawnGeneration(number, fingerprint);
@@ -1003,7 +1002,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     try {
       loaded = await loadCandidate(candidate, previous);
     } catch (error) {
-      refused = candidate.fingerprint;
+      refused = watching(candidate.fingerprint, watched);
       await refuse(candidate, previous, error);
       throw error;
     }
@@ -1070,9 +1069,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
   }
 
-  async function announceSwitch(
-    previous: Generation | undefined
-  ): Promise<Fingerprint> {
+  async function announceSwitch(previous: Generation | undefined): Promise<{
+    readonly fingerprint: Fingerprint;
+    readonly watched: Fingerprint | undefined;
+  }> {
     installation = installationDigest(script, version);
     installationAt = Date.now();
     const fingerprint = await fingerprintNow();
@@ -1098,7 +1098,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         );
       }
     }
-    return fingerprint;
+    return { fingerprint, watched: before };
   }
 
   async function loadCandidate(
