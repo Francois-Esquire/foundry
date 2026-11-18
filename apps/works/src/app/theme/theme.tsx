@@ -19,11 +19,6 @@ import {
 export type { ThemeMode } from "~/shared/theme";
 export type ResolvedTheme = ThemeAppearance;
 
-/**
- * Where the chosen mode is cached so the next launch can paint it before
- * React mounts. Main owns the preference; before it did, this was the store,
- * so main adopts it once on first run.
- */
 export const THEME_MODE_STORAGE_KEY = "theme-mode";
 
 function readStoredPreference(): ThemeMode | null {
@@ -76,18 +71,12 @@ export function applyStoredTheme(): void {
   applyThemeClass(readStoredMode());
 }
 
-/**
- * Offers main the mode this renderer kept (it applies only on first run),
- * then follows main's snapshots. Main sets the native theme source, so CSS
- * `prefers-color-scheme` here matches its effective appearance.
- */
 async function openMainTheme(signal: AbortSignal) {
   const { theme } = worksApi();
   await theme.adopt.call({ mode: readStoredPreference() }, { signal });
   return await theme.watch.call(undefined, { signal });
 }
 
-/** Main's latest snapshot, kept for the next launch's first paint as it arrives. */
 function followSnapshot(
   _previous: ThemeSnapshot | null,
   snapshot: ThemeSnapshot
@@ -96,22 +85,12 @@ function followSnapshot(
   return snapshot;
 }
 
-/**
- * A mode chosen here, shown until main's answer: a snapshot newer than the
- * one it was chosen over replaces it, and when main refuses it, main's
- * own mode shows again.
- */
 interface Choice {
-  /** The revision of main's snapshot when it was chosen; -1 before any. */
   readonly after: number;
   readonly mode: ThemeMode;
   readonly refused: boolean;
 }
 
-/**
- * The mode to show: a choice still waiting on main, else main's, else (in a
- * window without main's theme) the last choice or the stored mode.
- */
 function shownMode(
   choice: Choice | null,
   snapshot: ThemeSnapshot | null,
@@ -138,8 +117,6 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function ThemeProvider({ children }: PropsWithChildren) {
   const [stored] = useState<ThemeMode>(readStoredMode);
   const [choice, setChoice] = useState<Choice | null>(null);
-  // Main's theme, followed again after a dropped stream. Without a theme
-  // service (a window without main's), the local mode stands.
   const { state: snapshot } = useReducedStream({
     initial: null,
     open: openMainTheme,

@@ -11,11 +11,6 @@ export interface QuitHost {
   quit(): void;
 }
 
-/**
- * Runs `stages` in order, each stage's cleanups together: work is drained
- * before the sandboxes it borrowed and the engine its runs report to are
- * closed. Every stage runs even after a failure; resolves with the failures.
- */
 export async function shutdownInStages(
   stages: readonly (readonly QuitCleanup[])[]
 ): Promise<unknown[]> {
@@ -33,7 +28,6 @@ export async function shutdownInStages(
   return failures;
 }
 
-/** A window a quit closes first: Electron's `BrowserWindow`. */
 export interface QuitWindow {
   close(): void;
   isDestroyed(): boolean;
@@ -41,19 +35,13 @@ export interface QuitWindow {
   once(event: "closed", listener: () => void): unknown;
 }
 
-/**
- * Closes windows for a quit, before any cleanup: a window whose page holds
- * unsaved work asks first, and choosing to keep editing keeps it open.
- */
 export class QuitWindows<W extends QuitWindow> {
   readonly #closing = new Map<W, () => void>();
 
-  /** The person kept `window` open: its close for the quit is cancelled. */
   kept(window: W): void {
     this.#closing.get(window)?.();
   }
 
-  /** Close each window in turn: false once one stays open, else true. */
   async close(windows: readonly W[]): Promise<boolean> {
     for (const window of windows) {
       if (!(await this.#close(window))) {
@@ -81,16 +69,6 @@ export class QuitWindows<W extends QuitWindow> {
   }
 }
 
-/**
- * A quit first asks `confirm` (closing the windows, whose unsaved work may
- * keep one open); only a confirmed quit starts cleanup, so declining leaves
- * every service running and the next quit asks again. Cleanup starts once
- * and the app always quits after it settles, even when a shutdown fails:
- * `stages` run as {@link shutdownInStages} runs them, and each failure is
- * reported. Repeat quit requests while confirming or cleaning are
- * cancelled and wait for the same quit; the quit cleanup itself issues
- * goes through.
- */
 export function registerQuitCleanup(
   host: QuitHost,
   stages: readonly (readonly QuitCleanup[])[],

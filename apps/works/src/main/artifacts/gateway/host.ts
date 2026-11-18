@@ -23,7 +23,6 @@ import {
   type ProductFiles,
 } from "../files";
 
-/** Works' Artifact operations for Module Programs (spec §7), all version 1. */
 export const ARTIFACT_CAPABILITIES = {
   binding: "works.editors.binding",
   create: "works.artifacts.create",
@@ -33,15 +32,12 @@ export const ARTIFACT_CAPABILITIES = {
   watch: "works.artifacts.watch",
 } as const;
 
-/** One Module's effective `artifacts.*` and `explorer.pageSize` settings. */
 export interface ArtifactLimits {
   readonly chunkBytes: number;
   readonly maxFileBytes: number;
-  /** Items in one page of `works.artifacts.list` (`explorer.pageSize`). */
   readonly pageSize: number;
 }
 
-/** What the providers act on: the shared manager and Works' services. */
 export interface ArtifactHost {
   readonly artifacts: Pick<
     Artifacts,
@@ -49,9 +45,7 @@ export interface ArtifactHost {
   >;
   readonly bindings: EditorBindings;
   readonly files: ProductFiles;
-  /** Each Module's effective limits. */
   readonly limits: (moduleId: string) => Promise<ArtifactLimits>;
-  /** The Artifact-backed ModuleStore over the same manager. */
   readonly modules: Pick<
     ModuleCommands,
     "loadGatewayContext" | "loadRetainedManifest"
@@ -73,11 +67,6 @@ export function resolveBinding(
   }
 }
 
-/**
- * The runtime's authority as a write's own check, run inside its
- * transaction: a revoke that committed first refuses the write, and so does
- * `check` against the Artifact as the write found it.
- */
 export function fileAuthority(
   host: Pick<ArtifactHost, "modules">,
   principal: ModulePrincipal,
@@ -100,7 +89,6 @@ export function fileAuthority(
   };
 }
 
-/** The entry at `path`, as `content` holds it. */
 export function entryOf(
   content: Pick<Content, "state" | "tree"> | null | undefined,
   path: string
@@ -114,7 +102,6 @@ export function entryOf(
     : null;
 }
 
-/** A product Artifact that is not archived, by an id from the guest. */
 export async function loadArtifact(
   host: Pick<ArtifactHost, "artifacts">,
   id: string
@@ -128,10 +115,6 @@ export async function loadArtifact(
     : null;
 }
 
-/**
- * The Module's effective limits. A Module whose settings cannot be resolved
- * is refused, never served the host defaults in their place.
- */
 export async function limitsOf(
   host: Pick<ArtifactHost, "limits">,
   moduleId: string

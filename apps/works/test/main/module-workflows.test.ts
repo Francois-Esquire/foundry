@@ -85,8 +85,6 @@ async function setup(
     models: options.models ?? noModels,
   });
   onTestFinished(() => workflows.shutdown());
-  // Revoking the start Grant cancels the Installation's executions (its
-  // capability's hook); a stopped Program's executions end with it.
   const works = installedProcess(
     store,
     execution,
@@ -176,7 +174,6 @@ async function setup(
     ]();
   }
 
-  /** Every event until the stream ends. */
   async function drain(events: AsyncIterator<WorkflowExecutionEvent>) {
     const seen: WorkflowExecutionEvent[] = [];
     for (;;) {
@@ -226,8 +223,6 @@ describe("Module execution providers", () => {
     const started = await ticker(target, "first");
     expect(started).toMatchObject({ retried: false });
 
-    // Recorded as an engine run before it did anything: correlated, with
-    // the request's identity and an input digest, but not the input.
     const run = execution.runs.get(started.execution);
     expect(run).toMatchObject({
       correlation: {
@@ -257,12 +252,10 @@ describe("Module execution providers", () => {
     const revisions = events.map((event) => event.revision);
     expect(revisions).toEqual([...new Set(revisions)].sort((a, b) => a - b));
 
-    // A reconnect is a fresh snapshot, here of the finished run.
     expect(await drain(await watch(target, started.execution))).toEqual([
       { ...events.at(-1), kind: "snapshot" },
     ]);
 
-    // Resending the request answers it; reusing it for other input is refused.
     expect(await ticker(target, "first")).toEqual({
       execution: started.execution,
       retried: true,
@@ -296,7 +289,6 @@ describe("Module execution providers", () => {
       ticker(target, "bad", { count: 0, intervalMs: 5 })
     ).rejects.toMatchObject({ code: "invalid-input" });
 
-    // A Manifest naming an unregistered workflow cannot be approved.
     const unknown = await app(
       "Unknown",
       [],
@@ -339,7 +331,6 @@ describe("Module execution providers", () => {
     const events = await watch(target, started.execution);
     expect((await events.next()).value).toMatchObject({ kind: "snapshot" });
 
-    // Another Module's runtime, a guessed id, and a host run all fail alike.
     const other = await app("Other");
     const foreign = [
       started.execution,
@@ -364,12 +355,10 @@ describe("Module execution providers", () => {
       status: "cancelled",
     });
     expect(execution.runs.get(started.execution)?.status).toBe("cancelled");
-    // A finished execution keeps its outcome.
     expect(
       await call(target, "cancel", { execution: started.execution })
     ).toEqual({ status: "cancelled" });
 
-    // The next runtime of the same Module does not inherit the old one's ids.
     const running = await ticker(target, "while-open", {
       count: 50,
       intervalMs: 1000,
@@ -480,7 +469,6 @@ describe("Module execution providers", () => {
       output: { summary: "A short summary." },
       status: "complete",
     });
-    // The key was used, on the host only.
     expect(scripted.keys).toContain(secret);
     expect(JSON.stringify(scripted.prompts)).toContain(text);
     expect(JSON.stringify(scripted.prompts)).not.toContain(secret);
@@ -493,7 +481,6 @@ describe("Module execution providers", () => {
     expect(JSON.stringify(run)).not.toContain(text);
     expect(JSON.stringify(events)).not.toContain(secret);
     expect(JSON.stringify(started)).not.toContain(secret);
-    // Nothing the engine wrote down holds it either.
     const files = await readdir(engineDirectory, {
       recursive: true,
       withFileTypes: true,

@@ -37,8 +37,6 @@ async function smoke(userData: string, [mode]: readonly string[]) {
   let starts = 0;
   let closes = 0;
   const real = mode === "runtime";
-  // The preview's Program: under Microsandbox in runtime mode, otherwise
-  // the local server above; either way its starts and closes are counted.
   const counted = (backing: ModuleRuntime): ModuleRuntime => ({
     revoked: (input) => backing.revoked(input),
     shutdown: () => backing.shutdown(),
@@ -112,8 +110,6 @@ async function smoke(userData: string, [mode]: readonly string[]) {
     const startedAt = Date.now();
     let frame: WebFrameMain | undefined;
     while (Date.now() - startedAt < deadline) {
-      // This smoke wires no authoring service, so the chat pane's own
-      // "unavailable" alert is expected and not a preview failure.
       const error = await evaluate(
         'Array.from(document.querySelectorAll("[role=alert]")).find(alert => !alert.closest("[aria-label=\'Module chat\']"))?.textContent'
       );

@@ -25,10 +25,6 @@ export interface ModuleRelease {
 
 export interface ModuleSession {
   origin: string;
-  /**
-   * The app is being stopped and started again under changed access (a
-   * network Grant change): `origin` stops serving until the next session.
-   */
   restarting?: true;
   views: ModuleView[];
 }
@@ -39,7 +35,6 @@ export interface ModuleSourceRevision {
   updatedAt: string;
 }
 
-/** Whether two bindings name the same saved revision of a Module's source. */
 export function sameRevision(
   left: ModuleSourceRevision,
   right: ModuleSourceRevision

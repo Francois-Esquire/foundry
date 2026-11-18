@@ -33,20 +33,10 @@ import { SandboxCapacity } from "~/main/modules/sandboxes/capacity";
 import { publishStrict } from "./module-build";
 import { unrecordedSaves } from "./source-saves";
 
-/**
- * Works' installed runtime as `createModuleRuntime` builds it, over the real
- * Artifact-backed ModuleStore, supervisor, recovery and Gateway dispatcher,
- * with each Module's `artifact/` under `root`. Only the VM and the Gateway
- * connection are stand-ins: a Program "starts" at once, after resolving its
- * `artifact/` like the container runtime does, and its session never
- * closes by itself. `composeWorks` takes it as its `programs`.
- */
 export function fakePrograms(
   options: ModuleRuntimeOptions,
   timing: {
-    /** How long the supervisor waits for a teardown before calling it pending. */
     readonly teardownObservationMs?: number;
-    /** The first wait before Works asks again about a pending stop. */
     readonly stopRetryMs?: number;
   } = {}
 ) {
@@ -56,9 +46,7 @@ export function fakePrograms(
     artifacts,
     checkoutPath: (moduleId) => moduleFolder(root, moduleId).artifact,
   });
-  /** The `artifact/` each started Program was given. */
   const mounted: string[] = [];
-  /** The network each started Program was given: destinations, or none. */
   const networks: (readonly NetworkDestination[] | null)[] = [];
   const files = {
     backup: vi.fn(() => Promise.resolve()),
@@ -89,7 +77,6 @@ export function fakePrograms(
     runtime: {
       start: async ({ installationId, version }) => {
         mounted.push((await releases.ensure({ version })).hostPath);
-        // The network policy the container runtime would give this VM.
         networks.push(
           await approvedNetworkDestinations({
             grants:
@@ -156,19 +143,13 @@ export function fakePrograms(
   };
 }
 
-/**
- * One Works "process" over `store`: {@link fakePrograms} with the library,
- * sessions and Access around it, Access over `capabilities` and `network`.
- */
 export function installedProcess(
   store: ArtifactStore,
   execution: Pick<WorksExecution, "dispatch">,
   root: string,
   capabilities: readonly WorksCapability[] = [],
   options: {
-    /** Records each Program's Gateway invocations on its lifetime run. */
     readonly calls?: ProgramCalls;
-    /** The machine ceilings Programs count against; the defaults when omitted. */
     readonly capacity?: SandboxCapacity;
     readonly stopped?: (installationId: string) => Promise<void>;
     readonly timing?: Parameters<typeof fakePrograms>[1];

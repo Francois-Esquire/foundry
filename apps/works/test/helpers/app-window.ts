@@ -2,11 +2,6 @@ import { BrowserWindow } from "electron";
 import type { ModuleSessions } from "~/main/modules/runtime/controller";
 import { waitFor } from "./electron";
 
-/**
- * A released app opened as the Electron entry would, in a hidden sandboxed
- * window over `module-app:`. `graphql` posts to the Program's GraphQL route
- * from the View; `close` closes the window and stops the Program.
- */
 export async function openAppWindow(
   sessions: ModuleSessions,
   moduleId: string,

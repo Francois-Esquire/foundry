@@ -32,7 +32,6 @@ const GATEWAY_DEFAULTS = {
   text: "openai/gpt-5-mini",
 };
 
-/** Refresh provider instances from the vault; Models owns selection and leases. */
 export function vaultAuthoringModels(
   models: ModelManager,
   vault: Pick<Vault, "resolve">,

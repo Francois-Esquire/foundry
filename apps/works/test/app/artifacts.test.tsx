@@ -263,7 +263,6 @@ it("asks for an entry, then an editor, remembers it, and opens the editor route 
   });
   expect(editors.textContent).toContain("Works remembers your choice");
   fireEvent.click(within(editors).getByRole("button", { name: BETA_EDITOR }));
-  // The View opens with a host-owned binding, never the file's identity.
   const opened = (to: string | undefined) => {
     const url = new URL(to ?? "", "app://works");
     return {
@@ -282,7 +281,6 @@ it("asks for an entry, then an editor, remembers it, and opens the editor route 
   await waitFor(() => expect(opened(locations.at(-1))).toEqual(expected));
   const first = opened(locations.at(-1)).binding;
 
-  // The remembered editor opens directly the next time.
   cleanup();
   locations.length = 0;
   renderApp(`/artifacts/${notes.id}`, {
@@ -295,7 +293,6 @@ it("asks for an entry, then an editor, remembers it, and opens the editor route 
   await waitFor(() => expect(opened(locations.at(-1))).toEqual(expected));
   expect(opened(locations.at(-1)).binding).not.toBe(first);
 
-  // "Open with…" asks again, showing the remembered choice.
   cleanup();
   renderApp("/artifacts");
   await listing();
@@ -353,7 +350,6 @@ it("explains an Artifact with no files and an unknown ID, and returns to the gri
   await waitFor(() => expect(document.activeElement).toBe(card("Blank")));
 });
 
-/** The explorer with `create` standing in for product files (main tests prove the real one). */
 function creatingExplorer(storage: ReturnType<typeof fakeStorage>) {
   const create = vi.fn(async ({ name }: { name: string }) => {
     const created = await storage.artifacts.create({
@@ -425,7 +421,6 @@ it("creates a Markdown file with no editor installed and says how to load one", 
   });
   expect(missing.textContent).toContain("notes.md (text/markdown)");
   expect(missing.textContent).toContain("Load an editor module");
-  // It is listed as a file, not a Module.
   fireEvent.click(within(missing).getByRole("button", { name: "Close" }));
   expect(await screen.findByRole("button", { name: "Plans" })).toHaveProperty(
     "dataset.artifactOpen",

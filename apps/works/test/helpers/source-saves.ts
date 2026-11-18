@@ -12,10 +12,6 @@ import {
   openModuleStore,
 } from "~/main/modules/local-library";
 
-/**
- * Source saves for tests that are not about save evidence: each commits at
- * once with an origin that names no run, and nothing is recorded.
- */
 export const unrecordedSaves: SourceSaves = {
   admit: () => Promise.resolve(),
   async run(save, commit) {
@@ -32,7 +28,6 @@ export const unrecordedSaves: SourceSaves = {
   },
 };
 
-/** Source saves as Works records them, over `store`'s Module records. */
 export function recordedSaves(
   execution: Pick<WorksExecution, "dispatch" | "runs">,
   store: ArtifactStore
@@ -43,11 +38,6 @@ export function recordedSaves(
   });
 }
 
-/**
- * The local library as Works opens it, over the Module store under `root`.
- * With `execution`, saves are runs that record their evidence and missing
- * results are recovered first, as in Works; without, nothing is recorded.
- */
 export async function openTestLocalLibrary(
   root: string,
   options: ModuleStoreOptions & {
@@ -58,7 +48,6 @@ export async function openTestLocalLibrary(
   let saves = unrecordedSaves;
   if (options.execution) {
     const evidence = recordedSaves(options.execution, store);
-    // Works recovers missing results before anything saves.
     await evidence.recoverAll();
     saves = evidence;
   }

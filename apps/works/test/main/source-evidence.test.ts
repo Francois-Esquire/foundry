@@ -20,7 +20,6 @@ import { buildResult } from "../helpers/module-build";
 import { openTestLocalLibrary, recordedSaves } from "../helpers/source-saves";
 
 const APP = "packages/app/src/App.tsx";
-/** Each test creates and materializes a starter Module on disk: slow under a full parallel run, not racy. */
 const LOAD_BOUND = { timeout: 30_000 };
 const roots: string[] = [];
 
@@ -30,10 +29,6 @@ afterEach(async () => {
   }
 });
 
-/**
- * One Works process as main wires it: a durable engine whose result writes
- * can fail, and the local library with source evidence on every save path.
- */
 async function open(root: string) {
   const state = new FlakyJsonStateStore(path.join(root, "engine", "state"));
   const execution = await startTestExecution({
@@ -78,7 +73,6 @@ it(
       { ...details.source, [APP]: "saved, unrecorded" },
       details.binding
     );
-    // Committed, with its origin stamped in the same write.
     const artifact = (
       await modulePersistence(works.store).modules.moduleArtifacts()
     ).find((candidate) => candidate.metadata.moduleId === module.id);
@@ -116,7 +110,6 @@ it(
         type: "save",
       }),
     ]);
-    // Artifact Saves lists each committed save once.
     expect(
       works.saves().map((row) => [row.origin, row.recoveredFrom !== undefined])
     ).toEqual([
@@ -143,7 +136,6 @@ it(
       { ...details.source, [APP]: "before the crash" },
       details.binding
     );
-    // While blocked, disk edits wait on disk rather than being saved.
     const file = path.join(
       moduleFolder(path.join(root, "modules"), module.id).source,
       APP
@@ -154,9 +146,7 @@ it(
     );
     await first.execution.close();
 
-    // The next process records the missing result before anything else saves.
     const second = await open(root);
-    // (The first process's own recovery attempt could not be recorded either.)
     const recovery = second
       .named(WORKS_TASKS.sourceRecover)
       .find((run) => run.status === "complete");
@@ -168,7 +158,6 @@ it(
         }),
       }),
     ]);
-    // Then the held disk edits are saved as a disk sync.
     expect((await second.modules.details(module.id))?.source[APP]).toBe(
       "edited on disk"
     );
@@ -190,7 +179,6 @@ it(
     if (!details?.binding) {
       throw new Error("binding missing");
     }
-    // A build's publish names the build run, as `ModuleBuilds` publishes.
     let build = "";
     const { binding, version } = await works.execution.dispatch(
       WORKS_TASKS.build,
@@ -226,10 +214,6 @@ it("surfaces a fault while reconciling instead of asking to save again later", a
   await expect(evidence.admit("module-1")).rejects.toBe(fault);
 });
 
-/**
- * The local library over `root` with its records' `details` and
- * `writeSource` interceptable: Works' saves, recorded on `execution`.
- */
 async function interceptedLibrary(root: string) {
   const state = new FlakyJsonStateStore(path.join(root, "engine", "state"));
   const execution = await startTestExecution({
@@ -241,9 +225,7 @@ async function interceptedLibrary(root: string) {
   await saves.recoverAll();
   const records = createModuleRecords(store);
   const faults = {
-    /** Throw from the write itself, after it committed. */
     afterWrite: false as boolean,
-    /** Fail the next details read after a write: the folder projection. */
     projection: false as boolean,
   };
   let projecting = false as boolean;
@@ -303,7 +285,6 @@ it(
     works.faults.projection = false;
     const committed = await works.modules.details(module.id);
     expect(committed?.source[APP]).toBe("committed");
-    // The failed run still holds the committed save's result.
     expect(
       works.sourceSaves().map((row) => [row.contentId, row.recoveredFrom])
     ).toEqual([[committed?.binding?.contentId, undefined]]);
@@ -316,7 +297,6 @@ it(
       { ...details.source, [APP]: "next" },
       committed.binding
     );
-    // Both saves, each once; nothing needed recovering.
     expect(works.sourceSaves()).toHaveLength(2);
     expect(
       works.execution.runs
@@ -324,7 +304,6 @@ it(
         .filter((run) => run.name === WORKS_TASKS.sourceRecover)
     ).toEqual([]);
 
-    // A release's publish shares the path.
     works.faults.projection = true;
     const latest = await works.modules.details(module.id);
     if (!latest?.binding) {
@@ -357,7 +336,6 @@ it(
     if (!details?.binding) {
       throw new Error("binding missing");
     }
-    // A first save checks the Module against the run store.
     const first = await works.modules.saveSource(
       module.id,
       { ...details.source, [APP]: "first" },
@@ -385,7 +363,6 @@ it(
       { ...details.source, [APP]: "after" },
       committed.binding
     );
-    // Recorded from its origin before being overwritten.
     expect(
       works.sourceSaves().map((row) => [row.contentId, row.recoveredFrom])
     ).toEqual([

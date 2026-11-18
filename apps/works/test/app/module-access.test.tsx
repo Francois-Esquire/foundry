@@ -142,7 +142,6 @@ it("shows requests, scope and Grants, and approves and revokes them in Access", 
     "Only HTTPS to these destinations is allowed. Approving or revoking network access stops and restarts the app if it is open."
   );
   expect(within(access).getByText("Nothing is approved.")).toBeDefined();
-  // Whether the app's own files outlive a stop, as its Manifest declares.
   expect(
     within(access).getByText("Kept on this device between runs", {
       selector: "dd",
@@ -263,7 +262,6 @@ it("edits Module settings beside Access, reports refusals, and never approves ac
   const steps = await within(settings).findByLabelText("authoring.maxSteps");
   expect(within(settings).getByText(STEPS_LIMITS)).toBeDefined();
   expect(within(settings).getByText(NO_SHRINK)).toBeDefined();
-  // Both sandbox defaults come from main's host policy.
   expect(within(settings).getByText(MEMORY_DEFAULTS)).toBeDefined();
 
   fireEvent.change(steps, { target: { value: "30" } });
@@ -280,7 +278,6 @@ it("edits Module settings beside Access, reports refusals, and never approves ac
   expect(await within(settings).findByText("Settings saved")).toBeDefined();
   expect(within(settings).getByText(EFFECTIVE_STEPS)).toBeDefined();
 
-  // Saving settings approved nothing.
   const access = screen.getByRole("region", { name: "Access" });
   expect(await within(access).findByText("Nothing is approved.")).toBeDefined();
   expect(
@@ -315,11 +312,9 @@ it("refreshes Access after on/off, and on/off after a network change", async () 
   const accessReads = vi.spyOn(access, "get");
   const powerReads = vi.spyOn(power, "get");
 
-  // Off stops the app, which Access shows as its status.
   fireEvent.click(toggle);
   await waitFor(() => expect(accessReads).toHaveBeenCalled());
 
-  // A network approval restarts the app, which on/off shows.
   powerReads.mockClear();
   fireEvent.click(
     within(panel).getByRole("button", { name: "Approve Network access" })

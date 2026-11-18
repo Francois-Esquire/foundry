@@ -17,7 +17,6 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-/** A dropped conversation reconnects by itself; say so while it is away. */
 function streamProblem(connection: StreamConnection, error: string): string {
   if (connection === "failed") {
     return error;
@@ -29,11 +28,6 @@ function plural(count: number, noun: string) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-/**
- * One Module's conversation: followed from main while the workspace is open,
- * so leaving it stops only the watch, never a turn. Accepting a proposal
- * reconciles it into the Draft here, in the renderer that owns the Draft.
- */
 export function useModuleChat(moduleId: string, draft: DraftProposals) {
   const open = useCallback(
     (signal: AbortSignal) =>
@@ -46,11 +40,9 @@ export function useModuleChat(moduleId: string, draft: DraftProposals) {
   >({ initial: null, open, reduce: applyAuthoringEvent });
   const [actionError, setError] = useState("");
   const [status, setStatus] = useState("");
-  /** Proposals whose saved source moved, by turn. */
   const [stale, setStale] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
 
-  /** Send with the Draft as it is now; resolves whether it was sent. */
   const send = useCallback(
     async (prompt: string) => {
       const { expected: binding, source } = draft.current();
@@ -170,10 +162,6 @@ export function useModuleChat(moduleId: string, draft: DraftProposals) {
     [moduleId]
   );
 
-  /**
-   * After saved source moved: hold every file the proposal would change as
-   * a conflict, so each is chosen by hand with both versions in view.
-   */
   const resolveByHand = useCallback(
     (turnId: string) =>
       run(async () => {

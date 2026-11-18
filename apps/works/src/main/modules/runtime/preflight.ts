@@ -15,11 +15,6 @@ import {
 } from "../settings";
 import { ModuleRuntimeError } from "./controller";
 
-/**
- * What a released Program starts with, checked before anything is
- * acquired: requirements this host cannot meet (a hard storage limit, a
- * minimum above a ceiling, a user value below a minimum) refuse the start.
- */
 export function programResources(
   version: Pick<ModuleVersion, "manifest">,
   user: ModuleSettingValues
@@ -39,10 +34,6 @@ export function programResources(
   );
 }
 
-/**
- * Why a release cannot start, in Works' words: each blocking fact, and
- * where to approve a Capability the user has not approved yet.
- */
 export function releaseRefusal(
   blocking: readonly ActivationCompatibilityFact[]
 ): ModuleRuntimeError {

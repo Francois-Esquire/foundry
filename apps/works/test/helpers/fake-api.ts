@@ -40,10 +40,6 @@ type Services = Pick<
   | "theme"
 >;
 
-/**
- * A Module library and the Artifact explorer over one in-memory store. The
- * explorer's editors are the installed Modules' declared editors.
- */
 export function fakeStorage(
   store = new InMemoryArtifactStore(),
   preferences?: EditorPreferences
@@ -56,7 +52,6 @@ export function fakeStorage(
     explorer: createArtifactExplorer(artifacts, {
       bindings: new EditorBindings(),
       editors: installedEditors({ library: modules, store: moduleStore }),
-      // Renderer tests create no product files and open none for writing.
       files: {
         create: () => Promise.reject(new Error("No product files here")),
         working: () => Promise.resolve(null),

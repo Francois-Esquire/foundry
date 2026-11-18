@@ -4,17 +4,14 @@ import { moduleInstallationId } from "~/main/modules/runtime/installation";
 
 const MIB = 1024 * 1024;
 const MEM_TOTAL = /MemTotal:\s+(\d+) kB/;
-/** The guest kernel keeps some memory for itself (3 to 4% measured). */
 const KERNEL_SHARE = 0.08;
 
-/** A Microsandbox VM's resources: as created, and as its guest sees them. */
 export interface GuestResources {
   readonly configured: { readonly cpus: number; readonly memoryMib: number };
   readonly memTotalBytes: number;
   readonly nproc: number;
 }
 
-/** Reads a running VM's resources without taking over its lifecycle. */
 export async function guestResources(name: string): Promise<GuestResources> {
   const sandbox = await (await Sandbox.get(name)).connect();
   const { resources } = await sandbox.config();
@@ -44,10 +41,6 @@ export async function guestResources(name: string): Promise<GuestResources> {
   };
 }
 
-/**
- * Asserts a VM got `cpus` and `memoryBytes` as the sandbox layer rounds
- * them (whole vCPUs and MiB, both up) and that its guest sees them.
- */
 export function expectResources(
   label: string,
   actual: GuestResources,
@@ -75,7 +68,6 @@ export function expectResources(
   return `${label}: ${actual.configured.cpus} vCPU / ${actual.configured.memoryMib} MiB; guest nproc ${actual.nproc}, MemTotal ${Math.round(actual.memTotalBytes / MIB)} MiB`;
 }
 
-/** The running VM of a Module's released Program. */
 export async function programVm(moduleId: string): Promise<string> {
   const page = await Sandbox.listWith((list) =>
     list.labels({ "com.foundry.installation": moduleInstallationId(moduleId) })
@@ -92,10 +84,6 @@ export async function programVm(moduleId: string): Promise<string> {
   return only.name;
 }
 
-/**
- * Microsandbox for Module sandboxes, telling `created` the name of every
- * VM it creates.
- */
 export async function countedRuntime(
   created: string[]
 ): Promise<ContainerRuntime> {

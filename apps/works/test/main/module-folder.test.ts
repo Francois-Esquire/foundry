@@ -31,7 +31,6 @@ async function temporary() {
 
 const APP = "packages/app/src/App.tsx";
 
-/** Every stored blob record, as JSON keeps it. */
 async function blobRecords(root: string) {
   const records = JSON.parse(
     await readFile(path.join(root, ".library", "artifacts.json"), "utf8")
@@ -41,7 +40,6 @@ async function blobRecords(root: string) {
 const blobFileNames = async (root: string) =>
   (await readdir(path.join(root, ".library", "blobs"))).sort();
 
-/** Puts a folder back the way Works wrote it before `source/` existed. */
 async function legacyLayout(root: string, id: string) {
   const folder = moduleFolder(root, id);
   for (const name of await readdir(folder.source)) {
@@ -118,7 +116,6 @@ it("reads records whose bytes are inline and backs only new payloads with files"
     details.binding
   );
   const blobs = await blobRecords(modules);
-  // Earlier inline bytes are not relocated; the new payload is a file.
   expect(blobs.filter((blob) => "bytes" in blob).length).toBeGreaterThan(0);
   expect(blobs.filter((blob) => "path" in blob)).toHaveLength(1);
   expect(await blobFileNames(modules)).toHaveLength(1);
@@ -204,7 +201,6 @@ it("moves source written before source/ existed into it once, keeping pending di
   expect(await readFile(path.join(folder.source, ".env.local"), "utf8")).toBe(
     "LOCAL=kept"
   );
-  // Once moved, a later open leaves source/ as it is.
   await openTestLocalLibrary(root);
   expect((await readdir(folder.root)).sort()).toEqual(["source"]);
   expect(
@@ -219,7 +215,6 @@ it("finishes a relocation that was interrupted part way", async () => {
   const module = await first.library.create("Interrupted");
   const { folder, marker } = await legacyLayout(root, module.id);
   await writeFile(path.join(folder.root, APP), "pending edit");
-  // As if Works stopped after moving one entry into the gathering directory.
   const holding = path.join(folder.root, ".relocating-source");
   await mkdir(holding);
   await rename(

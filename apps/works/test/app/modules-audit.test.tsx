@@ -65,7 +65,6 @@ async function table(name: string) {
 }
 
 function rowsOf(element: HTMLElement) {
-  // The first row is the header.
   return within(element).getAllByRole("row").slice(1);
 }
 
@@ -84,7 +83,6 @@ it("puts the audit tabs beside Catalog", async () => {
   ]);
   fireEvent.mouseDown(tabs[1] as HTMLElement);
   expect(await panel("Dashboard")).toBeDefined();
-  // Arrow keys move between tabs, selecting the one they reach.
   fireEvent.keyDown(tabs[1] as HTMLElement, { key: "ArrowRight" });
   expect(await panel("Calls")).toBeDefined();
 });
@@ -114,7 +112,6 @@ it("summarizes runs and usage with unknowns left unknown", async () => {
       "Workflow works.examples.ticker@1",
     ])
   );
-  // Scope and time range are explicit controls.
   expect(screen.getByLabelText("Module")).toBeDefined();
   expect((screen.getByLabelText("Time range") as HTMLSelectElement).value).toBe(
     "all"
@@ -228,7 +225,6 @@ it("follows live changes, shows retention gaps, and recovers from a dropped conn
   ];
   state.failNext = 1;
   renderApp("/modules?tab=executions");
-  // The first watch fails; the view says so, then reconnects by itself.
   expect(await screen.findByRole("alert")).toHaveProperty(
     "textContent",
     expect.stringContaining("Activity could not be loaded")
@@ -256,7 +252,6 @@ it("follows live changes, shows retention gaps, and recovers from a dropped conn
     expect(screen.getAllByText("rn-live-run")).toHaveLength(1)
   );
   change({ ...later, revision: 2, status: "complete" });
-  // The same revision again changes nothing; the row is not duplicated.
   change({ ...later, revision: 2, status: "complete" });
   await waitFor(() =>
     expect(
@@ -275,11 +270,9 @@ it("keeps a time range sliding while the view stays open", async () => {
     vi.useRealTimers();
   });
   renderApp("/modules?tab=executions&range=1d");
-  // Every fixture run was queued moments ago.
   expect(rowsOf(await table("Execution runs"))).toHaveLength(
     fixture.runs.length
   );
-  // A day later, with nothing new from the run store, they have aged out.
   act(() => {
     vi.advanceTimersByTime(25 * 60 * 60 * 1000);
   });

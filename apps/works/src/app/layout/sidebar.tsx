@@ -19,11 +19,6 @@ function Fold() {
 export interface SidebarProps {
   bottomNav: ReactNode;
   className?: string;
-  /**
-   * Loaded Module shortcuts in their own band between the fixtures. Pass `null`
-   * when there are none to drop the band and its folds. The band scrolls
-   * when the window is too short.
-   */
   moduleNav?: ReactNode;
   topNav: ReactNode;
 }

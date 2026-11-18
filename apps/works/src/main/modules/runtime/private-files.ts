@@ -24,11 +24,6 @@ import { moduleDirectory, moduleFolder } from "../local-library";
 import { ModuleRuntimeError } from "./controller";
 import { moveLegacyData } from "./data-move";
 
-/**
- * Whether a Version's private files outlive its Program. A strict Manifest
- * says so in `persistence.files` (omitted is `none`); `foundry.module/1`
- * Manifests keep their files, as they always have.
- */
 export function filesPersistence(
   manifest: ModuleManifest
 ): ModuleFilesPersistence {
@@ -38,28 +33,18 @@ export function filesPersistence(
 }
 
 export interface ModulePrivateFiles extends ModuleInstallationFiles {
-  /** The directories a Program of this Installation may mount. */
   mounts(installationId: string): {
     readonly files: readonly string[];
     readonly program: string;
   };
-  /** After a confirmed stop: a `none` Program's disposable files go. */
   stopped(installationId: InstallationId): Promise<void>;
 }
 
 const DATA = installationIdSchema.parse("data");
 
-/**
- * Each Module's private files: `data/` in its folder, holding `data.sqlite`
- * and its companions, or, for a Version whose files are not kept, a
- * disposable directory under `.library/disposable/`. Files written before
- * `data/` existed move in once, before anything else touches them.
- */
 export function createModulePrivateFiles(options: {
   readonly checkDatabase: (file: string) => Promise<void>;
-  /** The Modules package's files store; replaced only by tests. */
   readonly installationFiles?: typeof createModuleInstallationFiles;
-  /** The Modules root holding each Module's folder. */
   readonly root: string;
   readonly snapshotDatabase: (
     source: string,
@@ -73,19 +58,12 @@ export function createModulePrivateFiles(options: {
     root: disposableRoot,
     snapshotDatabase,
   });
-  /**
-   * Where each Installation's disposable files were prepared: the one
-   * disposable directory its Program may mount, never `.backups/` or any
-   * other Installation's.
-   */
   const preparedDisposable = new Map<InstallationId, string>();
   const kept = new Map<string, ModuleInstallationFiles>();
-  /** Installations whose last prepared Program keeps no files. */
   const disposed = new Set<InstallationId>();
   const moved = new Set<InstallationId>();
   const turns = new KeyedTurns<InstallationId>();
 
-  /** The Installation is named after its Module, so is its folder. */
   function persistent(id: InstallationId) {
     const folder = moduleFolder(root, id).root;
     let files = kept.get(folder);
@@ -97,7 +75,6 @@ export function createModulePrivateFiles(options: {
   }
   const disposableId = (id: InstallationId) =>
     installationIdSchema.parse(moduleDirectory(id));
-  /** Callers run this only with the Program stopped: start, backup, restore. */
   function migrate(id: InstallationId) {
     return turns.run(id, async () => {
       if (moved.has(id)) {
@@ -124,7 +101,6 @@ export function createModulePrivateFiles(options: {
       await migrate(id);
       await persistent(id).backup(DATA);
     },
-    // Closing an app or removing an Installation keeps the Module's data.
     delete: () => Promise.resolve(),
     async discardBackup(id) {
       await migrate(id);
@@ -142,8 +118,6 @@ export function createModulePrivateFiles(options: {
       await migrate(installationId);
       if (persistence === "none") {
         disposed.add(installationId);
-        // The supervisor prepares only once the previous Program's stop is
-        // confirmed, so whatever a crash left here is no longer in use.
         await disposable.delete(disposableId(installationId));
         const prepared = await disposable.prepare({
           installationId: disposableId(installationId),
@@ -182,13 +156,6 @@ export function createModulePrivateFiles(options: {
   };
 }
 
-/**
- * The disposable directory the files store prepared, admitted only where
- * that store puts an Installation's files: `<root>/<id>`, or
- * `<root>/.ephemeral/<id>` for the stores that keep `none` files apart.
- * Anything else (its `.backups/`, another Installation's, outside the
- * root) is refused.
- */
 function disposablePath(
   disposableRoot: string,
   installationId: InstallationId,
@@ -207,11 +174,6 @@ function disposablePath(
   return hostPath;
 }
 
-/**
- * A Program's container may mount only its Module's `artifact/` read-only
- * at the Program root and its `data/` (or disposable files) read-write at
- * the files root: never `source/`, the Module folder or anything else.
- */
 export function restrictProgramMounts(
   containers: Containers,
   files: Pick<ModulePrivateFiles, "mounts">

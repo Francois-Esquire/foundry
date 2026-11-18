@@ -42,11 +42,6 @@ async function build(
   throw new Error(`Build ${tag} ended without a result`);
 }
 
-/**
- * Works composed on the smoke's profile, serving `module-app:` itself. Main's
- * theme opens once per process (as in the Electron entry), so a later
- * composition, standing in for a restarted Works, reuses it.
- */
 async function compose(userData: string): Promise<Works> {
   const works = systemTheme.snapshot()
     ? await composeWorks({
@@ -81,7 +76,6 @@ function notesOf(result: unknown): string[] {
   return notes.map((note) => note.body).sort();
 }
 
-/** The notes a SQLite file holds, read with Electron's own `node:sqlite`. */
 function notesIn(file: string): string[] {
   const database = new DatabaseSync(file, { readOnly: true });
   try {
@@ -95,10 +89,6 @@ function notesIn(file: string): string[] {
   }
 }
 
-/**
- * Copies the Version-change backup the moment it appears: a start that
- * succeeds discards it again.
- */
 function catchBackup(directory: string, copy: string) {
   let caught = false;
   const watcher = watch(directory, (_event, name) => {
@@ -124,14 +114,6 @@ async function exists(file: string) {
   return (await lstat(file).catch(() => undefined)) !== undefined;
 }
 
-/**
- * Row 3's data journeys inside Electron, so `node:sqlite` runs on
- * Electron's Node: a built starter Program writes Drizzle rows to
- * `data/data.sqlite`; switching to a second Version (a `system` run that
- * backs the database up with `VACUUM INTO`) and back keeps them. Then the
- * one-time move of private data from the earlier `.data/` location, with a
- * row only in its WAL, verified, placed, and reopened by the Program.
- */
 async function smoke(userData: string) {
   const report: string[] = [];
   const note = (line: string) => {
@@ -166,7 +148,6 @@ async function smoke(userData: string) {
     const written = await readdir(folder.data);
     note(`v1 wrote two rows; data/ holds ${written.sort().join(", ")}`);
 
-    // A second Version from edited source.
     const edited = await works.rpc.modules.details(module.id);
     assert.ok(edited?.binding);
     const editedApp = edited.source[APP];
@@ -183,7 +164,6 @@ async function smoke(userData: string) {
     const second = await build(works, module.id, "0.1.1", binding);
     const v2 = second.release.contentId;
 
-    // Switch to v2: the backup is taken before the Program starts.
     const toV2 = catchBackup(folder.data, path.join(userData, "to-v2.bak"));
     app = await openAppWindow(works.rpc.sessions, module.id, v2);
     try {
@@ -210,7 +190,6 @@ async function smoke(userData: string) {
       "switch v1 → v2: rows kept; the VACUUM INTO backup held both rows and was discarded after the start succeeded"
     );
 
-    // And back to v1.
     const toV1 = catchBackup(folder.data, path.join(userData, "to-v1.bak"));
     app = await openAppWindow(works.rpc.sessions, module.id, v1);
     try {
@@ -235,20 +214,16 @@ async function smoke(userData: string) {
       "switch v2 → v1: rows kept, including the one v2 wrote; a fresh backup held all three"
     );
 
-    // ── The one-time move from the earlier location ──
     open = false;
     await works.close();
     const legacy = path.join(moduleRoot, ".data", moduleDirectory(module.id));
     const staging = path.join(userData, "wal-staging");
     await mkdir(legacy, { recursive: true });
     await mkdir(staging);
-    // What the guest Program wrote, as an earlier Works kept it...
     for (const name of await readdir(folder.data)) {
       await rename(path.join(folder.data, name), path.join(staging, name));
     }
     await rm(folder.data, { recursive: true });
-    // ...plus a row that is only in the WAL: copied while still open, as a
-    // crash would leave it.
     const database = new DatabaseSync(path.join(staging, DATABASE));
     try {
       database.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0");

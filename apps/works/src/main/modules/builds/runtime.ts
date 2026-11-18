@@ -7,16 +7,8 @@ import { worksCapabilityCatalog } from "../capabilities";
 import type { ModuleSandboxes } from "../sandboxes/coordinator";
 import type { BuildRuntime } from "./controller";
 
-/**
- * Where builds keep their scratch directories in the Module sandbox: beside
- * the authoring workspace, never inside it, so a Module may have its own
- * `builds/` folder. Only {@link BUILD_USER} may enter it: a chat turn shares
- * the sandbox but works as another user, so it can neither read a build in
- * flight nor change its outputs before they are collected.
- */
 const MODULE_BUILDS_ROOT = "/builds";
 
-/** Builds run as root, which the authoring guest user is not. */
 const BUILD_USER = "root";
 
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -31,15 +23,6 @@ const LOG_CHARACTERS = 32_768;
 const RETAINED_OUTPUT_BYTES = 4 * LOG_CHARACTERS;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
-/**
- * Builds borrow their Module's sandbox from the coordinator rather than
- * starting a VM, and work in a scratch directory of their own inside it, so
- * one build never sees another's files or what a chat turn left behind
- * ({@link MODULE_BUILDS_ROOT}).
- * The workspace's `generate` writes the Gateway client from `catalog`, the
- * host operations this Works provides, handed over beside the scratch
- * directory so it never becomes build input.
- */
 export function createBuildRuntime(
   sandboxes: Pick<ModuleSandboxes, "borrow">,
   catalog: ModuleCapabilityCatalog = worksCapabilityCatalog()
@@ -58,7 +41,6 @@ export function createBuildRuntime(
       const lifetime = AbortSignal.any([signal, loan.signal]);
       const root = `${MODULE_BUILDS_ROOT}/${randomUUID()}`;
       const catalogPath = `${root}.catalog.json`;
-      // The build's own temporary files, where a turn cannot plant any.
       const temporary = `${root}.tmp`;
       try {
         const scratch = await container.commands.exec(
@@ -128,8 +110,6 @@ export function createBuildRuntime(
         const lock = decoder.decode(
           await container.files.readFile(`${root}/bun.lock`)
         );
-        // Outputs are read into memory here, so nothing the guest does
-        // afterwards can change what the caller publishes.
         const outputs = await collectOutputs(container, root, lifetime);
         lifetime.throwIfAborted();
         return { outputs, source: { ...source, "bun.lock": lock } };
@@ -138,7 +118,6 @@ export function createBuildRuntime(
           .exec(["rm", "-rf", root, catalogPath, temporary], {
             user: BUILD_USER,
           })
-          // A sandbox that is stopping takes the directory with it.
           .catch(() => undefined);
         loan.release();
       }

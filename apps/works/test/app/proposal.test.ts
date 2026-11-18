@@ -29,7 +29,6 @@ it("reconciles each file by the Draft, base and proposal values", () => {
     mineOnly: "base",
   };
   const { changes, conflicts } = reconcileProposal(TURN, draft, base, proposal);
-  // Draft == base → proposal; proposal == base → Draft; Draft == proposal → kept.
   expect(changes).toEqual({ agentOnly: "agent" });
   expect(conflicts).toEqual([
     {
@@ -104,7 +103,6 @@ it("holds every file the proposal would change, for resolving by hand", () => {
     base: { "a.ts": "a", "b.ts": "b", "c.ts": null },
     proposal: { "a.ts": "a by agent", "b.ts": "b", "c.ts": "new" },
   };
-  // b.ts already matches the proposal, so only a.ts and c.ts are held.
   const held = holdAll(TURN, { "a.ts": "a typed", "b.ts": "b" }, files);
   expect(held).toEqual([
     {
@@ -116,7 +114,6 @@ it("holds every file the proposal would change, for resolving by hand", () => {
     },
     { base: null, draft: null, path: "c.ts", proposal: "new", turnId: TURN },
   ]);
-  // Holding them again replaces, never duplicates, that turn's conflicts.
   const other = { ...held[0], turnId: "turn-2" } as (typeof held)[number];
   expect(withConflicts([...held, other], held)).toEqual([other, ...held]);
 });

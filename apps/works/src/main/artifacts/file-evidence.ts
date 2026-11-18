@@ -15,11 +15,6 @@ import {
   OBSERVATION,
 } from "~/shared/observations";
 
-/**
- * The latest write's attribution, stamped on Content metadata (`origin`) in
- * the same transaction as the write. It names no user-supplied identity, key
- * or prompt.
- */
 export interface FileOrigin {
   readonly actor: FileSaveEvidence["actor"];
   readonly at: string;
@@ -27,13 +22,7 @@ export interface FileOrigin {
   readonly installationId?: string;
   readonly moduleId?: string;
   readonly operation: string;
-  /**
-   * The entry the write saved: an entry path, `null` for the whole tree
-   * (a disk edit), and absent on origins stamped before writes named it,
-   * which mean the primary entry.
-   */
   readonly path?: string | null;
-  /** The engine run that made the write. */
   readonly runId: string;
   readonly runtimeInstanceId?: string;
 }
@@ -41,22 +30,12 @@ export interface FileOrigin {
 export interface FileEvidenceOptions {
   readonly artifacts: Pick<Artifacts, "list">;
   readonly execution: Pick<WorksExecution, "dispatch" | "runs">;
-  /** Whether an Artifact is a product file. */
   readonly includes: (artifact: ArtifactResolved) => boolean;
-  /** The File Artifact by id; null for anything that is not a product file. */
   readonly product: (artifactId: string) => Promise<ArtifactResolved | null>;
 }
 
-/**
- * The evidence of File Artifact writes: each write's result on its run,
- * found again by operation for a retry, and recovered from the Content's
- * origin when a write committed but its result could not be recorded. A
- * File Artifact whose latest result is missing is blocked from the next
- * write until it is recovered.
- */
 export class FileEvidence {
   readonly #artifacts: FileEvidenceOptions["artifacts"];
-  /** Artifacts whose latest write has no recorded result yet. */
   readonly #blocked = new Set<string>();
   readonly #execution: FileEvidenceOptions["execution"];
   readonly #includes: FileEvidenceOptions["includes"];
@@ -69,15 +48,10 @@ export class FileEvidence {
     this.#product = options.product;
   }
 
-  /** A write committed but its result could not be recorded. */
   block(artifactId: string): void {
     this.#blocked.add(artifactId);
   }
 
-  /**
-   * True when the Artifact may be written: its latest write's result is on
-   * record, or was recovered from its origin just now.
-   */
   async reconcile(artifactId: string): Promise<boolean> {
     if (!this.#blocked.has(artifactId)) {
       return true;
@@ -95,11 +69,6 @@ export class FileEvidence {
     return false;
   }
 
-  /**
-   * At startup, before any write: the latest write of each File Artifact
-   * whose result is missing from the run store is recorded again from its
-   * origin. Only that latest write can be recovered.
-   */
   async recoverAll(): Promise<void> {
     const recorded = this.#recordedOperations();
     let cursor: ArtifactCursor | undefined;
@@ -125,7 +94,6 @@ export class FileEvidence {
     } while (cursor);
   }
 
-  /** Record the missing result of the latest write as a recovery run. */
   #recover(
     content: ContentResolved | (ArtifactResolved["content"] & object),
     origin: FileOrigin
@@ -151,7 +119,6 @@ export class FileEvidence {
     );
   }
 
-  /** Every operation whose save or create result the run store holds. */
   #recordedOperations(): Set<string> {
     const operations = new Set<string>();
     for (const run of this.#execution.runs.list()) {
@@ -162,23 +129,11 @@ export class FileEvidence {
     return operations;
   }
 
-  /**
-   * Whether retention has removed runs of a writer's scope: a Module's, or
-   * the host's when `moduleId` is unset. Until it has, the run store holds
-   * every committed write's result (a missing one blocks the Artifact until
-   * it is recovered), so a retry nothing vouches for never committed.
-   */
   pruned(moduleId: string | undefined): boolean {
     const scope = auditScope(moduleId === undefined ? {} : { moduleId });
     return this.#execution.runs.gaps().some((gap) => gap.scope === scope);
   }
 
-  /**
-   * A committed earlier save of `operation`: the latest origin, else the
-   * retained run store. A retry nobody can vouch for is `uncertain` when
-   * retention may have removed its evidence (`retryPruned`), as is one
-   * whose run ended without saying whether it saved.
-   */
   async savedBy(
     artifactId: string,
     operation: string,
@@ -204,11 +159,6 @@ export class FileEvidence {
     return unsettled || retryPruned ? "uncertain" : null;
   }
 
-  /**
-   * The Artifact an earlier create of `operation` made, if any. Retention
-   * keeps each Artifact's first recorded result, so a creation's answer
-   * outlives later saves.
-   */
   async createdBy(operation: string): Promise<FileSaveEvidence | null> {
     for (const { evidence } of this.#answers(operation)) {
       if (evidence && (await this.#product(evidence.artifactId))) {
@@ -218,7 +168,6 @@ export class FileEvidence {
     return null;
   }
 
-  /** Retained runs that answered `operation`, each with its file evidence. */
   *#answers(operation: string) {
     for (const run of this.#execution.runs.list()) {
       if (run.correlation.operation === operation) {
@@ -229,10 +178,6 @@ export class FileEvidence {
   }
 }
 
-/**
- * A write's evidence from its Content and origin: the written entry's digest
- * and size, or the whole tree's when no single entry was written.
- */
 export function evidenceOf(
   artifactId: string,
   content: Pick<Content, "digest" | "id" | "tree" | "updatedAt">,
@@ -261,13 +206,11 @@ export function evidenceOf(
   };
 }
 
-/** The primary entry a Content declares, if any. */
 function entryOf(content: Pick<Content, "metadata">): string | null {
   const { entry } = content.metadata;
   return typeof entry === "string" ? entry : null;
 }
 
-/** The entry a write saved: as its origin names it, else the primary entry. */
 function savedPath(
   content: Pick<Content, "metadata">,
   origin: FileOrigin
@@ -275,7 +218,6 @@ function savedPath(
   return origin.path === undefined ? entryOf(content) : origin.path;
 }
 
-/** The origin a File Artifact's Content carries, if it is well formed. */
 export function originOf(content: {
   readonly metadata: Readonly<Record<string, unknown>>;
 }): FileOrigin | null {
@@ -292,7 +234,6 @@ export function originOf(content: {
     : null;
 }
 
-/** The File Artifact save/create results a run recorded. */
 export function fileEvidence(run: ExecutionRun): FileSaveEvidence[] {
   return run.observations.flatMap((observation) => {
     const evidence = fileSaveEvidence(observation);

@@ -35,7 +35,6 @@ async function setup() {
   const directory = await mkdtemp(path.join(tmpdir(), "works-release-files-"));
   directories.push(directory);
   const execution = await startTestExecution();
-  /** A Works process over the library file; a second call is a restart. */
   const restart = () => {
     const store = new JsonArtifactStore({
       path: path.join(directory, ".library", "artifacts.json"),
@@ -59,7 +58,6 @@ async function setup() {
 
 type Process = ReturnType<typeof installedProcess>;
 
-/** A release whose server output names its tag, so Versions differ on disk. */
 async function publish(process: Process, moduleId: string, tag: string) {
   const details = await process.library.details(moduleId);
   if (!details?.binding) {
@@ -86,7 +84,6 @@ async function open(process: Process, version: ModuleVersion) {
   ).close();
 }
 
-/** Every file under `directory`, by relative path. */
 async function filesIn(directory: string, prefix = "") {
   const found: Record<string, string> = {};
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -142,7 +139,6 @@ it("projects exactly the selected Version's outputs into a read-only artifact/",
     status: "complete",
   });
 
-  // The older release is projected again from retained Artifact storage.
   await open(first, v1);
   expect(await filesIn(folder.artifact)).toEqual(outputsOf("0.1.0"));
   expect(
@@ -200,7 +196,6 @@ it("reconciles an interrupted switch from the recorded selection on restart", {
   const v2 = await publish(first, module.id, "0.2.0");
   await open(first, v1);
 
-  // Stopped after v2's files were swapped in, before the selection was recorded.
   const elsewhere = path.join(directory, "elsewhere");
   const other = createModuleSelectedCheckouts({
     artifacts: first.artifacts,
@@ -217,12 +212,10 @@ it("reconciles an interrupted switch from the recorded selection on restart", {
     (await readdir(folder.root)).filter((name) => name.startsWith("."))
   ).toEqual([]);
 
-  // Stopped between moving the old files aside and placing the new ones.
   await rename(folder.artifact, path.join(folder.root, ".artifact-aside"));
   await open(restart(), v1);
   expect(await filesIn(folder.artifact)).toEqual(outputsOf("0.1.0"));
 
-  // Files changed on disk are replaced by the release's own.
   const server = path.join(
     folder.artifact,
     "outputs/packages/server/dist/index.js"

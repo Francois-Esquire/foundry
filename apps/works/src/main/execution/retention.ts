@@ -7,19 +7,6 @@ import type {
 import { SETTLED_EXECUTION_STATUSES } from "@foundry.sh/marbles/statuses";
 import { savedEvidence } from "~/shared/observations";
 
-/**
- * Run-store retention (spec §9, §10 `audit.*`): each Module's settled runs
- * are kept for its `audit.retentionDays` and up to its
- * `audit.maxTerminalEntries`; runs that belong to no Module (host actions
- * such as create, import and the user's own file saves) use the host
- * defaults. Only settled runs are pruned, and never the latest committed
- * save of an Artifact: that run is the save checkpoint and carries the
- * scoped operation identity a retried request and startup recovery read.
- * Nor a File Artifact's first result: its creation receipt.
- * What was pruned stays visible as a gap per scope.
- */
-
-/** The scope of runs that belong to no Module. */
 export const HOST_AUDIT_SCOPE = "host";
 
 export interface RetentionPolicy {
@@ -27,19 +14,16 @@ export interface RetentionPolicy {
   readonly retentionDays: number;
 }
 
-/** The host defaults, which are also the ceilings (spec §10). */
 export const DEFAULT_RETENTION: RetentionPolicy = {
   maxTerminalEntries:
     MODULE_SETTING_HOST_POLICY["audit.maxTerminalEntries"].default,
   retentionDays: MODULE_SETTING_HOST_POLICY["audit.retentionDays"].default,
 };
 
-/** How often retention runs while Works is open. */
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** The retention scope of a run, from its correlation. */
 export function auditScope(
   correlation: Readonly<Record<string, string | undefined>>
 ): string {
@@ -47,10 +31,6 @@ export function auditScope(
   return moduleId === undefined ? HOST_AUDIT_SCOPE : `module:${moduleId}`;
 }
 
-/**
- * The committed saves a run reports, each as the Artifact checkpoint it
- * would be: `<artifactId>:<kind>` (file, source or release).
- */
 function checkpoints(run: ExecutionRun): string[] {
   return run.observations.flatMap((observation) => {
     const evidence = savedEvidence(observation);
@@ -58,11 +38,6 @@ function checkpoints(run: ExecutionRun): string[] {
   });
 }
 
-/**
- * Never pruned: each Artifact's latest committed save run, and each File
- * Artifact's first recorded result, its creation receipt, which a retried
- * create reads to return the same file.
- */
 function protectedRuns(runs: readonly ExecutionRun[]): Set<string> {
   const latest = new Map<string, ExecutionRun>();
   const first = new Map<string, ExecutionRun>();
@@ -84,11 +59,6 @@ function protectedRuns(runs: readonly ExecutionRun[]): Set<string> {
   return new Set([...latest.values(), ...first.values()].map((run) => run.id));
 }
 
-/**
- * The settled runs to prune now, by scope: older than the scope's
- * retention, then the oldest beyond its entry limit. Protected runs count
- * toward the limit but are never chosen.
- */
 function retentionCandidates(
   runs: readonly ExecutionRun[],
   policyOf: (scope: string) => RetentionPolicy,
@@ -132,22 +102,15 @@ function retentionCandidates(
 
 export interface RetentionOptions {
   readonly now?: () => Date;
-  /** A Module's effective `audit.*` settings; host defaults when it fails. */
   readonly policy?: (moduleId: string) => Promise<RetentionPolicy>;
   readonly runs: Pick<ExecutionRuns, "gaps" | "list" | "prune">;
 }
 
-/** What one compaction removed, and every scope's gap after it. */
 export interface Compaction {
   readonly gaps: readonly RetentionGap[];
   readonly removed: readonly string[];
 }
 
-/**
- * Compacts the engine run store: at startup, then every
- * {@link RETENTION_INTERVAL_MS} while Works is open. Listeners hear what
- * each compaction removed, so live views drop it and show the gap.
- */
 export class ExecutionRetention {
   readonly #listeners = new Set<(compaction: Compaction) => void>();
   readonly #now: () => Date;
@@ -162,7 +125,6 @@ export class ExecutionRetention {
     this.#runs = options.runs;
   }
 
-  /** Hear each compaction that removed something. */
   subscribe(listener: (compaction: Compaction) => void): () => void {
     this.#listeners.add(listener);
     return () => {
@@ -170,7 +132,6 @@ export class ExecutionRetention {
     };
   }
 
-  /** Prune what retention allows now; one compaction at a time. */
   compact(): Promise<Compaction> {
     const previous = this.#compacting ?? Promise.resolve();
     const next = previous.catch(() => undefined).then(() => this.#compact());
@@ -178,7 +139,6 @@ export class ExecutionRetention {
     return next;
   }
 
-  /** Compact now and then on an interval; the timer never keeps Works open. */
   start(intervalMs = RETENTION_INTERVAL_MS): Promise<Compaction> {
     this.#timer ??= setInterval(() => {
       this.compact().catch(() => undefined);

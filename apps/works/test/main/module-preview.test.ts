@@ -77,7 +77,6 @@ describe("Module sessions", () => {
     await expect(
       sessions.watch(version.moduleId, version.contentId).next()
     ).rejects.toThrow("This Module is off.");
-    // The preview RPC shows the refusal rather than a generic failure.
     const client = createRouterClient(router, {
       context: { modules: library, sessions, vault: await openFakeVault() },
     });
@@ -123,7 +122,6 @@ describe("Module sessions", () => {
       const opening = sessions.watch(version.moduleId, version.contentId);
       const first = opening.next();
       const ended = expect(first).rejects.toThrow();
-      // Admitted while on; turned off while its release is still being read.
       await reading.promise;
       await power.set(version.moduleId, false);
       held.resolve();

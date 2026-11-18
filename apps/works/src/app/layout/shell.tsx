@@ -10,9 +10,6 @@ import { MainLayout } from "~/app/layout/main-layout";
 import { ModuleNav } from "~/app/layout/module-nav";
 import { NavItem, type NavItemConfig } from "~/app/layout/nav-item";
 
-// Permanent destinations: Home and Artifacts above the loaded Module
-// shortcuts, Modules (the library, including each Module's management) and
-// Settings below them.
 const topNavItems: NavItemConfig[] = [
   { end: true, icon: LayoutDashboardIcon, label: "Home", to: "/" },
   { icon: FilesIcon, label: "Artifacts", to: "/artifacts" },

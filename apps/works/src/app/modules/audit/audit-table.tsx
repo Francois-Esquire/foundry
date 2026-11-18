@@ -6,10 +6,6 @@ import type {
   AuditRunStatus,
 } from "~/shared/audit";
 
-/**
- * A read-only audit table: a caption naming it, column headers, and the
- * rows it is given. An empty table says so instead of showing headers alone.
- */
 export function AuditTable({
   caption,
   children,
@@ -49,7 +45,6 @@ export function AuditTable({
   );
 }
 
-/** One table row; a highlighted row is the one a link pointed at. */
 export function AuditRow({
   children,
   highlighted = false,
@@ -101,7 +96,6 @@ export function StatusText({
   );
 }
 
-/** A timestamp as local date and time, machine-readable underneath. */
 export function Time({ value }: { value: string | undefined }) {
   if (value === undefined) {
     return <span className="text-muted-foreground">—</span>;
@@ -132,7 +126,6 @@ function isRecord(
   );
 }
 
-/** A run's latest progress, read from the shapes Works runs report. */
 export function progressText(progress: Progress): string {
   if (progress === undefined || progress === null) {
     return "—";
@@ -152,7 +145,6 @@ export function progressText(progress: Progress): string {
   return "Reported";
 }
 
-/** A settled run's error code and message, if it failed. */
 export function Outcome({ run }: { run: AuditRun }) {
   if (!run.error) {
     return <span className="text-muted-foreground">—</span>;

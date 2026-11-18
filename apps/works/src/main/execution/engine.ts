@@ -31,10 +31,6 @@ export class WorksEngineStartError extends Error {
   override readonly name = "WorksEngineStartError";
 }
 
-/**
- * The outcome of a run an earlier Works process queued and never started:
- * its body lived in that process, so nothing ran and nothing changed.
- */
 class AbandonedRequestError extends Error {
   override readonly name = "AbandonedRequest";
   constructor() {
@@ -43,41 +39,17 @@ class AbandonedRequestError extends Error {
 }
 
 export interface WorksEngineOptions {
-  /** Works-owned engine directory, outside product storage. Omit to keep runs in memory. */
   readonly directory?: string;
-  /** The providers agent sessions route to; an empty manager when omitted. */
   readonly models?: ModelManager;
   readonly print?: (line: string) => void;
-  /** Replaces the engine's state store; tests use it to fail a start. */
   readonly store?: StateStore;
-  /**
-   * The workflows Modules may start, registered with Works' own tasks
-   * before recovery, so a run an exited process left queued under one of
-   * them is let in again and settles.
-   */
   readonly workflows?: Pick<WorkflowRegistry, "identities">;
 }
 
-/**
- * The run's request: which body to call. Bodies stay in memory, so source
- * text and package bytes never enter the run store.
- */
 interface RunRequest {
   readonly request: string;
 }
 
-/**
- * Start Marbles as Works' required engine, recovering its run store first.
- * Works accepts no save, settings change or launch before this resolves;
- * a failure here fails Works startup.
- *
- * Recovery: a run that was running when its process died is recorded
- * `interrupted`; nothing replays it. A run that was still queued is let in
- * again, in its original order and before any new launch, and fails at once
- * with {@link AbandonedRequestError}: its body (source text, package bytes,
- * a prompt) was never persisted, so there is nothing safe to run, and the
- * record says so rather than staying queued forever.
- */
 export async function startWorksEngine(
   options: WorksEngineOptions = {}
 ): Promise<WorksExecution> {
@@ -97,8 +69,6 @@ export async function startWorksEngine(
                 path: path.join(directory, "feed", "records.json"),
               }),
             }),
-      // Module sandboxes belong to the Works coordinator; agent work borrows
-      // them there rather than opening VMs the machine ceilings cannot see.
       containers: () =>
         Promise.reject(
           new Error("Borrow Module sandboxes from the Works coordinator")
@@ -158,7 +128,6 @@ class EngineExecution implements WorksExecution {
       return;
     }
     this.#tasks.add(name);
-    // A record left queued by an older process may carry no input.
     this.#engine.task<RunRequest | undefined, unknown>({
       name,
       queue: SYSTEM_QUEUE,
@@ -168,7 +137,6 @@ class EngineExecution implements WorksExecution {
             ? undefined
             : this.#bodies.get(input.request);
         if (!body) {
-          // Only a run another process left queued can get here.
           throw new AbandonedRequestError();
         }
         return await body(context);
@@ -241,7 +209,6 @@ class EngineExecution implements WorksExecution {
     return { id, result };
   }
 
-  /** A Module queue's name; one nobody configured starts at its recommended concurrency. */
   #moduleQueue(queue: ModuleQueue): string {
     const name = moduleQueue(queue.moduleId, queue.kind);
     if (!this.runs.queues().some((state) => state.name === name)) {
@@ -253,8 +220,6 @@ class EngineExecution implements WorksExecution {
   }
 
   async close() {
-    // Drain first: a save admitted during quit commits, so its run must end
-    // complete, not cancelled under it. Then close what the engine holds.
     await this.#engine.stop();
     await this.#engine.dispose();
   }

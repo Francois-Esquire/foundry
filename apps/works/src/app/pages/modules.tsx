@@ -20,16 +20,11 @@ function modulesTab(value: string | null): ModulesTab {
   return MODULES_TABS.find((tab) => tab.id === value)?.id ?? "catalog";
 }
 
-/**
- * The permanent Modules destination. Catalog is the library itself; the
- * other tabs audit the engine run store, read-only.
- */
 export function ModulesPage() {
   const [params, setParams] = useSearchParams();
   const tab = modulesTab(params.get("tab"));
   const selectTab = useCallback(
     (id: ModulesTab) => {
-      // The audit scope (Module, time range) carries across audit tabs.
       setParams(
         (current) => {
           const next = new URLSearchParams(current);
@@ -74,8 +69,6 @@ export function ModulesPage() {
           tabs={MODULES_TABS}
           value={tab}
         >
-          {/* One panel whose value follows the tab, so the audit view (and
-              its stream) stays mounted across the audit tabs. */}
           <TabPanel className="pt-6" value={tab}>
             {tab === "catalog" ? <ModuleCatalog /> : <ModulesAudit tab={tab} />}
           </TabPanel>

@@ -10,7 +10,6 @@ import {
 
 const encoder = new TextEncoder();
 
-/** Guest files at or under any of `targets`; flags are not targets. */
 function matching(
   files: Map<string, Uint8Array> | undefined,
   targets: string[]
@@ -21,7 +20,6 @@ function matching(
   );
 }
 
-/** Directories are implied by the files under them. */
 function isGuestDirectory(
   files: Map<string, Uint8Array> | undefined,
   path: string
@@ -32,7 +30,6 @@ function isGuestDirectory(
   );
 }
 
-/** The entries `find -P <root> -mindepth 1 [-maxdepth 1]` prints. */
 function guestEntries(
   files: Map<string, Uint8Array> | undefined,
   root: string,
@@ -55,10 +52,6 @@ function guestEntries(
   return [...entries].map(([path, type]) => `${type} ${path}\0`).join("");
 }
 
-/**
- * An authoring agent's reads, which run as its user: answered from the
- * guest's files. Undefined for any other command.
- */
 function guestRead(
   files: Map<string, Uint8Array> | undefined,
   command: readonly string[]
@@ -92,7 +85,6 @@ function guestRead(
   }
 }
 
-/** What the fake guest does for one command; its exit code. */
 function guestCommand(
   files: Map<string, Uint8Array> | undefined,
   command: readonly string[],
@@ -106,7 +98,6 @@ function guestCommand(
     return 0;
   }
   if (args[2] === "write") {
-    // An authoring agent's staged write, copied into place as its user.
     const [, , , staged = "", target = ""] = args;
     const bytes = files?.get(staged);
     if (bytes) {
@@ -115,7 +106,6 @@ function guestCommand(
     return 0;
   }
   if (args.includes("check-absent")) {
-    // The coding tools' absence probe: exit 1 when nothing is there.
     return matching(files, [args.at(-1) ?? ""]).length > 0 ? 0 : 1;
   }
   if (args[0] === "install") {
@@ -125,7 +115,6 @@ function guestCommand(
       `${cwd}/packages/app/dist/index.html`,
       encoder.encode("<h1>Built</h1>")
     );
-    // The starter Manifest's Program entry.
     files?.set(
       `${cwd}/packages/server/dist/index.js`,
       encoder.encode("export {};")
@@ -134,15 +123,7 @@ function guestCommand(
   return 0;
 }
 
-/**
- * The in-memory container runtime with a guest that acts like a passing
- * build, writing a lockfile on install and the app and server dist files on
- * build in the command's directory; `rm -rf` removes what it names, an
- * authoring agent's staged write is copied into place, and the coding
- * tools' absence probe and the agent's reads answer from the guest's files.
- */
 export function fakeContainerRuntime() {
-  /** Each command's environment and user, and the Gateway catalog it was handed. */
   const executions: {
     catalog?: string;
     command: string[];
@@ -150,7 +131,6 @@ export function fakeContainerRuntime() {
     user?: string;
   }[] = [];
   const execute: FakeExecHandler = (command, options) => {
-    // One guest per test that builds; every instance shares the handler.
     const files = runtime.instances.at(-1)?.files;
     const catalogPath = options.env.FOUNDRY_MODULE_CATALOG_PATH;
     const catalog = catalogPath ? files?.get(catalogPath) : undefined;
@@ -182,10 +162,6 @@ export function fakeContainerRuntime() {
   return { executions, runtime };
 }
 
-/**
- * The Works coordinator over {@link fakeContainerRuntime}: real registry,
- * real confirmed cleanup, no VM.
- */
 export function fakeModuleSandboxes(
   limits: { memoryBytes: number; sandboxes: number } = {
     memoryBytes: 8 * 1024 ** 3,

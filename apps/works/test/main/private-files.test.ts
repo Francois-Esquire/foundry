@@ -47,7 +47,6 @@ async function setup() {
     "data-moves",
     `${moduleDirectory(MODULE)}.json`
   );
-  /** One Works process; a second call is a restart. */
   const open = (
     checkDatabase = checkSqlite,
     installationFiles?: typeof createModuleInstallationFiles
@@ -67,10 +66,6 @@ async function setup() {
   };
 }
 
-/**
- * Private files as an earlier Works left them: a WAL database whose last
- * write is still only in its `-wal` companion, a backup, and an app file.
- */
 async function legacyFiles(legacy: string) {
   await mkdir(path.join(legacy, "uploads"), { recursive: true });
   const database = new DatabaseSync(path.join(legacy, "data.sqlite"));
@@ -84,8 +79,6 @@ async function legacyFiles(legacy: string) {
     path.join(legacy, "data.sqlite.bak")
   );
   database.prepare("INSERT INTO notes (body) VALUES (?)").run("second");
-  // Copy the files while the connection still holds the last write in the
-  // WAL, as a stopped Program's crash would leave them.
   const crashed = path.join(legacy, "..", "crashed");
   await mkdir(crashed);
   for (const name of ["data.sqlite", "data.sqlite-wal"]) {
@@ -118,7 +111,6 @@ describe("moving private data into the Module's data/", () => {
     expect(await readdir(legacy)).toContain("data.sqlite-wal");
     const checked: string[] = [];
     const files = open(async (file) => {
-      // The original is still there whenever a copy is checked.
       expect(await readdir(legacy)).toContain("data.sqlite");
       checked.push(path.relative(folder.root, file));
       await checkSqlite(file);
@@ -129,7 +121,6 @@ describe("moving private data into the Module's data/", () => {
       persistence: "installation",
     });
     expect(prepared.hostPath).toBe(folder.data);
-    // The WAL was folded into the copy, never copied beside it.
     expect((await readdir(folder.data)).sort()).toEqual([
       "data.sqlite",
       "data.sqlite.bak",
@@ -143,7 +134,6 @@ describe("moving private data into the Module's data/", () => {
     expect(
       await readFile(path.join(folder.data, "uploads", "photo.txt"), "utf8")
     ).toBe("app file");
-    // Checked once staged, and again where it now lies.
     expect(checked).toEqual([
       ".data-moving/data.sqlite",
       ".data-moving/data.sqlite.bak",
@@ -160,7 +150,6 @@ describe("moving private data into the Module's data/", () => {
   it("leaves the original in use when the copy does not check out, and moves it on retry", async () => {
     const { folder, legacy, open } = await setup();
     await legacyFiles(legacy);
-    /** The original's bytes; `-shm` is only SQLite's shared-memory index. */
     const original = async () =>
       Object.fromEntries(
         await Promise.all(
@@ -189,7 +178,6 @@ describe("moving private data into the Module's data/", () => {
   it("finishes an interrupted move after a restart, and only once", async () => {
     const { folder, legacy, open, state } = await setup();
     await legacyFiles(legacy);
-    // The placed copy does not reopen at data/: the placement is undone.
     const interrupted = vi.fn(checkSqlite);
     const crashing = open(async (file) => {
       await interrupted(file);
@@ -200,10 +188,8 @@ describe("moving private data into the Module's data/", () => {
     await expect(
       crashing.prepare({ installationId: id, persistence: "installation" })
     ).rejects.toThrow();
-    // The original stays in use, so the next attempt starts from it again.
     expect(await readdir(legacy)).toContain("data.sqlite");
 
-    // A move recorded as being placed is completed by the next process.
     await rm(folder.data, { force: true, recursive: true });
     await mkdir(path.join(folder.root, ".data-moving"), { recursive: true });
     await snapshotSqlite(
@@ -226,7 +212,6 @@ describe("moving private data into the Module's data/", () => {
     ]);
     await expect(readdir(legacy)).rejects.toMatchObject({ code: "ENOENT" });
 
-    // Done is done: earlier files appearing again are not moved over data/.
     await mkdir(legacy, { recursive: true });
     await writeFile(path.join(legacy, "data.sqlite"), "");
     await open().prepare({ installationId: id, persistence: "installation" });
@@ -256,8 +241,6 @@ it("gives a Version whose files are not kept a disposable directory, removed aft
     installationId: id,
     persistence: "none",
   });
-  // Where the Modules store prepares it: `<id>` in this checkout's store,
-  // `.ephemeral/<id>` in the newer one; either way, exactly that directory.
   const disposableRoot = path.join(root, ".library", "disposable");
   const disposable = prepared.hostPath;
   expect([
@@ -266,16 +249,12 @@ it("gives a Version whose files are not kept a disposable directory, removed aft
   ]).toContain(disposable);
   expect(await readdir(disposable)).toEqual([]);
   await writeFile(path.join(disposable, "scratch.txt"), "temporary");
-  // The persistent data still moved, and is not touched.
   const kept = (await readdir(folder.data)).sort();
-  // Gone once the Program's stop is confirmed (the newer store already
-  // removes them on release).
   await files.release(id);
   await files.stopped(id);
   await expect(readdir(disposable)).rejects.toMatchObject({ code: "ENOENT" });
   expect((await readdir(folder.data)).sort()).toEqual(kept);
 
-  // A kept Version is not touched by `stopped`.
   await files.prepare({ installationId: id, persistence: "installation" });
   await files.stopped(id);
   expect((await readdir(folder.data)).sort()).toEqual(kept);
@@ -368,13 +347,6 @@ describe("Program mounts", () => {
   });
 });
 
-/**
- * The Modules files store as its newer contract has it (PR #53): a `none`
- * Installation's files under `<root>/.ephemeral/<id>`, fresh and private,
- * apart from its persistent `<root>/<id>` and `.backups/<id>`. This
- * checkout's store predates it, so this adapter stands in for it; with
- * `outside`, it prepares there instead.
- */
 function ephemeralStore(
   outside?: string
 ): typeof createModuleInstallationFiles {
@@ -460,7 +432,6 @@ describe("Program mounts of disposable files", () => {
     const { admits, disposableRoot, files, folder, refuses } =
       await programMounts();
     const directory = moduleDirectory(MODULE);
-    // Nothing prepared yet: no disposable directory is mountable.
     await refuses(path.join(disposableRoot, directory));
     const prepared = await files.prepare({
       installationId: id,
@@ -470,12 +441,10 @@ describe("Program mounts of disposable files", () => {
       path.join(disposableRoot, ".ephemeral", directory)
     );
     await admits(prepared.hostPath);
-    // A disposable Program cannot substitute the Module's durable data.
     await refuses(folder.data);
     await refuses(path.join(disposableRoot, ".backups", directory));
     await refuses(path.join(disposableRoot, moduleDirectory(OTHER)));
     await refuses(disposableRoot);
-    // After its stop, nothing disposable is mountable again.
     await files.stopped(id);
     await refuses(path.join(disposableRoot, directory));
   });
@@ -492,9 +461,7 @@ describe("Program mounts of disposable files", () => {
       path.join(disposableRoot, ".ephemeral", directory)
     );
     await admits(prepared.hostPath);
-    // A disposable Program cannot substitute the Module's durable data.
     await refuses(folder.data);
-    // Its persistent and backup directories, and another Installation's.
     await refuses(path.join(disposableRoot, directory));
     await refuses(path.join(disposableRoot, ".backups", directory));
     await refuses(

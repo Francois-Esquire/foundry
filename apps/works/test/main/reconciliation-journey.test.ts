@@ -20,13 +20,6 @@ interface Created {
 
 type GatewaySave = FileSaveResult & { kind: string };
 
-/**
- * Phase one's reconciliation journey (spec §11 row 9) on real storage: a
- * JSON Artifact store, the real ModuleStore/Access/dispatcher and a durable
- * engine run store. A fixture Module and a person write the same File
- * Artifact through one save contract; nobody's edit is silently lost, and
- * only committed saves reach Artifact Saves.
- */
 it("reconciles fixture and human edits of one File Artifact through create, watch, conflict, reconnect, recovery, frozen reopen and revoke", {
   timeout: COMPOSED_WORKS_TIMEOUT_MS,
 }, async () => {
@@ -54,7 +47,6 @@ it("reconciles fixture and human edits of one File Artifact through create, watc
   const as = <T>(alias: string, input: unknown) => call<T>(app, alias, input);
   const human = { kind: "user" } as const;
 
-  // The fixture creates a Markdown file and reads it through its binding.
   const created = await as<Created>("create", {
     content: "# Journey\n",
     mime: "text/markdown",
@@ -66,7 +58,6 @@ it("reconciles fixture and human edits of one File Artifact through create, watc
   const base = await readAll(as, created.binding);
   expect(base.text).toBe("# Journey\n");
 
-  // It watches the entry: the snapshot is what it read.
   const stream = await watch(app, { binding: created.binding });
   expect((await stream.next()).value).toMatchObject({
     entry: { digest: base.digest, path: "journey.md" },
@@ -74,8 +65,6 @@ it("reconciles fixture and human edits of one File Artifact through create, watc
     kind: "snapshot",
   });
 
-  // A person and the fixture save against the same base at once: one
-  // commits, the other gets the saved entry back and keeps its own text.
   const humanText = "# Journey\n\nTyped by a person.\n";
   const fixtureText = "# Journey\n\nWritten by the fixture.\n";
   const [byHuman, byFixture] = await Promise.all([
@@ -100,13 +89,11 @@ it("reconciles fixture and human edits of one File Artifact through create, watc
   expect(loser).toMatchObject({ current: { text: winner }, kind: "conflict" });
   expect((await readAll(as, created.binding)).text).toBe(winner);
 
-  // The watch delivers the committed change, once.
   const change = (await stream.next()).value as WatchedEntry;
   expect(change.kind).toBe("change");
   const seen = change.entry?.digest;
   expect(seen).not.toBe(base.digest);
 
-  // The conflict is recoverable: the loser saves its own edits on the new base.
   const merged = `${winner}\n${byHuman.kind === "saved" ? fixtureText : humanText}`;
   const resolved =
     byHuman.kind === "saved"
@@ -128,7 +115,6 @@ it("reconciles fixture and human edits of one File Artifact through create, watc
   expect(latest.entry?.digest).not.toBe(seen);
   await stream.return?.();
 
-  // Reconnect: a fresh snapshot that reports the gap since what it last saw.
   const again = await watch(app, {
     after: { contentId: created.contentId, digest: seen },
     binding: created.binding,
@@ -140,8 +126,6 @@ it("reconciles fixture and human edits of one File Artifact through create, watc
   });
   await again.return?.();
 
-  // A save whose result cannot be recorded is saved, but blocks the next
-  // save of that Artifact until its evidence is reconciled.
   state.failing = true;
   const unrecorded = await as<GatewaySave>("save", {
     binding: created.binding,
@@ -175,8 +159,6 @@ it("reconciles fixture and human edits of one File Artifact through create, watc
     })
   ).toMatchObject({ evidence: "recorded", kind: "saved" });
 
-  // A frozen version opened for writing gets one ready working successor;
-  // the frozen one is kept and later saves edit the successor in place.
   const frozenId = (await persistence.artifacts.get(artifactId as never))
     ?.contentId;
   if (!frozenId) {
@@ -208,7 +190,6 @@ it("reconciles fixture and human edits of one File Artifact through create, watc
   expect(reopened.contentId).toBe(opened.contentId);
   expect(await states()).toHaveLength(2);
 
-  // Revoking the binding Grant ends the watch and refuses the next save.
   const live = await watch(app, { binding: opened.binding });
   await live.next();
   const ended = live.next();
@@ -228,8 +209,6 @@ it("reconciles fixture and human edits of one File Artifact through create, watc
     })
   ).rejects.toMatchObject({ code: "unauthorized" });
 
-  // Auditing: every committed save, once, with its origin; the conflict is
-  // an attempt, never a save; the working copy is neither.
   const runs = execution.runs.list().map(auditRun);
   const saves = artifactSaves(runs).filter(
     (row) => row.artifactId === artifactId

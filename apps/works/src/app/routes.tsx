@@ -22,10 +22,6 @@ export function WorksRoutes() {
   );
 }
 
-/**
- * The window's one data route: the shell around every page. A data router
- * is what lets a page block leaving it (an editor with unsaved work).
- */
 export function worksRouteObjects(): RouteObject[] {
   return [
     {

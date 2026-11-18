@@ -79,7 +79,6 @@ try {
       900_000
     );
   }
-  // Opt-in: changes the desktop's appearance, then restores it.
   if (process.argv.includes("--appearance")) {
     await run(
       "module-appearance.smoke.cjs",
@@ -87,7 +86,6 @@ try {
       240_000
     );
   }
-  // Opt-in: a real provider turn when credentials are in the environment.
   if (process.argv.includes("--live")) {
     await run(
       "authoring-live.smoke.cjs",

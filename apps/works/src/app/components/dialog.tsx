@@ -3,11 +3,6 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 import { type ReactNode, useCallback, useState } from "react";
 import { Button } from "./button";
 
-/**
- * An open modal with a title, a description and a close button. Focus
- * moves in when it mounts, stays inside, and returns to the element that
- * had it once the dialog unmounts.
- */
 export function Dialog({
   children,
   description,
@@ -16,11 +11,9 @@ export function Dialog({
 }: {
   children?: ReactNode;
   description: ReactNode;
-  /** Escape, the overlay and the close button all close it. */
   onClose: () => void;
   title: string;
 }) {
-  // Opened without a Radix trigger, so focus returns to what had it before.
   const [returnTo] = useState(() =>
     document.activeElement instanceof HTMLElement
       ? document.activeElement

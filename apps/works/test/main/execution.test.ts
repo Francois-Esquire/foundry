@@ -45,7 +45,6 @@ async function temporary(prefix: string) {
   return root;
 }
 
-/** A pid that has certainly exited, as a crashed Works process leaves behind. */
 function deadPid(): number {
   const { pid } = spawnSync(process.execPath, ["-e", ""]);
   if (pid === undefined) {
@@ -187,8 +186,6 @@ describe("Works execution engine startup", () => {
       error: { code: "interrupted" },
       status: "interrupted",
     });
-    // Queued Works work is let in again and settles at once: its body
-    // lived in the dead process, so nothing runs and nothing changes.
     await vi.waitFor(() =>
       expect(execution.runs.get("rn-save-2")).toMatchObject({
         error: { code: "AbandonedRequest" },
@@ -196,7 +193,6 @@ describe("Works execution engine startup", () => {
       })
     );
     expect(execution.runs.get("rn-save-2")?.input).toBeUndefined();
-    // A name nothing here registers stays queued and visible, and cancellable.
     expect(execution.runs.get("rn-other-3")).toMatchObject({
       status: "queued",
     });
@@ -229,7 +225,6 @@ describe("Works actions as system engine runs", () => {
     );
     subscription.unsubscribe();
     const [save] = runsNamed(execution.runs.list(), WORKS_TASKS.save);
-    // Each change is a new revision; the save result lands while running.
     expect([...new Set(seen)]).toEqual(["queued", "running", "complete"]);
     expect(save).toMatchObject({
       correlation: { moduleId: module.id },
@@ -379,7 +374,6 @@ describe("Works actions as system engine runs", () => {
       correlation: { contentId: release.contentId, moduleId: imported.id },
       status: "running",
     });
-    // Its lifetime holds no slot: later system work starts at once.
     expect(
       execution.runs.queues().find((queue) => queue.name === SYSTEM_QUEUE)
     ).toMatchObject({ active: 0 });
@@ -401,8 +395,6 @@ describe("Works actions as system engine runs", () => {
       throw new Error("Binding missing");
     }
     const { binding, source } = details;
-    // Every request carries the same fence, so only the first one admitted
-    // can commit; the rest must conflict.
     const results = await Promise.allSettled(
       [0, 1, 2, 3, 4].map((index) =>
         library.saveSource(
@@ -489,7 +481,6 @@ describe("Module queues", () => {
       () => "second"
     );
     expect(execution.runs.get(second.id)).toMatchObject({ status: "queued" });
-    // Another Module's queue is not held up by this backlog.
     await expect(
       execution.dispatch(
         "works.authoring.turn",

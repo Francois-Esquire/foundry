@@ -9,7 +9,6 @@ export const PREVIEW_HTML =
   '<!doctype html><html><head><title>Preview fixture</title><style>body{font-family:system-ui,sans-serif;margin:24px}button{font:inherit}</style></head><body><h1>Running module view</h1><button id="count" type="button">Count: 0</button><p id="bridge"></p><script src="/view.js"></script></body></html>';
 export const PREVIEW_SCRIPT =
   'let count = 0; document.querySelector("#count").onclick = (event) => { event.currentTarget.textContent = "Count: " + ++count; }; document.querySelector("#bridge").textContent = "Host bridge: " + typeof window.worksWindow; document.body.dataset.ready = "true";';
-/** `/probe?url=` fetches from inside the Program, for network smokes. */
 const program = `const server = Bun.serve({
   hostname: "0.0.0.0", port: Number(process.env.PORT || 3000),
   fetch(request, server) {
@@ -37,11 +36,6 @@ const program = `const server = Bun.serve({
 
 const THEME_VIEW_HTML =
   '<!doctype html><html><head><title>Theme fixture</title></head><body><h1>Theme fixture</h1><script type="module" src="/theme-view.js"></script></body></html>';
-/**
- * The View follows the host theme through the SDK's browser helper and shows
- * it on `<body>` data attributes; `startTheme`/`stopTheme` reconnect and
- * disconnect it, and `themeEvents` lists every report (null = unavailable).
- */
 const THEME_VIEW_SCRIPT = `import { watchModuleTheme } from "/sdk.js";
 let controller;
 window.themeEvents = [];
@@ -58,10 +52,6 @@ window.startTheme = () => {
 window.stopTheme = () => controller?.abort();
 window.startTheme();
 document.body.dataset.ready = "true";`;
-/**
- * A Program composed like the template's: the Module SDK owns the Gateway
- * socket and relays the theme at `/_module/theme`. It prints its port.
- */
 const THEME_PROGRAM = `import { createProgramGateway, relayModuleTheme } from "./sdk.js";
 const gateway = createProgramGateway();
 const sdk = await Bun.file(new URL("./sdk.js", import.meta.url)).text();
@@ -82,13 +72,11 @@ const server = Bun.serve({
 });
 process.stdout.write("listening " + server.port + "\\n");`;
 
-/** The theme fixture's release files: the Program and the SDK it imports. */
 export const THEME_PROGRAM_FILES: Readonly<Record<string, string>> = {
   "outputs/program.js": THEME_PROGRAM,
   "outputs/sdk.js": MODULE_SDK_EMITTED.esm,
 };
 
-/** A Manifest selecting `works.system.theme` under the relay's alias. */
 export const THEME_MANIFEST = {
   capabilities: [
     {
@@ -104,12 +92,10 @@ export const THEME_MANIFEST = {
   views: { main: { path: "/", title: "Theme fixture" } },
 } as const;
 
-/** A released package of the theme fixture Program. */
 export function themeReleasePackage() {
   return moduleReleasePackage(THEME_MANIFEST, THEME_PROGRAM_FILES);
 }
 
-/** A released package of the fixture Program; `manifest` replaces its Manifest. */
 export async function moduleReleasePackage(
   manifest?: object,
   sources: Readonly<Record<string, string>> = { "outputs/program.js": program }

@@ -17,27 +17,14 @@ import {
   unrecordedGatewayCalls,
 } from "./observations";
 
-/**
- * Modules auditing (spec §9): what main sends about engine runs, how the
- * renderer reconciles it, and the read-only projections each Modules tab
- * shows. Runs are the engine's own records, minus the queued input and the
- * owning process; nothing here copies product records, which the renderer
- * joins by ID.
- */
-
 export type AuditRunStatus = ExecutionStatus;
 export type AuditObservationStatus = ObservationStatus;
 type AuditObservation = ExecutionObservation;
 
-/**
- * One engine run as the audit views read it: without its queued input or
- * owning process. Each run carries only some correlation keys.
- */
 export type AuditRun = Omit<ExecutionRun, "correlation" | "input" | "owner"> & {
   readonly correlation: Readonly<Partial<Record<string, string>>>;
 };
 
-/** Runs retention removed from one scope (`host` or `module:<id>`). */
 export interface AuditGap {
   readonly removed: number;
   readonly scope: string;
@@ -46,15 +33,12 @@ export interface AuditGap {
 }
 
 export type AuditEvent =
-  /** Everything retained now; replaces whatever the reader held. */
   | {
       readonly gaps: readonly AuditGap[];
       readonly runs: readonly AuditRun[];
       readonly type: "snapshot";
     }
-  /** A run changed: keep the highest revision per id. */
   | { readonly run: AuditRun; readonly type: "run" }
-  /** Retention removed these runs; the gaps now cover them. */
   | {
       readonly gaps: readonly AuditGap[];
       readonly ids: readonly string[];
@@ -66,11 +50,6 @@ export interface AuditState {
   readonly runs: ReadonlyMap<string, AuditRun>;
 }
 
-/**
- * Reconcile one event: a snapshot replaces the state (a reconnect never
- * duplicates), a run is kept only when newer than what is held, and a
- * removal drops runs and updates the gaps.
- */
 export function applyAuditEvent(
   state: AuditState | null,
   event: AuditEvent
@@ -98,12 +77,10 @@ export function applyAuditEvent(
   return { gaps: current.gaps, runs };
 }
 
-/** The Module a run belongs to, if any. */
 export function runModule(run: AuditRun): string | undefined {
   return run.correlation.moduleId;
 }
 
-/** The scope a gap names as a Module id, or null for host actions. */
 export function gapModule(gap: AuditGap): string | null {
   return gap.scope.startsWith("module:")
     ? gap.scope.slice("module:".length)
@@ -111,13 +88,10 @@ export function gapModule(gap: AuditGap): string | null {
 }
 
 export interface AuditFilter {
-  /** Only this Module's runs; all when absent. */
   readonly moduleId?: string;
-  /** Only runs queued at or after this time. */
   readonly since?: number;
 }
 
-/** Retained runs in scope, newest first. */
 export function scopedRuns(
   state: AuditState,
   filter: AuditFilter = {}
@@ -132,7 +106,6 @@ export function scopedRuns(
     .sort((a, b) => b.sequence - a.sequence);
 }
 
-/** Gaps that touch the filter's scope. */
 export function scopedGaps(
   state: AuditState,
   filter: AuditFilter = {}
@@ -163,7 +136,6 @@ const LABELS: Readonly<Record<string, string>> = {
   [WORKS_TASKS.settings]: "Settings change",
 };
 
-/** A short, readable name for what a run does. */
 export function runLabel(run: AuditRun): string {
   if (isWorkflowRun(run)) {
     return `Workflow ${run.name}`;
@@ -171,12 +143,10 @@ export function runLabel(run: AuditRun): string {
   return LABELS[run.name] ?? run.name;
 }
 
-/** Registered workflows a Module started, and engine workflow definitions. */
 export function isWorkflowRun(run: AuditRun): boolean {
   return run.kind === "workflow" || run.correlation.workflow !== undefined;
 }
 
-/** Runs whose purpose is to commit a save. */
 const SAVE_TASKS: ReadonlySet<string> = new Set([
   WORKS_TASKS.fileCreate,
   WORKS_TASKS.fileSave,
@@ -188,27 +158,21 @@ const SAVE_TASKS: ReadonlySet<string> = new Set([
 
 type SavedKind = "file" | "release" | "source";
 
-/** One committed save, as Artifact Saves lists it. */
 export interface ArtifactSaveRow {
-  /** `created` for a new File Artifact's first Content. */
   readonly action: "created" | "saved";
   readonly artifactId: string;
   readonly contentId: string;
   readonly id: string;
   readonly kind: SavedKind;
   readonly moduleId?: string;
-  /** Who the save is attributed to. */
   readonly origin: SaveActor;
-  /** The entry written, for a file save of one entry. */
   readonly path?: string | null;
-  /** The run whose own result write failed, for a recovered save. */
   readonly recoveredFrom?: string;
   readonly runId: string;
   readonly tag?: string;
   readonly updatedAt: string;
 }
 
-/** Every committed save a run reports. Failed attempts report none. */
 function committedSaves(run: AuditRun): ArtifactSaveRow[] {
   return run.observations.flatMap((observation) => {
     const data = savedEvidence(observation);
@@ -242,13 +206,8 @@ function committedSaves(run: AuditRun): ArtifactSaveRow[] {
   });
 }
 
-/** Committed saves, newest first. */
 export function artifactSaves(runs: readonly AuditRun[]): ArtifactSaveRow[] {
   const rows = runs.flatMap(committedSaves);
-  // A recovered save is the same save as the run whose result write failed.
-  // That run, or an earlier recovery attempt, may still show it (it stays in
-  // memory, or a later write of the run landed): it is listed once, as
-  // recovered.
   const recovered = new Map<string, ArtifactSaveRow>();
   for (const row of rows) {
     if (row.recoveredFrom !== undefined) {
@@ -264,11 +223,6 @@ export function artifactSaves(runs: readonly AuditRun[]): ArtifactSaveRow[] {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-/**
- * Why a settled save run committed nothing: the typed attempt outcome it
- * reported (conflict, stale, denied…), else its error code or status.
- * Null when it is not a save run, has not settled, or committed a save.
- */
 export function failedSaveAttempt(run: AuditRun): string | null {
   if (
     !(SAVE_TASKS.has(run.name) && SETTLED_EXECUTION_STATUSES.has(run.status)) ||
@@ -285,13 +239,11 @@ export function failedSaveAttempt(run: AuditRun): string | null {
   if (run.error) {
     return run.error.code;
   }
-  // A disk sync that found nothing to write ends complete with no save.
   return run.status === "complete" ? "no-change" : run.status;
 }
 
 type CallKind = "gateway" | "model-turn" | "tool-call";
 
-/** One engine-observed call. */
 export interface CallRow {
   readonly durationMs?: number;
   readonly endedAt?: string;
@@ -299,7 +251,6 @@ export interface CallRow {
   readonly id: string;
   readonly kind: CallKind;
   readonly moduleId?: string;
-  /** Model, tool, or Capability. */
   readonly name: string;
   readonly provider?: string;
   readonly runId: string;
@@ -361,7 +312,6 @@ function callOf(run: AuditRun, observation: AuditObservation): CallRow | null {
   return null;
 }
 
-/** Model turns, tool calls and Gateway invocations, newest first. */
 export function callRows(runs: readonly AuditRun[]): CallRow[] {
   return runs
     .flatMap((run) =>
@@ -373,7 +323,6 @@ export function callRows(runs: readonly AuditRun[]): CallRow[] {
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
-/** Gateway invocations long-lived Programs counted but did not list. */
 function uncountedCalls(runs: readonly AuditRun[]): number {
   let count = 0;
   for (const run of runs) {
@@ -387,7 +336,6 @@ function uncountedCalls(runs: readonly AuditRun[]): number {
 const USAGE_FIELDS = ["inputTokens", "outputTokens", "totalTokens"] as const;
 type UsageField = (typeof USAGE_FIELDS)[number];
 
-/** A token total over model turns: known sum, and how many turns left it unknown. */
 export interface UsageTotal {
   readonly known: number;
   readonly unknownTurns: number;
@@ -398,22 +346,18 @@ export interface AuditDashboard {
     readonly count: number;
     readonly label: string;
   }[];
-  /** Run counts by status; statuses with no runs are left out. */
   readonly byStatus: readonly {
     readonly count: number;
     readonly status: AuditRunStatus;
   }[];
   readonly calls: Readonly<Record<CallKind, number>>;
-  /** Cost is never reported by providers here, so it is always unknown. */
   readonly cost: "unknown";
-  /** Model turns that reported usage at all, out of all model turns. */
   readonly coverage: { readonly measured: number; readonly turns: number };
   readonly runs: number;
   readonly unrecordedGatewayCalls: number;
   readonly usage: Readonly<Record<UsageField, UsageTotal>>;
 }
 
-/** Counts and usage of the runs in scope. */
 export function auditDashboard(runs: readonly AuditRun[]): AuditDashboard {
   const byKind = new Map<string, number>();
   const byStatus = new Map<AuditRunStatus, number>();

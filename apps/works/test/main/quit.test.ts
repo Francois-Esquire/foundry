@@ -199,7 +199,6 @@ describe("QuitWindows", () => {
     windows.kept(kept);
     expect(await closing).toBe(false);
     expect(other.close).not.toHaveBeenCalled();
-    // A later close of the kept window is no longer this quit's.
     kept.closed();
   });
 });

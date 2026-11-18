@@ -79,7 +79,6 @@ function named(runs: readonly ExecutionRun[], name: string) {
   return runs.filter((run) => run.name === name);
 }
 
-/** Every file under `directory`, with its text. */
 async function filesUnder(directory: string): Promise<[string, string][]> {
   const entries = await readdir(directory, {
     recursive: true,
@@ -95,7 +94,6 @@ async function filesUnder(directory: string): Promise<[string, string][]> {
   );
 }
 
-/** Collect a watch's events until `count` have arrived. */
 async function take(
   events: AsyncIterator<AuditEvent>,
   count: number
@@ -118,7 +116,6 @@ function reduce(
   return events.reduce<AuditState | null>(applyAuditEvent, state);
 }
 
-/** A pid that belonged to a process which has exited. */
 function deadPid(): number {
   const child = spawnSync(process.execPath, ["-e", ""]);
   return child.pid ?? 999_999;
@@ -145,7 +142,6 @@ describe("engine run-store coverage", {
       correlation: { moduleId },
       status: "complete",
     });
-    // The release is attributed to its build.
     expect(publish?.correlation).toEqual({
       moduleId,
       parentRunId: build?.id,
@@ -196,7 +192,6 @@ describe("engine run-store coverage", {
         ["file", "saved", "user", undefined],
       ])
     );
-    // Failures never appear as saves; they are typed attempts.
     const attempts = runs
       .map((run) => [run.name, failedSaveAttempt(run)] as const)
       .filter(([, attempt]) => attempt !== null);
@@ -209,7 +204,6 @@ describe("engine run-store coverage", {
     );
     expect(saves.some((save) => attemptRuns.has(save.runId))).toBe(false);
 
-    // Calls: a real coding turn's model turns and tool calls, and Gateway calls.
     const calls = callRows(runs);
     const turn = calls.filter((call) => call.runId === scenario.turnRunId);
     expect(turn.filter((call) => call.kind === "model-turn")).not.toHaveLength(
@@ -260,7 +254,6 @@ describe("engine run-store coverage", {
       expect(payload).not.toContain(secret.trim());
     }
     expect(payload).not.toContain('"input":{"request"');
-    // The conversation itself is the Agent Session's separate persistence.
     const sessions = await filesUnder(
       path.join(directory, "engine", "sessions")
     );
@@ -280,7 +273,6 @@ describe("engine run-store coverage", {
       { recordErrorMessage: false },
       () => Promise.reject(failure)
     );
-    // The caller still gets the error itself.
     await expect(launched.result).rejects.toBe(failure);
     const run = execution.runs.get(launched.id);
     expect(run?.error).toEqual({ code: "AI_APICallError:401" });
@@ -387,7 +379,6 @@ describe("Gateway invocations on Program runs", () => {
         status: "complete",
       });
     }
-    // Another Module's calls never land on this run.
     calls.record({
       endedAt: new Date().toISOString(),
       invocationId: "other",
@@ -468,7 +459,6 @@ describe("run-store retention", () => {
   it("prunes only settled runs past retention, keeping each Artifact's latest save, a file's creation receipt and active work", async () => {
     const { created, directory, execution, module, store } =
       await savesFixture();
-    // A Program still running when retention runs.
     const release = Promise.withResolvers<void>();
     const program = await execution.launch(
       WORKS_TASKS.program,
@@ -487,7 +477,6 @@ describe("run-store retention", () => {
     const keep = [
       latest(WORKS_TASKS.save),
       latest(WORKS_TASKS.fileSave),
-      // The file's first result: a retried create still finds it.
       latest(WORKS_TASKS.fileCreate),
       program.id,
     ];
@@ -509,12 +498,10 @@ describe("run-store retention", () => {
         execution.runs.gaps().map((gap) => [gap.scope, gap.removed])
       )
     ).toEqual({
-      // Create, three saves and the file saves are host or Module runs.
       [HOST_AUDIT_SCOPE]: named(before, WORKS_TASKS.create).length + 1,
       [`module:${module.id}`]: 2,
     });
 
-    // The kept checkpoints are what startup recovery reads: nothing to recover.
     const again = new ProductFiles({
       artifacts: modulePersistence(store).artifacts,
       execution,
@@ -555,12 +542,10 @@ describe("run-store retention", () => {
       runs: execution.runs,
     });
     await retention.compact();
-    // The newest two: the last source save and the settings change.
     expect(moduleRuns().map((run) => run.name)).toEqual([
       WORKS_TASKS.save,
       WORKS_TASKS.settings,
     ]);
-    // Nothing of the host scope was old enough or over its limit.
     expect(execution.runs.gaps().map((gap) => gap.scope)).toEqual([
       `module:${module.id}`,
     ]);
@@ -637,7 +622,6 @@ describe("crash durability", () => {
     });
     const app = sessions.watch(module.id, release.version.contentId);
     await app.next();
-    // One chat turn holds the Module's authoring slot; the next waits.
     const hold = Promise.withResolvers<void>();
     const queue = { kind: "authoring", moduleId: module.id } as const;
     const running = await first.launch(
@@ -657,7 +641,6 @@ describe("crash durability", () => {
       await Promise.allSettled([running.result, waiting.result]);
     });
 
-    // The crash: the store as the dead process left it.
     const copy = path.join(directory, "after-crash");
     await cp(engine, copy, { recursive: true });
     const dead = deadPid();
@@ -688,7 +671,6 @@ describe("crash durability", () => {
         status: "failed",
       })
     );
-    // The committed save survives with its result; nothing appears as saved twice.
     const saves = artifactSaves(second.runs.list().map(auditRun));
     expect(saves.map((save) => [save.kind, save.tag])).toEqual(
       expect.arrayContaining([
@@ -722,7 +704,6 @@ describe("audit watch", () => {
     expect(snapshot?.type === "snapshot" && snapshot.runs).toHaveLength(1);
 
     const module = await library.create("After");
-    // Queued, running, its result, complete: one event per revision.
     const updates = await take(events, 4);
     expect(updates.map((event) => event.type)).toEqual([
       "run",
@@ -730,7 +711,6 @@ describe("audit watch", () => {
       "run",
       "run",
     ]);
-    // Replaying an event (a duplicate delivery) changes nothing.
     const state = reduce([...(snapshot ? [snapshot] : []), ...updates]);
     const replayed = reduce(updates, state);
     expect(replayed).toBe(state);
@@ -739,7 +719,6 @@ describe("audit watch", () => {
       "complete",
     ]);
 
-    // Retention removes both: the watch says so, with the gap.
     await retention.compact();
     const [removed] = await take(events, 1);
     expect(removed).toMatchObject({
@@ -750,7 +729,6 @@ describe("audit watch", () => {
     expect(pruned.runs.size).toBe(0);
     expect(pruned.gaps).toHaveLength(1);
 
-    // A reconnect is a fresh snapshot that replaces what the reader held.
     controller.abort();
     expect(await events.next()).toEqual({ done: true, value: undefined });
     await library.details(module.id);

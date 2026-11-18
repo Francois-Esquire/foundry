@@ -41,7 +41,6 @@ it("expires a binding no runtime claimed in time, and keeps a claimed one", () =
   );
   expect(unclaimed.signal.aborted).toBe(true);
   expect(bindings.current(unclaimed)).toBe(false);
-  // The claimed one lasts as long as its runtime.
   now = UNCLAIMED_BINDING_TTL_MS * 10;
   expect(bindings.resolve(RUNTIME, claimed.id).id).toBe(claimed.id);
 });
@@ -75,7 +74,6 @@ it("drops the bindings a runtime claimed once its Program stops, keeping unclaim
   expect(owned.signal.aborted).toBe(true);
   expect(bindings.current(claimed)).toBe(false);
   expect(bindings.current(owned)).toBe(false);
-  // Opened for the next runtime, or another Installation's: untouched.
   expect(bindings.current(pending)).toBe(true);
   expect(bindings.current(other)).toBe(true);
   const next = { ...RUNTIME, runtimeInstanceId: "runtime-2" };

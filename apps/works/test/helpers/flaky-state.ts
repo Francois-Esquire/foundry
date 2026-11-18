@@ -3,11 +3,6 @@ import { InMemoryStateStore, JsonStateStore } from "@foundry.sh/marbles/engine";
 type Write = InMemoryStateStore["write"];
 type Append = InMemoryStateStore["append"];
 
-/**
- * Whether a run-store write carries a run result: the write a full disk
- * fails. A running run appends each observation to its log; its settled
- * record carries them all.
- */
 function carriesResult(
   collection: Parameters<Write>[0],
   value: Parameters<Write>[2]
@@ -25,7 +20,6 @@ function carriesResult(
   );
 }
 
-/** An in-memory run store whose result writes fail while `failing`, like a full disk. */
 export class FlakyStateStore extends InMemoryStateStore {
   failing = false as boolean;
 
@@ -44,7 +38,6 @@ export class FlakyStateStore extends InMemoryStateStore {
   }
 }
 
-/** The durable (JSON) run store, whose result writes fail while `failing`. */
 export class FlakyJsonStateStore extends JsonStateStore {
   failing = false as boolean;
 

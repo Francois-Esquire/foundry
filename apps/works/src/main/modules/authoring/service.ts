@@ -39,44 +39,31 @@ import {
 import { AuthoringStore, type TurnRecord } from "./store";
 import { collectWorkspace, seedWorkspace } from "./workspace";
 
-/** Settled turns kept per Module; older ones go once nothing is pending on them. */
 const RETAINED_TURNS = 50;
 const PROGRESS_UNSAVED =
   "Works could not save this request's progress. After a restart it may show as interrupted.";
 const SAVED_SOURCE_CHANGED =
   "Saved source changed since this request was sent, so the proposal was not applied. Compare it or resolve it file by file.";
 
-/** Where a turn's model calls go, with provider credentials read from the vault now. */
 export interface AuthoringModels {
   route(): AuthoringRoute;
 }
 
 export interface ModuleAuthoringOptions {
-  /** Overrides every Module's `authoring.deadline` setting (tests). */
   readonly deadlineMs?: number;
-  /** Where conversations, turns, snapshots and proposals are kept. */
   readonly directory: string;
   readonly execution: Pick<WorksExecution, "launch">;
-  /** Saved source, read through disk synchronization. */
   readonly library: Pick<ModuleLibrary, "details">;
-  /**
-   * A Module's turn limits from its effective settings, read when a turn is
-   * sent. Host defaults when absent.
-   */
   readonly limits?: (moduleId: string) => Promise<AuthoringTurnLimits>;
-  /** Overrides every Module's `authoring.maxSteps` setting (tests). */
   readonly maxSteps?: number;
   readonly models: AuthoringModels;
-  /** The agent; tests supply a scripted one. */
   readonly runner?: AuthoringTurnRunner;
   readonly sandboxes: Pick<ModuleSandboxes, "borrow">;
 }
 
 export interface SendTurn {
-  /** The saved source the Draft is bound to. */
   readonly binding: ModuleSourceRevision;
   readonly prompt: string;
-  /** The Draft as the user sees it now. */
   readonly source: Record<string, string>;
 }
 
@@ -84,10 +71,8 @@ interface PendingInput {
   answer(answer: AuthoringAnswer): void;
 }
 
-/** A turn of this process: its cancel switch and the questions it is waiting on. */
 interface LiveTurn {
   readonly controller: AbortController;
-  /** Settles once the turn's outcome is recorded. */
   done?: Promise<void>;
   readonly inputs: Map<string, PendingInput>;
 }
@@ -105,14 +90,6 @@ class CancelledTurnError extends Error {
   override readonly name = "CancelledTurnError";
 }
 
-/**
- * The Module authoring chat in main: one conversation per Module, each turn
- * an engine run on that Module's authoring queue, working in the Module's
- * sandbox on a snapshot of the Draft, and ending in an Edit proposal the
- * renderer reconciles into the Draft. Works never saves on the agent's
- * behalf: accepting only returns the proposal once the saved binding is
- * confirmed unchanged.
- */
 export class ModuleAuthoring {
   readonly #deadlineMs: number | undefined;
   readonly #execution: Pick<WorksExecution, "launch">;
@@ -140,11 +117,6 @@ export class ModuleAuthoring {
     this.#store = new AuthoringStore(options.directory);
   }
 
-  /**
-   * A Module's state, read once per process. What an earlier process left
-   * queued or running, or waiting on the user, is recorded as interrupted:
-   * nothing of this process is working on it.
-   */
   #state(moduleId: string): Promise<ModuleState> {
     let state = this.#modules.get(moduleId);
     if (!state) {
@@ -185,7 +157,6 @@ export class ModuleAuthoring {
     return { moduleId, turns: [...state.turns.values()].map(view) };
   }
 
-  /** The conversation now, then every change to it. Ending the watch never cancels a turn. */
   watch(
     moduleId: string,
     signal?: AbortSignal
@@ -198,8 +169,6 @@ export class ModuleAuthoring {
         if (events) {
           return await events.next();
         }
-        // Subscribe and snapshot in the same tick, so no event is both in
-        // the snapshot and replayed after it (a text delta would repeat).
         events = state.publisher.subscribe("event", { signal });
         return {
           done: false,
@@ -218,11 +187,6 @@ export class ModuleAuthoring {
     );
   }
 
-  /**
-   * Start a turn. The Draft snapshot and its binding are kept with the turn
-   * before anything runs; the turn then waits its place on the Module's
-   * authoring queue.
-   */
   async send(moduleId: string, request: SendTurn): Promise<AuthoringTurnView> {
     const configured = await this.#limits(moduleId);
     const limits: AuthoringTurnLimits = {
@@ -271,8 +235,6 @@ export class ModuleAuthoring {
         {
           correlation: { agentSessionId: sessionId, moduleId, turnId: turn.id },
           queue: { kind: "authoring", moduleId },
-          // Provider failures can quote what was sent; the turn record
-          // keeps the message, the run store only its code.
           recordErrorMessage: false,
           signal: live.controller.signal,
         },
@@ -296,13 +258,11 @@ export class ModuleAuthoring {
     return view(turn);
   }
 
-  /** Cancel a queued or running turn. Its run is recorded cancelled. */
   async cancel(moduleId: string, turnId: string): Promise<void> {
     const state = await this.#state(moduleId);
     state.live.get(turnId)?.controller.abort(new CancelledTurnError());
   }
 
-  /** Answer a question or approval the turn is waiting on. */
   async answer(
     moduleId: string,
     turnId: string,
@@ -317,7 +277,6 @@ export class ModuleAuthoring {
     pending.answer(answer);
   }
 
-  /** A proposal and the captured files it changes, for comparison. */
   async proposal(
     moduleId: string,
     turnId: string
@@ -340,12 +299,6 @@ export class ModuleAuthoring {
     return { base, proposal };
   }
 
-  /**
-   * Hand a pending proposal to the renderer to reconcile, once the saved
-   * source is confirmed to be what the turn started from. Reading details
-   * runs disk synchronization first, so a disk save during the turn counts.
-   * A moved binding refuses: nothing is applied and the proposal is kept.
-   */
   async accept(
     moduleId: string,
     turnId: string
@@ -362,7 +315,6 @@ export class ModuleAuthoring {
     return { status: "ready", ...(await this.proposal(moduleId, turnId)) };
   }
 
-  /** Record what the renderer did with a proposal: applied to the Draft, or dismissed. */
   async settleProposal(
     moduleId: string,
     turnId: string,
@@ -378,7 +330,6 @@ export class ModuleAuthoring {
     try {
       await this.#save(state, turn);
     } catch (error) {
-      // Still pending on disk, so still pending here.
       turn.proposal = pending;
       this.#publish(state, { turn: view(turn), type: "turn" });
       throw error;
@@ -386,7 +337,6 @@ export class ModuleAuthoring {
     return view(turn);
   }
 
-  /** Cancel every turn of this process; quit waits for their runs to end. */
   async shutdown(): Promise<void> {
     const states = await Promise.allSettled(this.#modules.values());
     for (const state of states) {
@@ -419,8 +369,6 @@ export class ModuleAuthoring {
   ): Promise<void> {
     turn.status = "running";
     this.#keep(state, turn);
-    // Credentials are read again now: a key changed while the turn waited
-    // applies, and a provider that went away fails it plainly.
     if (this.#models.route().provider !== turn.route.provider) {
       throw new Error(
         "The model provider changed while this request waited. Send it again."
@@ -473,8 +421,6 @@ export class ModuleAuthoring {
       }
       await this.#store.writeProposal(turn.moduleId, turn.id, changes);
       turn.proposal = { paths, status: "pending" };
-      // Kept now: a restart before the run settles still offers it. One
-      // that cannot be kept is not offered now either.
       try {
         await this.#save(state, turn);
       } catch (error) {
@@ -502,7 +448,6 @@ export class ModuleAuthoring {
     }
   }
 
-  /** How a turn ended, recorded once its run has settled. */
   #settled(
     state: ModuleState,
     turn: TurnRecord,
@@ -583,7 +528,6 @@ export class ModuleAuthoring {
     }
   }
 
-  /** `ask_user`, shown in the owning chat until answered or the turn ends. */
   #question(
     state: ModuleState,
     turn: TurnRecord,
@@ -609,7 +553,6 @@ export class ModuleAuthoring {
       });
   }
 
-  /** A live approval, shown in the owning chat until decided or the turn ends. */
   #approval(
     state: ModuleState,
     turn: TurnRecord,
@@ -645,8 +588,6 @@ export class ModuleAuthoring {
       );
       this.#keep(state, turn);
     };
-    // On disk before anyone can see or answer it, so a restart at any point
-    // after that reports it interrupted instead of forgetting it was asked.
     const record = structuredClone(turn);
     record.items = [...record.items, item];
     await this.#write(state, record);
@@ -677,20 +618,12 @@ export class ModuleAuthoring {
     });
   }
 
-  /**
-   * Keep the turn and tell watchers. Writes go in order; the latest wins.
-   * Rejects when this write fails.
-   */
   #save(state: ModuleState, turn: TurnRecord): Promise<void> {
     const record = structuredClone(turn);
     this.#publish(state, { turn: view(record), type: "turn" });
     return this.#write(state, record);
   }
 
-  /**
-   * {@link save} for progress nothing waits on: a later write may still
-   * catch up, and a failure is told in the chat meanwhile.
-   */
   #keep(state: ModuleState, turn: TurnRecord): void {
     this.#save(state, turn).catch(() => {
       this.#publish(state, {
@@ -700,10 +633,6 @@ export class ModuleAuthoring {
     });
   }
 
-  /**
-   * Queue one record write after the earlier ones. The returned write
-   * rejects on failure; the queue goes on to the next one regardless.
-   */
   #write(state: ModuleState, record: TurnRecord): Promise<void> {
     const written = state.writes.then(() => this.#store.writeTurn(record));
     state.writes = written.catch(() => undefined);
@@ -714,7 +643,6 @@ export class ModuleAuthoring {
     state.publisher.publish("event", event);
   }
 
-  /** Forget the oldest settled turns beyond the retained count, unless a proposal awaits review. */
   async #prune(moduleId: string, state: ModuleState) {
     const removable = [...state.turns.values()].filter(
       (turn) =>
@@ -762,7 +690,6 @@ function interrupted(item: AuthoringItem): AuthoringItem {
   return item;
 }
 
-/** A refusal the tool compiler returns in place of a result. */
 function deniedReason(output: unknown): string | undefined {
   if (typeof output === "object" && output !== null) {
     return "reason" in output && typeof output.reason === "string"

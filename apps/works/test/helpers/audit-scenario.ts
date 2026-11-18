@@ -8,7 +8,6 @@ import { scriptedModels } from "./authoring-model";
 import { successfulBuildRuntime } from "./module-build";
 import { fakeContainerRuntime } from "./module-sandboxes";
 
-/** A planted secret: no audit payload or run-store file may contain it. */
 export const SCENARIO_PROMPT =
   "Rename the app to Weather (planted-prompt-7f3a)";
 export const SCENARIO_FILE_BODY = "# Field notes (planted-body-91c2)\n";
@@ -16,15 +15,6 @@ export const SCENARIO_SOURCE_BODY = "planted-source-55d0";
 
 const APP = "packages/app/src/App.tsx";
 
-/**
- * One Works session through Works composed as main composes it, over a
- * JSON engine store in `directory`: Module create, source saves (one
- * stale), a build whose publish is its child run, a settings change, File
- * Artifact create/save/conflict, a Program lifetime with a Gateway
- * invocation, a scripted chat turn (model turns and tool calls), and a
- * registered workflow. Only the VMs, the build and the model are stand-ins.
- * The caller closes it.
- */
 export async function runAuditScenario(directory: string) {
   const { models } = scriptedModels([
     {
@@ -77,7 +67,6 @@ export async function runAuditScenario(directory: string) {
     { ...details.source, "README.md": `# ${SCENARIO_SOURCE_BODY}\n` },
     details.binding
   );
-  // A stale save: a failed attempt, never a save.
   await library
     .saveSource(module.id, details.source, details.binding)
     .catch(() => undefined);
@@ -107,7 +96,6 @@ export async function runAuditScenario(directory: string) {
     path: "notes.md",
     text: `${SCENARIO_FILE_BODY}More.\n`,
   });
-  // Edits against the old digest: a conflict, recorded as an attempt.
   await files.save({
     actor: { kind: "user" },
     artifactId: created.artifactId,
@@ -180,7 +168,6 @@ export async function runAuditScenario(directory: string) {
   return {
     artifactId: created.artifactId,
     chatModuleId: chat.id,
-    /** Closes the composed Works, its engine last. */
     close: () => works.close(),
     execution,
     library,

@@ -24,7 +24,6 @@ const updatedFormat = new Intl.DateTimeFormat(undefined, {
 
 const CARD = "[data-artifact-open]";
 
-/** Columns of the laid-out grid; 1 when there is no layout to read. */
 function columnsOf(grid: Element): number {
   const tracks = getComputedStyle(grid)
     .gridTemplateColumns.split(" ")
@@ -32,10 +31,6 @@ function columnsOf(grid: Element): number {
   return Math.max(tracks, 1);
 }
 
-/**
- * Arrow keys move between cards (up/down by a row), Home/End to the ends.
- * Every card stays in the Tab order.
- */
 function moveFocus(event: KeyboardEvent<HTMLButtonElement>) {
   const grid = event.currentTarget.closest("ul");
   if (grid) {
@@ -97,7 +92,6 @@ function ArtifactCard({
     <li className="relative flex flex-col gap-2 rounded-xl border border-border p-3 focus-within:border-ring">
       <ArtifactPreview artifact={artifact} />
       <h2 className="truncate font-medium text-sm">
-        {/* The card's whole surface opens it; the button carries the name. */}
         <button
           className="rounded-xl outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-3 focus-visible:after:ring-ring/50"
           data-artifact-open=""
@@ -133,15 +127,10 @@ function ArtifactCard({
   );
 }
 
-/**
- * Product Artifacts in the shared store as a grid; Module Artifacts are left
- * out. `requested` opens one Artifact by ID, a Module Artifact included.
- */
 export function ArtifactExplorer({
   onRequestDone,
   requested,
 }: {
-  /** Told when the user dismisses the requested Artifact's dialog. */
   onRequestDone?: () => void;
   requested?: string;
 }) {

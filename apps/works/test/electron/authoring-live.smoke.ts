@@ -9,14 +9,6 @@ const APP = "packages/app/src/App.tsx";
 const TEXT = "Edited by a live chat turn.";
 const TURN_DEADLINE_MS = 600_000;
 
-/**
- * One real authoring turn against the provider route Works would use: the
- * vault of this smoke's fresh profile (so the user's own vault is never
- * read), which falls back to the environment, as main does. Credentials
- * reach the environment through the repository's Varlock path:
- * `bun run env:run -- bun run --cwd apps/works test:authoring-live`.
- * Without them it reports the skip and passes; values are never printed.
- */
 async function smoke(userData: string) {
   const models = new ModelManager();
   const routes = vaultAuthoringModels(models, await openAppVault(userData));

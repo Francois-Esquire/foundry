@@ -23,8 +23,6 @@ app
   .then(async () => {
     const userData = app.getPath("userData");
     const print = (line: string) => process.stderr.write(`${line}\n`);
-    // Main owns the theme: its stored preference applies before any window
-    // or Module Program exists, and window backgrounds follow it.
     await systemTheme.open({
       file: path.join(userData, "theme.json"),
       native: electronNativeTheme,
@@ -34,11 +32,8 @@ app
         window.setBackgroundColor(themeBackground(effective));
       }
     });
-    // Chat turns and Module workflows route to these providers; credentials
-    // are read from the vault when the work runs and never leave the host.
     const models = new ModelManager();
     const vault = await openAppVault(userData);
-    // Works' state is its own, apart from product storage under ~/.foundry.
     const works = await composeWorks({
       artifactRoot: path.join(homedir(), ".foundry", "artifacts"),
       models,
@@ -49,8 +44,6 @@ app
       userData,
     });
     registerModuleProtocol(works.rpc.sessions);
-    // Windows close first, so unsaved work can cancel the quit before any
-    // service shuts down.
     registerQuitCleanup(
       app,
       works.stages,

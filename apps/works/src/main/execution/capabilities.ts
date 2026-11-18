@@ -23,14 +23,12 @@ import {
   workflowIdentity,
 } from "./workflows";
 
-/** Works' execution operations for Module Programs (spec §7), all version 1. */
 export const EXECUTION_CAPABILITIES = {
   cancel: "works.execution.cancel",
   start: "works.execution.start",
   watch: "works.execution.watch",
 } as const;
 
-/** What the providers act on. */
 export interface ExecutionHost {
   readonly modules: Pick<ModuleCommands, "loadGatewayContext">;
   readonly workflows: Pick<
@@ -49,7 +47,6 @@ const executionInput = fields({
   execution: required(z.string().min(1).max(200), executionField),
 });
 
-/** Watch and cancel act only on the caller's own executions: no constraints, one digest. */
 const ownOnly = (capability: string) =>
   noConstraints(
     capability,
@@ -61,10 +58,6 @@ const startConstraints = z
   .object({ workflows: z.array(z.string().min(1)).min(1).max(32) })
   .strict();
 
-/**
- * The registered workflows (`id@version`) a Module may start, sorted and
- * deduplicated. An unregistered one refuses the whole request.
- */
 function startPolicy(registry: WorkflowRegistry = WORKS_WORKFLOWS) {
   return constrained(EXECUTION_CAPABILITIES.start, (raw) => {
     const workflows = [
@@ -110,8 +103,6 @@ function startCapability(
       if (!value.workflows.includes(identity)) {
         throw denied(`Starting ${identity} is not approved`);
       }
-      // Checked again when the start takes its turn: a revoke that
-      // committed first refuses it.
       return host.workflows.start(principal, request, async () => {
         await authorizeRuntime(host.modules, principal, [
           { capability, digest },
@@ -130,7 +121,6 @@ function startCapability(
       ["execution", "retried", "status"]
     ),
     policy: startPolicy(registry),
-    // Revoking the start Grant cancels what the Installation started.
     revoked: ({ installationId }) =>
       host.workflows.cancelInstallation(installationId),
     scope: { area: "workflows", of: ({ workflows }) => workflows },
@@ -193,7 +183,6 @@ function cancelCapability(host: ExecutionHost): WorksCapability {
   });
 }
 
-/** The three execution capabilities over `host`, starting `registry`'s workflows. */
 export function executionCapabilities(
   host: ExecutionHost,
   registry: WorkflowRegistry = WORKS_WORKFLOWS

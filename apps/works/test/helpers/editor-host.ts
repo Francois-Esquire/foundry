@@ -11,7 +11,6 @@ import { moduleInstallationId } from "~/main/modules/runtime/installation";
 import { publishStrict } from "./module-build";
 import { composeTestWorks } from "./works";
 
-/** A Markdown editor's Manifest: every Artifact operation, one write View. */
 export const EDITOR_MANIFEST = {
   capabilities: [
     { alias: "binding", capability: ARTIFACT_CAPABILITIES.binding },
@@ -38,25 +37,15 @@ export const EDITOR_MANIFEST = {
   },
 };
 
-/** The binding-scoped operations: every Artifact Capability but `list`. */
 export const ALL = Object.values(ARTIFACT_CAPABILITIES).filter(
   (capability) => capability !== ARTIFACT_CAPABILITIES.list
 );
 
 export interface EditorHostOptions {
-  /** Each new Module's setting values, chosen before its release. */
   readonly settings?: Readonly<Record<string, number>>;
-  /** The engine's state store, under the host's `engine/` directory. */
   readonly state?: (directory: string) => StateStore;
 }
 
-/**
- * Works' editor host on real storage, composed as main composes it: the
- * Module library, ModuleStore, durable engine, product files, bindings,
- * settings, Access with every capability's Grant hooks, and the explorer.
- * Only the VM and Gateway socket are stand-ins (see {@link composeTestWorks}).
- * Closed when the test finishes.
- */
 export async function editorHost(options: EditorHostOptions = {}) {
   const directory = await realpath(
     await mkdtemp(path.join(tmpdir(), "works-editor-"))
@@ -80,7 +69,6 @@ export async function editorHost(options: EditorHostOptions = {}) {
   const explorer = works.rpc.artifacts;
   let requests = 0;
 
-  /** A Module with the editor released, approved and running. */
   async function editorApp(
     name = "Markdown",
     grants: readonly string[] = ALL,
@@ -169,7 +157,6 @@ export async function editorHost(options: EditorHostOptions = {}) {
     ]();
   }
 
-  /** The host opening a File Artifact in an editor View, as Artifacts does. */
   async function openIn(artifactId: string, moduleId: string, view: string) {
     const resolved = await explorer.resolve({ id: artifactId });
     if (resolved.kind !== "editors") {
@@ -209,9 +196,7 @@ export async function editorHost(options: EditorHostOptions = {}) {
     files,
     markdownFile,
     openIn,
-    /** The shared manager and ModuleStore Works composed. */
     persistence: works.testing.persistence,
-    /** Publish another release of a Module, without selecting it. */
     release: (
       moduleId: string,
       tag: string,

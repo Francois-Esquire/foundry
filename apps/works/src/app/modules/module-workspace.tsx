@@ -81,9 +81,6 @@ export function ModuleWorkspace({
   refresh: () => Promise<ModuleDetails>;
 }) {
   const [view, setView] = useState("Source");
-  // New conflicts are resolved in Changes. Switch there in the same update
-  // that adds them, so the chat never says "resolve them in Changes" in a
-  // render where Changes is not showing them.
   const showChanges = useCallback(() => setView("Changes"), []);
   const editor = useModuleEditor(details, refresh, showChanges);
   const chat = useModuleChat(details.id, editor.proposals);

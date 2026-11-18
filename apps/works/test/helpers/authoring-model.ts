@@ -9,11 +9,6 @@ type LanguageModelV4StreamPart =
     ? Part
     : never;
 
-/**
- * One model call: tools the model asks for, or its closing text. `wait`
- * holds the call until it resolves, so a journey can line other work up
- * with the turn.
- */
 export type ScriptedStep =
   | {
       readonly tools: readonly { name: string; input: unknown }[];
@@ -58,19 +53,11 @@ function chunks(step: ScriptedStep, call: number): LanguageModelV4StreamPart[] {
   ];
 }
 
-/**
- * A deterministic provider: every model call takes the next step of the
- * script, and a `hold` step streams nothing until its call is aborted.
- */
 export function scriptedModels(script: ScriptedStep[]) {
   const { prompts, provider } = scriptedProvider(script);
   return { models: new ModelManager({ providers: [provider] }), prompts };
 }
 
-/**
- * A scripted provider factory for the vault adapter. Each instance uses the
- * supplied Gateway credential; `keys` records instance creation on rotation.
- */
 export function credentialedScriptedModels(script: ScriptedStep[]) {
   const { prompts, provider } = scriptedProvider(script);
   const keys: string[] = [];

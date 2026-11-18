@@ -19,7 +19,6 @@ import { inlineExecution } from "../helpers/inline-execution";
 
 const APP = "packages/app/src/App.tsx";
 
-/** The real engine and the real agent session, on a scripted model. */
 async function engineFixture(script: ScriptedStep[]) {
   const { models, prompts } = scriptedModels(script);
   const execution = await startTestExecution({ models });
@@ -106,7 +105,6 @@ it("turns a request into a reviewable proposal, recorded on a correlated engine 
   expect(run?.observations.some((entry) => entry.kind === "model-turn")).toBe(
     true
   );
-  // Nothing of the request or the files is on the run record.
   expect(JSON.stringify(run)).not.toContain("Say hi");
   expect(JSON.stringify(run)).not.toContain("# Notes");
 });
@@ -195,7 +193,6 @@ it("routes ask_user to the owning chat and continues with the answer", async () 
   );
   const prompt = JSON.stringify(fixture.prompts.at(-1));
   expect(prompt).toContain("Teal");
-  // Answers are never written to authoring state.
   const records = await readFile(
     path.join(
       fixture.directory,
@@ -338,7 +335,6 @@ it("refuses acceptance when saved source moved, keeping the proposal", async () 
   expect(stale.status).toBe("stale");
   const { turns } = await service.conversation(module.id);
   expect(turns[0]?.proposal?.status).toBe("pending");
-  // Still inspectable for comparison.
   expect((await service.proposal(module.id, sent.id)).proposal).toEqual({
     [APP]: "agent",
   });
@@ -416,7 +412,6 @@ it("restores proposals and reports unfinished work as interrupted after a restar
     current.items.some((item) => item.kind === "question")
   );
 
-  // A new process over the same authoring state.
   const restarted = fixture.open();
   const { turns } = await restarted.conversation(module.id);
   const [first, second] = turns;
@@ -509,7 +504,6 @@ it("starts a new Agent Session and says so when the provider changes", async () 
   expect(third.notice).toBe(
     "The model provider changed from first to second, so this request starts a new conversation."
   );
-  // The conversation keeps its session across a restart of the service.
   const reopened = fixture.open();
   const again = await reopened.send(module.id, {
     binding,
@@ -635,7 +629,6 @@ it("applies the Module's settings: step limit, lowered source limits, unmet requ
   expect(turn.status).toBe("failed");
   expect(turn.error).toContain("longer than 1000 UTF-16 code units");
 
-  // The Draft itself is admitted under the lowered limits too.
   await expect(
     service.send(module.id, {
       binding,
@@ -666,14 +659,11 @@ it("proposes a Module's own builds/ folder like any other source", async () => {
     source: { ...details.source, "builds/notes.md": "kept" },
   });
   await settledTurn(fixture, module.id, sent.id);
-  // Seeded and collected like the rest of the Draft: nothing under builds/
-  // is skipped, and the untouched file is no change.
   expect((await service.proposal(module.id, sent.id)).proposal).toEqual({
     "builds/plan.md": "# Build plan\n",
   });
 });
 
-/** Fails the next turn writes that `matches`, like a full disk; others land. */
 function failingTurnWrites(matches: (turn: TurnRecord) => boolean) {
   const write = AuthoringStore.prototype.writeTurn;
   let failures = 0;

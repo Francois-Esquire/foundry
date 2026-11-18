@@ -66,7 +66,6 @@ it("keeps an unsupported Artifact openable with no invented editor", async () =>
 it("finds editors in strict releases: the installed one, else the newest", async () => {
   const { client, storage } = await setup();
   await storage.modules.create("Legacy starter");
-  // An imported or never-opened Module offers its newest release's editors.
   const imported = await installEditorModule(
     storage,
     "Not installed",
@@ -190,7 +189,6 @@ it("remembers the choice between several editors across restarts", async () => {
     entry: "notes.md",
     mode: "read",
     moduleId: beta.id,
-    // The release its binding is for, which opening the editor starts.
     release: expect.any(String),
     view: "preview",
   });
@@ -202,7 +200,6 @@ it("remembers the choice between several editors across restarts", async () => {
   expect(await client.artifacts.resolve({ id: notes.id })).toMatchObject({
     preferred: { moduleId: beta.id, view: "preview" },
   });
-  // A restart reads the same choice back from host-owned Works state.
   expect(await new EditorPreferences({ file }).all()).toEqual({
     "text/markdown": { moduleId: beta.id, view: "preview" },
   });
@@ -234,7 +231,6 @@ it("opens files when the editor choices file is unreadable, and asks again", asy
     moduleId: beta.id,
     view: "preview",
   });
-  // The next choice replaces what could not be read.
   expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
     format: "works.editor-preferences/1",
     preferences: { "text/markdown": { moduleId: beta.id, view: "preview" } },

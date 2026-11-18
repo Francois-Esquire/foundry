@@ -28,7 +28,6 @@ export function ExecutionRuns({
   onAttempts: (event: ChangeEvent<HTMLInputElement>) => void;
   runs: readonly AuditRun[];
 }) {
-  // Why each save run committed nothing, worked out once per run.
   const rows = useMemo(
     () =>
       runs

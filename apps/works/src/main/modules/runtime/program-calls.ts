@@ -6,14 +6,6 @@ import {
   type UnrecordedGatewayCalls,
 } from "~/shared/observations";
 
-/**
- * Gateway invocations recorded per Program lifetime run: a bound on the
- * record, not on what recording costs. Writing one is an append, but the
- * run's record carries every one, and each change goes whole to every
- * reader of the run store, such as the audit view. So a long-lived Program
- * records only its first calls one by one; later ones are counted and the
- * count is written when it stops.
- */
 export const GATEWAY_CALLS_PER_PROGRAM = 500;
 
 interface LiveProgram {
@@ -22,15 +14,9 @@ interface LiveProgram {
   unrecorded: number;
 }
 
-/**
- * Records each Gateway invocation of a Module's live Program on that
- * Program's lifetime run (one Program per Module at a time): Capability,
- * timing, outcome and failure code, never input or output.
- */
 export class ProgramCalls {
   readonly #live = new Map<string, LiveProgram>();
 
-  /** A Program is up: its Module's invocations record on this run until `detach`. */
   attach(moduleId: string, context: TaskContext): () => void {
     const program: LiveProgram = {
       context,
@@ -55,7 +41,6 @@ export class ProgramCalls {
     };
   }
 
-  /** The dispatcher's observer. */
   record = (record: ModuleGatewayInvocationRecord): void => {
     const program = this.#live.get(record.principal.moduleId);
     if (!program) {
@@ -90,7 +75,6 @@ export class ProgramCalls {
   };
 }
 
-/** When and how a settled invocation ended; nothing while a stream is open. */
 function ending(record: ModuleGatewayInvocationRecord): {
   readonly endedAt?: string;
   readonly errorCode?: string;

@@ -1,22 +1,10 @@
-/** A changing value as {@link latest} follows it. */
 export interface Followed<Value> {
-  /** The value now; `undefined` ends the stream. */
   read(): Value | undefined | Promise<Value | undefined>;
-  /** Whether `next` is nothing new after `previous`, so it is not yielded. */
   same?(previous: Value, next: Value): boolean;
-  /** Ends the stream; without one it ends when the consumer stops. */
   readonly signal?: AbortSignal | undefined;
-  /** Calls `changed` after each change until the returned function runs. */
   subscribe(changed: () => void): () => void;
 }
 
-/**
- * Follows a changing value: subscribes before the first read, so no change
- * falls in between, yields that value, then reads again after each change
- * and yields what is new. Changes that arrive while the consumer is busy
- * collapse into one read; nothing is buffered. Ends when `signal` aborts,
- * also during a read, or a read finds nothing.
- */
 export async function* latest<Value>(
   followed: Followed<Value>
 ): AsyncGenerator<Value, void> {
@@ -59,7 +47,6 @@ export async function* latest<Value>(
   }
 }
 
-/** The read, or nothing once `signal` aborts first; a read left behind may still fail. */
 async function readUnlessAborted<Value>(
   followed: Pick<Followed<Value>, "read">,
   signal: AbortSignal
@@ -84,7 +71,6 @@ async function readUnlessAborted<Value>(
   }
 }
 
-/** A value whose changes {@link latest} can follow. */
 export class Changing<Value> {
   readonly #listeners = new Set<() => void>();
   #value: Value;

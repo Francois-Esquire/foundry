@@ -34,28 +34,14 @@ import {
 import { filesPersistence } from "./runtime/private-files";
 
 export interface ModuleAccessOptions {
-  /**
-   * What can be requested: the Gateway capabilities and `network`. Each
-   * says what an approval reaches and what happens when its Grant changes;
-   * a change is reported done once that settles.
-   */
   readonly capabilities: readonly WorksCapability[];
   readonly execution: Pick<WorksExecution, "dispatch">;
   readonly library: Pick<ModuleLibrary, "details" | "release">;
   readonly now?: () => Date;
-  /** Cancels a revoked Grant's active Invocations before its hooks run. */
   readonly runtime: Pick<ModuleRuntime, "revoked">;
-  /** The library's Artifact-backed ModuleStore: Grants live on the Installation. */
   readonly store: ModuleCommands;
 }
 
-/**
- * `network`, which the sandbox enforces rather than the Gateway. A
- * Program's network policy is fixed when it starts, so a Grant change
- * restarts the Module's running apps (`restart` resolves with how many once
- * the old Programs have stopped); the change is not reported done while an
- * old Program still holds the previous access.
- */
 export function networkAccess(
   restart: (moduleId: string) => Promise<number>
 ): WorksCapability {
@@ -78,13 +64,6 @@ export function networkAccess(
   };
 }
 
-/**
- * The Access panel's service: a Module's requests, its Installation's
- * Grants, and approval and revocation. Each change is a `system` engine run
- * that writes the Grants on the Installation through the Modules library's
- * Access operations; there is no other approval store. Module settings
- * never reach this.
- */
 export class ModuleAccess {
   readonly #capabilities: readonly WorksCapability[];
   readonly #execution: ModuleAccessOptions["execution"];
@@ -100,7 +79,6 @@ export class ModuleAccess {
     this.#now = options.now ?? (() => new Date());
     this.#store = options.store;
     this.#grants = createModuleAccess({
-      // A revoke cancels the Grant's active Invocations before its hooks run.
       invocations: {
         revoke: ({ capability, installationId }) =>
           options.runtime.revoked({ capability, installationId }),
@@ -125,11 +103,6 @@ export class ModuleAccess {
     });
   }
 
-  /**
-   * Approve one request of the Module's Version: the Installation's Grant
-   * for it becomes the request's resolved digest. Creates the Module's
-   * Installation at its newest release when it has none.
-   */
   approve(moduleId: string, capability: string): Promise<ModuleAccessView> {
     return this.#execution.dispatch(
       WORKS_TASKS.access,
@@ -166,10 +139,6 @@ export class ModuleAccess {
     );
   }
 
-  /**
-   * Revoke one Grant. Once the revoke commits no new Invocation is admitted
-   * under it, and the runtime cancels the active ones.
-   */
   revoke(moduleId: string, capability: string): Promise<ModuleAccessView> {
     return this.#execution.dispatch(
       WORKS_TASKS.access,
@@ -197,7 +166,6 @@ export class ModuleAccess {
     );
   }
 
-  /** The Installation, its Grants, and the Version Access describes. */
   async #target(moduleId: string): Promise<{
     installation: Installation | null;
     grants: readonly InstallationGrant[];
@@ -262,7 +230,6 @@ function view(
     (request): request is ModuleNetworkAccessRequest =>
       request.kind === "network" && approved(request)
   );
-  /** What a capability request asks to reach, and where Access shows it. */
   const scopeOf = (request: ModuleAccessRequest) => {
     if (request.kind !== "capability") {
       return;

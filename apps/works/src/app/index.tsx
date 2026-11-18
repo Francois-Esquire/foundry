@@ -14,7 +14,6 @@ if (root === null) {
 applyStoredTheme();
 
 const queryClient = new QueryClient();
-// Hash routing: the packaged renderer is a file:// document.
 const router = createHashRouter(worksRouteObjects());
 
 createRoot(root).render(

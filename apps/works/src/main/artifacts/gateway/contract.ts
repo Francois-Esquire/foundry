@@ -19,17 +19,9 @@ import {
 } from "~/main/gateway/provider-kit";
 import { ARTIFACT_CAPABILITIES } from "./host";
 
-/**
- * What Programs see of the Artifact capabilities: each input as declared
- * once (validator and description), the output and event descriptions, and
- * the constraint policies.
- */
-
-/** The host ceiling on one written file: the `artifacts.maxFileBytes` ceiling. */
 export const FILE_MAX_BYTES =
   MODULE_SETTING_HOST_POLICY["artifacts.maxFileBytes"].ceiling;
 
-/** Binding-only operations take no constraints: one fixed digest each. */
 export const bindingOnly = (capability: string) =>
   noConstraints(
     capability,
@@ -44,7 +36,6 @@ const createConstraints = z
   })
   .strict();
 
-/** The MIME types a Module may create and their decoded size limit. */
 export const createPolicy = constrained(ARTIFACT_CAPABILITIES.create, (raw) => {
   const parsed = createConstraints.parse(raw);
   return {
@@ -52,8 +43,6 @@ export const createPolicy = constrained(ARTIFACT_CAPABILITIES.create, (raw) => {
     mimeTypes: [...new Set(parsed.mimeTypes)].sort(),
   };
 });
-
-// ── Shared fields ──
 
 const bindingDescription = text(
   "The editor binding the host opened this app with."
@@ -83,7 +72,6 @@ const retried = portable({
   type: "boolean",
 });
 
-/** A bound entry, or (under the broader scope) an Artifact's entry by id. */
 function oneTarget(target: {
   readonly artifactId?: string;
   readonly binding?: string;
@@ -95,8 +83,6 @@ function oneTarget(target: {
 }
 
 const TARGET_MESSAGE = "Name either a binding, or an artifactId (and path)";
-
-// ── works.editors.binding ──
 
 export const bindingInput = fields({
   binding: required(bindingId, bindingDescription),
@@ -121,8 +107,6 @@ export const bindingOutput = object(
   },
   ["artifactId", "binding", "contentId", "entry", "mode", "name", "updatedAt"]
 );
-
-// ── works.artifacts.read ──
 
 const readFields = fields({
   artifactId: artifactIdField,
@@ -152,8 +136,6 @@ export const readOutput = object(
   },
   ["bytes", "data", "digest", "mime", "next", "offset"]
 );
-
-// ── works.artifacts.save ──
 
 export const saveInput = fields({
   binding: required(bindingId, bindingDescription),
@@ -213,8 +195,6 @@ export const saveOutput = object(
   ["kind"]
 );
 
-// ── works.artifacts.create ──
-
 export const createInput = fields({
   content: required(z.string(), text("The entry's content.")),
   encoding: optional(
@@ -268,8 +248,6 @@ export const createOutput = object(
   ]
 );
 
-// ── works.artifacts.watch ──
-
 const afterFields = fields(
   {
     contentId: required(z.string().min(1), text("The Content you last saw.")),
@@ -305,8 +283,6 @@ export const watchEvent = object(
   },
   ["artifactId", "contentId", "entry", "kind", "updatedAt"]
 );
-
-// ── works.artifacts.list ──
 
 export const listInput = fields({
   cursor: optional(
