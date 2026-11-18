@@ -1,8 +1,12 @@
 import { resolve } from "node:path";
+import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
+import type { RunRecord } from "@foundry/workflows/schema";
 import type { RunStatus } from "@foundry/workflows/types";
 import type { Output } from "ai";
 import type { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
+import type { ExecutionRun } from "~/lib/execution-record";
+import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import { AGENT_DEFINITION } from "~/lib/handles";
 import { buildDefinition } from "~/lib/managers/agents";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
@@ -41,6 +45,7 @@ async function dispatched(
   return agent as unknown as AgentLike<Output.Output>;
 }
 interface AgentInput extends DispatchOptions {
+  readonly agentId?: string;
   readonly session: SessionRef;
 }
 interface AgentResult {
@@ -59,11 +64,90 @@ interface Held {
   readonly record: RunDetails;
 }
 
+const SETTLED = Promise.resolve();
+
+function field(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+function named(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+function sessionOf(input: unknown): SessionRef | undefined {
+  const session = field(input, "session");
+  return named(field(session, "id")) === undefined
+    ? undefined
+    : (session as SessionRef);
+}
+
+function identity(runId: string, name: string, input: unknown): RunDetails {
+  if (name !== AGENT_DISPATCH) {
+    return { kind: "workflow", name, runId };
+  }
+  const session = sessionOf(input);
+  return {
+    kind: "agent",
+    name:
+      named(field(input, "agentId")) ?? named(field(input, "agent")) ?? name,
+    runId,
+    ...(session === undefined ? {} : { session }),
+  };
+}
+
+function applyOutput(record: RunDetails, output: unknown): void {
+  if (record.kind !== "agent") {
+    record.output = output;
+    return;
+  }
+  const text = field(output, "text");
+  record.output = field(output, "output");
+  if (typeof text === "string") {
+    record.text = text;
+  }
+}
+
+function storedDetails(
+  runId: string,
+  stored: RunRecord | undefined,
+  execution: ExecutionRun | undefined
+): RunDetails | undefined {
+  const known =
+    stored ?? (execution?.kind === "workflow" ? execution : undefined);
+  if (known === undefined) {
+    return;
+  }
+  const record = identity(
+    runId,
+    stored?.step ?? execution?.name ?? "",
+    stored?.input ?? execution?.input
+  );
+  const status = stored?.status ?? execution?.status ?? "queued";
+  if (stored?.status === "complete") {
+    applyOutput(record, stored.output);
+    return record;
+  }
+  const error = stored?.error?.message ?? execution?.error?.message;
+  if (
+    error !== undefined &&
+    (SETTLED_EXECUTION_STATUSES as ReadonlySet<string>).has(status)
+  ) {
+    record.error = error;
+  }
+  return record;
+}
+
 /** One host's background work, registered through the engine's live registry. */
 export class BackgroundRuns {
   readonly #engine: Engine;
   readonly #catalog: Catalog;
   readonly #held = new Map<string, Held>();
+  readonly #identities = new Map<
+    string,
+    Pick<RunInfo, "kind" | "name" | "session">
+  >();
   readonly #sessions = new Map<string, Session<Output.Output>>();
   readonly #closing = new AbortController();
 
@@ -85,10 +169,8 @@ export class BackgroundRuns {
     signal,
     stream,
   }: Context<AgentInput>): Promise<AgentResult> {
-    const session = this.#sessions.get(input.session.id);
-    if (!session) {
-      throw new Error("agent dispatch session is no longer available");
-    }
+    const opened = this.#sessions.get(input.session.id);
+    const session = opened ?? (await this.#reopen(input));
     const timeout = new AbortController();
     const timer =
       input.timeoutMs === undefined
@@ -113,7 +195,72 @@ export class BackgroundRuns {
       return { output: reply.output, text: reply.text };
     } finally {
       clearTimeout(timer);
+      if (!opened) {
+        this.#sessions.delete(input.session.id);
+      }
     }
+  }
+
+  async #reopen(input: AgentInput): Promise<Session<Output.Output>> {
+    const session = await this.#engine.agents.session(
+      await this.#agent(input, input.agentId),
+      this.#sessionOptions({ ...input, session: input.session })
+    );
+    if (this.#sessions.has(session.ref.id)) {
+      throw new Error("this session already has an active agent dispatch");
+    }
+    this.#sessions.set(session.ref.id, session);
+    return session;
+  }
+
+  async #agent(
+    options: DispatchOptions,
+    id?: string
+  ): Promise<AgentLike<Output.Output>> {
+    const declared =
+      options.agent === undefined
+        ? undefined
+        : this.#catalog.agents.get(options.agent);
+    if (options.agent !== undefined && !declared) {
+      throw new Error(`no agent named "${options.agent}"`);
+    }
+    const route: AgentRoute = {
+      ...(options.model === undefined ? {} : { model: options.model }),
+      ...(options.provider === undefined ? {} : { provider: options.provider }),
+    };
+    const overlay = (
+      base: AgentDefinition<Output.Output>
+    ): AgentDefinition<Output.Output> => ({
+      ...base,
+      ...(options.instructions === undefined
+        ? {}
+        : {
+            prompt: [declared ? base.prompt : undefined, options.instructions]
+              .filter(Boolean)
+              .join("\n\n"),
+          }),
+      ...route,
+    });
+    return declared
+      ? await dispatched(declared, route, overlay)
+      : overlay({
+          id: id ?? `agent-${crypto.randomUUID()}`,
+          kind: "agent",
+          prompt: "Complete the user's task.",
+        });
+  }
+
+  #sessionOptions(options: DispatchOptions): SessionOptions {
+    return {
+      ...(options.compaction === undefined
+        ? {}
+        : { compaction: options.compaction }),
+      ...(options.cwd === undefined
+        ? {}
+        : { cwd: resolve(this.#engine.bindings.root, options.cwd) }),
+      ...(options.maxTurns === undefined ? {} : { maxTurns: options.maxTurns }),
+      ...(options.session === undefined ? {} : { session: options.session }),
+    };
   }
 
   definitions(): ReturnType<Engine["definitions"]> {
@@ -139,48 +286,11 @@ export class BackgroundRuns {
 
   async start(options: DispatchOptions): Promise<DispatchInfo> {
     this.#closing.signal.throwIfAborted();
-    const declared =
-      options.agent === undefined
-        ? undefined
-        : this.#catalog.agents.get(options.agent);
-    if (options.agent !== undefined && !declared) {
-      throw new Error(`no agent named "${options.agent}"`);
-    }
-    const route: AgentRoute = {
-      ...(options.model === undefined ? {} : { model: options.model }),
-      ...(options.provider === undefined ? {} : { provider: options.provider }),
-    };
-    const overlay = (
-      base: AgentDefinition<Output.Output>
-    ): AgentDefinition<Output.Output> => ({
-      ...base,
-      ...(options.instructions === undefined
-        ? {}
-        : {
-            prompt: [declared ? base.prompt : undefined, options.instructions]
-              .filter(Boolean)
-              .join("\n\n"),
-          }),
-      ...route,
-    });
-    const agent = declared
-      ? await dispatched(declared, route, overlay)
-      : overlay({
-          id: `agent-${crypto.randomUUID()}`,
-          kind: "agent",
-          prompt: "Complete the user's task.",
-        });
-    const sessionOptions: SessionOptions = {
-      ...(options.compaction === undefined
-        ? {}
-        : { compaction: options.compaction }),
-      ...(options.cwd === undefined
-        ? {}
-        : { cwd: resolve(this.#engine.bindings.root, options.cwd) }),
-      ...(options.maxTurns === undefined ? {} : { maxTurns: options.maxTurns }),
-      ...(options.session === undefined ? {} : { session: options.session }),
-    };
-    const session = await this.#engine.agents.session(agent, sessionOptions);
+    const agent = await this.#agent(options);
+    const session = await this.#engine.agents.session(
+      agent,
+      this.#sessionOptions(options)
+    );
     this.#closing.signal.throwIfAborted();
     if (this.#sessions.has(session.ref.id)) {
       throw new Error("this session already has an active agent dispatch");
@@ -189,6 +299,7 @@ export class BackgroundRuns {
     try {
       const launched = await this.#engine.launch<AgentResult>(AGENT_DISPATCH, {
         ...options,
+        agentId: agent.id,
         session: session.ref,
       });
       return await this.#track(
@@ -240,29 +351,31 @@ export class BackgroundRuns {
   }
 
   async get(runId: string): Promise<RunInfo> {
-    const { status, held } = await this.#lookup(runId);
+    const { completion, record, status } = await this.#lookup(runId);
     if (TERMINAL_RUN_STATUSES.has(status)) {
-      await held.completion;
+      await completion;
     }
     return {
-      ...held.record,
+      ...record,
       status: runStatus(status),
     };
   }
 
   async #lookup(runId: string) {
+    const stored = (await this.#engine.runs()).find((run) => run.id === runId);
+    const execution = this.#engine.executions.get(runId);
+    const status = stored?.status ?? execution?.status;
     const held = this.#held.get(runId);
-    if (!held) {
+    const record = held?.record ?? this.#derive(runId, stored, execution);
+    if (!record) {
       throw new Error(`no run "${runId}" in this host`);
     }
-    const record = (await this.#engine.runs()).find((run) => run.id === runId);
-    // Admission can leave a workflow queued before its Orchestrator record exists.
-    const status = record?.status ?? this.#engine.executions.get(runId)?.status;
     if (status === undefined) {
       throw new Error(`no engine run "${runId}"`);
     }
     return {
-      held,
+      completion: held?.completion ?? SETTLED,
+      record,
       status: status === "interrupted" ? ("failed" as const) : status,
     };
   }
@@ -281,10 +394,40 @@ export class BackgroundRuns {
     return this.get(runId);
   }
 
+  #derive(
+    runId: string,
+    stored: RunRecord | undefined,
+    execution: ExecutionRun | undefined
+  ): RunDetails | undefined {
+    const record = storedDetails(runId, stored, execution);
+    if (!record) {
+      return;
+    }
+    if ((stored?.input ?? execution?.input) === undefined) {
+      return { ...record, ...this.#identities.get(runId) };
+    }
+    if (!stored) {
+      const { kind, name, session } = record;
+      this.#identities.set(runId, {
+        kind,
+        name,
+        ...(session === undefined ? {} : { session }),
+      });
+    }
+    return record;
+  }
+
+  #ownedHere(runId: string): boolean {
+    const run = this.#engine.executions.get(runId);
+    return run === undefined || sameProcess(run.owner, thisProcess());
+  }
+
   async close(): Promise<void> {
     this.#closing.abort(new Error("background runs are closed"));
     await Promise.all(
-      [...this.#held.keys()].map((runId) => this.cancel(runId))
+      [...this.#held.keys()]
+        .filter((runId) => this.#ownedHere(runId))
+        .map((runId) => this.cancel(runId))
     );
     await Promise.all([...this.#held.values()].map((held) => held.completion));
   }
