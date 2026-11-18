@@ -244,6 +244,24 @@ export function fingerprintOf(
   return { digest: hash.digest("hex"), installation, sources };
 }
 
+export function watching(
+  candidate: Fingerprint,
+  watched: Fingerprint | undefined
+): Fingerprint {
+  if (watched === undefined) {
+    return candidate;
+  }
+  const sources = new Map<string, WorkspacePrint>();
+  for (const [id, print] of candidate.sources) {
+    const kept = watched.sources.get(id)?.outside ?? new Map<string, string>();
+    sources.set(id, {
+      ...print,
+      outside: new Map([...kept, ...print.outside]),
+    });
+  }
+  return fingerprintOf(candidate.installation, sources);
+}
+
 const shared = new FileDigests();
 
 export function sourceDigests(
