@@ -5,10 +5,10 @@ import { agent, step } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
+import { ResourceView } from "~/database/resources";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { CLAUDE_CODE } from "~/lib/harnesses";
-import type { ListedSessionStore } from "~/lib/usage-evidence";
-import { sessionLines } from "~/sessions/list";
+import { resourceLines } from "~/resources/text";
 
 import type { MockBindings } from "./helpers/bindings";
 import { bindMock } from "./helpers/bindings";
@@ -98,27 +98,13 @@ describe("sessions kept in the Marbles database", () => {
   });
 });
 
-const LISTED: readonly {
-  readonly name: string;
-  readonly open: () => Promise<ListedSessionStore>;
-}[] = [
-  {
-    name: "DatabaseSessionStore",
-    async open() {
-      const machine = await testMachine();
-      onTestFinished(() => machine.close());
-      return new DatabaseSessionStore({
-        database: machine.database.database,
-        scope: "ws",
-      });
-    },
-  },
-];
-
-describe.each(LISTED)("sessionLines over $name", ({ open }) => {
+describe("the sessions a workspace shows", () => {
   it("lists id, count, updated, and summary flag, newest first", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    const store = await open();
+    const machine = await testMachine();
+    onTestFinished(() => machine.close());
+    const { database } = machine.database;
+    const store = new DatabaseSessionStore({ database, scope: "ws" });
     const sessions = new Sessions({ store });
     const parts: SessionPart[] = [{ text: "hi", type: "text" }];
 
@@ -148,7 +134,12 @@ describe.each(LISTED)("sessionLines over $name", ({ open }) => {
       sessionId: "newer",
     });
 
-    expect(await sessionLines(store)).toEqual([
+    const view = new ResourceView({
+      database,
+      scope: { workspace: "ws" },
+      state: machine.root,
+    });
+    expect(await resourceLines("session", view, "ws")).toEqual([
       "newer  1 messages  2026-09-10T11:00:00.000Z  summary: no",
       "older  3 messages  2026-09-10T10:00:00.000Z  summary: yes",
     ]);

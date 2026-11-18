@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useAsyncAction } from "~/hooks/use-async-action";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { ALL_WORKSPACES, feedScopes, scopedFeed } from "./feed-model";
+import { ALL_WORKSPACES, feedKey, feedScopes, scopedFeed } from "./feed-model";
 
 export type FeedFocus = "list" | "reader";
 export type AnswerHandler = (
@@ -22,7 +22,6 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
   const [draft, setDraft] = useState("");
   /** The approval choice waiting on its note. */
   const [choosing, setChoosing] = useState<string>();
-  /** The entry the last answer went to; its progress shows only there. */
   const [target, setTarget] = useState<string>();
   const delivery = useAsyncAction();
   const question =
@@ -46,8 +45,9 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
         return;
       }
       const { id } = question;
+      const key = feedKey(question);
       delivery.run(async () => {
-        setTarget(id);
+        setTarget(key);
         await onAnswer(id, answer);
         cancel();
       });
@@ -84,9 +84,13 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
     /** Set while an approval choice waits for its optional note. */
     choosing: typing ? choosing : undefined,
     draft,
-    error: target === entry?.id ? delivery.error : undefined,
+    error:
+      entry !== undefined && target === feedKey(entry)
+        ? delivery.error
+        : undefined,
     question,
-    sending: delivery.busy && target === question?.id,
+    sending:
+      delivery.busy && question !== undefined && target === feedKey(question),
     setDraft,
     start,
     submitDraft,
@@ -107,7 +111,7 @@ export function useFeed(
   onAnswer?: AnswerHandler
 ) {
   const [scope, setScope] = useState(ALL_WORKSPACES);
-  const [selectedId, setSelectedId] = useState<string>();
+  const [selectedKey, setSelectedKey] = useState<string>();
   const [focus, setFocus] = useState<FeedFocus>("list");
   const scopes = feedScopes(entries, workspaceId);
   // A workspace can vanish from the store; fall back rather than show nothing.
@@ -119,10 +123,10 @@ export function useFeed(
   const visible = scopedFeed(entries, activeScope.id);
   // New entries arrive at the top; keep the reader on what the user chose.
   const selected =
-    visible.find((entry) => entry.id === selectedId) ?? visible[0];
+    visible.find((entry) => feedKey(entry) === selectedKey) ?? visible[0];
 
   const select = useCallback((entry: FeedEntrySnapshot) => {
-    setSelectedId(entry.id);
+    setSelectedKey(feedKey(entry));
     setFocus("list");
   }, []);
   const cycleScope = useCallback(() => {
@@ -130,20 +134,20 @@ export function useFeed(
     const next = scopes[(index + 1) % scopes.length];
     if (next) {
       setScope(next.id);
-      setSelectedId(undefined);
+      setSelectedKey(undefined);
     }
   }, [scopes, activeScope.id]);
 
   const resetScope = useCallback(() => {
     setScope(ALL_WORKSPACES);
-    setSelectedId(undefined);
+    setSelectedKey(undefined);
   }, []);
 
   function move(by: number) {
     const index = selected ? visible.indexOf(selected) : -1;
     const next = visible[Math.max(0, Math.min(visible.length - 1, index + by))];
     if (next) {
-      setSelectedId(next.id);
+      setSelectedKey(feedKey(next));
     }
   }
 
@@ -154,7 +158,11 @@ export function useFeed(
     }
   }
 
-  const answer = useAnswer(selected, onAnswer);
+  const answerable =
+    workspaceId === undefined || selected?.workspace.id === workspaceId
+      ? selected
+      : undefined;
+  const answer = useAnswer(answerable, onAnswer);
 
   return {
     answer,

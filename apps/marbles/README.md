@@ -298,6 +298,9 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
       worktrees/              git worktrees cut for its steps
   artifacts/
     workspaces/<workspace-id>/blobs/   each artifact's bytes
+<workspace root>/
+  .marbles/artifacts/<id>/<path>       links to its own artifacts' files (`marbles relink`)
+  .marbles/artifacts/@<owner>/<id>/<path>   links to those other workspaces share with it
 ```
 
 The database holds the rest, for every workspace: its record, tasks and
@@ -313,7 +316,68 @@ the holder's pid. `marbles daemon` runs the process in the
 foreground for a service manager, and `marbles status` shows it and which
 workspaces it hosts. `--dry-run` hosts the workspace in the calling process
 instead, substitutes Marbles-owned operations, and avoids state writes;
-ordinary TypeScript and monitor I/O still execute.
+ordinary TypeScript and monitor I/O still execute. Each command decides
+what the flag means for it: `run`, `roll`, `list`, `tasks` and `mcp` have
+a dry mode, the listings, `status`, `watch` and `help` only read, and
+`attach`, `daemon`, `detach`, `init`, `relink`, `share`, `stop` and
+`unshare` refuse it before anything is opened or written. Where there is
+no source, a dry run offers no starter: `marbles init`, without the flag,
+creates one. A dry run writes nothing under the Foundry home but SQLite's
+shared-memory index of a database that is already there
+(`marbles.db-shm`), which every reader of it maps and which holds no
+data; a definition the source uses as it loads runs dry too, and an
+echoed worktree is an empty directory under the system's temporary
+directory.
+
+### Resources and workspaces
+
+Runs, sessions, artifacts, sandbox containers and modules are kept in the
+Marbles database, each belonging to the workspace it was created in.
+`marbles share <kind> <id> <dir>` shows one of this workspace's resources in
+the workspace at `<dir>` as well (a sandbox container stays with the
+workspace that started it), and `marbles unshare` stops it; neither changes
+the resource. `marbles runs`, `sessions`, `artifacts`, `sandboxes` and
+`modules` list what this workspace shows, its own and what is shared with
+it, and `--all` lists every workspace's; a run's steps are listed under it.
+`marbles status` reads the same way. The dashboard's run and trigger lists
+show this workspace's own (live) and those shared with it, and `g` shows
+every workspace's; another workspace's runs and triggers are read only
+there, as are its Feed questions. Sharing or unsharing an artifact is an `artifact.shared` or
+`artifact.unshared` fact for the owner's observers. Deleting a run or an artifact removes its
+shares with it.
+
+`<workspace root>/.marbles/` holds links into the database's files for the
+resources a workspace shows: for now, one link per artifact file whose
+bytes a blob file holds, its own artifacts' under `artifacts/<id>/` and
+another workspace's under `artifacts/@<owner>/<id>/`, each name encoded so
+no two collide, case-insensitively too. Nothing reads them back.
+`marbles relink [--all]` makes them match the database: it removes the
+links Marbles made that no longer should be there and makes the missing
+ones, leaving anything else (a file, a link of your own) and reporting it.
+Before each change, the directory it is made in or removed from is checked
+to be a real directory inside the real `.marbles`; one that is a link, a
+file or elsewhere refuses that link, reported, and what was just made
+through a directory that moved meanwhile is removed again. A process that
+can write in your workspace can still swap a directory in the moment
+between a check and the change after it; nothing in the runtime closes
+that window. Once a workspace has links, they follow each artifact write
+after it lands, in the artifact's owner and every workspace it is shared
+with; a link that cannot be made is reported, never failing the write,
+and `relink` repairs it. A closing engine takes no new link work and
+waits for the updates its writes queued; after five seconds it gives up
+those still waiting for a `.marbles/.lock` or their turn, reporting them
+for `relink`, and lets the one under way reach its next step, so it
+leaves links as they were or made, never half made. The five seconds are
+no deadline: a read of the database under way is waited for however long
+it takes, and only a generation's stop timeout bounds the close. A write
+that lands once the close has begun has its links left for `relink`,
+reported once. Every rebuild and update, in any process, holds
+`.marbles/.lock` and reads what each link should be from the database
+under it, so concurrent ones converge on what the database holds. A file
+the database holds inline (or in chunks), or whose name is too long for
+the file system, has no link. `.marbles/.gitignore` keeps the directory
+out of git. An artifact store inside a transaction the host owns cannot
+keep links (`HostBoundStoreError`).
 
 ## Embedding and execution
 
@@ -329,8 +393,14 @@ model-turn, tool-call and host observations. Task sessions and borrowed sandbox
 handles stop with the task; closing a borrowed handle leaves its container with
 its owner.
 
+An engine built with `dry: true`, through any entry (`Engine`,
+`hostWorkspace`, the CLI), keeps everything in memory: it writes nothing
+under its `state` directory and does not act on its `spawned` recovery
+records, whatever else it is given. Stores handed to it explicitly are
+the caller's: a dry run does not wrap them.
+
 The `spawned` option (`Engine`, `hostWorkspace`, `HostedWorkspaces.open`)
-names the directory of the crash recovery records. The engine reads them from
+names the directory of those recovery records. The engine reads them from
 there when it starts, and records there each command a step runs on the
 host (`exec`). Processes the bundled models, agents and usage packages
 start (the Claude Code and Codex CLIs, MCP servers over stdio, usage

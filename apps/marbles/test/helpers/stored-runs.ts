@@ -1,7 +1,9 @@
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { ExecutionCoordinator } from "@foundry/workflows";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq } from "drizzle-orm";
 import { openDatabase, readDatabase } from "~/database/open";
+import { readResourceView } from "~/database/resources";
 import { DatabaseRunStore } from "~/database/runs";
 import { marblesScheduleTicks, marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
@@ -132,4 +134,28 @@ export async function seedTicks(
   } finally {
     opened.close();
   }
+}
+
+export interface ListedRun {
+  readonly createdAt: number;
+  readonly id: string;
+  readonly owner: ProcessIdentity | null;
+  readonly status: string;
+  readonly step: string;
+}
+
+export async function readStoredRuns(
+  state: string,
+  scope: string
+): Promise<readonly ListedRun[]> {
+  const runs = await readResourceView(state, { workspace: scope }, (view) =>
+    view.runs()
+  );
+  return (runs ?? []).map(({ value }) => ({
+    createdAt: value.record.timestamps.createdAt,
+    id: value.record.id,
+    owner: value.owner,
+    status: value.record.status,
+    step: value.record.step,
+  }));
 }

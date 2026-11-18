@@ -9,16 +9,18 @@ import {
   type GenerationState,
   readLiveGenerations,
 } from "~/database/generations";
+import { readDatabase } from "~/database/open";
 import { readLastRecovery } from "~/database/recoveries";
-import type { StoredRun } from "~/database/runs";
-import { readStoredRuns } from "~/database/runs";
-import { sessionCounts } from "~/database/sessions";
+import type { RunResource, Shown } from "~/database/resources";
+import { ResourceView } from "~/database/resources";
 import type { StoredTick } from "~/database/triggers";
-import { readStoredTicks } from "~/database/triggers";
+import { isMonitorTick, readStoredTicks } from "~/database/triggers";
 import { recordedWorkspaces } from "~/database/workspaces";
+import { stateDatabase } from "~/layout";
 import type { RecoveryReport } from "~/lib/crash-recovery";
 import type { ObserverState } from "~/lib/events/log";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
+import { runSteps } from "~/lib/run-trace";
 import type { WorkspaceRecord } from "~/lib/state/workspace";
 import type { ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
@@ -39,6 +41,7 @@ interface GenerationStatus {
 
 export interface WorkspaceStatus {
   readonly alive: boolean;
+  readonly artifacts: number;
   readonly config: string | null;
   readonly host: "generation" | null;
   readonly hosted: boolean;
@@ -79,16 +82,43 @@ interface RunSummary {
   readonly id: string;
   /** Not settled, and the process that owned it is gone. */
   readonly orphaned: boolean;
+  readonly sharedFrom?: string;
   readonly status: string;
   readonly step: string;
+  readonly steps: readonly { readonly name: string; readonly status: string }[];
 }
+
+interface Shows {
+  readonly artifacts: number;
+  readonly runs: readonly Shown<RunResource>[];
+  readonly sessions: number;
+}
+
+const NOTHING_SHOWN: Shows = { artifacts: 0, runs: [], sessions: 0 };
 
 const RECENT = 5;
 
 export async function readStatus(stateRoot: string): Promise<StatusReport> {
   const records = await recordedWorkspaces(stateRoot);
-  const sessions: ReadonlyMap<string, number> =
-    records.length === 0 ? new Map() : await sessionCounts(stateRoot);
+  const shows =
+    records.length === 0
+      ? undefined
+      : await readDatabase(stateDatabase(stateRoot), async (database) => {
+          const read = new Map<string, Shows>();
+          for (const record of records) {
+            const view = new ResourceView({
+              database,
+              scope: { workspace: record.id },
+              state: stateRoot,
+            });
+            read.set(record.id, {
+              artifacts: (await view.artifacts()).length,
+              runs: await view.runs(),
+              sessions: (await view.sessions()).length,
+            });
+          }
+          return read;
+        });
   const live = await readLiveGenerations(stateRoot);
   const generations = live.map(generationStatus);
   const index = generations.findIndex(
@@ -110,8 +140,7 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
         readWorkspaceStatus(
           current,
           record,
-          sessions.get(record.id) ?? 0,
-          await readStoredRuns(stateRoot, record.id),
+          shows?.get(record.id) ?? NOTHING_SHOWN,
           await readStoredTicks(stateRoot, record.id),
           await readLastRecovery(stateRoot, record.id),
           await readStoredObservers(stateRoot, record.id)
@@ -149,8 +178,7 @@ interface CurrentHost {
 function readWorkspaceStatus(
   current: CurrentHost | undefined,
   record: WorkspaceRecord,
-  sessions: number,
-  runs: readonly StoredRun[],
+  shows: Shows,
   ticks: readonly StoredTick[],
   recovery: RecoveryReport | null,
   log: Awaited<ReturnType<typeof readStoredObservers>>
@@ -161,6 +189,7 @@ function readWorkspaceStatus(
       : undefined;
   return {
     alive: host !== undefined,
+    artifacts: shows.artifacts,
     config: record.config,
     host: host === undefined ? null : "generation",
     hosted: record.hosted,
@@ -173,16 +202,17 @@ function readWorkspaceStatus(
     pid: host?.pid ?? null,
     recovery,
     root: record.root,
-    runs: runsStatus(runs),
+    runs: runsStatus(record.id, shows.runs),
     schedules: ticks.map(scheduleStatus),
-    sessions,
+    sessions: shows.sessions,
   };
 }
 
-function scheduleStatus({ key, last, running }: StoredTick): ScheduleStatus {
+function scheduleStatus(tick: StoredTick): ScheduleStatus {
+  const { key, last, running } = tick;
   return {
     key,
-    kind: last?.kind === "monitor" ? "monitor" : null,
+    kind: isMonitorTick(tick) ? "monitor" : null,
     lastFinish: last?.lastFinish ?? null,
     lastStatus: last?.lastStatus ?? null,
     name: last?.label ?? key,
@@ -191,19 +221,22 @@ function scheduleStatus({ key, last, running }: StoredTick): ScheduleStatus {
   };
 }
 
-function runsStatus(stored: readonly StoredRun[]): RunsStatus {
-  const runs = stored
-    .map(
-      (run): RunSummary => ({
-        createdAt: run.createdAt,
-        id: run.id,
-        orphaned:
-          !TERMINAL_RUN_STATUSES.has(run.status) &&
-          (run.owner === null || isGone(run.owner)),
-        status: run.status,
-        step: run.step,
-      })
-    )
-    .sort((a, b) => b.createdAt - a.createdAt);
+function runsStatus(
+  workspace: string,
+  shown: readonly Shown<RunResource>[]
+): RunsStatus {
+  const runs = shown.map(
+    ({ ref, value: { owner, record } }): RunSummary => ({
+      createdAt: record.timestamps.createdAt,
+      id: record.id,
+      orphaned:
+        !TERMINAL_RUN_STATUSES.has(record.status) &&
+        (owner === null || isGone(owner)),
+      ...(ref.owner === workspace ? {} : { sharedFrom: ref.owner }),
+      status: record.status,
+      step: record.step,
+      steps: runSteps(record).map(({ name, status }) => ({ name, status })),
+    })
+  );
   return { recent: runs.slice(0, RECENT), total: runs.length };
 }

@@ -7,7 +7,10 @@ import {
 import {
   actionTarget,
   canStopActivity,
+  type DashboardSelection,
   type ResolvedSelection,
+  runSelection,
+  triggerSelection,
 } from "./dashboard-model";
 import {
   type BrowserPane,
@@ -19,8 +22,10 @@ import {
 } from "./dashboard-state";
 import type { CatalogSelection } from "./dashboard-tree";
 import type { OperatingLogEntry } from "./operating-model";
+import { logRun } from "./operating-model";
 import type { RunActions } from "./run-actions";
 import type { AnswerState, FeedState } from "./use-feed";
+import { ownedElsewhere } from "./workspace-scope";
 
 export interface KeyPress {
   readonly name: string;
@@ -64,6 +69,10 @@ export interface CommandContext {
     readonly current: SettingsSnapshot;
   };
   readonly state: DashboardState;
+  readonly workspaces: {
+    readonly everywhere: boolean;
+    readonly others: boolean;
+  };
 }
 
 interface CommandEffects {
@@ -74,6 +83,7 @@ interface CommandEffects {
   readonly send: (event: DashboardEvent) => void;
   /** Show the next workspace the Marbles process hosts. */
   readonly switchWorkspace: () => void;
+  readonly toggleWorkspaces: () => void;
 }
 
 export type Dashboard = CommandContext & CommandEffects;
@@ -224,7 +234,10 @@ function feedReader(context: CommandContext): boolean {
 /** The run or step under the run controls, and its status. */
 function controlled(context: CommandContext) {
   const { actions, resolved } = context;
-  if (!(onDashboard(context) && actions && resolved.kind === "run")) {
+  if (
+    !(onDashboard(context) && actions && resolved.kind === "run") ||
+    ownedElsewhere(resolved.run)
+  ) {
     return;
   }
   return { actions, run: resolved.run, ...actionTarget(resolved) };
@@ -235,7 +248,7 @@ function managedTrigger(context: CommandContext) {
   if (!(onDashboard(context) && actions && resolved.kind === "trigger")) {
     return;
   }
-  return resolved.trigger.managed
+  return resolved.trigger.managed && !ownedElsewhere(resolved.trigger)
     ? { actions, trigger: resolved.trigger }
     : undefined;
 }
@@ -246,7 +259,7 @@ function catalogSelection(
 ): CatalogSelection | undefined {
   const { resolved } = context;
   if (resolved.kind === "trigger") {
-    return { id: resolved.trigger.id, kind: "trigger" };
+    return triggerSelection(resolved.trigger);
   }
   if (resolved.kind === "definition") {
     return { id: resolved.definition.id, kind: "definition" };
@@ -255,12 +268,14 @@ function catalogSelection(
 }
 
 /** The run a step or activity belongs to, even one that has since gone. */
-function enclosingRun(resolved: ResolvedSelection): string | undefined {
+function enclosingRun(
+  resolved: ResolvedSelection
+): DashboardSelection | undefined {
   if (resolved.kind === "run") {
-    return resolved.path.length > 0 ? resolved.run.id : undefined;
+    return resolved.path.length > 0 ? runSelection(resolved.run) : undefined;
   }
   if (resolved.kind === "activity" || resolved.kind === "gone") {
-    return resolved.run?.id;
+    return resolved.run === undefined ? undefined : runSelection(resolved.run);
   }
   return undefined;
 }
@@ -468,14 +483,7 @@ const COMMANDS: readonly Command[] = [
     run: (dashboard) => {
       const { log } = dashboard;
       if (log?.runId !== undefined) {
-        dashboard.send({
-          selection: {
-            id: log.runId,
-            kind: "run",
-            ...(log.stepId === undefined ? {} : { stepId: log.stepId }),
-          },
-          type: "inspect",
-        });
+        dashboard.send({ selection: logRun(log, log.runId), type: "inspect" });
       }
     },
     section: "Logs",
@@ -860,9 +868,9 @@ const COMMANDS: readonly Command[] = [
     keys: ["b"],
     label: "b run",
     run: (dashboard) => {
-      const id = enclosingRun(dashboard.resolved);
-      if (id !== undefined) {
-        dashboard.send({ selection: { id, kind: "run" }, type: "inspect" });
+      const selection = enclosingRun(dashboard.resolved);
+      if (selection !== undefined) {
+        dashboard.send({ selection, type: "inspect" });
       }
     },
     section: "Dashboard",
@@ -912,6 +920,19 @@ const COMMANDS: readonly Command[] = [
     run: (dashboard) => dashboard.switchWorkspace(),
     section: "Dashboard",
     when: (context) => onDashboard(context) && context.canSwitchWorkspace,
+  },
+
+  {
+    help: "Show every workspace's runs and triggers, or this workspace's again; another workspace's are shown, not controlled",
+    key: "g",
+    keys: ["g"],
+    label: (context) =>
+      context.workspaces.everywhere ? "g this workspace" : "g all workspaces",
+    run: (dashboard) => dashboard.toggleWorkspaces(),
+    section: "Dashboard",
+    when: (context) =>
+      onDashboard(context) &&
+      (context.workspaces.others || context.workspaces.everywhere),
   },
 
   {

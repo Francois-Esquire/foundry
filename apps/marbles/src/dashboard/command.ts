@@ -16,13 +16,7 @@ import { createStarter } from "~/workspace/create";
 import { Diagnostics } from "~/workspace/diagnostics";
 import type { WorkspaceHost } from "~/workspace/host";
 import { hostWorkspace } from "~/workspace/host";
-import {
-  registerSetupStep,
-  SETUP_STEP,
-  type SetupInput,
-} from "~/workspace/setup-step";
 import { resolveSource, sourceFiles, sourceRoot } from "~/workspace/source";
-import type { SetupDraft } from "~/workspace/templates";
 
 const REFRESH_MS = 200;
 const WORKSPACES_REFRESH_MS = 3000;
@@ -142,8 +136,6 @@ async function runLocal(
     host?.setStatus(line);
   };
   let host: WorkspaceHost | undefined;
-  let createdDraft: SetupDraft | undefined;
-  let createdFile: string | undefined;
   let loop: Promise<void> | undefined;
   let refresh: (() => void) | undefined;
   let stopping: Promise<void> | undefined;
@@ -159,13 +151,6 @@ async function runLocal(
       askable: true,
       directory: args.directory,
       dry: args.dry,
-      onMissing: async (missing) =>
-        !controller.signal.aborted &&
-        (await terminal.onboard(missing, async (draft) => {
-          createdFile = await createStarter(missing, draft);
-          createdDraft = draft;
-        })),
-      prepare: registerSetupStep,
       print,
       source: args.config,
       state: args.state,
@@ -182,24 +167,12 @@ async function runLocal(
     const update = async () =>
       terminal.update(shown(await running.snapshot()), hasConfig);
     terminal.connect(running.actions);
-    postSetupMilestone(running.engine, print, createdDraft, {
-      configPath: createdFile ?? running.configPath,
-      root: running.root,
-    });
-    running.setStatus(
-      hasConfig
-        ? "Marbles loaded"
-        : "No authoring folder found · run marbles init"
-    );
+    running.setStatus(hasConfig ? "Marbles loaded" : NO_SOURCE_WHEN_DRY);
     await update();
     if (!(await terminal.entry)) {
       return;
     }
-    running.setStatus(
-      (await running.engine.schedules()).length === 0
-        ? "Ready · no triggers configured"
-        : "Watching triggers"
-    );
+    running.setStatus(await readyStatus(running.engine, hasConfig));
     await update();
     // Engine reads are local; serialize refreshes so older snapshots cannot replace newer ones.
     refresh = every(REFRESH_MS, controller.signal, () =>
@@ -466,19 +439,19 @@ function remoteSession(
   };
 }
 
-function postSetupMilestone(
+const NO_SOURCE_WHEN_DRY =
+  "No authoring folder · run marbles init without --dry-run";
+
+async function readyStatus(
   engine: Engine,
-  print: (line: string) => void,
-  draft: SetupDraft | undefined,
-  context: Omit<SetupInput, "draft">
-): void {
-  if (!draft) {
-    return;
+  hasConfig: boolean
+): Promise<string> {
+  if (!hasConfig) {
+    return NO_SOURCE_WHEN_DRY;
   }
-  const input: SetupInput = { ...context, draft };
-  engine
-    .run(SETUP_STEP, input)
-    .catch((error: unknown) => print(`[feed] ${String(error)}`));
+  return (await engine.schedules()).length === 0
+    ? "Ready · no triggers configured"
+    : "Watching triggers";
 }
 
 async function stopAfterSchedules(

@@ -5,6 +5,7 @@ import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import type { UsageGroup, WorkspaceUsage } from "~/model/usage";
 import type { DashboardSelection } from "~/views/dashboard-model";
+import { runSelection } from "~/views/dashboard-model";
 import {
   duration,
   type LatestItem,
@@ -113,7 +114,7 @@ export function LatestBlock({
     <Panel id="panel:latest" title="Latest">
       {items.length === 0 && <Text>Nothing has happened yet.</Text>}
       {items.map((item) =>
-        item.runId === undefined ? (
+        item.run === undefined ? (
           <Text key={item.id}>{item.text}</Text>
         ) : (
           <SelectableRow
@@ -121,7 +122,7 @@ export function LatestBlock({
             key={item.id}
             onSelect={onSelect}
             selected={false}
-            value={{ id: item.runId, kind: "run" } as DashboardSelection}
+            value={runSelection(item.run)}
           >
             <text
               fg={theme.colors.mutedForeground}

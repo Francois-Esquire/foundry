@@ -51,8 +51,10 @@ Five buckets, each importing only what sits below it:
   `records` (`lib/events/records.ts`): the host hands in the database's
   (`database/tasks.ts`), and without one the `lib/` class keeps them in
   memory, whatever `state` is. The class the package publishes is
-  `entries/engine.ts`, a tier above `lib/` and `database/`: given `state`,
-  it keeps every store it is not handed in the database, over one handle
+  `entries/engine.ts`, a tier above `lib/` and `database/`: given `state`
+  and not `dry` (`Engine.persistence`, the one rule for where any engine
+  persists, which a dry engine does nowhere), it keeps every store it is
+  not handed in the database, over one handle
   (`withWorkspaceDatabase` in `database/managed.ts`). Each manager has the plain operation as a
   method, usable on the engine directly, and `scoped(frame)` for the view a
   step body gets, which adds replay, cancellation, and cleanup on top; new
@@ -171,9 +173,24 @@ Five buckets, each importing only what sits below it:
   package's tables directly. `stores.ts` is a workspace's artifacts,
   sandbox containers and workspace catalogue: each package's SQLite store
   scoped by the workspace id, handed over as the package makes it, with
-  the recorder's hook alone; each container row names its holder itself, which Marbles
-  makes its process identity (`lib/sandbox/holders.ts`), so a start takes
-  back the rows a gone process left. Artifact blob files stay on disk, under
+  the recorder's hook alone, but the artifact store's, which also removes
+  a deleted artifact's shares, as the run store's does a Run's; each
+  container row names its holder itself, which Marbles makes its process
+  identity (`lib/sandbox/holders.ts`), so a start takes back the rows a
+  gone process left. `artifact-links.ts` (`keepingLinks`, over
+  `followingCommits`) follows the engine's artifact commits, after they
+  land, nested transactions included, to keep each linked workspace's
+  links (`links.ts`) current, and the engine `createEngine` builds over it
+  drains those updates (`drainLinks`, giving up after a bound only what
+  waits: updates not begun, or waiting for a links lock) once disposed,
+  before its host closes the database; `links.ts` is the one routine a rebuild and
+  an update share, which reconciles disk with the database under
+  `.marbles/.lock`, reading the database there, and checks each directory
+  (`lstat` and `realpath` inside `.marbles`) right before each change and
+  again after each creation; a writer in the workspace can still win the
+  window between a check and a call. `keepingLinks` refuses a host-bound
+  store. Shares are checked and written in one transaction
+  (`associationTransaction`). Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
   view of them a dry run reads through to. `runs.ts` is a workspace's workflow Runs: the package's
   `SqliteWorkflowStore` scoped by the workspace id, whose `onCommit` hook
@@ -207,7 +224,16 @@ Five buckets, each importing only what sits below it:
   identity key; `DatabaseProviderStore.forState` is the same for a
   process that keeps no handle open. Its settings may hold secrets: `initializeDatabase` keeps
   the database file and its side files mode 0600, and nothing the provider
-  store throws quotes a setting. Every writer handle goes through `guard.ts`, which
+  store throws quotes a setting.
+  `associations.ts` keeps which workspaces other than its owner each
+  resource is shared with (`marbles_resource_workspaces`), under the rules
+  `ResourceAssociations` in `lib/resources.ts` states; `resources.ts`
+  (`ResourceView`) is what a workspace shows of the resources every
+  package store keeps, its own and those shared with it, or every
+  workspace's, each read through its owner's package store. `status`, the
+  resource listings and the dashboard's Feed read through it, and the
+  dashboard's lists of other workspaces' runs and triggers
+  (`workspace/others.ts`, with `storedTicks` in `triggers.ts`). Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no generation hosting its workspace opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
@@ -223,7 +249,8 @@ Five buckets, each importing only what sits below it:
   `lib/`, never the reverse. `Engine.execute` runs direct definitions
   through the same orchestration as named launches; calls inside a step
   become dynamic children in that run. `createEngine` in `src/create.ts`
-  is the one place the Marbles defaults and `--dry-run` are decided; it
+  is the one place the Marbles defaults and what `--dry-run` echoes are
+  decided, and where it persists, following `Engine.persistence`; it
   builds the instances, constructs the engine, and copies the catalog in.
   Given the host's `database`, it keeps the tasks, sessions, workflow
   runs, Execution Runs, trigger state, automations, usage, grants,
@@ -240,7 +267,8 @@ Five buckets, each importing only what sits below it:
 - `src/workspace/` hosts one workspace in the process it runs in: source
   discovery (`source.ts`), the Varlock environment (`env.ts`), module
   loading and the engine builder (`open.ts`), the schedule loop
-  (`loop.ts`), the dashboard snapshot (`snapshot.ts`) with its usage
+  (`loop.ts`), the dashboard snapshot (`snapshot.ts`) with its feed of
+  every workspace (`feed.ts`) and its usage
   totals (`usage.ts`) and the host's own lines (`diagnostics.ts`), source
   watching (`watch.ts`), starter templates and creation, background agent
   dispatch, the task commands the CLI and MCP share (`tasks.ts`), and
@@ -350,10 +378,15 @@ Five buckets, each importing only what sits below it:
   workspace); or by starting and hosting it, which only the CLI does. It
   imports `workspace/`, `process/`, `database/`, `lib/`, `layout.ts` and
   `model/`, and nothing from the app.
-- The app sits on top and may import anything: `src/cli.ts`, `src/args.ts`
+- The app sits on top and may import anything: `src/cli.ts` (the entry,
+  which runs `main` whenever it loads, imported by `bin/marbles` too),
+  `src/command-line.ts` (every command's handler, and what `--dry-run`
+  means for it, beside `main`), `src/args.ts`
   (which parses a command line completely, before anything loads),
   `src/dashboard/`, `src/views/`, `src/components/`, `src/mcp/`,
-  `src/status/`, `src/sessions/`. The dashboard is a client of the process.
+  `src/status/`, `src/resources/` (the resource listings, sharing, and
+  `relink`, which rebuilds each workspace's links under `<root>/.marbles/`
+  from the database; they are never read back). The dashboard is a client of the process.
   `src/mcp/stdio.ts` is the `marbles mcp` server, which `cli.ts` loads
   only when that command runs. `src/mcp/relay.ts` runs it in a child
   process whose stdout is the relay's stderr. Protocol frames go out on

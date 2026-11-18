@@ -138,10 +138,6 @@ export interface EngineOptions {
    */
   readonly containers: Containers | (() => Promise<Containers>);
   readonly cwd?: string;
-  /**
-   * Simulation: an agent asked to run in a sandbox runs in this process on
-   * `models` instead, so no guest is prepared and no credential is read.
-   */
   readonly dry?: boolean;
   readonly environment?: Readonly<Record<string, string>>;
   readonly executionStore?: ExecutionStore;
@@ -380,8 +376,22 @@ export class Engine {
     return join(state ?? join(tmpdir(), "marbles"), "worktrees");
   }
 
+  static persistence(
+    options: Pick<EngineOptions, "dry" | "spawned" | "state">
+  ): { readonly spawned?: string; readonly state?: string } {
+    if (options.dry === true) {
+      return {};
+    }
+    const { spawned, state } = options;
+    return {
+      ...(spawned === undefined ? {} : { spawned }),
+      ...(state === undefined ? {} : { state }),
+    };
+  }
+
   constructor(options: EngineOptions) {
-    const { models, root, sessions, spawned, state, workspaceId } = options;
+    const { models, root, sessions, workspaceId } = options;
+    const { spawned, state } = Engine.persistence(options);
     const print = options.print ?? (() => undefined);
     const home = options.home ?? homedir();
     const askable = options.askable ?? false;
@@ -748,7 +758,8 @@ export class Engine {
     print: (line: string) => void,
     runs: RunStore
   ): CrashRecovery {
-    const { containerRows, spawned } = options;
+    const { containerRows } = options;
+    const { spawned } = Engine.persistence(options);
     return new CrashRecovery({
       activities: this.activities,
       artifacts: options.artifacts,

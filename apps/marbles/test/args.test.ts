@@ -32,6 +32,40 @@ describe("parseArgs", () => {
     });
   });
 
+  it("reads each resource listing for this workspace, or every workspace's with --all", () => {
+    for (const command of [
+      "runs",
+      "sessions",
+      "artifacts",
+      "sandboxes",
+      "relink",
+    ]) {
+      expect(parseArgs([command])).toMatchObject({ all: false, command });
+      expect(parseArgs([command, "--all"])).toMatchObject({
+        all: true,
+        command,
+      });
+      expect(() => parseArgs([command, "extra"])).toThrow(UsageError);
+    }
+  });
+
+  it("reads share and unshare as a kind, an id and a directory, and refuses a kind it does not know", () => {
+    expect(
+      parseArgs(["share", "artifact", "artifact#a", "../two"])
+    ).toMatchObject({
+      command: "share",
+      id: "artifact#a",
+      kind: "artifact",
+      with: "../two",
+    });
+    expect(parseArgs(["unshare", "run", "rn-1", "."])).toMatchObject({
+      command: "unshare",
+      kind: "run",
+    });
+    expect(() => parseArgs(["share", "task", "t1", "."])).toThrow(UsageError);
+    expect(() => parseArgs(["share", "run", "rn-1"])).toThrow(UsageError);
+  });
+
   it("reads positionals around flags", () => {
     const args = parseArgs([
       "roll",

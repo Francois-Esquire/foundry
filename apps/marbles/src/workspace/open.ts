@@ -103,10 +103,12 @@ async function loadSource(
   configPath: string,
   {
     catalog,
+    dry,
     read,
     workspaceId,
   }: {
     catalog: Catalog;
+    dry: boolean;
     read?: (file: string) => void;
     workspaceId: string;
   },
@@ -121,17 +123,22 @@ async function loadSource(
   }
   await linkSourceLibrary();
   let loaded: readonly string[] = [];
-  await loadInto(workspaceId, catalog, async (load) => {
-    const reading = read === undefined ? undefined : onRead(load, read);
-    try {
-      await importLoad(sourceRoot(configPath), files, load);
-    } catch (error) {
-      reading?.forget();
-      throw error;
-    } finally {
-      loaded = filesRead(load);
-    }
-  });
+  await loadInto(
+    workspaceId,
+    catalog,
+    async (load) => {
+      const reading = read === undefined ? undefined : onRead(load, read);
+      try {
+        await importLoad(sourceRoot(configPath), files, load);
+      } catch (error) {
+        reading?.forget();
+        throw error;
+      } finally {
+        loaded = filesRead(load);
+      }
+    },
+    { dry }
+  );
   print(`[source] ${configPath}`);
   return loaded;
 }
@@ -243,6 +250,7 @@ export async function openWorkspace(
       at.configPath,
       {
         catalog,
+        dry: args.dry,
         ...(read === undefined ? {} : { read }),
         workspaceId: workspaceState(resolve(args.state), at.root).id,
       },
@@ -252,7 +260,11 @@ export async function openWorkspace(
   if (files !== false) {
     return opened(args, before, environment, { catalog, cwd, files });
   }
-  if (onMissing === undefined || !(await onMissing(before.configPath))) {
+  if (
+    args.dry ||
+    onMissing === undefined ||
+    !(await onMissing(before.configPath))
+  ) {
     return opened(args, before, environment, { catalog, cwd });
   }
   const created = placed(args);

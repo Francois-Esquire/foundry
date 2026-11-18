@@ -14,8 +14,10 @@ import { expect, test } from "vitest";
 import { DatabaseProviderStore } from "../src/database/providers";
 import { marblesProviderConfigurations } from "../src/database/tables";
 import { writeAsHost } from "../src/database/workspaces";
+import { stateDatabase } from "../src/layout";
 import { readProcess } from "../src/process/instance";
 import { type TestHome, testHome } from "./helpers/home";
+import { snapshotTrees } from "./helpers/tree-snapshot";
 
 /** Configs live in a tmpdir with no node_modules, so zod is imported by URL. */
 const ZOD = import.meta.resolve("zod");
@@ -237,7 +239,7 @@ test("first-run provider setup is offered to a run, never to a dry run, and decl
     (await DatabaseProviderStore.forState(state).read()).machine;
   const dry = await openTestCli(home, config, ["--dry-run"]);
   try {
-    await dry.see("Choose a starter");
+    await dry.see("Press Enter to enter");
     expect(await machine()).toBeUndefined();
   } finally {
     await dry.dispose();
@@ -269,37 +271,25 @@ test("first-run provider setup is offered to a run, never to a dry run, and decl
   }
 }, 30_000);
 
-test("missing authoring folder creates a Product starter without executing it, then launches from Marbles", async () => {
+test("a dry run with no authoring folder offers no starter, writes nothing, and says to run marbles init", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-setup-"));
+  const home = testHome();
   const config = join(dir, ".foundry", "marbles");
-  const file = join(config, "summarize-codebase.ts");
-  const terminal = await openTestCli(testHome(), config);
+  const bin = join(dir, ".foundry", "test-bin");
+  mkdirSync(bin, { recursive: true });
+  const ignored = new Set([bin, `${stateDatabase(home.layout.state)}-shm`]);
+  const before = snapshotTrees([dir, home.path], ignored);
+  const terminal = await openTestCli(home, config);
   try {
-    await terminal.see("Choose a starter");
-    expect(existsSync(config)).toBe(false);
-    await terminal.send("\r");
-    await terminal.see("Step name");
-    await terminal.send("\t");
-    await terminal.send("\t");
-    await terminal.send("\r");
-    await terminal.see("summarizeCodebase");
-    expect(existsSync(config)).toBe(false);
-    await terminal.send("\r");
     await terminal.see("Press Enter to enter");
-    expect(readFileSync(file, "utf8")).toContain(
-      "@foundry.sh/marbles/prebuilt"
-    );
     await terminal.send("\r");
-    await terminal.send("C");
-    await terminal.see("2 Marbles");
-    await terminal.send("2");
-    await terminal.send("l");
-    await terminal.see("complete");
+    await terminal.see("marbles init without --dry-run");
+    expect(terminal.output()).not.toContain("Set up your workspace");
     await terminal.send("q");
     await terminal.see("Quit Marbles?");
     await terminal.send("\x03");
     await until(() => terminal.child.exitCode !== null);
-    expect(await terminal.child.exited).toBe(0);
+    expect(snapshotTrees([dir, home.path], ignored)).toEqual(before);
   } finally {
     await terminal.dispose();
     rmSync(dir, { force: true, recursive: true });
@@ -346,15 +336,15 @@ test("a missing authoring folder onboards against the Marbles process, which pos
 }, 90_000);
 
 test("setup skip leaves the config absent and opens the empty dashboard", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "marbles-skip-"));
+  const dir = mkdtempSync(join(tmpdir(), "mb-"));
   const config = join(dir, "marbles.config.ts");
-  const terminal = await openTestCli(testHome(), config);
+  const terminal = await openTestCli(testHome(), config, ["run"]);
   try {
-    await terminal.see("Choose a starter");
+    await terminal.see("Choose a starter", 0, STARTUP_MS);
     await terminal.send("\x1b");
     await terminal.see("setup skipped");
     await terminal.send("\r");
-    await terminal.see("No workflows or steps.");
+    await terminal.see("No workflows or steps.", 0, STARTUP_MS);
     expect(existsSync(config)).toBe(false);
     await terminal.send("q");
     await terminal.see("Quit Marbles?");

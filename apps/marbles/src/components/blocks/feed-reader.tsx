@@ -7,6 +7,7 @@ import { Text } from "~/components/ui/text";
 import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
 import type { FeedEntrySnapshot, FeedMediaSnapshot } from "~/lib/feed/read";
+import { feedKey } from "~/views/feed-model";
 import type { AnswerState } from "~/views/use-feed";
 import { EmptyState } from "./empty-state";
 
@@ -201,7 +202,7 @@ export function FeedReader({
     <Panel
       active={active}
       id="panel:entry"
-      resetKey={entry.id}
+      resetKey={feedKey(entry)}
       scrollable={active}
       title={
         active ? "Entry · ↑↓ scroll · Esc entries" : "Entry · Enter to read"

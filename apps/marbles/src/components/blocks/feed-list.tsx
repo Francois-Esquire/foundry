@@ -4,6 +4,7 @@ import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { feedKey } from "~/views/feed-model";
 import { EmptyState } from "./empty-state";
 
 function FeedRow({
@@ -20,7 +21,7 @@ function FeedRow({
   const pending = isPending(entry);
   return (
     <SelectableRow
-      id={`feed:${entry.id}`}
+      id={`feed:${feedKey(entry)}`}
       onSelect={onSelect}
       selected={selected}
       value={entry}
@@ -78,7 +79,7 @@ export function FeedList({
     <Panel
       active={active}
       id="panel:feed"
-      selectedId={selected && `feed:${selected.id}`}
+      selectedId={selected && `feed:${feedKey(selected)}`}
       title={`Feed · ${scopeLabel}`}
     >
       {entries.length === 0 && (
@@ -95,9 +96,11 @@ export function FeedList({
       {entries.map((entry) => (
         <FeedRow
           entry={entry}
-          key={entry.id}
+          key={feedKey(entry)}
           onSelect={onSelect}
-          selected={entry.id === selected?.id}
+          selected={
+            selected !== undefined && feedKey(entry) === feedKey(selected)
+          }
           showWorkspace={!filtered}
         />
       ))}

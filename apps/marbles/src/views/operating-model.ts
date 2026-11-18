@@ -1,6 +1,11 @@
 import type { LogEntry } from "~/model/log";
 import { isPaused } from "~/model/run-status";
-import type { DashboardSnapshot, RunSnapshot } from "./dashboard-model";
+import type {
+  DashboardSelection,
+  DashboardSnapshot,
+  RunSnapshot,
+} from "./dashboard-model";
+import { runSelection } from "./dashboard-model";
 
 /**
  * What the Overview and Logs tabs read from a snapshot: counts by status,
@@ -22,6 +27,7 @@ export const LOG_SOURCES: readonly LogSource[] = ["all", "run", "host"];
 export interface OperatingLogEntry extends LogEntry {
   readonly runId?: string;
   readonly runName?: string;
+  readonly runWorkspace?: string;
   /** Logged by the run's workflow setup, before any step: it has no step. */
   readonly setup?: boolean;
   readonly source: "host" | "run";
@@ -37,6 +43,21 @@ export interface LogFilter {
 function time(timestamp: string): number {
   const parsed = Date.parse(timestamp);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+export function logRun(
+  entry: OperatingLogEntry,
+  runId: string
+): DashboardSelection {
+  return runSelection(
+    {
+      id: runId,
+      ...(entry.runWorkspace === undefined
+        ? {}
+        : { workspace: { id: entry.runWorkspace } }),
+    },
+    entry.stepId === undefined ? {} : { stepId: entry.stepId }
+  );
 }
 
 /** Every run's log lines and the host's, oldest first; a stable order for equal times. */
@@ -63,6 +84,9 @@ export function operatingLogs(
           ...entry,
           runId: run.id,
           runName: run.name,
+          ...(run.workspace === undefined
+            ? {}
+            : { runWorkspace: run.workspace.id }),
           source: "run",
         })
       )
@@ -196,7 +220,10 @@ export function operatingStats(runs: readonly RunSnapshot[]): OperatingStats {
 export interface LatestItem {
   readonly at: number;
   readonly id: string;
-  readonly runId?: string;
+  readonly run?: {
+    readonly id: string;
+    readonly workspace?: { readonly id: string };
+  };
   readonly text: string;
 }
 
@@ -213,16 +240,16 @@ export function latestActivity(
     const items: LatestItem[] = [
       {
         at: timing.startedAt ?? timing.createdAt,
-        id: `${run.id}:start`,
-        runId: run.id,
+        id: JSON.stringify([run.workspace?.id ?? null, run.id, "start"]),
+        run,
         text: `${run.name} ${timing.startedAt === undefined ? "queued" : "started"}`,
       },
     ];
     if (timing.endedAt !== undefined) {
       items.push({
         at: timing.endedAt,
-        id: `${run.id}:end`,
-        runId: run.id,
+        id: JSON.stringify([run.workspace?.id ?? null, run.id, "end"]),
+        run,
         text: `${run.name} ${run.status}`,
       });
     }
@@ -237,8 +264,8 @@ export function latestActivity(
     .map(
       (entry): LatestItem => ({
         at: time(entry.postedAt),
-        id: `feed:${entry.id}`,
-        runId: entry.run,
+        id: JSON.stringify(["feed", entry.id]),
+        run: { id: entry.run },
         text: `${entry.kind}: ${entry.title}`,
       })
     );

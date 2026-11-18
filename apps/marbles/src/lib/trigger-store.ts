@@ -102,6 +102,9 @@ export class MemoryTriggerStore implements TriggerStore {
     return this.#gate.run(async () => {
       if (tick !== undefined) {
         this.#ticks.set(key, scheduleHistorySchema.parse(tick));
+        if (tick.kind === "schedule") {
+          this.#monitors.delete(key);
+        }
       }
       this.#claimed.delete(key);
     });
@@ -114,14 +117,23 @@ export class MemoryTriggerStore implements TriggerStore {
   }
 
   monitorState(key: string): Promise<MonitorState | undefined> {
-    return this.#gate.run(() =>
-      Promise.resolve(structuredClone(this.#monitors.get(key)))
-    );
+    return this.#gate.run(() => {
+      if (this.#ticks.get(key)?.kind === "schedule") {
+        this.#monitors.delete(key);
+      }
+      return Promise.resolve(structuredClone(this.#monitors.get(key)));
+    });
   }
 
   saveMonitorState(key: string, state: MonitorState): Promise<void> {
     return this.#gate.run(async () => {
       this.#monitors.set(key, storedMonitorState(key, state));
+      const tick = this.#ticks.get(key);
+      if (tick?.kind === "schedule") {
+        this.#ticks.delete(key);
+      } else if (tick !== undefined) {
+        this.#ticks.set(key, { ...tick, kind: "monitor" });
+      }
     });
   }
 }

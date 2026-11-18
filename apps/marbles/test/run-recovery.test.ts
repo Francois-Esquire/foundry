@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { RunRecord } from "@foundry/workflows/schema";
 import { afterEach, expect, it } from "vitest";
-import { readStoredRuns } from "~/database/runs";
 import { adoptParkedRun } from "~/lib/run-recovery";
 import type { RunStore } from "~/lib/run-store";
+import { readStoredRuns } from "./helpers/stored-runs";
 
 const SRC = resolve("src");
 const HELPERS = resolve("test/helpers");

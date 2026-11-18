@@ -4,6 +4,7 @@ import { abandonHost, releaseEngine } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
 import { openHostDatabase } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
+import type { FeedReader } from "~/lib/feed/read";
 import { tick } from "~/lib/schedule";
 import { inputFromFields, SchemaError } from "~/lib/schema";
 import type { Workspace } from "~/lib/state/workspace";
@@ -21,6 +22,7 @@ import type {
 import type { DashboardSnapshot } from "~/model/dashboard";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
+import { workspaceFeed } from "~/workspace/feed";
 import { runSchedulesUntilStopped } from "~/workspace/loop";
 import type { OpenedWorkspace } from "~/workspace/open";
 import {
@@ -30,6 +32,8 @@ import {
   openWorkspace,
   touchWorkspace,
 } from "~/workspace/open";
+import { otherWorkspaces } from "~/workspace/others";
+import type { OtherWorkspaces } from "~/workspace/snapshot";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { runTaskCommand } from "~/workspace/tasks";
 
@@ -247,6 +251,25 @@ export async function stageWorkspace(
             report(line);
             diagnostics.add(line, "error");
           },
+          feed:
+            database === undefined
+              ? engine.feed
+              : workspaceFeed({
+                  artifacts: hostOptions.artifacts,
+                  database: database.database,
+                  own: engine.feed,
+                  state: hostOptions.state,
+                  workspace: opened.workspace.id,
+                }),
+          ...(database === undefined
+            ? {}
+            : {
+                others: otherWorkspaces({
+                  database: database.database,
+                  state: hostOptions.state,
+                  workspace: opened.workspace.id,
+                }),
+              }),
           lastFinish: await lastFinishes(engine),
           ...(options.onClose === undefined
             ? {}
@@ -271,8 +294,10 @@ interface Status {
   readonly diagnostics: Diagnostics;
   /** An error line: the status, and an error in the Logs tab. */
   readonly fail: (line: string) => void;
+  readonly feed: FeedReader;
   readonly lastFinish: ReadonlyMap<string, number>;
   readonly onClose?: (closing: Promise<void>) => void;
+  readonly others?: (now: number) => Promise<OtherWorkspaces>;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
   readonly status: () => string;
@@ -344,8 +369,10 @@ function hosted(
     database,
     diagnostics,
     fail,
+    feed,
     lastFinish,
     onClose,
+    others,
     print,
     setStatus,
     status,
@@ -503,15 +530,18 @@ function hosted(
     async snapshot(): Promise<DashboardSnapshot> {
       // First, so a failure it logs is in this snapshot's diagnostics.
       const usage = await readUsage(engine, usageRead);
+      const now = Date.now();
       return dashboardSnapshot(await engine.runs(), {
         activities: activities.list(),
         automationErrors: await automations.errors(),
         automations: await automations.list(),
         definitions: dispatches.definitions(),
         diagnostics: diagnostics.entries,
-        feed: await engine.feed(),
+        feed: await feed(),
         lastFinish,
         monitors: engine.monitors(),
+        now,
+        ...(others === undefined ? {} : { others: await others(now) }),
         queued: engine.executions.list(),
         root: workspace.root,
         schedules: await engine.schedules(),

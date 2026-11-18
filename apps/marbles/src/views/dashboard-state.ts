@@ -3,7 +3,9 @@ import {
   type DashboardSnapshot,
   type DefinitionSnapshot,
   flattenSteps,
+  runSelection,
   selectionKey,
+  triggerSelection,
 } from "./dashboard-model";
 import {
   type CatalogSelection,
@@ -177,7 +179,7 @@ function entries(
 ): DashboardSelection[] {
   const lists = visibleLists(state, snapshot);
   if (pane === "trigger") {
-    return lists.triggers.map(({ id }) => ({ id, kind: "trigger" }));
+    return lists.triggers.map(triggerSelection);
   }
   if (pane === "definition") {
     return lists.definitions.map(({ id }) => ({ id, kind: "definition" }));
@@ -202,9 +204,9 @@ export function initialState(snapshot: DashboardSnapshot): DashboardState {
   const [definition] = snapshot.definitions;
   let selected: DashboardSelection | undefined;
   if (run) {
-    selected = { id: run.id, kind: "run" };
+    selected = runSelection(run);
   } else if (trigger) {
-    selected = { id: trigger.id, kind: "trigger" };
+    selected = triggerSelection(trigger);
   } else if (definition) {
     selected = { id: definition.id, kind: "definition" };
   }
@@ -369,13 +371,11 @@ function jump(
   )?.step;
   const activity = run.activities?.findLast((item) => item.status === status);
   const selection: DashboardSelection = activity
-    ? {
+    ? runSelection(run, {
         activityId: activity.id,
-        id: run.id,
-        kind: "run",
         sessionId: activity.sessionId,
-      }
-    : { id: run.id, kind: "run", stepId: step?.id };
+      })
+    : runSelection(run, step === undefined ? {} : { stepId: step.id });
   return select(
     {
       ...state,
@@ -399,7 +399,7 @@ function filter(
   };
   const [run] = scopedRuns(snapshot, value);
   return run
-    ? select(filtered, { id: run.id, kind: "run" })
+    ? select(filtered, runSelection(run))
     : {
         ...filtered,
         focus: "run",
@@ -538,7 +538,10 @@ export function reduce(
       return select(
         {
           ...state,
-          expanded: new Set([...state.expanded, `run:${event.id}`]),
+          expanded: new Set([
+            ...state.expanded,
+            selectionKey({ id: event.id, kind: "run" }),
+          ]),
           filter: undefined,
           help: false,
           launching: undefined,

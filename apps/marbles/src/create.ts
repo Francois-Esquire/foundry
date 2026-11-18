@@ -18,6 +18,8 @@ import type { GitRun } from "@foundry/workspaces/git";
 import { Catalog } from "~/authoring/catalog";
 import { DatabaseActivityStore } from "~/database/activities";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
+import type { LinksKept } from "~/database/artifact-links";
+import { keepingLinks } from "~/database/artifact-links";
 import {
   DatabaseAutomationStore,
   readAutomations,
@@ -106,11 +108,6 @@ export interface CreateEngineOptions {
   readonly workspaceId: string;
 }
 
-/** The one place `--dry-run` reaches the state dir: a dry engine persists nothing. */
-function persisted(dry: boolean, stateDir: string | undefined) {
-  return dry ? undefined : stateDir;
-}
-
 /**
  * What `define`, `schedule` and `monitor` are called on: an engine, or a
  * bare registry, which has no `observe`.
@@ -172,7 +169,9 @@ function artifactsInMemory(): Artifacts {
 function artifactsFor(
   stores: WorkspaceStores | undefined,
   options: CreateEngineOptions
-): Pick<EngineOptions, "artifactReads" | "artifacts"> {
+): Pick<EngineOptions, "artifactReads" | "artifacts"> & {
+  readonly links?: LinksKept;
+} {
   const { artifacts: dir, dry, workspaceId } = options;
   if (dry) {
     return {
@@ -191,13 +190,25 @@ function artifactsFor(
   if (stores === undefined) {
     return { artifacts: artifactsInMemory() };
   }
+  const { database, print } = options;
+  const kept =
+    dir === undefined || database === undefined
+      ? undefined
+      : keepingLinks(stores.artifacts, {
+          artifacts: dir,
+          database,
+          owner: workspaceId,
+          report: print,
+          state: options.stateRoot ?? layout().state,
+        });
   return {
     artifacts: new ArtifactManager({
       ...(dir === undefined
         ? {}
         : { files: blobFiles(artifactBlobs(dir, workspaceId)) }),
-      store: stores.artifacts,
+      store: kept ?? stores.artifacts,
     }),
+    ...(kept === undefined ? {} : { links: kept }),
   };
 }
 
@@ -307,6 +318,42 @@ function recordsFor(
   };
 }
 
+const LINK_DRAIN_MS = 5000;
+
+function engineOver(
+  options: EngineOptions,
+  own: WorkspaceDatabase | undefined,
+  links: LinksKept | undefined
+): PublishedEngine {
+  if (own !== undefined) {
+    return new OwnDatabaseEngine(options, own);
+  }
+  return links === undefined
+    ? new PublishedEngine(options)
+    : new LinkKeepingEngine(options, links);
+}
+
+class LinkKeepingEngine extends PublishedEngine {
+  readonly #links: LinksKept;
+  #disposed: Promise<void> | undefined;
+
+  constructor(options: EngineOptions, links: LinksKept) {
+    super(options);
+    this.#links = links;
+  }
+
+  override dispose(): Promise<void> {
+    this.#disposed ??= (async () => {
+      try {
+        await super.dispose();
+      } finally {
+        await this.#links.drainLinks(LINK_DRAIN_MS);
+      }
+    })();
+    return this.#disposed;
+  }
+}
+
 class OwnDatabaseEngine extends PublishedEngine {
   readonly #database: WorkspaceDatabase;
 
@@ -366,7 +413,11 @@ function realPath(file: string | undefined): string | undefined {
 export function createEngine(options: CreateEngineOptions): Engine {
   const { catalog, dry, print, root, workspaceId } = options;
   const home = options.home ?? homedir();
-  const state = persisted(dry, options.stateDir);
+  const { spawned, state } = Engine.persistence({
+    dry,
+    ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
+    ...(options.stateDir === undefined ? {} : { state: options.stateDir }),
+  });
   // Its sandboxes may mount what is cut there; see `containersFor`.
   const worktrees = Engine.worktreesFor(state);
   const database = dry ? undefined : options.database;
@@ -379,8 +430,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
           location: realPath(options.databaseFile),
         });
   const git = dry ? { run: echoGit(print) } : {};
+  const { links, ...artifacts } = artifactsFor(stores, options);
   const engineOptions: EngineOptions = {
-    ...artifactsFor(stores, options),
+    ...artifacts,
     askable: options.askable,
     ...(stores === undefined ? {} : { containerRows: stores.containers }),
     containers: containersFor(options, worktrees, stores?.containers),
@@ -396,9 +448,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
       ? {}
       : { environment: executionEnvironment(options.environment) }),
     root,
-    ...(dry || options.spawned === undefined
-      ? {}
-      : { spawned: options.spawned }),
+    ...(spawned === undefined ? {} : { spawned }),
     state,
     workspaceId,
     ...(stores === undefined
@@ -406,10 +456,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
       : { workspaces: localCatalogue(git, stores.workspaces) }),
     worktrees,
   };
-  const engine =
-    own === undefined
-      ? new PublishedEngine(engineOptions)
-      : new OwnDatabaseEngine(engineOptions, own);
+  const engine = engineOver(engineOptions, own, links);
   declareCatalog(engine, catalog);
   unrecordedObservers(catalog, recordedSources(database, state), print);
   return engine;
@@ -445,13 +492,17 @@ function unrecordedObservers(
   }
 }
 
-export function createDefaultEngine(): Engine {
+export function createDefaultEngine({
+  dry,
+}: {
+  readonly dry: boolean;
+}): Engine {
   const machine = layout();
   const { id, root } = machine.workspace(process.cwd());
   return createEngine({
     artifacts: machine.artifacts,
     catalog: new Catalog(),
-    dry: false,
+    dry,
     print: (line) => {
       process.stderr.write(`${line}\n`);
     },

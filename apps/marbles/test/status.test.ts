@@ -7,7 +7,9 @@ import { describe, expect, it } from "vitest";
 import { GenerationRecords } from "~/database/generations";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseRecoveryLog } from "~/database/recoveries";
+import { resourceAssociations } from "~/database/resources";
 import { DatabaseSessionStore } from "~/database/sessions";
+import { marblesMonitorStates } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
@@ -279,6 +281,33 @@ describe("readStatus", () => {
     ]);
   });
 
+  it("reports a trigger with a launch waiting as a monitor, as the dashboard does, history or not", async () => {
+    const { state } = await layout();
+    await seedTicks(state, "ws1", [{ key: "first", owner: null }]);
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      for (const key of ["first", "guides"]) {
+        await database.database.insert(marblesMonitorStates).values({
+          key,
+          observed: {},
+          pending: { input: null, workflow: "refresh" },
+          scope: "ws1",
+        });
+      }
+    } finally {
+      database.close();
+    }
+    const schedules = (await readStatus(state)).workspaces[0]?.schedules;
+    expect(schedules).toEqual([
+      expect.objectContaining({
+        kind: "monitor",
+        lastStatus: null,
+        name: "first",
+      }),
+      expect.objectContaining({ kind: "monitor", name: "guides" }),
+    ]);
+  });
+
   it("flags an unsettled run whose pid is dead as orphaned", async () => {
     const { state } = await layout();
     const dead = spawnSync("true").pid;
@@ -318,6 +347,45 @@ describe("readStatus", () => {
     expect(workspaces[0]?.schedules.map((s) => [s.name, s.lastStatus])).toEqual(
       [["guides", "complete"]]
     );
+  });
+
+  it("shows a run shared with a workspace in that workspace too, marked with its owner", async () => {
+    const { state } = await layout();
+    await seedWorkspace(state, {
+      config: null,
+      firstSeen: "2026-09-10T00:00:00.000Z",
+      hosted: false,
+      id: "ws2",
+      lastSeen: "2026-09-10T00:00:00.000Z",
+      root: "/repo/two",
+    });
+    await seedRuns(state, "ws2", [
+      { createdAt: 5, id: "rn-two", owner: null, status: "complete" },
+    ]);
+    await seedRuns(state, "ws1", [
+      { createdAt: 1, id: "rn-one", owner: null, status: "complete" },
+    ]);
+    const opened = await initializeDatabase(stateDatabase(state));
+    try {
+      await resourceAssociations(opened.database, state).share(
+        { id: "rn-two", kind: "run", owner: "ws2" },
+        "ws1"
+      );
+    } finally {
+      opened.close();
+    }
+    const byId = new Map(
+      (await readStatus(state)).workspaces.map((w) => [w.id, w.runs])
+    );
+    expect(byId.get("ws1")).toEqual({
+      recent: [
+        expect.objectContaining({ id: "rn-two", sharedFrom: "ws2" }),
+        expect.objectContaining({ id: "rn-one" }),
+      ],
+      total: 2,
+    });
+    expect(byId.get("ws1")?.recent[1]).not.toHaveProperty("sharedFrom");
+    expect(byId.get("ws2")?.total).toBe(1);
   });
 });
 

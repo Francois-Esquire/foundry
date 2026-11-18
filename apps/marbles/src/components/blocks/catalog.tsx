@@ -7,8 +7,10 @@ import { theme } from "~/components/ui/theme";
 import {
   type DashboardSelection,
   type DefinitionSnapshot,
+  isSelected,
   selectionKey,
   type TriggerSnapshot,
+  triggerSelection,
 } from "~/views/dashboard-model";
 import { EmptyState } from "./empty-state";
 
@@ -52,11 +54,11 @@ export function TriggersBlock({
       )}
       {items.map((item) => (
         <SelectableRow
-          id={`trigger:${item.id}`}
-          key={item.id}
+          id={rowId(item)}
+          key={selectionKey(triggerSelection(item))}
           onSelect={onSelect}
-          selected={selected?.kind === "trigger" && selected.id === item.id}
-          value={{ id: item.id, kind: "trigger" }}
+          selected={selected?.kind === "trigger" && isSelected(item, selected)}
+          value={triggerSelection(item)}
         >
           <box flexDirection="row" flexGrow={1} gap={1} height={1} minWidth={0}>
             <KindBadge kind={item.kind} />
@@ -133,4 +135,10 @@ export function DefinitionsBlock({
       ))}
     </Panel>
   );
+}
+
+function rowId(item: TriggerSnapshot): string {
+  return item.workspace === undefined
+    ? `trigger:${item.id}`
+    : `trigger:${selectionKey(triggerSelection(item))}`;
 }

@@ -7,7 +7,6 @@ import { eq } from "drizzle-orm";
 import { expect, it } from "vitest";
 import { writeDatabase } from "~/database/open";
 import { readLastRecovery } from "~/database/recoveries";
-import { readStoredRuns } from "~/database/runs";
 import { marblesExecutions, marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import {
@@ -17,6 +16,7 @@ import {
 } from "~/process/spawned";
 import { testEngine } from "./helpers/engine";
 import { type TestHome, testHome } from "./helpers/home";
+import { readStoredRuns } from "./helpers/stored-runs";
 
 const SRC = resolve("src");
 const HELPERS = resolve("test/helpers");

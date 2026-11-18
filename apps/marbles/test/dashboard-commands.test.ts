@@ -45,6 +45,7 @@ interface Setup {
   readonly events?: readonly DashboardEvent[];
   readonly snapshot?: DashboardSnapshot;
   readonly typing?: boolean;
+  readonly workspaces?: CommandContext["workspaces"];
 }
 
 function context({
@@ -55,6 +56,7 @@ function context({
   events = [],
   snapshot = dashboardSnapshot,
   typing = false,
+  workspaces = { everywhere: false, others: false },
 }: Setup = {}) {
   const state: DashboardState = events.reduce(
     (current, event) => reduce(current, event, snapshot),
@@ -90,6 +92,7 @@ function context({
     },
     resolved: resolveSelection(snapshot, state.selected),
     state,
+    workspaces,
   };
   const dashboard: Dashboard = {
     ...built,
@@ -98,6 +101,7 @@ function context({
     quit: record("quit"),
     send: (event: DashboardEvent) => calls.push(["send", event]),
     switchWorkspace: record("switch-workspace"),
+    toggleWorkspaces: record("toggle-workspaces"),
   };
   function press(pressed: KeyPress) {
     const command = commandFor(pressed, built);
@@ -113,6 +117,57 @@ const paused: DashboardSnapshot = {
     run.id === "run-104" ? { ...run, status: "suspended" } : run
   ),
 };
+
+describe("another workspace's runs and triggers", () => {
+  const elsewhere = { id: "ws-docs", name: "docs" };
+  const shown: DashboardSnapshot = {
+    ...dashboardSnapshot,
+    runs: dashboardSnapshot.runs.map((run) =>
+      run.status === "running" ? { ...run, workspace: elsewhere } : run
+    ),
+    triggers: dashboardSnapshot.triggers.map((trigger) => ({
+      ...trigger,
+      managed: true,
+      workspace: elsewhere,
+    })),
+  };
+
+  it("are shown with no control", () => {
+    const running = shown.runs.find((run) => run.status === "running");
+    const { context: built, press } = context({
+      events: [
+        { selection: { id: running?.id ?? "", kind: "run" }, type: "select" },
+      ],
+      snapshot: shown,
+    });
+    expect(footer(built).hints).not.toContain("k cancel");
+    expect(footer(built).hints).not.toContain("p pause");
+    for (const name of ["s", "p", "k"]) {
+      expect(press(key(name))).toBeUndefined();
+    }
+    const [trigger] = shown.triggers;
+    const onTrigger = context({
+      events: [
+        {
+          selection: { id: trigger?.id ?? "", kind: "trigger" },
+          type: "select",
+        },
+      ],
+      snapshot: shown,
+    });
+    expect(footer(onTrigger.context).hints).not.toContain("delete trigger");
+    expect(onTrigger.press(key("k"))).toBeUndefined();
+  });
+
+  it("are toggled into the lists with g, once there are any", () => {
+    expect(footer(context().context).hints).not.toContain("g all workspaces");
+    const some = context({ workspaces: { everywhere: false, others: true } });
+    expect(footer(some.context).hints).toContain("g all workspaces");
+    expect(some.press(key("g"))).toEqual([["toggle-workspaces"]]);
+    const all = context({ workspaces: { everywhere: true, others: true } });
+    expect(footer(all.context).hints).toContain("g this workspace");
+  });
+});
 
 describe("run controls follow the target's status", () => {
   it("offers steer, pause, and cancel on a running run", () => {

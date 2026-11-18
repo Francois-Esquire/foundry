@@ -21,6 +21,7 @@ import { Text } from "~/components/ui/text";
 import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
 import type { DashboardSnapshot } from "./dashboard-model";
+import { isSelected } from "./dashboard-model";
 import type { CatalogSelection } from "./dashboard-tree";
 import { FeedView } from "./feed";
 import { LaunchView } from "./launch";
@@ -35,9 +36,11 @@ function describeFilter(
   if (!filter) {
     return undefined;
   }
-  const items =
-    filter.kind === "trigger" ? snapshot.triggers : snapshot.definitions;
-  return `${filter.kind}: ${items.find((item) => item.id === filter.id)?.name ?? filter.id}`;
+  const name =
+    filter.kind === "trigger"
+      ? snapshot.triggers.find((item) => isSelected(item, filter))?.name
+      : snapshot.definitions.find((item) => item.id === filter.id)?.name;
+  return `${filter.kind}: ${name ?? filter.id}`;
 }
 
 /** Room for Runs beside Latest and Usage. */
@@ -246,11 +249,11 @@ export function DashboardView({
   /** Narrower than the terminal, for the preview's small-screen scenarios. */
   readonly viewportWidth?: number;
 }) {
-  const { snapshot, onClose, onLaunch, actions, hosted } = options;
+  const { onClose, onLaunch, actions, hosted } = options;
   const dimensions = useTerminalDimensions();
   const width = Math.min(viewportWidth ?? dimensions.width, dimensions.width);
   const ui = useDashboard(options);
-  const { state } = ui;
+  const { snapshot, state } = ui;
   if (ui.form && onLaunch) {
     return (
       <LaunchView

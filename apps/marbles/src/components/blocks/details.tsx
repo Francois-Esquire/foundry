@@ -15,7 +15,11 @@ import type {
   StepSnapshot,
   TriggerSnapshot,
 } from "~/views/dashboard-model";
-import { selectionKey } from "~/views/dashboard-model";
+import {
+  runSelection,
+  selectionKey,
+  triggerSelection,
+} from "~/views/dashboard-model";
 import type { InspectorTab } from "~/views/dashboard-state";
 import { type CatalogSelection, scopedRuns } from "~/views/dashboard-tree";
 import type { RunActions } from "~/views/run-actions";
@@ -49,7 +53,10 @@ function RunInspector({
   const step = path.at(-1);
   const subject = step ?? run;
   const trigger =
-    snapshot.triggers.find((item) => item.id === run.triggerId)?.name ??
+    snapshot.triggers.find(
+      (item) =>
+        item.id === run.triggerId && item.workspace?.id === run.workspace?.id
+    )?.name ??
     run.triggerId ??
     "Manual";
   const tabs = [
@@ -97,7 +104,11 @@ function RunInspector({
     {
       content:
         tab === "stream" ? (
-          <RunStream runId={run.id} source={stream} stepId={step?.id} />
+          <RunStream
+            runId={run.id}
+            source={run.workspace === undefined ? stream : undefined}
+            stepId={step?.id}
+          />
         ) : null,
       key: "stream",
       label: "Stream",
@@ -110,14 +121,14 @@ function RunInspector({
           id="breadcrumb:run"
           label={run.id}
           onAction={onInspect}
-          value={{ id: run.id, kind: "run" }}
+          value={runSelection(run)}
         />
         {path.map((item) => (
           <Action
             key={item.id}
             label={`› ${item.name}`}
             onAction={onInspect}
-            value={{ id: run.id, kind: "run", stepId: item.id }}
+            value={runSelection(run, { stepId: item.id })}
           />
         ))}
       </box>
@@ -142,7 +153,10 @@ function CatalogDetails({
   readonly onLaunch?: (id: string) => void;
 }) {
   const { value } = item;
-  const selection: CatalogSelection = { id: value.id, kind: item.kind };
+  const selection: CatalogSelection =
+    item.kind === "trigger"
+      ? triggerSelection(item.value)
+      : { id: value.id, kind: item.kind };
   const runs = scopedRuns(snapshot, selection);
   const rootUsage = snapshot.usage?.byWorkflow.find(
     (group) => group.id === value.id
@@ -229,11 +243,11 @@ function CatalogDetails({
       {runs.length === 0 && <Text>No runs recorded.</Text>}
       {runs.map((run) => (
         <SelectableRow
-          id={`detail:${run.id}`}
-          key={run.id}
+          id={`detail:${selectionKey(runSelection(run))}`}
+          key={selectionKey(runSelection(run))}
           onSelect={onInspect}
           selected={false}
-          value={{ id: run.id, kind: "run" }}
+          value={runSelection(run)}
         >
           <Text>{run.id}</Text>
           <StatusLabel item={run} />

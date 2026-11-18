@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
+import type { ResourceKind } from "~/lib/resources";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 
@@ -54,4 +55,14 @@ export function layout(options: LayoutOptions = {}): Layout {
 
 export function stateDatabase(state: string): string {
   return join(resolve(state), DATABASE_FILE);
+}
+
+const LINKS_DIR = ".marbles";
+
+export function workspaceLinks(root: string): string {
+  return join(resolve(root), LINKS_DIR);
+}
+
+export function resourceLinks(root: string, kind: ResourceKind): string {
+  return join(workspaceLinks(root), `${kind}s`);
 }

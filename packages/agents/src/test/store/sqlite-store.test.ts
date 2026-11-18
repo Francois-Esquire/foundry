@@ -1438,3 +1438,59 @@ function fieldsOf(shape: Readonly<Record<string, z.ZodType>>) {
     ])
   );
 }
+
+describe("SqliteSessionStore batch reads", () => {
+  it("reads many sessions, and counts their messages and summaries, in one statement each", async () => {
+    const queries: string[] = [];
+    const { store } = await storeOn({
+      onQuery: (query) => queries.push(query),
+    });
+    const ids = Array.from({ length: 50 }, (_, index) => `s${index}`);
+    await store.commit({
+      putMessages: [
+        message("m1", "s1"),
+        message("m2", "s1", { role: "summary" }),
+        message("m3", "s2"),
+      ],
+      putSessions: ids.map((id) => session(id)),
+    });
+    queries.length = 0;
+    const sessions = await store.getSessions([...ids, "missing", "\u0000"]);
+    expect(sessions.map((found) => found.id).sort()).toEqual([...ids].sort());
+    const tallies = await store.messageTallies(ids);
+    expect(queries).toHaveLength(2);
+    expect(tallies).toEqual(
+      new Map([
+        ["s1", { messages: 2, summarized: true }],
+        ["s2", { messages: 1, summarized: false }],
+      ])
+    );
+  });
+});
+
+describe("SqliteSessionStore batch reads, as its public entry gives them", () => {
+  it("are on the store `@foundry/agents/store/sqlite` exports, and leave out what no row holds", async () => {
+    const entry = await import("@foundry/agents/store/sqlite");
+    const { store } = await storeOn();
+    expect(store).toBeInstanceOf(entry.SqliteSessionStore);
+    expectTypeOf<
+      import("@foundry/agents/store/sqlite").MessageTally
+    >().toEqualTypeOf<{
+      readonly messages: number;
+      readonly summarized: boolean;
+    }>();
+    await store.commit({
+      putMessages: [message("only", "listed")],
+      putSessions: [session("listed"), session("quiet")],
+    });
+    expect(await store.getSessions([])).toEqual([]);
+    expect(
+      (await store.getSessions(["listed", "listed", "", "\uD800"])).map(
+        (found) => found.id
+      )
+    ).toEqual(["listed"]);
+    expect(await store.messageTallies(["listed", "quiet", "missing"])).toEqual(
+      new Map([["listed", { messages: 1, summarized: false }]])
+    );
+  });
+});

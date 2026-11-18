@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
@@ -128,18 +128,31 @@ export class DatabaseTriggerStore implements TriggerStore {
     return this.#call(async () => {
       const recorded =
         tick === undefined ? {} : scheduleHistorySchema.parse(tick);
-      await this.#database
-        .update(marblesScheduleTicks)
-        .set({
-          ...recorded,
-          ...(tick === undefined
-            ? {}
-            : { kind: tick.kind ?? null, label: tick.label ?? null }),
-          ...NO_OWNER,
-        })
-        .where(
-          and(this.#key(key), eq(marblesScheduleTicks.ownerId, this.#owner))
-        );
+      await this.#database.transaction(async (transaction) => {
+        const finished = await transaction
+          .update(marblesScheduleTicks)
+          .set({
+            ...recorded,
+            ...(tick === undefined
+              ? {}
+              : { kind: tick.kind ?? null, label: tick.label ?? null }),
+            ...NO_OWNER,
+          })
+          .where(
+            and(this.#key(key), eq(marblesScheduleTicks.ownerId, this.#owner))
+          )
+          .returning({ key: marblesScheduleTicks.key });
+        if (finished.length > 0 && tick?.kind === "schedule") {
+          await transaction
+            .delete(marblesMonitorStates)
+            .where(
+              and(
+                eq(marblesMonitorStates.scope, this.#scope),
+                eq(marblesMonitorStates.key, key)
+              )
+            );
+        }
+      });
     });
   }
 
@@ -155,32 +168,38 @@ export class DatabaseTriggerStore implements TriggerStore {
 
   monitorState(key: string): Promise<MonitorState | undefined> {
     return this.#call(async () => {
-      const [row] = await this.#database
-        .select({
-          observed: marblesMonitorStates.observed,
-          pending: marblesMonitorStates.pending,
-        })
-        .from(marblesMonitorStates)
-        .where(
-          and(
-            eq(marblesMonitorStates.scope, this.#scope),
-            eq(marblesMonitorStates.key, key)
-          )
-        );
+      const row = await this.#monitorRow(this.#database, key);
       if (row === undefined) {
         return;
       }
-      const { observed, pending } = monitorStateSchema.parse({
-        observed: row.observed,
-        ...(row.pending === null ? {} : { pending: row.pending }),
+      if ((await this.#lastKind(this.#database, key)) !== "schedule") {
+        return monitorStateOf(row);
+      }
+      const kept = await this.#database.transaction(async (transaction) => {
+        if ((await this.#lastKind(transaction, key)) === "schedule") {
+          await transaction
+            .delete(marblesMonitorStates)
+            .where(this.#monitorKey(key));
+          return;
+        }
+        return this.#monitorRow(transaction, key);
       });
-      return pending === undefined
-        ? { observed }
-        : {
-            observed,
-            pending: { input: pending.input, workflow: pending.workflow },
-          };
+      return kept === undefined ? undefined : monitorStateOf(kept);
     });
+  }
+
+  async #monitorRow(
+    database: StoreDatabase,
+    key: string
+  ): Promise<MonitorRow | undefined> {
+    const [row] = await database
+      .select({
+        observed: marblesMonitorStates.observed,
+        pending: marblesMonitorStates.pending,
+      })
+      .from(marblesMonitorStates)
+      .where(this.#monitorKey(key));
+    return row;
   }
 
   saveMonitorState(key: string, state: MonitorState): Promise<void> {
@@ -193,14 +212,51 @@ export class DatabaseTriggerStore implements TriggerStore {
             ? null
             : { input: pending.input, workflow: pending.workflow },
       };
-      await this.#database
-        .insert(marblesMonitorStates)
-        .values({ ...values, key, scope: this.#scope })
-        .onConflictDoUpdate({
-          set: values,
-          target: [marblesMonitorStates.scope, marblesMonitorStates.key],
-        });
+      await this.#database.transaction(async (transaction) => {
+        await transaction
+          .insert(marblesMonitorStates)
+          .values({ ...values, key, scope: this.#scope })
+          .onConflictDoUpdate({
+            set: values,
+            target: [marblesMonitorStates.scope, marblesMonitorStates.key],
+          });
+        await transaction
+          .update(marblesScheduleTicks)
+          .set({
+            kind: "monitor",
+            label: null,
+            lastFinish: null,
+            lastStart: null,
+            lastStatus: null,
+            nextDue: null,
+          })
+          .where(
+            and(this.#key(key), eq(marblesScheduleTicks.kind, "schedule"))
+          );
+        await transaction
+          .update(marblesScheduleTicks)
+          .set({ kind: "monitor" })
+          .where(and(this.#key(key), isNull(marblesScheduleTicks.kind)));
+      });
     });
+  }
+
+  async #lastKind(
+    database: StoreDatabase,
+    key: string
+  ): Promise<string | null | undefined> {
+    const [tick] = await database
+      .select({ kind: marblesScheduleTicks.kind })
+      .from(marblesScheduleTicks)
+      .where(this.#key(key));
+    return tick?.kind;
+  }
+
+  #monitorKey(key: string) {
+    return and(
+      eq(marblesMonitorStates.scope, this.#scope),
+      eq(marblesMonitorStates.key, key)
+    );
   }
 
   #key(key: string) {
@@ -216,6 +272,24 @@ export class DatabaseTriggerStore implements TriggerStore {
 }
 
 type TickRow = typeof marblesScheduleTicks.$inferSelect;
+
+type MonitorRow = Pick<
+  typeof marblesMonitorStates.$inferSelect,
+  "observed" | "pending"
+>;
+
+function monitorStateOf(row: MonitorRow): MonitorState {
+  const { observed, pending } = monitorStateSchema.parse({
+    observed: row.observed,
+    ...(row.pending === null ? {} : { pending: row.pending }),
+  });
+  return pending === undefined
+    ? { observed }
+    : {
+        observed,
+        pending: { input: pending.input, workflow: pending.workflow },
+      };
+}
 
 function tickOf(row: TickRow): ScheduleHistory | undefined {
   if (
@@ -239,23 +313,54 @@ function tickOf(row: TickRow): ScheduleHistory | undefined {
 export interface StoredTick {
   readonly key: string;
   readonly last?: ScheduleHistory;
+  readonly pending?: string;
   readonly running: number | null;
+}
+
+export function isMonitorTick(
+  tick: Pick<StoredTick, "last" | "pending">
+): boolean {
+  const named = tick.last?.kind;
+  return named === undefined ? tick.pending !== undefined : named === "monitor";
 }
 
 export async function readStoredTicks(
   state: string,
   scope: string
 ): Promise<readonly StoredTick[]> {
-  const rows = await asBusy(() =>
-    readDatabase(stateDatabase(state), (database) =>
-      database
-        .select()
-        .from(marblesScheduleTicks)
-        .where(eq(marblesScheduleTicks.scope, scope))
-        .orderBy(asc(marblesScheduleTicks.key))
+  return (
+    (await asBusy(() =>
+      readDatabase(stateDatabase(state), (database) =>
+        storedTicks(database, scope)
+      )
+    )) ?? []
+  );
+}
+
+export async function storedTicks(
+  database: StoreDatabase,
+  scope: string
+): Promise<readonly StoredTick[]> {
+  const [rows, monitors] = await asBusy(async () => [
+    await database
+      .select()
+      .from(marblesScheduleTicks)
+      .where(eq(marblesScheduleTicks.scope, scope))
+      .orderBy(asc(marblesScheduleTicks.key)),
+    await database
+      .select({
+        key: marblesMonitorStates.key,
+        pending: marblesMonitorStates.pending,
+      })
+      .from(marblesMonitorStates)
+      .where(eq(marblesMonitorStates.scope, scope)),
+  ]);
+  const pending = new Map(
+    monitors.flatMap((row) =>
+      row.pending === null ? [] : [[row.key, row.pending.workflow] as const]
     )
   );
-  return (rows ?? []).flatMap((row): StoredTick[] => {
+  return rows.flatMap((row): StoredTick[] => {
     let last: ScheduleHistory | undefined;
     try {
       last = tickOf(row);
@@ -263,9 +368,17 @@ export async function readStoredTicks(
       last = undefined;
     }
     const running = heldBy(row)?.pid ?? null;
-    if (last === undefined && running === null) {
+    const launch = last?.kind === "schedule" ? undefined : pending.get(row.key);
+    if (last === undefined && running === null && launch === undefined) {
       return [];
     }
-    return [{ key: row.key, ...(last === undefined ? {} : { last }), running }];
+    return [
+      {
+        key: row.key,
+        ...(last === undefined ? {} : { last }),
+        ...(launch === undefined ? {} : { pending: launch }),
+        running,
+      },
+    ];
   });
 }

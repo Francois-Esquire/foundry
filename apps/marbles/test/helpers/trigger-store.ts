@@ -8,6 +8,7 @@ import type {
 
 export interface TriggerStoreFixture {
   close(): Promise<void>;
+  leftover?(key: string, state: MonitorState): Promise<void>;
   store(): TriggerStore;
 }
 
@@ -114,6 +115,63 @@ export function describeTriggerStore(
       expect(await triggers.monitorState("m")).toEqual({
         observed: { files: {} },
       });
+    });
+
+    it("drops what a monitor left under a key once a schedule's tick is recorded there, and keeps it for a monitor's", async () => {
+      const triggers = await store();
+      const left: MonitorState = {
+        observed: { files: { "a.md": "hash" } },
+        pending: { input: null, workflow: "ship" },
+      };
+      for (const key of ["watched", "rescheduled"]) {
+        await triggers.saveMonitorState(key, left);
+        expect(await triggers.claimTick(key)).toEqual({ claimed: true });
+      }
+      await triggers.finishTick("watched", TICK);
+      await triggers.finishTick("rescheduled", { ...TICK, kind: "schedule" });
+      expect(await triggers.monitorState("watched")).toEqual(left);
+      expect(await triggers.monitorState("rescheduled")).toBeUndefined();
+      expect((await triggers.lastTick("rescheduled"))?.kind).toBe("schedule");
+    });
+
+    it("marks a key a monitor's when a monitor keeps its state there, so the launch it leaves before its tick is recorded goes out again", async () => {
+      const triggers = await store();
+      const left: MonitorState = {
+        observed: { files: { "a.md": "hash" } },
+        pending: { input: null, workflow: "ship" },
+      };
+      expect(await triggers.claimTick("k")).toEqual({ claimed: true });
+      await triggers.finishTick("k", { ...TICK, kind: "schedule" });
+      expect(await triggers.claimTick("k")).toEqual({ claimed: true });
+      await triggers.saveMonitorState("k", left);
+      expect(await triggers.lastTick("k")).toBeUndefined();
+      expect(await triggers.monitorState("k")).toEqual(left);
+    });
+
+    it("drops, where it would hand it out, what an older Marbles left under a key whose last tick is a schedule's", async ({
+      skip,
+    }) => {
+      const triggers = await store();
+      const leftover = fixture?.leftover;
+      if (leftover === undefined) {
+        skip("this store keeps nothing an older Marbles could have left");
+        return;
+      }
+      const left: MonitorState = {
+        observed: { files: {} },
+        pending: { input: { old: true }, workflow: "obsolete-target" },
+      };
+      for (const [key, kind] of [
+        ["rescheduled", "schedule"],
+        ["watched", "monitor"],
+      ] as const) {
+        expect(await triggers.claimTick(key)).toEqual({ claimed: true });
+        await triggers.finishTick(key, { ...TICK, kind });
+        await leftover(key, left);
+      }
+      expect(await triggers.monitorState("rescheduled")).toBeUndefined();
+      expect(await (await store()).monitorState("rescheduled")).toBeUndefined();
+      expect(await triggers.monitorState("watched")).toEqual(left);
     });
 
     it("refuses, keeping what it had, a monitor state JSON would not give back as it is", async () => {

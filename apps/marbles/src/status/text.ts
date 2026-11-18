@@ -8,6 +8,7 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
     `hosted: ${workspace.hosted ? "yes" : "no"}`,
     `process: ${workspace.alive ? `pid ${workspace.pid}${workspace.host === null ? "" : ` (${workspace.host})`}` : "not running"}`,
     `sessions: ${workspace.sessions}`,
+    `artifacts: ${workspace.artifacts}`,
     "schedules",
     ...workspace.schedules.flatMap((schedule) => [
       `${schedule.name}${schedule.kind === "monitor" ? " monitor" : ""}  [${schedule.running === null ? (schedule.lastStatus ?? "never") : `pid ${schedule.running}`}]`,
@@ -16,8 +17,13 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
     ...(workspace.schedules.length === 0 ? ["none recorded"] : []),
     `runs (${workspace.runs.total})`,
     ...workspace.runs.recent.flatMap((run) => [
-      `${run.step}  [${run.status}]${run.orphaned ? " orphaned (pid gone)" : ""}`,
+      `${run.step}  [${run.status}]${run.orphaned ? " orphaned (pid gone)" : ""}${run.sharedFrom === undefined ? "" : ` shared from ${run.sharedFrom}`}`,
       `  ${new Date(run.createdAt).toISOString()} · ${run.id}`,
+      ...(run.steps.length === 0
+        ? []
+        : [
+            `  steps: ${run.steps.map((step) => `${step.name} [${step.status}]`).join(" · ")}`,
+          ]),
     ]),
     ...(workspace.runs.recent.length === 0 ? ["none recorded"] : []),
     ...observerLines(workspace.observers),

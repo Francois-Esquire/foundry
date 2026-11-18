@@ -7,6 +7,7 @@ import type { ContainerStore } from "@foundry/sandbox/store";
 import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
 import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
+import { removeShares } from "~/database/associations";
 import { surfacingBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
 import type { StoreDatabase } from "~/database/open";
@@ -48,7 +49,15 @@ export function workspaceStores(
       changes.causing(
         new SqliteArtifactStore({
           database,
-          onCommit: recorded(ARTIFACTS_KEY),
+          onCommit: async (transaction, write) => {
+            await recorded(ARTIFACTS_KEY)(transaction, write);
+            await removeShares(
+              transaction,
+              "artifact",
+              scope,
+              write.deleteArtifacts ?? []
+            );
+          },
           scope,
         })
       )

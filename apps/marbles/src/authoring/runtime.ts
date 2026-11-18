@@ -53,6 +53,7 @@ const contextBindings = new WeakMap<ExecutionContext, Binding>();
 interface Hosting {
   readonly binding: Binding | undefined;
   readonly catalog: Catalog;
+  readonly dry?: boolean;
   readonly id: string;
 }
 
@@ -91,10 +92,12 @@ const routeScope = new AsyncLocalStorage<Route>();
 let unnamedRefused = false;
 let importing = 0;
 let hostState: "unhosted" | "loading" | "hosted" = "unhosted";
-let fallback: Promise<InstanceRuntime> | undefined;
-let createFallback: () => Promise<InstanceRuntime> = async () => {
+const fallbacks = new Map<boolean, Promise<InstanceRuntime>>();
+let createFallback: (options: {
+  readonly dry: boolean;
+}) => Promise<InstanceRuntime> = async ({ dry }) => {
   const { createDefaultEngine } = await import("~/create");
-  const engine = createDefaultEngine();
+  const engine = createDefaultEngine({ dry });
   const problems =
     (await engine.providers
       ?.refresh()
@@ -135,7 +138,8 @@ export function refuseUnnamedWork(): void {
 export async function loadInto<T>(
   workspaceId: string,
   into: Catalog,
-  load: (n: number) => Promise<T>
+  load: (n: number) => Promise<T>,
+  { dry }: { readonly dry?: boolean } = {}
 ): Promise<T> {
   sweep();
   const n = newLoad();
@@ -150,6 +154,7 @@ export async function loadInto<T>(
     hostings.set(workspaceId, {
       binding: undefined,
       catalog: into,
+      ...(dry === undefined ? {} : { dry }),
       id: workspaceId,
     });
     released.delete(workspaceId);
@@ -298,6 +303,7 @@ function namedBy(
 
 interface Answer {
   readonly catalog: Catalog;
+  readonly dry?: boolean;
   readonly id: string;
   readonly runtime: InstanceRuntime | undefined;
 }
@@ -315,6 +321,7 @@ function liveHosting(id: string): Hosting | undefined {
 function answerOf(hosting: Hosting): Answer {
   return {
     catalog: hosting.catalog,
+    ...(hosting.dry === undefined ? {} : { dry: hosting.dry }),
     id: hosting.id,
     runtime: hosting.binding?.runtime,
   };
@@ -439,7 +446,7 @@ export function hostTaskStore(): TaskStore | undefined {
 }
 
 export function setDefaultRuntime(
-  create: () => Promise<InstanceRuntime>
+  create: (options: { readonly dry: boolean }) => Promise<InstanceRuntime>
 ): void {
   createFallback = create;
 }
@@ -452,29 +459,38 @@ export function instanceRoot(): string {
   return activeHost()?.bindings.root ?? process.cwd();
 }
 
-/** The host's engine, else the default runtime, built once. */
 export function instanceRuntime(): Promise<InstanceRuntime> {
-  let runtime: InstanceRuntime | undefined;
+  let answer: Answer | undefined;
   try {
-    runtime = activeHost();
+    answer = answering();
   } catch (error) {
     return Promise.reject(error);
   }
-  if (runtime) {
-    return Promise.resolve(runtime);
+  if (answer?.runtime) {
+    return Promise.resolve(answer.runtime);
   }
-  if (!fallback) {
+  const dry = answer === undefined ? false : answer.dry;
+  if (dry === undefined) {
+    return Promise.reject(
+      new Error(
+        `a definition was used while workspace ${answer?.id ?? ""}'s source was loading, and whether it loads under a dry run is not known here; use it in a step, which the host's engine runs`
+      )
+    );
+  }
+  let runtime = fallbacks.get(dry);
+  if (runtime === undefined) {
     // A step it runs may query `usage`; its default accounts come first.
-    fallback = Promise.all([createFallback(), initializeUsage()]).then(
+    runtime = Promise.all([createFallback({ dry }), initializeUsage()]).then(
       ([created]) => created
     );
+    fallbacks.set(dry, runtime);
     // A script that never calls `dispose` still exits once its work is
     // done, unless something the runtime started holds the process open.
     process.once("beforeExit", () => {
       dispose().catch(() => undefined);
     });
   }
-  return fallback;
+  return runtime;
 }
 
 /**
@@ -483,9 +499,9 @@ export function instanceRuntime(): Promise<InstanceRuntime> {
  * outside a run calls it before exiting; the next call builds a new one.
  */
 export async function dispose(): Promise<void> {
-  const pending = fallback;
-  fallback = undefined;
-  if (pending) {
-    await (await pending).dispose();
+  const pending = [...fallbacks.values()];
+  fallbacks.clear();
+  for (const runtime of pending) {
+    await (await runtime).dispose();
   }
 }

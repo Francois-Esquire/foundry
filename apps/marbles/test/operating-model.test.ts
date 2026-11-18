@@ -75,6 +75,7 @@ function commands(
     ...(log ? { log } : {}),
     resolved: resolveSelection(dashboardSnapshot, state.selected),
     state,
+    workspaces: { everywhere: false, others: false },
     ...extra,
   };
   const dashboard: Dashboard = {
@@ -87,6 +88,7 @@ function commands(
     quit: () => undefined,
     send: (event) => calls.push(["send", event]),
     switchWorkspace: () => calls.push(["switch-workspace"]),
+    toggleWorkspaces: () => calls.push(["toggle-workspaces"]),
   };
   return {
     context,

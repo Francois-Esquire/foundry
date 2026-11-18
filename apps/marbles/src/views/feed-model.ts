@@ -2,6 +2,12 @@ import type { FeedEntrySnapshot } from "~/lib/feed/read";
 
 export const ALL_WORKSPACES = "all";
 
+export function feedKey(
+  entry: Pick<FeedEntrySnapshot, "id" | "workspace">
+): string {
+  return JSON.stringify([entry.workspace.id, entry.id]);
+}
+
 export interface FeedScope {
   /** `all`, or a workspace id. */
   readonly id: string;
@@ -42,5 +48,7 @@ export function scopedFeed(
 ): readonly FeedEntrySnapshot[] {
   return scope === ALL_WORKSPACES
     ? entries
-    : entries.filter((entry) => entry.workspace.id === scope);
+    : entries.filter((entry) =>
+        (entry.workspaces ?? [entry.workspace.id]).includes(scope)
+      );
 }

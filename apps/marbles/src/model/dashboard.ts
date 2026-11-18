@@ -20,6 +20,12 @@ export interface TriggerSnapshot {
   readonly owner?: string;
   readonly status: "waiting" | "watching" | "running" | "failed" | "paused";
   readonly targetId: string;
+  readonly workspace?: OwnerWorkspace;
+}
+
+export interface OwnerWorkspace {
+  readonly id: string;
+  readonly name: string;
 }
 
 /**
@@ -106,6 +112,8 @@ export interface RunSnapshot {
   readonly triggerId?: string;
   /** Every agent turn recorded in the run, nested steps included. */
   readonly usage?: UsageTotal;
+  readonly workspace?: OwnerWorkspace;
+  readonly workspaces?: readonly string[];
 }
 
 /** Presentation data only. No runtime handles, stores, or API clients. */

@@ -745,7 +745,10 @@ or removed with its record `before` and `after`, and the dependency edges
 it added and removed), `workflow` (each Run's `run.queued`, `run.started`,
 `run.parked`, `run.resumed`, `run.completed`, `run.failed`,
 `run.cancelled`, `run.updated`, `run.removed`), `artifact`
-(`artifact.created`, `artifact.written`, ...), `sandbox`
+(`artifact.created`, `artifact.written`, ..., and `artifact.shared` and
+`artifact.unshared` when this workspace shows one of its artifacts in
+another workspace or stops, with that workspace's id in `workspace`),
+`sandbox`
 (`sandbox.created`, `sandbox.started`, `sandbox.stopped`,
 `sandbox.failed`, `sandbox.destroyed`), `workspace` (`workspace.created`,
 `workspace.updated`, `workspace.entries.changed`, `workspace.removed`) and

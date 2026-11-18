@@ -44,16 +44,21 @@ it("binds every authoring word and prebuilt factory to the load that imports it"
 it("declares what a load's words make into that load's catalog, however late `.do` is called", async () => {
   const into = new Catalog();
   let later: (() => void) | undefined;
-  await loadInto("bound-library-test", into, (load) => {
-    const { schedule, step } = libraryOfLoad(library, load) as typeof library;
-    const built = step("now").do(() => 1);
-    schedule(built).every("1h");
-    const pending = step("later");
-    later = () => {
-      pending.do(() => 2);
-    };
-    return Promise.resolve();
-  });
+  await loadInto(
+    "bound-library-test",
+    into,
+    (load) => {
+      const { schedule, step } = libraryOfLoad(library, load) as typeof library;
+      const built = step("now").do(() => 1);
+      schedule(built).every("1h");
+      const pending = step("later");
+      later = () => {
+        pending.do(() => 2);
+      };
+      return Promise.resolve();
+    },
+    { dry: false }
+  );
   later?.();
   expect([...into.definitions.keys()]).toEqual(["now", "later"]);
   expect([...into.schedules.keys()]).toEqual(["now"]);

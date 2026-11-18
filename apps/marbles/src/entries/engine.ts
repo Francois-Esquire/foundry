@@ -8,7 +8,7 @@ export class Engine extends LibEngine {
   #disposing: Promise<void> | undefined;
 
   constructor(options: EngineOptions) {
-    const { state } = options;
+    const { state } = LibEngine.persistence(options);
     const kept =
       state === undefined
         ? undefined

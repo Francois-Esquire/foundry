@@ -4,6 +4,7 @@ import type { SandboxEvent } from "@foundry/sandbox/store";
 import type { TaskEvent } from "@foundry/tasks";
 import type { RunEvent } from "@foundry/workflows/schema";
 import type { WorkspaceEvent } from "@foundry/workspaces/schema";
+import type { ArtifactShareEvent } from "~/lib/resources";
 
 declare const payloadType: unique symbol;
 
@@ -46,7 +47,8 @@ export function sourceKey(source: symbol): string | undefined {
 
 export const TASKS: Source<TaskEvent> = defineSource("tasks");
 export const RUNS: Source<RunEvent> = defineSource("runs");
-export const ARTIFACTS: Source<ArtifactEvent> = defineSource("artifacts");
+export const ARTIFACTS: Source<ArtifactEvent | ArtifactShareEvent> =
+  defineSource("artifacts");
 export const SANDBOXES: Source<SandboxEvent> = defineSource("sandboxes");
 export const SESSIONS: Source<SessionChangeEvent> = defineSource("sessions");
 export const WORKSPACES: Source<WorkspaceEvent> = defineSource("workspaces");
