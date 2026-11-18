@@ -3,9 +3,9 @@ import { servesKind } from "@foundry/models";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import { CLI_HARNESS_IDS, CLI_HARNESSES, harnessOf } from "~/lib/cli-harnesses";
 
-const CLI_EXECUTORS: readonly TurnExecutorRef[] = CLI_HARNESS_IDS.map(
-  (id) => CLI_HARNESSES[id].executor
-);
+const CLI_EXECUTORS: readonly TurnExecutorRef[] = CLI_HARNESS_IDS.filter(
+  (id) => id !== "codex"
+).map((id) => CLI_HARNESSES[id].executor);
 
 export function selectExecutor(models: ModelManager): TurnExecutorRef {
   if (

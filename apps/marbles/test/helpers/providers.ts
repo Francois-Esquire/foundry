@@ -4,6 +4,7 @@ import { gc } from "bun";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { stateDatabase } from "~/layout";
+import { fakeCodex } from "./codex";
 
 const TEST_PROVIDERS = ["claude-code", "codex", "pi"] as const;
 
@@ -14,13 +15,21 @@ export async function makeProvidersTemplate(
   ids: readonly string[] = TEST_PROVIDERS
 ): Promise<string> {
   const file = join(dir, "providers-template.db");
+  const codex = ids.includes("codex") ? fakeCodex(dir) : undefined;
   const opened = await initializeDatabase(file);
   try {
     await new DatabaseProviderStore({ database: opened.database }).update(
       undefined,
       () => ({
         machine: {
-          providers: ids.map((id) => ({ enabled: true, id, plugin: id })),
+          providers: ids.map((id) => ({
+            enabled: true,
+            id,
+            plugin: id,
+            ...(id === "codex" && codex
+              ? { settings: { binPath: codex } }
+              : {}),
+          })),
           version: 1,
         },
       })

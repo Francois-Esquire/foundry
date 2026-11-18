@@ -91,6 +91,15 @@ several instances; all but FAL and Replicate also take `defaults`. The root
 entry exports no provider. `gatewayProvider` has no models of its own and
 requires `models`. `gatewayModels(config)` reads them from the server's
 `GET <baseURL>/models`, each id as a text model with nothing else known.
+For Codex, `codexModels({ binPath, env, signal? })` lists models through the
+configured CLI's app-server and closes the listing client afterward. The
+supplied environment must include `CODEX_HOME` or `HOME`. The helper
+puts the CLI's reported default first. Pass the returned rows to
+`codexProvider`, which starts with an empty catalog when given no rows.
+Cancellation closes the client, which sends SIGTERM to the listing
+app-server. The SDK's listing API exposes no child process handle, so
+Foundry cannot record that process for crash recovery or escalate the
+signal if it fails to exit.
 
 | Subpath | What it holds |
 | --- | --- |

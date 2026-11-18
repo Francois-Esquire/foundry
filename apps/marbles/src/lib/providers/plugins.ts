@@ -8,7 +8,7 @@ import {
   CLAUDE_CODE_DEFAULT_MODELS,
   claudeCodeProvider,
 } from "@foundry/models/claude-code";
-import { CODEX_DEFAULT_MODELS, codexProvider } from "@foundry/models/codex";
+import { codexModels, codexProvider } from "@foundry/models/codex";
 import { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
 import { PI_DEFAULT_MODELS, piProvider } from "@foundry/models/pi";
 import { vercelProvider } from "@foundry/models/vercel";
@@ -147,14 +147,14 @@ export const claudeCodePlugin: ProviderPlugin<Bin> = {
 
 export const codexPlugin: ProviderPlugin<Bin> = {
   accountEnv: ["HOME", "CODEX_*", "OPENAI_*", "AZURE_*"],
-  catalog: () => CODEX_DEFAULT_MODELS,
+  catalog: () => [],
   create: ({ defaults, env, id, models, settings }) => {
-    const path = cli("codex", settings, env);
+    const path = codexPath(settings, env);
     return {
       execution: guestOf("codex", env, path),
       provider: codexProvider({
         config: {
-          available: path !== null,
+          available: path !== null && models.length > 0,
           ...(path === null ? {} : { binPath: path }),
         },
         env,
@@ -165,13 +165,24 @@ export const codexPlugin: ProviderPlugin<Bin> = {
     };
   },
   detect: ({ env }) => {
-    const path = which("codex", env.PATH);
+    const path = codexPath({}, env);
     return path === null ? null : { binPath: path };
   },
   id: "codex",
   label: "Codex",
+  list: async ({ env, settings, signal }) => {
+    const binPath = codexPath(settings, env);
+    return binPath === null ? [] : await codexModels({ binPath, env, signal });
+  },
   settings: BIN,
 };
+
+function codexPath(
+  settings: Bin,
+  env: Readonly<Record<string, string>>
+): string | null {
+  return settings.binPath || which("codex", env.PATH || "");
+}
 
 export const piPlugin: ProviderPlugin<Bin> = {
   accountEnv: [

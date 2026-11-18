@@ -73,11 +73,12 @@ when you want several turns to share a conversation.
 `provider` names one of the configured providers, and `model` names a model
 in a provider's catalog. A model named alone goes to the first configured
 provider that lists it. A name that no catalog lists fails rather than
-reaching a provider. `"codex/gpt-5.5"` names both. Providers are configured
-once per machine, and per workspace where needed, in the Marbles database
-under the state root. The first interactive run offers what it detects on
-`PATH`; a dry run never writes it. A session stays on the provider and model
-it started with, and on that configured instance: it fails rather than
+reaching a provider. `"codex/gpt-5.6-sol"` is an example that names both.
+Providers are configured once per machine, and per workspace where needed,
+in the Marbles database under the state root. The first interactive run
+offers providers it detects on `PATH`. Dry runs keep provider edits in
+memory. A session stays on the provider, model, and configured instance
+it started with. It fails rather than
 resume after the entry moves to another scope or changes its settings or
 the environment that chooses its account, or when another entry with the
 same id takes its place. Authentication belongs to the providers' own CLIs. A
@@ -86,6 +87,14 @@ reads `auth.json` under the instance's `CODEX_HOME` (else `~/.codex`);
 Claude Code reads `CLAUDE_CODE_OAUTH_TOKEN` from the instance's environment,
 else the login for its `CLAUDE_CONFIG_DIR` (else `~/.claude`); Pi runs the
 configured `pi auth`.
+
+Marbles asks each configured Codex CLI for its account's model list when
+it starts and refreshes provider configuration. A configured default must
+be in that list. If no default is configured, Marbles uses the entry
+marked as the default by Codex, or the first listed entry if none is
+marked. An empty list leaves no Codex routes. If a refresh fails, Marbles
+keeps the last successful list for the same configuration and environment,
+when available.
 
 ## Choose the route when the step runs
 
@@ -111,7 +120,7 @@ import { agent, models, step } from "@foundry.sh/marbles";
 const reviewer = agent({ prompt: "Review README.md for clarity." });
 
 step("review").do(async () => {
-  const preferred = "codex/gpt-5.5";
+  const preferred = "codex/gpt-5.6-sol";
   const selected = models.available(preferred)
     ? reviewer.extend({ model: preferred })
     : reviewer;

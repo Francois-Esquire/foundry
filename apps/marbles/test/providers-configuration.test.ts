@@ -1109,9 +1109,15 @@ it("gives the same entry another identity at another scope, and keeps it when on
 });
 
 describe("instance identity", () => {
-  const FIRST_PARTY = [claudeCodePlugin, codexPlugin, piPlugin].map((p) =>
-    registered(p)
-  );
+  const FIRST_PARTY = [
+    registered(claudeCodePlugin),
+    registered({
+      ...codexPlugin,
+      list: () =>
+        Promise.resolve([{ id: "test", kind: "text", modelId: "test" }]),
+    }),
+    registered(piPlugin),
+  ];
   const identity = async (
     pluginId: string,
     machine: Record<string, string>,
@@ -1137,8 +1143,12 @@ describe("instance identity", () => {
         },
       ],
     });
-    await loaded(config);
-    return config.identityOf("p");
+    try {
+      await config.refresh();
+      return config.identityOf("p");
+    } finally {
+      await config.dispose();
+    }
   };
 
   it("tells apart every account variable the first-party CLIs read, and agrees on the same environment", async () => {
@@ -1575,9 +1585,9 @@ describe("an instance that reads the process environment", () => {
   });
 });
 
-describe("first-party CLI plugins", () => {
+describe("first-party CLI plugins with supplied catalogs", () => {
   it("keep an entry's configured defaults", async () => {
-    for (const each of [claudeCodePlugin, codexPlugin, piPlugin]) {
+    for (const each of [claudeCodePlugin, piPlugin]) {
       const catalog = each.catalog({});
       const text = catalog.at(-1)?.id as string;
       const { provider } = each.create({

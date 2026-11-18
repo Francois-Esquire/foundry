@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import {
-  chmodSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -25,6 +24,7 @@ import {
 } from "typescript";
 import { expect, test } from "vitest";
 
+import { fakeCodex } from "./helpers/codex";
 import { testHome } from "./helpers/home";
 import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
 import { inspectDashboard } from "./helpers/terminal";
@@ -489,9 +489,7 @@ step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.curre
       ).toEqual(["[step] packed-summary"]);
       const bin = join(directory, "bin");
       mkdirSync(bin);
-      const codex = join(bin, "codex");
-      writeFileSync(codex, "#!/bin/sh\nexit 1\n");
-      chmodSync(codex, 0o755);
+      fakeCodex(bin);
       const result = execFileSync(
         cli,
         ["roll", "packed-summary", "--dry-run"],

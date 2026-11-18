@@ -29,7 +29,7 @@ vi.mock("ai-sdk-provider-codex-cli", () => ({ createCodexAppServer }));
 
 const CALL = { prompt: [] } as never;
 
-const { CODEX_DEFAULT_MODELS, codexProvider } = await import("../codex");
+const { codexModels, codexProvider } = await import("../codex");
 const { fromCodexListing } = await import("../catalog/codex");
 
 const env = Object.fromEntries(
@@ -59,6 +59,73 @@ describe("fromCodexListing", () => {
 
   it("skips entries with no usable id rather than inventing one", () => {
     expect(fromCodexListing([{ id: "" }, { id: "ok" }])).toHaveLength(1);
+  });
+});
+
+describe("codexModels", () => {
+  const binPath = "/configured/codex";
+
+  it("lists with the configured account, closes the client, and puts the reported default first", async () => {
+    close.mockClear();
+    listModels.mockResolvedValueOnce({
+      models: [{ id: "other" }, { id: "preferred", isDefault: true }],
+    });
+    const languageCalls = languageModel.mock.calls.length;
+    const account = {
+      ...Object.fromEntries(
+        Object.entries(env).filter(([key]) => key !== "OPENAI_API_KEY")
+      ),
+      CODEX_HOME: "/configured",
+    };
+    vi.stubEnv("OPENAI_API_KEY", "ambient-test-key");
+    vi.stubEnv("CODEX_HOME", "/ambient");
+    try {
+      const rows = await codexModels({
+        binPath,
+        env: account,
+      });
+      expect(rows.map((row) => row.id)).toEqual(["preferred", "other"]);
+      expect(createCodexAppServer).toHaveBeenLastCalledWith({
+        defaultSettings: {
+          codexPath: binPath,
+          env: { CODEX_HOME: "/configured", OPENAI_API_KEY: "" },
+          logger: false,
+        },
+      });
+      expect(languageModel).toHaveBeenCalledTimes(languageCalls);
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("refuses to discover against an implicit OS login", async () => {
+    createCodexAppServer.mockClear();
+    await expect(codexModels({ binPath, env: {} })).rejects.toThrow(
+      "Codex discovery requires HOME or CODEX_HOME in the provider environment"
+    );
+    expect(createCodexAppServer).not.toHaveBeenCalled();
+  });
+
+  it("closes a failed listing and keeps CLI diagnostics out of the error message", async () => {
+    close.mockClear();
+    listModels.mockRejectedValueOnce(new Error("secret in CLI stderr"));
+    await expect(codexModels({ binPath, env })).rejects.toMatchObject({
+      message: "Codex app-server could not list models",
+    });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes an in-flight listing on abort and ignores its late result", async () => {
+    close.mockClear();
+    const pending = Promise.withResolvers<{ models: { id: string }[] }>();
+    listModels.mockReturnValueOnce(pending.promise);
+    const controller = new AbortController();
+    const listing = codexModels({ binPath, env, signal: controller.signal });
+    controller.abort(new Error("listing cancelled"));
+    await expect(listing).rejects.toThrow("listing cancelled");
+    pending.resolve({ models: [{ id: "late" }] });
+    expect(close).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -198,10 +265,7 @@ describe("codexProvider", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it("ships a floor that survives the catalog's own capability filter", () => {
-    for (const model of CODEX_DEFAULT_MODELS) {
-      expect(model.kind).toBe("text");
-      expect(model.capabilities?.functionCalling).toBe(true);
-    }
+  it("has an empty catalog without supplied models", () => {
+    expect(codexProvider({ env }).models).toEqual([]);
   });
 });

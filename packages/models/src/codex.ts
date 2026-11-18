@@ -3,6 +3,7 @@ import { once } from "node:events";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { recordChild } from "@foundry/lib/spawn-record";
 import { createCodexAppServer } from "ai-sdk-provider-codex-cli";
+import { fromCodexListing } from "./catalog/codex";
 import { environmentOverlay } from "./environment";
 import { modelErrors } from "./errors";
 import type { Provider } from "./provider";
@@ -28,22 +29,61 @@ export interface CodexProviderOptions {
   models?: ProviderModelDefinition[];
 }
 
-export const CODEX_DEFAULT_MODELS: ProviderModelDefinition[] = [
-  {
-    capabilities: { functionCalling: true },
-    id: "gpt-5.5",
-    kind: "text",
-    label: "GPT-5.5",
-    modelId: "gpt-5.5",
-    vendor: "openai",
-  },
-];
-
 const EXIT_GRACE_MS = 2000;
 const KILL_GRACE_MS = 1000;
 const RECORD_POLL_MS = 10;
 
 type AppServerClient = ReturnType<typeof createCodexAppServer>;
+
+function appServer(
+  binPath: string | undefined,
+  env: Record<string, string>
+): AppServerClient {
+  return createCodexAppServer({
+    defaultSettings: {
+      ...(binPath ? { codexPath: binPath } : {}),
+      env,
+      logger: false,
+    },
+  });
+}
+
+export async function codexModels({
+  binPath,
+  env,
+  signal,
+}: {
+  readonly binPath: string;
+  readonly env: Readonly<Record<string, string>>;
+  readonly signal?: AbortSignal;
+}): Promise<readonly ProviderModelDefinition[]> {
+  signal?.throwIfAborted();
+  if (!(env.CODEX_HOME || env.HOME)) {
+    throw new Error(
+      "Codex discovery requires HOME or CODEX_HOME in the provider environment"
+    );
+  }
+  const client = appServer(binPath, environmentOverlay(env, ""));
+  const cancelled = Promise.withResolvers<never>();
+  const abort = () => cancelled.reject(signal?.reason);
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const { models } = await Promise.race([
+      client.listModels(),
+      cancelled.promise,
+    ]);
+    const preferred = models.find((model) => model.isDefault && model.id)?.id;
+    return fromCodexListing(models).sort(
+      (a, b) => Number(b.id === preferred) - Number(a.id === preferred)
+    );
+  } catch (error) {
+    signal?.throwIfAborted();
+    throw new Error("Codex app-server could not list models", { cause: error });
+  } finally {
+    signal?.removeEventListener("abort", abort);
+    await client.close();
+  }
+}
 
 interface AppServer {
   calls: number;
@@ -103,13 +143,7 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     }
     const server: AppServer = {
       calls: 0,
-      client: createCodexAppServer({
-        defaultSettings: {
-          ...(config.binPath ? { codexPath: config.binPath } : {}),
-          env,
-          logger: false,
-        },
-      }),
+      client: appServer(config.binPath, env),
       connections: new Set(),
       key,
       retired: false,
@@ -178,7 +212,7 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     id,
     languageModel: (modelId, opts) =>
       leasedModel(modelId, () => lease(modelId, opts?.workingDirectory)),
-    models: options.models ?? CODEX_DEFAULT_MODELS,
+    models: options.models ?? [],
     offline: false,
     setOffline: async (value) => {
       offline = value;
