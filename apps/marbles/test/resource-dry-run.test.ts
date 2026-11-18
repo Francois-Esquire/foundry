@@ -118,7 +118,8 @@ function walk(
     `${stateDatabase(home.layout.state)}-shm`,
     join(env.TMPDIR, "marbles"),
   ]);
-  const before = snapshotTrees(watched, ignored);
+  const snapshot = () => snapshotTrees(watched, ignored, env.TMPDIR);
+  const before = snapshot();
   for (const command of Object.keys(COMMANDS).filter(
     options.only ?? (() => true)
   )) {
@@ -149,7 +150,7 @@ function walk(
         expect(done.status, what).toBe(1);
         expect(done.stderr, what).toContain(refusal);
       }
-      expect(snapshotTrees(watched, ignored), what).toEqual(before);
+      expect(snapshot(), what).toEqual(before);
       options.after?.(what);
     }
   }
