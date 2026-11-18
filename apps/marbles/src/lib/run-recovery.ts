@@ -26,7 +26,7 @@ export async function adoptParkedRuns(
     return adopted;
   }
   for (const run of await parked(options.store)) {
-    const scope = await adopt(run, options);
+    const scope = await adoptParkedRun(run, options);
     if (scope !== undefined) {
       adopted.set(run.id, scope);
     }
@@ -34,7 +34,7 @@ export async function adoptParkedRuns(
   return adopted;
 }
 
-async function adopt(
+export async function adoptParkedRun(
   run: RunRecord,
   { askable, print, registered, runs, settled }: ParkedRunsOptions
 ): Promise<RecordedScope | undefined> {
@@ -61,16 +61,23 @@ async function adopt(
   if (!claimed) {
     return passed(refused ?? "another live engine owns it");
   }
-  if (!sawExecution && (await settled(run.id))) {
-    await runs.release(run.id);
-    return passed("its execution run has settled");
+  try {
+    if (!sawExecution && (await settled(run.id))) {
+      await runs.release(run.id);
+      return passed("its execution run has settled");
+    }
+    const recorded = await runs.recorded(run.id);
+    return {
+      ledger: recorded.ledger,
+      session: { id: recorded.session ?? crypto.randomUUID() },
+      ...(recorded.literals === undefined
+        ? {}
+        : { literals: recorded.literals }),
+    };
+  } catch (error) {
+    await runs.release(run.id).catch(() => undefined);
+    throw error;
   }
-  const recorded = await runs.recorded(run.id);
-  return {
-    ledger: recorded.ledger,
-    session: { id: recorded.session ?? crypto.randomUUID() },
-    ...(recorded.literals === undefined ? {} : { literals: recorded.literals }),
-  };
 }
 
 async function parked(

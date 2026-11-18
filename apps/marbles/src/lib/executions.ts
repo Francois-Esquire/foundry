@@ -1,3 +1,4 @@
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type {
   ExecutionRun,
   ExecutionRuns,
@@ -9,6 +10,7 @@ import {
   type ExecutionRecordsOptions,
 } from "./execution-records";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
+import type { ExecutionView } from "./execution-store";
 
 export type {
   ExecutionObservation,
@@ -34,6 +36,7 @@ interface Waiting {
   /** Called when the run cannot be recorded as running, instead of `start`. */
   readonly fail: (error: unknown) => void;
   readonly id: string;
+  readonly parent?: string;
   /** Called with the run's input once it is admitted and recorded as running. */
   readonly start: (input: unknown) => Promise<void>;
   started?: Promise<void>;
@@ -62,6 +65,8 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   readonly #lanes = new Map<string, Lane>();
   readonly #idle = new Set<() => void>();
   readonly #withdrawing = new Set<string>();
+  #closed = false;
+  readonly #kept = new Set<string>();
   constructor(
     options: ExecutionRecordsOptions & {
       readonly queues?: Readonly<Record<string, QueueSettings>>;
@@ -99,11 +104,21 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
   admit(
     id: string,
     start: (input: unknown) => Promise<void>,
-    fail: (error: unknown) => void
+    fail: (error: unknown) => void,
+    parent?: string
   ): Promise<void> | undefined {
     const run = this.requireRecord(id);
     const lane = this.#lane(run.queue);
-    const waiting: Waiting = { fail, id, start };
+    const waiting: Waiting = {
+      fail,
+      id,
+      start,
+      ...(parent === undefined ? {} : { parent }),
+    };
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
+    if (this.#closed && parent !== undefined) {
+      this.#kept.add(id);
+    }
     lane.waiting.push(waiting);
     this.#pump(lane);
     return waiting.started;
@@ -158,6 +173,70 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     return cancelled;
   }
 
+  closeAdmission(active: (runId: string) => boolean): void {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; this sets it.
+    if (this.#closed) {
+      return;
+    }
+    this.#closed = true;
+    for (const lane of this.#lanes.values()) {
+      for (const item of lane.waiting) {
+        if (item.parent !== undefined && active(item.parent)) {
+          this.#kept.add(item.id);
+        }
+      }
+    }
+  }
+
+  async handOverAll(
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>,
+    onHanded: (id: string) => void
+  ): Promise<{
+    readonly failed: readonly {
+      readonly error: unknown;
+      readonly id: string;
+    }[];
+  }> {
+    const failed: { readonly error: unknown; readonly id: string }[] = [];
+    for (const id of this.waiting().filter((each) => !this.#kept.has(each))) {
+      try {
+        if (await this.#handOver(id, choose)) {
+          onHanded(id);
+        }
+      } catch (error) {
+        failed.push({ error, id });
+      }
+    }
+    return { failed };
+  }
+
+  async #handOver(
+    id: string,
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>
+  ): Promise<boolean> {
+    const run = this.get(id);
+    if (run?.status !== "queued") {
+      return false;
+    }
+    this.#withdrawing.add(id);
+    let handed = false;
+    try {
+      handed = await this.handQueued(id, choose);
+    } finally {
+      this.#withdrawing.delete(id);
+      const lane = this.#lane(run.queue);
+      if (handed) {
+        const index = lane.waiting.findIndex((item) => item.id === id);
+        if (index >= 0) {
+          lane.waiting.splice(index, 1);
+        }
+      }
+      this.#pump(lane);
+      this.#checkIdle();
+    }
+    return handed;
+  }
+
   /** Runs waiting in this process's queues, in admission order. */
   waiting(): readonly string[] {
     return [...this.#lanes.values()].flatMap((lane) =>
@@ -188,11 +267,15 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
 
   #pump(lane: Lane): void {
     while (lane.active.size < lane.concurrency) {
-      const [next] = lane.waiting;
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
+      const index = this.#closed
+        ? lane.waiting.findIndex((item) => this.#kept.has(item.id))
+        : 0;
+      const next = index === -1 ? undefined : lane.waiting[index];
       if (!next || this.#withdrawing.has(next.id)) {
         return;
       }
-      lane.waiting.shift();
+      lane.waiting.splice(index, 1);
       lane.active.add(next.id);
       next.started = this.#start(next);
       // Whoever awaits it sees the failure; `start` and `fail` handle it otherwise.

@@ -9,6 +9,11 @@ import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
 import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
+import {
+  type ProcessIdentity,
+  sameProcess,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import type { ModelManager } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
@@ -43,6 +48,7 @@ import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Handler, Source } from "~/lib/events/source";
 import type { ExecutionContext } from "~/lib/execution-context";
+import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import type { ExecutionStore } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
 import type {
@@ -58,10 +64,15 @@ import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
 import type { FeedRouter } from "~/lib/feed/route";
-import { feedRouter } from "~/lib/feed/route";
+import { feedRouter, movedAway, QuestionMovingError } from "~/lib/feed/route";
 import type { Dispatched } from "~/lib/held-runs";
 import { HeldRuns } from "~/lib/held-runs";
-import type { DispatchedRun, Launched, LaunchOptions } from "~/lib/launcher";
+import type {
+  DispatchedRun,
+  Launched,
+  LaunchOptions,
+  QueuedTake,
+} from "~/lib/launcher";
 import { Launcher } from "~/lib/launcher";
 import { createLog, type LogLevel, type LogOrigin } from "~/lib/log";
 import { AgentsManager } from "~/lib/managers/agents";
@@ -74,7 +85,11 @@ import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import { RunListing } from "~/lib/run-listing";
-import { adoptParkedRuns, workflowStatuses } from "~/lib/run-recovery";
+import {
+  adoptParkedRun,
+  adoptParkedRuns,
+  workflowStatuses,
+} from "~/lib/run-recovery";
 import type { ReadonlyRunScopes, RecordedScope } from "~/lib/run-scope";
 import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
@@ -255,6 +270,16 @@ function recordedIn(
 }
 
 /** What a started engine holds; absent until `start` and after a failed one. */
+const RETIRED_POLL_MS = 250;
+const RELEASE_RETRY_MS = 1000;
+const RELEASE_RETRY_MAX_MS = 30_000;
+
+interface OwedRelease {
+  readonly released?: () => void;
+  said: boolean;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
 interface Running {
   readonly held: HeldRuns;
   readonly listing: RunListing;
@@ -334,6 +359,10 @@ export class Engine {
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
   #stopping: Promise<void> | undefined;
+  #retiring = false;
+  readonly #letGo = new Set<string>();
+  readonly #owed = new Map<string, OwedRelease>();
+  #released = false;
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
   readonly #unwatchRecords: () => void;
@@ -1005,12 +1034,20 @@ export class Engine {
    */
   async resume(runId: string, stepId: string, prompt?: string): Promise<void> {
     const { orchestrator } = this.#live();
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring || this.#letGo.has(runId)) {
+      throw new QuestionMovingError(runId);
+    }
     const scope = this.#scopeOf(runId);
     const pending = await orchestrator.listSuspensions({
       kind: PAUSE_KIND,
       runId,
       status: "pending",
     });
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring || this.#letGo.has(runId)) {
+      throw new QuestionMovingError(runId);
+    }
     // A pause parks a subtree, so a resume releases every pause at or
     // under the step. The root segment of a step path is the registered
     // name here, but compare below it too, as the feed does, in case a
@@ -1032,7 +1069,15 @@ export class Engine {
       if (frame && trimmed !== undefined) {
         frame.resumePrompt = trimmed;
       }
-      await orchestrator.resolve(suspension.id, { prompt: trimmed ?? null });
+      await orchestrator
+        .resolve(
+          suspension.id,
+          { prompt: trimmed ?? null },
+          { expectedRevision: suspension.revision }
+        )
+        .catch((error: unknown) => {
+          throw movedAway(error, runId);
+        });
     }
   }
 
@@ -1153,6 +1198,236 @@ export class Engine {
     this.#scopeOf(runId).steer(stepId, prompt);
   }
 
+  async retire(
+    successor: ProcessIdentity,
+    options: {
+      readonly onHanded?: (runId: string) => void;
+      readonly onLetGo?: (runId: string) => void;
+    } = {}
+  ): Promise<{ readonly ended: Promise<void> }> {
+    const running = this.#running;
+    if (running === undefined) {
+      return { ended: Promise.resolve() };
+    }
+    this.#retiring = true;
+    this.#launcher.beginRetiring();
+    running.router.retire();
+    await this.#delivery.letGo().catch((error: unknown) => {
+      this.#print(
+        `[engine] the delivery claim was not given up as this engine retires: ${String(error)}`
+      );
+    });
+    const handedLate = (late: string) => options.onHanded?.(late);
+    for (const runId of await this.#launcher.handOver(successor, handedLate)) {
+      this.#letGo.add(runId);
+    }
+    running.orchestrator.on("suspended", ({ runId }) => {
+      if (
+        this.#letGo.has(runId) ||
+        running.held.workflow(runId) === undefined
+      ) {
+        return;
+      }
+      this.#giveBack(running, runId, () => options.onLetGo?.(runId)).catch(
+        (error: unknown) =>
+          this.#print(
+            `[run] ${runId} let go, and not reported: ${String(error)}`
+          )
+      );
+    });
+    for (const runId of running.held.withStatus(["suspended"])) {
+      if (!this.#letGo.has(runId)) {
+        await this.#giveBack(running, runId);
+      }
+    }
+    const left = () =>
+      this.#executions
+        .list()
+        .some(
+          (run) =>
+            !(
+              this.#letGo.has(run.id) ||
+              SETTLED_EXECUTION_STATUSES.has(run.status)
+            ) && sameProcess(run.owner, thisProcess())
+        );
+    const runsEnded = new Promise<void>((resolve) => {
+      const look = () => {
+        if (left()) {
+          setTimeout(look, RETIRED_POLL_MS).unref?.();
+        } else {
+          resolve();
+        }
+      };
+      look();
+    });
+    return { ended: runsEnded };
+  }
+
+  async takeQueued(runId: string, owner: ProcessIdentity): Promise<QueuedTake> {
+    if (this.#running === undefined || this.#phase !== "started") {
+      return { taken: false, why: "this engine is not running" };
+    }
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring) {
+      return { taken: false, why: "this engine is retiring" };
+    }
+    return await this.#launcher.takeOrphaned(runId, owner);
+  }
+
+  async adopt(runId: string): Promise<boolean> {
+    const running = this.#running;
+    const away = () =>
+      this.#running !== running || this.#phase !== "started" || this.#retiring;
+    if (running === undefined || away()) {
+      return false;
+    }
+    const handed = await this.#launcher.takeHanded(runId);
+    if (handed !== undefined) {
+      return handed;
+    }
+    const record = await running.store.getRun(runId);
+    if (record?.status !== "suspended" || away()) {
+      return false;
+    }
+    const owed = this.#forgive(runId);
+    let scope: Awaited<ReturnType<typeof adoptParkedRun>>;
+    try {
+      scope = await adoptParkedRun(record, {
+        askable: this.#askable,
+        print: () => undefined,
+        registered: (name) => this.#registered(name),
+        runs: this.#runs,
+        settled: (id) => this.#executions.storedSettled(id),
+        store: running.store,
+      });
+    } catch (error) {
+      if (owed !== undefined) {
+        await this.#giveBack(running, runId, owed.released);
+      }
+      throw error;
+    }
+    if (scope === undefined) {
+      if (owed !== undefined) {
+        await this.#giveBack(running, runId, owed.released);
+      }
+      return false;
+    }
+    this.#scopes.recover(runId, scope);
+    this.#letGo.delete(runId);
+    let dispatched: Awaited<ReturnType<Orchestrator["adopt"]>>;
+    try {
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+      if (!(await this.#executions.takeReleased(runId))) {
+        throw new Error("its execution run is not parked");
+      }
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+      dispatched = await running.orchestrator.adopt(runId);
+      if (dispatched === null) {
+        throw new Error("it is no longer parked in the store");
+      }
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+      await running.router.adopt(record.step, runId);
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+    } catch (error) {
+      this.#scopes.forget(runId);
+      await running.orchestrator
+        .forget(runId)
+        .catch((failure: unknown) =>
+          this.#print(
+            `[run] ${record.step} ${runId} not dropped from the queue: ${String(failure)}`
+          )
+        );
+      await this.#giveBack(running, runId);
+      if (away()) {
+        this.#print(
+          `[run] ${record.step} ${runId} given back: this engine began to retire as it took it over`
+        );
+        return false;
+      }
+      throw new Error(`run ${runId} was not taken over: ${String(error)}`, {
+        cause: error,
+      });
+    }
+    this.#print(`[run] ${record.step} taken over ${runId}`);
+    running.listing.add(runId);
+    this.#launcher.follow(runId, running.held.follow(record.step, dispatched));
+    return true;
+  }
+
+  async #giveBack(
+    running: Running,
+    runId: string,
+    released?: () => void
+  ): Promise<void> {
+    this.#letGo.add(runId);
+    running.router.letGo(runId);
+    const before = this.#forgive(runId);
+    const tell = released ?? before?.released;
+    const owed: OwedRelease = {
+      ...(tell === undefined ? {} : { released: tell }),
+      said: false,
+    };
+    this.#owed.set(runId, owed);
+    await this.#release(runId, owed, RELEASE_RETRY_MS);
+  }
+
+  #forgive(runId: string): OwedRelease | undefined {
+    const owed = this.#owed.get(runId);
+    if (owed !== undefined) {
+      clearTimeout(owed.timer);
+      this.#owed.delete(runId);
+    }
+    return owed;
+  }
+
+  async #release(
+    runId: string,
+    owed: OwedRelease,
+    delay: number
+  ): Promise<void> {
+    if (this.#owed.get(runId) !== owed) {
+      return;
+    }
+    try {
+      await this.#runs.release(runId);
+    } catch (error) {
+      if (this.#owed.get(runId) !== owed) {
+        return;
+      }
+      if (this.#released) {
+        this.#owed.delete(runId);
+        return;
+      }
+      if (!owed.said) {
+        owed.said = true;
+        this.#print(
+          `[run] ${runId} not let go: ${String(error)}; it stays claimed here, unanswered, and is tried again`
+        );
+      }
+      owed.timer = setTimeout(() => {
+        this.#release(
+          runId,
+          owed,
+          Math.min(delay * 2, RELEASE_RETRY_MAX_MS)
+        ).catch(() => undefined);
+      }, delay);
+      owed.timer.unref?.();
+      return;
+    }
+    if (this.#owed.get(runId) === owed) {
+      this.#owed.delete(runId);
+      owed.released?.();
+    }
+  }
+
   stop(options?: { readonly cancel?: boolean }): Promise<void> {
     if (this.#phase === "starting") {
       return (
@@ -1204,6 +1479,10 @@ export class Engine {
         await this.#executions.flush();
         await this.#executions.retrySettlements();
       } finally {
+        this.#released = true;
+        for (const runId of [...this.#owed.keys()]) {
+          this.#forgive(runId);
+        }
         await this.#runs.release();
       }
     }

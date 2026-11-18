@@ -17,7 +17,13 @@ import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceAt, workspaceState } from "~/lib/state/workspace";
-import { copyModules, importLoad, linkLibrary } from "~/workspace/copies";
+import {
+  copyModules,
+  filesRead,
+  importLoad,
+  linkLibrary,
+  onRead,
+} from "~/workspace/copies";
 import type { WorkspaceEnvironment } from "~/workspace/env";
 import { loadEnvironment } from "~/workspace/env";
 import {
@@ -50,6 +56,7 @@ export interface OpenedWorkspace {
   readonly configPath: string;
   readonly cwd: string;
   readonly environment: WorkspaceEnvironment;
+  readonly files: readonly string[];
   readonly workspace: Workspace;
 }
 
@@ -94,9 +101,17 @@ function linkSourceLibrary(): Promise<void> {
 
 async function loadSource(
   configPath: string,
-  { catalog, workspaceId }: { catalog: Catalog; workspaceId: string },
+  {
+    catalog,
+    read,
+    workspaceId,
+  }: {
+    catalog: Catalog;
+    read?: (file: string) => void;
+    workspaceId: string;
+  },
   print: (line: string) => void
-): Promise<boolean> {
+): Promise<readonly string[] | false> {
   // From here the builtin `tasks` wait for this workspace's engine, rather
   // than take a write the workspace would never see.
   expectHost();
@@ -105,11 +120,20 @@ async function loadSource(
     return false;
   }
   await linkSourceLibrary();
-  await loadInto(workspaceId, catalog, (load) =>
-    importLoad(sourceRoot(configPath), files, load)
-  );
+  let loaded: readonly string[] = [];
+  await loadInto(workspaceId, catalog, async (load) => {
+    const reading = read === undefined ? undefined : onRead(load, read);
+    try {
+      await importLoad(sourceRoot(configPath), files, load);
+    } catch (error) {
+      reading?.forget();
+      throw error;
+    } finally {
+      loaded = filesRead(load);
+    }
+  });
   print(`[source] ${configPath}`);
-  return true;
+  return loaded;
 }
 
 function placed(args: HostOptions): {
@@ -138,7 +162,15 @@ function opened(
   args: HostOptions,
   { configPath, found, root }: ReturnType<typeof placed>,
   environment: WorkspaceEnvironment,
-  { catalog = new Catalog(), cwd }: { catalog?: Catalog; cwd?: string } = {}
+  {
+    catalog = new Catalog(),
+    cwd,
+    files = [],
+  }: {
+    catalog?: Catalog;
+    cwd?: string;
+    files?: readonly string[];
+  } = {}
 ): OpenedWorkspace {
   const workspace = workspaceState(resolve(args.state), root);
   return {
@@ -147,6 +179,7 @@ function opened(
     configPath,
     cwd: cwd ?? workspace.root,
     environment,
+    files,
     workspace,
   };
 }
@@ -177,6 +210,7 @@ export async function recordedWorkspace(
     configPath: record.config ?? resolve(workspace.root, DEFAULT_SOURCE),
     cwd: record.cwd,
     environment: { machine: environmentSnapshot(), workspace: {} },
+    files: [],
     workspace,
   };
 }
@@ -190,6 +224,7 @@ export interface OpenWorkspaceOptions {
   readonly env?: "require" | "warn";
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   readonly print: (line: string) => void;
+  readonly read?: (file: string) => void;
 }
 
 class StarterLoadError extends Error {
@@ -198,7 +233,7 @@ class StarterLoadError extends Error {
 
 export async function openWorkspace(
   args: HostOptions,
-  { cwd, env = "warn", onMissing, print }: OpenWorkspaceOptions
+  { cwd, env = "warn", onMissing, print, read }: OpenWorkspaceOptions
 ): Promise<OpenedWorkspace> {
   const before = placed(args);
   const environment = loadEnvironment(before.root, env, print);
@@ -208,26 +243,33 @@ export async function openWorkspace(
       at.configPath,
       {
         catalog,
+        ...(read === undefined ? {} : { read }),
         workspaceId: workspaceState(resolve(args.state), at.root).id,
       },
       print
     );
-  if (await load(before)) {
-    return opened(args, before, environment, { catalog, cwd });
+  const files = await load(before);
+  if (files !== false) {
+    return opened(args, before, environment, { catalog, cwd, files });
   }
   if (onMissing === undefined || !(await onMissing(before.configPath))) {
     return opened(args, before, environment, { catalog, cwd });
   }
   const created = placed(args);
+  let createdFiles: readonly string[] | false;
   try {
-    await load(created);
+    createdFiles = await load(created);
   } catch (error) {
     throw new StarterLoadError(
       `Starter was created but could not load: ${String(error)}. Fix it and restart Marbles.`,
       { cause: error }
     );
   }
-  return opened(args, created, environment, { catalog, cwd });
+  return opened(args, created, environment, {
+    catalog,
+    cwd,
+    files: createdFiles === false ? [] : createdFiles,
+  });
 }
 
 interface WorkspaceEngineOptions {

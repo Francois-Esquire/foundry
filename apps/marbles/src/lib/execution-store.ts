@@ -15,6 +15,7 @@ import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 
 export interface ExecutionStore extends ExecutionView {
   close(): Promise<void>;
+  queuedOwnedBy?(owner: ProcessIdentity): Promise<readonly string[]>;
   transaction<T>(work: (view: ExecutionView) => Promise<T>): Promise<T>;
 }
 
@@ -34,6 +35,7 @@ export interface ExecutionView {
   ): Promise<Written>;
   putGap(gap: RetentionGap): Promise<void>;
   remove(id: string): Promise<void>;
+  successor?(): Promise<ProcessIdentity | undefined>;
   transition(id: string, change: LifecycleChange): Promise<Written>;
   withSource(
     name: string,
@@ -170,6 +172,19 @@ export class MemoryExecutionStore implements ExecutionStore {
 
   close(): Promise<void> {
     return this.#gate.close();
+  }
+
+  queuedOwnedBy(owner: ProcessIdentity): Promise<readonly string[]> {
+    return Promise.resolve(
+      [...this.#runs]
+        .filter(
+          ([, kept]) =>
+            kept.record.status === "queued" &&
+            sameProcess(kept.record.owner, owner)
+        )
+        .sort(([, a], [, b]) => a.record.sequence - b.record.sequence)
+        .map(([id]) => id)
+    );
   }
 
   transaction<T>(work: (view: ExecutionView) => Promise<T>): Promise<T> {

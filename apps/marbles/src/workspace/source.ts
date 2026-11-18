@@ -14,6 +14,15 @@ const MODULE_EXTENSIONS = new Set([
 ]);
 const DECLARATION_FILE = /\.d\.(?:ts|mts|cts)$/;
 
+export const DATA_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".json",
+  ".jsonc",
+  ".toml",
+  ".txt",
+  ".yaml",
+  ".yml",
+]);
+
 export function isModulePath(path: string): boolean {
   return MODULE_EXTENSIONS.has(extname(path));
 }

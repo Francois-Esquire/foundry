@@ -46,8 +46,9 @@ Marbles process in the foreground, prints its log, and hosts every
 workspace recorded as hosted when it starts. Your environment must keep
 that process alive, restart it when appropriate, capture logs, provision
 credentials, and update the project and package. Marbles does not provision
-those facilities. Edited modules reload on their own; a worker that failed
-to load does not, so run `marbles attach` again after fixing one.
+those facilities. Edited modules reload on their own, through the next
+engine generation; one whose change does not load keeps the previous load
+running and shows the error until a later edit loads.
 
 Process supervision and [workflow durability](/marbles/foundation/durability)
 serve different purposes. Restarting the process brings its loops back, but

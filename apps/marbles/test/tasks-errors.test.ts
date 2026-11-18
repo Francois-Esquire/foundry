@@ -148,7 +148,7 @@ describe("a task command the database refuses", { timeout: 60_000 }, () => {
     );
   });
 
-  it("names text it cannot store when the worker that hosts the workspace refuses it", async () => {
+  it("names text it cannot store when the generation that hosts the workspace refuses it", async () => {
     const home = testHome();
     const source = join(home.path, "marbles.ts");
     writeFileSync(source, 'import "@foundry.sh/marbles";\n');

@@ -251,6 +251,95 @@ describe("cadence", () => {
     expect(dispatched).toEqual([10, 45, 80]);
   });
 
+  it("launches nothing once stopped while it read the schedules", async () => {
+    const stop = new AbortController();
+    const reading = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    const due: Schedule = {
+      input: null,
+      key: "s",
+      kind: "schedule",
+      label: "s",
+      registeredAt: 0,
+      trigger: { kind: "interval", ms: 1000 },
+      workflow: "job",
+    };
+    let reads = 0;
+    let launched = 0;
+    const engine = {
+      cancel: () => Promise.resolve(),
+      has: () => true,
+      launch: () => {
+        launched += 1;
+        return Promise.resolve({ id: "run", result: Promise.resolve() });
+      },
+      schedules: async () => {
+        reads += 1;
+        if (reads === 1) {
+          entered.resolve();
+          await reading.promise;
+        }
+        return [due];
+      },
+      triggers: new MemoryTriggerStore(),
+    } as unknown as ScheduledEngine;
+    const done = runSchedules(engine, {
+      now: () => 2000,
+      print: () => undefined,
+      signal: stop.signal,
+    });
+    await entered.promise;
+    stop.abort();
+    reading.resolve();
+    await done;
+    expect(launched).toBe(0);
+  });
+
+  it("launches nothing once stopped while its tick waited for the claim, and gives the claim up", async () => {
+    const stop = new AbortController();
+    const claiming = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    const due: Schedule = {
+      input: null,
+      key: "s",
+      kind: "schedule",
+      label: "s",
+      registeredAt: 0,
+      trigger: { kind: "interval", ms: 1000 },
+      workflow: "job",
+    };
+    const triggers = new MemoryTriggerStore();
+    const { claimTick } = triggers;
+    let launched = 0;
+    const engine = {
+      cancel: () => Promise.resolve(),
+      has: () => true,
+      launch: () => {
+        launched += 1;
+        return Promise.resolve({ id: "run", result: Promise.resolve() });
+      },
+      schedules: () => Promise.resolve([due]),
+      triggers: Object.assign(triggers, {
+        async claimTick(key: string) {
+          entered.resolve();
+          await claiming.promise;
+          return await claimTick.call(triggers, key);
+        },
+      }),
+    } as unknown as ScheduledEngine;
+    const done = runSchedules(engine, {
+      now: () => 2000,
+      print: () => undefined,
+      signal: stop.signal,
+    });
+    await entered.promise;
+    stop.abort();
+    claiming.resolve();
+    await done;
+    expect(launched).toBe(0);
+    expect(await claimTick.call(triggers, "s")).toEqual({ claimed: true });
+  });
+
   it("reports a failed read of the schedules and reads again after the polling delay", async () => {
     let clock = 0;
     const controller = new AbortController();

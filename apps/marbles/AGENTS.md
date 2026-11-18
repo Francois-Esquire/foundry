@@ -198,7 +198,7 @@ Five buckets, each importing only what sits below it:
   the database file and its side files mode 0600, and nothing the provider
   store throws quotes a setting. Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
-  this one. A task command with no worker opens the database per
+  this one. A task command with no generation hosting its workspace opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
   A store takes `{ database }` (`StoreDatabase`, the type a package store
   declares too), the database or one of its transactions; a package store
@@ -278,24 +278,64 @@ Five buckets, each importing only what sits below it:
   is gone fails; one made with no source path reads the default
   `.foundry/marbles` under its root when that is there, and is its root
   alone when it is not), and drops
-  a registration (`unregister`). The Marbles process still
-  runs one worker per workspace. It imports `lib/`,
+  a registration (`unregister`). An engine generation of the
+  Marbles process is one of these: it loads every registered workspace up
+  to engines not yet started (`stageRegistered`) and starts them when it
+  takes over. It imports `lib/`,
   `authoring/`, `database/`, `layout.ts` and `model/`; never views, `args`, or
   `process/`.
 - `src/process/` is the Marbles process: one daemon per machine
   (`daemon.ts`) that claims `locks/process` at the state root, listens on
-  the layout's Unix socket, and hosts each attached workspace in a worker
-  it spawns (`worker.ts`, the only module that imports `workspace/`); the
-  wire protocol (`protocol.ts`, `channel.ts`); the client (`client.ts`),
-  which joins the running daemon or starts one; and the claim
-  (`instance.ts`). Apart from the worker it imports only `lib/`,
-  `database/`, `layout.ts`, `model/` and the pure discovery in
-  `workspace/source.ts`,
+  the layout's Unix socket, and hosts every registered workspace in one
+  engine subprocess, a generation (`generation.ts`, the only module that
+  imports `workspace/`), each numbered in `marbles_generations`
+  (`database/generations.ts`). A change of what the current generation
+  loaded (its fingerprint: the installation and every workspace's
+  source), a reload, or a generation that died starts a candidate: it
+  loads every registered workspace up to engines not yet started, else
+  nothing switches; then the current one retires (`Engine.retire`: no
+  tick, delivery or queued run starts there again, its queued runs are
+  handed to the candidate and its parked runs let go) and finishes its
+  running runs before it exits, and the candidate starts, taking over the
+  parked and queued work; the candidate is current from the moment it has
+  loaded, before the previous one is told to go, and only a current
+  generation that is not retiring is replaced when it exits. A run of a
+  retired generation that parks later is let go as it parks and taken
+  over by the current one (`Engine.adopt`, over `Orchestrator.adopt`,
+  which claims the run's suspensions at a new revision); the daemon also
+  sweeps the database for parked runs no live engine holds and offers
+  them to the current generation. An answer is applied only by the engine
+  that holds the run when it is written: the router resolves at the
+  revision it read, and the run store refuses a commit to a Run another
+  engine owns (`RunMovedError`); either refusal is a `QuestionMovingError`
+  the daemon retries elsewhere. A generation that was current and died is
+  replaced after a bounded backoff, and only a candidate that does not
+  load has its fingerprint refused. A generation whose daemon is gone (a
+  crash) is out of any daemon's reach: it ticks and delivers no more, lets
+  in its queued runs and finishes them with its running ones on the code
+  it loaded, then exits. The next daemon records it retiring while its
+  process is alive, and leaves its runs to it, since their owner is alive;
+  the sweep records it exited once its pid and start prove it gone, and a
+  record without a start, which proves nothing, shows in `marbles status`
+  as "cannot tell". A queued run whose owner is proved gone is taken by
+  the current generation through the sweep (`Engine.takeQueued`). The fingerprint
+  (`process/fingerprint.ts`) is taken before a generation loads: every
+  file under each workspace's root, by relative path and content, and
+  every file the generation reports reading outside it (`onRead` in
+  `workspace/copies.ts`), recorded as it was when read.
+  Commands about a run go to the generation whose process owns it, answers
+  and activity stops to the one holding them, the rest to the current
+  one (the table beside `RUN_METHODS` in `daemon.ts`); every signal to a
+  generation first proves its pid and start. The rest is the wire protocol (`protocol.ts`,
+  `channel.ts`); the client (`client.ts`), which joins the running daemon
+  or starts one; and the claim (`instance.ts`). Apart from the generation
+  it imports only `lib/`, `database/`, `layout.ts`, `model/` and the pure
+  discovery and digests in `workspace/source.ts` and `workspace/watch.ts`,
   so the daemon never loads an authoring module and survives any of them.
 - `src/access/` is how a command reaches its workspace, shared by the CLI
   and the MCP server (`workspace.ts`): through stored state, its rows in
   the database opened for each command (in memory under `--dry-run`); through a running instance, joining the Marbles process
-  without starting it (`NotHostedError` when no worker hosts the
+  without starting it (`NotHostedError` when no generation hosts the
   workspace); or by starting and hosting it, which only the CLI does. It
   imports `workspace/`, `process/`, `database/`, `lib/`, `layout.ts` and
   `model/`, and nothing from the app.
@@ -321,7 +361,7 @@ Five buckets, each importing only what sits below it:
 `src/layout.ts` decides where things live, all of it under the Foundry
 home (`$FOUNDRY_HOME`, else `~/.foundry`): the Marbles state root, the
 Marbles database and the process socket in that root, and the shared
-artifact store. Nothing moves on its own; the daemon hands its workers the
+artifact store. Nothing moves on its own; the daemon hands its generations the
 home in `FOUNDRY_HOME`. The README lists the final layout on disk. `src/model/` holds the plain data
 types the tiers share (snapshots, the `WorkspaceConnection`, run status,
 task commands);
@@ -340,8 +380,8 @@ the published `Engine`),
 `@foundry.sh/marbles/workspace`
 (`workspace/index.ts`: host one workspace programmatically), and
 `@foundry.sh/marbles/process` (`process/index.ts`: start or join the
-Marbles process). The worker is a build entry (`dist/worker.js`) the daemon
-spawns, never a public import.
+Marbles process). The generation is a build entry (`dist/generation.js`) the
+daemon spawns, never a public import.
 
 The default authoring folder is `.foundry/marbles`; leading-underscore files
 and directories are excluded from discovery but can be imported, and the

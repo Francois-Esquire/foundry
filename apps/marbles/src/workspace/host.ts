@@ -33,14 +33,6 @@ import {
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { runTaskCommand } from "~/workspace/tasks";
 
-/**
- * One workspace, hosted in this process: its source loaded, its engine
- * built and started, and everything a host does with it behind the
- * `WorkspaceConnection` the dashboard, the CLI, and MCP are written
- * against. The Marbles process runs one of these per workspace in a worker;
- * a program that embeds Marbles for a single workspace runs it directly.
- */
-
 export interface HostWorkspaceOptions {
   /** The shared artifact store. */
   readonly artifacts: string;
@@ -60,6 +52,7 @@ export interface HostWorkspaceOptions {
   readonly prepare?: (engine: Engine) => void;
   /** Receives each status line; the last one is the host's `status`. */
   readonly print?: (line: string) => void;
+  readonly read?: (file: string) => void;
   /** The authoring folder or module. */
   readonly source: string;
   readonly spawned?: string;
@@ -72,8 +65,8 @@ export interface WorkspaceHost extends WorkspaceConnection {
   /** Where the source is, or would be created. */
   readonly configPath: string;
   readonly engine: Engine;
-  /** Tick the live triggers until `signal` aborts. */
-  run(signal: AbortSignal): Promise<void>;
+  readonly files: readonly string[];
+  run(signal: AbortSignal, cancel?: AbortSignal): Promise<void>;
   setStatus(line: string): void;
   /** The last status line; shown in the dashboard's toolbar. */
   readonly status: string;
@@ -123,6 +116,22 @@ async function inputHint(
 export async function hostWorkspace(
   options: HostWorkspaceOptions
 ): Promise<WorkspaceHost> {
+  return await (await stageWorkspace(options)).start();
+}
+
+export interface StagedWorkspace {
+  abandon(): Promise<void>;
+  readonly config: string | null;
+  readonly configPath: string;
+  readonly files: readonly string[];
+  readonly id: string;
+  readonly root: string;
+  start(): Promise<WorkspaceHost>;
+}
+
+export async function stageWorkspace(
+  options: HostWorkspaceOptions
+): Promise<StagedWorkspace> {
   // The lines of the call printing them: overlapping rolls, and the
   // schedule loop beside them, each keep their own.
   const captured = new AsyncLocalStorage<string[]>();
@@ -149,67 +158,111 @@ export async function hostWorkspace(
     env: options.env,
     onMissing: options.onMissing,
     print,
+    ...(options.read === undefined ? {} : { read: options.read }),
   });
   const shared = hostOptions.dry ? undefined : options.database;
   let own: MarblesDatabase | undefined;
+  const unbind = (): void => {
+    abandonHost(loaded.workspace.id, loaded.catalog);
+    own?.close();
+  };
+  const release = async (built: Engine): Promise<void> => {
+    try {
+      await built.dispose();
+    } finally {
+      try {
+        releaseEngine(built);
+      } finally {
+        unbind();
+      }
+    }
+  };
+  let engine: Engine;
+  let opened: OpenedWorkspace;
+  let dispatches: BackgroundRuns;
   try {
     own =
       hostOptions.dry || shared !== undefined
         ? undefined
         : await openHostDatabase(hostOptions.state);
-    const database = shared ?? own;
-    const opened = await asRegistered(
-      database,
+    opened = await asRegistered(
+      shared ?? own,
       hostOptions,
       loaded,
       options.cwd
     );
-    const engine = await hostEngine(hostOptions, opened, {
+    engine = await hostEngine(hostOptions, opened, {
       askable: options.askable,
-      ...(database === undefined ? {} : { database }),
+      ...((shared ?? own) === undefined ? {} : { database: shared ?? own }),
       log,
       print,
     });
-    try {
-      options.prepare?.(engine);
-      // Defined before the engine starts: background agent dispatch is a step.
-      const dispatches = new BackgroundRuns(engine, opened.catalog);
-      await engine.start();
-      await touchWorkspace(
-        database,
-        hostOptions,
-        opened,
-        options.cwd === undefined ? {} : { cwd: options.cwd }
-      );
-      return hosted(engine, opened, dispatches, {
-        captured,
-        database: own,
-        diagnostics,
-        fail: (line) => {
-          report(line);
-          diagnostics.add(line, "error");
-        },
-        lastFinish: await lastFinishes(engine),
-        ...(options.onClose === undefined ? {} : { onClose: options.onClose }),
-        print,
-        setStatus: (line) => {
-          status = line;
-        },
-        status: () => status,
-      });
-    } catch (error) {
-      try {
-        await engine.dispose();
-      } finally {
-        releaseEngine(engine);
-      }
-      throw error;
-    }
   } catch (error) {
-    abandonHost(loaded.workspace.id, loaded.catalog);
-    own?.close();
+    unbind();
     throw error;
   }
+  try {
+    options.prepare?.(engine);
+    // Defined before the engine starts: background agent dispatch is a step.
+    dispatches = new BackgroundRuns(engine, opened.catalog);
+  } catch (error) {
+    await release(engine);
+    throw error;
+  }
+  const database = shared ?? own;
+  let used = false;
+  const once = (): void => {
+    if (used) {
+      throw new Error(
+        `workspace ${opened.workspace.id} was started or abandoned already`
+      );
+    }
+    used = true;
+  };
+  return {
+    async abandon() {
+      once();
+      await release(engine);
+    },
+    config: opened.config,
+    configPath: opened.configPath,
+    files: opened.files,
+    id: opened.workspace.id,
+    root: opened.workspace.root,
+    async start() {
+      once();
+      try {
+        await engine.start();
+        await touchWorkspace(
+          database,
+          hostOptions,
+          opened,
+          options.cwd === undefined ? {} : { cwd: options.cwd }
+        );
+        return hosted(engine, opened, dispatches, {
+          captured,
+          database: own,
+          diagnostics,
+          fail: (line) => {
+            report(line);
+            diagnostics.add(line, "error");
+          },
+          lastFinish: await lastFinishes(engine),
+          ...(options.onClose === undefined
+            ? {}
+            : { onClose: options.onClose }),
+          print,
+          setStatus: (line) => {
+            status = line;
+          },
+          status: () => status,
+        });
+      } catch (error) {
+        await release(engine);
+        throw error;
+      }
+    },
+  };
 }
 
 interface Status {
@@ -413,6 +466,7 @@ function hosted(
     dispatchWorkflow: (name, input): Promise<DispatchInfo> =>
       dispatches.startWorkflow(name, input),
     engine,
+    files: opened.files,
     getRun: (runId): Promise<RunInfo> => dispatches.get(runId),
     id: workspace.id,
     async roll(name, input): Promise<RollResult> {
@@ -439,7 +493,12 @@ function hosted(
       return { lines, value };
     },
     root: workspace.root,
-    run: (signal) => runSchedulesUntilStopped(engine, { print, signal }),
+    run: (signal, cancel) =>
+      runSchedulesUntilStopped(engine, {
+        ...(cancel === undefined ? {} : { cancel }),
+        print,
+        signal,
+      }),
     setStatus,
     async snapshot(): Promise<DashboardSnapshot> {
       // First, so a failure it logs is in this snapshot's diagnostics.

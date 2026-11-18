@@ -171,6 +171,7 @@ export interface ExecutionCommands {
     runPatch?: Omit<UpdateRunInput, "status">
   ): Promise<SuspensionCancellation>;
   claimJobRun(jobId: string, input: CreateJobRunInput): Promise<JobRunClaim>;
+  claimSuspensions(runId: string): Promise<readonly SuspensionRecord[]>;
   createJob(input: CreateJobInput): Promise<JobRecord>;
 
   createRun(input: CreateRunInput): Promise<RunRecord>;

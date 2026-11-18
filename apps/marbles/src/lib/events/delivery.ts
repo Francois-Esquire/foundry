@@ -33,6 +33,7 @@ export class Delivery {
   #phase: "new" | "starting" | "waiting" | "running" | "stopped" = "new";
   #pass: Promise<void> | undefined;
   #again = false;
+  #abandoned = false;
   #seen = -1;
   #floor = 0;
   #timer: ReturnType<typeof setInterval> | undefined;
@@ -120,11 +121,23 @@ export class Delivery {
     clearInterval(this.#timer);
     this.#timer = undefined;
     try {
-      await this.#pass;
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `letGo` sets it.
+      if (!this.#abandoned) {
+        await this.#pass;
+      }
       await this.#claiming;
     } finally {
       await this.#release();
     }
+  }
+
+  async letGo(): Promise<void> {
+    this.#abandoned = true;
+    this.#phase = "stopped";
+    clearInterval(this.#timer);
+    this.#timer = undefined;
+    await this.#claiming;
+    await this.#release();
   }
 
   async #claim(): Promise<string | undefined> {
@@ -258,11 +271,18 @@ export class Delivery {
         // Each handler gets its own copy: one cannot change what another sees.
         await observer.handler(structuredClone(item.payload));
       } catch (error) {
+        if (this.#abandoned) {
+          return false;
+        }
         held.add(observer);
         this.#print(
           `[observe] handler ${observer.hash.slice(0, 8)} failed on ${item.id}: ${error instanceof Error ? error.message : String(error)}`
         );
         continue;
+      }
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `letGo` sets it while the handler runs.
+      if (this.#abandoned) {
+        return false;
       }
       try {
         await this.#records.deliver(item.id, observer.hash);

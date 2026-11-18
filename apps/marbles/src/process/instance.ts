@@ -7,18 +7,6 @@ import { isGone } from "@foundry/lib/process-identity";
 import { isRecord, readJson, writeJson } from "~/lib/state/json";
 import { acquireLock, PROCESS_LOCK as LOCK } from "~/lib/state/locks";
 
-/**
- * One Marbles process per machine, and one worker per workspace under it.
- * The process claims `locks/process` at the state root and describes
- * itself in `process.json` beside it: its pid, the socket it answers on,
- * and where it keeps things. Each worker claims the same pair under its
- * workspace's state dir. A second claimant is told who has it and does not
- * start. The lock is the claim: it holds the owner's pid, and one left by a
- * process that has exited is taken over (the `@foundry/lib/file-lock`
- * protocol, through `acquireLock`). The json is what `status` and clients
- * read; a crash can leave it behind, so nothing decides liveness from it.
- */
-
 const FILE = "process.json";
 
 export type ProcessHost = "daemon" | "worker";
@@ -26,7 +14,6 @@ export type ProcessHost = "daemon" | "worker";
 export interface ProcessInfo {
   /** Where the daemon keeps the artifact store. */
   readonly artifacts?: string;
-  /** The authoring source a worker loaded; null without one. */
   readonly config?: string | null;
   readonly host: ProcessHost;
   readonly pid: number;
@@ -72,11 +59,6 @@ export class ProcessHeldError extends Error {
   }
 }
 
-/**
- * Claim `dir` for this process, or throw `ProcessHeldError` naming who has
- * it. A worker calls it before its engine starts: starting is what adopts
- * parked runs. The daemon calls it before it listens.
- */
 export function claimProcess(
   dir: string,
   info: Omit<ProcessInfo, "pid" | "startedAt">

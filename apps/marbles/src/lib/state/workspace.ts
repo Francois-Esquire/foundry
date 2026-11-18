@@ -12,7 +12,6 @@ export interface WorkspaceRecord {
   readonly config: string | null;
   readonly cwd: string;
   readonly firstSeen: string;
-  /** The Marbles process starts a worker for it. */
   readonly hosted: boolean;
   readonly id: string;
   readonly lastSeen: string;

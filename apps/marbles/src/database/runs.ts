@@ -34,6 +34,16 @@ import type {
 } from "~/lib/run-store";
 import { filedRuns, removalOf } from "~/lib/run-store";
 
+class RunMovedError extends Error {
+  override readonly name = "RunMovedError";
+
+  constructor(runId: string) {
+    super(
+      `run ${runId} is not held by this engine any more; the engine that holds it changes it`
+    );
+  }
+}
+
 export interface DatabaseRunStoreOptions {
   readonly database: StoreDatabase;
   readonly scope: string;
@@ -50,6 +60,7 @@ export class DatabaseRunStore implements RunStore {
   readonly #database: StoreDatabase;
   readonly #scope: string;
   readonly #owner = randomUUID();
+  readonly #letGo = new Set<string>();
   readonly #gate = new RecordsGate("the run store is closed");
 
   constructor(options: DatabaseRunStoreOptions) {
@@ -58,14 +69,18 @@ export class DatabaseRunStore implements RunStore {
   }
 
   claim(runId: string, when: ClaimCondition): Promise<boolean> {
-    return this.#call(() =>
-      claimJudged(
+    return this.#call(async () => {
+      const claimed: boolean = await claimJudged<boolean, boolean>(
         () => this.#ownerOf(this.#database, runId),
         (seen) => seen !== undefined && this.#heldElsewhere(seen),
         (seen, held) => this.#claimIn(runId, when, seen, held),
         false
-      )
-    );
+      );
+      if (claimed) {
+        this.#letGo.delete(runId);
+      }
+      return claimed;
+    });
   }
 
   async #ownerOf(
@@ -167,6 +182,9 @@ export class DatabaseRunStore implements RunStore {
   }
 
   release(runId?: string): Promise<void> {
+    if (runId !== undefined) {
+      this.#letGo.add(runId);
+    }
     return this.#call(async () => {
       await this.#database
         .update(marblesWorkflowRuns)
@@ -202,6 +220,17 @@ export class DatabaseRunStore implements RunStore {
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
+      if (this.#letGo.has(runId)) {
+        throw new RunMovedError(runId);
+      }
+      const held = await this.#ownerOf(transaction, runId);
+      if (
+        held !== undefined &&
+        held.ownerId !== null &&
+        held.ownerId !== this.#owner
+      ) {
+        throw new RunMovedError(runId);
+      }
       const owner = settled ? NO_OWNER : this.#owned();
       const recording =
         scope === undefined
@@ -278,6 +307,48 @@ export class DatabaseRunStore implements RunStore {
   #call<T>(call: () => Promise<T>): Promise<T> {
     return this.#gate.run(() => asBusy(call));
   }
+}
+
+export async function unheldParkedRuns(
+  database: StoreDatabase,
+  scope: string
+): Promise<readonly string[]> {
+  const store = new SqliteWorkflowStore({ database, scope });
+  const parked: string[] = [];
+  let after: number | undefined;
+  do {
+    const page = await asBusy(() =>
+      store.listRuns({
+        limit: 200,
+        status: ["suspended"],
+        ...(after === undefined ? {} : { after }),
+      })
+    );
+    parked.push(...page.items.map((run) => run.id));
+    after = page.next;
+  } while (after !== undefined);
+  if (parked.length === 0) {
+    return [];
+  }
+  const rows = await asBusy(() =>
+    database
+      .select({
+        ownerPid: marblesWorkflowRuns.ownerPid,
+        ownerStarted: marblesWorkflowRuns.ownerStarted,
+        runId: marblesWorkflowRuns.runId,
+      })
+      .from(marblesWorkflowRuns)
+      .where(
+        and(
+          eq(marblesWorkflowRuns.scope, scope),
+          inArray(marblesWorkflowRuns.runId, parked)
+        )
+      )
+  );
+  const held = new Set(
+    rows.filter((row) => heldBy(row) !== null).map((row) => row.runId)
+  );
+  return parked.filter((runId) => !held.has(runId));
 }
 
 export interface StoredRun {

@@ -83,6 +83,7 @@ async function marbles() {
         configPath: root,
         cwd: workspace.root,
         environment: { machine: {}, workspace: {} },
+        files: [],
         workspace,
       },
       { print }

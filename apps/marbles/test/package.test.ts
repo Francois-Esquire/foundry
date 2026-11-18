@@ -29,6 +29,8 @@ import { testHome } from "./helpers/home";
 import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
 import { inspectDashboard } from "./helpers/terminal";
 
+const CURRENT_GENERATION = /engine generation \d+: pid \d+ · current/;
+
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 function privateImports(source: string): string[] {
   const imports: string[] = [];
@@ -405,7 +407,6 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       )
     ).toContain("Hello tarball");
     // Without --dry-run the packaged CLI starts the Marbles process from its
-    // own dist entries, hosts the workspace in a worker, and rolls there.
     const home = testHome();
     const { state } = home.layout;
     const marbles = (args: string[], env = home.env) =>
@@ -416,11 +417,12 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       ).toContain("Hello daemon");
       const status = marbles(["status"]);
       expect(status).toContain("marbles process: pid");
-      expect(status).toContain("(worker)");
+      expect(status).toContain("(generation)");
+      expect(status).toMatch(CURRENT_GENERATION);
       expect(readdirSync(state)).toContain("marbles.db");
       expect(status).toContain(consumer);
-      expect(marbles(["tasks", "create", "Through the worker"])).toContain(
-        "Through the worker"
+      expect(marbles(["tasks", "create", "Through the generation"])).toContain(
+        "Through the generation"
       );
     } finally {
       expect(marbles(["stop"])).toContain("stopped Marbles process");
@@ -432,7 +434,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
           title: string;
         }[]
       ).map((task) => task.title);
-    expect(listedTasks(home.env)).toEqual(["Through the worker"]);
+    expect(listedTasks(home.env)).toEqual(["Through the generation"]);
     const tasksHome = testHome();
     expect(marbles(["tasks", "create", "Packed"], tasksHome.env)).toContain(
       "Packed"
@@ -467,6 +469,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       join(authoring, "inventory.ts"),
       `
 import { step } from "@foundry.sh/marbles";
+
 step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.current.files()).map((file) => file.path) }));
 `
     );

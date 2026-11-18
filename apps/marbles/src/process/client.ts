@@ -22,11 +22,11 @@ import { readProcess } from "~/process/instance";
 import {
   CLIENT_NOTIFICATIONS,
   DAEMON_METHODS,
+  GENERATION_STOP_TIMEOUT_MS,
   type HelloResult,
   helloResultSchema,
   lineParamsSchema,
   type SetupDraftParams,
-  WORKER_STOP_TIMEOUT_MS,
   WORKSPACE_METHODS,
   WORKSPACE_PREFIX,
   type WorkspaceMethod,
@@ -35,15 +35,6 @@ import {
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
 import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { version } from "../../package.json";
-
-/**
- * A client of the Marbles process. `connect` joins the one running for
- * the layout's state root, or starts it when none is: the lock at the
- * state root says whether one is alive, the socket is how to reach it. A
- * workspace the client attaches is hosted from then on, dashboard open or
- * not. `workspace(id)` is the `WorkspaceConnection` a host is written
- * against, each call a request to the worker behind the daemon.
- */
 
 export interface ConnectOptions {
   /** The CLI entry a started daemon runs; the one beside this module when omitted. */
@@ -67,10 +58,6 @@ export interface SubscriptionHandlers {
 }
 
 export interface MarblesClient {
-  /**
-   * Host `source`'s workspace; resolves once its worker is ready. With
-   * `setup`, the starter the client just wrote gets its milestone posted.
-   */
   attach(source: string, options?: AttachOptions): Promise<WorkspaceSummary>;
   close(): void;
   /** Resolves once the connection to the daemon is gone, with why. */
@@ -79,7 +66,6 @@ export interface MarblesClient {
   detach(id: string): Promise<void>;
   /** What the daemon said when the client connected. */
   readonly hello: HelloResult;
-  /** Drain the workspace's worker and start a fresh one. */
   reload(id: string): Promise<WorkspaceSummary>;
   /** Ask the daemon to stop; resolves once it has answered. */
   shutdown(): Promise<void>;
@@ -188,12 +174,8 @@ export async function explainDisconnect(
 const START_TIMEOUT_MS = 15_000;
 /** How long a daemon gets to answer one of the requests `connect` makes itself. */
 const ANSWER_TIMEOUT_MS = 5000;
-/**
- * How long `stopProcess` waits by default: each worker gets the stop
- * timeout to answer and as long again to exit before the daemon kills it,
- * then the daemon itself winds down.
- */
-const STOP_PROCESS_TIMEOUT_MS = 2 * WORKER_STOP_TIMEOUT_MS + START_TIMEOUT_MS;
+const STOP_PROCESS_TIMEOUT_MS =
+  2 * GENERATION_STOP_TIMEOUT_MS + START_TIMEOUT_MS;
 const RETRY_MS = 100;
 const LOG_FILE = "daemon.log";
 
@@ -387,12 +369,7 @@ export async function stopProcess(
 
 export interface StopProcessOptions {
   readonly layout: Layout;
-  /** Called once the daemon has agreed to stop, before the wait for its workers to drain. */
   readonly onStopping?: (hello: HelloResult) => void;
-  /**
-   * How long to wait for the daemon to exit; by default long enough for
-   * every worker to drain or be killed.
-   */
   readonly timeoutMs?: number;
 }
 
@@ -426,7 +403,6 @@ async function stopOpened(
       "asking the Marbles process to stop"
     );
     onAgreed?.();
-    // It hangs up on its clients once its workers have drained.
     await within(channel.closed, left(), "stopping the Marbles process");
   } finally {
     channel.close();
@@ -615,7 +591,6 @@ function remoteWorkspace(
       }
       const { code, message } = outcome.refusal;
       const refusal = new TaskError(code, "");
-      // The worker's message already carries the package's prefix.
       refusal.message = message;
       throw refusal;
     },

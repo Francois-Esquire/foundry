@@ -2,14 +2,6 @@ import { z } from "zod";
 
 import type { WorkspaceState } from "~/model/connection";
 
-/**
- * What crosses the Marbles process's boundaries, as newline-delimited JSON:
- * clients and workers to the daemon over its Unix socket. One shape serves both. A
- * request carries an id and is answered once; a notification carries none
- * and is not. Params are validated where they arrive from outside the
- * process (the socket); the daemon trusts its own workers.
- */
-
 export const PROTOCOL = 1;
 
 const requestSchema = z.object({
@@ -105,7 +97,6 @@ export const DAEMON_METHODS = {
   attach: "attach",
   detach: "detach",
   hello: "hello",
-  /** A worker's first request: the token it was spawned with. */
   register: "register",
   reload: "reload",
   shutdown: "shutdown",
@@ -124,7 +115,6 @@ export const helloResultSchema = z.object({
 });
 export type HelloResult = z.infer<typeof helloResultSchema>;
 
-/** A starter the client just wrote; the worker posts the setup milestone for it. */
 const setupDraftSchema = z.object({
   instructions: z.string(),
   name: z.string(),
@@ -191,39 +181,96 @@ export function isWorkspaceMethod(name: string): name is WorkspaceMethod {
   return Object.values(WORKSPACE_METHODS).some((method) => method === name);
 }
 
-export const WORKER_NOTIFICATIONS = {
+export const GENERATION_NOTIFICATIONS = {
+  handed: "handed",
   line: "line",
-  /** The engine is up; params describe the workspace. */
-  ready: "ready",
-  /** The authoring source changed on disk. */
-  sourceChanged: "sourceChanged",
+  read: "read",
+  released: "released",
 } as const;
 
-/** What the daemon asks a worker beyond workspace methods. */
-export const WORKER_METHODS = {
+export const GENERATION_METHODS = {
+  adopt: "adopt",
+  host: "host",
+  load: "load",
+  retire: "retire",
+  start: "start",
   /** Drain running work and exit. */
   stop: "stop",
+  takeQueued: "takeQueued",
+  unhost: "unhost",
 } as const;
 
-/**
- * How long a worker gets to answer `stop`, and then as long again to exit,
- * before the daemon kills it. A client waiting for the daemon to stop
- * budgets from this.
- */
-export const WORKER_STOP_TIMEOUT_MS = 30_000;
+export const GENERATION_STOP_TIMEOUT_MS = 30_000;
 
-export const readyParamsSchema = z.object({
+const identitySchema = z.object({
+  pid: z.number().int(),
+  started: z.string().nullable(),
+});
+
+const workspaceLoadSchema = z.object({
+  error: z.string().optional(),
+  id: z.string().optional(),
+  root: z.string(),
+});
+export type WorkspaceLoadResult = z.infer<typeof workspaceLoadSchema>;
+
+export const loadResultSchema = z.object({
+  identity: identitySchema,
+  loads: z.array(workspaceLoadSchema),
+});
+export type LoadResult = z.infer<typeof loadResultSchema>;
+
+export const startParamsSchema = z.object({
+  setups: z.record(z.string(), setupDraftSchema).optional(),
+});
+
+export const startResultSchema = z.object({
+  loads: z.array(workspaceLoadSchema),
+});
+
+export const hostParamsSchema = z.object({
   config: z.string().nullable(),
-  configPath: z.string(),
+  root: z.string(),
+  setup: setupDraftSchema.optional(),
+});
+
+export const hostResultSchema = z.object({
+  config: z.string().nullable(),
   id: z.string(),
   root: z.string(),
 });
-export type ReadyParams = z.infer<typeof readyParamsSchema>;
+
+export const readParamsSchema = z.object({
+  file: z.string(),
+  readAt: z.number(),
+  root: z.string(),
+});
+
+export const releasedParamsSchema = z.object({
+  id: z.string(),
+  runId: z.string(),
+});
+
+export const queuedParamsSchema = z.object({
+  id: z.string(),
+  owner: identitySchema,
+  runId: z.string(),
+});
+
+export const queuedTakeSchema = z.discriminatedUnion("taken", [
+  z.object({ taken: z.literal(true) }),
+  z.object({ taken: z.literal(false), why: z.string() }),
+]);
+
+export const retireParamsSchema = z.object({
+  successor: identitySchema,
+});
 
 export const lineParamsSchema = z.object({
   /** The workspace the line is about, added by the daemon when forwarding. */
   id: z.string().optional(),
   line: z.string(),
+  root: z.string().optional(),
 });
 
 /** Notifications the daemon forwards to subscribed clients. */

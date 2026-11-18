@@ -1,3 +1,4 @@
+import { thisProcess } from "@foundry/lib/process-identity";
 import { expect, it, vi } from "vitest";
 import type { ToolCallObservation } from "~/lib/execution-record";
 import { ExecutionRecords } from "~/lib/execution-records";
@@ -23,6 +24,47 @@ function toolCall(id: string): ToolCallObservation {
     status: "complete",
   };
 }
+
+it("shows a run it takes over with the observations another engine recorded", async () => {
+  const {
+    records: [first, second],
+    store,
+  } = engines(2);
+  if (!(first && second)) {
+    throw new Error("two engines expected");
+  }
+  await second.load();
+  const { run } = await first.enqueue({
+    kind: "workflow",
+    name: "parked",
+    queue: "default",
+  });
+  const at = () => new Date().toISOString();
+  await store.transition(run.id, {
+    from: ["queued"],
+    owner: thisProcess(),
+    status: "running",
+    updatedAt: at(),
+  });
+  await first.load();
+  expect(await first.observe(run.id, toolCall("ob-1"))).toBe(true);
+  await store.transition(run.id, {
+    from: ["running"],
+    owner: thisProcess(),
+    status: "suspended",
+    updatedAt: at(),
+  });
+
+  expect(await second.takeReleased(run.id)).toBe(true);
+
+  const taken = second.get(run.id);
+  expect(taken?.observations.map(({ id }) => id)).toEqual(["ob-1"]);
+  const stored = (await store.get(run.id))?.value as { revision?: number };
+  expect(taken).toMatchObject({
+    revision: stored.revision,
+    status: "suspended",
+  });
+});
 
 it("keeps another engine's observations when its own progress write reveals them", async () => {
   const {

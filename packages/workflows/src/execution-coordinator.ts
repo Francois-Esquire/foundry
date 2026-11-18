@@ -549,6 +549,29 @@ export class ExecutionCoordinator implements OrchestratorStore {
     });
   }
 
+  claimSuspensions(runId: string): Promise<readonly SuspensionRecord[]> {
+    return this.#exclusive(async (store) => {
+      const storedRun = await store.getRun(runId);
+      if (!storedRun) {
+        throw new RunNotFoundError(runId);
+      }
+      if (hydrateRunRecord(storedRun).status !== "suspended") {
+        throw new RunNotSuspendedError(runId);
+      }
+      const claimed = (await pendingSuspensions(store, runId)).map(
+        (suspension) =>
+          decodeSuspensionRecord({
+            ...suspension,
+            revision: suspension.revision + 1,
+          })
+      );
+      if (claimed.length > 0) {
+        await store.commit({ putSuspensions: claimed });
+      }
+      return claimed;
+    });
+  }
+
   getSuspension(id: string): Promise<SuspensionRecord | null> {
     return this.#store.getSuspension(id);
   }

@@ -269,3 +269,24 @@ export const marblesRecoveries = sqliteTable("marbles_recoveries", {
   scope: text().primaryKey(),
   steps: text({ mode: "json" }).$type<unknown>().notNull(),
 });
+
+export const marblesGenerations = sqliteTable(
+  "marbles_generations",
+  {
+    createdAt: text("created_at").notNull(),
+    error: text(),
+    fingerprint: text().notNull(),
+    number: integer().primaryKey({ autoIncrement: true }),
+    pid: integer().notNull(),
+    started: text(),
+    state: text({
+      enum: ["loading", "current", "retiring", "failed", "exited"],
+    }).notNull(),
+    updatedAt: text("updated_at").notNull(),
+    workspaces: text({ mode: "json" })
+      .$type<readonly string[]>()
+      .notNull()
+      .default([]),
+  },
+  (table) => [index("marbles_generations_state_idx").on(table.state)]
+);

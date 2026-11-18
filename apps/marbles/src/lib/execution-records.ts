@@ -438,6 +438,110 @@ export class ExecutionRecords {
     });
   }
 
+  async takeReleased(id: string): Promise<boolean> {
+    const written = await this.#persist(() =>
+      this.#store.transaction(async (view): Promise<Written> => {
+        const stored = this.#parse(await view.get(id));
+        if (stored?.status !== "suspended") {
+          return { applied: false, record: stored };
+        }
+        return await view.transition(id, {
+          from: ["suspended"],
+          newOwner: thisProcess(),
+          owner: stored.owner,
+          status: "suspended",
+          updatedAt: now(),
+        });
+      })
+    );
+    await this.#took(id, written);
+    return written.applied;
+  }
+
+  async readHanded(id: string): Promise<ExecutionRun | undefined> {
+    const stored = this.#parse(await this.#store.get(id));
+    if (
+      stored?.status !== "queued" ||
+      !sameProcess(stored.owner, thisProcess())
+    ) {
+      return;
+    }
+    this.#learn(stored);
+    return this.#records.get(id);
+  }
+
+  protected async handQueued(
+    id: string,
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>
+  ): Promise<boolean> {
+    const written = await this.#persist(() =>
+      this.#store.transaction(async (view): Promise<Written> => {
+        const stored = this.#parse(await view.get(id));
+        if (
+          stored?.status !== "queued" ||
+          !sameProcess(stored.owner, thisProcess())
+        ) {
+          return { applied: false, record: stored };
+        }
+        const successor = await choose(view);
+        if (successor === undefined || sameProcess(successor, thisProcess())) {
+          throw new Error("no other engine is current to hand it to");
+        }
+        return await view.transition(id, {
+          from: ["queued"],
+          newOwner: successor,
+          owner: stored.owner,
+          status: "queued",
+          updatedAt: now(),
+        });
+      })
+    );
+    await this.#took(id, written);
+    return written.applied;
+  }
+
+  async peek(id: string): Promise<ExecutionRun | undefined> {
+    return this.#parse(await this.#store.get(id));
+  }
+
+  async queuedHere(): Promise<readonly string[]> {
+    return (
+      (await this.#store.queuedOwnedBy?.(thisProcess())) ??
+      this.list()
+        .filter(
+          (run) =>
+            run.status === "queued" && sameProcess(run.owner, thisProcess())
+        )
+        .map((run) => run.id)
+    );
+  }
+
+  async takeQueuedFrom(
+    id: string,
+    owner: ProcessIdentity
+  ): Promise<ExecutionRun | undefined> {
+    if (!isGone(owner)) {
+      return;
+    }
+    const written = await this.#persist(() =>
+      this.#store.transaction(async (view): Promise<Written> => {
+        const stored = this.#parse(await view.get(id));
+        if (stored?.status !== "queued" || !sameOwner(stored.owner, owner)) {
+          return { applied: false, record: stored };
+        }
+        return await view.transition(id, {
+          from: ["queued"],
+          newOwner: thisProcess(),
+          owner: stored.owner,
+          status: "queued",
+          updatedAt: now(),
+        });
+      })
+    );
+    const taken = await this.#took(id, written);
+    return written.applied ? taken : undefined;
+  }
+
   protected async cancelQueued(id: string): Promise<boolean> {
     const before = this.#parse(await this.#store.get(id));
     const mayCancel =
@@ -533,7 +637,9 @@ export class ExecutionRecords {
     const orphans = this.list().filter(
       (run) =>
         !SETTLED_EXECUTION_STATUSES.has(run.status) &&
-        (options.adopted.has(run.id) || isGone(run.owner))
+        (options.adopted.has(run.id) ||
+          isGone(run.owner) ||
+          (run.status === "queued" && sameProcess(run.owner, thisProcess())))
     );
     for (const orphan of orphans) {
       let taken: { readonly readmit: boolean; readonly written: Written };

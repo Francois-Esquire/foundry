@@ -8,12 +8,13 @@ These commands use the standalone `marbles` executable. See
 
 A launch uses the bundled [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
 and local persistent stores. `roll` creates a new run; it does not resume a
-previous failed run. The worker hosting a workspace adopts parked work under
-the [durability rules](/marbles/foundation/durability#recovery-after-a-restart).
+previous failed run. The engine generation hosting a workspace adopts parked
+work under the [durability rules](/marbles/foundation/durability#recovery-after-a-restart).
 
 One Marbles process per state root, which is one per machine by default,
-hosts every attached workspace, each in a worker of its own, and keeps
-their triggers running after the command that attached them exits.
+hosts every attached workspace in one engine subprocess, its current
+generation, and keeps their triggers running after the command that
+attached them exits.
 `marbles`, `marbles run`, and `marbles roll` start it when none runs, and
 replace one that runs another Marbles version; `marbles stop` ends it.
 `--dry-run` is the exception: it hosts the workspace in the calling
@@ -28,16 +29,16 @@ process, persists nothing, and never touches the Marbles process.
 | `help`, `--help`, `-h` | Print usage without loading modules. |
 | `init [developer \| design \| product]` | Create a starter module in `.foundry/marbles`, without running it or overwriting it. Defaults to Product. |
 | `list` | Load modules and list named work, schedules, and monitors with their keys and cadence. Runs no step body. |
-| `roll <name-or-key> [--input <json>]` | Attach this workspace and dispatch one step, workflow, schedule, or monitor in its worker now; print the lines it logged and its result as JSON, and exit. The workspace stays hosted. |
-| `status` | Read the state root: the Marbles process (pid, version, socket) and every workspace with whether it is hosted, its worker's pid, schedules, recent runs, and session count. Reads files only: needs no running process and loads no module. |
+| `roll <name-or-key> [--input <json>]` | Attach this workspace and dispatch one step, workflow, schedule, or monitor in the current engine generation now; print the lines it logged and its result as JSON, and exit. The workspace stays hosted. |
+| `status` | Read the state root: the Marbles process (pid, version, socket) and every workspace with whether it is hosted, the pid of the engine generation hosting it, the live generations, schedules, recent runs, and session count. Reads files only: needs no running process and loads no module. |
 | `watch <runId>` | Replay saved output, follow new output, and exit when an agent or workflow run finishes. |
 | `mcp` | Serve this workspace to an MCP client over stdin and stdout; stdout carries only MCP messages. Never starts the Marbles process or attaches the workspace: task tools work without one, and dispatch tools need a process that hosts the workspace. Under `--dry-run` it hosts nothing, keeps its tasks in memory, and refuses the dispatch tools. See [the MCP server](/marbles/reference/mcp). |
-| `tasks <action> [--json]` | Read or change this workspace's tasks: `list`, `ready`, `get`, `deps`, `create`, `update`, `start`, `complete`, `cancel`, `reopen`, `move`, `depend`, `undepend`, or `change --input <json>` for one atomic batch. `marbles help` lists each action's options. `create` and `update` take `--metadata <json>`; on update each key is set over the stored metadata and a `null` value removes its key. A `__proto__` key at any depth is refused. A worker that already hosts the workspace answers; otherwise the command opens the tasks itself. Loads no module and never starts the Marbles process. |
+| `tasks <action> [--json]` | Read or change this workspace's tasks: `list`, `ready`, `get`, `deps`, `create`, `update`, `start`, `complete`, `cancel`, `reopen`, `move`, `depend`, `undepend`, or `change --input <json>` for one atomic batch. `marbles help` lists each action's options. `create` and `update` take `--metadata <json>`; on update each key is set over the stored metadata and a `null` value removes its key. A `__proto__` key at any depth is refused. The Marbles process, when it already hosts the workspace, answers; otherwise the command opens the tasks itself. Loads no module and never starts the Marbles process. |
 | `sessions` | List the current workspace's agent sessions: id, message count, last update, and whether a compaction summary exists. Loads no module. |
 | `daemon` | Run the Marbles process in the foreground until interrupted, for launchd, systemd, or a terminal you keep open. Refused with the holder's pid when one already runs on this state root. |
-| `stop` | Stop the Marbles process, whatever version it runs, and return once it has drained every worker and exited; prints `no Marbles process is running` otherwise. While it stops, it refuses new attaches, reloads, and calls that would start work (`roll`, launches, dispatches, resumes); reads, answers, and cancels still go through, so a run holding up the drain can be cut short. Prints `stopping Marbles process pid N; waiting for its workers to drain` first, then `stopped Marbles process pid N`. |
+| `stop` | Stop the Marbles process, whatever version it runs, and return once it has drained every engine generation and exited; prints `no Marbles process is running` otherwise. While it stops, it refuses new attaches, reloads, and calls that would start work (`roll`, launches, dispatches, resumes); reads, answers, and cancels still go through, so a run holding up the drain can be cut short. Prints `stopping Marbles process pid N; waiting for its engine generations to drain` first, then `stopped Marbles process pid N`. |
 | `attach` | Host this workspace in the Marbles process, starting one when none runs, and exit; it stays hosted and its triggers keep running. |
-| `detach` | Stop hosting this workspace: its worker drains and the Marbles process does not start it again at boot. Its state stays; `attach` or `roll` hosts it again. Without a process, clears the record only. Refused when the running process is another Marbles version; `marbles stop` first. |
+| `detach` | Stop hosting this workspace: its running work drains and the Marbles process does not start it again at boot. Its state stays; `attach` or `roll` hosts it again. Without a process, clears the record only. Refused when the running process is another Marbles version; `marbles stop` first. |
 
 `run` starts every trigger and takes no name. `marbles run <name>` prints a
 pointer to `roll <name>` and exits 1.
@@ -46,7 +47,7 @@ Invalid commands, arguments, starters, and harness IDs print a usage error
 to stderr and exit 1 before importing modules or touching state.
 
 `list` imports the discovered modules in the calling process; `run` and
-`roll` have the workspace's worker import them, or import them here under
+`roll` have the Marbles process's engine generation import them, or import them here under
 `--dry-run`; `help`, `init`, `status`, `sessions`, `tasks`, `watch`,
 `mcp`, `daemon`, and `stop` import nothing. Keep module scope to declarations: importing the
 file must not do work. Attaching (`attach`, `run`, `roll`, and the dashboard) records the
@@ -97,14 +98,15 @@ Use the keys printed by `list`. Schedule keys derive from the target and
 input; monitor keys derive from the source. The first monitor poll treats
 existing files or the first HTTP response as a change.
 
-`roll` runs in the workspace's worker: the lines the run printed come back
+`roll` runs in the current engine generation: the lines the run printed come back
 with the value and are printed before it. The first `roll` on a workspace
 attaches it, so its schedules and monitors keep ticking in the Marbles
-process after the command exits; `marbles stop` ends that. A tick takes
-`locks/schedule:<key>`, so a `roll` of a key the worker's own tick holds at
-that moment prints `skipped: held by <holder>`. Under `--dry-run` the roll
-runs in this process, persists nothing, and stops when a `.env.schema`
-value does not resolve; the worker warns and continues instead.
+process after the command exits; `marbles stop` ends that. A tick claims
+its trigger's row in the Marbles database, so a `roll` of a key whose own
+tick is under way at that moment prints `skipped: held by <holder>`. Under
+`--dry-run` the roll runs in this process, persists nothing, and stops when
+a `.env.schema` value does not resolve; the engine generation warns and
+continues instead.
 
 ### Input errors and questions
 
@@ -165,9 +167,10 @@ one workspace.
   workspace's source declares, with the file each was declared in. Every
   top-level definition is available throughout that workspace.
 - **Logs** lists every run's log lines and Marbles' own status lines, oldest
-  first, filtered by level, source, and search. The workspace's worker keeps
-  its status lines in memory while it hosts the workspace, so they outlast
-  one dashboard; the dashboard adds its own.
+  first, filtered by level, source, and search. The engine generation
+  hosting the workspace keeps its status lines in memory while it hosts it,
+  so they outlast one dashboard, though not a switch to the next
+  generation; the dashboard adds its own.
 - **Feed** lists reports and questions from every workspace, newest first.
 - **Settings** chooses the theme for every workspace. The dashboard reads and
   saves it itself; a dashboard already open keeps its theme until restarted.
@@ -218,7 +221,7 @@ sessions cannot be listed. A settled run's file that cannot be read is noted on
 that run and its workflow.
 
 A workspace without a source offers setup: choosing a starter writes it,
-attaches the workspace, and the worker posts a setup milestone to the Feed.
+attaches the workspace, and its engine generation posts a setup milestone to the Feed.
 
 | Key | Action |
 | --- | --- |
@@ -282,20 +285,32 @@ Quitting the dashboard detaches it, as the quit dialog says. The Marbles
 process keeps hosting the workspace: triggers keep firing, running steps
 continue, and a run parked on a question waits on the Feed for the next
 dashboard. `marbles stop` ends the process and every workspace it hosts,
-draining running work first (30 seconds, then the worker is killed), and
+draining running work first (30 seconds for each engine generation to
+answer and as long again to exit, then it and its process group are
+killed, once its pid is proved to be the process the daemon spawned), and
 returns once the process has exited. A run
 parked on a question or a pause survives a stop and is adopted when its
 workspace is hosted again, as long as the step is still registered.
 
-Source edits need no restart. The worker polls its authoring folder, helper
-modules included, every second; a change drains the worker (running runs
-finish, parked runs stay) and starts a fresh one, and the header shows
-`reloading` meanwhile. A source that throws when imported fails only its
-worker: the header shows `failed` with the error, and the Marbles process
-goes on hosting everything else. Nothing restarts a failed worker on its
-own, and no source watcher runs for it: after fixing the module, open
-`marbles` (or run `roll`) again, which attaches the workspace and starts
-a fresh worker. The same goes for a worker that crashes mid-run.
+Source edits need no restart. The Marbles process polls a fingerprint of
+what its current engine generation loaded every second, taken before that
+generation loaded: every file under each workspace's root (but
+`node_modules`, `.git`, `.marbles` and build output), whether a load read
+it or not, every module and data file a load or a run read outside it, as
+it was when read, and the Marbles installation itself. Contents are read
+again only for a file whose size or modification time changed. A change starts the next
+generation, and the header shows `reloading` meanwhile. It loads every
+registered workspace first; one that does not load, a source that throws
+when imported, is an error on that workspace (the header keeps `ready`
+and shows it), and the running generation carries on as it was until a
+later edit loads. Once the next generation has loaded, it takes over at
+once: triggers carry on by their key, queued and parked runs move to it,
+and the previous generation starts nothing new, finishes its running runs,
+whole, and exits. A run of it that parks on a question meanwhile moves to
+the current generation at once, which answers it. A generation that
+crashes is replaced on its own, after a pause that doubles from 1 second
+up to 30 while replacements keep failing, and its runs are put right by
+the next one's start.
 
 Under `--dry-run` the workspace runs in the dashboard's own process, so
 quitting stops triggers and cancels queued and running runs; nothing is
@@ -329,8 +344,9 @@ holder's pid. A client that finds a process of another Marbles version stops
 it and starts one of its own. `status` reads files only: a terminal opens a
 view that `q` closes; piped output is plain text, starting with
 `marbles process: pid N · vX · <socket>` or `marbles process: not running`,
-then each workspace with `hosted: yes|no` and `process: pid N (worker)` or
-`not running`.
+an `engine generation N: pid P · current` line for each live generation
+(`retiring` for one finishing its runs), then each workspace with
+`hosted: yes|no` and `process: pid N (generation)` or `not running`.
 
 Pi is configured like any other provider: setup offers it when its CLI is
 installed. Provider configuration lives in the Marbles database; there is

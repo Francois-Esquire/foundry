@@ -5,8 +5,8 @@ sidebar:
   label: Deployment targets
 ---
 
-Marbles runs today as one process per machine, hosting each workspace in a
-worker, driven from a terminal. The same engine should also run as a
+Marbles runs today as one process per machine, hosting every workspace in
+one engine subprocess it replaces on a change, driven from a terminal. The same engine should also run as a
 service: on a container host, as a library inside a serverless backend, and
 behind a network protocol that dashboards and MCP clients can reach.
 
@@ -120,7 +120,7 @@ other option for the daemon.
 ### Service surface: HTTP, auth, health, logs
 
 Add an HTTP listener beside the socket with a bearer token, a health
-endpoint that reports the daemon and each worker, and MCP over Streamable
+endpoint that reports the daemon and each engine generation, and MCP over Streamable
 HTTP as a second binding of the same server. Move printed lines to
 structured events with a line renderer for terminals.
 
@@ -166,7 +166,7 @@ choosing a third-party backend decides where those tokens may go.
 
 ### Two drivers over one lib
 
-- The VM driver is today's daemon and workers with the service surface
+- The VM driver is today's daemon and engine generations with the service surface
   above, one replica per state root.
 - A serverless driver, Convex first, imports the lib and defines its steps
   statically, so the workspace bucket is not involved. A cron calls

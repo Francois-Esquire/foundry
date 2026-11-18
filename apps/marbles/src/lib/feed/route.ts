@@ -32,6 +32,7 @@ export interface FeedRouter {
   cancelReason(runId: string): string | undefined;
   /** A run ended without answering these: its open questions are marked cancelled. */
   close(runId: string): Promise<void>;
+  letGo(runId: string): void;
   /** Handle one run's channel events; `settled` awaits the writes they caused. */
   observe(
     definition: string,
@@ -40,6 +41,7 @@ export interface FeedRouter {
     readonly onEvent: (event: ChannelEvent) => void;
     readonly settled: () => Promise<void>;
   };
+  retire(): void;
 }
 
 /**
@@ -48,6 +50,24 @@ export interface FeedRouter {
  * `marbles.feed.input`. Without `askable` nobody can answer, so a question
  * cancels its run instead of pausing it forever.
  */
+export class QuestionMovingError extends Error {
+  override readonly name = "QuestionMovingError";
+
+  constructor(entryId: string) {
+    super(
+      `the question ${entryId} is moving to another engine with its run; answer it there`
+    );
+  }
+}
+
+export function movedAway(error: unknown, id: string): unknown {
+  return error instanceof Error &&
+    (error.name === "StaleSuspensionRevisionError" ||
+      error.name === "RunMovedError")
+    ? new QuestionMovingError(id)
+    : error;
+}
+
 export function feedRouter(options: {
   readonly askable: boolean;
   readonly feed: FeedPublisher;
@@ -56,6 +76,7 @@ export function feedRouter(options: {
 }): FeedRouter {
   const { askable, feed, orchestrator, print } = options;
   const open = new Map<string, OpenQuestion>();
+  let retired = false;
   const cancelled = new Map<string, string>();
 
   function warn(title: string) {
@@ -131,6 +152,9 @@ export function feedRouter(options: {
     adopt,
 
     async answer(entryId, answer) {
+      if (retired) {
+        throw new QuestionMovingError(entryId);
+      }
       const question = open.get(entryId);
       if (!question) {
         throw new Error("This question is no longer waiting for an answer.");
@@ -143,16 +167,26 @@ export function feedRouter(options: {
       const suspension = await orchestrator.getSuspension(
         question.suspensionId
       );
+      if (retired || open.get(entryId) !== question) {
+        throw new QuestionMovingError(entryId);
+      }
       if (suspension?.status !== "pending") {
         open.delete(entryId);
         throw new Error("This question is no longer waiting for an answer.");
       }
       // The step reads a plain choice or `{ choice, note }`; keep the plain
       // form when there is no note so older resolutions stay comparable.
-      await orchestrator.resolve(
-        suspension.id,
-        note === undefined ? choice : { choice, note }
-      );
+      await orchestrator
+        .resolve(
+          suspension.id,
+          note === undefined ? choice : { choice, note },
+          {
+            expectedRevision: suspension.revision,
+          }
+        )
+        .catch((error: unknown) => {
+          throw movedAway(error, entryId);
+        });
       open.delete(entryId);
       await feed
         .publishInput(question.question, question.source, {
@@ -180,6 +214,15 @@ export function feedRouter(options: {
         open.delete(id);
       }
       await cancel(questions.map(([, question]) => question));
+    },
+
+    letGo(runId) {
+      cancelled.delete(runId);
+      for (const [id, question] of open) {
+        if (question.source.runId === runId) {
+          open.delete(id);
+        }
+      }
     },
 
     observe(definition, runId) {
@@ -218,6 +261,10 @@ export function feedRouter(options: {
           await Promise.all(writes);
         },
       };
+    },
+
+    retire() {
+      retired = true;
     },
   };
 }

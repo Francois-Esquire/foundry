@@ -1,7 +1,14 @@
 import { AsyncResource } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import {
+  type ProcessIdentity,
+  sameProcess,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import type { Container } from "@foundry/sandbox/container/containers";
+import { asRun, callingRun } from "~/lib/calling-run";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
+import type { ExecutionView } from "~/lib/execution-store";
 import type { ExecutionRun, Executions } from "~/lib/executions";
 import { DEFAULT_QUEUE } from "~/lib/executions";
 import { errorCode } from "~/lib/observations";
@@ -144,6 +151,20 @@ export class RunNotRecordedError extends Error {
   }
 }
 
+class EngineRetiringError extends Error {
+  override readonly name = "EngineRetiringError";
+
+  constructor(name: string) {
+    super(
+      `${name} was not launched: this engine is retiring; launch it on the next engine generation`
+    );
+  }
+}
+
+const HAND_OVER_RETRY_MS = 1000;
+const HAND_OVER_RETRY_MAX_MS = 30_000;
+const HAND_OVER_PASS_MS = 2000;
+
 /**
  * A run its queue has let in or is about to, until it settles: its abort
  * controller exists before any lifecycle update is published, so a cancel
@@ -154,6 +175,10 @@ interface Admission {
   /** Resolves once its caller has been paid: the run has settled here. */
   readonly settled: PromiseWithResolvers<void>;
 }
+
+export type QueuedTake =
+  | { readonly taken: true }
+  | { readonly taken: false; readonly why: string };
 
 /** How a stop in progress treats what is still running: absent until one begins. */
 type Halting = "stop" | "cancel" | undefined;
@@ -172,6 +197,8 @@ export class Launcher {
    * starts while a cancelling stop runs never gets to its body.
    */
   #halting: Halting;
+  #retiring = false;
+  readonly #launching = new Set<Promise<void>>();
 
   constructor(options: LauncherOptions) {
     this.#options = options;
@@ -215,6 +242,31 @@ export class Launcher {
     if (!this.#runnable(name)) {
       throw new Error(`Definition is not registered: ${name}`);
     }
+    const parent = this.#activeCaller();
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring && parent === undefined) {
+      throw new EngineRetiringError(name);
+    }
+    const admitted = Promise.withResolvers<void>();
+    const done = () => {
+      this.#launching.delete(admitted.promise);
+      admitted.resolve();
+    };
+    this.#launching.add(admitted.promise);
+    try {
+      return await this.#launch<O>(name, input, options, done, parent);
+    } finally {
+      done();
+    }
+  }
+
+  async #launch<O>(
+    name: string,
+    input: unknown,
+    options: LaunchOptions,
+    admitted: () => void,
+    parent: string | undefined
+  ): Promise<Launched<O>> {
     const task = this.#tasks.get(name);
     const { existing, run } = await this.executions.enqueue({
       correlation: {
@@ -230,11 +282,13 @@ export class Launcher {
       ...(options.source === undefined ? {} : { source: options.source }),
     });
     if (existing) {
+      admitted();
       return { id: run.id, result: this.#resultOf<O>(run) };
     }
     const owed = this.#owe(run.id, options.recordErrorMessage ?? true);
     // A subscriber told it is queued may have cancelled it already.
-    const started = this.#admit(run.id);
+    const started = this.#admit(run.id, parent);
+    admitted();
     if (started) {
       await started;
     }
@@ -265,13 +319,181 @@ export class Launcher {
     const readmitted = await this.executions.recover({
       adopted: options.adopted,
       fileStatus: options.fileStatus,
-      readmit: (run) => this.#options.recoverQueued && this.#runnableAs(run),
+      readmit: (run) =>
+        (this.#options.recoverQueued ||
+          sameProcess(run.owner, thisProcess())) &&
+        this.#runnableAs(run),
     });
     for (const run of readmitted) {
       this.#options.print(`[run] ${run.name} queued again ${run.id}`);
       this.#owe(run.id, true);
       this.#admit(run.id);
     }
+  }
+
+  async handOver(
+    successor: ProcessIdentity,
+    onHanded: (id: string) => void = () => undefined
+  ): Promise<readonly string[]> {
+    this.beginRetiring();
+    const handed: string[] = [];
+    const told = (id: string) => {
+      handed.push(id);
+      this.#pay(
+        id,
+        new Error(`run ${id} was handed to the next engine generation`)
+      );
+    };
+    await Promise.all(this.#launching);
+    const { failed } = await this.executions.handOverAll(
+      () => Promise.resolve(successor),
+      told
+    );
+    const said = new Set<string>();
+    this.#sayFailed(failed, said);
+    this.#handOverLater(
+      (view) =>
+        view.successor === undefined
+          ? Promise.resolve(successor)
+          : view.successor(),
+      onHanded,
+      said,
+      failed.length > 0 ? HAND_OVER_RETRY_MS : HAND_OVER_PASS_MS
+    );
+    return [...handed];
+  }
+
+  #sayFailed(
+    failed: readonly { readonly error: unknown; readonly id: string }[],
+    said: Set<string>
+  ): void {
+    for (const { error, id } of failed) {
+      const why = error instanceof Error ? error.message : String(error);
+      if (!said.has(why)) {
+        said.add(why);
+        this.#options.print(
+          `[run] ${id} not handed to the next engine generation: ${why}; it stays queued here, unstarted, and is tried again`
+        );
+      }
+    }
+  }
+
+  #handOverLater(
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>,
+    onHanded: (id: string) => void,
+    said: Set<string>,
+    delay: number
+  ): void {
+    const timer = setTimeout(async () => {
+      if (
+        this.#halting === "cancel" ||
+        (this.#halting === "stop" && this.executions.waiting().length === 0)
+      ) {
+        return;
+      }
+      const told = (id: string) => {
+        this.#pay(
+          id,
+          new Error(`run ${id} was handed to the next engine generation`)
+        );
+        onHanded(id);
+      };
+      let failed: readonly { readonly error: unknown; readonly id: string }[];
+      try {
+        await this.#takeUpQueued();
+        ({ failed } = await this.executions.handOverAll(choose, told));
+      } catch (error) {
+        failed = [{ error, id: "a queued run" }];
+      }
+      this.#sayFailed(failed, said);
+      this.#handOverLater(
+        choose,
+        onHanded,
+        said,
+        failed.length === 0
+          ? HAND_OVER_PASS_MS
+          : Math.min(
+              delay === HAND_OVER_PASS_MS ? HAND_OVER_RETRY_MS : delay * 2,
+              HAND_OVER_RETRY_MAX_MS
+            )
+      );
+    }, delay);
+    timer.unref?.();
+  }
+
+  async #takeUpQueued(): Promise<void> {
+    for (const id of await this.executions.queuedHere()) {
+      if (this.#owed.has(id) || this.#admitted.has(id)) {
+        continue;
+      }
+      const run = await this.executions.readHanded(id);
+      if (run === undefined || this.#owed.has(id) || this.#admitted.has(id)) {
+        continue;
+      }
+      this.#owe(id, true);
+      this.#admit(id);
+    }
+  }
+
+  async takeOrphaned(id: string, owner: ProcessIdentity): Promise<QueuedTake> {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring) {
+      return { taken: false, why: "this engine is retiring" };
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return { taken: true };
+    }
+    const stored = await this.executions.peek(id);
+    if (stored === undefined) {
+      return { taken: false, why: "it is no longer stored" };
+    }
+    if (!this.#runnableAs(stored)) {
+      return {
+        taken: false,
+        why: `no ${stored.kind} named "${stored.name}" is registered here`,
+      };
+    }
+    const run = await this.executions.takeQueuedFrom(id, owner);
+    if (run === undefined) {
+      return {
+        taken: false,
+        why: "it is no longer queued under a process proved gone",
+      };
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return { taken: true };
+    }
+    this.#options.print(
+      `[run] ${run.name} taken over from a gone process ${id}`
+    );
+    this.#owe(id, true);
+    this.#admit(id);
+    return { taken: true };
+  }
+
+  async takeHanded(id: string): Promise<boolean | undefined> {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring) {
+      return false;
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return true;
+    }
+    const run = await this.executions.readHanded(id);
+    if (run === undefined) {
+      return;
+    }
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring || !this.#runnableAs(run)) {
+      return false;
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return true;
+    }
+    this.#options.print(`[run] ${run.name} handed over ${id}`);
+    this.#owe(id, true);
+    this.#admit(id);
+    return true;
   }
 
   /**
@@ -435,7 +657,7 @@ export class Launcher {
    * A run no longer queued, cancelled by a subscriber told it was, is paid
    * its cancellation instead.
    */
-  #admit(id: string): Promise<void> | undefined {
+  #admit(id: string, parent?: string): Promise<void> | undefined {
     if (this.executions.get(id)?.status !== "queued") {
       this.#pay(id, new Error(`run ${id} was cancelled before it started`));
       return;
@@ -452,8 +674,28 @@ export class Launcher {
       AsyncResource.bind((input: unknown) =>
         this.#start(id, input, admission.controller)
       ),
-      (error) => this.#pay(id, error)
+      (error) => this.#pay(id, error),
+      parent
     );
+  }
+
+  #activeCaller(): string | undefined {
+    const id = callingRun();
+    return id !== undefined && this.#active(id) ? id : undefined;
+  }
+
+  #active(id: string): boolean {
+    const run = this.executions.get(id);
+    return (
+      this.#live.has(id) &&
+      run?.status === "running" &&
+      sameProcess(run.owner, thisProcess())
+    );
+  }
+
+  beginRetiring(): void {
+    this.#retiring = true;
+    this.executions.closeAdmission((id) => this.#active(id));
   }
 
   /**
@@ -593,7 +835,7 @@ export class Launcher {
       try {
         // Cancelled before its body started: it never runs.
         controller.signal.throwIfAborted();
-        value = await task.run(input, context);
+        value = await asRun(id, () => task.run(input, context));
       } finally {
         lifetime.abort(new Error(`run ${id} resource lifetime ended`));
         // Last opened first, one at a time, as a run scope closes: a

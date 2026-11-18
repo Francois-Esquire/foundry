@@ -152,6 +152,7 @@ export class Queue {
   readonly #cancelledBeforeStart = new Set<string>();
   readonly #driverOwned = new Set<string>();
   readonly #outstandingOwned = new Set<string>();
+  readonly #resumeReactors = new Map<string, Fiber.RuntimeFiber<void>>();
   #fatalError: Error | null = null;
 
   // Long-lived scope for hydrated runs and their forked subscribers
@@ -382,6 +383,32 @@ export class Queue {
         this.#controlTails.delete(runId);
       }
     }
+  }
+
+  forget(runId: string): Promise<boolean> {
+    return this.withRunControl(runId, async () => {
+      const run = this.#all.get(runId);
+      if (run === undefined) {
+        return false;
+      }
+      if (
+        run.status !== "suspended" ||
+        this.#driverOwned.has(runId) ||
+        this.#outstandingOwned.has(runId)
+      ) {
+        throw new Error(
+          `Run ${runId} is ${run.status}, not parked; only a parked Run is forgotten`
+        );
+      }
+      const reactor = this.#resumeReactors.get(runId);
+      this.#resumeReactors.delete(runId);
+      this.#all.delete(runId);
+      this.#closeLane(runId);
+      if (reactor !== undefined) {
+        await Effect.runPromise(Fiber.interrupt(reactor));
+      }
+      return true;
+    });
   }
 
   /** @internal Project already-committed cancellation into a local handle. */
@@ -1411,6 +1438,7 @@ export class Queue {
         Stream.runDrain,
         Effect.zipRight(
           Effect.gen(function* () {
+            self.#resumeReactors.delete(run.id);
             self.#events.run("resumed", run);
             self.#emit({
               at: run.snapshot.suspension?.name ?? "",
@@ -1422,7 +1450,12 @@ export class Queue {
           })
         )
       )
-    ).pipe(Effect.asVoid);
+    ).pipe(
+      Effect.tap((reactor) =>
+        Effect.sync(() => this.#resumeReactors.set(run.id, reactor))
+      ),
+      Effect.asVoid
+    );
   }
 
   /**

@@ -3,11 +3,13 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Sessions } from "@foundry/agents/session";
 import { describe, expect, it } from "vitest";
+import { GenerationRecords } from "~/database/generations";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
+import { startedAt } from "~/process/spawned";
 import { readStatus } from "~/status/model";
 import { seedWorkspace } from "./helpers/registry";
 import { seedRuns, seedTicks } from "./helpers/stored-runs";
@@ -57,6 +59,7 @@ describe("readStatus", () => {
   it("returns no workspaces for a missing or empty root, and creates nothing", async () => {
     const state = temporaryDirectory("marbles-status-");
     expect(await readStatus(join(state, "nope"))).toEqual({
+      generations: [],
       process: null,
       root: join(state, "nope"),
       workspaces: [],
@@ -111,33 +114,98 @@ describe("readStatus", () => {
     ]);
   });
 
-  it("marks the process alive only while the lock's pid is", async () => {
-    const { state, dir } = await layout();
-    const dead = spawnSync("true").pid;
-    mkdirSync(join(dir, "locks"));
-    writeFileSync(join(dir, "locks", "process"), String(dead));
-    writeJson(join(dir, "process.json"), {
-      host: "worker",
-      pid: dead,
-      startedAt: "x",
+  it("marks a registered workspace alive only while the current generation that started it is", async () => {
+    const { state } = await layout();
+    await seedWorkspace(state, {
+      config: null,
+      firstSeen: "2026-09-10T00:00:00.000Z",
+      hosted: true,
+      id: "ws2",
+      lastSeen: "2026-09-10T01:00:00.000Z",
+      root: "/repo/two",
     });
-    expect((await readStatus(state)).workspaces[0]).toMatchObject({
-      alive: false,
-      host: null,
-      pid: dead,
-    });
+    const hosted = async () =>
+      (await readStatus(state)).workspaces.find(
+        (workspace) => workspace.id === "ws2"
+      );
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      const generations = new GenerationRecords({
+        database: database.database,
+      });
+      const dead = await generations.begin("before");
+      await generations.spawned(dead, spawnSync("true").pid);
+      await generations.mark(dead, "current");
+      expect(await hosted()).toMatchObject({
+        alive: false,
+        host: null,
+        pid: null,
+      });
 
-    writeFileSync(join(dir, "locks", "process"), String(process.pid));
-    writeJson(join(dir, "process.json"), {
-      host: "worker",
-      pid: process.pid,
-      startedAt: "x",
-    });
-    expect((await readStatus(state)).workspaces[0]).toMatchObject({
-      alive: true,
-      host: "worker",
-      pid: process.pid,
-    });
+      await generations.mark(dead, "exited");
+      const live = await generations.begin("after");
+      await generations.spawned(live, process.pid);
+      await generations.identify(live, startedAt(process.pid) ?? null);
+      await generations.mark(live, "current");
+      expect(await hosted()).toMatchObject({
+        alive: false,
+        host: null,
+        pid: null,
+      });
+      await generations.hosting(live, ["ws2"]);
+      expect(await hosted()).toMatchObject({
+        alive: true,
+        host: "generation",
+        pid: process.pid,
+      });
+      expect((await readStatus(state)).generations).toEqual([
+        { alive: true, number: live, pid: process.pid, state: "current" },
+      ]);
+      expect(
+        (await readStatus(state)).workspaces.find(
+          (workspace) => workspace.id === "ws1"
+        )
+      ).toMatchObject({ alive: false, host: null });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("records a retiring generation whose process is proved gone as exited, and shows one with no recorded start as cannot tell", async () => {
+    const { state } = await layout();
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      const generations = new GenerationRecords({
+        database: database.database,
+      });
+      const dead = spawnSync("true").pid;
+      const proved = await generations.begin("proved");
+      await generations.spawned(proved, dead);
+      await generations.identify(proved, "linux:never-this-start");
+      await generations.mark(proved, "retiring");
+      const unprovedPid = spawnSync("true").pid;
+      const unproved = await generations.begin("unproved");
+      await generations.spawned(unproved, unprovedPid);
+      await generations.mark(unproved, "retiring");
+      const alive = await generations.begin("alive");
+      await generations.spawned(alive, process.pid);
+      await generations.identify(alive, startedAt(process.pid) ?? null);
+      await generations.mark(alive, "retiring");
+
+      expect(await generations.endGone()).toEqual([proved]);
+      expect((await readStatus(state)).generations).toEqual([
+        { alive: true, number: alive, pid: process.pid, state: "retiring" },
+        {
+          alive: false,
+          number: unproved,
+          pid: unprovedPid,
+          state: "cannot tell",
+        },
+      ]);
+      expect(await generations.endGone()).toEqual([]);
+    } finally {
+      database.close();
+    }
   });
 
   it("reports a tick under way in a live process as running, and ignores a dead one's", async () => {

@@ -59,7 +59,7 @@ export async function joinProcess(): Promise<MarblesClient | undefined> {
   }
 }
 
-async function hostingWorker(
+async function hostingGeneration(
   id: string
 ): Promise<
   | { readonly client: MarblesClient; readonly workspace: WorkspaceConnection }
@@ -78,7 +78,7 @@ async function hostingWorker(
     }
     if (summary?.state === "starting" || summary?.state === "reloading") {
       throw new RecordsHeldError(
-        `the tasks of this workspace are about to be in use by Marbles process pid ${String(client.hello.pid)}, whose worker is ${summary.state}; retry once it is ready`
+        `the tasks of this workspace are about to be in use by Marbles process pid ${String(client.hello.pid)}, which has it ${summary.state}; retry once it is ready`
       );
     }
   } catch (error) {
@@ -101,7 +101,7 @@ export async function withTasks<T>(
       `the state of workspace ${id} at ${dir} is not a directory inside ${state}`
     );
   }
-  const hosted = args.dry ? undefined : await hostingWorker(id);
+  const hosted = args.dry ? undefined : await hostingGeneration(id);
   if (hosted === undefined) {
     return withStoredTasks(args, opened, work);
   }
@@ -119,7 +119,7 @@ export async function withRunningWorkspace<T>(
 ): Promise<T> {
   if (args.dry) {
     throw new NotHostedError(
-      `--dry-run joins no Marbles process, so no worker is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles roll --dry-run\`.`
+      `--dry-run joins no Marbles process, so no engine generation is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles roll --dry-run\`.`
     );
   }
   const client = await joinProcess();
@@ -139,12 +139,12 @@ export async function withRunningWorkspace<T>(
     }
     if (summary.state === "starting" || summary.state === "reloading") {
       throw new NotHostedError(
-        `the worker for workspace ${id} is ${summary.state}; retry once it is ready`
+        `workspace ${id} is ${summary.state} in the Marbles process; retry once it is ready`
       );
     }
     if (summary.state !== "ready") {
       throw new NotHostedError(
-        `the worker for workspace ${id} is ${summary.state}${summary.error ? `: ${summary.error}` : ""}; ${ATTACH_HINT}`
+        `workspace ${id} is ${summary.state} in the Marbles process${summary.error ? `: ${summary.error}` : ""}; ${ATTACH_HINT}`
       );
     }
     return await work(client.workspace(summary));

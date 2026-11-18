@@ -17,7 +17,6 @@ import { stateDatabase } from "~/layout";
 import { connect } from "~/process/client";
 import type { Daemon } from "~/process/daemon";
 import { startDaemon } from "~/process/daemon";
-import { readProcess } from "~/process/instance";
 import { recordSpawned } from "~/process/spawned";
 import { testHome } from "./helpers/home";
 
@@ -293,12 +292,7 @@ process.stdout.write(JSON.stringify({ refused }) + "\\n");
   });
 }, 120_000);
 
-/**
- * A source for a worker: `observe` appends each payload's titles to
- * `seen.log`, `add` creates a task, and `titles` lists them. `revision`
- * only changes the bytes, so an edit reloads the worker.
- */
-function workerSource(dir: string, revision: number): string {
+function generationSource(dir: string, revision: number): string {
   const zod = createRequire(import.meta.url).resolve("zod");
   return `import { appendFileSync } from "node:fs";
 import { observe, step, tasks } from "@foundry.sh/marbles";
@@ -319,19 +313,19 @@ export const list = step("list").do(titles);
 `;
 }
 
-it("binds tasks to the workspace a worker hosts, and hands its records to the worker a reload starts", async () => {
+it("binds tasks to the workspace a generation hosts, and hands its records to the generation a reload starts", async () => {
   const home = testHome({ providers: false });
   const root = join(home.path, "project");
   await mkdir(root);
   const source = join(root, "marbles.config.ts");
-  await writeFile(source, workerSource(root, 1));
+  await writeFile(source, generationSource(root, 1));
   const machine = home.layout;
   daemons.push(await startDaemon({ layout: machine, print: () => undefined }));
   const client = await connect({ layout: machine, start: false });
   try {
     const summary = await client.attach(source);
     const hosted = client.workspace(summary);
-    const first = readProcess(join(machine.state, summary.id))?.pid;
+    const first = summary.pid;
 
     expect((await hosted.roll("add", { title: "hosted" })).value).toEqual([
       "hosted",
@@ -353,12 +347,12 @@ it("binds tasks to the workspace a worker hosts, and hands its records to the wo
       { interval: 100, timeout: 30_000 }
     );
 
-    await writeFile(source, workerSource(root, 2));
+    await writeFile(source, generationSource(root, 2));
     await vi.waitFor(
-      () => {
-        const pid = readProcess(join(machine.state, summary.id))?.pid;
-        expect(pid).toBeDefined();
-        expect(pid).not.toBe(first);
+      async () => {
+        const [now] = await client.workspaces();
+        expect(now?.state).toBe("ready");
+        expect(now?.pid).not.toBe(first);
       },
       { interval: 250, timeout: 30_000 }
     );

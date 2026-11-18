@@ -6,6 +6,7 @@ import type { RetryPolicy } from "@foundry/workflows/types";
 import { isBail } from "@foundry/workflows/types";
 
 import type { Bindings } from "./bindings";
+import { asRun } from "./calling-run";
 import { buildContext } from "./context";
 import type {
   AnyDefinition,
@@ -309,19 +310,39 @@ function materialize(
   const children = node.children.map(([childKey, child]) =>
     materialize(child, childKey, scope, bindings, path)
   );
-  const retry = asEngineWork(node.definition.config?.retry, bindings);
+  const retry = asRunPolicy(scope.id, bindings, node.definition.config?.retry);
   return {
     children,
     // Retry only: the timeout is Marbles', since it must abort the body.
     ...(retry === undefined ? {} : { config: { retry } }),
     execute: (_input, ctx) =>
-      withinContext(bindings.context, () =>
+      asRunWork(scope.id, bindings, () =>
         runBody(node, key, ctx as StepContext, scope, bindings)
       ),
     // Explicit: an undefined input inherits the launcher's.
     input: node.literal,
     name: key,
   };
+}
+
+function asRunPolicy(
+  runId: string,
+  bindings: Bindings,
+  retry: RetryPolicy | undefined
+): RetryPolicy | undefined {
+  const decide = retry?.shouldRetry;
+  if (retry === undefined || decide === undefined) {
+    return retry;
+  }
+  return {
+    ...retry,
+    shouldRetry: (error, attempt) =>
+      asRunWork(runId, bindings, () => decide(error, attempt)),
+  };
+}
+
+function asRunWork<T>(runId: string, bindings: Bindings, work: () => T): T {
+  return withinContext(bindings.context, () => asRun(runId, work));
 }
 
 /** Adapt a named definition to the orchestrator's factory contract. */
@@ -344,8 +365,9 @@ export function factoryFor(
 ): DefinitionFactory {
   return (rawInput, execution) => {
     const bound = bindings();
-    return withinContext(bound.context, () =>
-      openRun(definition, name, scopes, bound, rawInput, execution)
+    const runId = execution?.runId ?? crypto.randomUUID();
+    return asRunWork(runId, bound, () =>
+      openRun(definition, name, scopes, bound, rawInput, runId)
     );
   };
 }
@@ -356,7 +378,7 @@ async function openRun(
   scopes: RunScopes,
   bound: Bindings,
   rawInput: unknown,
-  execution: RunExecutionContext | undefined
+  runId: string
 ): Promise<Step<unknown, unknown>> {
   const input = (
     definition.input
@@ -364,7 +386,7 @@ async function openRun(
       : (rawInput ?? {})
   ) as Input;
   return await scopes.open(
-    execution?.runId ?? crypto.randomUUID(),
+    runId,
     bound.context?.cwd ?? bound.root,
     bound.host,
     async (scope) =>
@@ -377,21 +399,6 @@ async function openRun(
         )
       )
   );
-}
-
-function asEngineWork(
-  retry: RetryPolicy | undefined,
-  bindings: Bindings
-): RetryPolicy | undefined {
-  const decide = retry?.shouldRetry;
-  if (retry === undefined || decide === undefined) {
-    return retry;
-  }
-  return {
-    ...retry,
-    shouldRetry: (error, attempt) =>
-      withinContext(bindings.context, () => decide(error, attempt)),
-  };
 }
 
 function nameOf(definition: AnyDefinition): string {

@@ -43,7 +43,9 @@
         "examples/**/*.ts",
         "src/workspace/hosted.ts",
         "templates/**/*.ts",
+        "test/helpers/daemon-process.ts",
         "test/helpers/dry-mcp-host.ts",
+        "test/helpers/generation-*.ts",
         "test/helpers/store-writer.ts",
         "vitest.package.config.ts"
       ]

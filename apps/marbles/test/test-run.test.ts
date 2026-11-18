@@ -20,6 +20,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { expect, it, vi } from "vitest";
 import { layout } from "~/layout";
 import { daemonAlive } from "~/process/client";
+import { readProcess } from "~/process/instance";
 import { recordSpawned, SPAWN_RECORD_ENV, startedAt } from "~/process/spawned";
 import integration from "../vitest.integration.config";
 import { cliArgs } from "./helpers/cli";
@@ -950,9 +951,15 @@ it("records the Marbles process a test's CLI starts in the test's home", () => {
   const recorded = readdirSync(records).map((name) =>
     JSON.parse(readFileSync(join(records, name), "utf8"))
   );
-  const daemon = recorded.find((record) => record.group === true);
+  const daemonPid = readProcess(home.layout.state)?.pid;
+  const daemon = recorded.find((record) => record.pid === daemonPid);
+  expect(daemon?.group).toBe(true);
   expect(daemon?.started).toBe(startedAt(daemon?.pid));
-  expect(recorded.filter((record) => record.group === false)).toHaveLength(1);
+  expect(
+    recorded.filter(
+      (record) => record.pid !== daemonPid && record.group === true
+    )
+  ).toHaveLength(1);
   left.home = home.path;
   left.pid = daemon?.pid;
   left.started = daemon?.started;

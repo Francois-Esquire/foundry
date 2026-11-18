@@ -347,6 +347,29 @@ function dataExports(
   return { ...named, default: value };
 }
 
+const read = new Map<number, Set<string>>();
+const readers = new Map<number, (file: string) => void>();
+
+export function onRead(
+  load: number,
+  listener: (file: string) => void
+): { forget(): void } {
+  readers.set(load, listener);
+  return {
+    forget() {
+      if (readers.get(load) === listener) {
+        readers.delete(load);
+      }
+    },
+  };
+}
+
+export function filesRead(load: number): readonly string[] {
+  const files = [...(read.get(load) ?? [])].sort();
+  read.delete(load);
+  return files;
+}
+
 export function copyModules(builder: PluginBuilder): void {
   modules = builder;
   (globalThis as Record<symbol, unknown>)[IMPORT_FROM] = importFrom;
@@ -356,6 +379,12 @@ export function copyModules(builder: PluginBuilder): void {
     if (copy === undefined || !roots.has(copy.load)) {
       throw new Error(`${args.path} is a copy of no load`);
     }
+    const files = read.get(copy.load) ?? new Set();
+    if (!files.has(file)) {
+      files.add(file);
+      readers.get(copy.load)?.(file);
+    }
+    read.set(copy.load, files);
     if (copy.format !== undefined) {
       return {
         exports: dataExports(file, copy.format as DataFormat),

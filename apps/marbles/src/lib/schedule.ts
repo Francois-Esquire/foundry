@@ -116,9 +116,11 @@ export interface TickOptions {
   readonly scheduled?: boolean;
   /** Cancels the run a tick started. */
   readonly signal?: AbortSignal;
+  readonly stopped?: AbortSignal;
 }
 
 export interface LoopOptions {
+  readonly cancel?: AbortSignal;
   readonly now?: () => number;
   readonly print: (line: string) => void;
   readonly signal: AbortSignal;
@@ -150,7 +152,10 @@ export async function tick(
   let status: ScheduleHistory["lastStatus"] = "failed";
   let dispatched = false;
   try {
-    if (!(await shouldDispatch(engine, schedule, options, now()))) {
+    if (
+      !(await shouldDispatch(engine, schedule, options, now())) ||
+      options.stopped?.aborted
+    ) {
       return undefined;
     }
     dispatched = true;
@@ -162,9 +167,10 @@ export async function tick(
     );
     const launch =
       schedule.kind === "monitor" ? pendingOf(detected) : undefined;
-    const value = launch
-      ? await startPending(engine, schedule.key, launch, options.signal)
-      : detected;
+    const value =
+      launch && !options.stopped?.aborted
+        ? await startPending(engine, schedule.key, launch, options.signal)
+        : detected;
     status = "complete";
     return { value };
   } finally {
@@ -319,6 +325,9 @@ export async function runSchedules(
       options.print(`[schedule] reading schedules failed: ${String(error)}`);
       return [];
     });
+    if (signal.aborted) {
+      break;
+    }
     if (active.length === 0) {
       await sleep(POLL_MS, signal);
       continue;
@@ -326,6 +335,9 @@ export async function runSchedules(
     const dues: (readonly [Schedule, number])[] = [];
     for (const entry of active) {
       dues.push([entry, nextDue(entry, await baseline(entry))]);
+    }
+    if (signal.aborted) {
+      break;
     }
     const [schedule, due] = dues.reduce((soonest, candidate) =>
       candidate[1] < soonest[1] ? candidate : soonest
@@ -341,7 +353,8 @@ export async function runSchedules(
       now,
       print: options.print,
       scheduled: true,
-      signal,
+      signal: options.cancel ?? signal,
+      stopped: signal,
     });
     attempted.set(schedule.key, now());
   }
