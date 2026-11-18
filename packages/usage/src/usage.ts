@@ -1,5 +1,5 @@
 import type { Consumption } from "./consumption";
-import type { Duration } from "./limit";
+import { type Duration, resolve, type Span } from "./limit";
 import {
   accountWide,
   type Reading,
@@ -35,6 +35,7 @@ export interface Usage {
   initialize(): Promise<readonly Account[]>;
   query(name: string, options?: QueryOptions): Promise<Snapshot>;
   query(options?: QueryAllOptions): Promise<readonly Snapshot[]>;
+  share(name: string, span?: Span): Promise<number | undefined>;
   use(provider: Provider): void;
 }
 
@@ -135,6 +136,15 @@ export const createUsage = (): Usage => {
       return [...accounts.values()].filter((a) => a.name === a.provider.id);
     },
     query: query as Usage["query"],
+    share: async (name, span = "weekly") => {
+      const account = accounts.get(name);
+      if (!account) {
+        return;
+      }
+      const reading = await account.limits().catch(() => undefined);
+      const limit = reading && accountWide(reading.limits, span);
+      return limit && resolve(limit, new Date()).headroom.share;
+    },
     use: (provider) => {
       if (providers.has(provider.id)) {
         throw new Error(`A usage provider "${provider.id}" is registered.`);

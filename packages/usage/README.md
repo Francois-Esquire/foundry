@@ -26,6 +26,7 @@ usage.add(anthropic({ name: "api", apiKey: process.env.ANTHROPIC_API_KEY }));
 
 const claude = await usage.query("anthropic"); // one Snapshot
 const all = await usage.query({ since: "1d" }); // readonly Snapshot[], every added account
+const remaining = await usage.share("anthropic"); // 0.47 of the weekly window left
 
 claude.weekly?.usedPercent; // 53
 claude.weekly?.headroom.share; // 0.47
@@ -53,6 +54,10 @@ claude.details?.anthropic?.extraUsage;
 - **`usage.query(name, options?)`** reads one account; an unknown name
   rejects. **`usage.query(options?)`** reads every added account in
   parallel, a snapshot each; `options.provider` narrows to one provider.
+- **`usage.share(name, span?)`** reads the account-wide allowance and returns
+  the fraction remaining from 0 to 1. The span defaults to `"weekly"`.
+  A missing account, failed read, or missing window returns `undefined`.
+  It asks the provider for fresh limits and skips the consumption history.
 - **`since`** is a `Date` or a span back from now: a number and `m`, `h`,
   `d` or `w`. Without it, consumption starts where the account's weekly
   window started, its `resetsAt` less its `duration`. With no weekly window,

@@ -24,6 +24,12 @@ claude.consumption?.total; // tokens used since the weekly window opened
 
 `usage.query()` with no name returns a snapshot for every account.
 
+When a routing decision only needs the remaining allowance, use
+`await usage.share("anthropic")`. It reads the current account-wide weekly
+window and returns a fraction from 0 to 1. Pass a span such as `"hourly"` to
+read another window. A missing account, failed read, or missing window returns
+`undefined`. This read skips consumption history.
+
 ## Pick a model from what is left
 
 Define an agent without a route, then give it one with `extend` when the
@@ -60,9 +66,9 @@ the route it chose:
 import { agent, skills, step, usage } from "@foundry.sh/marbles";
 
 const reviewer = agent(async ({ provider }) => {
-  const claude = provider ? undefined : await usage.query("anthropic");
+  const remaining = provider ? undefined : await usage.share("anthropic");
   const chosen =
-    provider ?? (claude?.weekly?.exhausted ? "codex" : "claude-code");
+    provider ?? (remaining !== undefined && remaining < 0.2 ? "codex" : "claude-code");
   return {
     prompt: "Review the changes in this working tree.",
     provider: chosen,
@@ -83,11 +89,11 @@ session was recorded on. Choose from it when it is set, as above. If the
 function returns a different provider or model than the one it was given,
 the session does not open.
 
-When the limits read fails, `claude.failed` says why and `weekly` is
-absent, so this step stays on Claude. `usage.query` rejects a name that was
-never added, such as `anthropic` on a machine where Claude Code has no
-login and no history. A snapshot holds dates, which a step result cannot carry, so
-return the fields you need rather than the snapshot.
+This agent chooses Codex below 20% remaining and uses Claude when no weekly
+share is available. Use `usage.query` when you need consumption or the
+provider's failure message. `usage.query` rejects a name that was never added.
+A snapshot holds dates, which a step result cannot carry, so return the
+fields you need from it.
 
 ## What a snapshot holds
 

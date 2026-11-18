@@ -125,6 +125,42 @@ describe("adding accounts", () => {
   });
 });
 
+describe("reading headroom share", () => {
+  it("reads the named account's current allowance without reading history", async () => {
+    let usedPercent = 80;
+    const { asked, provider, usage } = setup({
+      limits: () => ({
+        limits: [
+          window.weekly({ model: "special", usedPercent: 100 }),
+          window.weekly({ usedPercent }),
+          window.hourly({ hours: 5, usedPercent: 30 }),
+        ],
+      }),
+    });
+    usage.add(provider({ dir: "work", name: "work" }));
+
+    await expect(usage.share("work")).resolves.toBe(0.2);
+    usedPercent = 100;
+    await expect(usage.share("work")).resolves.toBe(0);
+    await expect(usage.share("work", "hourly")).resolves.toBe(0.7);
+    await expect(usage.share("work", "monthly")).resolves.toBeUndefined();
+    expect(asked.limits).toEqual(["work", "work", "work", "work"]);
+    expect(asked.history).toEqual([]);
+  });
+
+  it("has no share when the account is missing or cannot report limits", async () => {
+    const { provider, usage } = setup({
+      limits: () => {
+        throw new Error("Provider unreachable");
+      },
+    });
+    usage.add(provider());
+
+    await expect(usage.share("missing")).resolves.toBeUndefined();
+    await expect(usage.share("fake")).resolves.toBeUndefined();
+  });
+});
+
 describe("querying", () => {
   it("reads one named account's limits and consumption, fresh each time", async () => {
     const { asked, provider, usage } = setup();
