@@ -270,6 +270,14 @@ function recordedIn(
 
 /** What a started engine holds; absent until `start` and after a failed one. */
 const RETIRED_POLL_MS = 250;
+const RELEASE_RETRY_MS = 1000;
+const RELEASE_RETRY_MAX_MS = 30_000;
+
+interface OwedRelease {
+  readonly released?: () => void;
+  said: boolean;
+  timer?: ReturnType<typeof setTimeout>;
+}
 
 interface Running {
   readonly held: HeldRuns;
@@ -352,6 +360,8 @@ export class Engine {
   #stopping: Promise<void> | undefined;
   #retiring = false;
   readonly #letGo = new Set<string>();
+  readonly #owed = new Map<string, OwedRelease>();
+  #released = false;
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
   readonly #unwatchRecords: () => void;
@@ -1239,11 +1249,12 @@ export class Engine {
       ) {
         return;
       }
-      this.#giveBack(running, runId)
-        .then(() => options.onLetGo?.(runId))
-        .catch((error: unknown) =>
-          this.#print(`[run] ${runId} not let go: ${String(error)}`)
-        );
+      this.#giveBack(running, runId, () => options.onLetGo?.(runId)).catch(
+        (error: unknown) =>
+          this.#print(
+            `[run] ${runId} let go, and not reported: ${String(error)}`
+          )
+      );
     });
     for (const runId of running.held.withStatus(["suspended"])) {
       if (!this.#letGo.has(runId)) {
@@ -1299,15 +1310,27 @@ export class Engine {
     if (record?.status !== "suspended" || away()) {
       return false;
     }
-    const scope = await adoptParkedRun(record, {
-      askable: this.#askable,
-      print: () => undefined,
-      registered: (name) => this.#registered(name),
-      runs: this.#runs,
-      settled: (id) => this.#executions.storedSettled(id),
-      store: running.store,
-    });
+    const owed = this.#forgive(runId);
+    let scope: Awaited<ReturnType<typeof adoptParkedRun>>;
+    try {
+      scope = await adoptParkedRun(record, {
+        askable: this.#askable,
+        print: () => undefined,
+        registered: (name) => this.#registered(name),
+        runs: this.#runs,
+        settled: (id) => this.#executions.storedSettled(id),
+        store: running.store,
+      });
+    } catch (error) {
+      if (owed !== undefined) {
+        await this.#giveBack(running, runId, owed.released);
+      }
+      throw error;
+    }
     if (scope === undefined) {
+      if (owed !== undefined) {
+        await this.#giveBack(running, runId, owed.released);
+      }
       return false;
     }
     this.#scopes.recover(runId, scope);
@@ -1336,7 +1359,14 @@ export class Engine {
       }
     } catch (error) {
       this.#scopes.forget(runId);
-      await this.#giveBack(running, runId).catch(() => undefined);
+      await running.orchestrator
+        .forget(runId)
+        .catch((failure: unknown) =>
+          this.#print(
+            `[run] ${record.step} ${runId} not dropped from the queue: ${String(failure)}`
+          )
+        );
+      await this.#giveBack(running, runId);
       if (away()) {
         this.#print(
           `[run] ${record.step} ${runId} given back: this engine began to retire as it took it over`
@@ -1353,10 +1383,70 @@ export class Engine {
     return true;
   }
 
-  async #giveBack(running: Running, runId: string): Promise<void> {
+  async #giveBack(
+    running: Running,
+    runId: string,
+    released?: () => void
+  ): Promise<void> {
     this.#letGo.add(runId);
     running.router.letGo(runId);
-    await this.#runs.release(runId);
+    const before = this.#forgive(runId);
+    const tell = released ?? before?.released;
+    const owed: OwedRelease = {
+      ...(tell === undefined ? {} : { released: tell }),
+      said: false,
+    };
+    this.#owed.set(runId, owed);
+    await this.#release(runId, owed, RELEASE_RETRY_MS);
+  }
+
+  #forgive(runId: string): OwedRelease | undefined {
+    const owed = this.#owed.get(runId);
+    if (owed !== undefined) {
+      clearTimeout(owed.timer);
+      this.#owed.delete(runId);
+    }
+    return owed;
+  }
+
+  async #release(
+    runId: string,
+    owed: OwedRelease,
+    delay: number
+  ): Promise<void> {
+    if (this.#owed.get(runId) !== owed) {
+      return;
+    }
+    try {
+      await this.#runs.release(runId);
+    } catch (error) {
+      if (this.#owed.get(runId) !== owed) {
+        return;
+      }
+      if (this.#released) {
+        this.#owed.delete(runId);
+        return;
+      }
+      if (!owed.said) {
+        owed.said = true;
+        this.#print(
+          `[run] ${runId} not let go: ${String(error)}; it stays claimed here, unanswered, and is tried again`
+        );
+      }
+      owed.timer = setTimeout(() => {
+        this.#release(
+          runId,
+          owed,
+          Math.min(delay * 2, RELEASE_RETRY_MAX_MS)
+        ).catch(() => undefined);
+      }, delay);
+      owed.timer.unref?.();
+      return;
+    }
+    if (this.#owed.get(runId) === owed) {
+      this.#owed.delete(runId);
+      owed.released?.();
+    }
   }
 
   stop(options?: { readonly cancel?: boolean }): Promise<void> {
@@ -1410,6 +1500,10 @@ export class Engine {
         await this.#executions.flush();
         await this.#executions.retrySettlements();
       } finally {
+        this.#released = true;
+        for (const runId of [...this.#owed.keys()]) {
+          this.#forgive(runId);
+        }
         await this.#runs.release();
       }
     }

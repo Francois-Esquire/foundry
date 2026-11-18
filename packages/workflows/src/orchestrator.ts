@@ -852,6 +852,10 @@ export class Orchestrator {
     return queue.adopt(workflow, row);
   }
 
+  async forget(runId: string): Promise<boolean> {
+    return await this.#requireQueue().forget(runId);
+  }
+
   async #rebuild(row: RecoverableRun): Promise<Workflow> {
     const definition = row.definition ?? { name: row.step };
     const factory = this.registry.resolve(definition.name);
