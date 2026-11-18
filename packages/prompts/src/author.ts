@@ -76,6 +76,12 @@ function bareName(reference: PromptReference): string {
       return selectorName(reference.selector);
     case "shell":
       return reference.command;
+    case "command":
+    case "skill":
+    case "template":
+      return reference.arguments === undefined
+        ? reference.name
+        : `${reference.name} ${reference.arguments}`;
     default:
       return nameOf(reference) ?? "";
   }

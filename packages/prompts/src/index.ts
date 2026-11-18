@@ -55,7 +55,7 @@ export type {
   ReservedKey,
   Tag,
 } from "./prompts";
-export { assemble, prompts } from "./prompts";
+export { assemble, PortablePrompt, prompts } from "./prompts";
 export { ref, referenceOf } from "./reference";
 export type { Membership, PromptNames } from "./source";
 export type { CheckOptions } from "./static";

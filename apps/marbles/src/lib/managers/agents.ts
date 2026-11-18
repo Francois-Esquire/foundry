@@ -44,7 +44,7 @@ import type {
 } from "~/lib/usage";
 import { catalogPrices, costMeter, lostFact, usageFact } from "~/lib/usage";
 import type { ManagerArgs } from "../bindings";
-import { AGENT_DEFINITION, SANDBOX_HANDLE } from "../handles";
+import { AGENT_DEFINITION, AGENT_PROMPT, SANDBOX_HANDLE } from "../handles";
 import type { LiveSession } from "../run-scope";
 import { workingDirectory } from "../run-scope";
 import type {
@@ -709,10 +709,12 @@ function turnLimitMode(
 interface Opening {
   readonly definition: AgentDefinition<Output.Output>;
   readonly execution: Execution | null | undefined;
+  readonly executor: TurnExecutorRef;
   readonly id: string;
   readonly limit: TurnLimit | undefined;
   readonly mcp: readonly McpClient[];
   readonly options: SessionOptions;
+  readonly prompt: string;
   readonly resolution: Resolution<"text">;
   readonly route: Route;
   readonly site: SessionSite;
@@ -809,9 +811,15 @@ async function openBuilt<OUTPUT extends Output.Output>(
       `session ${pinned.id} ran on another configuration of provider ${resolution.provider} (its scope, settings, or account environment differ, or the instance it ran on is gone); start a new session`
     );
   }
-  const execution = options.sandbox
-    ? deps.executionOf?.(resolution.provider)
-    : undefined;
+  const execution = deps.executionOf?.(resolution.provider);
+  const executor: TurnExecutorRef = {
+    harness:
+      execution === undefined
+        ? harnessOf(resolution.provider)
+        : (execution?.harness ?? DIRECT_HARNESS),
+    model: resolution.model,
+    provider: resolution.provider,
+  };
   const limit =
     options.sandbox || options.maxTurns === undefined
       ? undefined
@@ -819,10 +827,12 @@ async function openBuilt<OUTPUT extends Output.Output>(
   const opening: Opening = {
     definition,
     execution,
+    executor,
     id,
     limit,
     mcp,
     options,
+    prompt: definition[AGENT_PROMPT]?.(executor.harness) ?? definition.prompt,
     resolution,
     route,
     site,
@@ -861,8 +871,10 @@ async function openSandboxSession(
   {
     definition,
     execution,
+    executor,
     id,
     options,
+    prompt,
     resolution,
     site,
     skills,
@@ -870,14 +882,6 @@ async function openSandboxSession(
   sandbox: SandboxHandle
 ): Promise<HarnessSession> {
   const { source } = site;
-  const executor: TurnExecutorRef = {
-    harness:
-      execution === undefined
-        ? harnessOf(resolution.provider)
-        : (execution?.harness ?? DIRECT_HARNESS),
-    model: resolution.model,
-    provider: resolution.provider,
-  };
   const guest = isCliHarness(executor.harness);
   if (guest) {
     resolution.hold();
@@ -911,10 +915,7 @@ async function openSandboxSession(
         sessionOptions.authority
       ),
     ...(guest ? {} : { model: heldText(resolution, site) }),
-    instructions: [
-      definition.prompt,
-      ...skills.map((skill) => skill.instructions ?? ""),
-    ]
+    instructions: [prompt, ...skills.map((skill) => skill.instructions ?? "")]
       .filter(Boolean)
       .join("\n\n"),
     options: sessionOptions,
@@ -940,6 +941,7 @@ async function openLocalSession(
     limit,
     mcp,
     options,
+    prompt,
     resolution,
     route,
     site,
@@ -957,7 +959,7 @@ async function openLocalSession(
     id: definition.id,
     ...(mcp.length === 0 ? {} : { mcp: mcp.map((client) => client.id) }),
     ...(modelId === undefined ? {} : { model: modelId }),
-    prompt: definition.prompt,
+    prompt,
     ...(provider === undefined ? {} : { provider }),
     skills: skills.map((skill) => skill.name),
   };

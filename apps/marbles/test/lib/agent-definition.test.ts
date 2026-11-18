@@ -8,6 +8,7 @@ import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
+import { prompts, ref } from "~/authoring/index";
 import { agent, skills } from "~/authoring/resources";
 import { dispose, setHost } from "~/authoring/runtime";
 import type { ManagerArgs } from "~/lib/bindings";
@@ -160,6 +161,26 @@ const verdict = Output.object({
 const topLevelReviewer = agent(() => ({ prompt: "Review." }));
 
 describe("when the function runs", () => {
+  it("renders one portable prompt for the harness of the resolved model", async () => {
+    hostEngine();
+    const prompt = prompts.portable`Use ${ref.skill("inspections")} to read ${ref.file("AGENTS.md")}.`;
+    const reviewer = agent({
+      model: "claude-code/opus",
+      prompt,
+    });
+    const alternate = agent(async () => ({
+      model: "codex/gpt-5.5",
+      prompt,
+    }));
+
+    expect(parse((await reviewer.generate("Look.")).text).prompt).toContain(
+      "Use /inspections to read @AGENTS.md."
+    );
+    expect(parse((await alternate.generate("Look.")).text).prompt).toContain(
+      "Use $inspections to read @AGENTS.md."
+    );
+  });
+
   it("runs on no declaration and no extend, then once per session", async () => {
     hostEngine();
     const define = vi.fn(() => ({ prompt: "Review." }));
@@ -928,6 +949,30 @@ describe("input", () => {
 });
 
 describe("an MCP dispatch", () => {
+  it("keeps portable notation when dispatch adds instructions", async () => {
+    const engine = hostEngine();
+    const reviewer = agent({
+      prompt: prompts.portable`Use ${ref.skill("inspections")}.`,
+    });
+    const jobs = new BackgroundRuns(engine, catalog);
+    await engine.start();
+    try {
+      const started = await jobs.start({
+        agent: reviewer.id,
+        instructions: "Inspect only.",
+        model: "codex/gpt-5.5",
+        prompt: "Inspect",
+      });
+      await vi.waitFor(async () =>
+        expect((await jobs.get(started.runId)).status).toBe("completed")
+      );
+      const { text } = await jobs.get(started.runId);
+      expect(text).toContain("Use $inspections.\n\nInspect only.");
+    } finally {
+      await jobs.close();
+    }
+  });
+
   it("builds a declared agent for the route the dispatch asks for", async () => {
     const engine = testEngine({
       print: () => undefined,

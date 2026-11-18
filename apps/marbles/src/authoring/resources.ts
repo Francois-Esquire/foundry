@@ -5,6 +5,7 @@ import type { AgentDeclaration, DefineAgent } from "~/authoring/instances";
 import {
   agentInstance,
   artifactInstance,
+  promptFields,
   recipeInstance,
   sandboxInstance,
   workspaceInstance,
@@ -76,18 +77,28 @@ export function agent<OUTPUT extends Output.Output = never, INPUT = undefined>(
   if (typeof spec === "function") {
     return agentFromFunction(spec);
   }
-  const { name, ...rest } = spec;
-  if (!rest.prompt.trim()) {
+  const { name, prompt, ...rest } = spec;
+  const fields = promptFields(prompt);
+  if (!fields.prompt.trim()) {
     throw new Error("agent(): a prompt is required");
   }
   if (name?.trim() === "") {
     throw new Error("agent(): a name cannot be blank");
   }
   const digest = createHash("sha256")
-    .update(canonicalizeJson([rest.prompt]))
+    .update(
+      canonicalizeJson(
+        typeof prompt === "string" ? [prompt] : ["portable", prompt.key]
+      )
+    )
     .digest("hex");
   const id = claimAgentId(name, digest);
-  const definition = agentInstance<OUTPUT>({ id, kind: "agent", ...rest });
+  const definition = agentInstance<OUTPUT>({
+    id,
+    kind: "agent",
+    ...rest,
+    ...fields,
+  });
   declaringCatalog().agents.set(id, definition as Agent<Output.Output>);
   return definition;
 }

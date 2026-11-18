@@ -24,6 +24,8 @@ export { TaskError, Tasks } from "@foundry/tasks";
 export { MemoryTaskStore } from "@foundry/tasks/store/memory";
 export type {
   Balance,
+  BillingAccountOptions,
+  Budget,
   Charge,
   Consumption,
   CreditBalance,
