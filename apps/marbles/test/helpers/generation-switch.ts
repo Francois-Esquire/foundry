@@ -5,16 +5,20 @@ import { expect, onTestFinished, vi } from "vitest";
 import type { Layout } from "~/layout";
 import type { WorkspaceSummary } from "~/model/connection";
 import { connect, type MarblesClient } from "~/process/client";
-import { type DaemonOptions, startDaemon } from "~/process/daemon";
+import { type Daemon, type DaemonOptions, startDaemon } from "~/process/daemon";
 import { testHome } from "./home";
 
-export interface SwitchFixture {
-  readonly client: MarblesClient;
+export interface GenerationFiles {
   readonly gates: string;
-  readonly lines: readonly string[];
   readonly log: string;
   readonly machine: Layout;
+  readonly root: string;
   readonly source: string;
+}
+
+interface SwitchFixture extends GenerationFiles {
+  readonly client: MarblesClient;
+  readonly daemon: Daemon;
   readonly summary: WorkspaceSummary;
 }
 
@@ -48,58 +52,84 @@ function moduleText(
   ].join("\n");
 }
 
-export async function switchingWorkspace(
+export function generationFiles(
+  home: ReturnType<typeof testHome>
+): GenerationFiles {
+  const root = join(home.path, "project");
+  mkdirSync(root);
+  const gates = join(home.path, "gates");
+  mkdirSync(gates);
+  const log = join(home.path, "steps.log");
+  writeFileSync(log, "");
+  return {
+    gates,
+    log,
+    machine: home.layout,
+    root,
+    source: join(root, "marbles.config.ts"),
+  };
+}
+
+export async function startSwitchingWorkspace(
+  fixture: GenerationFiles,
+  text: string,
+  options: Partial<DaemonOptions> = {},
+  track?: (daemon: Daemon) => void
+): Promise<SwitchFixture> {
+  writeFileSync(fixture.source, text);
+  const daemon = await startDaemon({
+    layout: fixture.machine,
+    print: () => undefined,
+    ...options,
+  });
+  if (track === undefined) {
+    onTestFinished(() => daemon.close(), 60_000);
+  } else {
+    track(daemon);
+  }
+  const client = await connect({ layout: fixture.machine, start: false });
+  onTestFinished(() => client.close());
+  const summary = await client.attach(fixture.source);
+  return { ...fixture, client, daemon, summary };
+}
+
+export function switchingWorkspace(
   options: {
     readonly daemon?: Partial<DaemonOptions>;
     readonly providers?: boolean;
   } = {}
 ): Promise<SwitchFixture> {
-  const home = testHome({ providers: options.providers ?? false });
-  const root = join(home.path, "project");
-  mkdirSync(root);
-  const gates = join(home.path, "gates");
-  mkdirSync(gates);
-  const lines: string[] = [];
-  const fixture = {
-    gates,
-    lines,
-    log: join(home.path, "steps.log"),
-    machine: home.layout,
-    source: join(root, "marbles.config.ts"),
-  };
-  writeFileSync(fixture.log, "");
-  writeFileSync(fixture.source, moduleText(fixture, 0));
-  const daemon = await startDaemon({
-    layout: fixture.machine,
-    print: (line) => lines.push(line),
-    ...options.daemon,
-  });
-  onTestFinished(() => daemon.close(), 60_000);
-  const client = await connect({ layout: fixture.machine, start: false });
-  onTestFinished(() => client.close());
-  const summary = await client.attach(fixture.source);
-  return { ...fixture, client, summary };
+  const fixture = generationFiles(
+    testHome({ providers: options.providers ?? false })
+  );
+  return startSwitchingWorkspace(
+    fixture,
+    moduleText(fixture, 0),
+    options.daemon
+  );
+}
+
+export function logged(fixture: Pick<GenerationFiles, "log">): string[] {
+  return readFileSync(fixture.log, "utf8").split("\n").filter(Boolean);
 }
 
 export async function whenLogged(
   fixture: Pick<SwitchFixture, "log">,
   line: string
 ): Promise<void> {
-  await vi.waitFor(
-    () =>
-      expect(
-        readFileSync(fixture.log, "utf8").split("\n").filter(Boolean)
-      ).toContain(line),
-    { interval: 50, timeout: 30_000 }
-  );
+  await vi.waitFor(() => expect(logged(fixture)).toContain(line), {
+    interval: 50,
+    timeout: 30_000,
+  });
 }
 
 export async function switchFrom(
-  fixture: SwitchFixture,
+  fixture: GenerationFiles & { readonly client: MarblesClient },
   before: number,
-  revision: number
+  revision: number,
+  text = moduleText(fixture, revision)
 ): Promise<number> {
-  writeFileSync(fixture.source, moduleText(fixture, revision));
+  writeFileSync(fixture.source, text);
   let pid = before;
   await vi.waitFor(
     async () => {
@@ -114,15 +144,15 @@ export async function switchFrom(
 }
 
 export function openGate(
-  gate: number,
+  gate: number | string,
   fixture: Pick<SwitchFixture, "gates">
 ): void {
   writeFileSync(join(fixture.gates, String(gate)), "");
 }
 
-export async function gone(pid: number): Promise<void> {
+export async function gone(pid: number, timeout = 30_000): Promise<void> {
   await vi.waitFor(() => expect(processAlive(pid)).toBe(false), {
     interval: 100,
-    timeout: 30_000,
+    timeout,
   });
 }

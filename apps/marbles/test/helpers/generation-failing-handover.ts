@@ -1,9 +1,21 @@
 #!/usr/bin/env bun
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { Engine } from "~/lib/engine";
 import { ExecutionRecords } from "~/lib/execution-records";
 
 const marker = process.env.MARBLES_TEST_FAIL_HANDOVER ?? "";
+const busy = process.env.MARBLES_TEST_FAIL_ORPHAN_TAKE;
+const { takeQueuedFrom } = ExecutionRecords.prototype;
+ExecutionRecords.prototype.takeQueuedFrom = function (
+  this: ExecutionRecords,
+  ...args: Parameters<ExecutionRecords["takeQueuedFrom"]>
+) {
+  if (busy !== undefined && existsSync(busy)) {
+    rmSync(busy);
+    return Promise.reject(new Error("injected SQLITE_BUSY during orphan take"));
+  }
+  return takeQueuedFrom.apply(this, args);
+};
 const records = ExecutionRecords.prototype as unknown as {
   handQueued: (...args: unknown[]) => Promise<boolean>;
 };
