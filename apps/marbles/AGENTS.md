@@ -68,8 +68,11 @@ Five buckets, each importing only what sits below it:
   document in a `GrantDocumentStorage` (`@foundry/lib`), deferred approvals
   are kept in a `DeferredApprovalStore` (`lib/sandbox/deferred-approvals.ts`)
   and harness activities in an `ActivityStore` (`lib/sandbox/activities.ts`),
-  each in memory without one. Which engine delivers a workspace's task
-  changes is a claim its `records` grant (`claimDelivery`). Provider
+  each in memory without one. Which engine delivers a workspace's
+  changes is a claim its `records` grant (`claimDelivery`, the
+  `DeliveryLease` seam); `lib/events/delivery.ts` hands each observer,
+  known by workspace, source and name, the facts of its source from the
+  change log (`lib/events/log.ts`), in order, from its own place. Provider
   configuration, the machine's and each workspace's, and the identity key
   are kept in a `ProviderStore` (`lib/providers/store.ts`); the
   configuration reads it when the engine starts (`refresh`), not when it
@@ -145,14 +148,22 @@ Five buckets, each importing only what sits below it:
   `@foundry/<pkg>/store/tables`, one `export *` line per package. Marbles' own
   stores sit beside the tables (`workspaces.ts`, the workspace registry,
   which leaves out any workspace whose `<state>/<id>` is a link, for every
-  reader alike), and `tasks.ts`, a workspace's tasks: the package's
-  `SqliteTaskStore` scoped by the workspace id, and Marbles' record of
-  each change they commit (`marbles_task_changes`), written by the store's
-  `onCommit` hook on the transaction it is handed, so a change and its row
-  commit together. That hook is the seam for anything else that records
-  task changes. `sessions.ts` is a workspace's agent sessions the same
+  reader alike), `changes.ts`, a workspace's change log: every change
+  fact any of its stores commits (`marbles_changes`), at the next
+  position of the workspace's counter (`marbles_change_logs`, never
+  reused, compaction or not), with the run that made it, and each
+  observer's place (`marbles_observers`). Every store below records its
+  facts there through one `ChangeRecorder` per workspace, called by the
+  store's `onCommit` hook on the transaction it is handed, so a change
+  and its facts commit together; the recorder notes the causing run when
+  the store is handed the write (`causing`), and wakes delivery in this
+  process. `tasks.ts` is a workspace's tasks: the package's
+  `SqliteTaskStore` scoped by the workspace id, and the records
+  (`DatabaseWorkspaceRecords`) that own the workspace's recorder and log.
+  `sessions.ts` is a workspace's agent sessions the same
   way: the package's `SqliteSessionStore` scoped by the workspace id, whose
-  `onCommit` hook raises each session's row in `marbles_session_revisions`,
+  `onCommit` hook raises each session's row in `marbles_session_revisions`
+  and records its facts,
   the listing usage recovery, `marbles sessions` and `status` read. A row
   exists only for a session record put; a commit that puts messages first
   reads, through a view of its own transaction, the session each leaves,
@@ -160,7 +171,7 @@ Five buckets, each importing only what sits below it:
   package's tables directly. `stores.ts` is a workspace's artifacts,
   sandbox containers and workspace catalogue: each package's SQLite store
   scoped by the workspace id, handed over as the package makes it, with
-  no hook; each container row names its holder itself, which Marbles
+  the recorder's hook alone; each container row names its holder itself, which Marbles
   makes its process identity (`lib/sandbox/holders.ts`), so a start takes
   back the rows a gone process left. Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
@@ -189,7 +200,7 @@ Five buckets, each importing only what sits below it:
   `activities.ts` are a workspace's agent grants (one document the grant
   repository validates), deferred approvals (one document) and harness
   activities (a row each, replaced only by a higher revision); the
-  workspace's records (`tasks.ts`) keep who delivers its task changes in
+  workspace's records (`tasks.ts`) keep who delivers its changes in
   `marbles_delivery_claims`, a claim a transaction on that row, as tick
   claims are. `providers.ts` is the machine's provider configuration, a row
   per scope with a revision the configuration's watcher polls, and the

@@ -1,27 +1,118 @@
+import type { SessionChangeEvent } from "@foundry/agents/schema";
+import type { ArtifactEvent } from "@foundry/artifacts";
+import type { SandboxEvent } from "@foundry/sandbox/store";
+import type { RunEvent } from "@foundry/workflows/schema";
+import type { WorkspaceEvent } from "@foundry/workspaces/schema";
+import type { workflow } from "~/authoring/builder";
+import { bindingAt, callSite } from "~/authoring/identity";
+import type {
+  agent,
+  artifact,
+  sandbox,
+  workspace,
+} from "~/authoring/resources";
 import { declaringCatalog } from "~/authoring/runtime";
-import type { Handler, Observable } from "~/lib/events/source";
+import type { Fact, Handler, Observable } from "~/lib/events/source";
 import { SOURCE, sourceKey } from "~/lib/events/source";
 
-/**
- * Call `handler` with every change `source` commits in the workspace, such
- * as each `tasks.changed` payload of `tasks`. Every change is stored, with
- * which handlers completed it, so a handler receives each change it has not
- * completed: those made before it was declared, and one it threw on, or
- * whose process stopped first, after a later change or the next start. A
- * handler can therefore see a payload more than once.
- *
- * The host delivers from its start; the handler runs outside any task
- * write, and may change tasks itself. Nothing identifies a handler but its
- * own source text: see the engine's `Delivery` for what editing one does.
- */
-export function observe<T>(source: Observable<T>, handler: Handler<T>): void {
-  const symbol: unknown = (source as Partial<Observable<T>> | null)?.[SOURCE];
-  if (typeof symbol !== "symbol" || sourceKey(symbol) === undefined) {
+export function observe<T extends Fact>(
+  source: Observable<T>,
+  handler: Handler<T>,
+  options?: ObserveOptions<T>
+): Observer;
+export function observe(
+  source: typeof workflow,
+  handler: Handler<RunEvent>,
+  options?: ObserveOptions<RunEvent>
+): Observer;
+export function observe(
+  source: typeof artifact,
+  handler: Handler<ArtifactEvent>,
+  options?: ObserveOptions<ArtifactEvent>
+): Observer;
+export function observe(
+  source: typeof sandbox,
+  handler: Handler<SandboxEvent>,
+  options?: ObserveOptions<SandboxEvent>
+): Observer;
+export function observe(
+  source: typeof workspace,
+  handler: Handler<WorkspaceEvent>,
+  options?: ObserveOptions<WorkspaceEvent>
+): Observer;
+export function observe(
+  source: typeof agent,
+  handler: Handler<SessionChangeEvent>,
+  options?: ObserveOptions<SessionChangeEvent>
+): Observer;
+export function observe(
+  source: unknown,
+  handler: Handler<never>,
+  options: ObserveOptions<Fact> = {}
+): Observer {
+  const symbol: unknown = (source as Partial<Observable<Fact>> | null)?.[
+    SOURCE
+  ];
+  const key = typeof symbol === "symbol" ? sourceKey(symbol) : undefined;
+  if (typeof symbol !== "symbol" || key === undefined) {
     throw new TypeError("observe: the source is not something Marbles emits");
   }
   if (typeof handler !== "function") {
     throw new TypeError("observe: the handler must be a function");
   }
-  // A source emits only its own payload type.
-  declaringCatalog().observe(symbol, handler as Handler<unknown>);
+  const name = observerName(options.name, handler);
+  if (options.types?.length === 0) {
+    throw new TypeError(
+      "observe: `types` names no type; leave it out to observe every type"
+    );
+  }
+  if (
+    options.timeout !== undefined &&
+    !(Number.isFinite(options.timeout) && options.timeout > 0)
+  ) {
+    throw new TypeError(
+      "observe: `timeout` is how many ms one call may run, above 0"
+    );
+  }
+  declaringCatalog().observe({
+    handler: handler as Handler<unknown>,
+    name,
+    source: symbol,
+    ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
+    ...(options.types === undefined ? {} : { types: [...options.types] }),
+  });
+  return Object.freeze({ kind: "observer", name, source: key });
+}
+
+export interface ObserveOptions<T extends Fact> {
+  readonly name?: string;
+  readonly timeout?: number;
+  readonly types?: readonly T["type"][];
+}
+
+export interface Observer {
+  readonly kind: "observer";
+  readonly name: string;
+  readonly source: string;
+}
+
+function observerName(
+  given: string | undefined,
+  handler: Handler<never>
+): string {
+  if (given !== undefined) {
+    if (given.trim() === "") {
+      throw new TypeError("observe: an observer's name cannot be blank");
+    }
+    return given.trim();
+  }
+  const site = callSite();
+  const bound = site === undefined ? undefined : bindingAt(site);
+  const name = bound ?? handler.name;
+  if (name === "") {
+    throw new TypeError(
+      "observe: name this observer: pass `{ name }`, assign the call to a top-level const, or give the handler a function name"
+    );
+  }
+  return name;
 }

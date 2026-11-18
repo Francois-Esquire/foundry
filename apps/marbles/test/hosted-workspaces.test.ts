@@ -58,7 +58,7 @@ export const build = step("build").do(async ({ exec }) => {
 });
 schedule(build).every("1d");
 monitor("notes/*.md").do(() => undefined);
-observe(tasks, async (payload) => {
+observe(tasks, async function pong(payload) {
   for (const change of payload.tasks) {
     if (change.after?.title === "ping") {
       await tasks.create({ title: "pong ${name}" });

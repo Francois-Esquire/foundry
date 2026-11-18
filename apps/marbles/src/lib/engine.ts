@@ -43,10 +43,11 @@ import {
 } from "~/lib/crash-recovery";
 import type { AnyDefinition } from "~/lib/definition";
 import { environmentSnapshot } from "~/lib/environment";
+import type { ObserveOptions } from "~/lib/events/delivery";
 import { Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
-import type { Handler, Source } from "~/lib/events/source";
+import type { Fact, Handler, Source } from "~/lib/events/source";
 import type { ExecutionContext } from "~/lib/execution-context";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import type { ExecutionStore } from "~/lib/execution-store";
@@ -129,6 +130,7 @@ export interface EngineOptions {
    */
   readonly askable?: boolean;
   readonly automationStore?: AutomationStore;
+  readonly changeRetention?: number;
   readonly containerRows?: Pick<ContainerStore, "list">;
   /**
    * Where sandboxes run. A function is called at the first sandbox and its
@@ -152,6 +154,7 @@ export interface EngineOptions {
    */
   readonly git?: GitOptions;
   readonly grants?: GrantDocumentStorage;
+  readonly handlerTimeout?: number;
   readonly home?: string;
   /**
    * Where definitions' own `log(...)` lines go, with where each came from:
@@ -452,8 +455,10 @@ export class Engine {
     this.#records = options.records ?? new MemoryWorkspaceRecords();
     this.#delivery = new Delivery({
       context: this.context,
+      handlerTimeout: options.handlerTimeout,
       print,
       records: this.#records,
+      retention: options.changeRetention,
     });
     this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
@@ -652,13 +657,18 @@ export class Engine {
     this.#adopt(record.key);
   }
 
-  /**
-   * Hand every item `source` emits in this workspace to `handler`, until it
-   * completes. Declared before `start`, as an authoring module's `observe`
-   * is.
-   */
-  observe<T>(source: Source<T>, handler: Handler<T>): void {
-    this.#delivery.observe(source, handler);
+  observe<T extends Fact>(
+    source: Source<T>,
+    handler: Handler<T>,
+    options: Partial<ObserveOptions> = {}
+  ): void {
+    const name = options.name ?? handler.name;
+    if (name === "") {
+      throw new TypeError(
+        "observe: give the observer a name (`{ name }`), or a named handler"
+      );
+    }
+    this.#delivery.observe(source, handler, { ...options, name });
   }
 
   /** The monitors a host declared, by key. */
@@ -1212,7 +1222,7 @@ export class Engine {
     this.#retiring = true;
     this.#launcher.beginRetiring();
     running.router.retire();
-    await this.#delivery.letGo().catch((error: unknown) => {
+    await this.#delivery.stop({ grace: 0 }).catch((error: unknown) => {
       this.#print(
         `[engine] the delivery claim was not given up as this engine retires: ${String(error)}`
       );

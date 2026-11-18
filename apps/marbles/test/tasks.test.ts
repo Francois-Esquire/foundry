@@ -1,6 +1,15 @@
 import { Tasks } from "@foundry/tasks";
 import type { TaskEvent } from "@foundry.sh/marbles";
-import { observe, step, tasks } from "@foundry.sh/marbles";
+import {
+  agent,
+  artifact,
+  observe,
+  sandbox,
+  step,
+  tasks,
+  workflow,
+  workspace,
+} from "@foundry.sh/marbles";
 import {
   afterAll,
   afterEach,
@@ -67,9 +76,13 @@ describe("tasks", () => {
 
   it("is the host's workspace tasks, delivered to what the source observes", async () => {
     const seen: TaskEvent[] = [];
-    observe(tasks, (payload) => {
-      seen.push(payload);
-    });
+    observe(
+      tasks,
+      (payload) => {
+        seen.push(payload);
+      },
+      { name: "hosted" }
+    );
     const state = machine.workspace();
     const engine = host(state);
     await engine.start();
@@ -122,12 +135,16 @@ describe("tasks", () => {
       await tasks.create({ title: "Trigger" });
       return await nested.run();
     });
-    observe(tasks, (event) => {
-      if (event.tasks.some((delta) => delta.after?.title === "Trigger")) {
-        ids.handler = current.getStore()?.scope.id ?? "outside any run";
-        asked.run().catch(() => undefined);
-      }
-    });
+    observe(
+      tasks,
+      (event) => {
+        if (event.tasks.some((delta) => delta.after?.title === "Trigger")) {
+          ids.handler = current.getStore()?.scope.id ?? "outside any run";
+          asked.run().catch(() => undefined);
+        }
+      },
+      { name: "trigger" }
+    );
     const state = temporaryDirectory("marbles-tasks-");
     const first = host(state, true);
     await first.start();
@@ -184,9 +201,13 @@ describe("tasks", () => {
         state: temporaryDirectory("marbles-inner-"),
       });
       engines.push(inner);
-      inner.observe(TASKS, () => {
-        seen.push(current.getStore()?.scope.id ?? "outside any run");
-      });
+      inner.observe(
+        TASKS,
+        () => {
+          seen.push(current.getStore()?.scope.id ?? "outside any run");
+        },
+        { name: "inner" }
+      );
       await inner.start();
       return run.id;
     });
@@ -211,19 +232,69 @@ describe("tasks", () => {
     expect(seen).not.toContain(builderRun);
   });
 
-  it("observe takes a source and a handler, and nothing else", () => {
+  it("observe takes a source, a handler, and how the observer is named and what it is handed", () => {
     expect(() =>
       // @ts-expect-error A plain Tasks is not something Marbles emits.
-      observe(new Tasks(), () => undefined)
+      observe(new Tasks(), () => undefined, { name: "plain" })
     ).toThrow(NOT_A_SOURCE);
-    // @ts-expect-error No options.
-    observe(tasks, () => undefined, { id: "x" });
+    // @ts-expect-error Only a name and types.
+    observe(tasks, () => undefined, { id: "x", name: "extra" });
     expect(
-      observe(tasks, (payload) => {
-        // @ts-expect-error The payload is the source's.
-        expect(payload.missing).toBeUndefined();
+      observe(
+        tasks,
+        (payload) => {
+          // @ts-expect-error The payload is the source's.
+          expect(payload.missing).toBeUndefined();
+        },
+        { name: "typed" }
+      )
+    ).toEqual({ kind: "observer", name: "typed", source: "tasks" });
+    const handed: string[] = [];
+    expect(
+      observe(tasks, function byFunction(payload) {
+        handed.push(payload.type);
       })
-    ).toBeUndefined();
-    expect(catalog.observers).toHaveLength(2);
+    ).toMatchObject({ name: "byFunction" });
+    expect(
+      observe(
+        workflow,
+        (run) => {
+          handed.push(run.runId);
+        },
+        { name: "runs", types: ["run.failed"] }
+      )
+    ).toEqual({ kind: "observer", name: "runs", source: "runs" });
+    expect(observe(artifact, () => undefined, { name: "a" }).source).toBe(
+      "artifacts"
+    );
+    expect(observe(sandbox, () => undefined, { name: "s" }).source).toBe(
+      "sandboxes"
+    );
+    expect(observe(workspace, () => undefined, { name: "w" }).source).toBe(
+      "workspaces"
+    );
+    expect(observe(agent, () => undefined, { name: "g" }).source).toBe(
+      "sessions"
+    );
+    expect(() =>
+      // @ts-expect-error A type the source does not emit.
+      observe(workflow, () => undefined, { name: "bad", types: ["nope"] })
+    ).not.toThrow();
+    expect(() => observe(tasks, () => undefined)).toThrow("name this observer");
+    expect(() => observe(tasks, () => undefined, { name: "typed" })).toThrow(
+      'named "typed" is already declared'
+    );
+    expect(catalog.observers.map((observer) => observer.name)).toEqual([
+      "extra",
+      "typed",
+      "byFunction",
+      "runs",
+      "a",
+      "s",
+      "w",
+      "g",
+      "bad",
+    ]);
+    expect(catalog.observers[3]?.types).toEqual(["run.failed"]);
   });
 });

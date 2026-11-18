@@ -34,10 +34,19 @@ export { MemoryAutomationStore } from "./automation/store";
 export type { EngineOptions } from "./engine";
 export { Engine, RunEndedError } from "./engine";
 export type {
-  PendingQuery,
-  StreamItem,
-  WorkspaceRecords,
-} from "./events/records";
+  ChangeLog,
+  ChangeQuery,
+  CompactionBound,
+  LoggedChange,
+  MissedRange,
+  MoveOutcome,
+  ObserverFailure,
+  ObserverKey,
+  ObserverMove,
+  ObserverState,
+} from "./events/log";
+export { MemoryChangeLog } from "./events/log";
+export type { DeliveryLease, WorkspaceRecords } from "./events/records";
 export { MemoryWorkspaceRecords } from "./events/records";
 export type { ExecutionStatus } from "./execution-statuses";
 export {

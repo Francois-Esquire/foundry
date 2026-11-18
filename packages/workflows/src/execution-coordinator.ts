@@ -428,7 +428,9 @@ export class ExecutionCoordinator implements OrchestratorStore {
           timestamps: { failedAt: at },
         })
       );
-      await store.commit({ putRuns: [abandoned] });
+      await store.commit(
+        withEvents({ putRuns: [abandoned] }, runEvents(existing, abandoned))
+      );
       return abandoned;
     });
   }

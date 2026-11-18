@@ -1062,6 +1062,35 @@ describe("Sessions change events", () => {
     ]);
   });
 
+  it("carries a session.messages.appended for a conditional append that lands, and writes nothing for one refused", async () => {
+    const { sessions, writes } = await recorded();
+    await sessions.createSession({ id: "s" });
+    const before = writes.length;
+
+    const refused = await sessions.appendMessageIf(
+      { parts: text("no"), role: "user", sessionId: "s" },
+      () => false
+    );
+    expect(refused).toBeUndefined();
+    expect(writes).toHaveLength(before);
+
+    const landed = await sessions.appendMessageIf(
+      { parts: text("yes"), role: "user", sessionId: "s" },
+      (history) => history.length === 0
+    );
+    expect(writes.slice(before).map((write) => write.events)).toEqual([
+      [
+        {
+          at: new Date(req(landed).createdAt).toISOString(),
+          id: expect.any(String),
+          messageIds: [req(landed).id],
+          sessionId: "s",
+          type: "session.messages.appended",
+        },
+      ],
+    ]);
+  });
+
   it("carries a session.updated for a status change alone", async () => {
     const { sessions, writes } = await recorded();
     await sessions.createSession({ id: "s" });

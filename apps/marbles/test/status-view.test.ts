@@ -17,6 +17,41 @@ function report(orphaned = false): StatusReport {
         hosted: true,
         id: "ws1",
         lastSeen: null,
+        observers: [
+          {
+            behind: 0,
+            failures: 0,
+            lastError: null,
+            missed: null,
+            name: "notify",
+            position: 4,
+            retryAt: null,
+            source: "tasks",
+            stuckSince: null,
+          },
+          {
+            behind: 3,
+            failures: 2,
+            lastError: "the webhook is down",
+            missed: { from: 1, through: 1 },
+            name: "deploy",
+            position: 1,
+            retryAt: Date.parse("2026-11-15T12:00:02.000Z"),
+            source: "runs",
+            stuckSince: null,
+          },
+          {
+            behind: 1,
+            failures: 1,
+            lastError: "the handler did not finish within 300s",
+            missed: null,
+            name: "hung",
+            position: 3,
+            retryAt: Date.parse("2026-11-15T12:05:01.000Z"),
+            source: "tasks",
+            stuckSince: Date.parse("2026-11-15T12:00:00.000Z"),
+          },
+        ],
         pid: 123,
         recovery: {
           at: "2026-11-15T12:00:00.000Z",
@@ -138,5 +173,18 @@ describe("the last recovery", () => {
         workspaces: [{ ...(only as NonNullable<typeof only>), recovery: null }],
       })
     ).toContain("last recovery: none recorded");
+  });
+});
+
+describe("the observers", () => {
+  test("are shown each with its place, a failing one with its error and next try, and what one missed", () => {
+    const text = statusText(report());
+    expect(text).toContain("observers");
+    expect(text).toContain("notify (tasks)  [caught up] at 4");
+    expect(text).toContain("deploy (runs)  [failing ×2] at 1");
+    expect(text).toContain(
+      "  the webhook is down · next try 2026-11-15T12:00:02.000Z"
+    );
+    expect(text).toContain("  missed 1 to 1: removed before it received them");
   });
 });

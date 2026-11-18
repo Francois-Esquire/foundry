@@ -2,14 +2,20 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
+import type {
+  SessionChangeEvent,
+  SessionMessage,
+  SessionRecord,
+} from "@foundry/agents/schema";
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStoreWrite } from "@foundry/agents/store";
 import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
+import type { RecordingSessionStorage } from "@foundry/agents/testing/store";
 import { describeSessionStore } from "@foundry/agents/testing/store";
 import { afterAll, describe, expect, it } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
+import { ChangeRecorder } from "~/database/changes";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { openWorkspaceDatabase } from "~/database/managed";
@@ -88,9 +94,44 @@ const KINDS: readonly {
   },
 ];
 
+async function recordingSessions(): Promise<RecordingSessionStorage> {
+  const machine = await testMachine();
+  machines.push(machine);
+  const fail: { next: boolean } = { next: false };
+  class FailingRecorder extends ChangeRecorder {
+    override async record(
+      ...args: Parameters<ChangeRecorder["record"]>
+    ): Promise<void> {
+      await super.record(...args);
+      if (fail.next) {
+        fail.next = false;
+        throw new Error("the host refused the commit");
+      }
+    }
+  }
+  return {
+    failNextCommit: () => {
+      fail.next = true;
+    },
+    recorded: async () =>
+      (await machine.changes(join(machine.root, "scope"), "sessions")).map(
+        (change) => change.payload as unknown as SessionChangeEvent
+      ),
+    storage: perScope(
+      (scope) =>
+        new DatabaseSessionStore({
+          changes: new FailingRecorder(scope),
+          database: machine.database.database,
+          scope,
+        })
+    ),
+  };
+}
+
 for (const kind of KINDS) {
   describeSessionStore(kind.name, async () => (await kind.storage()).stores, {
-    hooked: false,
+    hooked: true,
+    recording: recordingSessions,
   });
 }
 

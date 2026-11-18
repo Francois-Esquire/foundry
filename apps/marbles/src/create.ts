@@ -22,6 +22,7 @@ import {
   DatabaseAutomationStore,
   readAutomations,
 } from "~/database/automations";
+import type { ChangeRecorder } from "~/database/changes";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { DatabaseGrantStorage } from "~/database/grants";
 import type { WorkspaceDatabase } from "~/database/managed";
@@ -48,6 +49,7 @@ import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot, executionEnvironment } from "~/lib/environment";
+import { sourceKey } from "~/lib/events/source";
 import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
@@ -127,8 +129,12 @@ export function declareCatalog(target: Declarable, catalog: Catalog): void {
   for (const record of catalog.monitors.values()) {
     target.monitor(record);
   }
-  for (const { handler, source } of catalog.observers) {
-    target.observe?.(source, handler);
+  for (const { handler, name, source, timeout, types } of catalog.observers) {
+    target.observe?.(source, handler, {
+      name,
+      ...(timeout === undefined ? {} : { timeout }),
+      ...(types === undefined ? {} : { types }),
+    });
   }
 }
 
@@ -260,20 +266,24 @@ function recordsFor(
   | "triggers"
   | "usageStore"
 > & {
+  readonly changes?: ChangeRecorder;
   readonly own?: WorkspaceDatabase;
 } {
   if (database !== undefined) {
     const scope = workspaceId;
+    const records = new DatabaseWorkspaceRecords({ database, scope });
+    const { changes } = records;
     return {
       activityStore: new DatabaseActivityStore({ database, scope }),
       approvals: new DatabaseDeferredApprovalStore({ database, scope }),
       automationStore: new DatabaseAutomationStore({ database, scope }),
+      changes,
       executionStore: new DatabaseExecutionStore({ database, scope }),
       grants: new DatabaseGrantStorage({ database, scope }),
-      records: new DatabaseWorkspaceRecords({ database, scope }),
+      records,
       recoveryLog: new DatabaseRecoveryLog({ database, scope }),
-      runs: new DatabaseRunStore({ database, scope }),
-      sessions: new DatabaseSessionStore({ database, scope }),
+      runs: new DatabaseRunStore({ changes, database, scope }),
+      sessions: new DatabaseSessionStore({ changes, database, scope }),
       triggers: new DatabaseTriggerStore({ database, scope }),
       usageStore: new DatabaseUsageStore({ database, scope }),
     };
@@ -360,11 +370,14 @@ export function createEngine(options: CreateEngineOptions): Engine {
   // Its sandboxes may mount what is cut there; see `containersFor`.
   const worktrees = Engine.worktreesFor(state);
   const database = dry ? undefined : options.database;
-  const { own, ...kept } = recordsFor(state, database, options);
+  const { changes, own, ...kept } = recordsFor(state, database, options);
   const stores =
     database === undefined
       ? undefined
-      : workspaceStores(database, workspaceId, realPath(options.databaseFile));
+      : workspaceStores(database, workspaceId, {
+          changes,
+          location: realPath(options.databaseFile),
+        });
   const git = dry ? { run: echoGit(print) } : {};
   const engineOptions: EngineOptions = {
     ...artifactsFor(stores, options),
@@ -398,7 +411,38 @@ export function createEngine(options: CreateEngineOptions): Engine {
       ? new PublishedEngine(engineOptions)
       : new OwnDatabaseEngine(engineOptions, own);
   declareCatalog(engine, catalog);
+  unrecordedObservers(catalog, recordedSources(database, state), print);
   return engine;
+}
+
+function recordedSources(
+  database: StoreDatabase | undefined,
+  state: string | undefined
+): ReadonlySet<string> | "all" {
+  if (database !== undefined) {
+    return "all";
+  }
+  return new Set(
+    state === undefined ? ["tasks"] : ["runs", "sessions", "tasks"]
+  );
+}
+
+function unrecordedObservers(
+  catalog: Catalog,
+  recorded: ReadonlySet<string> | "all",
+  print: (line: string) => void
+): void {
+  if (recorded === "all") {
+    return;
+  }
+  for (const observer of catalog.observers) {
+    const key = sourceKey(observer.source);
+    if (key !== undefined && !recorded.has(key)) {
+      print(
+        `[observe] ${observer.name} (${key}) receives nothing here: this engine keeps its ${key} without recording their changes`
+      );
+    }
+  }
 }
 
 export function createDefaultEngine(): Engine {

@@ -10,6 +10,13 @@ import {
   workspaceInstance,
 } from "~/authoring/instances";
 import { declaringCatalog } from "~/authoring/runtime";
+import {
+  ARTIFACTS,
+  observable,
+  SANDBOXES,
+  SESSIONS,
+  WORKSPACES,
+} from "~/lib/events/source";
 import type {
   Agent,
   ArtifactInstance,
@@ -179,3 +186,8 @@ export const skills = {
     return skillSet([]);
   },
 };
+
+observable(agent, SESSIONS);
+observable(artifact, ARTIFACTS);
+observable(sandbox, SANDBOXES);
+observable(workspace, WORKSPACES);

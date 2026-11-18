@@ -341,23 +341,17 @@ it("binds a workspace's container store identity to its database file: a copy of
   const machine = await testMachine();
   machines.push(machine);
   const at = realpathSync(machine.database.file);
-  const original = await workspaceStores(
-    machine.database.database,
-    "ws",
-    at
-  ).containers.identity();
+  const original = await workspaceStores(machine.database.database, "ws", {
+    location: at,
+  }).containers.identity();
   expect(
-    await workspaceStores(
-      machine.database.database,
-      "ws",
-      at
-    ).containers.identity()
+    await workspaceStores(machine.database.database, "ws", {
+      location: at,
+    }).containers.identity()
   ).toBe(original);
   expect(
-    await workspaceStores(
-      machine.database.database,
-      "ws",
-      `${at}.copy`
-    ).containers.identity()
+    await workspaceStores(machine.database.database, "ws", {
+      location: `${at}.copy`,
+    }).containers.identity()
   ).not.toBe(original);
 });

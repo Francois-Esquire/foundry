@@ -4,6 +4,7 @@ import { agent, artifact, sandbox, workspace } from "~/authoring/resources";
 import { inLoad } from "~/authoring/runtime";
 import { tasksOfLoad } from "~/authoring/tasks";
 import { monitor, schedule } from "~/authoring/triggers";
+import { observable, SOURCE } from "~/lib/events/source";
 
 function isClass(value: unknown): boolean {
   return (
@@ -25,7 +26,9 @@ export const WORDS: ReadonlySet<unknown> = new Set([
 ]);
 
 function bind(word: (...args: never[]) => unknown, load: number): unknown {
-  return (...args: never[]) => inLoad(load, () => word(...args));
+  const bound = (...args: never[]) => inLoad(load, () => word(...args));
+  const source: unknown = Reflect.get(word, SOURCE);
+  return typeof source === "symbol" ? observable(bound, source) : bound;
 }
 
 export function libraryOfLoad(

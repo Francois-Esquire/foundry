@@ -1,10 +1,19 @@
 import type { Output } from "ai";
 import type { AnyDefinition, NamedDefinition } from "~/lib/definition";
 import { isNamed, quoteOrigin } from "~/lib/definition";
-import type { Handler } from "~/lib/events/source";
+import type { Handler, Source } from "~/lib/events/source";
+import { sourceKey } from "~/lib/events/source";
 import type { MonitorRecord } from "~/lib/registry";
 import type { Schedule } from "~/lib/triggers";
 import type { AgentLike } from "~/lib/types";
+
+export interface DeclaredObserver {
+  readonly handler: Handler<unknown>;
+  readonly name: string;
+  readonly source: Source;
+  readonly timeout?: number;
+  readonly types?: readonly string[];
+}
 
 /**
  * What authoring modules declared, collected as they are imported. The
@@ -20,10 +29,7 @@ export class Catalog {
   readonly definitions = new Map<string, NamedDefinition>();
   readonly monitors = new Map<string, MonitorRecord>();
   /** Declared observers, in the order `observe` was called. */
-  readonly observers: {
-    readonly handler: Handler<unknown>;
-    readonly source: symbol;
-  }[] = [];
+  readonly observers: DeclaredObserver[] = [];
   readonly schedules = new Map<string, Schedule>();
   /** Paths of declared workspaces, as written; sandboxes may mount them. */
   readonly workspaces = new Set<string>();
@@ -85,8 +91,18 @@ export class Catalog {
     this.monitors.set(record.key, record);
   }
 
-  observe(source: symbol, handler: Handler<unknown>): void {
-    this.observers.push({ handler, source });
+  observe(observer: DeclaredObserver): void {
+    if (
+      this.observers.some(
+        (other) =>
+          other.source === observer.source && other.name === observer.name
+      )
+    ) {
+      throw new Error(
+        `observe: an observer of ${String(sourceKey(observer.source))} named "${observer.name}" is already declared; give each its own name`
+      );
+    }
+    this.observers.push(observer);
   }
 
   /** Schedules and monitors share one key space: each names a trigger. */

@@ -144,21 +144,39 @@ export function describeTaskStore(
       });
     });
 
-    test("a write's event changes no record", async () => {
+    test("a write's events change no record", async () => {
       const target = await store();
       const a = task("a");
       const event: TaskEvent = {
+        at: a.createdAt,
         dependencies: { added: [], removed: [] },
-        kind: "tasks.changed",
+        id: "event-a",
         tasks: [{ after: a, before: null, id: a.id }],
+        type: "tasks.changed",
       };
-      await target.commit({ event, putTasks: [a] });
+      await target.commit({ events: [event], putTasks: [a] });
 
       expect(await target.snapshot()).toEqual({
         dependencies: [],
         tasks: [a],
       });
     });
+
+    test.each(UNPLAIN_EVENTS)(
+      "refuses a write whose events hold %s, before anything copies them, and changes nothing",
+      async (_part, unplain) => {
+        const target = await store();
+        const a = task("a");
+        await expect(
+          target.commit({ events: [unplain()], putTasks: [a] })
+        ).rejects.toThrow(TypeError);
+
+        expect(await target.snapshot()).toEqual({
+          dependencies: [],
+          tasks: [],
+        });
+      }
+    );
 
     test("a failing commit leaves nothing behind", async () => {
       const target = await store();
@@ -469,17 +487,44 @@ function dependency(from: Task, on: Task): TaskDependency {
   return { dependsOnId: on.id, taskId: from.id };
 }
 
+class ClassEvent {
+  readonly at = new Date(0).toISOString();
+  readonly dependencies = { added: [], removed: [] };
+  readonly id = "event-class";
+  readonly tasks = [];
+  readonly type = "tasks.changed";
+}
+
+const UNPLAIN_EVENTS: readonly (readonly [string, () => TaskEvent])[] = [
+  ["a class instance", () => new ClassEvent() as unknown as TaskEvent],
+  [
+    "a Date",
+    () =>
+      ({
+        at: new Date(0),
+        dependencies: { added: [], removed: [] },
+        id: "event-date",
+        tasks: [],
+        type: "tasks.changed",
+      }) as unknown as TaskEvent,
+  ],
+];
+
 function callerWrite(kept: Task) {
   const added = task("added", { metadata: { list: ["x"] }, tags: ["t"] });
   const edge = dependency(added, kept);
   return {
     deleteDependencies: [] as TaskDependency[],
     deleteTasks: [] as TaskId[],
-    event: {
-      dependencies: { added: [{ ...edge }], removed: [] },
-      kind: "tasks.changed",
-      tasks: [{ after: structuredClone(added), before: null, id: added.id }],
-    } satisfies TaskEvent,
+    events: [
+      {
+        at: added.createdAt,
+        dependencies: { added: [{ ...edge }], removed: [] },
+        id: "event-added",
+        tasks: [{ after: structuredClone(added), before: null, id: added.id }],
+        type: "tasks.changed",
+      } satisfies TaskEvent,
+    ],
     putDependencies: [edge],
     putTasks: [added],
   };
@@ -501,7 +546,9 @@ function scramble(write: ReturnType<typeof callerWrite>, kept: Task): void {
   for (const edge of write.putDependencies) {
     mutable(edge).dependsOnId = id("changed");
   }
-  mutable(write.event).kind = "changed" as "tasks.changed";
+  for (const event of write.events) {
+    mutable(event).type = "changed" as "tasks.changed";
+  }
   write.putTasks.push(task("late"));
   write.putDependencies.push(dependency(kept, kept));
   write.deleteTasks.push(kept.id);

@@ -159,6 +159,7 @@ export class Sessions {
     } catch (error) {
       return Promise.reject(error);
     }
+    const appended = messagesAppended(message);
     return this.#mutation(async (store) => {
       const session = await store.getSession(message.sessionId);
       if (!session) {
@@ -168,6 +169,7 @@ export class Sessions {
         return;
       }
       await store.commit({
+        events: [appended],
         putMessages: [message],
         putSessions: [touched(session, message)],
       });

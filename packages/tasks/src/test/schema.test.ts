@@ -35,8 +35,10 @@ describe("record schemas", () => {
     expect(store.writes.some((write) => write.deleteDependencies)).toBe(true);
     for (const write of store.writes) {
       expect(taskStoreWriteSchema.parse(write)).toEqual(write);
-      expect(write.event).toBeDefined();
-      expect(taskEventSchema.parse(write.event)).toEqual(write.event);
+      expect(write.events).toHaveLength(1);
+      for (const event of write.events ?? []) {
+        expect(taskEventSchema.parse(event)).toEqual(event);
+      }
     }
   });
 
@@ -45,7 +47,7 @@ describe("record schemas", () => {
     for (const key of [
       "deleteDependencies",
       "deleteTasks",
-      "event",
+      "events",
       "putDependencies",
       "putTasks",
     ]) {

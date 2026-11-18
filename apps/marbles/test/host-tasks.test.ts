@@ -6,12 +6,10 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { tasks } from "@foundry/tasks/store/tables";
+import { max } from "drizzle-orm";
 import { afterEach, expect, it, vi } from "vitest";
 import { readDatabase } from "~/database/open";
-import {
-  marblesTaskChangeDeliveries,
-  marblesTaskChanges,
-} from "~/database/tables";
+import { marblesChangeLogs, marblesObservers } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
 import { connect } from "~/process/client";
@@ -55,7 +53,7 @@ async function workspace(root: string, name: string): Promise<string> {
     source,
     `import { appendFileSync } from "node:fs";
 import { observe, tasks } from "@foundry.sh/marbles";
-observe(tasks, (payload) => {
+observe(tasks, function seenTitles(payload) {
   if (process.env.MARBLES_TEST_FAIL) throw new Error("down");
   const titles = payload.tasks.map((change) => change.after?.title ?? "-");
   appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + "\\n");
@@ -110,31 +108,39 @@ process.exit(0);
 }
 
 async function stored(state: string): Promise<{
-  readonly delivered: readonly (readonly string[])[];
+  readonly head: number;
+  readonly observers: readonly {
+    readonly failing: boolean;
+    readonly name: string;
+    readonly position: number;
+  }[];
   readonly titles: readonly string[];
 }> {
   const read = await readDatabase(stateDatabase(state), async (database) => {
-    const changes = await database
-      .select({ id: marblesTaskChanges.id, scope: marblesTaskChanges.scope })
-      .from(marblesTaskChanges)
-      .orderBy(marblesTaskChanges.position);
+    const observers = await database
+      .select({
+        failures: marblesObservers.failures,
+        name: marblesObservers.name,
+        position: marblesObservers.position,
+      })
+      .from(marblesObservers)
+      .orderBy(marblesObservers.scope, marblesObservers.name);
     const titles = await database
       .select({ title: tasks.title })
       .from(tasks)
       .orderBy(tasks.position);
-    const completions = await database
-      .select()
-      .from(marblesTaskChangeDeliveries);
-    const delivered = changes.map((change) =>
-      completions
-        .filter(
-          (completion) =>
-            completion.scope === change.scope &&
-            completion.changeId === change.id
-        )
-        .map((completion) => completion.handler)
-    );
-    return { delivered, titles: titles.map((row) => row.title) };
+    const [head] = await database
+      .select({ position: max(marblesChangeLogs.position) })
+      .from(marblesChangeLogs);
+    return {
+      head: head?.position ?? 0,
+      observers: observers.map((row) => ({
+        failing: row.failures > 0,
+        name: row.name,
+        position: row.position,
+      })),
+      titles: titles.map((row) => row.title),
+    };
   });
   if (read === undefined) {
     throw new Error(`no Marbles database under ${state}`);
@@ -163,7 +169,9 @@ report.afterDispose = await attempt(tasks.create({ title: "late" }));`,
   expect(first.afterDispose).toMatch("was disposed");
   const written = await stored(state);
   expect(written.titles).toEqual(["hosted"]);
-  expect(written.delivered).toEqual([[]]);
+  expect(written.observers).toEqual([
+    { failing: expect.any(Boolean), name: "seenTitles", position: 0 },
+  ]);
 
   // A new process loads the same source: the task is there, and the pending
   // change is delivered to the same handler.
@@ -180,7 +188,10 @@ await engine.dispose();`
   expect(readFileSync(join(root, "first", "seen.log"), "utf8")).toBe(
     "hosted\n"
   );
-  expect((await stored(state)).delivered).toEqual([[expect.any(String)]]);
+  const after = await stored(state);
+  expect(after.observers).toEqual([
+    { failing: false, name: "seenTitles", position: after.head },
+  ]);
 }, 120_000);
 
 it("rebinds to another workspace's engine in the same process", async () => {
@@ -280,7 +291,7 @@ process.stdout.write(JSON.stringify({ refused }) + "\\n");
     const records = new DatabaseWorkspaceRecords({ database, scope: "shared" });
     const { tasks: all } = await records.taskStore.snapshot();
     return {
-      changes: await records.latest(),
+      changes: (await records.log.read({ after: 0, source: "tasks" })).length,
       count: all.find((task) => task.title === "counter")?.metadata.count,
       tasks: all.length,
     };
@@ -297,9 +308,11 @@ function generationSource(dir: string, revision: number): string {
   return `import { appendFileSync } from "node:fs";
 import { observe, step, tasks } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(zod)};
-observe(tasks, (payload) => {
+// Each revision edits the handler's body: it stays the same observer.
+observe(tasks, function seenTitles(payload) {
+  const revision = ${String(revision)};
   const titles = payload.tasks.map((change) => change.after?.title ?? "-");
-  appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + "\\n");
+  appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + (revision > 0 ? "\\n" : ""));
 });
 const titles = async () => (await tasks.list()).items.map((task) => task.title);
 export const add = step("add")
@@ -340,8 +353,9 @@ it("binds tasks to the workspace a generation hosts, and hands its records to th
     );
     await vi.waitFor(
       async () => {
-        expect((await stored(machine.state)).delivered).toEqual([
-          [expect.any(String)],
+        const now = await stored(machine.state);
+        expect(now.observers).toEqual([
+          { failing: false, name: "seenTitles", position: now.head },
         ]);
       },
       { interval: 100, timeout: 30_000 }

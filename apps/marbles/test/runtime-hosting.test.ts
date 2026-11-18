@@ -335,7 +335,7 @@ describe("two real engines over one workspace", () => {
       seen.stepLate = late.promise.then(probe);
       return "done";
     });
-    observe(tasks, async () => {
+    observe(tasks, async function watcher() {
       await alive.promise;
       seen.observerAlive = await probe();
       seen.observerLate = late.promise.then(probe);

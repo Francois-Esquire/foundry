@@ -2,11 +2,13 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Sessions } from "@foundry/agents/session";
+import { Tasks } from "@foundry/tasks";
 import { describe, expect, it } from "vitest";
 import { GenerationRecords } from "~/database/generations";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseSessionStore } from "~/database/sessions";
+import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
 import { startedAt } from "~/process/spawned";
@@ -111,6 +113,62 @@ describe("readStatus", () => {
       "rn-4",
       "rn-3",
       "rn-2",
+    ]);
+  });
+
+  it("reads each observer's place, how far it is behind, and a failing one's error", async () => {
+    const { state } = await layout();
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      const records = new DatabaseWorkspaceRecords({
+        database: database.database,
+        scope: "ws1",
+      });
+      expect(await records.claimDelivery()).toBeUndefined();
+      const now = Date.now();
+      const steady = { name: "steady", source: "tasks" };
+      const flaky = { name: "flaky", source: "tasks" };
+      expect((await records.log.declare(steady, now)).position).toBe(2);
+      await records.log.declare(flaky, now);
+      const tasks = new Tasks({ store: records.taskStore });
+      await tasks.create({ title: "A" });
+      await tasks.create({ title: "B" });
+      await records.log.move(steady, { from: 2, handed: false, now, to: 4 });
+      await records.log.fail(flaky, {
+        error: "down",
+        now,
+        retryAt: now + 1000,
+        stuckSince: null,
+      });
+      await records.close();
+    } finally {
+      database.close();
+    }
+
+    const [workspace] = (await readStatus(state)).workspaces;
+    expect(workspace?.observers).toEqual([
+      {
+        behind: 2,
+        failures: 1,
+        lastError: "down",
+        missed: null,
+        name: "flaky",
+        position: 2,
+        retryAt: expect.any(Number),
+        source: "tasks",
+        stuckSince: null,
+      },
+      {
+        behind: 0,
+        failures: 0,
+        lastError: null,
+        missed: null,
+        name: "steady",
+        position: 4,
+        retryAt: null,
+        source: "tasks",
+        stuckSince: null,
+      },
     ]);
   });
 

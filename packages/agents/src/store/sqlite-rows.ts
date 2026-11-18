@@ -1,5 +1,5 @@
+import { ownedEvents } from "@foundry/lib/plain-json";
 import type { SessionChangeEvent } from "../schema";
-import { ownedEvents } from "./events";
 import type { SessionStoreWrite } from "./index";
 import { below, keptMessage, keptSession, RecordFault } from "./sqlite-records";
 import type { agentMessages, agentSessions } from "./tables";

@@ -1,4 +1,3 @@
-import type { TaskEvent } from "@foundry/tasks";
 import {
   index,
   integer,
@@ -17,33 +16,50 @@ export const marblesWorkspaces = sqliteTable("marbles_workspaces", {
   root: text().notNull(),
 });
 
-export const marblesTaskChanges = sqliteTable(
-  "marbles_task_changes",
+export const marblesChanges = sqliteTable(
+  "marbles_changes",
   {
     id: text().notNull(),
-    payload: text({ mode: "json" }).$type<TaskEvent>().notNull(),
+    payload: text({ mode: "json" }).$type<unknown>().notNull(),
     position: integer().notNull(),
+    recordedAt: integer("recorded_at").notNull(),
+    runId: text("run_id"),
     scope: text().notNull(),
+    source: text().notNull(),
+    type: text().notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.scope, table.id] }),
-    index("marbles_task_changes_scope_position").on(
+    primaryKey({ columns: [table.scope, table.position] }),
+    index("marbles_changes_scope_source_position").on(
       table.scope,
+      table.source,
       table.position
     ),
   ]
 );
 
-export const marblesTaskChangeDeliveries = sqliteTable(
-  "marbles_task_change_deliveries",
+export const marblesChangeLogs = sqliteTable("marbles_change_logs", {
+  compacted: integer().notNull().default(0),
+  position: integer().notNull().default(0),
+  scope: text().primaryKey(),
+});
+
+export const marblesObservers = sqliteTable(
+  "marbles_observers",
   {
-    changeId: text("change_id").notNull(),
-    handler: text().notNull(),
+    failures: integer().notNull().default(0),
+    lastError: text("last_error"),
+    missedFrom: integer("missed_from"),
+    missedThrough: integer("missed_through"),
+    name: text().notNull(),
+    position: integer().notNull(),
+    retryAt: integer("retry_at"),
     scope: text().notNull(),
+    seenAt: integer("seen_at").notNull(),
+    source: text().notNull(),
+    stuckSince: integer("stuck_since"),
   },
-  (table) => [
-    primaryKey({ columns: [table.scope, table.changeId, table.handler] }),
-  ]
+  (table) => [primaryKey({ columns: [table.scope, table.source, table.name] })]
 );
 
 export const marblesSessionRevisions = sqliteTable(

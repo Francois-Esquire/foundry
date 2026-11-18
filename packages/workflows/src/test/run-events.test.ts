@@ -60,6 +60,24 @@ describe("ExecutionCoordinator change events", () => {
     expect(new Date(event?.at ?? "").toISOString()).toBe(event?.at);
   });
 
+  test("a Run abandoned after a crash carries run.failed once, and a settled one nothing", async () => {
+    const { coordinator, store } = recorded();
+    const run = await coordinator.createRun(RUN);
+    await coordinator.updateRun(run.id, { status: "running" });
+    const from = store.commits.length;
+    const crashed = { message: "its process exited", name: "Interrupted" };
+
+    await coordinator.abandonRun(run.id, crashed, 7);
+    await coordinator.abandonRun(run.id, crashed, 8);
+
+    expect(store.commits).toHaveLength(from + 1);
+    expect(types(eventsSince(store, from))).toEqual([
+      "run.failed",
+      "run.updated",
+    ]);
+    expect(eventsSince(store, from)[1]).toMatchObject({ changed: ["error"] });
+  });
+
   test("each lifecycle change of a Run makes its own event, in order", async () => {
     const { coordinator, store } = recorded();
     const run = await coordinator.createRun(RUN);

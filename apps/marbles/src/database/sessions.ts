@@ -6,19 +6,23 @@ import {
   SqliteSessionStore,
 } from "@foundry/agents/store/sqlite";
 import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
+import { ChangeRecorder } from "~/database/changes";
 import { busyError } from "~/database/client";
+import { batches } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { marblesSessionRevisions } from "~/database/tables";
 import { stateDatabase } from "~/layout";
+import { SESSIONS, sourceKey } from "~/lib/events/source";
 import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
 
 export interface DatabaseSessionStoreOptions {
+  readonly changes?: ChangeRecorder;
   readonly database: StoreDatabase;
   readonly scope: string;
 }
 
-const REVISION_BATCH = 500;
+const SESSIONS_KEY = sourceKey(SESSIONS) ?? "sessions";
 
 export class DatabaseSessionStore implements ListedSessionStore {
   readonly #database: StoreDatabase;
@@ -27,14 +31,19 @@ export class DatabaseSessionStore implements ListedSessionStore {
 
   constructor(options: DatabaseSessionStoreOptions) {
     const { database, scope } = options;
+    const changes = options.changes ?? new ChangeRecorder(scope);
     this.#database = database;
     this.#scope = scope;
-    this.#store = new SqliteSessionStore({
-      database,
-      onCommit: (transaction, write) =>
-        raiseRevisions(transaction, scope, write),
-      scope,
-    });
+    this.#store = changes.causing(
+      new SqliteSessionStore({
+        database,
+        onCommit: async (transaction, write) => {
+          await raiseRevisions(transaction, scope, write);
+          await changes.record(transaction, SESSIONS_KEY, write.events);
+        },
+        scope,
+      })
+    );
   }
 
   commit(write: SessionStoreWrite): Promise<void> {
@@ -184,14 +193,6 @@ async function raiseRevisions(
 }
 
 const raised = sql`${marblesSessionRevisions.revision} + 1`;
-
-function batches<T>(items: readonly T[]): T[][] {
-  const runs: T[][] = [];
-  for (let start = 0; start < items.length; start += REVISION_BATCH) {
-    runs.push(items.slice(start, start + REVISION_BATCH));
-  }
-  return runs;
-}
 
 async function asMarbles<T>(call: () => Promise<T>): Promise<T> {
   try {

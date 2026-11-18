@@ -3,6 +3,7 @@ import {
   type ProcessState,
   processState,
 } from "@foundry/lib/process-identity";
+import { readStoredObservers } from "~/database/changes";
 import {
   type GenerationRecord,
   type GenerationState,
@@ -16,6 +17,7 @@ import type { StoredTick } from "~/database/triggers";
 import { readStoredTicks } from "~/database/triggers";
 import { recordedWorkspaces } from "~/database/workspaces";
 import type { RecoveryReport } from "~/lib/crash-recovery";
+import type { ObserverState } from "~/lib/events/log";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type { WorkspaceRecord } from "~/lib/state/workspace";
 import type { ProcessStatus } from "~/process/instance";
@@ -42,6 +44,7 @@ export interface WorkspaceStatus {
   readonly hosted: boolean;
   readonly id: string;
   readonly lastSeen: string | null;
+  readonly observers: readonly ObserverStatus[];
   readonly pid: number | null;
   readonly recovery: RecoveryReport | null;
   readonly root: string;
@@ -59,6 +62,10 @@ interface ScheduleStatus {
   readonly nextDue: string | null;
   /** Pid of the live tick holding the lock, if any. */
   readonly running: number | null;
+}
+
+interface ObserverStatus extends ObserverState {
+  readonly behind: number;
 }
 
 interface RunsStatus {
@@ -106,7 +113,8 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
           sessions.get(record.id) ?? 0,
           await readStoredRuns(stateRoot, record.id),
           await readStoredTicks(stateRoot, record.id),
-          await readLastRecovery(stateRoot, record.id)
+          await readLastRecovery(stateRoot, record.id),
+          await readStoredObservers(stateRoot, record.id)
         )
       )
     ),
@@ -144,7 +152,8 @@ function readWorkspaceStatus(
   sessions: number,
   runs: readonly StoredRun[],
   ticks: readonly StoredTick[],
-  recovery: RecoveryReport | null
+  recovery: RecoveryReport | null,
+  log: Awaited<ReturnType<typeof readStoredObservers>>
 ): WorkspaceStatus {
   const host =
     record.hosted && current?.workspaces.includes(record.id) === true
@@ -157,6 +166,10 @@ function readWorkspaceStatus(
     hosted: record.hosted,
     id: record.id,
     lastSeen: record.lastSeen,
+    observers: log.observers.map((observer) => ({
+      ...observer,
+      behind: Math.max(0, log.head - observer.position),
+    })),
     pid: host?.pid ?? null,
     recovery,
     root: record.root,

@@ -1,5 +1,6 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { pageLimit, sliceRanked } from "@foundry/lib/pagination";
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
 import type {
   WorkspaceEntry,
@@ -7,7 +8,6 @@ import type {
   WorkspaceId,
   WorkspaceRegistration,
 } from "../types";
-import { ownedWrite } from "./events";
 import type {
   WorkspaceSave,
   WorkspaceStore,

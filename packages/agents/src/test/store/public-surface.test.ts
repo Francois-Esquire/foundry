@@ -136,9 +136,7 @@ describe("@foundry/agents public paths", () => {
       "agentMessages",
       "agentSessions",
     ]);
-    expect(Object.keys(await import("../../store/index"))).toEqual([
-      "ownedEvents",
-    ]);
+    expect(Object.keys(await import("../../store/index"))).toEqual([]);
     expect(Object.keys(await import("../../store/memory"))).toEqual([
       "InMemorySessionStore",
     ]);

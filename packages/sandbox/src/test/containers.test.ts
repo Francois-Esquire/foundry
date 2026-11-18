@@ -1586,6 +1586,54 @@ describe.each(STORES)("containers registry events over %s", (_name, open) => {
     }
   });
 
+  it("carries sandbox.destroyed once for a row a recovery takes back, and nothing for a claim that changes only its holder", async () => {
+    const { store, writes } = gatedStore({ transactional: true });
+    const runtime = createFakeContainerRuntime();
+    const gone = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    const left = await gone.start(SPEC);
+    const stop = runtime.stopResource.bind(runtime);
+    const runtimeDown: { now: boolean } = { now: true };
+    runtime.stopResource = async (name) => {
+      if (runtimeDown.now) {
+        throw new Error("runtime offline");
+      }
+      await stop(name);
+    };
+    const recovery = writes.length;
+
+    await createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    }).recover(() => true);
+    expect(events(writes.slice(recovery))).toEqual([]);
+    runtimeDown.now = false;
+    const second = createContainers({
+      instanceLabel: "instance-a",
+      runtime,
+      store,
+    });
+    await second.recover(() => true);
+    await second.recover(() => true);
+
+    expect(events(writes.slice(recovery))).toEqual([
+      ["sandbox.destroyed", left.id],
+    ]);
+    const claims = writes
+      .slice(recovery)
+      .filter((write) => write.putContainers !== undefined);
+    expect(claims.map((write) => write.putContainers?.[0]?.status)).toEqual([
+      "removing",
+      "removing",
+    ]);
+    expect(claims.every((write) => write.events === undefined)).toBe(true);
+    await second.shutdown();
+  });
+
   it("carries sandbox.destroyed in the delete, and none when another registry deleted the row first", async () => {
     const { store, writes } = gatedStore({ transactional: true });
     const runtime = createFakeContainerRuntime();

@@ -8,7 +8,7 @@ import { catalog } from "~/authoring/catalog";
 import { openWorkspaceRecords } from "~/database/managed";
 import type { Engine } from "~/lib/engine";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
-import type { Handler } from "~/lib/events/source";
+import type { Fact, Handler } from "~/lib/events/source";
 import { TASKS } from "~/lib/events/source";
 import { testEngine } from "../helpers/engine";
 
@@ -54,10 +54,14 @@ it("lets the next engine deliver while the retired engine's observer is still ha
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const old = engineHere();
-  old.observe(TASKS, async () => {
-    entered.resolve();
-    await release.promise;
-  });
+  old.observe(
+    TASKS,
+    async () => {
+      entered.resolve();
+      await release.promise;
+    },
+    { name: "watcher" }
+  );
   await old.start();
   await new Tasks({ store: old.taskStore }).create({ title: "first" });
   await entered.promise;
@@ -65,9 +69,13 @@ it("lets the next engine deliver while the retired engine's observer is still ha
 
   const next = engineHere();
   const seen: string[] = [];
-  next.observe(TASKS, (payload) => {
-    seen.push(...titles(payload));
-  });
+  next.observe(
+    TASKS,
+    (payload) => {
+      seen.push(...titles(payload));
+    },
+    { name: "watcher" }
+  );
   await next.start();
   await new Tasks({ store: next.taskStore }).create({ title: "second" });
   await vi.waitFor(() => expect(seen).toContain("second"), {
@@ -83,7 +91,7 @@ it("writes nothing about a handler that returns after the next engine delivered"
   const oldCall = Promise.withResolvers<void>();
   const entered = Promise.withResolvers<void>();
   let failFirstOnce = true;
-  const handler: Handler<unknown> = async (payload) => {
+  const handler: Handler<Fact> = async (payload) => {
     const what = titles(payload).join(",");
     calls.push(what);
     if (calls.length === 1) {
@@ -97,14 +105,14 @@ it("writes nothing about a handler that returns after the next engine delivered"
     }
   };
   const old = engineHere();
-  old.observe(TASKS, handler);
+  old.observe(TASKS, handler, { name: "watcher" });
   await old.start();
   await new Tasks({ store: old.taskStore }).create({ title: "first" });
   await entered.promise;
   await old.retire(successor());
 
   const next = engineHere();
-  next.observe(TASKS, handler);
+  next.observe(TASKS, handler, { name: "watcher" });
   await next.start();
   await vi.waitFor(() => expect(calls).toEqual(["first", "first"]), {
     interval: 50,
@@ -123,10 +131,14 @@ it("writes nothing about a handler that returns after the next engine delivered"
 it("ends a retired engine whose handler never returns once its runs have, and stops it", async () => {
   const entered = Promise.withResolvers<void>();
   const old = engineHere();
-  old.observe(TASKS, async () => {
-    entered.resolve();
-    await new Promise(() => undefined);
-  });
+  old.observe(
+    TASKS,
+    async () => {
+      entered.resolve();
+      await new Promise(() => undefined);
+    },
+    { name: "watcher" }
+  );
   old.task({ name: "work", run: () => 1 });
   await old.start();
   await new Tasks({ store: old.taskStore }).create({ title: "stuck" });
@@ -152,7 +164,7 @@ it("hands its queued runs over though giving up the delivery claim fails", async
     root,
   });
   engines.push(old);
-  old.observe(TASKS, () => undefined);
+  old.observe(TASKS, () => undefined, { name: "watcher" });
   const finish = Promise.withResolvers<void>();
   old.task({ name: "active", run: () => finish.promise });
   old.task({ name: "queued", run: () => undefined });

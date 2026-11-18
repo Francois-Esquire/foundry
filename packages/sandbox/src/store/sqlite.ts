@@ -1,3 +1,4 @@
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
 import { and, eq, getTableColumns, inArray, max, sql } from "drizzle-orm";
@@ -6,9 +7,7 @@ import type {
   SQLiteColumn,
   SQLiteTransaction,
 } from "drizzle-orm/sqlite-core";
-
 import type { ContainerRow } from "../schema";
-import { ownedWrite } from "./events";
 import type { ContainerStore, ContainerStoreWrite } from "./index";
 import { sandboxContainers } from "./tables";
 

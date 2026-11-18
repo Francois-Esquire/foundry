@@ -98,11 +98,13 @@ export type TaskDelta = z.infer<typeof taskDeltaSchema>;
 
 export const taskEventSchema = z
   .strictObject({
+    at: z.iso.datetime(),
     dependencies: z
       .strictObject({ added: dependencies, removed: dependencies })
       .readonly(),
-    kind: z.literal("tasks.changed"),
+    id: z.string().min(1),
     tasks: z.array(taskDeltaSchema).readonly(),
+    type: z.literal("tasks.changed"),
   })
   .readonly();
 export type TaskEvent = z.infer<typeof taskEventSchema>;
@@ -116,7 +118,7 @@ export const taskStoreWriteSchema = z
   .strictObject({
     deleteDependencies: dependencies.exactOptional(),
     deleteTasks: z.array(taskIdSchema).readonly().exactOptional(),
-    event: taskEventSchema.exactOptional(),
+    events: z.array(taskEventSchema).readonly().exactOptional(),
     putDependencies: dependencies.exactOptional(),
     putTasks: z.array(storedTask).readonly().exactOptional(),
   })

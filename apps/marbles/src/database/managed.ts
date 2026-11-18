@@ -3,11 +3,13 @@ import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
 import type { JsonValue } from "@foundry/lib/json";
+import { ownedWrite } from "@foundry/lib/plain-json";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import type { WorkflowStore } from "@foundry/workflows/store";
 import { DatabaseActivityStore } from "~/database/activities";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import { DatabaseAutomationStore } from "~/database/automations";
+import { ChangeRecorder } from "~/database/changes";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { DatabaseGrantStorage } from "~/database/grants";
 import type { MarblesDatabase, StoreDatabase } from "~/database/open";
@@ -27,12 +29,9 @@ import type {
 } from "~/lib/automation/store";
 import { storedAutomation } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
-import type {
-  PendingQuery,
-  StreamItem,
-  WorkspaceRecords,
-} from "~/lib/events/records";
-import { EmitListeners, RecordsGate } from "~/lib/events/records";
+import type { ChangeLog } from "~/lib/events/log";
+import type { WorkspaceRecords } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records";
 import type {
   ExecutionObservation,
   ExecutionRun,
@@ -82,8 +81,10 @@ export function openWorkspaceRecords(
   options: OpenWorkspaceRecordsOptions
 ): WorkspaceRecords {
   const database = new LazyDatabase(options);
-  return new ManagedWorkspaceRecords(database, options.workspaceId, () =>
-    database.close()
+  return new ManagedWorkspaceRecords(
+    database,
+    new ChangeRecorder(options.workspaceId),
+    () => database.close()
   );
 }
 
@@ -102,15 +103,12 @@ export function openWorkspaceDatabase(
   options: OpenWorkspaceRecordsOptions
 ): WorkspaceDatabase {
   const database = new LazyDatabase(options);
-  const records = new ManagedWorkspaceRecords(
-    database,
-    options.workspaceId,
-    () => Promise.resolve()
-  );
-  const sessions = new ManagedSessionStore(database, options.workspaceId);
-  const runs = new ManagedRunStore(database, options.workspaceId, () =>
+  const changes = new ChangeRecorder(options.workspaceId);
+  const records = new ManagedWorkspaceRecords(database, changes, () =>
     Promise.resolve()
   );
+  const sessions = new ManagedSessionStore(database, changes);
+  const runs = new ManagedRunStore(database, changes, () => Promise.resolve());
   const triggers = new ManagedTriggerStore(database, options.workspaceId, () =>
     Promise.resolve()
   );
@@ -191,7 +189,9 @@ export function defaultWorkspaceRuns(
     state: defaultStateRoot(state, root, workspaceId),
     workspaceId,
   });
-  return new ManagedRunStore(database, workspaceId, () => database.close());
+  return new ManagedRunStore(database, new ChangeRecorder(workspaceId), () =>
+    database.close()
+  );
 }
 
 export function defaultWorkspaceTriggers(
@@ -271,6 +271,7 @@ export function withWorkspaceDatabase(
     state: defaultStateRoot(state, root, workspaceId),
     workspaceId,
   });
+  const changes = new ChangeRecorder(workspaceId);
   const make: {
     readonly [K in keyof DatabaseKept]-?: (
       done: () => Promise<void>
@@ -280,8 +281,8 @@ export function withWorkspaceDatabase(
       new ManagedAutomationStore(database, workspaceId, done),
     executionStore: (done) =>
       new ManagedExecutionStore(database, workspaceId, done),
-    records: (done) => new ManagedWorkspaceRecords(database, workspaceId, done),
-    runs: (done) => new ManagedRunStore(database, workspaceId, done),
+    records: (done) => new ManagedWorkspaceRecords(database, changes, done),
+    runs: (done) => new ManagedRunStore(database, changes, done),
     triggers: (done) => new ManagedTriggerStore(database, workspaceId, done),
     usageStore: (done) => new ManagedUsageStore(database, workspaceId, done),
   };
@@ -415,32 +416,50 @@ class OverDatabase<T> {
 
 class ManagedWorkspaceRecords implements WorkspaceRecords {
   readonly taskStore: TaskStore;
+  readonly log: ChangeLog;
   readonly #gate = new RecordsGate();
-  readonly #listeners = new EmitListeners();
+  readonly #changes: ChangeRecorder;
   readonly #records: OverDatabase<DatabaseWorkspaceRecords>;
   readonly #release: () => Promise<void>;
   #closing: Promise<void> | undefined;
 
   constructor(
     database: LazyDatabase,
-    workspaceId: string,
+    changes: ChangeRecorder,
     release: () => Promise<void>
   ) {
     this.#release = release;
-    this.#records = new OverDatabase(database, (opened) => {
-      const records = new DatabaseWorkspaceRecords({
-        database: opened.database,
-        scope: workspaceId,
-      });
-      records.watch(() => this.#listeners.emit());
-      return records;
-    });
+    this.#changes = changes;
+    this.#records = new OverDatabase(
+      database,
+      (opened) =>
+        new DatabaseWorkspaceRecords({
+          changes,
+          database: opened.database,
+          scope: changes.scope,
+        })
+    );
+    const log = async () => (await this.#records.get()).log;
+    this.log = {
+      compact: (bound) =>
+        this.#gate.run(async () => (await log()).compact(bound)),
+      declare: (key, now) =>
+        this.#gate.run(async () => (await log()).declare(key, now)),
+      fail: (key, failure) =>
+        this.#gate.run(async () => (await log()).fail(key, failure)),
+      head: () => this.#gate.run(async () => (await log()).head()),
+      move: (key, move) =>
+        this.#gate.run(async () => (await log()).move(key, move)),
+      observers: () => this.#gate.run(async () => (await log()).observers()),
+      read: (query) => this.#gate.run(async () => (await log()).read(query)),
+      unstick: (key) => this.#gate.run(async () => (await log()).unstick(key)),
+    };
     const store = async () => (await this.#records.get()).taskStore;
     this.taskStore = {
       commit: (write) => {
         let owned: TaskStoreWrite;
         try {
-          owned = structuredClone(write);
+          owned = ownedWrite(write);
         } catch (error) {
           return Promise.reject(error);
         }
@@ -480,30 +499,14 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
     );
   }
 
-  deliver(id: string, hash: string): Promise<void> {
-    return this.#gate.run(async () =>
-      (await this.#records.get()).deliver(id, hash)
-    );
-  }
-
-  latest(): Promise<number> {
-    return this.#gate.run(async () => (await this.#records.get()).latest());
-  }
-
   releaseDelivery(): Promise<void> {
     return this.#gate.run(async () =>
       (await this.#records.get()).releaseDelivery()
     );
   }
 
-  pending(query: PendingQuery): Promise<readonly StreamItem[]> {
-    return this.#gate.run(async () =>
-      (await this.#records.get()).pending(query)
-    );
-  }
-
   watch(listener: () => void): () => void {
-    return this.#listeners.add(listener);
+    return this.#changes.watch(listener);
   }
 }
 
@@ -512,13 +515,14 @@ class ManagedSessionStore implements ListedSessionStore {
   #closing: Promise<void> | undefined;
   readonly #store: OverDatabase<DatabaseSessionStore>;
 
-  constructor(database: LazyDatabase, workspaceId: string) {
+  constructor(database: LazyDatabase, changes: ChangeRecorder) {
     this.#store = new OverDatabase(
       database,
       (opened) =>
         new DatabaseSessionStore({
+          changes,
           database: opened.database,
-          scope: workspaceId,
+          scope: changes.scope,
         })
     );
   }
@@ -572,7 +576,7 @@ class ManagedRunStore implements RunStore {
 
   constructor(
     database: LazyDatabase,
-    workspaceId: string,
+    changes: ChangeRecorder,
     release: () => Promise<void>
   ) {
     this.#release = release;
@@ -580,8 +584,9 @@ class ManagedRunStore implements RunStore {
       database,
       (opened) =>
         new DatabaseRunStore({
+          changes,
           database: opened.database,
-          scope: workspaceId,
+          scope: changes.scope,
         })
     );
   }

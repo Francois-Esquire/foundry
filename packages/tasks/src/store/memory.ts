@@ -1,3 +1,4 @@
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
 import { edgeKey } from "../edges";
 import type {
@@ -20,7 +21,7 @@ export class MemoryTaskStore implements TaskStore {
   commit(write: TaskStoreWrite): Promise<void> {
     let owned: TaskStoreWrite;
     try {
-      owned = structuredClone(write);
+      owned = ownedWrite(write);
     } catch (error) {
       return Promise.reject(error);
     }

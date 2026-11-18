@@ -6,10 +6,12 @@ import type {
 } from "@foundry/workflows/store";
 import type { WorkflowTransaction } from "@foundry/workflows/store/sqlite";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { aroundCalls, asBusy } from "~/database/busy";
+import { ChangeRecorder } from "~/database/changes";
 import { followExecution, readExecution } from "~/database/executions";
+import { inList } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import {
@@ -25,6 +27,7 @@ import {
 import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
+import { RUNS, sourceKey } from "~/lib/events/source";
 import type { RecordedScope } from "~/lib/run-scope";
 import type {
   ClaimCondition,
@@ -33,6 +36,8 @@ import type {
   StoredScope,
 } from "~/lib/run-store";
 import { filedRuns, removalOf } from "~/lib/run-store";
+
+const RUNS_KEY = sourceKey(RUNS) ?? "runs";
 
 class RunMovedError extends Error {
   override readonly name = "RunMovedError";
@@ -45,6 +50,7 @@ class RunMovedError extends Error {
 }
 
 export interface DatabaseRunStoreOptions {
+  readonly changes?: ChangeRecorder;
   readonly database: StoreDatabase;
   readonly scope: string;
 }
@@ -59,6 +65,7 @@ export class DatabaseRunStore implements RunStore {
   readonly durable = true;
   readonly #database: StoreDatabase;
   readonly #scope: string;
+  readonly #changes: ChangeRecorder;
   readonly #owner = randomUUID();
   readonly #letGo = new Set<string>();
   readonly #gate = new RecordsGate("the run store is closed");
@@ -66,6 +73,7 @@ export class DatabaseRunStore implements RunStore {
   constructor(options: DatabaseRunStoreOptions) {
     this.#database = options.database;
     this.#scope = options.scope;
+    this.#changes = options.changes ?? new ChangeRecorder(options.scope);
   }
 
   claim(runId: string, when: ClaimCondition): Promise<boolean> {
@@ -147,14 +155,17 @@ export class DatabaseRunStore implements RunStore {
     return this.#call(() =>
       Promise.resolve(
         aroundCalls(
-          new SqliteWorkflowStore({
-            database: this.#database,
-            onCommit: async (transaction, write) => {
-              await this.#file(transaction, write, recorded);
-              await this.#follow(transaction, write, follows);
-            },
-            scope: this.#scope,
-          }),
+          this.#changes.causing(
+            new SqliteWorkflowStore({
+              database: this.#database,
+              onCommit: async (transaction, write) => {
+                await this.#file(transaction, write, recorded);
+                await this.#follow(transaction, write, follows);
+                await this.#changes.record(transaction, RUNS_KEY, write.events);
+              },
+              scope: this.#scope,
+            })
+          ),
           (call) => this.#call(call)
         )
       )
@@ -262,7 +273,7 @@ export class DatabaseRunStore implements RunStore {
         .where(
           and(
             eq(marblesWorkflowRuns.scope, this.#scope),
-            inArray(marblesWorkflowRuns.runId, [...deleted])
+            inList(marblesWorkflowRuns.runId, deleted)
           )
         );
     }
@@ -341,7 +352,7 @@ export async function unheldParkedRuns(
       .where(
         and(
           eq(marblesWorkflowRuns.scope, scope),
-          inArray(marblesWorkflowRuns.runId, parked)
+          inList(marblesWorkflowRuns.runId, parked)
         )
       )
   );

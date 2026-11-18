@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
-import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
+import type { TaskStore } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
-import type { TaskTransaction } from "@foundry/tasks/store/sqlite";
 import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";
-import { and, asc, eq, gt, inArray, max, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { aroundCalls } from "~/database/busy";
+import { ChangeRecorder, DatabaseChangeLog } from "~/database/changes";
 import { busyError } from "~/database/client";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
@@ -16,69 +17,62 @@ import {
   ownedHere,
   sameOwnerColumns,
 } from "~/database/owner";
-import {
-  marblesDeliveryClaims,
-  marblesTaskChangeDeliveries,
-  marblesTaskChanges,
-} from "~/database/tables";
+import { marblesDeliveryClaims } from "~/database/tables";
 import type { HostDatabaseOptions } from "~/database/workspaces";
 import { writeAsHost } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
-import type {
-  PendingQuery,
-  StreamItem,
-  WorkspaceRecords,
-} from "~/lib/events/records";
-import {
-  EmitListeners,
-  PENDING_BATCH,
-  RecordsGate,
-} from "~/lib/events/records";
-import { TASKS } from "~/lib/events/source";
+import type { ChangeLog } from "~/lib/events/log";
+import type { WorkspaceRecords } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records";
+import { sourceKey, TASKS } from "~/lib/events/source";
+
+const TASKS_KEY = sourceKey(TASKS) ?? "tasks";
 
 export class TaskStorageError extends Error {
   override readonly name = "TaskStorageError";
 }
 
 export interface DatabaseWorkspaceRecordsOptions {
+  readonly changes?: ChangeRecorder;
   readonly database: StoreDatabase;
   readonly scope: string;
 }
 
 export class DatabaseWorkspaceRecords implements WorkspaceRecords {
   readonly taskStore: TaskStore;
+  readonly log: ChangeLog;
+  readonly changes: ChangeRecorder;
   readonly #database: StoreDatabase;
   readonly #scope: string;
   readonly #owner = randomUUID();
   #claimed = false;
   readonly #gate = new RecordsGate();
-  readonly #listeners = new EmitListeners();
 
   constructor(options: DatabaseWorkspaceRecordsOptions) {
     const { database, scope } = options;
     this.#database = database;
     this.#scope = scope;
-    let recorded = false;
-    const store = new SqliteTaskStore({
-      database,
-      onCommit: async (transaction, write) => {
-        if (await recordChange(transaction, scope, write)) {
-          recorded = true;
-        }
-      },
-      scope,
-    });
+    const changes = options.changes ?? new ChangeRecorder(scope);
+    if (changes.scope !== scope) {
+      throw new Error(
+        `the change recorder of workspace ${changes.scope} cannot record workspace ${scope}'s tasks`
+      );
+    }
+    this.changes = changes;
+    this.log = aroundCalls(
+      new DatabaseChangeLog(database, scope, this.#owner),
+      (call) => this.#call(call)
+    );
+    const store = changes.causing(
+      new SqliteTaskStore({
+        database,
+        onCommit: (transaction, write) =>
+          changes.record(transaction, TASKS_KEY, write.events),
+        scope,
+      })
+    );
     const committing = <T>(call: () => Promise<T>): Promise<T> =>
-      this.#call(async () => {
-        try {
-          return await call();
-        } finally {
-          if (recorded) {
-            recorded = false;
-            this.#listeners.emit();
-          }
-        }
-      });
+      this.#call(call);
     this.taskStore = {
       commit: (write) => committing(() => storing(store.commit(write))),
       get: (id) => this.#call(() => store.get(id)),
@@ -179,57 +173,8 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     this.#claimed = false;
   }
 
-  deliver(id: string, hash: string): Promise<void> {
-    return this.#call(() =>
-      this.#database.transaction(async (transaction) => {
-        const [change] = await transaction
-          .select({ id: marblesTaskChanges.id })
-          .from(marblesTaskChanges)
-          .where(
-            and(
-              eq(marblesTaskChanges.scope, this.#scope),
-              eq(marblesTaskChanges.id, id)
-            )
-          );
-        if (change === undefined) {
-          return;
-        }
-        await transaction
-          .insert(marblesTaskChangeDeliveries)
-          .values({ changeId: id, handler: hash, scope: this.#scope })
-          .onConflictDoNothing();
-      })
-    );
-  }
-
-  latest(): Promise<number> {
-    return this.#call(async () => {
-      const [last] = await this.#database
-        .select({ position: max(marblesTaskChanges.position) })
-        .from(marblesTaskChanges)
-        .where(eq(marblesTaskChanges.scope, this.#scope));
-      return last?.position ?? 0;
-    });
-  }
-
-  pending(query: PendingQuery): Promise<readonly StreamItem[]> {
-    if (query.handlers.length === 0) {
-      return this.#call(() => Promise.resolve([]));
-    }
-    return this.#call(async () => {
-      const rows = await pendingChanges(this.#database, this.#scope, query);
-      return rows.map((row) => ({
-        delivered: JSON.parse(row.delivered) as string[],
-        id: row.id,
-        payload: row.payload,
-        position: row.position,
-        source: TASKS,
-      }));
-    });
-  }
-
   watch(listener: () => void): () => void {
-    return this.#listeners.add(listener);
+    return this.changes.watch(listener);
   }
 
   #call<T>(call: () => Promise<T>): Promise<T> {
@@ -241,59 +186,6 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
       }
     });
   }
-}
-
-export function pendingChanges(
-  database: StoreDatabase,
-  scope: string,
-  query: PendingQuery
-) {
-  const handlers = [...new Set(query.handlers)];
-  const changes = marblesTaskChanges;
-  const deliveries = marblesTaskChangeDeliveries;
-  const completedBy = and(
-    eq(deliveries.scope, changes.scope),
-    eq(deliveries.changeId, changes.id),
-    inArray(deliveries.handler, handlers)
-  );
-  return database
-    .select({
-      delivered: sql<string>`(SELECT json_group_array(${deliveries.handler}) FROM ${deliveries} WHERE ${completedBy})`,
-      id: changes.id,
-      payload: changes.payload,
-      position: changes.position,
-    })
-    .from(changes)
-    .where(
-      and(
-        eq(changes.scope, scope),
-        gt(changes.position, query.after ?? 0),
-        sql`(SELECT count(*) FROM ${deliveries} WHERE ${completedBy}) < ${handlers.length}`
-      )
-    )
-    .orderBy(asc(changes.position))
-    .limit(query.limit ?? PENDING_BATCH);
-}
-
-async function recordChange(
-  transaction: TaskTransaction,
-  scope: string,
-  write: TaskStoreWrite
-): Promise<boolean> {
-  if (write.event === undefined) {
-    return false;
-  }
-  const [last] = await transaction
-    .select({ position: max(marblesTaskChanges.position) })
-    .from(marblesTaskChanges)
-    .where(eq(marblesTaskChanges.scope, scope));
-  await transaction.insert(marblesTaskChanges).values({
-    id: randomUUID(),
-    payload: write.event,
-    position: (last?.position ?? 0) + 1,
-    scope,
-  });
-  return true;
 }
 
 async function storing(commit: Promise<void>): Promise<void> {

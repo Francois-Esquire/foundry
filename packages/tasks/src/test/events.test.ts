@@ -13,6 +13,26 @@ function recorded(): { store: RecordingStore; tasks: Tasks } {
 }
 
 describe("task change events", () => {
+  test("each fact has an id of its own and the time the change was made", async () => {
+    const { store, tasks } = recorded();
+    const a = await tasks.create({ title: "A" });
+    const updated = await tasks.update(a.id, { title: "B" });
+    await tasks.remove(a.id);
+
+    const events = store.events();
+    expect(events.map((event) => event.type)).toEqual([
+      "tasks.changed",
+      "tasks.changed",
+      "tasks.changed",
+    ]);
+    expect(new Set(events.map((event) => event.id)).size).toBe(3);
+    expect(events[0]?.at).toBe(a.createdAt);
+    expect(events[1]?.at).toBe(updated.updatedAt);
+    expect(
+      store.writes.every((write) => (write.events?.length ?? 0) <= 1)
+    ).toBe(true);
+  });
+
   test("a create carries the new record and its edges, not the tasks it named", async () => {
     const { store, tasks } = recorded();
     const parent = await tasks.create({ title: "Parent" });
@@ -24,12 +44,14 @@ describe("task change events", () => {
 
     const event = store.events().at(-1);
     expect(event).toEqual({
+      at: expect.any(String),
       dependencies: {
         added: [{ dependsOnId: target.id, taskId: child.id }],
         removed: [],
       },
-      kind: "tasks.changed",
+      id: expect.any(String),
       tasks: [{ after: child, before: null, id: child.id }],
+      type: "tasks.changed",
     });
   });
 
@@ -68,12 +90,14 @@ describe("task change events", () => {
       ],
     });
     expect(store.events().at(-1)).toEqual({
+      at: expect.any(String),
       dependencies: {
         added: [{ dependsOnId: b.id, taskId: a.id }],
         removed: [],
       },
-      kind: "tasks.changed",
+      id: expect.any(String),
       tasks: [],
+      type: "tasks.changed",
     });
 
     const before = store.events().length;
@@ -136,6 +160,7 @@ describe("task change events", () => {
     await tasks.remove(b.id);
 
     expect(store.events().at(-1)).toEqual({
+      at: expect.any(String),
       dependencies: {
         added: [],
         removed: [
@@ -143,8 +168,9 @@ describe("task change events", () => {
           { dependsOnId: b.id, taskId: c.id },
         ],
       },
-      kind: "tasks.changed",
+      id: expect.any(String),
       tasks: [{ after: null, before: b, id: b.id }],
+      type: "tasks.changed",
     });
   });
 });

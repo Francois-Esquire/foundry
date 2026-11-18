@@ -1,7 +1,6 @@
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
-
 import type { ContainerRow } from "../schema";
-import { ownedWrite } from "./events";
 import type { ContainerStore, ContainerStoreWrite } from "./index";
 
 type Rows = Map<string, ContainerRow>;

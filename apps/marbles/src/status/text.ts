@@ -20,8 +20,44 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
       `  ${new Date(run.createdAt).toISOString()} · ${run.id}`,
     ]),
     ...(workspace.runs.recent.length === 0 ? ["none recorded"] : []),
+    ...observerLines(workspace.observers),
     ...recoveryLines(workspace.recovery),
   ];
+}
+
+function observerLines(observers: WorkspaceStatus["observers"]): string[] {
+  return [
+    "observers",
+    ...observers.flatMap((observer) => {
+      const state = observerState(observer);
+      return [
+        `${observer.name} (${observer.source})  [${state}] at ${String(observer.position)}`,
+        ...(observer.failures > 0
+          ? [
+              `  ${observer.lastError ?? "failed"} · next try ${observer.retryAt === null ? "unknown" : new Date(observer.retryAt).toISOString()}`,
+            ]
+          : []),
+        ...(observer.missed === null
+          ? []
+          : [
+              `  missed ${String(observer.missed.from)} to ${String(observer.missed.through)}: removed before it received them`,
+            ]),
+      ];
+    }),
+    ...(observers.length === 0 ? ["none recorded"] : []),
+  ];
+}
+
+function observerState(observer: WorkspaceStatus["observers"][number]): string {
+  if (observer.stuckSince !== null) {
+    return `stuck in a call since ${new Date(observer.stuckSince).toISOString()}`;
+  }
+  if (observer.failures > 0) {
+    return `failing ×${String(observer.failures)}`;
+  }
+  return observer.behind === 0
+    ? "caught up"
+    : `${String(observer.behind)} behind`;
 }
 
 function recoveryLines(recovery: WorkspaceStatus["recovery"]): string[] {

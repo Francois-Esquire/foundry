@@ -8,9 +8,17 @@ import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
 import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
 import { surfacingBusy } from "~/database/busy";
+import { ChangeRecorder } from "~/database/changes";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
+import type { Fact } from "~/lib/events/source";
+import {
+  ARTIFACTS,
+  SANDBOXES,
+  sourceKey,
+  WORKSPACES,
+} from "~/lib/events/source";
 
 export interface WorkspaceStores {
   readonly artifacts: SqliteArtifactStore;
@@ -21,20 +29,55 @@ export interface WorkspaceStores {
 export function workspaceStores(
   database: StoreDatabase,
   scope: string,
-  location?: string
+  options: {
+    readonly changes?: ChangeRecorder;
+    readonly location?: string;
+  } = {}
 ): WorkspaceStores {
+  const { location } = options;
+  const changes = options.changes ?? new ChangeRecorder(scope);
+  const recorded =
+    (source: string) =>
+    (
+      transaction: Parameters<ChangeRecorder["record"]>[0],
+      write: { readonly events?: readonly Fact[] }
+    ) =>
+      changes.record(transaction, source, write.events);
   return {
-    artifacts: surfacingBusy(new SqliteArtifactStore({ database, scope })),
-    containers: surfacingBusy(
-      createSqliteContainerStore({
-        database,
-        scope,
-        ...(location === undefined ? {} : { location }),
-      })
+    artifacts: surfacingBusy(
+      changes.causing(
+        new SqliteArtifactStore({
+          database,
+          onCommit: recorded(ARTIFACTS_KEY),
+          scope,
+        })
+      )
     ),
-    workspaces: surfacingBusy(new SqliteWorkspaceStore({ database, scope })),
+    containers: surfacingBusy(
+      changes.causing(
+        createSqliteContainerStore({
+          database,
+          onCommit: recorded(SANDBOXES_KEY),
+          scope,
+          ...(location === undefined ? {} : { location }),
+        })
+      )
+    ),
+    workspaces: surfacingBusy(
+      changes.causing(
+        new SqliteWorkspaceStore({
+          database,
+          onCommit: recorded(WORKSPACES_KEY),
+          scope,
+        })
+      )
+    ),
   };
 }
+
+const ARTIFACTS_KEY = sourceKey(ARTIFACTS) ?? "artifacts";
+const SANDBOXES_KEY = sourceKey(SANDBOXES) ?? "sandboxes";
+const WORKSPACES_KEY = sourceKey(WORKSPACES) ?? "workspaces";
 
 export function artifactBlobs(dir: string, scope: string): string {
   return join(dir, "workspaces", scope, "blobs");
