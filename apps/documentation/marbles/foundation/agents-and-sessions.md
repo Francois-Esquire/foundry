@@ -100,6 +100,28 @@ extended agent can be extended again.
 [Usage](/marbles/foundation/usage) shows a step that picks the route from
 what each Claude Code and Codex login has left.
 
+## Write one prompt for several harnesses
+
+Set the agent's `prompt` to a `prompts.portable` template. After resolving the
+session's model and provider, Marbles renders the template for the harness
+that will run it.
+
+```ts
+import { agent, prompts, ref } from "@foundry.sh/marbles";
+
+const reviewer = agent({
+  model: "claude-code/sonnet",
+  prompt: prompts.portable`Use ${ref.skill("inspect")} to review ${ref.file("AGENTS.md")}.`,
+});
+
+const codexReviewer = reviewer.extend({ model: "codex/gpt-5.5" });
+```
+
+Claude Code sees `/inspect` and Codex sees `$inspect`. Marbles renders the
+interpolated references and keeps the authored text as written. A provider
+without a prompt dialect receives the names and paths as plain text.
+The same template works as the prompt returned by a deferred agent.
+
 ## Define the agent with a function
 
 `agent(async (route, input) => definition)` declares an agent whose

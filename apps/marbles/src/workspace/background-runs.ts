@@ -7,7 +7,7 @@ import type { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import type { ExecutionRun } from "~/lib/execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
-import { AGENT_DEFINITION } from "~/lib/handles";
+import { AGENT_DEFINITION, AGENT_PROMPT } from "~/lib/handles";
 import { buildDefinition } from "~/lib/managers/agents";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type {
@@ -229,17 +229,23 @@ export class BackgroundRuns {
     };
     const overlay = (
       base: AgentDefinition<Output.Output>
-    ): AgentDefinition<Output.Output> => ({
-      ...base,
-      ...(options.instructions === undefined
-        ? {}
-        : {
-            prompt: [declared ? base.prompt : undefined, options.instructions]
-              .filter(Boolean)
-              .join("\n\n"),
-          }),
-      ...route,
-    });
+    ): AgentDefinition<Output.Output> => {
+      const { instructions } = options;
+      if (instructions === undefined) {
+        return { ...base, ...route };
+      }
+      const append = (prompt?: string) =>
+        [prompt, instructions].filter(Boolean).join("\n\n");
+      const render = base[AGENT_PROMPT];
+      return {
+        ...base,
+        ...route,
+        ...(render === undefined
+          ? {}
+          : { [AGENT_PROMPT]: (harness: string) => append(render(harness)) }),
+        prompt: append(declared ? base.prompt : undefined),
+      };
+    };
     return declared
       ? await dispatched(declared, route, overlay)
       : overlay({

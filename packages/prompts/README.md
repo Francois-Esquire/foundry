@@ -43,6 +43,12 @@ prompts.claude`First ${review}`;           // a prompt is inserted as its text, 
 A value that knows what it refers to, such as a skill from `defineSkill`,
 can be interpolated too; see "References by value" below.
 
+Use a `prompts.portable` tagged template when the harness is chosen later.
+Call `render(harnessId)` to produce a `Prompt` for that harness. It renders
+interpolated references in the dialect's notation and keeps literal text as
+written. With an unknown harness ID, references render as plain text.
+Marbles agents render portable prompts automatically after resolving the model.
+
 A prompt's `diagnostics` and `ok` are read against what exists each time,
 so a skill or agent added after the prompt was written resolves on the next
 read. There is nothing to call afterwards.
