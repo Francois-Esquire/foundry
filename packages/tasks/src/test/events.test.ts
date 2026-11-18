@@ -74,7 +74,6 @@ describe("task change events", () => {
       tags: [],
       title: "U",
     });
-    // The removed tag stays in this event, whatever happens to the task later.
     await tasks.update(task.id, { tags: ["other"] });
     expect(event?.tasks[0]?.before?.tags).toEqual(["review"]);
   });
@@ -175,10 +174,6 @@ describe("task change events", () => {
   });
 });
 
-/**
- * A memory store whose transactions hold one store-wide turn, with a pause
- * after every read so an unguarded writer would interleave.
- */
 class TransactionalStore implements TaskStore {
   readonly #inner = new MemoryTaskStore();
   #turn: Promise<unknown> = Promise.resolve();
@@ -257,7 +252,6 @@ describe("store transactions", () => {
     await expect(guarded.remove(target.id)).resolves.toMatchObject({
       id: target.id,
     });
-    // The store's turn was handed back: later writes go through.
     await writer.update(other.id, { title: "After" });
     const titles = (await store.snapshot()).tasks.map((task) => task.title);
     expect(titles).toEqual(["After"]);
@@ -300,8 +294,6 @@ describe("store transactions", () => {
     during = (id) => writer.remove(id);
     expect(await code(guarded.remove(gone.id))).toBe("not_found");
 
-    // Without a token, the record as it is at commit is the one removed, and
-    // an edge added meanwhile is dropped with it.
     const target = await guarded.create({ title: "Target" });
     const anchor = await guarded.create({ title: "Anchor" });
     during = async (id) => {

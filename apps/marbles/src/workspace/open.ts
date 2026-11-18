@@ -33,13 +33,6 @@ import {
   sourceRoot,
 } from "~/workspace/source";
 
-/**
- * Marbles as a host of the engine: find the authoring source, load it, place
- * the workspace under the state root, and build the engine or read its
- * triggers. The CLI and the dashboard both start here, so each of those is
- * decided once.
- */
-
 export interface HostOptions {
   readonly artifacts: string;
   readonly config: string;
@@ -52,7 +45,6 @@ export interface HostOptions {
 export interface OpenedWorkspace {
   readonly catalog: Catalog;
   readonly config: string | null;
-  /** Where the authoring source is, or would be created. */
   readonly configPath: string;
   readonly cwd: string;
   readonly environment: WorkspaceEnvironment;
@@ -72,8 +64,6 @@ let sourceLibrary: Promise<void> | undefined;
 
 function linkSourceLibrary(): Promise<void> {
   sourceLibrary ??= (async () => {
-    // The paths are relative to this file: `src/workspace/` in source, and
-    // `dist/` (this file's chunk sits beside the entries) once built.
     const library = await import(fileURLToPath(libraryUrl("index")));
     const prebuilt = await import(libraryUrl("prebuilt"));
     plugin({
@@ -114,8 +104,6 @@ async function loadSource(
   },
   print: (line: string) => void
 ): Promise<readonly string[] | false> {
-  // From here the builtin `tasks` wait for this workspace's engine, rather
-  // than take a write the workspace would never see.
   expectHost();
   const files = sourceFiles(configPath);
   if (files === undefined) {
@@ -191,7 +179,6 @@ function opened(
   };
 }
 
-/** The workspace the source names, found without executing anything. */
 export function findWorkspace(args: HostOptions): OpenedWorkspace {
   return opened(args, placed(args), {
     machine: environmentSnapshot(),
@@ -224,10 +211,6 @@ export async function recordedWorkspace(
 
 export interface OpenWorkspaceOptions {
   readonly cwd?: string;
-  /**
-   * What a workspace `.env.schema` that does not resolve does: fail, for
-   * work about to run, or print and go on. `warn` when omitted.
-   */
   readonly env?: "require" | "warn";
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   readonly print: (line: string) => void;
@@ -287,16 +270,10 @@ export async function openWorkspace(
 interface WorkspaceEngineOptions {
   readonly askable?: boolean;
   readonly database?: MarblesDatabase;
-  /** Definitions' own `log(...)` lines; to `print` when omitted. */
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
   readonly print: (line: string) => void;
 }
 
-/**
- * The engine for an opened workspace, as the flags ask for it. Not yet
- * started, but `usage` has its default accounts, so no step it runs sees
- * them missing.
- */
 export async function hostEngine(
   args: HostOptions,
   workspace: OpenedWorkspace,
@@ -304,8 +281,6 @@ export async function hostEngine(
 ): Promise<Engine> {
   await initializeUsage(options.print);
   const engine = workspaceEngine(args, workspace, options);
-  // Definitions called outside a run use the host's models, stores, and
-  // dry-run echo; disposing the engine clears it.
   setHost(engine, workspace.catalog);
   return engine;
 }
@@ -336,7 +311,6 @@ function workspaceEngine(
   });
 }
 
-/** What an engine over this workspace would trigger, read without building one. */
 export function hostTriggers(
   args: HostOptions,
   { catalog, workspace }: OpenedWorkspace

@@ -18,52 +18,29 @@ import {
 
 const DEFAULT_WAIT_MS = 5000;
 const DEFAULT_RETRY_MS = 10;
-/**
- * How long a lock file may stay empty before it counts as abandoned. Its
- * creator writes its pid right after creating it, so one still empty this
- * long was left by a process that died in between (or wrote it before a
- * power loss reached the disk).
- */
 const ABANDONED_EMPTY_MS = 30_000;
 
 export interface TryFileLockOptions {
-  /**
-   * Replace a lock whose recorded holder is no longer running, or that has
-   * recorded no holder for 30s. Leave it off where a crashed writer may have
-   * left damage a person should look at first. Breakers take turns (see
-   * `breakStaleLock`), so exactly one of them takes a stale lock over.
-   */
   readonly breakStale?: boolean;
-  /** Mode of the lock file. Defaults to 0o600. */
   readonly mode?: number;
 }
 
 export interface FileLockOptions extends TryFileLockOptions {
-  /** How often to try again while another process holds it. Defaults to 10ms. */
   readonly retryMs?: number;
-  /** How long to wait for the holder before giving up. Defaults to 5s. */
   readonly waitMs?: number;
 }
 
-/** A lock this process holds. `release` runs once (see `releaser`). */
 export interface FileLock {
   release(): void;
 }
 
-/** A lock someone else holds. */
 export interface FileLockHolder {
-  /**
-   * The file is empty: its creator has not written its pid yet. With
-   * `breakStale`, one left empty for 30s is broken.
-   */
   readonly empty?: true;
   readonly holder: number | undefined;
   readonly owner?: ProcessIdentity;
 }
 
-/** Thrown when the lock stays held past the wait. */
 export class FileLockTimeoutError extends Error {
-  /** The pid recorded in the lock file, when it records one. */
   readonly holder: number | undefined;
   readonly path: string;
 
@@ -79,12 +56,10 @@ export class FileLockTimeoutError extends Error {
   }
 }
 
-/** A lock file as one read finds it. */
 type LockFile =
   | { readonly kind: "missing" }
   | { readonly kind: "holder"; readonly owner: ProcessIdentity }
   | { readonly kind: "empty"; readonly ino: number; readonly mtimeMs: number }
-  /** Unreadable, or not a pid: for a person to look at. */
   | { readonly kind: "other" };
 
 function absentOr(error: unknown): LockFile {
@@ -150,7 +125,6 @@ function noteOwner(path: string, mode: number, file: OwnerNote): void {
   }
 }
 
-/** Whether two reads found the same lock: one holder, or one untouched empty file. */
 function sameLock(a: LockFile, b: LockFile): boolean {
   if (a.kind === "holder" && b.kind === "holder") {
     return a.owner.pid === b.owner.pid && a.owner.started === b.owner.started;
@@ -183,10 +157,6 @@ function heldBy(lock: LockFile): FileLockHolder {
   }
 }
 
-/**
- * The pid a lock file records, or `undefined` when there is no file (it was
- * released between an attempt and this read) or it records no pid.
- */
 export function lockHolder(path: string): number | undefined {
   return lockOwner(path)?.pid;
 }
@@ -205,13 +175,6 @@ export function lockContents(): string {
   return String(thisProcess().pid);
 }
 
-/**
- * Create `path` exclusively and record this process in it. `false` when it
- * already exists. A lock whose pid could not be written is removed again, so
- * it does not sit empty until it counts as abandoned. `false` too when the
- * file was broken as abandoned while this process stalled between creating
- * it and writing its pid, and another has taken the lock since.
- */
 function create(path: string, mode: number): boolean {
   let file: number;
   try {
@@ -253,18 +216,6 @@ function create(path: string, mode: number): boolean {
   return true;
 }
 
-/**
- * Remove the lock at `path` if it is still the abandoned lock `seen`: the
- * same exited holder, or the same untouched empty file. Breakers take turns
- * through `${path}.break`, and each re-reads the lock while it has that
- * turn. Without that, two processes that both judged one lock abandoned
- * could each remove a lock, the second removing the one the first had just
- * taken, and both would hold it. `false` when another process has the turn.
- *
- * A process that dies holding `.break` leaves breaking switched off for this
- * lock: abandoned locks then stay held until someone removes the `.break`
- * file. That fails safe.
- */
 function breakStaleLock(path: string, seen: LockFile, mode: number): boolean {
   const turn = `${path}.break`;
   try {
@@ -285,11 +236,6 @@ function breakStaleLock(path: string, seen: LockFile, mode: number): boolean {
   }
 }
 
-/**
- * The release for a lock this process created. It runs once, and removes the
- * file only while it still names this process, so a late or repeated call
- * cannot remove a lock someone else has taken since.
- */
 function releaser(path: string): () => void {
   let released = false;
   return () => {
@@ -304,11 +250,6 @@ function releaser(path: string): () => void {
   };
 }
 
-/**
- * Take the lock at `path` now, or say who holds it. With `breakStale`, an
- * abandoned lock (its holder exited, or it stayed empty for 30s) is broken
- * and taken over in the same call.
- */
 export function tryFileLock(
   path: string,
   options: TryFileLockOptions = {}
@@ -318,7 +259,6 @@ export function tryFileLock(
     return { release: releaser(path) };
   }
   const seen = readLock(path);
-  // Released between the attempt and the read: free again.
   const freed = seen.kind === "missing";
   const retry =
     freed ||
@@ -326,11 +266,9 @@ export function tryFileLock(
   if (retry && create(path, mode)) {
     return { release: releaser(path) };
   }
-  // Another process took it over first, or has the turn to break it.
   return heldBy(readLock(path));
 }
 
-/** Take the lock at `path`, waiting for its holder; resolves to its release. */
 export async function acquireFileLock(
   path: string,
   options: FileLockOptions = {}
@@ -352,7 +290,6 @@ export async function acquireFileLock(
   }
 }
 
-/** Run `operation` holding the lock at `path`, releasing it however it ends. */
 export async function withFileLock<T>(
   path: string,
   operation: () => Promise<T>,

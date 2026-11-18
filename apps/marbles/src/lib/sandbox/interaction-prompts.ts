@@ -19,19 +19,15 @@ export type LiveApproval = Parameters<
   NonNullable<HarnessAuthoritySettings["approve"]>
 >[0];
 
-/** An answer from the feed, already checked against the offered choices. */
 export type PromptAnswer = ReturnType<typeof readAnswer>;
 
 export interface Prompt<T> {
   parse(answer: PromptAnswer): T;
   readonly question: FeedQuestionPayload;
-  /** The choice that asks for a typed answer instead, when one is offered. */
   readonly writeIn?: string;
 }
 
-/** A deferred approval can also be shown answered, from a response already recorded. */
 interface DeferredPrompt extends Prompt<boolean> {
-  /** The choice that stands for a recorded approval or denial. */
   choiceFor(approved: boolean): string;
 }
 
@@ -57,7 +53,6 @@ export function approvalPrompt(
   };
 }
 
-/** A refused action's grant for future runs; `durable` when it waits across restarts. */
 export function deferredPrompt(
   request: AgentApprovalRequest,
   durable: boolean
@@ -77,7 +72,6 @@ export function deferredPrompt(
   };
 }
 
-/** One question; its answer is the selections, or undefined when declined. */
 export function questionPrompt(
   request: HarnessQuestionRequest,
   question: HarnessQuestion

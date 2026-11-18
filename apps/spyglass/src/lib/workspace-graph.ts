@@ -22,13 +22,6 @@ import type {
 } from "./workspace-graph-types";
 import type { WorkspaceReport } from "./workspace-types";
 
-// V9.1 workspace graph intelligence. The canonical package and module
-// graphs from a WorkspaceReport are analyzed as one system: every metric is
-// recomputed from canonical nodes and edges, never merged from the
-// per-package gravity each report derived from its own perspective. Package
-// and module levels stay separate. Nothing here reads concepts, history, or
-// V8 findings; anchors are carried as context only.
-
 type GraphConfig = AnalysisConfig["workspaceGraph"];
 
 function byId(a: string, b: string): number {
@@ -61,7 +54,6 @@ function reachableSet(start: string, adjacency: Map<string, Set<string>>) {
   return visited;
 }
 
-/** Weak components over `nodes`, ignoring edge direction; ids are the smallest member. */
 function weakComponents(
   nodes: readonly string[],
   adjacency: Adjacency,
@@ -202,11 +194,6 @@ function condensationLabel(level: Level, component: string): string {
   return cycle === undefined ? component : `[${cycle.nodes.join("|")}]`;
 }
 
-/**
- * Longest source-to-sink paths on the condensation, longest first, ties by
- * id at every step. Cycle members are one node, so no order is invented
- * inside a cycle.
- */
 function longestChains(level: Level, limit: number): string[][] {
   const { condensation, upstream } = level.measured;
   const depthOf = (component: string) => upstream.get(component) ?? 0;
@@ -273,7 +260,6 @@ interface Betweenness {
   node: Map<string, number>;
 }
 
-/** Brandes on the directed unweighted graph; neighbors visited in id order. */
 function brandes(adjacency: Adjacency): Betweenness {
   const node = new Map<string, number>();
   const edge = new Map<string, number>();
@@ -585,10 +571,6 @@ function roleOf(facts: WorkspaceNodeGraphFacts): WorkspacePackageGraphRole {
   return "intermediate";
 }
 
-/**
- * Analyze the canonical workspace graphs. Pure over the report; package
- * analysis, TypeScript, and Git are never rerun.
- */
 export function analyzeWorkspaceGraph(
   workspace: WorkspaceReport,
   config: AnalysisConfig = ANALYSIS_CONFIG

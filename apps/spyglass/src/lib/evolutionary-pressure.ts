@@ -16,11 +16,6 @@ import type {
   SurfaceReport,
 } from "./types";
 
-// Static × evolutionary pressure: does history reinforce, contradict, or
-// leave unsupported what V5.3 already decided? Pure composition over the
-// report's own sections — static paths come from V6.2, roles from V5.0.
-// Never re-evaluates a V5 gate, never scores, never recommends.
-
 export type EvolutionaryPressureSource = Pick<
   SurfaceReport,
   | "target"
@@ -73,7 +68,6 @@ interface Context {
   hubs: HotStructuralHub[];
   policy: Policy;
   radius: Available<SurfaceReport["changeRadius"]>;
-  /** Package pairs at or above the recurring-relationship bar, strongest first. */
   recurringPackagePairs: ChangeCouplingPair[];
   source: EvolutionaryPressureSource;
   target: string;
@@ -163,11 +157,6 @@ interface Verdict {
   reinforced: boolean;
 }
 
-/**
- * Integration reinforced when commits usually cross a static edge, or when
- * one edge-connected package pair recurs — the rate alone sits in a dense
- * part of the repository distribution.
- */
 function integration(ctx: Context): Verdict {
   const gates = ctx.policy.integration;
   const { summary } = ctx.radius;
@@ -222,8 +211,6 @@ function centralization(ctx: Context): Verdict {
   const gates = ctx.policy.centralization;
   const churnByFile = new Map(ctx.churn.files.map((f) => [f.file, f]));
   const hotspotFiles = new Set(ctx.hotspots.files.map((h) => h.file));
-  // Same basis as V5.3's destination concentration: import sites by
-  // declaring module, so seams are where traffic lands, not the barrels.
   const sites = new Map<string, number>();
   for (const boundary of ctx.source.boundaryInteractions.incoming) {
     for (const contribution of boundary.destinationModules) {
@@ -282,12 +269,6 @@ function centralization(ctx: Context): Verdict {
   return { evolutionary, reinforced };
 }
 
-/**
- * Internal structure reinforced by history landing on internal centers:
- * a hotspot in a high-gravity module, a hot internal hub, or a same-package
- * pair touching one. Hot barrels are listed as hubs but do not reinforce —
- * a churning surface is not internal pressure.
- */
 function internalStructure(ctx: Context): Verdict {
   const minFanIn = ctx.policy.hotStructuralHub.minModuleFanIn;
   const internalHubs = ctx.hubs.filter((hub) => hub.role !== "aggregator");
@@ -392,9 +373,6 @@ function leafTension(ctx: Context): ArchitecturalTension | undefined {
       )
     );
   }
-  // Name whichever relationship history shows more often: a package pair
-  // can pass V6.2's strength gates on a small partner while the dominant
-  // combination with a large consumer fails them on conditionals.
   const pairCommits = pair?.coChangeCommits ?? 0;
   const combinationCommits = combination?.commits ?? 0;
   const partner =
@@ -453,12 +431,6 @@ function lowEvolutionTension(ctx: Context): ArchitecturalTension | undefined {
   };
 }
 
-/**
- * Source files that change together with no static path at all. Test
- * companions, story fixtures, and config pairs are visible on the V6.2
- * pairs but are not tensions: only source ↔ source can be a parallel
- * implementation the graph fails to explain.
- */
 function noPathTensions(ctx: Context): ArchitecturalTension[] {
   const min = ctx.policy.coupling.minFileCommits;
   return ctx.coupling.filePairs
@@ -513,13 +485,6 @@ function noPathTensions(ctx: Context): ArchitecturalTension[] {
     });
 }
 
-/**
- * Compose evolutionary pressure from the report's own sections. Reinforced
- * and static-only partition the V5.3 signals; tensions describe where the
- * two stories disagree. Below the support gate every signal is
- * insufficient-history and no conclusion is drawn, but hubs (evidence, not
- * conclusions) are still listed.
- */
 export function analyzeEvolutionaryPressure(
   source: EvolutionaryPressureSource,
   config: AnalysisConfig = ANALYSIS_CONFIG

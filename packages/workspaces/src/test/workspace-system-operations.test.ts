@@ -339,8 +339,6 @@ describe("WorkspaceSystem public operations", () => {
 
     expect(await added.read(file.id)).toEqual({
       bytes: 6,
-      // Computed from the bytes just read — deliberately not the
-      // catalogued digest, which still describes "first".
       digest: sha256Hex(new TextEncoder().encode("second")),
       kind: "text",
       mime: "text/markdown",

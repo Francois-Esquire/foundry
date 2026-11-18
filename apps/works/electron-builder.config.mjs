@@ -52,8 +52,6 @@ const config = {
   mac: {
     target: ["dmg", "zip"],
   },
-  // Bun hoists dependencies into the workspace root; rebuilding that tree
-  // makes electron-builder run node-gyp for unrelated optional modules.
   npmRebuild: false,
   productName: "Foundry Works",
   win: {

@@ -46,23 +46,11 @@ import type { WorkspaceConceptIntelligence } from "./workspace-concepts-types";
 import type { WorkspaceGraphAnalysis } from "./workspace-graph-types";
 import type { WorkspaceArchitecturalPatterns } from "./workspace-patterns-types";
 
-/**
- * V9.0 canonical workspace model. Package `SurfaceReport`s are observations
- * from one target's perspective; this model is their deterministic union,
- * keyed by ids the package reports already use. Versioned independently of
- * the package report schema.
- */
 export const WORKSPACE_SCHEMA_VERSION = 7;
 
-/**
- * Package report schemas this ingestion understands. 32 lacks
- * `policyVersion`; 33 lacks module `fileKind`; 34 lacks module-edge
- * `typeOnly` and internal edges.
- */
 export const SUPPORTED_PACKAGE_SCHEMAS: readonly number[] = [32, 33, 34, 35];
 
 export interface WorkspaceProvenance {
-  /** Canonical package ids of the reports that observed the fact, sorted. */
   observedBy: string[];
 }
 
@@ -77,13 +65,10 @@ export interface WorkspaceReportSource {
   anchored: boolean;
   history?: WorkspaceHistoryWindow;
   package: string;
-  /** Absent for schema-32 reports, which did not record it. */
   policyVersion?: number;
   provenance: { source: "analysis-report" };
-  /** Deterministic fingerprint over target, versions, history window and summary counts. */
   reportId: string;
   schemaVersion: number;
-  /** Root-relative target path. */
   target: string;
 }
 
@@ -105,7 +90,6 @@ interface WorkspacePackageSurface {
 }
 
 export interface WorkspacePackage {
-  /** A report for this package was ingested; false for packages known only as edge or concept endpoints. */
   analyzed: boolean;
   anchored: boolean;
   anchorReason?: string;
@@ -129,7 +113,6 @@ interface WorkspaceGraphNode {
 }
 
 export interface WorkspaceModuleNode {
-  /** Absent only for modules no analyzed package owns. */
   fileKind?: FileKind;
   gravity?: {
     fanIn: number;
@@ -137,7 +120,6 @@ export interface WorkspaceModuleNode {
     transitiveDependents: number;
     transitiveDependencies: number;
   };
-  /** Root-relative path; already unique across the workspace. */
   id: string;
   package?: string;
   provenance: WorkspaceProvenance;
@@ -146,24 +128,20 @@ export interface WorkspaceModuleNode {
 
 export interface WorkspaceDependencyEdge {
   from: string;
-  /** `${from}→${to}` */
   id: string;
   moduleEdges: number;
   provenance: WorkspaceProvenance;
   to: string;
-  /** Both endpoints' reports observed the edge and agree on `moduleEdges`. */
   verified: boolean;
 }
 
 export interface WorkspaceModuleEdge {
   from: string;
   fromPackage: string;
-  /** `${from}→${to}` */
   id: string;
   provenance: WorkspaceProvenance;
   to: string;
   toPackage: string;
-  /** Absent when the observing report predates schema 35. */
   typeOnly?: boolean;
 }
 
@@ -190,7 +168,6 @@ interface WorkspaceConceptDistribution {
   shapes: ConceptDistributionShape[];
 }
 
-/** One package's V7.3 participation counts; `behaviors` is left to locality, which separates source from test. */
 interface WorkspaceConceptParticipation {
   conversions: number;
   implementations: number;
@@ -202,7 +179,6 @@ interface WorkspaceConceptParticipation {
 interface WorkspaceConceptOwnership {
   alignment: OwnershipAlignment;
   center: ConceptOwnershipCenter;
-  /** Sorted by package. */
   participation: WorkspaceConceptParticipation[];
   tensions: ConceptOwnershipTensionKind[];
 }
@@ -219,7 +195,6 @@ export interface WorkspaceConceptBehaviorPackage {
 
 interface WorkspaceConceptLocality {
   anchored: boolean;
-  /** Sorted by package. */
   behavior: WorkspaceConceptBehaviorPackage[];
   modifiers: BehavioralLocalityModifier[];
   moduleCount: number;
@@ -231,16 +206,12 @@ interface WorkspaceConceptLocality {
   sourceModuleCount: number;
 }
 
-/** V6 history the seed report attached to the family's own members. Ids resolve into `evolution`. */
 interface WorkspaceConceptEvolution {
-  /** Canonical coupling pair ids (`left|right`, files sorted) between two member files. */
   couplings: string[];
-  /** Behavior modules that are V6.1 hotspots in the seed report. */
   hotspotModules: string[];
 }
 
 export interface WorkspaceConcept {
-  /** `seed-report`: the declaring package's report was ingested and its target-scoped analyses are authoritative here. */
   analysis: WorkspaceConceptAnalysis;
   distribution?: WorkspaceConceptDistribution;
   evolution?: WorkspaceConceptEvolution;
@@ -250,7 +221,6 @@ export interface WorkspaceConcept {
   locality?: WorkspaceConceptLocality;
   name: string;
   observations: WorkspaceConceptObservation[];
-  /** Canonical overlap pair ids this concept takes part in, sorted. */
   overlaps: string[];
   ownership?: WorkspaceConceptOwnership;
   package: string;
@@ -269,7 +239,6 @@ export interface WorkspaceConceptOverlap {
   conversions: ConceptConversion[];
   crossPackage: boolean;
   dimensions: ConceptOverlapDimension[];
-  /** `${left.id}|${right.id}` with ids sorted; directional fields follow that orientation. */
   id: string;
   left: ConceptIdentity;
   name?: ConceptNameAffinity;
@@ -281,7 +250,6 @@ export interface WorkspaceConceptOverlap {
 }
 
 interface WorkspaceConceptIndex {
-  /** Declaring package → concept ids, both sorted. */
   byPackage: Record<string, string[]>;
   concepts: WorkspaceConcept[];
   overlaps: WorkspaceConceptOverlap[];
@@ -301,17 +269,9 @@ export interface WorkspaceBoundaryPerspective {
   };
 }
 
-/**
- * One directional package boundary. The destination's report measures usage
- * of its own declared surface (symbol references); the source's report
- * counts its import declarations. Those are different populations, so each
- * is kept as a perspective; only `moduleEdges` is one shared fact. Canonical
- * counts come from the destination when present, else the source.
- */
 export interface WorkspaceBoundary {
   breadth: WorkspaceBoundaryPerspective["breadth"];
   from: string;
-  /** `${from}→${to}` */
   id: string;
   importSites: number;
   moduleEdges: number;
@@ -323,13 +283,11 @@ export interface WorkspaceBoundary {
   surfaceCoverage: number | null;
   symbols: {
     distinct: number;
-    /** Destination-only facts; null when only the source observed the boundary. */
     packagePublic: number | null;
     references: number | null;
   };
   to: string;
   usage: WorkspaceBoundaryPerspective["usage"];
-  /** Both perspectives observed the boundary and agree on `moduleEdges`. */
   verified: boolean;
 }
 
@@ -343,7 +301,6 @@ interface WorkspaceChurnObservation {
   deletions: number;
   linesChanged: number;
   source: string;
-  /** `reportId` of the observing source; equal windows share a fingerprint. */
   window: string;
 }
 
@@ -375,7 +332,6 @@ export interface WorkspaceHotspot {
 export interface WorkspaceCouplingPair {
   coChangeCommits: number;
   context: CouplingContext;
-  /** `${left}|${right}` with files sorted; conditionals follow that orientation. */
   id: string;
   jaccard: number;
   lastCoChangedAt?: string;
@@ -396,7 +352,6 @@ export interface WorkspaceCouplingPair {
 
 export interface WorkspacePackageCoupling {
   coChangeCommits: number;
-  /** `${left}|${right}` with packages sorted. */
   id: string;
   jaccard: number;
   left: string;
@@ -411,7 +366,6 @@ export interface WorkspacePackageCoupling {
   verified: boolean;
 }
 
-/** Target-scoped: a package's own commits, never merged across packages. */
 export interface WorkspacePackageRadius {
   boundariesP50: number;
   boundaryCrossingRate: number;
@@ -466,7 +420,6 @@ export interface WorkspaceRecenteringScenario {
   kind: RecenteringScenarioKind;
   proposedCenter: string;
   provenance: WorkspaceProvenance;
-  /** The finding exists in the canonical index. */
   resolved: boolean;
   status: ScenarioStatus;
 }
@@ -480,9 +433,7 @@ export interface WorkspaceScenarioImpact {
   scenarioId: string;
   status: ScenarioImpactStatus;
   summary: string[];
-  /** Distinct V8.3 uncertainty kinds, sorted. */
   uncertainties: ScenarioImpactUncertaintyKind[];
-  /** Package edge ids the simulation could not measure, sorted. */
   unmeasuredEdges: string[];
 }
 
@@ -551,9 +502,7 @@ export interface WorkspaceCoverage {
   complete: boolean;
   missingPackages: string[];
   packagesAnalyzed: number;
-  /** Packages named anywhere in the ingested reports. */
   packagesKnown: number;
-  /** Workspace package count the reports' dependency population agreed on. */
   population?: number;
 }
 
@@ -591,7 +540,6 @@ interface WorkspaceIngestionDiagnostics {
   density: Record<WorkspaceEntityKind, WorkspaceObservationDensity>;
   diagnostics: WorkspaceDiagnostic[];
   duplicates: number;
-  /** Observation count before deduplication, per entity kind. */
   naive: Record<WorkspaceEntityKind, number>;
   reportsAccepted: number;
   reportsReceived: number;
@@ -605,7 +553,6 @@ export interface WorkspaceReport {
   evolution: WorkspaceEvolutionIndex;
   graph: WorkspaceGraph;
   ingestion: WorkspaceIngestionDiagnostics;
-  /** Derived layers over the canonical facts above; absent until computed. */
   intelligence?: WorkspaceIntelligence;
   packages: WorkspacePackageIndex;
   sources: WorkspaceReportSource[];
@@ -613,11 +560,6 @@ export interface WorkspaceReport {
   workspaceSchemaVersion: number;
 }
 
-/**
- * Derived workspace layers. `policyVersion` is
- * `WORKSPACE_INTELLIGENCE_POLICY_VERSION`, the thresholds these layers were
- * computed under; independent of the package `ANALYSIS_POLICY_VERSION`.
- */
 interface WorkspaceIntelligence {
   concepts?: WorkspaceConceptIntelligence;
   graph?: WorkspaceGraphAnalysis;
@@ -626,8 +568,6 @@ interface WorkspaceIntelligence {
 }
 
 export interface WorkspaceIngestOptions {
-  /** Recorded on the identity only; never used for ids. */
   root?: string;
-  /** Package report schemas to accept; defaults to `SUPPORTED_PACKAGE_SCHEMAS`. */
   supportedSchemas?: readonly number[];
 }

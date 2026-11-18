@@ -8,9 +8,7 @@ import { type ReportedLimit, spendCap, window } from "../../limit";
 import type { Reading } from "../../snapshot";
 import { dateFrom, finite, record, text, within } from "../values";
 
-/** What only Anthropic reports about a Claude login's limits. */
 export interface AnthropicDetails {
-  /** Extra usage, whose spend cap is in `limits` only while it is enabled. */
   readonly extraUsage?: {
     readonly enabled: boolean;
     readonly disabledReason?: string;
@@ -35,9 +33,7 @@ export type ClaudeQuery = (params: {
 
 export interface ClaudeProbe {
   readonly cwd: string;
-  /** The CLI's whole environment: the SDK replaces it, it does not merge. */
   readonly env: Record<string, string>;
-  /** The `claude` to run; the SDK's bundled one when absent. */
   readonly executable?: string;
   readonly initTimeoutMs: number;
   readonly query: ClaudeQuery;
@@ -46,14 +42,12 @@ export interface ClaudeProbe {
 
 const MINOR_UNITS_BASE = 10;
 
-/** Over the host environment, so the probe stays inert: no claude.ai MCP servers, no IDE. */
 const QUIET_ENV = {
   CLAUDE_CODE_AUTO_CONNECT_IDE: "0",
   CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL: "1",
   ENABLE_CLAUDEAI_MCP_SERVERS: "false",
 } as const;
 
-/** A prompt stream that never yields, so nothing reaches the model, and ends at abort. */
 const silentPrompt = (signal: AbortSignal): AsyncIterable<SDKUserMessage> => {
   const ended = new Promise<IteratorResult<SDKUserMessage>>((resolve) => {
     signal.addEventListener(
@@ -65,12 +59,6 @@ const silentPrompt = (signal: AbortSignal): AsyncIterable<SDKUserMessage> => {
   return { [Symbol.asyncIterator]: () => ({ next: () => ended }) };
 };
 
-/**
- * One reading of a Claude login: a query with no prompt, asked for its
- * account and then `/usage`, then closed on every path. It loads no settings,
- * hooks, tools or MCP servers and leaves no transcript. Throws when the CLI
- * does not start, is signed out, or reports no limits.
- */
 export const readClaudeLimits = async (
   probe: ClaudeProbe
 ): Promise<Reading> => {
@@ -154,7 +142,6 @@ const windowOf = (
     : undefined;
 };
 
-/** Minor units at a currency's scale, in dollars; other currencies are not money here. */
 const dollars = (value: unknown): number | undefined => {
   const money = record(value);
   if (
@@ -167,7 +154,6 @@ const dollars = (value: unknown): number | undefined => {
   return money.amount_minor / MINOR_UNITS_BASE ** money.exponent;
 };
 
-/** Extra usage from `spend` in dollars, else `extra_usage` in minor units scaled by `decimal_places` (default two). */
 const capOf = (limits: Record<string, unknown>): ReportedLimit | undefined => {
   const spend = record(limits.spend);
   const used = dollars(record(spend.used));
@@ -192,7 +178,6 @@ const capOf = (limits: Record<string, unknown>): ReportedLimit | undefined => {
   }
 };
 
-/** A weekly window per `model_scoped` entry with a reading, first per model. */
 const modelWindowsOf = (scoped: unknown): ReportedLimit[] => {
   const found = new Map<string, ReportedLimit>();
   for (const entry of (Array.isArray(scoped) ? scoped : []).map(record)) {
@@ -219,12 +204,6 @@ const detailsOf = (extraUsage: unknown): AnthropicDetails => {
     : {};
 };
 
-/**
- * A reading from the account and the usage response as the CLI sends them:
- * `five_hour` as the hourly window and `seven_day` as the weekly one, a
- * weekly window per `model_scoped` entry, and extra usage. Codenamed buckets
- * are not read. Throws when a login that has limits reports no windows.
- */
 export const claudeReading = (
   accountValue: unknown,
   usageValue: unknown

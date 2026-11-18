@@ -1,39 +1,7 @@
-// The structures on the islands' tops (town-draw.ts, structures-build.ts):
-// buildings, parcel walls and hedges, poles, each a few parts, and each part
-// one instance of a shape built from the vertex index with no vertex
-// buffer. A box is four walls and a top; a roof is a slab over a footprint,
-// gabled, hipped or a lean-to, with thick edges, the undersides of its
-// eaves and, for a shrine, sagging slopes and upturned eaves; a round is a
-// round wall under a cone; an open part is a box with a floor, cut by its
-// style into a balcony's panels, an outside stair's flights, a net, a
-// climbing frame or a fence. One draw a shape, the parts sorted into a run
-// for each; the open parts discard, so they have a fragment entry of their
-// own and the solid parts keep their early depth test.
-//
-// Shading follows Townscaper (REFERENCES.md): one flat colour a face, the
-// colour chosen for each building on the CPU (structures-palette.ts), deep
-// occlusion under the eaves and at the walls' feet, and only fine patterns
-// (siding, boards, tile courses) that fade before they alias.
-//
-// Everything is built at one human scale (town-parts.ts): a door is
-// DOOR_HEIGHT tall, a storey STOREY. A tall building is more storeys of the
-// same windows, never a small one scaled up, so its windows count its
-// floors.
-//
-// A part stands on its site (town-floors.wgsl): its heights are above the
-// ground at the site's middle, and a wall that rises from the floor
-// reaches down to the lowest ground under the site, so it never floats on
-// a slope. The site's ground, occlusion and sun were found once, when the
-// maps or the plan last changed; a body samples no texture. A second draw
-// lays each casting part's shadow on the ground round it, a soft patch
-// cast away from the sun and blended over the terrain: the light map,
-// baked without the town, casts none for it. A third hangs the wires
-// between the poles.
 import { planarHash, planarNoise } from "../../../../shaders/noise/planar.wgsl";
 
 struct Props {
   viewProjection: mat4x4f,
-  // Toward the sun, world space.
   sun: vec3f,
   sunStrength: f32,
   sunColor: vec3f,
@@ -41,21 +9,13 @@ struct Props {
   skyColor: vec3f,
   shadowStrength: f32,
   seaFill: vec3f,
-  // The baked occlusion's power and the sun's share of it (terrain.wgsl).
   occlusion: f32,
-  // The maps' square: its corner and side, chart units.
   origin: vec2f,
   side: f32,
   occlusionSun: f32,
-  // The film's size, pixels: for the wires' width.
   viewport: vec2f,
 }
 
-// Five vec4f a part (town-parts.ts `packInto`): its middle, turn and
-// variant; half its footprint, its base and wall; its site, its rise, its
-// material and its trim; its doors, its flags, its style (an open part's)
-// or its overhang (a roof's or a round's), and its places; its colour and
-// its trim's colour, packed, and its windows' style.
 struct Part {
   at: vec2f,
   turn: f32,
@@ -78,63 +38,41 @@ struct Part {
 
 @group(0) @binding(0) var<uniform> props: Props;
 @group(0) @binding(1) var<storage, read> parts: array<vec4f>;
-// A vec4f a site (town-floors.wgsl): the ground at its middle, how far
-// below that its floor sinks, its occlusion and its sun.
 @group(0) @binding(2) var<storage, read> floors: array<vec4f>;
-// r: the ground's height, for the shadows draped over it.
 @group(0) @binding(3) var height: texture_2d<f32>;
 @group(0) @binding(4) var linear: sampler;
-// Three vec4f a wire (structures-poles.ts `packWires`): one end and its
-// height over its pole's site, and that site; the other end the same; its
-// sag and its radius.
 @group(0) @binding(5) var<storage, read> wires: array<vec4f>;
 
-// The human scale, chart units (town-parts.ts, the same names): about four
-// metres a unit.
 const DOOR_HEIGHT = 0.5;
 const DOOR_WIDTH = 0.24;
 const STOREY = 0.75;
-// How near a wall's corner a window may come, and how wide a gap a window
-// leaves round a door.
 const WINDOW_CORNER = 0.2;
 const WINDOW_DOOR_GAP = 0.3;
-// A window's and a door's frame.
 const FRAME = 0.018;
-// A shop's glazing: from its sill to its head, its mullions' spacing.
 const SHOP_SILL = 0.04;
 const SHOP_HEAD = 0.6;
 const MULLION_SPACING = 0.6;
-// A flat roof's parapet: how wide its top is.
 const PARAPET_RIM = 0.08;
-// A balcony's or a corridor's panel over its floor, and its slab.
 const PANEL = 0.3;
 const SLAB = 0.05;
-// An outside stair's stringer, a net's mesh and its cords, a frame's bars.
 const STRINGER = 0.1;
 const MESH = 0.1;
 const CORD = 0.012;
 const BAR = 0.035;
-// A garden fence's posts and rails, and a tall fence's mesh.
 const FENCE_POSTS = 0.42;
 const FENCE_BAR = 0.022;
 const FENCE_MESH = 0.06;
 const TALL_FENCE = 0.5;
-// A stand's seat rows.
 const SEAT_ROW = 0.18;
-// How far a round's eave hangs below its wall's top.
 const EAVE_DROP = 0.06;
-// The fine patterns, chart units: siding's laps, boards, corrugations,
-// roof tile courses, standing seams, concrete blocks.
 const LAP = 0.05;
 const BOARD = 0.06;
 const CORRUGATION = 0.03;
 const TILE_COURSE = 0.075;
 const SEAM_SPACING = 0.11;
-// Half the width of a roof's ridge capping.
 const RIDGE_CAP = 0.04;
 const BLOCK_COURSE = 0.05;
 
-// The shapes (town-parts.ts `TOWN_SHAPES`) and the faces of a part.
 const BOX = 0u;
 const ROOF = 1u;
 const ROUND = 2u;
@@ -147,7 +85,6 @@ const GABLE = 4u;
 const BOTTOM = 5u;
 const FASCIA = 6u;
 
-// The materials (town-parts.ts `TOWN_MATERIALS`).
 const TIMBER = 3u;
 const METAL = 4u;
 const TILE = 5u;
@@ -163,20 +100,16 @@ const SEAM = 21u;
 const CLOCK = 22u;
 const VENDING = 23u;
 
-// An open part's styles (town-parts.ts `OPEN_STYLES`).
 const BALCONY = 0u;
 const STAIR = 1u;
 const NET_STYLE = 2u;
 const FENCE_STYLE = 4u;
 
-// The windows' styles (town-parts.ts `WINDOW_STYLES`).
 const SLIDING = 1u;
 const NARROW = 2u;
 const RIBBON = 3u;
 const SPARSE = 4u;
 
-// The flags (town-parts.ts `flagsOf`), the shape packed above them, and
-// the door row's count above the faces' bits.
 const WINDOWS = 2u;
 const HIPPED = 4u;
 const PARAPET = 8u;
@@ -192,16 +125,10 @@ const ROW_SHIFT = 4u;
 const NORTH = 4u;
 const SOUTH = 8u;
 
-// Slices round a round (town-draw.ts `TOWN_VERTICES.round`): fifteen vertices
-// a slice, six of wall, three of cone and six of eave.
 const SEGMENTS = 12u;
 const TAU = 6.2831853;
 const PI = 3.14159265;
 
-// Salts 830–832: the roofs' tiles, the hedges' leaves and the seats'
-// blocks (829, the walls' old grain, is no longer drawn). Salts 870–872:
-// which windows are left blind, which are curtained, and the boards'
-// shades.
 const TILE_SALT = 830u;
 const HEDGE_SALT = 831u;
 const SEAT_SALT = 832u;
@@ -209,9 +136,6 @@ const WINDOW_SALT = 870u;
 const CURTAIN_SALT = 871u;
 const BOARD_SALT = 872u;
 
-// Linear colours of what no building chooses: a doorway, a window's glass,
-// a curtain behind it, its frame, a slip's dark water, concrete, steel, a
-// net, a flat roof's membrane, the seats' second colour.
 const DOOR_COLOR = vec3f(0.07, 0.055, 0.045);
 const WINDOW_COLOR = vec3f(0.035, 0.045, 0.055);
 const CURTAIN_COLOR = vec3f(0.42, 0.38, 0.3);
@@ -222,8 +146,6 @@ const STEEL_COLOR = vec3f(0.08, 0.085, 0.09);
 const NET_COLOR = vec3f(0.06, 0.09, 0.07);
 const MEMBRANE_COLOR = vec3f(0.2, 0.2, 0.19);
 const SEAT_OTHER = vec3f(0.5, 0.5, 0.48);
-// What glows: a shop's lit glass, a sign's white and its stripes, a lamp,
-// a vending machine's front.
 const SHOP_GLOW = vec3f(0.9, 0.82, 0.62);
 const SIGN_WHITE = vec3f(0.95, 0.95, 0.92);
 const SIGN_GREEN = vec3f(0.05, 0.45, 0.2);
@@ -236,9 +158,6 @@ const SIGN_STRENGTH = 1.1;
 const LAMP_STRENGTH = 3.0;
 const VENDING_STRENGTH = 0.55;
 
-// The light: how much the sky's fill is greyed on the buildings, the warm
-// light thrown back up off sunlit ground onto walls and eaves, how dark
-// it is right under the eaves and at a wall's foot.
 const FILL_GREY = 0.6;
 const GROUND_BOUNCE = vec3f(0.3, 0.26, 0.18);
 const UNDER_EAVES = 0.35;
@@ -246,10 +165,8 @@ const EAVE_BAND = 0.32;
 const EAVE_SHADE = 0.24;
 const FOOT_DARK = 0.5;
 const FOOT_HEIGHT = 0.35;
-// How much of the sun a wall's foot keeps: the ground's own occlusion.
 const FOOT_SUN = 0.6;
 
-// Two triangles over a unit square, as its corners.
 const QUAD = array<vec2u, 6>(vec2u(0u, 0u), vec2u(1u, 0u), vec2u(1u, 1u), vec2u(0u, 0u), vec2u(1u, 1u), vec2u(0u, 1u));
 
 fn partAt(index: u32) -> Part {
@@ -287,8 +204,6 @@ fn has(part: Part, flag: u32) -> bool {
   return (part.flags & flag) != 0u;
 }
 
-// A colour packed as red × 65536 + green × 256 + blue (town-parts.ts
-// `packColor`), standard RGB, made linear.
 fn colorOf(packed: f32) -> vec3f {
   let v = u32(packed);
   let srgb = vec3f(f32((v >> 16u) & 255u), f32((v >> 8u) & 255u), f32(v & 255u)) / 255.0;
@@ -297,7 +212,6 @@ fn colorOf(packed: f32) -> vec3f {
   return select(high, low, srgb <= vec3f(0.04045));
 }
 
-// A point on a part, in its own frame: y up from the ground at its site.
 struct Corner {
   p: vec3f,
   normal: vec3f,
@@ -305,7 +219,6 @@ struct Corner {
   material: u32,
 }
 
-// Turns the part's frame into the chart's: its local z toward −x by its turn.
 fn spinOf(turn: f32) -> mat2x2f {
   return mat2x2f(cos(turn), sin(turn), -sin(turn), cos(turn));
 }
@@ -313,20 +226,13 @@ fn spinOf(turn: f32) -> mat2x2f {
 struct PartOut {
   @builtin(position) position: vec4f,
   @location(0) normal: vec3f,
-  // The part's frame, y up from the ground at its site.
   @location(1) local: vec3f,
   @location(2) @interpolate(flat) localNormal: vec3f,
-  // The shape, the face, the material, the doors.
   @location(3) @interpolate(flat) kind: vec4u,
-  // Half the footprint, the wall's top, the variant.
   @location(4) @interpolate(flat) size: vec4f,
-  // The site's occlusion and sun.
   @location(5) @interpolate(flat) light: vec4f,
-  // The flags, the trim's material, the windows' style.
   @location(6) @interpolate(flat) flags: vec4u,
-  // Its base, its style, its places, the lowest its walls reach.
   @location(7) @interpolate(flat) extra: vec4f,
-  // The face's colour, and the trim's.
   @location(8) @interpolate(flat) color: vec3f,
   @location(9) @interpolate(flat) trimColor: vec3f,
 }
@@ -355,14 +261,10 @@ fn emit(part: Part, shape: u32, c: Corner) -> PartOut {
   return out;
 }
 
-// The floor a part's walls reach down to: its base, or below the lowest
-// ground under its site when it stands on the ground.
 fn lowOf(part: Part) -> f32 {
   return select(part.base, -floors[part.site].y, part.base <= 0.0);
 }
 
-// A box's four walls and its top, thirty vertices; an open part's floor
-// after them, six more.
 fn boxCorner(part: Part, vertex: u32) -> Corner {
   let low = lowOf(part);
   let top = part.base + part.wall;
@@ -405,18 +307,8 @@ fn vs_open(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: u
   return emit(part, OPEN, boxCorner(part, vertex));
 }
 
-// A roof (town-draw.ts `ROOF_QUADS`): a slab of FASCIA_DEPTH over a
-// footprint, its ridge along local z, built as a fixed list of quads, each
-// six vertices, the ones a roof has no use for collapsed to a point. The
-// slopes are cut into ROOF_STRIPS strips from each eave to the ridge, so a
-// curved roof can sag; a gabled roof has gable walls under its ends, cut
-// the same way, and the undersides and edges of its rakes; a hipped roof
-// has a sloping triangle at each end instead. Every roof has the
-// undersides of its eaves, from their edge in to the walls, and a fascia
-// along every edge, so it reads as a thick lid from far away.
 const ROOF_STRIPS = 4u;
 const FASCIA_DEPTH = 0.035;
-// How much a curved roof's slopes sag below straight, and its eaves turn up.
 const SAG = 0.45;
 
 struct RoofShape {
@@ -426,7 +318,6 @@ struct RoofShape {
   rise: f32,
   reachX: f32,
   reachZ: f32,
-  // A hipped roof's ridge's half length.
   ridge: f32,
   sag: f32,
   hipped: bool,
@@ -452,9 +343,6 @@ fn roofShapeOf(part: Part) -> RoofShape {
   );
 }
 
-// The height of the roof's top at local x: through the walls' tops at
-// ±hx and the ridge at 0, or a lean-to's from +hx up to −hx; a curved
-// roof bows below the straight line between and lifts past the walls.
 fn roofY(r: RoofShape, x: f32) -> f32 {
   var u = (r.hx - abs(x)) / r.hx;
   if (r.shed) {
@@ -463,8 +351,6 @@ fn roofY(r: RoofShape, x: f32) -> f32 {
   return r.base + r.rise * (u - r.sag * u * (1.0 - u));
 }
 
-// Where across the roof strip j starts and ends: from the +x eave in to
-// the ridge, then from the −x eave in; a lean-to's one slope from +x to −x.
 fn stripOf(r: RoofShape, j: u32) -> vec2f {
   let step = r.reachX / f32(ROOF_STRIPS);
   if (r.shed) {
@@ -475,8 +361,6 @@ fn stripOf(r: RoofShape, j: u32) -> vec2f {
   return side * vec2f(r.reachX - k * step, r.reachX - (k + 1.0) * step);
 }
 
-// How far along the ridge a slope reaches at x: to the gable ends' rakes,
-// or in along a hip to the ridge's end.
 fn reachAt(r: RoofShape, x: f32) -> f32 {
   if (r.hipped) {
     return r.ridge + (r.reachZ - r.ridge) * abs(x) / r.reachX;
@@ -487,7 +371,6 @@ fn reachAt(r: RoofShape, x: f32) -> f32 {
 struct RoofQuad {
   corners: array<vec3f, 4>,
   face: u32,
-  // Which way the face looks, to orient its normal.
   out: vec3f,
 }
 
@@ -498,7 +381,6 @@ fn collapsed() -> RoofQuad {
 fn roofQuad(r: RoofShape, q: u32) -> RoofQuad {
   let strips = ROOF_STRIPS;
   let depth = FASCIA_DEPTH;
-  // The slopes' strips.
   if (q < 2u * strips) {
     let x = stripOf(r, q);
     let a = roofY(r, x.x);
@@ -507,7 +389,6 @@ fn roofQuad(r: RoofShape, q: u32) -> RoofQuad {
     let zb = reachAt(r, x.y);
     return RoofQuad(array<vec3f, 4>(vec3f(x.x, a, -za), vec3f(x.x, a, za), vec3f(x.y, b, zb), vec3f(x.y, b, -zb)), SLOPE, vec3f(0.0, 1.0, 0.0));
   }
-  // The ends: a hipped roof's sloping triangles, or the gable walls in strips.
   if (q < 6u * strips) {
     let k = q - 2u * strips;
     let end = select(-1.0, 1.0, k < 2u * strips);
@@ -525,7 +406,6 @@ fn roofQuad(r: RoofShape, q: u32) -> RoofQuad {
     let z = end * r.hz;
     return RoofQuad(array<vec3f, 4>(vec3f(x.x, r.base, z), vec3f(x.y, r.base, z), vec3f(x.y, roofY(r, x.y), z), vec3f(x.x, roofY(r, x.x), z)), GABLE, vec3f(0.0, 0.0, end));
   }
-  // The eaves' undersides along the sides, and a hipped roof's along its ends.
   if (q < 6u * strips + 4u) {
     let k = q - 6u * strips;
     let side = select(-1.0, 1.0, (k % 2u) == 0u);
@@ -544,7 +424,6 @@ fn roofQuad(r: RoofShape, q: u32) -> RoofQuad {
     let yi = r.base - depth;
     return RoofQuad(array<vec3f, 4>(vec3f(-r.reachX, yo, side * r.reachZ), vec3f(r.reachX, yo, side * r.reachZ), vec3f(r.hx, yi, side * r.hz), vec3f(-r.hx, yi, side * r.hz)), EAVE, vec3f(0.0, -1.0, 0.0));
   }
-  // The undersides of a gabled roof's rakes, past its gable walls.
   if (q < 10u * strips + 4u) {
     if (r.hipped) {
       return collapsed();
@@ -556,7 +435,6 @@ fn roofQuad(r: RoofShape, q: u32) -> RoofQuad {
     let b = roofY(r, x.y) - depth;
     return RoofQuad(array<vec3f, 4>(vec3f(x.x, a, end * r.hz), vec3f(x.y, b, end * r.hz), vec3f(x.y, b, end * r.reachZ), vec3f(x.x, a, end * r.reachZ)), EAVE, vec3f(0.0, -1.0, 0.0));
   }
-  // The fascia along the eaves: the sides, and a hipped roof's ends.
   if (q < 10u * strips + 8u) {
     let k = q - (10u * strips + 4u);
     let side = select(-1.0, 1.0, (k % 2u) == 0u);
@@ -572,7 +450,6 @@ fn roofQuad(r: RoofShape, q: u32) -> RoofQuad {
     let z = side * r.reachZ;
     return RoofQuad(array<vec3f, 4>(vec3f(-r.reachX, y, z), vec3f(r.reachX, y, z), vec3f(r.reachX, y - depth, z), vec3f(-r.reachX, y - depth, z)), FASCIA, vec3f(0.0, 0.0, side));
   }
-  // The fascia up a gabled roof's rakes.
   if (r.hipped) {
     return collapsed();
   }
@@ -591,10 +468,8 @@ fn vs_roof(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: u
   let r = roofShapeOf(part);
   let quad = roofQuad(r, vertex / 6u);
   let q = QUAD[vertex % 6u];
-  // The unit square's corner as the quad's: (0,0), (1,0), (1,1), (0,1).
   let corner = q.x + q.y * 3u - 2u * q.x * q.y;
   let c = quad.corners;
-  // Both triangles' normals summed, so a quad folded to a triangle still has one.
   var n = cross(c[1] - c[0], c[2] - c[0]) + cross(c[2] - c[0], c[3] - c[0]);
   if (dot(n, quad.out) < 0.0) {
     n = -n;
@@ -608,10 +483,6 @@ fn ring(a: f32, r: f32, y: f32) -> vec3f {
   return vec3f(sin(a) * r, y, cos(a) * r);
 }
 
-// A round: SEGMENTS slices, each a quad of wall from its base (or the
-// floor) to its top in its material, a triangle of cone up to the apex
-// and a quad of eave under the cone's overhang, both in its trim. Angle 0
-// faces +z, where a round's door is.
 @vertex
 fn vs_round(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: u32) -> PartOut {
   let part = partAt(index);
@@ -632,7 +503,6 @@ fn vs_round(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: 
     return emit(part, ROUND, Corner(ring(a, r, y), vec3f(sin(a), 0.0, cos(a)), WALL, part.material));
   }
   if (v < 9u) {
-    // The cone, its normal smooth round it.
     let k = v - 6u;
     let rise = max(apex - eave, 1e-3);
     if (k == 2u) {
@@ -648,8 +518,6 @@ fn vs_round(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: 
   return emit(part, ROUND, Corner(p, vec3f(0.0, -1.0, 0.0), EAVE, part.trim));
 }
 
-// Where on its wall a fragment lies: along the wall from the middle of
-// its face, half the face's length, and which face it is.
 struct Facing {
   along: f32,
   span: f32,
@@ -669,8 +537,6 @@ fn facingOf(in: PartOut) -> Facing {
   return Facing(in.local.x, in.size.x, select(SOUTH, NORTH, n.z > 0.0));
 }
 
-// How far along its face a fragment lies from the nearest door on its
-// storey, or a long way when there is none.
 fn doorGap(in: PartOut, f: Facing, storey: f32) -> f32 {
   let doors = in.kind.w;
   var gap = 1e3;
@@ -688,8 +554,6 @@ fn doorGap(in: PartOut, f: Facing, storey: f32) -> f32 {
   return gap;
 }
 
-// A window style's cut: its width, sill and height, the spacing of its
-// columns, and the share of them left blind.
 struct WindowCut {
   width: f32,
   sill: f32,
@@ -700,7 +564,6 @@ struct WindowCut {
 
 fn windowCutOf(style: u32, ground: bool, front: bool) -> WindowCut {
   if (style == SLIDING) {
-    // On the ground storey's front, glass doors down to the floor.
     if (ground && front) {
       return WindowCut(0.42, 0.03, 0.48, 0.85, 0.25);
     }
@@ -718,12 +581,8 @@ fn windowCutOf(style: u32, ground: bool, front: bool) -> WindowCut {
   return WindowCut(0.26, 0.24, 0.3, 0.72, 0.3);
 }
 
-// What a wall's fragment is: 0 the wall, 1 a doorway, 2 a window's glass,
-// 3 a shop's lit glass, 4 a window's frame, 5 a curtained window, 6 a
-// slip's dark mouth.
 struct Opening {
   kind: u32,
-  // The share of the wall that is window round here, for far away.
   share: f32,
 }
 
@@ -731,7 +590,6 @@ fn openingOf(in: PartOut) -> Opening {
   let f = facingOf(in);
   let base = max(in.extra.x, 0.0);
   let y = in.local.y - base;
-  // A boathouse's slip: open from below the ground up to under its first floor.
   let slip = (in.flags.x & BAY) != 0u && f.face == NORTH && abs(f.along) < f.span - 0.06;
   if (slip && y < STOREY - 0.1) {
     return Opening(6u, 0.0);
@@ -769,7 +627,6 @@ fn openingOf(in: PartOut) -> Opening {
   var across = 0.0;
   var column = 0.0;
   if (style == RIBBON) {
-    // A continuous band, its mullions every so often.
     let mullion = abs(fract(f.along / 0.3 + 0.5) - 0.5) * 0.3;
     if (mullion < FRAME * 0.6) {
       return Opening(4u, share);
@@ -782,7 +639,6 @@ fn openingOf(in: PartOut) -> Opening {
       return Opening(0u, share);
     }
   }
-  // Some columns on some storeys left blind, so a wall's windows are not a grid.
   let seed = u32(in.size.w * 65521.0) + f.face * 7u;
   let cell = vec2i(i32(column), i32(storey));
   if (planarHash(cell, seed, WINDOW_SALT) < cut.blind) {
@@ -797,30 +653,23 @@ fn openingOf(in: PartOut) -> Opening {
   return Opening(select(2u, 5u, curtained), share);
 }
 
-// A fine line pattern: 1 on a line of `width` (a share of `period`) every
-// `period` along `t`, faded out before its lines are finer than a pixel
-// (`pixel`, chart units a pixel).
 fn lines(t: f32, period: f32, width: f32, pixel: f32) -> f32 {
   let d = abs(fract(t / period + 0.5) - 0.5);
   let line = 1.0 - smoothstep(width * 0.5, width * 0.5 + pixel / period, d);
   return line * (1.0 - smoothstep(0.2, 0.45, pixel / period));
 }
 
-// A material's own colour where a fragment lies on it, before its light:
-// its colour, patterned.
 fn materialAlbedo(material: u32, color: vec3f, along: f32, y: f32, seed: f32, pixel: f32) -> vec3f {
   if (material == SIDING) {
     return color * (1.0 - 0.07 * lines(y, LAP, 0.12, pixel));
   }
   if (material == TIMBER) {
-    // Upright boards, each its own shade, their joints dark.
     let board = floor(along / BOARD);
     let shade = planarHash(vec2i(i32(board), 0), u32(seed * 4093.0), BOARD_SALT);
     let fade = 1.0 - smoothstep(0.2, 0.45, pixel / BOARD);
     return color * (1.0 + 0.1 * (shade - 0.5) * fade) * (1.0 - 0.25 * lines(along, BOARD, 0.08, pixel));
   }
   if (material == METAL) {
-    // Corrugations, upright.
     let fade = 1.0 - smoothstep(0.15, 0.4, pixel / CORRUGATION);
     return color * (1.0 - 0.07 * fade * (0.5 + 0.5 * sin(along / CORRUGATION * TAU)));
   }
@@ -841,25 +690,20 @@ fn materialAlbedo(material: u32, color: vec3f, along: f32, y: f32, seed: f32, pi
 
 fn roofAlbedo(in: PartOut, pixel: f32) -> vec3f {
   let material = in.kind.z;
-  // The ridge's capping tiles, darker, along the top of a two-sided roof.
   let capped = (in.flags.x & SHED) == 0u && in.kind.x == ROOF && abs(in.localNormal.z) < 0.05 && abs(in.local.x) < RIDGE_CAP;
   let color = in.color * select(1.0, 0.72, capped);
   if (material == TILE || material == BLUE_TILE) {
-    // Courses of tile, each course's lower edge a dark line, faintly speckled.
     let course = lines(in.local.y + 0.5 * TILE_COURSE, TILE_COURSE, 0.18, pixel);
     let speck = planarNoise(in.local.xz * 9.0 + vec2f(0.0, floor(in.local.y / TILE_COURSE) * 3.1), 1u, TILE_SALT);
     let fade = 1.0 - smoothstep(0.01, 0.03, pixel);
     return color * (1.0 - 0.16 * course) * (1.0 + 0.05 * speck * fade);
   }
   if (material == SEAM) {
-    // Standing seams down the slope, across the ridge's run.
     return color * (1.0 + 0.1 * lines(in.local.z, SEAM_SPACING, 0.1, pixel));
   }
   return materialAlbedo(material, color, in.local.x, in.local.y, in.size.w, pixel);
 }
 
-// A flat top: a parapet's rim round a membrane, a stand's seats in rows
-// and blocks, or the material itself.
 fn topAlbedo(in: PartOut, pixel: f32) -> vec3f {
   let p = in.local.xz;
   let half = in.size.xy;
@@ -875,19 +719,16 @@ fn topAlbedo(in: PartOut, pixel: f32) -> vec3f {
   if ((in.flags.x & PARAPET) != 0u) {
     let edge = min(half.x - abs(p.x), half.y - abs(p.y));
     if (edge > PARAPET_RIM) {
-      // The membrane, darker close under the parapet.
       return MEMBRANE_COLOR * mix(0.7, 1.0, smoothstep(PARAPET_RIM, PARAPET_RIM + 0.15, edge));
     }
   }
   if (material == HEDGE) {
-    // A clipped top, a little lighter where the new growth catches the sun.
     let leaves = planarNoise(p * 14.0, 1u, HEDGE_SALT);
     return in.color * 1.12 * (1.0 + 0.3 * leaves * (1.0 - smoothstep(0.02, 0.06, pixel)));
   }
   return materialAlbedo(material, in.color, p.x, p.y, in.size.w, pixel) * 0.94;
 }
 
-// A sign's face: a white band between two stripes in its chain's colours.
 fn signGlow(in: PartOut) -> vec3f {
   let base = max(in.extra.x, 0.0);
   let t = (in.local.y - base) / max(in.size.z - base, 1e-3);
@@ -908,12 +749,9 @@ fn signGlow(in: PartOut) -> vec3f {
 struct Surface {
   albedo: vec3f,
   glow: vec3f,
-  // How much of the light reaches it: 1 in the open, less under eaves.
   reach: f32,
 }
 
-// A vending machine's front: a lit display of its rows of drinks over a
-// dark slot, its body in its colour round them.
 fn vendingSurface(in: PartOut, f: Facing) -> Surface {
   let base = max(in.extra.x, 0.0);
   let t = (in.local.y - base) / max(in.size.z - base, 1e-3);
@@ -928,7 +766,6 @@ fn vendingSurface(in: PartOut, f: Facing) -> Surface {
   return Surface(in.color, vec3f(0.0), 1.0);
 }
 
-// A clock's face: a white dial with a dark rim and two hands.
 fn clockSurface(in: PartOut, f: Facing) -> Surface {
   if (f.face != NORTH) {
     return Surface(in.color * 0.6, vec3f(0.0), 1.0);
@@ -941,7 +778,6 @@ fn clockSurface(in: PartOut, f: Facing) -> Surface {
   if (d > radius) {
     return Surface(vec3f(0.06), vec3f(0.0), 1.0);
   }
-  // Ten past ten: the hour hand up and right, the minute hand up and left.
   let hour = normalize(vec2f(0.5, 0.35));
   let minute = normalize(vec2f(-0.55, 0.85));
   let onHour = abs(p.x * hour.y - p.y * hour.x) < radius * 0.06 && dot(p, hour) > 0.0 && d < radius * 0.55;
@@ -977,13 +813,11 @@ fn wallSurface(in: PartOut, pixel: f32) -> Surface {
       wall = in.trimColor;
     }
   }
-  // Darker right under a roof's eaves, where the overhang hides the sky.
   var reach = 1.0;
   if ((in.flags.x & EAVED) != 0u) {
     reach = mix(UNDER_EAVES, 1.0, sqrt(smoothstep(0.0, EAVE_BAND, in.size.z - y)));
   }
   let opening = openingOf(in);
-  // Far away a window is finer than a pixel: the wall takes its share of glass instead.
   let far = smoothstep(0.03, 0.07, pixel);
   let average = mix(wall, WINDOW_COLOR, opening.share * 0.85);
   switch opening.kind {
@@ -991,7 +825,6 @@ fn wallSurface(in: PartOut, pixel: f32) -> Surface {
       return Surface(DOOR_COLOR, vec3f(0.0), reach);
     }
     case 2u: {
-      // The sky faintly in the glass, brighter toward its top.
       let glass = WINDOW_COLOR + props.skyColor * 0.025 * props.skyStrength;
       return Surface(mix(glass, average, far), vec3f(0.0), reach);
     }
@@ -1025,7 +858,6 @@ fn surfaceOf(in: PartOut, pixel: f32) -> Surface {
     return Surface(in.color * 0.9, vec3f(0.0), 1.0);
   }
   if (face == EAVE) {
-    // The eaves' undersides: the walls' colour, deep in shade.
     return Surface(in.trimColor * 0.8, vec3f(0.0), EAVE_SHADE);
   }
   if (face == TOP || face == BOTTOM) {
@@ -1043,21 +875,17 @@ fn surfaceOf(in: PartOut, pixel: f32) -> Surface {
 fn lit(in: PartOut, s: Surface) -> vec4f {
   let normal = normalize(in.normal);
   let ao = pow(in.light.x, props.occlusion) * s.reach;
-  // Darker toward the ground, where little sky reaches.
-  // Only for parts that stand on the ground: not a roof, a balcony or a sign.
   let grounded = in.extra.x <= 0.0;
   let foot = select(1.0, mix(FOOT_DARK, 1.0, smoothstep(in.extra.w, in.extra.w + FOOT_HEIGHT, in.local.y)), grounded);
   let sky = mix(props.seaFill, props.skyColor, normal.y * 0.5 + 0.5);
   let grey = dot(sky, vec3f(0.2126, 0.7152, 0.0722));
   let fill = mix(sky, vec3f(grey), FILL_GREY) * props.skyStrength * ao * foot;
-  // Light thrown back up off the sunlit ground, on what faces out or down.
   let bounce = props.sunColor * props.sunStrength * max(props.sun.y, 0.0) * GROUND_BOUNCE * saturate(0.6 - 0.6 * normal.y) * ao;
   let shadow = mix(1.0, in.light.y, props.shadowStrength);
   let direct = props.sunColor * max(dot(normal, props.sun), 0.0) * shadow * props.sunStrength * mix(1.0, ao, props.occlusionSun) * mix(1.0, s.reach, 0.7) * mix(FOOT_SUN, 1.0, foot);
   return vec4f(s.albedo * (fill + bounce + direct) + s.glow, 1.0);
 }
 
-// Chart units a pixel covers at a fragment, found before any branch.
 fn pixelOf(local: vec3f) -> f32 {
   let d = fwidth(local);
   return max(max(d.x, d.y), d.z);
@@ -1069,7 +897,6 @@ fn fs_main(in: PartOut) -> @location(0) vec4f {
   return lit(in, surfaceOf(in, pixel));
 }
 
-// An open part's face as two coordinates across it and their extents.
 struct FaceCoords {
   uv: vec2f,
   low: vec2f,
@@ -1090,14 +917,11 @@ fn faceCoords(in: PartOut) -> FaceCoords {
   return FaceCoords(vec2f(in.local.x, in.local.y), vec2f(-h.x, base), vec2f(h.x, top));
 }
 
-// How near a face's edge a fragment lies.
 fn edgeOf(c: FaceCoords) -> f32 {
   let d = min(c.uv - c.low, c.high - c.uv);
   return min(d.x, d.y);
 }
 
-// A fence's side: posts and rails, or on a tall fence posts, a top rail
-// and a diamond mesh; nothing on its top or bottom.
 fn keepFence(in: PartOut, c: FaceCoords, pixel: f32) -> bool {
   if (in.kind.y != WALL) {
     return false;
@@ -1112,16 +936,10 @@ fn keepFence(in: PartOut, c: FaceCoords, pixel: f32) -> bool {
   if (top - max(in.extra.x, 0.0) < TALL_FENCE) {
     return false;
   }
-  // Too fine to draw far away: there the mesh is a faint haze, kept by its coverage.
   let cell = abs(fract(vec2f(c.uv.x + in.local.y, c.uv.x - in.local.y) / FENCE_MESH + 0.5) - 0.5) * FENCE_MESH;
   return min(cell.x, cell.y) < max(0.004, pixel * 0.35);
 }
 
-// An open part: what is kept of its box. A balcony keeps its slab and
-// panel on every storey and its floor, open at its back against the wall;
-// a stair its flights up its sides, a landing at each storey and their
-// rails; a net its mesh and its frame; a frame its bars along every edge;
-// a fence its posts and rails.
 @fragment
 fn fs_open(in: PartOut) -> @location(0) vec4f {
   let pixel = pixelOf(in.local);
@@ -1147,7 +965,6 @@ fn fs_open(in: PartOut) -> @location(0) vec4f {
       albedo = CONCRETE_COLOR * 0.8;
     }
   } else if (style == STAIR) {
-    // Flights rise from the front (+z) to the back on every storey.
     let t = (in.size.y - in.local.z) / (2.0 * in.size.y);
     let flight = up - t * STOREY;
     if (face == WALL) {
@@ -1183,15 +1000,10 @@ fn fs_open(in: PartOut) -> @location(0) vec4f {
   return lit(in, Surface(albedo, vec3f(0.0), 1.0));
 }
 
-// The shadow: a patch of SHADOW_CELLS² cells over the ground, each corner
-// on the baked height and lifted clear of it, reaching from round the part
-// out along the way its shadow falls (town-draw.ts `SHADOW_CELLS`).
 const SHADOW_CELLS = 6u;
 const SHADOW_LIFT = 0.04;
-// How dark the shadow is at its heart, and how soft its edge, chart units.
 const SHADOW_DARK = 0.7;
 const SHADOW_SOFT = 0.1;
-// Heights the part is sliced at to sweep its outline along the sun.
 const SHADOW_SLICES = 12u;
 
 fn uvOf(xz: vec2f) -> vec2f {
@@ -1204,18 +1016,12 @@ fn groundAt(xz: vec2f) -> f32 {
 
 struct ShadowOut {
   @builtin(position) position: vec4f,
-  // Chart units from the part's middle, in its own frame.
   @location(0) offset: vec2f,
-  // Where a unit of height falls, in the part's frame.
   @location(1) @interpolate(flat) fall: vec2f,
-  // Half the footprint, the height where it starts to taper, the top.
   @location(2) @interpolate(flat) size: vec4f,
-  // The shape, whether it is hipped, the roof's ridge's half-length.
   @location(3) @interpolate(flat) shape: vec3f,
 }
 
-// A part's outline as it casts: its footprint and how high it stands
-// before it tapers, and its top.
 fn castOf(part: Part, shape: u32) -> vec4f {
   if (shape == ROOF) {
     return vec4f(part.half + part.style, part.base, part.base + part.rise);
@@ -1234,7 +1040,6 @@ fn vs_shadow(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index:
   let shape = shapeOf(part);
   let size = castOf(part, shape);
   let spin = spinOf(part.turn);
-  // The spin's inverse is its transpose.
   let unspin = transpose(spin);
   let fall = -props.sun.xz / max(props.sun.y, 0.2);
   let reach = length(size.xy) + SHADOW_SOFT * 2.0;
@@ -1268,8 +1073,6 @@ fn fs_shadow(in: ShadowOut) -> @location(0) vec4f {
   let half = in.size.xy;
   let taper = in.size.z;
   let top = in.size.w;
-  // The outline swept up the part, each slice moved along the sun by its
-  // height: the nearest any slice comes is the distance to the shadow.
   var d = 1e9;
   var foot = 1e9;
   for (var k = 0u; k <= SHADOW_SLICES; k++) {
@@ -1291,7 +1094,6 @@ fn fs_shadow(in: ShadowOut) -> @location(0) vec4f {
     }
   }
   let shade = 1.0 - smoothstep(-SHADOW_SOFT, SHADOW_SOFT, d);
-  // Darkest at the wall's foot, where the part meets the ground.
   let contact = 1.0 - smoothstep(0.0, 0.5, foot);
   let alpha = SHADOW_DARK * max(shade * mix(0.8, 1.0, contact), 0.5 * contact) * props.shadowStrength;
   if (alpha <= 0.002) {
@@ -1300,22 +1102,14 @@ fn fs_shadow(in: ShadowOut) -> @location(0) vec4f {
   return vec4f(0.0, 0.0, 0.0, alpha);
 }
 
-// The wires (town-draw.ts `WIRE_SEGMENTS`): each a ribbon of segments
-// hung between its two poles in a parabola, turned to face the camera in
-// the film and at least a pixel wide; one thinner than a pixel is drawn a
-// pixel wide and as faint as the share of it that it covers, so it
-// neither flickers nor vanishes far away.
 const WIRE_SEGMENTS = 16u;
 const WIRE_COLOR = vec3f(0.018, 0.02, 0.022);
 const WIRE_ALPHA = 0.9;
-// The widest a wire is drawn, pixels.
 const WIRE_WIDEST = 3.0;
 
 struct WireOut {
   @builtin(position) position: vec4f,
-  // −1 to 1 across the ribbon.
   @location(0) across: f32,
-  // The share of a pixel the wire covers, and the ribbon's half width in pixels.
   @location(1) cover: vec2f,
 }
 
@@ -1323,7 +1117,6 @@ fn wirePoint(a: vec3f, b: vec3f, t: f32, sag: f32) -> vec3f {
   return mix(a, b, t) - vec3f(0.0, 4.0 * sag * t * (1.0 - t), 0.0);
 }
 
-// A point in the film, pixels from its middle.
 fn filmOf(p: vec3f) -> vec2f {
   let c = props.viewProjection * vec4f(p, 1.0);
   return c.xy / max(c.w, 1e-4) * 0.5 * props.viewport;
@@ -1341,19 +1134,15 @@ fn vs_wire(@builtin(vertex_index) vertex: u32, @builtin(instance_index) index: u
   let q = QUAD[vertex % 6u];
   let t = f32(vertex / 6u + q.x) / f32(WIRE_SEGMENTS);
   let p = wirePoint(a, b, t, sag);
-  // Its heading in the film, from just behind to just ahead.
   let behind = filmOf(wirePoint(a, b, max(t - 0.01, 0.0), sag));
   let ahead = filmOf(wirePoint(a, b, min(t + 0.01, 1.0), sag));
   let heading = ahead - behind;
   let dir = select(vec2f(1.0, 0.0), normalize(heading), length(heading) > 1e-5);
   let perpendicular = vec2f(-dir.y, dir.x);
-  // Its width in pixels: its diameter seen upright and seen level across it.
   let span = b - a;
   let level = normalize(vec3f(-span.z, 0.0, span.x) + vec3f(1e-6, 0.0, 0.0));
   let here = filmOf(p);
-  // Held to a few pixels, so one passing close to the camera stays a line.
   let wide = min(max(length(filmOf(p + vec3f(0.0, 2.0 * radius, 0.0)) - here), length(filmOf(p + level * 2.0 * radius) - here)), WIRE_WIDEST);
-  // A pixel of soft edge on each side.
   let halfWidth = 0.5 * max(wide, 1.0) + 0.5;
   let side = f32(q.y) * 2.0 - 1.0;
   var clip = props.viewProjection * vec4f(p, 1.0);

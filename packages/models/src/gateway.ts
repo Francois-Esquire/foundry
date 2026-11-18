@@ -63,7 +63,6 @@ export async function gatewayModels(
   return [...new Set(ids)].map((id) => ({ id, kind: "text", modelId: id }));
 }
 
-/** An OpenAI-compatible gateway (LiteLLM and friends). */
 export function gatewayProvider(options: GatewayProviderOptions): Provider {
   const id = options.id ?? "gateway";
   const { config } = options;
@@ -73,8 +72,6 @@ export function gatewayProvider(options: GatewayProviderOptions): Provider {
   const settings = () => ({ headers, includeUsage: true, provider: id, url });
 
   return {
-    // A base URL alone is not usable: hosts resolve a localhost default even
-    // when nothing is configured, so the key is the credential signal.
     get available() {
       return Boolean(config.baseURL) && Boolean(config.apiKey);
     },

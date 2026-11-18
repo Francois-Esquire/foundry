@@ -36,8 +36,6 @@ describe("config injection", () => {
       )
     ).toBe(false);
 
-    // Proves only that the gate reads config: with the gate widened to two
-    // consumers, the single-consumer evidence semantics no longer generalize.
     const widened = buildOpportunities(
       boundary,
       logger.symbols,

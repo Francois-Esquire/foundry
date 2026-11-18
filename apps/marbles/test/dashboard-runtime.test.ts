@@ -28,10 +28,6 @@ const textFields = [
   { label: "Text", name: "text", required: true, type: "text" },
 ];
 
-/**
- * A started engine over `root`; `stateDir` makes its runs survive a restart.
- * Not dry, which would persist nothing; these steps run no agent or git.
- */
 function engineIn(root: string, stateDir?: string) {
   return createEngine({
     catalog,
@@ -85,8 +81,6 @@ it("projects real nested runs, logs and trigger provenance, including restored h
     await tick(engine, scheduled, { print });
     const snapshot = dashboardSnapshot(await engine.runs(), await view(engine));
     expect(snapshot.mode).toBe("live");
-    // Anonymous `bang` is internal; the schema gives each entry its form.
-    // Declared in this test file, outside the workspace root: external.
     const declaredHere = {
       external: true,
       source: expect.stringContaining("dashboard-runtime.test.ts:"),

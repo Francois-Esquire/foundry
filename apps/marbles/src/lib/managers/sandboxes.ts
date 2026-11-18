@@ -18,14 +18,7 @@ import type {
   SandboxSpec,
 } from "../types";
 
-/**
- * Sandbox lifecycle and workspace mounts. Called on the manager, a sandbox
- * is the caller's to close. Through a step's view it stops with the frame
- * and is found again on replay.
- */
-
 export interface SandboxesDeps {
-  /** Lazy: the runtime is optional and may not be installed. */
   readonly containers: () => Promise<Containers>;
   readonly root: string;
 }
@@ -33,15 +26,11 @@ export interface SandboxesDeps {
 const WORKSPACE_TARGET = DEFAULT_SANDBOX_WORKING_DIRECTORY;
 const KIND = "sandboxes.start";
 
-/** Where a sandbox's mounts resolve from. */
 export interface MountDirs {
-  /** The step's working directory: the config's, or a worktree inside a callback. */
   readonly cwd: string;
-  /** The config's directory; declared workspace paths are relative to it. */
   readonly root: string;
 }
 
-/** The host directory a spec's `mount` refers to. */
 function mountSource(spec: ImageSandbox, dirs: MountDirs): string {
   if (spec.mount === undefined || spec.mount === ".") {
     return dirs.cwd;
@@ -49,7 +38,6 @@ function mountSource(spec: ImageSandbox, dirs: MountDirs): string {
   return resolve(dirs.root, spec.mount.path);
 }
 
-/** Guest paths for a files sandbox: relative names land under `/workspace`. */
 export function guestFiles(
   files: Readonly<Record<string, string>>
 ): Record<string, string> {
@@ -61,7 +49,6 @@ export function guestFiles(
   );
 }
 
-/** Only explicitly supplied workspace roots are eligible for mounting. */
 export function allowedMountRoots(roots: readonly string[]): string[] {
   return [...new Set(roots.map((root) => resolve(root)))].filter((dir) =>
     existsSync(dir)
@@ -109,14 +96,12 @@ const PASSED_THROUGH = [
   "resources",
 ] as const satisfies readonly (keyof SandboxSpec)[];
 
-/** Where a handle's calls report: the step's signal and stream, read per call. */
 interface HandleSite {
   readonly close?: () => Promise<void>;
   readonly signal: () => AbortSignal | undefined;
   readonly write?: (value: unknown) => void;
 }
 
-/** The step's signal joined with one the caller gave. */
 function withSignal<O extends { readonly signal?: AbortSignal }>(
   options: O | undefined,
   site: HandleSite
@@ -129,11 +114,6 @@ function withSignal<O extends { readonly signal?: AbortSignal }>(
   return { ...(options as O), ...(signal ? { signal } : {}) };
 }
 
-/**
- * The container, with Marbles' defaults on the calls that run work: each
- * carries the step's signal, and `exec` writes the command and its output
- * to the step's stream. Everything else is the container's own.
- */
 function wrap(container: Container, site: HandleSite): SandboxHandle {
   const exec: SandboxHandle["exec"] = async (command, options) => {
     const result = await container.commands.exec(
@@ -158,8 +138,6 @@ function wrap(container: Container, site: HandleSite): SandboxHandle {
     exec,
     processes,
   };
-  // Over an empty target: the container is frozen, and a proxy may not
-  // hand out anything but a frozen property's own value.
   return new Proxy(
     {},
     {
@@ -190,10 +168,6 @@ export class SandboxesManager implements Sandboxes {
     this.#deps = deps;
   }
 
-  /**
-   * The container behind a handle this manager gave out, for what runs a
-   * harness inside it. A handle from anywhere else has no container here.
-   */
   containerOf(sandbox: SandboxHandle): Container {
     const container = this.#handles.get(sandbox);
     if (!container) {
@@ -208,7 +182,6 @@ export class SandboxesManager implements Sandboxes {
     return handle;
   }
 
-  /** The containers this manager was built over: resolved at first use and kept, so the runtime is started once. */
   containers(): Promise<Containers> {
     this.#opened ??= this.#deps.containers();
     return this.#opened;
@@ -241,11 +214,6 @@ export class SandboxesManager implements Sandboxes {
     return container;
   }
 
-  /**
-   * A handle over a container the host owns and keeps, so a session given
-   * it runs its harness there. Exec through it stops when `signal` aborts;
-   * closing the handle leaves the container to its owner.
-   */
   adopt(container: Container, signal?: AbortSignal): SandboxHandle {
     return this.#handle(container, {
       close: () => Promise.resolve(),
@@ -253,12 +221,10 @@ export class SandboxesManager implements Sandboxes {
     });
   }
 
-  /** A sandbox that is already running; the caller closes the handle. */
   async open(id: string): Promise<SandboxHandle> {
     return this.#handle(await this.#open(id), { signal: () => undefined });
   }
 
-  /** Start a sandbox; it runs until the caller closes it or the engine is disposed. */
   async start(
     sandbox: SandboxDefinition | SandboxSpec
   ): Promise<SandboxHandle> {
@@ -267,7 +233,6 @@ export class SandboxesManager implements Sandboxes {
     });
   }
 
-  /** What a step body sees: sandboxes that stop with its frame, and the same one again on replay. */
   scoped({ frame, scope, write }: ManagerArgs): Sandboxes {
     const attach = (container: Container): SandboxHandle => {
       const handle = this.#handle(container, {
@@ -281,7 +246,6 @@ export class SandboxesManager implements Sandboxes {
       open: async (id) => attach(await this.#open(id, frame.signal)),
       start: async (sandbox) => {
         const { key } = scope.claim(frame, KIND);
-        // A runtime that cannot start is an error, not a missing record.
         await this.containers();
         const recorded = scope.ledger.get<string>(key);
         if (recorded !== undefined && this.#started.has(recorded)) {
@@ -298,7 +262,6 @@ export class SandboxesManager implements Sandboxes {
     };
   }
 
-  /** Shut down the runtime if a sandbox ever opened it. */
   async close(): Promise<void> {
     await this.#opened?.then((containers) => containers.shutdown());
   }

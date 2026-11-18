@@ -110,7 +110,6 @@ function lockEntries(
   return entries;
 }
 
-/** Walk Bun's nested install locators, respecting scoped package segments. */
 function parentLocator(locator: string): string {
   const parts = locator.split("/");
   parts.pop();
@@ -205,7 +204,6 @@ function workspaceEdges(
   return edges;
 }
 
-/** Read saved installation evidence without installing packages or guessing versions. */
 export function resolveDependencyGraph(
   root: string,
   inventory: DependencyInventory

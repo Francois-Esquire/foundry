@@ -78,8 +78,6 @@ describe("read", () => {
       throw new Error("expected one File");
     }
 
-    // Nothing about the File's own path changed — the escape is one component
-    // up, which a lexical check and a final-component lstat both miss.
     await rm(join(root, "pkg"), { recursive: true });
     await symlink(join(outside, "pkg"), join(root, "pkg"), "dir");
 
@@ -139,9 +137,6 @@ describe("read", () => {
   });
 
   it("reads back a File the source spells differently from its stored path", async () => {
-    // Spelled by code point so the fixture cannot be silently normalized by an
-    // editor: "cafe" plus a combining acute accent, which is what a macOS
-    // source hands back and what a byte-exact one stores verbatim.
     const decomposed = `cafe${String.fromCodePoint(0x03_01)}.md`;
     const root = await makeRoot({ [decomposed]: "beans" });
     const system = directorySystem();
@@ -151,9 +146,6 @@ describe("read", () => {
       throw new Error("expected one File");
     }
 
-    // The row holds the composed spelling. On a filesystem that keeps names
-    // byte-for-byte, joining the root to that spelling opens nothing — and
-    // reporting a File that is plainly there as `stale` would be a lie.
     expect(file.path).toBe(decomposed.normalize("NFC"));
     expect(await added.read(file.id)).toEqual({
       bytes: 5,
@@ -174,10 +166,6 @@ describe("read", () => {
     const file = fileRecord(registered.id, { path: composed });
     await seed(store, registered, [file]);
 
-    // macOS looks a name up regardless of its composition, so a real temporary
-    // directory cannot tell a correct resolution apart from a naive join. This
-    // source answers only to the spelling it was given — which is what ext4
-    // and btrfs do, and the only condition under which the fallback matters.
     const onlyDecomposed = join(root, decomposed);
     const byteExact: WorkspaceFileSystem = {
       lstat: (path) => {
@@ -248,7 +236,6 @@ describe("read", () => {
       store,
     }).open(added.id);
     expect(await reader.read(file.id)).toMatchObject({ kind: "text" });
-    // The fallback is a fallback: an ordinary ASCII path costs no listing.
     expect(listed).toEqual([]);
   });
 
@@ -273,9 +260,6 @@ describe("read", () => {
 
   it("reports bytes that are not valid UTF-8 as binary without a NUL to warn it", async () => {
     const root = await makeRoot({});
-    // A truncated two-byte sequence: nothing here is a NUL, so only strict
-    // decoding can tell this apart from text. Lenient decoding would hand back
-    // a replacement character and call it content.
     await writeFile(join(root, "broken.txt"), Buffer.from([0xc3, 0x28]));
     const system = directorySystem();
     const added = await system.load({ path: root });

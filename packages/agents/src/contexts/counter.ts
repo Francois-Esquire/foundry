@@ -1,11 +1,7 @@
-/** Rough pre-turn token estimator; provider usage is recorded separately. */
 import type { SessionMessage, SessionPart, TokenCounter } from "./types";
 
-/** Approximate text cost, in UTF-16 code units per token. */
 const CHARS_PER_TOKEN = 4;
-/** Flat cost for an inline image — a real count needs the provider's tiler. */
 const IMAGE_TOKENS = 768;
-/** Estimated per-message envelope cost. */
 const MESSAGE_OVERHEAD = 4;
 
 function textTokens(text: string): number {
@@ -47,7 +43,6 @@ function partTokens(part: SessionPart): number {
   return undefined as never;
 }
 
-/** Estimate tokens for a single message, content + envelope. */
 function estimateMessageTokens(message: SessionMessage): number {
   let total = MESSAGE_OVERHEAD;
   for (const part of message.parts) {
@@ -56,7 +51,6 @@ function estimateMessageTokens(message: SessionMessage): number {
   return total;
 }
 
-/** The default {@link TokenCounter}: the heuristic estimator above. */
 export const estimatingCounter: TokenCounter = {
   count: estimateMessageTokens,
 };

@@ -6,7 +6,6 @@ import { takePayloads } from "./helpers/streams";
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
-/** Build a ReadableStream that emits `values` then closes. */
 function streamOf<T>(values: readonly T[]): ReadableStream<T> {
   return new ReadableStream<T>({
     start(controller) {
@@ -18,7 +17,6 @@ function streamOf<T>(values: readonly T[]): ReadableStream<T> {
   });
 }
 
-/** Build an AsyncIterable that yields `values` then ends. */
 async function* iterOf<T>(values: readonly T[]): AsyncGenerator<T, void> {
   for (const v of values) {
     await sleep(0);
@@ -209,7 +207,6 @@ describe("step.pipe — abort semantics", () => {
     const piping = step.pipe(longRunning());
     await sleep(10);
     step.abort("done");
-    // The contract: pipe resolves cleanly, no throw.
     await expect(piping).resolves.toBeUndefined();
     expect(returnCalled).toBe(true);
   });
@@ -222,7 +219,6 @@ describe("step.pipe — abort semantics", () => {
       },
       start(controller) {
         controller.enqueue("first");
-        // never close; just sit there
       },
     });
     const step = await Step.make({

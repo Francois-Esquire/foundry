@@ -10,7 +10,6 @@ import { expect, it } from "vitest";
 
 const execute = promisify(execFile);
 
-// This consumer check runs a separate runtime and a full TypeScript compilation.
 it("loads portable entries and container contracts with only core, lib, and Zod installed", async () => {
   const root = await mkdtemp(join(tmpdir(), "sandbox-optional-providers-"));
   try {

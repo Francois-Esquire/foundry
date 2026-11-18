@@ -22,7 +22,6 @@ const { CLAUDE_CODE_DEFAULT_MODELS, claudeCodeProvider } = await import(
   "../claude-code"
 );
 
-/** The ambient environment itself, so the overlay each model gets is empty. */
 const env = Object.fromEntries(
   Object.entries(process.env).filter(
     (entry): entry is [string, string] => entry[1] !== undefined

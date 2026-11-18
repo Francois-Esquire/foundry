@@ -74,13 +74,6 @@ function entryStats(stats: {
   return { type: "unknown" };
 }
 
-/**
- * An exclusive sibling of `path` holding exactly `bytes`, synced and closed.
- * `mode`, when given, is applied through the open handle, so it lands on the
- * file this call created even if the sibling name is replaced meanwhile.
- * A failed write removes it on a best-effort basis; once returned, the caller links or renames it
- * into place and owns its removal.
- */
 async function writeSibling(
   path: string,
   bytes: Uint8Array,
@@ -106,7 +99,6 @@ async function writeSibling(
 }
 
 export const nodeFileSystem: Storage & StorageFileCreator = {
-  /** Links a complete sibling into place, so the new name never shows partial bytes. */
   async createFile(path, bytes) {
     const temp = await writeSibling(path, bytes);
     try {
@@ -131,16 +123,6 @@ export const nodeFileSystem: Storage & StorageFileCreator = {
   },
   readLink: (path) => readlink(path),
   realpath: (path) => realpath(path),
-  /**
-   * Bounded atomic replacement: an exclusive sibling temporary file receives
-   * the exact bytes and the existing file's permission bits, is synced and
-   * closed, then renamed over the original within the same directory. Failure
-   * before the rename leaves the original untouched and best-effort unlinks
-   * the temp. An external write between the comparison and rename can be
-   * overwritten; this is not a lock or compare-and-swap. The rename's
-   * durability is the host filesystem's contract; neither
-   * snapshot isolation nor a directory fsync is claimed here.
-   */
   async replaceFile(path, bytes) {
     const stats = await lstat(path);
     if (!stats.isFile()) {

@@ -29,7 +29,6 @@ it("marks what an exited process was running interrupted, and admits its queue a
     { id: "rn-save-2", input: { n: 2 } },
     { id: "rn-save-3", input: { n: 3 } },
   ]);
-  // A live process's work is its own.
   await leftBehind(state, process.ppid, [
     { id: "rn-live", input: { n: 9 }, sequence: 1 },
   ]);
@@ -46,7 +45,6 @@ it("marks what an exited process was running interrupted, and admits its queue a
   });
   engine.task({ name: "program", queue: "programs", run: () => undefined });
   await engine.start();
-  // A run launched after start waits behind what was recovered.
   const later = await engine.launch<number>("save", { n: 4 });
   await later.result;
 
@@ -97,7 +95,6 @@ it("keeps queued work across a stop and admits it in the next process's order", 
   const queued = await first.launch("save", { label: "b" });
   const after = await first.launch("save", { label: "c" });
   await until(() => started.length === 1);
-  // As a crash would leave them: the queued records on disk, owned by a dead pid.
   const left: ExecutionRun[] = [];
   for (const id of [queued.id, after.id]) {
     const record = await storedExecution(state, id);
@@ -144,7 +141,6 @@ it("re-admits a queued workflow under its recorded id, and trusts a settled run 
   const finished = await first.launch<string>("flow", {});
   await finished.result;
   await first.dispose();
-  // As a crash between the run file and its record would leave them.
   const dead = exitedPid();
   const record = await storedExecution(state, finished.id);
   if (!record) {

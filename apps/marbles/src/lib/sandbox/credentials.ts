@@ -21,11 +21,6 @@ const codexLogin = z.object({
   }),
 });
 
-/** The app-server receives external auth tokens; the host retains refresh ownership. */
-/**
- * The Codex login the instance's own CLI uses: `CODEX_HOME` from its
- * environment, else `.codex` under its `HOME`, else the host user's.
- */
 export async function codexSubscriptionTokens(
   env?: Readonly<Record<string, string>>
 ): Promise<{ accessToken: string; chatgptAccountId: string }> {
@@ -47,7 +42,6 @@ export async function codexSubscriptionTokens(
   );
 }
 
-/** Where Claude Code keeps a login: its keychain entry and its credentials file. */
 export interface ClaudeLoginLocation {
   readonly account: string;
   readonly file: string;
@@ -56,16 +50,6 @@ export interface ClaudeLoginLocation {
 
 const KEYCHAIN_ACCOUNT = /^[a-zA-Z0-9._-]+$/;
 
-/**
- * The login the instance's own Claude Code reads, computed as Claude Code
- * computes it from that environment (read from the 2.1.205 and 2.1.319
- * binaries): the config folder is `CLAUDE_CONFIG_DIR`, else `.claude` under
- * `HOME`; a set `CLAUDE_CONFIG_DIR` suffixes the keychain entry with a hash
- * of the folder; `CLAUDE_SECURESTORAGE_CONFIG_DIR` overrides both. An empty
- * or relative `HOME` or folder depends on the CLI's runtime and working
- * directory, so it throws rather than guess. There is no fallback to another
- * login.
- */
 export function claudeLoginLocation(
   env: Readonly<Record<string, string | undefined>> = {},
   host: { readonly home: string; readonly user: string } = {
@@ -88,7 +72,6 @@ export function claudeLoginLocation(
     "NFC"
   );
   const secure = env.CLAUDE_SECURESTORAGE_CONFIG_DIR;
-  // An empty override counts as unset for the entry's name, as in the CLI.
   let hashed: string | undefined;
   if (secure === undefined) {
     hashed = env.CLAUDE_CONFIG_DIR ? config : undefined;
@@ -116,10 +99,8 @@ function unlocatable(name: string): Error {
   );
 }
 
-/** Host-owned subscription login. Refresh credentials never enter the guest. */
 export async function claudeSubscriptionToken(
   options: {
-    /** The provider instance's environment, which decides which login is read. */
     env?: Readonly<Record<string, string>>;
     platform?: string;
     readKeychain?: (location: ClaudeLoginLocation) => Promise<string>;
@@ -134,8 +115,6 @@ export async function claudeSubscriptionToken(
   const location = claudeLoginLocation(options.env);
   const sources: (() => Promise<string>)[] = [];
   if ((options.platform ?? process.platform) === "darwin") {
-    // `security` finds the keychains under `HOME`, so it runs with the
-    // instance's environment, as the instance's own CLI does.
     const readKeychain =
       options.readKeychain ??
       (async ({ account, service }: ClaudeLoginLocation) =>
@@ -169,7 +148,6 @@ export async function claudeSubscriptionToken(
   );
 }
 
-/** A host login for each CLI harness, used when the session brings no API key. */
 type SubscriptionLogins = {
   readonly [H in CliHarness]: (
     oauthToken?: string,
@@ -205,7 +183,6 @@ const SUBSCRIPTIONS: SubscriptionLogins = {
   }),
 };
 
-/** Pi resolves and refreshes its own login on the host. Only the current key enters the guest. */
 export async function piCredential(
   modelId = "anthropic/claude-sonnet-4-5",
   readKey: (model: string) => Promise<string> = async (model) =>
@@ -229,19 +206,11 @@ export async function piCredential(
   );
 }
 
-/**
- * A guest session's credentials, decided once: the session's API key, else
- * the host's subscription login for that harness (`logins`, replaceable for
- * tests). A blank credential is
- * refused rather than sent to the guest.
- */
 export async function guestAuth<H extends CliHarness>(
   harness: H,
   options: {
     readonly apiKey?: string;
-    /** The instance's CLI on the host, for a login the CLI itself reads. */
     readonly bin?: string;
-    /** The provider instance's environment; the host process's is never read. */
     readonly env?: Readonly<Record<string, string>>;
     readonly oauthToken?: string;
     readonly modelId?: string;
@@ -262,7 +231,6 @@ export async function guestAuth<H extends CliHarness>(
   return auth;
 }
 
-/** A key or token of only whitespace; Codex's login file is validated when read. */
 function isBlank(auth: GuestAuth): boolean {
   switch (auth.kind) {
     case "apiKey":

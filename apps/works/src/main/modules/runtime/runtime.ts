@@ -22,7 +22,6 @@ import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
 import { WORKS_MODULE_SETTINGS, worksModuleLaunch } from "./launch";
 import { connectModuleSocket } from "./websocket";
 
-/** Execution is temporary; Module source, releases, and app data stay local. */
 export async function createModuleRuntime(
   userData: string,
   artifactStore: ArtifactStore
@@ -67,7 +66,6 @@ export async function createModuleRuntime(
     containers,
     files: {
       backup: (id) => files.backup(dataId(id)),
-      // Preserve persistent app data while removing any abandoned temporary files.
       delete: (id) => files.release(dataId(id)),
       discardBackup: (id) => files.discardBackup(dataId(id)),
       prepare: async (input) => ({
@@ -84,8 +82,6 @@ export async function createModuleRuntime(
     store,
     transport: { connect: connectModuleSocket },
   });
-  // Works provides no Capabilities: a release that requires one is refused
-  // at preflight instead of starting without it.
   const installations = createModuleInstallations({
     programs: system.programs,
     providers: [],

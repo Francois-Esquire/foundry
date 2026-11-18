@@ -18,41 +18,15 @@ import { wrapLanguageModel } from "ai";
 import type { UsageStore } from "~/lib/usage-store";
 import { usageFactSchema } from "~/lib/usage-store";
 
-/**
- * What agent turns consumed, recorded once per committed turn. A fact is a
- * leaf: the turn's own tokens and its own cost, never a total. Run, step,
- * workflow and agent totals are sums of facts, so a parent's figure is never
- * added to its children's. The committed message's id is the turn's identity:
- * a streamed finish, a final result and a later read of the same turn all
- * name one message, and a replayed `generate` returns the recorded message
- * without running a turn, so none of them records twice. A retry or a body
- * that runs a turn again commits a new message: that is new consumption.
- *
- * A turn inside a run is attributed to the run, its root definition and the
- * step it ran in. A turn in a session opened outside any run (a host calling
- * `engine.agents.session` or a definition's own `generate`) is a `direct`
- * fact: its agent and session, and no run or workflow. Native subagents a
- * CLI harness starts inside a turn are not separate facts: whatever the
- * harness reports for its turn is what the turn consumed.
- *
- * A turn whose fact could not be saved leaves a `lost` marker instead, so a
- * total over the turns that were saved says it is incomplete. A turn found
- * later in a transcript with neither is recovered, and is `unattributed`
- * when nothing durable says which run, or no run, it ran in.
- */
-
-/** Token counts as the turn reported them. `input` is gross: it includes the cache reads and writes. */
 export interface UsageTokens {
   readonly cachedInput?: number;
   readonly cacheWrite?: number;
   readonly input: number;
   readonly output: number;
-  /** The part of `output` spent reasoning; not added to it again. */
   readonly reasoning?: number;
   readonly total: number;
 }
 
-/** The list price a turn was estimated at, kept with the fact so later price changes do not rewrite it. */
 export interface PriceBasis {
   readonly rates: ModelCosts;
   readonly reference: string;
@@ -74,61 +48,42 @@ export type UsageCost =
       readonly pricing: PriceBasis;
     };
 
-/** What every fact carries, wherever its turn ran. */
 interface FactBase {
   readonly agentId: string;
   readonly completedAt: number;
   readonly cost: UsageCost;
   readonly durationMs?: number;
-  /** Read from facts written before `implementation`; nothing new writes it. */
   readonly harness?: string;
-  /** The plugin that built the provider instance; absent on older facts. */
   readonly implementation?: string;
-  /** Why this turn's usage was not saved; recovered facts may include tokens. */
   readonly lost?: string;
   readonly model?: string;
   readonly provider?: string;
   readonly sessionId: string;
-  /** Absent when the harness reported no token counts at all. */
   readonly tokens?: UsageTokens;
-  /** The committed message's id. */
   readonly turnId: string;
   readonly version: 1;
   readonly workspaceId: string;
 }
 
-/** A turn in a step of a run. */
 export interface RunUsageFact extends FactBase {
-  /** The run's root definition: what a workflow total groups by. */
   readonly definitionId: string;
-  /** The frame the turn ran in, from the run's root down; joined with `.` it is the step id. */
   readonly path: readonly string[];
   readonly runId: string;
   readonly scope: "run";
 }
 
-/** A turn in a session opened outside any run: no run, step or workflow to attribute. */
 export interface DirectUsageFact extends FactBase {
   readonly scope: "direct";
 }
 
-/** What the ledger records: every turn it is told about ran in a run or outside one. */
 export type RecordedUsageFact = RunUsageFact | DirectUsageFact;
 
-/**
- * A recovered turn whose owner nothing durable proves: no marker or
- * one-turn call names it, in a session a run opened or continued, or one no
- * saved fact or run file names. It counts in the workspace's total, and may
- * belong to any run that was running when it finished or to the turns
- * outside runs. Never saved.
- */
 export interface UnattributedUsageFact extends FactBase {
   readonly scope: "unattributed";
 }
 
 export type UsageFact = RecordedUsageFact | UnattributedUsageFact;
 
-/** A model's list price, when the catalog has one. */
 export type PriceLookup = (
   provider: string,
   model: string
@@ -271,7 +226,6 @@ function costOf(
       reason: `no list price for ${route.provider}/${route.model}`,
     };
   }
-  // Reasoning is inside output, so it is not passed to be billed again.
   const { total } = costFromUsage(basis.rates, {
     cacheReadTokens: tokens.cachedInput ?? 0,
     cacheWriteTokens: tokens.cacheWrite ?? 0,
@@ -281,7 +235,6 @@ function costOf(
   return { amount: total, currency: "USD", kind: "estimated", pricing: basis };
 }
 
-/** Where a turn ran, as the agents manager knows it: the run is absent outside one. */
 export interface TurnSource {
   readonly agentId: string;
   readonly run?: {
@@ -291,7 +244,6 @@ export interface TurnSource {
   };
 }
 
-/** The run attribution a fact carries, or `direct`. */
 function scopeOf(
   source: TurnSource
 ):
@@ -318,7 +270,6 @@ export function usageFact(
       readonly provider?: string;
     };
     readonly source: TurnSource;
-    /** What the turn's stream reported, when the message carries no usage of its own. */
     readonly usage?: SessionUsage;
     readonly workspaceId: string;
   },
@@ -352,10 +303,6 @@ export function usageFact(
   };
 }
 
-/**
- * A turn that ran but whose usage could not be turned into a fact or saved:
- * its identity and attribution, no tokens, an unknown cost, and why.
- */
 export function lostFact(
   turn: {
     readonly completedAt: number;
@@ -379,11 +326,9 @@ export function lostFact(
   };
 }
 
-/** Why a recovered leaf has no price: what it is, said once. */
 export const RECOVERED =
   "not recorded; tokens recovered from the session transcript";
 
-/** What recovery reads of a committed turn: no parts, output or provider options. */
 export interface TranscriptTurn {
   readonly id: string;
   readonly metadata?: Pick<MessageMetadata, "model" | "timing" | "usage">;
@@ -391,12 +336,6 @@ export interface TranscriptTurn {
   readonly updatedAt: number;
 }
 
-/**
- * A committed turn found in a transcript with no saved fact: the tokens and
- * route its message carries, an unknown cost (the list price it ran at is
- * not known now), and `lost`, so totals over it say they are incomplete.
- * Without a `source` it is `unattributed`, under `agentId`.
- */
 export function recoveredFact(turn: {
   readonly agentId: string;
   readonly message: TranscriptTurn;
@@ -425,7 +364,6 @@ export function recoveredFact(turn: {
   };
 }
 
-/** Where a recorded fact, or a `lost` marker, says its turn ran. */
 export function sourceOf(fact: RecordedUsageFact): TurnSource {
   return fact.scope === "run"
     ? {
@@ -439,22 +377,12 @@ export function sourceOf(fact: RecordedUsageFact): TurnSource {
     : { agentId: fact.agentId };
 }
 
-/** What the ledger holds, and what it could not read or save. */
 export interface UsageRecords {
   readonly facts: readonly UsageFact[];
-  /**
-   * Turns found in a run's or direct session's transcript with no saved
-   * fact: among `facts` as `lost` leaves with the transcript's tokens.
-   */
   readonly recovered: number;
   readonly unreadable: number;
   readonly unreadableAt: UnreadablePlaces;
-  /**
-   * Turns whose usage, and whose `lost` marker, could not be saved, and that
-   * no transcript accounted for: among `facts` only for this process.
-   */
   readonly unsaved: number;
-  /** The turn ids `unsaved` counts. */
   readonly unsavedTurns: ReadonlySet<string>;
 }
 
@@ -464,11 +392,6 @@ export interface UnreadablePlaces {
   readonly unowned: number;
 }
 
-/**
- * Records with what reconciliation found merged in: a recovered leaf
- * replaces a `lost` marker for the same turn (it knows the tokens), and
- * never a saved fact; evidence it could not read adds to `unreadable`.
- */
 export function withRecovered(
   records: UsageRecords,
   { facts: recovered, unreadable }: Reconciled
@@ -497,7 +420,6 @@ export function withRecovered(
     byTurn.set(fact.turnId, fact);
     added += 1;
   }
-  // A recovered leaf accounts for an in-memory marker of the same turn.
   const unsavedTurns = new Set(
     [...records.unsavedTurns].filter((turnId) => !replaced.has(turnId))
   );
@@ -516,13 +438,11 @@ export function withRecovered(
   };
 }
 
-/** What reconciliation found: recovered leaves, and the evidence it could not read, by owner. */
 export interface Reconciled {
   readonly facts: readonly UsageFact[];
   readonly unreadable: Omit<UnreadablePlaces, "direct">;
 }
 
-/** How a `record` went: the fact saved, a `lost` marker saved instead, or neither. */
 export type RecordOutcome =
   | { readonly saved: "fact" }
   | { readonly saved: "marker"; readonly error: string }
@@ -534,7 +454,6 @@ function errorText(error: unknown): string {
 
 export class UsageLedger {
   readonly #store: UsageStore;
-  /** `lost` markers that could not be saved either, by turn id. */
   readonly #unsaved = new Map<string, RecordedUsageFact>();
   #cache:
     | {

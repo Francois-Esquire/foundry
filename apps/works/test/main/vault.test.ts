@@ -178,7 +178,6 @@ describe("Vault", () => {
     expect(status.fields.claude.apiKey?.source).toBe("env");
     expect(status.fields.fal.apiKey?.source).toBe("none");
 
-    // A plain-tier write must not claim encryption came back.
     await vault.set("gateway", "baseURL", "http://proxy.test");
     expect(vault.status().encryption).toBe("unavailable");
     await expect(vault.set("fal", "apiKey", "k")).rejects.toBeInstanceOf(

@@ -5,10 +5,6 @@ import { z } from "zod";
 import { tagTools } from "../harness/types";
 import type { Skill, SkillFile, SkillRegistry } from "./types";
 
-/**
- * Create an in-memory registry with discovery and on-demand loading tools.
- * Adding or removing skills updates the catalog and the existing tools.
- */
 export function createSkillRegistry(skills: Skill[] = []): SkillRegistry {
   const available = new Map<string, Skill>();
 
@@ -41,7 +37,6 @@ export function createSkillRegistry(skills: Skill[] = []): SkillRegistry {
               names.length > 0 ? names.join(", ") : "(none)"
             }.`;
           }
-          // Models often send `file: ""` for "no file"; read that as omitted.
           const fileName = file?.trim();
           if (fileName) {
             const requestedFile = fileName;
@@ -78,7 +73,6 @@ export function createSkillRegistry(skills: Skill[] = []): SkillRegistry {
         return registry;
       }
       for (const skill of incoming) {
-        // Re-adding a name replaces it, moving the latest to the end of `list`.
         available.delete(skill.name);
         available.set(skill.name, skill);
       }
@@ -109,7 +103,6 @@ export function createSkillRegistry(skills: Skill[] = []): SkillRegistry {
   return registry.add(...skills);
 }
 
-/** The system-prompt augmentation: a preamble plus the name/description catalog. */
 function computeInstructions(skills: Skill[]): string {
   if (skills.length === 0) {
     return "";
@@ -124,7 +117,6 @@ function computeInstructions(skills: Skill[]): string {
   ].join("\n\n");
 }
 
-/** What `load_skill({ name })` returns: the instructions and an index of file names. */
 function renderSkill(skill: Skill): string {
   const parts: string[] = [`# Skill: ${skill.name}`];
   if (skill.description.trim()) {
@@ -147,11 +139,6 @@ function renderSkill(skill: Skill): string {
 
 const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true });
 
-/**
- * What `load_skill({ name, file })` returns: that file's contents. Bytes
- * that are UTF-8 read as text; anything else is described, not decoded,
- * since a model cannot use mangled bytes.
- */
 function renderFile(name: string, content: SkillFile): string {
   if (typeof content === "string") {
     return `# File: ${name}\n\n${content}`;

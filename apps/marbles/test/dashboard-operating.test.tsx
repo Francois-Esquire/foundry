@@ -88,7 +88,6 @@ test("run and catalog details show attributed cost, unknowns, and where a defini
   await press(ui, "ARROW_DOWN");
   await press(ui, "ARROW_DOWN");
   await press(ui, "RETURN");
-  // check-api recorded no agent turns: that is not a zero cost.
   expect(ui.captureCharFrame()).toMatch(UNPRICED_RUN);
   await press(ui, "2");
   await press(ui, "RETURN");
@@ -145,7 +144,6 @@ test("clicking a run's line in Logs still opens its run", async () => {
   expect(ui.captureCharFrame()).not.toContain("Logs · runs and Marbles");
 });
 
-/** The foreground of the first span reading exactly `text`, as RGBA ints. */
 function foreground(ui: Awaited<ReturnType<typeof render>>, text: string) {
   return ui
     .captureSpans()
@@ -211,10 +209,6 @@ test("Settings changes the theme through the host and redraws in its palette", a
   expect(theme.colors.background).toBe("#fbf1c7");
 });
 
-/**
- * A host whose first save rejects, as the dashboard command's settings
- * action does for a file it cannot use (dashboard-settings-production.test.ts).
- */
 function FailingSettingsHost() {
   const [snapshot, setSnapshot] = useState(dashboardSnapshot);
   const [failed, setFailed] = useState(false);

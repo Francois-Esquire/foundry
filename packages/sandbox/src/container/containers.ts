@@ -31,18 +31,10 @@ import type {
 } from "./types";
 
 export interface CreateContainersOptions {
-  /** Canonical host directories a spec may bind mounts from. */
   readonly allowedMountRoots?: readonly string[];
-  /**
-   * Defaults every spec resolves over: a field the spec sets wins, `env` and
-   * labels merge key by key, and the rest — pull policy, network, resources —
-   * falls back to these. The registry always assigns the native name.
-   */
   readonly config?: ContainerConfig;
   readonly holder?: string;
-  /** Host-derived label separating this data directory's VMs from any other. */
   readonly instanceLabel: string;
-  /** Guest directory every mount target must equal or fall under. */
   readonly mountTargetRoot?: string;
   readonly report?: (line: string) => void;
   readonly runtime: ContainerRuntime;
@@ -51,7 +43,6 @@ export interface CreateContainersOptions {
 
 export interface Containers {
   list(): Promise<readonly ContainerRow[]>;
-  /** Join a row: another handle if its VM runs here, else a restart under the same row. */
   open(id: string, signal?: AbortSignal): Promise<Container>;
   recover(
     left: (row: ContainerRow) => boolean | Promise<boolean>,
@@ -64,7 +55,6 @@ export interface Containers {
     signal?: AbortSignal
   ): Promise<void>;
   shutdown(): Promise<void>;
-  /** New row, new VM, one handle. */
   start(
     spec: ContainerSandboxConstraints,
     signal?: AbortSignal
@@ -84,16 +74,9 @@ export interface ContainerRecovery {
   readonly swept: readonly string[];
 }
 
-/**
- * One handle on a running container. Every facet reads through to the current
- * VM, so it changes under the handle after `restart`; don't hold a facet
- * across one.
- */
 export interface Container extends ContainerFacets {
-  /** Drop this handle. The last handle out stops and removes the VM. Idempotent. */
   close(): Promise<void>;
   readonly id: string;
-  /** The row as last written by this registry. */
   readonly row: ContainerRow;
 }
 
@@ -109,12 +92,6 @@ interface Live {
   turn: Promise<void>;
 }
 
-/**
- * One row per container, one VM per row at a time. A VM that outlives this
- * process is not adopted: `open` on a row not live here restarts it under a
- * new native name, after removing whatever the runtime still holds under the
- * old one.
- */
 export function createContainers(options: CreateContainersOptions): Containers {
   const { runtime } = options;
   const store = ownNamesOnly(options.store ?? new MemoryContainerStore());
@@ -460,7 +437,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
     return done;
   };
 
-  /** A failed release is the next boot's problem: `open` removes the old VM. */
   const released = (id: string): Promise<void> | undefined =>
     releasing.get(id)?.catch(() => undefined);
 
@@ -763,7 +739,6 @@ export function createContainers(options: CreateContainersOptions): Containers {
       assertOpen();
       const entry = live.get(id);
       if (entry === undefined) {
-        // Not live here: the next `open` boots it with the new spec.
         assertNotRemoving(id);
         const row = await rowOrThrow(id);
         if (spec !== undefined) {
@@ -999,7 +974,6 @@ function ownNamesOnly(store: ContainerStore): ContainerStore {
   return guard(store);
 }
 
-/** `<rowId>-<generation>`, the generation read back off the previous native id. */
 function nextNativeId(row: Pick<ContainerRow, "id" | "nativeId">): string {
   const previous = Number.parseInt(
     row.nativeId?.slice(row.id.length + 1) ?? "0",

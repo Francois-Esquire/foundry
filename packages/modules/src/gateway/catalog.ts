@@ -17,7 +17,6 @@ export class ModuleGatewayContractError extends Error {
   }
 }
 
-/** Projects portable catalog data from the registrations Gateway dispatches. */
 export function createModuleCapabilityCatalog(input: {
   readonly generation: number;
   readonly registrations: readonly ModuleCapabilityRegistration[];

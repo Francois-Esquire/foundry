@@ -1,5 +1,3 @@
-// The coverage map: land as an anti-aliased value, 0 at sea and 1 on land,
-// eased across the coast over `feather` texels either side.
 import { ease, MapFrame } from "./frame.wgsl";
 
 struct CoverageParams {

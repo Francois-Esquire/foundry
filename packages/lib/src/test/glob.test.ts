@@ -57,7 +57,6 @@ it("refuses to be recompiled, so its source and matching cannot diverge", () => 
   expect(glob.test("x")).toBe(false);
 });
 
-/** A small deterministic generator, so a failing shape reproduces. */
 function sequence(seed: number): () => number {
   let state = seed;
   return () => {
@@ -127,7 +126,6 @@ it("keeps matching linear when wildcards overlap", () => {
 
   expect(globToRegExp("**a**a**a**a**b").test(path)).toBe(false);
   expect(globToRegExp("*a*a*a*a*a*a*b").test("a".repeat(255))).toBe(false);
-  // A backtracking match of these takes minutes; this is milliseconds.
   expect(performance.now() - started).toBeLessThan(1000);
 });
 

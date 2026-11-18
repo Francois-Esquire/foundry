@@ -126,7 +126,6 @@ describe.each(STORE_KINDS)("%s store: mutation hooks", (storeKind) => {
           return Promise.resolve({
             committed: (content) => {
               committed.push(content);
-              // Committed records are already applied to disk by now.
               onDisk.push(readFileSync(join(directory, "notes.md"), "utf8"));
             },
             metadata: { origin: { actor: kind } },
@@ -279,7 +278,6 @@ describe.each(STORE_KINDS)("%s store: mutation hooks", (storeKind) => {
           join(path, "notes.md"),
           encoder.encode("after")
         );
-        // Joined: nothing is committed until this callback returns.
         reportedInside = committed.length;
         if (rollsBack) {
           throw new Error("outer failed");
@@ -361,7 +359,6 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
       false,
       {
         conflicted: (kept) => conflicts.push(kept),
-        // Hold disk synchronization so the commit lands first.
         synchronize: () => new Promise<void>(() => undefined),
       },
       storeKind
@@ -402,8 +399,6 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
       artifacts,
       conflicted: (conflict) => conflicts.push(conflict),
       root,
-      // Hold disk synchronization so the edits stay unsynced; a held poll is
-      // let go, unwritten, before closing.
       synchronize: () => new Promise<void>((resolve) => held.push(resolve)),
     });
     cleanups.push(() => filesystem.close());
@@ -427,10 +422,8 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
     await artifacts.archive(created.id);
     expect(await readFile(join(path, "notes.md"), "utf8")).toBe("disk edit");
     expect(conflicts).toEqual([]);
-    // Watchers still hear of each commit, such as the archive.
     expect(changed).toHaveBeenCalledTimes(2);
 
-    // Records are authoritative: a removed directory comes back.
     await rm(path, { force: true, recursive: true });
     await artifacts.unarchive(created.id);
     expect(await readFile(join(path, "notes.md"), "utf8")).toBe("base");
@@ -456,7 +449,6 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
     );
     const workspace = await load();
     await writeFile(join(workspace.root, "notes.md"), "disk edit");
-    // Let a poll pick the edit up and wait inside synchronize.
     await new Promise((resolve) => setTimeout(resolve, 1500));
     await artifacts.write({
       artifactId: artifact.id,
@@ -515,7 +507,6 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
     });
     const { path } = await before.resolve({ artifactId: created.id });
     await before.close();
-    // Committed while nothing applied it: disk still holds the prior version.
     await artifacts.revise({
       artifactId: created.id,
       changes: { put: { "notes.md": { bytes: encoder.encode("revised") } } },
@@ -548,8 +539,6 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
     });
     const { path } = await before.resolve({ artifactId: created.id });
     await before.close();
-    // A save of ready Content in place, committed by a process that stopped
-    // before applying it: no record holds the bytes disk still has.
     await artifacts.write({
       artifactId: created.id,
       changes: { put: { "notes.md": { bytes: encoder.encode("written") } } },
@@ -591,7 +580,6 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
     await before.close();
     const notes = () => readdir(join(files, ".applied"));
     expect(await notes()).toHaveLength(2);
-    // Deleted while closed, its directory with it.
     await artifacts.delete(required(deleted).id);
     await rm(path, { force: true, recursive: true });
 
@@ -609,7 +597,6 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
       {
         conflicted: (kept) => conflicts.push(kept),
         keptConflicts: 2,
-        // Hold disk synchronization so each commit lands first.
         synchronize: () => new Promise<void>(() => undefined),
       },
       storeKind
@@ -623,7 +610,6 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
           put: { "notes.md": { bytes: encoder.encode(`api edit ${round}`) } },
         },
       });
-      // Separate rounds by a millisecond so their stamps order by time.
       await new Promise((resolve) => setTimeout(resolve, 2));
     }
     const directories = conflicts.map((conflict) => conflict.directory);

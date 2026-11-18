@@ -1,8 +1,3 @@
-/**
- * Plain-language definitions for the concepts the default report shows.
- * Presentation only: each entry restates the analysis policy in README and
- * `config.ts`; changing a threshold there must change the sentence here.
- */
 export const SURFACE_RATIOS = [
   "Declared package surface: the share of all symbols reachable through the package entrypoints. High means most of the package is public by declaration.",
   "External surface: the share of all symbols another package actually uses. This approximates how much responsibility crosses the boundary.",
@@ -71,7 +66,6 @@ const SIGNALS: Record<string, string> = {
     "files change together with no static path connecting them.",
 };
 
-/** Definition lines for the signal names present, in the order given. */
 export function signalDefinitions(names: readonly string[]): string[] {
   return [...new Set(names)].flatMap((name) => {
     const definition = SIGNALS[name];
@@ -79,10 +73,6 @@ export function signalDefinitions(names: readonly string[]): string[] {
   });
 }
 
-/**
- * Why a plan is unsupported or blocked, restated from `plan.ts` blocker
- * details. The verdict line states the fact; these say what lifts it.
- */
 const BLOCKERS: Record<string, { fact: string; lift?: string }> = {
   "internal-entrypoint-import": {
     fact: "imported or re-exported from the entrypoint by other modules inside the package in a way the plan cannot repoint",

@@ -14,12 +14,10 @@ export const DEFAULT_SETTINGS: Settings = { theme: "dark" };
 
 export interface LoadedSettings {
   readonly path: string;
-  /** Why some or all of the file was not used. */
   readonly problem?: string;
   readonly settings: Settings;
 }
 
-/** Workspace dirs under the state root are hashes, so this name never collides with one. */
 export function settingsPath(stateRoot: string): string {
   return join(resolve(stateRoot), "settings.json");
 }
@@ -56,10 +54,6 @@ function parse(path: string): Parsed {
   }
 }
 
-/**
- * Load preferences from `path`. A missing file uses defaults; an unreadable
- * or invalid file, or an unknown theme, uses defaults and reports a problem.
- */
 export function loadSettings(path: string): LoadedSettings {
   const parsed = parse(path);
   if (parsed.kind === "missing") {
@@ -83,11 +77,6 @@ export function loadSettings(path: string): LoadedSettings {
   };
 }
 
-/**
- * Write `changes` over what the file holds and return the result. Refuses a
- * file it cannot read rather than replace something a person may want back.
- * Throws for an invalid file or theme, and propagates filesystem write errors.
- */
 export function saveSettings(
   path: string,
   changes: Partial<Settings>

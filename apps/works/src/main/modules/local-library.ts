@@ -61,7 +61,6 @@ async function exists(file: string) {
   }
 }
 
-/** Editable working folders and immutable Artifact releases share one library. */
 export async function openLocalModuleLibrary(
   root: string,
   legacyUserData?: string

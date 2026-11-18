@@ -114,7 +114,6 @@ export class Delivery {
   #compacting: Promise<void> | undefined;
   #compactionProblem: string | undefined;
   #problem: string | undefined;
-  /** Runs a pass in the context this delivery was built in; see above. */
   readonly #built = AsyncLocalStorage.snapshot();
 
   constructor(options: DeliveryOptions) {
@@ -530,7 +529,6 @@ export class Delivery {
   }
 
   async #call(observer: Observer, change: LoggedChange): Promise<Outcome> {
-    // Each handler gets its own copy: one cannot change what another sees.
     const fact = structuredClone(change.fact);
     const settled: Promise<Outcome> = Promise.resolve()
       .then(() => observer.handler(fact))

@@ -1,16 +1,6 @@
-/**
- * Every message a run has published, in order, fanned out to any number of
- * subscribers. A subscriber first receives the history, then live messages,
- * with no gap: copying the history and registering happen in one tick, and
- * publishing is synchronous.
- *
- * The history lives as long as the run's Channels, so a subscriber that
- * attaches after the run settled still sees the whole run and then EOF.
- */
 export class MessageLog<M> {
   readonly #history: M[] = [];
   readonly #subscribers = new Set<ReadableStreamDefaultController<M>>();
-  // Widened: the checker would otherwise read the initializer as the only value.
   #closed = false as boolean;
 
   record(message: M): void {
@@ -22,13 +12,11 @@ export class MessageLog<M> {
       try {
         controller.enqueue(message);
       } catch {
-        // The reader cancelled between its last read and this publish.
         this.#subscribers.delete(controller);
       }
     }
   }
 
-  /** No more messages: every open subscription reaches EOF. */
   close(): void {
     if (this.#closed) {
       return;
@@ -44,7 +32,6 @@ export class MessageLog<M> {
     this.#subscribers.clear();
   }
 
-  /** A fresh stream: the history so far, then live messages until close. */
   subscribe(signal?: AbortSignal): ReadableStream<M> {
     let subscribed: ReadableStreamDefaultController<M> | undefined;
     const release = () => {

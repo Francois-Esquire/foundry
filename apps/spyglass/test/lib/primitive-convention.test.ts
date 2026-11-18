@@ -30,12 +30,6 @@ import { analyzeSymbolLocality } from "../../src/lib/symbol-locality";
 
 const specifierPattern = /\.tsx?$/;
 
-// V13.3 primitive roles, responsibility scopes, module shapes, and placement
-// conventions on synthetic packages. Each fixture is one package in a
-// throwaway workspace; the high-fan cutoff floors at 3, so a module with
-// three dependents is a connector and stays unresolved between regions, and
-// the package-wide floor is 3 responsibilities.
-
 const tempRoots: string[] = [];
 
 afterAll(() => {
@@ -345,13 +339,6 @@ describe("roles", () => {
   });
 });
 
-/**
- * Three directory regions a, b, c; a root hub with a localized symbol into
- * each (a connector with three candidate regions, unresolved); and a
- * wide-dependent app module drawing from all three (also unresolved).
- * `LOCAL_B` is a constant, not a seed, so its cross-directory edge joins
- * nothing.
- */
 function scopeFixture(): Record<string, string> {
   return {
     "src/a/a1.ts":
@@ -522,11 +509,6 @@ describe("scope", () => {
   });
 });
 
-/**
- * Seven directory regions. In a, b, c, g the contract sits in a dedicated
- * `contracts.ts` (g's one directory deeper); in d, e, f it sits beside its
- * implementation. One schema alone is insufficient evidence.
- */
 function conventionFixture(): Record<string, string> {
   const files: Record<string, string> = {
     "src/index.ts": 'export * from "./a/use";\n',

@@ -15,8 +15,6 @@ function shellSize(): { height: number; width: number } {
 export function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
     ...shellSize(),
-    // Matched to the pre-paint colour in index.html so the first frame the
-    // compositor shows is the same colour as what replaces it.
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#0a0a0a" : "#ffffff",
     center: true,
     frame: false,
@@ -29,7 +27,6 @@ export function createMainWindow(): BrowserWindow {
     },
   });
 
-  // Never spawn child windows; real links open in the OS browser.
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("http://") || url.startsWith("https://")) {
       shell.openExternal(url).catch(() => undefined);
@@ -49,11 +46,6 @@ export function createMainWindow(): BrowserWindow {
   return window;
 }
 
-/**
- * Electron reports four independent predicates; a window has one mode.
- * Fullscreen wins because it is what the user sees, and minimized beats
- * maximized for the same reason.
- */
 export function windowMode(window: BrowserWindow): WindowMode {
   if (window.isFullScreen()) {
     return "fullscreen";

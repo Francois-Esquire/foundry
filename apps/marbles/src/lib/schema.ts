@@ -6,15 +6,8 @@ import type {
 import type { InputField } from "~/lib/inputs";
 import { isRecord } from "~/lib/state/json";
 
-/**
- * Schemas are any Standard Schema. Validation and types need only that; the
- * launch form and the catalog need the library's Standard JSON Schema too,
- * and degrade to one JSON field without it.
- */
-
 export type Output<S extends StandardSchemaV1> =
   StandardSchemaV1.InferOutput<S>;
-/** What a schema accepts before parsing: defaults optional, transforms unapplied. */
 export type Input<S extends StandardSchemaV1> = StandardSchemaV1.InferInput<S>;
 
 export class SchemaError extends Error {
@@ -38,7 +31,6 @@ function describeIssue(issue: StandardSchemaV1.Issue): string {
   return path ? `${path}: ${issue.message}` : issue.message;
 }
 
-/** Parse `value` through `schema`; throws {@link SchemaError} on issues. */
 export async function validate<S extends StandardSchemaV1>(
   schema: S,
   value: unknown,
@@ -54,7 +46,6 @@ export async function validate<S extends StandardSchemaV1>(
   return result.value as Output<S>;
 }
 
-/** The input JSON Schema when the library exposes one. */
 export function jsonSchemaOf(
   schema: StandardSchemaV1
 ): Record<string, unknown> | undefined {
@@ -70,7 +61,6 @@ export function jsonSchemaOf(
   }
 }
 
-/** Top-level property names of an object schema, when knowable. */
 export function inputKeysOf(
   schema: StandardSchemaV1
 ): readonly string[] | undefined {
@@ -161,7 +151,6 @@ function fieldFrom(
 
 export const JSON_FIELD = "$json";
 
-/** The one field a launch form shows when it cannot describe the schema's shape. */
 export const JSON_INPUT_FIELD: InputField = {
   label: "Input (JSON)",
   name: JSON_FIELD,
@@ -169,11 +158,6 @@ export const JSON_INPUT_FIELD: InputField = {
   type: "multiline",
 };
 
-/**
- * Launch-form fields for a schema's JSON Schema (`jsonSchemaOf`): one per
- * property of a flat object of strings, numbers, booleans, and string
- * enums. Anything else becomes a single JSON field.
- */
 export function fieldsFromJsonSchema(
   json: Readonly<Record<string, unknown>>
 ): readonly InputField[] {
@@ -199,7 +183,6 @@ export function fieldsFromJsonSchema(
   return fields;
 }
 
-/** Turn launch-form values back into the object a schema validates. */
 export function inputFromFields(
   values: Readonly<Record<string, unknown>>
 ): unknown {
@@ -210,7 +193,6 @@ export function inputFromFields(
   return values;
 }
 
-/** What a value that is not JSON is, for a message. */
 function kindOf(value: unknown): string | undefined {
   if (
     value === null ||
@@ -237,11 +219,6 @@ function kindOf(value: unknown): string | undefined {
   return `a ${(value as object).constructor?.name ?? "class instance"}`;
 }
 
-/**
- * Where a value stops being JSON, as `path is a Date`, or undefined when
- * it is JSON all the way down. A step's result is recorded and handed to
- * its parent, so it must survive a round trip unchanged.
- */
 export function notJson(value: unknown, path = ""): string | undefined {
   const kind = kindOf(value);
   if (kind !== undefined) {

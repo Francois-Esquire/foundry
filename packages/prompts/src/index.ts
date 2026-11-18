@@ -1,13 +1,3 @@
-/**
- * `@foundry/prompts`: prompts written for a CLI harness. `prompts` is one
- * flat object: a tag per dialect (`prompts.claude\`…\``) and the utilities
- * that say what exists (`prompts.add(source)`). A tag returns a `Prompt`
- * whose diagnostics are read against what exists each time; a strict
- * `prompts` throws instead. `assemble` builds the same shape from named
- * dialects. The reference vocabulary comes from `@foundry/core/agents`. No
- * Node imports, so an editor extension can load it.
- */
-
 export type {
   Reference,
   Referenceable,

@@ -367,7 +367,6 @@ describe("Orchestrator explicit controls", () => {
       DUPLICATE_PATTERN
     );
     expect(concurrentB.status).toBe("fulfilled");
-    // The duplicate never reached the factory.
     expect(factoryInputs).toEqual(["original", "other"]);
     expect(originalClaim).toBe(true);
     await orchestrator.drain();
@@ -432,7 +431,6 @@ describe("Orchestrator explicit controls", () => {
       const a = await open("a");
       const b = await open("b");
 
-      // Two Orchestrators sharing a store: the store admits one Run.
       const [fromA, fromB] = await Promise.allSettled([
         a.run("shared", "A", { runId: "rn-shared" }),
         b.run("shared", "B", { runId: "rn-shared" }),

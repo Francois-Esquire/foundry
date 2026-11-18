@@ -1,9 +1,5 @@
 import { thisProcess } from "@foundry/lib/process-identity";
-/**
- * What an exited process leaves behind: queued runs are let in again only
- * by a start that succeeds, and a parked workflow nothing here can adopt can
- * still be cancelled, but never one a live process or an adopter owns.
- */
+/** Recovery must leave runs owned by a live process or adopter alone. */
 
 import { spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -60,7 +56,6 @@ async function claimedElsewhere(runId: string): Promise<boolean> {
   }
 }
 
-/** A pid that has certainly exited. */
 function exitedPid(): number {
   const { pid } = spawnSync(process.execPath, ["-e", ""]);
   if (pid === undefined) {
@@ -69,7 +64,6 @@ function exitedPid(): number {
   return pid;
 }
 
-/** A run record as a crashed process would have left it. */
 async function leftBehind(
   run: Partial<ExecutionRun> & { id: string }
 ): Promise<void> {
@@ -93,7 +87,6 @@ async function leftBehind(
 
 it("lets an exited process's queued run in again only once the start has succeeded", async () => {
   await leftBehind({ id: "rn-queued", input: {} });
-  // Delivery cannot read its tasks, so the start fails after the run store loaded.
   const memory = new MemoryWorkspaceRecords();
   const unreadable: WorkspaceRecords = {
     claimDelivery: () => memory.claimDelivery(),
@@ -126,7 +119,6 @@ it("lets an exited process's queued run in again only once the start has succeed
   await engine.dispose();
 
   expect(started).toBe(0);
-  // Still queued under the exited process, for a start that can run it.
   expect(await storedExecution(state, "rn-queued")).toEqual(dead);
 });
 
@@ -137,7 +129,6 @@ it("lets a run in again after delivery starts, on an engine that accepts launche
   engine.task({
     name: "save",
     queue: "system",
-    // A recovered body runs at once, and may launch more work.
     run: async () => {
       launched.push((await engine.launch("note", {})).id);
     },
@@ -150,7 +141,6 @@ it("lets a run in again after delivery starts, on an engine that accepts launche
   expect(launched).toHaveLength(1);
 });
 
-/** A run parked on a question, then left as if its process had exited. */
 async function parkedThenOrphaned(): Promise<string> {
   const definition = {
     fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
@@ -164,7 +154,6 @@ async function parkedThenOrphaned(): Promise<string> {
   await vi.waitFor(() =>
     expect(first.executions.get(id)?.status).toBe("suspended")
   );
-  // With a state dir a stop keeps the parked run for a later process.
   await first.stop({ cancel: true });
   await first.dispose();
   catalog.reset();
@@ -175,7 +164,6 @@ async function parkedThenOrphaned(): Promise<string> {
 
 it("cancels a parked run whose process exited when nothing here can adopt it", async () => {
   const id = await parkedThenOrphaned();
-  // Nothing here runs `probe`, so nothing adopts it.
   const engine = engineWith({ askable: true });
   await engine.start();
   expect(engine.executions.get(id)?.status).toBe("suspended");
@@ -210,7 +198,6 @@ it("never resumes a parked run that was cancelled after its process exited", asy
 
   expect(next.scopes.has(id)).toBe(false);
   expect(next.executions.get(id)?.status).toBe("cancelled");
-  // It holds no claim on the run either.
   expect(await claimedElsewhere(id)).toBe(false);
 });
 
@@ -257,7 +244,6 @@ it("leaves a parked run alone while another process is adopting it", async () =>
   expect(engine.executions.get("rn-adopting")?.status).toBe("cancelled");
 });
 
-/** `probe`, the definition `parkedThenOrphaned` parks. */
 function defineProbe(engine: Engine): void {
   engine.define({
     fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
@@ -266,7 +252,6 @@ function defineProbe(engine: Engine): void {
   });
 }
 
-/** Change what the exited process left on its record. */
 async function rewriteRecord(
   id: string,
   patch: Partial<ExecutionRun>
@@ -302,7 +287,6 @@ it("leaves a parked run it cannot adopt suspended for a process that can, even w
   const id = await parkedThenOrphaned();
   await rewriteRecord(id, { status: "running" });
   const dead = (await storedExecution(state, id))?.owner.pid;
-  // Nothing here runs `probe`.
   const engine = engineWith({ askable: true });
   await engine.start();
 
@@ -312,7 +296,6 @@ it("leaves a parked run it cannot adopt suspended for a process that can, even w
   });
   await engine.dispose();
 
-  // A later process that can answer it still adopts it.
   const next = engineWith({ askable: true });
   defineProbe(next);
   await next.start();

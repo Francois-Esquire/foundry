@@ -14,7 +14,6 @@ it("matches the original folder-anchored import solver's recorded coordinates", 
     { source: "src/a.ts", target: "src/b.ts" },
     { source: "src/ui/a.ts", target: "src/a.ts" },
   ]);
-  // Captured from the solver before the lattice replacement, at 3e93b64^.
   const original = [
     { x: 1.697_479_415_892_331, y: -5.836_934_101_189_197 },
     { x: 5.139_092_765_079_855, y: -2.209_910_865_160_203 },

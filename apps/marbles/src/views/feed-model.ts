@@ -9,15 +9,10 @@ export function feedKey(
 }
 
 export interface FeedScope {
-  /** `all`, or a workspace id. */
   readonly id: string;
   readonly label: string;
 }
 
-/**
- * All workspaces first, then this workspace, then any other workspace that
- * has posted. The dashboard cycles through them with `w`.
- */
 export function feedScopes(
   entries: readonly FeedEntrySnapshot[],
   workspaceId?: string

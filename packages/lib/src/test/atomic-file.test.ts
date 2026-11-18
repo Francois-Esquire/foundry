@@ -65,7 +65,6 @@ describe("writeFileAtomic", () => {
   );
 
   it("leaves no temporary behind when the rename fails", async () => {
-    // Renaming a file over a directory fails after the temporary is written.
     const blocked = join(directory, "blocked");
     await writeFileAtomic(join(blocked, "inner"), "x", {
       directoryMode: 0o700,
@@ -108,7 +107,6 @@ describe("writeFileAtomicSync", () => {
   });
 
   it("leaves no temporary behind when the rename fails", async () => {
-    // Renaming a file over a directory fails after the temporary is written.
     const blocked = join(directory, "blocked");
     writeFileAtomicSync(join(blocked, "inner"), "x", { createDirectory: true });
 

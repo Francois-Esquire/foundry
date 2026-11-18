@@ -7,7 +7,6 @@ export function processError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
 }
 
-/** Shared lifecycle for native processes and deferred host spawn hooks. */
 export class ProcessController
   extends EventEmitter<{
     exit: [code: number | null, signal: NodeJS.Signals | null];
@@ -35,7 +34,6 @@ export class ProcessController
     this.exited = completion.promise;
     this.resolveExit = completion.resolve;
     this.rejectExit = completion.reject;
-    // Failures remain observable via `exited`, even before listeners attach.
     this.exited.catch(() => undefined);
     for (const stream of [this.stdin, this.stdout, this.stderr]) {
       stream.on("error", (error: Error) => this.fail(error));

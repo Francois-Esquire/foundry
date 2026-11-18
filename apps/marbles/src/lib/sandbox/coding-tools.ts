@@ -17,9 +17,7 @@ function assertWorkspace(path: string): string {
   return path;
 }
 
-/** File tools stay within the guest workspace. bash has the authority of the whole VM. */
 export function createCodingTools(container: CodingToolsContainer): ToolSet {
-  /** The workspace root must be its own real path, or nothing under it can be checked; asked once, retried after a failure. */
   let canonicalRoot: Promise<void> | undefined;
   const checkRoot = (): Promise<void> => {
     canonicalRoot ??= container.files
@@ -35,7 +33,6 @@ export function createCodingTools(container: CodingToolsContainer): ToolSet {
       });
     return canonicalRoot;
   };
-  /** Neither a file nor a dangling link: `sh` exits 1 only when both tests fail. */
   const isAbsent = async (path: string): Promise<boolean> => {
     const result = await container.commands.exec(
       ["sh", "-c", 'test -e "$1" || test -L "$1"', "check-absent", path],
@@ -43,7 +40,6 @@ export function createCodingTools(container: CodingToolsContainer): ToolSet {
     );
     return result.exitCode === 1;
   };
-  /** `path` is already resolved against the workspace by the toolkit. */
   const canonicalPath = async (
     path: string,
     allowMissing = false

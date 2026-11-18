@@ -11,10 +11,6 @@ import { type DriverRun, record } from "./shared";
 
 const POLICY_REFUSAL = "CLI permission policy refused the tool call";
 
-/**
- * The CLI's message stream: native task activity, the session id it settles
- * on, and refusals its own policy made without asking Foundry.
- */
 export function claudeMessages(
   run: DriverRun,
   activities: NativeActivities,
@@ -74,7 +70,6 @@ export function claudeActivityHooks(
   };
 }
 
-/** The provider's stream as harness parts; `finish` runs however it ends. */
 export async function* consume(
   stream: ReadableStream<LanguageModelV4StreamPart>,
   finish: () => Promise<void>

@@ -45,13 +45,6 @@ import {
 import { deriveWorkspaceSurface } from "../../src/lib/workspace-derive";
 import { hashTree } from "./helpers/planning-fixture";
 
-// V12.5/V12.6 incremental materialization on the semantics fixture: apps/a
-// imports packages/b, tooling/c stands alone. The fixture is not a Git
-// repository, so the history component is constant and every scenario
-// exercises sources, manifests, cache state, and the clock. Two cache tiers
-// are under test: package-local reports (keyed by a package's own files)
-// and assembled reports (keyed by the whole workspace).
-
 const fixture = join(import.meta.dirname, "fixtures", "semantics");
 const now = new Date("2027-01-01T00:00:00Z");
 const tempRoots: string[] = [];
@@ -98,10 +91,6 @@ function copyFixture(): string {
   return root;
 }
 
-/**
- * The fixture's three packages at the root, declared by one `*` pattern, so
- * that the cruise starts from every root directory, `.foundry` included.
- */
 function starFixture(): string {
   const root = realpathSync(
     mkdtempSync(join(tmpdir(), "semantics-incremental-star-"))
@@ -300,7 +289,6 @@ describe("no changes", () => {
     const comparison = compareSemanticsDatasets(before, second.output);
     expect(comparison.differences).toEqual([]);
     expect(comparison.equivalent).toBe(true);
-    // every artifact but the manifest is byte-identical and keeps its inode
     expect(second.artifacts.generated).toBe(1);
     expect(second.artifacts.reused).toBe(second.files - 1);
     expect(second.artifacts.removed).toBe(0);
@@ -364,7 +352,6 @@ describe("source changes", () => {
       "@s/b": "reuse:fingerprint-unchanged",
       "@s/c": "recompute:sources-changed",
     });
-    // derivation reads the whole workspace, so every assembled report moves
     expect(reportCauses(result)).toEqual({
       "@s/a": "recompute:sources-changed",
       "@s/b": "recompute:sources-changed",
@@ -377,7 +364,6 @@ describe("source changes", () => {
   it("keeps a consumer's local report when its provider changes", async () => {
     const root = copyFixture();
     await full(root);
-    // apps/a imports Shape from packages/b; b changes, a's own facts do not
     append(
       root,
       "packages/b/src/shape.ts",
@@ -414,7 +400,6 @@ describe("source changes", () => {
       "@s/b": "reuse:fingerprint-unchanged",
       "@s/c": "recompute:sources-changed",
     });
-    // b's derived facts move: one more consumer of its public surface
     expect(consumersOf(result.output)).toEqual(["@s/a", "@s/c"]);
     await expectEquivalentToFull(root);
   });
@@ -437,7 +422,6 @@ describe("source changes", () => {
     expect(result.reports).toEqual({ derived: 3, reused: 0, unchanged: 3 });
     const comparison = compareSemanticsDatasets(before, result.output);
     expect(comparison.differences).toEqual([]);
-    // reports keep their cached bytes, so only the manifest is rewritten
     expect(result.artifacts.generated).toBe(1);
     await expectEquivalentToFull(root);
   });
@@ -516,18 +500,13 @@ describe("source changes", () => {
   }, 60_000);
 
   it.each([
-    // The fixture's @s/b lives at packages/b; packages/b/src/index.ts only
-    // re-exports, so it declares no symbol `b`.
     ["the fixture's package patterns", copyFixture, "packages/b"],
-    // Here @s/b lives at b, so packages/b names no place.
     ["a * package pattern, which cruises .foundry", starFixture, "b"],
   ])(
     "reuses every package report and derives nothing when only the domains change, under %s",
     async (_patterns, makeRoot, packageRoot) => {
       const root = makeRoot();
       const { output } = await full(root);
-      // A lens that reads no settings keeps its file, inode and all; the
-      // domains lens reads them, so its file follows each edit.
       const lens = join(output, "lenses", "package-sizes.json");
       const lensInode = statSync(lens).ino;
       const domains = () =>
@@ -558,7 +537,6 @@ describe("source changes", () => {
           ...match,
         },
       ];
-      // Each edit is checked before the next, since the file follows it.
       for (const [facet, expected] of [
         [
           "packages/b",
@@ -572,7 +550,6 @@ describe("source changes", () => {
           "packages/b/src/index.ts#b",
           core({ unmatched: ["packages/b/src/index.ts#b"] }),
         ],
-        // From unmatched to matched: a symbol shape.ts declares.
         [
           `${packageRoot}/src/shape.ts#area`,
           core({
@@ -731,7 +708,6 @@ describe("cache state", () => {
       "@s/b": "recompute:cache-corrupt",
       "@s/c": "reuse:fingerprint-unchanged",
     });
-    // the assembled reports are still valid; derivation is not needed
     expect(result.reports).toEqual({ derived: 0, reused: 3, unchanged: 0 });
     await expectEquivalentToFull(root);
   });
@@ -787,7 +763,6 @@ describe("cache state", () => {
       "utf8"
     );
     const packages = join(cacheDir(root), "packages");
-    // a schema-1 entry: the assembled report under the bare name, no `kind`
     writeFileSync(join(packages, "@s__b.local.json"), report);
     const meta = JSON.parse(
       readFileSync(join(packages, "@s__b.local.meta.json"), "utf8")
@@ -849,7 +824,6 @@ describe("failures", () => {
       incremental(root, { analyzeLocal, failFast: true })
     ).rejects.toThrow("disk on fire");
     expect(hashTree(first.output)).toEqual(good);
-    // the failed build recorded no inputs, so the next plan still names the edit
     const plan = await incremental(root, { dryRun: true });
     expect(invalidations(plan, "package-local").get("@s/b")?.reason).toEqual({
       cause: "sources-changed",
@@ -893,7 +867,6 @@ describe("failures", () => {
     expect(existsSync(join(result.output, "packages", "@s__b.json"))).toBe(
       false
     );
-    // the stale entry stays on disk but can never match the new fingerprint
     const meta = JSON.parse(
       readFileSync(
         join(cacheDir(root), "packages", "@s__b.local.meta.json"),
@@ -944,7 +917,6 @@ describe("determinism", () => {
     const graphs: unknown[] = [];
     const datasets: string[] = [];
     for (const concurrency of [1, 2, 4]) {
-      // every run starts from the pre-change cache, so only the worker count differs
       rmSync(cacheDir(root), { recursive: true });
       cpSync(pristine, cacheDir(root), { recursive: true });
       const result = await incremental(root, { concurrency });

@@ -12,15 +12,6 @@ import {
 } from "./grants";
 import type { InstallationGrant, ModuleRegistryUnit } from "./registry";
 
-/**
- * Approving and revoking an Installation's Grants. A request grants nothing
- * until it is approved here against the Installation's selected Version;
- * a revoke stops new Invocations under the Grant as soon as it commits and
- * cancels the active ones. Network destinations are different: a running
- * Program keeps the allowlist it started with until it restarts. How
- * approval is asked for, and which
- * Installation a host creates for it, is the host's.
- */
 export class ModuleAccessError extends Error {
   override readonly name = "ModuleAccessError";
 }
@@ -28,7 +19,6 @@ export class ModuleAccessError extends Error {
 type InstallationRef = Pick<Installation, "generation" | "id" | "moduleId">;
 
 export interface ModuleAccess {
-  /** Approves `capability` as `version` requests it, at the Installation's generation. */
   approve(input: {
     readonly installation: InstallationRef & Pick<Installation, "contentId">;
     readonly version: ModuleVersion;
@@ -37,26 +27,15 @@ export interface ModuleAccess {
     readonly grants: readonly InstallationGrant[];
     readonly request: ModuleAccessRequest;
   }>;
-  /**
-   * Keeps only the Grants `requests` still match (capability, capability
-   * version and resolved constraints digest) and revokes the rest, ahead of
-   * a Version change. Returns the Grants kept.
-   */
   carryOver(input: {
     readonly installationId: InstallationId;
     readonly expectedGeneration: number;
     readonly requests: readonly ModuleAccessRequest[];
   }): Promise<readonly InstallationGrant[]>;
-  /** The Version's requests, resolved for the Installation that would hold their Grants. */
   requests(input: {
     readonly installation: InstallationRef;
     readonly version: ModuleVersion;
   }): Promise<readonly ModuleAccessRequest[]>;
-  /**
-   * Revokes one held Grant and cancels the Invocations admitted under it.
-   * A revoked network Grant narrows a running Program's destinations only
-   * when it restarts: its sandbox allowlist is read at start.
-   */
   revoke(input: {
     readonly installationId: InstallationId;
     readonly capability: string;
@@ -74,7 +53,6 @@ export type AccessRegistry = ModuleRegistryUnit<
   "loadGatewayContext" | "replaceInstallationGrants" | "revokeInstallationGrant"
 >;
 
-/** Who a provider resolves constraints for, before a Program exists. */
 export function installationPrincipal(
   installation: InstallationRef,
   version: Pick<ModuleVersion, "contentId">

@@ -12,7 +12,6 @@ interface Affinity {
   shared: number;
 }
 
-/** Count shared reliance between pairs, discounting distant paths and ubiquitous libraries. */
 function sharedAffinities(
   foundations: readonly DependencyFoundation[],
   territories: readonly Island[]
@@ -56,7 +55,6 @@ function sharedAffinities(
   );
 }
 
-/** More shared dependencies strengthen a pair's pull without allowing unbounded collapse. */
 export function createFoundationAttraction(
   foundations: readonly DependencyFoundation[],
   territories: readonly Island[],
@@ -77,7 +75,6 @@ export function createFoundationAttraction(
         const affinity = 1 - Math.exp((-shared * strength) / 4);
         const dx = b.x - a.x;
         const dy = b.y - a.y;
-        // Shared overlap contracts this pair's baseline distance, at most halfway.
         const distance = Math.hypot(dx, dy) || 1;
         const target = baseline * (1 - 0.5 * affinity);
         const pull = Math.max(0, distance - target) / distance;

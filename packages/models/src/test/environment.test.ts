@@ -12,7 +12,6 @@ const CALL = {
 const saved = { ...process.env };
 let cli: ReturnType<typeof envDumpExecutable>;
 
-/** What a machine-scope instance is given: the environment without the workspace's additions. */
 function machineEnvironment(): Record<string, string> {
   return {
     CLAUDE_TEST_ACCOUNT: "machine",

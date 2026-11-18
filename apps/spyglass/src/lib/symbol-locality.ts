@@ -32,13 +32,6 @@ import type {
 } from "./symbol-locality-types";
 import { SYMBOL_LOCALITY_SCHEMA_VERSION } from "./symbol-locality-types";
 
-// V13.1 symbol locality. A pure function of one package's local report and
-// its internal topology: no file system, no program, no workspace, no Git.
-// Each internally consumed symbol gets one finding describing where it is
-// declared, where its consumers sit, how concentrated that is, and what the
-// dependency graph and local behavior evidence say beside the path facts.
-// Nothing here names a better place for anything.
-
 const DISTRIBUTION_SHAPES: SymbolDistributionShape[] = [
   "module-localized",
   "directory-localized",
@@ -152,7 +145,6 @@ export function analyzeSymbolLocality(
   const symbolById = new Map(report.symbols.map((s) => [s.id, s]));
   const rolesOf = new Map(topology.roles.map((r) => [r.module, r.roles]));
 
-  // Ancestor chains from the topology's own directory tree, root first.
   const lineages = new Map<string, string[]>();
   const lineageOf = (directory: string): string[] => {
     const cached = lineages.get(directory);
@@ -165,7 +157,6 @@ export function analyzeSymbolLocality(
     lineages.set(directory, chain);
     return chain;
   };
-  /** The package root or a technical root: a directory above every path region. */
   const aboveRegions = (directory: string): boolean => {
     const node = directoryById.get(directory);
     if (node?.parent === undefined) {
@@ -299,8 +290,6 @@ export function analyzeSymbolLocality(
   }
   const seedKinds = new Set<string>(config.concepts.seedKinds);
 
-  // Bare namespace imports between primary modules: the consumer names the
-  // module, not a symbol, so symbols declared or forwarded there may be under-counted.
   const visitSite = () => {
     for (const site of report.imports) {
       if (site.kind !== "namespace" || site.members !== undefined) {
@@ -661,7 +650,6 @@ export function getSymbolLocality(
   return report.symbols.find((finding) => finding.symbolId === symbolId);
 }
 
-/** Findings declared in the region. */
 export function getSymbolsByRegion(
   report: SymbolLocalityReport,
   region: string
@@ -752,8 +740,6 @@ function recordConsumedSymbol(
   const dominantRegion =
     topRegion.share >= policy.dominantShareThreshold ? topRegion : undefined;
   const significantRegions = regions.filter((r) => r.significant).length;
-  // Two significant regions that together would be dominant are a split;
-  // two significant regions over a long tail are a distribution.
   const split =
     dominantRegion === undefined &&
     significantRegions === 2 &&
@@ -771,9 +757,6 @@ function recordConsumedSymbol(
     topRegion
   );
   const declarationDirectory = declaration.directory;
-  // The root and a technical root are one level: `src/types.ts` is not
-  // below consumers whose common directory is `.` only because a
-  // `scripts/` sits beside `src/`.
 
   const directoryRelationship: DirectoryRelationship = compareDirectories(
     declarationDirectory,

@@ -113,7 +113,6 @@ describe("real MicroSandbox command IO", () => {
         .toContain("stderr:second café 🧪\n");
       expect(normalizedOutput()).not.toContain("stdin:eof\n");
 
-      // A terminal uses Ctrl-D for EOF; closing its input pipe is not EOF.
       shell.write("\u0004");
       await expect
         .poll(normalizedOutput, { timeout: OUTPUT_TIMEOUT_MS })
@@ -125,7 +124,6 @@ describe("real MicroSandbox command IO", () => {
   }, 30_000);
 
   it("streams separate native stdout and stderr, split UTF-8 input, and pipe EOF", async () => {
-    // The public shell is a TTY. Separate live pipes currently need the SDK.
     await using handle = await sandbox.native.execStreamWith("bun", (builder) =>
       builder.args(["-e", ECHO_PROGRAM]).tty(false).stdinPipe()
     );
@@ -163,7 +161,6 @@ describe("real MicroSandbox command IO", () => {
 
       const secondLine = "second café 🧪";
       const bytes = new TextEncoder().encode(`${secondLine}\n`);
-      // Split inside the emoji so the guest must preserve bytes across writes.
       await input.write(bytes.subarray(0, bytes.length - 3));
       await input.write(bytes.subarray(bytes.length - 3));
       await expect
@@ -206,7 +203,6 @@ describe("real MicroSandbox command IO", () => {
       diagnostics,
       child.exited,
     ]);
-    // Vitest's deep equality takes about a second on a MiB; Buffer.equals does not.
     const received = Buffer.concat(stdout);
     expect(received.byteLength).toBe(input.byteLength);
     expect(received.equals(input)).toBe(true);
@@ -250,7 +246,6 @@ describe("real MicroSandbox command IO", () => {
     );
     expect(child.kill("SIGTERM")).toBe(true);
     expect(child.killed).toBe(true);
-    // SDK 0.6.18 reports -1 for signaled exits and omits the signal.
     expect((await child.exited).exitCode).toBe(-1);
     expect(await event).toBe(-1);
     expect(child.exitCode).toBe(-1);

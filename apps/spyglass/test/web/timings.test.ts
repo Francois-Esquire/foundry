@@ -1,6 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
 
-/** A fresh copy of the module, so the once-per-page marks and the stage counts start empty. */
 const timings = async () => {
   vi.resetModules();
   return await import("../../src/web/timings");
@@ -38,7 +37,6 @@ it("lets work wait for the first frame, or for the map's failure to open", async
   framed.markLoad("spyglass:first-frame");
   await waiting;
   expect(done).toBe(true);
-  // Once released, it no longer waits.
   await framed.afterFirstFrame();
   const failed = await timings();
   const released = failed.afterFirstFrame();

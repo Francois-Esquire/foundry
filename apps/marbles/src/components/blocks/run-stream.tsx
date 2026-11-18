@@ -7,7 +7,6 @@ import type { RunActions } from "~/views/run-actions";
 const TAIL_LINES = 12;
 const MAX_CHARS = 20_000;
 
-/** Whether a chunk written at `path` belongs to the step (or its subtree). */
 function under(path: readonly string[], stepId?: string): boolean {
   if (stepId === undefined) {
     return true;
@@ -16,11 +15,6 @@ function under(path: readonly string[], stepId?: string): boolean {
   return key === stepId || key.startsWith(`${stepId}.`);
 }
 
-/**
- * The live text a run's steps write: agent turns, `stream.write`, and the
- * `[steer]` and `[resume]` markers the host leaves. Read from the host's
- * subscription while this tab is showing, kept to a tail.
- */
 export function RunStream({
   runId,
   stepId,

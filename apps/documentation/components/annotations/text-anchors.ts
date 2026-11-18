@@ -25,7 +25,6 @@ const EXCLUDED =
 const WORDS = /\S+/g;
 const MAX_PROXIMITY = 24;
 
-/** Resolve saved text meaning to live line boxes; no spans or prose mutations. */
 export function createTextAnchors(
   article: HTMLElement,
   host: HTMLElement
@@ -166,10 +165,6 @@ export function createTextAnchors(
       : null;
   }
 
-  /**
-   * Stored context is evidence on both sides. An empty prefix or suffix means
-   * the quote touched its block boundary, so a candidate must touch it too.
-   */
   function contextMatches(
     block: TextBlock,
     segment: TextSegment,
@@ -211,11 +206,6 @@ export function createTextAnchors(
     return matches;
   }
 
-  /**
-   * Exact offsets first, then one context-confirmed match anywhere. A bare
-   * quote match is accepted only inside the original block: elsewhere, a short
-   * quote such as one word is not evidence, so the mark stays unresolved.
-   */
   function findSegment(segment: TextSegment, all: TextBlock[]) {
     if (!segment.quote || segment.end <= segment.start) {
       return null;

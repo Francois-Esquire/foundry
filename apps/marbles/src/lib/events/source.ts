@@ -20,10 +20,8 @@ export type Source<T extends Fact = Fact> = symbol & {
 
 export type Handler<T> = (fact: T) => void | Promise<void>;
 
-/** Where an object `observe` accepts keeps the source it emits under. */
 export const SOURCE: unique symbol = Symbol("marbles.source");
 
-/** An object whose changes `observe` can follow. */
 export interface Observable<T extends Fact> {
   readonly [SOURCE]: Source<T>;
 }
@@ -53,7 +51,6 @@ export const SANDBOXES: Source<SandboxEvent> = defineSource("sandboxes");
 export const SESSIONS: Source<SessionChangeEvent> = defineSource("sessions");
 export const WORKSPACES: Source<WorkspaceEvent> = defineSource("workspaces");
 
-/** `target`, marked as emitting under `source`; nothing else about it changes. */
 export function observable<O extends object, T extends Fact>(
   target: O,
   source: Source<T>

@@ -20,7 +20,6 @@ const DRIZZLE_FILES = ["sqlite.ts", "tables.ts"].map((file) =>
   join(CONTRACTS_ROOT, file)
 );
 
-/** Anything that would tie the contracts to a host runtime or a provider. */
 const RUNTIME_SPECIFIERS = ["ignore", "just-bash", "microsandbox", "zod"];
 
 function isRuntimeImport(

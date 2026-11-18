@@ -21,7 +21,6 @@ const manifestSchema = z.object({
   }),
 });
 
-/** The pinned guest files for a CLI harness on the architecture `uname -m` printed. */
 export function guestArtifact(
   harness: CliHarness,
   architecture: string
@@ -33,7 +32,6 @@ export function guestArtifact(
   return CLI_HARNESSES[harness].artifact(machine);
 }
 
-/** Download on the host, verify archive integrity, and extract only the pinned runtime files. */
 async function downloadGuestCli(
   artifact: GuestArtifact,
   signal: AbortSignal

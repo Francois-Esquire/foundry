@@ -59,8 +59,6 @@ describe("real MicroSandbox containers registry", () => {
 
     await containers.shutdown();
 
-    // An orphan: a VM with our labels left by a process that died before
-    // closing it, whose row is gone. The next boot's sweep removes it.
     const crashed = createContainers({
       instanceLabel,
       runtime,

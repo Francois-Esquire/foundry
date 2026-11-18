@@ -1,19 +1,7 @@
-/**
- * Command templates as argument lists, never as shell text. A template is
- * split the way a POSIX shell quotes, without a shell: whitespace separates
- * arguments, single quotes are literal, double quotes keep spaces and allow
- * `\"`, `\\`, and `\$`, and a backslash outside quotes escapes the next
- * character. Nothing is expanded or globbed. `$name` (outside single quotes)
- * is a placeholder: its value fills part or all of one argument and is never
- * split or read by a shell, so a value cannot add an argument or a command.
- */
-
-/** One piece of an argument: text as written, or a placeholder's name. */
 export type ArgvSegment =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "placeholder"; readonly name: string };
 
-/** One argument, as the pieces it is made of. */
 export type ArgvArgument = readonly ArgvSegment[];
 
 const NAME_START = /[A-Za-z_]/;
@@ -25,7 +13,6 @@ class Builder {
   readonly args: ArgvSegment[][] = [];
   #current: ArgvSegment[] | undefined;
 
-  /** Start an argument even when it stays empty, as `""` does. */
   touch(): void {
     this.#current ??= [];
   }
@@ -54,7 +41,6 @@ class Builder {
   }
 }
 
-/** The placeholder starting at `start` (just after `$`), or undefined when it is a literal `$`. */
 function nameAt(template: string, start: number): string | undefined {
   if (!NAME_START.test(template[start] ?? "")) {
     return;
@@ -77,7 +63,6 @@ class Reader {
     this.#template = template;
   }
 
-  /** Inside single quotes everything is literal until the closing quote. */
   single(index: number): number {
     const char = this.#template[index] as string;
     if (char === "'") {
@@ -88,7 +73,6 @@ class Reader {
     return index + 1;
   }
 
-  /** A backslash: in double quotes only `"`, `\`, and `$` are escaped. */
   escape(index: number): number {
     const next = this.#template[index + 1];
     if (next === undefined) {
@@ -101,7 +85,6 @@ class Reader {
     return index + 2;
   }
 
-  /** `$name`, or undefined when the `$` is literal. */
   placeholder(index: number): number | undefined {
     const name = nameAt(this.#template, index + 1);
     if (name === undefined) {
@@ -111,7 +94,6 @@ class Reader {
     return index + 1 + name.length;
   }
 
-  /** Outside single quotes: quotes open and close, spaces end an argument. */
   plain(index: number): number {
     const char = this.#template[index] as string;
     if (this.quote === '"') {
@@ -143,7 +125,6 @@ class Reader {
   }
 }
 
-/** Split a template into arguments; throws on an unclosed quote or a trailing backslash. */
 export function parseArgv(template: string): ArgvArgument[] {
   const reader = new Reader(template);
   let index = 0;
@@ -157,7 +138,6 @@ export function parseArgv(template: string): ArgvArgument[] {
   return reader.out.args;
 }
 
-/** Every placeholder a parsed template names, once each, in order. */
 export function placeholdersOf(args: readonly ArgvArgument[]): string[] {
   const names = args.flatMap((arg) =>
     arg.flatMap((segment) =>
@@ -181,11 +161,6 @@ function scalar(name: string, value: unknown): string {
   );
 }
 
-/**
- * The argument list a parsed template makes with these values. A
- * placeholder that is a whole argument and holds an array becomes one
- * argument per element; anywhere else a value is one string.
- */
 export function fillArgv(
   args: readonly ArgvArgument[],
   values: Readonly<Record<string, unknown>>
@@ -218,7 +193,6 @@ export function fillArgv(
 
 const SAFE = /^[A-Za-z0-9_@%+=:,./-]+$/;
 
-/** An argument as a shell would need it written, for showing a command. */
 export function shellQuote(arg: string): string {
   if (arg !== "" && SAFE.test(arg)) {
     return arg;
@@ -226,7 +200,6 @@ export function shellQuote(arg: string): string {
   return `'${arg.replaceAll("'", `'\\''`)}'`;
 }
 
-/** A whole argument list, quoted for display. */
 export function showArgv(argv: readonly string[]): string {
   return argv.map(shellQuote).join(" ");
 }

@@ -30,7 +30,6 @@ import type {
   ScenarioPreservationKind,
 } from "./types";
 
-/** Dimensions that grade a comparison; `uncertainty` is read, never graded. */
 const GRADED: ArchitecturalReviewDimension[] = [
   "dependency",
   "boundary",
@@ -84,11 +83,6 @@ const PRESERVATION_DIMENSION: Record<
 const INTENT_RANK = { compatible: 2, constrained: 1, incompatible: 0 };
 const ALIGNMENT_RANK = { improves: 2, mixed: 0, unchanged: 1 };
 
-/**
- * V8.3 intent is anchor-only. A scenario that must preserve a public
- * contract, a representation boundary, or an anchor is `constrained`
- * here; unobserved conformance is evidence completeness, not intent.
- */
 function intentOf(item: ScenarioImpactAnalysis): IntentImpact["compatibility"] {
   const declared = item.impact.intent.compatibility;
   if (declared !== "compatible") {
@@ -109,7 +103,6 @@ interface Signal {
   relation: ScenarioDimensionRelation;
 }
 
-/** Compare one metric; `null` on either side is an unknown relation. */
 function signal(
   label: string,
   left: number | null,
@@ -177,7 +170,6 @@ function governingPackages(item: ScenarioImpactAnalysis): string[] | null {
     .sort();
 }
 
-/** Packages in the predicted span that hold only parameter consumption and construction. */
 function weakOnlyPackages(item: ScenarioImpactAnalysis): number {
   const span = new Set(item.impact.locality.predicted.sourcePackages);
   return item.impact.behavior.predictedByPackage.filter(
@@ -404,7 +396,6 @@ function representationDimension(
   ]);
 }
 
-/** Moving implementation responsibility is context, never a grade: any difference is a tradeoff. */
 function implementationDimension(
   left: ScenarioImpactAnalysis,
   right: ScenarioImpactAnalysis
@@ -511,11 +502,6 @@ function uncertaintyDimension(
   };
 }
 
-/**
- * Pareto comparison of two V8.3 vectors. Dominance needs every graded
- * dimension no worse, no unknown relation, both scenarios fully
- * simulated, and (policy) at least one strict advantage that is certain.
- */
 export function compareScenarioImpacts(
   left: ScenarioImpactAnalysis,
   right: ScenarioImpactAnalysis,
@@ -702,7 +688,6 @@ function canonicalOrder(
   );
 }
 
-/** Review one finding's scenario set. Pure; input order never changes the result. */
 export function reviewScenarioSet(
   finding: ScenarioImpactFinding,
   scenarios: RecenteringScenarioFinding | undefined,
@@ -724,7 +709,6 @@ export function reviewScenarioSet(
       pair.set(`${left.scenarioId}|${right.scenarioId}`, comparison);
     }
   });
-  /** The comparison with `left` on the left; recomputed for the reverse orientation so evidence text reads that way. */
   const versus = (
     left: ScenarioImpactAnalysis,
     right: ScenarioImpactAnalysis
@@ -1046,7 +1030,6 @@ export function reviewScenarioSet(
   };
 }
 
-/** V8.2 scenarios and V8.3 impacts; anchors and constraints already live in both. */
 export interface ArchitecturalReviewSource {
   impacts: ScenarioImpactReport;
   scenarios: RecenteringScenarioReport;
@@ -1146,7 +1129,6 @@ function reviewScenarioSetItem(
   }
 }
 
-/** Review every V8.3 finding. Compositional: no scan, no simulation, no aggregation across findings. */
 export function analyzeArchitecturalReviews(
   source: ArchitecturalReviewSource,
   config: AnalysisConfig = ANALYSIS_CONFIG

@@ -45,7 +45,6 @@ const TOOL_NAMES = [
   "change_tasks",
 ];
 
-/** The one text block a tool result carries, parsed. */
 function payload(value: unknown): unknown {
   const content = CallToolResultSchema.parse(value).content.find(
     (block) => block.type === "text"
@@ -99,7 +98,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     expect(client.getServerVersion()?.version).toBe(version);
     const listed = await client.listTools();
     expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
-    // Every workspace tool advertises the id it can be pointed at.
     for (const tool of listed.tools) {
       if (tool.name !== "list_workspaces") {
         expect(tool.inputSchema.properties, tool.name).toHaveProperty(
@@ -107,7 +105,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
         );
       }
     }
-    // A tool with an input schema takes an arguments object, even an empty one.
     const config = await client.callTool({
       arguments: {},
       name: "list_config",
@@ -171,7 +168,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
         }),
       ]);
     });
-    // The session a dispatch returns continues as given, identity included.
     const { session } = z
       .object({
         session: z.looseObject({ id: z.string(), instance: z.string() }),

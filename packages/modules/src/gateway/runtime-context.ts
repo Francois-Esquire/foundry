@@ -2,11 +2,6 @@ import type { ModuleCommands, ModuleGatewayContext } from "../registry";
 import type { ModuleRuntimeIdentity } from "./types";
 import { ModuleGatewayError } from "./types";
 
-/**
- * The one runtime staleness policy: a Program may act only while it is the
- * live realization of its Installation's current generation and selection.
- * Admission layers the Installation's runnable status on top of this.
- */
 export async function loadRuntimeGatewayContext(
   store: Pick<ModuleCommands, "loadGatewayContext">,
   runtime: ModuleRuntimeIdentity
@@ -25,10 +20,6 @@ export async function loadRuntimeGatewayContext(
   return context;
 }
 
-/**
- * Runtime admission: the staleness policy, and an Installation that is
- * starting or running. Every effect a Program asks for is admitted here.
- */
 export async function admitRuntimeContext(
   store: Pick<ModuleCommands, "loadGatewayContext">,
   runtime: ModuleRuntimeIdentity

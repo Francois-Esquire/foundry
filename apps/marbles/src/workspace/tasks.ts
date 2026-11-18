@@ -35,7 +35,6 @@ const RUN: {
   ready: (tasks, { query }) => tasks.ready(query),
 };
 
-/** Runs one command; a refusal is the package's `TaskError`. */
 export function runTaskCommand<K extends TaskCommandKind>(
   tasks: Tasks,
   command: TaskCommand<K>
@@ -51,7 +50,6 @@ export function taskRefusal(error: TaskError): TaskRefusal {
   return { code: error.code, message: error.message };
 }
 
-/** A command's result, or its refusal as a value; any other failure rejects. */
 export async function taskOutcome<K extends TaskCommandKind>(
   work: Promise<TaskCommandResult<K>>
 ): Promise<TaskOutcome<K>> {
@@ -65,10 +63,6 @@ export async function taskOutcome<K extends TaskCommandKind>(
   }
 }
 
-/**
- * A command as it arrives on the Marbles process's socket, checked with the
- * package's own schemas: a raw client there may send anything.
- */
 export const taskCommandSchema: z.ZodType<TaskCommand> = z.discriminatedUnion(
   "kind",
   [

@@ -473,8 +473,6 @@ describe("Module container runtime", () => {
       const runtime = createContainerModuleProgramRuntime(f.options);
       const first = await runtime.start(f.input);
       await first.stop("stopped");
-      // The message the old fallback matched on; an existing row must not
-      // fall back to `start` whatever the restart error says.
       const failure = new SandboxError(
         "invalid-contract",
         `container ${first.runtimeInstanceId} does not exist`

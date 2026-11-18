@@ -1,30 +1,16 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
 
-/**
- * Per-Module settings: limits and preferences named by dot-notation keys. A
- * strict Manifest declares requests/defaults, the host stores user values by
- * Module ID, and host ceilings cap both. Settings never grant authority:
- * network, Artifact access beyond bindings and host operations are Grants.
- */
-
 const KIB = 1024;
 const MIB = 1024 * KIB;
 const GIB = 1024 * MIB;
 
 interface HostSetting {
-  /** No effective value exceeds it; a requirement above it is unmet. */
   readonly ceiling: number;
-  /** Used when neither the user nor the Manifest chose a value. */
   readonly default: number;
-  /** Whole numbers only; every value is positive either way. */
   readonly integer: boolean;
   readonly unit: string;
 }
 
-/**
- * Host defaults and ceilings (spec §10). The values are the recommended
- * starting points, kept as code constants until measurements select others.
- */
 export const MODULE_SETTING_HOST_POLICY = {
   "artifacts.chunkBytes": setting(256 * KIB, 256 * KIB, "bytes"),
   "artifacts.maxFileBytes": setting(16 * MIB, 16 * MIB, "bytes"),
@@ -41,13 +27,9 @@ export const MODULE_SETTING_HOST_POLICY = {
   "authoring.source.maxFiles": setting(2048, 2048, "files"),
   "authoring.source.maxPathCharacters": setting(512, 512, "characters"),
   "explorer.pageSize": setting(100, 100, "entries"),
-  // Authoring turns of one Module share its workspace and Agent Session, so
-  // more than one at a time is unsupported: the ceiling is 1.
   "queues.authoring.concurrency": setting(1, 1, "runs"),
   "queues.workflows.concurrency": setting(1, 4, "runs"),
   "resources.cpus": { ceiling: 2, default: 1, integer: false, unit: "CPUs" },
-  // The shared Module sandbox's default; a host may start another kind of
-  // sandbox (a released Program) from its own default under the same ceiling.
   "resources.memoryBytes": setting(2 * GIB, 2 * GIB, "bytes"),
 } as const satisfies Readonly<Record<string, HostSetting>>;
 
@@ -60,20 +42,17 @@ export const MODULE_SETTING_KEYS = Object.freeze(
   Object.keys(MODULE_SETTING_HOST_POLICY).sort() as ModuleSettingKey[]
 );
 
-/** Keys a Manifest requests through its top-level `resources`, not `settings`. */
 export const MODULE_RESOURCE_SETTING_KEYS = Object.freeze([
   "resources.cpus",
   "resources.memoryBytes",
 ] as const satisfies readonly ModuleSettingKey[]);
 
-/** Authority, requested as Capabilities or `network` and approved as Grants. */
 export const MODULE_GRANT_KEYS = Object.freeze([
   "artifacts.access",
   "host.operations",
   "network",
 ] as const);
 
-/** The one phase-one sandbox lifecycle rule: on while its Module is on. */
 export const MODULE_SANDBOX_IDLE_POLICY = "keep-on" as const;
 
 export type ModuleSettingValues = Readonly<
@@ -107,10 +86,6 @@ export class ModuleSettingsError extends Error {
   }
 }
 
-/**
- * `key` as a setting anyone may choose, or why it is not one. Shared by
- * Manifest validation and user values, so both say the same thing.
- */
 export function parseModuleSettingKey(
   key: string
 ): { readonly key: ModuleSettingKey } | { readonly problem: string } {
@@ -134,14 +109,12 @@ function isModuleSettingKey(key: string): key is ModuleSettingKey {
   return Object.hasOwn(MODULE_SETTING_HOST_POLICY, key);
 }
 
-/** Whether `key` is requested through a Manifest's `resources`, not `settings`. */
 export function isResourceSettingKey(
   key: string
 ): key is (typeof MODULE_RESOURCE_SETTING_KEYS)[number] {
   return (MODULE_RESOURCE_SETTING_KEYS as readonly string[]).includes(key);
 }
 
-/** Why `value` cannot be a value of `key`, or `null` when its shape is valid. */
 export function moduleSettingValueProblem(
   key: ModuleSettingKey,
   value: unknown,
@@ -159,11 +132,6 @@ export function moduleSettingValueProblem(
   return null;
 }
 
-/**
- * Validates user values for storage. Each key must be a setting, each value
- * positive and within the host ceiling. Unknown, authority and fixed keys
- * are rejected rather than dropped.
- */
 export function parseModuleSettingValues(
   input: unknown,
   policy: ModuleSettingsHostPolicy = MODULE_SETTING_HOST_POLICY
@@ -200,14 +168,6 @@ export function parseModuleSettingValues(
   return Object.freeze(sortedValues(values));
 }
 
-/**
- * Effective values for one Module: the user's choice, else the Manifest's
- * default, else the host default; never below a Manifest minimum and never
- * above a host ceiling. A Manifest default above the ceiling is capped (it
- * is a preference). A requirement the host or the user's value cannot meet
- * is a problem, not a smaller allocation. `requests` are what the Module's
- * Manifest declares (`moduleSettingRequests`).
- */
 export function resolveModuleSettings(input: {
   readonly requests: ModuleSettingRequests;
   readonly user?: ModuleSettingValues;
@@ -242,7 +202,6 @@ export function resolveModuleSettings(input: {
   };
 }
 
-/** One key's effective value, or why it cannot be met. */
 function resolveSetting(
   key: ModuleSettingKey,
   policy: ModuleSettingsHostPolicy,
@@ -271,7 +230,6 @@ function resolveSetting(
   return user;
 }
 
-/** {@link resolveModuleSettings}, throwing {@link ModuleSettingsError} when unmet. */
 export function requireModuleSettings(
   input: Parameters<typeof resolveModuleSettings>[0]
 ): EffectiveModuleSettings {
@@ -282,7 +240,6 @@ export function requireModuleSettings(
   return resolution.effective;
 }
 
-/** The host policy with some defaults replaced, such as another sandbox's memory. */
 export function withModuleSettingDefaults(
   defaults: ModuleSettingValues,
   policy: ModuleSettingsHostPolicy = MODULE_SETTING_HOST_POLICY
@@ -305,7 +262,6 @@ export interface ModuleSettingRequest {
   readonly minimum?: number;
 }
 
-/** What a Module asks of each setting: a minimum and/or a default. */
 export type ModuleSettingRequests = Readonly<
   Partial<Record<ModuleSettingKey, ModuleSettingRequest>>
 >;

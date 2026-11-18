@@ -1,15 +1,8 @@
 import type { SemanticsDeclarationSource } from "./semantics-types";
 import type { FileKind, ModuleRole } from "./types";
 
-/**
- * History's schema version, kept apart from the dataset's: `history/` is
- * published after the rest of the dataset and indexed by its own manifest,
- * `history/manifest.json`. Every file under `history/` carries it, and a
- * reader checks the manifest's against it.
- */
 export const HISTORY_SCHEMA_VERSION = 1;
 
-/** How `scan --history` picks its checkpoints. */
 export const SEMANTICS_HISTORY_STRATEGIES = [
   "monthly",
   "evenly-spaced",
@@ -19,64 +12,42 @@ export const SEMANTICS_HISTORY_STRATEGIES = [
 type CheckpointStrategy = (typeof SEMANTICS_HISTORY_STRATEGIES)[number];
 
 export interface SemanticsHistoryConfig {
-  /** Upper bound on selected checkpoints; HEAD always counts as one. */
   checkpoints: number;
-  /** Commit stride for `every-n-commits`. */
   every: number;
-  /** How far back the timeline reaches: `<n>y`, `<n>m`, `<n>d`, or `all`. */
   range: string;
   strategy: CheckpointStrategy;
 }
 
-// ---------------------------------------------------------------------------
-// TIMELINE
-
-/** One first-parent commit. File lists carry TypeScript sources only. */
 export interface SemanticsHistoryCommit {
   added?: string[];
   additions: number;
   changedFiles: number;
-  /** Present when the commit is a selected checkpoint. */
   checkpoint?: true;
   deletions: number;
   hash: string;
   parents: string[];
   removed?: string[];
-  /** `[previousPath, path]` pairs Git reported as renames. */
   renamed?: [string, string][];
-  /** Committer date, ISO-8601. */
   timestamp: string;
 }
 
 export interface SemanticsHistoryTimeline {
-  /** Oldest first. */
   commits: SemanticsHistoryCommit[];
   schemaVersion: number;
 }
 
-// ---------------------------------------------------------------------------
-// ENTITIES
-
 export interface TemporalPathSegment {
   path: string;
-  /** Commit that introduced this path (an addition or a rename target); absent when the path predates the timeline. */
   since?: string;
-  /** Commit that removed or renamed the path away; absent while alive. */
   until?: string;
 }
 
-/**
- * One module identity through time. The id is the newest path in the
- * lineage: the current path for modules alive at HEAD, so history ids match
- * the current dataset's module ids.
- */
 export interface TemporalModuleLineage {
   id: string;
   segments: TemporalPathSegment[];
 }
 
 interface TemporalPackageLineage {
-  /** Checkpoints where the package was discovered, oldest first. */
   checkpoints: string[];
   id: string;
 }
@@ -86,9 +57,6 @@ export interface SemanticsHistoryEntities {
   packages: TemporalPackageLineage[];
   schemaVersion: number;
 }
-
-// ---------------------------------------------------------------------------
-// SNAPSHOTS
 
 export interface TemporalPackageState {
   fanIn?: number;
@@ -108,24 +76,15 @@ export type TemporalConceptRole =
   | "conversion";
 
 export interface TemporalModuleState {
-  /** Indices into `snapshot.concepts` per role; roles with no concepts are omitted. */
   concepts?: Partial<Record<TemporalConceptRole, number[]>>;
   fileKind?: FileKind;
-  /** Lineage id. */
   id: string;
   layer?: number;
   package: string;
-  /** Path at this checkpoint. */
   path: string;
   role?: ModuleRole["kind"];
 }
 
-/**
- * `[source, target, scope, typeOnly]`: indices into `snapshot.modules`,
- * scope 0 = intra-package, 1 = cross-package. Indices keep the snapshot a
- * fraction of the size of one written with path ids; the arrays it indexes
- * sit beside it in the same file.
- */
 export type TemporalModuleDependency = [number, number, 0 | 1, 0 | 1];
 
 interface TemporalConceptCenters {
@@ -138,11 +97,9 @@ interface TemporalConceptCenters {
 
 export interface TemporalConceptState {
   centers: TemporalConceptCenters;
-  /** Lineage id: the declaring module's lineage id plus `#name`. */
   id: string;
   kind: string;
   name: string;
-  /** Declaring package at this checkpoint. */
   package: string;
   packages: string[];
 }
@@ -154,15 +111,12 @@ interface TemporalBoundaryState {
 }
 
 interface TemporalCoverage {
-  /** Absent when the checkpoint tree declared no package patterns (it declared no packages yet); it then has no packages. */
   declarationSource?: SemanticsDeclarationSource;
   failed: { id: string; error: string }[];
-  /** The checkpoint tree's own package patterns, as declared; empty when it declared none. */
   packagePatterns: string[];
   packagePatternsUnmatched: string[];
   packagesFound: number;
   unitsAnalyzed: number;
-  /** Every directory a package pattern matched. */
   unitsDiscovered: number;
 }
 
@@ -178,9 +132,6 @@ export interface TemporalWorkspaceSnapshot {
   schemaVersion: number;
   timestamp: string;
 }
-
-// ---------------------------------------------------------------------------
-// DELTAS
 
 export interface TemporalConceptRoleChange {
   concept: string;
@@ -229,14 +180,10 @@ export interface TemporalSnapshotDelta {
   to: string;
 }
 
-// ---------------------------------------------------------------------------
-// MANIFEST
-
 type SemanticsHistorySnapshotStatus = "complete" | "failed";
 
 export interface SemanticsHistorySnapshotRef {
   bytes?: number;
-  /** Reused from the checkpoint cache instead of analyzed. */
   cached: boolean;
   commit: string;
   counts?: {
@@ -274,12 +221,10 @@ export interface SemanticsHistoryPhaseTiming {
 }
 
 export interface SemanticsHistoryCheckpointTiming {
-  /** Package-local analysis plus the checkpoint's workspace derivation. */
   analyzeMs: number;
   cached: boolean;
   cleanupMs: number;
   commit: string;
-  /** Package-local reports served from the content-addressed local cache (V12.6). */
   localsReused?: number;
   projectMs: number;
   workspaceMs: number;
@@ -293,7 +238,6 @@ export interface HistoryManifest {
     timeline: string;
     entities: string;
   };
-  /** Cache key shared by every checkpoint of this generation. */
   fingerprint: string;
   generatedAt: string;
   generation: {
@@ -319,9 +263,7 @@ export interface HistoryManifest {
     exclude: string[];
   };
   range: {
-    /** Configured range expression. */
     requested: string;
-    /** Oldest and newest commits on the timeline. */
     from: string;
     to: string;
     fromTimestamp: string;

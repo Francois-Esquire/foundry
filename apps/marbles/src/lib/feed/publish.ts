@@ -35,12 +35,10 @@ const PAGE_SIZE = 100;
 
 export interface FeedWorkspace {
   readonly id: string;
-  /** Display name: the workspace root's directory name. */
   readonly name: string;
   readonly root: string;
 }
 
-/** Where a post came from; the engine knows this, the step body does not. */
 export interface FeedSource {
   readonly definition: string;
   readonly path: readonly string[];
@@ -54,13 +52,8 @@ interface InputState {
 }
 
 export interface FeedPublisher {
-  /**
-   * Cancel live and legacy questions whose process has exited. Deferred
-   * permissions remain open because a new host can resolve them for future runs.
-   */
   cancelAbandoned(): Promise<number>;
   publish(post: FeedPayload, source: FeedSource): Promise<ArtifactId>;
-  /** Write a question's entry; call again with a new state as it is answered. */
   publishInput(
     question: FeedQuestionPayload,
     source: FeedSource,
@@ -68,23 +61,18 @@ export interface FeedPublisher {
   ): Promise<ArtifactId>;
 }
 
-/** Provenance stored in each entry's Content metadata under `feed`. */
 const feedMetadataSchema = z.object({
-  /** Present on results that carry an artifact version. */
   artifact: z
     .object({ artifactId: z.string(), contentId: z.string() })
     .optional(),
   definition: z.string(),
-  /** Present on `input` entries: the question's choices and whether it is settled. */
   input: z
     .object({
       activityId: z.string().optional(),
       answer: z.string().optional(),
-      /** The question's markdown, kept so the entry can be rewritten later. */
       body: z.string().optional(),
       choices: z.array(z.string()),
       delivery: z.enum(INPUT_DELIVERIES).optional(),
-      /** Approval requests permission; a question requests input. Absent on old entries. */
       mode: z.enum(ASK_MODES).optional(),
       note: z.string().optional(),
       pid: z.number().int().optional(),
@@ -103,7 +91,6 @@ const feedMetadataSchema = z.object({
 });
 export type FeedMetadata = z.infer<typeof feedMetadataSchema>;
 
-/** Every feed entry Artifact in the store, in list order, all pages. */
 export function listFeedArtifacts(
   artifacts: Pick<Artifacts, "list">
 ): Promise<ArtifactResolved[]> {
@@ -116,7 +103,6 @@ export function listFeedArtifacts(
   );
 }
 
-/** The entry's provenance, or `undefined` when this version cannot read it. */
 export function feedMetadataOf(
   artifact: ArtifactResolved
 ): FeedMetadata | undefined {
@@ -124,16 +110,10 @@ export function feedMetadataOf(
   return parsed.success ? parsed.data : undefined;
 }
 
-/**
- * Writes entries into an Artifact store. Ids hash workspace, run, step path
- * and key, so a repeated post updates its entry. Publishes are serialized:
- * two posts of one key must not both see "missing" and both create.
- */
 export function feedPublisher(
   artifacts: Pick<Artifacts, "create" | "get" | "list" | "write">,
   workspace: FeedWorkspace,
   options: {
-    /** Recorded on open questions; defaults to this process. */
     readonly owner?: ProcessIdentity;
     readonly gone?: (owner: ProcessIdentity) => boolean;
   } = {}
@@ -194,7 +174,6 @@ export function feedPublisher(
   }
   async function cancelAbandoned(): Promise<number> {
     let cancelled = 0;
-    // Listed in full first: rewriting entries while paging could reorder pages.
     for (const artifact of await listFeedArtifacts(artifacts)) {
       const saved = feedMetadataOf(artifact);
       const input = saved?.input;
@@ -256,7 +235,6 @@ export function feedPublisher(
         publish(
           {
             body: question.body,
-            // A question and a post may share a key within one step.
             id: `ask:${question.key}`,
             input,
             key: question.key,
@@ -286,7 +264,6 @@ function entryId(
 interface EntryDraft {
   readonly artifact?: FeedMetadata["artifact"];
   readonly body: string;
-  /** Identity within the step; hashed into the Artifact id. */
   readonly id: string;
   readonly input?: FeedMetadata["input"];
   readonly key: string;
@@ -295,7 +272,6 @@ interface EntryDraft {
   readonly title: string;
 }
 
-/** The file stands alone when opened outside Marbles, so it carries its title. */
 function article(post: Pick<EntryDraft, "body" | "input" | "title">): string {
   const sections = [`# ${post.title}`, post.body.trim(), inputLine(post.input)];
   return `${sections.filter(Boolean).join("\n\n")}\n`;

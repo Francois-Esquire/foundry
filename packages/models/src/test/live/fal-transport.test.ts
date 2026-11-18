@@ -82,8 +82,6 @@ describe("the socket transport", () => {
 
   it("arms no token refresh: tokenExpirationSeconds is never supplied", async () => {
     await connectFalSocket(target(), token(), OPENING, handlers());
-    // Supplying it alongside a custom tokenProvider is what turns on the
-    // client's refresh-at-90% timer, which the Authority rule forbids.
     expect(state.connects[0]?.handler).not.toHaveProperty(
       "tokenExpirationSeconds"
     );
@@ -91,8 +89,6 @@ describe("the socket transport", () => {
 
   it("reads no key on the token path, ambient or otherwise", async () => {
     await connectFalSocket(target(), token(), OPENING, handlers());
-    // An omitted `credentials` would fall back to the client's own resolver,
-    // which reads FAL_KEY from the environment.
     expect(state.configs).toEqual([{ credentials: "" }]);
   });
 
@@ -103,9 +99,6 @@ describe("the socket transport", () => {
       OPENING,
       handlers()
     );
-    // `when: "always"` is load-bearing: a bare-string proxyUrl normalizes to a
-    // `when` of undefined, which `shouldProxy` resolves to `env.isBrowser`, so
-    // in Node the middleware installs and then declines to rewrite anything.
     expect(state.configs).toEqual([
       {
         credentials: "",
@@ -132,7 +125,6 @@ describe("the socket transport", () => {
       handlers()
     );
     expect(apps).toEqual([target().modelId]);
-    // No client of its own: nothing reads an ambient key.
     expect(state.configs).toEqual([]);
   });
 
@@ -151,7 +143,6 @@ describe("the socket transport", () => {
     });
     expect(state.sent).toEqual([
       {
-        // "AQID" is base64 for the three bytes supplied above.
         image_url: "data:image/jpeg;base64,AQID",
         prompt: "ink",
         request_id: "d1",
@@ -160,10 +151,6 @@ describe("the socket transport", () => {
   });
 
   it("encodes a frame of realistic size without overflowing the stack", async () => {
-    // A spread of every byte as a call argument overflows V8 at ~200 KB and
-    // this runner at ~1 MB, so a 1 MB frame — an ordinary 1080p still —
-    // discriminates on both. Buffer is the independent oracle for the value,
-    // so a wrong chunk boundary fails here as loudly as an overflow.
     const bytes = new Uint8Array(1024 * 1024);
     for (let index = 0; index < bytes.length; index += 1) {
       bytes[index] = index % 251;
@@ -197,7 +184,6 @@ describe("the socket transport", () => {
     const onResult = state.connects[0]?.handler.onResult as (
       result: unknown
     ) => void;
-    // "Bwg=" is base64 for the two bytes asserted below.
     onResult({
       images: [{ content: "Bwg=", content_type: "image/png" }],
       request_id: "d7",
@@ -270,8 +256,6 @@ describe("the WebRTC transport's extension selection", () => {
     );
     expect(state.opens[0]?.extension.id).not.toMatch(LUCY_PATTERN);
     expect(state.opens[0]?.options.endpointId).toBe("minimax/h3-max/director");
-    // The same proxy gate applies on this path, where the extensions reach the
-    // ICE endpoint and the WMA bridge through the client's own request path.
     expect(state.configs).toEqual([
       {
         credentials: "",
@@ -306,13 +290,10 @@ describe("the WebRTC transport's opening Direction", () => {
       OPENING,
       handlers()
     );
-    // `lucy.js:296` sends `options.input` to start the session, so the core's
-    // opening send would be a second generation request at open.
     expect(state.opens[0]?.options.input).toEqual({ prompt: "p" });
     await transport.send({ correlation: "d1", direction: { prompt: "p" } });
     expect(state.sent).toEqual([]);
 
-    // Only the opening one is swallowed; a later Direction still goes.
     await transport.send({ correlation: "d2", direction: { prompt: "pan" } });
     expect(state.sent).toEqual([{ prompt: "pan", request_id: "d2" }]);
   });
@@ -346,7 +327,6 @@ describe("the WebRTC transport's feed", () => {
       handlers()
     );
     expect(state.opens[0]?.options.localStream).toBe(feed);
-    // Nothing was applied to the session afterwards.
     expect(state.sent).toEqual([]);
   });
 

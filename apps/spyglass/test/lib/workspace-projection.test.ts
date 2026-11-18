@@ -38,7 +38,6 @@ const expectedTextPattern7 = /"center":/;
 
 const STORE = "A/store.ts#ModuleStore";
 
-/** `n` concepts declared in `pkg`, each implemented and behaved in `impl`. */
 function implemented(pkg: string, impl: string, n: number): ConceptSpec[] {
   return Array.from({ length: n }, (_, i) => ({
     behavior: { [impl]: { implementationBehaviors: 2, sourceBehaviors: 2 } },
@@ -53,12 +52,6 @@ function implemented(pkg: string, impl: string, n: number): ConceptSpec[] {
   }));
 }
 
-/**
- * A declares contracts; X implements them (and imports A); U consumes A's
- * ModuleStore heavily over a high-volume edge. ModuleStore is the rich
- * concept: two implementation centers, a usage center elsewhere, a
- * source/test/story behavior split, one coupling, and a V8 review.
- */
 function spec(extra: Partial<Spec> = {}): Spec {
   return {
     concepts: [

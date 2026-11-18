@@ -18,7 +18,6 @@ const INSTALL_PATTERN =
 let root: string;
 const saved = { ...process.env };
 
-/** A stand-in `varlock` in the workspace: JSON when the token is set, else Varlock's complaint. */
 function fakeVarlock(dir: string): void {
   const bin = join(dir, "node_modules", ".bin");
   mkdirSync(bin, { recursive: true });

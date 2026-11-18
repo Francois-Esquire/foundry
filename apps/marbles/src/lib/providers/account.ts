@@ -5,7 +5,6 @@ import { ConfigurationError } from "~/lib/providers/store";
 
 type Environment = Readonly<Record<string, string>>;
 
-/** The names that choose an instance's account: its plugin's, and those its secret settings name. */
 export function accountPatterns(
   plugin: RegisteredPlugin,
   settings: unknown
@@ -17,17 +16,12 @@ export function accountPatterns(
   return [...(plugin.accountEnv ?? []), ...named];
 }
 
-/**
- * What an instance's identity digests: where it is configured, what builds
- * it, its parsed settings, and the values of its account environment.
- */
 export function identityMaterial(instance: {
   readonly entry: ProviderEntryRecord;
   readonly env: Environment;
   readonly patterns: readonly string[];
   readonly scope: ProviderScope;
   readonly settings: unknown;
-  /** The workspace a workspace-scope entry is bound to. */
   readonly workspace: string | null;
 }): unknown {
   const { entry, env, patterns, scope, settings, workspace } = instance;
@@ -63,11 +57,6 @@ export function ambientProblem(
   return undefined;
 }
 
-/**
- * `provider`, which reads `process.env` itself, refusing each model call
- * while the live account environment differs from the one its identity
- * digests, so a session never runs as an account it was not pinned to.
- */
 export function refusingWhenChanged(
   provider: Provider,
   patterns: readonly string[],
@@ -135,7 +124,6 @@ function isAccountName(patterns: readonly string[], name: string): boolean {
   );
 }
 
-/** Account names where the live `process.env` no longer holds what `env` does. */
 function liveDifference(
   patterns: readonly string[],
   env: Environment
@@ -148,7 +136,6 @@ function liveDifference(
     .sort();
 }
 
-/** `value` with every object's keys sorted, so equal settings digest equally. */
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonical);

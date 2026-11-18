@@ -13,11 +13,6 @@ import type {
   SurfaceReport,
 } from "./types";
 
-// Hotspots: files where frequent change meets structural complexity. Pure
-// composition over V6.0 churn and V4 local complexity; module gravity only
-// decorates. The commit gate is mandatory, the complexity gates are OR-ed,
-// and nothing here is scored or recommended.
-
 export type HotspotSource = Pick<
   SurfaceReport,
   "target" | "churn" | "localComplexity" | "dependencyGravity"
@@ -33,7 +28,6 @@ function emptyComplexity(): HotspotComplexity {
   };
 }
 
-/** Fold V4 function records to one vector per file: totals plus the worst function. */
 function complexityByFile(
   functions: FunctionComplexity[]
 ): Map<string, HotspotComplexity> {
@@ -113,13 +107,6 @@ function signalsOf(
   return signals;
 }
 
-/**
- * Eligibility: an eligible file kind, commit percentile at or above the
- * gate, and at least one complexity condition — max control-flow decisions,
- * max nesting, or total control-flow decisions (the dense form also needs
- * its function-count floor). Expression decisions (`&&`, `||`, ternaries)
- * never gate, so JSX-heavy render code does not qualify on syntax alone.
- */
 function qualifies(
   file: FileChurn,
   complexity: HotspotComplexity,

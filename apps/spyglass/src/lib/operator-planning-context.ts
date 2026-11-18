@@ -18,28 +18,18 @@ import { createProject } from "./project";
 import { kindOf, topLevelDeclarations } from "./symbols";
 import type { SymbolKind } from "./types";
 
-// V11.3 planning context: one TypeScript project over the workspace plus
-// the package manifests and entrypoints, read once. Everything here reads;
-// the project is shared by every plan, so nothing may manipulate its AST.
-
 export interface OperatorPlanningPackage {
   boundary: Boundary;
-  /** Declared dependencies, dev and peer included, sorted. */
   dependencies: string[];
-  /** Absolute directory. */
   dir: string;
   entrypoints: BoundaryEntrypoint[];
   id: string;
-  /** Root-relative manifest. */
   manifest: string;
-  /** Root-relative directory. */
   relPath: string;
-  /** Root-relative source directory the entrypoints sit under, when they share one. */
   sourceDir?: string;
 }
 
 export interface OperatorPlanningContext {
-  /** Root-relative file → package id, for files the project parsed. */
   moduleIndex: Map<string, string>;
   packages: Map<string, OperatorPlanningPackage>;
   project: Project;
@@ -47,16 +37,13 @@ export interface OperatorPlanningContext {
 }
 
 export interface OperatorPlanningContextOptions {
-  /** Package ids to index; every workspace package by default. */
   packages?: string[];
   root: string;
   tsconfig?: string;
 }
 
 export interface LocatedSymbol {
-  /** Exported from its own module. */
   exported: boolean;
-  /** Root-relative file. */
   file: string;
   id: string;
   kind: SymbolKind;
@@ -170,7 +157,6 @@ export function sourceFileOf(
   return context.project.getSourceFile(resolve(context.root, file));
 }
 
-/** Resolve a `<file>#<Name>` id to its single top-level declaration. Overloads count once; kinds that merge do not. */
 export function locateSymbol(
   context: OperatorPlanningContext,
   id: string
@@ -225,7 +211,6 @@ export function locateSymbol(
 
 const exportedNodesCache = new WeakMap<SourceFile, Map<Node, string[]>>();
 
-/** Names a module exports a declaration under; empty when module-local. */
 export function exportedNamesOf(file: SourceFile, node: Node): string[] {
   let names = exportedNodesCache.get(file);
   if (names === undefined) {
@@ -256,7 +241,6 @@ export function packageOfFile(
   return context.moduleIndex.get(file);
 }
 
-/** sha256 of the file bytes as they are on disk now; `missing` when absent. */
 export function hashFile(
   context: OperatorPlanningContext,
   file: string

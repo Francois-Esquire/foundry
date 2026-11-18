@@ -1,15 +1,8 @@
 import type { InternalizeEdits } from "./internalize-edits";
 import type { OperatorEvidenceRef, OperatorFact } from "./operator-types";
 
-// V11.3 source-aware operator planning: a composed structural action graph
-// resolved against the actual TypeScript sources into exact, dependency-
-// ordered transformations naming files, symbols, imports, exports, and
-// manifests. A plan describes edits; nothing here performs one.
-
-/** Independent of the operator, decomposition, and composition schemas: plans may persist on their own. 3: executable internalization carries its exact compiled edits. */
 export const OPERATOR_PLAN_SCHEMA_VERSION = 3;
 
-/** Bumps when a resolution rule (target module, new module, surface strategy) changes; part of the plan id. */
 export const OPERATOR_PLANNING_POLICY_VERSION = 1;
 
 export type PlannedTransformationKind =
@@ -36,24 +29,14 @@ type PlannedExportForm =
   | "star-export"
   | "subpath-export";
 
-/**
- * One side of a transformation, in source terms. Which fields apply depends
- * on the kind: an import rewrite carries specifiers, an export change carries
- * the form, a manifest change carries the dependency.
- */
 export interface PlannedSourceState {
-  /** Manifest dependency, for `update-package-dependency`. */
   dependency?: { package: string; declared: boolean };
   exportForm?: PlannedExportForm;
   importKind?: PlannedImportKind;
-  /** Root-relative file. */
   module?: string;
-  /** Names bound at this site, sorted. */
   names?: string[];
   package?: string;
-  /** The dependency carries runtime code, not only types. */
   runtime?: boolean;
-  /** Import or re-export module specifier as written in source. */
   specifier?: string;
 }
 
@@ -64,7 +47,6 @@ interface PlannedTransformationSubject {
   symbolId?: string;
 }
 
-/** A reference to an operator precondition the transformation relies on; never a new fact. */
 interface PlannedTransformationPrecondition {
   entityIds: string[];
   kind: string;
@@ -73,21 +55,16 @@ interface PlannedTransformationPrecondition {
 type PlannedTransformationStatus = "required" | "conditional" | "unsupported";
 
 export interface PlannedTransformation {
-  /** Structural actions realized here; several when actions share one source edit. */
   actions: string[];
   after?: PlannedSourceState;
   before?: PlannedSourceState;
   detail: string;
   evidence: OperatorEvidenceRef[];
-  /** Root-relative file the transformation touches. */
   file: string;
-  /** Syntax form behind the change (`named-import`, `type-reexport`, `symbol-move`, ...); the vocabulary `diagnostics.sourceForms` counts. */
   form?: string;
-  /** `transformation:<hash>` over kind, file, subject, before, and after; never the plan id. */
   id: string;
   kind: PlannedTransformationKind;
   preconditions: PlannedTransformationPrecondition[];
-  /** Preservation ids (`kind:entityIds`) this transformation carries out. */
   preserves: string[];
   status: PlannedTransformationStatus;
   subject?: PlannedTransformationSubject;
@@ -125,25 +102,19 @@ export type PlannedDependencyClass =
   | "import-from-third-package"
   | "external";
 
-/** One declaration a moved symbol needs, and where it comes from after the move. */
 export interface PlannedClosureDependency {
   class: PlannedDependencyClass;
-  /** Symbol id (`<file>#<Name>`) for workspace declarations; the module specifier for external ones. */
   id: string;
   name: string;
   package?: string;
-  /** The reference is type-only, so no runtime dependency follows it. */
   typeOnly: boolean;
 }
 
 export interface PlannedMovementClosure {
-  /** Every internal requirement can move without duplication. */
   complete: boolean;
   externalDependencies: PlannedClosureDependency[];
-  /** Non-exported same-module declarations the roots need; they move too. */
   requiredInternalSymbols: string[];
   rootSymbols: string[];
-  /** Same-module declarations the roots need that remaining code also needs. */
   sharedInternalSymbols: string[];
 }
 
@@ -153,15 +124,12 @@ export type PlannedBehaviorMemberRole =
   | "conversion"
   | "factory";
 
-/** One symbol the relocation moves and how the plan knows it belongs. */
 export interface PlannedBehaviorMember {
   role: PlannedBehaviorMemberRole;
-  /** V7 evidence kind that classified the member. */
   source: "concept-declaration" | "behavior-participant" | "representation";
   symbolId: string;
 }
 
-/** How one relocation action resolves against the sources. */
 export interface PlannedRelocation {
   actionId: string;
   closure?: PlannedMovementClosure;
@@ -173,7 +141,6 @@ export interface PlannedRelocation {
   strategy: PlannedSurfaceStrategy;
   targetModule?: string;
   targetPackage: string;
-  /** Which resolution rule picked the target module. */
   targetResolution?: string;
 }
 
@@ -202,9 +169,7 @@ type PlannedPreservationStatus = "transformed" | "proven" | "unproven";
 export interface PlannedPreservation {
   preservationId: string;
   status: PlannedPreservationStatus;
-  /** Transformations that carry the preservation out. */
   transformations: string[];
-  /** Verification steps that prove it holds after the plan. */
   verification: string[];
 }
 
@@ -216,7 +181,6 @@ export type PlannedDeltaDimension =
   | "module"
   | "package";
 
-/** An operator effect mapped onto the transformations that realize it; never a new prediction. */
 export interface PlannedArchitecturalDelta {
   certainty: "certain" | "conditional";
   change: string;
@@ -240,12 +204,9 @@ export type PlannedVerificationKind =
 export interface PlannedVerificationStep {
   dependsOn: string[];
   expected: OperatorFact;
-  /** `verify:<kind>:<scope>` */
   id: string;
   kind: PlannedVerificationKind;
-  /** Packages, files, or symbols the check reads. */
   scope: string[];
-  /** Transformations the step proves. */
   transformations: string[];
 }
 
@@ -268,7 +229,6 @@ export type OperatorPlanBlockerKind =
 export interface OperatorPlanBlocker {
   actions: string[];
   detail: string;
-  /** Files, symbols, packages: whatever the blocker is about. */
   entities: string[];
   kind: OperatorPlanBlockerKind;
 }
@@ -306,14 +266,12 @@ export interface OperatorPlanGap {
 
 interface OperatorPlanInput {
   operatorId: string;
-  /** Package this operator's subject sits in. */
   package?: string;
 }
 
 type OperatorPlanTargetKind = "source" | "test" | "manifest";
 
 export interface OperatorPlanTarget {
-  /** Root-relative file. */
   file: string;
   kind: OperatorPlanTargetKind;
   package?: string;
@@ -322,14 +280,11 @@ export interface OperatorPlanTarget {
 
 export interface OperatorPlanFileHash {
   file: string;
-  /** sha256 of the file bytes; `missing` when the file does not exist. */
   hash: string;
 }
 
 export interface OperatorPlanFingerprint {
-  /** Over the operator facts the composition fingerprint already carries. */
   factsHash: string;
-  /** Planned files, manifests, and entrypoints read; nothing else in the repository. */
   files: OperatorPlanFileHash[];
   hash: string;
   operatorCompositionFingerprint: string;
@@ -339,27 +294,16 @@ export interface OperatorPlanDiagnostics {
   exportChanges: number;
   files: number;
   importRewrites: number;
-  /** Transformation kinds used, sorted. */
   kinds: PlannedTransformationKind[];
   manifestChanges: number;
   manifests: number;
   sourceFiles: number;
-  /** Syntax forms behind the planned changes, with counts. */
   sourceForms: { form: string; count: number }[];
   testFiles: number;
   transformations: number;
-  /** Source forms the planner met and cannot plan exactly, sorted. */
   unsupportedForms: string[];
 }
 
-/**
- * Precedence: `stale` (the sources no longer match the composition's facts)
- * > `unsupported` (a required transformation has no exact planning) >
- * `blocked` (a hard conflict or constraint) > `partial` (coherent, but an
- * action or gap is unrealized) > `ready` (every action realized, no blocker,
- * verification specified). `ready` means planning is complete, not that the
- * plan is safe to apply.
- */
 export type OperatorExecutionPlanStatus =
   | "ready"
   | "partial"
@@ -374,11 +318,9 @@ export interface OperatorExecutionPlan {
   dependencies: PlannedTransformationDependency[];
   diagnostics: OperatorPlanDiagnostics;
   fingerprint: OperatorPlanFingerprint;
-  /** `plan:<hash>` over the composition id and fingerprint, transformation ids, file hashes, and versions. */
   id: string;
   importRewrites: PlannedImportRewrite[];
   inputs: OperatorPlanInput[];
-  /** Exact source text for the supported internalize mutator. */
   mutation?: InternalizeEdits;
   policyVersion: typeof OPERATOR_PLANNING_POLICY_VERSION;
   predicted: PlannedArchitecturalDelta[];
@@ -396,7 +338,6 @@ export interface OperatorExecutionPlan {
 type OperatorExecutionPlanValidationStatus = "valid" | "invalid" | "stale";
 
 export interface OperatorExecutionPlanValidation {
-  /** Files whose bytes differ from the plan's fingerprint. */
   changedFiles: string[];
   currentFingerprint?: string;
   cycles: string[][];

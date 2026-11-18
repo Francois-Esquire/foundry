@@ -33,7 +33,6 @@ function fakeSummarizer(): Summarizer & { calls: number; lastSeen: string[] } {
   };
 }
 
-/** Turn 1 reports 200 input tokens; the window limit below is 100 → over budget. */
 function overBudgetModel() {
   return createScriptedMockModel({
     stream: [usageStreamResult("ok", 200, 0), usageStreamResult("ok2", 0, 0)],
@@ -69,10 +68,10 @@ describe("SessionHarness — auto compaction", () => {
       { sessionId: "s" }
     );
 
-    await drain(harness.stream("first")); // no prior usage yet → no compaction
+    await drain(harness.stream("first"));
     expect(summarizer.calls).toBe(0);
 
-    const second = harness.stream("second"); // prior assistant usage 200 > 100 → compact
+    const second = harness.stream("second");
     await drain(second);
     expect(await second.text).toBe("ok2");
     expect((await second.message).status).toBe("complete");

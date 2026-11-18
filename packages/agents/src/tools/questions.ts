@@ -1,11 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-/**
- * Questionnaire input for a schema-only tool. The harness pauses when the
- * model calls it; the renderer collects answers and returns them as the tool
- * output when the turn resumes.
- */
 const choiceSchema = z.object({
   label: z.string().describe("Human-readable choice text."),
   value: z.string().describe("Stable value stored when this choice is picked."),

@@ -48,7 +48,6 @@ export function encode(message: Message): string {
   return `${JSON.stringify(message)}\n`;
 }
 
-/** Decode a line; `undefined` for one that is not a message. */
 export function decode(line: string): Message | undefined {
   try {
     const parsed = messageSchema.safeParse(JSON.parse(line));
@@ -58,7 +57,6 @@ export function decode(line: string): Message | undefined {
   }
 }
 
-/** Split a byte stream into complete lines, keeping the partial tail. */
 export function lineSplitter(onLine: (line: string) => void) {
   let buffer = "";
   return (chunk: string): void => {
@@ -75,7 +73,6 @@ export function lineSplitter(onLine: (line: string) => void) {
   };
 }
 
-/** `error` as a wire error: its message, and its name when it has one worth keeping. */
 export function wireError(error: unknown): WireError {
   if (error instanceof Error) {
     return error.name === "Error"
@@ -85,7 +82,6 @@ export function wireError(error: unknown): WireError {
   return { message: String(error) };
 }
 
-/** An error a response carried, rebuilt on the calling side. */
 export class RemoteError extends Error {
   constructor(wire: WireError) {
     super(wire.message);
@@ -123,10 +119,8 @@ const setupDraftSchema = z.object({
 export type SetupDraftParams = z.infer<typeof setupDraftSchema>;
 
 export const attachParamsSchema = z.object({
-  /** The workspace root when the source has no files: the client's cwd. */
   root: z.string().min(1).optional(),
   setup: setupDraftSchema.optional(),
-  /** The authoring folder or module, resolved by the client. */
   source: z.string().min(1),
 });
 
@@ -151,7 +145,6 @@ export const workspaceSummarySchema = z.object({
   state: z.enum(WORKSPACE_STATES as [WorkspaceState, ...WorkspaceState[]]),
 });
 
-/** Params for a method on one workspace carry its id beside the arguments. */
 export const WORKSPACE_PREFIX = "workspace.";
 
 export const WORKSPACE_METHODS = {
@@ -171,7 +164,6 @@ export const WORKSPACE_METHODS = {
   snapshot: "snapshot",
   steer: "steer",
   stopActivity: "stopActivity",
-  /** One task command; answered with a `TaskOutcome`, so a refusal keeps its code. */
   tasks: "tasks",
 } as const;
 export type WorkspaceMethod =
@@ -194,7 +186,6 @@ export const GENERATION_METHODS = {
   load: "load",
   retire: "retire",
   start: "start",
-  /** Drain running work and exit. */
   stop: "stop",
   takeQueued: "takeQueued",
   unhost: "unhost",
@@ -267,15 +258,12 @@ export const retireParamsSchema = z.object({
 });
 
 export const lineParamsSchema = z.object({
-  /** The workspace the line is about, added by the daemon when forwarding. */
   id: z.string().optional(),
   line: z.string(),
   root: z.string().optional(),
 });
 
-/** Notifications the daemon forwards to subscribed clients. */
 export const CLIENT_NOTIFICATIONS = {
   line: "line",
-  /** A workspace's state changed; params are its summary. */
   workspace: "workspace",
 } as const;

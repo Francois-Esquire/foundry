@@ -1,35 +1,14 @@
-/**
- * Biome rules for prompts, as GritQL. Biome's plugins are GritQL only, so
- * this cannot call `@foundry/prompts`: each notation is mirrored here as a
- * regex, the way the editor grammar mirrors it. Three things shape the
- * patterns. A GritQL regex must match a node's whole text, so each one
- * starts with `(?s)` and consumes to the end. Biome's regex engine has no
- * lookaround, so a boundary is consumed, not asserted. And GritQL binds
- * one node per `contains`, so a prompt is read as one text and underlined
- * whole. Only the checks that need no list of names are here:
- * `template-only` and `consumed-by-harness`. The tests compare what Biome
- * reports with ESLint over the same files.
- */
-
 import { claudeCode, codex, type Dialect, pi } from "@foundry/prompts";
 
-/** `foundry/prompts/<code>`, so a Biome finding names the rule the other linters use. */
 const RULE = (code: string) => `foundry/prompts/${code}`;
 
 const SEGMENT = "[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?";
-/** A name, optionally namespaced: `plugin:skill`. */
 const NAME = `${SEGMENT}(?::${SEGMENT})*`;
-/** What may follow a complete name: nothing, or a character that cannot continue it and is not a path separator. */
 const AFTER_NAME = "(?:[^\\w:/-].*)?";
-/** Before a sigil: whitespace, an opening bracket or quote, a separator, or the `}` that closes a substitution. */
 const BOUNDARY = "[\\s(\\[{<\"',;`}]";
-/** Where a tagged template's message opens: after the backtick, past leading blanks. */
 const OPEN_TEMPLATE = "[^`]*`\\s*";
-/** Where a call's message opens: after the quote or backtick, past leading blanks. */
 const OPEN_ARGUMENT = "[\"'`]\\s*";
-/** One string or template argument: the text is quoted end to end. A call with two arguments is not. */
 const ONE_LITERAL = "(?s)(?:'.*'|\".*\"|`.*`)";
-/** `!cmd` as the whole message: not `` !`cmd` ``, and in a template literal not `` !\`cmd\` `` either. */
 const SHELL_LINE = "!(?:[^`\\\\]|\\\\[^`]).*";
 
 function listed(dialect: Dialect): string {
@@ -37,32 +16,25 @@ function listed(dialect: Dialect): string {
   return `(?:${names.join("|")})`;
 }
 
-/** `$N`, `$ARGUMENTS`, `$ARGUMENTS[N]`, or the dialect's named form, after a boundary, consuming the rest. */
 function placeholder(named: string): string {
   return `${BOUNDARY}\\$(?:ARGUMENTS(?:\\[\\d+\\])?|\\d+|${named})(?:[^\\w\\[-].*)?`;
 }
 
-/** `${NAME}` as it sits in a template literal (`\${…}`) and in a quoted string. */
 const VARIABLE = {
   literal: "\\\\\\$\\{[A-Za-z_]\\w*\\}",
   quoted: "\\$\\{[A-Za-z_]\\w*\\}",
 };
-/** `` !`cmd` `` as it sits in a template literal (`` !\`cmd\` ``) and in a quoted string. */
 const INLINE_SHELL = {
   literal: "!\\\\`[^`]*\\S[^`]*\\\\`",
   quoted: "!`[^`]*\\S[^`]*`",
 };
 
-/** Inside a GritQL `r"…"` a backslash is literal; only a quote needs escaping. */
 const quoted = (text: string) => text.replace(/"/g, '\\"');
 
 interface Branch {
-  /** The regex a single string or template argument must match. */
   readonly argument: string;
   readonly message: string;
-  /** The regex a whole tagged template must match. */
   readonly template: string;
-  /** A regex the text must not match, in both forms, written without its opening. */
   readonly unless?: string;
 }
 
@@ -93,12 +65,6 @@ function file(parts: readonly string[]): string {
   return `${GENERATED}\nlanguage js\n\nor {\n${parts.join(",\n")}\n}\n`;
 }
 
-/**
- * Notation that is only substituted inside a skill or template file, found
- * in a message. The prompt is read as one text, substitutions included, so
- * a placeholder inside a `${}` would count too; nothing in the fixtures
- * does that.
- */
 function templateOnly(): string {
   const message = (dialect: Dialect) =>
     `${dialect.label} substitutes this notation only inside a skill or template file; in a message it is sent as literal text. (${RULE("template-only")})`;
@@ -124,7 +90,6 @@ function templateOnly(): string {
   ]);
 }
 
-/** A message the harness acts on itself: a built-in command, or a shell line, opening the message. */
 function consumedByHarness(): string {
   const message = (dialect: Dialect) =>
     `${dialect.label} handles this message itself; the model does not receive it. (${RULE("consumed-by-harness")})`;
@@ -137,7 +102,6 @@ function consumedByHarness(): string {
       ...opens(`/${listed(claudeCode)}${AFTER_NAME}`),
       message: message(claudeCode),
     }),
-    // Codex: any `/name` but `/prompts:name`, or a shell line.
     ...branches("codex", {
       ...opens(`(?:/(?:${NAME})${AFTER_NAME}|${SHELL_LINE})`),
       message: message(codex),
@@ -150,7 +114,6 @@ function consumedByHarness(): string {
   ]);
 }
 
-/** Each rule by its file name in `biome/`. */
 export function gritRules(): Record<string, string> {
   return {
     "prompts-consumed-by-harness.grit": consumedByHarness(),

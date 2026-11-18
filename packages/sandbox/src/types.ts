@@ -37,27 +37,21 @@ export interface SandboxExecResult {
 }
 
 export interface SandboxDirectoryEntry extends EntryStats {
-  /** Absolute, normalized sandbox path. */
   readonly path: string;
 }
 
 export interface SandboxListOptions {
-  /** Descend into subdirectories. Default: false, one level only. */
   readonly recursive?: boolean;
 }
 
 export interface SandboxSearchOptions {
   readonly caseInsensitive?: boolean;
-  /** Only search files matching this glob. */
   readonly glob?: string;
-  /** Directory to search under. Defaults to the working directory. */
   readonly path?: string;
 }
 
 export interface SandboxSearchMatch {
-  /** 1-based line number. */
   readonly line: number;
-  /** Absolute, normalized sandbox path. */
   readonly path: string;
   readonly text: string;
 }
@@ -67,30 +61,11 @@ export interface SandboxFilesystemFacet
     StorageWriter {
   copyIn(files: Readonly<Record<string, string | Uint8Array>>): Promise<void>;
   copyOut(path: string): Promise<Readonly<Record<string, Uint8Array>>>;
-  /** Whether a readable directory exists at this path. */
   isDirectory(path: string): Promise<boolean>;
-  /**
-   * Enumerate a directory. The one primitive the facet needs beyond byte
-   * transfer: `glob` is enumeration plus a pattern match, so with this every
-   * provider gets it from one shared implementation instead of each growing
-   * its own.
-   *
-   * Symlinks are never followed. A path that isn't a readable directory
-   * yields an empty list rather than throwing, so a scan over a partly
-   * readable tree degrades instead of failing.
-   */
   list(
     path: string,
     options?: SandboxListOptions
   ): Promise<readonly SandboxDirectoryEntry[]>;
-  /**
-   * Search file contents, when this environment can do it better than running
-   * `grep` through {@link SandboxCommandFacet}. Optional: a container has a
-   * real grep and needs no help, so the toolkit falls back to a command there.
-   *
-   * A provider implements this when command execution is unavailable or its
-   * file policy requires filtering that the command fallback cannot enforce.
-   */
   search?(
     pattern: string,
     options?: SandboxSearchOptions
@@ -98,10 +73,6 @@ export interface SandboxFilesystemFacet
 }
 
 export interface SandboxCommandFacet {
-  /**
-   * Arrays execute directly as argv. Strings execute through the provider's
-   * declared shell and never undergo host-side interpolation.
-   */
   exec(
     command: SandboxCommand,
     options?: SandboxExecOptions
@@ -109,21 +80,14 @@ export interface SandboxCommandFacet {
 }
 
 export interface SandboxShellOptions {
-  /** Process to run. Defaults to the Provider's interactive shell. */
   readonly command?: SandboxCommand;
-  /** Working directory. Defaults to the sandbox working directory. */
   readonly cwd?: string;
-  /** Extra environment, merged over the sandbox-level environment. */
   readonly environment?: Readonly<Record<string, string>>;
 }
 
-/** Live TTY process: merged output stream and writable stdin. */
 export interface SandboxShell {
-  /** Terminate the process and release the stream. Idempotent. */
   close(): Promise<void>;
-  /** Subscribe to combined stdout+stderr as it arrives. Returns an unsubscribe fn. */
   onData(listener: (chunk: string) => void): () => void;
-  /** Write to the process stdin — a command line (with `"\n"`), or raw keystrokes. */
   write(data: string): void;
 }
 
@@ -141,7 +105,6 @@ export interface SandboxProcess {
 }
 
 export interface SandboxProcessesFacet {
-  /** Separate byte streams with backpressure. Callers must drain both outputs. */
   spawn(
     command: SandboxCommand,
     options?: SandboxExecOptions
@@ -152,7 +115,6 @@ export interface SandboxProcessesFacet {
   ): Promise<SandboxProcess>;
 }
 
-/** Structural streams keep portable consumers independent of Node ambient types. */
 export interface SandboxWritable {
   destroy(error?: Error): this;
   readonly destroyed: boolean;
@@ -167,7 +129,6 @@ export interface SandboxReadable extends AsyncIterable<Uint8Array> {
 
 export interface SandboxPipedProcess {
   readonly exitCode: number | null;
-  /** Settles after output has drained; rejects on transport failure. */
   readonly exited: Promise<{ readonly exitCode: number }>;
   kill(signal?: string | number): boolean;
   readonly killed: boolean;
@@ -231,11 +192,9 @@ export type SandboxServiceReadiness =
 export interface SandboxStartServiceInput {
   readonly argv: readonly [string, ...string[]];
   readonly cwd?: string;
-  /** Ephemeral process environment; never part of an Environment profile. */
   readonly environment?: Readonly<Record<string, string>>;
   readonly id: string;
   readonly readiness: SandboxServiceReadiness;
-  /** Grace after SIGTERM before SIGKILL. Maximum 30 seconds. */
   readonly terminationGraceMs?: number;
 }
 
@@ -281,7 +240,6 @@ export interface SandboxNetworkPolicyFacet {
   readonly mode: SandboxNetworkMode;
 }
 
-/** Where paths resolve, plus files and commands. Every backend is one of these. */
 export interface Sandbox {
   readonly commands: SandboxCommandFacet;
   readonly files: SandboxFilesystemFacet;

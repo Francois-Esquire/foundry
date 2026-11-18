@@ -10,7 +10,6 @@ import {
   type SceneComposition,
 } from "./scene-composition";
 
-/** Rendering tiers, as the developer readout names them; Islands always draws at "high". */
 const renderQualities = {
   high: { label: "Full" },
   low: { label: "Light" },
@@ -20,11 +19,6 @@ const renderQualities = {
 
 export type RenderQuality = keyof typeof renderQualities;
 
-/**
- * The named camera angles, each an elevation above the horizon in degrees:
- * 90 looks straight down. The chart's own angle is 0.7 radians off the
- * vertical, the angle the chart has always been read at.
- */
 export const cameraAngles = {
   chart: { elevation: 90 - (0.7 * 180) / Math.PI, label: "Chart (50°)" },
   isometric: { elevation: 55, label: "Isometric (55°)" },
@@ -33,26 +27,13 @@ export const cameraAngles = {
 
 export type CameraAngleId = keyof typeof cameraAngles;
 
-/** The named angle shown at an elevation, to the whole degree; none for an elevation between them. */
 export function cameraAngleAt(elevation: number): CameraAngleId | undefined {
   return (Object.keys(cameraAngles) as CameraAngleId[]).find(
     (id) => Math.round(cameraAngles[id].elevation) === Math.round(elevation)
   );
 }
 
-/**
- * What a reader may change: the camera's elevation, which starts at the
- * chart's own angle, and the waves, decoration that is on until turned off
- * and stills under reduced motion. The map maps them onto Islands
- * (`islands-host/map-view.ts`): the elevation to the camera's pitch, the
- * waves to its `waveAmplitude`.
- */
 export const readerParams = defineParams({
-  /**
-   * The camera's elevation above the horizon, in degrees. The camera never
-   * lies lower than 30°, where the chart's north–south runs at half its
-   * length; at 90° it looks straight down.
-   */
   elevation: param.number({
     label: "Elevation",
     max: 90,
@@ -79,7 +60,6 @@ export const readerLayout: readonly ParamGroupOf<typeof readerParams>[] = [
 
 export type ReaderSettings = ParamValues<typeof readerParams>;
 
-/** A developer session's controls: which of the chart's details and its chrome show (`sceneLayerParams`). */
 interface DeveloperSettings {
   composition: SceneComposition;
 }

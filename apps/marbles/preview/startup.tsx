@@ -6,7 +6,6 @@ import { summarizeConfig } from "../src/views/splash-model";
 import { PreviewApp } from "./app";
 import { dashboardSnapshot } from "./snapshot";
 
-/** Simulated loading belongs to the preview, not the presentational splash. */
 export function PreviewStartup({ onClose }: { readonly onClose: () => void }) {
   const [setup, setSetup] = useState(
     process.argv.includes("--setup") ||

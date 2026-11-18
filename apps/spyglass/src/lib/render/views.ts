@@ -1,21 +1,13 @@
-/**
- * Presentation model: labels and numbers only. Nothing here names a glyph,
- * a color, or a column width; those belong to the renderer and its context.
- */
 export interface ReportView {
   sections: SectionView[];
   title: string;
 }
 
-/** A titled section indents its body; a headless one renders flush. */
 export interface SectionView {
   blocks: BlockView[];
   title?: string;
 }
 
-/**
- * Tone carries no good/bad meaning. Every toned line also carries a glyph or word.
- */
 export type Tone = "neutral" | "emphasis" | "caution" | "blocked" | "anchored";
 
 export interface LabelValueRow {
@@ -23,12 +15,10 @@ export interface LabelValueRow {
   value: string;
 }
 
-/** Part of a whole. `numerator of denominator` shows when both are given. */
 export interface RatioItem {
   denominator?: number;
   label: string;
   numerator?: number;
-  /** 0..1 */
   value: number;
 }
 
@@ -37,11 +27,9 @@ export interface FunnelStage {
   value: number;
 }
 
-/** One slice of a whole that sums to 1 across the block. */
 export interface DistributionItem {
   detail?: string;
   label: string;
-  /** 0..1 */
   share: number;
 }
 
@@ -73,5 +61,4 @@ export type BlockView =
     }
   | { kind: "gate"; title: string; checks: GateCheck[]; result: string }
   | { kind: "edge"; from: string; to: string; label?: string }
-  /** Teaching aside: what a concept means and why it matters. */
   | { kind: "note"; title: string; lines: string[] };

@@ -17,7 +17,6 @@ import {
 } from "../helpers/lint";
 
 const FILES = ["claude-code.ts", "codex.ts", "custom.ts", "pi.ts"];
-/** The codes Biome can check without a list of names. */
 const BIOME_CODES = new Set(["consumed-by-harness", "template-only"]);
 
 function within(
@@ -33,7 +32,6 @@ function within(
   return afterStart && beforeEnd;
 }
 
-/** A workspace with the fixtures copied in, since Biome reads a config beside the files. */
 function workspace(): string {
   const cwd = mkdtempSync(join(tmpdir(), "foundry-biome-"));
   for (const file of FILES) {
@@ -56,8 +54,6 @@ describe("biome", () => {
       (item) => BIOME_CODES.has(item.rule)
     );
     expect(fromBiome.length).toBeGreaterThan(0);
-    // Every ESLint finding sits inside a Biome finding for the same code: Biome
-    // underlines the chunk or the whole prompt.
     const uncovered = fromEslint.filter(
       (item) =>
         !fromBiome.some(
@@ -68,7 +64,6 @@ describe("biome", () => {
         )
     );
     expect(uncovered).toEqual([]);
-    // Every Biome range in these fixtures covers at least one ESLint finding.
     const invented = fromBiome.filter(
       (range) =>
         !fromEslint.some(
@@ -84,24 +79,20 @@ describe("biome", () => {
   it("reads the edge cases the way the parser does", async () => {
     const cwd = workspace();
     const sample = [
-      // A command only when it opens the message, and only a listed one.
       "x.claude`/clear`;",
       "x.claude`  /compact keep`;",
       "x.claude`/clearing`;",
       "x.claude`say /clear`;",
       "x.claude('/clear');",
-      // Codex: any command but a custom prompt; a shell line but not inline shell.
       "x.codex`/nope`;",
       "x.codex`/prompts:draft`;",
       "x.codex`!git status`;",
       "x.codex`!\\`git status\\``;",
       "x.codex(`/review`);",
-      // Pi: listed commands and shell lines; a skill or template is not consumed.
       "x.pi`/compact`;",
       "x.pi`/skill:review`;",
       "x.pi`/draft`;",
       "x.pi`!ls`;",
-      // Placeholders in a message, per dialect.
       "x.claude`costs $5`;",
       "x.claude`costs $ARGUMENTSx`;",
       // biome-ignore lint/suspicious/noTemplateCurlyInString: source under test.
@@ -113,7 +104,6 @@ describe("biome", () => {
       "x.pi`$1 $@ $ARGUMENTS`;",
       // biome-ignore lint/suspicious/noTemplateCurlyInString: source under test.
       "x.claude('${CLAUDE_SKILL_DIR} and !`ls`');",
-      // Not prompts.
       "x.house`/clear`;",
       "x['claude']`/clear`;",
       "x.claude('/clear', 1);",

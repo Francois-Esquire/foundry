@@ -6,7 +6,6 @@ import type { Engine } from "~/lib/engine";
 import { FEED_POST_EVENT, feedPayload } from "~/lib/feed/entry";
 import { type SetupDraft, STARTERS } from "~/workspace/templates";
 
-/** Built in rather than registered from a config, so it stays out of the catalog. */
 export const SETUP_STEP = "marbles.workspace-setup";
 
 export interface SetupInput {
@@ -15,10 +14,6 @@ export interface SetupInput {
   readonly root: string;
 }
 
-/**
- * Onboarding's milestone. Posting happens in a real step, like every entry,
- * so it carries a Run and appears in the Runs panel beside it.
- */
 class WorkspaceSetupStep extends Step<SetupInput, void> {
   readonly definitionKey = SETUP_STEP;
   declare readonly name: string;

@@ -122,13 +122,8 @@ describe("step.run() honors pre-set state", () => {
       name: "x",
     });
     step.pause();
-    // Give the SubscriptionRef listener fiber a tick to mirror the
-    // 'paused' status onto the run-internal pause-check seam before
-    // step.run() reads it.
     await sleep(10);
     const settled = step.run();
-    // Race window: give the parked-attempt scheduler a chance to run if
-    // it incorrectly fires the body. The body must NOT run while paused.
     await sleep(20);
     expect(calls).toBe(0);
     step.resume();
@@ -155,15 +150,11 @@ describe("step.waitIfPaused()", () => {
       name: "x",
     });
     step.pause();
-    // Give the SubscriptionRef listener fiber a tick to mirror the
-    // 'paused' status before waitIfPaused() reads it.
     await sleep(10);
     let resolved = false;
     const waiting = step.waitIfPaused().then(() => {
       resolved = true;
     });
-    // Race window: give the would-be resolver a chance to mistakenly fire
-    // before resume(); the assertion is that it does NOT resolve.
     await sleep(20);
     expect(resolved).toBe(false);
     step.resume();

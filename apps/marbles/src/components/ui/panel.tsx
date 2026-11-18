@@ -43,7 +43,6 @@ export function Panel({
       minWidth={0}
       title={title}
     >
-      {/* Offscreen rows need layout measurements for keyboard scrolling to nested steps. */}
       <scrollbox
         contentOptions={{ flexDirection: "column", paddingX: 1 }}
         flexGrow={1}

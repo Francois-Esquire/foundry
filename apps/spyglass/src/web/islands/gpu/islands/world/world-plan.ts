@@ -1,20 +1,3 @@
-/**
- * The world planner (WORLD.md layer 1): `planWorld` grows each island's
- * town from its package's folders and files and returns the plan every
- * other layer draws (world.ts). It runs on the CPU when the chart changes,
- * never per frame.
- *
- * Each island is planned on its own land (town-land.ts), in its own frame:
- * the files sorted into what they are and the folder tree ordered by
- * imports (world-plan-tree.ts), the streets grown from the plaza at the
- * plateau's heart, each from its parent's, with their lots along them
- * (world-plan-grow.ts), then the town's edge: the shrine and its grove,
- * the row of boathouses on the shore, the lighthouse, the fields, the
- * gardens, the pines, the trees and the poles (world-plan-edge.ts).
- * Everything is ordered by path and drawn from hashes of paths, so the
- * same chart gives the same plan and one changed file moves only its own
- * neighbourhood.
- */
 import type { Chart, Import, Module, Point } from "../../../data/chart";
 import {
   CELL,
@@ -66,19 +49,15 @@ import {
   type Unit,
 } from "./world-plan-tree";
 
-/** The steps the town's land share and its asked-for area move in (see `planIsland`). */
 const SHARE_STEP = 0.05;
 const DEMAND_STEP = 600;
-/** The share of an island's buildable land its town may take before it builds up. */
 const TOWN_SHARE = 0.4;
-/** Land a lot asks for beyond its own: its share of the road and the gaps. */
 const ROAD_FACTOR = 1.7;
 
 function areaOf(ring: readonly Point[]): number {
   return Math.abs(signedArea(ring));
 }
 
-/** The land the town's units ask for, in square units. */
 function demandOf(sorted: Sorted, townBuildings: number): number {
   let area = 0;
   for (const node of sorted.nodes.values()) {
@@ -105,7 +84,6 @@ function buildingCount(sorted: Sorted): number {
   return count;
 }
 
-/** The test group with the most tests, which gets the island's school. */
 function schoolOf(sorted: Sorted): string | null {
   let best: { key: string; n: number } | null = null;
   for (const node of sorted.nodes.values()) {
@@ -123,7 +101,6 @@ function schoolOf(sorted: Sorted): string | null {
   return best?.key ?? null;
 }
 
-/** Orders the streets, building up further while the town asks for more land than it has. */
 function settleShare(
   sorted: Sorted,
   imports: readonly Import[],
@@ -136,7 +113,6 @@ function settleShare(
     if (demand <= buildable * TOWN_SHARE) {
       return demand;
     }
-    // In steps, so one file more or less rarely changes every street's share.
     const next = share * Math.max(0.3, (buildable * TOWN_SHARE) / demand);
     share = Math.floor(next / SHARE_STEP) * SHARE_STEP;
     orderStreets(sorted, imports, share);
@@ -144,15 +120,10 @@ function settleShare(
   return demandOf(sorted, buildingCount(sorted));
 }
 
-// ------------------------------------------------------------ leftovers
-
 const ANYWHERE_STEP = 1.2;
-/** How many more times leftovers get new lanes while each time houses some. */
 const REHOUSE_ROUNDS = 3;
-/** How many of the roads nearest its own a leftover tries. */
 const ANYWHERE_ROADS = 6;
 
-/** A lot for a leftover anywhere along the town's roads, nearest its own first. */
 function placeAnywhere(town: Town, left: Leftover, growth: Growth): boolean {
   const home = town.roads[left.road];
   const anchor = home?.points[0] ?? town.centre;
@@ -194,7 +165,6 @@ function sizeOfUnit(
   return { depth: 3, frontage: 3 };
 }
 
-/** The smallest ground a test group makes do with, where nothing bigger fitted. */
 const lastResortGround = (tests: number, growth: Growth) =>
   groundSizesOf(tests, growth.townBuildings).at(-1) ??
   groundSizeOf(tests, growth.townBuildings);
@@ -219,7 +189,6 @@ function commitUnit(
   }
 }
 
-/** How many households a building's footprint can take when it has to build up. */
 const ROOM_FOR: Readonly<Partial<Record<BuildingKind, number>>> = {
   block: 24,
   house: 3,
@@ -227,12 +196,6 @@ const ROOM_FOR: Readonly<Partial<Record<BuildingKind, number>>> = {
   walkup: 8,
 };
 
-/**
- * Files nothing could place move in with the homes nearest their own
- * street, a few to each, the buildings growing a floor or a kind as they
- * fill (rule 3: crowding builds up), never one building swallowing them
- * all. Test files take seats in the nearest stand.
- */
 function absorb(
   town: Town,
   road: number,
@@ -266,7 +229,6 @@ function absorb(
   return true;
 }
 
-/** A building's kind and floors after more households moved in. */
 function grownUp(b: Town["buildings"][number]) {
   const n = b.files.length;
   if (b.kind === "house" && n > 1) {
@@ -288,13 +250,6 @@ function filesOfUnit(item: Unit): Module[] {
   return item.kind === "ground" ? item.ground.files : item.node.files;
 }
 
-// ------------------------------------------------------------ the island
-
-/**
- * Where the town's middle goes: deep enough inside the coast for the town
- * to spread round it, as near the middle of the buildable land as that
- * allows.
- */
 function middleOf(land: Land, radius: number): Point {
   let su = 0;
   let sv = 0;
@@ -339,7 +294,6 @@ function middleOf(land: Land, radius: number): Point {
 }
 
 interface IslandResult {
-  /** Files no building could hold (only when the island has no land at all). */
   readonly lost: readonly Module[];
   readonly town: Town;
 }
@@ -365,8 +319,6 @@ function planIsland(
   const sorted = sortIsland(files, imports);
   const demand = settleShare(sorted, imports, buildableCells * CELL * CELL);
   const town = newTown(island, land, imports, hashText(island));
-  // The town's reach steers every street, so it moves in steps: a file
-  // more or less leaves it, and everything grown by it, where it was.
   const stepped = Math.ceil(Math.max(demand, 50) / DEMAND_STEP) * DEMAND_STEP;
   town.radius = Math.sqrt(stepped / Math.PI);
   town.centre = middleOf(land, town.radius);
@@ -386,11 +338,6 @@ function planIsland(
   return { lost, town };
 }
 
-/**
- * What the streets could not hold: new lanes for it while each round
- * houses some, then any free frontage, then the homes nearest its street.
- * Returns files not even that could take (an island with no town at all).
- */
 function settleLeftovers(town: Town, growth: Growth): Module[] {
   let left = rehouse(town, growth);
   for (let round = 0; round < REHOUSE_ROUNDS && left.length > 0; round += 1) {
@@ -401,7 +348,6 @@ function settleLeftovers(town: Town, growth: Growth): Module[] {
       break;
     }
   }
-  // Broken into pairs, they get one more round of lanes of their own.
   growth.leftovers.push(...left.flatMap(piecesOf));
   left = rehouse(town, growth);
   const lost: Module[] = [];
@@ -417,10 +363,6 @@ function settleLeftovers(town: Town, growth: Growth): Module[] {
   return lost;
 }
 
-/**
- * A building that found no room whole tries again as pairs, which fit
- * where a block or a walk-up can't; anything else stays as it is.
- */
 function piecesOf(item: Leftover): Leftover[] {
   if (item.unit.kind !== "building" || item.unit.home.files.length <= PIECE) {
     return [item];
@@ -438,10 +380,8 @@ function piecesOf(item: Leftover): Leftover[] {
   return out;
 }
 
-/** Households a piece of a broken-up building holds: a pair's worth. */
 const PIECE = 3;
 
-/** Grows every branch of a road, each one's own branches before the next: depth first. */
 function growFrom(town: Town, road: number, growth: Growth) {
   const mine = growth.mouths.filter((m) => m.owner === road);
   for (const mouth of mine) {
@@ -449,7 +389,6 @@ function growFrom(town: Town, road: number, growth: Growth) {
   }
 }
 
-/** Grows one branch and everything below it, moving its mouth once if it can't grow. */
 function growSubtree(town: Town, mouth: Mouth, growth: Growth) {
   let road = growBranch(town, mouth, growth);
   if (!road) {
@@ -465,9 +404,6 @@ function growSubtree(town: Town, mouth: Mouth, growth: Growth) {
   growFrom(town, road.id, growth);
 }
 
-// ------------------------------------------------------------- the result
-
-/** One island's town into the world's plan, in chart units and global ids. */
 function publish(result: IslandResult, out: Mutable) {
   const { town } = result;
   const { land } = town;
@@ -547,10 +483,6 @@ interface Mutable {
   readonly zones: Zone[];
 }
 
-/**
- * The world's plan: every island's town grown on its land. Deterministic:
- * the same chart gives the same plan.
- */
 export function planWorld(chart: Chart): WorldPlan {
   const byIsland = new Map<string, Module[]>();
   for (const m of chart.modules) {

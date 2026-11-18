@@ -17,7 +17,6 @@ export const VALID_MANIFEST = {
   views: {},
 } as const;
 
-/** The strict format with every declaration it adds. */
 export const STRICT_MANIFEST = {
   capabilities: [],
   compatibility: { gateway: "1", runtime: "bun@1" },

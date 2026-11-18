@@ -127,8 +127,6 @@ describe("encodePersistedMetadata under the transient policy", () => {
   });
 
   test("a transient row still decodes under PersistedMetadataSchema", () => {
-    // `workflowTraceFactsFromMetadata` fails closed to the empty fact set on a
-    // decode failure, so a populated projection proves the schema still parses.
     const encoded = encodePersistedMetadata(stateWithOutput(), stream, {
       results: "transient",
     });

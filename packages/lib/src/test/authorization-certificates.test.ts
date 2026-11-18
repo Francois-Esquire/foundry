@@ -173,7 +173,6 @@ describe("profiles and certificates", () => {
         })
       );
 
-      // The capability dropped from the profile must not survive the re-issue.
       await expect(
         issuedTo(SUBJECT, fsRead("/workspace"))
       ).resolves.toHaveLength(1);
@@ -327,11 +326,6 @@ describe("profiles and certificates", () => {
       ).resolves.toHaveLength(1);
     });
 
-    /**
-     * Revoking a certificate withdraws what the *host* issued. A human who
-     * separately approved the same capability said something the host does not
-     * get to retract on their behalf.
-     */
     it("leaves a human's own decision on the same capability standing", async () => {
       await certificates.issue(certificate("cert-1"));
       await grants.issue({
@@ -357,7 +351,6 @@ describe("profiles and certificates", () => {
       await expect(certificates.revoke("cert-1", 1)).rejects.toBeInstanceOf(
         CertificateVersionError
       );
-      // The rejected revoke changed nothing.
       await expect(
         issuedTo(SUBJECT, fsRead("/workspace"))
       ).resolves.toHaveLength(1);

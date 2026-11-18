@@ -7,7 +7,6 @@ interface UsageFiles {
   type: Set<string>;
 }
 
-/** Bare import roots match declarations, including scoped names and npm aliases. */
 function importedPackage(specifier: string): string | undefined {
   if (
     specifier.startsWith(".") ||
@@ -53,7 +52,6 @@ function usage(
   };
 }
 
-/** This is static source evidence, not runtime execution or complete dynamic loading. */
 export function enrichDependencyUsage(
   inventory: DependencyInventory,
   reports: ReadonlyMap<string, Pick<PackageLocalReport, "imports">>

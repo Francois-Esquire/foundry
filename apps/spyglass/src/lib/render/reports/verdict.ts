@@ -3,10 +3,6 @@ import { plural } from "../format";
 import type { BlockView } from "../views";
 import { blockerPhrase } from "./explanations";
 
-/**
- * The one line to read first. Picks the strongest finding the analysis
- * already made and states where it stands; it never authors advice.
- */
 export function verdict(report: SurfaceReport): BlockView {
   const fold = report.opportunities.find(
     (item) => item.operation === "fold-package"

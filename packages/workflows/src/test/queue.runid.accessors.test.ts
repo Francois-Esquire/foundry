@@ -1,25 +1,3 @@
-/**
- * Queue — runId-keyed accessors with DB fallthrough, and the
- * DispatchedWorkflow getters they wrap.
- *
- * The JS-first surface: callers hold only a runId and read state without
- * needing to keep the DispatchedWorkflow handle. Live runs read sync
- * from the in-memory snapshot; persisted runs read from the row's
- * metadata. No factory required — these are read-only.
- *
- * Each accessor has two code paths:
- *   - In-memory hit: `#all.get(runId)` returns the live handle, accessor
- *     reads off its sync getter.
- *   - DB fallthrough: row read + metadata parse, derive the requested
- *     concern from the persisted blob.
- *
- * The DispatchedWorkflow getters (`d.output`, `d.error`, `d.snapshot`,
- * `d.results`) are the underlying public surface for the in-memory path
- * — `queue.snapshot(runId)`, `queue.error(runId)`, etc. wrap them and
- * add DB fallthrough. `d.output` is unique to the handle (there is no
- * `queue.output(runId)` accessor).
- */
-
 import { describe, expect, test } from "vitest";
 
 import { Queue } from "../queue";
@@ -66,9 +44,6 @@ describe("queue.status(runId)", () => {
 
 describe("queue.snapshot(runId)", () => {
   test("in-memory hit returns the live WorkflowState; DispatchedWorkflow.snapshot agrees", async () => {
-    // The `DispatchedWorkflow.snapshot` getter is a latest-in-memory
-    // projection; `queue.snapshot(runId)` is the same view through the
-    // runId-keyed door. After a terminal run, both agree.
     const queue = new Queue({ concurrency: 1, store: makeInMemoryStore() });
     const wf = Workflow.create(makeEchoSpec("payload", "snap-mem"));
     const d = queue.dispatch(wf);
@@ -94,7 +69,6 @@ describe("queue.snapshot(runId)", () => {
     const snap = await queueB.snapshot(d.id);
     expect(snap?.status).toBe("complete");
     expect(snap?.input).toBe("data");
-    // Snapshot tree is reachable from the persisted blob.
     expect(snap?.steps["snap-db"]?.status).toBe("complete");
     await queueB.shutdown();
   });
@@ -156,8 +130,6 @@ describe("queue.results(runId)", () => {
   });
 
   test("returns {} for a not-yet-started run (live in-memory)", async () => {
-    // While the queue is paused, the run hasn't started — both the
-    // queue accessor and DispatchedWorkflow.results return an empty map.
     const queue = new Queue({ concurrency: 1, store: makeInMemoryStore() });
     await queue.pause();
     const wf = Workflow.create(makeEchoSpec("ok", "results-empty"));
@@ -204,8 +176,6 @@ describe("queue.error(runId)", () => {
   });
 
   test("populated for bailed workflows with the bail-decorated message", async () => {
-    // Bail surfaces as a failed run with the policy/code preserved in
-    // the error message.
     const queue = new Queue({ concurrency: 1, store: makeInMemoryStore() });
     const wf = Workflow.create({
       execute: async () => bail({ code: 403, kind: "policy" }),

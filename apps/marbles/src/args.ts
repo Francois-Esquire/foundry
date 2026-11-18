@@ -21,7 +21,6 @@ import { DEFAULT_SOURCE } from "~/workspace/source";
 import type { StarterId } from "~/workspace/templates";
 import { DEFAULT_STARTER, STARTERS } from "~/workspace/templates";
 
-/** A command line that names no command Marbles knows, or the wrong arguments. */
 export class UsageError extends Error {
   override readonly name = "UsageError";
 }
@@ -116,12 +115,6 @@ const association =
     return { command, id, kind, with: other };
   };
 
-/**
- * Every command and how it reads the positionals after its name. Run by
- * `parseArgs`, so a command line that cannot run is refused before anything
- * is loaded or written. The CLI pairs each command with what it needs and
- * how it runs.
- */
 const GRAMMAR: {
   readonly [C in Command]: (
     positionals: readonly string[],
@@ -132,7 +125,6 @@ const GRAMMAR: {
   attach: none("attach"),
   daemon: none("daemon"),
   detach: none("detach"),
-  // Whatever follows help is ignored: help is asked for, not run.
   help: () => ({ command: "help" }),
   init: ([starter = DEFAULT_STARTER, ...rest]) => {
     if (rest.length > 0 || !isStarter(starter)) {
@@ -149,8 +141,6 @@ const GRAMMAR: {
     }
     return { command: "roll", name };
   },
-  // `run` starts every trigger and takes no name; a name here would
-  // otherwise be dropped and the dashboard opened instead.
   run: ([name]) => {
     if (name !== undefined) {
       throw new UsageError(
@@ -184,7 +174,6 @@ const GRAMMAR: {
   },
 };
 
-/** Options `tasks` reads from its own words; anything else is refused. */
 const TASK_SWITCHES = new Set(["--clear-tags", "--json", "--root"]);
 const TASK_OPTIONS = new Set([
   "--any-tag",
@@ -202,10 +191,6 @@ const TASK_OPTIONS = new Set([
 ]);
 const INTEGER = /^-?\d+$/;
 
-/**
- * The words and options after `tasks <action>`. Each action takes what it
- * reads; `done` refuses whatever is left over, so nothing is ignored.
- */
 class TaskLine {
   readonly action: TaskActionName;
   readonly #words: string[] = [];
@@ -257,7 +242,6 @@ class TaskLine {
     return values;
   }
 
-  /** The last occurrence wins, as with the global flags. */
   value(name: string): string | undefined {
     return this.values(name).at(-1);
   }
@@ -278,10 +262,6 @@ class TaskLine {
     return expected === undefined ? {} : { expectedUpdatedAt: expected };
   }
 
-  /**
-   * `--tag` (every one) and `--any-tag` (at least one) as a tag filter;
-   * undefined for neither.
-   */
   tagQuery(): TagQuery | undefined {
     const all = this.values("--tag");
     const any = this.values("--any-tag");
@@ -294,7 +274,6 @@ class TaskLine {
     };
   }
 
-  /** `--root` or `--parent <id>`; null for the root, undefined for neither. */
   parent(): string | null | undefined {
     const root = this.flag("--root");
     const parent = this.value("--parent");
@@ -336,7 +315,6 @@ function metadataOf(line: TaskLine): JsonObject | undefined {
     : (parsedJson("--metadata", text) as JsonObject);
 }
 
-/** A value checked by the Tasks package's own schema, before anything loads. */
 function checked<T>(schema: z.ZodType<T>, value: unknown, line: TaskLine): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
@@ -347,7 +325,6 @@ function checked<T>(schema: z.ZodType<T>, value: unknown, line: TaskLine): T {
   return parsed.data;
 }
 
-/** Every write is one batch in the task command language. */
 function change(
   line: TaskLine,
   operations: readonly TaskOperation[]
@@ -380,7 +357,6 @@ function dependency(kind: "dependency.add" | "dependency.remove") {
   };
 }
 
-/** `--tag`s replace every tag and `--clear-tags` removes them; neither keeps them. */
 function updatedTags(line: TaskLine): readonly string[] | undefined {
   const clear = line.flag("--clear-tags");
   const tags = line.values("--tag");
@@ -545,7 +521,6 @@ export type ArgsOf<C extends Command> = Flags & Parsed<C>;
 
 export type Args = { readonly [C in Command]: ArgsOf<C> }[Command];
 
-/** Flags that take the next argument; a later occurrence wins. */
 const VALUE_FLAGS = {
   "--config": "config",
   "--input": "inputJson",
@@ -559,7 +534,6 @@ function isValueFlag(arg: string): arg is ValueFlag {
   return Object.hasOwn(VALUE_FLAGS, arg);
 }
 
-/** The flags on a command line, and the words that are not flags, in order. */
 function parseFlags(argv: readonly string[]): {
   readonly flags: Flags;
   readonly positional: readonly string[];
@@ -572,8 +546,6 @@ function parseFlags(argv: readonly string[]): {
 
   const argumentsIterator = argv.values();
   for (const arg of argumentsIterator) {
-    // `--dry` was the flag's first spelling. Left unrecognised it would parse
-    // as a positional and the command would run for real.
     if (arg === "--dry-run" || arg === "--dry") {
       dry = true;
     } else if (arg === "--harness") {
@@ -615,10 +587,8 @@ function parseFlags(argv: readonly string[]): {
   return { flags, positional };
 }
 
-/** Read a command line; throws `UsageError` for one that cannot run. */
 export function parseArgs(argv: readonly string[]): Args {
   const { flags, positional } = parseFlags(argv);
-  // Help wins over whatever else is on the line, a bad flag included.
   if (argv.includes("--help") || argv.includes("-h")) {
     return { ...flags, ...GRAMMAR.help([], flags) };
   }

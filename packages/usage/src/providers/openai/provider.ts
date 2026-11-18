@@ -9,17 +9,11 @@ import { childEnv, type Env, exists, expandHome } from "../local";
 import { readCodexHistory } from "./history";
 import { readCodexLimits, type SpawnCodex } from "./limits";
 
-/**
- * A Codex login by its home, the directory `CODEX_HOME` would name (`~`
- * allowed; by default the one Codex uses here), or an OpenAI API key, such
- * as `process.env.OPENAI_API_KEY`.
- */
 export type OpenAIOptions =
   | { readonly apiKey?: undefined; readonly home?: string }
   | { readonly apiKey: string; readonly home?: undefined };
 
 export type OpenAICredential =
-  /** `home` is absolute; Codex runs with it as `CODEX_HOME`. */
   | { readonly home: string; readonly kind: "login" }
   | { readonly key: string; readonly kind: "api-key" };
 
@@ -31,7 +25,6 @@ export interface OpenAIMachine {
 }
 
 const DEFAULT_TIMEOUT_MS = 5000;
-/** Removed from a login's environment so it reads its own login, not a key. */
 const FOREIGN_AUTH = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_HOME"];
 
 const spawnCodex: SpawnCodex = (command, args, options) => {
@@ -85,7 +78,6 @@ export const createOpenAI = (machine: OpenAIMachine = {}) => {
         };
       }
       return readCodexLimits({
-        // Not a project directory, so no project config is read.
         cwd: home,
         env: childEnv(env, FOREIGN_AUTH, { CODEX_HOME: credential.home }),
         spawn: machine.spawn ?? spawnCodex,

@@ -10,7 +10,6 @@ const HELLO = {
   protocol: 1,
 };
 
-/** A Program-side SDK client on a real WebSocket, past the handshake. */
 async function connect(host: ScriptedHost): Promise<{
   client: GatewayClient;
   socket: WebSocket;
@@ -66,7 +65,6 @@ describe("Module SDK WebSocket transport", () => {
     host.close(1011, "host failed");
     await expect(read).rejects.toMatchObject({ code: "transport-closed" });
     await expect(call).rejects.toMatchObject({ code: "transport-closed" });
-    // Later requests on the closed transport fail at once.
     await expect(client.call("weather", {})).rejects.toMatchObject({
       code: "transport-closed",
     });
@@ -82,7 +80,6 @@ describe("Module SDK WebSocket transport", () => {
     expect(await waiting).toEqual({ done: true, value: undefined });
     expect(await host.frame()).toEqual({ id: invoke.id, kind: "cancel" });
 
-    // Frames the host sent before it saw the cancel change nothing.
     host.send({ event: { revision: 9 }, id: invoke.id, kind: "next" });
     host.send({ id: invoke.id, kind: "complete" });
     host.send({

@@ -1,10 +1,3 @@
-/**
- * What a frame created, by position. A body replays from the top after a
- * suspension, so the n-th call of a kind in a frame must return the same
- * thing it created the first time. Keys are `marbles:path|kind|occurrence`. Values
- * are JSON: the ledger is written into the run's file when the run parks,
- * and read back when a later process adopts it.
- */
 export class Ledger {
   readonly #entries: Map<string, unknown>;
 
@@ -28,7 +21,6 @@ export class Ledger {
     return this.#entries.has(key);
   }
 
-  /** `undefined` forgets the key, so a stale record is replaced on the next set. */
   set(key: string, value: unknown): void {
     if (value === undefined) {
       this.#entries.delete(key);
@@ -41,7 +33,6 @@ export class Ledger {
     return this.#entries.size;
   }
 
-  /** Drop what one step recorded, not its children's. */
   forget(path: readonly string[]): void {
     const prefix = `marbles:${path.join(".")}|`;
     for (const key of [...this.#entries.keys()]) {

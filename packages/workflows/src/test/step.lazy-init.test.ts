@@ -1,39 +1,3 @@
-/**
- * Lazy substrate initialization.
- *
- * Step's substrate (snapshot/channels/executable/composer/scope/status/output)
- * is lazy. A Step constructed via `Step.make` is
- * **unbound** until either:
- *
- *   - Attached to a parent's `spec.children` — the parent's
- *     `#initialize` recursively binds the child under its substrate.
- *   - Touched via any substrate accessor (`step.snapshot`,
- *     `step.channels`, `step.run()`, etc.) — auto-binds as a root.
- *
- * Three states matter:
- *
- *   - **Unclaimed-unbound** — fresh `Step.make`, never claimed by a
- *     parent. Substrate access auto-binds as a root for stand-alone Steps.
- *   - **Claimed-unbound** — passed into a parent's `spec.children`,
- *     parent hasn't initialized yet. Substrate access THROWS — the
- *     parent owns the binding moment, and a self-bind here would
- *     produce a root substrate that conflicts with the parent's fork.
- *   - **Bound** — substrate allocated; works.
- *
- * This file pins the lazy-binding invariants:
- *   1. Claimed-unbound substrate access throws "not bound".
- *   2. Standalone `step.run()` auto-binds and runs.
- *   3. Pre-built Step instances passed via `spec.children` get bound
- *      under the parent's substrate (snapshot is shared).
- *   4. `(StepSpec | Step)[]` mixed children both end up bound under the
- *      parent.
- *   5. A Step claimed by one parent throws "already bound" if passed to
- *      a second parent.
- *   6. `dispose()` on unbound Step is a no-op.
- *   7. `dispose()` on bound Step closes substrate scope.
- *   8. Step-instance child + `ctx.next()` integrates with the cascade.
- */
-
 import { describe, expect, it } from "vitest";
 
 import type { StepSpec } from "../step";
@@ -43,10 +7,6 @@ import { Step } from "../step";
 const NOT_BOUND_PATTERN = /not bound/;
 const ALREADY_BOUND_PATTERN = /already bound/;
 
-// ════════════════════════════════════════════════════════════════════════════
-// 1. Claimed-unbound — substrate access throws
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Step.make — claimed-unbound substrate access", () => {
   it("a child Step claimed by a parent's spec.children throws on substrate access before bind", async () => {
     const child = await Step.make({
@@ -55,8 +15,6 @@ describe("Step.make — claimed-unbound substrate access", () => {
       name: "child",
     });
 
-    // Claim the child by stashing it into a parent (parent is itself
-    // unbound — it just records the claim in its constructor).
     await Step.make({
       children: [child] as readonly (StepSpec | Step)[],
       execute: async () => "parent-out",
@@ -64,16 +22,9 @@ describe("Step.make — claimed-unbound substrate access", () => {
       name: "parent",
     });
 
-    // The child is now claimed-unbound. Touching substrate must throw —
-    // a parent.run() will bind it; doing it now would create a root
-    // substrate that conflicts with the parent's fork.
     expect(() => child.snapshot).toThrow(NOT_BOUND_PATTERN);
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 2. Standalone run() — auto-binds and runs
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.make — standalone run lazy-binds", () => {
   it("Step.make then immediate .run() auto-binds (no explicit init) and resolves", async () => {
@@ -89,10 +40,6 @@ describe("Step.make — standalone run lazy-binds", () => {
     expect(step.status).toBe("complete");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 3. Step instance attached to spec.children — substrate sharing
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.make — pre-built Step in spec.children shares parent substrate", () => {
   it("child built via Step.make is bound under parent.run(); snapshot is shared by reference", async () => {
@@ -114,7 +61,6 @@ describe("Step.make — pre-built Step in spec.children shares parent substrate"
 
     await parent.run();
 
-    // Snapshot.fork() returns `this`, preserving identity across the binding.
     expect(child.snapshot).toBe(parent.snapshot);
     expect(child.channels).toBe(parent.channels);
     expect(child.path).toEqual(["parent", "child"]);
@@ -122,10 +68,6 @@ describe("Step.make — pre-built Step in spec.children shares parent substrate"
     expect(parent.steps["parent.child"]?.output).toBe("child-out");
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 4. Mixed (StepSpec | Step)[] children
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.make — mixed StepSpec | Step children", () => {
   it("a parent with one Step instance child and one StepSpec child binds both under itself", async () => {
@@ -170,10 +112,6 @@ describe("Step.make — mixed StepSpec | Step children", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 5. Already-claimed Step passed to a second parent
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Step.make — double-claim", () => {
   it("a Step instance claimed by one parent throws when passed to a second parent", async () => {
     const child = await Step.make({
@@ -182,7 +120,6 @@ describe("Step.make — double-claim", () => {
       name: "doubly-claimed",
     });
 
-    // First parent claims the child.
     await Step.make({
       children: [child] as readonly (StepSpec | Step)[],
       execute: async () => "first-out",
@@ -190,11 +127,6 @@ describe("Step.make — double-claim", () => {
       name: "first-parent",
     });
 
-    // Second parent tries to claim the same child — throws synchronously
-    // from the second parent's constructor (the claim flag is already
-    // set on the child). `Step.make` wraps `new Step(...)` in
-    // `Promise.resolve`, so a constructor throw surfaces synchronously
-    // before any Promise is returned.
     expect(() => {
       Step.make({
         children: [child] as readonly (StepSpec | Step)[],
@@ -206,10 +138,6 @@ describe("Step.make — double-claim", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 6. dispose() on unbound Step is a no-op
-// ════════════════════════════════════════════════════════════════════════════
-
 describe("Step.dispose — unbound", () => {
   it("dispose() on a never-bound Step resolves without throwing", async () => {
     const step = await Step.make({
@@ -218,14 +146,9 @@ describe("Step.dispose — unbound", () => {
       name: "never-run",
     });
 
-    // Don't trigger any substrate access. dispose() must be a no-op.
     await expect(step.dispose()).resolves.toBeUndefined();
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 7. dispose() on bound Step closes substrate scope
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.dispose — bound", () => {
   it("dispose() on a Step that ran resolves and the underlying scope closes (idempotent re-dispose still resolves)", async () => {
@@ -237,14 +160,9 @@ describe("Step.dispose — bound", () => {
 
     await step.run();
     await expect(step.dispose()).resolves.toBeUndefined();
-    // Effect's Scope.close is idempotent — a second close is a no-op.
     await expect(step.dispose()).resolves.toBeUndefined();
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// 8. Integration — Step instance child + ctx.next()
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Step.make — Step-instance child integrates with ctx.next() from parent", () => {
   it("body's ctx.next() drives the pre-built Step child; ctx.resultOf reads its output", async () => {

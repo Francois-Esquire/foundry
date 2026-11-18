@@ -40,11 +40,6 @@ async function scratch(): Promise<string> {
   return root;
 }
 
-/**
- * A workspace whose source observes `tasks` (appending each payload's titles
- * to `seen.log`, or throwing while `MARBLES_TEST_FAIL` is set) and tries to
- * write a task while it loads.
- */
 async function workspace(root: string, name: string): Promise<string> {
   const dir = join(root, name);
   const source = join(dir, "marbles.ts");
@@ -69,7 +64,6 @@ try {
   return source;
 }
 
-/** Runs `body` in a fresh `bun` process with the host and `tasks` in scope; resolves its JSON report. */
 async function inHost(
   root: string,
   body: string,
@@ -153,7 +147,6 @@ it("binds tasks to the loaded workspace, recovers its pending changes in the nex
   const source = await workspace(root, "first");
   const state = join(root, "state");
 
-  // The handler fails in this process, so the change stays pending.
   const first = await inHost(
     root,
     `const { engine } = await open(${JSON.stringify(source)}, ${JSON.stringify(state)});
@@ -173,8 +166,6 @@ report.afterDispose = await attempt(tasks.create({ title: "late" }));`,
     { failing: expect.any(Boolean), name: "seenTitles", position: 0 },
   ]);
 
-  // A new process loads the same source: the task is there, and the pending
-  // change is delivered to the same handler.
   const second = await inHost(
     root,
     `const { engine } = await open(${JSON.stringify(source)}, ${JSON.stringify(state)});

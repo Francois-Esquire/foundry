@@ -1,4 +1,3 @@
-// Adapted from termcn's OpenTUI Dialog.
 import type { MouseEvent } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useCallback, useState } from "react";
@@ -10,7 +9,6 @@ function blockMouse(event: MouseEvent) {
   event.stopPropagation();
 }
 
-/** Mount while open. The host disables background focus and shortcuts. */
 export function Dialog({
   title,
   children,

@@ -4,13 +4,6 @@ import { recordChild, SPAWN_RECOVERY_ENV } from "@foundry/lib/spawn-record";
 
 import type { SandboxHandle, SandboxInstance } from "./types";
 
-/**
- * Commands a step runs: an argument list, never shell text. On the host
- * they run with `execFile` in the step's working directory, stop with its
- * signal, and write to its stream; `--dry-run` prints them instead. With a
- * sandbox they run there.
- */
-
 export interface CommandResult {
   readonly exitCode: number;
   readonly stderr: string;
@@ -18,26 +11,19 @@ export interface CommandResult {
 }
 
 export interface ExecOptions {
-  /** A non-zero exit fails the step unless this is `false`. */
   readonly check?: boolean;
-  /** Where to run; the step's working directory by default. */
   readonly cwd?: string;
-  /** Added to the environment the command inherits. */
   readonly environment?: Readonly<Record<string, string>>;
-  /** Run in this sandbox instead of on the host. */
   readonly sandbox?: SandboxHandle | SandboxInstance;
 }
 
-/** Run one command; see {@link ExecOptions}. */
 export type Exec = (
   argv: readonly string[],
   options?: ExecOptions
 ) => Promise<CommandResult>;
 
-/** What a runner reports to: the step's signal and stream, read per call. */
 export interface CommandSite {
   readonly cwd: () => string;
-  /** Print instead of run. */
   readonly dry: boolean;
   readonly environment?: Readonly<Record<string, string>>;
   readonly print: (line: string) => void;
@@ -46,7 +32,6 @@ export interface CommandSite {
   readonly write?: (value: unknown) => void;
 }
 
-/** A command that exited non-zero, with what it said. */
 export class CommandError extends Error {
   override readonly name = "CommandError";
   readonly result: CommandResult;
@@ -63,7 +48,6 @@ export class CommandError extends Error {
   }
 }
 
-/** Large enough for a build's output; past it the command fails. */
 const MAX_BUFFER = 64 * 1024 * 1024;
 
 function onHost(
@@ -91,7 +75,6 @@ function onHost(
           return;
         }
         if (error && typeof error.code !== "number") {
-          // It never ran: not found, not executable, output too large.
           reject(new Error(`${program}: ${error.message}`, { cause: error }));
           return;
         }
@@ -110,7 +93,6 @@ function onHost(
   });
 }
 
-/** A runner for one step, or for the engine outside any. */
 export function commandRunner(site: CommandSite): Exec {
   return async (argv, options = {}) => {
     if (argv.length === 0 || argv[0] === "") {

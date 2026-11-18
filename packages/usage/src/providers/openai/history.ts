@@ -4,14 +4,12 @@ import { quantities, type Work } from "../../consumption";
 import { historyFiles, jsonLines, mapLimit } from "../local";
 import { count, record, text } from "../values";
 
-/** Lines that carry usage, or the session, model and tier usage is attributed to. */
 const MARKERS = [
   '"token_count"',
   '"turn_context"',
   '"thread_settings_applied"',
   '"session_meta"',
 ];
-/** Observed fork copies had gaps of 0-40 ms. Treat gaps under 1,000 ms as copied history. */
 const FORK_COPY_MAX_GAP_MS = 1000;
 const FIELDS = [
   "input_tokens",
@@ -54,12 +52,6 @@ const isFork = (meta: Record<string, unknown>): boolean =>
   typeof record(record(record(meta.source).subagent).thread_spawn)
     .parent_thread_id === "string";
 
-/**
- * One `token_count` as work, or nothing. Each carries the request's own
- * usage (`last_token_usage`) and the session's running total; a total equal
- * to the last one is a re-emission, a zero request marks context size, and
- * the copies a fork makes of its parent only set the baseline.
- */
 const countedWork = (
   state: Rollout,
   at: number,
@@ -96,7 +88,6 @@ const countedWork = (
     quantities: quantities({
       cachedInputTokens: cached,
       cacheWriteTokens: written,
-      // Codex counts cached input inside `input_tokens`; reasoning is inside output.
       inputTokens: Math.max(0, last.input_tokens - cached - written),
       outputTokens: last.output_tokens,
       reasoningTokens: last.reasoning_output_tokens,
@@ -111,7 +102,6 @@ const step = (state: Rollout, value: unknown): Work | undefined => {
   const payload = record(line.payload);
   const at = Date.parse(String(line.timestamp));
   if (line.type === "session_meta") {
-    // Only the first meta is this session's; a fork copies its parent's after it.
     if (!state.sawMeta) {
       state.sawMeta = true;
       state.session = text(payload.id) ?? state.session;
@@ -145,7 +135,6 @@ const readRollout = async (file: string): Promise<Work[]> => {
     standardSpeed: true,
   };
   const works: Work[] = [];
-  // Every line updates the running state; the caller keeps what is in the span.
   for await (const value of jsonLines(file, MARKERS)) {
     const work = step(state, value);
     if (work) {
@@ -155,12 +144,6 @@ const readRollout = async (file: string): Promise<Work[]> => {
   return works;
 };
 
-/**
- * Codex's work since `since`, from the rollouts under `<home>/sessions/` and
- * `<home>/archived_sessions/`. A rollout moved between them can leave a copy
- * in both, so for a session found in more than one file, equal work is
- * counted once per occurrence within a file.
- */
 export const readCodexHistory = async (
   home: string,
   since: Date

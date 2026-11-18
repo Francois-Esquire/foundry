@@ -72,7 +72,6 @@ function position(x: number, y: number, ratio: number, scale: number): string {
   return `translate(${snap(x, ratio)}px, ${snap(y, ratio)}px) scaleY(${scale})`;
 }
 
-/** Keep the decorative caption legible without letting zoom enlarge it into the controls. */
 function captionNotes(
   frame: Frame,
   metrics: TextMetrics,
@@ -109,7 +108,6 @@ function captionNotes(
     : [];
 }
 
-/** Prepare immutable, screen-space props in the UI. React never reads the live camera or scene state. */
 function chartChromeModel(
   frame: Frame,
   metrics: TextMetrics
@@ -223,7 +221,6 @@ function chartChromeModel(
   };
 }
 
-/** Scene animation may keep submitting frames; unchanged chrome produces no React update. */
 export function createChromePresenter(
   publish: (model: ChartChromeModel) => void
 ) {

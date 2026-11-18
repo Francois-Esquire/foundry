@@ -36,7 +36,6 @@ import { storedProgress } from "./execution-store";
 import type { RunStore } from "./run-store";
 import { ANY_STORED_RUN } from "./run-store";
 
-/** Unsettled, and this process's to settle. */
 function ownedHere(run: ExecutionRun): boolean {
   return (
     sameProcess(run.owner, thisProcess()) &&
@@ -91,7 +90,6 @@ const INTERRUPTED = {
 const RETRY_FIRST_MS = 100;
 const RETRY_LONGEST_MS = 30_000;
 
-/** Storage and cleanup owned by the durable execution authority. */
 export interface ExecutionRecordsOptions {
   readonly removed?: (run: ExecutionRun) => Promise<void> | void;
   readonly runs?: Pick<RunStore, "claim" | "release">;
@@ -107,7 +105,6 @@ export class ExecutionRecords {
   readonly #listeners = new Set<(run: ExecutionRun) => void>();
   readonly #removed: (run: ExecutionRun) => Promise<void> | void;
   readonly #runs: Pick<RunStore, "claim" | "release"> | undefined;
-  /** Each record's observation positions by id, for the array it was built for. */
   readonly #indexes = new WeakMap<
     readonly ExecutionObservation[],
     Map<string, number>
@@ -265,7 +262,6 @@ export class ExecutionRecords {
     readonly existing: boolean;
     readonly run: ExecutionRun;
   }> {
-    // Before anything is recorded: an input that is not JSON never queues.
     const input =
       request.input === undefined ? undefined : jsonInput(request.input);
     const { source } = request;
@@ -585,7 +581,6 @@ export class ExecutionRecords {
       : undefined;
   }
 
-  /** Whether the store holds the run's record settled, read afresh. */
   async storedSettled(id: string): Promise<boolean> {
     const run = this.#parse(await this.#store.get(id));
     return run !== undefined && SETTLED_EXECUTION_STATUSES.has(run.status);
@@ -982,7 +977,6 @@ function reconciled(
   if (file === "suspended") {
     return run.status === "running" ? "suspended" : undefined;
   }
-  // Resumed and running when its process exited, or never parked.
   return file !== undefined || run.status === "running"
     ? "interrupted"
     : undefined;

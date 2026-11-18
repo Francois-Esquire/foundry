@@ -13,7 +13,6 @@ import {
 } from "./boundary";
 import { createIgnorer, ignoresAbsolute } from "./ignore";
 
-/** The shared workspace program: every workspace source, every package alias. */
 export function createProject(root: string, tsconfig?: string): Project {
   const project = tsconfig
     ? new Project({
@@ -41,12 +40,6 @@ export function createProject(root: string, tsconfig?: string): Project {
   return project;
 }
 
-/**
- * Every TypeScript source the analyzer loads for a workspace, absolute and
- * sorted: the workspace patterns minus generated directories, fixtures,
- * declaration files, tooling configuration, and gitignored paths. The V12.5
- * fingerprint enumerates through the same function, so the two can't drift.
- */
 export function workspaceSourceFiles(
   root: string,
   project: Project = new Project({ skipFileDependencyResolution: true })
@@ -61,12 +54,6 @@ export function workspaceSourceFiles(
   return globSources(root, includes, project);
 }
 
-/**
- * The package-owned subset of `workspaceSourceFiles`: the same rules applied
- * below the boundary directory alone. This is the one definition of "package
- * semantic input" — local analysis, the local fingerprint, and the leak tests
- * all enumerate through it.
- */
 export function packageSourceFiles(
   root: string,
   boundary: Boundary,
@@ -86,8 +73,6 @@ function globSources(
   ).concat(
     `!${posixRoot}/**/${FIXTURE_DIR}/**`,
     `!${posixRoot}/**/*.d.ts`,
-    // tooling configuration is not part of a package's semantic surface;
-    // keep in step with EXCLUDE_PATTERNS in dependencies.ts
     `!${posixRoot}/**/*.config.{ts,tsx,mts,cts}`
   );
   const ignorer = createIgnorer(root);

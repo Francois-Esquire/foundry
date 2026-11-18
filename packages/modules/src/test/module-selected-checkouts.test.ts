@@ -50,7 +50,6 @@ async function server(checkout: string) {
   return await readFile(path.join(checkout, SERVER), "utf8");
 }
 
-/** Staged or set-aside copies left beside the checkout. */
 async function scratch(folder: string) {
   return (await readdir(folder)).filter((name) => name.startsWith("."));
 }
@@ -71,7 +70,6 @@ describe("Module selected checkouts", () => {
     await checkouts.select(v2, async () => {
       during = await server(checkout);
     });
-    // The new files are in place before the selection is recorded.
     expect(during).toBe('export const tag = "2.0.0";');
     expect(await readdir(checkout)).toEqual(["outputs"]);
     expect(await scratch(folder)).toEqual([]);
@@ -95,14 +93,12 @@ describe("Module selected checkouts", () => {
     const v2 = await publish("2.0.0");
     await checkouts.ensure({ version: v1 });
 
-    // Interrupted after moving the old files aside, before placing new ones.
     await rename(checkout, path.join(folder, ".artifact-aside"));
     await mkdir(path.join(folder, ".artifact-staging"));
     expect((await checkouts.ensure({ version: v1 })).hostPath).toBe(checkout);
     expect(await server(checkout)).toBe('export const tag = "1.0.0";');
     expect(await scratch(folder)).toEqual([]);
 
-    // Another Version's files, as an unrecorded switch would leave them.
     await checkouts.select(v2, () => Promise.resolve());
     await checkouts.ensure({ version: v1 });
     expect(await server(checkout)).toBe('export const tag = "1.0.0";');

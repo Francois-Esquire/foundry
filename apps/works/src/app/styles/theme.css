@@ -28,13 +28,10 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  /* Visualization accents — the brand teal (tab underlines, home accent)
-     and its yellow counterpart, for focus/heat channels in data views. */
   --viz-primary: #2a9e8b;
   --viz-secondary: #e89b2a;
   --radius: 0.625rem;
 
-  /* Shadows */
   --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.04);
   --shadow-xs: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
   --shadow-sm: 0 2px 4px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
@@ -87,10 +84,8 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  /* Visualization accents — lifted + saturated for dark backgrounds. */
   --viz-primary: #53d7b7;
   --viz-secondary: #ffc555;
-  /* Shadows — higher opacity so they read against dark backgrounds */
   --shadow-2xs: 0 1px 2px 0 rgb(0 0 0 / 0.2);
   --shadow-xs: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.3);
   --shadow-sm: 0 2px 4px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.3);
@@ -113,7 +108,6 @@
 }
 
 @theme inline {
-  /* Shadcn component colors */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -140,23 +134,17 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  /* Visualization accents — brand teal + yellow (theme-resolved).
-     Exposes bg-viz-primary / text-viz-primary / border-viz-primary etc.,
-     with opacity modifiers, so callers stop hardcoding the hex. */
   --color-viz-primary: var(--viz-primary);
   --color-viz-secondary: var(--viz-secondary);
 
-  /* Agent-applied text flash — highlight that fades once, then settles */
   --animate-agent-flash: agent-flash 2s ease-out both;
 
-  /* Chart colors — brand scale (theme-resolved) */
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
 
-  /* Sidebar */
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -166,17 +154,14 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Self-hosted open-source UI font. */
   --font-sans: var(--font-ui);
   --font-mono: var(--font-code);
 
-  /* Radius */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* Shadows */
   --shadow-2xs: var(--shadow-2xs);
   --shadow-xs: var(--shadow-xs);
   --shadow-sm: var(--shadow-sm);
@@ -186,7 +171,6 @@
   --shadow-xl: var(--shadow-xl);
   --shadow-2xl: var(--shadow-2xl);
 
-  /* Tracking */
   --tracking-tighter: -0.04em;
   --tracking-tight: -0.025em;
   --tracking-normal: 0em;

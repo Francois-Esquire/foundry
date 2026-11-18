@@ -51,24 +51,11 @@ import type {
   VerificationCheck,
 } from "./types";
 
-// `spyglass apply`: the plan `spyglass plan` authorized, applied by its mutator,
-// `internalize-export`. Apply never trusts the record on its own: under the
-// state lock it loads the configuration's rules, authorizes again, fresh,
-// and goes on only when the `auth:` hash and the saved plan are the record's.
-// A write is journaled, flushed to disk, before the first source write; it
-// is verified (TypeScript, the structural proof, and the workspace's own
-// scripts run again against the baseline taken under the lock); any failed
-// check, error, or interrupting signal restores every written file; and a
-// verified write is followed by a scan, staged and swapped in, after which
-// the record and then the journal go.
-
-/** A record as apply loaded it: parsed, and its text, so apply deletes it only while the file is still the one it loaded. */
 interface LoadedRecord {
   record: AuthorizedMutationPlan;
   text: string;
 }
 
-/** The authorization record `spyglass plan` saved for a site; none saved fails, and asks for a plan. */
 function loadRecord(workspace: WorkspaceState, site: Site): LoadedRecord {
   const file = planRecordFile(workspace, site.planId);
   let text: string;
@@ -100,12 +87,6 @@ function loadRecord(workspace: WorkspaceState, site: Site): LoadedRecord {
   return { record: parsed, text };
 }
 
-/**
- * Whether a parsed file has the record's fields that apply compares; their
- * values are judged against a fresh authorization, never trusted. A record
- * of another schema version passes on its version alone, whatever its
- * fields, so that it is reported as another Spyglass's record.
- */
 function isRecordShaped(value: unknown): value is AuthorizedMutationPlan {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -137,7 +118,6 @@ const PARTS = [
   ["rollback", "rollbackFingerprint"],
 ] as const;
 
-/** The files whose hash differs between two records, or that only one names. */
 function movedFiles(
   recorded: AuthorizedMutationPlan,
   fresh: AuthorizedMutationPlan
@@ -151,12 +131,6 @@ function movedFiles(
     .sort((a, b) => a.localeCompare(b));
 }
 
-/**
- * What moved between the record and a fresh authorization: none when every
- * part, the saved plan, and the hash are the record's. The saved plan's own
- * id and fingerprint count as the plan. Every part the same but another
- * hash, or another record schema, means another Spyglass made the record.
- */
 function movedParts(
   recorded: AuthorizedMutationPlan,
   fresh: AuthorizedMutationPlan
@@ -185,10 +159,6 @@ function movedParts(
     : [{ part: "spyglass-version" }];
 }
 
-/**
- * Why the rollback could not restore the write: it would create or delete a
- * file, or a file the mutator writes is not one it can restore.
- */
 function rollbackRefusal(
   readiness: OperatorPlanReadiness,
   written: readonly string[]
@@ -206,11 +176,6 @@ function rollbackRefusal(
     : undefined;
 }
 
-/**
- * The mutator's own refusal: a written file dirty or no Git to tell, as it
- * found them when it looked, else its fresh analysis's stale, blocked, or
- * unsupported plan.
- */
 function mutatorRefusal(mutation: MutationResult): ApplyRefusal | undefined {
   const blockers = mutation.blockers ?? [];
   const dirty = blockers.filter((b) => b.reason === "dirty-working-tree");
@@ -243,7 +208,6 @@ interface SignalSource {
 
 const INTERRUPTS: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
 
-/** A write stopped by SIGINT or SIGTERM; every file it wrote is restored by the time it reaches the caller. */
 export class InterruptedError extends Error {
   override readonly name = "InterruptedError";
   readonly signal: NodeJS.Signals;
@@ -253,19 +217,10 @@ export class InterruptedError extends Error {
   }
 }
 
-/** Yields to the event loop once, so a signal delivered meanwhile reaches its listener. */
 function macrotask(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-/**
- * Catches SIGINT and SIGTERM for the write and its checks, so that they do
- * not end the process mid-write. Bun runs a signal's listener only at the
- * next macrotask, never while a synchronous command runs, so `check` first
- * yields, then throws for a caught signal, inside the mutator's `try`,
- * which restores the files. Further signals are caught as well, so the
- * restore always finishes.
- */
 function watchInterrupts(source: SignalSource) {
   let caught: NodeJS.Signals | undefined;
   const listener = (signal: NodeJS.Signals) => {
@@ -291,11 +246,6 @@ function watchInterrupts(source: SignalSource) {
 
 type Interrupts = ReturnType<typeof watchInterrupts>;
 
-/**
- * Readiness's command steps run again after the write: each must exit 0, or
- * show no failure its baseline, run under the lock before the write, did
- * not (A6). A failure from before the write is not the write's.
- */
 async function commandChecks(
   readiness: OperatorPlanReadiness,
   root: string,
@@ -312,8 +262,6 @@ async function commandChecks(
     const started = performance.now();
     const ran = runner(step.command, root);
     elapsed.ms += performance.now() - started;
-    // An interrupt is a signal Spyglass caught itself; a child killed on its
-    // own, as by its timeout, is a failed step.
     await interrupts.check();
     const command = `${[step.command.executable, ...step.command.args].join(" ")} in ${step.command.cwd}`;
     const check = `${step.kind} · ${step.scope.join(", ")}`;
@@ -342,7 +290,6 @@ async function commandChecks(
   return checks;
 }
 
-/** Why a child was killed, from Node's code when it gives one. */
 function killedBecause(
   signal: NodeJS.Signals,
   code: string | undefined
@@ -357,7 +304,6 @@ function killedBecause(
   }
 }
 
-/** A refused restore, with what the journal holds and the two ways out. */
 function withJournalAdvice(
   error: RestoreError,
   workspace: WorkspaceState
@@ -368,7 +314,6 @@ function withJournalAdvice(
   );
 }
 
-/** Restores from the journal, flushed; a refused restore keeps the journal and says what to do. */
 function restoreJournaled(
   workspace: WorkspaceState,
   journal: ApplyJournal,
@@ -387,7 +332,6 @@ function restoreJournaled(
   }
 }
 
-/** A journal file as the mutator hands it over before the first write. */
 function journalFileOf({ file, original, writtenHash }: RestorableFile) {
   return {
     file,
@@ -398,7 +342,6 @@ function journalFileOf({ file, original, writtenHash }: RestorableFile) {
   };
 }
 
-/** A journal's files as the restore takes them; a copy that does not match its recorded hash is refused. */
 function restorableOf(
   workspace: WorkspaceState,
   journal: ApplyJournal
@@ -416,12 +359,6 @@ function restorableOf(
   );
 }
 
-/**
- * An earlier apply that did not finish, under the lock. One interrupted
- * while it wrote is restored now, with the restore's guard, and its journal
- * deleted; a file changed since that write is left alone, the journal kept,
- * and the error names it. One that verified its write waits for a scan.
- */
 function finishInterrupted(
   workspace: WorkspaceState
 ): ApplyRefusal | undefined {
@@ -443,7 +380,6 @@ function finishInterrupted(
   };
 }
 
-/** Deletes the record only while the file is still the one apply loaded; a plan saved meanwhile is kept (A11). */
 function deleteLoadedRecord(file: string, loaded: LoadedRecord): void {
   let current: string;
   try {
@@ -460,20 +396,14 @@ function deleteLoadedRecord(file: string, loaded: LoadedRecord): void {
 }
 
 export interface ApplyRecordOptions {
-  /** Progress of the scan after a write. */
   onProgress?: (event: ScanProgressEvent) => void;
-  /** Swaps the verified write's staged scan in and records it; `publishStaged` by default. A seam for the tests. */
   publish?: (state: WorkspaceState) => Promise<unknown>;
-  /** Runs readiness's baseline commands, and runs them again after a write; by default they are spawned. */
   runner?: ReadinessCommandRunner;
-  /** Where SIGINT and SIGTERM come from; the process by default. */
   signals?: SignalSource;
   state?: string | undefined;
-  /** Write the change, verify it, and scan again. Default false: a preview. */
   write?: boolean;
 }
 
-/** What the write needs once every gate passed. */
 interface WriteContext {
   base: Omit<ApplyResult, "status">;
   config: SemanticsConfig;
@@ -481,7 +411,6 @@ interface WriteContext {
   options: ApplyRecordOptions;
   prepared: InternalizeEdits;
   readiness: OperatorPlanReadiness;
-  /** The package's report in the current saved dataset: "before". */
   report: PackageReport;
   saved: InternalizeSymbolPlan;
   site: Site;
@@ -492,12 +421,6 @@ interface ScanClock {
   ms: number;
 }
 
-/**
- * The write, under the lock: journaled before the first source write,
- * verified, restored on any failure, error, or signal, and, once verified,
- * followed by the scan. A scan that fails leaves the verified write and its
- * journal: the next `spyglass scan` publishes and finishes it (decision 9).
- */
 async function writeVerified(context: WriteContext): Promise<ApplyResult> {
   const { base, loaded, options, readiness, site, workspace } = context;
   const elapsed = { ms: 0 };
@@ -520,9 +443,6 @@ async function writeVerified(context: WriteContext): Promise<ApplyResult> {
     }),
   };
   if (mutation.status !== "applied") {
-    // Rolled back, or a write that never began, such as a file that moved
-    // while the journal was flushed: nothing is left to restore, and the
-    // staged scan of the write is not published.
     discardStaged(workspace);
     if (journaled) {
       deleteJournal(workspace);
@@ -549,14 +469,6 @@ async function writeVerified(context: WriteContext): Promise<ApplyResult> {
   return { ...written, scan, status: "applied" };
 }
 
-/**
- * The mutator's write, inside the signal window: journaled before the first
- * write, every check preceded by a yield to the event loop, and one last
- * check once it returns `applied`. On any error the write is undone: the
- * mutator restores what it wrote before rethrowing, and a signal caught
- * after it returned is undone here, from the journal. A refused restore
- * keeps the journal.
- */
 async function mutateJournaled(
   {
     config,
@@ -579,8 +491,6 @@ async function mutateJournaled(
     const mutation = await applyReductionPlan(saved, {
       afterChecks: () =>
         commandChecks(readiness, workspace.root, runner, interrupts, elapsed),
-      // "After" is the staged scan's report of the package, so the write is
-      // verified against the dataset that will be published.
       analyzeAfter: async () => {
         await interrupts.check();
         let after: PackageReport;
@@ -593,7 +503,6 @@ async function mutateJournaled(
             scanClock
           );
         } catch (error) {
-          // A worker the signal stopped fails the scan: that is the signal.
           await interrupts.check();
           throw error;
         }
@@ -602,7 +511,6 @@ async function mutateJournaled(
       },
       before: report,
       beforeWrite: async (files) => {
-        // A signal during the analysis before the write writes nothing.
         await interrupts.check();
         await writeJournal(workspace, {
           files: files.map(journalFileOf),
@@ -613,7 +521,6 @@ async function mutateJournaled(
           startedAt: new Date().toISOString(),
         });
         journaled = true;
-        // And once the journal is down: the write has not begun.
         await interrupts.check();
       },
       expectedHashes: new Map(
@@ -624,8 +531,6 @@ async function mutateJournaled(
       write: true,
     });
     applied = mutation.status === "applied";
-    // A signal caught after the last check, and not yet acted on, undoes
-    // the write before it is marked verified.
     if (applied) {
       await interrupts.check();
     }
@@ -638,32 +543,24 @@ async function mutateJournaled(
   }
 }
 
-/** What a failed write throws, once it is undone: a refused restore with the journal's advice, else the error itself. */
 function undone(
   workspace: WorkspaceState,
   error: unknown,
   { applied, journaled }: { applied: boolean; journaled: boolean }
 ): unknown {
   if (error instanceof RestoreError) {
-    // Not restored: the journal keeps what the next apply needs.
     return journaled ? withJournalAdvice(error, workspace) : error;
   }
   const journal = applied ? readJournal(workspace) : undefined;
   if (journal !== undefined) {
     restoreJournaled(workspace, journal, error);
   }
-  // Restored, or never written: the journal has nothing left to restore.
   if (journaled) {
     deleteJournal(workspace);
   }
   return error;
 }
 
-/**
- * The scan after the write, staged, and the package's report in it. A
- * failed scan leaves no report to verify against, so it fails the write,
- * which the mutator then restores.
- */
 async function stagedReport(
   workspace: WorkspaceState,
   config: SemanticsConfig,
@@ -685,11 +582,6 @@ async function stagedReport(
   }
 }
 
-/**
- * Publishes the verified write's staged scan: swaps it in and records it.
- * A failure here, and only here, leaves the verified write in the sources
- * (decision 9): the journal stays `verified`, and the next scan publishes.
- */
 async function publishAfterWrite(
   workspace: WorkspaceState,
   options: ApplyRecordOptions,
@@ -717,24 +609,11 @@ async function publishAfterWrite(
   }
 }
 
-/**
- * Applies the plan `spyglass plan` authorized for a site: a preview, or with
- * `write` the write itself. Under the state lock it finishes an earlier
- * apply that did not (restoring an interrupted write), loads the
- * configuration's rules, authorizes the plan again, fresh (running the
- * baseline commands), and goes on only when the fresh record's `auth:` hash
- * and saved plan are the recorded ones, when the rollback can restore every
- * file the mutator writes, when none of them is dirty, and when the
- * mutator's own fresh analysis still agrees with the saved plan.
- */
 export async function applyRecord(
   root: string,
   site: Site,
   options: ApplyRecordOptions = {}
 ): Promise<ApplyResult> {
-  // A missing dataset fails before the lock creates the state directory.
-  // The reader is made again under the lock, so no scan can publish
-  // between the manifest it keeps and the reports it reads.
   const { workspace: unlocked } = await savedDataset(root, options.state);
   const release = lockState(unlocked);
   try {
@@ -757,8 +636,6 @@ export async function applyRecord(
     }
     const loaded = loadRecord(workspace, site);
     const config = await loadConfiguration(workspace.root);
-    // "Before" is the saved report, so the dataset must be current; checked
-    // before any script runs.
     const currency = await datasetCurrency(
       workspace.root,
       await reader.manifest(),
@@ -809,8 +686,6 @@ export async function applyRecord(
     if (rollback !== undefined) {
       return stop({ kind: "rollback", reason: rollback });
     }
-    // Only a file the mutator writes blocks; any other dirty file stays a
-    // caution in the readiness.
     const dirty = verdict.readiness.sourceState.git.plannedDirty.filter(
       (file) => written.includes(file)
     );

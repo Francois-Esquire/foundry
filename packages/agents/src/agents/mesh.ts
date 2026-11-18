@@ -200,8 +200,6 @@ export class Mesh {
   }
 
   tools(self: NodeId): ToolSet {
-    // `message_agent.execute` must be a generator (so can't be an arrow), so
-    // bind the one method it needs rather than aliasing `this` into the closure.
     const send = this.send.bind(this);
     return tagTools(
       {
@@ -241,10 +239,6 @@ export class Mesh {
                 reply = event.message.content;
               }
             }
-            // Yield the final message — the AI SDK takes a generator tool's output
-            // from the *last yielded value*, not `return`. Without this yield, a
-            // reply with no text-delta events (e.g. the sub-agent ends on a tool
-            // result) yields nothing and `toModelOutput` gets an undefined output.
             const final = {
               id: `msg-${Date.now().toString(36)}`,
               parts: [{ text: reply, type: "text" as const }],
@@ -300,16 +294,12 @@ export const keyOf = (id: NodeId): string =>
 
 const ESCAPED_IN_ID = /[%:]/g;
 
-/** One endpoint of an edge id. `%` and `:` are percent-encoded, so an
- *  endpoint holding `::` cannot make two different edges share an id. */
 const idPart = (id: NodeId): string =>
   keyOf(id).replace(
     ESCAPED_IN_ID,
     (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
   );
 
-/** The map key for an unordered endpoint pair. Encoded as a tuple so an id
- *  containing the separator cannot make two different pairs share a key. */
 const pairKey = (a: NodeId, b: NodeId): string =>
   JSON.stringify([keyOf(a), keyOf(b)].sort());
 

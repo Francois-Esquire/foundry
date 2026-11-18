@@ -125,7 +125,6 @@ export function createRewiringFacts(
     }
     return false;
   };
-  /** Whether `module` still sits in a nontrivial SCC of its cycle once `removed` edges are gone. */
   const stillCyclic = (module: string, removed: Set<string>) => {
     const cycleId = moduleNode.get(module)?.cycle;
     const cycle = cycleId === undefined ? undefined : cycleById.get(cycleId);
@@ -166,8 +165,6 @@ export function createRewiringFacts(
     }
     usesBySourceTarget.set(key, total);
   };
-  // Composition evidence: how each primary module consumes the
-  // responsibilities it depends on, from its import bindings' uses.
   const usesBySourceTarget = new Map<string, PackageLocalBindingUses>();
   for (const site of local.imports) {
     visitSite(site);

@@ -1,13 +1,3 @@
-/**
- * The town's edge and its green (TOWNS.md rule 8, REFERENCES.md section 6
- * rules 9, 11, 12 and 15), laid out once the streets have grown
- * (world-plan-grow.ts): the shrine in its grove on the emptiest land at
- * the edge, the row of dark boathouses at one stretch of shore for the
- * files that stand alone, the one lighthouse on the most exposed point,
- * small fields along farm paths beyond the last lots, gardens behind the
- * houses, a band of pines along the coast, and the zones, trees and
- * utility poles that go with them.
- */
 import type { Module, Point, Polygon } from "../../../data/chart";
 import { CELL, FREE, type Land } from "./town-land";
 import { ROAD_WIDTH } from "./world";
@@ -54,18 +44,13 @@ import {
   type Town,
 } from "./world-plan-town";
 
-/** Files a boathouse holds: a boat bay below, flats above (Ine's funaya). */
 const BOATHOUSE_FILES = 3;
 const BOAT_FRONTAGE = 2.4;
 const BOAT_DEPTH = 3.2;
 const BOAT_HALF: readonly [number, number] = [1, 1.35];
-/** How far a path may wander to reach the town's roads. */
 const PATH_REACH = 30;
 const PATH_WIDTH = ROAD_WIDTH.path;
 
-// ------------------------------------------------------------- the halo
-
-/** Cells a path keeps off: every parcel's ground and a cell round it. */
 class Halo {
   readonly cells: Uint8Array;
   readonly land: Land;
@@ -75,7 +60,6 @@ class Halo {
     this.cells = new Uint8Array(land.cols * land.rows);
   }
 
-  /** Marks a rectangle grown by `pad` on every side. */
   add(parcel: Pick<ParcelDraft, "middle" | "axis" | "half">, pad: number) {
     const { land } = this;
     const ring = rectangle(
@@ -105,7 +89,6 @@ class Halo {
 
 const HALO_PAD = 0.6;
 
-/** A footpath from `from` back to the nearest road, starting on that road's centreline, or null. */
 function footpath(town: Town, halo: Halo, from: Point): Point[] | null {
   const walk0 = pathToRoad(town, from, halo.cells, PATH_REACH);
   if (!walk0 || walk0.length < 2) {
@@ -116,7 +99,6 @@ function footpath(town: Town, halo: Halo, from: Point): Point[] | null {
   if (!near) {
     return null;
   }
-  // Start exactly on the road's centreline, and leave it a little way out before turning.
   const start = near.at;
   const points = [start, ...line.filter((p) => distance(p, start) > 1)];
   const fine = resample(points, 1);
@@ -133,7 +115,6 @@ function footpath(town: Town, halo: Halo, from: Point): Point[] | null {
   return fine;
 }
 
-/** A finished footpath, joined to the land grid. */
 function addPath(
   town: Town,
   points: readonly Point[],
@@ -159,9 +140,6 @@ function extend(town: Town, road: RoadDraft, p: Point) {
   }
 }
 
-// ------------------------------------------------------------ emptiness
-
-/** Each cell's distance to the nearest road or parcel, in units (two chamfer passes). */
 function emptiness(land: Land): Float32Array {
   const { cols, rows } = land;
   const far = new Float32Array(cols * rows);
@@ -175,7 +153,6 @@ function emptiness(land: Land): Float32Array {
       far[k] = through;
     }
   };
-  // The grid's border cells are always sea, so the passes skip them.
   for (let j = 1; j < rows - 1; j += 1) {
     for (let k = j * cols + 1; k < (j + 1) * cols - 1; k += 1) {
       relax(k, k - 1, CELL);
@@ -200,18 +177,13 @@ const cellMiddle = (land: Land, cell: number): Point => [
   land.v0 + (Math.floor(cell / land.cols) + 0.5) * CELL,
 ];
 
-// ------------------------------------------------------------ the shrine
-
 const SHRINE_HALF: readonly [number, number] = [2.5, 2.5];
 const GROVE_RADIUS = 8;
-/** How far the shore row keeps from the shrine. */
 const SHRINE_CLEAR = GROVE_RADIUS + 8;
 const SHRINE_TRIES = 6;
 
-/** The shrine and its grove where the most empty land meets the town's edge (rule 11). */
 function placeShrine(town: Town, halo: Halo, far: Float32Array) {
   const score = shrineScores(town.land, far);
-  // A few good sites, well apart, so a failed path isn't tried again next door.
   const tried: Point[] = [];
   for (let attempt = 0; attempt < SHRINE_TRIES; attempt += 1) {
     const cell = bestSite(town.land, score, tried);
@@ -228,7 +200,6 @@ function placeShrine(town: Town, halo: Halo, far: Float32Array) {
   }
 }
 
-/** How well each cell suits the shrine: empty land, at the edge but within reach, well inside the coast. */
 function shrineScores(land: Land, far: Float32Array): Float32Array {
   const score = new Float32Array(far.length).fill(Number.NEGATIVE_INFINITY);
   for (let cell = 0; cell < far.length; cell += 1) {
@@ -244,7 +215,6 @@ function shrineScores(land: Land, far: Float32Array): Float32Array {
   return score;
 }
 
-/** The best scoring cell at least eight units from every site tried, or -1. */
 function bestSite(
   land: Land,
   score: Float32Array,
@@ -265,7 +235,6 @@ function bestSite(
   return best;
 }
 
-/** The shrine's parcel, building, path and grove at `at`, facing the town; false if it doesn't fit. */
 function shrineAt(town: Town, halo: Halo, at: Point, radius: number): boolean {
   const face = normalise(sub(town.centre, at));
   const axis: Point = [face[1], -face[0]];
@@ -308,7 +277,6 @@ function shrineAt(town: Town, halo: Halo, at: Point, radius: number): boolean {
   return true;
 }
 
-/** The grove round the shrine: its zone and its trees, off the shrine's ground and path. */
 function grove(
   town: Town,
   at: Point,
@@ -356,7 +324,6 @@ function grove(
   }
 }
 
-/** Whether a point is on land, off every road and parcel, by `gap`. */
 function openGround(town: Town, p: Point, gap: number): boolean {
   if (clearAt(town.land, p) < 1) {
     return false;
@@ -385,11 +352,7 @@ const grown = (parcel: ParcelDraft, pad: number): Point[] =>
     parcel.half[1] + pad
   );
 
-// ------------------------------------------------------------- the rim
-
-/** The coast's buildable rim, by angle round the land's middle: a point just inside the margin each step. */
 interface Rim {
-  /** Each point's outward direction, toward the sea. */
   readonly out: Point[];
   readonly points: Point[];
 }
@@ -403,7 +366,6 @@ function rimOf(town: Town): Rim {
   const out: Point[] = [];
   for (let k = 0; k < steps; k += 1) {
     const dir = heading((k / steps) * 2 * Math.PI);
-    // Coarse steps in from beyond the coast, then fine ones back out to the rim.
     let found: Point | null = null;
     for (let r = reach; r > 0; r -= 2) {
       if (clearAt(land, add(middle, scale(dir, r))) >= land.margin + 0.3) {
@@ -423,7 +385,6 @@ function rimOf(town: Town): Rim {
       out.push(dir);
     }
   }
-  // The outward direction from the rim's own shape, not the ray's.
   const normals = points.map((_, k) => {
     const prev = points[(k - 2 + points.length) % points.length] as Point;
     const next = points[(k + 2) % points.length] as Point;
@@ -434,7 +395,6 @@ function rimOf(town: Town): Rim {
   return { out: normals, points };
 }
 
-/** A smooth stretch of rim of at least `length`, as indices, scored by `score`; the best one. */
 function bestStretch(
   rim: Rim,
   length: number,
@@ -470,7 +430,6 @@ function bestStretch(
   return best ? { count: best.count, from: best.from } : null;
 }
 
-/** The widest step between neighbouring rim points a smooth stretch may take. */
 const RIM_JUMP = 4;
 
 const stretchPoints = (rim: Rim, from: number, count: number): Point[] =>
@@ -479,9 +438,6 @@ const stretchPoints = (rim: Rim, from: number, count: number): Point[] =>
     (_, k) => rim.points[(from + k) % rim.points.length] as Point
   );
 
-// ------------------------------------------------------------- the shore
-
-/** The isolated files' boathouses in a short dark row at one stretch of shore (rule 15). */
 function placeShore(
   town: Town,
   halo: Halo,
@@ -497,7 +453,6 @@ function placeShore(
   const length = houses * (BOAT_FRONTAGE + 0.15) * 1.4 + 3;
   const stretch = bestStretch(rim, length, (k) => {
     const p = rim.points[k] as Point;
-    // Away from the shrine's grove, which wants the shore to itself.
     if (shrine && distance(p, shrine) < SHRINE_CLEAR) {
       return -20;
     }
@@ -559,7 +514,6 @@ function placeShore(
   return { left, used: [stretch.from, stretch.count] };
 }
 
-/** A boathouse's lot at arclength `s` of the shore line: its seaward edge on the rim, its door to the sea. */
 function boatPlot(
   town: Town,
   line: readonly Point[],
@@ -591,7 +545,6 @@ function boatPlot(
   return null;
 }
 
-/** The path behind the boathouses, joined to the town by a footpath, and the shore zone round them. */
 function shorePath(
   town: Town,
   halo: Halo,
@@ -653,7 +606,6 @@ function cumulative(line: readonly Point[]): number[] {
   return out;
 }
 
-/** Files split into `n` groups as evenly as they go, in order. */
 function chunk(files: readonly Module[], n: number): Module[][] {
   const out: Module[][] = [];
   let k = 0;
@@ -665,9 +617,6 @@ function chunk(files: readonly Module[], n: number): Module[][] {
   return out.filter((group) => group.length > 0);
 }
 
-// ---------------------------------------------------------- the lighthouse
-
-/** The one lighthouse, on the rim point farthest from the town's middle, away from the shore row. */
 function placeLighthouse(
   town: Town,
   rim: Rim,
@@ -721,11 +670,8 @@ function placeLighthouse(
   return false;
 }
 
-// ------------------------------------------------------------- the fields
-
 const FIELD_PATH = 16;
 
-/** Dead ends far out, where farm paths run on into small fields (rule 8). */
 function placeFields(town: Town, halo: Halo, budget: number) {
   const ends = town.roads
     .filter(
@@ -747,7 +693,6 @@ function placeFields(town: Town, halo: Halo, budget: number) {
   }
 }
 
-/** Whether a road's end lies on another road (a loop it closed). */
 function joined(town: Town, road: RoadDraft): boolean {
   const end = road.points.at(-1) as Point;
   const near = nearestRoadPoint(
@@ -759,7 +704,6 @@ function joined(town: Town, road: RoadDraft): boolean {
   return near !== null;
 }
 
-/** A farm path on from a road's end, fields along both sides of it; their area. */
 function farm(town: Town, halo: Halo, from: RoadDraft): number {
   const n = from.points.length;
   const end = from.points[n - 1] as Point;
@@ -824,11 +768,8 @@ function dropLast(town: Town, road: RoadDraft) {
   }
 }
 
-// ------------------------------------------------------------ the gardens
-
 const GARDEN_DEPTH = 1.8;
 
-/** A garden strip behind each house's lot where the land behind is free, and a tree in about a third. */
 function placeGardens(
   town: Town,
   buildingOf: ReadonlyMap<number, BuildingDraft>
@@ -870,9 +811,6 @@ function placeGardens(
   }
 }
 
-// -------------------------------------------------------------- the pines
-
-/** A band of pines along a stretch of coast, away from the shore row and the town. */
 function placePines(
   town: Town,
   rim: Rim,
@@ -953,9 +891,6 @@ function placePines(
   }
 }
 
-// ------------------------------------------------------- trees and poles
-
-/** Street trees along the main roads, where they stand clear of every building. */
 function placeStreetTrees(town: Town, buildings: SpatialIndex<BuildingDraft>) {
   for (const road of town.roads) {
     if (road.rank !== "main" || road.points.length < 2) {
@@ -993,7 +928,6 @@ function clearOfBuildings(
   return true;
 }
 
-/** Utility poles along every road but the footpaths, on one side, 8 to 12 units apart (rule 12). */
 function placePoles(town: Town) {
   for (const road of town.roads) {
     if (road.rank === "path" || road.points.length < 2) {
@@ -1016,9 +950,6 @@ function placePoles(town: Town) {
   }
 }
 
-// ---------------------------------------------------------------- zones
-
-/** The dense core: round the plaza and the lots nearest it (rule 9). */
 function placeCore(town: Town) {
   const reach = town.radius * CORE_REACH;
   const points: Point[] = [];
@@ -1040,7 +971,6 @@ function placeCore(town: Town) {
   }
 }
 
-/** The island's coast in its frame: the meadow under everything else. */
 function meadowOf(land: Land, coast: Polygon): Point[] {
   return coast.outer.map(([x, y]) => {
     const dx = x - land.centre[0];
@@ -1052,13 +982,6 @@ function meadowOf(land: Land, coast: Polygon): Point[] {
   });
 }
 
-// ------------------------------------------------------------------ all
-
-/**
- * Lays out everything past the streets. `alone` are the files that stand
- * alone; `lost` any the streets could not house, who join them on the
- * shore so every file has a building.
- */
 export function finishEdge(
   town: Town,
   coast: Polygon,
@@ -1102,11 +1025,6 @@ export function finishEdge(
   town.zones.unshift({ kind: "meadow", outline: meadowOf(town.land, coast) });
 }
 
-/**
- * Files the shore row could not hold share its boathouses, a few more to
- * each (another floor of flats over the boat bay); with no row at all,
- * the town's homes take them in.
- */
 function shelter(town: Town, files: readonly Module[]) {
   const boats = town.buildings.filter((b) => b.kind === "boathouse");
   const homes = town.buildings.filter(

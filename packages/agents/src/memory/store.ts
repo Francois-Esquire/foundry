@@ -31,13 +31,6 @@ interface MemoryHit extends MemoryRecord {
   score: number;
 }
 
-/**
- * The persistence seam for agent memory. A {@link Memory} is built on a
- * `MemoryStore` and never names a concrete database — swap in a db-backed
- * implementation (`createNodesMemoryStore` in the host's db package) to
- * persist memories; the default {@link InMemoryMemoryStore} keeps everything
- * in process.
- */
 export interface MemoryStore {
   create(input: CreateMemoryInput): Promise<MemoryRecord>;
   delete(id: string): Promise<void>;
@@ -46,11 +39,6 @@ export interface MemoryStore {
 
 const DEFAULT_SEARCH_LIMIT = 10;
 
-/**
- * Default, dependency-free store. Has no embedder, so `search` matches the
- * db-backed store's embedder-less fallback: a case-insensitive keyword match
- * over content, newest first, score 1.
- */
 export class InMemoryMemoryStore implements MemoryStore {
   #rows: MemoryRecord[] = [];
 

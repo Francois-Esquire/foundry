@@ -16,11 +16,6 @@ import type {
   LiveTarget,
 } from "./types";
 
-/**
- * Where the received media of a `continuous` session goes. The browser entry
- * routes it to `onStream`, the Node entry to `onTrack` and `tracks`; the core
- * never names either media type.
- */
 export interface HostAdapter {
   data(raw: string): void;
   media(media: TransportMedia, direction: number): void;
@@ -35,7 +30,6 @@ export interface CoreRequest {
   readonly target: LiveTarget;
 }
 
-/** How many correlations to remember before the oldest unanswered ones age out. */
 const CORRELATION_LIMIT = 64;
 
 export class LiveCore {
@@ -81,7 +75,6 @@ export class LiveCore {
     return this.#sequence;
   }
 
-  /** Runs before the transport is released. Used by `record` to stop cleanly. */
   addTeardown(teardown: () => void): void {
     this.#teardowns.push(teardown);
   }
@@ -136,7 +129,6 @@ export class LiveCore {
     this.#terminate("closed", "closed");
   }
 
-  /** Wired to the transport's handlers by `openCore`. */
   readonly handlers: TransportHandlers = {
     close: (reason, message) => {
       this.#terminate("disconnected", reason, message);
@@ -149,7 +141,6 @@ export class LiveCore {
     },
     error: () => {
       // A transport error that is not a loss of the session is not a state
-      // change; the transports report loss through `close`.
     },
     media: (media) => {
       if (this.#state !== "open") {
@@ -169,7 +160,6 @@ export class LiveCore {
         this.#correlations.delete(message.correlation);
       }
       this.#options.onResult?.({
-        // Use the last sent sequence if the correlation is missing or expired.
         direction: echoed?.sequence ?? this.#lastSentSequence,
         media: message.media,
         ...(echoed?.id === undefined ? {} : { input: echoed.id }),
@@ -186,7 +176,6 @@ export class LiveCore {
     );
   }
 
-  /** The opening send. Its rejection is an `open` failure, not a state change. */
   async prime(): Promise<void> {
     this.#lastSendAt = Date.now();
     await this.#transport.send(this.#next({}));
@@ -297,11 +286,6 @@ export class LiveCore {
   }
 }
 
-/**
- * Everything `open` shares between the two entries: the fact checks, the
- * transport choice, the opening send, and the state machine. Each entry wraps
- * the returned core in its own host-shaped interaction.
- */
 export async function openCore(request: CoreRequest): Promise<LiveCore> {
   const { fact } = request.target;
   if (fact.mode !== "live") {
@@ -336,7 +320,6 @@ export async function openCore(request: CoreRequest): Promise<LiveCore> {
       reason: `${request.target.modelId} requires a feed at open for ${request.target.operation}`,
     });
   }
-  // The fact fixes the transport; no host, runtime, or environment check.
   let connect:
     | typeof request.connect.webrtc
     | typeof request.connect.socket

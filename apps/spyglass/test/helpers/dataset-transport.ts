@@ -21,11 +21,6 @@ export function recordReads(transport: DatasetTransport): {
   };
 }
 
-/**
- * Stubs the global `fetch` as a server mounting `transport` at `./data/`
- * beneath the page at `base`. A file the transport lacks, or any URL outside
- * the mount, answers `status`. Restore with `vi.unstubAllGlobals()`.
- */
 export function stubFetch(
   transport: DatasetTransport,
   { base = "http://localhost:4173/", status = 404 } = {}

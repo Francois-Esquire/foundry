@@ -1,8 +1,6 @@
 import { step } from "@foundry.sh/marbles";
 import { z } from "zod";
 
-// The same module works three ways: `marbles roll count`, an embedded
-// engine (./standalone.ts), and the MCP server's `dispatch_workflow`.
 export const count = step("count")
   .input(z.object({ extension: z.string() }))
   .do(async ({ input, workspaces }) => {

@@ -125,7 +125,6 @@ const busy = (message = "the database is locked") =>
 let store: TestStore;
 const seen = new Map<string, ProviderSetup<{ key?: string }>>();
 
-/** A plugin whose instances record the setup they were built with. */
 function plugin(
   id: string,
   extra: Partial<ProviderPlugin<{ key?: string }>> = {}
@@ -213,7 +212,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-/** Make `process.env` hold exactly `env` under the account names `patterns` cover. */
 function matchProcessEnv(
   patterns: readonly string[],
   env: Readonly<Record<string, string>>
@@ -1120,7 +1118,6 @@ describe("instance identity", () => {
     kept = store
   ) => {
     const env = { HOME: "/home/me", ...machine };
-    // Pi reads `process.env` itself and serves only when its account names match.
     if (pluginId === "pi") {
       matchProcessEnv(piPlugin.accountEnv ?? [], env);
     }
@@ -1182,7 +1179,6 @@ describe("instance identity", () => {
     expect(
       await identity("codex", { OPENAI_API_KEY: "k", OPENAI_ORG_ID: "a" })
     ).toBe(digests[9]);
-    // A variable no first-party CLI reads for its account changes nothing.
     expect(
       await identity("codex", { CODEX_HOME: "/codex/work", EDITOR: "vi" })
     ).toBe(digests[11]);

@@ -31,7 +31,6 @@ type CoChange = Pick<
   | "staticPath"
 >;
 
-/** One package's responsibilities, by the fields the lens reads; module and directory ids are the package's own. */
 export interface ProximitySourcePackage {
   id: string;
   responsibilities: {
@@ -48,13 +47,11 @@ export interface ProximitySourcePackage {
 }
 
 export interface ProximitySource {
-  /** The workspace report's co-change pairs, as stored: already past `lib`'s coupling gates. */
   coChanges: CoChange[];
   missing: string[];
   packages: ProximitySourcePackage[];
 }
 
-/** Only pairs of source files, as `lib`'s own uses of co-change read them (`couplingContexts`). */
 function sourcePairs(coChanges: readonly CoChange[]): CoChange[] {
   return coChanges.filter((pair) => pair.context === "source-source");
 }
@@ -63,7 +60,6 @@ function pairKey(a: string, b: string): string {
   return a < b ? `${a}\n${b}` : `${b}\n${a}`;
 }
 
-/** Responsibility pairs something relates: a relationship either way, or a co-change between their files. */
 function relatedPairs(
   pkg: ProximitySourcePackage,
   coChanges: readonly CoChange[]
@@ -87,7 +83,6 @@ function relatedPairs(
   return related;
 }
 
-/** The connected components of `nodes` under `related`, each sorted, by first id. */
 function components(
   nodes: readonly string[],
   related: ReadonlySet<string>
@@ -117,11 +112,6 @@ function components(
     .sort((a, b) => byId(a[0] ?? "", b[0] ?? ""));
 }
 
-/**
- * The package's folders whose files directly in them fall into two or more
- * unrelated groups; each group names its files that are also apart from
- * their responsibility's folder.
- */
 function closeFolders(
   pkg: ProximitySourcePackage,
   related: ReadonlySet<string>,
@@ -168,7 +158,6 @@ function closeFolders(
   return folders;
 }
 
-/** The package's files whose responsibility's dominant folder is another folder. */
 function filesApart(pkg: ProximitySourcePackage): ProximityFile[] {
   const dominant = new Map(
     pkg.responsibilities.regions.map((region) => [
@@ -200,7 +189,6 @@ function filesApart(pkg: ProximitySourcePackage): ProximityFile[] {
   return files;
 }
 
-/** Co-changing source files from different folders, with the steps between them. */
 function coChangesApart(coChanges: readonly CoChange[]): ProximityCoChange[] {
   return coChanges.flatMap((pair) => {
     const distance = directoryDistance(
@@ -224,20 +212,6 @@ function coChangesApart(coChanges: readonly CoChange[]): ProximityCoChange[] {
   });
 }
 
-/**
- * What sits close without being related, and what is related without
- * sitting close. Close is a folder, the file system's own grouping; related
- * is the responsibilities' own evidence: one responsibility, a relationship
- * between two, or a co-change between their source files. A file that no
- * responsibility holds is left out of relatedness and counted. A file apart
- * is the responsibilities' own `pathAgreesWithRegion` judgment, copied; the
- * same comparison between path regions, `responsibilities.pathSeams`, stays
- * in the internals, where a reader finds it per seam. Responsibilities are
- * read from the internals, not through the `responsibility-groups` lens,
- * whose groups carry neither the modules, the relationships, nor the
- * dominant folders this needs, and come from a modularity merge rather than
- * the analysis's evidence.
- */
 export const proximityLens: Lens<"proximity", ProximitySource> = {
   derive: ({ coChanges, missing, packages }) => {
     const pairs = sourcePairs(coChanges);

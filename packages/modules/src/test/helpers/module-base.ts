@@ -1,11 +1,5 @@
 import type { ModuleBase } from "../../template/compose";
 
-/**
- * A React + Vite application on the Bun runtime with Tailwind styling: the
- * shape a Module workspace's `packages/app` starts from. The composer replaces
- * `vite.config.ts` and keeps the rest, so the integration test can install,
- * build, and serve it.
- */
 export const reactModuleBase: ModuleBase = {
   files: {
     "index.html":

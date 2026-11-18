@@ -18,9 +18,6 @@ import {
 interface Opened {
   readonly model: MockLanguageModelV4;
   readonly sessionId: string;
-  /** What the event settled with — once, as `TurnObservation.emit` is
-   *  idempotent — and whether the host's own telemetry had already seen the
-   *  operation end, as evlog must before the event is emitted. */
   readonly settled: {
     afterEnd: boolean;
     error: unknown;
@@ -28,8 +25,6 @@ interface Opened {
   }[];
 }
 
-/** An `ObserveTurn` that records each observation it opens, with the model
- *  it wrapped, so a test can tell which turn ran under which observation. */
 function recordingObserver(): { observe: ObserveTurn; opened: Opened[] } {
   const opened: Opened[] = [];
   const observe: ObserveTurn = ({ sessionId }) => {
@@ -70,9 +65,6 @@ function recordingObserver(): { observe: ObserveTurn; opened: Opened[] } {
   return { observe, opened };
 }
 
-/** A model stream that delivers a line of text — `smoothStream` releases
- *  text by the line — and then never finishes, so only its consumer can end
- *  the turn. */
 function unfinishedStreamResult(signal?: AbortSignal): {
   stream: ReadableStream<LanguageModelV4StreamPart>;
 } {
@@ -196,8 +188,6 @@ describe("LoopAgent — observation", () => {
     }
     await reader.cancel();
 
-    // The cancel reaches the turn's stream through the SDK's pipes, a few
-    // ticks after `cancel` resolves.
     await vi.waitFor(() =>
       expect(opened[0]?.settled).toEqual([
         { afterEnd: false, error: undefined, outcome: "cancelled" },

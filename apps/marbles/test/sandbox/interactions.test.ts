@@ -247,7 +247,6 @@ it("cancels live input and rejects a stale answer without granting permission", 
 it("routes live answers through the real engine without suspending or replaying its step", async () => {
   const f = await fixture();
   let bodies = 0;
-  // The engine builds its own bridge over the feed and sessions it is handed.
   let bridge: HarnessInteractions | undefined;
   step("coding").do(async ({ run }) => {
     bodies += 1;
@@ -401,7 +400,6 @@ it("keeps sessions across restarts only under an authority the host built over i
     session,
     f.bridge.authority(source, { policy: custom })
   );
-  // A hand-built authority cannot claim durability, even over the host's policy.
   await f.bridge.registerSession(session, { policy: f.policy });
   await f.bridge.registerSession(session, {
     ...f.bridge.authority(source),

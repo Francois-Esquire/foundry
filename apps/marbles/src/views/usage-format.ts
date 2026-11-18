@@ -1,10 +1,5 @@
 import type { Money, UsageTotal } from "~/model/usage";
 
-/**
- * How a usage total reads. A cost is never printed for turns without a
- * price, and "no usage recorded" never reads as a zero cost.
- */
-
 const SMALL = 1;
 const THOUSAND = 1000;
 const MILLION = 1_000_000;
@@ -12,7 +7,6 @@ const MILLION = 1_000_000;
 const SMALL_DIGITS = 4;
 const SMALLEST_SHOWN = (1 / 10 ** SMALL_DIGITS).toFixed(SMALL_DIGITS);
 
-/** `$0.0421`, `1.20 EUR`; a charge too small to round above zero reads `<$0.0001`, never as zero. */
 function money({ amount, currency }: Money): string {
   const digits = amount < SMALL ? SMALL_DIGITS : 2;
   const fixed = amount.toFixed(digits);
@@ -60,7 +54,6 @@ function hasElsewhere(total: UsageTotal): boolean {
   return total.unreadable > 0 || total.unattributed > 0;
 }
 
-/** Nothing recorded and nothing that may belong: never read as a zero cost. */
 function isEmpty(total: UsageTotal): boolean {
   return total.turns === 0 && !hasElsewhere(total);
 }
@@ -92,12 +85,6 @@ function pricedLabel(total: UsageTotal): string {
   return `${priced.join(" + ")} · partial: ${of}`;
 }
 
-/**
- * `$0.4210 est.`, `$1.20 reported + $0.05 est.`, `unknown`, with any
- * unpriced or unrecorded turns, and any unreadable records or unattributed
- * turns that may belong here, named, so a partial total never reads as
- * whole.
- */
 export function costLabel(total: UsageTotal | undefined): string {
   if (!total || isEmpty(total)) {
     return "no usage recorded";
@@ -118,7 +105,6 @@ function count(value: number): string {
   return String(value);
 }
 
-/** `12.3k tokens (8.0k in · 4.3k out) · 3 turns`, with turns that reported none, or were not recorded, named. */
 export function tokensLabel(total: UsageTotal | undefined): string {
   if (!total || isEmpty(total)) {
     return "no usage recorded";
@@ -141,7 +127,6 @@ export function tokensLabel(total: UsageTotal | undefined): string {
   return `${count(tokens.total)} tokens (${count(tokens.input)} in · ${count(tokens.output)} out) · ${turns}${suffix}`;
 }
 
-/** The short form a run row shows: `~` marks an estimate, `+?` an incomplete total; blank when nothing was recorded. */
 export function costCell(total: UsageTotal | undefined): string {
   if (!total || isEmpty(total)) {
     return "";

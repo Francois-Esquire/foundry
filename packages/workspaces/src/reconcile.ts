@@ -18,11 +18,6 @@ export function diffCatalog(input: {
   const updated: WorkspaceEntry[] = [];
   const arrivals: ObservedFacts[] = [];
 
-  // Path first, and path wins. A candidate standing where a row already stands
-  // *is* that row, even when its bytes came from somewhere else — delete
-  // `a.md`, rename `b.md` to `a.md`, and `a.md`'s id survives wearing b's
-  // content. That is deliberate: identity following bytes instead would turn
-  // every ordinary edit into a deletion and a creation.
   for (const candidate of input.candidates) {
     const row = existingByPath.get(candidate.path);
     if (!row) {
@@ -42,11 +37,6 @@ export function diffCatalog(input: {
   const moved = new Set<WorkspaceEntryId>();
   const inserted: WorkspaceEntry[] = [];
   for (const candidate of arrivals) {
-    // Exactly one departure and exactly one arrival share the fingerprint, so
-    // among files that carry bytes there is only one story the change can
-    // tell. Any other group size — one to many, many to one, many to many, or
-    // a file with no bytes to speak for it — is a guess, and the design
-    // refuses to guess: those become deletion plus creation.
     const key = fingerprintOf(candidate);
     const olds = key === null ? [] : (oldByFingerprint.get(key) ?? []);
     const news = key === null ? [] : (newByFingerprint.get(key) ?? []);
@@ -82,15 +72,6 @@ export function isEmptyChange(change: WorkspaceCatalogChange): boolean {
   );
 }
 
-/**
- * The accepted move evidence: identical bytes at an identical length.
- *
- * Empty files are deliberately absent from this index. Every zero-byte file
- * shares one fingerprint, so a `.gitkeep` disappearing while an empty
- * `index.ts` appears would look like exactly one departure and one arrival and
- * hand the new File the old one's id. Identical bytes is only evidence of
- * identity when there are bytes.
- */
 function fingerprintOf(facts: ObservedFacts): string | null {
   return facts.type !== "file" || facts.bytes === 0
     ? null

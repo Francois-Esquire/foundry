@@ -1,26 +1,13 @@
-/**
- * What a chart id frames: the circle of the chart the camera flies to for
- * an island, a ring or a module (camera.ts `frameOrbit`). Pure, no GPU.
- */
 import type { Chart, Point } from "../../../data/chart";
 import type { Banks } from "../sea/banks";
 
-/** A circle of the chart: its centre and radius, chart units. */
 export interface Framed {
   centre: Point;
   radius: number;
 }
 
-/** The radius a module is framed by, chart units: the file and the street round it. */
 const MODULE_FRAME_RADIUS = 12;
 
-/**
- * The circle a chart id frames, by the same ids `select` takes: an island
- * (its place and size), a ring (the box round its members, out to their
- * sizes), or a module (where its building stands, `moduleAt`, else its
- * place; `MODULE_FRAME_RADIUS` round it). Null when the id names none of
- * them.
- */
 export function framedOf(
   chart: Chart,
   banks: Banks,

@@ -4,7 +4,6 @@ import { type ReactNode, useCallback, useState } from "react";
 const MIN_PANEL_HEIGHT = 3;
 const ROW_COUNT = 2;
 const TOTAL_WEIGHT = 5;
-/** Triggers' share of the Catalog tab; Marbles, usually the longer list, gets the rest. */
 const TRIGGER_WEIGHT = 2;
 
 export function CatalogPanels({

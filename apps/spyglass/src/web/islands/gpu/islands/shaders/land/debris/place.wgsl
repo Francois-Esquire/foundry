@@ -1,66 +1,42 @@
-// The props' placement, once per map build: one jittered candidate per
-// cell over the maps' square (shaders/scatter), kept by the ground it
-// finds there and appended to the instance buffer through an atomic
-// tally. Pebbles lie on the beaches and the shallows, thickest on the
-// levels' lips; shells on the sand at the water's edge; and now and then a
-// stack stands on a shallow plate, tall enough to break the surface. A
-// drop-off coast has none. `cs_finalize` then writes the draws' arguments,
-// the count clamped to the buffer, so the CPU never reads it back.
 import { planarFbm } from "../../../../../shaders/noise/planar.wgsl";
 import { scatterCandidate, scatterClumps, scatterKeep } from "../../../../../shaders/scatter/scatter.wgsl";
 import { ARGS_BODIES, ARGS_RINGS, Instance, INSTANCE_STRIDE, packInstance, PEBBLE, RING_VERTICES, SHELL, STACK } from "./instance.wgsl";
 import { ICOSPHERE_VERTICES_1 } from "../../../../../shaders/geometry/icosphere.wgsl";
 
 struct Place {
-  // The maps' square: its corner and side, chart units.
   origin: vec2f,
   side: f32,
-  // A candidate cell, chart units, and how many a side.
   cell: f32,
   cells: u32,
-  // The most instances the buffer holds.
   cap: u32,
-  // The top level's depth, and the sand's height above the water.
   top: f32,
   sandHeight: f32,
-  // Each kind's density, 0 for none; stacks a rate per shallow candidate.
   pebbles: f32,
   shells: f32,
   stacks: f32,
-  // Multiplies every prop's size.
   size: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: Place;
-// r the floor's height; g how far inland of the coast (maps.ts `height`).
 @group(0) @binding(1) var height: texture_2d<f32>;
-// normal.x, normal.z, occlusion, sun.
 @group(0) @binding(2) var light: texture_2d<f32>;
-// The coast's signed distance, negative on land.
 @group(0) @binding(3) var distance: texture_2d<f32>;
-// a: how much of a drop-off the nearest coast is.
 @group(0) @binding(4) var paint: texture_2d<f32>;
 @group(0) @binding(5) var linear: sampler;
 @group(0) @binding(6) var<storage, read_write> instances: array<vec4f>;
 @group(0) @binding(7) var<storage, read_write> tally: atomic<u32>;
 @group(0) @binding(8) var<storage, read_write> args: array<u32, 8>;
 
-// Salts 800–805 the candidates, 806 the patches.
 const CANDIDATE_SALT = 800u;
 const PATCH_SALT = 806u;
-// How far a candidate strays in its cell: under 1 keeps neighbours apart.
 const JITTER = 0.9;
-// Patches about this many cells across, covering this share of the floor.
 const PATCH_CELLS = 18.0;
 const PATCH_COVER = 0.55;
 
-// Each kind's radius range, chart units, before `size`.
 const PEBBLE_RADIUS = vec2f(0.35, 0.8);
 const SHELL_RADIUS = vec2f(0.45, 0.75);
 const STACK_RADIUS = vec2f(1.8, 3.2);
-// How far a stack stands above the water, chart units.
 const STACK_RISE = vec2f(6.0, 13.0);
-// A stack stands this far off any coast, on floor this level.
 const STACK_OFFSHORE = 8.0;
 const STACK_LEVEL = 0.985;
 
@@ -84,7 +60,6 @@ fn cs_place(@builtin(global_invocation_id) id: vec3u) {
   let p = params.origin + candidate.point * params.cell;
   let uv = (p - params.origin) / params.side;
   let heights = textureSampleLevel(height, linear, uv, 0.0);
-  // Off the land: its rim and plate carry no props.
   if (heights.g >= 0.0) {
     return;
   }
@@ -104,7 +79,6 @@ fn cs_place(@builtin(global_invocation_id) id: vec3u) {
   instance.variant = fract(rolls.y * 7.0);
   instance.depth = max(depth, 0.0);
 
-  // A stack: rare, on a shallow plate well off the coast.
   let plate = depth > 0.6 * params.top && depth < 3.0 * params.top && coast > STACK_OFFSHORE && normal.y > STACK_LEVEL;
   if (plate && scatterKeep(params.stacks * (1.0 - steep), rolls.x)) {
     instance.kind = STACK;
@@ -117,8 +91,6 @@ fn cs_place(@builtin(global_invocation_id) id: vec3u) {
   if (!shallow) {
     return;
   }
-  // Shells on the sand at the water's edge; pebbles on the beach and the
-  // shallows, thickest on the levels' lips.
   let edge = h > -0.5 * params.top;
   let lip = 1.0 - smoothstep(0.93, 0.99, normal.y);
   let keepShell = edge && rolls.y < 0.35;

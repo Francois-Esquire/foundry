@@ -19,13 +19,6 @@ async function drain(
   return out;
 }
 
-/**
- * Regression: once mesh tools went through the tool compiler, `message_agent`
- * (a generator tool) came back as `{}` in 1ms — the compiler's async wrapper
- * handed the SDK a Promise of the generator instead of the generator, so the
- * sub-agent never ran. The whole path must work end to end: primary calls the
- * tool, the sub-agent streams, interim results surface, the reply lands.
- */
 describe("SessionHarness — message_agent through the compiler", () => {
   it("streams the sub-agent's reply as preliminary results and returns it", async () => {
     const primary = createScriptedMockModel({

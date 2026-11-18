@@ -52,11 +52,6 @@ describe("agentCapabilityAddress", () => {
     expect(address.version).toBe(3);
   });
 
-  /**
-   * The old `capabilityKey` hashed the capability payload alone. Encoding the
-   * domain and the command id as a joined string would reintroduce the same
-   * class of collision one level down.
-   */
   it("cannot collide a domain containing the separator with another pair", () => {
     const a = agentCapabilityAddress({
       command: { id: "x", version: 1 },
@@ -121,11 +116,6 @@ describe("createAgentAuthorizer", () => {
     ).resolves.toMatchObject({ kind: "requires-approval" });
   });
 
-  /**
-   * `tool.call` is excluded from the global tier, so a policy that says nothing
-   * about it must deny — a blanket `"allow"` meant for classified kinds can
-   * never reach an unclassified tool.
-   */
   it("fails closed on tool.call under a blanket allow that never named it", async () => {
     const { authorizer } = createInMemoryAgentAuthorizer({
       policy: { global: "allow" },
@@ -187,11 +177,6 @@ describe("createAgentAuthorizer", () => {
     ).resolves.toMatchObject({ kind: "requires-approval" });
   });
 
-  /**
-   * A command Grant is authority over one exact target at one exact version.
-   * Widening it along any of those dimensions is the failure the versioned
-   * address exists to prevent.
-   */
   it("does not let a command Grant reach another project, scope, effect, or version", async () => {
     const granted: Capability = {
       command: { id: "start", version: 1 },
@@ -252,12 +237,6 @@ describe("createAgentAuthorizer", () => {
   });
 });
 
-/**
- * The hazard the split exists for: the agent path evaluates every tool call
- * twice (the AI SDK's `needsApproval`, then defensively in `execute`). If
- * evaluation consumed authority, a one-shot Grant would be spent before the
- * real invocation ever ran.
- */
 describe("decide versus claim", () => {
   it("does not consume a one-shot Grant by deciding", async () => {
     const policy = createInMemoryAgentAuthorizer();
@@ -289,7 +268,6 @@ describe("decide versus claim", () => {
     });
   });
 
-  /** A replayed continuation re-runs `execute` with the same `toolCallId`. */
   it("lets the spending invocation replay its own claim", async () => {
     const policy = createInMemoryAgentAuthorizer();
     await policy.allow(CHAT, WEB, { kind: "once" });

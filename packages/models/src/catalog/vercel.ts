@@ -86,7 +86,6 @@ function vercelDefinition(
   };
 }
 
-/** Parse a per-token decimal string into USD per 1M tokens. */
 function per1M(value: string | undefined): number | undefined {
   if (value === undefined) {
     return undefined;
@@ -130,8 +129,6 @@ function normalizeCosts(
   }
   const input = per1M(pricing.input);
   const output = per1M(pricing.output);
-  // Without both base rates the pricing is unusable for estimation — omit
-  // rather than fabricate zeros that would read as "free".
   if (input === undefined || output === undefined) {
     return undefined;
   }

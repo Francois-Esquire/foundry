@@ -1,35 +1,19 @@
-/**
- * What bounds the parcels (world.ts `Parcel.edge`): low concrete block
- * walls, clipped hedges or fences along the sides away from the road, and
- * along the road a short length of the same that leaves the entrance and
- * the parking open. Each edge is cut into short pieces, each on a site of
- * its own, so a wall steps with the ground instead of floating over it.
- * Pieces sit just inside their parcel, so two parcels that share a side
- * do not draw into each other, and a side already walled by a neighbour
- * is not walled twice.
- */
 import type { Point } from "../../../data/chart";
 import { COLORS } from "./structures-palette";
 import { type TownPart, townPart } from "./town-parts";
 import type { Building, Parcel, Road } from "./world";
 
-/** A piece of edge on the chart, standing on its own site. */
 export interface EdgePiece {
   readonly at: Point;
   readonly part: TownPart;
   readonly turn: number;
 }
 
-/** The longest piece, chart units: short enough to step with the ground. */
 const PIECE = 2;
-/** How far inside its parcel an edge stands past its own half thickness. */
 const INSET = 0.03;
-/** How much nearer the road than the parcel's farthest-in front edge another edge may be and still be front. */
 const FRONT_SLACK = 0.6;
-/** An entrance's half width round a building's door, and a car's width beside it. */
 const GATE_HALF = 0.45;
 const DRIVE = 0.95;
-/** Two edges this close and this parallel are one shared side. */
 const SHARED_GAP = 0.45;
 const SHARED_COS = 0.95;
 
@@ -84,7 +68,6 @@ const STYLES: Readonly<Record<Exclude<Parcel["edge"], "none">, Style>> = {
   },
 };
 
-/** Grounds that want a tall mesh fence rather than a garden one. */
 const TALL_FENCE: ReadonlySet<Parcel["kind"]> = new Set([
   "pitch",
   "track",
@@ -121,7 +104,6 @@ interface Side {
   readonly front: boolean;
 }
 
-/** A parcel's sides, each marked whether it faces its road. */
 function sidesOf(parcel: Parcel, road: Road | undefined): Side[] {
   const { outline } = parcel;
   const pairs = outline.map(
@@ -141,11 +123,6 @@ function sidesOf(parcel: Parcel, road: Road | undefined): Side[] {
   }));
 }
 
-/**
- * The open stretch of a front side, as fractions along it: the gate in
- * front of the building's door, and the drive to whichever side has more
- * of the front.
- */
 function gateOf(side: Side, building: Building | undefined): [number, number] {
   const dx = side.b[0] - side.a[0];
   const dz = side.b[1] - side.a[1];
@@ -162,7 +139,6 @@ function gateOf(side: Side, building: Building | undefined): [number, number] {
     (length * length);
   const gate = GATE_HALF / length;
   const drive = DRIVE / length;
-  // The drive goes on the longer stretch beside the gate.
   return t > 0.5 ? [t - gate - drive, t + gate] : [t - gate, t + gate + drive];
 }
 
@@ -172,7 +148,6 @@ interface Laid {
   readonly mid: Point;
 }
 
-/** Whether a side is already walled by a parcel laid before. */
 function shared(laid: readonly Laid[], a: Point, b: Point): boolean {
   const mid: Point = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
   const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -189,7 +164,6 @@ function shared(laid: readonly Laid[], a: Point, b: Point): boolean {
   });
 }
 
-/** Two turned boxes' overlap, by their separating axes: each box's own two. */
 function boxesOverlap(
   a: Point,
   turnA: number,
@@ -205,7 +179,6 @@ function boxesOverlap(
   const ua = axesOf(turnA);
   const ub = axesOf(turnB);
   const d: Point = [b[0] - a[0], b[1] - a[1]];
-  // How far a box reaches along `n`: each half along its own axis, projected.
   const reach = (
     axes: Point[],
     half: readonly [number, number],
@@ -225,10 +198,8 @@ function boxesOverlap(
   return true;
 }
 
-/** Grid cells, chart units, for finding what lies near a point. */
 const CELL = 8;
 
-/** Things filed by the grid cell of a point, found again from the cells round a point. */
 function gridOf<T>(): {
   add: (p: Point, item: T) => void;
   near: (p: Point) => T[];
@@ -256,7 +227,6 @@ function gridOf<T>(): {
   };
 }
 
-/** The stretches of a side to wall, as fractions along it: all of a back or a side; a front less its gate. */
 function spansOf(
   side: Side,
   building: Building | undefined
@@ -275,7 +245,6 @@ function spansOf(
   return spans;
 }
 
-/** A side's run: its length, its direction, and its normal into the parcel. */
 function runOf(
   side: Side,
   centre: Point
@@ -285,14 +254,12 @@ function runOf(
   const length = Math.hypot(dx, dz);
   const dir: Point = [dx / length, dz / length];
   const mid: Point = [(side.a[0] + side.b[0]) / 2, (side.a[1] + side.b[1]) / 2];
-  // Inward: whichever normal points at the parcel's middle.
   const normal: Point = [-dir[1], dir[0]];
   const inward =
     (centre[0] - mid[0]) * normal[0] + (centre[1] - mid[1]) * normal[1] >= 0;
   return { dir, length, normal: inward ? normal : [-normal[0], -normal[1]] };
 }
 
-/** One stretch of a side cut into pieces of at most `PIECE`, each set in from the side by its own half thickness. */
 function piecesAlong(
   side: Side,
   run: { dir: Point; length: number; normal: Point },
@@ -302,7 +269,6 @@ function piecesAlong(
 ): EdgePiece[] {
   const { dir, length, normal } = run;
   const inset = style.thick / 2 + INSET;
-  // Its local x along the side: local x lands on (cos, sin).
   const turn = Math.atan2(dir[1], dir[0]);
   const stretch = (t1 - t0) * length;
   const count = Math.max(Math.ceil(stretch / PIECE), 1);
@@ -332,7 +298,6 @@ interface EdgeContext {
   readonly road: Road | undefined;
 }
 
-/** One parcel's edge: its sides not already walled, cut into pieces clear of the buildings. */
 function parcelPieces(
   parcel: Parcel,
   style: Style,
@@ -368,7 +333,6 @@ function parcelPieces(
   return pieces;
 }
 
-/** Every parcel's edge, as pieces on the chart, none cutting into a building. */
 export function edgePieces(
   parcels: readonly Parcel[],
   roads: readonly Road[],

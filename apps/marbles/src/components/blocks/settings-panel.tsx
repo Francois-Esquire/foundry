@@ -4,7 +4,6 @@ import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import { type SettingsSnapshot, THEME_NAMES } from "~/model/settings";
 
-/** Global preferences, and what Marbles keeps locally about its own work. */
 export function SettingsBlock({
   settings,
   editable,

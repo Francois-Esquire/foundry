@@ -9,20 +9,12 @@ import { lstatOrNull } from "./fs";
 import { materialize } from "./materialize";
 import { diffDirectory } from "./scan";
 
-/** Part of one frozen Content, placed as real files outside any Artifact directory. */
 export interface ContentProjection {
   readonly artifacts: Pick<Artifacts, "getContent" | "readFileRange">;
   readonly contentId: ContentId;
-  /** Whether a tree path is projected; a projected path's parents must be too. */
   readonly include: (path: string) => boolean;
 }
 
-/**
- * Writes the projected entries into `directory`, which must not exist yet,
- * with the same file application `artifactFileSystem` uses, then checks every
- * byte against the Content's tree and leaves the files read-only. Unlike an
- * Artifact directory, nothing on disk is watched or written back.
- */
 export async function stageProjection(
   projection: ContentProjection,
   directory: string,
@@ -57,7 +49,6 @@ export async function stageProjection(
   await chmod(directory, 0o755);
 }
 
-/** Whether `directory` holds exactly the projected entries, byte for byte. */
 export async function projectionMatches(
   projection: ContentProjection,
   directory: string

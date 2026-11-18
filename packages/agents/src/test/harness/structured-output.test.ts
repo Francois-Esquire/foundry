@@ -73,8 +73,6 @@ async function collect<T>(items: AsyncIterable<T>): Promise<T[]> {
 
 describe("structured output", () => {
   it("passes a turn's output and model settings to the model", async () => {
-    // Guards the AI SDK's call spread: if an upgrade stops passing per-call
-    // keys through `prepareCall`, this fails rather than silently dropping them.
     const { calls, harness } = harnessAnswering('{"age":3,"name":"Ada"}');
     await harness.generate("who?", { output: person, temperature: 0.2 });
     expect(calls[0]?.temperature).toBe(0.2);
@@ -117,7 +115,6 @@ describe("structured output", () => {
     expect(await collect(turn.partialOutputStream)).toEqual([]);
     await turn.message;
     expect(calls[0]?.responseFormat).toBeUndefined();
-    // Stream handlers are the session's, never the SDK's own callbacks.
     expect(onFinish).toHaveBeenCalledTimes(1);
     expect(onFinish.mock.calls[0]?.[0]).toHaveProperty("message");
   });

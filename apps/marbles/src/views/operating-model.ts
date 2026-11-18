@@ -7,12 +7,6 @@ import type {
 } from "./dashboard-model";
 import { runSelection } from "./dashboard-model";
 
-/**
- * What the Overview and Logs tabs read from a snapshot: counts by status,
- * timings, the latest activity, and every log line with where it came from.
- * Pure functions of the snapshot; nothing here is stored or sent anywhere.
- */
-
 export type LogLevel = LogEntry["level"];
 export const LOG_LEVELS: readonly LogLevel[] = [
   "debug",
@@ -23,17 +17,14 @@ export const LOG_LEVELS: readonly LogLevel[] = [
 export type LogSource = "all" | "host" | "run";
 export const LOG_SOURCES: readonly LogSource[] = ["all", "run", "host"];
 
-/** One line in the Logs tab: a run's telemetry or the host's own. */
 export interface OperatingLogEntry extends LogEntry {
   readonly runId?: string;
   readonly runName?: string;
   readonly runWorkspace?: string;
-  /** Logged by the run's workflow setup, before any step: it has no step. */
   readonly setup?: boolean;
   readonly source: "host" | "run";
 }
 
-/** What the Logs tab shows: lines at or above `level`, from `source`, containing `query`. */
 export interface LogFilter {
   readonly level: LogLevel;
   readonly query: string;
@@ -60,7 +51,6 @@ export function logRun(
   );
 }
 
-/** Every run's log lines and the host's, oldest first; a stable order for equal times. */
 export function operatingLogs(
   snapshot: DashboardSnapshot
 ): readonly OperatingLogEntry[] {
@@ -101,11 +91,6 @@ export function operatingLogs(
     .map(({ entry }) => entry);
 }
 
-/**
- * Keep lines at or above the minimum level and from the selected source.
- * Search is case-insensitive and matches the message, run name, run ID, or
- * step ID; surrounding whitespace in the query is ignored.
- */
 export function filterLogs(
   entries: readonly OperatingLogEntry[],
   filter: LogFilter
@@ -123,24 +108,19 @@ export function filterLogs(
   );
 }
 
-/** Runs by what an operator does about them. */
 interface RunCounts {
   readonly cancelled: number;
   readonly complete: number;
   readonly failed: number;
   readonly queued: number;
   readonly running: number;
-  /** Paused, suspended, or running and waiting on a person. */
   readonly waiting: number;
 }
 
 export interface OperatingStats {
   readonly counts: RunCounts;
-  /** Median ms from enqueue to start over runs that started; absent without one. */
   readonly medianQueueMs?: number;
-  /** Median ms from start to end over runs that ended; absent without one. */
   readonly medianRunMs?: number;
-  /** Completed share of runs that completed or failed; absent without one. */
   readonly successRate?: number;
   readonly total: number;
 }
@@ -172,12 +152,6 @@ function bucket(run: RunSnapshot): keyof RunCounts | undefined {
   }
 }
 
-/**
- * Summarize runs by status, treating runs needing attention or paused as
- * waiting. Timings are medians in milliseconds; queue times are clamped to
- * zero. Success rate is the completed share of completed and failed runs.
- * Timings and success rate are absent when they have no qualifying runs.
- */
 export function operatingStats(runs: readonly RunSnapshot[]): OperatingStats {
   const counts = {
     cancelled: 0,
@@ -216,7 +190,6 @@ export function operatingStats(runs: readonly RunSnapshot[]): OperatingStats {
   };
 }
 
-/** One line of the Latest panel: a run changing state or a feed entry. */
 export interface LatestItem {
   readonly at: number;
   readonly id: string;
@@ -227,7 +200,6 @@ export interface LatestItem {
   readonly text: string;
 }
 
-/** Run starts and endings and this workspace's feed entries, newest first. */
 export function latestActivity(
   snapshot: DashboardSnapshot,
   limit: number
@@ -278,11 +250,6 @@ const MINUTE = 60 * SECOND;
 const TENTH = SECOND / 10;
 const SECONDS_PER_MINUTE = MINUTE / SECOND;
 
-/**
- * `850ms`, `12.3s`, `4m 05s`. Each form is chosen after rounding, so a value
- * that rounds up carries into the next unit: `1.0s`, not `1000ms`; `2m 00s`,
- * not `1m 60s`.
- */
 export function duration(ms: number): string {
   const millis = Math.round(ms);
   if (millis < SECOND) {

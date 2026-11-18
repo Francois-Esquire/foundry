@@ -1,9 +1,3 @@
-/**
- * Definitions you can use: an agent generates and streams on its own, and
- * a step or workflow runs on its own. Inside a body the call joins the
- * body's run; outside one it uses the host's engine, else a default.
- */
-
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,7 +32,6 @@ afterEach(async () => {
   await rm(root, { force: true, recursive: true });
 });
 
-/** An engine over mock models that answers with `reply`, as the host. */
 function host(reply: Reply = ({ prompt }) => prompt) {
   const engine = testEngine({ print: () => undefined, reply, root });
   engines.push(engine);
@@ -110,8 +103,6 @@ describe("an agent", () => {
     const sessions: string[] = [];
     step("sketch").do(async ({ agents, ask }) => {
       const { text } = await designer.generate("Sketch a logo.");
-      // Opened after the agent's own turn: its place in the ledger must not
-      // move when that turn is replayed instead of run.
       const session = await agents.session(reviewer);
       sessions.push(session.ref.id);
       await ask.approval({ title: "Keep it?" });
@@ -226,7 +217,6 @@ describe("a workspace, a sandbox, or an artifact", () => {
       expect(await site.git.status()).toMatchObject({ branch: "main" });
       expect(Object.keys({ ...site })).toEqual(["id", "kind", "path"]);
     } finally {
-      // Close the workspace watcher before deleting the directory it watches.
       await engine.dispose();
       await rm(repo, { force: true, recursive: true });
     }
@@ -253,7 +243,6 @@ describe("a workspace, a sandbox, or an artifact", () => {
     engines.push(engine);
     setHost(engine);
     const box = sandbox({ image: "docker.io/oven/bun:1-slim" });
-    // The record answers `in` and spreads; the container's facets do not leak in.
     expect("files" in box).toBe(false);
     expect(Object.keys({ ...box })).not.toContain("exec");
     const seeded = sandbox({ files: { "main.py": "print(1)" } });

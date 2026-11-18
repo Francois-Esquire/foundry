@@ -15,31 +15,15 @@ export interface DeclaredObserver {
   readonly types?: readonly string[];
 }
 
-/**
- * What authoring modules declared, collected as they are imported. The
- * authoring words write here and nothing in the lib reads it: the CLI copies
- * it into the engine it builds, which turns each monitor into its step and
- * schedule. It also keeps what only authoring has, the declared workspace
- * paths and the ids of nameless resources.
- */
 export class Catalog {
-  /** Declared agents by id; one declared with a function is built when a session opens. */
   readonly agents = new Map<string, AgentLike<Output.Output>>();
-  /** Named definitions, by name; a nameless one is internal and not kept. */
   readonly definitions = new Map<string, NamedDefinition>();
   readonly monitors = new Map<string, MonitorRecord>();
-  /** Declared observers, in the order `observe` was called. */
   readonly observers: DeclaredObserver[] = [];
   readonly schedules = new Map<string, Schedule>();
-  /** Paths of declared workspaces, as written; sandboxes may mount them. */
   readonly workspaces = new Set<string>();
   readonly #counters = new Map<string, number>();
-  /** Names that came from a `const`; a collision on one says how to fix it. */
   readonly #inferred = new Set<string>();
-  /**
-   * Each agent id claimed so far: a digest of what the agent is, where, and
-   * for an agent declared with a function, that function.
-   */
   readonly #agents = new Map<
     string,
     {
@@ -49,12 +33,6 @@ export class Catalog {
     }
   >();
 
-  /**
-   * A name is taken once, checked as the module is imported so the error
-   * names both places. When a name was inferred, the advice is authoring's:
-   * two `const`s with one name in different files collide, and the fix is
-   * in the source.
-   */
   define(definition: AnyDefinition, inferred = false): void {
     if (!isNamed(definition)) {
       return;
@@ -105,12 +83,10 @@ export class Catalog {
     this.observers.push(observer);
   }
 
-  /** Schedules and monitors share one key space: each names a trigger. */
   #keyTaken(key: string): boolean {
     return this.schedules.has(key) || this.monitors.has(key);
   }
 
-  /** A trigger key not yet taken: `base`, else `base-2`, `base-3`, … in registration order. */
   uniqueKey(base: string): string {
     if (!this.#keyTaken(base)) {
       return base;
@@ -123,19 +99,6 @@ export class Catalog {
     }
   }
 
-  /**
-   * An agent id is what approvals and agent-made triggers are kept under,
-   * so one id is one agent: two different agents under one name (two
-   * `const`s in different files, or a name given twice) would share them.
-   * The same agent declared again (a prebuilt reused, a module re-imported)
-   * is the same subject, on whatever route; an extension copies the id and
-   * claims nothing.
-   *
-   * An agent declared with a function is the same subject only as that
-   * same function. Its digest is the function's source, which leaves out
-   * the values it closes over: one helper making an agent per team writes
-   * the same source each time, and those agents must not share approvals.
-   */
   claimAgent(
     id: string,
     digest: string,
@@ -156,14 +119,12 @@ export class Catalog {
     this.#agents.set(id, claimed ?? { define, digest, origin });
   }
 
-  /** Registration-order ids for nameless resources, e.g. `sandbox#2`; nothing durable is keyed by them. */
   claimId(kind: string): string {
     const next = (this.#counters.get(kind) ?? 0) + 1;
     this.#counters.set(kind, next);
     return `${kind}#${next}`;
   }
 
-  /** Tests and a failed source load: forget everything declared so far. */
   reset(): void {
     this.agents.clear();
     this.definitions.clear();

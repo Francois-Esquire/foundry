@@ -138,7 +138,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       env: home.env,
       timeout: 15_000,
     });
-  // A CLI change, made where no source runs and nothing observes, is kept
   const fromCli = cli("create", "From CLI", "--tag", "cli", "--json");
   expect(fromCli.status, fromCli.stderr).toBe(0);
   expect(
@@ -185,7 +184,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       tasks: [{ tags: ["review", "api"], title: "From MCP" }],
     });
 
-    // The builtin `tasks` a step reads is the same workspace store.
     const run = z.object({ runId: z.string() }).parse(
       JSON.parse(
         text(
@@ -254,7 +252,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     expect(before.tasks).toHaveLength(2);
     expect(await stored(state)).toEqual(before);
 
-    // refusal keeps its code across the process boundary.
     const routed = cli("list", "--tag", "review", "--json");
     expect(routed.status, routed.stderr).toBe(0);
     expect(JSON.parse(routed.stdout)).toMatchObject({
@@ -275,7 +272,6 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     await client.close();
   }
   try {
-    // The Marbles process keeps hosting the workspace after the server
     await stopDaemon(home);
     const after = cli("list", "--tag", "review", "--json");
     expect(after.status, after.stderr).toBe(0);

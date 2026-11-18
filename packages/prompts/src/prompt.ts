@@ -16,26 +16,16 @@ import { nameOf } from "./reference";
 import { SpanSet } from "./spans";
 
 interface PromptFields {
-  /** Findings from authoring, such as a reference the dialect could not write. */
   readonly authoring?: readonly Diagnostic[];
   readonly dialect: Dialect;
-  /** The other dialects a host authors in, for spotting a sigil from the wrong harness. */
   readonly siblings?: readonly Dialect[];
   readonly sources: PromptSource;
   readonly surface: Surface;
-  /** The interpolated references and where they landed; references read inside them have origin `symbol`. */
   readonly symbols?: readonly Interpolated[];
   readonly text: string;
-  /** The text's tokens in order, as the parser returns them: they do not overlap. */
   readonly tokens: readonly Token[];
 }
 
-/**
- * An authored prompt: the text as the harness would receive it, the dialect
- * it was written in, and everything it references. `diagnostics` and `ok`
- * are read against what exists each time, so a skill or agent defined
- * after the prompt was written resolves on the next read.
- */
 export class Prompt {
   readonly dialect: Dialect;
   readonly references: readonly LocatedPromptReference[];
@@ -45,7 +35,6 @@ export class Prompt {
   private readonly authoring: readonly Diagnostic[];
   private readonly siblings: readonly Dialect[];
   private readonly sources: PromptSource;
-  /** The text as each sibling reads it; tokens depend only on the text, so read once. */
   private readings: ReadonlyMap<Dialect, readonly Token[]> | undefined;
 
   constructor(fields: PromptFields) {
@@ -63,7 +52,6 @@ export class Prompt {
     ];
   }
 
-  /** Findings as of now, ordered by position. */
   get diagnostics(): readonly Diagnostic[] {
     const found = [
       ...this.authoring,
@@ -77,7 +65,6 @@ export class Prompt {
     return found.sort((a, b) => a.span.start - b.span.start);
   }
 
-  /** True when no diagnostic is an error, as of now. */
   get ok(): boolean {
     return !this.diagnostics.some((item) => item.severity === "error");
   }
@@ -97,7 +84,6 @@ export class Prompt {
   }
 }
 
-/** Thrown by a strict tag: the prompt is attached, with its diagnostics. */
 export class PromptError extends Error {
   readonly diagnostics: readonly Diagnostic[];
   readonly prompt: Prompt;
@@ -136,14 +122,6 @@ function locate(
   return references;
 }
 
-/**
- * What the dialect reads back where each interpolated reference was
- * written. Nothing: a start-only invocation in the middle of a message, or
- * a sigil that landed against a word, so the harness sees plain text there.
- * A different reference: `/review` opens a Claude Code message as the
- * built-in command whatever skill was meant, so the harness would do
- * something else. Either way, say so.
- */
 function readBack(
   text: string,
   tokens: readonly Token[],
@@ -179,7 +157,6 @@ function readBack(
   return found;
 }
 
-/** The same kind and, for kinds that have one, the same name. Arguments do not count: read mid-message, an invocation carries none. */
 function sameReference(
   read: PromptReference,
   written: PromptReference
@@ -187,7 +164,6 @@ function sameReference(
   return read.kind === written.kind && nameOf(read) === nameOf(written);
 }
 
-/** `the skill "review"`, or `an argument` for a kind without a name. */
 function describe(reference: PromptReference): string {
   const name = nameOf(reference);
   if (name === undefined) {
@@ -196,12 +172,6 @@ function describe(reference: PromptReference): string {
   return `the ${reference.kind} "${name}"`;
 }
 
-/**
- * The reference tokens inside `span`, in order. Tokens are in order and do
- * not overlap, so their starts and ends both ascend: the first candidate is
- * found by binary search, and the walk stops at the first token that ends
- * past the span.
- */
 function referencesWithin(
   tokens: readonly Token[],
   span: Span

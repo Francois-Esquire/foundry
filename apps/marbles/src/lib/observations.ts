@@ -28,20 +28,11 @@ import type {
   ToolCallObservation,
 } from "~/lib/executions";
 
-/**
- * What an agent session does, as observations on the run that owns it: one
- * per model turn, from the Agents `observe` hook, and one per tool call,
- * from the session's event stream. They carry identity, kind, timing,
- * status, a safe error code and the usage a provider reported; never
- * prompts, tool arguments, tool results or file bodies.
- */
-
 export type RecordObservation = (observation: ExecutionObservation) => void;
 
 const SAFE_CODE = /[^A-Za-z0-9_.:-]/g;
 const MAX_CODE_LENGTH = 64;
 
-/** A failure's class, never its message: an `AbortError`, an `APICallError` with its status. */
 export function errorCode(error: unknown): string {
   if (!(error instanceof Error)) {
     return "error";
@@ -62,19 +53,10 @@ function isAbort(error: unknown): boolean {
 
 type UsageField = Exclude<keyof ExecutionUsage, "source">;
 
-/**
- * Sum what every call reported; a count any call left out stays unknown. A
- * call counts from the moment the provider answers it, so one that has not
- * reported yet, or never does (a stream that errors or is cancelled), keeps
- * the turn's counts unknown rather than showing what earlier calls spent as
- * its total. An explicit 429 refusal is not a call. Other rejections may follow
- * accepted work, so their consumption stays unknown.
- */
 class TurnUsage {
   #calls = 0;
   readonly #sums = new Map<UsageField, { count: number; total: number }>();
 
-  /** A rejection without a response leaves consumption unknown, except an explicit rate-limit refusal. */
   async response<T>(invoke: () => PromiseLike<T>): Promise<T> {
     try {
       return await invoke();
@@ -92,7 +74,6 @@ class TurnUsage {
     }
   }
 
-  /** Count a call the provider answered; report its usage when it has it. */
   begin(): (usage: LanguageModelV4Usage | undefined) => void {
     this.#calls += 1;
     let reported = false;
@@ -145,7 +126,6 @@ class TurnUsage {
   }
 }
 
-/** Every model call's reported usage, read off the provider's own response. */
 function usageTap(usage: TurnUsage): LanguageModelV4Middleware {
   return {
     specificationVersion: "v4",
@@ -156,7 +136,6 @@ function usageTap(usage: TurnUsage): LanguageModelV4Middleware {
     },
     async wrapStream({ doStream }) {
       const result = await usage.response(doStream);
-      // Answered: it counts now, and stays unknown until it finishes.
       const report = usage.begin();
       return {
         ...result,
@@ -178,7 +157,6 @@ function usageTap(usage: TurnUsage): LanguageModelV4Middleware {
   };
 }
 
-/** One model-turn observation per agent `stream` or `generate` call. */
 export function runTurnObserver(record: RecordObservation): ObserveTurn {
   return ({ model, sessionId }) => {
     const id = randomUUID();
@@ -222,7 +200,6 @@ export function runTurnObserver(record: RecordObservation): ObserveTurn {
   };
 }
 
-/** What a CLI harness said a turn consumed, as an observation carries it. */
 function reportedUsage(usage: SessionUsage): ExecutionUsage {
   const fields: Record<UsageField, number | undefined> = {
     cachedInputTokens: usage.cachedInputTokens,
@@ -242,12 +219,6 @@ function reportedUsage(usage: SessionUsage): ExecutionUsage {
   };
 }
 
-/**
- * One model-turn observation for a turn of a CLI harness (Claude Code,
- * Codex, Pi), which runs its own model loop where no model can be wrapped:
- * started now, and ended as the turn's stream settles, with the usage the
- * CLI reported for it. A turn whose `signal` was aborted is `cancelled`.
- */
 export function observeCliTurn(
   record: RecordObservation,
   turn: {
@@ -318,7 +289,6 @@ function integrationsOf(
   return Array.isArray(integrations) ? integrations : [integrations];
 }
 
-/** Several observers as one: each wraps the model, adds its telemetry, and settles. */
 export function composeObservers(
   ...observers: readonly ObserveTurn[]
 ): ObserveTurn {
@@ -364,11 +334,6 @@ const CLI_TOOL_STATUS = {
   started: "running",
 } as const satisfies Record<string, ObservationStatus>;
 
-/**
- * Tool-call observations from a session's events: a built-in tool's call and
- * result, or a CLI harness's own tool events. `end` closes calls a turn left
- * open.
- */
 export function toolObserver(
   record: RecordObservation,
   sessionId: string
@@ -405,7 +370,6 @@ export function toolObserver(
       startedAt: new Date().toISOString(),
       status: "running",
     });
-  /** A CLI harness reports each call's start and outcome itself. */
   const cliTool = ({ outcome, toolCallId, toolName }: HarnessToolEvent) => {
     const id = `${sessionId}:${toolCallId}`;
     if (outcome === "started" || !open.has(id)) {

@@ -72,10 +72,8 @@ export function triggerSelection(
   };
 }
 
-/** What a selection points at in one snapshot. */
 export type ResolvedSelection =
   | { readonly kind: "none" }
-  /** Selected earlier, and missing from this snapshot; `run` when only its step or activity is. */
   | {
       readonly kind: "gone";
       readonly selection: DashboardSelection;
@@ -83,7 +81,6 @@ export type ResolvedSelection =
     }
   | { readonly kind: "trigger"; readonly trigger: TriggerSnapshot }
   | { readonly kind: "definition"; readonly definition: DefinitionSnapshot }
-  /** A run, or one of its steps: `path` runs from a top-level step down to it. */
   | {
       readonly kind: "run";
       readonly run: RunSnapshot;
@@ -165,7 +162,6 @@ function resolveRun(
     : { kind: "gone", run, selection };
 }
 
-/** Look a selection up once; every view and command reads the result. */
 export function resolveSelection(
   snapshot: DashboardSnapshot,
   selection: DashboardSelection | undefined
@@ -191,10 +187,6 @@ export function resolveSelection(
   return run ? resolveRun(run, selection) : { kind: "gone", selection };
 }
 
-/**
- * The step a run control applies to: the selected step, else the run's root,
- * whose frame is keyed by the definition's name.
- */
 export function actionTarget(
   resolved: Extract<ResolvedSelection, { kind: "run" }>
 ): { readonly stepId: string; readonly status: string } {

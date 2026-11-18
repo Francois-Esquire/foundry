@@ -9,14 +9,10 @@ import { theme } from "~/components/ui/theme";
 import { useQuitGuard } from "~/hooks/use-quit-guard";
 import type { SplashState } from "./splash-model";
 
-/** Card border plus its horizontal padding, both sides. */
 const CARD_CHROME = 6;
-/** The block logo is 65 columns; the card leaves it one clear column a side. */
 const CARD_WIDTH = 65 + CARD_CHROME + 2;
-/** The card keeps two columns of terminal on each side. */
 const CARD_MARGIN = 4;
 
-/** The host owns config loading; this view waits for ready before allowing entry. */
 export function SplashView({
   workspace,
   state,

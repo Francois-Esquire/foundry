@@ -62,9 +62,6 @@ export function createAgentTool<TOOLS extends ToolSet = ToolSet>(
 
       let lastMessage: UIMessage | undefined;
       for await (const message of readUIMessageStream({
-        // ai v7 deprecates this method in favour of the standalone
-        // `toUIMessageStream`, but the standalone form needs one concrete
-        // `TOOLS` instantiation and this agent is generic.
         stream: result.toUIMessageStream(),
       })) {
         yield message;

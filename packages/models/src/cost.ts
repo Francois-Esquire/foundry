@@ -2,14 +2,6 @@ import type { ModelCosts, ModelCostTier } from "./types";
 
 const PER_MILLION = 1_000_000;
 
-/**
- * Pick the per-1M rate for a tiered price. Gateway tiers (Vercel/Qwen/Gemini
- * style) are bracketed by the *prompt size* — `selectorTokens` is the gross
- * input token count — and the matching tier's rate applies to both input and
- * output (the input and output tier arrays share the same brackets). Brackets
- * are min-inclusive, max-exclusive; the open-ended top tier omits `maxTokens`.
- * Falls back to `flat` when no tier brackets the count.
- */
 function tierRate(
   tiers: ModelCostTier[] | undefined,
   selectorTokens: number,
@@ -29,11 +21,6 @@ function tierRate(
   return flat;
 }
 
-/**
- * A turn's token counts, in the provider's reported shape. `inputTokens` is the
- * _gross_ prompt size — it already includes the cache read/write tokens, which
- * are reported separately so they can be billed at their own rates.
- */
 export interface CostUsageCounts {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
@@ -42,7 +29,6 @@ export interface CostUsageCounts {
   reasoningTokens?: number;
 }
 
-/** Per-category cost in USD. `total` is the sum. */
 export interface CostBreakdown {
   cacheRead: number;
   cacheWrite: number;
@@ -52,20 +38,6 @@ export interface CostBreakdown {
   total: number;
 }
 
-/**
- * Cost in USD from a model's catalog rates (USD per 1M tokens) and a turn's
- * token usage.
- *
- * `inputTokens` is treated as gross: the cache read/write portions are split
- * out and billed at their own rates (cache reads are cheaper, cache writes
- * dearer), and only the remainder bills at the standard input rate — so cache
- * tokens are never double-charged. Reasoning bills at the output rate. When the
- * catalog omits a cache rate it falls back to the input rate.
- *
- * Tiered models (`inputTiers`/`outputTiers`, e.g. Vercel-gateway long-context
- * pricing) select a rate by the gross prompt size and bill input *and* output
- * at that tier; models without tiers use the flat top-level rate.
- */
 export function costFromUsage(
   costs: ModelCosts,
   usage: CostUsageCounts

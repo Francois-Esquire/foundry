@@ -17,7 +17,6 @@ import {
   visualizationPolicyVersion,
 } from "./types";
 
-/** Object property insertion order is not content; array order may affect the solver. */
 function canonicalProperties(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonicalProperties);
@@ -33,11 +32,9 @@ function canonicalProperties(value: unknown): unknown {
   );
 }
 
-/** Content identity only: this is a cache key, never a security or authorization hash. */
 export function visualizationInputKey(input: VisualizationInput): string {
   const value = {
     ...input,
-    // The terrain pass also sorts unique module IDs within each package.
     modules: [...input.modules].sort((a, b) => a.id.localeCompare(b.id)),
   };
   const json = JSON.stringify(canonicalProperties(value));
@@ -53,7 +50,6 @@ export function visualizationInputKey(input: VisualizationInput): string {
   return `${json.length}:${first.toString(16)}:${second.toString(16)}`;
 }
 
-/** Pure preparation shared by scans, old datasets, and deliberate layout adjustments. */
 export function prepareVisualization(
   input: VisualizationInput,
   settings: VisualizationSettings = defaultVisualizationSettings,
@@ -98,7 +94,6 @@ export function prepareVisualization(
   const foundations = input.inventory
     ? deriveFoundations(input.inventory, islandIds)
     : [];
-  // Internal reliance shapes terrain only; layout never reads it.
   const internalFoundations = input.inventory
     ? deriveInternalFoundations(input.inventory, islandIds)
     : [];

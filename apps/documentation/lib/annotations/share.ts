@@ -7,9 +7,7 @@ import {
 } from "./model.ts";
 
 export const NOTES_PARAM = "notes";
-/** Practical complete-URL budget for QR codes; a product target, not a guarantee. */
 export const QR_TARGET_BYTES = 2000;
-/** Complete-URL hard limit; larger documents stay local instead of being truncated. */
 export const MAX_URL_BYTES = 8000;
 const MAX_EXPANDED_BYTES = 1_000_000;
 const BASE64_URL = /^[\da-z_-]*$/i;
@@ -161,7 +159,6 @@ export function shareReadyMessage(bytes: number): string {
     : `Share link ready (${bytes.toLocaleString()} bytes). It exceeds the ${QR_TARGET_BYTES.toLocaleString()}-byte QR target.`;
 }
 
-/** A self-contained link; size limits never truncate or discard marks. */
 export async function encodeShare(
   document: AnnotationDocument,
   baseUrl: string
@@ -191,7 +188,6 @@ export async function encodeShare(
           payload = compressed;
         }
       } catch {
-        // A browser may expose the constructor without supporting gzip.
         payload = raw;
       }
     }

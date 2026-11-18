@@ -11,11 +11,6 @@ export interface QuitHost {
   quit(): void;
 }
 
-/**
- * Cleanup starts once and the app always quits after it settles, even when a
- * shutdown fails. Repeat quit requests during cleanup are cancelled and wait
- * for the same cleanup; the quit that cleanup itself issues goes through.
- */
 export function registerQuitCleanup(
   host: QuitHost,
   cleanups: readonly QuitCleanup[],

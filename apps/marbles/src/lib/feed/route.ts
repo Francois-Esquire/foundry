@@ -19,21 +19,12 @@ interface OpenQuestion {
 }
 
 export interface FeedRouter {
-  /**
-   * Take over the open questions of a run recovered from a previous process:
-   * their entries are republished as ours, so they stay open and answerable.
-   */
   adopt(definition: string, runId: string): Promise<void>;
-  /** Answer an open input entry, resuming the run that asked. */
   answer(entryId: string, answer: FeedAnswer): Promise<void>;
-  /** Mark every open question cancelled: nothing in this process can answer it now. */
   cancelOpen(): Promise<void>;
-  /** Why this router cancelled a run, when it did; forgotten when the run closes. */
   cancelReason(runId: string): string | undefined;
-  /** A run ended without answering these: its open questions are marked cancelled. */
   close(runId: string): Promise<void>;
   letGo(runId: string): void;
-  /** Handle one run's channel events; `settled` awaits the writes they caused. */
   observe(
     definition: string,
     runId: string
@@ -44,12 +35,6 @@ export interface FeedRouter {
   retire(): void;
 }
 
-/**
- * Steps cannot see their Run, so the engine attributes what they publish.
- * Posts arrive as custom events; questions arrive as Suspensions of kind
- * `marbles.feed.input`. Without `askable` nobody can answer, so a question
- * cancels its run instead of pausing it forever.
- */
 export class QuestionMovingError extends Error {
   override readonly name = "QuestionMovingError";
 
@@ -174,8 +159,6 @@ export function feedRouter(options: {
         open.delete(entryId);
         throw new Error("This question is no longer waiting for an answer.");
       }
-      // The step reads a plain choice or `{ choice, note }`; keep the plain
-      // form when there is no note so older resolutions stay comparable.
       await orchestrator
         .resolve(
           suspension.id,
@@ -226,8 +209,6 @@ export function feedRouter(options: {
     },
 
     observe(definition, runId) {
-      // Only durable suspensions are answerable. Parallel children may emit
-      // several suspension signals while the queue parks one at a time.
       const writes: Promise<unknown>[] = [];
       const refresh = () => {
         writes.push(adopt(definition, runId).catch(warn("question")));

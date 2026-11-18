@@ -56,9 +56,7 @@ interface Scope {
   update(edit: Edit): Promise<ProviderConfigurations>;
 }
 
-/** An entry as `list()` reports it, with where it applies and why it does not. */
 export interface ProviderEntry extends ProviderEntryRecord {
-  /** Position in this workspace's effective set, when used here. */
   readonly position?: number;
   readonly problem?: string;
   readonly scope: ProviderScope;
@@ -69,18 +67,14 @@ export type ScopedRecord = ProviderEntryRecord & {
   readonly scope: ProviderScope;
 };
 
-/** A machine-scope proposal, with the workspace that already uses its id. */
 export type Proposal = ScopedRecord & { readonly taken?: string };
 
 export interface ProviderConfigurationOptions {
-  /** Build a stand-in for each instance instead, for a dry run. */
   readonly echo?: (instance: Provider) => Provider;
-  /** The machine environment and the workspace's Varlock values. */
   readonly environment: {
     readonly machine: Readonly<Record<string, string>>;
     readonly workspace: Readonly<Record<string, string>>;
   };
-  /** A programmatic host's complete set: no file is read or written. */
   readonly fixed?: readonly Provider[];
   readonly models: ModelManager;
   readonly plugins: readonly RegisteredPlugin[];
@@ -105,7 +99,6 @@ type Built =
   | { readonly entry: ProviderEntry; readonly instance?: undefined }
   | {
       readonly entry: ProviderEntry;
-      /** What the instance's identity digests; keyed only when asked for. */
       readonly identity: unknown;
       readonly instance: ProviderInstance;
       readonly key: string;
@@ -310,7 +303,6 @@ export class ProviderConfiguration {
     );
   }
 
-  /** Throws `PROVIDERS_NOT_CONFIGURED`, with where to configure, when nothing is configured. */
   require(): void {
     if (this.configured) {
       return;
@@ -325,7 +317,6 @@ export class ProviderConfiguration {
     this.#load(new Map());
   }
 
-  /** {@link load}, taking out of `drafts` each instance it keeps. */
   #load(drafts: Drafts, kept: ProviderConfigurations = this.#view()): void {
     const id = this.#options.workspace?.id;
     const { machine } = kept;
@@ -364,7 +355,6 @@ export class ProviderConfiguration {
       cache,
       used.map((each) => each.instance)
     );
-    // Only once the manager took the set, so a refused set changes nothing.
     if (kept === this.#kept) {
       this.#unloaded = false;
     }
@@ -397,7 +387,6 @@ export class ProviderConfiguration {
     }
   }
 
-  /** Dispose the instances this configuration built that the manager never took. */
   dispose(): Promise<void> {
     this.#lists.abort();
     return this.#owned.dispose();
@@ -426,7 +415,6 @@ export class ProviderConfiguration {
     }
   }
 
-  /** The effective set first, then the rest, each with its scope and state. */
   list(): readonly ProviderEntry[] {
     const fixed = (this.#options.fixed ?? []).map(
       (provider, position): ProviderEntry => ({
@@ -453,22 +441,11 @@ export class ProviderConfiguration {
     ];
   }
 
-  /** The live instance for `id`, with its execution facet. */
   instance(id: string): ProviderInstance | undefined {
     return this.#instances.get(id);
   }
 
-  /**
-   * The identity of the instance `id` names now, which a pinned session
-   * must find again: a keyed digest of its scope, its workspace for
-   * workspace scope, its plugin, id, and parsed settings, and the values of
-   * the environment its plugin declares in `accountEnv`. Enabling,
-   * disabling, reordering, and new defaults keep it; a scope move, a
-   * settings change, or any change to that environment does not. A
-   * programmatic host's provider is identified by its id.
-   */
   identityOf(id: string): string | undefined {
-    // Keyed on demand, so work that opens no session creates no key.
     const identity = this.#identities.get(id);
     if (identity) {
       identity.digest ??= this.#digest(identity.material);
@@ -476,11 +453,6 @@ export class ProviderConfiguration {
     return identity?.digest;
   }
 
-  /**
-   * How `id` runs in a sandbox guest: its execution, `null` for a
-   * configured instance that runs none, or undefined when a programmatic
-   * host supplied the set, so no configuration describes it.
-   */
   executionOf(id: string): Execution | null | undefined {
     if (this.#options.fixed !== undefined) {
       return undefined;
@@ -488,11 +460,6 @@ export class ProviderConfiguration {
     return this.#instances.get(id)?.execution ?? null;
   }
 
-  /**
-   * Setup: what each plugin detects, at the scope it would be written to,
-   * each machine entry with the workspace already using its id. Writes
-   * nothing.
-   */
   propose(): readonly Proposal[] {
     const env = this.#options.environment.machine;
     return [...this.#plugins.values()].flatMap((plugin) => {
@@ -560,7 +527,6 @@ export class ProviderConfiguration {
     return this.#edit(id, (entry) => ({ ...entry, enabled: true }));
   }
 
-  /** Disabling is never refused, so an entry that cannot load can be set aside. */
   disable(id: string): Promise<void> {
     return this.#edit(id, (entry) => ({ ...entry, enabled: false }), false);
   }
@@ -581,11 +547,6 @@ export class ProviderConfiguration {
     this.load();
   }
 
-  /**
-   * Machine scope reorders the machine file. Workspace scope edits `order`,
-   * creating it from the current effective order when absent, which makes
-   * the workspace use only what it lists from then on.
-   */
   async move(id: string, index: number, scope: ProviderScope): Promise<void> {
     if (scope === "machine") {
       await this.#machine.update((current) => {
@@ -610,7 +571,6 @@ export class ProviderConfiguration {
     this.load();
   }
 
-  /** Set the workspace's `order`, or clear it with undefined. */
   async setOrder(ids: readonly string[] | undefined): Promise<void> {
     await this.#workspaceStore().update((file) => {
       const { order: _, ...rest } = file ?? empty();
@@ -619,7 +579,6 @@ export class ProviderConfiguration {
     this.load();
   }
 
-  /** Write both scopes from `entries`, in their order: first setup. */
   async replace(entries: readonly ScopedRecord[]): Promise<void> {
     const ids = entries.map((entry) => entry.id);
     const repeated = ids.find((id, index) => ids.indexOf(id) !== index);
@@ -630,7 +589,6 @@ export class ProviderConfiguration {
       this.#workspaceStore();
     }
     await this.#commit(async (drafts) => {
-      // Everything is validated and built before either file is touched.
       for (const { scope, ...entry } of entries) {
         this.#ready(entry, scope, drafts);
       }
@@ -652,7 +610,6 @@ export class ProviderConfiguration {
         ],
       ];
       if (this.#workspace) {
-        // The entries' order replaces any `order` the workspace had.
         const providers = of("workspace");
         edits.push([this.#workspace, () => ({ providers, version: 1 })]);
       }
@@ -833,7 +790,6 @@ export class ProviderConfiguration {
     );
   }
 
-  /** Validate an entry for a write; a failure refuses the write. */
   #check(entry: ProviderEntryRecord, scope: ProviderScope): void {
     const problem = this.#problem(entry, scope);
     if (problem) {
@@ -841,10 +797,6 @@ export class ProviderConfiguration {
     }
   }
 
-  /**
-   * Validate an entry for a write, and build an enabled one: one that cannot
-   * be built refuses the write. A new instance joins the write's drafts.
-   */
   #ready(entry: ProviderEntryRecord, scope: ProviderScope, drafts: Drafts) {
     this.#check(entry, scope);
     if (!entry.enabled) {
@@ -866,7 +818,6 @@ export class ProviderConfiguration {
     }
   }
 
-  /** Why an entry cannot be loaded at `scope`, or undefined. */
   #problem(
     entry: ProviderEntryRecord,
     scope: ProviderScope
@@ -912,7 +863,6 @@ export class ProviderConfiguration {
     return undefined;
   }
 
-  /** Every entry of both scopes, in effective order where used, built when usable. */
   #effective(
     machine: ProvidersFile | undefined,
     workspace: ProvidersFile | undefined,
@@ -932,7 +882,6 @@ export class ProviderConfiguration {
         scope: "machine" as const,
       })),
     ];
-    // Only enabled entries claim an id, so disabling one resolves a clash.
     const count = new Map<string, number>();
     for (const { entry } of scoped) {
       if (entry.enabled) {
@@ -990,10 +939,6 @@ export class ProviderConfiguration {
     };
   }
 
-  /**
-   * The entry's state, and its instance when it can serve: the current one
-   * for its key, else one taken out of `drafts`, else one built now.
-   */
   #build(
     entry: ProviderEntryRecord,
     scope: ProviderScope,
@@ -1055,7 +1000,6 @@ export class ProviderConfiguration {
     };
   }
 
-  /** A new instance as the manager will serve it, or why the plugin could not build one. */
   #instantiate(
     plugin: RegisteredPlugin,
     entry: ProviderEntryRecord,
@@ -1232,13 +1176,11 @@ export class ProviderConfiguration {
     return `"${id}" has no models; ${listing.problem}`;
   }
 
-  /** Machine scope sees the machine environment; workspace scope, it overlaid by the workspace's values. */
   #envFor(scope: ProviderScope): Readonly<Record<string, string>> {
     const { machine, workspace } = this.#options.environment;
     return scope === "machine" ? machine : { ...machine, ...workspace };
   }
 
-  /** A secret field shows the variable it names, or `<redacted>` when it holds anything else. */
   #redacted(entry: ProviderEntryRecord): Record<string, unknown> {
     const plugin = this.#plugins.get(entry.plugin);
     return Object.fromEntries(
@@ -1292,7 +1234,6 @@ function effectiveOrder(
     ...(workspace?.providers ?? []),
     ...(machine?.providers ?? []),
   ].map((entry) => entry.id);
-  // Once each: a disabled entry repeats its id, and a later copy would move it.
   return [...new Set(workspace?.order ?? ids)];
 }
 
@@ -1318,7 +1259,6 @@ function listingKey(
   return JSON.stringify([plugin.id, settings, env]);
 }
 
-/** The draft for `key`, taken out of `drafts` so only one owner keeps it. */
 function take(drafts: Drafts, key: string): ProviderInstance | undefined {
   const draft = drafts.get(key);
   drafts.delete(key);

@@ -64,8 +64,6 @@ describe("canonicalizeRoot", () => {
   it("echoes no absolute path in its refusal messages", async () => {
     const { root } = await makeRoot({ "README.md": "hi" });
 
-    // These messages reach callers outside the trust boundary, so the selected
-    // root would leak through them.
     for (const selected of [join(root, "README.md"), join(root, "absent")]) {
       const failure = await canonicalizeRoot(nodeFileSystem, selected).then(
         () => null,
@@ -230,8 +228,6 @@ describe("scanDirectory inclusion", () => {
       "root.log": "noise",
     });
 
-    // Git gives the deepest `.gitignore` that speaks the last word. Or-ing the
-    // scope stack together would make `!keep.log` unreachable.
     expect(
       (await scanDirectory(nodeFileSystem, canonical)).map((c) => c.path)
     ).toEqual([".gitignore", "pkg", "pkg/.gitignore", "pkg/keep.log"]);
@@ -244,8 +240,6 @@ describe("scanDirectory inclusion", () => {
       "pkg/sub/local.json": "{}",
     });
 
-    // Git reads `/local.json` as "in this directory only". An unanchored
-    // `local.json` would take the nested copy with it.
     expect(
       (await scanDirectory(nodeFileSystem, canonical)).map((c) => c.path)
     ).toEqual(["pkg", "pkg/.gitignore", "pkg/sub", "pkg/sub/local.json"]);
@@ -273,9 +267,6 @@ describe("scanDirectory determinism", () => {
       "src/app.ts": "1",
     });
 
-    // Walk order would emit `src/app.ts` before `src.md`, because `src` sorts
-    // before `src.md` as a directory entry. The candidate list is one ordering
-    // for both stores and the diff, so it is sorted by path instead.
     expect(
       (await scanDirectory(nodeFileSystem, canonical)).map((c) => c.path)
     ).toEqual(["a", "a/a.txt", "a/z.txt", "src", "src.md", "src/app.ts"]);
@@ -293,9 +284,6 @@ describe("scanDirectory determinism", () => {
   });
 
   it("refuses a scan whose entries normalize onto one path", async () => {
-    // Two spellings one composition-insensitive filesystem would never hold at
-    // once, and one that does would hand to two File rows in memory and one in
-    // SQLite.
     const colliding: WorkspaceFileSystem = {
       lstat: () =>
         Promise.resolve({
@@ -374,9 +362,6 @@ describe("verifyRoot", () => {
       },
     };
 
-    // The same errno one directory deeper produces `unreadable`. Flattening
-    // every root failure to `unavailable` would tell a person their directory
-    // is gone when it is only locked.
     await expect(verifyRoot(refusing, canonical)).rejects.toMatchObject({
       issue: "unreadable",
     });

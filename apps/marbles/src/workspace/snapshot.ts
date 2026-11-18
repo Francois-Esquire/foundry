@@ -64,7 +64,6 @@ function runSnapshot(
   now: number,
   feed: readonly FeedEntrySnapshot[],
   activities: readonly ActivityRecord[],
-  /** The run's facts and what else may be its; absent when usage is not recorded. */
   usage:
     | {
         readonly facts: readonly RunUsageFact[];
@@ -88,8 +87,6 @@ function runSnapshot(
     entry.input?.mode === "approval" ? "approval" : "question";
   const attention = attentionOf(waiting.map(inputAttention));
   const usageAt = usage && stepUsages(usage.facts, usage.mayBelong);
-  // A node's real path is its ancestors' names and its own: its joined key
-  // cannot tell a step named `a.b` from `a`'s child `b`.
   const stepNode = (
     node: WorkflowStepNode,
     parent: readonly string[]
@@ -204,7 +201,6 @@ function runSnapshot(
   };
 }
 
-/** Where a definition was declared, relative to the workspace root when inside it. */
 function catalogOrigin(
   origin: string | undefined,
   root: string,
@@ -213,7 +209,6 @@ function catalogOrigin(
   if (origin === undefined) {
     return;
   }
-  // The root is canonical; a stack path may still run through a symlink.
   const colon = origin.lastIndexOf(":");
   const file = colon > 0 ? origin.slice(0, colon) : origin;
   let canonical = origin;
@@ -235,10 +230,6 @@ function catalogOrigin(
   };
 }
 
-/**
- * A run with no Orchestrator record or steps yet: still waiting in its queue,
- * or a workflow let in whose setup has not finished dispatching it.
- */
 function queuedSnapshot(run: ExecutionRun, now: number): RunSnapshot {
   const queuedAt = Date.parse(run.timestamps.queuedAt);
   return {
@@ -273,36 +264,23 @@ export interface SnapshotOptions {
   readonly activities?: readonly ActivityRecord[];
   readonly automationErrors?: Readonly<Record<string, string>>;
   readonly automations?: readonly AutomationRecord[];
-  /** What can be launched by hand: the engine's `definitions()`. */
   readonly definitions: readonly DefinitionEntry[];
-  /** The host's own lines, oldest first, for the logs panel. */
   readonly diagnostics?: readonly LogEntry[];
-  /** Feed entries from every workspace, newest first. */
   readonly feed?: readonly FeedEntrySnapshot[];
   readonly lastFinish: ReadonlyMap<string, number>;
-  /** What each monitor watches, by trigger key: the engine's `monitors()`. */
   readonly monitors: ReadonlyMap<string, { readonly source: MonitorSpec }>;
   readonly now?: number;
   readonly others?: OtherWorkspaces;
-  /**
-   * The engine's `executions`: those queued, and workflows let in but not
-   * yet dispatched, are shown beside the Orchestrator's runs.
-   */
   readonly queued?: readonly ExecutionRun[];
   readonly root: string;
-  /** The live triggers: the engine's `schedules()`. */
   readonly schedules: readonly Schedule[];
-  /** Workflow setups' lines with their runs, for the logs panel. */
   readonly setupLogs?: readonly SetupLogEntry[];
   readonly startedAt: number;
   readonly status: string;
-  /** What agent turns consumed: the engine's `readUsage()`. */
   readonly usage?: UsageRecords;
-  /** This workspace's id, matching `FeedEntrySnapshot.workspace.id`. */
   readonly workspaceId?: string;
 }
 
-/** Adapt runtime records into presentation data; components never access the registry or engine. */
 export function dashboardSnapshot(
   records: readonly RunRecord[],
   options: SnapshotOptions
@@ -320,7 +298,6 @@ export function dashboardSnapshot(
     .filter(
       (run) =>
         run.status === "queued" ||
-        // Let in, its workflow still being set up: visible and cancellable.
         (run.kind === "workflow" &&
           run.status === "running" &&
           !dispatched.has(run.id))

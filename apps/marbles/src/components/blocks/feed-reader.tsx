@@ -15,7 +15,6 @@ const IMAGE_HEIGHT = 14;
 const IMAGE_WIDTH = 56;
 const MEDIA_ICON = { audio: "♪", file: "□", image: "▣", video: "▶" } as const;
 
-/** Markdown scopes from OpenTUI's Tree-sitter grammar, in the theme's colors. */
 function markdownStyle(): SyntaxStyle {
   const { colors } = theme;
   return SyntaxStyle.fromStyles({
@@ -86,7 +85,6 @@ function Choices({
   );
 }
 
-/** What a paused run is waiting for, and how to give it. */
 function AnswerSection({
   entry,
   answer,

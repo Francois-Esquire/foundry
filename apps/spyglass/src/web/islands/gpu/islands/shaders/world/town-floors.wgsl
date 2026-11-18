@@ -1,31 +1,17 @@
-// The town's sites' ground (town-draw.ts `settle`): once per plan and per
-// height map, one thread a site finds the ground at its middle, how far
-// below that its lowest ground under its footprint lies, and the light
-// map's occlusion and sun there. The town's parts read this and nothing
-// else of the ground, so the frame samples no height for a body.
 struct FloorParams {
-  // The maps' square: its corner and side, chart units.
   origin: vec2f,
   side: f32,
   count: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: FloorParams;
-// Two vec4f a site (town-parts.ts `packSites`): its middle and turn; half
-// its footprint.
 @group(0) @binding(1) var<storage, read> sites: array<vec4f>;
-// r: the ground's height.
 @group(0) @binding(2) var height: texture_2d<f32>;
-// normal.x, normal.z, occlusion, sun.
 @group(0) @binding(3) var light: texture_2d<f32>;
 @group(0) @binding(4) var linear: sampler;
-// A vec4f a site: the ground at its middle, how far below that its floor
-// sinks, its occlusion and its sun.
 @group(0) @binding(5) var<storage, read_write> floors: array<vec4f>;
 
-// Samples a side over a footprint, corners and edges included.
 const SAMPLES = 5u;
-// How far below the lowest ground under it a floor sinks.
 const SINK = 0.15;
 
 fn groundAt(xz: vec2f) -> f32 {

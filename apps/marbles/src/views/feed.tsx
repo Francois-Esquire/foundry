@@ -7,10 +7,8 @@ import type { FeedState } from "./use-feed";
 const LIST_SHARE = 0.38;
 const MIN_LIST_WIDTH = 30;
 const MAX_LIST_WIDTH = 52;
-/** Below this, list and reader stack instead of sitting side by side. */
 const STACK_BELOW = 90;
 
-/** Entries on the left, the selected article on the right. */
 export function FeedView({
   feed,
   inputActive,

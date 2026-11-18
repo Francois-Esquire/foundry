@@ -2,14 +2,6 @@ import type { Node, Project, SourceFile } from "ts-morph";
 
 import { ts } from "ts-morph";
 
-// V12.6 workspace reference index: every node that names one of the given
-// declarations, found in a single walk over the workspace program instead
-// of one language-service search per symbol. Each identifier is resolved
-// through the checker and its alias chain, so an aliased import, a barrel
-// re-export, a namespace member, a destructured module namespace, and a
-// JSDoc `{@link}` all land on the original declaration — the same nodes
-// `findReferencesAsNodes` yields, at a fixed cost per workspace.
-
 export interface ReferenceTarget<K> {
   key: K;
   node: Node;
@@ -34,15 +26,6 @@ function resolveAlias(
   return undefined;
 }
 
-/**
- * The node `findReferencesAsNodes` would return for this span. ts-morph's
- * `DocumentSpan.getNode` compares each node's width against the span's
- *end* offset, so it returns the deepest node starting at `start` unless
- * some ancestor's width happens to equal `start + width`, in which case that
- * ancestor wins (an `import { A, B }` list, say). The published usage
- * numbers were measured under that rule; reproduce it exactly, and change
- * both together if it is ever corrected.
- */
 function nodeAt(file: SourceFile, start: number, width: number): Node {
   const end = start + width;
   let best: Node = file;
@@ -63,11 +46,6 @@ function nodeAt(file: SourceFile, start: number, width: number): Node {
   return best;
 }
 
-/**
- * Reference nodes per target key, in workspace file order then position.
- * References inside the declaring file are included; callers filter by
- * boundary exactly as they do for `findReferencesAsNodes`.
- */
 export function indexWorkspaceReferences<K>(
   project: Project,
   targets: ReferenceTarget<K>[]
@@ -87,11 +65,6 @@ export function indexWorkspaceReferences<K>(
     return references;
   }
 
-  // The language service searches the whole compiler program, which holds
-  // files the project never added — a `dist/*.d.ts` reached through a
-  // package's `types` condition. Those counted as consumers before and must
-  // still; wrap them without adding them to the project, as ts-morph does
-  // for its own reference entries. Only node_modules is skipped.
   const factory = (
     project as unknown as {
       _context: {
@@ -162,8 +135,6 @@ export function indexWorkspaceReferences<K>(
         parent.propertyName === undefined &&
         ts.isObjectBindingPattern(parent.parent)
       ) {
-        // `const { x } = await import("pkg")` names the export through the
-        // namespace type; the binding's own symbol is only the local.
         record(
           identifier,
           checker.getTypeAtLocation(parent.parent).getProperty(identifier.text)

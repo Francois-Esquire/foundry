@@ -1,4 +1,3 @@
-/** Map layout and kernel uniforms, derived without GPU resources. */
 import type { Chart, Point } from "../../../data/chart";
 import { banksOf } from "../sea/banks";
 import {
@@ -14,21 +13,16 @@ import type { PackedBanks } from "./map-data";
 import type { MapParams } from "./map-params";
 import { clamp01, landUniform, sunDirection } from "./uniforms";
 
-/** The share of the chart's larger side left as sea on every side. */
 export const MAP_MARGIN = 0.05;
 
-/** The square grid every map shares. Texel (i, j) is centred at
- * `origin + (i + 0.5, j + 0.5) * texel`. */
 export interface MapFrame {
   readonly origin: Point;
   readonly resolution: number;
   readonly texel: number;
 }
 
-/** A frame's side, chart units. */
 export const sideOf = (mf: MapFrame): number => mf.texel * mf.resolution;
 
-/** A frame's centre, chart units. */
 const centreOf = (mf: MapFrame): Point => {
   const half = sideOf(mf) / 2;
   return [mf.origin[0] + half, mf.origin[1] + half];
@@ -44,7 +38,6 @@ export function mapFrame(chart: Chart, resolution: number): MapFrame {
   };
 }
 
-/** Mip levels down to 1×1 for a power-of-two side. */
 export function mipLevelCount(resolution: number): number {
   const levels = Math.log2(resolution) + 1;
   if (!Number.isInteger(levels)) {
@@ -53,7 +46,6 @@ export function mipLevelCount(resolution: number): number {
   return levels;
 }
 
-/** Chart units of the light and flow marches' first step, as a share of the frame side. */
 const LIGHT_REACH_SHARE = 1 / 1024;
 
 export const frameUniform = (mf: MapFrame) => ({
@@ -62,41 +54,24 @@ export const frameUniform = (mf: MapFrame) => ({
   texel: mf.texel,
 });
 
-/** A riser, and so a ring, is never narrower than this many texels, or it aliases. */
 const MIN_RISER_TEXELS = 2.5;
 
-/** The deep's rings past this many are dropped (bathymetry.wgsl `MAX_DEEP_RINGS`). */
 const MAX_DEEP_RINGS = 32;
-/** Under half a step, so no level's undulation meets its neighbour's (sea/bathymetry.wgsl `undulationAt`). */
 const MAX_UNDULATION = 0.45;
-/** A unit vector `degrees` from east toward south: chart y runs south. */
 const wayOf = (degrees: number): [number, number] => {
   const a = (degrees * Math.PI) / 180;
   return [Math.cos(a), Math.sin(a)];
 };
 
-/** The seabed map's side, texels: coarser than the frame's maps, as it lies far off. */
 export const SEABED_RESOLUTION = 1024;
 
-/** The share of the seabed map's reach past the frame its outer band eases over. */
 const SEABED_BAND = 0.5;
 
-/**
- * Where the open floor starts sinking, chart units from the nearest coast:
- * about where the platform's slope ends, its spread, margin and slope.
- */
 const seascapeCalm = (params: MapParams): number =>
   Math.max(params.bankSpread, 0) +
   Math.max(params.bankMargin, 0) +
   Math.max(params.shelfWidth, 0);
 
-/**
- * The open sea's floor (sea/seascape.wgsl `Seascape`) over the frame `mf`,
- * as the height and seabed kernels share it. It grows in over a slope's
- * width past the calm; its canyons fan out as from a disc the chart's
- * size, half the fitted frame's side less its margins (a tiled frame's is
- * larger, so its canyons fan a little less).
- */
 const seascapeUniform = (params: MapParams, mf: MapFrame) => ({
   basins: Math.max(params.seascapeBasins, 0),
   calm: seascapeCalm(params),
@@ -114,11 +89,6 @@ const seascapeUniform = (params: MapParams, mf: MapFrame) => ({
   veer: clamp01(params.seascapeVeer),
 });
 
-/**
- * The seabed map's square: `seascapeReach` frames across, centred on the
- * frame, `SEABED_RESOLUTION` texels a side. It never holds less than the
- * frame.
- */
 export function seabedFrame(mf: MapFrame, params: MapParams): MapFrame {
   const reach = sideOf(mf) * Math.max(params.seascapeReach, 1);
   const centre = centreOf(mf);
@@ -129,17 +99,9 @@ export function seabedFrame(mf: MapFrame, params: MapParams): MapFrame {
   };
 }
 
-/** How far the seabed map's square reaches past the frame's on each side, chart units. */
 const seabedPast = (grid: MapFrame, seabed: MapFrame): number =>
   Math.max((sideOf(seabed) - sideOf(grid)) / 2, 0);
 
-/**
- * The open depth, chart units: what the seabed map's outer band eases the
- * open floor onto, flat, and where the water's open floor lies past the
- * mesh, so the two meet. The deep floor sunk by the descent across the
- * seabed map's reach past the frame, then down to the floor's next whole
- * step (seascape.wgsl `steppedFloor`), so it lies on a tread.
- */
 export function openFloorDepth(
   sea: {
     readonly descent: number;
@@ -158,15 +120,12 @@ export function openFloorDepth(
   return sea.floorDepth * sea.step ** Math.ceil(steps - 1e-9);
 }
 
-/** The seabed kernel's uniforms (seabed.wgsl), for a chart of `levels` levels. */
 export function seabedUniforms(
   params: MapParams,
   mf: MapFrame,
   levels: number
 ) {
   const seabed = seabedFrame(mf, params);
-  // The height kernel's bathymetry, so the platform's fall runs on past
-  // the frame exactly as it lies within it.
   const { bed, platform, banks, seascape } = heightUniforms(params, mf, {
     bankCount: 0,
     islandCount: 0,
@@ -188,11 +147,6 @@ export function seabedUniforms(
   };
 }
 
-/**
- * The height kernel's uniforms. `banks` counts what `packBanks` packed for
- * the chart; without it (or with no groups) the sea is the platform alone,
- * at `bankTop`. The depths are the chart's `seaDepthsOf`.
- */
 export function heightUniforms(
   params: MapParams,
   mf: MapFrame,
@@ -265,11 +219,6 @@ export function heightUniforms(
   };
 }
 
-/**
- * The paint kernel's uniforms: the colours, the bands at the chart's
- * depths, and the shore's depths, which mark the steep coasts as the
- * height kernel shapes them.
- */
 export function paintUniforms(params: MapParams, mf: MapFrame, chart: Chart) {
   const { levels } = banksOf(chart);
   return {
@@ -282,7 +231,6 @@ export function paintUniforms(params: MapParams, mf: MapFrame, chart: Chart) {
   };
 }
 
-/** The flow kernel's uniforms: the swell, and the march's first step. */
 export function flowUniforms(params: MapParams, mf: MapFrame) {
   return {
     frame: frameUniform(mf),
@@ -297,7 +245,6 @@ export function flowUniforms(params: MapParams, mf: MapFrame) {
   };
 }
 
-/** The light kernel's uniforms. */
 export function lightUniforms(params: MapParams, mf: MapFrame) {
   return {
     blur: Math.max(params.shadowBlur, 0),
@@ -311,7 +258,6 @@ export function lightUniforms(params: MapParams, mf: MapFrame) {
   };
 }
 
-/** The files kernel's uniforms: the frame, and a file's disc radius. */
 export function filesUniforms(params: MapParams, mf: MapFrame) {
   return {
     frame: frameUniform(mf),
@@ -319,16 +265,9 @@ export function filesUniforms(params: MapParams, mf: MapFrame) {
   };
 }
 
-/** Chart units past a road's, parcel's or building's edge over which its reserve eases off. */
 const RESERVE_EASE = 1;
-/** Chart units across a zone's edge over which its growth fades in. */
 const ZONE_FEATHER = 2;
 
-/**
- * The zoning kernel's uniforms: the frame, the reserve's ease and the
- * zones' feather, and how far a shape's quad reaches past its points to
- * hold them and every ring, with a texel to spare.
- */
 export function zoningUniforms(mf: MapFrame) {
   const ease = Math.max(RESERVE_EASE, mf.texel);
   const feather = Math.max(ZONE_FEATHER, mf.texel);

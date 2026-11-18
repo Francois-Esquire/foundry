@@ -6,7 +6,6 @@ import {
 } from "./chrome-entries";
 import { CompassRose } from "./compass-control";
 
-/** The narrow bar grows left from the compass, then scrolls within the viewport. */
 export function ChartAppBar({
   context,
   open,

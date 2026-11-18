@@ -29,11 +29,6 @@ import { analyzeSymbolLocality } from "../../src/lib/symbol-locality";
 
 const specifierPattern = /\.tsx?$/;
 
-// V13.2 responsibility regions on synthetic packages. Each fixture is one
-// package in a throwaway workspace; the high-fan cutoff floors at 3, so a
-// symbol with two consumers is localized and a module with three dependents
-// is a connector.
-
 const tempRoots: string[] = [];
 
 afterAll(() => {
@@ -85,7 +80,6 @@ function responsibilitiesOf(
   return derive(workspace(files, extra));
 }
 
-/** `import { names } from "<relative>"` from one package-relative file to another. */
 function importOf(from: string, to: string, names: string): string {
   let specifier = posix.relative(
     posix.dirname(from),
@@ -308,7 +302,6 @@ describe("cycles", () => {
   });
 });
 
-/** Two concept regions in `a/` and `b/` plus whatever the caller adds. */
 function twoRegions(extra: Record<string, string>): Record<string, string> {
   return {
     "src/a/a1.ts": CONCEPT("Alpha"),

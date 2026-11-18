@@ -1,4 +1,3 @@
-// Adapted from termcn's OpenTUI Tabs.
 import type { ReactNode } from "react";
 import { Action } from "~/components/ui/action";
 

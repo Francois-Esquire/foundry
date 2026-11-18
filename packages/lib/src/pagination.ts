@@ -19,7 +19,6 @@ export function pageLimit(
   return Math.min(value, max);
 }
 
-/** Rows include one extra item to establish whether a continuation exists. */
 export function pageFromRows<T, Cursor>(
   rows: readonly T[],
   limit: number,

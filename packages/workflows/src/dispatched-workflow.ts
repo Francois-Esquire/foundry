@@ -10,12 +10,6 @@ import type {
   WorkflowState,
 } from "./workflow";
 
-/**
- * Live handle for a single dispatched run. Wraps a {@link Workflow} with the
- * queue-owned terminal deferred and the JS-first sync accessors consumers read
- * (`status`, `snapshot`, `output`, `results`, `error`). Queue-provided hooks
- * coordinate cancellation and persist terminal state when needed.
- */
 export class DispatchedWorkflow<
   I = unknown,
   O = unknown,
@@ -24,12 +18,7 @@ export class DispatchedWorkflow<
   readonly id: string;
   readonly queueId: string;
   readonly workflow: Workflow<I, O, X>;
-  // Optional override for the persisted run.step — Orchestrator threads
-  // its registry key here. Falls back to workflow.name when unset.
   readonly #stepName: string | undefined;
-  // Closure that writes the current workflow state to the runs row.
-  // Injected on dispatch/adopt so cancel() can persist terminal state
-  // when the driver fiber may not run.
   readonly #persist: (snap: WorkflowState) => Promise<void>;
   readonly #onCancel: ((snapshot: WorkflowState) => Promise<void>) | undefined;
   readonly #authorityManagedSuspensions: boolean;
@@ -37,10 +26,6 @@ export class DispatchedWorkflow<
     | (<T>(operation: () => Promise<T>) => Promise<T>)
     | undefined;
 
-  /** Queue-owned terminal handle. Succeeded by #runOne after persistence +
-   * emit, or by cancel() for runs that never reach the driver. Distinct from
-   * workflow.result(), which resolves when the workflow reaches terminal.
-   * Callers awaiting dispatched.result() see queue side-effects as applied. */
   readonly #settled: Deferred.Deferred<unknown>;
   #admissionFailure: Error | null = null;
 
@@ -101,8 +86,6 @@ export class DispatchedWorkflow<
     return this.workflow.status;
   }
 
-  /** Sync read of the latest workflow snapshot. Reflects the in-memory
-   * projection; for hydrated runs, this is the seeded snapshot. */
   get snapshot(): WorkflowState {
     const { state } = this.workflow;
     if (!this.#admissionFailure) {
@@ -116,24 +99,15 @@ export class DispatchedWorkflow<
     };
   }
 
-  /** The workflow's terminal output. `undefined` unless status is `complete`. */
   get output(): O | undefined {
     const s = this.snapshot;
     return s.status === "complete" ? (s.output as O) : undefined;
   }
 
-  /**
-   * Map of completed step outputs keyed by dot-joined path
-   * (e.g., `"workflow.child"`, `"workflow.child.grandchild"`). Updated
-   * reactively as steps complete. Empty `{}` for runs that haven't started.
-   * Path-keyed because step names can repeat; the path is unambiguous.
-   */
   get results(): Readonly<Record<string, unknown>> {
     return this.workflow.root.results;
   }
 
-  /** Workflow-level error captured on the `failed` transition, or `null` for
-   * non-failed runs. Plain shape: `{ name, message, stack? }`. */
   get error(): ErrorShape | null {
     return this.snapshot.error ?? null;
   }
@@ -153,9 +127,6 @@ export class DispatchedWorkflow<
           const workflow = workflowEffectAccess(self.workflow);
           const onCancel = self.#onCancel;
           if (onCancel) {
-            // Store authority commits before the live workflow is mutated. A
-            // rejected transaction therefore leaves a suspended handle intact
-            // and resolvable rather than creating split-brain cancellation.
             const currentState = yield* workflow.state;
             yield* Effect.promise(() =>
               onCancel({
@@ -173,8 +144,6 @@ export class DispatchedWorkflow<
               self.#persist({ ...finalState, status: "cancelled" })
             );
           }
-          // Eagerly settle for runs cancelled before driver pickup; #runOne may
-          // never settle. _settle is idempotent.
           const wfResult = yield* workflow.result;
           yield* self._settle(wfResult);
         })

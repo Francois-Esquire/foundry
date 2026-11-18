@@ -4,7 +4,6 @@ import type {
   SemanticsSkippedDirectory,
 } from "./semantics-types";
 
-/** Manifest registration is independent of TypeScript analysis coverage. */
 export interface DependencyInventoryPackage {
   analysis: "available" | "unsupported";
   declaredDependencies: SemanticsDeclaredDependencies;
@@ -12,7 +11,6 @@ export interface DependencyInventoryPackage {
   name: string;
   optionalPeers?: string[];
   path: string;
-  /** Workspace roots contribute tooling, not another island. */
   role: "workspace" | "root";
   version?: string;
 }

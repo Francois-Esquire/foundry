@@ -6,7 +6,6 @@ import { rankedSection } from "./ranked-section";
 
 const BY_PACKAGE = "Files by package";
 
-/** The section an empty dependency graph still prints, its heading over no packages. */
 const NO_PACKAGES: SectionView = {
   blocks: [{ items: [], kind: "rankedList" }],
   title: BY_PACKAGE,

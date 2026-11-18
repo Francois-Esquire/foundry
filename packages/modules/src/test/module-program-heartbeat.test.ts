@@ -48,7 +48,6 @@ describe("generated Program heartbeats", () => {
     async (mode) => {
       const files = await workspaceFiles();
       const server = files[SERVER_PATH] ?? "";
-      // The composed Program hands its Gateway socket to the Module SDK.
       expect(server).toContain("const gateway = createProgramGateway();");
       expect(server).toContain("websocket: gateway.websocket,");
       const sdk = await importModuleSdk();
@@ -130,7 +129,6 @@ function assertHeartbeatReplies(source: string, mode: string): void {
   assertReplies(handler, mode, "Gateway hello is invalid");
 }
 
-/** A heartbeat before hello closes the socket; after it, each is echoed. */
 function assertReplies(
   handler: SocketHandler,
   mode: string,

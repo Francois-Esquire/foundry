@@ -1,18 +1,7 @@
-/**
- * Where the camera's and the selection's keys listen, and which key
- * presses they leave alone: one typed into a field, or pressed inside an
- * open dialog, belongs to that and not to the map.
- */
-
-/**
- * Where the keys listen: the whole window, the canvas alone (made
- * focusable, so a click or Tab gives it the keys), or nowhere.
- */
 export type KeyboardMode = "window" | "canvas" | false;
 
 const FORM_TAGS = /^(INPUT|SELECT|TEXTAREA|BUTTON)$/;
 
-/** What a key event's target offers, as an element does; anything else is no element. */
 interface ElementLike {
   closest: (selector: string) => unknown;
   isContentEditable?: boolean;
@@ -24,11 +13,6 @@ const isElementLike = (target: unknown): target is ElementLike =>
   target !== null &&
   typeof (target as { closest?: unknown }).closest === "function";
 
-/**
- * Whether a key pressed at `target` is someone else's: the target is
- * editable (a field, a button, editable text) or inside an open `<dialog>`.
- * Duck-typed, so it holds for any element and is tested without a DOM.
- */
 export function ignoresKeys(target: EventTarget | null): boolean {
   if (!isElementLike(target)) {
     return false;
@@ -41,13 +25,11 @@ export function ignoresKeys(target: EventTarget | null): boolean {
 }
 
 export interface KeyHandlers {
-  /** The keys were let go of without a keyup: the window or the canvas lost focus. */
   blur?: () => void;
   keydown?: (event: KeyboardEvent) => void;
   keyup?: (event: KeyboardEvent) => void;
 }
 
-/** Listens for keys where `mode` says; the returned function stops listening. */
 export function listenKeys(
   canvas: HTMLCanvasElement,
   mode: KeyboardMode,
@@ -71,11 +53,6 @@ export function listenKeys(
   };
 }
 
-/**
- * Makes the canvas focusable while the keys listen on it, unless the host
- * already set its `tabindex`; the returned function undoes only what this
- * did.
- */
 export function focusableFor(
   canvas: HTMLCanvasElement,
   mode: KeyboardMode

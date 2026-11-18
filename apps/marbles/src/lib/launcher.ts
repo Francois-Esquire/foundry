@@ -17,74 +17,35 @@ import type { Agents, SandboxHandle } from "~/lib/types";
 import type { ExecutionContext } from "./execution-context";
 import { withinContext } from "./execution-context";
 
-/**
- * Launches: every run from the moment it is launched until it settles. The
- * launcher records it queued, lets its queue admit it, runs a host task's
- * body here or hands a workflow to the engine to dispatch, records how it
- * ends, and hands its caller the value. It holds what is owed to callers
- * and what runs here now; everything about following a workflow through
- * the Orchestrator stays with the engine, behind {@link WorkflowDispatch}.
- */
-
 export interface LaunchOptions {
-  /** Host identifiers recorded on the run, such as `moduleId` or `agentSessionId`. */
   readonly correlation?: Readonly<Record<string, string>>;
-  /** The queue to wait in; the task's own, or `marbles`, by default. */
   readonly queue?: string;
-  /**
-   * Whether a failure's message goes on the run's record beside its safe
-   * code; on by default. Turn it off for work whose errors may quote what
-   * was sent (a provider's reply): the record keeps the code, and the
-   * caller's `result` still rejects with the error itself. A run let in
-   * again after a restart has no caller, and records its message.
-   */
   readonly recordErrorMessage?: boolean;
-  /**
-   * The request's identity: launching the same name with it again returns
-   * the run it started, for as long as that run is retained.
-   */
   readonly source?: string;
-  /** The trigger that started it, recorded on the run. */
   readonly triggerId?: string;
 }
 
-/** A launched run: its id now, its value once it settles. */
 export interface Launched<O> {
   readonly id: string;
   readonly result: Promise<O>;
 }
 
-/** A workflow run the engine has dispatched, or adopted, and follows to its end. */
 export interface DispatchedRun {
-  /** Cancel it through the Orchestrator. */
   cancel(): Promise<void>;
-  /**
-   * How a rejected `result` ended the run: `undefined` when it has not
-   * ended, such as a run left parked when the engine stops.
-   */
   endedAs(): "cancelled" | "failed" | undefined;
-  /** Its value, once it is followed to its end. */
   readonly result: Promise<unknown>;
 }
 
-/** The engine's side of a workflow run: the one way the launcher reaches the Orchestrator. */
 interface WorkflowDispatch {
-  /** Cancel a Run the Orchestrator holds that is not running here. */
   cancel(id: string): Promise<void>;
-  /**
-   * Dispatch the run under its own id, and follow it. An abort of `signal`
-   * before the Orchestrator takes the run withdraws it, and this rejects.
-   */
   dispatch(
     run: ExecutionRun,
     input: unknown,
     signal: AbortSignal
   ): Promise<DispatchedRun>;
-  /** Whether a workflow by this name can run. */
   has(name: string): boolean;
 }
 
-/** What a task run's agent sessions belong to. */
 interface TaskRunSite {
   readonly id: string;
   readonly name: string;
@@ -97,14 +58,11 @@ interface Closable {
 }
 
 export interface LauncherOptions {
-  /** Sessions for a task run: they stop with it, close when it settles, and record on it. */
   readonly agents: (run: TaskRunSite) => Agents;
   readonly context?: ExecutionContext;
   readonly executions: Executions;
   readonly print: (line: string) => void;
-  /** Whether queued runs an exited process left are let in again at start. */
   readonly recoverQueued: boolean;
-  /** Lend a task run a container the host owns; exec through it stops with the run. */
   readonly sandbox: (
     container: Container,
     signal: AbortSignal
@@ -112,29 +70,20 @@ export interface LauncherOptions {
   readonly workflows: WorkflowDispatch;
 }
 
-/** A run's value, owed to whoever launched it until it settles. */
 interface Owed extends PromiseWithResolvers<unknown> {
   readonly recordErrorMessage: boolean;
 }
 
-/** A run admitted here, from its start until it settles. */
 type Live =
   | {
-      /** Withdraws a dispatch in flight; absent for an adopted run. */
       readonly controller?: AbortController;
       readonly kind: "workflow";
-      /**
-       * Its dispatch; `undefined` when dispatching failed or was withdrawn,
-       * given only once the record is settled.
-       */
       readonly dispatched: Promise<DispatchedRun | undefined>;
     }
   | {
       readonly controller: AbortController;
-      /** Settles once the run is recorded settled. */
       done: Promise<void>;
       readonly kind: "task";
-      /** It gave up its slot, so only a stop ends it. */
       released: boolean;
     };
 
@@ -165,14 +114,8 @@ const HAND_OVER_RETRY_MS = 1000;
 const HAND_OVER_RETRY_MAX_MS = 30_000;
 const HAND_OVER_PASS_MS = 2000;
 
-/**
- * A run its queue has let in or is about to, until it settles: its abort
- * controller exists before any lifecycle update is published, so a cancel
- * a subscriber sends from that update reaches it before its body starts.
- */
 interface Admission {
   readonly controller: AbortController;
-  /** Resolves once its caller has been paid: the run has settled here. */
   readonly settled: PromiseWithResolvers<void>;
 }
 
@@ -180,7 +123,6 @@ export type QueuedTake =
   | { readonly taken: true }
   | { readonly taken: false; readonly why: string };
 
-/** How a stop in progress treats what is still running: absent until one begins. */
 type Halting = "stop" | "cancel" | undefined;
 
 export class Launcher {
@@ -191,11 +133,6 @@ export class Launcher {
   readonly #live = new Map<string, Live>();
   readonly #admitted = new Map<string, Admission>();
   readonly #withdrawing: Promise<void>[] = [];
-  /**
-   * Set when a stop begins and kept: the engine never starts again. A task
-   * that gives up its slot from then on is stopped at once, and one that
-   * starts while a cancelling stop runs never gets to its body.
-   */
   #halting: Halting;
   #retiring = false;
   readonly #launching = new Set<Promise<void>>();
@@ -205,35 +142,24 @@ export class Launcher {
     this.executions = options.executions;
   }
 
-  /** Whether a task has this name. */
   has(name: string): boolean {
     return this.#tasks.has(name);
   }
 
-  /** Add a host task; the engine has checked its name. */
   task(definition: TaskDefinition): void {
     this.#tasks.set(definition.name, definition);
   }
 
-  /** Whether anything here can run this name: a task or a workflow. */
   #runnable(name: string): boolean {
     return this.#tasks.has(name) || this.#options.workflows.has(name);
   }
 
-  /** Whether what is registered under the run's name is the kind it was launched as. */
   #runnableAs(run: Pick<ExecutionRun, "kind" | "name">): boolean {
     return run.kind === "task"
       ? this.#tasks.has(run.name)
       : this.#options.workflows.has(run.name);
   }
 
-  /**
-   * Record a run queued and let its queue admit it. When the queue lets it
-   * in at once, it has also started when this resolves, so a bad input
-   * still rejects here. A `source` already launched under this name returns
-   * that run: its value when it is running here, `undefined` once it
-   * completed, else the reason it did not.
-   */
   async launch<O>(
     name: string,
     input: unknown,
@@ -286,7 +212,6 @@ export class Launcher {
       return { id: run.id, result: this.#resultOf<O>(run) };
     }
     const owed = this.#owe(run.id, options.recordErrorMessage ?? true);
-    // A subscriber told it is queued may have cancelled it already.
     const started = this.#admit(run.id, parent);
     admitted();
     if (started) {
@@ -295,7 +220,6 @@ export class Launcher {
     return { id: run.id, result: owed.promise as Promise<O> };
   }
 
-  /** Follow a parked workflow run this process adopted from an earlier one. */
   follow(id: string, dispatched: DispatchedRun): void {
     this.#live.set(id, {
       dispatched: Promise.resolve(dispatched),
@@ -304,14 +228,6 @@ export class Launcher {
     this.#finish(id, dispatched.result, dispatched.endedAs);
   }
 
-  /**
-   * Take over the Execution Runs of processes that have exited: what was
-   * running is recorded interrupted, unless its workflow's file says how it
-   * ended or that it parked, adopted parked runs stay this process's, and
-   * queued runs are let in again in their order when the host asked for
-   * that and what is registered under their name is the kind they were
-   * launched as.
-   */
   async recover(options: {
     readonly adopted: ReadonlySet<string>;
     readonly fileStatus: (run: ExecutionRun) => string | undefined;
@@ -496,15 +412,6 @@ export class Launcher {
     return true;
   }
 
-  /**
-   * Cancel one run, wherever it is: off its queue if it is still waiting,
-   * aborted if it is a task, and through the Orchestrator otherwise. A run
-   * still being dispatched is withdrawn, so its body never starts, or, if
-   * the Orchestrator took it first, cancelled there once it is dispatched.
-   * A run whose process exited and that no process adopted is recorded
-   * cancelled here. A task is settled when this returns; a run that has
-   * already settled is left as it is.
-   */
   async cancel(id: string): Promise<void> {
     if (await this.executions.withdraw(id)) {
       this.#pay(id, new Error(`run ${id} was cancelled before it started`));
@@ -518,8 +425,6 @@ export class Launcher {
     }
     const admission = this.#admitted.get(id);
     if (!live && admission) {
-      // Recorded running, its body not yet started: a subscriber cancelling
-      // from that update. Its start sees the abort and runs nothing.
       admission.controller.abort(new Error(`run ${id} was cancelled`));
       await admission.settled.promise;
       return;
@@ -534,7 +439,6 @@ export class Launcher {
     if (run && SETTLED_EXECUTION_STATUSES.has(run.status)) {
       return;
     }
-    // Its owner exited and nothing adopted it: nothing will settle it but this.
     if (await this.executions.cancelOrphan(id)) {
       return;
     }
@@ -566,16 +470,6 @@ export class Launcher {
     }
   }
 
-  /**
-   * The first half of a stop. When cancelling, every waiting run comes off
-   * its queue, every dispatch in flight is withdrawn and every task is
-   * aborted at once, before anything is awaited, so a slot freed meanwhile
-   * lets nothing in. Otherwise the tasks that cannot outlive the stop,
-   * those that gave up their slot, are aborted first, so a factory waiting
-   * on what such a task holds is not waited on forever. Then wait for the
-   * dispatches in flight. From the start of the stop, a task that gives up
-   * its slot is aborted as it does.
-   */
   async halt(cancel: boolean): Promise<void> {
     if (cancel) {
       this.cancelPending();
@@ -592,7 +486,6 @@ export class Launcher {
     this.#abortHalted();
   }
 
-  /** Abort each task a stop in progress does not let outlive it. */
   #abortHalted(): void {
     for (const [id, live] of this.#live) {
       if (
@@ -604,7 +497,6 @@ export class Launcher {
     }
   }
 
-  /** Resolves once every task running here has settled. */
   async settled(): Promise<void> {
     await Promise.all(
       [...this.#live.values()].map((live) =>
@@ -618,13 +510,11 @@ export class Launcher {
       ...Promise.withResolvers<unknown>(),
       recordErrorMessage,
     };
-    // The host may attach later, or never: a recovered run has no caller.
     owed.promise.catch(() => undefined);
     this.#owed.set(id, owed);
     return owed;
   }
 
-  /** Hand the launcher its value, or the reason there is none. */
   #pay(id: string, error: unknown, value?: unknown): void {
     const admission = this.#admitted.get(id);
     this.#admitted.delete(id);
@@ -638,7 +528,6 @@ export class Launcher {
     }
   }
 
-  /** The value of a run launched before, as far as this process knows it. */
   #resultOf<O>(run: ExecutionRun): Promise<O> {
     const owed = this.#owed.get(run.id);
     if (owed) {
@@ -652,11 +541,6 @@ export class Launcher {
     );
   }
 
-  /**
-   * Wait in the run's queue; the start, when the queue let it in at once.
-   * A run no longer queued, cancelled by a subscriber told it was, is paid
-   * its cancellation instead.
-   */
   #admit(id: string, parent?: string): Promise<void> | undefined {
     if (this.executions.get(id)?.status !== "queued") {
       this.#pay(id, new Error(`run ${id} was cancelled before it started`));
@@ -669,8 +553,6 @@ export class Launcher {
     this.#admitted.set(id, admission);
     return this.executions.admit(
       id,
-      // Admission may happen when another run frees its queue slot. Keep
-      // this launch's request context for its body and output observers.
       AsyncResource.bind((input: unknown) =>
         this.#start(id, input, admission.controller)
       ),
@@ -698,11 +580,6 @@ export class Launcher {
     this.executions.closeAdmission((id) => this.#active(id));
   }
 
-  /**
-   * Let in: a task runs its body, a workflow is dispatched under the run's
-   * id. What it was launched as decides which, so a task replaced by a
-   * workflow of its name (or the reverse) is never handed the other's input.
-   */
   #start(
     id: string,
     input: unknown,
@@ -736,11 +613,7 @@ export class Launcher {
     if (this.#halting === "cancel") {
       controller.abort(new Error(`run ${run.id} stopped with the engine`));
     }
-    // The dispatch's outcome: the run it became, or nothing, given only once
-    // a failed dispatch has settled the record. A cancel or a stop awaiting
-    // it therefore reads a settled record, whatever else awaits the dispatch.
     const outcome = Promise.withResolvers<DispatchedRun | undefined>();
-    // Held from now, so a cancel or a stop finds it before it is dispatched.
     this.#live.set(run.id, {
       controller,
       dispatched: outcome.promise,
@@ -769,7 +642,6 @@ export class Launcher {
     this.#finish(run.id, dispatched.result, dispatched.endedAs);
   }
 
-  /** Run a task's body in the background, and record how it ends. */
   #run(
     task: TaskDefinition,
     run: ExecutionRun,
@@ -780,7 +652,6 @@ export class Launcher {
     if (this.#halting === "cancel") {
       controller.abort(new Error(`run ${id} stopped with the engine`));
     }
-    // Completion closes resource lifetime without changing cancellation outcome.
     const lifetime = new AbortController();
     const resourceSignal = AbortSignal.any([
       controller.signal,
@@ -809,16 +680,12 @@ export class Launcher {
             startedAt: observation.startedAt ?? new Date().toISOString(),
             status: observation.status ?? "complete",
           },
-          // Completing one it began keeps the start it began with.
           { keepStart: observation.startedAt === undefined }
         ),
       progress: (value) => this.executions.progress(id, value),
       release: () => {
         live.released = true;
         this.executions.release(id);
-        // A stop has begun: a task that gives up its slot cannot outlive
-        // it. Aborted just after this returns, so a body that goes on to
-        // wait for its signal is listening when it fires.
         if (this.#halting !== undefined) {
           queueMicrotask(() =>
             controller.abort(new Error(`run ${id} stopped with the engine`))
@@ -833,13 +700,10 @@ export class Launcher {
     const result = withinContext(this.#options.context, async () => {
       let value: unknown;
       try {
-        // Cancelled before its body started: it never runs.
         controller.signal.throwIfAborted();
         value = await asRun(id, () => task.run(input, context));
       } finally {
         lifetime.abort(new Error(`run ${id} resource lifetime ended`));
-        // Last opened first, one at a time, as a run scope closes: a
-        // session's turn stops before the sandbox under it goes.
         for (const closable of [...opened].reverse()) {
           await Promise.resolve()
             .then(() => closable.close())
@@ -856,7 +720,6 @@ export class Launcher {
     );
   }
 
-  /** Record how a run ended, once `result` settles, and pay its caller. */
   #finish(
     id: string,
     result: Promise<unknown>,
@@ -905,7 +768,6 @@ export class Launcher {
     this.#pay(id, outcome.error, outcome.value);
   }
 
-  /** What a failed run records: its safe code, and its message unless its launch said not to. */
   #failure(id: string, error: unknown): { code: string; message?: string } {
     const code = errorCode(error);
     if (this.#owed.get(id)?.recordErrorMessage === false) {

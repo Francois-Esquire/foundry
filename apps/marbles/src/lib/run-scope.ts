@@ -6,91 +6,48 @@ import type { AnyDefinition } from "./definition";
 import { Ledger } from "./ledger";
 import type { SessionRef } from "./types";
 
-/**
- * One RunScope per run, opened through its engine's RunScopes by the
- * definition's factory. It owns the run-level abort controller, the frame
- * table, the ledger, and the run's session reference. Frames are per step
- * path; each has its own controller chained under the run's. Bodies find
- * their frame through async context, which is also how a worktree callback
- * narrows the working directory.
- */
-
 interface Closable {
   close(): Promise<void> | void;
 }
 
-/** An agent session a step opened, and the turn it has in flight. */
 export interface LiveSession {
   readonly ref: SessionRef;
-  /**
-   * The turn running now, steering continuations included, until it
-   * settles: what closing the session stops and waits for.
-   */
   running?: Promise<unknown>;
-  /** A prompt a host handed in mid-turn; the next turn sends it. */
   steer?: string;
-  /** The controller of the turn running now, if one is. */
   turn?: AbortController;
 }
 
-/** Why a step is parked; a host asked for it. */
 interface Pause {
   readonly reason: string;
 }
 
-/** The Suspension kind a paused step parks under; the feed never sees it. */
 export const PAUSE_KIND = "marbles.pause";
 
 export interface Frame {
-  /** Reissued when the body re-enters after a pause. */
   controller: AbortController;
-  /** Per-kind call counters, reset when the body (re)enters. */
   readonly counters: Map<string, number>;
-  /** Children still running after this frame parked; awaited on re-entry. */
   detached: readonly Promise<unknown>[];
-  /**
-   * Set when an attempt failed: a retry enters next, and it must run fresh,
-   * so what the failed attempt recorded is dropped. A pause leaves it unset,
-   * so a resumed body replays.
-   */
   failed?: boolean;
   readonly key: string;
   readonly opened: Set<Closable>;
   readonly path: readonly string[];
-  /** Set by `pause`, read once by the body wrapper as it turns the abort into a suspension. */
   paused?: Pause;
-  /** A prompt given on resume; the first turn of a recorded session takes it. */
   resumePrompt?: string;
   readonly sessions: LiveSession[];
   signal: AbortSignal;
 }
 
 export interface Current {
-  /** The engine's managers: a definition called in the body uses them. */
   readonly bindings: Bindings;
   readonly cwd: string;
   readonly frame: Frame;
-  /** Execute a definition as a child of the current step. */
   readonly run: (definition: AnyDefinition, input: unknown) => Promise<unknown>;
   readonly scope: RunScope;
-  /** The step's stream. */
   readonly write: (value: unknown) => void;
 }
 
-/**
- * The frame a body is running in, found through async context. This one
- * stays module-level on purpose: it holds no state of its own, only what
- * each `run` call hands its callback, so two engines in one process never
- * see each other's frames. Threading it through every manager call instead
- * would put the frame in every signature an author's body reaches.
- */
 export const current = new AsyncLocalStorage<Current>();
 
-/**
- * The directory work started now runs in: the worktree a callback narrowed
- * the frame to, else `fallback` (the run's root, or the workspace root
- * outside any run).
- */
 export function workingDirectory(fallback: string): string {
   return current.getStore()?.cwd ?? fallback;
 }
@@ -99,26 +56,21 @@ type Literal = Readonly<Record<string, unknown>>;
 
 export interface RecordedScope {
   readonly ledger: Readonly<Record<string, unknown>>;
-  /** Each node's literal input by step path, as locked when the run started. */
   readonly literals?: Readonly<Record<string, Literal>>;
   readonly session: SessionRef;
 }
 
 export class RunScope {
   readonly controller = new AbortController();
-  /** The config's directory. */
   readonly cwd: string;
   readonly frames = new Map<string, Frame>();
-  /** Host-only facilities for built-in bodies; authored code never sees them. */
   readonly host: HostBindings;
   readonly id: string;
   readonly ledger: Ledger;
-  /** Literal input by step path: recorded when the tree is first built, replayed on recovery. */
   readonly literals = new Map<string, Literal>();
   readonly session: SessionRef;
   #root: Step | undefined;
 
-  /** `previous` is what a recovered run recorded; a new run starts empty. */
   constructor(
     id: string,
     cwd: string,
@@ -143,12 +95,6 @@ export class RunScope {
     };
   }
 
-  /**
-   * The literal a node runs with. A recovered run keeps the input each
-   * node was locked with when it started, so a setup that computes values,
-   * or a config edited in between, does not change a step mid-run. A node
-   * without a record (new since the run started) takes and records `fresh`.
-   */
   literal(path: readonly string[], fresh: Literal): Literal {
     const key = path.join(".");
     const recorded = this.literals.get(key);
@@ -159,7 +105,6 @@ export class RunScope {
     return fresh;
   }
 
-  /** Bind the root once materialized; package cancellation reaches the run layer. */
   attach(root: Step): void {
     this.#root = root;
     root.onAbort((reason) => this.abort(reason));
@@ -176,12 +121,10 @@ export class RunScope {
     return this.controller.signal;
   }
 
-  /** A fresh subscription to the whole run's events and chunks. */
   stream(signal?: AbortSignal): ReadableStream<ChannelMessage> {
     return this.root.subscribe(signal);
   }
 
-  /** The complete escape: fails the run and aborts everything in it. */
   abort(reason?: unknown): void {
     if (this.controller.signal.aborted) {
       return;
@@ -189,7 +132,6 @@ export class RunScope {
     this.controller.abort(reason ?? new Error("run aborted"));
   }
 
-  /** The frame for a step path, created on first sight. */
   frame(path: readonly string[]): Frame {
     const key = path.join(".");
     const existing = this.frames.get(key);
@@ -211,7 +153,6 @@ export class RunScope {
     return frame;
   }
 
-  /** A step controller chained under the run's. */
   #stepController(path: readonly string[]): AbortController {
     const controller = new AbortController();
     const propagate = () => controller.abort(this.controller.signal.reason);
@@ -243,14 +184,6 @@ export class RunScope {
     return controller;
   }
 
-  /**
-   * Called when a body starts an attempt: counters restart, a pause that
-   * parked this frame is consumed, stragglers settle, and a controller spent
-   * by a pause is replaced so the body can run again. A real abort is never
-   * replaced: the run's signal still fires. A step entering under an
-   * ancestor that is still paused parks at once, so a subtree pause holds
-   * for steps that had not started when it was requested.
-   */
   async enter(frame: Frame): Promise<void> {
     frame.counters.clear();
     if (frame.failed) {
@@ -286,12 +219,6 @@ export class RunScope {
     return undefined;
   }
 
-  /**
-   * Park a step and everything under it: each live frame in the subtree has
-   * its signal aborted, which stops what it opened, and its body wrapper
-   * records a suspension instead of a failure. `false` when nothing in that
-   * subtree is running in this run.
-   */
   pause(stepId: string, reason = "paused from the dashboard"): boolean {
     const frames = this.subtree(stepId).filter(
       (frame) => !frame.signal.aborted
@@ -305,7 +232,6 @@ export class RunScope {
     return frames.length > 0;
   }
 
-  /** The frame at `stepId` and every frame beneath it. */
   subtree(stepId: string): readonly Frame[] {
     const prefix = `${stepId}.`;
     return [...this.frames.values()].filter(
@@ -313,10 +239,6 @@ export class RunScope {
     );
   }
 
-  /**
-   * Hand a prompt to the agent active in a step: its current turn stops and
-   * the prompt becomes the next user message. Throws when no turn is running.
-   */
   steer(stepId: string, prompt: string): void {
     const frame = this.frames.get(stepId);
     const live = frame?.sessions.find((session) => session.turn !== undefined);
@@ -327,19 +249,15 @@ export class RunScope {
     live.turn.abort(new Error("steered"));
   }
 
-  /** The n-th call of `kind` in this frame's current attempt, and its ledger key. */
   claim(frame: Frame, kind: string): { key: string; occurrence: number } {
     const occurrence = frame.counters.get(kind) ?? 0;
     frame.counters.set(kind, occurrence + 1);
     return { key: Ledger.key(frame.path, kind, occurrence), occurrence };
   }
 
-  /** Close everything the run opened, last opened first. */
   async settle(): Promise<void> {
     for (const frame of [...this.frames.values()].reverse()) {
       for (const handle of [...frame.opened].reverse()) {
-        // Sessions are opened after their VM. Commit their terminal transcript
-        // before removing the environment that owns their live process.
         await Promise.resolve()
           .then(() => handle.close())
           .catch(() => undefined);
@@ -349,39 +267,20 @@ export class RunScope {
   }
 }
 
-/**
- * What a host reads of the run scopes an engine holds: each live run's
- * scope, to steer or inspect. Opening and settling stay with the engine,
- * which keeps its own record of each run beside its scope.
- */
 export interface ReadonlyRunScopes extends Iterable<RunScope> {
   get(runId: string): RunScope | undefined;
   has(runId: string): boolean;
   readonly size: number;
 }
 
-/**
- * The run scopes one engine holds. A scope is opened when the Orchestrator
- * builds a run's tree and held once that tree is attached, so a launch
- * rejected while building leaves nothing behind; it is forgotten when the
- * run settles. A run recovered from an earlier process is handed its
- * recorded state here before the Orchestrator rebuilds it, and its scope
- * takes that state when it opens.
- */
 export class RunScopes implements ReadonlyRunScopes {
   readonly #live = new Map<string, RunScope>();
   readonly #recovered = new Map<string, RecordedScope>();
 
-  /** What a parked run recorded, for its scope when the run is rebuilt. */
   recover(runId: string, state: RecordedScope): void {
     this.#recovered.set(runId, state);
   }
 
-  /**
-   * Build a run's root in a fresh scope, then hold the scope. A recovered
-   * run's scope starts from what it recorded, which is consumed whether or
-   * not the build succeeds.
-   */
   async open(
     id: string,
     cwd: string,
@@ -397,7 +296,6 @@ export class RunScopes implements ReadonlyRunScopes {
     return root;
   }
 
-  /** Drop what a recovered run recorded when nothing here will rebuild it. */
   forget(runId: string): void {
     this.#recovered.delete(runId);
   }
@@ -414,7 +312,6 @@ export class RunScopes implements ReadonlyRunScopes {
     return this.#live.size;
   }
 
-  /** Close what a run opened and forget it; nothing for a run not held here. */
   async settle(runId: string): Promise<void> {
     await this.#live.get(runId)?.settle();
     this.#live.delete(runId);
@@ -425,7 +322,6 @@ export class RunScopes implements ReadonlyRunScopes {
   }
 }
 
-/** Reject when the frame aborts, so a body cannot outlive its cancellation. */
 export function raceAbort<T>(frame: Frame, work: Promise<T>): Promise<T> {
   if (frame.signal.aborted) {
     return Promise.reject(frame.signal.reason);

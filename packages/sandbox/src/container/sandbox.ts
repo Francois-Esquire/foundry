@@ -32,7 +32,6 @@ import type {
   ContainerStatus,
 } from "./types";
 
-/** Create and boot a microVM sandbox, auto-removed on scope exit. */
 export async function createContainerSandbox<TNative = unknown>(
   config: ContainerConfig = {},
   deps: ContainerSandboxDeps<TNative> = {}
@@ -46,13 +45,6 @@ export interface ProvisionedContainerSandbox<TNative> {
   readonly spec: ContainerSpec;
 }
 
-/**
- * Resolve the spec and reserve host ports without booting anything. Split from
- * {@link startContainerSandbox} because the Environment provider's `create`
- * must produce a stable id before `start` does the expensive work. A microVM
- * has no created-but-not-running state, so the boot happens entirely in
- * `start`.
- */
 export async function provisionContainerSandbox<TNative = unknown>(
   config: ContainerConfig = {},
   deps: ContainerSandboxDeps<TNative> = {},
@@ -62,15 +54,6 @@ export async function provisionContainerSandbox<TNative = unknown>(
   return { runtime, spec: await resolveContainerSpec(config, mounts) };
 }
 
-/**
- * Boot the provisioned spec and wrap it as a portable sandbox.
- *
- * The working directory is created here rather than left to the runtime. The
- * microVM runtime refuses to boot at all when its configured workdir is
- * absent, and stock images rarely carry the caller's chosen path
- * (`node:*-slim` ships `/home/node`, not `/home/user`). Creating it after boot
- * keeps any workdir usable on any image.
- */
 export async function startContainerSandbox<TNative>(
   provisioned: ProvisionedContainerSandbox<TNative>,
   options: StartContainerSandboxOptions = {}
@@ -121,8 +104,6 @@ export async function resolveContainerSpec(
   const cpus = config.resources?.cpus;
   const name = config.name ?? `foundry-${crypto.randomUUID()}`;
   return {
-    // The guest takes whole vCPUs, so a fractional budget rounds up to the
-    // nearest core rather than silently truncating to zero.
     cpus:
       cpus === undefined
         ? DEFAULT_CONTAINER_CPUS
@@ -135,14 +116,11 @@ export async function resolveContainerSpec(
     ...(config.network === undefined ? {} : { network: config.network }),
     env: config.env ?? {},
     image: config.image ?? DEFAULT_CONTAINER_IMAGE,
-    // The environment-id label is stamped last: it is the immutable native
-    // identity reconciliation validates, so caller labels can never spoof it.
     labels: {
       [CONTAINER_SANDBOX_BASE_LABEL]: "1",
       ...config.labels,
       [CONTAINER_ENVIRONMENT_ID_LABEL]: name,
     },
-    // A requested minimum must be met: a partial MiB rounds up, never down.
     memoryMib:
       memoryBytes === undefined
         ? DEFAULT_CONTAINER_MEMORY_MIB
@@ -158,7 +136,6 @@ export async function resolveContainerSpec(
   };
 }
 
-/** Lazy-load the microsandbox adapter (avoids the native addon in fake-only paths). */
 async function defaultRuntime<TNative>(): Promise<ContainerRuntime<TNative>> {
   const { createMicrosandboxRuntime } = await import("./microsandbox-runtime");
   return createMicrosandboxRuntime() as unknown as ContainerRuntime<TNative>;
@@ -250,7 +227,6 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
     );
   }
 
-  /** Resolve process working directories relative to the sandbox workdir. */
   private cwd(cwd: string | undefined): string {
     return cwd === undefined
       ? this.spec.workdir
@@ -282,8 +258,6 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
 
   async copyIn(files: Record<string, string | Uint8Array>): Promise<void> {
     this.assertActive("copyIn");
-    // Sequential: the writes share parent directories, and concurrent mkdir of
-    // the same path races inside the guest.
     for (const [path, content] of Object.entries(files)) {
       await this.instance.writeFile(path, toBytes(content));
     }
@@ -356,8 +330,6 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
 
   hostPort(guestPort: number): Promise<number | undefined> {
     this.assertActive("hostPort");
-    // Resolved at provision time rather than inspected from the runtime — see
-    // `reserveHostPorts`.
     return Promise.resolve(
       this.spec.ports.find((p) => p.guestPort === guestPort)?.hostPort
     );
@@ -399,7 +371,6 @@ function normalizeCommand(command: SandboxCommand): string[] {
   return typeof command === "string" ? ["sh", "-c", command] : [...command];
 }
 
-/** Encode string content as bytes; byte input passes through unchanged. */
 function toBytes(content: string | Uint8Array): Uint8Array {
   return typeof content === "string"
     ? new TextEncoder().encode(content)

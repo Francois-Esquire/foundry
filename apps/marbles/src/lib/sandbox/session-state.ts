@@ -1,12 +1,6 @@
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStore } from "@foundry/agents/store";
 
-/**
- * Refuse native resume when the VM containing its CLI history was replaced.
- * `containerId` is the guest's native id, which the caller has checked. The
- * session may not be in the store yet (a caller-supplied session ref is not
- * filed before it opens), so it is created here before the first note.
- */
 export async function assertGuestSessionState(
   store: SessionStore,
   sessionId: string,

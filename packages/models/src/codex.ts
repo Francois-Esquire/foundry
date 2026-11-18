@@ -16,37 +16,18 @@ export type {
 export { createCodexDriver } from "./harness/codex";
 
 export interface CodexProviderConfig {
-  /**
-   * Whether the CLI is installed and the user has this harness switched on.
-   * The host owns detection; this package never probes the machine. Defaults
-   * false so an unconfigured registration fails closed.
-   */
   available?: boolean;
-  /**
-   * Absolute path to the `codex` binary, resolved by the host. A GUI-launched
-   * app on macOS inherits only the system PATH, so the SDK's bare `codex`
-   * fallback finds nothing in exactly the case that matters.
-   */
   binPath?: string;
 }
 
 export interface CodexProviderOptions {
   config?: CodexProviderConfig;
-  /** Catalog id to prefer per kind when the caller names none. */
   defaults?: Partial<Record<ModelKind, string>>;
-  /**
-   * The only environment the app-server may see. The SDK accepts only
-   * strings, so a name outside it arrives empty rather than absent.
-   */
   env: Readonly<Record<string, string>>;
   id?: string;
   models?: ProviderModelDefinition[];
 }
 
-/**
- * The catalog Codex serves. The CLI's list follows the user's account, so
- * this stays minimal; a host supplies a fuller catalog when it has one.
- */
 export const CODEX_DEFAULT_MODELS: ProviderModelDefinition[] = [
   {
     capabilities: { functionCalling: true },
@@ -58,41 +39,26 @@ export const CODEX_DEFAULT_MODELS: ProviderModelDefinition[] = [
   },
 ];
 
-/** How long a signalled app-server gets to exit before SIGKILL, and after it. */
 const EXIT_GRACE_MS = 2000;
 const KILL_GRACE_MS = 1000;
 const RECORD_POLL_MS = 10;
 
 type AppServerClient = ReturnType<typeof createCodexAppServer>;
 
-/** One vendor client, and so one app-server per working directory, for one environment. */
 interface AppServer {
   calls: number;
   readonly client: AppServerClient;
-  /** The vendor's per-process RPC clients, read only to wait for their processes. */
   readonly connections: Set<object>;
   readonly key: string;
   retired: boolean;
-  /** Set while stopping; cleared if the stop fails, so it can be retried. */
   stopping?: Promise<void>;
-  /** A model came back without the process handle this provider waits on. */
   unobservable: boolean;
 }
 
-/**
- * Codex as a provider: the CLI runs the turn, spoken to over its app-server
- * JSON-RPC transport. The transport is a persistent child process, which is
- * why `dispose` exists — without it a `codex app-server` outlives the app.
- *
- * Each call takes the app-server for the environment it needs now. One whose
- * environment was superseded closes once its calls finish, and going
- * offline closes them all and waits for their processes to exit.
- */
 export function codexProvider(options: CodexProviderOptions): Provider {
   const id = options.id ?? "codex";
   const config = options.config ?? {};
   let offline = false;
-  /** Every app-server until its process is known to have exited. */
   const servers = new Set<AppServer>();
   let current: AppServer | undefined;
 
@@ -141,7 +107,6 @@ export function codexProvider(options: CodexProviderOptions): Provider {
         defaultSettings: {
           ...(config.binPath ? { codexPath: config.binPath } : {}),
           env,
-          // The CLI's own logging would otherwise land on the host's stdout.
           logger: false,
         },
       }),
@@ -221,7 +186,6 @@ export function codexProvider(options: CodexProviderOptions): Provider {
         await stopAll();
       }
     },
-    // The CLI runs its own tool loop inside one call and takes no limit.
     turnLimit: "unsupported",
   };
 }
@@ -252,7 +216,6 @@ function sorted(env: Record<string, string>): [string, string][] {
   return Object.entries(env).sort(([a], [b]) => a.localeCompare(b));
 }
 
-/** Resolves once `child` has exited, sending SIGKILL when SIGTERM was not enough. */
 async function exited(child: ChildProcess): Promise<void> {
   const gone = () => child.exitCode !== null || child.signalCode !== null;
   const exit = once(child, "exit").then(
@@ -273,10 +236,8 @@ async function exited(child: ChildProcess): Promise<void> {
   }
 }
 
-/** A stream dropped without being read to its end or cancelled still releases its lease. */
 const abandoned = new FinalizationRegistry<() => void>((release) => release());
 
-/** A model whose every call leases a delegate, released when the call or its stream ends. */
 function leasedModel(
   modelId: string,
   lease: () => { model: LanguageModelV4; release(): void }

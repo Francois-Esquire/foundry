@@ -11,7 +11,6 @@ export interface McpServerOptions {
     id: string,
     work: (workspace: WorkspaceConnection) => Promise<T>
   ): Promise<T>;
-  /** The workspace a tool call addresses when it names none. */
   readonly id: string;
   readonly tasks: TaskCommandRunner;
   workspaces(): Promise<readonly WorkspaceSummary[]>;

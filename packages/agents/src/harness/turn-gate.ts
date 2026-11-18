@@ -5,11 +5,9 @@ interface ActiveTurn {
 
 export interface GatedTurn {
   isActive(): boolean;
-  /** Also aborts on interrupt and close. */
   readonly signal: AbortSignal;
 }
 
-/** Admits one turn at a time for a session labelled e.g. "Harness" or "Coding". */
 export function createTurnGate(label: string) {
   let active: ActiveTurn | undefined;
   let closed = false;
@@ -17,7 +15,6 @@ export function createTurnGate(label: string) {
     get active() {
       return active !== undefined;
     },
-    /** Rejects later turns and returns the aborted turn's terminal message. */
     close(): Promise<unknown> {
       closed = true;
       const terminal = active?.message ?? Promise.resolve();
@@ -27,7 +24,6 @@ export function createTurnGate(label: string) {
     interrupt() {
       active?.controller.abort(new Error(`${label} turn interrupted.`));
     },
-    /** Holds the gate until the body's message settles, or releases it if the body throws. */
     run<Result extends { message: Promise<unknown> }>(
       signal: AbortSignal | undefined,
       body: (turn: GatedTurn) => Result

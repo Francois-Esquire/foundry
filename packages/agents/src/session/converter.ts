@@ -15,12 +15,6 @@ type ApprovalResponsePart = Extract<
   { type: "tool_approval_response" }
 >;
 
-/**
- * Pass the agent's tool set so `convertToModelMessages` can apply a tool's
- * `toModelOutput` — the one path that turns a host-executed tool's result into rich
- * model content (e.g. the preview snapshot's PNG into an image part). Tools
- * without `toModelOutput` fall back to text/JSON exactly as before.
- */
 export async function toModelMessages(
   messages: SessionMessage[],
   tools?: ToolSet
@@ -62,14 +56,12 @@ function toUIMessages(messages: SessionMessage[]): UIMessage[] {
       .map((m) => ({
         id: m.id,
         parts: m.parts.flatMap((p) => toUIPart(p, ctx)),
-        // A `"summary"` block is sent to the model as a system message.
         role: (m.role === "summary" ? "system" : m.role) as
           | "user"
           | "assistant"
           | "system",
       }))
-      // Audit records and live/deferred approvals carry no model content.
-      // AI SDK v7 rejects even an empty system message in a turn's messages.
+      // The AI SDK rejects empty messages, including system messages.
       .filter((message) => message.parts.length > 0)
   );
 }
@@ -101,14 +93,6 @@ function toUIPart(
   return [];
 }
 
-/**
- * Project a `tool_call` (plus its optional result/approval request/response)
- * onto the AI SDK's `ToolUIPart` state machine. `convertToModelMessages`
- * reads the `approval` field itself to (re)synthesize the real
- * `tool-approval-request`/`tool-approval-response` model parts — including
- * the denied tool-result it fabricates for `"output-denied"` — so this is the
- * one seam that has to get the state/approval shape exactly right.
- */
 function toToolPart(
   call: ToolCallPart,
   result: ToolResultPart | undefined,
@@ -116,17 +100,12 @@ function toToolPart(
   response: ApprovalResponsePart | undefined
 ): UIMessage["parts"][number] {
   const type = `tool-${call.name}` as const;
-  // `convertToModelMessages` copies a tool UI part's `callProviderMetadata`
-  // onto the assistant tool-call's `providerOptions` — the one path that gets
-  // Gemini 3's `thoughtSignature` back into the replayed request. Attach it to
-  // every state so a paused/errored call doesn't silently drop it.
+  // Replay needs provider metadata on every state to preserve thought signatures.
   const callProviderMetadata = call.providerOptions as
     | ProviderMetadata
     | undefined;
   const signature = request?.signature;
 
-  // Denial is terminal regardless of whether a tool_result was also
-  // persisted — the AI SDK synthesizes the denied tool-result itself.
   if (request && response && !response.approved) {
     return {
       approval: rejectedApproval(request, response, signature),
@@ -234,8 +213,6 @@ function approvedApproval(
   };
 }
 
-/** A malformed, duplicate, or mismatched approval response — rejected before
- *  it's appended to history, and therefore before any tool can execute. */
 export class InvalidApprovalResponseError extends Error {
   constructor(message: string) {
     super(message);
@@ -243,12 +220,7 @@ export class InvalidApprovalResponseError extends Error {
   }
 }
 
-/**
- * Validate a `tool_approval_response` against the session's existing
- * (pre-append) history: it must resolve a real, still-pending request, and
- * must not already have a response or an executed result. Throws
- * {@link InvalidApprovalResponseError} on any violation.
- */
+/** An approval can resolve only a still-pending request in existing history. */
 export function validateApprovalResponse(
   history: SessionMessage[],
   response: ApprovalResponsePart

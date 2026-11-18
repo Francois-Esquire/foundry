@@ -9,7 +9,6 @@ const NO_TOKENS = {
   total: 0,
 };
 
-/** Two estimated turns and one the catalog has no price for. */
 const docsUsage: UsageTotal = {
   estimated: [{ amount: 0.0421, currency: "USD" }],
   missing: 0,

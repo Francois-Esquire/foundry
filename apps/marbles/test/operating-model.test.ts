@@ -42,7 +42,6 @@ function key(name: string, extra: Partial<KeyPress> = {}): KeyPress {
   return { name, sequence: name, shift: false, ...extra };
 }
 
-/** A command context over the preview snapshot, recording what commands do. */
 function commands(
   events: readonly DashboardEvent[],
   extra: Partial<CommandContext> = {}
@@ -160,7 +159,6 @@ describe("tabs", () => {
         press(key(letter.toLowerCase(), { sequence: letter, shift: true }))
       ).toEqual([["send", { type: "view", view }]]);
     }
-    // Plain s still steers the running run on Overview.
     expect(press(key("s"))).toEqual([
       [
         "send",
@@ -332,7 +330,6 @@ describe("statistics", () => {
       waiting: 0,
     });
     expect(stats.successRate).toBe(0.5);
-    // check-api ran 3s and review-changes 41s; run-104 has not ended.
     expect(stats.medianRunMs).toBe(22_000);
     expect(stats.medianQueueMs).toBe(1000);
     const waiting = operatingStats([

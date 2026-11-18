@@ -44,7 +44,6 @@ afterEach(async () => {
   await rm(tmp, { force: true, recursive: true });
 });
 
-/** These managers never reach the bindings a body's context carries. */
 const NO_BINDINGS = {} as Bindings;
 
 function args(
@@ -124,8 +123,6 @@ describe("skills", () => {
     await expect(names(skills.load().pick("nope"))).rejects.toThrow(
       UNKNOWN_SKILL
     );
-    // The static prefix resolves against the workspace, so a glob may leave
-    // it or be absolute; a pattern without a glob names one directory.
     await expect(
       names(skills.load().add("../sibling/skills/*"))
     ).resolves.toEqual(["caveman", "shared", "unslop"]);
@@ -295,7 +292,6 @@ describe("workspaces", () => {
       const home = realpathSync(worktreeHome);
       expect(root.startsWith(home)).toBe(true);
 
-      // `worktree()` takes the same default, and so does a worktree's own call.
       const cut = await workspaces.current.git.worktree({ base: "main" });
       expect(cut.root.startsWith(home)).toBe(true);
       const nested = await cut.withWorktree({ base: "main" }, (inner) =>
@@ -378,7 +374,6 @@ describe("artifacts", () => {
     const file = await system.readFile(second.id as ContentId, "report.md");
     expect(new TextDecoder().decode(file?.blob)).toBe("# two\n");
 
-    // A replay of the same body returns the recorded version, no new write.
     await a.scope.enter(a.frame);
     const replayed = await artifacts.write(report, { "report.md": "# x\n" });
     expect(replayed.id).toBe(first.id);
@@ -391,7 +386,6 @@ describe("artifacts", () => {
     const fresh = await artifacts.create(prototype);
     expect(fresh.artifactId).not.toBe(first.artifactId);
 
-    // A replayed create returns the artifact it made, not a second one.
     await a.scope.enter(a.frame);
     await artifacts.write(report, { "report.md": "# x\n" });
     expect((await artifacts.create(prototype)).id).toBe(fresh.id);
@@ -414,7 +408,6 @@ describe("artifacts", () => {
     });
     await expect(kept?.text("missing.json")).resolves.toBeUndefined();
 
-    // A dry run writes to memory and reads what real runs left.
     const dry = new ArtifactsManager({
       artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
       readThrough: real,
@@ -518,8 +511,6 @@ describe("sandboxes", () => {
       destinations: [{ host: "api.anthropic.com", ports: [443] }],
       mode: "allowlist",
     });
-    // "." is the step's working directory; a declared workspace stays
-    // relative to the config's directory.
     const inWorktree = { cwd: join(tmp, "wt"), root };
     expect(
       constraintsFor({ image: "img:1" }, inWorktree).mounts?.[0]?.source
@@ -528,7 +519,6 @@ describe("sandboxes", () => {
       constraintsFor({ image: "img:1", mount: site }, inWorktree).mounts?.[0]
         ?.source
     ).toBe(join(tmp, "site"));
-    // Only host folders that exist are allowed; the registry canonicalizes them.
     expect(allowedMountRoots([root, join(tmp, "site")])).toEqual([
       root,
       join(tmp, "site"),
@@ -634,7 +624,6 @@ describe("sandboxes", () => {
     const spec = JSON.parse(row?.spec ?? "{}") as {
       mounts?: readonly { id: string; source: string }[];
     };
-    // The registry accepted the mount, so the worktree home is trusted.
     expect(spec.mounts?.find((mount) => mount.id === "workspace")?.source).toBe(
       worktree
     );
@@ -718,7 +707,6 @@ describe("sandboxes", () => {
     expect(written.get("/workspace/b.txt")).toBe("beta");
     expect(instance?.spec.mounts ?? []).toEqual([]);
 
-    // A recorded container that is gone (a new process) is started afresh.
     await env.close();
     await containers.remove(env.id);
     await a.scope.enter(a.frame);

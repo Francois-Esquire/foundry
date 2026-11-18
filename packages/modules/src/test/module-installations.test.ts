@@ -29,9 +29,7 @@ async function fixture(providers = [weatherProvider]) {
   const module = await publishedModule();
   const v1 = await module.publish("1.0.0", [weatherRequest(["Oslo"])]);
   const invocations = { revoke: vi.fn() };
-  /** What the selected checkout did, in order. */
   const checkout: string[] = [];
-  /** The checkout's per-Module turn, which a Program start also takes. */
   const moduleTurns = new KeyedTurns<string>();
   const installations = createModuleInstallations({
     checkouts: {
@@ -201,7 +199,6 @@ describe("Module installation lifecycle", () => {
     } = await fixture();
     await access.approve({ capability: WEATHER, installation, version: v1 });
     const v2 = await publish("2.0.0", [weatherRequest(["Oslo"])]);
-    // A container start projects the checkout inside the supervisor's turn.
     const launched = start.getMockImplementation();
     start.mockImplementation(() =>
       moduleTurns.run(moduleId, async () => {
@@ -246,7 +243,6 @@ describe("Module installation lifecycle", () => {
         return launched?.() as never;
       })
     );
-    // Recovery starts through the supervisor, outside the facade's queue.
     const started = programs.start({
       expectedGeneration: installation.generation,
       installationId,
@@ -376,7 +372,6 @@ describe("Module installation lifecycle", () => {
         signal: caller.signal,
         version: v1,
       });
-      // Attach before aborting so a synchronous rejection is always observed.
       const rejected = expect(running).rejects.toBeDefined();
       await entered.promise;
       if (shutdown) {
@@ -450,7 +445,6 @@ describe("Module installation lifecycle", () => {
     expect(
       (await store.loadGatewayContext(installationId))?.installation.generation
     ).toBe(0);
-    // Host-resolved raw starts are supported; Gateway admission still checks Grants.
     await expect(
       programs.start({
         expectedGeneration: installation.generation,
@@ -526,7 +520,6 @@ describe("Module installation lifecycle", () => {
 
   it("stops occurrences a previous process left starting instead of restarting them", async () => {
     const { installation, programs, start, store } = await fixture();
-    // A previous process died while its Program was starting.
     await store.beginInstallationTransition({
       expectedGeneration: installation.generation,
       installationId,
@@ -549,10 +542,6 @@ describe("Module installation lifecycle", () => {
 });
 
 describe("Interrupted occurrences' retained containers", () => {
-  /**
-   * A previous process died with the Installation `status`, its container
-   * still linked. This process has no Program for it.
-   */
   async function interruptedWithContainer(
     status: "starting" | "stopping",
     stopContainer: () => Promise<void> = () => Promise.resolve()
@@ -623,7 +612,6 @@ describe("Interrupted occurrences' retained containers", () => {
       "stopping",
       () => Promise.reject(new Error("container still running"))
     );
-    // Later in ID order: a Program a previous process left running.
     const laterId = installationIdSchema.parse("later-installation");
     const later = await ensureInstallation({
       installationId: laterId,
@@ -711,7 +699,6 @@ describe("Interrupted occurrences' retained containers", () => {
   it("stops an exhausted occurrence's container before settling it failed", async () => {
     const { order, recovery, row, store } =
       await interruptedWithContainer("starting");
-    // Earlier boots spent the whole budget.
     for (let spent = 0; spent < MAX_START_ATTEMPTS; spent += 1) {
       const current = await row();
       const failedAttempt = await store.settleInstallationStatus({
@@ -770,7 +757,6 @@ describe("Interrupted occurrences' retained containers", () => {
 });
 
 describe("Module boot recovery attempts", () => {
-  /** A previous process died with the Installation enabled. */
   async function interrupted() {
     const fixed = await fixture();
     await fixed.store.beginInstallationTransition({
@@ -838,7 +824,6 @@ describe("Module boot recovery attempts", () => {
     expect(start).not.toHaveBeenCalled();
     expect(await row()).toMatchObject({ startAttempts: 1, status: "failed" });
 
-    // The next boot leaves the operator's `failed` alone.
     await recovery.normalizeInterrupted();
     expect(await recovery.recoverEnabled({ launch: resolve })).toEqual([]);
     expect(resolve).toHaveBeenCalledTimes(1);
@@ -900,7 +885,6 @@ describe("Module boot recovery attempts", () => {
       await recovery.recoverEnabled({ launch: () => Promise.resolve(launch) })
     ).toEqual([{ installationId, kind: "started" }]);
     const running = await programs.active(installationId);
-    // A second normalization fences the running occurrence to `starting`.
     await recovery.normalizeInterrupted();
     const fenced = await row();
 
@@ -924,7 +908,6 @@ describe("Module boot recovery attempts", () => {
       await recovery.recoverEnabled({ launch: () => Promise.resolve(launch) })
     ).toMatchObject([{ installationId, kind: "failed" }]);
     expect(start).toHaveBeenCalledTimes(1);
-    // Only the supervisor settled it, at the generation its attempt began.
     expect(settle).toHaveBeenCalledTimes(1);
     expect(settle.mock.calls[0]?.[0].expectedGeneration).toBe(
       (read?.generation ?? 0) + 1

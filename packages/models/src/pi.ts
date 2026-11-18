@@ -9,19 +9,16 @@ export type { PiDriverOptions } from "./harness/pi";
 export { createPiDriver } from "./harness/pi";
 
 export interface PiProviderConfig extends PiProviderSettings {
-  /** The host owns availability, as for the other CLI providers. */
   available?: boolean;
 }
 
 export interface PiProviderOptions {
   config?: PiProviderConfig;
-  /** Catalog id to prefer per kind when the caller names none. */
   defaults?: Partial<Record<ModelKind, string>>;
   id?: string;
   models?: ProviderModelDefinition[];
 }
 
-/** A model included in the community provider's pinned Pi catalog. */
 export const PI_DEFAULT_MODEL = "anthropic/claude-sonnet-4-5";
 export const PI_DEFAULT_MODELS: ProviderModelDefinition[] = [
   {
@@ -34,7 +31,6 @@ export const PI_DEFAULT_MODELS: ProviderModelDefinition[] = [
   },
 ];
 
-/** Pi's AI SDK provider for model calls; sandbox sessions use the native turn driver. */
 export function piProvider(options: PiProviderOptions = {}): Provider {
   const vendor = vendorClient(options.config ?? {}, build);
   return {
@@ -45,7 +41,6 @@ export function piProvider(options: PiProviderOptions = {}): Provider {
     dispose: () => vendor.client.dispose(),
     id: options.id ?? "pi",
     languageModel: (modelId, selection) =>
-      // AI SDK's own adapter normalizes the provider's V3 model to our V4 contract.
       wrapLanguageModel({
         middleware: [],
         model: vendor.client.languageModel(
@@ -57,7 +52,6 @@ export function piProvider(options: PiProviderOptions = {}): Provider {
       }),
     models: options.models ?? PI_DEFAULT_MODELS,
     offline: false,
-    // Pi runs its own tool loop inside one call and takes no limit.
     turnLimit: "unsupported",
   };
 }

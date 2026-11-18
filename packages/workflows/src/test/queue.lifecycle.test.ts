@@ -1,17 +1,3 @@
-/**
- * Queue — full lifecycle integration narrative.
- *
- * Cancel mid-flight, suspension lifecycle, retry/timeout/Bail
- * interaction, the events firehose (queue.on), the queues.status row
- * transitions through pause/resume/drain, and streaming-through-dispatch.
- *
- * Basics (construction / dispatch handle / FIFO / concurrency cap /
- * queryable views / shutdown / restart-recovery smoke) live in
- * queue.test.ts. The runs-row persistence story (reactive writes,
- * mid-execution snapshot projection, the run.status-not-snap.status
- * terminal correction) lives in queue.persistence.test.ts.
- */
-
 import { Effect, Fiber, Stream } from "effect";
 import { describe, expect, test } from "vitest";
 
@@ -48,9 +34,6 @@ function requireRecord<T>(record: T | null): T {
 
 describe("Queue — lifecycle persistence (queues.status)", () => {
   test("first lifecycle call lands the queue row with the new status", async () => {
-    // The constructor fires the queue insert as fire-and-forget; the
-    // first lifecycle call (pause/resume/drain) chains off it. After
-    // pause(), the row is guaranteed visible with status='paused'.
     const queue = new Queue({ concurrency: 1, store });
     await queue.pause();
     const row = requireRecord(await queueRecord(queue.id));
@@ -77,7 +60,6 @@ describe("Queue — lifecycle persistence (queues.status)", () => {
       name: "drain-status",
     });
     queue.dispatch(wf);
-    // Start drain in background; sample mid-flight then await.
     const drainP = queue.drain();
     await sleep(15);
     const mid = requireRecord(await queueRecord(queue.id));
@@ -99,13 +81,10 @@ describe("Queue — lifecycle persistence (queues.status)", () => {
       input: undefined,
       name: "drain-paused",
     });
-    // Dispatch then resume so it can run; then re-pause; then drain.
     const d = queue.dispatch(wf);
     await queue.resume();
     await d.result();
     await queue.pause();
-    // Drain on idle queue should be near-instant; status should
-    // remain 'paused' after.
     await queue.drain();
 
     const row = requireRecord(await queueRecord(queue.id));
@@ -164,9 +143,6 @@ describe("Queue — cancel", () => {
     const wf = Workflow.create({
       execute: async () =>
         new Promise<never>((_resolve, reject) => {
-          // The cancel surfaces as 'cancelled' regardless of cooperative
-          // signal handling — long timer ensures the test asserts cancel
-          // observability, not signal cooperation.
           setTimeout(() => {
             reject(new Error("not cancelled"));
           }, 5000);
@@ -237,8 +213,6 @@ describe("Queue — cancel", () => {
 
 describe("Queue — suspension lifecycle", () => {
   test("a step calling suspend() releases the run's semaphore permit", async () => {
-    // With concurrency=1, a suspended run must release its permit so a
-    // second dispatch can start.
     const queue = new Queue({ concurrency: 1, store });
     const startedSecond: string[] = [];
 
@@ -255,7 +229,6 @@ describe("Queue — suspension lifecycle", () => {
     });
     queue.dispatch(susp);
     const dSecond = queue.dispatch(second);
-    // Wait for second to run — only possible if the permit was released.
     await dSecond.result();
     expect(startedSecond).toContain("started");
   });
@@ -345,7 +318,6 @@ describe("Queue — suspension lifecycle", () => {
     const t0 = Date.now();
     await queue.drain();
     const elapsed = Date.now() - t0;
-    // Drain should be near-instant when the only outstanding work is parked.
     expect(elapsed).toBeLessThan(200);
   });
 });
@@ -373,7 +345,6 @@ describe("Queue — retry / timeout / Bail interaction", () => {
     const queue = new Queue({ concurrency: 1, store });
     let attempts = 0;
     const wf = Workflow.create({
-      // Even with retry, bail should be terminal on first call.
       config: { retry: { maxAttempts: 5 } },
       execute: async () => {
         attempts += 1;
@@ -443,7 +414,6 @@ describe("Queue — events firehose (queue.on)", () => {
 
     const wf = Workflow.create(makeEchoSpec("x", "ev-dispatched"));
     const d = queue.dispatch(wf);
-    // dispatched is synchronous — no sleep needed.
     expect(seen).toContain(d.id);
     await queue.resume();
     await d.result();
@@ -523,7 +493,6 @@ describe("Queue — events firehose (queue.on)", () => {
       )
     );
     const d = queue.dispatch(wf);
-    // Wait for suspension to land + queue bookkeeping.
     await sleep(40);
     expect(seen).toContain(d.id);
   });
@@ -533,7 +502,6 @@ describe("Queue — events firehose (queue.on)", () => {
     const seen: string[] = [];
     queue.on("resumed", (p) => seen.push(p.runId));
 
-    // Suspend once on first attempt, succeed on resume.
     let attempts = 0;
     const wf = Workflow.create({
       execute: async () => {
@@ -648,10 +616,6 @@ describe("Queue — events firehose (queue.on)", () => {
   });
 
   test("queue.on('restarted') / on('queue_failed') / on('persist_failed') return working unsubscribes (smoke)", () => {
-    // Wiring smoke test: the listener machinery exists for these events
-    // and returns an unsubscribe. Driver-loop failures and DAO write
-    // rejections are not exercised here because the harness lacks a
-    // fault-injection seam.
     const queue = new Queue({ concurrency: 1, store });
     const unsubR = queue.on("restarted", () => undefined);
     const unsubF = queue.on("queue_failed", () => undefined);
@@ -679,7 +643,6 @@ describe("Queue — streaming through dispatch", () => {
           );
           const wf = Workflow.create(spec);
           setStep(wf.root);
-          // Subscribe via the Effect Stream surface BEFORE dispatch.
           const subscriberFiber = yield* Effect.fork(
             wf.root.channels.chunks.stream.pipe(
               Stream.runForEach((tagged) =>
@@ -695,7 +658,6 @@ describe("Queue — streaming through dispatch", () => {
           );
           const d = queue.dispatch(wf);
           yield* Effect.promise(() => d.result());
-          // Give the subscriber fiber a tick to drain.
           yield* Effect.sleep(20);
           yield* Fiber.interrupt(subscriberFiber);
           return seen;

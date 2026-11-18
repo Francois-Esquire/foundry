@@ -41,7 +41,6 @@ function RunInspector({
   stream,
 }: {
   readonly run: RunSnapshot;
-  /** From a top-level step down to the inspected one; empty for the run. */
   readonly path: readonly StepSnapshot[];
   readonly snapshot: DashboardSnapshot;
   readonly focused: boolean;
@@ -217,8 +216,6 @@ function CatalogDetails({
               value: rootUsage ? tokensLabel(rootUsage) : emptyUsage,
             },
             {
-              // Turns carry the run's root definition, not each step's, so
-              // a definition's use inside another run has no total here.
               key: "Covers",
               value: `runs started from ${value.name}; inside other runs its usage counts under their steps`,
             },

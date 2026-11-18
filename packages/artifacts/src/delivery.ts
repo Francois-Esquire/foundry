@@ -66,7 +66,6 @@ function streamOf(body: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array> {
         }
       },
     },
-    // Aborted seeks must not fetch chunks ahead of the consumer.
     { highWaterMark: 0 }
   );
 }

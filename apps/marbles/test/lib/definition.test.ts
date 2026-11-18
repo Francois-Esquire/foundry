@@ -105,7 +105,6 @@ describe("definitions and locking", () => {
     const fromBuilder = workflow("c")
       .input(z.object({ task: z.string() }))
       .do(() => leaf({}));
-    // A tree known up front is a setup that returns it.
     expect(
       await fromTree.setup({
         input: {},
@@ -140,13 +139,10 @@ describe("definitions and locking", () => {
       .input(z.object({ n: z.string().transform(Number) }))
       .do(({ input }) => input.n);
 
-    // Defaulted fields are optional; a child fills a key the literal then omits.
     review({});
     const chain = review({ branch: implement({}, { task: "t" }) });
     expect(chain.children.map(([key]) => key)).toEqual(["branch"]);
-    // A transform's literal is its pre-image.
     coerce({}, { n: "2" });
-    // Children are checked against the parent's keys by output type.
     const weekly = publish.parallel({
       exitCode: count({}),
       findings: review({}),

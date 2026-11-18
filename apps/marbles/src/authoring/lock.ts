@@ -10,26 +10,14 @@ import type {
 import { isLockedNode } from "~/lib/definition";
 import { inputKeysOf } from "~/lib/schema";
 
-/**
- * A definition has two phases. Build: the builder shapes it. Lock: invoking
- * it creates one node, with these children and this literal input. One
- * definition locks many times; each lock is its own node.
- */
-
 type Children = Readonly<Record<string, LockedNode>>;
 
-/**
- * What is left of the raw input `R` once children supply their keys;
- * optional when nothing is. `R` is the schema's input type, so defaulted
- * fields are optional and a transform's pre-image is what the literal takes.
- */
 type Literal<R, C> = Omit<R, keyof C>;
 type LiteralArgs<R, C> =
   Record<string, never> extends Literal<R, C>
     ? [input?: Literal<R, C>]
     : [input: Literal<R, C>];
 
-/** A child node whose output must fit the parent's key; an untyped child passes. */
 type ChildFor<T, N> =
   N extends LockedNode<infer O>
     ? unknown extends O
@@ -39,11 +27,6 @@ type ChildFor<T, N> =
         : never
     : never;
 
-/**
- * The children a parent with raw input `R` accepts: every key declared, and
- * every child's output assignable to its key. A parent without a schema
- * (or with an index signature) accepts any children.
- */
 type Accepts<R, C extends Children> = string extends keyof R
   ? C
   : {
@@ -65,22 +48,12 @@ export interface Lockable<R, O> {
   ): LockedNode<O>;
 }
 
-/**
- * Run the definition now, in this process, and get its output. Inside a
- * step body it becomes a child with the same run, Feed, and controls; anywhere
- * else it runs on the host's
- * engine, or a default one in a plain script.
- */
 export interface Runnable<R, O> {
   run(
     ...input: Record<string, never> extends R ? [input?: R] : [input: R]
   ): Promise<O>;
 }
 
-/**
- * `I` is the parsed input the body sees, `O` what the node produces for a
- * parent, `R` the raw input a lock's literal takes (the schema's input type).
- */
 export interface StepDefinition<I = Record<string, never>, O = unknown, R = I>
   extends StepRecord<I, O>,
     Lockable<R, O>,
@@ -111,8 +84,6 @@ function lock(
         `${describe(definition)}: child "${key}" is not a locked node; call the definition first`
       );
     }
-    // A workflow's setup builds the tree its run executes; inside another
-    // tree nothing would run that setup.
     if (child.definition.kind === "workflow") {
       throw new Error(
         `${describe(definition)}: child "${key}" is a workflow; a workflow can only be the root of a run, so lock its steps here instead`
@@ -152,14 +123,9 @@ export function lockable<D extends AnyDefinition>(
 ): D {
   const call = (children: Children, literal?: Record<string, unknown>) =>
     lock(definition, "series", children, literal);
-  // The function becomes a `D` only once the loop below defines the
-  // record's fields on it; TypeScript cannot follow `defineProperty`, so the
-  // one cast names the finished object up front for the closures above.
   const definition = call as unknown as D;
   const members: Record<string, unknown> = {
     ...fields,
-    // A function's own `name` is read-only; define it, and define it even
-    // when absent so an anonymous definition never reports "call".
     name: (fields as { name?: string }).name,
     parallel: (children: Children, literal?: Record<string, unknown>) =>
       lock(definition, "parallel", children, literal),
@@ -174,7 +140,6 @@ export function lockable<D extends AnyDefinition>(
       writable: false,
     });
   }
-  // Not a record field: nothing that reads the definition's data sees it.
   const scope = captureScope();
   Object.defineProperty(call, "run", {
     configurable: true,

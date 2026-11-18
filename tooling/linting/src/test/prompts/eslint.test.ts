@@ -44,7 +44,6 @@ const templateOnly = (dialect: string, text: string) =>
 const consumed = (dialect: string, text: string) =>
   `${dialect} handles "${text}" itself; the model does not receive this message.`;
 
-/** Every finding in the fixtures with nothing configured: the two name-free checks. */
 const EXPECTED: Readonly<Record<string, readonly Expected[]>> = {
   "claude-code.ts": [
     {
@@ -82,7 +81,6 @@ const EXPECTED: Readonly<Record<string, readonly Expected[]>> = {
       message: templateOnly("Claude Code", "$topic"),
       rule: "template-only",
     },
-    // Written `\${CLAUDE_SKILL_DIR}` in source: the span starts on the backslash and covers 20 characters, not 19.
     {
       column: 8,
       endColumn: 28,
@@ -91,7 +89,6 @@ const EXPECTED: Readonly<Record<string, readonly Expected[]>> = {
       message: templateOnly("Claude Code", "${CLAUDE_SKILL_DIR}"),
       rule: "template-only",
     },
-    // Written `!\`git branch --show-current\``: two escaped backticks widen the span by two.
     {
       column: 19,
       endColumn: 49,
@@ -250,7 +247,6 @@ describe("unresolved-reference", () => {
         settings: { foundry: { prompts: { agents: [] } } },
       },
       {
-        // A command Codex does not have is checked against the built-ins with nothing configured.
         code: "prompts.codex`/nope`;",
         errors: [
           {
@@ -276,7 +272,6 @@ describe("unresolved-reference", () => {
         },
       },
       {
-        // A string argument, through its own escapes.
         code: "prompts.claude('say \\'hi\\' then /nope');",
         errors: [
           {
@@ -301,7 +296,6 @@ describe("unresolved-reference", () => {
         settings: { foundry: { prompts: { skills: [] } } },
       },
       {
-        // A multi-line template keeps line and column.
         code: "const p = prompts.claude`\n  first\n  then /nope\n`;",
         errors: [
           {
@@ -320,13 +314,11 @@ describe("unresolved-reference", () => {
         code: "prompts.claude`/review`;",
         settings: { foundry: { prompts: { skills: ["review"] } } },
       },
-      // A hole is dynamic, never unknown.
       {
         // biome-ignore lint/suspicious/noTemplateCurlyInString: source under test.
         code: "prompts.claude`/${name} and @${file}`;",
         settings: { foundry: { prompts: { skills: [] } } },
       },
-      // Not prompts: a call with two arguments, a substitution, a computed member, another member, no member.
       {
         code: "prompts.claude('/nope', 1);",
         settings: { foundry: { prompts: { skills: [] } } },
@@ -348,7 +340,6 @@ describe("unresolved-reference", () => {
         code: "claude`/nope`;",
         settings: { foundry: { prompts: { skills: [] } } },
       },
-      // Members inherited from Object.prototype are not dialects.
       {
         code: 'obj.hasOwnProperty("/nope");',
         settings: { foundry: { prompts: { skills: [] } } },
@@ -361,7 +352,6 @@ describe("unresolved-reference", () => {
         code: "prompts.claude(nope);",
         settings: { foundry: { prompts: { skills: [] } } },
       },
-      // An element whose cooked text is null is skipped.
       {
         code: "prompts.claude`\\unicode /nope`;",
         settings: { foundry: { prompts: { skills: [] } } },

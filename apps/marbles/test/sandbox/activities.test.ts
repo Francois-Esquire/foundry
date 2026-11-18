@@ -142,7 +142,6 @@ it("keeps an activity recorded while the store was still being read, when it is 
 it("stops only the selected live child and rejects stale actions after close", async () => {
   const host = new HarnessActivities();
   const child = session();
-  // A delegated child's activity id in its parent is its own session id.
   const childEvent = { ...event, sessionId: event.id };
   const tracked = host.attach(childEvent.sessionId, child, {
     delegated: true,
@@ -174,7 +173,6 @@ it("tracks a session through a wrapper and leaves the original untouched", async
   await host.record(event, source);
   await host.stop(event.sessionId, event.id);
   expect(original.stopActivity).toHaveBeenCalledWith(event.id);
-  // Closing the original directly does not reach the host; the wrapper does.
   await original.close?.();
   await host.stop(event.sessionId, event.id);
   await tracked.close?.();

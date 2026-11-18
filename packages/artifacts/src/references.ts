@@ -17,7 +17,6 @@ export interface ResolvedReference {
   readonly artifact: Artifact;
   readonly content: Content | null;
   readonly entry: StorageEntry | null;
-  /** May name a handler-owned route with no corresponding storage entry. */
   readonly path: string | null;
   readonly status: "available";
 }

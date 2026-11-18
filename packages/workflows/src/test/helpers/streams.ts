@@ -5,12 +5,6 @@ import { Effect, Stream } from "effect";
 import type { ChannelChunk, ChannelEvent, ChunkPayload } from "../../channels";
 import type { Step } from "../../step";
 
-/**
- * Anything that exposes a `.channels.events.stream` (Step, Workflow's
- * inner step) plus the channels themselves and a raw Stream all reduce
- * to "give me a Stream<ChannelEvent>". This type captures the union
- * `collectEvents` can normalize. Same shape exists for chunks below.
- */
 type EventSource =
   | StreamType.Stream<ChannelEvent>
   | {
@@ -50,9 +44,7 @@ function chunkStreamOf(source: ChunkSource): StreamType.Stream<ChannelChunk> {
 }
 
 export interface CollectHandle<T> {
-  /** Live array reference — read after your assertion gates. */
   readonly events: T[];
-  /** Interrupt the underlying fiber. Idempotent. */
   stop(): void;
 }
 
@@ -62,19 +54,9 @@ export interface CollectChunkHandle {
 }
 
 export interface CollectOptions {
-  /**
-   * If supplied, the helper stops on its own once `take` envelopes have
-   * been collected (the fiber drains until the underlying `Stream.take`
-   * completes). Useful when the test knows the exact arrival count.
-   */
   readonly take?: number;
 }
 
-/**
- * Subscribe synchronously to a channel-event stream and collect into a
- * live array. The subscription is established before this function
- * returns, so writes that follow are not raced.
- */
 export function collectEvents(
   source: EventSource,
   options: CollectOptions = {}
@@ -98,10 +80,6 @@ export function collectEvents(
   };
 }
 
-/**
- * Subscribe synchronously to a channel-chunk stream and collect into a
- * live array. Same shape as `collectEvents`.
- */
 export function collectChunks(
   source: ChunkSource,
   options: CollectOptions = {}
@@ -125,10 +103,6 @@ export function collectChunks(
   };
 }
 
-/**
- * Pre-subscribe to a step's public `ReadableStream<ChunkPayload>` and
- * collect up to `count` payloads. The reader is acquired before this returns.
- */
 export async function takePayloads(
   step: Step,
   count: number

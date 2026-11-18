@@ -1,9 +1,3 @@
-/**
- * A stdio MCP server with one tool, `echo`, for tests that connect an
- * agent's MCP servers for real. Run by node as a subprocess, never imported.
- * An optional first argument delays the connection by that many
- * milliseconds, so a test can act while the client is still initializing.
- */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";

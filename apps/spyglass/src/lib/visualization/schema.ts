@@ -124,7 +124,6 @@ function validGroups(prepared: PreparedVisualization): boolean {
   return grouped.size === memberships.size;
 }
 
-/** A supplier and its dependents are islands; a supplier never depends on itself. */
 function validInternalFoundations(
   prepared: PreparedVisualization,
   islands: ReadonlySet<string>
@@ -141,7 +140,6 @@ function validInternalFoundations(
   });
 }
 
-/** Other geometry policies fall back to local preparation; current malformed files fail visibly. */
 export function readPreparedVisualization(
   value: unknown
 ): PreparedVisualization | undefined {
@@ -199,6 +197,5 @@ export function readPreparedVisualization(
       "The prepared visualization has invalid or duplicate references. Run spyglass scan again."
     );
   }
-  // Validation must not reorder keys: unchanged artifacts are reused byte-for-byte.
   return value as PreparedVisualization;
 }

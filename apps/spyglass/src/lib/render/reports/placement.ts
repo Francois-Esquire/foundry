@@ -38,7 +38,6 @@ function summed(lens: Placements, level: PlacementLevel): PlacementCounts {
 
 type Departure = Extract<Placement, { label: "departs" }>;
 
-/** Places, the most consumer modules away first, then by place. */
 function rankedPlaces<P extends Placement>(
   placements: P[],
   density: RenderDensity,

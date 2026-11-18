@@ -1,22 +1,8 @@
-/**
- * What wraps every tool the toolkit builds: coarse ceilings that turn a
- * runaway or hostile loop into a refusal instead of an unbounded disclosure,
- * and a record of what was attempted.
- *
- * This is the layer that can see a *tool call* — how many there have been,
- * how much text one is about to hand back. Byte accounting is deliberately
- * not here: a single `grep` reads a whole tree, and only the filesystem facet
- * can see those bytes, so per-file and per-environment byte ceilings live on
- * the provider.
- */
-
 import { DEFAULT_LIMITS } from "./constants";
 import type { SandboxToolName } from "./definitions";
 
 export interface SandboxToolLimits {
-  /** Tool calls allowed per rolling minute. Default 120. */
   readonly maxCallsPerMinute?: number;
-  /** Clip applied to string tool results. Default 50_000 characters. */
   readonly maxOutputChars?: number;
 }
 
@@ -24,26 +10,14 @@ export type SandboxToolOutcome = "allowed" | "refused" | "failed";
 
 export interface SandboxToolEvent {
   readonly at: number;
-  /** Raw tool input as received. */
   readonly input: unknown;
   readonly outcome: SandboxToolOutcome;
-  /**
-   * The path the call resolved to, when it named one. Absent on a refusal, so
-   * a denial never records where it would have landed.
-   */
   readonly path?: string;
-  /**
-   * Why an environment refused, when it said — `"escape"`, `"secret"`,
-   * `"budget"`, or `"rate"` for this layer's own rate limit. Absent on an
-   * allowed call and on an ordinary failure.
-   */
   readonly reason?: string;
   readonly tool: SandboxToolName;
-  /** True when the result was clipped to `maxOutputChars`. */
   readonly truncated?: boolean;
 }
 
-/** Fire-and-forget: recording must never block or fail a tool call. */
 export interface SandboxToolAudit {
   record(event: SandboxToolEvent): void;
 }
@@ -51,12 +25,9 @@ export interface SandboxToolAudit {
 export interface SandboxToolGuards {
   readonly audit?: SandboxToolAudit;
   readonly limits?: SandboxToolLimits;
-  /** Test seam for the rate window clock. */
   readonly now?: () => number;
 }
 
-/** Raised when the rate limit refuses a call, so it reads like any other
- *  environment refusal rather than a crash. */
 export class SandboxRateLimitError extends Error {
   readonly reason = "rate";
   constructor(perMinute: number) {
@@ -67,15 +38,6 @@ export class SandboxRateLimitError extends Error {
   }
 }
 
-/**
- * The refusal reason an environment stamped on an error, if any — which is
- * what separates "the environment said no" from "the tool broke".
- *
- * Read structurally rather than by importing the error class: a specific
- * reason first (`"escape"`, `"secret"`, `"budget"`), then the portable
- * contract code, since a refusal can come from path normalization before any
- * provider gets a say and names no reason of its own.
- */
 function reasonOf(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null) {
     return undefined;
@@ -92,7 +54,6 @@ function reasonOf(error: unknown): string | undefined {
   return code === "invalid-contract" ? "invalid-contract" : undefined;
 }
 
-/** Clip a string result; anything else passes through untouched. */
 function clip(
   output: unknown,
   max: number
@@ -103,11 +64,6 @@ function clip(
   return { output: output.slice(0, max), truncated: true };
 }
 
-/**
- * Wrap one tool's `execute` with the rate limit, the output clip, and one
- * audit event per call on every exit path. `pathOf` reports which path the
- * call resolved to, for the record only.
- */
 export function guardExecute<Input, Options>(
   name: SandboxToolName,
   execute: (input: Input, options: Options) => Promise<unknown>,
@@ -164,7 +120,6 @@ export function guardState(guards: SandboxToolGuards = {}): GuardState {
   };
 }
 
-/** Charge one call against the rolling-minute window. */
 function takeCall(state: GuardState): boolean {
   const cutoff = state.now() - 60_000;
   state.calls = state.calls.filter((at) => at > cutoff);

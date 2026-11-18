@@ -13,11 +13,6 @@ import type { RegisteredToolCall, ToolEffectPort } from "../../harness/types";
 import { registrationsOf } from "../../harness/types";
 import { fakeAuthorizer } from "../helpers/authorizer";
 
-// Every real tool execute crosses the harness's approval/effect seam exactly
-// once (agent tool request -> effect port -> policy -> the tool), never a
-// second path. The tool under test is deliberately inert: the seam is what is
-// checked, not what the tool does.
-
 function fakeEffectPort(): {
   port: ToolEffectPort;
   calls: RegisteredToolCall[];

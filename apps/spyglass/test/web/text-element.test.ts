@@ -72,14 +72,12 @@ it("letters an element once, and again only when its font, ink or halo changes",
   expect(element.style.color).toBe(inks.selection);
 });
 
-/** A measure every test can predict: 0.5 em a character, the baseline 0.8 em down. */
 const metrics: TextMetrics = {
   baseline: () => 0.8,
   dispose: () => undefined,
   measure: (text) => text.length * 0.5,
 };
 
-/** A frame on a one-to-one screen, which no test projects through. */
 const frame = {
   pixelRatio: 1,
   pixels: 1,
@@ -91,7 +89,6 @@ const frame = {
 it("sets a text at its size, centred on a point, its baseline or its middle on it, snapped to the device's pixels", () => {
   const element = document.createElement("span");
   const font = { face: "Georgia", letterSpacing: 0 } as const;
-  // Four characters at 10 px: 20 px wide; the baseline 8 px down, squashed.
   setText(
     element,
     { align: "baseline", at: { x: 100, y: 50 }, font, size: 10, text: "name" },
@@ -102,7 +99,6 @@ it("sets a text at its size, centred on a point, its baseline or its middle on i
   expect(element.style.transform).toBe(
     `translate(90px, ${Math.round(50 - squash * 8)}px) scaleY(${squash})`
   );
-  // The middle on the point: half the size down, squashed.
   setText(
     element,
     { align: "middle", at: { x: 100, y: 50 }, font, size: 10, text: "name" },
@@ -112,7 +108,6 @@ it("sets a text at its size, centred on a point, its baseline or its middle on i
   expect(element.style.transform).toBe(
     `translate(90px, ${Math.round(50 - squash * 5)}px) scaleY(${squash})`
   );
-  // A wider box, as a name's over its caption is, centres the box.
   setText(
     element,
     {

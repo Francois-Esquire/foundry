@@ -124,7 +124,6 @@ const SWEEP_MS = 2000;
 const REOFFER_MS = 30_000;
 const HELD_WAIT_MS = 30_000;
 const STDERR_TAIL = 20;
-/** How often the daemon checks that the claim at the state root is still its own. */
 const CLAIM_CHECK_MS = 5000;
 
 function generationEntry(): string {
@@ -150,7 +149,6 @@ interface Generation {
   since?: number;
   readonly spawnedAs: ProcessIdentity | undefined;
   readonly started: PromiseWithResolvers<void>;
-  /** Last lines of stderr, for a failure's explanation. */
   readonly tail: string[];
   readonly token: string;
 }
@@ -181,7 +179,6 @@ const HELD_METHODS = new Set<string>([
   WORKSPACE_METHODS.stopActivity,
 ]);
 
-/** Workspace methods that begin work; the rest read, steer, or end it. */
 const DISPATCHING = new Set<string>([
   WORKSPACE_METHODS.dispatchAgent,
   WORKSPACE_METHODS.dispatchWorkflow,
@@ -288,7 +285,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const sockets = new Set<Socket>();
   const { startedAt } = claim;
   let closing: Promise<void> | undefined;
-  /** Set once a shutdown is asked for: nothing new starts from then on. */
   let stopping = false;
   let refused: Fingerprint | undefined;
   const digests = new FileDigests();
@@ -456,7 +452,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         resolve();
       });
       child.on("error", (error) => {
-        // A child that never started has no pid and emits no `exit`.
         if (child.pid !== undefined) {
           print(`[generation ${String(number)}] ${error.message}`);
           return;
@@ -1951,7 +1946,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         return undefined;
       }
       case DAEMON_METHODS.shutdown:
-        // Refuse new work at once; the reply goes out before the drain starts.
         stopping = true;
         setImmediate(() => {
           close().catch(() => undefined);
@@ -2001,8 +1995,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     client.channel.closed
       .then((reason) => {
         clients.delete(client);
-        // A clean hang-up is routine; a failed connection is worth a line,
-        // since it is the one thing that used to end this process.
         if (reason !== undefined) {
           print(
             generation === undefined
@@ -2020,8 +2012,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   });
   const server: Server = createServer(onConnection);
 
-  // The claim is the daemon's reason to run: a state root that was removed,
-  // or a lock someone else now holds, means this process answers for nothing.
   const claimCheck = setInterval(() => {
     if (!holdsLock(join(layout.state, "locks", "process"))) {
       print("[marbles] the claim at the state root is gone; stopping");
@@ -2032,7 +2022,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
 
   try {
     if (existsSync(layout.socket)) {
-      // We hold the lock, so whoever listened here is gone.
       rmSync(layout.socket, { force: true });
     }
     await new Promise<void>((resolve, reject) => {
@@ -2042,7 +2031,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         resolve();
       });
     });
-    // Whoever can connect can run workflows and agents as this user.
     chmodSync(layout.socket, 0o600);
     print(`[marbles] pid ${String(process.pid)} · ${layout.socket}`);
     await records.endAll();
@@ -2093,7 +2081,6 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       );
       await attempt(() => everyOf([...sockets], (socket) => socket.destroy()));
       if (claimLost) {
-        // Whoever holds the claim now may listen at this path, and closing
         await attempt(() => server.unref());
       } else {
         await attempt(

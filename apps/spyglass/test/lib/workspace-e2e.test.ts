@@ -144,8 +144,6 @@ describe("real package reports", () => {
         expect(boundary.perspectives.destination?.observedBy).toBe(boundary.to);
       }
     }
-    // app reaches core symbols only through store's re-exports: core's
-    // report observes the usage, app's import declarations never name core.
     const viaReExport = boundaries.find((b) => b.id === "@l/app→@l/core");
     expect(viaReExport?.provenance.observedBy).toEqual(["@l/core"]);
     expect(viaReExport?.perspectives.source).toBeUndefined();
@@ -175,8 +173,6 @@ describe("real package reports", () => {
     expect(workspace.concepts.overlaps.length).toBe(naive - twice.length);
     expect(twice.length).toBeGreaterThan(0);
     expect(twice.every((o) => o.verified)).toBe(true);
-    // Overlap generation is target-scoped: a pair can surface from one
-    // side's seeds only, so single-observer cross-package pairs are expected.
     expect(crossPackage.some((o) => o.provenance.observedBy.length === 1)).toBe(
       true
     );
@@ -946,8 +942,6 @@ describe("authorizing a saved plan for its mutator", () => {
   let facts: OperatorContext;
   let saved: InternalizeSymbolPlan;
 
-  // The fixture's packages have no test script, which internalize's
-  // verification needs, so a copy gains one for the saved plan's package.
   beforeAll(() => {
     facts = createOperatorContext(
       createWorkspaceProjectionContext(analyzeWorkspace(workspace)),
@@ -1030,7 +1024,6 @@ describe("authorizing a saved plan for its mutator", () => {
     expect(record.authorizationFingerprint.hash).not.toBe(readinessHash);
     expect(JSON.stringify(record)).not.toContain("transformations");
 
-    // Moving the rule renames it, so the rule part, and only it, moves.
     const moved = authorize([
       { effect: "require", operator: "internalize", subject: "packages/none" },
       ...rules,

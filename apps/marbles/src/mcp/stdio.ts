@@ -20,7 +20,6 @@ const print = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 
-/** What the server answers for, and how to let go of it. */
 interface Served extends McpServerOptions {
   readonly release: () => Promise<void>;
 }

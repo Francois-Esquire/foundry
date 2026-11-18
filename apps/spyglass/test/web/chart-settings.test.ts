@@ -23,8 +23,6 @@ it("splits the chart's settings into a reader's and a developer's", () => {
   expect([...reader, "composition"].sort()).toEqual(
     Object.keys(defaultChartSettings).sort()
   );
-  // The waves, which carry no data, start on; the camera starts at the
-  // chart's own angle. The waves keep their key.
   expect(defaultChartSettings.waves).toBe(true);
   expect(defaultChartSettings.elevation).toBe(cameraAngles.chart.elevation);
   expect(defaultChartSettings.composition).toEqual(

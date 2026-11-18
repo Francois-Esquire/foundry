@@ -4,9 +4,6 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The probe reads `env.cacheDir` at call time; the mock lets each test point
-// it at a fabricated cache fixture without touching the real configureCache
-// once-guard.
 const mockEnv: { cacheDir?: string } = {};
 vi.mock("@huggingface/transformers", () => ({
   env: mockEnv,

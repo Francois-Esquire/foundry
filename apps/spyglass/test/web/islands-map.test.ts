@@ -16,14 +16,12 @@ import {
 import type { MapHandle } from "../../src/web/view/map-contract";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
-/** The Islands the map opened, as the fake below records it. */
 const fake = vi.hoisted(() => {
   type Listener = (value: unknown) => void;
   const make = () => {
     const listeners = new Map<string, Set<Listener>>();
     return {
       dispose: vi.fn(),
-      /** Sends an Islands event to the map's listeners. */
       emit: (event: string, value: unknown) => {
         for (const listener of listeners.get(event) ?? []) {
           listener(value);
@@ -64,8 +62,6 @@ const fake = vi.hoisted(() => {
   };
 });
 
-// The engine behind `<IslandsCanvas>`, inside the synced copy: the canvas
-// itself is the real one, so the map is tested through it.
 vi.mock("../../src/web/islands/gpu/islands/api/islands", () => ({
   createIslands: vi.fn(() => fake.create()),
   DEFAULT_ISLANDS_SETTINGS: { selection: false, waveAmplitude: 1 },
@@ -116,7 +112,6 @@ afterEach(async () => {
   container.remove();
 });
 
-/** The Islands the map last opened. */
 function islands() {
   const opened = fake.instances.at(-1);
   if (!opened) {
@@ -125,13 +120,8 @@ function islands() {
   return opened;
 }
 
-/** Islands' first stats, which come once it has fitted the chart: the map settles on them. */
 const settle = () => act(() => islands().emit("stats", { buildMs: null }));
 
-/**
- * Mounts the map on the reference spyglass, with spies for what it tells
- * its host, and settles it unless asked not to.
- */
 async function mount(
   options: {
     data?: SpyglassData;
@@ -158,7 +148,6 @@ async function mount(
   if (options.settled !== false && fake.instances.length > 0) {
     await settle();
   }
-  /** Renders the map again with the host's state changed. */
   const update = (next: Partial<SpyglassState>) =>
     act(async () => {
       props.state = { ...props.state, ...next };
@@ -177,7 +166,6 @@ const ringOf = (data: SpyglassData) => ({
 const status = () =>
   container.querySelector('[role="status"]')?.textContent ?? null;
 
-/** The reference spyglass's first island with files, and its first file. */
 function islandWithFile(data: SpyglassData) {
   const territory = data.territories.find((item) => item.files.length > 0);
   const file = territory?.files[0];
@@ -332,7 +320,6 @@ it("loads the chart from the frame's dataset and the map its territories were la
   expect(loadIslandsChart).toHaveBeenCalledWith(
     expect.objectContaining({ dataset: frame.dataset, visualization })
   );
-  // The viewer's own file places go with it, for a dataset that saved none.
   const places = vi.mocked(loadIslandsChart).mock.lastCall?.[0].places;
   const [territory] = data.territories;
   const [file] = territory?.files ?? [];
@@ -354,7 +341,6 @@ it("clears the host's selection for a ring, and leaves Islands holding the ring"
   islands().select.mockClear();
   await act(() => islands().emit("select", ringOf(data)));
   expect(onSelect).toHaveBeenCalledExactlyOnceWith(null);
-  // The host clears its selection as asked: the ring stays chosen.
   await update({ selection: null });
   expect(islands().select).not.toHaveBeenCalled();
 });
@@ -379,7 +365,6 @@ it("lets the host's selection win over a ring, and Escape let the ring go", asyn
   await act(() => islands().emit("select", ringOf(data)));
   await update({ selection: { territoryId: first.id } });
   expect(islands().select).toHaveBeenLastCalledWith(first.id);
-  // The island chosen in turn is the host's own, so a later ring is held again.
   await act(() =>
     islands().emit("select", {
       id: first.id,
@@ -403,8 +388,6 @@ it("lets a held ring go when the host sends the camera home", async () => {
   const { mapRef } = await mount({ data });
   await act(() => islands().emit("select", ringOf(data)));
   islands().select.mockClear();
-  // "Whole spyglass": the host's selection is already null, so only the
-  // overview itself can let the ring go.
   await act(() => mapRef.current?.focus(null));
   expect(islands().frame).toHaveBeenLastCalledWith(null);
   expect(islands().select).toHaveBeenCalledExactlyOnceWith(null);

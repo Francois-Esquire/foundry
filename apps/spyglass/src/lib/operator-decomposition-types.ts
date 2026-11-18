@@ -6,12 +6,6 @@ import type {
   OperatorPreconditionKind,
 } from "./operator-types";
 
-// V11.1 operator decomposition: one architectural operator expanded into a
-// dependency graph of structural actions. An action names what must change
-// or stay at the responsibility, exposure, dependency, and boundary level;
-// it never names a file, a line, or an edit. Realization is V11.3.
-
-/** Independent of the operator schema: decompositions may persist on their own. */
 export const DECOMPOSITION_SCHEMA_VERSION = 1;
 
 export type StructuralActionKind =
@@ -44,21 +38,18 @@ interface SymbolActionSubject {
   symbolId: string;
 }
 
-/** A concept's behavior in one role; never "the behavior of package B". */
 interface BehaviorActionSubject {
   conceptId: string;
   kind: "behavior";
   role: "governing" | "implementation" | "conversion";
 }
 
-/** Concept-scoped unless the operator itself targets the whole boundary. */
 interface BoundaryActionSubject {
   boundaryId: string;
   conceptId?: string;
   kind: "boundary";
 }
 
-/** What a package exposes of a concept or symbol; the seam later export planning refines. */
 interface ExposureActionSubject {
   conceptId?: string;
   kind: "exposure";
@@ -96,7 +87,6 @@ interface StructuralActionIntent {
   summary: string;
 }
 
-/** A reference to an operator precondition the action relies on; never a new fact. */
 export interface StructuralActionPrecondition {
   entityIds: string[];
   kind: OperatorPreconditionKind;
@@ -111,14 +101,11 @@ export type StructuralActionStatus =
 export interface StructuralAction {
   current?: StructuralLocation;
   evidence: OperatorEvidenceRef[];
-  /** The operator's own effects this action accounts for; never a new prediction. */
   expectedEffects: OperatorExpectedEffect[];
-  /** `<operator id>/<kind>:<subject>[:<current>→<target>]`; stable across runs and input order. */
   id: string;
   intent: StructuralActionIntent;
   kind: StructuralActionKind;
   preconditions: StructuralActionPrecondition[];
-  /** Preservation ids (`kind:entityIds`) this action carries out. */
   preserves: string[];
   status: StructuralActionStatus;
   subject: StructuralActionSubject;
@@ -151,11 +138,6 @@ export type OperatorDecompositionGapKind =
   | "representation-strategy-unspecified"
   | "unsupported-action-kind";
 
-/**
- * `blocking` means the action set itself may be incomplete, so realization
- * planning must not treat it as the whole story. A non-blocking gap only
- * defers a refinement (which module, which surface strategy).
- */
 export interface OperatorDecompositionGap {
   blocking: boolean;
   detail: string;
@@ -167,21 +149,18 @@ type CoverageStatus = "covered" | "implicit" | "uncovered";
 
 export interface PreservationCoverage {
   coveredByActions: string[];
-  /** `kind:entityIds` of the operator preservation. */
   preservationId: string;
   status: CoverageStatus;
 }
 
 export interface VerificationCoverage {
   relatedActions: string[];
-  /** The operator verification kind; one requirement per kind. */
   requirementId: string;
   status: "covered" | "unresolved";
 }
 
 export interface ExpectedEffectCoverage {
   actions: string[];
-  /** `dimension:change:from→to` of the operator effect, with an ordinal on collision. */
   operatorEffectId: string;
   status: "covered" | "unresolved";
 }
@@ -191,13 +170,6 @@ interface DecompositionFingerprint {
   hash: string;
 }
 
-/**
- * `complete`: every action is known and located at package level with no
- * gap. `partial`: actions are known but a gap remains. `blocked`: the
- * operator is blocked; actions show what it would require. `stale`: the
- * operator no longer matches the facts; no actions are derived. `unsupported`:
- * the operator kind has no decomposition rules.
- */
 export type OperatorDecompositionStatus =
   | "complete"
   | "partial"
@@ -221,9 +193,7 @@ export interface OperatorDecomposition {
   verificationCoverage: VerificationCoverage[];
 }
 
-/** Data only: which subjects an action kind takes and whether it needs a target. */
 export interface StructuralActionDefinition {
-  /** Always false in V11.1: actions describe, nothing runs them. */
   executable: false;
   group: StructuralActionGroupKind;
   kind: StructuralActionKind;
@@ -234,7 +204,6 @@ export interface StructuralActionDefinition {
 type OperatorDecompositionValidationStatus = "valid" | "invalid" | "stale";
 
 export interface OperatorDecompositionValidation {
-  /** Fingerprint over the same facts read now; absent when a fact no longer resolves. */
   currentFingerprint?: string;
   cycles: string[][];
   effectCoverage: ExpectedEffectCoverage[];

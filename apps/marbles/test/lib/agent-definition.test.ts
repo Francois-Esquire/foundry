@@ -1,13 +1,3 @@
-/**
- * An agent declared with a function: the function returns the definition
- * as each session opens, given the route that session must keep. It runs
- * on no import and no `extend`, once per session, never on a replayed
- * turn, and what it chose (route, skills, MCP servers) is what the session
- * opens with. Usage comes from a provider defined with the usage kit, so
- * snapshots are built by `@foundry/usage` itself and nothing is asked of a
- * real login.
- */
-
 import { fileURLToPath } from "node:url";
 import { McpClient } from "@foundry/agents/mcp";
 import { defineSkill } from "@foundry/agents/skills";
@@ -49,7 +39,6 @@ const NOT_JSON = /extend's input must be JSON/;
 const ANOTHER_INPUT = /was opened with another input/;
 const BOTH_INPUTS = /keeps both an input and noInput/;
 
-/** How much of the fixture Claude login's week is used; tests move it. */
 let claudeWeekUsed = 40;
 const readLimits = vi.fn(() =>
   Promise.resolve({
@@ -88,16 +77,11 @@ const fixtureServer: AgentMcpServer = {
   },
 };
 
-/** Claude while its week has room, Codex once it is used up. */
 async function routeFromUsage(): Promise<string> {
   const claude = await usage.query("anthropic");
   return claude.weekly?.exhausted ? "codex" : "claude-code";
 }
 
-/**
- * The agent the docs show: a route from usage unless the session already
- * has one, and the skills and MCP servers for that route.
- */
 function usageRoutedReviewer(seen: AgentRoute[] = []) {
   return agent(async (route) => {
     seen.push(route);
@@ -122,7 +106,6 @@ afterEach(async () => {
   readLimits.mockClear();
 });
 
-/** A host engine whose models answer `provider|tools|prompt`. */
 function hostEngine(): Engine {
   const engine = testEngine({
     print: () => undefined,
@@ -148,7 +131,6 @@ function args(): ManagerArgs {
   return { frame: scope.frame(["root", "review"]), scope, write: () => 0 };
 }
 
-/** A bare agents manager over mock models, for sessions in a frame. */
 function managerDeps(): AgentsDeps {
   const host = testEngine();
   engines.push(host);
@@ -175,7 +157,6 @@ const verdict = Output.object({
   schema: z.object({ approved: z.boolean() }),
 });
 
-/** Named by its `const`, not by a digest of its source. */
 const topLevelReviewer = agent(() => ({ prompt: "Review." }));
 
 describe("when the function runs", () => {
@@ -222,7 +203,6 @@ describe("when the function runs", () => {
   });
 });
 
-/** `agents.session` on the host engine, as a script outside a step would open one. */
 function setHostSession(reviewer: AgentLike) {
   const engine = engines.at(-1);
   if (!engine) {
@@ -522,7 +502,6 @@ describe("failures", () => {
 });
 
 describe("identity", () => {
-  /** A helper that makes one agent per team: the same source, different captures. */
   function teamReviewer(team: string) {
     return agent(() => ({ prompt: `Review for ${team}.` }));
   }

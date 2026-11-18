@@ -27,9 +27,7 @@ export type RemoveWorkspaceResult =
 
 export interface CatalogChangeInput {
   readonly change: WorkspaceCatalogChange;
-  /** Set only by a complete source observation. */
   readonly lastReconciledAt?: Date;
-  /** Set only when the change touches the catalog. */
   readonly updatedAt?: Date;
   readonly workspaceId: WorkspaceId;
 }
@@ -122,11 +120,6 @@ export class WorkspaceCatalog {
     });
   }
 
-  /**
-   * Applies one change against the catalog as it stands, or refuses it whole.
-   * The change must describe current rows: a delete or update of a row this
-   * Workspace does not hold, or an insert over an existing id, is a conflict.
-   */
   applyChange(input: CatalogChangeInput): Promise<CommitChangeResult> {
     const eventId = crypto.randomUUID();
     return this.mutation<CommitChangeResult>(async (store) => {
@@ -224,7 +217,6 @@ export class WorkspaceCatalog {
     });
   }
 
-  /** Forgets one Workspace and its catalog; the source is never touched. */
   remove(workspaceId: WorkspaceId): Promise<RemoveWorkspaceResult> {
     const eventId = crypto.randomUUID();
     return this.mutation<RemoveWorkspaceResult>(async (store) => {
@@ -360,11 +352,6 @@ interface Mutation<T> {
   readonly result: T;
 }
 
-/**
- * Root first, then source reference — not one pass testing both. A
- * candidate can collide with one incumbent on its root and another on its
- * reference, and the root's owner is the answer either way.
- */
 async function claimant(
   store: WorkspaceStore,
   workspace: WorkspaceRegistration

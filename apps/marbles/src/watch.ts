@@ -1,6 +1,5 @@
 import { readRunOutput, type TerminalStatus } from "~/lib/state/output";
 
-/** Replay then follow a run without importing source or starting an engine. */
 export async function watchRun(
   state: string,
   runId: string,
@@ -36,6 +35,5 @@ export async function watchRun(
       return record.status;
     }
   }
-  // Invariant guard: the reader yields end before returning; TypeScript cannot infer that contract.
   throw new Error("run output ended without a terminal record");
 }

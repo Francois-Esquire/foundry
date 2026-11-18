@@ -17,7 +17,6 @@ export interface CreateJobOptions {
 
 type ExecuteJob = (job: JobRecord) => Promise<DispatchedWorkflow<JsonValue>>;
 
-/** Optional Job management layer above bounded Run attempts. */
 export class JobLifecycle {
   readonly #store: OrchestratorStore;
   readonly #executeJob: ExecuteJob;

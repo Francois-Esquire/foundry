@@ -33,11 +33,9 @@ export interface KeyPress {
   readonly shift: boolean;
 }
 
-/** What a command can see: the state, its selection resolved, the feed, and the host's controls. */
 export interface CommandContext {
   readonly actions?: RunActions;
   readonly canLaunch: boolean;
-  /** The Marbles process hosts more than this workspace. */
   readonly canSwitchWorkspace: boolean;
   readonly feed: Pick<
     FeedState,
@@ -60,10 +58,8 @@ export interface CommandContext {
       | "typing"
     >;
   };
-  /** The line the Logs tab has selected. */
   readonly log?: OperatingLogEntry;
   readonly resolved: ResolvedSelection;
-  /** Global preferences, and how to change them when the host can. */
   readonly settings?: {
     readonly change?: (changes: SettingsChange) => Promise<void>;
     readonly current: SettingsSnapshot;
@@ -76,12 +72,10 @@ export interface CommandContext {
 }
 
 interface CommandEffects {
-  /** Run or trigger control work: one at a time, its failure kept on screen. */
   readonly act: (work: () => Promise<void>) => void;
   readonly launch: (definitionId: string) => void;
   readonly quit: () => void;
   readonly send: (event: DashboardEvent) => void;
-  /** Show the next workspace the Marbles process hosts. */
   readonly switchWorkspace: () => void;
   readonly toggleWorkspaces: () => void;
 }
@@ -100,32 +94,20 @@ const SECTIONS = [
 ] as const;
 type Section = (typeof SECTIONS)[number];
 
-/** How the footer and keyboard help describe an entry. */
 interface Described {
-  /** What it does, for keyboard help; absent when the footer label says enough. */
   readonly help?: string;
-  /** The key as keyboard help writes it. */
   readonly key: string;
-  /** Footer text while it applies. */
   readonly label?: string | ((context: CommandContext) => string);
-  /** In the bottom line with quit and help, not the pane's line. */
   readonly lasting?: boolean;
   readonly section: Section;
 }
 
-/** A key the dashboard handles: the keys it takes, when, and what it does. */
 interface Binding extends Described {
-  /** Key names or typed sequences, or a test for anything subtler. */
   readonly keys: readonly string[] | ((key: KeyPress) => boolean);
   readonly run: (dashboard: Dashboard, key: KeyPress) => void;
   readonly when: (context: CommandContext) => boolean;
 }
 
-/**
- * A key something focused owns (a log, a JSON viewer, a text field, a
- * scrollbox, a form), only described here. With `when` it shows in the footer
- * while that holds; without, it is keyboard help only.
- */
 interface Hint extends Described {
   readonly keys?: never;
   readonly run?: never;
@@ -140,22 +122,18 @@ function isBinding(command: Command): command is Binding {
 
 const CHOICE_KEY = /^[1-9]$/;
 
-/** The feed has a text field open for an answer. */
 function answering(context: CommandContext): boolean {
   return context.state.view === "feed" && context.feed.answer.typing;
 }
 
-/** A text field has the keys: a steer or resume prompt, or a feed answer. */
 function writing(context: CommandContext): boolean {
   return answering(context) || context.state.prompt !== undefined;
 }
 
-/** Something on top takes every key: a text field, help, or search. */
 export function capturesKeys(context: CommandContext): boolean {
   return writing(context) || context.state.help || context.state.searching;
 }
 
-/** On Overview or Catalog, where the three lists and details are. */
 function onDashboard(context: CommandContext): boolean {
   return (
     isBrowserView(context.state.view) &&
@@ -164,7 +142,6 @@ function onDashboard(context: CommandContext): boolean {
   );
 }
 
-/** Overview's usage breakdown has the keys. */
 function inBreakdown(context: CommandContext): boolean {
   return (
     context.state.view === "overview" &&
@@ -181,7 +158,6 @@ function onSettings(context: CommandContext): boolean {
   return context.state.view === "settings" && !capturesKeys(context);
 }
 
-/** The theme after (or before) the current one, when the host can save it. */
 function nextTheme(context: CommandContext, by: number) {
   const { settings } = context;
   if (!(settings?.change && onSettings(context))) {
@@ -211,7 +187,6 @@ function inList(context: CommandContext, pane?: BrowserPane): boolean {
   );
 }
 
-/** Inspecting a run or step (not an activity) on one of these tabs. */
 function inspectingRun(
   context: CommandContext,
   tabs?: readonly string[]
@@ -231,7 +206,6 @@ function feedReader(context: CommandContext): boolean {
   return onFeed(context) && context.feed.focus === "reader";
 }
 
-/** The run or step under the run controls, and its status. */
 function controlled(context: CommandContext) {
   const { actions, resolved } = context;
   if (
@@ -253,7 +227,6 @@ function managedTrigger(context: CommandContext) {
     : undefined;
 }
 
-/** The trigger or definition selected, to filter runs by. */
 function catalogSelection(
   context: CommandContext
 ): CatalogSelection | undefined {
@@ -267,7 +240,6 @@ function catalogSelection(
   return undefined;
 }
 
-/** The run a step or activity belongs to, even one that has since gone. */
 function enclosingRun(
   resolved: ResolvedSelection
 ): DashboardSelection | undefined {
@@ -288,7 +260,6 @@ const VIEW_LETTERS: Readonly<Record<string, DashboardViewKey>> = {
   s: "settings",
 };
 
-/** Shift and a tab's letter; plain letters keep their own meanings. */
 function viewShortcut(key: KeyPress): DashboardViewKey | undefined {
   const typed =
     key.sequence.length === 1 && key.sequence !== key.sequence.toLowerCase()
@@ -310,13 +281,7 @@ function isPaneKey(name: string): name is keyof typeof PANE_KEYS {
   return Object.hasOwn(PANE_KEYS, name);
 }
 
-/**
- * Every key the dashboard and feed answer to, first match first. Entries
- * that share a key apply in different states, except Shift+F, which comes
- * before plain `f`.
- */
 const COMMANDS: readonly Command[] = [
-  // Text fields: the field owns typing and Enter; Esc gives up.
   {
     key: "Enter",
     label: "Enter send",
@@ -380,7 +345,6 @@ const COMMANDS: readonly Command[] = [
     when: (context) => !(writing(context) || context.state.searching),
   },
 
-  // Feed tab.
   {
     help: "Select an entry",
     key: "↑ / ↓",
@@ -464,7 +428,6 @@ const COMMANDS: readonly Command[] = [
     when: (context) => onFeed(context) && context.feed.scopeCount > 1,
   },
 
-  // Logs tab.
   {
     help: "Select a log line; selecting stops following",
     key: "↑ / ↓ in logs",
@@ -536,7 +499,6 @@ const COMMANDS: readonly Command[] = [
     when: onLogs,
   },
 
-  // Overview's usage breakdown.
   {
     help: "Show every workflow's and agent's usage on Overview",
     key: "u",
@@ -564,7 +526,6 @@ const COMMANDS: readonly Command[] = [
     when: inBreakdown,
   },
 
-  // Settings tab.
   {
     help: "Choose the theme; it is saved for every workspace",
     key: "← / → in settings",
@@ -581,7 +542,6 @@ const COMMANDS: readonly Command[] = [
     when: (context) => nextTheme(context, 1) !== undefined,
   },
 
-  // Dashboard tab: panes and details.
   {
     help: "Focus Triggers / Marbles on Catalog, or Runs on Overview",
     key: "1 / 2 / 3",
@@ -729,7 +689,6 @@ const COMMANDS: readonly Command[] = [
       onDashboard(context) && catalogSelection(context) !== undefined,
   },
 
-  // Run and trigger controls: only what the selection's status allows.
   {
     help: "Steer the agent running in the step",
     key: "s",
@@ -963,7 +922,6 @@ const COMMANDS: readonly Command[] = [
     when: (context) => writing(context) || context.state.searching,
   },
 
-  // Argument forms own these while open.
   {
     help: "Move focus / submit arguments",
     key: "Tab / Ctrl+Enter",
@@ -1001,7 +959,6 @@ function labels(context: CommandContext, lasting: boolean): string[] {
   });
 }
 
-/** Whatever has the keys, named first in its footer line. */
 function focusName(context: CommandContext): string {
   const { feed, resolved, state } = context;
   if (state.prompt) {
@@ -1030,7 +987,6 @@ function focusName(context: CommandContext): string {
   return paneOf(state);
 }
 
-/** The footer: what has the keys and what they do there, then the lasting keys. */
 export function footer(context: CommandContext): {
   readonly hints: string;
   readonly lasting: string;

@@ -98,7 +98,6 @@ describe("candidates", () => {
         to: "packages/domain/src/index.ts#Snapshot",
       },
     ]);
-    // The converter itself is not an independent shared consumer.
     expect(found.usage?.sharedConsumers).toEqual([]);
   });
 });

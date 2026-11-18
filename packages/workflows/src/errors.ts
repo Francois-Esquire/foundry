@@ -1,4 +1,3 @@
-/** Base class for typed errors at the workflows public seam. */
 export abstract class WorkflowDomainError extends Error {
   abstract readonly code: string;
 }

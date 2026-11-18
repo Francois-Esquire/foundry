@@ -17,19 +17,12 @@ const PRIVATE_DIRECTORY = 0o700;
 
 export interface FileGrantRepositoryOptions<S extends AuthorizationSubject, C>
   extends Omit<DocumentGrantRepositoryOptions<S, C>, "storage"> {
-  /** How long to wait for another writer's lock before refusing. Defaults to 5s. */
   readonly lockWaitMs?: number;
-  /** Where the Grants live. Its directory is created private on first use. */
   readonly path: string;
 }
 
-/** Transactions queued per resolved path, across every repository instance in this process. */
 const transactions = new KeyedQueue();
 
-/**
- * The writer lock. A lock left by a crashed writer is never broken: the
- * writer may have died mid-transaction, so a person decides.
- */
 async function acquireLock(
   path: string,
   waitMs: number
@@ -84,7 +77,6 @@ function fileStorage(path: string, lockWaitMs: number): GrantDocumentStorage {
   };
 }
 
-/** One file of Grants. See the module comment for its guarantees. */
 export class FileGrantRepository<
   S extends AuthorizationSubject,
   C,

@@ -16,7 +16,6 @@ function isFullscreenRequest(value: unknown): value is { fullscreen: boolean } {
   );
 }
 
-/** Window chrome operations the renderer's custom title bar invokes. */
 export function registerWindowIpc(): void {
   ipcMain.handle(WINDOW_CHANNELS.minimize, (event) => {
     senderWindow(event)?.minimize();

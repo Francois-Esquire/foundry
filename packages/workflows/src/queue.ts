@@ -83,25 +83,6 @@ type RunFinishOutcome =
 
 type RunStartOutcome = "started" | "cancelled-before-start";
 
-/**
- * Queue — the dispatched-execution surface.
- *
- * Runs dispatched workflows at a configurable concurrency limit in FIFO order,
- * manages their durable lifecycle through an OrchestratorStore. Dispatches
- * are optional — Steps and Workflows work standalone. An internal semaphore
- * enforces concurrency; a forked driver pulls runs from an unbounded queue and
- * acquires permits before execution.
- *
- * Public API: `dispatch()` returns synchronously; `pause()`, `resume()`,
- * `drain()`, `get()`, `size()` return Promises.
- * Persistence defaults to an in-memory store; production compositions supply
- * a durable OrchestratorStore.
- *
- * @example
- *   const queue = new Queue({ store, concurrency: 4 });
- *   const run = queue.dispatch(myWorkflow, { city: "Tokyo" });
- *   const result = await run.result();
- */
 export class Queue {
   readonly id: string;
   readonly #opts: QueueOptions;
@@ -112,41 +93,18 @@ export class Queue {
   readonly #semaphore: Effect.Semaphore;
   readonly #pendingQueue: EffectQueue.Queue<DispatchedWorkflow>;
   readonly #pausedRef: SubscriptionRef.SubscriptionRef<boolean>;
-  // Outstanding = dispatched runs that haven't yet settled to
-  // terminal-or-suspended. Incremented on dispatch (sync, before
-  // offering to the queue, so drain never sees a transient zero
-  // between take and #runOne start) and decremented when a run
-  // releases its slot. Used by drain to await idle.
   readonly #outstandingRef: SubscriptionRef.SubscriptionRef<number>;
 
-  // Id → handle index for `get(id)` and accessors (`active`, `pending`, `size`).
   readonly #all = new Map<string, DispatchedWorkflow>();
-  // Queue-wide event firehose + telemetry/log sink (the public-API plain-JS
-  // surface behind `on()`). Shares the Queue's Telemetry instance.
   readonly #events: QueueEvents;
 
-  // Driver-loop fiber handle, captured at construction. Held for
-  // shutdown() to interrupt cleanly.
   readonly #driverFiber: ReturnType<typeof Effect.runFork> | null;
-  // Idempotent shutdown gate. Once set, dispatch rejects and a second
-  // shutdown call returns the same in-flight promise.
   #shutdownPromise: Promise<void> | null = null;
 
-  // Promise for ensuring the queue record. Chained in dispatch so persistent
-  // stores always observe the queue before a run.
   readonly #queueInsertPromise: Promise<unknown>;
 
-  // Per-run transient lane: the write mutex, append-only event-log buffer, and
-  // optional row-insert promise that share a single lifecycle. Created together
-  // at run admission (dispatch/adopt/hydrate) and dropped together at terminal
-  // settle, so "the three agree on key set" is a type fact, not discipline.
-  // (Separate from #all, which is the permanent id→handle index.)
   readonly #lanes = new Map<string, RunLane>();
 
-  // Admission failures outlive the transient run lane so callers that attach
-  // after the driver has rejected an insert still observe the durable failure.
-  // Successful admissions need no tombstone: absence means persistence
-  // completed successfully once the lane has closed.
   readonly #admissionFailures = new Map<string, Error>();
   readonly #controlTails = new Map<string, Promise<void>>();
   readonly #cancelledBeforeStart = new Set<string>();
@@ -155,8 +113,6 @@ export class Queue {
   readonly #resumeReactors = new Map<string, Fiber.RuntimeFiber<void>>();
   #fatalError: Error | null = null;
 
-  // Long-lived scope for hydrated runs and their forked subscribers
-  // (status/state mirrors). Closes on shutdown().
   readonly #scope: Scope.CloseableScope;
 
   constructor(opts: QueueOptions) {
@@ -187,18 +143,13 @@ export class Queue {
     this.#pausedRef = init.pausedRef;
     this.#outstandingRef = init.outstandingRef;
 
-    // Fork driver loop with retry supervisor: 5 restarts (exponential backoff,
-    // 100ms → 1.6s). Emit 'restarted' on retry, 'queue_failed' on exhaustion.
-    // Interruption bypasses retry.
     this.#driverFiber = Effect.runFork(this.#supervisedDriverLoop());
   }
 
-  /** The configuration this queue was constructed with. */
   get options(): QueueOptions {
     return this.#opts;
   }
 
-  /** Cumulative metrics + log ring buffer for this Queue. */
   get telemetry(): TelemetryState {
     return this.#telemetry.snapshot();
   }
@@ -219,10 +170,6 @@ export class Queue {
     }
     const workflowState = workflow.state;
 
-    // Fire the row insert immediately. Chained off the queue's own
-    // insert because `runs.queueId` has an FK to `queues.id`. The
-    // persistence subscriber in #runOne awaits this before any
-    // updates are issued.
     const baseMetadata = {
       workflow: {
         input: workflowState.input,
@@ -280,7 +227,6 @@ export class Queue {
     return dispatched;
   }
 
-  /** Resolve once dispatch has established the durable run record. */
   async awaitPersistence(runId: string): Promise<void> {
     const insertPromise = this.#lanes.get(runId)?.insertPromise;
     if (insertPromise) {
@@ -293,9 +239,6 @@ export class Queue {
     }
   }
 
-  /** Idempotent per-run lane: write mutex + event buffer (+ optional row-insert
-   *  promise). Created at admission by dispatch/adopt/hydrate, dropped at terminal
-   *  settle. Returns the existing lane if already open (adopt/hydrate may re-open). */
   #openLane(
     id: string,
     seed?: {
@@ -339,8 +282,6 @@ export class Queue {
     });
   }
 
-  /** Index a run, announce it, and offer it to the driver. Outstanding is
-   * bumped *before* the offer so drain never sees a transient zero. */
   #admit(erased: DispatchedWorkflow, deferExecution = false): void {
     this.#all.set(erased.id, erased);
     this.#events.run("dispatched", erased);
@@ -357,7 +298,6 @@ export class Queue {
     ).catch(() => undefined);
   }
 
-  /** Look up a previously-dispatched run by id. */
   get(runId: string): Promise<DispatchedWorkflow | null> {
     return Promise.resolve(this.#all.get(runId) ?? null);
   }
@@ -449,15 +389,6 @@ export class Queue {
     });
   }
 
-  // ── JS-first runId accessors (in-memory hit OR DB fallthrough)
-  // Live runs read from snapshot; persisted runs read from row metadata.
-  // For full live handles (resume/cancel/result), use hydrate(runId, factory).
-
-  /**
-   * Decode-once reader for the DB-fallthrough accessors. Returns the row's
-   * authoritative status plus the persisted `metadata.workflow` blob (or `null`
-   * when no row exists); the four accessors below project from this one decode.
-   */
   async #readPersisted(
     runId: string
   ): Promise<{ status: RunStatus; workflow: PersistedWorkflow | null } | null> {
@@ -475,11 +406,6 @@ export class Queue {
     }
   }
 
-  /**
-   * Run status by id. `null` if no row exists. In-memory hit reads
-   * synchronously via the live handle; otherwise reads `runs.status`
-   * directly off the row.
-   */
   async status(runId: string): Promise<RunStatus | null> {
     const cached = this.#all.get(runId);
     if (cached) {
@@ -488,13 +414,6 @@ export class Queue {
     return (await this.#readPersisted(runId))?.status ?? null;
   }
 
-  /**
-   * Workflow snapshot by id. Returns the full `WorkflowState` projection
-   * (input, output, status, suspension, error, steps, telemetry…). For
-   * live runs this is the in-memory SubscriptionRef; for persisted runs
-   * it's the parsed `metadata.workflow` blob fortified with the row's
-   * authoritative status.
-   */
   async snapshot(runId: string): Promise<WorkflowState | null> {
     const cached = this.#all.get(runId);
     if (cached) {
@@ -507,13 +426,6 @@ export class Queue {
     return { ...persisted.workflow, status: persisted.status } as WorkflowState;
   }
 
-  /**
-   * Path-keyed map of completed step outputs. For live runs reads the
-   * in-memory results projection; for persisted runs derives the map
-   * from `metadata.workflow.steps` (any step with status='complete' and
-   * a populated `output` contributes an entry). Returns `null` if no
-   * row exists, or `{}` if a row exists but no step has completed yet.
-   */
   async results(
     runId: string
   ): Promise<Readonly<Record<string, unknown>> | null> {
@@ -538,12 +450,6 @@ export class Queue {
     return out;
   }
 
-  /**
-   * Workflow-level error shape by id. `null` for runs that haven't
-   * failed (queued/running/suspended/complete/cancelled) or for
-   * missing runIds. Live hit reads the in-memory `error` accessor;
-   * persisted hit reads `metadata.workflow.error`.
-   */
   async error(runId: string): Promise<ErrorShape | null> {
     const cached = this.#all.get(runId);
     if (cached) {
@@ -552,13 +458,6 @@ export class Queue {
     return (await this.#readPersisted(runId))?.workflow?.error ?? null;
   }
 
-  /**
-   * Re-enqueue a recovered run using its persisted id without inserting a new row.
-   * The caller is responsible for rebuilding the Workflow with snapshot pre-seeded
-   * from recoverable.metadata so skip-on-complete fires for already-completed steps.
-   * Suspended rows are indexed and parked without driver admission; their
-   * resume reactor enqueues only after authority records a resolution.
-   */
   adopt<I, O, X extends BaseContext>(
     workflow: Workflow<I, O, X>,
     recoverable: RecoverableRun
@@ -593,9 +492,6 @@ export class Queue {
       withControl: (operation) =>
         this.withRunControl(recoverable.id, operation),
     });
-    // Recovered runs share the same lifecycle hazards as fresh dispatches:
-    // the persistence subscriber writes alongside the terminal write, both
-    // need to serialize through a single per-run lane.
     this.#openLane(recoverable.id, {
       eventBuffer: [
         ...streamFromMetadata(
@@ -627,10 +523,6 @@ export class Queue {
     return dispatched;
   }
 
-  /**
-   * Admit a freshly-created durable Run without inserting it a second time.
-   * Unlike {@link adopt}, this is normal dispatch and emits no recovery event.
-   */
   dispatchPersisted<I, O, X extends BaseContext>(
     workflow: Workflow<I, O, X>,
     persisted: RecoverableRun,
@@ -702,32 +594,11 @@ export class Queue {
     }
   }
 
-  /**
-   * Return all non-terminal rows for this queue (status IN 'queued',
-   * 'initializing', 'running', 'suspended'). For cold-start recovery: the
-   * caller rebuilds each Workflow via a registry (matching `step` to factory)
-   * and re-dispatches via `adopt()`. For suspended rows, call
-   * `dispatched.resume(suspension.name, resolution)` after dispatch.
-   */
   async findRecoverableRuns(): Promise<readonly RecoverableRun[]> {
     await this.#queueInsertPromise;
     return this.#store.findRecoverableRuns(this.id);
   }
 
-  /**
-   * Rebuild the in-memory `DispatchedWorkflow` handle for a persisted run
-   * without re-enqueuing it. The hydrated handle's sync accessors read from
-   * seeded SubscriptionRefs. Idempotent: returns cached handle if already
-   * hydrated or currently live. Returns `null` if no row exists.
-   *
-   * The factory is an ordinary synchronous or Promise-returning TypeScript
-   * function. Typical implementations read `recoverable.step` to select a
-   * registered workflow factory.
-   *
-   * Hydrate does NOT re-execute the workflow body. To resume a suspended
-   * hydrated run, call `dispatched.resume(name, value)`. To re-enqueue from
-   * queued/initializing/running, use `Orchestrator.recover` which calls `adopt`.
-   */
   async hydrate<I, O, X extends BaseContext>(
     runId: string,
     factory: (
@@ -750,17 +621,11 @@ export class Queue {
     const recoverable = rowToRecoverable(row);
     const workflow = await factory(recoverable);
 
-    // Seed the underlying Snapshot (steps + derived results).
     const seedSteps = stepsFromMetadata(decoded);
     if (seedSteps !== null) {
       await Effect.runPromise(workflow.root.snapshot.seed(seedSteps));
     }
 
-    // Seed the Workflow's own #status / #state SubscriptionRefs from
-    // the persisted top-level fields (status, output, suspension, error,
-    // timestamps). Without this, the JS-first sync accessors on
-    // DispatchedWorkflow read fresh "queued" defaults regardless of
-    // the row's actual lifecycle state.
     const persistedWorkflow = workflowStateFromMetadata(decoded, row.status);
     await workflow.seedState(persistedWorkflow);
 
@@ -790,22 +655,10 @@ export class Queue {
     const erased = dispatched as unknown as DispatchedWorkflow;
     this.#all.set(row.id, erased);
 
-    // Per-run lane: if a hydrated run is later resumed (suspended →
-    // resume reactor → re-enqueue → #runOne) the reactive subscriber and
-    // terminal write need a serialization lane. The event-log buffer is
-    // seeded from the persisted `metadata.stream` so subsequent
-    // `#eventLogLoop` appends grow on top of the prior queue's history;
-    // without it, the next reactive write would clobber the accumulated
-    // event log. Idempotent — `dispatch`/`adopt` may have opened it already.
     this.#openLane(row.id, {
       eventBuffer: [...streamFromMetadata(decoded)],
     });
 
-    // If the hydrated row was suspended, arm the resume reactor now.
-    // Without this, `dispatched.resume(name, value)` would flip the
-    // SubscriptionRef but no listener would re-enqueue — execution
-    // would never proceed. This is what makes "process restart picks
-    // up a suspended run from a webhook handler" actually work.
     if (row.status === "suspended") {
       await Effect.runPromise(this.#armSuspendResumeReactor(erased));
     }
@@ -813,18 +666,14 @@ export class Queue {
     return dispatched;
   }
 
-  /** Currently-executing runs. */
   active(): readonly DispatchedWorkflow[] {
     return [...this.#all.values()].filter((r) => r.status === "running");
   }
 
-  /** Runs queued but not yet started. */
   pending(): readonly DispatchedWorkflow[] {
     return [...this.#all.values()].filter((r) => r.status === "queued");
   }
 
-  /** Counts by status — useful for UI summaries. Statuses without a QueueSize
-   * bucket (paused/initializing/reviewing/ready_for_review) are not counted. */
   size(): Promise<QueueSize> {
     const tally: Record<keyof QueueSize, number> = {
       active: 0,
@@ -851,7 +700,6 @@ export class Queue {
     return Promise.resolve(tally);
   }
 
-  /** Pause execution of queued runs. In-flight runs continue. */
   pause(): Promise<void> {
     this.#telemetry.setMetric("queue.paused", 1);
     this.#events.log("info", "Queue paused");
@@ -864,7 +712,6 @@ export class Queue {
     );
   }
 
-  /** Resume after pause. */
   resume(): Promise<void> {
     if (this.#fatalError !== null) {
       return Promise.reject(
@@ -885,13 +732,6 @@ export class Queue {
     );
   }
 
-  /**
-   * Resolves when no pending or in-flight runs remain. Suspended runs do not
-   * block drain (parked indefinitely awaiting external resume). Reflects
-   * queues.status = 'draining' while waiting, restores prior status on
-   * completion or timeout. With `graceMs`, rejects if the queue does not become
-   * idle before the deadline.
-   */
   drain(opts?: { graceMs?: number }): Promise<void> {
     const graceMs = opts?.graceMs;
     if (graceMs !== undefined && (!Number.isFinite(graceMs) || graceMs < 0)) {
@@ -941,11 +781,6 @@ export class Queue {
     );
   }
 
-  /**
-   * Graceful shutdown. Rejects new dispatches, pauses execution, and waits for runs to drain
-   * (up to graceMs, default 30_000), then interrupts the driver fiber and marks
-   * the queue stopped. Idempotent. After shutdown, `dispatch()` throws.
-   */
   shutdown(opts?: { graceMs?: number }): Promise<void> {
     if (this.#shutdownPromise !== null) {
       return this.#shutdownPromise;
@@ -954,11 +789,7 @@ export class Queue {
     const self = this;
     this.#shutdownPromise = Effect.runPromise(
       Effect.gen(function* () {
-        // Pause execution before waiting for outstanding runs.
         yield* SubscriptionRef.set(self.#pausedRef, true);
-        // Race drain against grace timeout. Drain returns when
-        // outstanding hits zero; sleep returns after graceMs. Either
-        // way we proceed to the interrupt.
         yield* Effect.race(
           Effect.tryPromise({
             catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -966,20 +797,16 @@ export class Queue {
           }).pipe(Effect.catchAll(() => Effect.void)),
           Effect.sleep(graceMs)
         );
-        // Interrupt the driver loop fiber. Effect.retry doesn't retry
-        // interruption; the supervisor's catchAll won't fire on interrupt.
         if (self.#driverFiber !== null) {
           yield* Fiber.interrupt(self.#driverFiber);
         }
         yield* self.#updateQueueStatus("stopped");
-        // Close the queue's long-lived scope.
         yield* Scope.close(self.#scope, Exit.void);
       })
     );
     return this.#shutdownPromise;
   }
 
-  /** Subscribe to queue-wide events (cross-run firehose). */
   on(
     event: QueueEvent,
     handler: (payload: QueueEventPayload) => void
@@ -987,15 +814,6 @@ export class Queue {
     return this.#events.on(event, handler);
   }
 
-  // ── Driver loop
-  // Pulls runs from the unbounded Effect queue, gates on pausedRef,
-  // forks each inside a semaphore permit. Concurrency up to the cap.
-
-  /**
-   * Wrap the driver loop in a retry schedule. On failure: emit 'restarted' and
-   * retry. On exhaustion: emit 'queue_failed', mark queue failed. Interruption
-   * bypasses retry.
-   */
   #supervisedDriverLoop(): Effect.Effect<void> {
     const self = this;
     const retrySchedule = Schedule.exponential("100 millis").pipe(
@@ -1036,21 +854,13 @@ export class Queue {
     });
     return Effect.forever(
       Effect.gen(function* () {
-        // Block until unpaused.
         yield* waitUntilUnpaused;
-        // Take next pending run (blocks).
         const run = yield* EffectQueue.take(self.#pendingQueue);
-        // Re-check pause after take to prevent pause-before-dispatch
-        // race conditions.
         yield* waitUntilUnpaused;
-        // Fork into a permit-scoped child so multiple runs proceed up
-        // to concurrency.
         yield* Effect.fork(self.#semaphore.withPermits(1)(self.#runOne(run)));
         admittedSinceHostYield += 1;
         if (admittedSinceHostYield >= self.#opts.concurrency) {
           admittedSinceHostYield = 0;
-          // Continuously-ready Effect/Promise work otherwise stays in the
-          // microtask queue long enough to starve host timers and IPC.
           yield* yieldToHost();
         }
       })
@@ -1396,8 +1206,6 @@ export class Queue {
         return;
       }
 
-      // The best-effort running write precedes execution. The in-memory
-      // workflow still reads "queued", so pin the event status to "running".
       self.#events.run("started", run, "running");
       self.#emit({ kind: "started", runId: run.id });
 
@@ -1421,13 +1229,6 @@ export class Queue {
     );
   }
 
-  /**
-   * Arm the resume reactor for a suspended run. Daemon-forked so it survives
-   * the parent fiber returning. On status flip suspended → queued: re-bump the
-   * outstanding counter and offer the run back to #pendingQueue. Used by #runOne
-   * (live suspends) and hydrate (suspended at rest). One definition; essential
-   * for hydrated suspended runs to resume at all.
-   */
   #armSuspendResumeReactor(run: DispatchedWorkflow): Effect.Effect<void> {
     const self = this;
     const workflow = workflowEffectAccess(run.workflow);
@@ -1458,25 +1259,9 @@ export class Queue {
     );
   }
 
-  /**
-   * Reactive persistence subscriber for a single run. Subscribes to workflow.stateChanges
-   * and projects each to the row via #persistSnapshot. The per-run mutex serializes writes;
-   * the loop skips the initial value and authority-managed suspension and cancellation.
-   * The synchronous terminal write at #runOne is the final, authoritative word.
-   *
-   * Lifetime is the parent fiber's: forked inside #runOne and interrupted before the
-   * terminal write so it doesn't clobber the final value.
-   *
-   * Writes are not throttled.
-   */
   #persistenceLoop(run: DispatchedWorkflow): Effect.Effect<void> {
     let last: WorkflowState["status"] = "running";
     return workflowEffectAccess(run.workflow).stateChanges.pipe(
-      // SubscriptionRef.changes replays the current value as the first
-      // emit. That value is the pre-run state already covered by the
-      // synchronous "running" boundary write at #runOne — letting it
-      // through here would race the boundary write through the mutex
-      // and could clobber it back to a pre-run status. Drop it.
       Stream.drop(1),
       Stream.map((snap) => {
         const status =
@@ -1501,23 +1286,6 @@ export class Queue {
     );
   }
 
-  /**
-   * Append-only event log subscriber. Subscribes to the run's events PubSub
-   * synchronously (signalling ready once live) and drains every ChannelEvent into
-   * the per-run buffer. The next reactive #persistSnapshot snapshots the buffer
-   * into metadata.stream. Subscribing synchronously is critical: lazy subscription
-   * would race workflow.run() and miss the first step.started event.
-   *
-   * Lifetime mirrors #persistenceLoop: forked inside #runOne and interrupted
-   * before the terminal write so a trailing event can't sneak in.
-   *
-   * Two event categories are filtered out of persistence:
-   *   - step.progress — author progress ticks; fire many times per second.
-   *   - custom (step.emit) — domain events with no volume bound.
-   *
-   * Lifecycle events (started/complete/failed/etc.) are bounded by step count
-   * and are kept in the run metadata.
-   */
   #eventLogLoop(
     run: DispatchedWorkflow,
     ready: Deferred.Deferred<void>
@@ -1528,8 +1296,6 @@ export class Queue {
         const dequeue = yield* PubSub.subscribe(
           run.workflow.root.channels.events.pubsub
         );
-        // Subscription is live — unblock the caller so workflow.run can
-        // start without racing the first emit.
         yield* Deferred.succeed(ready, undefined);
         yield* Stream.fromQueue(dequeue).pipe(
           Stream.filter(
@@ -1549,12 +1315,6 @@ export class Queue {
     ).pipe(Effect.catchAll(() => Effect.void));
   }
 
-  /**
-   * Translate persisted workflow state to DAO update fields and issue the write.
-   * Errors are swallowed — persistence is best-effort. Writes for a given runId
-   * serialize through the per-run mutex so the reactive subscriber and terminal
-   * write never interleave.
-   */
   #persistSnapshot(
     runId: string,
     step: string,
@@ -1574,7 +1334,6 @@ export class Queue {
     );
   }
 
-  /** Persistence boundary for state that must be authoritative before exposure. */
   #persistSnapshotStrict(
     runId: string,
     step: string,
@@ -1647,13 +1406,9 @@ export class Queue {
     });
   }
 
-  /** Reflect lifecycle transitions (pause/resume/drain/shutdown) to the queues.status row.
-   * Best-effort; errors are swallowed. */
   #updateQueueStatus(status: QueueStatus): Effect.Effect<void> {
     return Effect.tryPromise({
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      // Chain off the queue's insert promise so the row exists before any update,
-      // preventing the first lifecycle call from racing the insert.
       try: () =>
         this.#queueInsertPromise.then(() =>
           this.#store.updateQueue(this.id, { status })

@@ -12,17 +12,10 @@ import {
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
-/** Immutable generations live beside the public path, outside the dataset. */
 function generations(directory: string): string {
   return join(dirname(directory), `.${basename(directory)}.generations`);
 }
 
-/**
- * Recovers the directory format used before generation pointers. Migration
- * needs one rename of that legacy directory; its backup must survive a
- * process exit before the pointer is installed. Normal publications only
- * replace a symlink and never remove the public path.
- */
 export function recoverDirectory(directory: string): void {
   if (existsSync(directory) || !existsSync(dirname(directory))) {
     return;
@@ -36,7 +29,6 @@ export function recoverDirectory(directory: string): void {
   }
 }
 
-/** Publishes a complete generation by atomically replacing its public symlink. */
 export function replaceDirectory(stage: string, directory: string): void {
   recoverDirectory(directory);
   const store = generations(directory);
@@ -70,7 +62,6 @@ export function replaceDirectory(stage: string, directory: string): void {
     rmSync(generation, { force: true, recursive: true });
     throw error;
   }
-  // Retain the previous generation as well as the newly published one.
   for (const name of readdirSync(store)) {
     const path = join(store, name);
     if (path !== generation && path !== previous) {
@@ -82,13 +73,11 @@ export function replaceDirectory(stage: string, directory: string): void {
   }
 }
 
-/** Discards a private publication, including generations its symlink owns. */
 export function discardDirectory(directory: string): void {
   rmSync(directory, { force: true, recursive: true });
   rmSync(generations(directory), { force: true, recursive: true });
 }
 
-/** Publication already succeeded; cleanup failure leaves an unreferenced generation for the next scan. */
 function removeObsoleteGeneration(path: string): void {
   try {
     rmSync(path, { force: true, recursive: true });

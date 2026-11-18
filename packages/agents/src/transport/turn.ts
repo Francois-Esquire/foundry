@@ -30,7 +30,6 @@ const sessionTurnShape = {
 
 export type SessionTurnInput = z.infer<z.ZodObject<typeof sessionTurnShape>>;
 
-/** A turn must carry *something*: user text, an attachment, or tool results. */
 export function turnHasInput(v: SessionTurnInput): boolean {
   return (
     v.content.trim().length > 0 ||
@@ -39,7 +38,6 @@ export function turnHasInput(v: SessionTurnInput): boolean {
   );
 }
 
-/** Project turn delta to harness input: tool_results when resuming, else user text + images. */
 export function toSessionInput(input: SessionTurnInput): SessionInput {
   if (input.toolResults && input.toolResults.length > 0) {
     return {
@@ -71,32 +69,10 @@ export function toSessionInput(input: SessionTurnInput): SessionInput {
 }
 
 export interface StreamSessionOptions {
-  /**
-   * Run after each turn settles — e.g. to accumulate session totals. The store
-   * itself has no `updateTotals`, so the caller supplies that side effect (DB or
-   * otherwise), keeping this helper persistence-agnostic.
-   */
   onFinish?: (event: { message: SessionMessage; usage: SessionUsage }) => void;
-  /**
-   * Aborts the in-flight turn. Pass a subscription's `signal` — it fires when
-   * the renderer unsubscribes (the stop button), so the harness cancels the
-   * underlying model request instead of generating on into a closed stream.
-   */
   signal?: AbortSignal;
 }
 
-/**
- * Drive one turn of a harness agent and yield it as `useChat` UIMessageChunks.
- * The single seam a `useChat` router streams through: resolve your agent, pass
- * the turn delta, `yield*` the result from inside the router's subscription
- * generator.
- *
- * The caller wraps the subscription's whole generator in `freshIterable`
- * (`./stream`) before returning it — a *native* async
- * generator already carries `Symbol.asyncDispose`, and some subscription
- * transports throw trying to attach their own, so the plain `freshIterable`
- * object must be what crosses the subscription boundary.
- */
 export async function* streamSessionAgent(
   agent: SessionHarness,
   input: SessionTurnInput,

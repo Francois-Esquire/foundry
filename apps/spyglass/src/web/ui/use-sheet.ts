@@ -1,6 +1,5 @@
 import { type RefObject, useEffect, useRef } from "react";
 
-/** Modal sheets contain focus; a modeless inspector leaves map controls usable. */
 export function useSheet(
   open: boolean,
   onClose: () => void,

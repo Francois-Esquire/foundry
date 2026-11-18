@@ -1,7 +1,6 @@
 import { type ChangeEvent, type MouseEvent, useCallback } from "react";
 import { vi } from "vitest";
 
-// Exercise draft/router behavior here; native Electron tests exercise Pierre's DOM.
 vi.mock("~/app/modules/module-code", () => ({
   ModuleCode: ({
     path,

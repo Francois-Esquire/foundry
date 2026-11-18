@@ -37,7 +37,6 @@ const actions: RunActions = {
 };
 
 interface Setup {
-  /** `null` for a host with no run controls. */
   readonly actions?: RunActions | null;
   readonly canLaunch?: boolean;
   readonly canSwitchWorkspace?: boolean;

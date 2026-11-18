@@ -1,40 +1,9 @@
-/**
- * The surfaces' geometry (WORLD.md layer 3), built on the CPU once per
- * plan: every road a ribbon of cross-sections along its centreline, every
- * parcel a pad cut from its outline, packed for shaders/world/surfaces.wgsl.
- * Nothing here reads the maps: a compute pass drapes each vertex on the
- * baked height (surfaces.wgsl `cs_drape`) and the fragment shader draws
- * each material from the ribbon's or the pad's own coordinates.
- *
- * A road is a strip of quads between cross-sections, a cross-section at
- * every centreline point (mitred at bends) and between them every
- * ALONG_STEP, so the strip follows the plateau's crown. Each cross-section
- * has five columns: the outer edges of its shoulders, its asphalt's edges
- * and its centreline. The outer columns are widened on screen to at least
- * a pixel or so (the vertex shader), so a road too thin for a pixel still
- * covers one and fades rather than breaking into dashes.
- *
- * Where a road's end meets another road's centreline (a T), the branch is
- * cut on a line parallel to the through road, a little under the through
- * road's asphalt and a little lower all through the mouth, and the through
- * road is told, as a gap along its edge on that side, to drop its edge
- * line and shoulder there and to round its asphalt out into the branch
- * (the corners' fillets); the branch's own lines stop short of the corner.
- * Where two roads' ends meet at a gentle bend, both are cut on the bend's
- * mitre, so their edges run on unbroken; more ends, or a sharp bend, get a
- * disc of plain asphalt over them. A branch draws before the road it
- * joins, so the through road's blended edge always lies over it; then by
- * lift (paths, lanes, streets, main roads); the discs last.
- */
 import type { Point } from "../../../data/chart";
 import type { Parcel, ParcelKind, Road, RoadRank, WorldPlan } from "./world";
 
-/** Road ranks as the shader numbers them (surfaces.wgsl `MAIN` ...). */
 const ROAD_RANKS: readonly RoadRank[] = ["main", "street", "lane", "path"];
-/** The rank a junction's disc draws as (surfaces.wgsl `DISC`). */
 const DISC_RANK = 4;
 
-/** Parcel kinds as the shader numbers them (surfaces.wgsl `LOT` ...). */
 const PARCEL_KINDS: readonly ParcelKind[] = [
   "lot",
   "plaza",
@@ -47,11 +16,6 @@ const PARCEL_KINDS: readonly ParcelKind[] = [
   "parking",
 ];
 
-/**
- * How far each surface stands above the ground, chart units. All stay
- * under the town's shadows' lift (town.wgsl `SHADOW_LIFT`, 0.04), so a
- * building's shadow still falls across the street.
- */
 const SURFACE_LIFT = {
   disc: 0.03,
   lane: 0.022,
@@ -60,65 +24,38 @@ const SURFACE_LIFT = {
   path: 0.02,
   street: 0.024,
 } as const;
-/** How far below its through road a branch's end dips. */
 const BRANCH_DIP = 0.006;
 
-/** The soft darkened earth either side of a road's asphalt, chart units. */
 const ROAD_SHOULDER = 0.2;
-/** The most a road's cross-sections lie apart along it. */
 const ALONG_STEP = 1;
-/** How far a branch reaches in under its through road past that road's edge. */
 const BRANCH_OVERLAP = 0.2;
-/** How near a road's end must lie to another's centreline to join it. */
 const JOIN_TOLERANCE = 0.2;
-/** A branch meets its through road at no flatter an angle than this sine. */
 const MIN_JOIN_SINE = 0.3;
-/** A corner's fillet: this share of the narrower road's width, within limits. */
 const FILLET_SHARE = 0.35;
 const FILLET_LIMITS = [0.15, 0.6] as const;
-/**
- * How far from its corner a fillet meets the roads' edges, at most, in
- * radii (surfaces.wgsl `FILLET_REACH`): a sharp corner's fillet shrinks.
- */
 const FILLET_REACH = 2;
-/** A mitre at a bend is no longer than this many half widths. */
 const MITRE_LIMIT = 2;
-/** A disc's radius over the widest half width meeting there. */
 const DISC_REACH = 1.15;
-/** Segments round a junction disc. */
 const DISC_SEGMENTS = 20;
-/** A disc's rim past its radius, for the anti-aliased edge (widened on screen). */
 const DISC_RIM = 0.05;
-/** How near a school a lane runs to carry the green school-route strip. */
 const SCHOOL_REACH = 15;
 
-/** The pads' grid: a pad is cut into cells this size before triangulating. */
 const PAD_STEP = 1;
-/** A mitre at a pad's corner is no longer than this many skirts. */
 const PAD_MITRE_LIMIT = 2.5;
 
-/** Floats a gap record (surfaces.wgsl `gaps`). */
 const GAP_FLOATS = 8;
-/** Road record flag: a lane near a school, with the green strip. */
 const SCHOOL_FLAG = 1;
 
 export interface PackedSurfaces {
-  /** A vec4f a gap: core start and end, side, fillet radius. */
   readonly gaps: Float32Array<ArrayBuffer>;
   readonly joints: number;
-  /** How many junctions (T) and joints (discs) were found. */
   readonly junctions: number;
-  /** A vec2f a point: each parcel's outline in its own frame. */
   readonly outlines: Float32Array<ArrayBuffer>;
-  /** Two vec4f a vertex, a triangle list: the parcels' pads. */
   readonly pads: Float32Array<ArrayBuffer>;
   readonly padVertices: number;
-  /** Three vec4f a parcel (surfaces.wgsl `parcelAt`). */
   readonly parcels: Float32Array<ArrayBuffer>;
-  /** Two vec4f a vertex, a triangle list: the roads and the discs. */
   readonly ribbons: Float32Array<ArrayBuffer>;
   readonly ribbonVertices: number;
-  /** Two vec4f a road or disc (`ROAD_FLOATS`). */
   readonly roads: Float32Array<ArrayBuffer>;
 }
 
@@ -134,10 +71,8 @@ const unit = (a: Vec): Vec => {
   const l = length(a);
   return l > 1e-9 ? [a[0] / l, a[1] / l] : [1, 0];
 };
-/** A road's +across: its direction turned a quarter toward +z. */
 const perp = (a: Vec): Vec => [-a[1], a[0]];
 
-/** A growable float array. */
 class Floats {
   data = new Float32Array(1024);
   size = 0;
@@ -153,16 +88,12 @@ class Floats {
     this.size += values.length;
   }
   done(): Float32Array<ArrayBuffer> {
-    // At least one vec4f, so an empty plan still binds a buffer.
     const out = new Float32Array(Math.max(this.size, 4));
     out.set(this.data.subarray(0, this.size));
     return out;
   }
 }
 
-// ---- Roads ----------------------------------------------------------------
-
-/** A road's centreline with each point's distance along it. */
 interface Line {
   readonly along: readonly number[];
   readonly length: number;
@@ -200,7 +131,6 @@ function boxOf(
   ];
 }
 
-/** The nearest point of a line to `p`: how far, how far along, which way. */
 interface Nearest {
   readonly along: number;
   readonly at: Vec;
@@ -231,7 +161,6 @@ function nearestOn(line: Line, p: Vec): Nearest | null {
   return best;
 }
 
-/** The point and direction `distance` along a line, clamped to it. */
 function pointAlong(line: Line, distance: number): { at: Vec; tangent: Vec } {
   const d = Math.min(Math.max(distance, 0), line.length);
   for (let i = 1; i < line.points.length; i += 1) {
@@ -247,10 +176,6 @@ function pointAlong(line: Line, distance: number): { at: Vec; tangent: Vec } {
   return { at: line.points[0] ?? [0, 0], tangent: [1, 0] };
 }
 
-/**
- * A cross-section: column `a` (across, chart units) lies at
- * `centre + dir · a`, `along + slope · a` along the road, `lift` up.
- */
 interface Section {
   readonly along: number;
   readonly centre: Vec;
@@ -259,14 +184,10 @@ interface Section {
   readonly slope: number;
 }
 
-/** Where a branch's end is cut under its through road. */
 interface Cut {
   readonly across: Vec;
-  /** The branch's own distance along at the junction (its end's). */
   readonly endAlong: number;
-  /** The branch's direction into the junction, and its across. */
   readonly into: Vec;
-  /** The cut's line: points `y` from the through centreline, toward the branch. */
   readonly junction: Vec;
   readonly normal: Vec;
   readonly tangent: Vec;
@@ -274,7 +195,6 @@ interface Cut {
   readonly throughLift: number;
 }
 
-/** The section where a branch, running along `into`, crosses `y` off its through road. */
 function cutSection(
   cut: Cut,
   y: number,
@@ -284,10 +204,8 @@ function cutSection(
   const sine = Math.max(dot(scale(cut.into, -1), cut.normal), MIN_JOIN_SINE);
   const k = dot(cut.across, cut.normal) / sine;
   const back = y / sine;
-  // The column at `a` lies `back - k·a` back from the junction along the branch.
   const centre = sub(cut.junction, scale(cut.into, back));
   const dir = add(cut.across, scale(cut.into, k));
-  // Along runs toward the junction at the end, away from it at the start.
   const sign = atEnd ? 1 : -1;
   return {
     along: cut.endAlong - sign * back,
@@ -299,7 +217,6 @@ function cutSection(
 }
 
 interface RoadInfo {
-  /** Its centreline's box, JOIN_TOLERANCE larger: x and z low, x and z high. */
   readonly box: readonly [number, number, number, number];
   readonly half: number;
   readonly lift: number;
@@ -310,10 +227,8 @@ interface RoadInfo {
 interface Junction {
   readonly crossLift: number;
   readonly cut: Cut;
-  /** The branch's end: 0 its start, 1 its end. */
   readonly end: 0 | 1;
   readonly endLift: number;
-  /** The road it joins. */
   readonly through: RoadInfo;
 }
 
@@ -324,7 +239,6 @@ function filletOf(a: number, b: number): number {
   return Math.min(Math.max(share, FILLET_LIMITS[0]), FILLET_LIMITS[1]);
 }
 
-/** The regular sections along a road's points, mitred at its bends. */
 function sectionsOf(info: RoadInfo, from: number, to: number): Section[] {
   const { line, lift } = info;
   const { points } = line;
@@ -353,7 +267,6 @@ function sectionsOf(info: RoadInfo, from: number, to: number): Section[] {
   return sections;
 }
 
-/** A plain section across a road at `distance` along it. */
 function sectionAt(info: RoadInfo, distance: number): Section {
   const { at, tangent } = pointAlong(info.line, distance);
   return {
@@ -365,7 +278,6 @@ function sectionAt(info: RoadInfo, distance: number): Section {
   };
 }
 
-/** The packed ribbon writer: quads between sections, five columns a section. */
 class RibbonWriter {
   readonly vertices = new Floats();
   count = 0;
@@ -462,7 +374,6 @@ function lerpSection(a: Section, b: Section, t: number): Section {
   };
 }
 
-/** Where a road's end meets another road: a T, a joint of ends, or nothing. */
 type Meeting =
   | { readonly kind: "through"; readonly other: RoadInfo; readonly at: Nearest }
   | { readonly kind: "joint" }
@@ -510,10 +421,6 @@ interface GapRecord {
   readonly fillet: number;
   readonly side: number;
   readonly start: number;
-  /**
-   * The branch's way out from the through road at each corner, in the
-   * through road's frame there: along it, and out from it.
-   */
   readonly way: Vec;
   readonly wayEnd: Vec;
 }
@@ -530,19 +437,10 @@ function nearSchool(line: Line, schools: readonly Vec[]): boolean {
   );
 }
 
-/**
- * How far along a branch, past its first plain section, the corner's fillet
- * reaches: its lines stop and its shoulder fades over that.
- */
 function quietOf(info: RoadInfo, cut: Cut): number {
   return FILLET_REACH * filletOf(info.road.width, cut.throughHalf * 2) + 0.1;
 }
 
-/**
- * The roads in the order they draw: a branch before the road it joins, so
- * the through road's mouth, blended at its edge, always lies over the
- * branch already drawn; the same rank in order of lift then id.
- */
 function drawOrder(
   infos: readonly RoadInfo[],
   junctionsOf: ReadonlyMap<RoadInfo, readonly Junction[]>
@@ -554,8 +452,6 @@ function drawOrder(
       joins.push([branch, j.through]);
     }
   }
-  // A road lies above every road that joins it; a loop of joins settles
-  // after as many passes as there are roads.
   let passes = infos.length;
   while (passes > 0) {
     passes -= 1;
@@ -581,7 +477,6 @@ function drawOrder(
 
 const endKey = (info: RoadInfo, end: 0 | 1) => `${info.road.id}:${end}`;
 
-/** A road's way at its end, and the way on from that end into the road. */
 function waysAt(info: RoadInfo, end: 0 | 1): { travel: Vec; away: Vec } {
   const pts = info.line.points;
   const n = pts.length;
@@ -593,11 +488,6 @@ function waysAt(info: RoadInfo, end: 0 | 1): { travel: Vec; away: Vec } {
   return { away: scale(into, -1), travel: into };
 }
 
-/**
- * Where roads' ends meet each other: two ends at a gentle enough bend
- * are both cut on the bend's mitre, so their edges run on unbroken; more
- * ends, or a sharp bend, are covered by a disc.
- */
 function jointsOf(ends: readonly { info: RoadInfo; end: 0 | 1; at: Vec }[]): {
   mitres: Map<string, Section>;
   discs: { at: Vec; radius: number }[];
@@ -629,7 +519,6 @@ function jointsOf(ends: readonly { info: RoadInfo; end: 0 | 1; at: Vec }[]): {
   return { discs, mitres };
 }
 
-/** The mitred end of `own` where it meets `other`'s end, or null at a sharp bend. */
 function mitreOf(
   own: { info: RoadInfo; end: 0 | 1; at: Vec },
   other: { info: RoadInfo; end: 0 | 1; at: Vec },
@@ -666,14 +555,12 @@ interface RoadsOut {
   readonly writer: RibbonWriter;
 }
 
-/** A branch's end at a T: the junction, and the through road's gap. */
 function junctionAt(
   info: RoadInfo,
   end: 0 | 1,
   other: RoadInfo,
   at: Nearest
 ): { junction: Junction; gap: GapRecord } {
-  // The branch's way into the junction: a chord over its last stretch.
   const reach = Math.min(other.half + info.half + 1, info.line.length);
   const back = pointAlong(
     info.line,
@@ -684,7 +571,6 @@ function junctionAt(
   const normal = flip ? scale(perp(at.tangent), -1) : perp(at.tangent);
   const side = flip ? -1 : 1;
   const cut: Cut = {
-    // The branch's +across, as its ribbon has it: toward +z of its way.
     across: perp(end === 1 ? into : scale(into, -1)),
     endAlong: end === 1 ? info.line.length : 0,
     into,
@@ -695,16 +581,12 @@ function junctionAt(
     throughLift: other.lift,
   };
   const junction: Junction = {
-    // Under the through road where it crosses that road's edge too, so
-    // the mouth's asphalt never meets it at one height.
     crossLift: Math.min(info.lift, other.lift) - BRANCH_DIP / 2,
     cut,
     end,
     endLift: other.lift - BRANCH_DIP,
     through: other,
   };
-  // The through road's gap: where the branch's edges cross its edge, each
-  // corner placed and turned by the through road where it lies.
   const edge = cutSection(cut, other.half, 0, end === 1);
   const away = scale(into, -1);
   const corners = [-info.half, info.half]
@@ -742,7 +624,6 @@ interface Meetings {
   readonly junctionsOf: Map<RoadInfo, Junction[]>;
 }
 
-/** Every road end's meeting: its junction, the through roads' gaps, the joints. */
 function meetingsOf(infos: readonly RoadInfo[]): Meetings {
   const found: Meetings = {
     gapsOf: new Map(),
@@ -778,11 +659,6 @@ function meetingsOf(infos: readonly RoadInfo[]): Meetings {
   return found;
 }
 
-/**
- * A branch's end under its through road: the cut's two sections (in the
- * order along the branch), how far along the plain sections stop short of
- * them, and the gaps that quiet the branch's own edges round the corner.
- */
 function branchEnd(
   info: RoadInfo,
   j: Junction,
@@ -807,7 +683,6 @@ function branchEnd(
   return { limit, records, sections: atEnd ? [edge, tip] : [tip, edge] };
 }
 
-/** The plain sections between `from` and `to`, mitred at joints, closed at cuts. */
 function plainSections(
   info: RoadInfo,
   from: number,
@@ -836,7 +711,6 @@ function plainSections(
   return regular;
 }
 
-/** A road's whole ribbon: its sections, and the gaps its own ends add. */
 function ribbonOf(
   info: RoadInfo,
   ends: readonly Junction[],
@@ -857,8 +731,6 @@ function ribbonOf(
     }),
     ...(tail?.sections ?? []),
   ];
-  // Under the through road all through its mouth and the fillets' reach,
-  // so the through road's edges there always lie over it.
   const lowered = sections.map((section) => {
     const low = ends
       .filter((j) =>
@@ -897,7 +769,6 @@ function packRoads(plan: WorldPlan): RoadsOut {
   for (const info of drawOrder(infos, junctionsOf)) {
     const own = gapsOf.get(info) ?? [];
     const fillet = Math.max(0, ...own.map((g) => g.fillet));
-    // A fillet reaches out at most FILLET_REACH radii (surfaces.wgsl).
     const outer =
       info.half + Math.max(ROAD_SHOULDER, FILLET_REACH * fillet + 0.05);
     const ribbon = ribbonOf(info, junctionsOf.get(info) ?? [], mitres, outer);
@@ -937,9 +808,6 @@ function packRoads(plan: WorldPlan): RoadsOut {
   };
 }
 
-// ---- Pads -----------------------------------------------------------------
-
-/** A parcel's own frame: x along its front, z out through its front. */
 interface Frame {
   readonly centre: Vec;
   readonly x: Vec;
@@ -961,7 +829,6 @@ function signedArea(points: readonly Vec[]): number {
   return area / 2;
 }
 
-/** The parcel's frame: its front is the edge nearest its road, else its longest. */
 function frameOf(parcel: Parcel, roads: readonly Line[]): Frame {
   const pts = parcel.outline.map((p) => [p[0], p[1]] as Vec);
   const road = parcel.road === null ? undefined : roads[parcel.road];
@@ -985,12 +852,10 @@ function frameOf(parcel: Parcel, roads: readonly Line[]): Frame {
   const mid = pts.reduce((m, p) => add(m, scale(p, 1 / pts.length)), [
     0, 0,
   ] as Vec);
-  // Out through the front: away from the outline's middle.
   let z = perp(x);
   if (dot(sub(scale(add(a, b), 0.5), mid), z) < 0) {
     z = scale(z, -1);
   }
-  // Centre the frame on the outline's box in it.
   const probe: Frame = { centre: mid, x, z };
   const local = pts.map((p) => toLocal(probe, p));
   const middle = (axis: 0 | 1) =>
@@ -1001,7 +866,6 @@ function frameOf(parcel: Parcel, roads: readonly Line[]): Frame {
   return { centre, x, z };
 }
 
-/** The part of `polygon` on the kept side of the axis line (Sutherland–Hodgman). */
 function clipAxis(
   polygon: readonly Vec[],
   axis: 0 | 1,
@@ -1026,7 +890,6 @@ function clipAxis(
   return out;
 }
 
-/** Triangles of a simple counter-clockwise polygon by ear clipping. */
 function earClip(polygon: readonly Vec[]): Vec[][] {
   const pts = [...polygon];
   const triangles: Vec[][] = [];
@@ -1059,7 +922,6 @@ function earClip(polygon: readonly Vec[]): Vec[][] {
       break;
     }
     if (!clipped) {
-      // Only slivers left: drop the flattest corner.
       pts.splice(0, 1);
     }
   }
@@ -1069,7 +931,6 @@ function earClip(polygon: readonly Vec[]): Vec[][] {
   return triangles;
 }
 
-/** The grid lines' crossings of segment a→b, as fractions along it, in order. */
 function gridCrossings(a: Vec, b: Vec, origin: Vec): number[] {
   const ts: number[] = [];
   for (const axis of [0, 1] as const) {
@@ -1114,7 +975,6 @@ class PadWriter {
     this.skirt(frame, local, origin, index);
   }
 
-  /** The pad's inside: the outline cut into grid cells, each triangulated. */
   inside(frame: Frame, local: readonly Vec[], origin: Vec, index: number) {
     const reach = (axis: 0 | 1) =>
       Math.max(
@@ -1143,10 +1003,6 @@ class PadWriter {
     }
   }
 
-  /**
-   * The skirt: out from every edge, split where the grid crosses it so it
-   * shares the inside's vertices and nothing cracks.
-   */
   skirt(frame: Frame, local: readonly Vec[], origin: Vec, index: number) {
     const n = local.length;
     const normals = local.map((a, k) => {
@@ -1164,7 +1020,6 @@ class PadWriter {
       const a = local[k] as Vec;
       const b = local[(k + 1) % n] as Vec;
       const ts = [0, ...gridCrossings(a, b, origin), 1];
-      // At the outline's corners the skirt mitres; along an edge it runs straight out.
       const outAt = (t: number): Vec => {
         if (t === 0) {
           return worldDir(mitres[k] as Vec);
@@ -1189,7 +1044,6 @@ class PadWriter {
   }
 }
 
-/** A pad vertex inside its outline: it does not move out. */
 const NO_SKIRT: Vec = [0, 0];
 
 interface PadsOut {
@@ -1242,7 +1096,6 @@ function packPads(plan: WorldPlan): PadsOut {
   return { outlines, parcels, writer };
 }
 
-/** Packs a plan's roads and parcels for the surfaces' two draws. */
 export function packSurfaces(plan: WorldPlan): PackedSurfaces {
   const roads = packRoads(plan);
   const pads = packPads(plan);

@@ -344,7 +344,6 @@ describe("dominance rules", () => {
       measuredCosts: ["module-composition"],
       status: "credible",
     });
-    // Tradeoffs read from the left scenario's side; the baseline is first.
     expect(f.tradeoffs.map((t) => [t.dimension, t.comparison])).toEqual([
       ["locality", "worse"],
       ["module-composition", "better"],
@@ -829,7 +828,6 @@ describe("composition root", () => {
       "composition-root-membership"
     );
     const subject = getReviewForSubject(review, "src/bootstrap.ts");
-    // The constant's family, the redirect that follows it, and the root itself.
     expect(subject?.families).toHaveLength(3);
     expect(subject?.families).toContain(local?.id);
     expect(subject?.families).toContain("src/bootstrap.ts");
@@ -996,7 +994,6 @@ describe("responsibility surface", () => {
     }
     const f = family(review, key);
     const surface = reviewed(review, key, "formalize-responsibility-surface");
-    // Deep imports fall while the surface exposes symbols: a tradeoff inside one dimension.
     expect(surface.measuredTradeoffs).toEqual(["surface-indirection"]);
     expect(dimension(surface, "surface-indirection")).toMatchObject({
       direction: "mixed",

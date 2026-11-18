@@ -6,14 +6,6 @@ import type {
 } from "./types";
 import type { WorkspaceGraphCertainty } from "./workspace-graph-types";
 
-/**
- * V9.3 workspace architectural patterns: recurrence across V9.2 concept
- * placements, V9.1 topology, V9.0 history, and V8 reviews, synthesized
- * into descriptive repository-wide roles and motifs. Every pattern carries
- * its support and evidence; none carries a score, a quality reading, or a
- * recommendation. A single concept observation is never a pattern.
- */
-
 type WorkspacePatternEvidenceSource =
   | "workspace-graph"
   | "workspace-concepts"
@@ -30,7 +22,6 @@ export interface WorkspacePatternEvidence {
   value?: number | string | boolean;
 }
 
-/** What a pattern rests on; always listed, never summarized into a number alone. */
 export interface WorkspacePatternSupport {
   boundaries: string[];
   boundaryCount: number;
@@ -40,19 +31,11 @@ export interface WorkspacePatternSupport {
   packages: string[];
 }
 
-/**
- * Evidence completeness, not probability. `strong`: support at or above
- * `strongMultiplier × minimum`, evidence from at least two sources, and
- * every supporting package analyzed. `moderate`: support at the minimum
- * with two sources, or twice the minimum from one; partial coverage caps
- * a pattern here. `limited`: the minimum from one source.
- */
 export type WorkspacePatternEvidenceStrength =
   | "strong"
   | "moderate"
   | "limited";
 
-/** `complete` when every package the pattern names was analyzed; otherwise counts are lower bounds. */
 export type WorkspacePatternCoverage = "complete" | "partial";
 
 export type WorkspaceArchitecturalRoleKind =
@@ -63,52 +46,36 @@ export type WorkspaceArchitecturalRoleKind =
   | "consumption-center"
   | "integration-center";
 
-/**
- * One descriptive role a package plays for concepts declared elsewhere (or,
- * for `semantic-center`, for its own concepts consumed elsewhere). Several
- * roles per package are normal; no package is forced into one.
- */
 export interface WorkspaceArchitecturalRole {
   coverage: WorkspacePatternCoverage;
   kind: WorkspaceArchitecturalRoleKind;
   package: string;
-  /** Declaring packages of the supporting concepts (the package itself for `semantic-center` targets). */
   sourcePackages: string[];
   strength: WorkspacePatternEvidenceStrength;
   support: WorkspacePatternSupport;
 }
 
-/** Disposition counts over reviewed concepts in one scope; ids are concept ids. */
 export interface WorkspaceReviewContext {
   credibleAlternatives: string[];
   dispositions: Partial<Record<ArchitecturalReviewDisposition, number>>;
-  /** Concepts whose preserve-current baseline is dominated. */
   dominatedBaselines: string[];
-  /** Scenario kinds that dominate baselines, counted. */
   dominatingKinds: Partial<Record<RecenteringScenarioKind, number>>;
-  /** Concepts reviewed `preserve-current` or `multiple-tradeoffs`. */
   preserved: string[];
   reviewed: number;
 }
 
 export interface WorkspacePackageRoleProfile {
   analyzed: boolean;
-  /** Raw counts behind the roles, so a package without a role still reads. */
   counts: {
     declared: number;
-    /** Declared here and present in at least one other package. */
     declaredCrossPackage: number;
-    /** Distinct packages receiving a semantic direction from here. */
     directionTargets: number;
-    /** Concepts declared elsewhere, by this package's role in them. */
     foreignImplemented: number;
     foreignBehaved: number;
     foreignRepresented: number;
     foreignUsed: number;
     foreignConverted: number;
-    /** Distinct declaring packages of foreign concepts held in any role. */
     foreignSources: number;
-    /** Cross-package conversion pairs whose converter lives here. */
     conversionsOwned: number;
   };
   graph?: {
@@ -121,7 +88,6 @@ export interface WorkspacePackageRoleProfile {
     role: string;
   };
   package: string;
-  /** V6 architectural profile signals; context only. */
   profileSignals: string[];
   reviews?: WorkspaceReviewContext;
   roles: WorkspaceArchitecturalRole[];
@@ -135,11 +101,6 @@ export type WorkspaceDirectionPattern =
   | "implementation-channel"
   | "mixed";
 
-/**
- * Ordered package pair in semantic direction: `from` declares the concepts,
- * `to` holds a role in them. `graph` is the static direction, kept apart:
- * `forward` is `from` reaching `to`, `reverse` the opposite.
- */
 export interface WorkspacePackagePairPattern {
   conceptCount: number;
   conceptRoles: {
@@ -149,11 +110,9 @@ export interface WorkspacePackagePairPattern {
     usage: string[];
     conversion: string[];
   };
-  /** Cross-package conversion pair ids joining the two packages. */
   conversionPairs: string[];
   coverage: WorkspacePatternCoverage;
   evolution: {
-    /** Source-source member couplings crossing the pair. */
     couplings: string[];
     concepts: string[];
     coChangeCommits: number;
@@ -163,7 +122,6 @@ export interface WorkspacePackagePairPattern {
     forward: number | null;
     reverse: number | null;
     usageOnly: boolean;
-    /** Package edge joining the pair in either direction, when one exists. */
     directEdge: string | null;
     fromLayer: number | null;
     toLayer: number | null;
@@ -185,7 +143,6 @@ export type WorkspaceBoundaryPatternKind =
   | "structural-seam"
   | "historically-reinforced";
 
-/** One package edge with its concept load, graph structure, and history read together. */
 export interface WorkspaceBoundaryPattern {
   boundaryId: string;
   conceptLoad: number;
@@ -222,14 +179,6 @@ type WorkspaceConceptPatternKind =
   | "cross-layer-contract"
   | "repeated-behavior-externalization";
 
-/**
- * A structure several concepts share. `structure` names the packages that
- * define the recurrence (never the concept names): for parallel
- * implementations the external implementation packages, for projections
- * the two packages and their converters, for primitives and cross-layer
- * contracts the declaring package, for externalization the competing
- * gravity center.
- */
 export interface WorkspaceConceptPattern {
   concepts: string[];
   coverage: WorkspacePatternCoverage;
@@ -249,7 +198,6 @@ export type WorkspaceEvolutionaryPatternKind =
   | "static-temporal-alignment"
   | "static-temporal-tension";
 
-/** Source-source concept member couplings crossing one unordered package pair. */
 export interface WorkspaceEvolutionaryPattern {
   boundaries: string[];
   coChangeCommits: number;
@@ -263,25 +211,17 @@ export interface WorkspaceEvolutionaryPattern {
   support: WorkspacePatternSupport;
 }
 
-/**
- * V8 dispositions aggregated by scope. `package`: the declaring package.
- * `gravity-center`: the finding's strongest observed center other than the
- * declaring package. `direction`: declaring package → gravity center.
- */
 type WorkspaceReviewPatternScope = "package" | "gravity-center" | "direction";
 
 export interface WorkspaceReviewPattern {
   entityIds: string[];
   id: string;
-  /** V8.3 impact uncertainty kinds behind partially simulated scenarios. */
   impactUncertainties: Partial<Record<ScenarioImpactUncertaintyKind, number>>;
   reviews: WorkspaceReviewContext;
   scope: WorkspaceReviewPatternScope;
-  /** Unresolved uncertainty kinds over the scope's reviews. */
   unresolvedCauses: Partial<Record<ArchitecturalReviewUncertaintyKind, number>>;
 }
 
-/** Analyzer blind spots; diagnostics, never architecture. */
 type WorkspaceCoveragePatternKind =
   | "structural-conformance-gap"
   | "partial-package-coverage"
@@ -306,7 +246,6 @@ type WorkspaceArchitectureStatementKind =
   | "conversion-projection-motif"
   | "review-tension-concentration";
 
-/** A factual sentence built from patterns; `patternIds` are its trace. */
 export interface WorkspaceArchitectureStatement {
   conceptCount: number;
   detail: string;
@@ -315,7 +254,6 @@ export interface WorkspaceArchitectureStatement {
   patternIds: string[];
 }
 
-/** Candidate counts one step below, at, and one step above a support threshold. */
 export interface WorkspacePatternThreshold {
   counts: { below: number; at: number; above: number };
   name: string;

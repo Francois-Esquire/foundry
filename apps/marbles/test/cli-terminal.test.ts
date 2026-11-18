@@ -19,7 +19,6 @@ import { readProcess } from "../src/process/instance";
 import { type TestHome, testHome } from "./helpers/home";
 import { snapshotTrees } from "./helpers/tree-snapshot";
 
-/** Configs live in a tmpdir with no node_modules, so zod is imported by URL. */
 const ZOD = import.meta.resolve("zod");
 
 const SCREEN_MS = 8000;
@@ -91,7 +90,7 @@ for (const command of [[], ["run"]]) {
       expect(output).toContain("2 Marbles");
       child.terminal?.write("q");
       await until(() => output.includes("Quit Marbles?"));
-      await sleep(450); // Live refreshes must preserve the open dialog.
+      await sleep(450);
       child.terminal?.write("\x03");
       await until(() => child.exitCode !== null);
       expect(await child.exited, stripANSI(output).slice(-8000)).toBe(0);
@@ -319,7 +318,6 @@ test("a missing authoring folder onboards against the Marbles process, which pos
     );
     await terminal.send("\r");
     await terminal.see("ready");
-    // The setup run may land on Overview first; Catalog holds Marbles.
     await terminal.send("C");
     await terminal.see("2 Marbles");
     await terminal.send("F");

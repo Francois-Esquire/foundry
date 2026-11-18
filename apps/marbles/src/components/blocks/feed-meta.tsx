@@ -7,7 +7,6 @@ export function isPending(entry: KindEntry): boolean {
   return entry.input?.status === "open";
 }
 
-/** An input entry reads by what it needs now, not by its kind. */
 function kindStyle(entry: KindEntry): {
   readonly label: string;
   readonly color: string;
@@ -27,11 +26,6 @@ function kindStyle(entry: KindEntry): {
   };
 }
 
-/**
- * The kind, then details. Each detail is its own flex item in a wrapping row,
- * so a narrow panel moves whole details to the next line instead of cutting
- * them off or splitting "Sep 21 09:12" apart.
- */
 export function FeedMetaLine({
   entry,
   details,

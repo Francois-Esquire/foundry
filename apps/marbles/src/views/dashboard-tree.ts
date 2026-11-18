@@ -16,7 +16,6 @@ export type CatalogSelection = Exclude<DashboardSelection, { kind: "run" }>;
 export interface RunRow {
   readonly attention?: InputAttention;
   readonly branch: boolean;
-  /** Recorded agent cost, descendants included; blank when none was recorded. */
   readonly cost: string;
   readonly depth: number;
   readonly elapsed: string;
@@ -76,7 +75,6 @@ function activityKey(activity: HarnessActivitySnapshot): string {
   return JSON.stringify([activity.sessionId, activity.id]);
 }
 
-/** Missing parents and native cycles remain inspectable as independent roots. */
 function activityRoots(run: RunSnapshot): ActivityBranch[] {
   const nodes = new Map(
     (run.activities ?? []).map((activity) => [

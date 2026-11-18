@@ -1,9 +1,3 @@
-/**
- * Compares direct Step execution and composition through the shared drive engine.
- * Leaf bodies are compared for lifecycle events, retry behavior, and shared
- * context fields; progress events are filtered from the lifecycle comparison.
- */
-
 import type { Scope } from "effect";
 
 import { Effect, Stream } from "effect";
@@ -40,11 +34,6 @@ function harness(): Effect.Effect<Harness, never, Scope.Scope> {
   });
 }
 
-/**
- * Tags the test cares about — strips the `step.progress` ticks `#run`
- * emits before `step.complete`. drive does not emit those, so the
- * intersection of lifecycle tags is everything else.
- */
 function lifecycleTags(events: ChannelEvent[]): string[] {
   return events
     .map((e) => e._tag)
@@ -53,7 +42,7 @@ function lifecycleTags(events: ChannelEvent[]): string[] {
 
 interface ParityCase<O> {
   readonly body: () => Promise<O | { _bail: true; error: unknown }>;
-  readonly expected: string[]; // lifecycle tags, progress filtered
+  readonly expected: string[];
   readonly label: string;
 }
 
@@ -80,7 +69,6 @@ const parityCases: ParityCase<unknown>[] = [
 describe("Parity — lifecycle event sequence (modulo step.progress)", () => {
   for (const c of parityCases) {
     test(`${c.label}: #run and drive produce the same tag sequence`, async () => {
-      // ── Path A: Step.#run via step.run() ────────────────────────────────
       const runEvents = await Effect.runPromise(
         Effect.scoped(
           Effect.gen(function* () {
@@ -89,8 +77,6 @@ describe("Parity — lifecycle event sequence (modulo step.progress)", () => {
               input: undefined,
               name: "root",
             });
-            // Capture events off this step's own channels (Step lazy-binds
-            // them on first substrate access).
             const events: ChannelEvent[] = [];
             yield* Effect.forkScoped(
               Stream.runForEach(step.channels.events.stream, (e) =>
@@ -114,7 +100,6 @@ describe("Parity — lifecycle event sequence (modulo step.progress)", () => {
         )
       );
 
-      // ── Path B: Executable.drive on a fresh harness ─────────────────────
       const driveEvents = await Effect.runPromise(
         Effect.scoped(
           Effect.gen(function* () {
@@ -161,7 +146,6 @@ describe("Parity — retry semantics", () => {
       };
     };
 
-    // Path A
     const aOut = await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -191,7 +175,6 @@ describe("Parity — retry semantics", () => {
       )
     );
 
-    // Path B
     const bOut = await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -282,8 +265,6 @@ describe("Parity — retry semantics", () => {
 });
 
 describe("Parity — StepContext field intersection", () => {
-  // Field NAMES present on both ctx-builders. `next` and `pipe` are
-  // documented to be `#run`-only; they are excluded here.
   const expectedIntersection = [
     "step",
     "path",
@@ -304,7 +285,6 @@ describe("Parity — StepContext field intersection", () => {
     "race",
     "branch",
     "sequence",
-    // X spread — the `name` field from BaseContext lives on every ctx.
     "name",
   ];
 
@@ -329,7 +309,6 @@ describe("Parity — StepContext field intersection", () => {
     for (const k of expectedIntersection) {
       expect(seen.has(k), `expected ctx (#run) to expose '${k}'`).toBe(true);
     }
-    // #run also exposes `next` and `pipe` (documented divergence).
     expect(seen.has("next")).toBe(true);
     expect(seen.has("pipe")).toBe(true);
   });
@@ -360,7 +339,6 @@ describe("Parity — StepContext field intersection", () => {
     for (const k of expectedIntersection) {
       expect(seen.has(k), `expected ctx (drive) to expose '${k}'`).toBe(true);
     }
-    // Documented divergence: drive's inline ctx does NOT expose next/pipe.
     expect(seen.has("next")).toBe(false);
     expect(seen.has("pipe")).toBe(false);
   });

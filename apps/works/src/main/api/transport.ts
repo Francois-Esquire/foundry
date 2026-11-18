@@ -13,10 +13,6 @@ export interface RpcPortEvent {
 
 export type UpgradePort = (port: MessagePortMain) => void;
 
-/**
- * Decide whether a port-start event may become an RPC connection. Only a
- * window this process created can connect, and it must send exactly one port.
- */
 export function acceptRpcPort(
   event: RpcPortEvent,
   isOwnWindow: (sender: Electron.WebContents) => boolean,
@@ -37,7 +33,6 @@ export function acceptRpcPort(
   return true;
 }
 
-/** Serve the router to every renderer that completes the port handshake. */
 export function registerRpcTransport(context: RouterContext): void {
   const handler = new RPCHandler(router, {
     interceptors: [

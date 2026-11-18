@@ -17,7 +17,6 @@ import { createModuleVersions } from "../../version";
 
 export const WEATHER = "host.weather.read";
 
-/** A strict Manifest whose Program is a built server output. */
 export function builtManifest(
   capabilities: readonly object[] = [],
   extra: object = {}
@@ -32,7 +31,6 @@ export function builtManifest(
   };
 }
 
-/** A request for {@link WEATHER} limited to `cities`. */
 export function weatherRequest(
   cities: readonly string[],
   required = true
@@ -47,7 +45,6 @@ export function weatherRequest(
   };
 }
 
-/** Resolves {@link WEATHER} constraints to a digest naming the cities. */
 export const weatherProvider = {
   registration: { descriptor: { capability: WEATHER, version: 1 } },
   resolveConstraints: ({
@@ -86,7 +83,6 @@ export async function publishedModule(
     source: { "foundry.module.json": JSON.stringify(builtManifest()) },
   });
 
-  /** Saves `capabilities` (and `extra` fields) into the Manifest and publishes it as `tag`. */
   async function publish(
     tag: string,
     capabilities: readonly object[] = [],

@@ -37,11 +37,6 @@ describe("suspendForApproval", () => {
     expect(answer).toEqual({ approved: true });
   });
 
-  /**
-   * The resolution is arbitrary JSON from the engine's perspective. A host that
-   * throws here fails its Run deterministically; continuing on a fabricated
-   * approval is what this contract exists to prevent.
-   */
   it("propagates a validator's rejection rather than returning a bad answer", async () => {
     await expect(
       suspendForApproval(ctx({ nonsense: true }), {

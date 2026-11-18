@@ -81,12 +81,6 @@ export class ModuleProgramRuntimeError extends Error {
   }
 }
 
-/**
- * Runs one Module Program in one registry container. The Installation keeps
- * its container id, so a restart reuses the row: the spec is refreshed for
- * the selected version's checkout and the VM boots again under the same
- * identity, never onto a mount a previous spec named.
- */
 export function createModuleProgramRuntime(
   options: CreateModuleProgramRuntimeOptions
 ): ModuleProgramRuntimeAdapter {
@@ -116,7 +110,6 @@ export function createModuleProgramRuntime(
           cwd: MODULE_PROGRAM_ROOT,
           environment: {
             FOUNDRY_FILES_PATH: MODULE_FILES_ROOT,
-            // Versions built before the files directory read only this name.
             FOUNDRY_MODULE_DATA_PATH: `${MODULE_FILES_ROOT}/data.sqlite`,
             NODE_ENV: "production",
             PORT: String(MODULE_PROGRAM_PORT),
@@ -154,9 +147,6 @@ export function createModuleProgramRuntime(
         });
         let stopping = false;
         let stopPromise: Promise<void> | undefined;
-        // `finally`, not `then`: a wait that rejects (an exec session lost
-        // with its VM) still means the Program is gone, and an unobserved
-        // rejection here would surface as an unhandled rejection at shutdown.
         service
           .wait()
           .then(
@@ -233,9 +223,6 @@ async function probeProgramHealth(
     signal?.throwIfAborted();
     try {
       const response = await fetchImplementation(healthUrl, {
-        // The guest port forward multiplexes one relay slot. A pooled
-        // keep-alive probe socket left open here contends with the Gateway
-        // WebSocket that dials the same origin next, bumping it mid-upgrade.
         headers: { connection: "close" },
         method: "GET",
         redirect: "error",

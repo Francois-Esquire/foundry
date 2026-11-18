@@ -6,7 +6,6 @@ import {
   SceneLayersSection,
 } from "./developer-settings";
 
-/** Imported only in development; production builds have no tools chunk. */
 export function DeveloperStats({ actions, state }: ChromeContext) {
   const { settings } = actions;
   const compose = useCallback(

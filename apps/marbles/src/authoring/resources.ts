@@ -30,26 +30,6 @@ import type {
 
 import { bindingAt, callSite, originOf } from "./identity";
 
-/**
- * The definition words. Each is a preset with defaults; the context creates
- * the same things on the spot.
- *
- * An agent's id is durable: approvals granted "for future runs" and the
- * triggers it creates are filed under it, so it must not move when the
- * config is edited around it. It is the name given, else the top-level
- * `const` the call is assigned to, else a digest of its prompt. The route
- * is not part of it: `extend` keeps the id on another route. Workspaces,
- * sandboxes and artifacts keep registration-order ids: nothing durable is
- * keyed by them.
- *
- * An agent declared with a function is named by its `const`, else a
- * digest of the function's source. The function runs as each session
- * opens, never on import, and returns the rest of the definition. Its id
- * belongs to that one function: another function claiming it, even one
- * with the same source, is refused rather than merged.
- */
-
-/** The id a declaration claims: the name, else its `const`, else its digest. */
 function claimAgentId(
   name: string | undefined,
   digest: string,
@@ -64,7 +44,6 @@ function claimAgentId(
   return id;
 }
 
-/** An agent declared with a function: claimed now, built as each session opens. */
 function agentFromFunction<OUTPUT extends Output.Output, INPUT>(
   define: DefineAgent<OUTPUT, INPUT>
 ): DeferredAgent<OUTPUT, INPUT> {
@@ -85,7 +64,6 @@ function agentFromFunction<OUTPUT extends Output.Output, INPUT>(
   return definition;
 }
 
-/** An agent from its definition: complete, and usable at once. */
 export function agent<OUTPUT extends Output.Output = never>(
   spec: AgentDeclaration<OUTPUT>
 ): Agent<OUTPUT>;
@@ -181,7 +159,6 @@ export const skills = {
   load(): SkillSet {
     return skillSet([{ kind: "load" }]);
   },
-  /** No skills yet: start a set from only what `.add` gives it. */
   none(): SkillSet {
     return skillSet([]);
   },

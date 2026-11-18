@@ -11,7 +11,6 @@ import { count } from "../format";
 import type { BlockView, ReportView, SectionView } from "../views";
 import { rankedSection } from "./ranked-section";
 
-/** The places listed by domain label, a domain departure apart from a placement departure. */
 const LISTED: { label: DomainLabel; title: string }[] = [
   { label: "shares-domain", title: "Shares a domain" },
   { label: "departs", title: "Domain departures" },
@@ -47,7 +46,6 @@ function placementDetail(placement: DomainPlacement): string {
   return `${placement.level} · ${placement.package} · placement ${placement.placementLabel} · ${sharing}${unseen}`;
 }
 
-/** Places of one domain label, the most consumer modules away first, then by place. */
 function placesSection(
   placements: DomainPlacement[],
   label: DomainLabel,

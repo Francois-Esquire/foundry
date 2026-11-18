@@ -11,9 +11,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # Each save carries forward what it restored, so without pruning the
-    # cache only grows. Restoring keeps an entry's original time, so an entry
-    # still in use ages out too, and the next run that needs it writes it again.
     - name: Prune Turbo cache entries older than a week
       shell: bash
       run: |

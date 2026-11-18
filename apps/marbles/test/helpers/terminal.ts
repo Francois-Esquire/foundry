@@ -1,7 +1,6 @@
 import { sleep, spawn } from "bun";
 import { recordSpawned } from "~/process/spawned";
 
-/** Exercise the packaged renderer in a real PTY without dispatching work. */
 export async function inspectDashboard(
   cli: string,
   cwd: string,

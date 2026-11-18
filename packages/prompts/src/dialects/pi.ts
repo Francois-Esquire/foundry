@@ -1,7 +1,6 @@
 import { Dialect } from "../dialect";
 import { notation } from "../notation";
 
-/** Built-in slash commands, a snapshot. Any other `/name` is a prompt template. */
 const COMMANDS: readonly string[] = [
   "changelog",
   "clear",
@@ -25,12 +24,6 @@ const COMMANDS: readonly string[] = [
   "tree",
 ];
 
-/**
- * Pi. `/skill:name [args]` loads a skill; `/name [args]` expands a prompt
- * template unless `name` is a built-in command. Templates fill `$1`, `$2`, …
- * and `$@`. `@path` mentions a file. A message that opens with `!` is run in
- * the shell.
- */
 export const pi = new Dialect({
   id: "pi",
   known: { command: COMMANDS },

@@ -1,8 +1,3 @@
-/**
- * Name inference reads the config's source at the call's position. Each test
- * writes a config and imports it, so the position is the written file's.
- */
-
 import {
   mkdirSync,
   mkdtempSync,
@@ -34,7 +29,6 @@ afterEach(() => {
   }
 });
 
-/** A config directory; with `typescript` reachable unless `bare`. */
 function configDir(bare = false): string {
   const dir = mkdtempSync(join(tmpdir(), "marbles-identity-"));
   dirs.push(dir);

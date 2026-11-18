@@ -18,7 +18,6 @@ export interface ChromeContext {
   state: SpyglassState;
 }
 
-/** Add a section here to extend the compass sidebar without changing its shell. */
 export interface ChromeEntry {
   component: ComponentType<ChromeContext>;
   description: string;
@@ -89,7 +88,6 @@ function MapNavigation({ actions }: AppBarContext) {
   );
 }
 
-/** Labels and the ruler: each a pressed button over a group of the composition's layers, pressed while all of them show. */
 function MapDetails({ actions, state }: AppBarContext) {
   const { composition } = state.chartSettings;
   const toggle = useCallback(
@@ -126,7 +124,6 @@ function MapDetails({ actions, state }: AppBarContext) {
   );
 }
 
-/** Immediate actions stay in the bar; adding an entry extends it toward the left. */
 export const appBarEntries: readonly AppBarEntry[] = [
   ...(import.meta.env.DEV
     ? [

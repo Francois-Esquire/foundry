@@ -9,7 +9,6 @@ import type { BlockView, ReportView, SectionView, Tone } from "../views";
 import { blockerDefinitions } from "./explanations";
 import { listSection } from "./ranked-section";
 
-/** How readiness's verdict reads as the plan's title line. */
 export const AUTHORIZATION_WORDS: Record<MutationAuthorization, string> = {
   authorized: "Authorized",
   blocked: "Blocked",
@@ -18,7 +17,6 @@ export const AUTHORIZATION_WORDS: Record<MutationAuthorization, string> = {
   unsupported: "Unsupported",
 };
 
-/** A contradiction blocks; a stale plan or a missing proof is a caution. */
 function readinessTone(authorization: MutationAuthorization): Tone {
   return authorization === "blocked" ? "blocked" : "caution";
 }
@@ -44,8 +42,6 @@ function verdictBlock(result: PlanSiteResult): BlockView {
         tone: "blocked",
       };
     case "not-executable": {
-      // A saved plan that is not ready is the bridge's reason; its status
-      // titles the verdict, and its reasons follow.
       const { status } = result.plan;
       if (status !== "ready") {
         return {
@@ -74,7 +70,6 @@ function verdictBlock(result: PlanSiteResult): BlockView {
   }
 }
 
-/** The saved plan's blockers, and what each reason means, as the package report defines it. */
 function savedBlockers(result: PlanSiteResult): SectionView[] {
   const { blockers, status } = result.plan;
   if (blockers.length === 0) {
@@ -107,7 +102,6 @@ function stepLine(step: ReadinessVerificationStep): string {
     : `${what} · cannot run: ${step.detail ?? "no command"}`;
 }
 
-/** Readiness's findings and the verification apply runs, once readiness judged the plan. */
 function readinessSections(
   readiness: OperatorPlanReadiness,
   density: RenderDensity
@@ -144,10 +138,6 @@ const nextStep = (result: PlanSiteResult): SectionView => ({
   title: "Next",
 });
 
-/**
- * `spyglass plan`: the verdict, the planned changes, why the saved plan or
- * readiness stops it, the verification apply runs, and what to run next.
- */
 export function buildPlanView(
   result: PlanSiteResult,
   density: RenderDensity

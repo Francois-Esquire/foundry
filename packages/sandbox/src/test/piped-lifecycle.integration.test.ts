@@ -29,7 +29,6 @@ it("drives real public process pipes through the immediate hook and cancels them
       Array.fromAsync(child.stderr),
       child.exited,
     ]);
-    // Vitest's deep equality takes about a second on a MiB; Buffer.equals does not.
     const received = Buffer.concat(stdout);
     expect(received.byteLength).toBe(payload.byteLength);
     expect(received.equals(payload)).toBe(true);

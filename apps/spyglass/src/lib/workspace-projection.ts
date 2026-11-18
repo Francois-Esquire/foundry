@@ -75,12 +75,6 @@ import { WORKSPACE_SCHEMA_VERSION } from "./workspace-types";
 
 const shortPattern = /^@[^/]+\//;
 
-// V9.4 projection layer, part one: the context (indexes over V9.0–V9.3),
-// the focused entity projections, name resolution, and the search index.
-// Everything here copies canonical facts under canonical ids; nothing is
-// inferred, ranked by a combined score, or reworded into advice. Pure
-// functions of the context: no UI state, no terminal width, no randomness.
-
 export function byId(a: string, b: string): number {
   if (a < b) {
     return -1;
@@ -369,7 +363,6 @@ function buildLookup(
   };
 }
 
-/** Requires every V9 layer attached (`analyzeWorkspace`); throws otherwise. */
 export function createWorkspaceProjectionContext(
   workspace: WorkspaceReport
 ): WorkspaceProjectionContext {
@@ -1976,7 +1969,6 @@ export function searchWorkspace(
   };
 }
 
-/** Exact id first; then exact name or alias. Several matches are returned, never chosen among. */
 export function resolveWorkspaceEntity(
   context: WorkspaceProjectionContext,
   text: string,

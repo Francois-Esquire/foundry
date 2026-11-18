@@ -21,7 +21,6 @@ import type {
 
 const PATH_SEGMENTS = /[\\/]/;
 const weekday = z.enum(WEEKDAYS);
-// The raw shape only: `parseAt` is the one judge of a cadence or a slot.
 const cadence = z
   .union([
     z.string(),
@@ -66,23 +65,16 @@ function sameOwner(a: AutomationOwner, b: AutomationOwner): boolean {
   return a.sessionId === b.sessionId && a.agentId === b.agentId;
 }
 
-/** HTTP monitors agents create never follow a redirect off the permitted URL. */
 const noRedirects: Fetch = async (url, init) =>
   await fetch(url, { ...init, redirect: "error" });
 
-/**
- * One stored automation as last read: its record when it parsed, and why it
- * cannot run when it cannot (unreadable, or a source the host refuses).
- */
 interface Loaded {
   readonly error?: string;
   readonly record?: AutomationRecord;
 }
 
 export interface AutomationOptions {
-  /** HTTP polling is disabled unless the host explicitly permits the URL. */
   readonly allowHttp?: (url: URL) => boolean;
-  /** Where targets are looked up and the triggers agents create are registered. */
   readonly registry: Registry;
   readonly store: AutomationStore;
 }
@@ -99,8 +91,6 @@ export class AutomationService {
     this.#options = options;
     this.#registry = options.registry;
     this.#store = options.store;
-    // One step polls every agent-created monitor, by id: the Orchestrator
-    // takes its factories before it starts and never lets one go.
     const poll: StepFn<z.infer<typeof monitorInput>, Detection> = async (
       context
     ) => {
@@ -187,7 +177,6 @@ export class AutomationService {
     );
   }
 
-  /** Why each stored automation that cannot run does not, by id. */
   async errors(): Promise<Readonly<Record<string, string>>> {
     await this.#refresh();
     return Object.fromEntries(
@@ -292,7 +281,6 @@ export class AutomationService {
           existing.key === spec.key && sameOwner(existing.owner, owner)
       );
       if (previous) {
-        // `jsonData`: a spec built in code may carry an `undefined` member.
         if (
           canonicalizeJson(jsonData(specSchema.parse(previous))) !==
           canonicalizeJson(jsonData(spec))

@@ -19,17 +19,11 @@ interface UrlStateOptions {
   replace: (url: string) => void;
 }
 
-/**
- * `done` wrote the address. `superseded` means a newer edit replaced this
- * document while it encoded; `stopped` means disposal or a different page.
- * Neither of the latter changes the address.
- */
 export type UrlUpdate =
   | { result: ShareResult; status: "done" }
   | { status: "stopped" }
   | { status: "superseded" };
 
-/** Serialize the latest edit only, preserving navigation and unrelated URL state. */
 export function createUrlState(options: UrlStateOptions) {
   let revision = 0;
   let disposed = false;
@@ -75,7 +69,6 @@ export function createUrlState(options: UrlStateOptions) {
       bytes: result.url ? new TextEncoder().encode(url).length : result.bytes,
       url: result.url ? url : undefined,
     };
-    // A fragment/query can grow while encoding, so recheck the complete URL.
     if (completed.url && completed.bytes > MAX_URL_BYTES) {
       current.searchParams.delete(NOTES_PARAM);
       options.replace(current.href);
