@@ -87,19 +87,6 @@ Claude Code reads `CLAUDE_CODE_OAUTH_TOKEN` from the instance's environment,
 else the login for its `CLAUDE_CONFIG_DIR` (else `~/.claude`); Pi runs the
 configured `pi auth`.
 
-## Choose the route when the step runs
-
-`reviewer.extend({ model?, provider?, settings? })` returns the same agent
-on another route or with other settings. It keeps the agent's ID, prompt,
-and skills, so grants approved for future runs and triggers the agent
-created still apply. `settings` merge over the agent's own: nested plain
-objects such as `providerOptions` merge, and any value `extend` sets
-replaces the one before. Arrays and `output` are replaced whole. An
-extended agent can be extended again.
-
-[Usage](/marbles/foundation/usage) shows a step that picks the route from
-what each Claude Code and Codex login has left.
-
 ## Write one prompt for several harnesses
 
 Set the agent's `prompt` to a `prompts.portable` template. After resolving the
@@ -121,6 +108,19 @@ Claude Code sees `/inspect` and Codex sees `$inspect`. Marbles renders the
 interpolated references and keeps the authored text as written. A provider
 without a prompt dialect receives the names and paths as plain text.
 The same template works as the prompt returned by a deferred agent.
+
+## Choose the route when the step runs
+
+`reviewer.extend({ model?, provider?, settings? })` returns the same agent
+on another route or with other settings. It keeps the agent's ID, prompt,
+and skills, so grants approved for future runs and triggers the agent
+created still apply. `settings` merge over the agent's own: nested plain
+objects such as `providerOptions` merge, and any value `extend` sets
+replaces the one before. Arrays and `output` are replaced whole. An
+extended agent can be extended again.
+
+[Usage](/marbles/foundation/usage) shows a step that picks the route from
+what each Claude Code and Codex login has left.
 
 ## Define the agent with a function
 
