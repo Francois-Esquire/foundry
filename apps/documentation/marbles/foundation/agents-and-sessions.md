@@ -100,6 +100,38 @@ extended agent can be extended again.
 [Usage](/marbles/foundation/usage) shows a step that picks the route from
 what each Claude Code and Codex login has left.
 
+### Check model availability
+
+Import `models` from `@foundry.sh/marbles` to check the current engine's
+catalog before choosing a model.
+
+```ts
+import { agent, models, step } from "@foundry.sh/marbles";
+
+const reviewer = agent({ prompt: "Review README.md for clarity." });
+
+step("review").do(async () => {
+  const preferred = "codex/gpt-5.5";
+  const selected = models.available(preferred)
+    ? reviewer.extend({ model: preferred })
+    : reviewer;
+  return (await selected.generate("What should change?")).text;
+});
+```
+
+`models.available(selection)` returns a boolean synchronously. It accepts
+bare model IDs, provider-qualified IDs, and explicit `{ provider, model }`
+selections. It returns `true` when the selection resolves for any model kind
+using the configured catalog, current provider availability, and policy
+such as Airplane Mode. If a string is ambiguous for a kind, use the
+explicit object form to choose its meaning.
+
+Use the check during a step or inside a deferred `agent(() => …)`
+configuration. It returns `false` if no engine is bound before the source
+has finished loading. The check uses local state only and leaves model
+opening and inference to the session. Account access can still fail when
+you use the model.
+
 ## Define the agent with a function
 
 `agent(async (route, input) => definition)` declares an agent whose

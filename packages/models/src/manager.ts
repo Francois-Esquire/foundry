@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { EvlogError } from "evlog";
 import type { ModelCost } from "evlog/ai";
 import { modelErrors } from "./errors";
 import { configureModelObservability } from "./logger";
@@ -8,6 +9,17 @@ import type { Host, Resolution } from "./resolution";
 import { guarded, instanceOf, resolution } from "./resolution";
 import type { ModelSelection } from "./selection";
 import type { ModelKind, ProviderModelDefinition } from "./types";
+import { MODEL_KINDS } from "./types";
+
+const UNRESOLVED = new Set<string>([
+  modelErrors.MODEL_KIND_MISMATCH.code,
+  modelErrors.MODEL_NOT_FOUND.code,
+  modelErrors.NO_MODEL_OF_KIND.code,
+  modelErrors.PROVIDER_NOT_CONFIGURED.code,
+  modelErrors.PROVIDER_RESTRICTED.code,
+  modelErrors.PROVIDER_UNAVAILABLE.code,
+  modelErrors.SELECTION_AMBIGUOUS.code,
+]);
 
 export interface ModelManagerOptions {
   providers?: readonly Provider[];
@@ -107,6 +119,23 @@ export class ModelManager {
   ): Resolution<K> {
     const { provider, definition } = this.find(kind, selection);
     return resolution(this.leases, kind, provider, definition);
+  }
+
+  available(selection: ModelSelection): boolean {
+    return MODEL_KINDS.some((kind) => {
+      try {
+        this.find(kind, selection);
+        return true;
+      } catch (error) {
+        if (
+          EvlogError.isEvlogError(error) &&
+          UNRESOLVED.has(error.code ?? "")
+        ) {
+          return false;
+        }
+        throw error;
+      }
+    });
   }
 
   restrict(policy: ProviderPolicy): () => void {

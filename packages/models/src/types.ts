@@ -1,4 +1,4 @@
-const MODEL_KINDS = [
+export const MODEL_KINDS = [
   "text",
   "embedding",
   "transcription",
