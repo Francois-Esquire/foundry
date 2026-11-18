@@ -211,15 +211,20 @@ describe("an adoption that fails after the orchestrator took the run on", () => 
     const runId = await launchParked(first);
     await first.retire(thisProcess());
 
-    second.faults.listing = true;
-    second.faults.releases = 1;
-    await expect(second.engine.adopt(runId)).rejects.toThrow(LISTING_FAILURE);
-    second.faults.listing = false;
-    expect(second.faults.released).toEqual([runId]);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      second.faults.listing = true;
+      second.faults.releases = 1;
+      await expect(second.engine.adopt(runId)).rejects.toThrow(LISTING_FAILURE);
+      second.faults.listing = false;
+      expect(second.faults.released).toEqual([runId]);
 
-    expect(await second.engine.adopt(runId)).toBe(true);
-    await pause(1500);
-    expect(second.faults.released).toEqual([runId]);
+      expect(await second.engine.adopt(runId)).toBe(true);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(second.faults.released).toEqual([runId]);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(await third.adopt(runId)).toBe(false);
     await answered(second.engine, runId);
   }, 60_000);

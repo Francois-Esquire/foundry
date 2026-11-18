@@ -1,21 +1,17 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { connect } from "~/process/client";
-import { type Daemon, startDaemon } from "~/process/daemon";
+import { describe, expect, it, vi } from "vitest";
 import {
   FileDigests,
   fingerprintOf,
   printNow,
   watching,
 } from "~/process/fingerprint";
+import {
+  generationFiles,
+  startSwitchingWorkspace,
+} from "./helpers/generation-switch";
 import { testHome } from "./helpers/home";
-
-const daemons: Daemon[] = [];
-
-afterEach(async () => {
-  await Promise.all(daemons.splice(0).map((daemon) => daemon.close()));
-});
 
 function prints(root: string, outside: readonly string[]) {
   const registration = { config: null, id: "w", root };
@@ -66,29 +62,20 @@ describe("refused candidates", () => {
 
   it("switches once a helper outside the root, whose removal kept a candidate from loading, is back with other code", async () => {
     const home = testHome({ providers: false });
-    const root = join(home.path, "project");
+    const fixture = generationFiles(home);
     const shared = join(home.path, "shared");
-    mkdirSync(root);
     mkdirSync(shared);
     const helper = join(shared, "helper.ts");
     writeFileSync(helper, "export const value = 1;\n");
-    const source = join(root, "marbles.config.ts");
-    writeFileSync(
-      source,
+    const lines: string[] = [];
+    const { client, summary } = await startSwitchingWorkspace(
+      fixture,
       `import { value } from ${JSON.stringify(helper)};
 import { step } from "@foundry.sh/marbles";
 export const read = step("read").do(() => value);
-`
+`,
+      { print: (line) => lines.push(line) }
     );
-    const lines: string[] = [];
-    daemons.push(
-      await startDaemon({
-        layout: home.layout,
-        print: (line) => lines.push(line),
-      })
-    );
-    const client = await connect({ layout: home.layout, start: false });
-    const summary = await client.attach(source);
     const first = summary.pid ?? 0;
     const workspace = client.workspace(summary);
     expect((await workspace.roll("read")).value).toBe(1);

@@ -15,8 +15,7 @@ import { GenerationRecords, readLiveGenerations } from "~/database/generations";
 import { readDatabase } from "~/database/open";
 import { marblesExecutions, marblesGenerations } from "~/database/tables";
 import { recordedWorkspaces, WorkspaceRegistry } from "~/database/workspaces";
-import { type Layout, stateDatabase } from "~/layout";
-import type { WorkspaceSummary } from "~/model/connection";
+import { stateDatabase } from "~/layout";
 import { connect, type MarblesClient } from "~/process/client";
 import {
   type Daemon,
@@ -27,14 +26,17 @@ import {
 import { startedAt } from "~/process/spawned";
 import { readStatus } from "~/status/model";
 import { exitedPid, seedExecution, withExecutions } from "./helpers/executions";
+import {
+  type GenerationFiles as Fixture,
+  generationFiles,
+  gone,
+  logged,
+  openGate as open,
+  startSwitchingWorkspace,
+  switchFrom as switchGeneration,
+  whenLogged,
+} from "./helpers/generation-switch";
 import { testHome } from "./helpers/home";
-
-interface Fixture {
-  readonly gates: string;
-  readonly log: string;
-  readonly machine: Layout;
-  readonly source: string;
-}
 
 const daemons: Daemon[] = [];
 
@@ -114,41 +116,20 @@ export const add = step("add")
   ].join("\n");
 }
 
-async function setUp({
+function setUp({
   daemon = {},
   ticking = false,
 }: {
   readonly daemon?: Partial<DaemonOptions>;
   readonly ticking?: boolean;
-} = {}): Promise<
-  Fixture & {
-    readonly client: MarblesClient;
-    readonly daemon: Daemon;
-    readonly summary: WorkspaceSummary;
-  }
-> {
-  const home = testHome({ providers: false });
-  const root = join(home.path, "project");
-  mkdirSync(root);
-  const gates = join(home.path, "gates");
-  mkdirSync(gates);
-  const fixture = {
-    gates,
-    log: join(home.path, "steps.log"),
-    machine: home.layout,
-    source: join(root, "marbles.config.ts"),
-  };
-  writeFileSync(fixture.log, "");
-  writeFileSync(fixture.source, moduleText(fixture, 0, { ticking }));
-  const started = await startDaemon({
-    layout: fixture.machine,
-    print: () => undefined,
-    ...daemon,
-  });
-  daemons.push(started);
-  const client = await connect({ layout: fixture.machine, start: false });
-  const summary = await client.attach(fixture.source);
-  return { ...fixture, client, daemon: started, summary };
+} = {}) {
+  const fixture = generationFiles(testHome({ providers: false }));
+  return startSwitchingWorkspace(
+    fixture,
+    moduleText(fixture, 0, { ticking }),
+    daemon,
+    (started) => daemons.push(started)
+  );
 }
 
 function handClock(): DaemonClock & { advance(ms: number): void } {
@@ -198,17 +179,7 @@ async function stored(
 
 async function crashableDaemon() {
   const home = testHome({ providers: false });
-  const root = join(home.path, "project");
-  mkdirSync(root);
-  const gates = join(home.path, "gates");
-  mkdirSync(gates);
-  const fixture = {
-    gates,
-    log: join(home.path, "steps.log"),
-    machine: home.layout,
-    source: join(root, "marbles.config.ts"),
-  };
-  writeFileSync(fixture.log, "");
+  const fixture = generationFiles(home);
   writeFileSync(fixture.source, moduleText(fixture, 0));
   const lines: string[] = [];
   const child = spawn(
@@ -243,42 +214,18 @@ async function numbered(fixture: Pick<Fixture, "machine">): Promise<number> {
   return rows?.length ?? 0;
 }
 
-function logged(fixture: Pick<Fixture, "log">): string[] {
-  return readFileSync(fixture.log, "utf8").split("\n").filter(Boolean);
-}
-
-async function whenLogged(
-  fixture: Pick<Fixture, "log">,
-  line: string
-): Promise<void> {
-  await vi.waitFor(() => expect(logged(fixture)).toContain(line), {
-    interval: 50,
-    timeout: 30_000,
-  });
-}
-
-async function switchFrom(
+function switchFrom(
   fixture: Fixture & { readonly client: MarblesClient },
   before: number,
   revision: number,
   options: Parameters<typeof moduleText>[2] = {}
 ): Promise<number> {
-  writeFileSync(fixture.source, moduleText(fixture, revision, options));
-  let pid = before;
-  await vi.waitFor(
-    async () => {
-      const [summary] = await fixture.client.workspaces();
-      expect(summary?.state).toBe("ready");
-      expect(summary?.pid).not.toBe(before);
-      pid = summary?.pid ?? before;
-    },
-    { interval: 100, timeout: 60_000 }
+  return switchGeneration(
+    fixture,
+    before,
+    revision,
+    moduleText(fixture, revision, options)
   );
-  return pid;
-}
-
-function open(gate: number | string, fixture: Pick<Fixture, "gates">): void {
-  writeFileSync(join(fixture.gates, String(gate)), "");
 }
 
 async function readyOn(
@@ -289,8 +236,9 @@ async function readyOn(
     async () => {
       const [summary] = await fixture.client.workspaces();
       expect(summary?.state).toBe("ready");
-      expect(which(summary?.pid ?? 0)).toBe(true);
-      return summary?.pid ?? 0;
+      const pid = summary?.pid ?? 0;
+      expect(which(pid)).toBe(true);
+      return pid;
     },
     { interval: 200, timeout: 90_000 }
   );
@@ -311,13 +259,6 @@ async function openEntry(
     },
     { interval: 100, timeout: 60_000 }
   );
-}
-
-async function gone(pid: number, timeout = 30_000): Promise<void> {
-  await vi.waitFor(() => expect(processAlive(pid)).toBe(false), {
-    interval: 100,
-    timeout,
-  });
 }
 
 async function executions(
@@ -993,12 +934,16 @@ describe("engine generations", () => {
   }, 150_000);
 
   it("runs on the current generation a queued run whose retired generation died before handing it over", async () => {
+    const clock = handClock();
     const lines: string[] = [];
     const marker = join(testHome({ providers: false }).path, "fail-handover");
     process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
+    const busy = `${marker}.busy`;
+    process.env.MARBLES_TEST_FAIL_ORPHAN_TAKE = busy;
     try {
       const fixture = await setUp({
         daemon: {
+          clock,
           generationEntry: join(
             import.meta.dirname,
             "helpers",
@@ -1014,26 +959,48 @@ describe("engine generations", () => {
       await whenLogged(fixture, `hold1 ${String(first)}`);
       await workspace.actions.launch("where", {});
       writeFileSync(marker, "");
-      const second = await switchFrom(fixture, first, 1);
+      writeFileSync(fixture.source, moduleText(fixture, 1));
+      const current = await fixture.client.reload(fixture.summary.id);
+      expect(current.state).toBe("ready");
+      expect(current.pid).not.toBe(first);
       await provedGeneration(fixture, first, "retiring");
+      writeFileSync(busy, "");
       process.kill(first, "SIGKILL");
       await gone(first);
+      await vi.waitFor(async () => {
+        await fixture.daemon.sweepNow();
+        expect(lines.join("\n")).toContain(
+          "left queued: injected SQLITE_BUSY during orphan take"
+        );
+      });
+      expect(
+        logged(fixture).filter((line) => line.startsWith("where "))
+      ).toEqual([]);
+
+      const { now } = Date;
+      const time = vi
+        .spyOn(Date, "now")
+        .mockImplementation(() => now() + 30_001);
+      try {
+        await fixture.daemon.sweepNow();
+      } finally {
+        time.mockRestore();
+      }
       await vi.waitFor(
         () =>
           expect(
             logged(fixture).filter((line) => line.startsWith("where ")),
             lines.join("\n")
-          ).toHaveLength(1),
+          ).toEqual([`where ${String(current.pid)}`]),
         { interval: 50, timeout: 30_000 }
       );
-      expect(logged(fixture)).not.toContain(`where ${String(first)}`);
-      expect(second).not.toBe(first);
       expect(
         lines.some((line) => line.includes("taken over from a gone process"))
       ).toBe(true);
       fixture.client.close();
     } finally {
       delete process.env.MARBLES_TEST_FAIL_HANDOVER;
+      delete process.env.MARBLES_TEST_FAIL_ORPHAN_TAKE;
     }
   }, 150_000);
 

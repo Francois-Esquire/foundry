@@ -1,7 +1,8 @@
 import { join } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
+import { GenerationRecords, readLiveGenerations } from "~/database/generations";
 import type { Engine } from "~/lib/engine";
 import { CODEX } from "~/lib/harnesses";
 import type { DispatchInfo, DispatchOptions } from "~/model/connection";
@@ -307,10 +308,27 @@ describe("a dispatched run that moves between engine generations", () => {
       status: "running",
     });
 
+    const generations = await readLiveGenerations(fixture.machine.state);
+    const retired = generations.find((generation) => generation.pid === first);
+    expect(retired?.state).toBe("retiring");
+    const mark = vi.spyOn(GenerationRecords.prototype, "mark");
+    onTestFinished(() => {
+      mark.mockRestore();
+    });
+
     openGate(1, fixture);
     expect((await holding).value).toBe(first);
-    await gone(first);
-    expect(fixture.lines.join("\n")).not.toContain("died");
+    const exit = await vi.waitFor(
+      () => {
+        const recorded = mark.mock.calls.find(
+          ([number, state]) => number === retired?.number && state === "exited"
+        );
+        expect(recorded).toBeDefined();
+        return recorded;
+      },
+      { interval: 50, timeout: 30_000 }
+    );
+    expect(exit?.[2]).toBeUndefined();
     expect((await workspace.getRun(started.runId)).status).toBe("running");
 
     openGate(2, fixture);
