@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "bun run --no-env-file src/main.tsx",
+    "test": "bun ../../node_modules/vitest/vitest.mjs run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -21,6 +22,7 @@
     "@foundry/tsconfig": "workspace:*",
     "@types/bun": "1.3.14",
     "@types/react": "19.3.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
   }
 }

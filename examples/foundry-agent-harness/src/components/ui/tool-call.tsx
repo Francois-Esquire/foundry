@@ -33,9 +33,12 @@ export const ToolCall = ({
   const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   const spinnerIcon = spinnerFrames[frame % spinnerFrames.length] ?? "⠋";
   useEffect(() => {
+    if (status !== "running") {
+      return;
+    }
     const id = setInterval(() => setFrame((f) => f + 1), Math.round(1000 / 12));
     return () => clearInterval(id);
-  }, []);
+  }, [status]);
 
   useEffect(() => {
     if (status !== "running") {

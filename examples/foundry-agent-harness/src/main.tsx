@@ -1,7 +1,7 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { App } from "@/app";
-import { close, context, empty, run } from "@/harness";
+import { close, context, run } from "@/harness";
 
 const renderer = await createCliRenderer({
   exitOnCtrlC: true,
@@ -9,6 +9,4 @@ const renderer = await createCliRenderer({
     close().catch(() => undefined);
   },
 });
-createRoot(renderer).render(
-  <App context={context} initial={empty} run={run} />
-);
+createRoot(renderer).render(<App context={context} run={run} />);

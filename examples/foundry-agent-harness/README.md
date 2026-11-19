@@ -26,8 +26,12 @@ host with your tools, in the directory you start it from.
 | --- | --- |
 | [`src/harness.ts`](./src/harness.ts) | The harness: one thread, its context, and every Marbles call. |
 | [`src/backlog.ts`](./src/backlog.ts) | An MCP server in this process that lets the worker add a to-do. |
-| [`src/app.tsx`](./src/app.tsx) | The screen, in [OpenTUI](https://github.com/anomalyco/opentui) React. |
+| [`src/model`](./src/model) | The data the screen draws: a `Thread` and its `Context`. Types and two small readers, no Marbles. |
+| [`src/views/harness.tsx`](./src/views/harness.tsx) | The screen, in [OpenTUI](https://github.com/anomalyco/opentui) React. It draws a `Thread` and a `Context` and reports a goal. |
+| [`src/components/blocks`](./src/components/blocks) | The parts of the screen: the side panel and its four lists, the conversation, the goal bar. |
+| [`src/app.tsx`](./src/app.tsx) | Holds the current thread and hands goals to the harness. |
 | [`src/main.tsx`](./src/main.tsx) | The renderer, and the engine's disposal when it closes. |
+| [`test`](./test) | The screen rendered from sample threads, with no agent turns. |
 | [`.claude/skills`](./.claude/skills) | The skills the worker gets. |
 | `src/components/ui`, `src/hooks`, `src/lib` | [TermCN](https://www.termcn.dev) components, copied in by the shadcn CLI. |
 
@@ -56,6 +60,21 @@ with the process. Claude Code still keeps its own session history.
 counts) and one `Context` (the model, skills, and MCP servers the worker
 has). The screen takes both as props and holds no harness state, so a second
 thread is another `Thread` value and a way to choose between them.
+
+## The screen on its own
+
+Nothing under `src/model`, `src/views`, or `src/components` imports
+`harness.ts`, so the screen renders without an engine, a model, or a signed-in
+CLI. `HarnessView` takes a thread, a context, and an `onGoal` callback, and
+sizes itself to the box it is mounted in. The tests use that: they render it
+from the sample threads in [`test/helpers/threads.ts`](./test/helpers/threads.ts).
+
+```sh
+bun run test
+```
+
+A component workshop can mount the same view and the same samples. Below 72
+columns the side panel is dropped and the conversation takes the full width.
 
 The Skills and MCP tabs list what the worker really has:
 
@@ -86,7 +105,8 @@ Knip leave these folders alone. Three are edited:
 
 - `tool-call.tsx` and `chat-message.tsx`: the row boxes say
   `flexDirection="row"`, because an OpenTUI box stacks its children unless
-  told otherwise. `tool-call.tsx` also shows its timer in seconds.
+  told otherwise. `tool-call.tsx` also shows its timer in seconds, and its
+  spinner only ticks while the call is running.
 - `tabs.tsx`: the same row fix; it fills its parent; only Tab and Shift+Tab
   switch, so the arrow keys stay with the goal field; and it no longer writes
   a clear-screen sequence to the terminal.

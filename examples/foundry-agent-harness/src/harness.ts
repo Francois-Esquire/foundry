@@ -17,57 +17,9 @@ import { file, Glob } from "bun";
 import { initLogger } from "evlog";
 import { z } from "zod";
 import { backlog, serveBacklog } from "@/backlog";
-
-type Status = "pending" | "running" | "success" | "error";
-
-interface Todo {
-  added: boolean;
-  id: string;
-  status: Status;
-  title: string;
-}
-
-interface Tool {
-  detail: string;
-  error?: string;
-  id: string;
-  name: string;
-  status: Status;
-}
-
-interface Message {
-  kind: "goal" | "task" | "error";
-  streaming: boolean;
-  text: string;
-  title: string;
-  tools: Tool[];
-}
-
-export interface Thread {
-  id: string;
-  input: number;
-  messages: Message[];
-  notes?: {
-    files: { path: string; title: string }[];
-    version: string;
-    versions: number;
-  };
-  output: number;
-  phase: "idle" | "planning" | "working";
-  title: string;
-  todos: Todo[];
-}
-
-export interface Context {
-  model: string;
-  servers: readonly (typeof backlog)[];
-  skills: { description: string; name: string }[];
-}
-
-export type Run = (
-  goal: string,
-  show: (thread: Thread) => void
-) => Promise<void>;
+import type { Context } from "@/model/context";
+import type { Message, Run, Thread, Todo } from "@/model/thread";
+import { emptyThread } from "@/model/thread";
 
 const LIMIT = 8;
 const MODEL = "sonnet";
@@ -98,17 +50,7 @@ export const context: Context = {
   skills,
 };
 
-export const empty: Thread = {
-  id: "thread-1",
-  input: 0,
-  messages: [],
-  output: 0,
-  phase: "idle",
-  title: "New thread",
-  todos: [],
-};
-
-const thread = structuredClone(empty);
+const thread = structuredClone(emptyThread);
 let show: (thread: Thread) => void = () => undefined;
 const paint = () => show(structuredClone(thread));
 
