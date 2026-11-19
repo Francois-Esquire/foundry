@@ -1,5 +1,11 @@
-import { useKeyboard } from "@opentui/react";
-import { type ReactNode, useCallback } from "react";
+import type { KeyEvent } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffectEvent,
+  useLayoutEffect,
+} from "react";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { Action } from "~/components/ui/action";
 import { SetupFlow } from "~/components/ui/setup-flow";
@@ -41,7 +47,8 @@ function Intro({
     },
     [action.busy, action.run, quit.quitting]
   );
-  useKeyboard((key) => {
+  const { keyInput } = useRenderer();
+  const handleKey = useEffectEvent((key: KeyEvent) => {
     if (quit.handleKey(key) || action.busy) {
       return;
     }
@@ -62,6 +69,12 @@ function Intro({
         break;
     }
   });
+  useLayoutEffect(() => {
+    keyInput.on("keypress", handleKey);
+    return () => {
+      keyInput.off("keypress", handleKey);
+    };
+  }, [keyInput]);
   return (
     <SetupFlow
       footer={

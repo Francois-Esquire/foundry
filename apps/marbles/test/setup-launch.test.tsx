@@ -1,10 +1,13 @@
+import { KeyEvent } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
-import { act } from "react";
+import { act, type ReactNode, useLayoutEffect } from "react";
 import { afterEach, expect, test } from "vitest";
 import { ArgumentForm } from "../src/components/blocks/argument-form";
 import { DashboardView } from "../src/views/dashboard";
 import type { DashboardSnapshot } from "../src/views/dashboard-model";
 import { OnboardingView } from "../src/views/onboarding";
+import { WorkspaceWelcome } from "../src/views/onboarding-intro";
 import type { SetupDraft } from "../src/workspace/templates";
 
 let ui: Awaited<ReturnType<typeof testRender>>;
@@ -47,6 +50,50 @@ const empty: DashboardSnapshot = {
   workspace: "test",
 };
 const noop = () => undefined;
+
+function PressEnterOnLayout({ children }: { readonly children: ReactNode }) {
+  const { keyInput } = useRenderer();
+  useLayoutEffect(() => {
+    keyInput.emit(
+      "keypress",
+      new KeyEvent({
+        ctrl: false,
+        eventType: "press",
+        meta: false,
+        name: "return",
+        number: false,
+        option: false,
+        raw: "\r",
+        sequence: "\r",
+        shift: false,
+        source: "raw",
+      })
+    );
+  }, [keyInput]);
+  return children;
+}
+
+test("workspace welcome accepts Enter as soon as the screen is mounted", async () => {
+  let continued = false;
+  const onContinue = async () => {
+    continued = true;
+  };
+  await act(async () => {
+    ui = await testRender(
+      <PressEnterOnLayout>
+        <WorkspaceWelcome
+          onClose={noop}
+          onContinue={onContinue}
+          path="/workspace/marbles.config.ts"
+          workspace="/workspace"
+        />
+      </PressEnterOnLayout>,
+      { height: 24, width: 80 }
+    );
+  });
+  await flush();
+  expect(continued).toBe(true);
+});
 
 test("setup reviews the selected step, retains settings on back, and reports write failures", async () => {
   const drafts: SetupDraft[] = [];
