@@ -1,0 +1,26 @@
+{
+  "name": "@foundry/foundry-agent-harness",
+  "version": "0.0.0",
+  "private": true,
+  "description": "An agent harness with a terminal UI, built on the Marbles library, OpenTUI, and TermCN",
+  "type": "module",
+  "scripts": {
+    "start": "bun run --no-env-file src/main.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@foundry.sh/marbles": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@opentui/core": "0.5.11",
+    "@opentui/react": "0.5.11",
+    "evlog": "^2.25.0",
+    "react": "19.3.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@foundry/tsconfig": "workspace:*",
+    "@types/bun": "1.3.14",
+    "@types/react": "19.3.0",
+    "typescript": "^6.0.3"
+  }
+}

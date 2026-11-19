@@ -68,6 +68,13 @@
     "packages/models": {
       "entry": ["src/local/remote/worker-entry.ts"]
     },
+    "examples/*": {
+      "ignore": [
+        "src/components/ui/**",
+        "src/hooks/**",
+        "src/lib/terminal-themes/**"
+      ]
+    },
     "tooling/*": {},
     "tooling/vscode-extension": {
       "ignore": ["fixtures/**"]
