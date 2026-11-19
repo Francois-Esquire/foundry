@@ -13,12 +13,14 @@ test("mounting and restarting the splash story preserves the workshop", async ()
     const { renderer } = ui;
     const canvas = new BoxRenderable(renderer, { width: "100%", height: "100%" });
     renderer.root.add(canvas);
+    const sidebar = new BoxRenderable(renderer);
+    renderer.root.add(sidebar);
     const initialListeners = renderer.keyInput.listenerCount("keypress");
 
     try {
       for (let visit = 0; visit < 2; visit += 1) {
         const story = await Ready.render(renderer);
-        assert.equal(canvas.parent === renderer.root, true, "workshop stays mounted");
+        assert.deepEqual(renderer.root.getChildren(), [canvas, sidebar], "workshop stays mounted in order");
         canvas.add(story);
         await ui.renderOnce();
         assert.match(ui.captureCharFrame(), /Press Enter to enter/);
@@ -26,6 +28,14 @@ test("mounting and restarting the splash story preserves the workshop", async ()
         story.destroyRecursively();
         assert.equal(renderer.keyInput.listenerCount("keypress"), initialListeners);
       }
+
+      const stale = await Ready.render(renderer);
+      const current = await Ready.render(renderer);
+      canvas.add(current);
+      stale.destroyRecursively();
+      await ui.renderOnce();
+      assert.match(ui.captureCharFrame(), /Press Enter to enter/);
+      assert.equal(renderer.keyInput.listenerCount("keypress"), initialListeners + 1);
     } finally {
       renderer.destroy();
     }

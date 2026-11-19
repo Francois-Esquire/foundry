@@ -26,19 +26,27 @@ function createStoryMount(renderer: CliRenderer) {
 
   class StoryBox extends BoxRenderable {
     override destroyRecursively() {
-      if (current?.box === this) {
-        current = null;
-        flushSync(() => notify?.());
+      try {
+        if (current?.box === this) {
+          current = null;
+          flushSync(() => notify?.());
+        }
+      } finally {
+        super.destroyRecursively();
       }
-      super.destroyRecursively();
     }
   }
 
   const workshopChildren = renderer.root.getChildren();
   const root = createRoot(renderer);
-  flushSync(() => root.render(<StoryPortal />));
-  for (const child of workshopChildren) {
-    renderer.root.add(child);
+  try {
+    flushSync(() => root.render(<StoryPortal />));
+  } finally {
+    for (const child of workshopChildren) {
+      if (child.parent !== renderer.root) {
+        renderer.root.add(child);
+      }
+    }
   }
 
   return (content: ReactNode) => {
