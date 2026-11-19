@@ -22,9 +22,6 @@ import type { discoverProviderSetup } from "~/workspace/provider-setup";
 import type { SetupDraft } from "~/workspace/templates";
 
 const ROUTINE_STATUS = new Set([
-  "Marbles loaded",
-  "Marbles ready",
-  "Marbles running",
   "Ready · no triggers configured",
   "Watching triggers",
 ]);
@@ -35,7 +32,7 @@ interface HostActions {
   readonly rollSchedule?: (key: string) => Promise<void>;
   readonly runs: RunActions;
   readonly settings?: (changes: SettingsChange) => Promise<void>;
-  readonly switchWorkspace?: (id?: string) => void;
+  readonly switchWorkspace?: (id: string) => void;
 }
 
 interface Screen {

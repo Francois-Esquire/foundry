@@ -276,7 +276,7 @@ test("Settings is read-only where the host cannot save, and says why a file was 
     ...dashboardSnapshot,
     settings: {
       path: "/tmp/settings.json",
-      problem: "/tmp/settings.json is not valid JSON; using defaults",
+      problem: "Settings file is not valid JSON; using defaults",
       theme: "dark",
     },
   });
@@ -284,6 +284,7 @@ test("Settings is read-only where the host cannot save, and says why a file was 
   const frame = ui.captureCharFrame();
   expect(frame).toContain("read-only here");
   expect(frame).toContain("Settings file is not valid JSON");
+  expect(frame).toContain("/tmp/settings.json");
   expect(frame).toContain("defaults");
   await press(ui, "ARROW_RIGHT");
   expect(ui.captureCharFrame()).toContain("Theme: Dark");

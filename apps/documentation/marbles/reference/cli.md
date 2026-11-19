@@ -240,8 +240,9 @@ the workspace and posts a setup milestone to the Feed. Use
 | Key | Action |
 | --- | --- |
 | Shift+D / C / F | Show Dashboard, Catalog, or Feed |
-| `d`, Shift+S | Open Diagnostics or Settings. Esc closes the panel |
+| `d` / Shift+L, Shift+S | Open Diagnostics or Settings. From a run inspector, `d` opens that run's logs. Shift+L opens logs across runs. Esc closes the panel |
 | `r` on a schedule | Run the selected schedule now |
+| `v` in trigger details | Show or hide its configuration when available |
 | 1 / 2 / 3, Tab, `m` | Focus Triggers, Marbles, or Runs |
 | ↑ / ↓, Enter, Esc | Select rows, open details, return |
 | ← / →, Space | Collapse or expand run branches; change inspector tab |
@@ -275,7 +276,7 @@ does not know. Under `--dry-run` theme changes are read-only.
 
 Settings includes a scrollable picker for the bundled
 [termCN OpenTUI themes](https://www.termcn.dev/docs/theming/opentui) and
-the original `dark` and `light` palettes. Use
+the original `dark` and `light` palettes. The bundled `default` theme is a termCN palette. Marbles starts with `dark` when no preference is saved. Use
 `marbles settings themes` to list the theme names, `marbles settings get theme`
 to see the saved theme, or `marbles settings set theme opencode` to change it
 from the command line. Reopen an existing dashboard to pick up a CLI change.

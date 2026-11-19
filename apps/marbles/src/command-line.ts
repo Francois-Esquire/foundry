@@ -489,7 +489,7 @@ function terminalSettings(args: ArgsOf<"settings">): void {
   }
   const loaded = loadSettings(path);
   if (loaded.problem) {
-    diagnose(loaded.problem);
+    diagnose(`${loaded.problem} (${loaded.path})`);
   }
   print(loaded.settings.theme);
 }

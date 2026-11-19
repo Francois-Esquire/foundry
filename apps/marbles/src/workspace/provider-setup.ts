@@ -24,36 +24,43 @@ interface ProviderSetupOptions extends DiscoveryOptions {
 
 export async function discoverProviderSetup(options: DiscoveryOptions) {
   const plugins = options.plugins ?? FIRST_PARTY_PLUGINS;
-  const configuration = new ProviderConfiguration({
-    environment: { machine: environmentSnapshot(), workspace: {} },
-    models: new ModelManager(),
-    plugins,
-    store: DatabaseProviderStore.forState(options.state),
-    ...(options.workspace ? { workspace: options.workspace } : {}),
-  });
-  await configuration.read();
-  const { configured } = configuration;
-  const detected =
-    configured && !options.recheck
-      ? []
-      : configuration.propose().filter((entry) => entry.scope === "machine");
-  const proposed = detected.filter((entry) => entry.taken === undefined);
-  const reserved = detected.filter((entry) => entry.taken !== undefined);
-  return {
-    configured,
-    offered: proposed.map(({ id, plugin }) => ({
-      id,
-      label: plugins.find((candidate) => candidate.id === plugin)?.label,
-    })),
-    reserved,
-    async save() {
-      try {
-        return await save(configuration, proposed);
-      } finally {
-        await configuration.dispose();
-      }
-    },
-  };
+  const configure = () =>
+    new ProviderConfiguration({
+      environment: { machine: environmentSnapshot(), workspace: {} },
+      models: new ModelManager(),
+      plugins,
+      store: DatabaseProviderStore.forState(options.state),
+      ...(options.workspace ? { workspace: options.workspace } : {}),
+    });
+  const discovery = configure();
+  try {
+    await discovery.read();
+    const { configured } = discovery;
+    const detected =
+      configured && !options.recheck
+        ? []
+        : discovery.propose().filter((entry) => entry.scope === "machine");
+    const proposed = detected.filter((entry) => entry.taken === undefined);
+    return {
+      configured,
+      offered: proposed.map(({ id, plugin }) => ({
+        id,
+        label: plugins.find((candidate) => candidate.id === plugin)?.label,
+      })),
+      reserved: detected.filter((entry) => entry.taken !== undefined),
+      async save() {
+        const configuration = configure();
+        try {
+          await configuration.read();
+          return await save(configuration, proposed);
+        } finally {
+          await configuration.dispose();
+        }
+      },
+    };
+  } finally {
+    await discovery.dispose();
+  }
 }
 
 export async function setupProviders(

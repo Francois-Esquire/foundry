@@ -9,7 +9,11 @@ import {
   operatingStats,
   workflowRankings,
 } from "~/views/operating-model";
-import { costCell } from "~/views/usage-format";
+import {
+  costCell,
+  unattributedTurns,
+  unreadableUsageRecords,
+} from "~/views/usage-format";
 import { CostTag } from "./cost-tag";
 
 interface MetricValue {
@@ -138,9 +142,9 @@ function WorkflowRankings({
 
 function metrics(
   snapshot: DashboardSnapshot,
+  { counts, successRate }: ReturnType<typeof operatingStats>,
   compact: boolean
 ): readonly MetricValue[] {
-  const { counts, successRate } = operatingStats(snapshot.runs);
   const { total } = snapshot.usage ?? {};
   const spend = costCell(total);
   const emptySpend = spend ? "Usage incomplete" : "No usage recorded";
@@ -193,14 +197,37 @@ export function DashboardMetrics({
   readonly height: number;
 }) {
   const stacked = width < 68 && height >= 22;
-  const cards = metrics(snapshot, !stacked && width < 106);
+  const stats = operatingStats(snapshot.runs);
+  const cards = metrics(snapshot, stats, !stacked && width < 106);
   const rows = stacked ? [cards.slice(0, 2), cards.slice(2)] : [cards];
   const limit = height >= 30 ? 3 : 2;
+  const { medianRunMs, medianQueueMs } = stats;
+  const { usage } = snapshot;
+  const notes = [
+    ...(medianRunMs === undefined
+      ? []
+      : [`Median run ${duration(medianRunMs)}`]),
+    ...(medianQueueMs === undefined
+      ? []
+      : [`Median wait ${duration(medianQueueMs)}`]),
+    ...(usage?.unreadable
+      ? [`${unreadableUsageRecords(usage.unreadable)}, totals partial`]
+      : []),
+    ...(usage?.recovered
+      ? [`${usage.recovered} turns recovered from transcripts`]
+      : []),
+    ...(usage?.unattributed
+      ? [`${unattributedTurns(usage.unattributed)}`]
+      : []),
+    ...(usage?.unsaved
+      ? [`${usage.unsaved} unsaved turn${usage.unsaved === 1 ? "" : "s"}`]
+      : []),
+  ];
   return (
     <box
       flexDirection="column"
       flexShrink={0}
-      gap={1}
+      gap={notes.length > 0 ? 0 : 1}
       paddingTop={height >= 26 ? 1 : 0}
     >
       {rows.map((row) => (
@@ -210,6 +237,11 @@ export function DashboardMetrics({
           ))}
         </box>
       ))}
+      {notes.length > 0 && (
+        <text fg={theme.colors.mutedForeground} marginLeft={1} wrapMode="word">
+          {notes.join(" · ")}
+        </text>
+      )}
       {width >= 64 && height >= 22 && (
         <WorkflowRankings limit={limit} snapshot={snapshot} width={width} />
       )}

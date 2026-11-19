@@ -24,6 +24,14 @@ export interface TriggerSnapshot {
   readonly workspace?: OwnerWorkspace;
 }
 
+export function canRunSchedule(trigger: TriggerSnapshot): boolean {
+  return (
+    trigger.kind === "schedule" &&
+    trigger.status !== "paused" &&
+    trigger.workspace === undefined
+  );
+}
+
 export interface OwnerWorkspace {
   readonly id: string;
   readonly name: string;

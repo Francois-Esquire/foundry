@@ -183,18 +183,24 @@ async function openTestCli(
   home: TestHome,
   config: string,
   flags: readonly string[] = ["--dry-run"],
-  cwd?: string
+  cwd?: string,
+  detectCodex = true
 ) {
   const bin = join(dirname(config), "test-bin");
-  mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 1\n");
-  chmodSync(join(bin, "codex"), 0o755);
+  if (detectCodex) {
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(bin, "codex"), 0o755);
+  }
   let output = "";
   const child = spawn(
     [process.execPath, resolve("src/cli.ts"), ...flags, "--config", config],
     {
       cwd,
-      env: { ...home.env, PATH: `${bin}:${home.env.PATH}` },
+      env: {
+        ...home.env,
+        PATH: detectCodex ? `${bin}:${home.env.PATH}` : "/usr/bin:/bin",
+      },
       terminal: {
         cols: 100,
         data(_terminal, bytes) {
@@ -274,6 +280,48 @@ test("first-run provider setup precedes workspace setup, preserves dry runs, and
     rmSync(dir, { force: true, recursive: true });
   }
 }, 30_000);
+
+test("a corrupt settings file lets an unconfigured terminal continue and reopen", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "marbles-corrupt-settings-"));
+  const home = testHome({ providers: false });
+  const { state } = home.layout;
+  const settings = join(state, "settings.json");
+  const config = join(dir, "marbles.config.ts");
+  mkdirSync(state, { recursive: true });
+  writeFileSync(settings, "{not json");
+  writeFileSync(config, "export {};");
+
+  try {
+    const first = await openTestCli(home, config, [], dir, false);
+    try {
+      await first.see("No machine-wide providers are available");
+      await first.send("\r");
+      await first.see("Open this workspace");
+      await first.send("\r");
+      await first.see("Press Enter to enter", 0, STARTUP_MS);
+      await first.send("\r");
+      await first.see("Dashboard");
+      await first.send("q");
+      await first.see("Quit Marbles?");
+      await first.send("\x1b");
+      await first.send("S");
+      await first.see("is not valid JSON");
+    } finally {
+      await first.dispose();
+    }
+
+    const reopened = await openTestCli(home, config, [], dir, false);
+    try {
+      await reopened.see("Press Enter to enter", 0, STARTUP_MS);
+      expect(reopened.output()).not.toContain("Set up model providers");
+      expect(readFileSync(settings, "utf8")).toBe("{not json");
+    } finally {
+      await reopened.dispose();
+    }
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 75_000);
 
 test("an initialized machine welcomes a new workspace and can recheck providers without replacing them", async () => {
   const dir = mkdtempSync("/tmp/mb-onboarding-");

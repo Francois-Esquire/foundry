@@ -10,6 +10,7 @@ import {
   capturesKeys,
   commandFor,
   footer,
+  openDiagnostics,
 } from "./dashboard-commands";
 import {
   type DashboardSelection,
@@ -41,9 +42,7 @@ import { type AnswerHandler, useFeed } from "./use-feed";
 import { showsOthers, workspaceScoped } from "./workspace-scope";
 
 export interface HostedWorkspace {
-  readonly count: number;
   readonly error?: string;
-  readonly position: number;
   readonly state: WorkspaceState;
   readonly workspaces?: readonly WorkspaceSummary[];
 }
@@ -57,7 +56,7 @@ export interface DashboardOptions {
   readonly onRollSchedule?: (key: string) => Promise<void>;
   readonly onSettings?: (changes: SettingsChange) => Promise<void>;
   readonly onShortcut?: (key: KeyEvent) => void;
-  readonly onSwitchWorkspace?: (id?: string) => void;
+  readonly onSwitchWorkspace?: (id: string) => void;
   readonly onWorkspaceRail?: (show: boolean) => void;
   readonly snapshot: DashboardSnapshot;
   readonly workspaceRail?: boolean;
@@ -93,17 +92,7 @@ export function useDashboard({
   snapshot: whole,
 }: DashboardOptions) {
   const [everywhere, setEverywhere] = useState(false);
-  const [picker, setPicker] = useState<string>();
   const workspaces = hosted?.workspaces ?? [];
-  const openWorkspaces = () => {
-    setPicker(whole.workspaceId ?? workspaces[0]?.id ?? "");
-  };
-  function chooseWorkspace(id: string) {
-    setPicker(undefined);
-    if (id !== whole.workspaceId) {
-      onSwitchWorkspace?.(id);
-    }
-  }
   const snapshot = workspaceScoped(whole, everywhere);
   const [state, setState] = useState(() => {
     const initial = initialState(snapshot);
@@ -113,6 +102,18 @@ export function useDashboard({
   });
   const send = (event: DashboardEvent) =>
     setState((previous) => reduce(previous, event, snapshot));
+  const openWorkspaces = () => {
+    const id = whole.workspaceId ?? workspaces[0]?.id;
+    if (id !== undefined) {
+      send({ id, type: "picker" });
+    }
+  };
+  function chooseWorkspace(id: string) {
+    send({ type: "picker" });
+    if (id !== whole.workspaceId && workspaces.some((item) => item.id === id)) {
+      onSwitchWorkspace?.(id);
+    }
+  }
   const feed = useFeed(
     snapshot.feed,
     snapshot.workspaceId,
@@ -122,6 +123,7 @@ export function useDashboard({
   const quit = useQuitGuard(onClose);
   const control = useAsyncAction();
   const starting = useAsyncAction();
+  const schedule = useAsyncAction();
   const resolved = resolveSelection(snapshot, state.selected);
   const form = onLaunch
     ? snapshot.definitions.find((item) => item.id === state.launching)
@@ -144,7 +146,7 @@ export function useDashboard({
 
   function rollSchedule(id: string) {
     if (onRollSchedule) {
-      starting.run(() => onRollSchedule(id));
+      schedule.run(() => onRollSchedule(id));
     }
   }
 
@@ -186,29 +188,14 @@ export function useDashboard({
       : {}),
     canToggleRail: workspaces.length > 0 && onWorkspaceRail !== undefined,
     state,
-    workspaces: { everywhere, others: showsOthers(whole) },
+    workspaces: {
+      everywhere,
+      ids: workspaces.map(({ id }) => id),
+      others: showsOthers(whole),
+    },
   };
-  function handleWorkspaceKey(key: KeyEvent, highlighted: string) {
-    if (key.name === "escape" || key.name === "w") {
-      setPicker(undefined);
-    } else if (key.name === "up" || key.name === "down") {
-      const index = workspaces.findIndex((item) => item.id === highlighted);
-      const by = key.name === "up" ? -1 : 1;
-      const next =
-        workspaces[(index + by + workspaces.length) % workspaces.length];
-      if (next) {
-        setPicker(next.id);
-      }
-    } else if (key.name === "return" || key.name === "enter") {
-      chooseWorkspace(highlighted);
-    }
-  }
   useKeyboard((key) => {
     if (form !== undefined || quit.handleKey(key)) {
-      return;
-    }
-    if (picker !== undefined) {
-      handleWorkspaceKey(key, picker);
       return;
     }
     const command = commandFor(key, context);
@@ -219,11 +206,12 @@ export function useDashboard({
       {
         ...context,
         act: control.run,
+        chooseWorkspace,
         launch,
+        openWorkspaces,
         quit: quit.ask,
         rollSchedule,
         send,
-        switchWorkspace: openWorkspaces,
         toggleRail: () => onWorkspaceRail?.(!workspaceRail),
         toggleWorkspaces: () => setEverywhere((all) => !all),
       },
@@ -241,8 +229,6 @@ export function useDashboard({
     },
     chooseWorkspace,
     clearFilters: () => send({ type: "clear-filters" }),
-    closeUtility: () => send({ type: "close-utility" }),
-    closeWorkspaces: () => setPicker(undefined),
     control,
     feed,
     filterRuns: (filter: CatalogSelection) => send({ filter, type: "filter" }),
@@ -251,7 +237,7 @@ export function useDashboard({
     form,
     goHome: () => send({ type: "home" }),
     inputActive:
-      picker !== undefined ||
+      state.picker !== undefined ||
       state.searching ||
       state.help ||
       quit.quitting ||
@@ -263,6 +249,7 @@ export function useDashboard({
     log,
     logs,
     logTotal: allLogs.length,
+    openDiagnostics: () => openDiagnostics({ ...context, send }),
     openLog: (entry: OperatingLogEntry) => {
       if (entry.runId === undefined) {
         setState((previous) => selectLog(previous, snapshot, entry));
@@ -272,10 +259,10 @@ export function useDashboard({
     },
     openWorkspaces,
     pane: paneOf(state),
-    picker,
     quit,
     resolved,
     rollSchedule,
+    schedule,
     setDraft: (value: string) => send({ type: "draft", value }),
     setQuery: (value: string) => send({ type: "query", value }),
     setView: (view: DashboardViewKey) => send({ type: "view", view }),
@@ -286,6 +273,7 @@ export function useDashboard({
     submitPrompt,
     toggle: (selection: DashboardSelection) =>
       send({ selection, type: "toggle" }),
+    toggleConfiguration: () => send({ type: "configuration" }),
     workspaces,
   };
 }

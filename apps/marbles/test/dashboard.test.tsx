@@ -55,20 +55,18 @@ test("opens a workspace picker from the header and switches directly to the sele
   const ui = await mount(
     <DashboardView
       hosted={{
-        count: 2,
-        position: 1,
         state: "ready",
         workspaces: [
           {
             config: null,
             id: "foundry",
-            root: "/code/foundry",
+            root: "/Users/someone/code/alpha/foundry",
             state: "ready",
           },
           {
             config: null,
             id: "spyglass",
-            root: "/code/spyglass",
+            root: "/Users/someone/code/beta/foundry",
             state: "reloading",
           },
         ],
@@ -83,17 +81,28 @@ test("opens a workspace picker from the header and switches directly to the sele
   expect(header).toContain("Dashboard");
   expect(header).not.toMatch(UTILITY_LABEL);
   await press(ui, "S");
-  await press(ui, "W");
+  await act(async () => ui.mockInput.pressKey("w", { shift: true }));
+  await flush(ui);
   await press(ui, "ESCAPE");
   expect(
     ui.renderer.root.findDescendantById("panel:workspace-rail")
   ).toBeDefined();
+  const rail = ui.captureCharFrame();
+  expect(rail).toContain("alpha/foundry");
+  expect(rail).toContain("beta/foundry");
+  expect(rail).toContain("current ready");
   await click(ui, "nav:workspaces");
   const picker = ui.captureCharFrame();
-  expect(picker).toContain("reloading");
+  expect(picker).toContain("beta/foundry reloading");
   expect(picker).toContain("Needs attention");
   expect(picker).toContain("Tracked spend");
   expect(picker.match(WORKSPACE_PICKER_BORDER)).toHaveLength(1);
+  await press(ui, "?");
+  expect(ui.captureCharFrame()).toContain("Keyboard help");
+  await press(ui, "ESCAPE");
+  await press(ui, "q");
+  expect(ui.captureCharFrame()).toContain("Quit");
+  await press(ui, "ESCAPE");
   await press(ui, "ARROW_DOWN");
   await press(ui, "RETURN");
   expect(chosen).toEqual(["spyglass"]);
@@ -131,6 +140,28 @@ test("composes an operating overview with runs, and a separate typed catalog", a
   expect(catalog).not.toContain("3 Runs");
 });
 
+test("shows each workspace usage caveat on Dashboard", async () => {
+  const { usage } = dashboardSnapshot;
+  if (!usage) {
+    throw new Error("Missing usage fixture");
+  }
+  const ui = await render({
+    ...dashboardSnapshot,
+    usage: {
+      ...usage,
+      recovered: 2,
+      unattributed: 1,
+      unreadable: 1,
+      unsaved: 1,
+    },
+  });
+  const frame = ui.captureCharFrame();
+  expect(frame).toContain("1 unreadable usage record, totals partial");
+  expect(frame).toContain("turns recovered from transcripts");
+  expect(frame).toContain("1 unattributed turn");
+  expect(frame).toContain("1 unsaved turn");
+});
+
 test("ranks tracked spend and elapsed time above the run tree", async () => {
   const { usage } = dashboardSnapshot;
   if (!usage) {
@@ -158,6 +189,8 @@ test("ranks tracked spend and elapsed time above the run tree", async () => {
   expect(frame).toContain("Write changes running 18s [~$0.0302]");
   expect(frame).toContain("failed  3s · run-103");
   expect(frame).toMatch(REVIEW_TIME);
+  expect(frame).toContain("Median run");
+  expect(frame).toContain("Median wait");
   expect(frame).not.toMatch(STEP_TIME);
   await act(async () => ui.renderer.resize(80, 24));
   await flush(ui);
@@ -205,17 +238,47 @@ test("clicking a catalog row shows its target and next scheduled time", async ()
   expect(ui.captureCharFrame()).toMatch(TARGET_NAME);
 });
 
+test("v toggles trigger configuration and changes only the log level in Diagnostics", async () => {
+  const ui = await render();
+  await click(ui, "view:catalog");
+  await click(ui, "trigger:daily");
+  expect(ui.captureCharFrame()).toContain("v Show configuration");
+  await press(ui, "v");
+  expect(ui.captureCharFrame()).toContain('"time": "17:00"');
+  await press(ui, "d");
+  expect(ui.captureCharFrame()).toContain("level debug+");
+  await press(ui, "v");
+  expect(ui.captureCharFrame()).toContain("level info+");
+  await press(ui, "ESCAPE");
+  expect(ui.captureCharFrame()).toContain('"time": "17:00"');
+  await press(ui, "v");
+  expect(ui.captureCharFrame()).not.toContain('"time": "17:00"');
+});
+
 test("keeps the schedule list beside its inspector and rolls the selected schedule", async () => {
   const rolled: string[] = [];
+  const pending = Promise.withResolvers<void>();
+  const launched: string[] = [];
   const roll = (id: string) => {
     rolled.push(id);
-    return Promise.resolve();
+    return pending.promise;
   };
+  async function launch(id: string) {
+    launched.push(id);
+    return "new-run";
+  }
   const ui = await mount(
     <DashboardView
       onClose={close}
+      onLaunch={launch}
       onRollSchedule={roll}
-      snapshot={dashboardSnapshot}
+      snapshot={{
+        ...dashboardSnapshot,
+        definitions: dashboardSnapshot.definitions.map((item) => ({
+          ...item,
+          input: { fields: [], required: false },
+        })),
+      }}
     />,
     { height: 40, width: 120 }
   );
@@ -236,23 +299,92 @@ test("keeps the schedule list beside its inspector and rolls the selected schedu
   expect(rolled).toEqual(["daily"]);
   await press(ui, "ESCAPE");
   expect(ui.captureCharFrame()).not.toContain("Schedule / daily-summary");
+  await press(ui, "2");
+  await press(ui, "l");
+  expect(launched).toHaveLength(1);
+  pending.resolve();
 });
 
-test("Diagnostics from a run opens on that run and Escape restores the inspector", async () => {
-  const ui = await render();
-  await press(ui, "RETURN");
-  await press(ui, "d");
-  const frame = ui.captureCharFrame();
-  expect(frame).toContain("Run run-104 · x clear");
-  expect(frame).not.toContain("[agents] no list price");
-  expect(ui.renderer.root.findDescendantById("panel:details")).toBeUndefined();
-  expect(frame.split("\n").filter((line) => line.includes("╮"))).toHaveLength(
-    1
-  );
-  await press(ui, "ESCAPE");
-  expect(ui.captureCharFrame()).toContain("Run / update-documentation");
-  expect(ui.captureCharFrame()).not.toContain("Logs · runs and Marbles");
-});
+test.each(["keyboard", "click"] as const)(
+  "Run now through %s is available only for an enabled managed schedule",
+  async (interaction) => {
+    const rolled: string[] = [];
+    async function roll(id: string) {
+      rolled.push(id);
+    }
+    for (const status of ["waiting", "paused"] as const) {
+      const ui = await mount(
+        <DashboardView
+          onClose={close}
+          onRollSchedule={roll}
+          snapshot={{
+            ...dashboardSnapshot,
+            triggers: [
+              {
+                description: "Scheduled agent work",
+                id: "managed-trigger",
+                kind: "schedule",
+                managed: true,
+                name: "Daily checks",
+                status,
+                targetId: "summarize-day",
+              },
+            ],
+          }}
+        />
+      );
+      await click(ui, "view:catalog");
+      await click(ui, "trigger:managed-trigger");
+      const runNow = ui.renderer.root.findDescendantById("schedule:run");
+      const footerOffersRun = ui.captureCharFrame().includes("r run now");
+      if (interaction === "keyboard") {
+        await press(ui, "r");
+      } else if (runNow) {
+        await click(ui, "schedule:run");
+      }
+      expect(rolled.splice(0)).toEqual(
+        status === "waiting" ? ["managed-trigger"] : []
+      );
+      expect(footerOffersRun).toBe(status === "waiting");
+      expect(Boolean(runNow)).toBe(status === "waiting");
+    }
+  }
+);
+
+test.each(["keyboard", "click"] as const)(
+  "Diagnostics via %s scopes to the inspected run and Escape restores the inspector",
+  async (interaction) => {
+    const ui = await render();
+    await press(ui, "L");
+    await press(ui, "v");
+    await press(ui, "o");
+    await press(ui, "ESCAPE");
+    await press(ui, "RETURN");
+    if (interaction === "keyboard") {
+      await press(ui, "d");
+    } else {
+      await click(ui, "view:logs");
+    }
+    const frame = ui.captureCharFrame();
+    expect(frame).toContain("Run run-104 · x clear");
+    expect(frame).toContain("level info+ · source run");
+    expect(frame).not.toContain("[agents] no list price");
+    expect(
+      ui.renderer.root.findDescendantById("panel:details")
+    ).toBeUndefined();
+    expect(frame.split("\n").filter((line) => line.includes("╮"))).toHaveLength(
+      1
+    );
+    await press(ui, "d");
+    expect(ui.captureCharFrame()).toContain("Run run-104 · x clear");
+    await press(ui, "ESCAPE");
+    expect(ui.captureCharFrame()).toContain("Run / update-documentation");
+    expect(ui.captureCharFrame()).not.toContain("Logs · runs and Marbles");
+    await press(ui, "L");
+    expect(ui.captureCharFrame()).not.toContain("Run run-104 · x clear");
+    expect(ui.captureCharFrame()).toContain("level info+ · source run");
+  }
+);
 
 test("Settings reserves a column beside Feed and gives the full frame back on Escape", async () => {
   const ui = await render();

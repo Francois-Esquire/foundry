@@ -64,9 +64,14 @@ export function SettingsBlock({
             )}
           </box>
           {settings.problem && (
-            <text fg={theme.colors.warning} wrapMode="word">
-              {settings.problem.replace(`${settings.path} `, "Settings file ")}
-            </text>
+            <box flexDirection="column">
+              <text fg={theme.colors.warning} wrapMode="word">
+                {settings.problem}
+              </text>
+              <text fg={theme.colors.mutedForeground} wrapMode="word">
+                {settings.path}
+              </text>
+            </box>
           )}
           <Text>Applies to all workspaces</Text>
           <box flexDirection="row" gap={1}>

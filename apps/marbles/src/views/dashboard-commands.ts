@@ -1,3 +1,4 @@
+import { canRunSchedule } from "~/model/dashboard";
 import { isPaused, isTerminal } from "~/model/run-status";
 import {
   type SettingsChange,
@@ -69,17 +70,19 @@ export interface CommandContext {
   readonly state: DashboardState;
   readonly workspaces: {
     readonly everywhere: boolean;
+    readonly ids: readonly string[];
     readonly others: boolean;
   };
 }
 
 interface CommandEffects {
   readonly act: (work: () => Promise<void>) => void;
+  readonly chooseWorkspace: (id: string) => void;
   readonly launch: (definitionId: string) => void;
+  readonly openWorkspaces: () => void;
   readonly quit: () => void;
   readonly rollSchedule?: (key: string) => void;
   readonly send: (event: DashboardEvent) => void;
-  readonly switchWorkspace: () => void;
   readonly toggleRail?: () => void;
   readonly toggleWorkspaces: () => void;
 }
@@ -93,6 +96,7 @@ const SECTIONS = [
   "Logs",
   "Feed",
   "Settings",
+  "Workspaces",
   "Typing",
   "Forms",
 ] as const;
@@ -103,6 +107,7 @@ interface Described {
   readonly key: string;
   readonly label?: string | ((context: CommandContext) => string);
   readonly lasting?: boolean;
+  readonly priority?: boolean;
   readonly section: Section;
 }
 
@@ -127,7 +132,12 @@ function isBinding(command: Command): command is Binding {
 const CHOICE_KEY = /^[1-9]$/;
 
 function answering(context: CommandContext): boolean {
-  return context.state.view === "feed" && context.feed.answer.typing;
+  return (
+    context.state.view === "feed" &&
+    context.state.drawer === undefined &&
+    context.state.picker === undefined &&
+    context.feed.answer.typing
+  );
 }
 
 function writing(context: CommandContext): boolean {
@@ -135,11 +145,17 @@ function writing(context: CommandContext): boolean {
 }
 
 export function capturesKeys(context: CommandContext): boolean {
-  return writing(context) || context.state.help || context.state.searching;
+  return (
+    writing(context) ||
+    context.state.help ||
+    context.state.searching ||
+    context.state.picker !== undefined
+  );
 }
 
 function onDashboard(context: CommandContext): boolean {
   return (
+    context.state.drawer === undefined &&
     isBrowserView(context.state.view) &&
     !context.state.breakdown &&
     !capturesKeys(context)
@@ -148,6 +164,7 @@ function onDashboard(context: CommandContext): boolean {
 
 function inBreakdown(context: CommandContext): boolean {
   return (
+    context.state.drawer === undefined &&
     context.state.view === "overview" &&
     context.state.breakdown &&
     !capturesKeys(context)
@@ -155,11 +172,11 @@ function inBreakdown(context: CommandContext): boolean {
 }
 
 function onLogs(context: CommandContext): boolean {
-  return context.state.view === "logs" && !capturesKeys(context);
+  return context.state.drawer === "logs" && !capturesKeys(context);
 }
 
 function onSettings(context: CommandContext): boolean {
-  return context.state.view === "settings" && !capturesKeys(context);
+  return context.state.drawer === "settings" && !capturesKeys(context);
 }
 
 function nextTheme(context: CommandContext, by: number) {
@@ -176,11 +193,29 @@ function nextTheme(context: CommandContext, by: number) {
 }
 
 function onFeed(context: CommandContext): boolean {
-  return context.state.view === "feed" && !capturesKeys(context);
+  return (
+    context.state.view === "feed" &&
+    context.state.drawer === undefined &&
+    !capturesKeys(context)
+  );
 }
 
 function inDetails(context: CommandContext): boolean {
   return onDashboard(context) && context.state.inspecting;
+}
+
+export function openDiagnostics(
+  dashboard: CommandContext & Pick<CommandEffects, "send">
+): void {
+  if (onLogs(dashboard)) {
+    return;
+  }
+  const { resolved } = dashboard;
+  dashboard.send(
+    inDetails(dashboard) && resolved.kind === "run"
+      ? { id: resolved.run.id, type: "log-run" }
+      : { type: "view", view: "logs" }
+  );
 }
 
 function inList(context: CommandContext, pane?: BrowserPane): boolean {
@@ -275,6 +310,15 @@ function viewShortcut(key: KeyPress): DashboardViewKey | undefined {
     : undefined;
 }
 
+function workspaceShortcut(key: KeyPress, shifted: boolean): boolean {
+  const letter = key.name === "w" || key.sequence === "W";
+  return letter && (key.shift || key.sequence === "W") === shifted;
+}
+
+function onPicker(context: CommandContext): boolean {
+  return context.state.picker !== undefined && !context.state.help;
+}
+
 const PANE_KEYS: Readonly<Record<"1" | "2" | "3", BrowserPane>> = {
   1: "trigger",
   2: "definition",
@@ -344,16 +388,7 @@ const COMMANDS: readonly Command[] = [
     help: "Open Diagnostics",
     key: "d",
     keys: ["d"],
-    run: (dashboard) => {
-      const { resolved } = dashboard;
-      dashboard.send(
-        dashboard.state.inspecting &&
-          isBrowserView(dashboard.state.view) &&
-          resolved.kind === "run"
-          ? { id: resolved.run.id, type: "log-run" }
-          : { type: "view", view: "logs" }
-      );
-    },
+    run: openDiagnostics,
     section: "Anywhere",
     when: (context) => !capturesKeys(context),
   },
@@ -362,6 +397,7 @@ const COMMANDS: readonly Command[] = [
     key: "r on a schedule",
     keys: ["r"],
     label: "r run now",
+    priority: true,
     run: ({ resolved, rollSchedule }) => {
       if (resolved.kind === "trigger") {
         rollSchedule?.(resolved.trigger.id);
@@ -373,8 +409,7 @@ const COMMANDS: readonly Command[] = [
         context.canRollSchedule &&
           inDetails(context) &&
           context.resolved.kind === "trigger" &&
-          context.resolved.trigger.kind === "schedule" &&
-          context.resolved.trigger.workspace === undefined
+          canRunSchedule(context.resolved.trigger)
       ),
   },
   {
@@ -392,7 +427,8 @@ const COMMANDS: readonly Command[] = [
     keys: ["h"],
     run: (dashboard) => dashboard.send({ type: "home" }),
     section: "Anywhere",
-    when: (context) => !(writing(context) || context.state.searching),
+    when: (context) =>
+      !(writing(context) || context.state.searching || onPicker(context)),
   },
 
   {
@@ -410,6 +446,7 @@ const COMMANDS: readonly Command[] = [
     key: "Enter",
     keys: ["return", "enter", "right", "tab"],
     label: "Enter read",
+    priority: true,
     run: (dashboard) => dashboard.feed.read(),
     section: "Feed",
     when: feedList,
@@ -435,6 +472,7 @@ const COMMANDS: readonly Command[] = [
     key: "1-9",
     keys: (key) => CHOICE_KEY.test(key.sequence),
     label: (context) => `1-${context.feed.answer.choices.length} answer`,
+    priority: true,
     run: (dashboard, key) => {
       const choice = dashboard.feed.answer.choices[Number(key.sequence) - 1];
       if (choice !== undefined) {
@@ -462,18 +500,26 @@ const COMMANDS: readonly Command[] = [
   {
     help: "Cycle the Feed workspace filter (Shift+W when hosted)",
     key: "w / Shift+W",
-    keys: (key) => key.name === "w" || key.sequence === "W",
-    label: (context) =>
-      context.canSwitchWorkspace ? "W feed scope" : "w feed scope",
-    run: (dashboard, key) => {
-      if (dashboard.canSwitchWorkspace && !key.shift && key.sequence !== "W") {
-        dashboard.switchWorkspace();
-      } else {
-        dashboard.feed.cycleScope();
-      }
-    },
+    keys: (key) => workspaceShortcut(key, true),
+    label: "W feed scope",
+    run: (dashboard) => dashboard.feed.cycleScope(),
     section: "Feed",
-    when: (context) => onFeed(context) && context.feed.scopeCount > 1,
+    when: (context) =>
+      onFeed(context) &&
+      context.canSwitchWorkspace &&
+      context.feed.scopeCount > 1,
+  },
+  {
+    key: "w in the standalone Feed",
+    keys: (key) =>
+      workspaceShortcut(key, false) || workspaceShortcut(key, true),
+    label: "w feed scope",
+    run: (dashboard) => dashboard.feed.cycleScope(),
+    section: "Feed",
+    when: (context) =>
+      onFeed(context) &&
+      !context.canSwitchWorkspace &&
+      context.feed.scopeCount > 1,
   },
   {
     help: "Show all workspaces",
@@ -561,6 +607,7 @@ const COMMANDS: readonly Command[] = [
     key: "u",
     keys: ["u"],
     label: "u usage",
+    priority: true,
     run: (dashboard) => dashboard.send({ open: true, type: "breakdown" }),
     section: "Dashboard",
     when: (context) =>
@@ -602,7 +649,7 @@ const COMMANDS: readonly Command[] = [
   {
     help: "Toggle the workspace rail",
     key: "Shift+W in Settings",
-    keys: (key) => key.sequence === "W" || (key.shift && key.name === "w"),
+    keys: (key) => workspaceShortcut(key, true),
     label: "W rail",
     run: (dashboard) => dashboard.toggleRail?.(),
     section: "Settings",
@@ -758,6 +805,7 @@ const COMMANDS: readonly Command[] = [
     key: "s",
     keys: ["s"],
     label: "s steer",
+    priority: true,
     run: (dashboard) => {
       const target = controlled(dashboard);
       if (target) {
@@ -779,6 +827,7 @@ const COMMANDS: readonly Command[] = [
     key: "p",
     keys: ["p"],
     label: "p pause",
+    priority: true,
     run: (dashboard) => {
       const target = controlled(dashboard);
       if (target) {
@@ -792,6 +841,7 @@ const COMMANDS: readonly Command[] = [
     key: "p",
     keys: ["p"],
     label: "p resume",
+    priority: true,
     run: (dashboard) => {
       const target = controlled(dashboard);
       if (target) {
@@ -816,6 +866,7 @@ const COMMANDS: readonly Command[] = [
     key: "k",
     keys: ["k"],
     label: "k cancel",
+    priority: true,
     run: (dashboard) => {
       const target = controlled(dashboard);
       if (target) {
@@ -833,6 +884,7 @@ const COMMANDS: readonly Command[] = [
     key: "k on an activity",
     keys: ["k"],
     label: "k stop activity",
+    priority: true,
     run: (dashboard) => {
       const { actions, resolved } = dashboard;
       const stop = actions?.stopActivity;
@@ -856,6 +908,7 @@ const COMMANDS: readonly Command[] = [
       managedTrigger(context)?.trigger.status === "paused"
         ? "p resume"
         : "p pause",
+    priority: true,
     run: (dashboard) => {
       const managed = managedTrigger(dashboard);
       const toggle = managed?.actions.setTriggerEnabled;
@@ -873,6 +926,7 @@ const COMMANDS: readonly Command[] = [
     key: "k on a trigger",
     keys: ["k"],
     label: "k delete trigger",
+    priority: true,
     run: (dashboard) => {
       const managed = managedTrigger(dashboard);
       const remove = managed?.actions.deleteTrigger;
@@ -936,12 +990,63 @@ const COMMANDS: readonly Command[] = [
     when: onDashboard,
   },
   {
+    help: "Show or hide the selected trigger's configuration",
+    key: "v on a trigger",
+    keys: ["v"],
+    label: (context) =>
+      context.state.configuration
+        ? "v hide configuration"
+        : "v show configuration",
+    run: (dashboard) => dashboard.send({ type: "configuration" }),
+    section: "Dashboard",
+    when: (context) =>
+      inDetails(context) &&
+      context.resolved.kind === "trigger" &&
+      context.resolved.trigger.configuration !== undefined,
+  },
+  {
+    help: "Select a workspace in the picker",
+    key: "↑ / ↓",
+    keys: ["up", "down"],
+    label: "↑↓ select",
+    run: (dashboard, key) =>
+      dashboard.send({
+        by: key.name === "up" ? -1 : 1,
+        ids: dashboard.workspaces.ids,
+        type: "picker-move",
+      }),
+    section: "Workspaces",
+    when: onPicker,
+  },
+  {
+    help: "Switch to the selected workspace",
+    key: "Enter",
+    keys: ["return", "enter"],
+    label: "Enter switch",
+    run: (dashboard) => {
+      if (dashboard.state.picker !== undefined) {
+        dashboard.chooseWorkspace(dashboard.state.picker);
+      }
+    },
+    section: "Workspaces",
+    when: onPicker,
+  },
+  {
+    help: "Close the workspace picker",
+    key: "Esc / w",
+    keys: (key) => key.name === "escape" || workspaceShortcut(key, false),
+    label: "Esc close",
+    run: (dashboard) => dashboard.send({ type: "picker" }),
+    section: "Workspaces",
+    when: onPicker,
+  },
+  {
     help: "Open the workspace picker",
     key: "w",
-    keys: ["w"],
+    keys: (key) => workspaceShortcut(key, false),
     label: "w workspace",
-    run: (dashboard) => dashboard.switchWorkspace(),
-    section: "Dashboard",
+    run: (dashboard) => dashboard.openWorkspaces(),
+    section: "Workspaces",
     when: (context) => !capturesKeys(context) && context.canSwitchWorkspace,
   },
 
@@ -966,7 +1071,7 @@ const COMMANDS: readonly Command[] = [
     lasting: true,
     run: (dashboard) => dashboard.send({ open: true, type: "help" }),
     section: "Anywhere",
-    when: (context) => !capturesKeys(context),
+    when: (context) => onPicker(context) || !capturesKeys(context),
   },
   {
     help: "Ask to quit; Ctrl+C again quits",
@@ -1010,7 +1115,7 @@ export function commandFor(
   );
 }
 
-function labels(context: CommandContext, lasting: boolean): string[] {
+function labels(context: CommandContext, lasting: boolean) {
   return COMMANDS.flatMap((command) => {
     const { label } = command;
     if (label === undefined || Boolean(command.lasting) !== lasting) {
@@ -1019,7 +1124,12 @@ function labels(context: CommandContext, lasting: boolean): string[] {
     if (!command.when?.(context)) {
       return [];
     }
-    return [typeof label === "string" ? label : label(context)];
+    return [
+      {
+        label: typeof label === "string" ? label : label(context),
+        priority: command.priority,
+      },
+    ];
   });
 }
 
@@ -1036,11 +1146,14 @@ function focusName(context: CommandContext): string {
   if (state.searching) {
     return "Type to search";
   }
+  if (state.picker !== undefined) {
+    return "workspaces";
+  }
+  if (state.drawer) {
+    return state.drawer;
+  }
   if (state.view === "feed") {
     return feed.focus === "reader" ? "reader" : "entries";
-  }
-  if (state.view === "logs" || state.view === "settings") {
-    return state.view;
   }
   if (state.breakdown) {
     return "usage";
@@ -1051,13 +1164,12 @@ function focusName(context: CommandContext): string {
   return paneOf(state);
 }
 
-export function footer(context: CommandContext): {
-  readonly hints: string;
-  readonly lasting: string;
-} {
+export function footer(context: CommandContext) {
   return {
-    hints: [focusName(context), ...labels(context, false)].join(" · "),
-    lasting: labels(context, true).join(" · "),
+    hints: { actions: labels(context, false), focus: focusName(context) },
+    lasting: labels(context, true)
+      .map(({ label }) => label)
+      .join(" · "),
   };
 }
 

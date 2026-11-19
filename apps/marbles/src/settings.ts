@@ -36,16 +36,16 @@ function parse(path: string): Parsed {
     }
     return {
       kind: "invalid",
-      problem: `${path} could not be read: ${String(error)}`,
+      problem: `could not be read (${String((error as NodeJS.ErrnoException).code ?? error)})`,
     };
   }
   try {
     const value: unknown = JSON.parse(text);
     return isRecord(value)
       ? { kind: "read", value }
-      : { kind: "invalid", problem: `${path} is not a JSON object` };
+      : { kind: "invalid", problem: "is not a JSON object" };
   } catch {
-    return { kind: "invalid", problem: `${path} is not valid JSON` };
+    return { kind: "invalid", problem: "is not valid JSON" };
   }
 }
 
@@ -57,7 +57,7 @@ export function loadSettings(path: string): LoadedSettings {
   if (parsed.kind === "invalid") {
     return {
       path,
-      problem: `${parsed.problem}; using defaults`,
+      problem: `Settings file ${parsed.problem}; using defaults`,
       settings: DEFAULT_SETTINGS,
     };
   }
@@ -72,7 +72,7 @@ export function loadSettings(path: string): LoadedSettings {
   }
   return {
     path,
-    problem: `unknown theme ${JSON.stringify(theme)} in ${path}; using ${DEFAULT_SETTINGS.theme}`,
+    problem: `unknown theme ${JSON.stringify(theme)}; using ${DEFAULT_SETTINGS.theme}`,
     settings: { ...setup, ...DEFAULT_SETTINGS },
   };
 }
@@ -83,7 +83,9 @@ export function saveSettings(
 ): Settings {
   const parsed = parse(path);
   if (parsed.kind === "invalid") {
-    throw new Error(`${parsed.problem}; fix or remove it to save settings`);
+    throw new Error(
+      `${path} ${parsed.problem}; fix or remove it to save settings`
+    );
   }
   if (changes.theme !== undefined && !isTheme(changes.theme)) {
     throw new Error(`unknown theme ${JSON.stringify(changes.theme)}`);

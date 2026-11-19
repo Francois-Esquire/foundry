@@ -22,13 +22,12 @@ import { PanelShortcuts } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
 import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
-import { ThemeProvider } from "~/components/ui/theme-provider";
 import type { DashboardSnapshot } from "./dashboard-model";
 import { isSelected, triggerSelection } from "./dashboard-model";
 import type { CatalogSelection } from "./dashboard-tree";
 import { FeedView } from "./feed";
 import { LaunchView } from "./launch";
-import { latestActivity } from "./operating-model";
+import { latestActivity, nextSchedule } from "./operating-model";
 import type { RunActions, RunPrompt } from "./run-actions";
 import { type DashboardOptions, useDashboard } from "./use-dashboard";
 
@@ -172,11 +171,13 @@ function BrowserContent({
     ui.pane === "details" ? (
       <DetailsBlock
         active={activePane === "details"}
+        configuration={state.configuration}
         onFilter={ui.filterRuns}
         onInspect={ui.inspect}
         onLaunch={onLaunch}
         onRollSchedule={onRollSchedule}
         onTab={ui.changeTab}
+        onToggleConfiguration={ui.toggleConfiguration}
         resolved={ui.resolved}
         selection={state.selected}
         snapshot={snapshot}
@@ -231,18 +232,7 @@ function BrowserContent({
       catalog
     );
   }
-  const [next] = snapshot.triggers
-    .filter(
-      (trigger) =>
-        trigger.kind === "schedule" &&
-        trigger.next &&
-        trigger.status === "waiting"
-    )
-    .sort(
-      (left, right) =>
-        (left.nextAt ?? Number.MAX_SAFE_INTEGER) -
-        (right.nextAt ?? Number.MAX_SAFE_INTEGER)
-    );
+  const next = nextSchedule(snapshot.triggers);
   return (
     <>
       <DashboardMetrics height={height} snapshot={snapshot} width={width} />
@@ -294,9 +284,10 @@ function DashboardDrawer({
   readonly onRail: (show: boolean) => void;
   readonly editable: boolean;
 }) {
-  const { picker, state, snapshot } = ui;
+  const { state, snapshot } = ui;
+  const { picker } = state;
   let content: ReactNode;
-  const right = picker === undefined && state.view === "settings";
+  const right = picker === undefined && state.drawer === "settings";
   if (picker !== undefined) {
     content = (
       <WorkspacesPanel
@@ -346,13 +337,7 @@ function DashboardDrawer({
       minHeight={0}
       width={docked ? UTILITY_WIDTH : "100%"}
     >
-      <PanelShortcuts.Provider
-        value={
-          picker === undefined
-            ? ui.footer.hints
-            : "↑↓ select · Enter switch · Esc close"
-        }
-      >
+      <PanelShortcuts.Provider value={ui.footer.hints}>
         {content}
       </PanelShortcuts.Provider>
     </box>
@@ -361,20 +346,18 @@ function DashboardDrawer({
 
 function DashboardSurface({
   ui,
-  surface,
   obscured,
   height,
   options,
   width,
 }: {
   readonly ui: DashboardUi;
-  readonly surface: ReturnType<typeof primaryView>;
   readonly obscured: boolean;
   readonly height: number;
   readonly options: DashboardOptions;
   readonly width: number;
 }) {
-  if (surface === "feed") {
+  if (ui.state.view === "feed") {
     return (
       <FeedView
         feed={ui.feed}
@@ -393,7 +376,6 @@ function DashboardSurface({
       ui={{
         ...ui,
         inputActive: ui.inputActive || obscured,
-        state: { ...ui.state, view: surface },
       }}
       width={width}
     />
@@ -416,12 +398,10 @@ function DashboardBody({
   readonly onRail: (show: boolean) => void;
 }) {
   const { state, snapshot } = ui;
-  const surface = primaryView(state);
-  const utility = surface !== state.view;
-  const picker = ui.picker !== undefined;
-  const openingUtility = utility || picker;
+  const picker = state.picker !== undefined;
+  const openingUtility = state.drawer !== undefined || picker;
   const docked =
-    (picker || state.view === "settings") &&
+    (picker || state.drawer === "settings") &&
     width >= UTILITY_WIDTH + UTILITY_REMAINDER + 1;
   const showRail =
     !openingUtility && rail && width >= 94 && ui.workspaces.length > 0;
@@ -443,7 +423,7 @@ function DashboardBody({
       </box>
     );
   }
-  const right = !picker && state.view === "settings";
+  const right = !picker && state.drawer === "settings";
   return (
     <box flexDirection="row" flexGrow={1} gap={docked ? 1 : 0} minHeight={0}>
       {!right && drawer}
@@ -477,7 +457,6 @@ function DashboardBody({
             height={height}
             obscured={openingUtility}
             options={options}
-            surface={surface}
             ui={ui}
             width={surfaceWidth}
           />
@@ -486,12 +465,6 @@ function DashboardBody({
       {right && drawer}
     </box>
   );
-}
-
-function primaryView(state: DashboardUi["state"]) {
-  return state.view === "logs" || state.view === "settings"
-    ? (state.returnView ?? "overview")
-    : state.view;
 }
 
 function DashboardFooter({ ui }: { readonly ui: DashboardUi }) {
@@ -514,7 +487,7 @@ function DashboardFooter({ ui }: { readonly ui: DashboardUi }) {
         <Action
           id="view:logs"
           label="d Diagnostics"
-          onAction={ui.setView}
+          onAction={ui.openDiagnostics}
           value="logs"
         />
       </box>
@@ -538,18 +511,7 @@ type DashboardProps = DashboardOptions & {
   readonly viewportWidth?: number;
 };
 
-export function DashboardView(props: DashboardProps) {
-  const name = props.snapshot.settings?.theme;
-  return name === undefined ? (
-    <DashboardScreen {...props} />
-  ) : (
-    <ThemeProvider name={name}>
-      <DashboardScreen {...props} />
-    </ThemeProvider>
-  );
-}
-
-function DashboardScreen({
+export function DashboardView({
   toolbar,
   viewportWidth,
   ...options
@@ -577,10 +539,10 @@ function DashboardScreen({
       />
     );
   }
-  const surface = primaryView(state);
   const browsing =
     (state.view === "overview" || state.view === "catalog") &&
-    ui.picker === undefined;
+    state.drawer === undefined &&
+    state.picker === undefined;
 
   return (
     <box
@@ -603,7 +565,7 @@ function DashboardScreen({
           preview={snapshot.mode === "snapshot"}
           workspace={snapshot.workspace}
         />
-        <ViewTabs onChange={ui.setView} view={surface} />
+        <ViewTabs onChange={ui.setView} view={state.view} />
       </box>
       {browsing && (
         <DashboardSearch
@@ -643,6 +605,11 @@ function DashboardScreen({
         busy={ui.control.busy}
         error={ui.control.error}
         label="Working…"
+      />
+      <WorkStatus
+        busy={ui.schedule.busy}
+        error={ui.schedule.error}
+        label="Waiting for schedule run…"
       />
       <DashboardFooter ui={ui} />
       <WorkStatus

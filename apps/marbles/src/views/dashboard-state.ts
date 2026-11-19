@@ -44,6 +44,8 @@ export type DashboardViewKey =
   | "logs"
   | "feed"
   | "settings";
+type UtilityView = Extract<DashboardViewKey, "logs" | "settings">;
+export type PrimaryView = Exclude<DashboardViewKey, UtilityView>;
 export type BrowserView = Extract<DashboardViewKey, "overview" | "catalog">;
 
 export interface LogsState extends LogFilter {
@@ -62,7 +64,9 @@ export function isBrowserView(view: DashboardViewKey): view is BrowserView {
 export interface DashboardState {
   readonly breakdown: boolean;
   readonly catalogPane: CatalogPane;
+  readonly configuration: boolean;
   readonly draft: string;
+  readonly drawer?: UtilityView;
   readonly expanded: ReadonlySet<string>;
   readonly filter?: CatalogSelection;
   readonly focus: BrowserPane;
@@ -70,16 +74,16 @@ export interface DashboardState {
   readonly inspecting: boolean;
   readonly launching?: string;
   readonly logs: LogsState;
+  readonly picker?: string;
   readonly prompt?: RunPrompt;
   readonly queries: Readonly<Record<BrowserPane, string>>;
   readonly remembered: Readonly<
     Partial<Record<BrowserPane, DashboardSelection>>
   >;
-  readonly returnView?: Exclude<DashboardViewKey, "logs" | "settings">;
   readonly searching: boolean;
   readonly selected?: DashboardSelection;
   readonly tab: InspectorTab;
-  readonly view: DashboardViewKey;
+  readonly view: PrimaryView;
 }
 
 export type DashboardEvent =
@@ -90,6 +94,13 @@ export type DashboardEvent =
   | { readonly type: "inspect"; readonly selection?: DashboardSelection }
   | { readonly type: "back" }
   | { readonly type: "close-utility" }
+  | { readonly type: "picker"; readonly id?: string }
+  | {
+      readonly type: "picker-move";
+      readonly by: number;
+      readonly ids: readonly string[];
+    }
+  | { readonly type: "configuration" }
   | { readonly type: "move"; readonly by: number }
   | { readonly type: "fold"; readonly open?: boolean }
   | { readonly type: "toggle"; readonly selection: DashboardSelection }
@@ -182,6 +193,7 @@ export function initialState(snapshot: DashboardSnapshot): DashboardState {
   return {
     breakdown: false,
     catalogPane: focused === "run" ? "trigger" : focused,
+    configuration: false,
     draft: "",
     expanded: new Set(run ? expandedRun(run) : []),
     focus: focused,
@@ -247,8 +259,11 @@ function select(
     ...state,
     breakdown: false,
     catalogPane: selection.kind === "run" ? state.catalogPane : selection.kind,
+    configuration: false,
+    drawer: undefined,
     focus: selection.kind,
     inspecting: false,
+    picker: undefined,
     remembered: { ...state.remembered, [selection.kind]: selection },
     selected: selection,
     view: viewOfPane(selection.kind),
@@ -277,8 +292,11 @@ function focus(
     ...state,
     breakdown: false,
     catalogPane: pane === "run" ? state.catalogPane : pane,
+    configuration: false,
+    drawer: undefined,
     focus: pane,
     inspecting: false,
+    picker: undefined,
     searching: false,
     view: viewOfPane(pane),
   };
@@ -404,24 +422,44 @@ function showView(
   snapshot: DashboardSnapshot,
   view: DashboardViewKey
 ): DashboardState {
-  if (view === "overview") {
-    return focus({ ...state, returnView: undefined }, snapshot, "run");
-  }
-  if (view === "catalog") {
+  if (view === "overview" || view === "catalog") {
     return focus(
-      { ...state, returnView: undefined },
+      state,
       snapshot,
-      state.catalogPane
+      view === "overview" ? "run" : state.catalogPane
     );
   }
   if (view === "logs" || view === "settings") {
-    const prior =
-      state.view === "logs" || state.view === "settings"
-        ? state.returnView
-        : state.view;
-    return { ...state, returnView: prior, searching: false, view };
+    return {
+      ...state,
+      drawer: view,
+      picker: undefined,
+      searching: false,
+    };
   }
-  return { ...state, returnView: undefined, searching: false, view };
+  return {
+    ...state,
+    drawer: undefined,
+    picker: undefined,
+    searching: false,
+    view,
+  };
+}
+
+function movePicker(
+  state: DashboardState,
+  ids: readonly string[],
+  by: number
+): DashboardState {
+  if (state.picker === undefined || ids.length === 0) {
+    return state;
+  }
+  const index = ids.indexOf(state.picker);
+  const next =
+    index === -1
+      ? ids[by < 0 ? ids.length - 1 : 0]
+      : ids[(index + by + ids.length) % ids.length];
+  return { ...state, picker: next ?? state.picker };
 }
 
 export function reduce(
@@ -430,8 +468,12 @@ export function reduce(
   snapshot: DashboardSnapshot
 ): DashboardState {
   switch (event.type) {
-    case "view":
-      return showView(state, snapshot, event.view);
+    case "view": {
+      const next = showView(state, snapshot, event.view);
+      return event.view === "logs"
+        ? { ...next, logs: { ...next.logs, runId: undefined } }
+        : next;
+    }
     case "focus":
       return focus(state, snapshot, event.pane);
     case "cycle":
@@ -443,13 +485,15 @@ export function reduce(
       return { ...next, inspecting: true };
     }
     case "close-utility":
-      return {
-        ...state,
-        returnView: undefined,
-        view: state.returnView ?? "overview",
-      };
+      return { ...state, drawer: undefined };
+    case "picker":
+      return { ...state, picker: event.id };
+    case "picker-move":
+      return movePicker(state, event.ids, event.by);
+    case "configuration":
+      return { ...state, configuration: !state.configuration };
     case "back":
-      return { ...state, inspecting: false };
+      return { ...state, configuration: false, inspecting: false };
     case "move":
       return move(state, snapshot, event.by);
     case "fold":
@@ -472,7 +516,7 @@ export function reduce(
     case "search":
       return { ...state, searching: event.open };
     case "query":
-      if (state.view === "logs") {
+      if (state.drawer === "logs") {
         return { ...state, logs: { ...state.logs, query: event.value } };
       }
       return state.inspecting
@@ -482,7 +526,7 @@ export function reduce(
             queries: { ...state.queries, [state.focus]: event.value },
           };
     case "cancel-search":
-      if (state.view === "logs") {
+      if (state.drawer === "logs") {
         return {
           ...state,
           logs: { ...state.logs, query: "" },
@@ -502,8 +546,11 @@ export function reduce(
       return {
         ...state,
         breakdown: false,
+        configuration: false,
+        drawer: undefined,
         help: false,
         inspecting: false,
+        picker: undefined,
         searching: false,
         view: viewOfPane(state.focus),
       };
@@ -533,7 +580,12 @@ export function reduce(
     case "log-run":
       return {
         ...showView(state, snapshot, "logs"),
-        logs: { ...NO_LOG_FILTERS, runId: event.id },
+        logs: {
+          ...NO_LOG_FILTERS,
+          level: state.logs.level,
+          runId: event.id,
+          source: state.logs.source,
+        },
       };
     case "log-move":
       return moveLog(state, snapshot, event.by);

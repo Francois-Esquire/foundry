@@ -29,7 +29,7 @@ type Terminal = Awaited<ReturnType<typeof openDashboard>>;
 export async function runInteractive(args: Flags): Promise<void> {
   const controller = new AbortController();
   const local = localState(args);
-  const onboarding = args.dry ? undefined : await onboardingFor(args);
+  const onboarding = args.dry ? undefined : await onboardingFor(args, local);
   const terminal = await openDashboard(
     basename(
       onboarding?.root ?? sourceRoot(resolveSource(args.config, args.directory))
@@ -69,7 +69,7 @@ function localState(args: Flags): LocalState {
   applyTheme(loaded.settings.theme);
   const diagnostics = new Diagnostics();
   if (loaded.problem) {
-    diagnostics.add(`[settings] ${loaded.problem}`, "warn");
+    diagnostics.add(`[settings] ${loaded.problem} (${loaded.path})`, "warn");
   }
   return {
     decorate: (snapshot) => ({
@@ -162,9 +162,7 @@ async function runLocal(
       terminal.update(shown(await running.snapshot()), hasConfig);
     terminal.connect({
       ...running.actions,
-      rollSchedule: async (key) => {
-        await running.roll(key);
-      },
+      rollSchedule: (key) => rollSchedule(running, key),
     });
     running.setStatus(hasConfig ? "Marbles loaded" : NO_SOURCE_WHEN_DRY);
     await update();
@@ -195,11 +193,21 @@ async function runLocal(
   }
 }
 
-async function onboardingFor(args: Flags) {
+async function rollSchedule(
+  connection: Pick<WorkspaceConnection, "roll">,
+  key: string
+): Promise<void> {
+  const { skipped } = await connection.roll(key);
+  if (skipped !== undefined) {
+    throw new Error(`Schedule ${key} skipped: ${skipped}`);
+  }
+}
+
+async function onboardingFor(args: Flags, local: LocalState) {
   const { configPath, workspace, config } = findWorkspace(args);
   const path = settingsPath(args.state);
-  const [{ settings }, recorded, providers] = await Promise.all([
-    loadSettings(path),
+  const { settings, problem } = loadSettings(path);
+  const [recorded, providers] = await Promise.all([
     recordedWorkspace(args, workspace.id),
     discoverProviderSetup({
       recheck: args.recheckProviders,
@@ -208,6 +216,11 @@ async function onboardingFor(args: Flags) {
     }),
   ]);
   const firstSetup = !(providers.configured || settings.providerSetupComplete);
+  const failedSettingsWithoutOffers =
+    problem !== undefined &&
+    recorded !== undefined &&
+    providers.offered.length === 0;
+  const reviewFirstSetup = firstSetup && !failedSettingsWithoutOffers;
   return {
     async completeProviders(useDetected: boolean) {
       if (useDetected) {
@@ -216,15 +229,23 @@ async function onboardingFor(args: Flags) {
           throw new Error(result.message);
         }
       } else if (!(providers.configured || settings.providerSetupComplete)) {
-        saveSettings(path, { providerSetupComplete: true });
+        try {
+          saveSettings(path, { providerSetupComplete: true });
+        } catch (error) {
+          local.report(
+            `[settings] could not record provider setup: ${String(error)}`,
+            "warn"
+          );
+        }
       }
     },
     configPath,
     hasSource: config !== null,
-    providers: firstSetup || args.recheckProviders ? providers : undefined,
+    providers:
+      args.recheckProviders || reviewFirstSetup ? providers : undefined,
     root: workspace.root,
     workspaceSetup:
-      firstSetup ||
+      reviewFirstSetup ||
       recorded === undefined ||
       (recorded.config !== null && config === null),
   };
@@ -344,11 +365,8 @@ function remoteSession(
 
   const hosted = (): HostedWorkspace => {
     const summary = current();
-    const position = workspaces.findIndex((item) => item.id === summary.id);
     return {
-      count: workspaces.length,
       ...(summary.error === undefined ? {} : { error: summary.error }),
-      position: position === -1 ? 1 : position + 1,
       state: summary.state,
       workspaces,
     };
@@ -403,9 +421,7 @@ function remoteSession(
     terminal.connect({
       ...connection.actions,
       ...(settings ? { settings } : {}),
-      rollSchedule: async (key) => {
-        await connection.roll(key);
-      },
+      rollSchedule: (key) => rollSchedule(connection, key),
       switchWorkspace,
     });
   };
@@ -418,7 +434,7 @@ function remoteSession(
     republish();
   };
 
-  function switchWorkspace(id?: string): void {
+  function switchWorkspace(id: string): void {
     const next = workspaces.find((item) => item.id === id);
     if (next && next.id !== currentId) {
       show(next);

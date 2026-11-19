@@ -9,21 +9,26 @@ import {
   useState,
 } from "react";
 import { theme } from "~/components/ui/theme";
-import { useTheme } from "./theme-provider";
+export interface PanelHints {
+  readonly actions: readonly {
+    readonly label: string;
+    readonly priority?: boolean;
+  }[];
+  readonly focus: string;
+}
 
-export const PanelShortcuts = createContext<string | undefined>(undefined);
+export const PanelShortcuts = createContext<PanelHints | undefined>(undefined);
 
-const PRIORITY_SHORTCUT = /^(?:[pskur] |Enter read|[1-9](?:-[1-9])? answer)/;
-
-function fittedShortcuts(hints: string, available: number): string | undefined {
-  const [focus, ...actions] = hints.split(" · ");
-  const ordered = [
-    ...actions.filter((action) => PRIORITY_SHORTCUT.test(action)),
-    ...actions.filter((action) => !PRIORITY_SHORTCUT.test(action)),
-  ];
-  let title = focus ?? "";
+function fittedShortcuts(
+  { focus, actions }: PanelHints,
+  available: number
+): string | undefined {
+  const ordered = actions.toSorted(
+    (a, b) => Number(Boolean(b.priority)) - Number(Boolean(a.priority))
+  );
+  let title = focus;
   for (const action of ordered) {
-    const candidate = `${title} · ${action}`;
+    const candidate = `${title} · ${action.label}`;
     if (candidate.length <= available) {
       title = candidate;
     }
@@ -53,7 +58,6 @@ export function Panel({
   readonly header?: ReactNode;
 }) {
   const shortcuts = useContext(PanelShortcuts);
-  const palette = useTheme();
   const [width, setWidth] = useState(0);
   const measure = useCallback(function measureFrame(this: BoxRenderable) {
     setWidth(this.width);
@@ -73,7 +77,7 @@ export function Panel({
     <box
       border
       borderColor={active ? theme.border.focusColor : theme.border.color}
-      borderStyle={palette?.border.style ?? theme.border.style}
+      borderStyle={theme.border.style}
       bottomTitle={
         active
           ? (borderHint ?? (shortcuts && fittedShortcuts(shortcuts, width - 5)))

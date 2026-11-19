@@ -154,7 +154,7 @@ it("starts a monitor's pending launch once when two engines tick it", async () =
   });
 
   await tick(firstEngine, monitor, { print: () => undefined });
-  expect(await secondTick).toBeUndefined();
+  expect(await secondTick).toEqual({ skipped: "held by this process" });
   expect(lines).toEqual(["[schedule] watch skipped: held by this process"]);
   await expect(
     tick(secondEngine, monitor, { print: () => undefined })

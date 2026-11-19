@@ -1,5 +1,3 @@
-import { useKeyboard } from "@opentui/react";
-import { useState } from "react";
 import { StatusLabel } from "~/components/blocks/status-label";
 import { Action } from "~/components/ui/action";
 import { KeyValue } from "~/components/ui/key-value";
@@ -7,6 +5,7 @@ import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Tabs } from "~/components/ui/tabs";
 import { Text } from "~/components/ui/text";
+import { canRunSchedule } from "~/model/dashboard";
 import type {
   DashboardSelection,
   DashboardSnapshot,
@@ -138,7 +137,8 @@ function RunInspector({
 }
 
 function CatalogDetails({
-  active,
+  configuration,
+  onToggleConfiguration,
   snapshot,
   item,
   onInspect,
@@ -146,7 +146,8 @@ function CatalogDetails({
   onLaunch,
   onRollSchedule,
 }: {
-  readonly active: boolean;
+  readonly configuration: boolean;
+  readonly onToggleConfiguration: () => void;
   readonly snapshot: DashboardSnapshot;
   readonly item:
     | { readonly kind: "trigger"; readonly value: TriggerSnapshot }
@@ -157,13 +158,7 @@ function CatalogDetails({
   readonly onRollSchedule?: (key: string) => void;
 }) {
   const { value } = item;
-  const [configuration, setConfiguration] = useState(false);
   const raw = item.kind === "trigger" ? item.value.configuration : undefined;
-  useKeyboard((key) => {
-    if (active && raw !== undefined && key.name === "v") {
-      setConfiguration((open) => !open);
-    }
-  });
   const selection: CatalogSelection =
     item.kind === "trigger"
       ? triggerSelection(item.value)
@@ -204,8 +199,8 @@ function CatalogDetails({
           label={
             configuration ? "v Hide configuration" : "v Show configuration"
           }
-          onAction={setConfiguration}
-          value={!configuration}
+          onAction={onToggleConfiguration}
+          value="configuration"
         />
       )}
       {configuration && raw !== undefined && (
@@ -238,8 +233,7 @@ function CatalogDetails({
         />
       )}
       {item.kind === "trigger" &&
-        item.value.kind === "schedule" &&
-        item.value.workspace === undefined &&
+        canRunSchedule(item.value) &&
         onRollSchedule && (
           <Action
             id="schedule:run"
@@ -300,6 +294,8 @@ export function DetailsBlock({
   selection,
   resolved,
   active,
+  configuration,
+  onToggleConfiguration,
   tab,
   onTab,
   onInspect,
@@ -312,6 +308,8 @@ export function DetailsBlock({
   readonly selection?: DashboardSelection;
   readonly resolved: ResolvedSelection;
   readonly active: boolean;
+  readonly configuration: boolean;
+  readonly onToggleConfiguration: () => void;
   readonly tab: InspectorTab;
   readonly onTab: (tab: InspectorTab) => void;
   readonly onInspect: (selection: DashboardSelection) => void;
@@ -360,7 +358,7 @@ export function DetailsBlock({
     title = `${item.kind[0]?.toUpperCase() ?? ""}${item.kind.slice(1)} / ${item.name}`;
     content = (
       <CatalogDetails
-        active={active}
+        configuration={configuration}
         item={
           resolved.kind === "trigger"
             ? { kind: "trigger", value: resolved.trigger }
@@ -371,6 +369,7 @@ export function DetailsBlock({
         onInspect={onInspect}
         onLaunch={onLaunch}
         onRollSchedule={onRollSchedule}
+        onToggleConfiguration={onToggleConfiguration}
         snapshot={snapshot}
       />
     );

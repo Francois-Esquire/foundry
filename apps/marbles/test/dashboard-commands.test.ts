@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   type CommandContext,
   capturesKeys,
+  footer as commandFooter,
   commandFor,
   type Dashboard,
-  footer,
   helpSections,
   type KeyPress,
 } from "~/views/dashboard-commands";
@@ -20,6 +20,16 @@ import {
 } from "~/views/dashboard-state";
 import type { RunActions } from "~/views/run-actions";
 import { dashboardSnapshot } from "../preview/snapshot";
+
+function footer(commandContext: CommandContext) {
+  const { hints, lasting } = commandFooter(commandContext);
+  return {
+    hints: [hints.focus, ...hints.actions.map(({ label }) => label)].join(
+      " · "
+    ),
+    lasting,
+  };
+}
 
 function key(name: string, extra: Partial<KeyPress> = {}): KeyPress {
   return { name, sequence: name, shift: false, ...extra };
@@ -44,7 +54,7 @@ interface Setup {
   readonly events?: readonly DashboardEvent[];
   readonly snapshot?: DashboardSnapshot;
   readonly typing?: boolean;
-  readonly workspaces?: CommandContext["workspaces"];
+  readonly workspaces?: Omit<CommandContext["workspaces"], "ids">;
 }
 
 function context({
@@ -91,15 +101,16 @@ function context({
     },
     resolved: resolveSelection(snapshot, state.selected),
     state,
-    workspaces,
+    workspaces: { ...workspaces, ids: [] },
   };
   const dashboard: Dashboard = {
     ...built,
     act: record("act"),
+    chooseWorkspace: record("choose-workspace"),
     launch: record("launch"),
+    openWorkspaces: record("switch-workspace"),
     quit: record("quit"),
     send: (event: DashboardEvent) => calls.push(["send", event]),
-    switchWorkspace: record("switch-workspace"),
     toggleWorkspaces: record("toggle-workspaces"),
   };
   function press(pressed: KeyPress) {
@@ -334,6 +345,7 @@ describe("key dispatch", () => {
     });
     expect(feed.press(key("w"))).toEqual([["switch-workspace"]]);
     expect(feed.press(key("W"))).toEqual([["cycle-scope"]]);
+    expect(feed.press(key("w", { shift: true }))).toEqual([["cycle-scope"]]);
   });
 
   it("lets text fields and overlays keep their keys", () => {
@@ -407,6 +419,7 @@ describe("keyboard help", () => {
       "Logs",
       "Feed",
       "Settings",
+      "Workspaces",
       "Typing",
       "Forms",
     ]);
@@ -415,5 +428,11 @@ describe("keyboard help", () => {
       const keys = section.items.map((item) => item.key);
       expect(new Set(keys).size).toBe(keys.length);
     }
+    expect(
+      sections.find(({ title }) => title === "Dashboard")?.items
+    ).toContainEqual({
+      key: "v on a trigger",
+      value: "Show or hide the selected trigger's configuration",
+    });
   });
 });

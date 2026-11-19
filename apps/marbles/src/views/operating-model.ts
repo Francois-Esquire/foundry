@@ -111,6 +111,26 @@ export function filterLogs(
   );
 }
 
+export function nextSchedule(triggers: DashboardSnapshot["triggers"]) {
+  return triggers.reduce<DashboardSnapshot["triggers"][number] | undefined>(
+    (next, candidate) => {
+      if (
+        candidate.kind !== "schedule" ||
+        !candidate.next ||
+        candidate.status !== "waiting"
+      ) {
+        return next;
+      }
+      return next === undefined ||
+        (candidate.nextAt ?? Number.POSITIVE_INFINITY) <
+          (next.nextAt ?? Number.POSITIVE_INFINITY)
+        ? candidate
+        : next;
+    },
+    undefined
+  );
+}
+
 interface RunCounts {
   readonly cancelled: number;
   readonly complete: number;

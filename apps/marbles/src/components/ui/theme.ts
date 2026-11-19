@@ -60,29 +60,20 @@ const PALETTES: Readonly<Record<"dark" | "light", Palette>> = {
   },
 };
 
-const TERMINAL_TOKENS = {
-  spacing: { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 6: 6, 8: 8 },
-  typography: { base: "", bold: true, lg: "bold", sm: "dim", xl: "bold" },
-};
-
 export function terminalTheme(name: ThemeName) {
   if (name === "dark" || name === "light") {
     const palette = PALETTES[name];
     return {
       border: palette.border,
       colors: { ...termcnThemes.default.colors, ...palette.colors },
-      name,
-      ...TERMINAL_TOKENS,
     };
   }
   const { colors, border } = termcnThemes[name];
   const style: Palette["border"]["style"] =
     border.style === "heavy" ? "heavy" : "rounded";
   return {
-    ...TERMINAL_TOKENS,
     border: { ...border, style },
     colors,
-    name,
   };
 }
 
