@@ -1,17 +1,12 @@
+import type { BoxRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
-import { StartupSummary } from "~/components/blocks/startup-summary";
-import { Action } from "~/components/ui/action";
-import { LoadingIndicator } from "~/components/ui/loading-indicator";
+import { SplashCard } from "~/components/blocks/splash-card";
 import { SparkleField } from "~/components/ui/sparkle-field";
 import { theme } from "~/components/ui/theme";
 import { useQuitGuard } from "~/hooks/use-quit-guard";
-import type { SplashState } from "./splash-model";
-
-const CARD_CHROME = 6;
-const CARD_WIDTH = 65 + CARD_CHROME + 2;
-const CARD_MARGIN = 4;
+import type { SplashState } from "~/model/splash";
 
 export function SplashView({
   workspace,
@@ -26,8 +21,12 @@ export function SplashView({
   readonly onEnter: () => void;
   readonly onClose: () => void;
 }) {
-  const dimensions = useTerminalDimensions();
-  const compact = dimensions.height < 26;
+  const terminal = useTerminalDimensions();
+  const [viewport, setViewport] = useState<typeof terminal>();
+  const { height, width } = viewport ?? terminal;
+  const measure = useCallback(function measureSplash(this: BoxRenderable) {
+    setViewport({ height: this.height, width: this.width });
+  }, []);
   const quit = useQuitGuard(onClose);
   const { quitting } = quit;
   const enter = useCallback(() => {
@@ -52,77 +51,18 @@ export function SplashView({
       backgroundColor={theme.colors.background}
       height="100%"
       justifyContent="center"
+      onSizeChange={measure}
       width="100%"
     >
-      <SparkleField
-        height={dimensions.height}
-        paused={quitting}
-        width={dimensions.width}
+      <SparkleField height={height} paused={quitting} width={width} />
+      <SplashCard
+        height={height}
+        onEnter={enter}
+        preview={preview}
+        state={state}
+        width={width}
+        workspace={workspace}
       />
-      <box
-        alignItems="center"
-        backgroundColor={theme.colors.background}
-        border
-        borderColor={
-          state.status === "ready" ? theme.colors.accent : theme.border.color
-        }
-        borderStyle="rounded"
-        flexDirection="column"
-        gap={compact ? 0 : 1}
-        id="splash:card"
-        paddingX={2}
-        paddingY={compact ? 0 : 1}
-        width={Math.min(
-          CARD_WIDTH,
-          Math.max(1, dimensions.width - CARD_MARGIN)
-        )}
-        zIndex={1}
-      >
-        <ascii-font
-          color={[
-            theme.colors.primary,
-            theme.colors.warning,
-            theme.colors.accent,
-          ]}
-          font={
-            dimensions.width < CARD_WIDTH + CARD_MARGIN ||
-            dimensions.height < 20
-              ? "tiny"
-              : "block"
-          }
-          id="splash:logo"
-          selectable={false}
-          text="MARBLES"
-        />
-        <text fg={theme.colors.mutedForeground} wrapMode="none">
-          {workspace} · {preview ? "module preview" : "workspace"}
-        </text>
-        {state.status === "loading" ? (
-          <LoadingIndicator label="Loading marbles" />
-        ) : (
-          <text fg={theme.colors.success}>
-            {state.hasConfig ? "✓ Marbles loaded" : "No source · setup skipped"}
-          </text>
-        )}
-        <StartupSummary
-          compact={compact}
-          counts={state.status === "ready" ? state.counts : undefined}
-        />
-        {state.status === "ready" ? (
-          <Action
-            active
-            id="splash:enter"
-            label="Press Enter to enter"
-            onAction={enter}
-            value="enter"
-          />
-        ) : (
-          <text fg={theme.colors.mutedForeground}>Please wait...</text>
-        )}
-        <text fg={theme.colors.mutedForeground}>
-          {state.status === "ready" ? "Enter or click · q quit" : "q quit"}
-        </text>
-      </box>
       {quitting && (
         <QuitDialog
           onCancel={quit.cancel}
