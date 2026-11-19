@@ -45,7 +45,7 @@ export type DashboardViewKey =
   | "feed"
   | "settings";
 type UtilityView = Extract<DashboardViewKey, "logs" | "settings">;
-export type PrimaryView = Exclude<DashboardViewKey, UtilityView>;
+type PrimaryView = Exclude<DashboardViewKey, UtilityView>;
 export type BrowserView = Extract<DashboardViewKey, "overview" | "catalog">;
 
 export interface LogsState extends LogFilter {
