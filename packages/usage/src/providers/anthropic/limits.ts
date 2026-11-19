@@ -36,7 +36,7 @@ export interface ClaudeProbe {
   readonly env: Record<string, string>;
   readonly executable?: string;
   readonly initTimeoutMs: number;
-  readonly query: ClaudeQuery;
+  readonly query?: ClaudeQuery;
   readonly usageTimeoutMs: number;
 }
 
@@ -62,8 +62,10 @@ const silentPrompt = (signal: AbortSignal): AsyncIterable<SDKUserMessage> => {
 export const readClaudeLimits = async (
   probe: ClaudeProbe
 ): Promise<Reading> => {
+  const query =
+    probe.query ?? (await import("@anthropic-ai/claude-agent-sdk")).query;
   const abortController = new AbortController();
-  const session = probe.query({
+  const session = query({
     options: {
       abortController,
       allowedTools: [],

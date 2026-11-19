@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { recordChild } from "@foundry/lib/spawn-record";
-import { createCodexAppServer } from "ai-sdk-provider-codex-cli";
+import type { createCodexAppServer } from "ai-sdk-provider-codex-cli";
 import { fromCodexListing } from "./catalog/codex";
 import { environmentOverlay } from "./environment";
 import { modelErrors } from "./errors";
@@ -41,10 +41,11 @@ type ListedModels = Awaited<
 >["models"];
 
 function appServer(
+  create: typeof createCodexAppServer,
   binPath: string | undefined,
   env: Record<string, string>
 ): AppServerClient {
-  return createCodexAppServer({
+  return create({
     defaultSettings: {
       ...(binPath ? { codexPath: binPath } : {}),
       env,
@@ -68,7 +69,11 @@ export async function codexModels({
       "Codex discovery requires HOME or CODEX_HOME in the provider environment"
     );
   }
-  const client = appServer(binPath, environmentOverlay(env, ""));
+  const { createCodexAppServer: create } = await import(
+    "ai-sdk-provider-codex-cli"
+  );
+  signal?.throwIfAborted();
+  const client = appServer(create, binPath, environmentOverlay(env, ""));
   const cancelled = Promise.withResolvers<never>();
   const abort = () => cancelled.reject(signal?.reason);
   signal?.addEventListener("abort", abort, { once: true });
@@ -186,7 +191,10 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     }
   };
 
-  const serverFor = (env: Record<string, string>): AppServer => {
+  const serverFor = (
+    create: typeof createCodexAppServer,
+    env: Record<string, string>
+  ): AppServer => {
     const key = JSON.stringify([config.binPath ?? null, sorted(env)]);
     if (current?.key === key && !current.retired) {
       return current;
@@ -196,7 +204,7 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     }
     const server: AppServer = {
       calls: 0,
-      client: appServer(config.binPath, env),
+      client: appServer(create, config.binPath, env),
       connections: new Set(),
       key,
       retired: false,
@@ -207,11 +215,17 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     return server;
   };
 
-  const lease = (modelId: string, cwd: string | undefined) => {
+  const lease = async (modelId: string, cwd: string | undefined) => {
     if (offline) {
       throw modelErrors.PROVIDER_OFFLINE({ provider: id });
     }
-    const server = serverFor(environmentOverlay(options.env, ""));
+    const { createCodexAppServer: create } = await import(
+      "ai-sdk-provider-codex-cli"
+    );
+    if (offline) {
+      throw modelErrors.PROVIDER_OFFLINE({ provider: id });
+    }
+    const server = serverFor(create, environmentOverlay(options.env, ""));
     const model = server.client.languageModel(modelId, cwd ? { cwd } : {});
     const connection = (model as { client?: unknown }).client;
     let released = false;
@@ -261,7 +275,10 @@ export function codexProvider(options: CodexProviderOptions): Provider {
       return config.available ?? false;
     },
     ...(options.defaults ? { defaults: options.defaults } : {}),
-    dispose: stopAll,
+    dispose: async () => {
+      offline = true;
+      await stopAll();
+    },
     id,
     languageModel: (modelId, opts) =>
       leasedModel(modelId, () => lease(modelId, opts?.workingDirectory)),
@@ -327,11 +344,11 @@ const abandoned = new FinalizationRegistry<() => void>((release) => release());
 
 function leasedModel(
   modelId: string,
-  lease: () => { model: LanguageModelV4; release(): void }
+  lease: () => Promise<{ model: LanguageModelV4; release(): void }>
 ): LanguageModelV4 {
   return {
     doGenerate: async (callOptions) => {
-      const { model, release } = lease();
+      const { model, release } = await lease();
       try {
         return await model.doGenerate(callOptions);
       } finally {
@@ -339,7 +356,7 @@ function leasedModel(
       }
     },
     doStream: async (callOptions) => {
-      const { model, release } = lease();
+      const { model, release } = await lease();
       try {
         const result = await model.doStream(callOptions);
         const stream = releasing(result.stream, release);

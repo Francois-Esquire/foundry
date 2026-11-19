@@ -1,8 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
-
 import { consumptionOf, listPrices } from "../../consumption";
 import { defineProvider } from "../../provider";
 import { childEnv, type Env, exists, expandHome, which } from "../local";
@@ -89,7 +87,7 @@ export const createAnthropic = (machine: AnthropicMachine = {}) => {
         env: childEnvironment,
         executable: await which("claude", childEnvironment),
         initTimeoutMs: machine.initTimeoutMs ?? DEFAULT_INIT_TIMEOUT_MS,
-        query: machine.query ?? sdkQuery,
+        ...(machine.query ? { query: machine.query } : {}),
         usageTimeoutMs: machine.usageTimeoutMs ?? DEFAULT_USAGE_TIMEOUT_MS,
       });
     },

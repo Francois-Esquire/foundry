@@ -41,8 +41,6 @@
         "@ai-sdk/openai-compatible": "3.0.27",
         "@ai-sdk/provider": "4.0.7",
         "@ai-sdk/provider-utils": "5.0.25",
-        "@anthropic-ai/claude-agent-sdk": "0.3.205",
-        "@anthropic-ai/sdk": "0.124.0",
         "@libsql/client": "^0.18.0",
         "@modelcontextprotocol/sdk": "1.30.0",
         "@noble/hashes": "^2.2.0",
@@ -51,9 +49,6 @@
         "@parcel/watcher": "^2.5.1",
         "@standard-schema/spec": "1.1.0",
         "ai": "7.0.58",
-        "ai-sdk-provider-claude-code": "4.0.1",
-        "ai-sdk-provider-codex-cli": "2.1.2",
-        "ai-sdk-provider-pi": "0.1.0",
         "croner": "^9.1.0",
         "drizzle-orm": "^0.45.4",
         "effect": "^3.22.1",
@@ -85,6 +80,13 @@
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
         "vitest": "^4.1.9",
+      },
+      "optionalDependencies": {
+        "@anthropic-ai/claude-agent-sdk": "0.3.205",
+        "@anthropic-ai/sdk": "0.124.0",
+        "ai-sdk-provider-claude-code": "4.0.1",
+        "ai-sdk-provider-codex-cli": "2.1.2",
+        "ai-sdk-provider-pi": "0.1.0",
       },
       "peerDependencies": {
         "@fal-ai/client": "1.11.0-alpha.2",
@@ -306,9 +308,6 @@
         "@huggingface/transformers": "^4.2.0",
         "@kreuzberg/tree-sitter-language-pack": "^1.10.9",
         "ai": "7.0.58",
-        "ai-sdk-provider-claude-code": "4.0.1",
-        "ai-sdk-provider-codex-cli": "2.1.2",
-        "ai-sdk-provider-pi": "0.1.0",
         "evlog": "^2.25.0",
         "werift": "0.24.4",
         "zod": "^4.4.3",
@@ -321,6 +320,11 @@
         "happy-dom": "^20.11.2",
         "typescript": "^6.0.3",
         "vitest": "^4.1.9",
+      },
+      "optionalDependencies": {
+        "ai-sdk-provider-claude-code": "4.0.1",
+        "ai-sdk-provider-codex-cli": "2.1.2",
+        "ai-sdk-provider-pi": "0.1.0",
       },
     },
     "packages/modules": {
@@ -435,6 +439,9 @@
       "peerDependencies": {
         "@anthropic-ai/claude-agent-sdk": "0.3.205",
       },
+      "optionalPeers": [
+        "@anthropic-ai/claude-agent-sdk",
+      ],
     },
     "packages/workflows": {
       "name": "@foundry/workflows",
