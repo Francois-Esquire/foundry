@@ -42,6 +42,7 @@
       "entry": [
         "examples/**/*.ts",
         "src/workspace/hosted.ts",
+        "stories/**/*.stories.tsx",
         "templates/**/*.ts",
         "test/helpers/daemon-process.ts",
         "test/helpers/dry-mcp-host.ts",

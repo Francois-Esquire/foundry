@@ -3,8 +3,9 @@ import { act, useEffect, useState } from "react";
 import { afterEach, expect, test } from "vitest";
 import { dashboardSnapshot } from "../preview/snapshot";
 import { PreviewStartup } from "../preview/startup";
+import type { SplashState } from "../src/model/splash";
 import { SplashView } from "../src/views/splash";
-import { type SplashState, summarizeConfig } from "../src/views/splash-model";
+import { summarizeConfig } from "../src/views/splash-model";
 import { click, ctrlC, flush, mount, press, unmount } from "./helpers/render";
 
 let closed = false;
@@ -114,6 +115,20 @@ test("ready splash stays centered, fits small terminals, and accepts clicks", as
   expect(entered).toBe(5);
 });
 
+test("splash lays out against its own viewport inside a larger terminal", async () => {
+  const ui = await mount(
+    <box height={18} width={52}>
+      {ready()}
+    </box>,
+    { height: 40, width: 120 }
+  );
+  const card = ui.renderer.root.findDescendantById("splash:card");
+  expect(card).toBeDefined();
+  expect(card?.width).toBeLessThanOrEqual(52);
+  expect(card?.height).toBeLessThanOrEqual(18);
+  expect(ui.captureCharFrame()).toContain("Press Enter to enter");
+});
+
 test("sparkles shimmer without changing silhouettes and pause for the quit dialog", async () => {
   const ui = await mount(ready());
   const first = ui.captureCharFrame();
@@ -151,8 +166,15 @@ test("splash quit confirmation blocks entry and supports a second Ctrl+C", async
   closed = false;
   entered = 0;
   const ui = await mount(ready(), { height: 24, width: 70 });
+  let focusedDialog = false;
+  ui.renderer.on("focused_renderable", () => {
+    if (ui.renderer.currentFocusedRenderable?.parent?.id === "dialog") {
+      focusedDialog = true;
+    }
+  });
   await ctrlC(ui);
   expect(closed).toBe(false);
+  expect(focusedDialog).toBe(true);
   expect(ui.captureCharFrame()).toContain("Quit Marbles?");
   await press(ui, "RETURN");
   expect(entered).toBe(0);

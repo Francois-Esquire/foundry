@@ -16,10 +16,11 @@ removing one, inspect the build and run
 `bun run test:package` from this directory; the package test installs the
 tarball in an isolated consumer and exercises the CLI.
 
-The `ai-sdk-provider-pi` exception covers the bundled Models Pi provider.
-`@anthropic-ai/sdk` explicitly satisfies the Claude Agent SDK peer requirement.
-Pi also depends on an older SDK, so relying on peer hoisting can select an
-incompatible version in a fresh standalone install.
+The CLI provider adapters and Anthropic SDKs are optional dependencies.
+Provider discovery and execution load their adapters on demand. Keep
+`@anthropic-ai/sdk` pinned when it is installed to satisfy the Claude Agent
+SDK peer requirement. Pi also depends on an older SDK, so relying on peer
+hoisting can select an incompatible version in a fresh standalone install.
 `@modelcontextprotocol/sdk` is a runtime dependency: `marbles mcp` serves
 MCP over STDIO with it, and it also satisfies a required Claude Agent SDK
 peer.
@@ -27,9 +28,8 @@ The `evlog` exception covers imports in the bundled models and workflows code.
 The `@ai-sdk/mcp` exception covers the bundled agents MCP client, which
 connects the MCP servers an agent's definition names; its version follows
 `packages/agents`.
-The `@anthropic-ai/claude-agent-sdk` exception covers the bundled usage
-package, which reads Claude Code's limits through it; its version follows
-`packages/usage`.
+The bundled Usage package loads `@anthropic-ai/claude-agent-sdk` when reading
+Claude login limits. Keep its version aligned with `@foundry/usage`.
 The `@ai-sdk/provider` exception covers model types referenced by the published
 declarations; those generated imports are absent in a fresh checkout.
 The `@foundry/core` development dependency supplies transitive pagination types

@@ -11,16 +11,16 @@ import { wrapLanguageModel } from "ai";
 import type {
   ClaudeCodeProviderSettings,
   ClaudeCodeSettings,
+  createClaudeCode,
   Query,
   WarmQuery,
 } from "ai-sdk-provider-claude-code";
-import { createClaudeCode, startup } from "ai-sdk-provider-claude-code";
 import { fromClaudeCodeListing } from "./catalog/claude-code";
 import { spawnRecordedCli, withCliStderr } from "./claude-code-spawn";
 import { CLAUDE_CODE_FRESH } from "./cost";
+import { deferredLanguageModel } from "./deferred-language-model";
 import { liveEnvironmentOverlay } from "./environment";
 import type { Provider } from "./provider";
-import { vendorClient } from "./provider";
 import type { ModelKind, ProviderModelDefinition } from "./types";
 
 export type { ClaudeCodeDriverOptions } from "./harness/claude-code";
@@ -79,6 +79,8 @@ export async function claudeCodeModels({
   try {
     signal?.throwIfAborted();
     signal?.addEventListener("abort", abort, { once: true });
+    const { startup } = await import("ai-sdk-provider-claude-code");
+    signal?.throwIfAborted();
     warm = await startup({
       initializeTimeoutMs: 4000,
       options: {
@@ -136,13 +138,18 @@ function noMessages(signal: AbortSignal): AsyncIterable<never> {
 export function claudeCodeProvider(
   options: ClaudeCodeProviderOptions
 ): Provider {
-  const vendor = vendorClient(options.config ?? {}, (config) =>
-    createClaudeCode(withoutEnvironment(config))
-  );
+  const config = withoutEnvironment(options.config ?? {});
+  let client: Promise<ReturnType<typeof createClaudeCode>> | undefined;
+  const open = () => {
+    client ??= import("ai-sdk-provider-claude-code").then((sdk) =>
+      sdk.createClaudeCode(config)
+    );
+    return client;
+  };
 
   return {
     get available() {
-      return vendor.config.available ?? false;
+      return config.available ?? false;
     },
     ...(options.defaults ? { defaults: options.defaults } : {}),
     id: options.id ?? "claude-code",
@@ -158,13 +165,14 @@ export function claudeCodeProvider(
           `Claude Code maxTurns must be an integer between 1 and ${CLAUDE_CODE_MAX_TURNS}`
         );
       }
-      return markFreshCalls(
-        vendor.client.languageModel(modelId, {
-          env: liveEnvironmentOverlay(options.env, undefined),
-          spawnClaudeCodeProcess: spawnRecordedCli,
-          ...(opts?.workingDirectory ? { cwd: opts.workingDirectory } : {}),
-          ...(limit === undefined ? {} : { maxTurns: limit }),
-        })
+      const settings = {
+        env: liveEnvironmentOverlay(options.env, undefined),
+        spawnClaudeCodeProcess: spawnRecordedCli,
+        ...(opts?.workingDirectory ? { cwd: opts.workingDirectory } : {}),
+        ...(limit === undefined ? {} : { maxTurns: limit }),
+      };
+      return deferredLanguageModel("claude-code", modelId, async () =>
+        markFreshCalls((await open()).languageModel(modelId, settings))
       );
     },
     models: options.models ?? [],

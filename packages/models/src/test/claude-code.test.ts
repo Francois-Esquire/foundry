@@ -145,10 +145,11 @@ describe("claudeCodeProvider", () => {
     expect(claudeCodeProvider({ env }).turnLimit).toBe("native");
   });
 
-  it("mounts a turn-scoped working directory when it builds the model", () => {
-    claudeCodeProvider({ env }).languageModel("sonnet", {
+  it("mounts a turn-scoped working directory when it builds the model", async () => {
+    const model = claudeCodeProvider({ env }).languageModel("sonnet", {
       workingDirectory: "/repo",
     });
+    await model.supportedUrls;
     expect(languageModel).toHaveBeenLastCalledWith("sonnet", {
       cwd: "/repo",
       env: {},
@@ -156,11 +157,12 @@ describe("claudeCodeProvider", () => {
     });
   });
 
-  it("passes a native turn limit to Claude Code", () => {
-    claudeCodeProvider({ env }).languageModel("sonnet", {
+  it("passes a native turn limit to Claude Code", async () => {
+    const model = claudeCodeProvider({ env }).languageModel("sonnet", {
       nativeMaxTurns: 7,
       workingDirectory: "/repo",
     });
+    await model.supportedUrls;
     expect(languageModel).toHaveBeenLastCalledWith("sonnet", {
       cwd: "/repo",
       env: {},
@@ -213,8 +215,11 @@ it("refuses native limits for a provider that does not support them", () => {
 
 it.each([1, 100])(
   "accepts the provider's native limit boundary (%s)",
-  (nativeMaxTurns) => {
-    claudeCodeProvider({ env }).languageModel("sonnet", { nativeMaxTurns });
+  async (nativeMaxTurns) => {
+    const model = claudeCodeProvider({ env }).languageModel("sonnet", {
+      nativeMaxTurns,
+    });
+    await model.supportedUrls;
     expect(languageModel).toHaveBeenLastCalledWith("sonnet", {
       env: {},
       maxTurns: nativeMaxTurns,
