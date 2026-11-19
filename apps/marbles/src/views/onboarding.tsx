@@ -1,10 +1,11 @@
+import { dirname } from "node:path";
 import { useKeyboard } from "@opentui/react";
 import { useCallback, useState } from "react";
 import { ArgumentForm } from "~/components/blocks/argument-form";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { Action } from "~/components/ui/action";
 import { Select } from "~/components/ui/select";
-import { SetupFlow, SetupStep } from "~/components/ui/setup-flow";
+import { SetupFlow } from "~/components/ui/setup-flow";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import { errorMessage, useAsyncAction } from "~/hooks/use-async-action";
@@ -27,24 +28,21 @@ const CHOICES = STARTERS.map((item) => ({
   value: item.id,
 }));
 
-function stepStatus(
-  current: string,
-  target: string
-): "active" | "done" | "pending" {
-  const stages = ["template", "settings", "review"];
-  if (current === target) {
-    return "active";
-  }
-  return stages.indexOf(current) > stages.indexOf(target) ? "done" : "pending";
-}
+const STAGES = {
+  review: { height: 30, title: "Review and create module" },
+  settings: { height: 25, title: "Configure your step" },
+  template: { height: 17, title: "Choose a starter" },
+} as const;
 
 export function OnboardingView({
   path,
+  workspace = dirname(path),
   onCreate,
   onSkip,
   onClose,
 }: {
   readonly path: string;
+  readonly workspace?: string;
   readonly onCreate: (draft: SetupDraft) => Promise<void>;
   readonly onSkip: () => void;
   readonly onClose: () => void;
@@ -137,6 +135,48 @@ export function OnboardingView({
   });
   return (
     <SetupFlow
+      footer={
+        <box flexDirection="row" flexWrap="wrap" gap={2}>
+          {stage === "template" && (
+            <>
+              <Action
+                active
+                id="setup:next"
+                label="Enter · Configure step"
+                onAction={next}
+                value="next"
+              />
+              <Action
+                id="setup:skip"
+                label="Esc · Skip for now"
+                onAction={skip}
+                value="skip"
+              />
+            </>
+          )}
+          {stage === "review" &&
+            (creation.busy ? (
+              <Text>Creating module…</Text>
+            ) : (
+              <>
+                <Action
+                  active
+                  id="setup:create"
+                  label="Enter · Create module"
+                  onAction={create}
+                  value="create"
+                />
+                <Action
+                  id="setup:back"
+                  label="Esc · Back"
+                  onAction={back}
+                  value="back"
+                />
+              </>
+            ))}
+        </box>
+      }
+      maxHeight={STAGES[stage].height}
       overlay={
         quitting && (
           <QuitDialog
@@ -148,14 +188,17 @@ export function OnboardingView({
       }
       title="Set up your workspace"
     >
-      <text fg={theme.colors.mutedForeground}>
-        No authoring folder found · {path}
-      </text>
-      <SetupStep status={stepStatus(stage, "template")}>
-        Choose a starter · {starter.label}
-      </SetupStep>
-      {stage === "template" && (
-        <box flexDirection="column" gap={1}>
+      <box flexDirection="column" gap={1} marginTop={1}>
+        <text fg={theme.colors.mutedForeground} wrapMode="word">
+          {stage === "review"
+            ? `Starter location · ${path}`
+            : `Workspace · ${workspace}`}
+        </text>
+        <text fg={theme.colors.primary}>
+          <strong>{STAGES[stage].title}</strong>
+          {stage === "review" ? "" : ` · ${starter.label}`}
+        </text>
+        {stage === "template" && (
           <Select
             focused={!quitting}
             id="setup:template"
@@ -163,70 +206,34 @@ export function OnboardingView({
             options={CHOICES}
             value={draft.template}
           />
-          <Action
-            active
-            id="setup:next"
-            label="Enter · Configure step"
-            onAction={next}
-            value="next"
+        )}
+        {stage === "settings" && (
+          <ArgumentForm
+            active={!quitting}
+            error={invalid}
+            fields={SETTINGS}
+            initialValues={{
+              instructions: draft.instructions,
+              name: draft.name,
+            }}
+            key={draft.template}
+            onCancel={back}
+            onSubmit={review}
+            submitLabel="Review module"
           />
-          <Action
-            id="setup:skip"
-            label="Esc · Skip for now"
-            onAction={skip}
-            value="skip"
-          />
-        </box>
-      )}
-      <SetupStep status={stepStatus(stage, "settings")}>
-        Configure your step
-      </SetupStep>
-      {stage === "settings" && (
-        <ArgumentForm
-          active={!quitting}
-          error={invalid}
-          fields={SETTINGS}
-          initialValues={{
-            instructions: draft.instructions,
-            name: draft.name,
-          }}
-          key={draft.template}
-          onCancel={back}
-          onSubmit={review}
-          submitLabel="Review module"
-        />
-      )}
-      <SetupStep status={stepStatus(stage, "review")}>
-        Review and create module
-      </SetupStep>
-      {stage === "review" && (
-        <box flexDirection="column" gap={1}>
-          <Text>{renderModule(draft)}</Text>
-          <text fg={theme.colors.mutedForeground}>
-            One step · no workflows or triggers · nothing runs during setup
-          </text>
-          {creation.error && (
-            <text fg={theme.colors.error}>{creation.error}</text>
-          )}
-          <Action
-            active
-            id="setup:create"
-            label={
-              creation.busy ? "Creating module..." : "Enter · Create module"
-            }
-            onAction={create}
-            value="create"
-          />
-          {!creation.busy && (
-            <Action
-              id="setup:back"
-              label="Esc · Back"
-              onAction={back}
-              value="back"
-            />
-          )}
-        </box>
-      )}
+        )}
+        {stage === "review" && (
+          <box flexDirection="column" gap={1}>
+            <Text>{renderModule(draft)}</Text>
+            <text fg={theme.colors.mutedForeground}>
+              Creates one starter step. You can run it from the Catalog.
+            </text>
+            {creation.error && (
+              <text fg={theme.colors.error}>{creation.error}</text>
+            )}
+          </box>
+        )}
+      </box>
     </SetupFlow>
   );
 }

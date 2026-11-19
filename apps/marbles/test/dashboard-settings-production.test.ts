@@ -41,7 +41,6 @@ vi.mock("~/dashboard/terminal", () => ({
 }));
 
 vi.mock("~/workspace/host", () => ({ hostWorkspace: vi.fn() }));
-vi.mock("~/workspace/open", () => ({ loadSource: vi.fn() }));
 
 vi.mock("~/process/client", async (importOriginal) => ({
   ...(await importOriginal<typeof Client>()),

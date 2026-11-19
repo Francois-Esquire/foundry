@@ -6,100 +6,8 @@ import { theme } from "~/components/ui/theme";
 import type { UsageGroup, WorkspaceUsage } from "~/model/usage";
 import type { DashboardSelection } from "~/views/dashboard-model";
 import { runSelection } from "~/views/dashboard-model";
-import {
-  duration,
-  type LatestItem,
-  type OperatingStats,
-} from "~/views/operating-model";
-import { costCell, costLabel, tokensLabel } from "~/views/usage-format";
-
-export function OperatingSummary({
-  stats,
-  usage,
-}: {
-  readonly stats: OperatingStats;
-  readonly usage?: WorkspaceUsage;
-}) {
-  const { counts } = stats;
-  const timings = [
-    stats.successRate === undefined
-      ? undefined
-      : `${Math.round(stats.successRate * 100)}% succeeded`,
-    stats.medianRunMs === undefined
-      ? undefined
-      : `median run ${duration(stats.medianRunMs)}`,
-    stats.medianQueueMs === undefined
-      ? undefined
-      : `median wait ${duration(stats.medianQueueMs)}`,
-  ].filter(Boolean);
-  const notes = [
-    ...(usage && usage.unreadable > 0
-      ? [`${usage.unreadable} usage records unreadable, totals partial`]
-      : []),
-    ...(usage && usage.recovered > 0
-      ? [`${usage.recovered} unrecorded turns found in transcripts`]
-      : []),
-    ...(usage && usage.unattributed > 0
-      ? [`${usage.unattributed} of them with no known run`]
-      : []),
-    ...(usage && usage.unsaved > 0
-      ? [`${usage.unsaved} turns not saved anywhere yet`]
-      : []),
-  ];
-  const partial = notes.map((note) => ` · ${note}`).join("");
-  return (
-    <box flexDirection="column" flexShrink={0} id="overview:summary">
-      <box flexDirection="row" gap={2} height={1}>
-        <text fg={theme.colors.info} flexShrink={0} wrapMode="none">
-          Running {counts.running}
-        </text>
-        <text fg={theme.colors.mutedForeground} flexShrink={0} wrapMode="none">
-          Queued {counts.queued}
-        </text>
-        <text
-          fg={
-            counts.waiting > 0
-              ? theme.colors.warning
-              : theme.colors.mutedForeground
-          }
-          flexShrink={0}
-          wrapMode="none"
-        >
-          Waiting {counts.waiting}
-        </text>
-        <text
-          fg={
-            counts.failed > 0
-              ? theme.colors.error
-              : theme.colors.mutedForeground
-          }
-          flexShrink={0}
-          wrapMode="none"
-        >
-          Failed {counts.failed}
-        </text>
-        <text fg={theme.colors.success} flexShrink={0} wrapMode="none">
-          Completed {counts.complete}
-        </text>
-        <text fg={theme.colors.mutedForeground} flexShrink={0} wrapMode="none">
-          Cancelled {counts.cancelled}
-        </text>
-        <text
-          fg={theme.colors.mutedForeground}
-          flexGrow={1}
-          minWidth={0}
-          wrapMode="none"
-        >
-          {timings.join(" · ")}
-        </text>
-      </box>
-      <text fg={theme.colors.mutedForeground} wrapMode="none">
-        Usage: {costLabel(usage?.total)} · {tokensLabel(usage?.total)}
-        {partial}
-      </text>
-    </box>
-  );
-}
+import type { LatestItem } from "~/views/operating-model";
+import { costLabel, tokensLabel } from "~/views/usage-format";
 
 export function LatestBlock({
   items,
@@ -127,44 +35,19 @@ export function LatestBlock({
               flexShrink={0}
               wrapMode="none"
             >
-              {new Date(item.at).toLocaleTimeString()}
+              {new Date(item.at).toLocaleTimeString(undefined, {
+                hour: "2-digit",
+                hourCycle: "h23",
+                minute: "2-digit",
+              })}
             </text>
-            <Text wrapMode="none">{item.text}</Text>
+            <Text minWidth={0} truncate wrapMode="none">
+              {item.text}
+            </Text>
           </SelectableRow>
         )
       )}
     </Panel>
-  );
-}
-
-const TOP_GROUPS = 5;
-
-function Groups({
-  title,
-  groups,
-}: {
-  readonly title: string;
-  readonly groups: readonly UsageGroup[];
-}) {
-  return (
-    <box flexDirection="column" flexShrink={0}>
-      <text fg={theme.colors.mutedForeground}>{title}</text>
-      {groups.length === 0 && <Text>None recorded.</Text>}
-      {groups.slice(0, TOP_GROUPS).map((group) => (
-        <box flexDirection="row" gap={1} height={1} key={group.id}>
-          <Text wrapMode="none">{group.id}</Text>
-          <text fg={theme.colors.mutedForeground} wrapMode="none">
-            {costCell(group.total)} · {group.total.turns}{" "}
-            {group.total.turns === 1 ? "turn" : "turns"}
-          </text>
-        </box>
-      ))}
-      {groups.length > TOP_GROUPS && (
-        <text fg={theme.colors.mutedForeground} wrapMode="none">
-          +{groups.length - TOP_GROUPS} more · u shows all
-        </text>
-      )}
-    </box>
   );
 }
 
@@ -258,30 +141,13 @@ export function UsageBreakdown({
   );
 }
 
-export function UsageBlock({ usage }: { readonly usage?: WorkspaceUsage }) {
-  return (
-    <Panel id="panel:usage" title="Usage · ~ estimate · ? unpriced">
-      {usage ? (
-        <box flexDirection="column" gap={1}>
-          <Groups groups={usage.byWorkflow} title="By workflow" />
-          <Groups groups={usage.byAgent} title="By agent" />
-        </box>
-      ) : (
-        <Text>Usage is not recorded by this host.</Text>
-      )}
-    </Panel>
-  );
-}
-
 export function OverviewPanels({
   runs,
   latest,
-  usage,
   wide,
 }: {
   readonly runs: ReactNode;
   readonly latest: ReactNode;
-  readonly usage: ReactNode;
   readonly wide: boolean;
 }) {
   if (!wide) {
@@ -302,12 +168,7 @@ export function OverviewPanels({
         {runs}
       </box>
       <box flexBasis={0} flexDirection="column" flexGrow={2} minWidth={0}>
-        <box flexDirection="column" flexGrow={1} minHeight={3}>
-          {latest}
-        </box>
-        <box flexDirection="column" flexGrow={1} minHeight={3}>
-          {usage}
-        </box>
+        {latest}
       </box>
     </box>
   );

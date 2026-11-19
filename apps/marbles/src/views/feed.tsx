@@ -1,4 +1,3 @@
-import { useTerminalDimensions } from "@opentui/react";
 import { FeedList } from "~/components/blocks/feed-list";
 import { FeedReader } from "~/components/blocks/feed-reader";
 import { ALL_WORKSPACES } from "./feed-model";
@@ -12,11 +11,12 @@ const STACK_BELOW = 90;
 export function FeedView({
   feed,
   inputActive,
+  width,
 }: {
   readonly feed: FeedState;
   readonly inputActive: boolean;
+  readonly width: number;
 }) {
-  const { width } = useTerminalDimensions();
   const stacked = width < STACK_BELOW;
   const listWidth = Math.max(
     MIN_LIST_WIDTH,
@@ -50,7 +50,8 @@ export function FeedView({
       <box
         flexDirection="column"
         flexShrink={0}
-        {...(stacked ? { height: "40%" } : { width: listWidth })}
+        height={stacked ? "40%" : undefined}
+        width={stacked ? "100%" : listWidth}
       >
         {list}
       </box>

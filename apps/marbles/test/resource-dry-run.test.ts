@@ -47,6 +47,7 @@ function cases(artifact: string): Readonly<Record<string, Case>> {
     runs: { args: ["runs", "--all"], exits: 0 },
     sandboxes: { args: ["sandboxes", "--all"], exits: 0 },
     sessions: { args: ["sessions", "--all"], exits: 0 },
+    settings: { args: ["settings", "get", "theme"], exits: 0 },
     share: { args: ["share", "artifact", artifact, "../two"] },
     status: { args: ["status"], exits: 0 },
     stop: { args: ["stop"] },

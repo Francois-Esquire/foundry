@@ -127,6 +127,8 @@ export function tokensLabel(total: UsageTotal | undefined): string {
   return `${count(tokens.total)} tokens (${count(tokens.input)} in · ${count(tokens.output)} out) · ${turns}${suffix}`;
 }
 
+export const UNPRICED_COST_CELL = "cost ?";
+
 export function costCell(total: UsageTotal | undefined): string {
   if (!total || isEmpty(total)) {
     return "";
@@ -136,7 +138,7 @@ export function costCell(total: UsageTotal | undefined): string {
     ...total.estimated.map((value) => `~${money(value)}`),
   ];
   if (parts.length === 0) {
-    return "cost ?";
+    return UNPRICED_COST_CELL;
   }
   const incomplete =
     total.unpriced > 0 || total.missing > 0 || hasElsewhere(total);

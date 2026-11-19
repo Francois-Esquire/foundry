@@ -1,25 +1,41 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-import { useSyncExternalStore } from "react";
+import {
+  createElement,
+  type ReactNode,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { theme } from "~/components/ui/theme";
 import type { SettingsChange } from "~/model/settings";
 import { ConfigErrorView } from "~/views/config-error";
 import { DashboardView } from "~/views/dashboard";
 import type { DashboardSnapshot } from "~/views/dashboard-model";
 import { OnboardingView } from "~/views/onboarding";
+import { ProviderOnboarding, WorkspaceWelcome } from "~/views/onboarding-intro";
 import type { Launcher, RunActions } from "~/views/run-actions";
 import { SplashView } from "~/views/splash";
 import { summarizeConfig } from "~/views/splash-model";
 import type { HostedWorkspace } from "~/views/use-dashboard";
 import type { AnswerHandler } from "~/views/use-feed";
+import type { discoverProviderSetup } from "~/workspace/provider-setup";
 import type { SetupDraft } from "~/workspace/templates";
+
+const ROUTINE_STATUS = new Set([
+  "Marbles loaded",
+  "Marbles ready",
+  "Marbles running",
+  "Ready · no triggers configured",
+  "Watching triggers",
+]);
 
 interface HostActions {
   readonly answer: AnswerHandler;
   readonly launch: Launcher;
+  readonly rollSchedule?: (key: string) => Promise<void>;
   readonly runs: RunActions;
   readonly settings?: (changes: SettingsChange) => Promise<void>;
-  readonly switchWorkspace?: () => void;
+  readonly switchWorkspace?: (id?: string) => void;
 }
 
 interface Screen {
@@ -28,11 +44,7 @@ interface Screen {
   readonly hasConfig: boolean;
   readonly host?: HostActions;
   readonly hosted?: HostedWorkspace;
-  readonly setup?: {
-    readonly path: string;
-    readonly onCreate: (draft: SetupDraft) => Promise<void>;
-    readonly onSkip: () => void;
-  };
+  readonly setup?: ReactNode;
   readonly snapshot?: DashboardSnapshot;
 }
 interface ScreenStore {
@@ -53,18 +65,12 @@ function DashboardApp({
 }) {
   const { entered, snapshot, setup, error, hasConfig, host, hosted } =
     useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const [workspaceRail, setWorkspaceRail] = useState(false);
   if (error) {
     return <ConfigErrorView message={error} onClose={onClose} />;
   }
   if (setup) {
-    return (
-      <OnboardingView
-        onClose={onClose}
-        onCreate={setup.onCreate}
-        onSkip={setup.onSkip}
-        path={setup.path}
-      />
-    );
+    return setup;
   }
   if (entered && snapshot) {
     return (
@@ -75,14 +81,19 @@ function DashboardApp({
         onAnswer={host?.answer}
         onClose={onClose}
         onLaunch={host?.launch}
+        onRollSchedule={host?.rollSchedule}
         onSettings={host?.settings}
         onSwitchWorkspace={host?.switchWorkspace}
+        onWorkspaceRail={setWorkspaceRail}
         snapshot={snapshot}
         toolbar={
-          <text fg={theme.colors.mutedForeground} wrapMode="none">
-            {snapshot.status}
-          </text>
+          ROUTINE_STATUS.has(snapshot.status) ? undefined : (
+            <text fg={theme.colors.mutedForeground} wrapMode="none">
+              {snapshot.status}
+            </text>
+          )
         }
+        workspaceRail={workspaceRail}
       />
     );
   }
@@ -167,6 +178,23 @@ export async function openDashboard(
       workspace={workspace}
     />
   );
+  function showSetup(
+    render: (finish: (completed: boolean) => void) => ReactNode
+  ): Promise<boolean> {
+    if (controller.signal.aborted) {
+      return Promise.resolve(false);
+    }
+    return new Promise((resolve) => {
+      const abort = () => resolve(false);
+      controller.signal.addEventListener("abort", abort, { once: true });
+      const finishSetup = (completed: boolean) => {
+        controller.signal.removeEventListener("abort", abort);
+        publish({ ...screen, setup: undefined });
+        resolve(completed);
+      };
+      publish({ ...screen, setup: render(finishSetup) });
+    });
+  }
   return {
     close: actions.close,
     connect(host: HostActions) {
@@ -185,28 +213,38 @@ export async function openDashboard(
     },
     onboard(
       path: string,
+      root: string,
       create: (draft: SetupDraft) => Promise<void>
     ): Promise<boolean> {
-      return new Promise((resolve) => {
-        const abort = () => resolve(false);
-        controller.signal.addEventListener("abort", abort, { once: true });
-        const finishSetup = (created: boolean) => {
-          controller.signal.removeEventListener("abort", abort);
-          publish({ ...screen, setup: undefined });
-          resolve(created);
-        };
-        publish({
-          ...screen,
-          setup: {
-            onCreate: async (draft) => {
-              await create(draft);
-              finishSetup(true);
-            },
-            onSkip: () => finishSetup(false),
-            path,
+      return showSetup((finishSetup) =>
+        createElement(OnboardingView, {
+          onClose: actions.close,
+          onCreate: async (draft: SetupDraft) => {
+            await create(draft);
+            finishSetup(true);
           },
-        });
-      });
+          onSkip: () => finishSetup(false),
+          path,
+          workspace: root,
+        })
+      );
+    },
+    reviewProviders(
+      root: string,
+      review: Awaited<ReturnType<typeof discoverProviderSetup>>,
+      confirm: (useDetected: boolean) => Promise<void>
+    ): Promise<boolean> {
+      return showSetup((finishSetup) =>
+        createElement(ProviderOnboarding, {
+          onClose: actions.close,
+          onContinue: async (useDetected: boolean) => {
+            await confirm(useDetected);
+            finishSetup(true);
+          },
+          review,
+          workspace: root,
+        })
+      );
     },
     update(
       snapshot: DashboardSnapshot,
@@ -214,6 +252,16 @@ export async function openDashboard(
       hosted?: HostedWorkspace
     ) {
       publish({ ...screen, hasConfig, hosted, snapshot });
+    },
+    welcome(path: string, root: string): Promise<boolean> {
+      return showSetup((finishSetup) =>
+        createElement(WorkspaceWelcome, {
+          onClose: actions.close,
+          onContinue: async () => finishSetup(true),
+          path,
+          workspace: root,
+        })
+      );
     },
   };
 }

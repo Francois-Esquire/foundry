@@ -75,6 +75,7 @@ export interface DashboardState {
   readonly remembered: Readonly<
     Partial<Record<BrowserPane, DashboardSelection>>
   >;
+  readonly returnView?: Exclude<DashboardViewKey, "logs" | "settings">;
   readonly searching: boolean;
   readonly selected?: DashboardSelection;
   readonly tab: InspectorTab;
@@ -88,6 +89,7 @@ export type DashboardEvent =
   | { readonly type: "select"; readonly selection: DashboardSelection }
   | { readonly type: "inspect"; readonly selection?: DashboardSelection }
   | { readonly type: "back" }
+  | { readonly type: "close-utility" }
   | { readonly type: "move"; readonly by: number }
   | { readonly type: "fold"; readonly open?: boolean }
   | { readonly type: "toggle"; readonly selection: DashboardSelection }
@@ -106,6 +108,7 @@ export type DashboardEvent =
   | { readonly type: "show-run"; readonly id: string }
   | { readonly type: "launch-form"; readonly id?: string }
   | { readonly type: "log-move"; readonly by: number }
+  | { readonly type: "log-run"; readonly id: string }
   | { readonly type: "log-level" }
   | { readonly type: "log-source" }
   | { readonly type: "log-follow" }
@@ -402,12 +405,23 @@ function showView(
   view: DashboardViewKey
 ): DashboardState {
   if (view === "overview") {
-    return focus(state, snapshot, "run");
+    return focus({ ...state, returnView: undefined }, snapshot, "run");
   }
   if (view === "catalog") {
-    return focus(state, snapshot, state.catalogPane);
+    return focus(
+      { ...state, returnView: undefined },
+      snapshot,
+      state.catalogPane
+    );
   }
-  return { ...state, searching: false, view };
+  if (view === "logs" || view === "settings") {
+    const prior =
+      state.view === "logs" || state.view === "settings"
+        ? state.returnView
+        : state.view;
+    return { ...state, returnView: prior, searching: false, view };
+  }
+  return { ...state, returnView: undefined, searching: false, view };
 }
 
 export function reduce(
@@ -428,6 +442,12 @@ export function reduce(
       const next = event.selection ? select(state, event.selection) : state;
       return { ...next, inspecting: true };
     }
+    case "close-utility":
+      return {
+        ...state,
+        returnView: undefined,
+        view: state.returnView ?? "overview",
+      };
     case "back":
       return { ...state, inspecting: false };
     case "move":
@@ -510,6 +530,11 @@ export function reduce(
       );
     case "launch-form":
       return { ...state, launching: event.id };
+    case "log-run":
+      return {
+        ...showView(state, snapshot, "logs"),
+        logs: { ...NO_LOG_FILTERS, runId: event.id },
+      };
     case "log-move":
       return moveLog(state, snapshot, event.by);
     case "log-level":

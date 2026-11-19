@@ -1,4 +1,5 @@
-import { KindBadge } from "~/components/blocks/kind-badge";
+import { useKeyboard } from "@opentui/react";
+import { useState } from "react";
 import { StatusLabel } from "~/components/blocks/status-label";
 import { Action } from "~/components/ui/action";
 import { KeyValue } from "~/components/ui/key-value";
@@ -137,12 +138,15 @@ function RunInspector({
 }
 
 function CatalogDetails({
+  active,
   snapshot,
   item,
   onInspect,
   onFilter,
   onLaunch,
+  onRollSchedule,
 }: {
+  readonly active: boolean;
   readonly snapshot: DashboardSnapshot;
   readonly item:
     | { readonly kind: "trigger"; readonly value: TriggerSnapshot }
@@ -150,8 +154,16 @@ function CatalogDetails({
   readonly onInspect: (selection: DashboardSelection) => void;
   readonly onFilter: (selection: CatalogSelection) => void;
   readonly onLaunch?: (id: string) => void;
+  readonly onRollSchedule?: (key: string) => void;
 }) {
   const { value } = item;
+  const [configuration, setConfiguration] = useState(false);
+  const raw = item.kind === "trigger" ? item.value.configuration : undefined;
+  useKeyboard((key) => {
+    if (active && raw !== undefined && key.name === "v") {
+      setConfiguration((open) => !open);
+    }
+  });
   const selection: CatalogSelection =
     item.kind === "trigger"
       ? triggerSelection(item.value)
@@ -165,10 +177,6 @@ function CatalogDetails({
     : "usage unavailable";
   return (
     <box flexDirection="column" gap={1}>
-      <KindBadge kind={value.kind} />
-      <Text>
-        <strong>{value.name}</strong>
-      </Text>
       <Text>{value.description}</Text>
       {item.kind === "trigger" && (
         <KeyValue
@@ -191,10 +199,17 @@ function CatalogDetails({
           ]}
         />
       )}
-      {item.kind === "trigger" && item.value.configuration !== undefined && (
-        <Text>
-          Configuration: {JSON.stringify(item.value.configuration, null, 2)}
-        </Text>
+      {raw !== undefined && (
+        <Action
+          label={
+            configuration ? "v Hide configuration" : "v Show configuration"
+          }
+          onAction={setConfiguration}
+          value={!configuration}
+        />
+      )}
+      {configuration && raw !== undefined && (
+        <Text>{JSON.stringify(raw, null, 2)}</Text>
       )}
       {item.kind === "definition" && (
         <KeyValue
@@ -222,6 +237,17 @@ function CatalogDetails({
           ]}
         />
       )}
+      {item.kind === "trigger" &&
+        item.value.kind === "schedule" &&
+        item.value.workspace === undefined &&
+        onRollSchedule && (
+          <Action
+            id="schedule:run"
+            label="r Run now"
+            onAction={onRollSchedule}
+            value={value.id}
+          />
+        )}
       {item.kind === "definition" && onLaunch && (
         <Action
           active
@@ -279,6 +305,7 @@ export function DetailsBlock({
   onInspect,
   onFilter,
   onLaunch,
+  onRollSchedule,
   stream,
 }: {
   readonly snapshot: DashboardSnapshot;
@@ -290,8 +317,10 @@ export function DetailsBlock({
   readonly onInspect: (selection: DashboardSelection) => void;
   readonly onFilter: (selection: CatalogSelection) => void;
   readonly onLaunch?: (id: string) => void;
+  readonly onRollSchedule?: (key: string) => void;
   readonly stream?: RunActions["stream"];
 }) {
+  let title = "Details";
   let content = (
     <Text>Select a schedule, monitor, definition, run, or step.</Text>
   );
@@ -299,6 +328,7 @@ export function DetailsBlock({
     content = <Text>{goneMessage(resolved)}</Text>;
   }
   if (resolved.kind === "activity") {
+    title = "Activity";
     content = (
       <ActivityDetails
         activity={resolved.activity}
@@ -308,6 +338,8 @@ export function DetailsBlock({
     );
   }
   if (resolved.kind === "run") {
+    const step = resolved.path.at(-1);
+    title = step ? `Step / ${step.name}` : `Run / ${resolved.run.name}`;
     content = (
       <RunInspector
         focused={active}
@@ -323,16 +355,22 @@ export function DetailsBlock({
     );
   }
   if (resolved.kind === "trigger" || resolved.kind === "definition") {
+    const item =
+      resolved.kind === "trigger" ? resolved.trigger : resolved.definition;
+    title = `${item.kind[0]?.toUpperCase() ?? ""}${item.kind.slice(1)} / ${item.name}`;
     content = (
       <CatalogDetails
+        active={active}
         item={
           resolved.kind === "trigger"
             ? { kind: "trigger", value: resolved.trigger }
             : { kind: "definition", value: resolved.definition }
         }
+        key={selection && selectionKey(selection)}
         onFilter={onFilter}
         onInspect={onInspect}
         onLaunch={onLaunch}
+        onRollSchedule={onRollSchedule}
         snapshot={snapshot}
       />
     );
@@ -342,7 +380,7 @@ export function DetailsBlock({
       active={active}
       resetKey={selection && `${selectionKey(selection)}:${tab}`}
       scrollable={active}
-      title="Details"
+      title={title}
     >
       {content}
     </Panel>

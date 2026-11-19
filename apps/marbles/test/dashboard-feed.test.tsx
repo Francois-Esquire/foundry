@@ -24,8 +24,8 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
   };
   const ui = await mount(<DashboardView onClose={close} snapshot={snapshot} />);
   let frame = ui.captureCharFrame();
-  expect(frame).toContain("Overview  3");
-  expect(frame).toContain("Feed  4");
+  expect(frame).toContain("Dashboard");
+  expect(frame).toContain("Feed");
 
   await act(async () => ui.mockInput.pressKey("F"));
   frame = await frameWith(ui, "The docs workflow rewrote");
@@ -33,15 +33,14 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
   expect(frame).not.toContain("! Codebase summary");
   for (const label of [
     "Feed · All workspaces",
-    "needs input · foundry · 14:33",
+    "needs input  · foundry · 14:33",
     "Codebase summary",
     "Docs updated",
     "Workspace set up: foundry",
     "Needs your input",
     "1 merge",
     "2 hold",
-    "entries · ↑↓ select · Enter read",
-    "w workspace · x all",
+    "Enter read",
     "? help · q / Ctrl+C quit",
   ]) {
     expect(frame).toContain(label);
@@ -58,7 +57,7 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
   await act(async () => ui.mockInput.pressEnter());
   frame = await frameWith(ui, "Marbles is a local runner");
   expect(frame).toContain("Entry · ↑↓ scroll · Esc entries");
-  expect(frame).toContain("reader · ↑↓ scroll · Esc entries");
+  expect(frame).toContain("↑↓ scroll · Esc entries");
   expect(frame).toContain("media/walkthrough.mp4");
 
   await act(async () => ui.mockInput.pressKey("D"));

@@ -16,6 +16,7 @@ import { EmptyState } from "./empty-state";
 
 interface CatalogProps {
   readonly active: boolean;
+  readonly compact?: boolean;
   readonly onReset?: () => void;
   readonly onSelect: (selection: DashboardSelection) => void;
   readonly searching?: boolean;
@@ -29,6 +30,7 @@ export function TriggersBlock({
   onSelect,
   searching,
   onReset,
+  compact,
 }: CatalogProps & {
   readonly items: readonly TriggerSnapshot[];
 }) {
@@ -62,18 +64,28 @@ export function TriggersBlock({
         >
           <box flexDirection="row" flexGrow={1} gap={1} height={1} minWidth={0}>
             <KindBadge kind={item.kind} />
-            <Text wrapMode="none">{item.name}</Text>
+            <Text
+              flexGrow={compact ? 1 : 0}
+              minWidth={0}
+              truncate
+              wrapMode="none"
+            >
+              {item.name}
+            </Text>
             <box flexShrink={0}>
               <StatusLabel item={item} />
             </box>
-            <text
-              fg={theme.colors.mutedForeground}
-              flexGrow={1}
-              minWidth={0}
-              wrapMode="none"
-            >
-              {item.next ? `Next: ${item.next}` : item.description}
-            </text>
+            {!compact && (
+              <text
+                fg={theme.colors.mutedForeground}
+                flexGrow={1}
+                minWidth={0}
+                truncate
+                wrapMode="none"
+              >
+                {item.next ? `Next: ${item.next}` : item.description}
+              </text>
+            )}
           </box>
         </SelectableRow>
       ))}
@@ -89,6 +101,7 @@ export function DefinitionsBlock({
   searching,
   onReset,
   workspace,
+  compact,
 }: CatalogProps & {
   readonly items: readonly DefinitionSnapshot[];
   readonly workspace: string;
@@ -98,7 +111,9 @@ export function DefinitionsBlock({
       active={active}
       id="panel:definition"
       selectedId={selected && selectionKey(selected)}
-      title={`2 Marbles · workflows & steps in ${workspace}`}
+      title={
+        compact ? "2 Marbles" : `2 Marbles · workflows & steps in ${workspace}`
+      }
     >
       {items.length === 0 && (
         <EmptyState
@@ -124,9 +139,16 @@ export function DefinitionsBlock({
           value={{ id: item.id, kind: "definition" }}
         >
           <KindBadge kind={item.kind} />
-          <Text>{item.name}</Text>
-          {item.origin && (
-            <text fg={theme.colors.mutedForeground} wrapMode="none">
+          <Text minWidth={0} truncate wrapMode="none">
+            {item.name}
+          </Text>
+          {!compact && item.origin && (
+            <text
+              fg={theme.colors.mutedForeground}
+              minWidth={0}
+              truncate
+              wrapMode="none"
+            >
               {item.origin.external ? "outside workspace" : item.origin.source}
             </text>
           )}

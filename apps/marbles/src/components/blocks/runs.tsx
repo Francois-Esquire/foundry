@@ -6,6 +6,7 @@ import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { type DashboardSelection, selectionKey } from "~/views/dashboard-model";
 import type { RunRow } from "~/views/dashboard-tree";
+import { CostTag } from "./cost-tag";
 import { EmptyState } from "./empty-state";
 
 export function RunsBlock({
@@ -80,7 +81,7 @@ export function RunsBlock({
           <Text>{row.name}</Text>
           <StatusLabel item={row} />
           <Text>{row.elapsed}</Text>
-          {row.cost && <Text>{row.cost}</Text>}
+          {row.cost && <CostTag value={row.cost} />}
           {row.depth === 0 && <Text>· {row.selection.id}</Text>}
         </SelectableRow>
       ))}

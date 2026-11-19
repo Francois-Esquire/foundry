@@ -177,7 +177,8 @@ test("preview loads its config, waits for entry, and opens the dashboard once", 
   expect(ui.captureCharFrame()).not.toContain("1 Triggers");
   await press(ui, "RETURN");
   expect(ui.captureCharFrame()).toContain("3 Runs");
-  expect(ui.captureCharFrame()).toContain("Running 1");
+  expect(ui.captureCharFrame()).toContain("Active runs");
+  expect(ui.captureCharFrame()).toContain("1 running");
   expect(ui.captureCharFrame()).not.toContain("Overview  Input");
   await press(ui, "m");
   expect(ui.captureCharFrame()).toContain("1 Triggers");

@@ -93,9 +93,10 @@ export type AnswerState = ReturnType<typeof useAnswer>;
 export function useFeed(
   entries: readonly FeedEntrySnapshot[],
   workspaceId?: string,
-  onAnswer?: AnswerHandler
+  onAnswer?: AnswerHandler,
+  initialScope = ALL_WORKSPACES
 ) {
-  const [scope, setScope] = useState(ALL_WORKSPACES);
+  const [scope, setScope] = useState(initialScope);
   const [selectedKey, setSelectedKey] = useState<string>();
   const [focus, setFocus] = useState<FeedFocus>("list");
   const scopes = feedScopes(entries, workspaceId);

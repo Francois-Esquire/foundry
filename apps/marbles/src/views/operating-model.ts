@@ -1,5 +1,6 @@
 import type { LogEntry } from "~/model/log";
 import { isPaused } from "~/model/run-status";
+import type { UsageTotal } from "~/model/usage";
 import type {
   DashboardSelection,
   DashboardSnapshot,
@@ -28,6 +29,7 @@ export interface OperatingLogEntry extends LogEntry {
 export interface LogFilter {
   readonly level: LogLevel;
   readonly query: string;
+  readonly runId?: string;
   readonly source: LogSource;
 }
 
@@ -99,6 +101,7 @@ export function filterLogs(
   const query = filter.query.trim().toLowerCase();
   return entries.filter(
     (entry) =>
+      (filter.runId === undefined || entry.runId === filter.runId) &&
       LOG_LEVELS.indexOf(entry.level) >= minimum &&
       (filter.source === "all" || entry.source === filter.source) &&
       (!query ||
@@ -187,6 +190,70 @@ export function operatingStats(runs: readonly RunSnapshot[]): OperatingStats {
     ...(queueMs === undefined ? {} : { medianQueueMs: queueMs }),
     ...(settled > 0 ? { successRate: counts.complete / settled } : {}),
     total: runs.length,
+  };
+}
+
+function usd(total: UsageTotal): UsageTotal {
+  return {
+    ...total,
+    estimated: total.estimated.filter((amount) => amount.currency === "USD"),
+    reported: total.reported.filter((amount) => amount.currency === "USD"),
+  };
+}
+
+export function workflowRankings(snapshot: DashboardSnapshot) {
+  const workflows = new Map(
+    snapshot.definitions
+      .filter((definition) => definition.kind === "workflow")
+      .map(({ id, name }) => [id, name])
+  );
+  const spend = (snapshot.usage?.byWorkflow ?? [])
+    .flatMap(({ id, total }) => {
+      const name = workflows.get(id);
+      const cost = usd(total);
+      const amounts = [...cost.reported, ...cost.estimated];
+      return name === undefined || amounts.length === 0
+        ? []
+        : [
+            {
+              amount: amounts.reduce((sum, line) => sum + line.amount, 0),
+              cost,
+              id,
+              name,
+            },
+          ];
+    })
+    .sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name));
+
+  const durations = new Map<
+    string,
+    { id: string; name: string; ms: number; runs: number }
+  >();
+  for (const { definitionId, timing, workspace } of snapshot.runs) {
+    const name = workflows.get(definitionId);
+    const { startedAt, endedAt } = timing ?? {};
+    if (
+      workspace !== undefined ||
+      name === undefined ||
+      startedAt === undefined ||
+      endedAt === undefined ||
+      endedAt < startedAt
+    ) {
+      continue;
+    }
+    const previous = durations.get(definitionId);
+    durations.set(definitionId, {
+      id: definitionId,
+      ms: (previous?.ms ?? 0) + endedAt - startedAt,
+      name,
+      runs: (previous?.runs ?? 0) + 1,
+    });
+  }
+  return {
+    elapsed: [...durations.values()].sort(
+      (a, b) => b.ms - a.ms || a.name.localeCompare(b.name)
+    ),
+    spend,
   };
 }
 

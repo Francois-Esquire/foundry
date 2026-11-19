@@ -36,7 +36,9 @@ export interface KeyPress {
 export interface CommandContext {
   readonly actions?: RunActions;
   readonly canLaunch: boolean;
+  readonly canRollSchedule?: boolean;
   readonly canSwitchWorkspace: boolean;
+  readonly canToggleRail?: boolean;
   readonly feed: Pick<
     FeedState,
     | "browse"
@@ -75,8 +77,10 @@ interface CommandEffects {
   readonly act: (work: () => Promise<void>) => void;
   readonly launch: (definitionId: string) => void;
   readonly quit: () => void;
+  readonly rollSchedule?: (key: string) => void;
   readonly send: (event: DashboardEvent) => void;
   readonly switchWorkspace: () => void;
+  readonly toggleRail?: () => void;
   readonly toggleWorkspaces: () => void;
 }
 
@@ -328,7 +332,7 @@ const COMMANDS: readonly Command[] = [
     when: (context) => context.state.help && !writing(context),
   },
   {
-    help: "Show the Overview / Catalog / Logs / Feed / Settings tab",
+    help: "Open Dashboard, Catalog, Feed, Diagnostics, or Settings",
     key: "Shift+D / C / L / F / S",
     keys: (key) => viewShortcut(key) !== undefined,
     run: (dashboard, key) =>
@@ -337,7 +341,53 @@ const COMMANDS: readonly Command[] = [
     when: (context) => !capturesKeys(context),
   },
   {
-    help: "Return to the Overview or Catalog list with focus; clicking marbles does too",
+    help: "Open Diagnostics",
+    key: "d",
+    keys: ["d"],
+    run: (dashboard) => {
+      const { resolved } = dashboard;
+      dashboard.send(
+        dashboard.state.inspecting &&
+          isBrowserView(dashboard.state.view) &&
+          resolved.kind === "run"
+          ? { id: resolved.run.id, type: "log-run" }
+          : { type: "view", view: "logs" }
+      );
+    },
+    section: "Anywhere",
+    when: (context) => !capturesKeys(context),
+  },
+  {
+    help: "Run the selected schedule now",
+    key: "r on a schedule",
+    keys: ["r"],
+    label: "r run now",
+    run: ({ resolved, rollSchedule }) => {
+      if (resolved.kind === "trigger") {
+        rollSchedule?.(resolved.trigger.id);
+      }
+    },
+    section: "Dashboard",
+    when: (context) =>
+      Boolean(
+        context.canRollSchedule &&
+          inDetails(context) &&
+          context.resolved.kind === "trigger" &&
+          context.resolved.trigger.kind === "schedule" &&
+          context.resolved.trigger.workspace === undefined
+      ),
+  },
+  {
+    help: "Close Diagnostics or Settings",
+    key: "Esc",
+    keys: ["escape"],
+    label: "Esc close",
+    run: (dashboard) => dashboard.send({ type: "close-utility" }),
+    section: "Anywhere",
+    when: (context) => onLogs(context) || onSettings(context),
+  },
+  {
+    help: "Return to the Dashboard or Catalog list with focus; clicking marbles does too",
     key: "h",
     keys: ["h"],
     run: (dashboard) => dashboard.send({ type: "home" }),
@@ -410,11 +460,18 @@ const COMMANDS: readonly Command[] = [
       context.feed.answer.choices.length === 0,
   },
   {
-    help: "Cycle the workspace filter",
-    key: "w",
-    keys: ["w"],
-    label: "w workspace",
-    run: (dashboard) => dashboard.feed.cycleScope(),
+    help: "Cycle the Feed workspace filter (Shift+W when hosted)",
+    key: "w / Shift+W",
+    keys: (key) => key.name === "w" || key.sequence === "W",
+    label: (context) =>
+      context.canSwitchWorkspace ? "W feed scope" : "w feed scope",
+    run: (dashboard, key) => {
+      if (dashboard.canSwitchWorkspace && !key.shift && key.sequence !== "W") {
+        dashboard.switchWorkspace();
+      } else {
+        dashboard.feed.cycleScope();
+      }
+    },
     section: "Feed",
     when: (context) => onFeed(context) && context.feed.scopeCount > 1,
   },
@@ -500,7 +557,7 @@ const COMMANDS: readonly Command[] = [
   },
 
   {
-    help: "Show every workflow's and agent's usage on Overview",
+    help: "Show every workflow's and agent's usage on Dashboard",
     key: "u",
     keys: ["u"],
     label: "u usage",
@@ -520,7 +577,6 @@ const COMMANDS: readonly Command[] = [
     key: "Esc / u in usage",
     keys: ["escape", "u"],
     label: "Esc back",
-    lasting: true,
     run: (dashboard) => dashboard.send({ open: false, type: "breakdown" }),
     section: "Dashboard",
     when: inBreakdown,
@@ -528,11 +584,12 @@ const COMMANDS: readonly Command[] = [
 
   {
     help: "Choose the theme; it is saved for every workspace",
-    key: "← / → in settings",
-    keys: ["left", "right"],
-    label: "←→ theme",
+    key: "↑ / ↓ or ← / → in Settings",
+    keys: ["down", "left", "right", "up"],
+    label: "↑↓ theme",
     run: (dashboard, key) => {
-      const next = nextTheme(dashboard, key.name === "left" ? -1 : 1);
+      const previous = key.name === "left" || key.name === "up";
+      const next = nextTheme(dashboard, previous ? -1 : 1);
       if (next) {
         const { change, theme } = next;
         dashboard.act(() => change({ theme }));
@@ -543,7 +600,17 @@ const COMMANDS: readonly Command[] = [
   },
 
   {
-    help: "Focus Triggers / Marbles on Catalog, or Runs on Overview",
+    help: "Toggle the workspace rail",
+    key: "Shift+W in Settings",
+    keys: (key) => key.sequence === "W" || (key.shift && key.name === "w"),
+    label: "W rail",
+    run: (dashboard) => dashboard.toggleRail?.(),
+    section: "Settings",
+    when: (context) => context.canToggleRail === true && onSettings(context),
+  },
+
+  {
+    help: "Focus Triggers / Marbles on Catalog, or Runs on Dashboard",
     key: "1 / 2 / 3",
     keys: (key) => isPaneKey(key.name),
     run: (dashboard, key) => {
@@ -567,7 +634,6 @@ const COMMANDS: readonly Command[] = [
     key: "Tab / Shift+Tab",
     keys: ["tab"],
     label: "Tab focus",
-    lasting: true,
     run: (dashboard, key) =>
       dashboard.send({ backwards: key.shift, type: "cycle" }),
     section: "Dashboard",
@@ -578,7 +644,6 @@ const COMMANDS: readonly Command[] = [
     key: "Enter",
     keys: ["return", "enter"],
     label: "Enter details",
-    lasting: true,
     run: (dashboard) => dashboard.send({ type: "inspect" }),
     section: "Dashboard",
     when: (context) => inList(context),
@@ -588,7 +653,6 @@ const COMMANDS: readonly Command[] = [
     key: "Esc",
     keys: ["escape", "tab"],
     label: "Esc back",
-    lasting: true,
     run: (dashboard) => dashboard.send({ type: "back" }),
     section: "Dashboard",
     when: inDetails,
@@ -872,13 +936,13 @@ const COMMANDS: readonly Command[] = [
     when: onDashboard,
   },
   {
-    help: "Show the next workspace the Marbles process hosts",
+    help: "Open the workspace picker",
     key: "w",
     keys: ["w"],
     label: "w workspace",
     run: (dashboard) => dashboard.switchWorkspace(),
     section: "Dashboard",
-    when: (context) => onDashboard(context) && context.canSwitchWorkspace,
+    when: (context) => !capturesKeys(context) && context.canSwitchWorkspace,
   },
 
   {

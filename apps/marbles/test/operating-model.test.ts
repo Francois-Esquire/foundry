@@ -264,7 +264,7 @@ describe("logs", () => {
   it("Enter opens the run a line came from, at its step; host lines open nothing", () => {
     const onRunLine = commands([{ type: "view", view: "logs" }]);
     expect(footer(onRunLine.context).hints).toBe(
-      "logs · ↑↓ select · Enter open run · f stop following · v level debug+ · o source all · / search · x clear"
+      "logs · Esc close · ↑↓ select · Enter open run · f stop following · v level debug+ · o source all · / search · x clear"
     );
     expect(onRunLine.press(key("return"))).toEqual([
       [
@@ -306,7 +306,9 @@ describe("settings keys", () => {
         current: { path: "/tmp/settings.json", theme: "dark" },
       },
     });
-    expect(footer(editable.context).hints).toBe("settings · ←→ theme");
+    expect(footer(editable.context).hints).toBe(
+      "settings · Esc close · ↑↓ theme"
+    );
     expect(editable.press(key("right"))).toEqual([["act"]]);
     await Promise.resolve();
     expect(saved).toEqual([{ theme: "light" }]);

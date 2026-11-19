@@ -1,10 +1,11 @@
 import type { ThemeName } from "~/model/settings";
+import termcnThemes from "~/model/termcn-themes.json";
 
 interface Palette {
   readonly border: {
     readonly color: string;
     readonly focusColor: string;
-    readonly style: "rounded";
+    readonly style: "rounded" | "heavy";
   };
   readonly colors: {
     readonly accent: string;
@@ -22,7 +23,7 @@ interface Palette {
   };
 }
 
-const PALETTES: Readonly<Record<ThemeName, Palette>> = {
+const PALETTES: Readonly<Record<"dark" | "light", Palette>> = {
   dark: {
     border: { color: "#665c54", focusColor: "#fabd2f", style: "rounded" },
     colors: {
@@ -59,6 +60,32 @@ const PALETTES: Readonly<Record<ThemeName, Palette>> = {
   },
 };
 
+const TERMINAL_TOKENS = {
+  spacing: { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 6: 6, 8: 8 },
+  typography: { base: "", bold: true, lg: "bold", sm: "dim", xl: "bold" },
+};
+
+export function terminalTheme(name: ThemeName) {
+  if (name === "dark" || name === "light") {
+    const palette = PALETTES[name];
+    return {
+      border: palette.border,
+      colors: { ...termcnThemes.default.colors, ...palette.colors },
+      name,
+      ...TERMINAL_TOKENS,
+    };
+  }
+  const { colors, border } = termcnThemes[name];
+  const style: Palette["border"]["style"] =
+    border.style === "heavy" ? "heavy" : "rounded";
+  return {
+    ...TERMINAL_TOKENS,
+    border: { ...border, style },
+    colors,
+    name,
+  };
+}
+
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 export const theme: {
@@ -70,6 +97,12 @@ export const theme: {
 };
 
 export function applyTheme(name: ThemeName): void {
-  Object.assign(theme.border, PALETTES[name].border);
-  Object.assign(theme.colors, PALETTES[name].colors);
+  const palette = terminalTheme(name);
+  Object.assign(theme.border, palette.border);
+  Object.assign(theme.colors, palette.colors, {
+    secondary:
+      name === "dark" || name === "light"
+        ? palette.colors.secondary
+        : palette.colors.accent,
+  });
 }

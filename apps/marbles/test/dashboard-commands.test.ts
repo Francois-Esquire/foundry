@@ -268,8 +268,8 @@ describe("footer", () => {
     });
     expect(footer(built)).toEqual({
       hints:
-        "definition · ↑↓ select · l launch · f filter runs · / search · a active · e failed",
-      lasting: "Tab focus · Enter details · ? help · q / Ctrl+C quit",
+        "definition · Tab focus · Enter details · ↑↓ select · l launch · f filter runs · / search · a active · e failed",
+      lasting: "? help · q / Ctrl+C quit",
     });
   });
 
@@ -281,11 +281,9 @@ describe("footer", () => {
       ],
     });
     expect(footer(logs.context).hints).toBe(
-      "details · ←→ tabs · ↑↓ scroll · f follow · s steer · p pause · k cancel · b run · a active · e failed"
+      "details · Esc back · ←→ tabs · ↑↓ scroll · f follow · s steer · p pause · k cancel · b run · a active · e failed"
     );
-    expect(footer(logs.context).lasting).toBe(
-      "Esc back · ? help · q / Ctrl+C quit"
-    );
+    expect(footer(logs.context).lasting).toBe("? help · q / Ctrl+C quit");
     const input = context({ events: [{ tab: "input", type: "tab" }] });
     expect(footer(input.context).hints).toContain(
       "↑↓ browse · Space fold JSON"
@@ -319,7 +317,7 @@ describe("footer", () => {
     });
     expect(footer(built)).toEqual({
       hints:
-        "entries · ↑↓ select · Enter read · 1-2 answer · w workspace · x all",
+        "entries · ↑↓ select · Enter read · 1-2 answer · w feed scope · x all",
       lasting: "? help · q / Ctrl+C quit",
     });
   });
@@ -334,7 +332,8 @@ describe("key dispatch", () => {
       canSwitchWorkspace: true,
       events: [{ type: "view", view: "feed" }],
     });
-    expect(feed.press(key("w"))).toEqual([["cycle-scope"]]);
+    expect(feed.press(key("w"))).toEqual([["switch-workspace"]]);
+    expect(feed.press(key("W"))).toEqual([["cycle-scope"]]);
   });
 
   it("lets text fields and overlays keep their keys", () => {

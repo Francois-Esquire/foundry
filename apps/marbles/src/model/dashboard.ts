@@ -17,6 +17,7 @@ export interface TriggerSnapshot {
   readonly managed?: boolean;
   readonly name: string;
   readonly next?: string;
+  readonly nextAt?: number;
   readonly owner?: string;
   readonly status: "waiting" | "watching" | "running" | "failed" | "paused";
   readonly targetId: string;

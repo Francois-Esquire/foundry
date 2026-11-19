@@ -85,6 +85,10 @@ function Choices({
   );
 }
 
+function answerShortcut(count: number): string {
+  return ` ${count === 1 ? "1" : `1-${count}`} answer `;
+}
+
 function AnswerSection({
   entry,
   answer,
@@ -154,6 +158,11 @@ function AnswerSection({
       border
       borderColor={theme.colors.warning}
       borderStyle="rounded"
+      bottomTitle={
+        answer.question && !answer.typing && input.choices.length > 0
+          ? answerShortcut(input.choices.length)
+          : undefined
+      }
       flexDirection="column"
       flexShrink={0}
       marginTop={1}

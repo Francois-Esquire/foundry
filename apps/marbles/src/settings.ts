@@ -2,11 +2,10 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { isRecord, writeJson } from "~/lib/state/json";
-import { THEME_NAMES, type ThemeName } from "~/model/settings";
-
-const THEMES: readonly ThemeName[] = THEME_NAMES;
+import { isTheme, type ThemeName } from "~/model/settings";
 
 export interface Settings {
+  readonly providerSetupComplete?: true;
   readonly theme: ThemeName;
 }
 
@@ -20,10 +19,6 @@ export interface LoadedSettings {
 
 export function settingsPath(stateRoot: string): string {
   return join(resolve(stateRoot), "settings.json");
-}
-
-function isTheme(value: unknown): value is ThemeName {
-  return THEMES.includes(value as ThemeName);
 }
 
 type Parsed =
@@ -66,14 +61,19 @@ export function loadSettings(path: string): LoadedSettings {
       settings: DEFAULT_SETTINGS,
     };
   }
-  const { theme } = parsed.value;
+  const { providerSetupComplete, theme } = parsed.value;
+  const setup: Pick<Settings, "providerSetupComplete"> =
+    providerSetupComplete === true ? { providerSetupComplete } : {};
   if (theme === undefined || isTheme(theme)) {
-    return { path, settings: { theme: theme ?? DEFAULT_SETTINGS.theme } };
+    return {
+      path,
+      settings: { ...setup, theme: theme ?? DEFAULT_SETTINGS.theme },
+    };
   }
   return {
     path,
-    problem: `theme ${JSON.stringify(theme)} in ${path} is not one of ${THEMES.join(", ")}; using ${DEFAULT_SETTINGS.theme}`,
-    settings: DEFAULT_SETTINGS,
+    problem: `unknown theme ${JSON.stringify(theme)} in ${path}; using ${DEFAULT_SETTINGS.theme}`,
+    settings: { ...setup, ...DEFAULT_SETTINGS },
   };
 }
 
@@ -86,7 +86,7 @@ export function saveSettings(
     throw new Error(`${parsed.problem}; fix or remove it to save settings`);
   }
   if (changes.theme !== undefined && !isTheme(changes.theme)) {
-    throw new Error(`theme must be one of ${THEMES.join(", ")}`);
+    throw new Error(`unknown theme ${JSON.stringify(changes.theme)}`);
   }
   const current = parsed.kind === "read" ? parsed.value : {};
   const next = { ...current, ...changes };
