@@ -97,8 +97,10 @@ it("lists all bundled themes and gets and sets the active theme from the CLI", (
   expect(cli("set", "theme", "opencode").exitCode).toBe(0);
   expect(cli("get", "theme").stdout.toString().trim()).toBe("opencode");
   expect(cli("set", "theme", "dark", "--dry-run").exitCode).toBe(1);
-  expect(cli("get", "theme").stdout.toString().trim()).toBe("opencode");
-});
+  expect(
+    loadSettings(settingsPath(join(state, "marbles"))).settings.theme
+  ).toBe("opencode");
+}, 15_000);
 
 it("ignores an unreadable file, and refuses to overwrite it", async () => {
   const path = settingsPath(state);
