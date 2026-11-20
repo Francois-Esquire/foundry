@@ -1,62 +1,74 @@
 import type { ReactNode } from "react";
 import { defineStories, story } from "textbook-sh";
-import { Chip } from "@/components/blocks/chip";
-import { PortraitBay } from "@/components/blocks/portrait-bay";
-import { Slab } from "@/components/blocks/slab";
-import { StatTile } from "@/components/blocks/stat-tile";
-import { StepStrip } from "@/components/blocks/step-strip";
+import { Gauge } from "@/components/blocks/gauge";
 import { HudLayout, type HudSection } from "@/components/layouts/hud";
-import { hudGeometry } from "@/model/hud-art";
-import { hud, tones } from "@/model/palette";
+import { hud } from "@/model/palette";
 import type { Size } from "@/model/screen";
-import type { Step } from "@/model/steps";
 import { ignore, renderFrame } from "../frame";
 
 const wide = { height: 34, width: 120 };
 const compact = { height: 30, width: 96 };
-const small = { height: 24, width: 80 };
-const TALL = 32;
-const RAIL = 22;
-
-const STEPS: readonly Step[] = [
-  { label: "Locate package.json", state: "done" },
-  { label: "Identify scripts", state: "done" },
-  { label: "Check setup", state: "active" },
-  { label: "Summarize", state: "pending" },
-];
+const PORTRAIT_ROWS = 10;
 
 export default defineStories({
   component: "HudLayout",
   description:
-    "A blockout of the next screen: a machined status rail on the left, the steps, conversation and goal on the right.",
+    "A blockout of the next screen: a status rail of cards on the left, the steps, conversation and goal on the right.",
   title: "Layouts/Hud",
 });
 
 function Region({ children }: { readonly children: string }) {
+  return <text fg={hud.dim}>{children}</text>;
+}
+
+function Portrait() {
   return (
-    <text bg={hud.screen} fg={hud.dim}>
-      {children}
-    </text>
+    <box alignItems="center" flexDirection="column">
+      {Array.from({ length: PORTRAIT_ROWS }, (_, row) => (
+        <text fg={hud.trough} key={`portrait-${row}`}>
+          {row === PORTRAIT_ROWS / 2
+            ? "▒▒▒▒▒▒ portrait ▒▒▒▒▒▒"
+            : "▒".repeat(22)}
+        </text>
+      ))}
+      <text fg={hud.amber}>holding steady</text>
+    </box>
   );
 }
 
-function Vitals({ gap }: { readonly gap: number }) {
+function Vital({
+  label,
+  level,
+  tone,
+  value,
+}: {
+  readonly label: string;
+  readonly level: number;
+  readonly tone: string;
+  readonly value: string;
+}) {
   return (
-    <box flexDirection="column" gap={gap}>
-      <StatTile
-        detail="of 200k"
-        label="CONTEXT"
+    <box flexDirection="column">
+      <box flexDirection="row">
+        <text fg={hud.text}>{label}</text>
+        <box flexGrow={1} />
+        <text fg={hud.dim}>{value}</text>
+      </box>
+      <Gauge cells={26} level={level} tone={tone} />
+    </box>
+  );
+}
+
+function Vitals() {
+  return (
+    <box flexDirection="column" gap={1}>
+      <Vital
+        label="Context"
         level={0.71}
-        tone="amber"
-        width={RAIL}
+        tone={hud.amber}
+        value="142k / 200k"
       />
-      <StatTile
-        detail="holding"
-        label="STAMINA"
-        level={0.64}
-        tone="red"
-        width={RAIL}
-      />
+      <Vital label="Stamina" level={0.64} tone={hud.red} value="64%" />
     </box>
   );
 }
@@ -69,171 +81,155 @@ function Arsenal() {
         ["Read", "4"],
         ["Skill", "1"],
       ].map(([name, count]) => (
-        <box flexDirection="row" key={name}>
-          <text bg={tones.green.dim} fg={tones.green.glow}>
-            ▀
-          </text>
-          <text bg={hud.screen} fg={hud.text}>{` ${name}`}</text>
+        <box flexDirection="row" gap={1} key={name}>
+          <text fg={hud.ok}>●</text>
+          <text fg={hud.text}>{name}</text>
           <box flexGrow={1} />
-          <text bg={hud.slab} fg={hud.amber}>{` ×${count} `}</text>
+          <text fg={hud.dim}>{`×${count}`}</text>
         </box>
       ))}
     </box>
   );
 }
 
-function Loadout({ rows }: { readonly rows: number }) {
+function Loadout() {
   return (
     <box flexDirection="column">
-      <box backgroundColor={tones.amber.deep} flexDirection="row">
-        <text bg={tones.amber.deep} fg={hud.amber}>
-          ▌<b>task-notes</b>
+      <box flexDirection="row" gap={1}>
+        <text fg={hud.amber}>▸</text>
+        <text fg={hud.amber}>
+          <b>task-notes</b>
         </text>
         <box flexGrow={1} />
-        <text bg={tones.amber.deep} fg={tones.amber.dim}>
-          {"skill "}
-        </text>
+        <text fg={hud.dim}>skill</text>
       </box>
-      <box flexDirection="row">
-        <text bg={hud.screen} fg={hud.text}>
-          {" backlog"}
-        </text>
+      <box flexDirection="row" gap={1}>
+        <text fg={hud.dim}> </text>
+        <text fg={hud.text}>backlog</text>
         <box flexGrow={1} />
-        <text bg={hud.screen} fg={hud.dim}>
-          {"mcp "}
-        </text>
+        <text fg={hud.dim}>mcp</text>
       </box>
-      {Array.from({ length: Math.max(rows - 2, 0) }, (_, slot) => (
-        <text bg={hud.screen} fg={hud.iron[4]} key={`slot-${slot}`}>
-          {" · empty slot"}
-        </text>
-      ))}
     </box>
   );
 }
 
-function Speaker({
-  note,
+function Steps() {
+  return (
+    <text wrapMode="none">
+      <span fg={hud.ok}>✓ 1 Locate package.json</span>
+      <span fg={hud.bronze}>{"  ›  "}</span>
+      <span fg={hud.ok}>✓ 2 Identify scripts</span>
+      <span fg={hud.bronze}>{"  ›  "}</span>
+      <span fg={hud.amber}>
+        <b>▶ 3 Check setup</b>
+      </span>
+      <span fg={hud.bronze}>{"  ›  "}</span>
+      <span fg={hud.dim}>4 Summarize</span>
+    </text>
+  );
+}
+
+function Card({
+  children,
+  label,
   tone,
-  who,
 }: {
-  readonly note?: string;
-  readonly tone: "amber" | "steel";
-  readonly who: string;
+  readonly children: string;
+  readonly label: string;
+  readonly tone: string;
 }) {
   return (
-    <box flexDirection="row" gap={1}>
-      <Chip tone={tone}>{who}</Chip>
-      {note ? (
-        <text bg={hud.screen} fg={hud.dim}>
-          {note}
-        </text>
-      ) : null}
+    <box
+      border
+      borderColor={tone}
+      borderStyle="rounded"
+      flexDirection="row"
+      gap={2}
+      paddingX={1}
+    >
+      <text fg={tone}>
+        <b>{label}</b>
+      </text>
+      <text fg={hud.text}>{children}</text>
     </box>
-  );
-}
-
-function Line({ children }: { readonly children: string }) {
-  return (
-    <text bg={hud.screen} fg={hud.text}>
-      {children}
-    </text>
   );
 }
 
 function Talk() {
   return (
-    <box flexDirection="column" paddingTop={1}>
-      <Speaker tone="steel" who="YOU" />
-      <Line>Read package.json here and explain how to run this example.</Line>
+    <box flexDirection="column">
+      <text fg={hud.amber}>
+        <b>YOU</b>
+      </text>
+      <text fg={hud.text}>
+        Read package.json here and explain how to run this example.
+      </text>
       <text> </text>
-      <Speaker note="Locate package.json" tone="amber" who="AGENT" />
-      <Slab label="TOOL" tone="amber">
+      <text fg={hud.amber}>
+        <b>AGENT</b>
+        <span fg={hud.dim}> · Locate package.json</span>
+      </text>
+      <Card label="TOOL" tone={hud.bronze}>
         Read package.json
-      </Slab>
-      <Slab label="RESULT" tone="green">
+      </Card>
+      <Card label="RESULT" tone={hud.okDim}>
         Two scripts found: start and test.
-      </Slab>
-      <Line>This example starts with bun run start.</Line>
+      </Card>
+      <text fg={hud.text}>This example starts with bun run start.</text>
       <text> </text>
-      <Speaker note="Check setup" tone="amber" who="AGENT" />
-      <Slab detail="1.2s" label="TOOL" tone="amber">
-        Bash bun run --help
-      </Slab>
+      <text fg={hud.amber}>
+        <b>AGENT</b>
+        <span fg={hud.dim}> · Check setup</span>
+      </text>
+      <Card label="TOOL" tone={hud.amber}>
+        Bash bun run --help · 1.2s
+      </Card>
     </box>
   );
 }
 
 function Goal() {
   return (
-    <text bg={hud.screen} fg={hud.dim}>
-      Message the agent…
+    <text fg={hud.dim}>
+      <span fg={hud.amber}>{">_ "}</span>Message the agent…
     </text>
   );
 }
 
-const KEYS = [
-  ["↵", "Send"],
-  ["Tab", "Loadout"],
-  ["a", "Avatar"],
-  ["PgUp/PgDn", "Scroll"],
-  ["^C", "Quit"],
-] as const;
-
-function Hints({ width }: { readonly width: number }) {
-  let used = 0;
-  const shown = KEYS.filter(([key, action]) => {
-    const next = used + key.length + action.length + 4;
-    if (next > width + 1) {
-      return false;
-    }
-    used = next;
-    return true;
-  });
+function Hints() {
   return (
-    <box flexDirection="row" gap={1}>
-      {shown.map(([key, action]) => (
-        <box flexDirection="row" flexShrink={0} gap={1} key={key}>
-          <Chip ground={hud.grain[1]} tone="steel">
-            {key}
-          </Chip>
-          <text bg={hud.grain[1]} fg={hud.text}>
-            {action}
-          </text>
-        </box>
+    <text fg={hud.dim} wrapMode="none">
+      {[
+        ["↵", "Send"],
+        ["Tab", "Loadout"],
+        ["a", "Avatar"],
+        ["PgUp/PgDn", "Scroll"],
+        ["^C", "Quit"],
+      ].map(([key, action]) => (
+        <span key={key}>
+          <span fg={hud.amber}>{`[${key}]`}</span>
+          {` ${action}   `}
+        </span>
       ))}
-    </box>
+    </text>
   );
 }
 
-function plan(size: Size) {
-  if (hudGeometry(size, []).dense) {
-    return { gap: 0, portrait: 8, vitals: 6 };
-  }
-  return { gap: 1, portrait: size.height >= TALL ? 11 : 9, vitals: 7 };
-}
-
-function regions(size: Size): HudSection[] {
+function regions(): HudSection[] {
   return [
-    {
-      content: <Region>portrait and comment</Region>,
-      key: "portrait",
-      rows: plan(size).portrait,
-    },
+    { content: <Region>portrait and comment</Region>, key: "portrait" },
     {
       content: <Region>context · stamina</Region>,
       key: "vitals",
-      rows: plan(size).vitals,
       title: "VITALS",
     },
     {
       content: <Region>tools used, once each</Region>,
       key: "arsenal",
-      rows: 3,
       title: "ARSENAL",
     },
     {
-      content: <Region>skills and MCP</Region>,
+      content: <Region>skills and MCP, selectable</Region>,
       grow: true,
       key: "loadout",
       title: "LOADOUT",
@@ -241,51 +237,40 @@ function regions(size: Size): HudSection[] {
   ];
 }
 
-function sketch(size: Size): HudSection[] {
-  const { gap, portrait: rows, vitals } = plan(size);
-  const slots = hudGeometry(size, regions(size)).parts.at(-1)?.body.height;
+function sketch(): HudSection[] {
   return [
+    { content: <Portrait />, key: "portrait" },
     {
-      bleed: true,
-      content: <PortraitBay caption="holding steady" rows={rows} width={24} />,
-      key: "portrait",
-      rows,
-    },
-    {
-      content: <Vitals gap={gap} />,
+      content: <Vitals />,
       key: "vitals",
-      meta: "160k tok",
-      rows: plan(size).vitals,
+      meta: "159k in · 1.3k out",
       title: "VITALS",
     },
     {
       content: <Arsenal />,
       key: "arsenal",
       meta: "11 calls",
-      rows: 3,
       title: "ARSENAL",
     },
     {
-      content: <Loadout rows={slots ?? 2} />,
+      content: <Loadout />,
       grow: true,
       key: "loadout",
-      meta: "2 slots",
+      meta: "2",
       title: "LOADOUT",
     },
   ];
 }
 
-function screen(size: Size, sections: HudSection[], main: ReactNode) {
-  const { hints, steps } = hudGeometry(size, sections);
+function screen(sections: HudSection[], main: ReactNode, steps: ReactNode) {
   return (
     <HudLayout
       goal={<Goal />}
-      hints={<Hints width={hints.width} />}
+      hints={<Hints />}
       main={main}
       onResize={ignore}
       sections={sections}
-      size={size}
-      steps={<StepStrip steps={STEPS} width={steps.width} />}
+      steps={steps}
     />
   );
 }
@@ -300,7 +285,11 @@ export const Regions = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      screen(wide, regions(wide), <Region>conversation</Region>),
+      screen(
+        regions(),
+        <Region>conversation</Region>,
+        <Region>checkpoints, as steps</Region>
+      ),
       padless(wide)
     ),
 });
@@ -309,7 +298,7 @@ export const Sketch = story({
   description: "The regions filled with stand-in content, to judge the look.",
   name: "Sketch",
   render: (renderer) =>
-    renderFrame(renderer, screen(wide, sketch(wide), <Talk />), padless(wide)),
+    renderFrame(renderer, screen(sketch(), <Talk />, <Steps />), padless(wide)),
 });
 
 export const Compact = story({
@@ -318,18 +307,7 @@ export const Compact = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      screen(compact, sketch(compact), <Talk />),
+      screen(sketch(), <Talk />, <Steps />),
       padless(compact)
-    ),
-});
-
-export const Small = story({
-  description: "The same sketch at 80 by 24, with one-row section heads.",
-  name: "Small",
-  render: (renderer) =>
-    renderFrame(
-      renderer,
-      screen(small, sketch(small), <Talk />),
-      padless(small)
     ),
 });

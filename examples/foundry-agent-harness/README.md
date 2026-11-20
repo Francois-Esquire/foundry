@@ -124,23 +124,6 @@ own box), and test the hooks. `test/stories-render.test.ts` renders every
 story once, so a story that throws, draws nothing, or leaves a key listener
 behind fails.
 
-## The next screen
-
-`HudLayout` in [`src/components/layouts/hud.tsx`](./src/components/layouts/hud.tsx)
-is a blockout of the next screen, shown only in Textbook under `Layouts/Hud`.
-The live screen does not use it. It has a status rail on the left, built from
-a list of sections, and the steps, conversation, goal, and key hints on the
-right.
-
-It is drawn as pixel art from terminal characters. `src/model/pixels.ts` holds
-a canvas with two pixels to a cell, which becomes rows of half blocks with a
-foreground and a background colour; text and eighth-block edge lines are
-written over it. `src/model/hud-art.ts` works out where each region goes for a
-screen size and paints the metal around them, and the `PixelArt` block renders
-the rows. The numerals, gauges, step keys, and portrait bay are painted the
-same way from `src/model`. Below 90 columns or 28 rows the section heads drop
-from two rows to one.
-
 ## TermCN components
 
 `components.json` registers the TermCN registry, so the shadcn CLI adds a

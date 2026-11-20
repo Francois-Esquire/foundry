@@ -1,35 +1,17 @@
 import type { BoxRenderable } from "@opentui/core";
-import { type ReactNode, useCallback, useMemo } from "react";
-import { PixelArt } from "@/components/blocks/pixel-art";
-import { type HudPart, hudArt, hudGeometry, type Rect } from "@/model/hud-art";
+import { type ReactNode, useCallback } from "react";
+import { Plate } from "@/components/blocks/plate";
+import { hud } from "@/model/palette";
 import type { Size } from "@/model/screen";
 
-export interface HudSection extends HudPart {
-  readonly bleed?: boolean;
-  readonly content: ReactNode;
-  readonly key: string;
-}
+const RAIL_WIDTH = 30;
 
-function Region({
-  area,
-  children,
-}: {
-  readonly area: Rect;
-  readonly children: ReactNode;
-}) {
-  return (
-    <box
-      flexDirection="column"
-      height={area.height}
-      left={area.x}
-      overflow="hidden"
-      position="absolute"
-      top={area.y}
-      width={area.width}
-    >
-      {children}
-    </box>
-  );
+export interface HudSection {
+  readonly content: ReactNode;
+  readonly grow?: boolean;
+  readonly key: string;
+  readonly meta?: string;
+  readonly title?: string;
 }
 
 export function HudLayout({
@@ -38,7 +20,6 @@ export function HudLayout({
   main,
   onResize,
   sections,
-  size,
   steps,
 }: {
   readonly goal: ReactNode;
@@ -46,7 +27,6 @@ export function HudLayout({
   readonly main: ReactNode;
   readonly onResize: (size: Size) => void;
   readonly sections: readonly HudSection[];
-  readonly size: Size;
   readonly steps: ReactNode;
 }) {
   const measure = useCallback(
@@ -55,28 +35,38 @@ export function HudLayout({
     },
     [onResize]
   );
-  const geometry = useMemo(() => hudGeometry(size, sections), [size, sections]);
-  const art = useMemo(() => hudArt(size, sections), [size, sections]);
   return (
-    <box height="100%" onSizeChange={measure} width="100%">
-      <box left={0} position="absolute" top={0}>
-        <PixelArt rows={art} />
+    <box
+      backgroundColor={hud.ink}
+      flexDirection="column"
+      height="100%"
+      onSizeChange={measure}
+      width="100%"
+    >
+      <box flexDirection="row" flexGrow={1} flexShrink={1} gap={1}>
+        <box flexDirection="column" flexShrink={0} width={RAIL_WIDTH}>
+          {sections.map((section) => (
+            <Plate
+              grow={section.grow}
+              key={section.key}
+              meta={section.meta}
+              title={section.title}
+            >
+              {section.content}
+            </Plate>
+          ))}
+        </box>
+        <box flexDirection="column" flexGrow={1} flexShrink={1}>
+          <box flexShrink={0} height={1} paddingX={1}>
+            {steps}
+          </box>
+          <Plate grow>{main}</Plate>
+          <Plate tone={hud.amber}>{goal}</Plate>
+        </box>
       </box>
-      {sections.map((section, index) => {
-        const frame = geometry.parts[index];
-        return frame ? (
-          <Region
-            area={section.bleed ? frame.inset : frame.body}
-            key={section.key}
-          >
-            {section.content}
-          </Region>
-        ) : null;
-      })}
-      <Region area={geometry.steps}>{steps}</Region>
-      <Region area={geometry.main}>{main}</Region>
-      <Region area={geometry.goal}>{goal}</Region>
-      <Region area={geometry.hints}>{hints}</Region>
+      <box flexShrink={0} height={1} paddingX={1}>
+        {hints}
+      </box>
     </box>
   );
 }
