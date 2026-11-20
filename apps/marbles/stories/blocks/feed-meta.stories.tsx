@@ -1,4 +1,5 @@
 import { defineStories, story } from "textbook-sh";
+import { feedMeta } from "~/cli/state/feed-model";
 import { FeedMetaLine } from "~/components/blocks/feed-meta";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { renderFrame } from "../frame";
@@ -29,7 +30,10 @@ export const Result = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <FeedMetaLine details={details(summaryEntry)} entry={summaryEntry} />,
+      <FeedMetaLine
+        details={details(summaryEntry)}
+        meta={feedMeta(summaryEntry)}
+      />,
       size
     ),
 });
@@ -40,7 +44,10 @@ export const Milestone = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <FeedMetaLine details={details(milestoneEntry)} entry={milestoneEntry} />,
+      <FeedMetaLine
+        details={details(milestoneEntry)}
+        meta={feedMeta(milestoneEntry)}
+      />,
       size
     ),
 });
@@ -51,7 +58,10 @@ export const NeedsInput = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <FeedMetaLine details={details(pendingEntry)} entry={pendingEntry} />,
+      <FeedMetaLine
+        details={details(pendingEntry)}
+        meta={feedMeta(pendingEntry)}
+      />,
       size
     ),
 });
@@ -62,7 +72,10 @@ export const Answered = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <FeedMetaLine details={details(answeredEntry)} entry={answeredEntry} />,
+      <FeedMetaLine
+        details={details(answeredEntry)}
+        meta={feedMeta(answeredEntry)}
+      />,
       size
     ),
 });
@@ -73,7 +86,10 @@ export const Cancelled = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <FeedMetaLine details={details(cancelledEntry)} entry={cancelledEntry} />,
+      <FeedMetaLine
+        details={details(cancelledEntry)}
+        meta={feedMeta(cancelledEntry)}
+      />,
       size
     ),
 });
@@ -86,7 +102,7 @@ export const MissingDetails = story({
       renderer,
       <FeedMetaLine
         details={[undefined, summaryEntry.posted, "", undefined]}
-        entry={summaryEntry}
+        meta={feedMeta(summaryEntry)}
       />,
       size
     ),
@@ -98,7 +114,10 @@ export const Wrapped = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <FeedMetaLine details={details(pendingEntry)} entry={pendingEntry} />,
+      <FeedMetaLine
+        details={details(pendingEntry)}
+        meta={feedMeta(pendingEntry)}
+      />,
       { height: 5, width: 30 }
     ),
 });

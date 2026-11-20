@@ -1,12 +1,33 @@
 import { type BoxRenderable, KeyEvent, type Renderable } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 export interface StoryKey {
   readonly ctrl?: boolean;
   readonly name: string;
   readonly sequence?: string;
   readonly shift?: boolean;
+}
+
+export interface Replay {
+  readonly keys: readonly (string | StoryKey)[];
+  readonly shows: string;
+}
+
+const NO_KEYS: Replay["keys"] = [];
+const mounted = new Map<Replay, boolean>();
+
+export function mountedReplays(): {
+  readonly done: boolean;
+  readonly shows: string;
+}[] {
+  return [...mounted].map(([{ shows }, done]) => ({ done, shows }));
 }
 
 const NAMED: Readonly<Record<string, string>> = {
@@ -62,17 +83,30 @@ function inside(node: Renderable | null, root: BoxRenderable | null) {
 
 export function ReplayKeys({
   children,
-  keys,
+  replay,
 }: {
   readonly children: ReactNode;
-  readonly keys: readonly (string | StoryKey)[];
+  readonly replay?: Replay;
 }) {
   const renderer = useRenderer();
   const root = useRef<BoxRenderable>(null);
   const [step, setStep] = useState(0);
+  const keys = replay?.keys ?? NO_KEYS;
+  useLayoutEffect(() => {
+    if (!replay) {
+      return;
+    }
+    mounted.set(replay, false);
+    return () => {
+      mounted.delete(replay);
+    };
+  }, [replay]);
   useEffect(() => {
     const key = keys[step];
     if (key === undefined) {
+      if (replay) {
+        mounted.set(replay, true);
+      }
       return;
     }
     const focused = renderer.currentFocusedRenderable;
@@ -81,7 +115,7 @@ export function ReplayKeys({
     renderer.keyInput.emit("keypress", replayed(storyKey(key)));
     outside?.focus();
     setStep(step + 1);
-  }, [renderer, keys, step]);
+  }, [renderer, keys, replay, step]);
   return (
     <box flexDirection="column" flexGrow={1} minHeight={0} ref={root}>
       {children}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerView } from "~/cli/state/feed-answer";
+import { answerView, inputState } from "~/cli/state/feed-answer";
 import type { AnswerState } from "~/cli/state/use-feed";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
@@ -117,5 +117,18 @@ describe("answerView", () => {
       hint: "note optional · Enter send · Esc cancel",
       prompt: "approve · note › ",
     });
+  });
+});
+
+describe("inputState", () => {
+  it("reads an open question as pending and anything else as settled", () => {
+    expect(
+      [
+        { choices: [], status: "open" },
+        { answer: "merge", choices: [], status: "answered" },
+        { choices: [], status: "cancelled" },
+        undefined,
+      ].map((input) => inputState(input as FeedEntrySnapshot["input"]))
+    ).toEqual(["pending", "answered", "cancelled", "answered"]);
   });
 });

@@ -1,40 +1,26 @@
 import { Badge } from "~/components/ui/badge";
 import { theme } from "~/components/ui/theme";
-import type { FeedEntrySnapshot } from "~/lib/feed/read";
 
-type KindEntry = Pick<FeedEntrySnapshot, "kind" | "input">;
+type FeedMetaTone = "attention" | "info" | "settled" | "success";
 
-export function isPending(entry: KindEntry): boolean {
-  return entry.input?.status === "open";
-}
-
-function kindStyle(entry: KindEntry): {
+export interface FeedMeta {
   readonly label: string;
-  readonly color: string;
-} {
-  if (entry.kind === "result") {
-    return { color: theme.colors.success, label: "result" };
-  }
-  if (entry.kind === "milestone") {
-    return { color: theme.colors.info, label: "milestone" };
-  }
-  if (isPending(entry)) {
-    return { color: theme.colors.warning, label: "needs input" };
-  }
-  return {
-    color: theme.colors.secondary,
-    label: entry.input?.status === "cancelled" ? "cancelled" : "answered",
-  };
+  readonly tone: FeedMetaTone;
 }
+
+const TONE_COLORS = {
+  info: "info",
+  settled: "secondary",
+  success: "success",
+} as const;
 
 export function FeedMetaLine({
-  entry,
+  meta,
   details,
 }: {
-  readonly entry: KindEntry;
+  readonly meta: FeedMeta;
   readonly details: readonly (string | undefined)[];
 }) {
-  const { color, label } = kindStyle(entry);
   const shown = details.filter(
     (detail): detail is string => detail !== undefined && detail !== ""
   );
@@ -46,11 +32,15 @@ export function FeedMetaLine({
       flexWrap="wrap"
       minWidth={0}
     >
-      {isPending(entry) ? (
-        <Badge variant="warning">{label}</Badge>
+      {meta.tone === "attention" ? (
+        <Badge variant="warning">{meta.label}</Badge>
       ) : (
-        <text fg={color} flexShrink={0} wrapMode="none">
-          {label}
+        <text
+          fg={theme.colors[TONE_COLORS[meta.tone]]}
+          flexShrink={0}
+          wrapMode="none"
+        >
+          {meta.label}
         </text>
       )}
       {shown.map((detail) => (

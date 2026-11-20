@@ -1,4 +1,4 @@
-import { FeedMetaLine, isPending } from "~/components/blocks/feed-meta";
+import { type FeedMeta, FeedMetaLine } from "~/components/blocks/feed-meta";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
@@ -9,9 +9,11 @@ import { EmptyState } from "./empty-state";
 export interface FeedItem {
   readonly entry: FeedEntrySnapshot;
   readonly key: string;
+  readonly meta: FeedMeta;
 }
 
 export interface FeedRow extends FeedItem {
+  readonly pending: boolean;
   readonly selected: boolean;
 }
 
@@ -25,7 +27,6 @@ function FeedListRow({
   readonly onSelect: (entry: FeedEntrySnapshot) => void;
 }) {
   const { entry } = row;
-  const pending = isPending(entry);
   return (
     <SelectableRow
       id={`feed:${row.key}`}
@@ -42,7 +43,7 @@ function FeedListRow({
       >
         <box flexDirection="row">
           <text fg={theme.colors.warning} flexShrink={0} width={2}>
-            <strong>{pending ? "!" : " "}</strong>
+            <strong>{row.pending ? "!" : " "}</strong>
           </text>
           <Text flexGrow={1} flexShrink={1} minWidth={0} wrapMode="word">
             <strong>{entry.title}</strong>
@@ -57,7 +58,7 @@ function FeedListRow({
                 ? `${entry.media.length} media`
                 : undefined,
             ]}
-            entry={entry}
+            meta={row.meta}
           />
         </box>
       </box>

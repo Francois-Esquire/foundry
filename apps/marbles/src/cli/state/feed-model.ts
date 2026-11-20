@@ -1,7 +1,8 @@
 import type { FeedItem, FeedRow } from "~/components/blocks/feed-list";
+import type { FeedMeta } from "~/components/blocks/feed-meta";
 import type { ReaderItem } from "~/components/blocks/feed-reader";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { answerView } from "./feed-answer";
+import { answerView, type InputState, inputState } from "./feed-answer";
 import type { FeedState } from "./use-feed";
 
 export const ALL_WORKSPACES = "all";
@@ -12,8 +13,26 @@ export function feedKey(
   return JSON.stringify([entry.workspace.id, entry.id]);
 }
 
+const KIND_META: Readonly<Record<"milestone" | "result", FeedMeta>> = {
+  milestone: { label: "milestone", tone: "info" },
+  result: { label: "result", tone: "success" },
+};
+
+const INPUT_META: Readonly<Record<InputState, FeedMeta>> = {
+  answered: { label: "answered", tone: "settled" },
+  cancelled: { label: "cancelled", tone: "settled" },
+  pending: { label: "needs input", tone: "attention" },
+};
+
+export function feedMeta(entry: FeedEntrySnapshot): FeedMeta {
+  const state = inputState(entry.input);
+  const meta =
+    entry.kind === "input" ? INPUT_META[state] : KIND_META[entry.kind];
+  return state === "pending" ? { ...meta, tone: "attention" } : meta;
+}
+
 export function feedItem(entry: FeedEntrySnapshot): FeedItem {
-  return { entry, key: feedKey(entry) };
+  return { entry, key: feedKey(entry), meta: feedMeta(entry) };
 }
 
 export function feedRows(
@@ -23,7 +42,11 @@ export function feedRows(
   const selectedKey = selected && feedKey(selected);
   return entries.map((entry) => {
     const item = feedItem(entry);
-    return { ...item, selected: item.key === selectedKey };
+    return {
+      ...item,
+      pending: inputState(entry.input) === "pending",
+      selected: item.key === selectedKey,
+    };
   });
 }
 

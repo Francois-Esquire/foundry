@@ -5,7 +5,7 @@ import {
 } from "~/cli/views/onboarding-intro";
 import { ignore } from "../frame";
 import { renderReactStory } from "../render-react-story";
-import { ReplayKeys } from "./replay-keys";
+import { type Replay, ReplayKeys } from "./replay-keys";
 
 type Review = Parameters<typeof ProviderOnboarding>[0]["review"];
 
@@ -55,12 +55,12 @@ const refused = () =>
 function providers(
   review: Review,
   onContinue: () => Promise<void> = done,
-  keys: readonly string[] = []
+  replay?: Replay
 ) {
   return (renderer: Parameters<typeof renderReactStory>[0]) =>
     renderReactStory(
       renderer,
-      <ReplayKeys keys={keys}>
+      <ReplayKeys replay={replay}>
         <ProviderOnboarding
           onClose={ignore}
           onContinue={onContinue}
@@ -106,20 +106,29 @@ export const Reserved = story({
 export const Saving = story({
   description: "Enter was pressed and saving has not finished.",
   name: "Saving",
-  render: providers(detected, pending, ["return"]),
+  render: providers(detected, pending, {
+    keys: ["return"],
+    shows: "Saving…",
+  }),
 });
 
 export const SaveFailed = story({
   description:
     "Saving the providers failed; the error shows above the actions.",
   name: "Save failed",
-  render: providers(detected, refused, ["return"]),
+  render: providers(detected, refused, {
+    keys: ["return"],
+    shows: "Could not save providers: settings are read-only.",
+  }),
 });
 
 export const Quitting = story({
   description: "q opens the quit dialog.",
   name: "Quit dialog",
-  render: providers(detected, done, ["q"]),
+  render: providers(detected, done, {
+    keys: ["q"],
+    shows: "Quit Marbles?",
+  }),
 });
 
 export const Welcome = story({

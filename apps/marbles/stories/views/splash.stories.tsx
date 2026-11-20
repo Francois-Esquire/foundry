@@ -85,7 +85,7 @@ export const Quitting = story({
   render: (renderer) =>
     renderReactStory(
       renderer,
-      <ReplayKeys keys={["q"]}>
+      <ReplayKeys replay={{ keys: ["q"], shows: "Quit Marbles?" }}>
         <SplashView
           onClose={ignore}
           onEnter={ignore}

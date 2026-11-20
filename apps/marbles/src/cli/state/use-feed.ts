@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useAsyncAction } from "~/cli/hooks/use-async-action";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { inputState } from "./feed-answer";
 import { ALL_WORKSPACES, feedKey, feedScopes, scopedFeed } from "./feed-model";
 
 export type FeedFocus = "list" | "reader";
@@ -17,7 +18,9 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
   const [target, setTarget] = useState<string>();
   const delivery = useAsyncAction();
   const question =
-    onAnswer && entry?.input?.status === "open" ? entry : undefined;
+    onAnswer && entry && inputState(entry.input) === "pending"
+      ? entry
+      : undefined;
   const choices = question?.input?.choices ?? [];
   const approval = question?.input?.mode === "approval";
 

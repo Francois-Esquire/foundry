@@ -19,6 +19,7 @@ interface DashboardRegions {
 
 interface Arrangement {
   readonly docked: boolean;
+  readonly main: boolean;
   readonly mainWidth: number;
   readonly rail: boolean;
 }
@@ -37,6 +38,7 @@ function arrange({
   const showRail = !drawer && rail && body >= RAIL_MIN_WIDTH;
   return {
     docked,
+    main: !drawer || docked,
     mainWidth:
       body - (docked ? DRAWER_WIDTH + 1 : 0) - (showRail ? RAIL_WIDTH : 0),
     rail: showRail,
@@ -44,8 +46,8 @@ function arrange({
 }
 
 export function dashboardMain(regions: DashboardRegions) {
-  const { mainWidth } = arrange(regions);
-  return { wide: mainWidth >= WIDE, width: mainWidth };
+  const { main, mainWidth } = arrange(regions);
+  return { shown: main, wide: mainWidth >= WIDE, width: mainWidth };
 }
 
 interface DashboardDrawer {
@@ -55,7 +57,7 @@ interface DashboardDrawer {
 
 export interface DashboardPanels {
   readonly drawer?: DashboardDrawer;
-  readonly main: ReactNode;
+  readonly main?: ReactNode;
   readonly rail?: ReactNode;
 }
 
@@ -94,10 +96,10 @@ function DashboardBody({
     width,
   });
   const { docked } = arrangement;
-  if (drawer && !docked) {
+  if (!arrangement.main) {
     return (
       <box flexDirection="row" flexGrow={1} minHeight={0}>
-        <Drawer docked={false}>{drawer.content}</Drawer>
+        <Drawer docked={false}>{drawer?.content}</Drawer>
       </box>
     );
   }

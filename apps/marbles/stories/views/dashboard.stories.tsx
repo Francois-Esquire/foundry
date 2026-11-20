@@ -16,7 +16,7 @@ import type { SettingsChange } from "~/model/settings";
 import { type PreviewScenario, previewScenarios } from "../fixtures/scenarios";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 import { ignore, renderFrame } from "../frame";
-import { ReplayKeys, type StoryKey } from "./replay-keys";
+import { type Replay, ReplayKeys, type StoryKey } from "./replay-keys";
 
 const WIDE = 120;
 const NARROW = 70;
@@ -162,13 +162,10 @@ function framed(node: ReactNode, width: number) {
     renderFrame(renderer, node, { height: HEIGHT, padded: false, width });
 }
 
-function dashboard(
-  props: Partial<DashboardStoryProps> = {},
-  keys: readonly (string | StoryKey)[] = []
-) {
+function dashboard(props: Partial<DashboardStoryProps> = {}, replay?: Replay) {
   const width = props.width ?? WIDE;
   return framed(
-    <ReplayKeys keys={keys}>
+    <ReplayKeys replay={replay}>
       <StoryDashboard {...props} width={width} />
     </ReplayKeys>,
     width
@@ -262,13 +259,9 @@ function LaunchScenario({
   );
 }
 
-function launchScenario(
-  id: string,
-  refuse: boolean,
-  keys: readonly (string | StoryKey)[]
-) {
+function launchScenario(id: string, refuse: boolean, replay: Replay) {
   return framed(
-    <ReplayKeys keys={keys}>
+    <ReplayKeys replay={replay}>
       <LaunchScenario refuse={refuse} snapshot={firstFrame(id)} width={WIDE} />
     </ReplayKeys>,
     WIDE
@@ -317,11 +310,13 @@ export const ScenarioOutput = story({
   description:
     "A run with sixty lines of result and forty log lines, opened on its output tab.",
   name: "Scenario · Long output",
-  render: dashboard({ snapshot: firstFrame("output") }, [
-    "return",
-    "right",
-    "right",
-  ]),
+  render: dashboard(
+    { snapshot: firstFrame("output") },
+    {
+      keys: ["return", "right", "right"],
+      shows: "Line 1: validated documentation section",
+    }
+  ),
 });
 
 export const ScenarioDeep = story({
@@ -361,21 +356,20 @@ export const ScenarioLaunchForm = story({
   description:
     "The Prototype workflow's launch form, opened from the catalog with l. Submitting adds a finished run.",
   name: "Scenario · Launch arguments",
-  render: launchScenario("launch-form", false, ["down", "l"]),
+  render: launchScenario("launch-form", false, {
+    keys: ["down", "l"],
+    shows: "marbles · Launch Prototype",
+  }),
 });
 
 export const ScenarioLaunchError = story({
   description:
     "A launch the executor refuses: the form keeps the typed task and shows the error.",
   name: "Scenario · Launch failure",
-  render: launchScenario("launch-error", true, [
-    "l",
-    "d",
-    "o",
-    "c",
-    "s",
-    SUBMIT,
-  ]),
+  render: launchScenario("launch-error", true, {
+    keys: ["l", "d", "o", "c", "s", SUBMIT],
+    shows: "Executor unavailable. Your inputs are preserved.",
+  }),
 });
 
 export const Overview = story({
@@ -401,86 +395,125 @@ export const RunDetails = story({
   description:
     "Enter on the running run opens its details in place of the overview.",
   name: "Run details",
-  render: dashboard({ actions }, ["return"]),
+  render: dashboard(
+    { actions },
+    { keys: ["return"], shows: "Run / update-documentation" }
+  ),
 });
 
 export const RunDetailsNarrow = story({
   description: "Run details at 70 columns.",
   name: "Run details · narrow",
-  render: dashboard({ actions, width: NARROW }, ["return"]),
+  render: dashboard(
+    { actions, width: NARROW },
+    { keys: ["return"], shows: "Run / update-documentation" }
+  ),
 });
 
 export const StepDetails = story({
   description: "A step picked in the run tree, with its breadcrumbs.",
   name: "Step details",
-  render: dashboard({ actions }, ["down", "return"]),
+  render: dashboard(
+    { actions },
+    { keys: ["down", "return"], shows: "Step / Find changed files" }
+  ),
 });
 
 export const RunLogs = story({
   description: "The run's logs tab.",
   name: "Run details · logs",
-  render: dashboard({ actions }, ["return", "right", "right", "right"]),
+  render: dashboard(
+    { actions },
+    {
+      keys: ["return", "right", "right", "right"],
+      shows: "[info] Run dispatched by update-docs.",
+    }
+  ),
 });
 
 export const RunStream = story({
   description: "The live stream tab, fed by a fake stream.",
   name: "Run details · live stream",
-  render: dashboard({ actions: streamingActions }, [
-    "return",
-    "right",
-    "right",
-    "right",
-    "right",
-  ]),
+  render: dashboard(
+    { actions: streamingActions },
+    {
+      keys: ["return", "right", "right", "right", "right"],
+      shows: "Found 4 flags without descriptions.",
+    }
+  ),
 });
 
 export const Usage = story({
   description: "u on the run list opens every workflow's and agent's usage.",
   name: "Usage breakdown",
-  render: dashboard({}, ["u"]),
+  render: dashboard(
+    {},
+    { keys: ["u"], shows: "Usage · every workflow and agent" }
+  ),
 });
 
 export const Search = story({
   description: "/ searches the focused run list; here for “rev”.",
   name: "Search runs",
-  render: dashboard({}, ["/", "r", "e", "v"]),
+  render: dashboard(
+    {},
+    { keys: ["/", "r", "e", "v"], shows: "Search run: rev" }
+  ),
 });
 
 export const RunFilter = story({
   description:
     "f on a catalog trigger filters the runs to it; the overview shows the filter.",
   name: "Run filter",
-  render: dashboard({}, ["C", "f", "D"]),
+  render: dashboard(
+    {},
+    { keys: ["C", "f", "D"], shows: "Run filter: trigger: update-docs" }
+  ),
 });
 
 export const Steer = story({
   description: "s on a running step opens the steer prompt.",
   name: "Steer prompt",
-  render: dashboard({ actions }, ["s"]),
+  render: dashboard({ actions }, { keys: ["s"], shows: "steer docs ›" }),
 });
 
 export const ActionFailed = story({
   description: "p asks to pause, the fake host refuses, and the error shows.",
   name: "Action failed",
-  render: dashboard({ actions: failingActions }, ["p"]),
+  render: dashboard(
+    { actions: failingActions },
+    { keys: ["p"], shows: "The step finished before it paused." }
+  ),
 });
 
 export const Help = story({
   description: "? replaces the body with keyboard help.",
   name: "Keyboard help",
-  render: dashboard({}, ["?"]),
+  render: dashboard(
+    {},
+    { keys: ["?"], shows: "Keyboard help · Esc or ? closes" }
+  ),
 });
 
 export const Quit = story({
   description: "q asks before quitting.",
   name: "Quit dialog",
-  render: dashboard({}, ["q"]),
+  render: dashboard(
+    {},
+    {
+      keys: ["q"],
+      shows: "Quitting stops schedules and monitoring for this session.",
+    }
+  ),
 });
 
 export const QuitHosted = story({
   description: "The quit dialog when Marbles hosts the workspace.",
   name: "Quit dialog · hosted",
-  render: dashboard({ hosted }, ["q"]),
+  render: dashboard(
+    { hosted },
+    { keys: ["q"], shows: "Quitting closes this dashboard." }
+  ),
 });
 
 export const Launching = story({
@@ -489,7 +522,7 @@ export const Launching = story({
   name: "Launching",
   render: dashboard(
     { onLaunch: pendingLaunch, snapshot: firstFrame("launch-form") },
-    ["l"]
+    { keys: ["l"], shows: "Launching..." }
   ),
 });
 
@@ -497,108 +530,135 @@ export const WaitingForSchedule = story({
   description:
     "r on a schedule's details runs it now; the run has not started yet.",
   name: "Waiting for a schedule run",
-  render: dashboard({ onRollSchedule: pendingRoll }, [
-    "C",
-    "down",
-    "down",
-    "return",
-    "r",
-  ]),
+  render: dashboard(
+    { onRollSchedule: pendingRoll },
+    {
+      keys: ["C", "down", "down", "return", "r"],
+      shows: "Waiting for schedule run…",
+    }
+  ),
 });
 
 export const Catalog = story({
   description: "The catalog: triggers above the marbles that can run.",
   name: "Catalog",
-  render: dashboard({}, ["C"]),
+  render: dashboard({}, { keys: ["C"], shows: "1 Triggers" }),
 });
 
 export const CatalogNarrow = story({
   description: "The catalog at 70 columns, with compact definitions.",
   name: "Catalog · narrow",
-  render: dashboard({ width: NARROW }, ["C"]),
+  render: dashboard({ width: NARROW }, { keys: ["C"], shows: "1 Triggers" }),
 });
 
 export const CatalogDetails = story({
   description: "With main wide, details open beside the catalog.",
   name: "Catalog · details beside",
-  render: dashboard({}, ["C", "return"]),
+  render: dashboard(
+    {},
+    { keys: ["C", "return"], shows: "Monitor / update-docs" }
+  ),
 });
 
 export const CatalogDetailsNarrow = story({
   description: "At 70 columns details replace the catalog.",
   name: "Catalog · details narrow",
-  render: dashboard({ width: NARROW }, ["C", "return"]),
+  render: dashboard(
+    { width: NARROW },
+    { keys: ["C", "return"], shows: "Monitor / update-docs" }
+  ),
 });
 
 export const TriggerConfiguration = story({
   description: "v shows the selected trigger's configuration.",
   name: "Catalog · trigger configuration",
-  render: dashboard({}, ["C", "return", "v"]),
+  render: dashboard(
+    {},
+    { keys: ["C", "return", "v"], shows: '"glob": "src/**/*.ts"' }
+  ),
 });
 
 export const Definitions = story({
   description: "2 focuses the marbles; with a launcher, l launches.",
   name: "Catalog · marbles focused",
-  render: dashboard({ onLaunch: () => Promise.resolve("story-run") }, [
-    "C",
-    "2",
-  ]),
+  render: dashboard(
+    { onLaunch: () => Promise.resolve("story-run") },
+    { keys: ["C", "2"], shows: "› [workflow] update-documentation" }
+  ),
 });
 
 export const CatalogSearch = story({
   description: "/ searches the focused triggers; here for “doc”.",
   name: "Catalog · search",
-  render: dashboard({}, ["C", "/", "d", "o", "c"]),
+  render: dashboard(
+    {},
+    { keys: ["C", "/", "d", "o", "c"], shows: "Search trigger: doc" }
+  ),
 });
 
 export const Feed = story({
   description: "The feed of every workspace.",
   name: "Feed",
-  render: dashboard({ onAnswer: answered }, ["F"]),
+  render: dashboard(
+    { onAnswer: answered },
+    { keys: ["F"], shows: "Feed · All workspaces" }
+  ),
 });
 
 export const FeedReader = story({
   description: "Enter reads the open question; its choices can be picked.",
   name: "Feed · reader",
-  render: dashboard({ onAnswer: answered }, ["F", "return"]),
+  render: dashboard(
+    { onAnswer: answered },
+    { keys: ["F", "return"], shows: "Entry · ↑↓ scroll · Esc entries" }
+  ),
 });
 
 export const FeedNarrow = story({
   description: "The feed at 70 columns, the list above the reader.",
   name: "Feed · narrow",
-  render: dashboard({ onAnswer: answered, width: NARROW }, ["F"]),
+  render: dashboard(
+    { onAnswer: answered, width: NARROW },
+    { keys: ["F"], shows: "Feed · All workspaces" }
+  ),
 });
 
 export const Diagnostics = story({
   description: "The diagnostics drawer of host and run logs covers the body.",
   name: "Diagnostics",
-  render: dashboard({}, ["L"]),
+  render: dashboard({}, { keys: ["L"], shows: "Logs · runs and Marbles" }),
 });
 
 export const DiagnosticsSearch = story({
   description: "/ in diagnostics searches the logs; here for “wr”.",
   name: "Diagnostics · search",
-  render: dashboard({}, ["L", "/", "w", "r"]),
+  render: dashboard({}, { keys: ["L", "/", "w", "r"], shows: 'search "wr"' }),
 });
 
 export const Settings = story({
   description:
     "The settings drawer docked on the right; arrows change the theme.",
   name: "Settings · docked",
-  render: dashboard({ onSettings: saveSettings }, ["S"]),
+  render: dashboard(
+    { onSettings: saveSettings },
+    { keys: ["S"], shows: "Theme: Dark" }
+  ),
 });
 
 export const SettingsReadOnly = story({
   description: "Settings when the host cannot save them.",
   name: "Settings · read-only",
-  render: dashboard({}, ["S"]),
+  render: dashboard({}, { keys: ["S"], shows: "Theme: Dark read-only here" }),
 });
 
 export const SettingsNarrow = story({
   description:
     "At 70 columns there is no room to dock, so settings cover the body.",
   name: "Settings · overlaid",
-  render: dashboard({ onSettings: saveSettings, width: NARROW }, ["S"]),
+  render: dashboard(
+    { onSettings: saveSettings, width: NARROW },
+    { keys: ["S"], shows: "Theme: Dark" }
+  ),
 });
 
 export const Rail = story({
@@ -617,13 +677,16 @@ export const RailNarrow = story({
 export const Picker = story({
   description: "w opens the workspace picker, docked on the left.",
   name: "Workspace picker · docked",
-  render: dashboard({ hosted }, ["w"]),
+  render: dashboard({ hosted }, { keys: ["w"], shows: "spyglass failed" }),
 });
 
 export const PickerNarrow = story({
   description: "At 70 columns the picker covers the body.",
   name: "Workspace picker · overlaid",
-  render: dashboard({ hosted, width: NARROW }, ["w"]),
+  render: dashboard(
+    { hosted, width: NARROW },
+    { keys: ["w"], shows: "spyglass failed" }
+  ),
 });
 
 export const Reloading = story({

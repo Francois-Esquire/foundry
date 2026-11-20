@@ -8,6 +8,15 @@ import type { AnswerState } from "./use-feed";
 
 type FeedInput = NonNullable<FeedEntrySnapshot["input"]>;
 
+export type InputState = "answered" | "cancelled" | "pending";
+
+export function inputState(input: FeedEntrySnapshot["input"]): InputState {
+  if (input?.status === "open") {
+    return "pending";
+  }
+  return input?.status === "cancelled" ? "cancelled" : "answered";
+}
+
 function answerChoices(choices: readonly string[]): AnswerChoice[] {
   return choices.map((choice, index) => ({
     id: `answer:${index + 1}`,
@@ -68,14 +77,15 @@ export function answerView(
   if (!input) {
     return undefined;
   }
-  if (input.status === "answered") {
+  const state = inputState(input);
+  if (state === "answered") {
     return {
       answer: input.answer ?? "",
       kind: "answered",
       ...(input.note ? { note: input.note } : {}),
     };
   }
-  if (input.status === "cancelled") {
+  if (state === "cancelled") {
     return { kind: "cancelled" };
   }
   return openAnswer(input, answer);

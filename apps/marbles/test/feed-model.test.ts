@@ -3,10 +3,12 @@ import {
   ALL_WORKSPACES,
   feedItem,
   feedKey,
+  feedMeta,
   feedModel,
   feedRows,
 } from "~/cli/state/feed-model";
 import type { FeedState } from "~/cli/state/use-feed";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 it("keys feed rows by workspace and id and marks the selected one", () => {
@@ -24,7 +26,62 @@ it("pairs an entry with its key", () => {
   if (!entry) {
     throw new Error("fixture has no feed entries");
   }
-  expect(feedItem(entry)).toEqual({ entry, key: feedKey(entry) });
+  expect(feedItem(entry)).toEqual({
+    entry,
+    key: feedKey(entry),
+    meta: feedMeta(entry),
+  });
+});
+
+const [question] = dashboardSnapshot.feed;
+
+function asked(
+  input: FeedEntrySnapshot["input"],
+  kind: FeedEntrySnapshot["kind"] = "input"
+): FeedEntrySnapshot {
+  if (!question) {
+    throw new Error("fixture has no feed entries");
+  }
+  const { input: _input, ...rest } = question;
+  return { ...rest, kind, ...(input ? { input } : {}) };
+}
+
+it("labels an entry by kind and gives an open question the attention tone", () => {
+  const open = { choices: ["merge"], status: "open" } as const;
+  expect(
+    [
+      asked(undefined, "result"),
+      asked(undefined, "milestone"),
+      asked(open),
+      asked({ answer: "merge", choices: [], status: "answered" }),
+      asked({ choices: [], status: "cancelled" }),
+      asked(undefined),
+      asked(open, "result"),
+    ].map(feedMeta)
+  ).toEqual([
+    { label: "result", tone: "success" },
+    { label: "milestone", tone: "info" },
+    { label: "needs input", tone: "attention" },
+    { label: "answered", tone: "settled" },
+    { label: "cancelled", tone: "settled" },
+    { label: "answered", tone: "settled" },
+    { label: "result", tone: "attention" },
+  ]);
+});
+
+it("marks only rows whose question is still open as pending", () => {
+  const entries = [
+    asked({ choices: [], status: "open" }),
+    asked({ choices: [], status: "answered" }),
+    asked({ choices: [], status: "cancelled" }),
+    asked(undefined, "result"),
+  ].map((entry, index) => ({ ...entry, id: `entry-${index}` }));
+  expect(feedRows(entries).map((row) => row.pending)).toEqual([
+    true,
+    false,
+    false,
+    false,
+  ]);
 });
 
 function feedState(overrides: Partial<FeedState> = {}): FeedState {

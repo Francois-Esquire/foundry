@@ -21,9 +21,21 @@ Story files mirror the source they show: `stories/ui/`, `stories/blocks/`, and
 `stories/frame.tsx` gives a story a fixed-size themed frame, and
 `stories/render-react-story.tsx` mounts React content for Textbook.
 
+A view story reaches a state the way a user would, by pressing keys:
+`stories/views/replay-keys.tsx` wraps the view in `ReplayKeys` with a replay,
+`{ keys, shows }`. It presses `keys` in order into the view, then counts as
+finished; `shows` is text that only the state the story describes puts on
+screen, such as the search query, a dialog title, or an error message. Each
+replayed key event carries `replay: true`, which tells Textbook's browser to
+pass the key straight to the story instead of reading it as a browser
+shortcut.
+
 `test/stories-render.test.ts` loads every story file through Textbook's
 registry and renders each story once, so a story that throws, draws nothing,
 or leaves a key listener behind fails the test suite.
+`test/stories-states.test.ts` renders every story that replays keys, waits
+for the replay to finish, and fails unless the frame shows the replay's
+`shows` text, so a story whose keys stop reaching its state fails too.
 
 ## Navigation
 
@@ -58,7 +70,7 @@ or leaves a key listener behind fails the test suite.
 
 - `src/components/ui/`: adapted termcn Tabs, Key Value, JSON, Log, Dialog, themed text, and the theme singleton, plus panels, selectable rows, actions, the text input, and form focus. Nothing in `ui/` imports blocks or layouts.
 - `src/components/blocks/`: kind badges, status labels, catalogs, run tree, run inspector, catalog details, activity details, overview, values, logs, help, quit confirmation, workspace header, search and prompt bars, work status, the dashboard footer, and setup intro details and actions. Blocks import no layouts.
-- `src/components/layouts/`: chrome with `ReactNode` slots. `dashboard.tsx` arranges four regions: the header row, what sits above the body, the body (main, workspace rail, and docked or overlaid drawer), and what sits below it; `dashboardMain` gives the main region's width; `catalog.tsx` puts details beside the catalog; `feed.tsx` places the list and reader side by side or stacked; `setup-flow.tsx` is the centred framed screen; `splash.tsx` is the sparkle field behind a centred card.
+- `src/components/layouts/`: chrome with `ReactNode` slots. `dashboard.tsx` arranges four regions: the header row, what sits above the body, the body (main, workspace rail, and docked or overlaid drawer), and what sits below it; `dashboardMain` gives the main region's width and whether it is shown at all (a drawer that cannot dock covers it), and the view builds the main model only when it is; `catalog.tsx` puts details beside the catalog; `feed.tsx` places the list and reader side by side or stacked; `setup-flow.tsx` is the centred framed screen; `splash.tsx` is the sparkle field behind a centred card.
 - Components are presentational: props and callbacks in, rendering out. They import React, OpenTUI, other components, and `model/` types (feed and input types from `lib/`), never `cli/`; `test/components-imports.test.ts` enforces it and the layering above. Blocks that select take the selection type as a type parameter.
 - `src/cli/views/dashboard.tsx`: fills the dashboard layout's regions, leaves out the body and the host toolbar while help is open; `dashboard-main.tsx` renders the main model as the feed, details, usage, catalog (`dashboard-catalog.tsx`), or overview (`dashboard-overview.tsx`); `dashboard-drawer.tsx` renders the workspaces, settings, or logs drawer.
 - `src/cli/views/inspector.tsx`: the details panel; picks the inspector block for the resolved selection.
@@ -68,7 +80,7 @@ or leaves a key listener behind fails the test suite.
 - `src/cli/state/dashboard-commands.ts`: the one command table behind key handling, the footer, and keyboard help.
 - `src/cli/state/use-dashboard.ts`: wires the reducer and the command table to the renderer, and builds the model of the mounted main content, drawer, rail, and search.
 - `src/cli/state/dashboard-views.ts`: which main content shows, the drawer's dock, and the overview, catalog, search, and logs models.
-- `src/cli/state/feed-model.ts` and `src/cli/state/feed-answer.ts`: feed rows, the feed's model, and the answer section's state.
+- `src/cli/state/feed-model.ts` and `src/cli/state/feed-answer.ts`: feed rows with their pending mark and metadata label and tone, the feed's model, and the answer section's state; `inputState` in `feed-answer.ts` is the one reading of whether a question is pending, answered, or cancelled.
 - `src/cli/state/dashboard-rows.ts`: display rows for the catalog, run tree, latest, logs, and workspace lists, and the selected workspace's details.
 - `src/cli/state/dashboard-metrics.ts`: run counts, success rate, spend, notes, and workflow rankings.
 - `src/cli/state/inspector.ts`: the inspector subject for a resolved selection (titles, facts, breadcrumbs, and eligible actions), the mounted run tab's content, and the expanded trigger configuration.

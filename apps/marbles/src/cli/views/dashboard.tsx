@@ -79,7 +79,7 @@ export function DashboardView({
       ),
       dock: drawer.dock,
     },
-    main: (
+    main: main.shown ? (
       <PanelShortcuts.Provider value={drawer ? undefined : ui.footer.hints}>
         <DashboardMain
           height={dimensions.height}
@@ -88,7 +88,7 @@ export function DashboardView({
           width={main.width}
         />
       </PanelShortcuts.Provider>
-    ),
+    ) : undefined,
     rail: ui.rail && <WorkspacesPanel compact {...ui.rail} />,
   });
 

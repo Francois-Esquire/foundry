@@ -4,7 +4,7 @@ import { LaunchView } from "~/cli/views/launch";
 import { previewScenarios } from "../fixtures/scenarios";
 import { ignore } from "../frame";
 import { renderReactStory } from "../render-react-story";
-import { ReplayKeys, type StoryKey } from "./replay-keys";
+import { type Replay, ReplayKeys, type StoryKey } from "./replay-keys";
 
 function scenarioDefinition(scenario: string, id: string): DefinitionSnapshot {
   const definition = previewScenarios
@@ -49,12 +49,12 @@ const refused = () =>
 function launch(
   definition: DefinitionSnapshot,
   onLaunch: (name: string) => Promise<string> = started,
-  keys: readonly (string | StoryKey)[] = []
+  replay?: Replay
 ) {
   return (renderer: Parameters<typeof renderReactStory>[0]) =>
     renderReactStory(
       renderer,
-      <ReplayKeys keys={keys}>
+      <ReplayKeys replay={replay}>
         <LaunchView
           definition={definition}
           onCancel={ignore}
@@ -89,19 +89,28 @@ export const Required = story({
 export const MissingRequired = story({
   description: "Ctrl+Enter with the required fields empty marks each one.",
   name: "Missing required values",
-  render: launch(prototype, started, [SUBMIT]),
+  render: launch(prototype, started, {
+    keys: [SUBMIT],
+    shows: "Title is required.",
+  }),
 });
 
 export const Launching = story({
   description: "A launch that has not come back yet; the form waits.",
   name: "Launching",
-  render: launch(unavailable, pending, FILL_AND_SUBMIT),
+  render: launch(unavailable, pending, {
+    keys: FILL_AND_SUBMIT,
+    shows: "Please wait...",
+  }),
 });
 
 export const Refused = story({
   description: "The executor refused the launch; the typed value stays.",
   name: "Launch failed",
-  render: launch(unavailable, refused, FILL_AND_SUBMIT),
+  render: launch(unavailable, refused, {
+    keys: FILL_AND_SUBMIT,
+    shows: "Executor unavailable. Your inputs are preserved.",
+  }),
 });
 
 export const Undeclared = story({

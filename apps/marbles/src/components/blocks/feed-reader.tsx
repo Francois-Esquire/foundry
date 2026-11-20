@@ -249,7 +249,7 @@ export function FeedReader({
       <box flexDirection="row" flexShrink={0}>
         <FeedMetaLine
           details={[entry.workspace.name, entry.posted, entry.run, entry.step]}
-          entry={entry}
+          meta={selected.meta}
         />
       </box>
       <markdown
