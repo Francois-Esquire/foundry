@@ -376,8 +376,9 @@ Five buckets, each importing only what sits below it:
   start them.
   Commands about a run go to the generation whose process owns it, answers
   and activity stops to the one holding them, the rest to the current
-  one (the table beside `RUN_METHODS` in `daemon.ts`); every signal to a
-  generation first proves its pid and start. The rest is the wire protocol (`protocol.ts`,
+  one. Snapshots gather the live runs and step work of retiring generations
+  before the current host builds the view (the tables beside `RUN_METHODS`
+  in `daemon.ts`); every signal to a generation first proves its pid and start. The rest is the wire protocol (`protocol.ts`,
   `channel.ts`); the client (`client.ts`), which joins the running daemon
   or starts one; and the claim (`instance.ts`). Apart from the generation
   it imports only `lib/`, `database/`, `layout.ts`, `model/` and the pure

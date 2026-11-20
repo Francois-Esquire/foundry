@@ -72,6 +72,7 @@ function commands(
       cycleScope: () => undefined,
       focus: "list",
       move: () => undefined,
+      open: () => undefined,
       read: () => undefined,
       resetScope: () => undefined,
       scopeCount: 1,
@@ -156,7 +157,12 @@ describe("tabs", () => {
   it("Shift and a letter opens each tab; plain letters keep their meanings", () => {
     const noop = () => Promise.resolve();
     const { press } = commands([], {
-      actions: { cancel: noop, pause: noop, resume: noop, steer: noop },
+      actions: {
+        cancel: noop,
+        pause: noop,
+        resume: noop,
+        send: noop,
+      },
     });
     for (const [letter, view] of [
       ["D", "overview"],
@@ -173,7 +179,12 @@ describe("tabs", () => {
       [
         "send",
         {
-          prompt: { kind: "steer", runId: "run-104", stepId: "docs" },
+          prompt: {
+            chosen: 0,
+            kind: "send",
+            runId: "run-104",
+            targets: [expect.objectContaining({ id: "work-write" })],
+          },
           type: "prompt",
         },
       ],

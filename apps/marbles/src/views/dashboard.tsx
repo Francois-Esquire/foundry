@@ -28,7 +28,7 @@ import type { CatalogSelection } from "./dashboard-tree";
 import { FeedView } from "./feed";
 import { LaunchView } from "./launch";
 import { latestActivity, nextSchedule } from "./operating-model";
-import type { RunActions, RunPrompt } from "./run-actions";
+import { promptLabel, type RunActions, type RunPrompt } from "./run-actions";
 import { type DashboardOptions, useDashboard } from "./use-dashboard";
 
 function describeFilter(
@@ -111,10 +111,7 @@ function PromptBar({
   readonly onSubmit: () => void;
   readonly quitting: boolean;
 }) {
-  const label =
-    prompt.kind === "steer"
-      ? `steer ${prompt.stepId} › `
-      : `resume ${prompt.stepId} · prompt optional › `;
+  const label = promptLabel(prompt);
   return (
     <box flexDirection="row" height={1}>
       <Text>{label}</Text>

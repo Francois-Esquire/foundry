@@ -36,6 +36,7 @@ import {
   type WorkspaceRecord,
 } from "~/lib/state/workspace";
 import type { WorkspaceSummary } from "~/model/connection";
+import type { LiveRun } from "~/model/dashboard";
 import { Channel, socketTransport } from "~/process/channel";
 import {
   differences,
@@ -62,6 +63,7 @@ import {
   isWorkspaceMethod,
   type LoadResult,
   lineParamsSchema,
+  liveRunsSchema,
   loadResultSchema,
   PROTOCOL,
   queuedTakeSchema,
@@ -123,6 +125,7 @@ const HANDOVER_RETRY_MS = 200;
 const SWEEP_MS = 2000;
 const REOFFER_MS = 30_000;
 const HELD_WAIT_MS = 30_000;
+const LIVE_WORK_WAIT_MS = 2000;
 const STDERR_TAIL = 20;
 const CLAIM_CHECK_MS = 5000;
 
@@ -171,6 +174,7 @@ const RUN_METHODS = new Set<string>([
   WORKSPACE_METHODS.getRun,
   WORKSPACE_METHODS.pause,
   WORKSPACE_METHODS.resume,
+  WORKSPACE_METHODS.send,
   WORKSPACE_METHODS.steer,
 ]);
 
@@ -178,6 +182,8 @@ const HELD_METHODS = new Set<string>([
   WORKSPACE_METHODS.answer,
   WORKSPACE_METHODS.stopActivity,
 ]);
+
+const GATHERING_METHODS = new Set<string>([WORKSPACE_METHODS.snapshot]);
 
 const DISPATCHING = new Set<string>([
   WORKSPACE_METHODS.dispatchAgent,
@@ -1825,6 +1831,43 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
   }
 
+  const liveUnread = new Set<string>();
+
+  async function liveOf(
+    id: string,
+    generation: Generation
+  ): Promise<readonly LiveRun[]> {
+    const key = `${id}:${String(generation.number)}`;
+    try {
+      const runs = liveRunsSchema.parse(
+        await timeout(
+          ask(generation, GENERATION_METHODS.liveWork, { id }),
+          LIVE_WORK_WAIT_MS,
+          `reading the live work of generation ${String(generation.number)}`
+        )
+      );
+      liveUnread.delete(key);
+      return runs;
+    } catch (error) {
+      if (!liveUnread.has(key)) {
+        liveUnread.add(key);
+        print(
+          `[${id}] the runs of engine generation ${String(generation.number)} are left out of the dashboard: ${message(error)}`
+        );
+      }
+      return [];
+    }
+  }
+
+  async function liveElsewhere(id: string): Promise<readonly LiveRun[]> {
+    const parts = await Promise.all(
+      hostsOf(id)
+        .filter((generation) => generation !== current)
+        .map((generation) => liveOf(id, generation))
+    );
+    return parts.flat();
+  }
+
   async function workspaceCall(
     id: string,
     name: string,
@@ -1848,6 +1891,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (HELD_METHODS.has(name)) {
       await handovers.get(id);
       return await askEach(id, method, params);
+    }
+    if (GATHERING_METHODS.has(name)) {
+      return await askCurrent(workspace, method, {
+        ...params,
+        live: await liveElsewhere(id),
+      });
     }
     return await askCurrent(workspace, method, params);
   }

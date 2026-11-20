@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { TaskError } from "@foundry/tasks";
 
 import type { Layout } from "~/layout";
+import { runOutputStream } from "~/lib/state/output";
 import type {
   DispatchInfo,
   DispatchOptions,
@@ -470,7 +471,7 @@ function clientOver(
         }
       };
     },
-    workspace: (summary) => remoteWorkspace(channel, summary),
+    workspace: (summary) => remoteWorkspace(channel, summary, layout),
     async workspaces() {
       return summaries(await channel.request(DAEMON_METHODS.workspaces));
     },
@@ -479,7 +480,8 @@ function clientOver(
 
 function remoteWorkspace(
   channel: Channel,
-  { config, id, root }: Pick<WorkspaceSummary, "config" | "id" | "root">
+  { config, id, root }: Pick<WorkspaceSummary, "config" | "id" | "root">,
+  layout: Layout
 ): WorkspaceConnection {
   const call = <T>(method: WorkspaceMethod, params: object = {}): Promise<T> =>
     channel.request(`${WORKSPACE_PREFIX}${method}`, {
@@ -500,12 +502,15 @@ function remoteWorkspace(
           call(WORKSPACE_METHODS.pause, { runId, stepId }),
         resume: (runId, stepId, prompt) =>
           call(WORKSPACE_METHODS.resume, { prompt, runId, stepId }),
+        send: (runId, stepId, input) =>
+          call(WORKSPACE_METHODS.send, { ...input, runId, stepId }),
         setTriggerEnabled: (triggerId, enabled) =>
           call(WORKSPACE_METHODS.setTriggerEnabled, { enabled, triggerId }),
         steer: (runId, stepId, prompt) =>
           call(WORKSPACE_METHODS.steer, { prompt, runId, stepId }),
         stopActivity: (sessionId, activityId) =>
           call(WORKSPACE_METHODS.stopActivity, { activityId, sessionId }),
+        stream: (runId, signal) => runOutputStream(layout.state, runId, signal),
       },
     },
     cancelRun: (runId) => call<RunInfo>(WORKSPACE_METHODS.cancelRun, { runId }),

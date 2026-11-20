@@ -115,6 +115,7 @@ export type DashboardEvent =
   | { readonly type: "help"; readonly open: boolean }
   | { readonly type: "home" }
   | { readonly type: "prompt"; readonly prompt?: RunPrompt }
+  | { readonly type: "prompt-target"; readonly by: number }
   | { readonly type: "draft"; readonly value: string }
   | { readonly type: "show-run"; readonly id: string }
   | { readonly type: "launch-form"; readonly id?: string }
@@ -556,6 +557,18 @@ export function reduce(
       };
     case "prompt":
       return { ...state, draft: "", prompt: event.prompt };
+    case "prompt-target":
+      return state.prompt?.kind === "send"
+        ? {
+            ...state,
+            prompt: {
+              ...state.prompt,
+              chosen:
+                (state.prompt.chosen + event.by + state.prompt.targets.length) %
+                state.prompt.targets.length,
+            },
+          }
+        : state;
     case "draft":
       return { ...state, draft: event.value };
     case "show-run":

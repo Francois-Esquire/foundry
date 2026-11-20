@@ -16,6 +16,7 @@ import type {
   TriggerSnapshot,
 } from "~/views/dashboard-model";
 import {
+  flattenSteps,
   runSelection,
   selectionKey,
   triggerSelection,
@@ -25,6 +26,7 @@ import { type CatalogSelection, scopedRuns } from "~/views/dashboard-tree";
 import type { RunActions } from "~/views/run-actions";
 import { costLabel, tokensLabel } from "~/views/usage-format";
 import { ActivityDetails } from "./activity-details";
+import { LiveWork } from "./live-work";
 import { RunLogs } from "./run-logs";
 import { RunOverview, StepOverview } from "./run-overview";
 import { RunStream } from "./run-stream";
@@ -51,6 +53,9 @@ function RunInspector({
 }) {
   const step = path.at(-1);
   const subject = step ?? run;
+  const work = flattenSteps(step ? [step] : run.steps).flatMap(
+    (entry) => entry.step.work ?? []
+  );
   const trigger =
     snapshot.triggers.find(
       (item) =>
@@ -131,6 +136,7 @@ function RunInspector({
           />
         ))}
       </box>
+      <LiveWork work={work} />
       <Tabs activeTab={tab} onTabChange={onTab} tabs={tabs} />
     </box>
   );

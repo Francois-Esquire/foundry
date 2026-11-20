@@ -135,6 +135,22 @@ export function useFeed(
     }
   }
 
+  function open(entryId: string) {
+    const entry = entries.find(
+      (item) =>
+        item.id === entryId &&
+        (workspaceId === undefined || item.workspace.id === workspaceId)
+    );
+    if (!entry) {
+      return;
+    }
+    if (!visible.includes(entry)) {
+      setScope(ALL_WORKSPACES);
+    }
+    setSelectedKey(feedKey(entry));
+    setFocus("reader");
+  }
+
   function read() {
     if (selected) {
       setFocus("reader");
@@ -153,6 +169,7 @@ export function useFeed(
     cycleScope,
     focus,
     move,
+    open,
     read,
     resetScope,
     scope: activeScope,

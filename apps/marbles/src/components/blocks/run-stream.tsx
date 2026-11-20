@@ -65,7 +65,7 @@ export function RunStream({
   }, [runId, stepId, source]);
   const lines = text.split("\n").slice(-TAIL_LINES);
   if (!(live || text)) {
-    return <Text>No live stream: the run is not running in this process.</Text>;
+    return <Text>No output to show for this run.</Text>;
   }
   return (
     <box flexDirection="column" flexShrink={0}>
@@ -76,8 +76,8 @@ export function RunStream({
         </Text>
       ))}
       <text fg={theme.colors.mutedForeground}>
-        {live ? "Live" : "Ended"} · last {String(TAIL_LINES)} lines · s steer ·
-        p pause
+        {live ? "Live" : "Ended"} · last {String(TAIL_LINES)} lines · leaving
+        this tab does not stop the work
       </text>
     </box>
   );

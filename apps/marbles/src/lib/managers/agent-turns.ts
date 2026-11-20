@@ -13,7 +13,7 @@ import type {
 import type { InferGenerateOutput, InferStreamOutput, Output } from "ai";
 import type { RecordObservation } from "../observations";
 import { toolObserver } from "../observations";
-import type { LiveSession } from "../run-scope";
+import type { StepWork } from "../step-work";
 import type {
   AgentSettings,
   Session,
@@ -21,7 +21,15 @@ import type {
   SessionReply,
 } from "../types";
 
+export interface LiveSession {
+  readonly ref: SessionRef;
+  running?: Promise<unknown>;
+  steer?: string;
+  turn?: AbortController;
+}
+
 export interface SessionTurnSite {
+  readonly agent?: string;
   consumed?(
     message: SessionMessage,
     usage?: SessionUsage
@@ -31,6 +39,7 @@ export interface SessionTurnSite {
   signal(): AbortSignal;
   takeResume(): string | undefined;
   track(live: LiveSession): void;
+  readonly work?: StepWork;
   write(value: unknown): void;
 }
 
@@ -142,6 +151,17 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
     if (live.turn !== undefined) {
       throw new Error("A session can run only one turn at a time.");
     }
+    const ended = site.work?.begin({
+      ...(site.agent === undefined ? {} : { agent: site.agent }),
+      kind: "agent",
+      ...(ref.model === undefined ? {} : { model: ref.model }),
+      ...(ref.provider === undefined ? {} : { provider: ref.provider }),
+      sessionId: ref.id,
+      steer: (prompt) => {
+        live.steer = prompt;
+        live.turn?.abort(new Error("steered"));
+      },
+    });
     let nextInput = withResume(input);
     let controller!: ReadableStreamDefaultController<SessionEvent>;
     const events = new ReadableStream<SessionEvent>({
@@ -223,6 +243,7 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
         partialController.error(error);
         throw error;
       } finally {
+        ended?.();
         tools?.end();
         live.turn = undefined;
         live.steer = undefined;

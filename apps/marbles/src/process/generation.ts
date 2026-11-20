@@ -18,6 +18,7 @@ import {
   GENERATION_NOTIFICATIONS,
   hostParamsSchema,
   isWorkspaceMethod,
+  liveRunsSchema,
   queuedParamsSchema,
   releasedParamsSchema,
   retireParamsSchema,
@@ -27,9 +28,10 @@ import {
 import { envFilesLoaded } from "~/process/runtime";
 import { SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { dispatchSchema } from "~/workspace/dispatch";
-import type { WorkspaceHost } from "~/workspace/host";
+import type { GenerationHost, WorkspaceHost } from "~/workspace/host";
 import type { StagedWorkspaces, WorkspaceLoad } from "~/workspace/hosted";
 import { HostedWorkspaces } from "~/workspace/hosted";
+import { liveRuns } from "~/workspace/live-work";
 import {
   registerSetupStep,
   SETUP_STEP,
@@ -95,7 +97,7 @@ function optionalText(value: unknown): string | undefined {
 }
 
 function call(
-  host: WorkspaceHost,
+  host: GenerationHost,
   method: WorkspaceMethod,
   raw: unknown
 ): Promise<unknown> {
@@ -136,13 +138,18 @@ function call(
       );
     case "roll":
       return host.roll(text(p.name, "name"), p.input);
+    case "send":
+      return runs.send(text(p.runId, "runId"), text(p.stepId, "stepId"), {
+        target: text(p.target, "target"),
+        text: text(p.text, "text"),
+      });
     case "setTriggerEnabled":
       return runs.setTriggerEnabled(
         text(p.triggerId, "triggerId"),
         p.enabled === true
       );
     case "snapshot":
-      return host.snapshot();
+      return host.snapshot(liveRunsSchema.parse(p.live ?? []));
     case "steer":
       return runs.steer(
         text(p.runId, "runId"),
@@ -405,6 +412,12 @@ async function main(): Promise<void> {
     return await workspaces().get(id).engine.takeQueued(runId, owner);
   };
 
+  const liveWork = async (raw: unknown): Promise<unknown> => {
+    const { id } = workspaceIdSchema.parse(raw);
+    const { engine } = workspaces().get(id);
+    return liveRuns(await engine.runs(), engine.scopes);
+  };
+
   const stop = (): Promise<void> => {
     stopping ??= retiring ?? leave(true);
     stopping.then(finished.resolve, finished.reject);
@@ -431,6 +444,8 @@ async function main(): Promise<void> {
           return adopt(raw);
         case GENERATION_METHODS.takeQueued:
           return takeQueued(raw);
+        case GENERATION_METHODS.liveWork:
+          return liveWork(raw);
         default:
           break;
       }
@@ -442,7 +457,7 @@ async function main(): Promise<void> {
         return Promise.reject(new Error(`no workspace method "${name}"`));
       }
       const { id, ...rest } = workspaceIdSchema.passthrough().parse(raw);
-      let target: WorkspaceHost;
+      let target: GenerationHost;
       try {
         target = workspaces().get(id);
       } catch (error) {

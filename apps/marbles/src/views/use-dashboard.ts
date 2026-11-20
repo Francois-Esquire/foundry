@@ -37,7 +37,7 @@ import {
   type OperatingLogEntry,
   operatingLogs,
 } from "./operating-model";
-import type { Launcher, RunActions } from "./run-actions";
+import { type Launcher, promptTarget, type RunActions } from "./run-actions";
 import { type AnswerHandler, useFeed } from "./use-feed";
 import { showsOthers, workspaceScoped } from "./workspace-scope";
 
@@ -156,14 +156,23 @@ export function useDashboard({
       return;
     }
     const text = draft.trim();
-    if (prompt.kind === "steer" && !text) {
+    if (prompt.kind === "resume") {
+      send({ type: "prompt" });
+      control.run(() =>
+        actions.resume(prompt.runId, prompt.stepId, text || undefined)
+      );
+      return;
+    }
+    const target = promptTarget(prompt);
+    if (!target || (target.input === "steer" && !text)) {
       return;
     }
     send({ type: "prompt" });
     control.run(() =>
-      prompt.kind === "steer"
-        ? actions.steer(prompt.runId, prompt.stepId, text)
-        : actions.resume(prompt.runId, prompt.stepId, text || undefined)
+      actions.send(prompt.runId, target.stepId, {
+        target: target.id,
+        text: target.input === "stdin" ? draft : text,
+      })
     );
   }
 

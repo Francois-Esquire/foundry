@@ -9,9 +9,11 @@ import {
   actionTarget,
   canStopActivity,
   type DashboardSelection,
+  type LiveWorkSnapshot,
   type ResolvedSelection,
   runSelection,
   triggerSelection,
+  underSelection,
 } from "./dashboard-model";
 import {
   type BrowserPane,
@@ -24,7 +26,12 @@ import {
 import type { CatalogSelection } from "./dashboard-tree";
 import type { OperatingLogEntry } from "./operating-model";
 import { logRun } from "./operating-model";
-import type { RunActions } from "./run-actions";
+import {
+  inputVerb,
+  promptTarget,
+  type RunActions,
+  type RunPrompt,
+} from "./run-actions";
 import type { AnswerState, FeedState } from "./use-feed";
 import { ownedElsewhere } from "./workspace-scope";
 
@@ -46,6 +53,7 @@ export interface CommandContext {
     | "cycleScope"
     | "focus"
     | "move"
+    | "open"
     | "read"
     | "resetScope"
     | "scopeCount"
@@ -256,6 +264,28 @@ function controlled(context: CommandContext) {
   return { actions, run: resolved.run, ...actionTarget(resolved) };
 }
 
+function interactive(context: CommandContext): readonly LiveWorkSnapshot[] {
+  const { resolved } = context;
+  if (controlled(context)?.status !== "running" || resolved.kind !== "run") {
+    return [];
+  }
+  return underSelection(resolved).flatMap((step) =>
+    (step.work ?? []).filter((work) => work.input !== "none")
+  );
+}
+
+function interactLabel(targets: readonly LiveWorkSnapshot[]): string {
+  return targets.length > 1 ? "s interact" : `s ${inputVerb(targets[0])}`;
+}
+
+function awaited(context: CommandContext): readonly string[] {
+  const { resolved } = context;
+  if (!controlled(context) || resolved.kind !== "run") {
+    return [];
+  }
+  return underSelection(resolved).flatMap((step) => step.awaiting ?? []);
+}
+
 function managedTrigger(context: CommandContext) {
   const { actions, resolved } = context;
   if (!(onDashboard(context) && actions && resolved.kind === "trigger")) {
@@ -330,6 +360,17 @@ function isPaneKey(name: string): name is keyof typeof PANE_KEYS {
 }
 
 const COMMANDS: readonly Command[] = [
+  {
+    help: "Move the prompt to the next live target in the step",
+    key: "Tab",
+    keys: ["tab"],
+    label: "Tab next",
+    run: (dashboard) => dashboard.send({ by: 1, type: "prompt-target" }),
+    section: "Typing",
+    when: (context) =>
+      context.state.prompt?.kind === "send" &&
+      context.state.prompt.targets.length > 1,
+  },
   {
     key: "Enter",
     label: "Enter send",
@@ -801,26 +842,39 @@ const COMMANDS: readonly Command[] = [
   },
 
   {
-    help: "Steer the agent running in the step",
+    help: "Steer the agent or type into the command live in the step",
     key: "s",
     keys: ["s"],
-    label: "s steer",
+    label: (context) => interactLabel(interactive(context)),
     priority: true,
     run: (dashboard) => {
       const target = controlled(dashboard);
-      if (target) {
+      const targets = interactive(dashboard);
+      if (target && targets.length > 0) {
         dashboard.send({
-          prompt: {
-            kind: "steer",
-            runId: target.run.id,
-            stepId: target.stepId,
-          },
+          prompt: { chosen: 0, kind: "send", runId: target.run.id, targets },
           type: "prompt",
         });
       }
     },
     section: "Run controls",
-    when: (context) => controlled(context)?.status === "running",
+    when: (context) => interactive(context).length > 0,
+  },
+  {
+    help: "Open the Feed on the question or approval the step waits for",
+    key: "i",
+    keys: ["i"],
+    label: "i answer",
+    priority: true,
+    run: (dashboard) => {
+      const [entry] = awaited(dashboard);
+      if (entry) {
+        dashboard.send({ type: "view", view: "feed" });
+        dashboard.feed.open(entry);
+      }
+    },
+    section: "Run controls",
+    when: (context) => awaited(context).length > 0,
   },
   {
     help: "Pause the running step, or resume a paused one with an optional prompt",
@@ -1133,10 +1187,20 @@ function labels(context: CommandContext, lasting: boolean) {
   });
 }
 
+function promptName(prompt: RunPrompt): string {
+  if (prompt.kind === "resume") {
+    return "resume";
+  }
+  const verb = inputVerb(promptTarget(prompt));
+  return prompt.targets.length > 1
+    ? `${verb} ${String(prompt.chosen + 1)}/${String(prompt.targets.length)}`
+    : verb;
+}
+
 function focusName(context: CommandContext): string {
   const { feed, resolved, state } = context;
   if (state.prompt) {
-    return state.prompt.kind;
+    return promptName(state.prompt);
   }
   if (answering(context)) {
     return feed.answer.choosing

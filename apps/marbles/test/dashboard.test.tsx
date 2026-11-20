@@ -554,7 +554,7 @@ test("keyboard help lists the command table by section", async () => {
     "Keyboard help",
     "Anywhere",
     "Run controls",
-    "Steer the agent running in the step",
+    "Steer the agent or type into the command live in the step",
     "Cycle the Feed workspace filter",
     "Move focus / submit arguments",
   ]) {

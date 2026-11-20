@@ -101,6 +101,7 @@ import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
 import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { removeRunOutput } from "~/lib/state/output";
+import type { StepInput } from "~/lib/step-work";
 import type { TaskDefinition } from "~/lib/tasks";
 import { factoryFor } from "~/lib/tree";
 import type { TriggerStore } from "~/lib/trigger-store";
@@ -497,6 +498,7 @@ export class Engine {
             ? {}
             : { spawned: this.context.spawned }),
           signal: () => frame.signal,
+          work: frame.work,
           write,
         }),
       host: { catalogue, triggers: this.triggers },
@@ -1047,6 +1049,10 @@ export class Engine {
 
   steer(runId: string, stepId: string, prompt: string): void {
     this.#scopeOf(runId).steer(stepId, prompt);
+  }
+
+  send(runId: string, stepId: string, input: StepInput): void {
+    this.#scopeOf(runId).send(stepId, input);
   }
 
   async retire(

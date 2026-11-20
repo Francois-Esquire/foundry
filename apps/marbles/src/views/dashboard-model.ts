@@ -12,6 +12,7 @@ export type {
   DefinitionSnapshot,
   HarnessActivitySnapshot,
   ItemKind,
+  LiveWorkSnapshot,
   RunSnapshot,
   StepSnapshot,
   TriggerSnapshot,
@@ -194,6 +195,15 @@ export function actionTarget(
   return step
     ? { status: step.status, stepId: step.id }
     : { status: resolved.run.status, stepId: resolved.run.definitionId };
+}
+
+export function underSelection(
+  resolved: Extract<ResolvedSelection, { kind: "run" }>
+): readonly StepSnapshot[] {
+  const step = resolved.path.at(-1);
+  return flattenSteps(step ? [step] : resolved.run.steps).map(
+    (entry) => entry.step
+  );
 }
 
 export function canStopActivity(activity: HarnessActivitySnapshot): boolean {

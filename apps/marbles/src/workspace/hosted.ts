@@ -6,7 +6,7 @@ import type { MarblesDatabase } from "~/database/open";
 import { openHostDatabase, WorkspaceRegistry } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
 import type { RollResult } from "~/model/connection";
-import type { StagedWorkspace, WorkspaceHost } from "~/workspace/host";
+import type { GenerationHost, StagedWorkspace } from "~/workspace/host";
 import { stageWorkspace } from "~/workspace/host";
 import { findWorkspace } from "~/workspace/open";
 import { DEFAULT_SOURCE } from "~/workspace/source";
@@ -80,8 +80,8 @@ interface Found {
 
 export class HostedWorkspaces {
   readonly #database: MarblesDatabase | undefined;
-  readonly #hosts = new Map<string, WorkspaceHost>();
-  readonly #pending = new Map<string, Promise<WorkspaceHost>>();
+  readonly #hosts = new Map<string, GenerationHost>();
+  readonly #pending = new Map<string, Promise<GenerationHost>>();
   readonly #unregistering = new Map<string, Promise<boolean>>();
   readonly #options: HostedWorkspacesOptions;
   readonly #inFlight = new Set<Promise<unknown>>();
@@ -106,7 +106,7 @@ export class HostedWorkspaces {
     return new HostedWorkspaces(options, database);
   }
 
-  register(registration: WorkspaceRegistration): Promise<WorkspaceHost> {
+  register(registration: WorkspaceRegistration): Promise<GenerationHost> {
     let found: Found;
     try {
       found = this.#find(registration);
@@ -162,7 +162,7 @@ export class HostedWorkspaces {
     registration: WorkspaceRegistration,
     { args, found, root }: Found
   ): Promise<StagedWorkspace> {
-    let host: WorkspaceHost | undefined;
+    let host: GenerationHost | undefined;
     try {
       if (this.#database !== undefined) {
         await new WorkspaceRegistry({
@@ -212,14 +212,14 @@ export class HostedWorkspaces {
     }
   }
 
-  async #start(staged: StagedWorkspace, root: string): Promise<WorkspaceHost> {
+  async #start(staged: StagedWorkspace, root: string): Promise<GenerationHost> {
     if (this.#phase === "closed") {
       await staged.abandon();
       throw new WorkspaceLoadError(root, {
         cause: new Error("these hosted workspaces closed while it loaded"),
       });
     }
-    let host: WorkspaceHost;
+    let host: GenerationHost;
     try {
       host = await staged.start();
     } catch (error) {
@@ -391,7 +391,7 @@ export class HostedWorkspaces {
     return work;
   }
 
-  get(id: string): WorkspaceHost {
+  get(id: string): GenerationHost {
     const host = this.#hosts.get(id);
     if (host === undefined) {
       throw new Error(`no workspace "${id}" is hosted here`);
@@ -399,7 +399,7 @@ export class HostedWorkspaces {
     return host;
   }
 
-  list(): readonly WorkspaceHost[] {
+  list(): readonly GenerationHost[] {
     return [...this.#hosts.values()];
   }
 
