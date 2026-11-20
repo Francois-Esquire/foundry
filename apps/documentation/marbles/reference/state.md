@@ -93,7 +93,7 @@ Output journals are append-only. Lock files are created in place
 read. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
 A workspace is recorded in the database when it is attached to the Marbles
-process (`run`, `roll`, or the dashboard), which sets
+process (`run`, `roll`, `attach`, or the dashboard), which sets
 `hosted: true`, and by a program that hosts it itself; `list`, `status`,
 `sessions`, `watch`, a task read, and anything under `--dry-run` leave an
 empty state root empty. Only a process holding `locks/process` at the state
