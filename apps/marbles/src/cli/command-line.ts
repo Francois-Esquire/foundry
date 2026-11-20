@@ -178,7 +178,11 @@ async function showStatus(
 ): Promise<void> {
   const report = await readStatus(resolve(args.state));
   if (process.stdout.isTTY && process.stdin.isTTY) {
-    const { showStatus: renderStatus } = await import("~/cli/status/view");
+    const [{ showStatus: renderStatus }, { applyTheme }] = await Promise.all([
+      import("~/cli/status/view"),
+      import("~/cli/theme"),
+    ]);
+    applyTheme(loadSettings(settingsPath(args.state)).settings.theme);
     await renderStatus({ here: workspace.id, report });
     return;
   }

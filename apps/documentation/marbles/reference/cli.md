@@ -369,11 +369,14 @@ you keep open. Either way it claims `locks/process` at the
 [state root](/marbles/reference/state), and a second one is refused with the
 holder's pid. A client that finds a process of another Marbles version stops
 it and starts one of its own. `status` reads files only: a terminal opens a
-view that `q` closes; piped output is plain text, starting with
-`marbles process: pid N · vX · <socket>` or `marbles process: not running`,
-an `engine generation N: pid P · current` line for each live generation
-(`retiring` for one finishing its runs), then each workspace with
-`hosted: yes|no` and `process: pid N (generation)` or `not running`.
+view in the saved theme that `q` closes; piped output is plain text. Both
+start with `marbles process: pid N · vX · <socket>` or
+`marbles process: not running`, then an
+`engine generation N: pid P · current` line for each live generation
+(`retiring` for one finishing its runs, `cannot tell` for one whose process
+cannot be proved alive or gone), whether or not the Marbles process is
+running, then each workspace with `hosted: yes|no` and
+`process: pid N (generation)` or `not running`.
 
 Pi is configured like any other provider: setup offers it when its CLI is
 installed. Provider configuration lives in the Marbles database; there is
