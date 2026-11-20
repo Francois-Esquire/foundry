@@ -209,6 +209,15 @@ export function useDashboard({
       others: showsOthers(whole),
     },
   };
+  const free = !(quit.quitting || capturesKeys(context));
+  const unlessModal =
+    <A extends unknown[]>(action: (...args: A) => void) =>
+    (...args: A) => {
+      if (free) {
+        action(...args);
+      }
+    };
+
   useKeyboard((key) => {
     if (form !== undefined || quit.handleKey(key)) {
       return;
@@ -304,8 +313,8 @@ export function useDashboard({
       configurationShown: state.configuration,
       onFilter: (filter: CatalogSelection) => send({ filter, type: "filter" }),
       onInspect: inspect,
-      onLaunch: onLaunch ? launch : undefined,
-      onRollSchedule: onRollSchedule ? rollSchedule : undefined,
+      onLaunch: onLaunch ? unlessModal(launch) : undefined,
+      onRollSchedule: onRollSchedule ? unlessModal(rollSchedule) : undefined,
       onTab: (tab: InspectorTab) => send({ tab, type: "tab" }),
       onToggleConfiguration: () => send({ type: "configuration" }),
       resolved,
@@ -354,15 +363,6 @@ export function useDashboard({
         };
     }
   }
-
-  const free = !(quit.quitting || capturesKeys(context));
-  const unlessModal =
-    <A extends unknown[]>(action: (...args: A) => void) =>
-    (...args: A) => {
-      if (free) {
-        action(...args);
-      }
-    };
 
   const drawer: DrawerModel | undefined = utility
     ? { content: drawerContent, dock: drawerDock(state) }

@@ -274,6 +274,38 @@ test("header, tab, and footer clicks wait while a prompt is open", async () => {
   expect(ui.captureCharFrame().match(WORKSPACE_PICKER_BORDER)).toBeNull();
 });
 
+test("details buttons wait while a prompt is open", async () => {
+  const { actions, calls } = recordingActions();
+  const rolled: string[] = [];
+  const roll = (id: string) => {
+    rolled.push(id);
+    return Promise.resolve();
+  };
+  const ui = await mount(
+    <DashboardView
+      actions={actions}
+      onClose={close}
+      onRollSchedule={roll}
+      snapshot={dashboardSnapshot}
+    />
+  );
+  await press(ui, "s");
+  await act(async () => ui.mockInput.typeText("go on"));
+  await flush(ui);
+  const lines = ui.captureCharFrame().split("\n");
+  const row = lines.findIndex((line) => line.includes("Up next"));
+  const column = lines[row]?.indexOf("Up next") ?? -1;
+  await act(async () => {
+    await ui.mockMouse.click(column + 1, row);
+  });
+  await flush(ui);
+  expect(ui.renderer.root.findDescendantById("schedule:run")).toBeDefined();
+  await click(ui, "schedule:run");
+  expect(rolled).toEqual([]);
+  expect(calls).toEqual([]);
+  expect(ui.captureCharFrame()).toContain("steer docs ›");
+});
+
 test("a paused step resumes with an optional prompt", async () => {
   const { actions, calls } = recordingActions();
   const paused = {

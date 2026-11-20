@@ -266,10 +266,12 @@ the workspace and posts a setup milestone to the Feed. Use
 | `q` / Ctrl+C | Confirm quit; Ctrl+C again quits. Quitting detaches: triggers keep running in the Marbles process |
 
 Letter keys act only with no Ctrl or Meta held; Shift+letter shortcuts are
-unaffected. While a prompt, an answer, a search, help, the workspace picker or
-the quit dialog has the keys, clicks on the header, tabs and footer do
-nothing, as their keys would. A steer or resume prompt closes once its
-message is sent; if it cannot be sent, the prompt stays open with its text.
+unaffected. A click on a tab, the footer, the workspace rail, the workspace
+name, or a launch or run-now button in details acts only when its key
+would. While a prompt, an answer, a search, help, the workspace picker or the
+quit dialog has the keys, those clicks do nothing; clicking marbles goes home
+whenever `h` does. A steer or resume prompt closes once its message is sent;
+if it cannot be sent, the prompt stays open with its text.
 
 ### Settings and local diagnostics
 
