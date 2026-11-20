@@ -1,47 +1,34 @@
 import type { BoxRenderable } from "@opentui/core";
-import { type ReactNode, useCallback, useMemo } from "react";
-import { HudFrame } from "@/components/blocks/hud-frame";
-import type { RailSectionSpec } from "@/model/hud";
-import { frameRows, hudGeometry, railPlan } from "@/model/hud";
+import { type ReactNode, useCallback } from "react";
+import { Plate } from "@/components/blocks/plate";
+import { hud } from "@/model/palette";
 import type { Size } from "@/model/screen";
 
-const HUD_RAIL_WIDTH = 28;
+const RAIL_WIDTH = 28;
 
-export interface HudSection extends RailSectionSpec {
+export interface HudSection {
   readonly content: ReactNode;
+  readonly grow?: boolean;
+  readonly key: string;
+  readonly meta?: string;
+  readonly title?: string;
 }
 
 export function HudLayout({
   goal,
   main,
+  meta,
   onResize,
   sections,
-  size,
   title,
 }: {
   readonly goal: ReactNode;
   readonly main: ReactNode;
+  readonly meta?: string;
   readonly onResize: (size: Size) => void;
   readonly sections: readonly HudSection[];
-  readonly size: Size;
   readonly title: string;
 }) {
-  const geometry = hudGeometry(size, HUD_RAIL_WIDTH);
-  const plan = useMemo(
-    () => railPlan(sections, size.height),
-    [sections, size.height]
-  );
-  const rows = useMemo(
-    () =>
-      frameRows({
-        goalRow: geometry.goalRow,
-        rail: HUD_RAIL_WIDTH,
-        rules: plan.rules,
-        size,
-        title,
-      }),
-    [geometry.goalRow, plan.rules, size, title]
-  );
   const measure = useCallback(
     function measureHud(this: BoxRenderable) {
       onResize({ height: this.height, width: this.width });
@@ -49,48 +36,31 @@ export function HudLayout({
     [onResize]
   );
   return (
-    <box height="100%" onSizeChange={measure} width="100%">
-      <HudFrame rows={rows} />
-      {sections.map((section, index) => {
-        const slot = plan.slots[index];
-        return slot && slot.height > 0 ? (
-          <box
-            flexDirection="column"
-            height={slot.height}
+    <box
+      backgroundColor={hud.gutter}
+      flexDirection="row"
+      gap={1}
+      height="100%"
+      onSizeChange={measure}
+      width="100%"
+    >
+      <box flexDirection="column" flexShrink={0} width={RAIL_WIDTH}>
+        {sections.map((section) => (
+          <Plate
+            grow={section.grow}
             key={section.key}
-            left={1}
-            overflow="hidden"
-            paddingX={1}
-            position="absolute"
-            top={slot.top}
-            width={geometry.railInner}
+            meta={section.meta}
+            title={section.title}
           >
             {section.content}
-          </box>
-        ) : null;
-      })}
-      <box
-        flexDirection="column"
-        height={geometry.mainHeight}
-        left={geometry.mainLeft}
-        overflow="hidden"
-        paddingX={1}
-        position="absolute"
-        top={1}
-        width={geometry.mainWidth}
-      >
-        {main}
+          </Plate>
+        ))}
       </box>
-      <box
-        flexDirection="row"
-        height={1}
-        left={geometry.mainLeft}
-        paddingX={1}
-        position="absolute"
-        top={geometry.goalTop}
-        width={geometry.mainWidth}
-      >
-        {goal}
+      <box flexDirection="column" flexGrow={1} flexShrink={1} gap={1}>
+        <Plate grow meta={meta} screen title={title}>
+          {main}
+        </Plate>
+        <Plate>{goal}</Plate>
       </box>
     </box>
   );

@@ -1,100 +1,157 @@
 import type { ReactNode } from "react";
 import { defineStories, story } from "textbook-sh";
+import { Gauge } from "@/components/blocks/gauge";
 import { HudLayout, type HudSection } from "@/components/layouts/hud";
-import { defaultTheme } from "@/lib/terminal-themes/default";
+import { hud } from "@/model/palette";
 import type { Size } from "@/model/screen";
 import { ignore, renderFrame } from "../frame";
 
-const { colors } = defaultTheme;
 const wide = { height: 34, width: 120 };
 const compact = { height: 30, width: 90 };
-const TITLE = "Read package.json and explain how to run this example";
+const TITLE = "READ PACKAGE.JSON AND EXPLAIN HOW TO RUN THIS EXAMPLE";
+const SPENT = "159K IN · 1.3K OUT";
 const PORTRAIT_ROWS = 12;
 
 export default defineStories({
   component: "HudLayout",
   description:
-    "A blockout of the next screen: a status rail of stacked sections on the left, the conversation and goal on the right, inside one ornate frame.",
+    "A blockout of the next screen: a status rail of stacked plates on the left, the conversation and goal on the right.",
   title: "Layouts/Hud",
 });
 
 function Region({ children }: { readonly children: string }) {
-  return <text fg={colors.mutedForeground}>{children}</text>;
+  return <text fg={hud.dim}>{children}</text>;
 }
 
 function Portrait() {
   return (
-    <box flexDirection="column">
-      {Array.from({ length: PORTRAIT_ROWS }, (_, row) => (
-        <text fg={colors.muted} key={`portrait-${row}`}>
-          {"▓".repeat(24)}
-        </text>
-      ))}
+    <box flexDirection="column" paddingTop={1}>
+      <box backgroundColor={hud.screen} flexDirection="column">
+        {Array.from({ length: PORTRAIT_ROWS }, (_, row) => (
+          <text fg={hud.trough} key={`portrait-${row}`}>
+            {row === PORTRAIT_ROWS / 2
+              ? "░░░░░░░ PORTRAIT ░░░░░░░"
+              : "░".repeat(24)}
+          </text>
+        ))}
+      </box>
       <box flexDirection="row" justifyContent="center">
-        <text fg={colors.foreground}>"holding steady"</text>
+        <text fg={hud.amber}>"HOLDING STEADY"</text>
       </box>
     </box>
   );
 }
 
-function Gauge({
-  filled,
-  icon,
+function Vital({
+  label,
+  level,
   tone,
   value,
 }: {
-  readonly filled: number;
-  readonly icon: string;
+  readonly label: string;
+  readonly level: number;
   readonly tone: string;
   readonly value: string;
 }) {
   return (
-    <box flexDirection="row" gap={1}>
-      <text fg={tone}>{icon}</text>
-      <text fg={tone}>
-        {"▰".repeat(filled)}
-        <span fg={colors.muted}>{"▱".repeat(14 - filled)}</span>
+    <box flexDirection="column">
+      <box flexDirection="row">
+        <text fg={hud.dim}>{label}</text>
+        <box flexGrow={1} />
+        <text fg={tone}>
+          <b>{value}</b>
+        </text>
+      </box>
+      <Gauge cells={26} level={level} tone={tone} />
+    </box>
+  );
+}
+
+function Vitals() {
+  return (
+    <box flexDirection="column">
+      <Vital label="CONTEXT LEFT" level={0.62} tone={hud.blood} value="62%" />
+      <Vital label="EFFORT" level={0.75} tone={hud.amber} value="HIGH" />
+    </box>
+  );
+}
+
+function Checkpoints() {
+  return (
+    <box flexDirection="column">
+      <text wrapMode="none">
+        <span fg={hud.ok}>██ ██ </span>
+        <span fg={hud.amber}>██ </span>
+        <span fg={hud.trough}>██</span>
       </text>
-      <text fg={colors.mutedForeground}>{value}</text>
+      <text fg={hud.text} wrapMode="none">
+        Check prerequisite setup
+      </text>
+    </box>
+  );
+}
+
+function Arsenal() {
+  return (
+    <box flexDirection="column">
+      {[
+        ["BASH", "6"],
+        ["READ", "4"],
+        ["SKILL", "1"],
+      ].map(([name, count]) => (
+        <box flexDirection="row" key={name}>
+          <text fg={hud.text}>{name}</text>
+          <box flexGrow={1} />
+          <text fg={hud.amber}>
+            <b>{count}</b>
+          </text>
+        </box>
+      ))}
+    </box>
+  );
+}
+
+function Loadout() {
+  return (
+    <box flexDirection="column">
+      <box backgroundColor={hud.ember} flexDirection="row">
+        <text fg={hud.amber}>
+          <b>TASK-NOTES</b>
+        </text>
+        <box flexGrow={1} />
+        <text fg={hud.amber}>SKILL</text>
+      </box>
+      <box flexDirection="row">
+        <text fg={hud.text}>BACKLOG</text>
+        <box flexGrow={1} />
+        <text fg={hud.dim}>MCP</text>
+      </box>
     </box>
   );
 }
 
 function regions(): HudSection[] {
   return [
+    { content: <Region>portrait and comment</Region>, key: "portrait" },
     {
-      content: <Region>portrait and comment</Region>,
-      height: PORTRAIT_ROWS + 1,
-      key: "portrait",
-    },
-    {
-      content: <Region>context · effort</Region>,
-      height: 2,
+      content: <Region>context left · effort</Region>,
       key: "vitals",
       title: "VITALS",
     },
     {
       content: <Region>to-do markers · current to-do</Region>,
-      height: 2,
       key: "checkpoints",
       meta: "0/0",
       title: "CHECKPOINTS",
     },
     {
       content: <Region>tools used, once each</Region>,
-      height: 2,
       key: "arsenal",
       title: "ARSENAL",
     },
     {
-      content: <Region>tokens in · out</Region>,
-      height: 1,
-      key: "spent",
-      title: "SPENT",
-    },
-    {
       content: <Region>skills and MCP servers, selectable</Region>,
-      height: "fill",
+      grow: true,
       key: "loadout",
       title: "LOADOUT",
     },
@@ -103,64 +160,18 @@ function regions(): HudSection[] {
 
 function sketch(): HudSection[] {
   return [
-    { content: <Portrait />, height: PORTRAIT_ROWS + 1, key: "portrait" },
+    { content: <Portrait />, key: "portrait" },
+    { content: <Vitals />, key: "vitals", title: "VITALS" },
     {
-      content: (
-        <>
-          <Gauge filled={9} icon="♥" tone={colors.success} value="62%" />
-          <Gauge filled={10} icon="ϟ" tone={colors.warning} value="high" />
-        </>
-      ),
-      height: 2,
-      key: "vitals",
-      title: "VITALS",
-    },
-    {
-      content: (
-        <>
-          <text>
-            <span fg={colors.success}>◆ ◆ </span>
-            <span fg={colors.primary}>◈ </span>
-            <span fg={colors.mutedForeground}>◇</span>
-          </text>
-          <text fg={colors.primary} wrapMode="none">
-            Check prerequisite setup
-          </text>
-        </>
-      ),
-      height: 2,
+      content: <Checkpoints />,
       key: "checkpoints",
       meta: "2/4",
       title: "CHECKPOINTS",
     },
+    { content: <Arsenal />, key: "arsenal", meta: "11", title: "ARSENAL" },
     {
-      content: (
-        <text fg={colors.foreground} wrapMode="word">
-          Bash ×6 Read ×4 Skill ×1
-        </text>
-      ),
-      height: 2,
-      key: "arsenal",
-      title: "ARSENAL",
-    },
-    {
-      content: <text fg={colors.mutedForeground}>159k in · 1.3k out</text>,
-      height: 1,
-      key: "spent",
-      title: "SPENT",
-    },
-    {
-      content: (
-        <>
-          <text bg={colors.muted} fg={colors.foreground} wrapMode="none">
-            {"▸ task-notes       skill "}
-          </text>
-          <text fg={colors.mutedForeground} wrapMode="none">
-            {"  backlog · 1 tool   mcp "}
-          </text>
-        </>
-      ),
-      height: "fill",
+      content: <Loadout />,
+      grow: true,
       key: "loadout",
       meta: "2",
       title: "LOADOUT",
@@ -170,70 +181,89 @@ function sketch(): HudSection[] {
 
 function Talk() {
   return (
-    <box flexDirection="column">
-      <text fg={colors.primary}>
-        <b>You</b>
+    <box flexDirection="column" paddingY={1}>
+      <text fg={hud.amber}>
+        <b>YOU</b>
       </text>
-      <text>Read package.json here and explain how to run this.</text>
+      <text fg={hud.text}>
+        Read package.json here and explain how to run this.
+      </text>
       <text> </text>
-      <text fg={colors.success}>
-        <b>Task 1 · Locate and read package.json</b>
+      <text fg={hud.ok}>
+        <b>01 LOCATE AND READ PACKAGE.JSON</b>
       </text>
-      <text fg={colors.success}>✓ Read package.json</text>
-      <text>This example starts with bun run start.</text>
+      <text fg={hud.dim}>
+        <span fg={hud.ok}>■</span> Read package.json
+      </text>
+      <text fg={hud.text}>This example starts with bun run start.</text>
       <text> </text>
-      <text fg={colors.success}>
-        <b>Task 2 · Identify the run scripts</b>
+      <text fg={hud.amber}>
+        <b>02 IDENTIFY THE RUN SCRIPTS</b>
       </text>
-      <text fg={colors.primary}>⠹ Bash (1.2s) bun run --help</text>
+      <text fg={hud.dim}>
+        <span fg={hud.amber}>■</span> Bash bun run --help
+        <span fg={hud.amber}> 1.2s</span>
+      </text>
+    </box>
+  );
+}
+
+function Goal() {
+  return (
+    <box flexDirection="row" gap={1}>
+      <text bg={hud.blood} fg={hud.screen}>
+        <b> GOAL </b>
+      </text>
+      <text fg={hud.dim}>Give the harness a goal</text>
     </box>
   );
 }
 
 function screen(sections: HudSection[], main: ReactNode, size: Size) {
-  return (
+  return renderSize(
     <HudLayout
-      goal={
-        <text fg={colors.mutedForeground}>
-          <span fg={colors.primary}>› </span>Give the harness a goal
-        </text>
-      }
+      goal={<Goal />}
       main={main}
+      meta={SPENT}
       onResize={ignore}
       sections={sections}
-      size={size}
       title={TITLE}
-    />
+    />,
+    size
   );
+}
+
+function renderSize(content: ReactNode, size: Size) {
+  return { content, size: { ...size, padded: false } };
 }
 
 export const Regions = story({
   description: "Every region labelled with what will go there.",
   name: "Regions",
-  render: (renderer) =>
-    renderFrame(
-      renderer,
-      screen(regions(), <Region>conversation</Region>, wide),
-      { ...wide, padded: false }
-    ),
+  render: (renderer) => {
+    const { content, size } = screen(
+      regions(),
+      <Region>conversation</Region>,
+      wide
+    );
+    return renderFrame(renderer, content, size);
+  },
 });
 
 export const Sketch = story({
   description: "The regions filled with stand-in content, to judge the look.",
   name: "Sketch",
-  render: (renderer) =>
-    renderFrame(renderer, screen(sketch(), <Talk />, wide), {
-      ...wide,
-      padded: false,
-    }),
+  render: (renderer) => {
+    const { content, size } = screen(sketch(), <Talk />, wide);
+    return renderFrame(renderer, content, size);
+  },
 });
 
 export const Compact = story({
   description: "The same sketch at 90 by 30.",
   name: "Compact",
-  render: (renderer) =>
-    renderFrame(renderer, screen(sketch(), <Talk />, compact), {
-      ...compact,
-      padded: false,
-    }),
+  render: (renderer) => {
+    const { content, size } = screen(sketch(), <Talk />, compact);
+    return renderFrame(renderer, content, size);
+  },
 });
