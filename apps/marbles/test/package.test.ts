@@ -170,6 +170,9 @@ test("the tarball installs and shares the library registry with the CLI", async 
       manifest.version
     );
     expect(readFileSync(join(installed, "LICENSE"), "utf8")).toContain("MIT");
+    expect(readFileSync(join(installed, "LICENSE.vendors"), "utf8")).toContain(
+      "Copyright (c) 2026 Aniket Pawar"
+    );
     expect(readdirSync(installed)).not.toContain("src");
     expect(
       readdirSync(join(installed, "dist", "migrations", "meta"))
