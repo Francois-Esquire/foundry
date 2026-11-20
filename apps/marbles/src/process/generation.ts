@@ -370,23 +370,27 @@ async function main(): Promise<void> {
       const loop = ticking.get(each.id);
       loop?.stop.abort();
     }
-    const retired = await Promise.all(
-      hosts.map((each) =>
-        each.engine.retire(successor, {
-          onHanded(runId) {
-            notify(GENERATION_NOTIFICATIONS.handed, { id: each.id, runId });
-          },
-          onLetGo(runId) {
-            notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
-          },
-        })
-      )
+    const handing = hosts.map((each) =>
+      each.engine.retire(successor, {
+        onHanded(runId) {
+          notify(GENERATION_NOTIFICATIONS.handed, { id: each.id, runId });
+        },
+        onLetGo(runId) {
+          notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
+        },
+      })
     );
     retiring = (async () => {
-      await Promise.all(retired.map(({ ended }) => ended));
+      const retired = await Promise.allSettled(handing);
+      await Promise.all(
+        retired.map((each) =>
+          each.status === "fulfilled" ? each.value.ended : undefined
+        )
+      );
       await leave(false);
     })();
     retiring.then(finished.resolve, finished.reject);
+    await Promise.all(handing);
   };
 
   const adopt = async (raw: unknown): Promise<boolean> => {
@@ -405,8 +409,8 @@ async function main(): Promise<void> {
     return await workspaces().get(id).engine.takeQueued(runId, owner);
   };
 
-  const stop = (): Promise<void> => {
-    stopping ??= retiring ?? leave(true);
+  const stop = (cancel: boolean): Promise<void> => {
+    stopping ??= retiring ?? leave(cancel);
     stopping.then(finished.resolve, finished.reject);
     return stopping;
   };
@@ -416,7 +420,7 @@ async function main(): Promise<void> {
     request(method, raw) {
       switch (method) {
         case GENERATION_METHODS.stop:
-          return stop();
+          return stop(true);
         case GENERATION_METHODS.load:
           return load();
         case GENERATION_METHODS.start:
@@ -452,12 +456,12 @@ async function main(): Promise<void> {
     },
   });
   await channel.request(DAEMON_METHODS.register, { token: args.token });
-  channel.closed.then(() => stop()).catch(() => undefined);
+  channel.closed.then(() => stop(false)).catch(() => undefined);
   process.once("SIGTERM", () => {
-    stop().catch(() => undefined);
+    stop(true).catch(() => undefined);
   });
   process.once("SIGINT", () => {
-    stop().catch(() => undefined);
+    stop(true).catch(() => undefined);
   });
   try {
     await finished.promise;

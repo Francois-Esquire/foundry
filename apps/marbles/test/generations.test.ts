@@ -49,7 +49,7 @@ const zodPath = createRequire(import.meta.url).resolve("zod");
 function moduleText(
   fixture: Pick<Fixture, "gates" | "log">,
   revision: number,
-  { broken = false, strict = false, ticking = false } = {}
+  { broken = false, gated = false, strict = false, ticking = false } = {}
 ): string {
   const holds = [1, 2]
     .map(
@@ -84,6 +84,16 @@ function moduleText(
   appendFileSync(${JSON.stringify(fixture.log)}, "tock " + process.pid + " " + Date.now() + "\\n");
 });
 schedule(tick).every("1s");`
+      : "",
+    gated
+      ? `export const gated = step("gated").do(async () => {
+  note("gated");
+  while (!existsSync(${JSON.stringify(join(fixture.gates, "gated"))})) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  note("ungated");
+});
+schedule(gated).every("1s");`
       : "",
     'export const crash = step("crash").do(() => process.exit(1));',
     `export const late = step("late").do(async ({ ask }) => {
@@ -177,10 +187,10 @@ async function stored(
   )?.hosted;
 }
 
-async function crashableDaemon() {
+async function crashableDaemon(options: Parameters<typeof moduleText>[2] = {}) {
   const home = testHome({ providers: false });
   const fixture = generationFiles(home);
-  writeFileSync(fixture.source, moduleText(fixture, 0));
+  writeFileSync(fixture.source, moduleText(fixture, 0, options));
   const lines: string[] = [];
   const child = spawn(
     process.execPath,
@@ -884,6 +894,40 @@ describe("engine generations", () => {
     }
   }, 150_000);
 
+  it("waits for a retire under way when told to stop during it, closing its hosts only after the retire", async () => {
+    const release = join(testHome({ providers: false }).path, "release-retire");
+    process.env.MARBLES_TEST_RELEASE_RETIRE = release;
+    try {
+      const lines: string[] = [];
+      const fixture = await setUp({
+        daemon: {
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-held-retire.ts"
+          ),
+          print: (line) => lines.push(line),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      writeFileSync(fixture.source, moduleText(fixture, 1));
+      await vi.waitFor(
+        () => expect(lines.join("\n")).toContain("retire held"),
+        { interval: 50, timeout: 60_000 }
+      );
+      process.kill(first, "SIGTERM");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      writeFileSync(release, "");
+      await gone(first, 60_000);
+      const said = lines.join("\n");
+      expect(said).toContain("hosts closing with 0 retire(s) under way");
+      expect(said).not.toContain("hosts closing with 1 retire(s) under way");
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_RELEASE_RETIRE;
+    }
+  }, 150_000);
+
   it("leaves a gone process's queued run the current generation cannot run, said once, and offers it only now and then", async () => {
     const lines: string[] = [];
     const fixture = await setUp({
@@ -1474,6 +1518,27 @@ describe("engine generations", () => {
     ).not.toContain(first);
     expect((await next.workspace(summary).roll("where")).value).toBe(second);
     next.close();
+  }, 180_000);
+
+  it("when the daemon crashes, the orphaned generation finishes the scheduled run it has rather than cancel it, then exits", async () => {
+    const { child, fixture } = await crashableDaemon({ gated: true });
+    const client = await connect({ layout: fixture.machine, start: false });
+    const summary = await client.attach(fixture.source);
+    const first = summary.pid ?? 0;
+    await whenLogged(fixture, `gated ${String(first)}`);
+    await crash(child);
+    client.close();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(processAlive(first)).toBe(true);
+
+    open("gated", fixture);
+    await whenLogged(fixture, `ungated ${String(first)}`);
+    await gone(first, 60_000);
+    const statuses = (await executions(fixture, summary.id))
+      .filter((row) => row.name === "gated")
+      .map((row) => row.status);
+    expect(statuses).toContain("complete");
+    expect(statuses).not.toContain("cancelled");
   }, 180_000);
 
   it("when the daemon crashes between a detach's steps, the next leaves the workspace detached and the generation finishing its run", async () => {
