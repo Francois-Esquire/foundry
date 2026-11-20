@@ -1,5 +1,7 @@
 import { SyntaxStyle } from "@opentui/core";
 import { useCallback, useEffect, useMemo } from "react";
+import { feedKey } from "~/cli/state/feed-model";
+import type { AnswerState } from "~/cli/state/use-feed";
 import { FeedMetaLine } from "~/components/blocks/feed-meta";
 import { Action } from "~/components/ui/action";
 import { Panel } from "~/components/ui/panel";
@@ -7,8 +9,6 @@ import { Text } from "~/components/ui/text";
 import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
 import type { FeedEntrySnapshot, FeedMediaSnapshot } from "~/lib/feed/read";
-import { feedKey } from "~/views/feed-model";
-import type { AnswerState } from "~/views/use-feed";
 import { EmptyState } from "./empty-state";
 
 const IMAGE_HEIGHT = 14;

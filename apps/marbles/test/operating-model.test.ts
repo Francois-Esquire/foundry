@@ -5,11 +5,11 @@ import {
   type Dashboard,
   footer,
   type KeyPress,
-} from "~/views/dashboard-commands";
+} from "~/cli/state/dashboard-commands";
 import {
   type DashboardSnapshot,
   resolveSelection,
-} from "~/views/dashboard-model";
+} from "~/cli/state/dashboard-model";
 import {
   type DashboardEvent,
   type DashboardState,
@@ -18,13 +18,13 @@ import {
   reduce,
   selectedLog,
   visibleLogs,
-} from "~/views/dashboard-state";
+} from "~/cli/state/dashboard-state";
 import {
   duration,
   latestActivity,
   operatingLogs,
   operatingStats,
-} from "~/views/operating-model";
+} from "~/cli/state/operating-model";
 import { Diagnostics, lineLevel } from "~/workspace/diagnostics";
 import { dashboardSnapshot } from "../preview/snapshot";
 

@@ -22,14 +22,14 @@ import { PanelShortcuts } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
 import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
-import type { DashboardSnapshot } from "./dashboard-model";
-import { isSelected, triggerSelection } from "./dashboard-model";
-import type { CatalogSelection } from "./dashboard-tree";
+import type { DashboardSnapshot } from "../state/dashboard-model";
+import { isSelected, triggerSelection } from "../state/dashboard-model";
+import type { CatalogSelection } from "../state/dashboard-tree";
+import { latestActivity, nextSchedule } from "../state/operating-model";
+import type { RunActions, RunPrompt } from "../state/run-actions";
+import { type DashboardOptions, useDashboard } from "../state/use-dashboard";
 import { FeedView } from "./feed";
 import { LaunchView } from "./launch";
-import { latestActivity, nextSchedule } from "./operating-model";
-import type { RunActions, RunPrompt } from "./run-actions";
-import { type DashboardOptions, useDashboard } from "./use-dashboard";
 
 function describeFilter(
   snapshot: DashboardSnapshot,

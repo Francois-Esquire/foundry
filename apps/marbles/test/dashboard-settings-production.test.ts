@@ -9,9 +9,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { parseArgs } from "~/args";
+import { parseArgs } from "~/cli/args";
+import { runInteractive } from "~/cli/interactive";
 import { applyTheme, theme } from "~/components/ui/theme";
-import { runInteractive } from "~/dashboard/command";
 import type {
   RollResult,
   WorkspaceConnection,
@@ -34,7 +34,7 @@ interface Captured {
 
 const captured = vi.hoisted((): Captured => ({ updates: [] }));
 
-vi.mock("~/dashboard/terminal", () => ({
+vi.mock("~/cli/app", () => ({
   openDashboard: (_name: string, controller: AbortController) => {
     captured.controller = controller;
     return Promise.resolve({

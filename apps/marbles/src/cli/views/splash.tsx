@@ -1,11 +1,11 @@
 import type { BoxRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useState } from "react";
+import { useQuitGuard } from "~/cli/hooks/use-quit-guard";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { SplashCard } from "~/components/blocks/splash-card";
 import { SparkleField } from "~/components/ui/sparkle-field";
 import { theme } from "~/components/ui/theme";
-import { useQuitGuard } from "~/hooks/use-quit-guard";
 import type { SplashState } from "~/model/splash";
 
 export function SplashView({

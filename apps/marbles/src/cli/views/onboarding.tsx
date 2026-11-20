@@ -1,6 +1,8 @@
 import { dirname } from "node:path";
 import { useKeyboard } from "@opentui/react";
 import { useCallback, useState } from "react";
+import { errorMessage, useAsyncAction } from "~/cli/hooks/use-async-action";
+import { useQuitGuard } from "~/cli/hooks/use-quit-guard";
 import { ArgumentForm } from "~/components/blocks/argument-form";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { Action } from "~/components/ui/action";
@@ -8,8 +10,6 @@ import { Select } from "~/components/ui/select";
 import { SetupFlow } from "~/components/ui/setup-flow";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import { errorMessage, useAsyncAction } from "~/hooks/use-async-action";
-import { useQuitGuard } from "~/hooks/use-quit-guard";
 import type { InputField, InputValues } from "~/lib/inputs";
 import {
   DEFAULT_DRAFT,

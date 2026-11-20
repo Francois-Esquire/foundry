@@ -7,7 +7,7 @@ import {
   TextRenderable,
 } from "@opentui/core";
 import { theme } from "~/components/ui/theme";
-import type { StatusReport } from "./model";
+import type { StatusReport } from "../../status/model";
 import { workspaceLines } from "./text";
 
 export interface StatusProps {

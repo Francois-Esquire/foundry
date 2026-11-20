@@ -1,4 +1,4 @@
-import type { StatusReport, WorkspaceStatus } from "./model";
+import type { StatusReport, WorkspaceStatus } from "../../status/model";
 
 export function workspaceLines(workspace: WorkspaceStatus): string[] {
   return [

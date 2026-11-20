@@ -1,9 +1,9 @@
-import { Log } from "~/components/ui/log";
 import {
   flattenSteps,
   type RunSnapshot,
   type StepSnapshot,
-} from "~/views/dashboard-model";
+} from "~/cli/state/dashboard-model";
+import { Log } from "~/components/ui/log";
 
 export function RunLogs({
   run,

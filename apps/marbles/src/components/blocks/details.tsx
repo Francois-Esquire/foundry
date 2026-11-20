@@ -1,11 +1,3 @@
-import { StatusLabel } from "~/components/blocks/status-label";
-import { Action } from "~/components/ui/action";
-import { KeyValue } from "~/components/ui/key-value";
-import { Panel } from "~/components/ui/panel";
-import { SelectableRow } from "~/components/ui/selectable-row";
-import { Tabs } from "~/components/ui/tabs";
-import { Text } from "~/components/ui/text";
-import { canRunSchedule } from "~/model/dashboard";
 import type {
   DashboardSelection,
   DashboardSnapshot,
@@ -14,16 +6,24 @@ import type {
   RunSnapshot,
   StepSnapshot,
   TriggerSnapshot,
-} from "~/views/dashboard-model";
+} from "~/cli/state/dashboard-model";
 import {
   runSelection,
   selectionKey,
   triggerSelection,
-} from "~/views/dashboard-model";
-import type { InspectorTab } from "~/views/dashboard-state";
-import { type CatalogSelection, scopedRuns } from "~/views/dashboard-tree";
-import type { RunActions } from "~/views/run-actions";
-import { costLabel, tokensLabel } from "~/views/usage-format";
+} from "~/cli/state/dashboard-model";
+import type { InspectorTab } from "~/cli/state/dashboard-state";
+import { type CatalogSelection, scopedRuns } from "~/cli/state/dashboard-tree";
+import type { RunActions } from "~/cli/state/run-actions";
+import { costLabel, tokensLabel } from "~/cli/state/usage-format";
+import { StatusLabel } from "~/components/blocks/status-label";
+import { Action } from "~/components/ui/action";
+import { KeyValue } from "~/components/ui/key-value";
+import { Panel } from "~/components/ui/panel";
+import { SelectableRow } from "~/components/ui/selectable-row";
+import { Tabs } from "~/components/ui/tabs";
+import { Text } from "~/components/ui/text";
+import { canRunSchedule } from "~/model/dashboard";
 import { ActivityDetails } from "./activity-details";
 import { RunLogs } from "./run-logs";
 import { RunOverview, StepOverview } from "./run-overview";

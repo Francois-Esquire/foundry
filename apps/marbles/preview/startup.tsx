@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { ConfigErrorView } from "../src/views/config-error";
-import { OnboardingView } from "../src/views/onboarding";
-import { SplashView } from "../src/views/splash";
-import { summarizeConfig } from "../src/views/splash-model";
+import { summarizeConfig } from "../src/cli/state/splash-model";
+import { ConfigErrorView } from "../src/cli/views/config-error";
+import { OnboardingView } from "../src/cli/views/onboarding";
+import { SplashView } from "../src/cli/views/splash";
 import { PreviewApp } from "./app";
 import { dashboardSnapshot } from "./snapshot";
 

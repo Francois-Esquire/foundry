@@ -3,7 +3,7 @@ import { act } from "react";
 import { afterEach, expect, test } from "vitest";
 import { PreviewApp } from "../preview/app";
 import { previewScenarios } from "../preview/scenarios";
-import { DashboardView } from "../src/views/dashboard";
+import { DashboardView } from "../src/cli/views/dashboard";
 import { flush, mount, press, unmount } from "./helpers/render";
 
 function close() {

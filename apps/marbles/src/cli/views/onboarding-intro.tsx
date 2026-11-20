@@ -6,13 +6,13 @@ import {
   useEffectEvent,
   useLayoutEffect,
 } from "react";
+import { useAsyncAction } from "~/cli/hooks/use-async-action";
+import { useQuitGuard } from "~/cli/hooks/use-quit-guard";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { Action } from "~/components/ui/action";
 import { SetupFlow } from "~/components/ui/setup-flow";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import { useAsyncAction } from "~/hooks/use-async-action";
-import { useQuitGuard } from "~/hooks/use-quit-guard";
 import type { discoverProviderSetup } from "~/workspace/provider-setup";
 
 type ProviderReview = Pick<

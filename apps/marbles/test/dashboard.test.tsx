@@ -3,10 +3,10 @@ import { act, useEffect, useState } from "react";
 import { afterEach, expect, test } from "vitest";
 import { previewScenarios } from "../preview/scenarios";
 import { dashboardSnapshot } from "../preview/snapshot";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { selectionKey } from "../src/cli/state/dashboard-model";
+import { DashboardView } from "../src/cli/views/dashboard";
 import { theme } from "../src/components/ui/theme";
-import { DashboardView } from "../src/views/dashboard";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
-import { selectionKey } from "../src/views/dashboard-model";
 import {
   click,
   flush,

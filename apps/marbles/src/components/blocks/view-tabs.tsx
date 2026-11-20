@@ -1,6 +1,6 @@
 import { useCallback } from "react";
+import type { DashboardViewKey } from "~/cli/state/dashboard-state";
 import { theme } from "~/components/ui/theme";
-import type { DashboardViewKey } from "~/views/dashboard-state";
 
 function ViewTab({
   view,

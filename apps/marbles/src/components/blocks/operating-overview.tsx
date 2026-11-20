@@ -1,13 +1,13 @@
 import type { ReactNode } from "react";
+import type { DashboardSelection } from "~/cli/state/dashboard-model";
+import { runSelection } from "~/cli/state/dashboard-model";
+import type { LatestItem } from "~/cli/state/operating-model";
+import { costLabel, tokensLabel } from "~/cli/state/usage-format";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import type { UsageGroup, WorkspaceUsage } from "~/model/usage";
-import type { DashboardSelection } from "~/views/dashboard-model";
-import { runSelection } from "~/views/dashboard-model";
-import type { LatestItem } from "~/views/operating-model";
-import { costLabel, tokensLabel } from "~/views/usage-format";
 
 export function LatestBlock({
   items,

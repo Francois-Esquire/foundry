@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { DashboardSnapshot } from "~/views/dashboard-model";
-import { selectionKey } from "~/views/dashboard-model";
+import type { DashboardSnapshot } from "~/cli/state/dashboard-model";
+import { selectionKey } from "~/cli/state/dashboard-model";
 import {
   type DashboardEvent,
   type DashboardState,
@@ -9,7 +9,7 @@ import {
   paneOf,
   reduce,
   visibleLists,
-} from "~/views/dashboard-state";
+} from "~/cli/state/dashboard-state";
 import { dashboardSnapshot } from "../preview/snapshot";
 
 const empty: DashboardSnapshot = {

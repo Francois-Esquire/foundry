@@ -2,11 +2,11 @@ import { RGBA } from "@opentui/core";
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
 import { dashboardSnapshot } from "../preview/snapshot";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { selectionKey } from "../src/cli/state/dashboard-model";
+import type { RunActions } from "../src/cli/state/run-actions";
+import { DashboardView } from "../src/cli/views/dashboard";
 import { theme } from "../src/components/ui/theme";
-import { DashboardView } from "../src/views/dashboard";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
-import { selectionKey } from "../src/views/dashboard-model";
-import type { RunActions } from "../src/views/run-actions";
 import { click, flush, mount, press, unmount } from "./helpers/render";
 
 const SELECTED_FAILURE = /› ▸ check-api +failed\b/;

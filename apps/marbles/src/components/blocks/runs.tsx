@@ -1,11 +1,14 @@
+import {
+  type DashboardSelection,
+  selectionKey,
+} from "~/cli/state/dashboard-model";
+import type { RunRow } from "~/cli/state/dashboard-tree";
 import { KindBadge } from "~/components/blocks/kind-badge";
 import { StatusLabel } from "~/components/blocks/status-label";
 import { Action } from "~/components/ui/action";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
-import { type DashboardSelection, selectionKey } from "~/views/dashboard-model";
-import type { RunRow } from "~/views/dashboard-tree";
 import { CostTag } from "./cost-tag";
 import { EmptyState } from "./empty-state";
 

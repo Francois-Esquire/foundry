@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { defineStories, story } from "textbook-sh";
+import { SplashView } from "~/cli/views/splash";
 import type { SplashState } from "~/model/splash";
-import { SplashView } from "~/views/splash";
 import { renderReactStory } from "./render-react-story";
 
 const ready: SplashState = {

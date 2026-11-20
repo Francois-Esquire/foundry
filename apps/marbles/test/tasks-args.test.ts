@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { parseArgs, UsageError } from "~/args";
+import { parseArgs, UsageError } from "~/cli/args";
 
 function task(argv: readonly string[]) {
   const args = parseArgs(["tasks", ...argv]);

@@ -1,6 +1,6 @@
+import type { ItemKind } from "~/cli/state/dashboard-model";
 import { Tag } from "~/components/ui/tag";
 import { theme } from "~/components/ui/theme";
-import type { ItemKind } from "~/views/dashboard-model";
 
 export function KindBadge({ kind }: { readonly kind: ItemKind }) {
   const colors: Readonly<Record<ItemKind, string>> = {

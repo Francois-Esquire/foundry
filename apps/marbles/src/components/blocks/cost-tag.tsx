@@ -1,6 +1,6 @@
+import { UNPRICED_COST_CELL } from "~/cli/state/usage-format";
 import { Tag } from "~/components/ui/tag";
 import { theme } from "~/components/ui/theme";
-import { UNPRICED_COST_CELL } from "~/views/usage-format";
 
 export function CostTag({ value }: { readonly value: string }) {
   if (value !== UNPRICED_COST_CELL) {

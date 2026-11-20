@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { useAsyncAction } from "~/hooks/use-async-action";
+import { useAsyncAction } from "~/cli/hooks/use-async-action";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { ALL_WORKSPACES, feedKey, feedScopes, scopedFeed } from "./feed-model";

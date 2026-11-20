@@ -11,9 +11,13 @@ import {
   RecordsHeldError,
   withTasks,
 } from "~/access/workspace";
-import type { Args, ArgsOf, Command, Flags } from "~/args";
-import { parseArgs, UsageError } from "~/args";
 import { dispose as disposeDefaultRuntime } from "~/authoring/runtime";
+import type { Args, ArgsOf, Command, Flags } from "~/cli/args";
+import { parseArgs, UsageError } from "~/cli/args";
+import { loadSettings, saveSettings, settingsPath } from "~/cli/settings";
+import { statusText } from "~/cli/status/text";
+import { taskCommandText } from "~/cli/tasks/text";
+import { watchRun } from "~/cli/watch";
 import type { Triggers } from "~/create";
 import { DatabaseBusyError } from "~/database/client";
 import { LinksPlacementError } from "~/database/links";
@@ -45,11 +49,7 @@ import { ProcessHeldError } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
 import type { ResourceCommandContext } from "~/resources/commands";
 import { changeAssociation, listResources, relink } from "~/resources/commands";
-import { loadSettings, saveSettings, settingsPath } from "~/settings";
 import { readStatus } from "~/status/model";
-import { statusText } from "~/status/text";
-import { taskCommandText } from "~/tasks/text";
-import { watchRun } from "~/watch";
 import { createStarter } from "~/workspace/create";
 import { EnvironmentError } from "~/workspace/env";
 import { LaunchInputError } from "~/workspace/host";
@@ -174,7 +174,7 @@ async function showStatus(
 ): Promise<void> {
   const report = await readStatus(resolve(args.state));
   if (process.stdout.isTTY && process.stdin.isTTY) {
-    const { showStatus: renderStatus } = await import("~/status/view");
+    const { showStatus: renderStatus } = await import("~/cli/status/view");
     await renderStatus({ here: workspace.id, report });
     return;
   }
@@ -673,7 +673,7 @@ export async function main(entry: string): Promise<void> {
       });
     }
     if (interactive && args.command === "run") {
-      const { runInteractive } = await import("~/dashboard/command");
+      const { runInteractive } = await import("~/cli/interactive");
       await runInteractive(args);
       return;
     }

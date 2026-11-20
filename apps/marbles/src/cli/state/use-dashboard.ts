@@ -1,8 +1,8 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useMemo, useState } from "react";
-import { useAsyncAction } from "~/hooks/use-async-action";
-import { useQuitGuard } from "~/hooks/use-quit-guard";
+import { useAsyncAction } from "~/cli/hooks/use-async-action";
+import { useQuitGuard } from "~/cli/hooks/use-quit-guard";
 import type { WorkspaceState, WorkspaceSummary } from "~/model/connection";
 import type { SettingsChange, ThemeName } from "~/model/settings";
 import {

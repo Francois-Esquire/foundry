@@ -1,10 +1,10 @@
+import { feedKey } from "~/cli/state/feed-model";
 import { FeedMetaLine, isPending } from "~/components/blocks/feed-meta";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { feedKey } from "~/views/feed-model";
 import { EmptyState } from "./empty-state";
 
 function FeedRow({

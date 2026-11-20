@@ -1,12 +1,12 @@
-import { KeyValue } from "~/components/ui/key-value";
-import { Text } from "~/components/ui/text";
-import { statusDisplay } from "~/model/run-status";
 import {
   flattenSteps,
   type RunSnapshot,
   type StepSnapshot,
-} from "~/views/dashboard-model";
-import { costLabel, tokensLabel } from "~/views/usage-format";
+} from "~/cli/state/dashboard-model";
+import { costLabel, tokensLabel } from "~/cli/state/usage-format";
+import { KeyValue } from "~/components/ui/key-value";
+import { Text } from "~/components/ui/text";
+import { statusDisplay } from "~/model/run-status";
 
 function at(ms: number | undefined, missing: string): string {
   return ms === undefined ? missing : new Date(ms).toLocaleString();

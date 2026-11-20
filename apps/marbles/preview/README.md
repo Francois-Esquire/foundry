@@ -105,16 +105,16 @@ Gruvbox Light is the other theme Settings offers.
 
 - `src/components/ui/`: adapted termcn Tabs, Key Value, JSON, Log, Dialog, themed text, and theme, plus panels, selectable rows, actions, and the text input. Nothing in `ui/` imports views or lib.
 - `src/components/blocks/`: kind badges, status labels, catalogs, run tree, inspector, overview, values, logs, help, quit confirmation, workspace header.
-- `src/views/dashboard.tsx`: layout and host toolbar slot.
-- `src/views/splash.tsx`: centered loading/ready screen.
-- `src/views/splash-model.ts`: startup state and snapshot counts.
+- `src/cli/views/dashboard.tsx`: layout and host toolbar slot.
+- `src/cli/views/splash.tsx`: centered loading/ready screen.
+- `src/cli/state/splash-model.ts`: startup state and snapshot counts.
 - `preview/startup.tsx`: simulated loading and explicit entry into the preview.
-- `src/views/dashboard-state.ts`: dashboard state (focus, selection, expansion, queries, run filter, launch form) as a pure reducer.
-- `src/views/dashboard-commands.ts`: the one command table behind key handling, the footer, and keyboard help.
-- `src/views/use-dashboard.ts`: wires the reducer and the command table to the renderer.
+- `src/cli/state/dashboard-state.ts`: dashboard state (focus, selection, expansion, queries, run filter, launch form) as a pure reducer.
+- `src/cli/state/dashboard-commands.ts`: the one command table behind key handling, the footer, and keyboard help.
+- `src/cli/state/use-dashboard.ts`: wires the reducer and the command table to the renderer.
 - `src/model/run-status.ts`: run status labels and tones, and the settled, active, and paused checks.
-- `src/views/dashboard-tree.ts`: run filtering and visible tree rows.
-- `src/views/dashboard-model.ts`: read-only presentation data and selection resolution.
+- `src/cli/state/dashboard-tree.ts`: run filtering and visible tree rows.
+- `src/cli/state/dashboard-model.ts`: read-only presentation data and selection resolution.
 - `src/model/`: plain JSON and log entry types shared by the data layer and `ui/`.
 - `preview/app.tsx`: scenario switching and the playback clock.
 
@@ -126,7 +126,7 @@ Only observed steps belong in the run tree; future dynamic steps are not inferre
 
 Inputs, results, and trigger configuration accept JSON values. Log entries carry
 stable IDs and optional step IDs. Timestamps and elapsed times are display-ready
-strings supplied by the host. The live CLI uses `src/dashboard` to map engine
+strings supplied by the host. The live CLI uses `src/cli` to map engine
 records into the same views. Run `bun run start` or `bun run start -- run` for
 real configuration, triggers, execution history, and shutdown. Preview scenarios
 remain isolated from that runtime.

@@ -1,9 +1,3 @@
-import { KindBadge } from "~/components/blocks/kind-badge";
-import { StatusLabel } from "~/components/blocks/status-label";
-import { Panel } from "~/components/ui/panel";
-import { SelectableRow } from "~/components/ui/selectable-row";
-import { Text } from "~/components/ui/text";
-import { theme } from "~/components/ui/theme";
 import {
   type DashboardSelection,
   type DefinitionSnapshot,
@@ -11,7 +5,13 @@ import {
   selectionKey,
   type TriggerSnapshot,
   triggerSelection,
-} from "~/views/dashboard-model";
+} from "~/cli/state/dashboard-model";
+import { KindBadge } from "~/components/blocks/kind-badge";
+import { StatusLabel } from "~/components/blocks/status-label";
+import { Panel } from "~/components/ui/panel";
+import { SelectableRow } from "~/components/ui/selectable-row";
+import { Text } from "~/components/ui/text";
+import { theme } from "~/components/ui/theme";
 import { EmptyState } from "./empty-state";
 
 interface CatalogProps {

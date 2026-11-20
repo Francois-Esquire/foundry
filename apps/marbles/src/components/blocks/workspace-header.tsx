@@ -1,7 +1,7 @@
+import type { HostedWorkspace } from "~/cli/state/use-dashboard";
 import { Action } from "~/components/ui/action";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import type { HostedWorkspace } from "~/views/use-dashboard";
 
 function hostLabel(preview: boolean, hosted?: HostedWorkspace): string {
   if (preview) {

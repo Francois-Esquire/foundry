@@ -1,19 +1,19 @@
 import type { ReactNode } from "react";
-import { BarChart } from "~/components/ui/bar-chart";
-import { Panel } from "~/components/ui/panel";
-import { Text } from "~/components/ui/text";
-import { theme } from "~/components/ui/theme";
-import type { DashboardSnapshot } from "~/views/dashboard-model";
+import type { DashboardSnapshot } from "~/cli/state/dashboard-model";
 import {
   duration,
   operatingStats,
   workflowRankings,
-} from "~/views/operating-model";
+} from "~/cli/state/operating-model";
 import {
   costCell,
   unattributedTurns,
   unreadableUsageRecords,
-} from "~/views/usage-format";
+} from "~/cli/state/usage-format";
+import { BarChart } from "~/components/ui/bar-chart";
+import { Panel } from "~/components/ui/panel";
+import { Text } from "~/components/ui/text";
+import { theme } from "~/components/ui/theme";
 import { CostTag } from "./cost-tag";
 
 interface MetricValue {

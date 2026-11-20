@@ -1,8 +1,8 @@
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { useEffect, useState } from "react";
+import type { RunActions } from "~/cli/state/run-actions";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import type { RunActions } from "~/views/run-actions";
 
 const TAIL_LINES = 12;
 const MAX_CHARS = 20_000;

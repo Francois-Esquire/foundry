@@ -3,11 +3,11 @@ import { useRenderer } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode, useLayoutEffect } from "react";
 import { afterEach, expect, test } from "vitest";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { DashboardView } from "../src/cli/views/dashboard";
+import { OnboardingView } from "../src/cli/views/onboarding";
+import { WorkspaceWelcome } from "../src/cli/views/onboarding-intro";
 import { ArgumentForm } from "../src/components/blocks/argument-form";
-import { DashboardView } from "../src/views/dashboard";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
-import { OnboardingView } from "../src/views/onboarding";
-import { WorkspaceWelcome } from "../src/views/onboarding-intro";
 import type { SetupDraft } from "../src/workspace/templates";
 
 let ui: Awaited<ReturnType<typeof testRender>>;

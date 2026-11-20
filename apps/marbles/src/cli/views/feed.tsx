@@ -1,7 +1,7 @@
 import { FeedList } from "~/components/blocks/feed-list";
 import { FeedReader } from "~/components/blocks/feed-reader";
-import { ALL_WORKSPACES } from "./feed-model";
-import type { FeedState } from "./use-feed";
+import { ALL_WORKSPACES } from "../state/feed-model";
+import type { FeedState } from "../state/use-feed";
 
 const LIST_SHARE = 0.38;
 const MIN_LIST_WIDTH = 30;

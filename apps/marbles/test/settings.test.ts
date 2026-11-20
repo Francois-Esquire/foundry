@@ -3,15 +3,15 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "bun";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { parseArgs } from "~/args";
-import { applyTheme, theme } from "~/components/ui/theme";
-import { THEME_NAMES } from "~/model/settings";
+import { parseArgs } from "~/cli/args";
 import {
   DEFAULT_SETTINGS,
   loadSettings,
   saveSettings,
   settingsPath,
-} from "~/settings";
+} from "~/cli/settings";
+import { applyTheme, theme } from "~/components/ui/theme";
+import { THEME_NAMES } from "~/model/settings";
 
 let state: string;
 

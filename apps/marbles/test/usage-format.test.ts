@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
+import { costCell, costLabel } from "~/cli/state/usage-format";
 import type { Money, UsageTotal } from "~/model/usage";
-import { costCell, costLabel } from "~/views/usage-format";
 
 function priced(money: Money, basis: "estimated" | "reported"): UsageTotal {
   return {

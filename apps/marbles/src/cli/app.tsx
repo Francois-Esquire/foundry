@@ -6,18 +6,21 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { DashboardSnapshot } from "~/cli/state/dashboard-model";
+import type { Launcher, RunActions } from "~/cli/state/run-actions";
+import { summarizeConfig } from "~/cli/state/splash-model";
+import type { HostedWorkspace } from "~/cli/state/use-dashboard";
+import type { AnswerHandler } from "~/cli/state/use-feed";
+import { ConfigErrorView } from "~/cli/views/config-error";
+import { DashboardView } from "~/cli/views/dashboard";
+import { OnboardingView } from "~/cli/views/onboarding";
+import {
+  ProviderOnboarding,
+  WorkspaceWelcome,
+} from "~/cli/views/onboarding-intro";
+import { SplashView } from "~/cli/views/splash";
 import { theme } from "~/components/ui/theme";
 import type { SettingsChange } from "~/model/settings";
-import { ConfigErrorView } from "~/views/config-error";
-import { DashboardView } from "~/views/dashboard";
-import type { DashboardSnapshot } from "~/views/dashboard-model";
-import { OnboardingView } from "~/views/onboarding";
-import { ProviderOnboarding, WorkspaceWelcome } from "~/views/onboarding-intro";
-import type { Launcher, RunActions } from "~/views/run-actions";
-import { SplashView } from "~/views/splash";
-import { summarizeConfig } from "~/views/splash-model";
-import type { HostedWorkspace } from "~/views/use-dashboard";
-import type { AnswerHandler } from "~/views/use-feed";
 import type { discoverProviderSetup } from "~/workspace/provider-setup";
 import type { SetupDraft } from "~/workspace/templates";
 

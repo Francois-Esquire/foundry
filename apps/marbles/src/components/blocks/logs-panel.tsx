@@ -1,9 +1,9 @@
+import type { LogsState } from "~/cli/state/dashboard-state";
+import type { OperatingLogEntry } from "~/cli/state/operating-model";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import type { LogsState } from "~/views/dashboard-state";
-import type { OperatingLogEntry } from "~/views/operating-model";
 
 function shown(timestamp: string): string {
   const parsed = Date.parse(timestamp);

@@ -1,8 +1,8 @@
+import { helpSections } from "~/cli/state/dashboard-commands";
 import { KeyValue } from "~/components/ui/key-value";
 import { Panel } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import { helpSections } from "~/views/dashboard-commands";
 
 export function KeyboardHelp({ active = true }: { readonly active?: boolean }) {
   return (

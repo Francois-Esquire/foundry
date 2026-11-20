@@ -3,9 +3,9 @@ import { act, useEffect, useState } from "react";
 import { afterEach, expect, test } from "vitest";
 import { dashboardSnapshot } from "../preview/snapshot";
 import { PreviewStartup } from "../preview/startup";
+import { summarizeConfig } from "../src/cli/state/splash-model";
+import { SplashView } from "../src/cli/views/splash";
 import type { SplashState } from "../src/model/splash";
-import { SplashView } from "../src/views/splash";
-import { summarizeConfig } from "../src/views/splash-model";
 import { click, ctrlC, flush, mount, press, unmount } from "./helpers/render";
 
 let closed = false;
