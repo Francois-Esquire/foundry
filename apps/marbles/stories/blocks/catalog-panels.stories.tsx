@@ -62,6 +62,18 @@ export const Short = story({
     }),
 });
 
+export const VeryShort = story({
+  description:
+    "A frame so short the selected trigger sits below the first rows; the triggers panel scrolls it into view.",
+  name: "Very short",
+  render: (renderer) =>
+    renderFrame(renderer, <Panels />, {
+      height: 8,
+      padded: false,
+      width: 90,
+    }),
+});
+
 export const Narrow = story({
   description: "A narrow column, as beside the details panel.",
   name: "Narrow",

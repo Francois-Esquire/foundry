@@ -62,7 +62,7 @@ export const WithoutWorkspaces = story({
 
 export const Narrow = story({
   description:
-    "A narrow terminal moves the shortcuts and Settings onto their own row, cutting off shortcuts that still do not fit.",
+    "A narrow terminal moves the shortcuts and Settings onto their own row and wraps the shortcuts between entries.",
   name: "Narrow",
   render: (renderer) =>
     renderFrame(
@@ -73,7 +73,7 @@ export const Narrow = story({
         onWorkspaces={ignore}
         shortcuts="? Help · / Search · f Filter runs · x Clear · q Quit"
       />,
-      { height: 4, width: 56 }
+      { height: 5, width: 56 }
     ),
 });
 

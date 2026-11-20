@@ -226,3 +226,17 @@ export const FollowAndReset = story({
   name: "Follow and reset",
   render: (renderer) => renderFrame(renderer, <FollowSelection />, size),
 });
+
+export const LongTitle = story({
+  description:
+    "A title longer than the panel is shortened with an ellipsis instead of disappearing.",
+  name: "Long title",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <Panel title="2 Marbles · workflows & steps in foundry">
+        <WorkflowRows />
+      </Panel>,
+      { height: 8, width: 40 }
+    ),
+});

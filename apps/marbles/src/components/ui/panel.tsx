@@ -36,6 +36,16 @@ function fittedShortcuts(
   return title.length <= available && title ? ` ${title} ` : undefined;
 }
 
+const TITLE_CHROME = 4;
+
+function fittedTitle(title: string, width: number): string {
+  const available = width - TITLE_CHROME;
+  if (width === 0 || title.length <= available) {
+    return title;
+  }
+  return available > 1 ? `${title.slice(0, available - 1).trimEnd()}…` : "";
+}
+
 export function Panel({
   title,
   id,
@@ -59,15 +69,17 @@ export function Panel({
 }) {
   const shortcuts = useContext(PanelShortcuts);
   const [width, setWidth] = useState(0);
+  const [height, setHeight] = useState(0);
   const measure = useCallback(function measureFrame(this: BoxRenderable) {
     setWidth(this.width);
+    setHeight(this.height);
   }, []);
   const scroll = useRef<ScrollBoxRenderable>(null);
   useEffect(() => {
-    if (selectedId && width > 0) {
+    if (selectedId && width > 0 && height > 0) {
       scroll.current?.scrollChildIntoView(selectedId);
     }
-  }, [selectedId, width]);
+  }, [selectedId, width, height]);
   useEffect(() => {
     if (resetKey) {
       scroll.current?.scrollTo(0);
@@ -90,7 +102,7 @@ export function Panel({
       minHeight={3}
       minWidth={0}
       onSizeChange={measure}
-      title={title}
+      title={fittedTitle(title, width)}
     >
       {header && (
         <box flexDirection="column" flexShrink={0} paddingX={1}>

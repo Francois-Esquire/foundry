@@ -112,3 +112,18 @@ export const Narrow = story({
       width: 48,
     }),
 });
+
+export const Short = story({
+  description:
+    "In a short terminal the dialog keeps its title, buttons, and hint inside the frame, and the notice scrolls.",
+  name: "Short",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <>
+        <Backdrop />
+        <QuitDialog onCancel={ignore} onConfirm={ignore} />
+      </>,
+      { height: 12, padded: false, width: 64 }
+    ),
+});

@@ -39,6 +39,20 @@ const wide: RunStreamView = {
   received: true,
 };
 
+const carriageReturns: RunStreamView = {
+  lines: streamTail(
+    [
+      "Running the docs build on Windows\r",
+      "Building 42 pages\r",
+      "\r",
+      "Done in 3.1s\r",
+      "",
+    ].join("\n")
+  ),
+  live: false,
+  received: true,
+};
+
 function LiveTranscript() {
   const [count, setCount] = useState(0);
   useEffect(() => {
@@ -119,5 +133,17 @@ export const LongLines = story({
       renderer,
       <RunStream stream={wide} tail={STREAM_TAIL_LINES} />,
       { height: 8, width: 50 }
+    ),
+});
+
+export const CarriageReturns = story({
+  description:
+    "Output with Windows line endings and a trailing newline: every line, blank or not, takes exactly one row.",
+  name: "Carriage returns",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <RunStream stream={carriageReturns} tail={STREAM_TAIL_LINES} />,
+      { height: 10, width: 50 }
     ),
 });

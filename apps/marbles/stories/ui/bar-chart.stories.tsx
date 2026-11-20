@@ -65,6 +65,24 @@ export const Bars = story({
     ),
 });
 
+export const Tight = story({
+  description:
+    "Short of room for full labels and full bars: the bars shorten first, then long labels truncate.",
+  name: "Tight",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <box flexDirection="column">
+        <BarChart
+          availableWidth={32}
+          color={theme.colors.accent}
+          data={chartRows([...longNames, ...workflows.slice(0, 2)])}
+        />
+      </box>,
+      { height: 6, width: 34 }
+    ),
+});
+
 export const Narrow = story({
   description:
     "Too narrow for bars: only labels and values, long labels truncated.",

@@ -154,7 +154,7 @@ export const Wide = story({
 
 export const Medium = story({
   description:
-    "Under 106 columns and 30 rows: card details shorten, and each ranking shows its top two.",
+    "Under 106 columns and 30 rows: card details shorten, each ranking shows its top two, and a ranking short of room draws a shorter bar.",
   name: "Medium",
   render: (renderer) =>
     renderFrame(
@@ -166,7 +166,7 @@ export const Medium = story({
 
 export const Stacked = story({
   description:
-    "Under 68 columns and at least 22 rows: the cards stack two by two and rankings are hidden.",
+    "Under 68 columns and at least 22 rows the cards stack two by two; under 64 columns the rankings are hidden too.",
   name: "Stacked",
   render: (renderer) =>
     renderFrame(

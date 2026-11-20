@@ -101,6 +101,40 @@ function BreakdownRows({
   );
 }
 
+function usageWarnings(usage: UsageBreakdownView): readonly string[] {
+  const { recovered, unattributed, unreadable, unsaved } = usage;
+  const warnings: string[] = [];
+  if (unreadable > 0) {
+    warnings.push(
+      unreadable === 1
+        ? "1 usage record could not be read; every total is partial."
+        : `${String(unreadable)} usage records could not be read; every total is partial.`
+    );
+  }
+  if (recovered > 0) {
+    warnings.push(
+      recovered === 1
+        ? "1 turn had no saved usage; its tokens come from the session transcripts, and its cost is unknown."
+        : `${String(recovered)} turns had no saved usage; their tokens come from the session transcripts, and their cost is unknown.`
+    );
+  }
+  if (unattributed > 0) {
+    warnings.push(
+      unattributed === 1
+        ? "1 of those turns is in a session no record ties to a run or to work outside runs; every total it may belong to says so."
+        : `${String(unattributed)} of those turns are in sessions no record ties to a run or to work outside runs; every total they may belong to says so.`
+    );
+  }
+  if (unsaved > 0) {
+    warnings.push(
+      unsaved === 1
+        ? "1 turn's usage could not be saved and no transcript accounts for it yet; it is counted until Marbles stops."
+        : `${String(unsaved)} turns' usage could not be saved and no transcript accounts for them yet; they are counted until Marbles stops.`
+    );
+  }
+  return warnings;
+}
+
 export function UsageBreakdown({
   active,
   usage,
@@ -126,32 +160,11 @@ export function UsageBreakdown({
             {usage.outsideRuns !== undefined && (
               <Text>Outside runs: {usage.outsideRuns}</Text>
             )}
-            {usage.unreadable > 0 && (
-              <text fg={theme.colors.warning}>
-                {usage.unreadable} usage records could not be read; every total
-                is partial.
+            {usageWarnings(usage).map((warning) => (
+              <text fg={theme.colors.warning} key={warning}>
+                {warning}
               </text>
-            )}
-            {usage.recovered > 0 && (
-              <text fg={theme.colors.warning}>
-                {usage.recovered} turns had no saved usage; their tokens come
-                from the session transcripts, and their cost is unknown.
-              </text>
-            )}
-            {usage.unattributed > 0 && (
-              <text fg={theme.colors.warning}>
-                {usage.unattributed} of those turns are in sessions no record
-                ties to a run or to work outside runs; every total they may
-                belong to says so.
-              </text>
-            )}
-            {usage.unsaved > 0 && (
-              <text fg={theme.colors.warning}>
-                {usage.unsaved} turns' usage could not be saved and no
-                transcript accounts for them yet; they are counted until Marbles
-                stops.
-              </text>
-            )}
+            ))}
           </box>
           <BreakdownRows groups={usage.byWorkflow} title="By workflow" />
           <BreakdownRows groups={usage.byAgent} title="By agent" />

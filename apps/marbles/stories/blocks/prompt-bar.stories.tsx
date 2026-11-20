@@ -138,3 +138,22 @@ export const Narrow = story({
       { height: 5, width: 60 }
     ),
 });
+
+export const VeryNarrow = story({
+  description:
+    "Narrower still: the hint goes first, then the optional note, and the step ID is shortened last.",
+  name: "Very narrow",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <PromptBar
+        draft="Skip the changelog"
+        focused
+        kind="resume"
+        onInput={ignore}
+        onSubmit={ignore}
+        stepId="update.write-changes"
+      />,
+      { height: 5, width: 40 }
+    ),
+});

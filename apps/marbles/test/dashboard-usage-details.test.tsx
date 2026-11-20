@@ -131,7 +131,7 @@ test("run, step and workflow details at 80 columns say a total may be incomplete
   await press(ui, "ESCAPE");
   await press(ui, "3");
   await press(ui, "u");
-  expect(ui.captureCharFrame()).toContain("1 usage records could not be read");
+  expect(ui.captureCharFrame()).toContain("1 usage record could not be read");
 });
 
 test("a workflow with no valid facts shows unowned unreadable usage in its Catalog details instead of 'no usage recorded'", async () => {

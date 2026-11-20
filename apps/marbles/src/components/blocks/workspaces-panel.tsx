@@ -55,18 +55,15 @@ export function WorkspacesPanel({
           value={workspace.id}
         >
           <box
+            columnGap={1}
             flexDirection={compact && workspace.qualified ? "column" : "row"}
+            flexWrap={compact ? "wrap" : "no-wrap"}
             minWidth={0}
           >
             <Text minWidth={0} truncate wrapMode="none">
               {workspace.label}
             </Text>
-            <box
-              flexDirection="row"
-              flexShrink={0}
-              gap={1}
-              paddingLeft={compact && workspace.qualified ? 0 : 1}
-            >
+            <box flexDirection="row" flexShrink={0} gap={1}>
               {workspace.id === current && <Text wrapMode="none">current</Text>}
               <text
                 fg={

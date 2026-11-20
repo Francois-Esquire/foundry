@@ -184,7 +184,7 @@ function AnswerControl({ answer }: { readonly answer: OpenAnswer }) {
 function AnswerSection({ answer }: { readonly answer: AnswerView }) {
   if (answer.kind === "answered") {
     return (
-      <text fg={theme.colors.success} flexShrink={0} paddingTop={1}>
+      <text fg={theme.colors.success} flexShrink={0} marginTop={1}>
         ✓ Answered: <strong>{answer.answer}</strong>
         {answer.note ? ` — ${answer.note}` : ""}
       </text>
@@ -192,7 +192,7 @@ function AnswerSection({ answer }: { readonly answer: AnswerView }) {
   }
   if (answer.kind === "cancelled") {
     return (
-      <text fg={theme.colors.mutedForeground} flexShrink={0} paddingTop={1}>
+      <text fg={theme.colors.mutedForeground} flexShrink={0} marginTop={1}>
         No longer waiting: the run stopped before an answer.
       </text>
     );

@@ -64,14 +64,12 @@ export function SettingsBlock({
     <box flexDirection="column" gap={1} paddingBottom={1}>
       {settings ? (
         <>
-          <box flexDirection="row" gap={1}>
-            <Text>
-              Theme: <strong>{settings.label}</strong>
-            </Text>
+          <Text>
+            Theme: <strong>{settings.label}</strong>
             {!onTheme && (
-              <text fg={theme.colors.mutedForeground}>read-only here</text>
+              <span fg={theme.colors.mutedForeground}> read-only here</span>
             )}
-          </box>
+          </Text>
           {settings.problem && (
             <box flexDirection="column">
               <text fg={theme.colors.warning} wrapMode="word">
@@ -83,11 +81,10 @@ export function SettingsBlock({
             </box>
           )}
           <Text>Applies to all workspaces</Text>
-          <box flexDirection="row" gap={1}>
-            <Text>Preview</Text>
-            <text fg={theme.colors.primary}>dreaming</text>
-            <text fg={theme.colors.success}>complete</text>
-          </box>
+          <Text>
+            Preview <span fg={theme.colors.primary}>dreaming</span>{" "}
+            <span fg={theme.colors.success}>complete</span>
+          </Text>
         </>
       ) : (
         <Text>This host has no settings to change.</Text>
@@ -95,7 +92,7 @@ export function SettingsBlock({
       {onRail && (
         <box flexDirection="column">
           <Text>Workspace navigation · this terminal</Text>
-          <box flexDirection="row" gap={2}>
+          <box columnGap={2} flexDirection="row" flexWrap="wrap">
             <Action
               active={!rail}
               label="Picker"

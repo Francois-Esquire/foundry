@@ -8,7 +8,7 @@ import { ignore, renderFrame } from "../frame";
 import { workspaceSummaries } from "./fixtures-b";
 
 const drawer = { height: 18, width: 46 };
-const rail = { height: 18, padded: false, width: 27 };
+const rail = { height: 18, padded: false, width: 26 };
 
 const rows = workspaceRows(workspaceSummaries);
 
@@ -74,7 +74,8 @@ export const Drawer = story({
 });
 
 export const Rail = story({
-  description: "The compact rail: no details, and an unfocused border.",
+  description:
+    "The compact rail: no details, an unfocused border, and a state that moves below a name it does not fit beside.",
   name: "Rail",
   render: (renderer) => renderFrame(renderer, <Pick compact />, rail),
 });

@@ -98,7 +98,8 @@ export const Stopped = story({
 });
 
 export const Narrow = story({
-  description: "A long workspace name in a narrow terminal.",
+  description:
+    "A long workspace name in a narrow terminal truncates; the state stays whole.",
   name: "Narrow",
   render: (renderer) =>
     renderFrame(

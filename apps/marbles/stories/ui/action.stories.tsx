@@ -62,3 +62,23 @@ export const ClickToChoose = story({
   name: "Click to choose",
   render: (renderer) => renderFrame(renderer, <ActionRow />, size),
 });
+
+export const Truncated = story({
+  description:
+    "With truncate, a long label shrinks into the space its row leaves and truncates.",
+  name: "Truncated",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <box flexDirection="row" gap={1}>
+        <Action
+          label="handbook/internal-tools/documentation ▾"
+          onAction={ignore}
+          truncate
+          value="workspace"
+        />
+        <Text flexShrink={0}>reloading</Text>
+      </box>,
+      { height: 3, width: 30 }
+    ),
+});

@@ -99,3 +99,22 @@ export const LongValue = story({
       { height: 7, width: 34 }
     ),
 });
+
+export const ShortFrame = story({
+  description:
+    "Wrapped values in a frame shorter than the rows keep every line; the next row starts below them instead of over them.",
+  name: "Short frame",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <KeyValue
+        items={[
+          { key: "Run", value: "run-103" },
+          { key: "Cost", value: "no usage recorded" },
+          { key: "Tokens", value: "no usage recorded" },
+          { key: "Current step", value: "None" },
+        ]}
+      />,
+      { height: 6, width: 32 }
+    ),
+});

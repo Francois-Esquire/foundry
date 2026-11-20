@@ -111,6 +111,23 @@ export const TriggersCompact = story({
     ),
 });
 
+export const TriggersNarrow = story({
+  description:
+    "A narrow panel keeps each trigger's name and status whole and truncates its detail.",
+  name: "Triggers narrow",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <TriggersBlock
+        active
+        items={triggerItems}
+        onSelect={ignore}
+        selectedId={selectedId(triggerItems)}
+      />,
+      { ...size, width: 48 }
+    ),
+});
+
 export const TriggersInactive = story({
   description: "Triggers while another panel has focus.",
   name: "Triggers inactive",

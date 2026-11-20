@@ -1,3 +1,5 @@
+import type { BoxRenderable } from "@opentui/core";
+import { useCallback, useState } from "react";
 import { KindBadge } from "~/components/blocks/kind-badge";
 import { StatusLabel, type StatusView } from "~/components/blocks/status-label";
 import { Action } from "~/components/ui/action";
@@ -22,6 +24,116 @@ export interface RunListRow<S> {
   readonly step: boolean;
 }
 
+const STEP_BADGE = "[step]".length + 1;
+
+function statusWidth({ label, tone }: StatusView): number {
+  return tone === "error" || tone === "warning"
+    ? label.length + 2
+    : label.length;
+}
+
+function costWidth(cost: CostView): number {
+  return cost.priced ? cost.value.length + 2 : cost.value.length;
+}
+
+type Detail = "cost" | "elapsed" | "runId";
+
+interface RowFit {
+  readonly name?: number;
+  readonly shown: ReadonlySet<Detail>;
+}
+
+function rowFit<S>(row: RunListRow<S>, width: number): RowFit {
+  const pieces: [Detail, number][] = [["elapsed", row.elapsed.length + 1]];
+  if (row.cost) {
+    pieces.push(["cost", costWidth(row.cost) + 1]);
+  }
+  if (row.runId !== undefined) {
+    pieces.push(["runId", row.runId.length + 3]);
+  }
+  if (width <= 0) {
+    return { shown: new Set(pieces.map(([piece]) => piece)) };
+  }
+  const room =
+    width -
+    row.depth * 2 -
+    4 -
+    (row.step ? STEP_BADGE : 0) -
+    1 -
+    statusWidth(row.status);
+  let used = row.name.length;
+  const shown = new Set<Detail>();
+  for (const [piece, size] of pieces) {
+    used += size;
+    if (used > room) {
+      break;
+    }
+    shown.add(piece);
+  }
+  return {
+    name: row.name.length > room ? Math.max(room, 0) : undefined,
+    shown,
+  };
+}
+
+function RunRow<S>({
+  row,
+  width,
+  onSelect,
+  onToggle,
+}: {
+  readonly row: RunListRow<S>;
+  readonly width: number;
+  readonly onSelect: (selection: S) => void;
+  readonly onToggle: (selection: S) => void;
+}) {
+  const { name, shown } = rowFit(row, width);
+  return (
+    <SelectableRow
+      depth={row.depth}
+      id={row.key}
+      onSelect={onSelect}
+      selected={row.selected}
+      value={row.selection}
+    >
+      {row.branch ? (
+        <Action
+          id={`expand:${row.key}`}
+          label={row.expanded ? "▾" : "▸"}
+          onAction={onToggle}
+          value={row.selection}
+        />
+      ) : (
+        <Text flexShrink={0}>·</Text>
+      )}
+      {row.step && <KindBadge kind="step" />}
+      <Text
+        flexShrink={name === undefined ? 1 : 0}
+        minWidth={0}
+        truncate
+        width={name ?? "auto"}
+        wrapMode="none"
+      >
+        {row.name}
+      </Text>
+      <box flexShrink={0}>
+        <StatusLabel status={row.status} />
+      </box>
+      {shown.has("elapsed") && (
+        <Text flexShrink={0} wrapMode="none">
+          {row.elapsed}
+        </Text>
+      )}
+      {shown.has("cost") && row.cost && <CostTag cost={row.cost} />}
+      {shown.has("runId") && (
+        <Text flexShrink={0} wrapMode="none">
+          · {row.runId}
+        </Text>
+      )}
+    </SelectableRow>
+  );
+}
+
 export function RunsBlock<S>({
   rows,
   selectedId,
@@ -43,6 +155,10 @@ export function RunsBlock<S>({
   readonly triggerCount?: number;
   readonly onReset?: () => void;
 }) {
+  const [width, setWidth] = useState(0);
+  const measure = useCallback(function measureRows(this: BoxRenderable) {
+    setWidth(this.width);
+  }, []);
   const idleDescription = triggerCount
     ? "Waiting for a configured trigger, or launch a catalog item now."
     : "Launch a step or workflow from Marbles. Add triggers for automatic runs.";
@@ -66,33 +182,19 @@ export function RunsBlock<S>({
           }
         />
       )}
-      {rows.map((row) => (
-        <SelectableRow
-          depth={row.depth}
-          id={row.key}
-          key={row.key}
-          onSelect={onSelect}
-          selected={row.selected}
-          value={row.selection}
-        >
-          {row.branch ? (
-            <Action
-              id={`expand:${row.key}`}
-              label={row.expanded ? "▾" : "▸"}
-              onAction={onToggle}
-              value={row.selection}
+      {rows.length > 0 && (
+        <box flexDirection="column" flexShrink={0} onSizeChange={measure}>
+          {rows.map((row) => (
+            <RunRow
+              key={row.key}
+              onSelect={onSelect}
+              onToggle={onToggle}
+              row={row}
+              width={width}
             />
-          ) : (
-            <Text>·</Text>
-          )}
-          {row.step && <KindBadge kind="step" />}
-          <Text>{row.name}</Text>
-          <StatusLabel status={row.status} />
-          <Text>{row.elapsed}</Text>
-          {row.cost && <CostTag cost={row.cost} />}
-          {row.runId !== undefined && <Text>· {row.runId}</Text>}
-        </SelectableRow>
-      ))}
+          ))}
+        </box>
+      )}
     </Panel>
   );
 }

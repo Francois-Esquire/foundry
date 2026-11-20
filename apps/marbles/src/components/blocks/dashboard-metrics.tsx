@@ -63,6 +63,8 @@ function Metric({ label, value, detail, color }: MetricValue) {
   );
 }
 
+const PANEL_INSET = 4;
+
 interface RankingRow {
   readonly id: string;
   readonly label: string;
@@ -117,43 +119,48 @@ function WorkflowRankings({
   readonly width: number;
 }) {
   const { elapsed, spend } = rankings;
-  const chartWidth = Math.floor((width - 1) / 2) - 4;
+  const spendWidth = Math.ceil((width - 1) / 2);
+  const timeWidth = width - 1 - spendWidth;
   return (
     <box flexDirection="row" flexShrink={0} gap={1} height={limit + 3}>
-      <Ranking
-        caption="USD · ~ estimated · +? partial"
-        color={theme.colors.accent}
-        empty="No priced workflow usage"
-        limit={limit}
-        rows={spend.map(({ id, name, amount, cost }) => ({
-          id,
-          label: name,
-          value: amount,
-          valueLabel: <CostTag cost={cost} />,
-          valueWidth: cost.value.length + 2,
-        }))}
-        title="Workflow spend"
-        width={chartWidth}
-      />
-      <Ranking
-        caption="Total elapsed · finished runs"
-        color={theme.colors.info}
-        empty="No finished workflow runs"
-        limit={limit}
-        rows={elapsed.map(({ id, name, ms, timing }) => ({
-          id,
-          label: name,
-          value: ms,
-          valueLabel: (
-            <Text fg={theme.colors.info} flexShrink={0} wrapMode="none">
-              {timing}
-            </Text>
-          ),
-          valueWidth: timing.length,
-        }))}
-        title="Workflow time"
-        width={chartWidth}
-      />
+      <box flexDirection="column" flexShrink={0} width={spendWidth}>
+        <Ranking
+          caption="USD · ~ estimated · +? partial"
+          color={theme.colors.accent}
+          empty="No priced workflow usage"
+          limit={limit}
+          rows={spend.map(({ id, name, amount, cost }) => ({
+            id,
+            label: name,
+            value: amount,
+            valueLabel: <CostTag cost={cost} />,
+            valueWidth: cost.value.length + 2,
+          }))}
+          title="Workflow spend"
+          width={spendWidth - PANEL_INSET}
+        />
+      </box>
+      <box flexDirection="column" flexShrink={0} width={timeWidth}>
+        <Ranking
+          caption="Total elapsed · finished runs"
+          color={theme.colors.info}
+          empty="No finished workflow runs"
+          limit={limit}
+          rows={elapsed.map(({ id, name, ms, timing }) => ({
+            id,
+            label: name,
+            value: ms,
+            valueLabel: (
+              <Text fg={theme.colors.info} flexShrink={0} wrapMode="none">
+                {timing}
+              </Text>
+            ),
+            valueWidth: timing.length,
+          }))}
+          title="Workflow time"
+          width={timeWidth - PANEL_INSET}
+        />
+      </box>
     </box>
   );
 }

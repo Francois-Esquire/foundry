@@ -145,3 +145,29 @@ export const Choose = story({
   name: "Choose and reopen",
   render: (renderer) => renderFrame(renderer, <ReopenableDialog />, size),
 });
+
+export const ShortFrame = story({
+  description:
+    "In a frame shorter than the dialog, the dialog fits the frame and its body scrolls.",
+  name: "Short frame",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <>
+        <Backdrop />
+        <Dialog
+          cancelLabel="Keep open"
+          confirmLabel="Quit"
+          hint="Tab choose · Enter select · Esc back · Ctrl+C quit"
+          onCancel={ignore}
+          onConfirm={ignore}
+          title="Quit Marbles?"
+          variant="danger"
+        >
+          <Text>Quitting stops schedules and monitoring for this session.</Text>
+          <text fg={theme.colors.warning}>Running steps are cancelled.</text>
+        </Dialog>
+      </>,
+      { height: 10, padded: false, width: 60 }
+    ),
+});

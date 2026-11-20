@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
 const LIST_SHARE = 0.38;
-const MIN_LIST_WIDTH = 30;
 const MAX_LIST_WIDTH = 52;
 const STACK_BELOW = 90;
 
@@ -15,10 +14,7 @@ export function FeedLayout({
   readonly reader: ReactNode;
 }) {
   const stacked = width < STACK_BELOW;
-  const listWidth = Math.max(
-    MIN_LIST_WIDTH,
-    Math.min(MAX_LIST_WIDTH, Math.floor(width * LIST_SHARE))
-  );
+  const listWidth = Math.min(MAX_LIST_WIDTH, Math.floor(width * LIST_SHARE));
   return (
     <box
       flexDirection={stacked ? "column" : "row"}

@@ -28,21 +28,28 @@ export function WorkspaceHeader({
         onAction={onHome}
         value="home"
       />
-      <text fg={theme.colors.mutedForeground}>/</text>
+      <text fg={theme.colors.mutedForeground} flexShrink={0}>
+        /
+      </text>
       {onWorkspaces ? (
         <Action
           id="nav:workspaces"
           label={`${workspace} ▾`}
           onAction={onWorkspaces}
+          truncate
           value="workspaces"
         />
       ) : (
-        <Text wrapMode="none">
+        <Text minWidth={0} truncate wrapMode="none">
           <strong>{workspace}</strong>
         </Text>
       )}
       <box flexGrow={1} />
-      <text fg={failed ? theme.colors.error : theme.colors.mutedForeground}>
+      <text
+        fg={failed ? theme.colors.error : theme.colors.mutedForeground}
+        flexShrink={0}
+        wrapMode="none"
+      >
         {hostLabel(state)}
       </text>
     </box>

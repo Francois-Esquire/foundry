@@ -1,10 +1,8 @@
-import type { BoxRenderable } from "@opentui/core";
-import { type ReactNode, useCallback, useState } from "react";
+import type { ReactNode } from "react";
 
 const MIN_PANEL_HEIGHT = 3;
-const ROW_COUNT = 2;
-const TOTAL_WEIGHT = 5;
 const TRIGGER_WEIGHT = 2;
+const CATALOG_WEIGHT = 3;
 
 export function CatalogPanels({
   triggers,
@@ -13,24 +11,24 @@ export function CatalogPanels({
   readonly triggers: ReactNode;
   readonly catalog: ReactNode;
 }) {
-  const [sectionHeight, setSectionHeight] = useState(MIN_PANEL_HEIGHT);
-  const measure = useCallback(function measurePanels(this: BoxRenderable) {
-    const remaining = Math.max(0, this.height - ROW_COUNT * MIN_PANEL_HEIGHT);
-    setSectionHeight(
-      MIN_PANEL_HEIGHT + Math.floor((remaining * TRIGGER_WEIGHT) / TOTAL_WEIGHT)
-    );
-  }, []);
   return (
-    <box
-      flexDirection="column"
-      flexGrow={1}
-      minHeight={0}
-      onSizeChange={measure}
-    >
-      <box flexDirection="column" flexShrink={0} height={sectionHeight}>
+    <box flexDirection="column" flexGrow={1} minHeight={0}>
+      <box
+        flexBasis={MIN_PANEL_HEIGHT}
+        flexDirection="column"
+        flexGrow={TRIGGER_WEIGHT}
+        flexShrink={0}
+        minHeight={MIN_PANEL_HEIGHT}
+      >
         {triggers}
       </box>
-      <box flexDirection="column" flexGrow={1} minHeight={MIN_PANEL_HEIGHT}>
+      <box
+        flexBasis={MIN_PANEL_HEIGHT}
+        flexDirection="column"
+        flexGrow={CATALOG_WEIGHT}
+        flexShrink={0}
+        minHeight={MIN_PANEL_HEIGHT}
+      >
         {catalog}
       </box>
     </box>

@@ -41,11 +41,11 @@ export const KeyValue = ({
   const resolvedValueColor = valueColor ?? theme.colors.foreground;
 
   return (
-    <box flexDirection="column">
+    <box flexDirection="column" flexShrink={0}>
       {items.map((item) => {
         const paddedKey = item.key.padEnd(resolvedKeyWidth, " ");
         return (
-          <box flexDirection="row" gap={1} key={item.key}>
+          <box flexDirection="row" flexShrink={0} gap={1} key={item.key}>
             <text fg={resolvedKeyColor} flexShrink={0}>
               {paddedKey}
             </text>

@@ -1,5 +1,5 @@
 import type { MouseEvent, ScrollBoxRenderable } from "@opentui/core";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import { useKeyboard } from "@opentui/react";
 import {
   type ReactNode,
   useCallback,
@@ -34,7 +34,6 @@ export function Dialog({
   readonly variant?: "default" | "danger";
   readonly hint?: string;
 }) {
-  const dimensions = useTerminalDimensions();
   const content = useRef<ScrollBoxRenderable>(null);
   const [confirmFocused, setConfirmFocused] = useState(false);
   useLayoutEffect(() => {
@@ -94,9 +93,11 @@ export function Dialog({
         borderColor={color}
         borderStyle={theme.border.style}
         flexDirection="column"
-        height={Math.min(18, dimensions.height)}
+        height={18}
         id="dialog"
+        maxHeight="100%"
         maxWidth={76}
+        overflow="hidden"
         paddingX={1}
         width="100%"
       >
@@ -104,7 +105,7 @@ export function Dialog({
           <strong>{title}</strong>
         </text>
         <scrollbox
-          contentOptions={{ flexDirection: "column", gap: 1 }}
+          contentOptions={{ flexDirection: "column", gap: 1, paddingRight: 1 }}
           flexGrow={1}
           minHeight={1}
           ref={content}

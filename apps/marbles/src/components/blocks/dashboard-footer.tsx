@@ -1,6 +1,8 @@
 import { Action } from "~/components/ui/action";
 import { theme } from "~/components/ui/theme";
 
+const SEPARATOR = "·";
+
 export function DashboardFooter({
   shortcuts,
   onWorkspaces,
@@ -12,15 +14,16 @@ export function DashboardFooter({
   readonly onDiagnostics: () => void;
   readonly onSettings: () => void;
 }) {
+  const entries = shortcuts.split(` ${SEPARATOR} `);
   return (
     <box
+      columnGap={2}
       flexDirection="row"
       flexShrink={0}
       flexWrap="wrap"
-      gap={2}
       justifyContent="space-between"
     >
-      <box flexDirection="row" gap={2}>
+      <box flexDirection="row" flexShrink={0} gap={2}>
         {onWorkspaces && (
           <Action
             label="w Workspaces"
@@ -35,10 +38,25 @@ export function DashboardFooter({
           value="logs"
         />
       </box>
-      <box flexDirection="row" gap={2}>
-        <text fg={theme.colors.mutedForeground} wrapMode="none">
-          {shortcuts}
-        </text>
+      <box flexDirection="row" flexShrink={1} gap={2} minWidth={0}>
+        <box
+          columnGap={1}
+          flexDirection="row"
+          flexShrink={1}
+          flexWrap="wrap"
+          minWidth={0}
+        >
+          {entries.map((entry, index) => (
+            <text
+              fg={theme.colors.mutedForeground}
+              flexShrink={0}
+              key={`${index}:${entry}`}
+              wrapMode="none"
+            >
+              {index < entries.length - 1 ? `${entry} ${SEPARATOR}` : entry}
+            </text>
+          ))}
+        </box>
         <Action
           id="view:settings"
           label="S Settings"

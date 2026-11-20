@@ -290,7 +290,7 @@ export const DeepSteps = story({
 
 export const Narrow = story({
   description:
-    "In a narrow panel each part of a row shrinks and wraps on its own.",
+    "In a narrow panel each row stays on one line: the run id, cost and time drop in that order, then the name truncates.",
   name: "Narrow",
   render: (renderer) =>
     renderFrame(

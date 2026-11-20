@@ -22,7 +22,7 @@ export function RunStream({
     <box flexDirection="column" flexShrink={0}>
       {!received && <Text>Waiting for output…</Text>}
       {lines.map((line, index) => (
-        <Text key={`${String(index)}:${line}`} wrapMode="none">
+        <Text height={1} key={`${String(index)}:${line}`} wrapMode="none">
           {line}
         </Text>
       ))}

@@ -31,6 +31,14 @@ const partialUsage: UsageBreakdownView | undefined = usage && {
   unsaved: 1,
 };
 
+const singleUsage: UsageBreakdownView | undefined = usage && {
+  ...usage,
+  recovered: 1,
+  unattributed: 1,
+  unreadable: 1,
+  unsaved: 1,
+};
+
 const hostLines: readonly LatestRow<DashboardSelection>[] = [
   {
     at: latest[0]?.at ?? 0,
@@ -136,6 +144,16 @@ export const UsagePartial = story({
   name: "Usage partial",
   render: (renderer) =>
     renderFrame(renderer, <UsageBreakdown active usage={partialUsage} />, {
+      height: 30,
+      width: 64,
+    }),
+});
+
+export const UsageSingle = story({
+  description: "Each warning with a count of one, worded in the singular.",
+  name: "Usage partial · one of each",
+  render: (renderer) =>
+    renderFrame(renderer, <UsageBreakdown active usage={singleUsage} />, {
       height: 30,
       width: 64,
     }),

@@ -39,18 +39,19 @@ export function Log({
     info: theme.colors.info,
     warn: theme.colors.warning,
   };
+  if (entries.length === 0) {
+    return <Text>No logs recorded.</Text>;
+  }
   return (
     <box flexDirection="column" flexShrink={0}>
-      {entries.length === 0 && <Text>No logs recorded.</Text>}
       {entries.slice(start, start + height).map((entry) => (
         <text fg={colors[entry.level]} key={entry.id}>
           {entry.timestamp} [{entry.level}] {entry.message}
         </text>
       ))}
       <text fg={theme.colors.mutedForeground}>
-        {entries.length ? start + 1 : 0}–
-        {Math.min(start + height, entries.length)}/{entries.length} ·{" "}
-        {follow ? "Following" : "Paused"} · f follow · ↑↓ scroll
+        {start + 1}–{Math.min(start + height, entries.length)}/{entries.length}{" "}
+        · {follow ? "Following" : "Paused"} · f follow · ↑↓ scroll
       </text>
     </box>
   );
