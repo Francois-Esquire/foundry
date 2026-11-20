@@ -272,7 +272,8 @@ Settings are global: `settings.json` at the state root
 file or key uses the default theme, `dark`. A value Marbles does not know, or
 a file it cannot read, falls back to the default and is named in the Settings
 panel; Marbles does not overwrite a file it cannot read. Saving keeps keys it
-does not know. Under `--dry-run` theme changes are read-only.
+does not know. Under `--dry-run` the Settings panel is read-only, and
+`marbles settings set` is refused with a usage error.
 
 Settings includes a scrollable picker for the bundled
 [termCN OpenTUI themes](https://www.termcn.dev/docs/theming/opentui) and
