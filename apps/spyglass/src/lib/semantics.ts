@@ -107,17 +107,11 @@ import {
 } from "./workspace-projection-views";
 import type { WorkspaceReport } from "./workspace-types";
 
-// Materializes a static dataset from package-local analysis and workspace
-// derivation. Incremental builds reuse fingerprinted reports and carry
-// byte-identical artifacts forward before publishing the new tree.
-
-/** Package-local analysis of one unit; reads nothing outside the package. */
 export type SemanticsLocalAnalyzer = (
   unit: SemanticsWorkspaceUnit,
   context: { root: string }
 ) => Promise<PackageLocalReport>;
 
-/** One workspace derivation over every local report, assembled into reports in the same order. */
 export type SemanticsDeriver = (
   locals: PackageLocalReport[],
   context: { root: string; now: Date; profile?: AnalysisProfile }
@@ -125,12 +119,7 @@ export type SemanticsDeriver = (
 
 export type SemanticsProgressEvent =
   | { kind: "phase"; phase: SemanticsPhase; detail?: string }
-  /** The invalidation plan, emitted once fingerprints are known and before any analysis. */
   | { kind: "plan"; invalidations: SemanticsInvalidation[] }
-  /**
-   * One package's local analysis: `started` when its worker begins (its
-   * `durationMs` is 0 and `done` is unchanged), then one of the other three.
-   */
   | {
       kind: "unit";
       unit: string;
@@ -144,39 +133,18 @@ export type SemanticsProgressEvent =
 
 export interface SemanticsGenerateOptions {
   analyzeLocal?: SemanticsLocalAnalyzer;
-  /** Workspace-relative or absolute cache directory; written in both modes. */
   cache?: string;
   command?: string;
   concurrency?: number;
-  /** The resolved configuration, which `scan` loads; never loaded here. Default: the plain defaults. */
   config?: SemanticsConfig;
   derive?: SemanticsDeriver;
-  /** Fingerprint and look up the cache, then stop: no analysis, no output. */
   dryRun?: boolean;
-  /** Stop at the first failed package, and publish nothing when any package failed. */
   failFast?: boolean;
-  /**
-   * Also derive each complete package's internals into the dataset. An
-   * internals crash aborts the generation, with or without `failFast`.
-   */
   internals?: boolean;
-  /** `full` (default) analyzes every unit; `incremental` reuses cached reports. */
   mode?: SemanticsGenerationMode;
-  /**
-   * Shared clock for workspace derivation. Defaults to the start of the
-   * current UTC day: history windows and `daysSinceLastChange` are measured
-   * against it, so builds within one day share every input. Package-local
-   * analysis never reads it.
-   */
   now?: Date;
   onProgress?: (event: SemanticsProgressEvent) => void;
-  /** Workspace-relative or absolute dataset directory. Default `.foundry/semantics`; `scan` passes the state directory's. */
   output?: string;
-  /**
-   * The dataset whose byte-identical artifacts are hardlinked into the new
-   * one: by default the output itself. A scan staged beside the output, as
-   * apply's is, names the published one.
-   */
   previous?: string;
   root: string;
 }
@@ -186,7 +154,6 @@ const DEFAULT_OUTPUT = ".foundry/semantics";
 const execFileAsync = promisify(execFile);
 const WORKER = workerEntry("semantics-worker");
 
-/** Default local analyzer: one Bun worker per unit, report written and read back as JSON. */
 export const spawnLocalAnalyzer: SemanticsLocalAnalyzer = async (
   unit,
   { root }
@@ -215,10 +182,6 @@ export const spawnLocalAnalyzer: SemanticsLocalAnalyzer = async (
   }
 };
 
-/**
- * Default deriver: one Bun worker holding the shared workspace program
- * for every unit at once, released by exit. Local reports travel by file.
- */
 export const spawnDeriver: SemanticsDeriver = async (
   locals,
   { root, now, profile }
@@ -267,11 +230,6 @@ export const spawnDeriver: SemanticsDeriver = async (
   }
 };
 
-/**
- * Writes the new tree. An artifact whose bytes equal the previous dataset's
- * is hardlinked from there (copied when the filesystem refuses), so unchanged
- * files keep their inode and mtime and the swap stays atomic.
- */
 class Writer {
   readonly files: { file: string; bytes: number; reused: boolean }[] = [];
 
@@ -342,7 +300,6 @@ export async function mapBounded<T, R>(
 
 export type ConceptRole = keyof SemanticsModuleRecord["concepts"];
 
-/** Concept ids per role per module file, read from the canonical package reports. */
 export function moduleConceptRoles(
   reports: SurfaceReport[]
 ): Map<string, Record<ConceptRole, Set<string>>> {
@@ -544,12 +501,6 @@ function buildConceptIndex(workspace: WorkspaceReport): SemanticsConceptIndex {
   };
 }
 
-/**
- * Directed module edges grouped by the package owning the source module.
- * Intra-package edges come from each package report's own measurement;
- * cross-package edges from the merged workspace graph, so both perspectives
- * of a boundary collapse to one edge.
- */
 function buildModuleEdgeShards(
   workspace: WorkspaceReport,
   reports: SurfaceReport[]
@@ -594,10 +545,8 @@ type Source = "analyzed" | "reused" | "unchanged";
 interface UnitOutcome {
   error?: string;
   local?: PackageLocalReport;
-  /** How the local report was obtained; `unchanged`: analyzed, equal to the cached one. */
   localSource?: Source;
   report?: SurfaceReport;
-  /** How the assembled report was obtained; `unchanged`: derived, canonically equal to the cached one. */
   reportSource?: Source;
   unit: SemanticsWorkspaceUnit;
 }
@@ -614,7 +563,6 @@ interface UnitPlan {
   unit: SemanticsWorkspaceUnit;
 }
 
-/** The first fingerprint component that moved, in dependency order. */
 function componentCause(
   previous: Record<string, string>,
   next: Record<string, string>
@@ -633,7 +581,6 @@ function componentCause(
   return "fingerprint-unchanged";
 }
 
-/** Inputs whose hash differs from the previous build's record, sorted. */
 function changedWorkspaceInputs(
   previous: Record<string, string> | undefined,
   files: Map<string, string>
@@ -657,18 +604,11 @@ function changedWorkspaceInputs(
 
 interface SlotContext {
   cacheDir: string;
-  /** Workspace inputs whose hash moved since the previous build. */
   changedWorkspace: string[];
   mode: SemanticsGenerationMode;
   previousInputs: Record<string, string> | undefined;
 }
 
-/**
- * One cache slot's plan: reuse when the entry is valid under the current
- * fingerprint, otherwise recompute with the first cause that explains it.
- * `changed` names the inputs that moved — the package's own files for a
- * local slot, the workspace's for a report slot.
- */
 function planSlot<
   F extends { combined: string; components: Record<string, string> },
   T,
@@ -778,7 +718,6 @@ const WORKSPACE_STAGES = [
   "materialization",
 ] as const;
 
-/** Under `failFast`, before anything is written: a package without a report fails the generation. */
 function failOnUnreported(outcomes: readonly UnitOutcome[]): void {
   const failed = outcomes.flatMap((o) =>
     o.report === undefined ? [`${o.unit.id} (${o.error})`] : []
@@ -909,7 +848,6 @@ export async function generateSemantics(
     const recomputeReports = plans.filter(
       (p) => p.report.invalidation.status === "recompute"
     );
-    // Derivation reads every package, so one invalidated report derives all.
     const visitStage = (
       currentInvalidations: SemanticsInvalidation[],
       currentRecomputeLocal: UnitPlan[],
@@ -1287,8 +1225,6 @@ export async function generateSemantics(
       for (const shard of edgeShards) {
         writer.write(moduleEdgeShardFile(shard.package), shard);
       }
-      // Each file's import edges in and out, from the edges just written:
-      // every indexed module has them, observed gravity or not.
       const fanIn = new Map<string, number>();
       const fanOut = new Map<string, number>();
       for (const edge of edgeShards.flatMap((shard) => shard.edges)) {
@@ -1412,8 +1348,6 @@ export async function generateSemantics(
     );
     const reportsUnchanged = count((o) => o.reportSource, "unchanged");
     const reportsReused = count((o) => o.reportSource, "reused");
-    // Read when called: the draft the lenses run against and the published
-    // manifest differ only in the files and phases written in between.
     const manifestAt = (finishedAt: Date): DatasetManifest =>
       datasetManifest({
         command: options.command ?? "generateSemantics",
@@ -1461,8 +1395,6 @@ export async function generateSemantics(
         ? 0
         : listSemanticsFiles(previous).filter((f) => !written.has(f)).length;
     replaceDirectory(tmp, output);
-    // Recorded only once the dataset is published, so an interrupted build
-    // leaves the previous record and `--explain` still names what changed.
     storeWorkspaceInputsMeta(cacheDir, inputs.files);
 
     const bytes = writer.files.reduce((sum, f) => sum + f.bytes, 0);

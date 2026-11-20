@@ -37,7 +37,6 @@ import {
 } from "../helpers/codemod-fixture";
 import { scanCacheSeeds } from "../helpers/scan-cache-seeds";
 
-/** Every scanned copy after the first of its kind starts from that copy's cache. */
 const seeds = scanCacheSeeds();
 afterAll(seeds.dispose);
 
@@ -237,7 +236,6 @@ describe("planSite", () => {
       const journal = join(workspace.directory, "apply/journal.json");
       try {
         await writeJournal(workspace, journalFor(READY, "writing", []));
-        // The permission bits: the mode below its file-type bits.
         expect(statSync(journal).mode % 0o1000).toBe(0o600);
       } finally {
         rmSync(join(workspace.directory, "apply"), {
@@ -316,7 +314,6 @@ describe("applyRecord, previewing", () => {
     applyRecord(root, resolveSite(site), { runner, state });
   const status = () =>
     execFileSync("git", ["status", "--porcelain"], { cwd: root }).toString();
-  /** Runs `body` with a workspace file rewritten, then puts it back. */
   const withFile = async (
     file: string,
     edit: (text: string) => string,
@@ -332,7 +329,6 @@ describe("applyRecord, previewing", () => {
     }
   };
   const rescan = () => scan.workspace(root, { state });
-  /** As `withFile`, with the dataset scanned after the edit and again after it is undone, so it stays current. */
   const withScannedFile = (
     file: string,
     edit: (text: string) => string,
@@ -561,11 +557,6 @@ describe("the saved report as apply's before and after", () => {
     rmSync(directory, { force: true, recursive: true });
   });
 
-  /**
-   * Every field `validateReductionPlan`, `verifyInternalizeExport`, and the
-   * mutator read from a package report: the symbols' identity, exposure,
-   * and outside use; each internalize plan whole; the summary's counts.
-   */
   function readFields(report: PackageReport) {
     return {
       plans: report.plans.filter(

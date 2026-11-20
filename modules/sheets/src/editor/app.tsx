@@ -5,11 +5,6 @@ import { usePending } from "./pending";
 import type { EditorSession } from "./session";
 import { SheetEditor } from "./sheet-editor";
 
-/**
- * The Sheets editor. It renders the session's snapshots and forwards the
- * user's choices; the session owns the workbook and every host request.
- * Whoever constructs the session starts and closes it.
- */
 export function SheetsApp({ session }: { session: EditorSession }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const contents = usePending<CellReference>(session);

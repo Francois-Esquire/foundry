@@ -41,7 +41,6 @@ it("keeps typed text, booleans and quoted numbers as typed", () => {
   expect(workbook.value(at("A2"))).toEqual({ kind: "boolean", value: true });
   expect(workbook.value(at("A3"))).toEqual({ kind: "text", value: "0042" });
   expect(workbook.contents(at("A3"))).toBe("'0042");
-  // No date formats: a typed date stays text instead of a serial number.
   expect(workbook.value(at("A4"))).toEqual({
     kind: "text",
     value: "02/01/2026",
@@ -128,7 +127,6 @@ it("shows #REF! where a removed sheet was referred to", () => {
   });
   expect(workbook.contents(at("A1"))).toBe("=Sheet2!A1");
 
-  // A sheet of that name brings the reference back.
   workbook.addSheet("Sheet2");
   workbook.enter(at("A1", "Sheet2"), "9");
   expect(workbook.value(at("A1"))).toEqual({ kind: "number", value: 9 });

@@ -7,14 +7,12 @@ import type {
 import type { LiveTarget } from "../../live/types";
 import type { CapabilityFact, Media } from "../../types";
 
-/** One connected transport double, driven by the test. */
 interface Double {
   readonly closed: () => boolean;
   deliver(correlation: string | undefined, media?: Media): void;
   drop(message?: string): void;
   emitData(raw: string): void;
   emitMedia(media: unknown): void;
-  /** Hold every later `send` until `release` is called. */
   gate(): void;
   readonly handlers: TransportHandlers;
   readonly options: TransportOptions;
@@ -25,7 +23,6 @@ interface Double {
 export interface Registry {
   connects: number;
   doubles: Double[];
-  /** Set to reject the connect itself, or to fail the opening send. */
   failConnect: boolean;
   failPrime: boolean;
 }

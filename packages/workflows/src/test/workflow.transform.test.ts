@@ -41,8 +41,6 @@ describe("ctx.invoke — single child invocation", () => {
     await parent.run();
     await sleep(10);
     const { state } = parent;
-    // The composer forks a sub-frame named after the child step under
-    // the parent's path: "outer.child-frame".
     expect(state.steps["outer.child-frame"]).toBeDefined();
     expect(state.steps["outer.child-frame"]?.status).toBe("complete");
   });
@@ -95,12 +93,6 @@ describe("ctx.invoke — single child invocation", () => {
 
 describe("ctx.parallel — fan-out, all-or-nothing", () => {
   test("parallel({a, b, c}) executes all entries concurrently", async () => {
-    // Barrier latch: each step increments `started` then awaits
-    // `allStarted`. Parallel dispatch → all 3 reach the barrier,
-    // release fires, all proceed. Sequential dispatch → step 1
-    // blocks on the barrier forever (siblings can't start), the
-    // 1s timeout rejects the race and the test fails with a clear
-    // "not parallel" error. No wall-clock thresholds.
     let started = 0;
     let release!: () => void;
     const allStarted = new Promise<void>((r) => {
@@ -299,12 +291,6 @@ describe("ctx.race — first-wins", () => {
   });
 
   test("losing entries' Effect fiber is interrupted — parent returns before loser's body finishes", async () => {
-    // Effect.race interrupts the loser's executable.drive fiber. The
-    // underlying JS body cannot be forcibly stopped (Promises aren't
-    // interruptible), but the parent observes the winner immediately
-    // and does not wait for the loser to settle. Pin the timing
-    // contract — parent.run() returns long before the loser's body
-    // would have completed.
     const fast = await Step.make<unknown, unknown>({
       execute: async () => {
         await sleep(5);
@@ -334,8 +320,6 @@ describe("ctx.race — first-wins", () => {
     const out = await parent.run();
     const elapsed = Date.now() - t0;
     expect(out.winner).toBe("fast");
-    // Race must not block on the loser's still-running body — parent
-    // returns when the winner settles, well under the loser's 300ms.
     expect(elapsed).toBeLessThan(150);
   });
 });
@@ -438,8 +422,6 @@ describe("ctx.branch — conditional composition", () => {
       name: "decider",
     });
     expect(await parent.run(5)).toBe(105);
-    // Re-run with a negative — but since each Step instance carries its
-    // own state, build a fresh parent for the second run.
     const parent2 = await Step.make<number, number>({
       execute: (input, ctx) =>
         ctx.branch<number>(

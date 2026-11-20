@@ -1,14 +1,3 @@
-/**
- * The structures layer (WORLD.md layer 4): the world plan's buildings,
- * parcel edges, poles and wires, built into parts of the kit
- * (structures-build.ts, town-parts.ts) and packed once when the plan is
- * set; each site's ground found once on the GPU when the plan or the maps
- * change (`settle`, shaders/world/town-floors.wgsl); and everything drawn with
- * the terrain into the film (shaders/world/town.wgsl): one instanced draw a
- * shape, one for the ground shadows, one for the wires. The frame does
- * nothing in proportion to the town but the GPU's own vertex work: no
- * searching, no packing.
- */
 import {
   type Compute,
   compute,
@@ -35,25 +24,19 @@ export interface TownShaders {
   townFloors: ShaderSource;
 }
 
-/** Quads in a roof (shaders/world/town.wgsl `ROOF_QUADS`). */
 const ROOF_QUADS = 64;
-/** Slices round a round, and its vertices a slice (shaders/world/town.wgsl `SEGMENTS`). */
 const ROUND_SEGMENTS = 12;
 const ROUND_SLICE = 15;
 
-/** Vertices a part of each shape (shaders/world/town.wgsl `vs_box`, ...). */
 const TOWN_VERTICES: Readonly<Record<TownShape, number>> = {
   box: 30,
   open: 36,
   roof: ROOF_QUADS * 6,
   round: ROUND_SEGMENTS * ROUND_SLICE,
 };
-/** Cells a side of a part's shadow patch (shaders/world/town.wgsl `SHADOW_CELLS`). */
 const SHADOW_CELLS = 6;
-/** Segments along a wire (shaders/world/town.wgsl `WIRE_SEGMENTS`). */
 const WIRE_SEGMENTS = 16;
 const FLOORS_GROUP = 64;
-/** Bytes a site's ground (shaders/world/town-floors.wgsl `floors`). */
 const FLOOR_BYTES = 16;
 const BYTES_PER_VEC4 = 16;
 
@@ -77,7 +60,6 @@ export function createTown(
       }),
     ])
   ) as Record<TownShape, Draw>;
-  // Over the terrain and under the town, which drew first: no depth of its own.
   const shadow: Draw = draw(gpu, {
     blend: "alpha",
     cull: "none",
@@ -86,7 +68,6 @@ export function createTown(
     label: "islands-town-shadows",
     shader: shaders.town,
   });
-  // Thin enough to cover less than a pixel, so blended by their coverage.
   const wireDraw: Draw = draw(gpu, {
     blend: "alpha",
     cull: "none",

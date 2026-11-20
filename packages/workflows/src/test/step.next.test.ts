@@ -1,25 +1,3 @@
-/**
- * Step — `ctx.next()` (Koa-style middleware seam).
- *
- * A body may opt into propagating-cascade by `await`ing
- * `ctx.next()`: every currently-pending child of this step is run
- * sequentially, in append order, and the first failure (throw, bail,
- * suspend) reaches the body as a Promise rejection.
- *
- * Key invariants pinned here:
- *
- *   - Bodies that don't call `ctx.next()` still get the post-body
- *     auto-cascade fallback (fire-and-forget, swallowed failures).
- *   - `ctx.next()` is multi-call safe; redundant calls are a no-op
- *     when nothing is pending.
- *   - Skip-on-complete is the single bookkeeping mechanism — children
- *     completed via eager `child.run()` or a previous `next()` call
- *     are skipped.
- *   - `next()` rejects with parity to `step.run` on bail (StepBailError)
- *     and suspend (SuspendSignal) so the body can branch on the same
- *     discriminants.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { isSuspendSignal } from "../executable";
@@ -175,9 +153,6 @@ describe("ctx.next() — interaction with ctx.fork", () => {
 
     await step.run();
 
-    // Append-order: declared was registered first via spec.children, then dyn
-    // was appended via ctx.fork. Both pending at next()-call time, drained
-    // sequentially.
     expect(order).toEqual([
       "body-pre-next",
       "declared",
@@ -262,8 +237,6 @@ describe("ctx.next() — skip-on-complete for eager-driven children", () => {
 
     await step.run();
 
-    // The eager child runs exactly once (via the explicit run, not
-    // re-driven by next() or by the post-body cascade).
     expect(runs).toEqual(["eager", "tail"]);
   });
 });
@@ -297,8 +270,6 @@ describe("ctx.next() — throw propagation", () => {
         } catch (e) {
           captured = e;
         }
-        // We intentionally do NOT call ctx.next() again here — assertion
-        // 7 covers the "tail still pending after throw" case.
         return "ok";
       },
       input: undefined,
@@ -309,7 +280,6 @@ describe("ctx.next() — throw propagation", () => {
 
     expect(captured).toBeInstanceOf(Error);
     expect((captured as Error).message).toBe("inner-boom");
-    // The post-body cascade runs the remaining tail after the caught failure.
     expect(tailRan).toBe(true);
     const { steps } = step;
     expect(steps["throw-mid.boomer"]?.status).toBe("failed");
@@ -355,8 +325,6 @@ describe("ctx.next() — resume-after-failure", () => {
         } catch (e) {
           captured = e;
         }
-        // Second call — fail-once is now status "failed", not "pending",
-        // so skip-on-complete-or-non-pending in #next filters it out.
         await ctx.next();
         return "ok";
       },
@@ -368,7 +336,6 @@ describe("ctx.next() — resume-after-failure", () => {
 
     expect(captured).toBeInstanceOf(Error);
     expect((captured as Error).message).toBe("first-time-bad");
-    // fail-once ran once (during first next()), tails ran during second.
     expect(runs).toEqual(["fail-once", "tail-a", "tail-b"]);
     const { steps } = step;
     expect(steps["resume.fail-once"]?.status).toBe("failed");

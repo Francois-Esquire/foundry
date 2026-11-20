@@ -1,9 +1,5 @@
 import type { Storage } from "../storage";
 
-/**
- * A fresh root containing kept.txt, nested/value.txt, an empty directory named
- * empty, and a symbolic link named link pointing to kept.txt.
- */
 export interface StorageFixture {
   failNextDirectoryRead: () => void;
   failNextReplacement: () => void;
@@ -45,7 +41,6 @@ async function names(storage: Storage, root: string): Promise<string> {
     .join(",");
 }
 
-/** Run each check against a fresh fixture using the consumer's test runner. */
 export const storageChecks: readonly StorageCheck[] = [
   {
     name: "creates files and round trips UTF-8 text and detached bytes",

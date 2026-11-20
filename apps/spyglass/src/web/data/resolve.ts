@@ -8,7 +8,6 @@ import type {
   LateCodex,
 } from "./vocabulary";
 
-/** The late readings as the map reads them: nesting as saved, proximity with the packages it covered. */
 export function resolveLateCodex(source: LateCodexSource): LateCodex {
   return {
     nesting: source.nesting,
@@ -20,7 +19,6 @@ export function resolveLateCodex(source: LateCodexSource): LateCodex {
   };
 }
 
-/** A pair's endpoint files, from the `import-traffic` lens; none for a pair its edges never cross. */
 function pairsOf(
   pairs: CodexSource["importTraffic"]
 ): (
@@ -118,10 +116,6 @@ export function resolveCodex(source: CodexSource): Codex {
   };
 }
 
-/**
- * A placement's key, `level:place`: a package's root and a folder share a
- * path form, so the level keeps every key unique.
- */
 export function placementKey(
   placement: Pick<CodexPlacement, "level" | "place">
 ): string {

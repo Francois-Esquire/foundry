@@ -1,9 +1,12 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { WorkspaceSystem } from "@foundry/workspaces";
-import type { git } from "@foundry/workspaces/git";
-import { Git } from "@foundry/workspaces/git";
-import type { directory } from "@foundry/workspaces/node";
+import { WorkspaceSystem } from "@foundry/workspaces";
+import { Git, git } from "@foundry/workspaces/git";
+import { directory } from "@foundry/workspaces/node";
+import { nodeObserver } from "@foundry/workspaces/node/watch";
+import type { WorkspaceStore } from "@foundry/workspaces/store";
+import type { ExecutionContext } from "~/lib/execution-context";
+import { withinContext } from "~/lib/execution-context";
 
 import type { ManagerArgs } from "../bindings";
 import { current } from "../run-scope";
@@ -14,14 +17,6 @@ import type {
   Workspaces,
 } from "../types";
 
-/**
- * Directories, through the workspaces catalogue. `current` is the config's
- * own directory and never loads until a method needs it. `git` throws with a
- * clear message outside a repository. A worktree callback runs with the
- * frame's working directory narrowed to the worktree, so sessions and
- * sandboxes opened inside inherit it without being told.
- */
-
 export type Catalogue = WorkspaceSystem<
   [ReturnType<typeof directory>, ReturnType<typeof git>]
 >;
@@ -29,20 +24,24 @@ export type Catalogue = WorkspaceSystem<
 type Loaded = Awaited<ReturnType<Catalogue["load"]>>;
 export type GitOptions = NonNullable<Parameters<typeof Git.at>[1]>;
 
+export function localCatalogue(
+  gitOptions: GitOptions,
+  store?: WorkspaceStore
+): Catalogue {
+  return new WorkspaceSystem(store === undefined ? {} : { store }).extend(
+    directory({ observer: nodeObserver }),
+    git(gitOptions)
+  );
+}
+
 export interface WorkspacesDeps {
   readonly catalogue: Catalogue;
-  /** Passed to `Git.at`; `--dry-run` echoes instead of running git. */
+  readonly context?: ExecutionContext;
   readonly gitOptions?: GitOptions;
   readonly root: string;
-  /**
-   * Where worktrees are cut when the caller names no `home`. Marbles owns it
-   * so sandboxes may mount what is inside; the OS temp dir would not be
-   * trusted.
-   */
   readonly worktreeHome?: string;
 }
 
-/** The nearest enclosing directory with a `.git`, or undefined. */
 export function repositoryRoot(start: string): string | undefined {
   let dir = resolve(start);
   for (;;) {
@@ -59,15 +58,10 @@ export function repositoryRoot(start: string): string | undefined {
 
 type WorktreeOptions = Parameters<Git["worktree"]>[0];
 
-/**
- * Forward everything, with Marbles' defaults on every worktree call: a
- * worktree is cut under `worktreeHome` unless the call names a `home`, and
- * each worktree handed back gets the same defaults for its own calls. A
- * worktree callback also runs under the worktree as its working directory.
- */
 function wrapGit<G extends Git>(
   target: G,
-  worktreeHome: string | undefined
+  worktreeHome: string | undefined,
+  context: ExecutionContext | undefined
 ): G {
   const withHome = (options: WorktreeOptions): WorktreeOptions => {
     const home = options.home ?? worktreeHome;
@@ -77,7 +71,8 @@ function wrapGit<G extends Git>(
     mkdirSync(home, { recursive: true });
     return { ...options, home };
   };
-  const wrap = <W extends Git>(worktree: W) => wrapGit(worktree, worktreeHome);
+  const wrap = <W extends Git>(worktree: W) =>
+    wrapGit(worktree, worktreeHome, context);
   const overrides: Partial<Git> = {
     withWorktree: (options, body) =>
       target.withWorktree(withHome(options), (worktree) => {
@@ -85,7 +80,7 @@ function wrapGit<G extends Git>(
         const store = current.getStore();
         return store
           ? current.run({ ...store, cwd: worktree.root }, () => body(wrapped))
-          : body(wrapped);
+          : withinContext(context, () => body(wrapped));
       }),
     worktree: async (options) => wrap(await target.worktree(withHome(options))),
     worktrees: async () => (await target.worktrees()).map(wrap),
@@ -101,10 +96,6 @@ function wrapGit<G extends Git>(
   });
 }
 
-/**
- * The package Workspace's methods a handle passes through. `rename` and
- * `remove` change the workspace registry, so they stay with the host.
- */
 export const WORKSPACE_METHODS = [
   "createFile",
   "entries",
@@ -119,15 +110,12 @@ export const WORKSPACE_METHODS = [
 
 type Method = (...args: unknown[]) => Promise<unknown>;
 
-/**
- * A handle over a workspace that may not be loaded yet: each method loads
- * it, once, then calls the package's own. `root` and `git` need no load.
- */
 function handle(
   root: string,
   loaded: () => Promise<Loaded>,
   gitOf: () => Git | undefined,
-  worktreeHome: string | undefined
+  worktreeHome: string | undefined,
+  context: ExecutionContext | undefined
 ): WorkspaceHandle {
   const target: Record<string, unknown> = { root };
   for (const name of WORKSPACE_METHODS) {
@@ -145,7 +133,7 @@ function handle(
           `${root} is not a git repository; workspaces.*.git needs one`
         );
       }
-      return wrapGit(found, worktreeHome);
+      return wrapGit(found, worktreeHome, context);
     },
   });
   return target as unknown as WorkspaceHandle;
@@ -153,7 +141,6 @@ function handle(
 
 export class WorkspacesManager implements Workspaces {
   readonly #deps: WorkspacesDeps;
-  /** The root workspace; nothing is read until a method needs it. */
   readonly current: WorkspaceHandle;
 
   constructor(deps: WorkspacesDeps) {
@@ -169,7 +156,8 @@ export class WorkspacesManager implements Workspaces {
         repositoryRoot(deps.root)
           ? Git.at(deps.root, deps.gitOptions ?? {})
           : undefined,
-      deps.worktreeHome
+      deps.worktreeHome,
+      deps.context
     );
   }
 
@@ -194,13 +182,13 @@ export class WorkspacesManager implements Workspaces {
         workspace.root,
         () => Promise.resolve(workspace),
         () => workspace.git,
-        this.#deps.worktreeHome
+        this.#deps.worktreeHome,
+        this.#deps.context
       ),
       { id: workspace.id, source: workspace.source }
     );
   }
 
-  /** What a step body sees. Nothing here is per frame; the argument keeps the four managers alike. */
   scoped(_args?: ManagerArgs): Workspaces {
     return { current: this.current, load: (ref) => this.load(ref) };
   }

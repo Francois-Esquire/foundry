@@ -9,7 +9,6 @@ import {
 const LIGHT: ModuleTheme = { effective: "light", mode: "auto", revision: 1 };
 const DARK: ModuleTheme = { effective: "dark", mode: "dark", revision: 2 };
 
-/** A Gateway client whose theme stream the test feeds one value at a time. */
 function themeClient() {
   const values: unknown[] = [];
   let wake: (() => void) | undefined;
@@ -141,7 +140,6 @@ describe("Module theme relay", () => {
       { ...LIGHT, revision: 4 }
     );
     await vi.waitFor(() => expect(host.observed).toHaveLength(1));
-    // Let the relay drain the host stream before the View reads.
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(await readEvent(reader)).toEqual({ ...LIGHT, revision: 4 });
     host.end();
@@ -165,7 +163,6 @@ describe("Module theme relay", () => {
   });
 });
 
-/** A fetch whose responses the test scripts, one per call. */
 function scriptedFetch(responses: (() => Response)[]) {
   const requests: { signal?: AbortSignal | null; url: string }[] = [];
   const fetch = vi.fn((url: string, init?: RequestInit) => {
@@ -256,7 +253,6 @@ describe("Module theme browser helper", () => {
     expect(invalid.cancelled).toBe(true);
     controller.abort();
     await watching;
-    // Stopping releases the open reader.
     expect(fresh.cancelled).toBe(true);
     expect(requests.at(-1)?.signal?.aborted).toBe(true);
   });

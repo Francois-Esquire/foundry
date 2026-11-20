@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "vitest";
-import { PreviewApp } from "../preview/app";
-import { dashboardSnapshot } from "../preview/snapshot";
-import { DashboardView } from "../src/views/dashboard";
+import { selectionKey } from "../src/cli/state/dashboard-model";
+import { DashboardView } from "../src/cli/views/dashboard";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { click, ctrlC, mount, press, unmount } from "./helpers/render";
 
 let closed = false;
@@ -28,7 +28,6 @@ test("quit defaults to cancel and restores the selected step", async () => {
   expect(frame).toContain("Quit Marbles?");
   expect(frame).toContain("Quitting stops schedules and monitoring");
   expect(frame).toContain("Running steps are cancelled.");
-  expect(frame).toContain("Preview only:");
   expect(closed).toBe(false);
   await press(ui, "RETURN");
   expect(closed).toBe(false);
@@ -74,7 +73,7 @@ test("modal mouse actions work and background controls cannot change selection",
   const ui = await render();
   const before = ui.captureCharFrame();
   await press(ui, "q");
-  await click(ui, "run:run-103");
+  await click(ui, selectionKey({ id: "run-103", kind: "run" }));
   await press(ui, "ARROW_DOWN");
   await press(ui, "a");
   await click(ui, "dialog:cancel");
@@ -109,14 +108,4 @@ test("quit controls remain visible in a narrow short terminal", async () => {
   expect(frame).toContain("Ctrl+C quit");
   await click(ui, "dialog:cancel");
   expect(ui.captureCharFrame()).not.toContain("Quit Marbles?");
-});
-
-test("preview scenario shortcuts are blocked while the quit dialog is open", async () => {
-  const ui = await mount(<PreviewApp onClose={close} />);
-  const before = ui.captureCharFrame();
-  await press(ui, "q");
-  await press(ui, "]");
-  await press(ui, "n");
-  await press(ui, "ESCAPE");
-  expect(ui.captureCharFrame()).toBe(before);
 });

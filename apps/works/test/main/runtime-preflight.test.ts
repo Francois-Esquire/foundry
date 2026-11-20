@@ -84,8 +84,6 @@ describe("Released Program preflight", () => {
 
   it("checks Capabilities against Works' own providers: required blocks, optional does not", async () => {
     const providers = capabilityProviders(describedCapabilities());
-    // Works provides the theme, the Artifact operations and the execution
-    // operations; deleting Artifacts is not among them.
     expect(
       worksCapabilityCatalog().capabilities.map(
         (capability) => capability.capability

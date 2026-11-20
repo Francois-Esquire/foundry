@@ -324,7 +324,6 @@ it("keeps a proposal accepted during a build on top of the source the build save
     building = result.current.build();
   });
   await running.promise;
-  // Accepted while the build runs: the saved revision has not moved yet.
   act(() => {
     result.current.proposals.accept("turn-1", {
       base: { [APP]: details.source[APP] ?? null },
@@ -337,7 +336,6 @@ it("keeps a proposal accepted during a build on top of the source the build save
   });
   expect(result.current.event?.phase).toBe("complete");
   const saved = await refresh();
-  // The build's own change lands, and the accepted edit stays unsaved.
   expect(result.current.baseline).toEqual(saved.source);
   expect(saved.source["bun.lock"]).toBeDefined();
   expect(result.current.source["bun.lock"]).toBe(saved.source["bun.lock"]);

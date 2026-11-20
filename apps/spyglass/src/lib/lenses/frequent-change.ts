@@ -30,7 +30,6 @@ export interface FrequentChangeSource {
   }[];
 }
 
-/** The gate exactly as `lib`'s hotspots apply it: an eligible kind at or above the commit percentile. */
 function passesGate(file: ChurnFile, gate: FrequentChangeGate): boolean {
   return (
     gate.eligibleKinds.includes(file.kind) &&
@@ -38,7 +37,6 @@ function passesGate(file: ChurnFile, gate: FrequentChangeGate): boolean {
   );
 }
 
-/** Only the churn fields the lens reads, so a package report is not kept once read. */
 function projectChurn(
   churn: Extract<ChurnReport, { available: true }>
 ): FrequentChangeSource["packages"][number]["churn"] {
@@ -60,12 +58,6 @@ function projectChurn(
   };
 }
 
-/**
- * Each package's files that change frequently: its churn's files that pass
- * the hotspot commit gate, read from `lib`'s built-in analysis policy so
- * that the lens and the hotspots share one definition. Every hotspot
- * changes frequently; a frequently changed file need not be a hotspot.
- */
 export const frequentChangeLens: Lens<"frequent-change", FrequentChangeSource> =
   {
     derive: ({ gate, packages }) => {
@@ -97,8 +89,6 @@ export const frequentChangeLens: Lens<"frequent-change", FrequentChangeSource> =
       };
     },
     id: "frequent-change",
-    // Package reports are large, so they are read one at a time and only
-    // the churn fields are kept; the lens reader does not cache them.
     read: async (reader) => {
       const { eligibleKinds, gates } = ANALYSIS_CONFIG.hotspots;
       const packages: FrequentChangeSource["packages"] = [];

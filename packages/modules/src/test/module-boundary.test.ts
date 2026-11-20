@@ -83,11 +83,6 @@ function sourceFiles(root: string): string[] {
   return files.sort();
 }
 
-/**
- * Production source under the import boundary. `sdk/emit.ts` is the build-time
- * SDK compiler script: no runtime module imports it, so its compiler and
- * filesystem imports stay off the runtime graph.
- */
 function targetSourceFiles(): string[] {
   return TARGET_ROOTS.flatMap(sourceFiles).filter((path) => {
     const relativePath = relative(MODULES_SRC, path);
@@ -96,7 +91,6 @@ function targetSourceFiles(): string[] {
         relativePath.startsWith("test/") || relativePath.startsWith("testing/")
       ) &&
       relativePath !== "boundary.ts" &&
-      // Build-time emitters, run only by package scripts.
       relativePath !== "sdk/emit.ts" &&
       relativePath !== "manifest-schema-emit.ts"
     );
@@ -124,14 +118,9 @@ function importSpecifiers(source: string): string[] {
 
 interface ModuleImport {
   readonly specifier: string;
-  /** Erased at compile time: `import type`, or every named binding `type`-qualified. */
   readonly typeOnly: boolean;
 }
 
-/**
- * Every static import, re-export, and literal dynamic import in `path`, read
- * from its syntax tree so specifiers inside emitted source strings don't count.
- */
 function moduleImports(path: string): ModuleImport[] {
   const source = createSourceFile(
     path,
@@ -240,7 +229,6 @@ describe("Modules boundary", () => {
     expect(
       isModuleAllowedImport("../domain", join(MODULES_SRC, "gateway/types.ts"))
     ).toBe(true);
-    // A relative specifier resolves against its importer; with none, it can't.
     expect(isModuleAllowedImport("./domain")).toBe(false);
     expect(
       isModuleAllowedImport("../legacy/module", join(MODULES_SRC, "domain.ts"))
@@ -349,8 +337,6 @@ describe("Modules boundary", () => {
         )
       ).toBe(true);
     }
-    // The SDK and Template carry guest source as text; their `node:` imports
-    // belong to the generated Module, not to this package's runtime.
     const violations = targetSourceFiles()
       .filter((path) => !GUEST_SOURCE_DIRECTORY.test(path))
       .flatMap((path) =>
@@ -415,7 +401,6 @@ describe("Modules boundary", () => {
 
   it("loads the microsandbox package only in its VM adapter", () => {
     const adapter = "packages/sandbox/src/container/microsandbox-runtime.ts";
-    // Type-only imports are erased at compile time, so they never load it.
     const violations = productionSourceFiles(
       join(REPO_ROOT, "packages")
     ).flatMap((path) =>

@@ -1,25 +1,21 @@
 import { cookedToRaw, type Dialect } from "@foundry/prompts";
 import type { ESTree } from "@oxlint/plugins";
 
-/** A prompt found in source: its dialect, its cooked chunks, and the way back to source offsets. */
 export interface PromptNode {
   readonly chunks: readonly string[];
   readonly dialect: Dialect;
-  /** A cooked span's `start` and `end` as offsets into the file. */
   toSource(start: number, end: number): readonly [number, number];
 }
 
 interface Chunk {
   readonly cookedEnd: number;
   readonly cookedStart: number;
-  /** Offset of the chunk's first raw character in the file. */
   readonly rawStart: number;
   readonly toRaw: (cooked: number) => number;
 }
 
 type Candidate = ESTree.CallExpression | ESTree.TaggedTemplateExpression;
 
-/** The member name a tag or call is read through: `claude` in `prompts.claude`. */
 function memberName(callee: ESTree.Expression): string | null {
   if (callee.type !== "MemberExpression" || callee.computed) {
     return null;
@@ -28,11 +24,6 @@ function memberName(callee: ESTree.Expression): string | null {
   return property.type === "Identifier" ? property.name : null;
 }
 
-/**
- * The chunk holding a cooked offset, by binary search: chunks are in order
- * and only empty ones share a start, so the last chunk starting at or before
- * the offset is the only one that can hold it.
- */
 function chunkAt(chunks: readonly Chunk[], offset: number): Chunk | undefined {
   let low = 0;
   let high = chunks.length;
@@ -48,7 +39,6 @@ function chunkAt(chunks: readonly Chunk[], offset: number): Chunk | undefined {
   return chunk !== undefined && offset < chunk.cookedEnd ? chunk : undefined;
 }
 
-/** No notation spans a hole, so a span starts and ends in one chunk; a span at the very end belongs to the last. */
 function mapping(chunks: readonly Chunk[]): PromptNode["toSource"] {
   return (start, end) => {
     const chunk = chunkAt(chunks, start) ?? chunks.at(-1);
@@ -62,11 +52,6 @@ function mapping(chunks: readonly Chunk[]): PromptNode["toSource"] {
   };
 }
 
-/**
- * A `TemplateElement`'s range covers its delimiters too: the opening
- * backtick or `}` before it and the `${` or closing backtick after. ESLint's
- * parsers and Oxlint agree, so the raw text starts one character in.
- */
 function fromTemplate(
   dialect: Dialect,
   literal: ESTree.TemplateLiteral
@@ -91,7 +76,6 @@ function fromTemplate(
   return { chunks: cooked, dialect, toSource: mapping(chunks) };
 }
 
-/** A string literal's range covers its quotes; the raw text starts one character in. */
 function fromString(
   dialect: Dialect,
   literal: ESTree.StringLiteral,
@@ -109,10 +93,6 @@ function fromString(
   return { chunks: [literal.value], dialect, toSource: mapping([chunk]) };
 }
 
-/**
- * Own-property lookup prevents `obj.hasOwnProperty("x")` or
- * `obj.constructor\`…\`` from selecting inherited methods as dialects.
- */
 function dialectOf(
   dialects: Readonly<Record<string, Dialect>>,
   name: string | null
@@ -122,12 +102,6 @@ function dialectOf(
     : undefined;
 }
 
-/**
- * The prompt a node holds, or `null` when it is not one. A tagged template
- * `x.claude\`…\`` counts for any `x`; so does a call `x.claude("…")` whose
- * only argument is a string literal or a template literal with no
- * substitutions. The member name picks the dialect from `dialects`.
- */
 export function promptOf(
   node: Candidate,
   dialects: Readonly<Record<string, Dialect>>,

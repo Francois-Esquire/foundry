@@ -14,10 +14,6 @@ interface Recorder extends Provider {
   offlineCalls: boolean[];
 }
 
-/**
- * A provider whose calls never settle and whose streams never end, ignoring
- * the abort signal, so only the manager's own guard can end them.
- */
 function stubborn(id: string, offline = false): Recorder {
   const model: LanguageModelV4 = {
     doGenerate: () => new Promise(() => undefined),

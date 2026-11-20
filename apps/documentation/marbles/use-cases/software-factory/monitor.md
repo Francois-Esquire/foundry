@@ -11,11 +11,11 @@ the source checkout; use a checkout-built archive as described in
 
 | Question | Where | What you see |
 | --- | --- | --- |
-| Is anything stuck or failing? | **Overview** | Counts of running, queued, waiting, failed, completed, and cancelled runs, the success rate, and median run and wait times. |
-| Where is this issue now? | **Overview**, then a run | The run's live steps, which step is active or failed, and its log. `a` jumps to the active step, `e` to the failure. |
+| Is anything stuck or failing? | **Dashboard** | Counts of running, queued, waiting, failed, completed, and cancelled runs, the success rate, and median run and wait times. |
+| Where is this issue now? | **Dashboard**, then a run | The run's live steps, which step is active or failed, and its log. `a` jumps to the active step, `e` to the failure. |
 | Is it waiting for me? | **Feed** | Open questions and approvals, such as `factory-deliver`'s publication approval. Answer them here. |
-| What did it cost? | **Overview** and **Catalog** | Tokens and estimated cost per run, per workflow, and per agent. Catalog totals cover runs started from each definition. |
-| What happened, in order? | **Logs** | Every run's log lines and Marbles' own, filtered by level, source, or text. |
+| What did it cost? | **Dashboard** and **Catalog** | Tokens and estimated cost per run, per workflow, and per agent. Catalog totals cover runs started from each definition. |
+| What happened, in order? | **Diagnostics** | Every run's log lines and Marbles' own, filtered by level, source, or text. |
 
 The [dashboard reference](/marbles/reference/cli#the-dashboard) lists every
 tab and key. From a terminal or another agent, `marbles watch <runId>`
@@ -54,7 +54,7 @@ So bound what you can, and look at the rest:
   `_factory/record.ts`) and keeps publication behind an approval.
 - Bound MCP agent dispatches with `timeoutMs`. `maxTurns` depends on the
   provider; see [agent options](/marbles/reference/mcp#agent-options).
-- Compare the Overview's median run time and the Catalog's cost per
+- Compare the Dashboard's median run time and the Catalog's cost per
   workflow over several issues before you schedule anything.
 - Check the evidence in the work log, not only the run's status. A completed
   run means the steps finished, not that the change is right.

@@ -18,7 +18,6 @@ function placed(
   return { away, label, level, package: pkg, place, unindexed };
 }
 
-/** Three packages: billing, a core of ids and money, and a checkout app. */
 const SOURCE: DomainsSource = {
   files: [
     "apps/checkout/src/cart.ts",
@@ -46,11 +45,9 @@ const SOURCE: DomainsSource = {
       "apps/checkout/src/cart.ts",
       "apps/checkout/src/payments/pay.ts",
     ]),
-    // In no domain: its own path is named by none.
     placed("apps/checkout/src/cart.ts", "file", "@s/checkout", "departs", [
       "packages/core/src/ids.ts",
     ]),
-    // Holds facets, but coverage runs downward only.
     placed("packages/core", "package", "@s/core", "departs", [
       "packages/billing/src/invoice.ts",
     ]),
@@ -130,7 +127,6 @@ describe("the domains lens", () => {
   it("shares a domain only when every away consumer does, and keeps the placement label beside it", () => {
     expect(domainsLens.derive(SOURCE, { domains: DOMAINS }).placements).toEqual(
       [
-        // A fit stays a fit, whatever its consumers share.
         {
           away: { shared: 1, total: 1, unindexed: 0 },
           domainLabel: "fits",
@@ -151,7 +147,6 @@ describe("the domains lens", () => {
           placementLabel: "departs",
           sharedDomains: ["billing", "finances"],
         },
-        // A domain departure as well as a placement departure.
         {
           away: { shared: 0, total: 1, unindexed: 0 },
           domainLabel: "departs",
@@ -162,7 +157,6 @@ describe("the domains lens", () => {
           placementLabel: "departs",
           sharedDomains: [],
         },
-        // One away consumer of two shares a domain: still spread.
         {
           away: { shared: 1, total: 2, unindexed: 0 },
           domainLabel: "spread",
@@ -231,7 +225,6 @@ describe("the domains lens", () => {
   });
 
   it("withholds shares-domain from a place with a consumer outside the module index", () => {
-    // A file of a package that failed, say: its domains cannot be told.
     const [row] = domainsLens.derive(
       {
         ...SOURCE,
@@ -302,7 +295,6 @@ describe("the domains lens", () => {
   });
 
   it("matches a facet on a symbol its module does not export, which placement gives no row", () => {
-    // The report lists every top-level declaration; placement only the exported.
     const lens = domainsLens.derive(
       {
         files: ["packages/core/src/ids.ts"],
@@ -392,7 +384,6 @@ describe("the domains lens", () => {
         return {
           churn: "a large field the lens never reads",
           symbols: [
-            // Not exported, so not placed; a facet can still name it.
             { exported: false, id: `${id}.ts#hidden`, kind: "function" },
           ],
         };
@@ -414,13 +405,10 @@ describe("the domains lens", () => {
       domains: [
         {
           facets: [
-            // Path facets need no report.
             "packages/o",
             "packages/b/src/shape.ts",
-            // The deepest root holding the file owns it: @s/n, not @s/b.
             "packages/b/nested/src/n.ts#n",
             "packages/b/nested/src/m.ts#m",
-            // A failed package has no report.
             "packages/f/src/f.ts#f",
           ],
           name: "shapes",
@@ -468,9 +456,7 @@ describe("the domains lens", () => {
   });
 
   it.each([
-    // The workspace root is depth 0, below a one-segment root of one letter.
     [".", "b", "b/x.ts#X"],
-    // packages/a is no root of packages/ab.
     ["packages/a", "packages/ab", "packages/ab/x.ts#X"],
   ])(
     "reads only the package whose root holds the facet's file: %s and %s",
@@ -483,7 +469,6 @@ describe("the domains lens", () => {
           reports.push(id);
           return Promise.resolve({ symbols: [] });
         },
-        // Listed first, so the manifest's order would favour it on a tie.
         packages: () => [
           { id: outer, internals: true, path: outer, status: "complete" },
           { id: owner, internals: true, path: owner, status: "complete" },

@@ -8,16 +8,10 @@ export interface TelemetryLogEntry {
   readonly level: "debug" | "info" | "warn" | "error";
   readonly message: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
-  /** Path of the emitting step in the run tree. */
   readonly path?: readonly string[];
-  /** Id of the step that emitted this line (omitted for engine-level logs). */
   readonly stepId?: string;
 }
 
-/**
- * Terminal audit record for a run — the consolidated "wide event" flushed
- * once when the run settles.
- */
 export interface AuditOutcome {
   readonly at: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
@@ -25,31 +19,16 @@ export interface AuditOutcome {
   readonly status: string;
 }
 
-/**
- * The swappable logging/audit backend.
- *
- * The engine emits granular, path-scoped lines through {@link LogSink.record}
- * as steps run, and flushes one consolidated audit event per run through
- * {@link LogSink.settle} when the run terminates. The default is {@link noopSink};
- * a host swaps in a concrete implementation (e.g. the evlog wide-event sink in
- * `evlog-sink.ts`). Keep this surface narrow so backends stay interchangeable.
- */
 export interface LogSink {
   record(entry: TelemetryLogEntry): void;
   settle(outcome: AuditOutcome): void;
 }
 
-/** No-op sink. Logging stays inert until a host swaps in a real backend. */
 export const noopSink: LogSink = {
   record: () => undefined,
   settle: () => undefined,
 };
 
-/**
- * The callback the engine threads into the step context. A durable function
- * body calls `ctx.log(...)`, which routes here; the engine wires this to the
- * run's telemetry ring + live state and the swappable {@link LogSink}.
- */
 export type LogCallback = (entry: TelemetryLogEntry) => void;
 
 export interface TelemetryState {
@@ -68,7 +47,7 @@ export class Telemetry {
   readonly #logs: TelemetryLogEntry[] = [];
 
   constructor(options: TelemetryOptions = {}) {
-    this.#logCapacity = options.logCapacity ?? 200; // max log entries retained
+    this.#logCapacity = options.logCapacity ?? 200;
   }
 
   incrementMetric(key: string, by = 1): void {

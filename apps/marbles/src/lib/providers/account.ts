@@ -5,7 +5,6 @@ import { ConfigurationError } from "~/lib/providers/store";
 
 type Environment = Readonly<Record<string, string>>;
 
-/** The names that choose an instance's account: its plugin's, and those its secret settings name. */
 export function accountPatterns(
   plugin: RegisteredPlugin,
   settings: unknown
@@ -17,17 +16,12 @@ export function accountPatterns(
   return [...(plugin.accountEnv ?? []), ...named];
 }
 
-/**
- * What an instance's identity digests: where it is configured, what builds
- * it, its parsed settings, and the values of its account environment.
- */
 export function identityMaterial(instance: {
   readonly entry: ProviderEntryRecord;
   readonly env: Environment;
   readonly patterns: readonly string[];
   readonly scope: ProviderScope;
   readonly settings: unknown;
-  /** The workspace a workspace-scope entry is bound to. */
   readonly workspace: string | null;
 }): unknown {
   const { entry, env, patterns, scope, settings, workspace } = instance;
@@ -45,25 +39,16 @@ export function identityMaterial(instance: {
   ];
 }
 
-/**
- * Why an instance that reads `process.env` itself cannot serve as `env`, or
- * undefined. The process environment is the machine's with the workspace's
- * values beneath it; the live one must also hold `env`'s account.
- */
 export function ambientProblem(
-  environment: {
-    readonly machine: Environment;
-    readonly workspace: Environment;
-  },
+  machine: Environment,
   patterns: readonly string[],
   env: Environment
 ): string | undefined {
-  const merged = { ...environment.workspace, ...environment.machine };
-  const differing = [...new Set([...Object.keys(merged), ...Object.keys(env)])]
-    .filter((name) => merged[name] !== env[name])
+  const differing = [...new Set([...Object.keys(machine), ...Object.keys(env)])]
+    .filter((name) => machine[name] !== env[name])
     .sort();
   if (differing.length > 0) {
-    return `reads the process environment, which differs here in ${differing.join(", ")}; configure it for this workspace`;
+    return `reads the process environment, which does not hold the workspace's values for ${differing.join(", ")}; set them in the environment the Marbles process starts with, or configure it for the whole machine`;
   }
   const live = liveDifference(patterns, env);
   if (live.length > 0) {
@@ -72,11 +57,6 @@ export function ambientProblem(
   return undefined;
 }
 
-/**
- * `provider`, which reads `process.env` itself, refusing each model call
- * while the live account environment differs from the one its identity
- * digests, so a session never runs as an account it was not pinned to.
- */
 export function refusingWhenChanged(
   provider: Provider,
   patterns: readonly string[],
@@ -144,7 +124,6 @@ function isAccountName(patterns: readonly string[], name: string): boolean {
   );
 }
 
-/** Account names where the live `process.env` no longer holds what `env` does. */
 function liveDifference(
   patterns: readonly string[],
   env: Environment
@@ -157,7 +136,6 @@ function liveDifference(
     .sort();
 }
 
-/** `value` with every object's keys sorted, so equal settings digest equally. */
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonical);

@@ -1,8 +1,3 @@
-/**
- * `Step.create` constructs a step synchronously. `.step()` appends a child
- * before or after binding and returns the parent for chaining.
- */
-
 import { describe, expect, it } from "vitest";
 
 import type { StepSpec } from "../step";
@@ -29,13 +24,11 @@ describe("Step.create + .step(spec) — pre-bind, spec form", () => {
       input: undefined,
       name: "child",
     });
-    // .step() returns the parent for chaining.
     expect(returned).toBe(parent);
 
     const result = await parent.run();
     expect(result).toBe("parent-out");
 
-    // Child is materialized under parent's substrate; readable via path.
     expect(parent.steps["parent.child"]?.status).toBe("complete");
     expect(parent.steps["parent.child"]?.output).toBe("child-out");
   });
@@ -59,10 +52,8 @@ describe("Step.create + .step(stepInstance) — pre-bind, instance form", () => 
     });
 
     const returned = parent.step(child);
-    // .step() returns the parent for chaining.
     expect(returned).toBe(parent);
 
-    // Now claimed-unbound — substrate access throws.
     expect(() => child.snapshot).toThrow(NOT_BOUND_PATTERN);
 
     await parent.run();
@@ -119,11 +110,9 @@ describe("Step.create + chained .step(...) — mixed spec/instance children", ()
     await parent.run();
 
     expect(ran).toEqual(["first", "second", "third"]);
-    // All three share parent's substrate.
     expect(first.snapshot).toBe(parent.snapshot);
     expect(second.snapshot).toBe(parent.snapshot);
     expect(instanceChild.snapshot).toBe(parent.snapshot);
-    // children array reflects all three in append order.
     const kids = parent.children;
     expect(kids.length).toBe(3);
     expect(kids[0]).toBe(first);
@@ -139,7 +128,6 @@ describe(".step(spec) — post-bind during execute body", () => {
     const parent = Step.create<void, "parent-out">({
       execute: async (_input, ctx): Promise<"parent-out"> => {
         ran.push("body-pre");
-        // Add a child after the body has started — parent is bound here.
         ctx.step.step<void, "dyn-out">({
           execute: async (): Promise<"dyn-out"> => {
             ran.push("dyn");
@@ -148,7 +136,6 @@ describe(".step(spec) — post-bind during execute body", () => {
           input: undefined,
           name: "dyn",
         });
-        // Drain via next so we observe deterministic order.
         await ctx.next();
         ran.push("body-post");
         return "parent-out";
@@ -170,7 +157,6 @@ describe(".step(stepInstance) — post-bind during execute body", () => {
 
     const parent = Step.create<void, "parent-out">({
       execute: async (_input, ctx): Promise<"parent-out"> => {
-        // Build a fresh standalone child, then attach via post-bind path.
         const child = Step.create<void, "late-out">({
           execute: async (): Promise<"late-out"> => {
             ran.push("late");
@@ -180,10 +166,8 @@ describe(".step(stepInstance) — post-bind during execute body", () => {
           name: "late",
         });
         const attached = ctx.step.step(child);
-        // .step() returns the parent for chaining.
         expect(attached).toBe(ctx.step);
         await ctx.next();
-        // After draining, the child is bound under the parent.
         expect(child.snapshot).toBe(ctx.step.snapshot);
         expect(child.path).toEqual(["parent", "late"]);
         return "parent-out";
@@ -230,7 +214,6 @@ describe(".step() — already-bound child", () => {
       name: "loner",
     });
 
-    // Standalone run — auto-binds as a root.
     await child.run();
 
     const other = Step.create({
@@ -251,10 +234,8 @@ describe("Step.create — sync return", () => {
       name: "sync",
     };
     const step = Step.create(spec);
-    // Direct object, not a thenable.
     expect(typeof step).toBe("object");
     expect(step).toBeInstanceOf(Step);
-    // Sanity: it really is unbound until used.
     expect(step.kind).toBe("step");
   });
 });
@@ -278,8 +259,6 @@ describe(".step() — typed child reference via Step.create", () => {
 
     await parent.run();
 
-    // Compile-time: child.output is string | undefined. Runtime check
-    // confirms the wired path produces the typed value.
     const out: string | undefined = child.output;
     expect(out).toBe("hello");
   });

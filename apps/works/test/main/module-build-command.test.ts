@@ -58,7 +58,6 @@ it("returns the exit code and both outputs joined as before", async () => {
   ).resolves.toEqual({ exitCode: 3, log: "installed\n\nwarning\n" });
   expect(fake.argvs).toEqual([["bun", "install"]]);
   expect(fake.options).toEqual([{ cwd: "/workspace", signal }]);
-  // An AbortSignal has no own fields, so equality alone accepts any signal.
   expect(fake.options[0]?.signal).toBe(signal);
 });
 

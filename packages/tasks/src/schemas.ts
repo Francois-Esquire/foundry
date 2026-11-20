@@ -3,19 +3,15 @@ import { taskSchema, taskStatusSchema } from "./schema";
 import { taskId } from "./types";
 
 const taskIdInput = z.string().min(1).transform(taskId);
-/** Exact strings, as create and update take them in `taskChangeSchema`. */
 const tagsSchema = z.array(z.string()).readonly();
 
-/** Every tag in `all`, and one in a nonempty `any`. */
 const tagQuerySchema = z.strictObject({
   all: tagsSchema.optional(),
   any: tagsSchema.optional(),
 });
 
 const pageInput = {
-  /** Offset into the ordered results; the previous page's `nextCursor`. */
   cursor: z.int().min(0).optional(),
-  /** Positive; the package caps it at its maximum page size. */
   limit: z.int().min(1).optional(),
 };
 
@@ -42,7 +38,6 @@ export const taskNodeSchema = taskSchema.extend({
   },
 });
 
-/** A page of `list` or `ready`; `ready` items carry no `subtasks`. */
 export const taskPageSchema = z.strictObject({
   items: z.array(taskNodeSchema),
   nextCursor: z.int().min(0).optional(),

@@ -6,10 +6,6 @@ import type { ArchitecturalOperator } from "../../../src/lib/operator-types";
 import { OPERATOR_SCHEMA_VERSION } from "../../../src/lib/operator-types";
 import type { Spec } from "./workspace-builder";
 
-// Shared by the V11.3 planning and V11.4 readiness suites: the synthetic
-// workspace facts that describe test/fixtures/planning, a manual internalize
-// operator, and a tree hash for the no-write guarantee.
-
 export const planningRoot = join(
   import.meta.dirname,
   "..",
@@ -149,7 +145,6 @@ export function internalizeOperator(
   };
 }
 
-/** Drop the consumer-import-path preservation: the operator permits a breaking relocation. */
 export function openOperator(
   operator: ArchitecturalOperator
 ): ArchitecturalOperator {

@@ -28,7 +28,6 @@ const RUNTIME_CHANGED = /runtime stopped or changed access/;
 const ORIGIN = "module-app://view-token";
 const MOUNT = { binding: "binding-1", origin: ORIGIN, view: "editor" };
 
-/** What a View receives: each connect, with the port it reports on. */
 function connections(postMessage: { mock: { calls: unknown[][] } }) {
   return postMessage.mock.calls.map(([message, origin, transfer]) => ({
     message: message as EditorStateConnect,
@@ -37,7 +36,6 @@ function connections(postMessage: { mock: { calls: unknown[][] } }) {
   }));
 }
 
-/** A frame whose window records what Works posts to it. */
 function fakeFrame() {
   const contentWindow = { postMessage: vi.fn() };
   const frame = new EventTarget() as EventTarget & {
@@ -68,7 +66,6 @@ function report(
   };
 }
 
-/** Lets a posted port message arrive. */
 const delivered = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 describe("useEditorFrameState", () => {
@@ -86,14 +83,11 @@ describe("useEditorFrameState", () => {
     expect(first.message.binding).toBeNull();
     first.port.postMessage(report(first.message, false));
     await waitFor(() => expect(result.current).toBe("clean"));
-    // Create can replace the View's URL binding. Its existing port still
-    // reports current dirty state for the original host mount.
     first.port.postMessage(report(first.message, true));
     await waitFor(() => expect(result.current).toBe("dirty"));
     act(() => frame.load());
     const second = frame.connections().at(-1);
     expect(second?.message.binding).toBeNull();
-    // The View refuses a reconnect whose binding no longer matches its URL.
     first.port.postMessage(report(first.message, false));
     await delivered();
     expect(result.current).toBe("dirty");
@@ -109,7 +103,6 @@ describe("useEditorFrameState", () => {
     const { result } = renderHook(() =>
       useEditorFrameState(frame.element, MOUNT)
     );
-    // Shown: unknown is protected until the View says otherwise.
     expect(result.current).toBe("unknown");
     frame.load();
     const [first] = frame.connections();
@@ -154,7 +147,6 @@ describe("useEditorFrameState", () => {
     await delivered();
     expect(result.current).toBe("dirty");
 
-    // The frame reloads: still dirty until the new document reports.
     frame.load();
     const [, second] = frame.connections();
     if (!second) {
@@ -310,7 +302,6 @@ describe("leaving an editor View", () => {
     const iframe = (await screen.findByTitle(
       "Docs editor"
     )) as HTMLIFrameElement;
-    // Shown: the guard is armed before the View has said anything.
     await waitFor(() => {
       const unload = new Event("beforeunload", { cancelable: true });
       window.dispatchEvent(unload);
@@ -470,7 +461,6 @@ describe("leaving an editor View", () => {
     const editor = await installEditorModule(storage, "Docs", [
       { mimeTypes: ["text/markdown"], mode: "write", view: "editor" },
     ]);
-    // No runtime: the app fails to open, so no frame ever shows the View.
     active.api = fakeApi(await openFakeVault(), storage.modules);
     const locations: string[] = [];
     renderApp(`/m/${editor.id}?binding=binding-1&view=editor`, {

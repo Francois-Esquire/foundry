@@ -19,20 +19,12 @@ interface OpenQuestion {
 }
 
 export interface FeedRouter {
-  /**
-   * Take over the open questions of a run recovered from a previous process:
-   * their entries are republished as ours, so they stay open and answerable.
-   */
   adopt(definition: string, runId: string): Promise<void>;
-  /** Answer an open input entry, resuming the run that asked. */
   answer(entryId: string, answer: FeedAnswer): Promise<void>;
-  /** Mark every open question cancelled: nothing in this process can answer it now. */
   cancelOpen(): Promise<void>;
-  /** Why this router cancelled a run, when it did; forgotten when the run closes. */
   cancelReason(runId: string): string | undefined;
-  /** A run ended without answering these: its open questions are marked cancelled. */
   close(runId: string): Promise<void>;
-  /** Handle one run's channel events; `settled` awaits the writes they caused. */
+  letGo(runId: string): void;
   observe(
     definition: string,
     runId: string
@@ -40,14 +32,27 @@ export interface FeedRouter {
     readonly onEvent: (event: ChannelEvent) => void;
     readonly settled: () => Promise<void>;
   };
+  retire(): void;
 }
 
-/**
- * Steps cannot see their Run, so the engine attributes what they publish.
- * Posts arrive as custom events; questions arrive as Suspensions of kind
- * `marbles.feed.input`. Without `askable` nobody can answer, so a question
- * cancels its run instead of pausing it forever.
- */
+export class QuestionMovingError extends Error {
+  override readonly name = "QuestionMovingError";
+
+  constructor(entryId: string) {
+    super(
+      `the question ${entryId} is moving to another engine with its run; answer it there`
+    );
+  }
+}
+
+export function movedAway(error: unknown, id: string): unknown {
+  return error instanceof Error &&
+    (error.name === "StaleSuspensionRevisionError" ||
+      error.name === "RunMovedError")
+    ? new QuestionMovingError(id)
+    : error;
+}
+
 export function feedRouter(options: {
   readonly askable: boolean;
   readonly feed: FeedPublisher;
@@ -56,6 +61,7 @@ export function feedRouter(options: {
 }): FeedRouter {
   const { askable, feed, orchestrator, print } = options;
   const open = new Map<string, OpenQuestion>();
+  let retired = false;
   const cancelled = new Map<string, string>();
 
   function warn(title: string) {
@@ -131,6 +137,9 @@ export function feedRouter(options: {
     adopt,
 
     async answer(entryId, answer) {
+      if (retired) {
+        throw new QuestionMovingError(entryId);
+      }
       const question = open.get(entryId);
       if (!question) {
         throw new Error("This question is no longer waiting for an answer.");
@@ -143,16 +152,24 @@ export function feedRouter(options: {
       const suspension = await orchestrator.getSuspension(
         question.suspensionId
       );
+      if (retired || open.get(entryId) !== question) {
+        throw new QuestionMovingError(entryId);
+      }
       if (suspension?.status !== "pending") {
         open.delete(entryId);
         throw new Error("This question is no longer waiting for an answer.");
       }
-      // The step reads a plain choice or `{ choice, note }`; keep the plain
-      // form when there is no note so older resolutions stay comparable.
-      await orchestrator.resolve(
-        suspension.id,
-        note === undefined ? choice : { choice, note }
-      );
+      await orchestrator
+        .resolve(
+          suspension.id,
+          note === undefined ? choice : { choice, note },
+          {
+            expectedRevision: suspension.revision,
+          }
+        )
+        .catch((error: unknown) => {
+          throw movedAway(error, entryId);
+        });
       open.delete(entryId);
       await feed
         .publishInput(question.question, question.source, {
@@ -182,9 +199,16 @@ export function feedRouter(options: {
       await cancel(questions.map(([, question]) => question));
     },
 
+    letGo(runId) {
+      cancelled.delete(runId);
+      for (const [id, question] of open) {
+        if (question.source.runId === runId) {
+          open.delete(id);
+        }
+      }
+    },
+
     observe(definition, runId) {
-      // Only durable suspensions are answerable. Parallel children may emit
-      // several suspension signals while the queue parks one at a time.
       const writes: Promise<unknown>[] = [];
       const refresh = () => {
         writes.push(adopt(definition, runId).catch(warn("question")));
@@ -218,6 +242,10 @@ export function feedRouter(options: {
           await Promise.all(writes);
         },
       };
+    },
+
+    retire() {
+      retired = true;
     },
   };
 }

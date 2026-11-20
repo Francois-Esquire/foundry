@@ -1,19 +1,3 @@
-/**
- * What each kind of building is made of (world.ts `BuildingKind`), as parts
- * of the kit in town-parts.ts, in the building's own frame: its footprint's
- * middle at the origin, its front and door toward its road along +z. Every
- * building is at the one human scale (`STOREY`, `DOOR_HEIGHT`) and grows by
- * floors and parts, never by scaling.
- *
- * The look follows REFERENCES.md: two-storey houses under grey, blue-grey
- * and green roofs with deep eaves, some with a wing, a bay, a balcony or a
- * car port; walk-ups with an outside stair and an open corridor; blocks
- * with a balcony on every floor; a lit convenience store with its vending
- * machines; low public buildings; a shrine behind its torii; dark
- * boathouses with their gables to the sea; a white lighthouse. Every choice
- * is hashed from the building's place, so the same plan builds the same
- * town and a changed file repaints only its own building.
- */
 import type { Point } from "../../../data/chart";
 import {
   COLORS,
@@ -33,19 +17,16 @@ import {
 } from "./town-parts";
 import type { Building } from "./world";
 
-/** A site of its own for a group of parts, in the building's frame; parts holding the same object share it. */
 export interface Spot {
   readonly at: Point;
   readonly half: readonly [number, number];
 }
 
-/** A part, and the spot it stands on if not the building's own footprint. */
 export interface Laid {
   readonly part: TownPart;
   readonly spot?: Spot;
 }
 
-/** The parcel's extent in the building's frame: how much room is round it. */
 export interface Room {
   readonly maxX: number;
   readonly maxZ: number;
@@ -54,20 +35,14 @@ export interface Room {
 }
 
 const QUARTER_TURN = Math.PI / 2;
-/** How far a parapet rises over a flat roof. */
 const PARAPET = 0.15;
-/** A roof's rise over half its span: about 24 degrees. */
 const PITCH = 0.45;
-/** A balcony's or a corridor's half depth, and its panel over its floor. */
 const BALCONY_HALF = 0.17;
 const PANEL = 0.3;
-/** Height of a door's head: canopies and sign bands sit over it. */
 const DOOR_TOP = DOOR_HEIGHT + 0.08;
-/** A tier of a stand: how much higher than the one in front. */
 const TIER_RISE = 0.3;
 const TIER_DEPTH = 0.5;
 
-/** The independent choices a building makes, by salt (structures-palette.ts `pickOf`). */
 const SALTS = {
   balcony: 11,
   bay: 12,
@@ -94,22 +69,14 @@ const picker =
 const clamp = (x: number, low: number, high: number): number =>
   Math.min(Math.max(x, low), high);
 
-/** How a roof sits on its body. */
 type RoofStyle = "ridgeX" | "ridgeZ" | "hipped";
 
 interface Body {
   readonly at: Point;
   readonly half: readonly [number, number];
-  /** The walls' top, where the roof's slopes cross them. */
   readonly top: number;
 }
 
-/**
- * A pitched roof over a body: gabled with its ridge across (x) or along
- * (z) the street, or hipped, at `pitch` with `overhang` past the walls.
- * The roof part's own ridge runs along its local z, so a ridge along x is
- * the part turned a quarter.
- */
 function roofOn(
   body: Body,
   style: RoofStyle,
@@ -138,10 +105,6 @@ function roofOn(
   });
 }
 
-/**
- * A lean-to: one slope from `high` at its back down to its front, over a
- * footprint of `half` (across, deep) whose back is toward −z.
- */
 function leanTo(
   at: Point,
   half: readonly [number, number],
@@ -151,7 +114,6 @@ function leanTo(
   material: TownPart["material"] = "seam",
   overhang = 0.05
 ): TownPart {
-  // Turned a quarter, the roof's −x (its high side) is the building's −z.
   return townPart({
     at,
     base,
@@ -168,7 +130,6 @@ function leanTo(
   });
 }
 
-/** A box of walls with windows, under eaves unless flat-topped. */
 function walls(
   body: Body,
   paint: Paint,
@@ -187,7 +148,6 @@ function walls(
   });
 }
 
-/** A balcony's open rail across `half[0]`, standing out from a front at `front`. */
 function balcony(
   x: number,
   front: number,
@@ -198,7 +158,6 @@ function balcony(
   turn = 0
 ): TownPart {
   return townPart({
-    // Out from the front: +z, or −z for one turned round to a back.
     at: [x, front + Math.cos(turn) * BALCONY_HALF],
     base,
     color,
@@ -211,7 +170,6 @@ function balcony(
   });
 }
 
-/** A thin flat box: a canopy's slab, a sign, a rail. */
 function slab(
   at: Point,
   half: readonly [number, number],
@@ -247,7 +205,6 @@ const roofStyleOf = (pick: number): RoofStyle => {
   return pick < 0.62 ? "ridgeZ" : "hipped";
 };
 
-/** The side of a building with more room beside it within its parcel, and how much. */
 function openSide(
   b: Building,
   room: Room | null
@@ -261,7 +218,6 @@ function openSide(
   return right >= left ? { free: right, side: 1 } : { free: left, side: -1 };
 }
 
-/** A car port beside a house: a clear slab on two posts on its open side, toward the road. */
 function carPort(b: Building, room: Room | null): Laid[] {
   const { side, free } = openSide(b, room);
   if (free < 0.75) {
@@ -299,11 +255,9 @@ function carPort(b: Building, room: Room | null): Laid[] {
   ];
 }
 
-/** An air conditioner's outdoor unit against a side wall. */
 const outdoorUnit = (x: number, z: number, side: number): TownPart =>
   slab([x + side * 0.06, z], [0.06, 0.11], 0, 0.13, "metal", COLORS.unit);
 
-/** A detached house: two storeys, a pitched roof, and its own mix of wing, bay, balcony and car port. */
 function house(b: Building, room: Room | null): Laid[] {
   const pick = picker(b);
   const [hx, hz] = b.half;
@@ -333,7 +287,6 @@ function house(b: Building, room: Room | null): Laid[] {
     },
   ];
   if (winged) {
-    // A one-storey wing on one side, set back or forward.
     const inner = mainX + wingSide * mainHalf;
     const outer = wingSide * hx;
     const wingHalfX = Math.abs(outer - inner) / 2;
@@ -372,7 +325,6 @@ function house(b: Building, room: Room | null): Laid[] {
       ),
     });
   } else {
-    // A small canopy over the door.
     laid.push({
       part: leanTo(
         [mainX, hz + 0.15],
@@ -384,7 +336,6 @@ function house(b: Building, room: Room | null): Laid[] {
     });
   }
   if (!winged && pick("bay") < 0.3) {
-    // A bay on the ground storey to one side of the door.
     const bx = mainX - wingSide * mainHalf * 0.5;
     laid.push(
       {
@@ -405,7 +356,6 @@ function house(b: Building, room: Room | null): Laid[] {
   return laid;
 }
 
-/** A pair of semi-detached houses under one roof: a door, a balcony and a canopy each. */
 function pair(b: Building): Laid[] {
   const pick = picker(b);
   const [hx, hz] = b.half;
@@ -459,7 +409,6 @@ function pair(b: Building): Laid[] {
 
 const STAIR_HALF = 0.28;
 
-/** A walk-up: an outside stair at one end, an open corridor along the front on every upper floor. */
 function walkup(b: Building): Laid[] {
   const pick = picker(b);
   const [hx, hz] = b.half;
@@ -512,7 +461,6 @@ function walkup(b: Building): Laid[] {
     },
   ];
   if (!flat) {
-    // A shallow metal roof over the body and the corridor.
     laid.push({
       part: roofOn(
         { at: [bodyX, 0], half: [bodyHalfX, hz], top },
@@ -527,11 +475,6 @@ function walkup(b: Building): Laid[] {
   return laid;
 }
 
-/**
- * An apartment block or a tower: a balcony on every floor above the
- * ground (on both long sides for a tower), a flat roof behind a parapet
- * with its stair housing, an entrance canopy, and on some a water tank.
- */
 function apartments(b: Building, tower: boolean): Laid[] {
   const pick = picker(b);
   const [hx, hz] = b.half;
@@ -618,7 +561,6 @@ function apartments(b: Building, tower: boolean): Laid[] {
   return laid;
 }
 
-/** The convenience store: one storey, glazed and lit along its front, its sign band, vending machines by the door. */
 function store(b: Building): Laid[] {
   const pick = picker(b);
   const [hx, hz] = b.half;
@@ -662,7 +604,6 @@ function store(b: Building): Laid[] {
   return laid;
 }
 
-/** A public building: a town hall, a post office, a clinic: low and long, a ribbon of windows, a canopy and a flagpole. */
 function civic(b: Building): Laid[] {
   const pick = picker(b);
   const [hx, hz] = b.half;
@@ -701,7 +642,6 @@ function civic(b: Building): Laid[] {
   ];
 }
 
-/** The station: a long low hall under a hipped roof, a platform and its canopy behind. */
 function station(b: Building): Laid[] {
   const pick = picker(b);
   const [hx, hz] = b.half;
@@ -753,7 +693,6 @@ function station(b: Building): Laid[] {
   return laid;
 }
 
-/** The school: long, two or three storeys, a ribbon of windows, a clock tower over its entrance. */
 function school(b: Building): Laid[] {
   const pick = picker(b);
   const [hx, hz] = b.half;
@@ -791,7 +730,6 @@ function school(b: Building): Laid[] {
   ];
 }
 
-/** A utility: a grey substation box, or a water tank. */
 function utility(b: Building): Laid[] {
   const pick = picker(b);
   const [hx, hz] = b.half;
@@ -827,7 +765,6 @@ function utility(b: Building): Laid[] {
 const TORII_HEIGHT = 0.82;
 const TORII_HALF = 0.3;
 
-/** A torii across a path at `z`: two vermilion posts, two beams, a black cap. */
 function torii(z: number): Laid[] {
   const spot: Spot = { at: [0, z], half: [TORII_HALF + 0.12, 0.08] };
   const posts: Laid[] = [-1, 1].map((side) => ({
@@ -871,7 +808,6 @@ function torii(z: number): Laid[] {
   ];
 }
 
-/** A shrine: a small dark hall on a stone plinth under a curved roof, its torii toward the road. */
 function shrine(b: Building, room: Room | null): Laid[] {
   const pick = picker(b);
   const [hx, hz] = b.half;
@@ -942,7 +878,6 @@ function shrine(b: Building, room: Room | null): Laid[] {
   return laid;
 }
 
-/** A stand along a pitch: tiers rising away from its front, a back wall, and on a long one a roof on posts. */
 function stand(b: Building): Laid[] {
   const [hx, hz] = b.half;
   const tiers = clamp(Math.round((2 * hz) / TIER_DEPTH), 1, 4);
@@ -996,11 +931,6 @@ function stand(b: Building): Laid[] {
   return laid;
 }
 
-/**
- * A boathouse in the shore row (Ine no Funaya): dark timber, two storeys,
- * its front (+z, which the plan turns to the sea) a gable over a ground
- * storey open as a boat slip, its door at the back to the shore path.
- */
 function boathouse(b: Building): Laid[] {
   const pick = picker(b);
   const [hx, hz] = b.half;
@@ -1042,7 +972,6 @@ function boathouse(b: Building): Laid[] {
 
 const LIGHTHOUSE_HEIGHT = 2.9;
 
-/** A lighthouse: a white round tower with a band, its gallery, and its lamp under a cap. */
 function lighthouse(b: Building): Laid[] {
   const r = clamp(Math.min(...b.half) * 0.8, 0.3, 0.45);
   return [
@@ -1088,7 +1017,6 @@ function lighthouse(b: Building): Laid[] {
   ];
 }
 
-/** The parts a building is made of, in its own frame. */
 export function partsOf(b: Building, room: Room | null): Laid[] {
   switch (b.kind) {
     case "house":

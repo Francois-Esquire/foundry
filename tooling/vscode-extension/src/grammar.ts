@@ -1,30 +1,17 @@
-/**
- * The TextMate grammars the extension contributes, built from shared regex
- * fragments that mirror `@foundry/prompts`' notations. Notations match with
- * code, so this cannot be derived from them; the grammar tests compare what
- * these highlight against what the parser reads. `bun run grammar` writes
- * them to `syntaxes/`.
- */
-
 import { HIGHLIGHT_SCOPES as SCOPE } from "@foundry/prompts";
 
 type Rule = Record<string, unknown>;
 
-/** A sigil sits at the start of a line or after whitespace, an opening bracket or quote, or a separator. */
 const BOUNDARY = "(?<![^\\s(\\[{<\"',;`])";
 const SEGMENT = "[A-Za-z0-9](?:[\\w-]*[A-Za-z0-9])?";
-/** Atomic, because the scanner never backtracks into a name. */
 const NAME = `(?>${SEGMENT}(?::${SEGMENT})*)`;
-/** A listed name ends exactly where the scanner's name would, and is not a path. */
 const NAME_END = "(?![\\w-]*[A-Za-z0-9]|:[A-Za-z0-9])(?!/)";
 const TRAILING = ".,;:!?)\\]}>";
-/** Where a message opens: right after the opening backtick or quote, on its line. */
 const OPENING = "\\G\\s*";
 const QUALIFIER = "((?:[$_A-Za-z][$\\w]*\\s*\\??\\.\\s*)+)";
 const SCHEMA =
   "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json";
 
-/** Snapshots of each harness's built-in commands, as in `src/dialects/`. */
 const CLAUDE_CODE_COMMANDS = [
   "add-dir",
   "agents",
@@ -87,11 +74,9 @@ const opening = (pattern: string, scope: string): Rule => ({
   match: `${OPENING}(${pattern})`,
 });
 
-/** `!command` opening the message, up to the end of the line, the closing quote, or a substitution. */
 const shellLine = (closing: string): Rule =>
   opening(`!(?!\`)(?:(?!\\$\\{)(?:[^${closing}\\\\]|\\\\.))+`, SCOPE.shell);
 
-/** The repository shared by every host: what each dialect reads anywhere in a message, and in a template. */
 const prompt: Rule = {
   $schema: SCHEMA,
   name: "Prompt",
@@ -130,10 +115,6 @@ const prompt: Rule = {
         { match: `${BOUNDARY}\\$${NAME}(?!/)`, name: SCOPE.skill },
       ],
     },
-    // `!\`` then a body up to `\``, with at least one non-blank, written so an unclosed marker fails in
-    // one pass instead of retrying every split of its body. The body runs to its first backtick; a
-    // backslash before it closes the shell, unless the body is blanks and an odd run of backslashes.
-    // A bare backtick there joins the body, and the shell closes at the next escaped backtick.
     "escaped-inline-shell": {
       match: `${BOUNDARY}!\\\\\`(?:(?!\\s*+(?:\\\\\\\\)*+\\\\\`)[^\`]*+(?<=\\\\)\`|[^\`]*+(?<!\\\\)\`(?:[^\`\\\\]|\\\\[^\`])*+\\\\\`)`,
       name: SCOPE.shell,
@@ -143,12 +124,9 @@ const prompt: Rule = {
       name: SCOPE.variable,
     },
     "file-mention": {
-      // A path never takes a quote, a backtick, or a substitution, so it cannot run past the end of its string.
       match: `${BOUNDARY}@(?:(?!\\$\\{)[^\\s\`"'])*?(?:(?!\\$\\{)[^\\s\`"'${TRAILING}])(?=[${TRAILING}]*(?:[\\s\`"']|\\$\\{|$))`,
       name: SCOPE.file,
     },
-    // Blanks, one non-blank that is not a backtick, then the rest up to a backtick. Possessive, so an
-    // unclosed marker fails in one pass instead of retrying every split of its body.
     "inline-shell": {
       match: `${BOUNDARY}!\`\\s*+[^\\s\`][^\`]*+\``,
       name: SCOPE.shell,
@@ -169,11 +147,8 @@ const prompt: Rule = {
 };
 
 interface DialectRules {
-  /** The member a tag is read from: `prompts.claude`. */
   readonly member: string;
-  /** What only opens a message; `closing` is the characters that end the string. */
   opening(closing: string): Rule[];
-  /** Template-only notation as it is written inside a template literal, and inside a quoted string. */
   readonly template: { readonly literal: Rule[]; readonly quoted: Rule[] };
 }
 
@@ -213,7 +188,6 @@ const DIALECTS: Record<string, DialectRules> = {
   },
 };
 
-/** Tagged templates (`prompts.claude\`…\``) and plain-string calls (`prompts.codex("…")`) in JS and TS. */
 function typescript(): Rule {
   const repository: Record<string, Rule> = {
     escape: {
@@ -271,8 +245,6 @@ function typescript(): Rule {
   }
   return {
     $schema: SCHEMA,
-    // `-(string -meta.embedded)` keeps the injection live inside `${}` (TypeScript's `meta.embedded.line.ts`), where the template's string scope is still on the stack.
-    // The prompt body itself carries no `meta.embedded`: VS Code would read it as code and match brackets and close quotes in prose.
     injectionSelector: "L:source -comment -(string -meta.embedded)",
     patterns,
     repository,
@@ -280,7 +252,6 @@ function typescript(): Rule {
   };
 }
 
-/** The body of SKILL.md, agent, rule, and prompt files, read as a Claude Code template. */
 const markdown: Rule = {
   $schema: SCHEMA,
   injectionSelector:

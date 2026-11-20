@@ -3,8 +3,6 @@ import extractDepcruiseOptions from "dependency-cruiser/config-utl/extract-depcr
 import extractTSConfig from "dependency-cruiser/config-utl/extract-ts-config";
 import { expect, it } from "vitest";
 
-// The viewer's layer direction, declared in .dependency-cruiser.cjs. The
-// cruise resolves paths from the package directory, as its CLI does.
 it("keeps the viewer's layers and the visualization library in their direction", async () => {
   const options = await extractDepcruiseOptions("./.dependency-cruiser.cjs");
   const tsConfig = extractTSConfig("tsconfig.json");

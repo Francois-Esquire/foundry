@@ -11,13 +11,6 @@ import type {
   SurfaceReport,
 } from "./types";
 
-// Plan intelligence: a deterministic description of a plan's real scale,
-// surface, boundary impact, and architectural context. Pure composition over
-// data the analysis already produced — no rescanning, no ts-morph, no
-// thresholds, no labels, no scores. Reads only report.summary,
-// report.dependencies, report.opportunities, and report.anchor (never
-// report.plans, so attachment order cannot matter).
-
 function ratioOrNull(numerator: number, denominator: number): number | null {
   return denominator === 0 ? null : numerator / denominator;
 }
@@ -42,12 +35,6 @@ function foldScale(plan: FoldPackagePlan, report: SurfaceReport): PlanScale {
   };
 }
 
-/**
- * Route files, counted as source, and the importer files the plan repoints,
- * by kind. Each `rewrite-import` change is one importer's import of one
- * route, so the changes count as sites and their distinct files as module
- * edges.
- */
 function internalizeScale(plan: InternalizeSymbolPlan): PlanScale {
   const rewrites = plan.plannedChanges.filter(
     (change) => change.kind === "rewrite-import"
@@ -75,7 +62,6 @@ function internalizeScale(plan: InternalizeSymbolPlan): PlanScale {
   };
 }
 
-/** A file's kind as plan scale counts it: stories count as source. */
 function scaleKind(file: string): "config" | "other" | "source" | "test" {
   const kind = classifyFile(file);
   return kind === "story" ? "source" : kind;
@@ -204,11 +190,6 @@ function intentFor(plan: ReductionPlan, report: SurfaceReport): PlanIntent {
   };
 }
 
-/**
- * Compose the intelligence summary for one plan from the report it came from.
- * Deterministic and read-only; called during analysis and attached as
- * `plan.intelligence`, but usable standalone against any matching report.
- */
 export function buildPlanIntelligence(
   plan: ReductionPlan,
   report: SurfaceReport

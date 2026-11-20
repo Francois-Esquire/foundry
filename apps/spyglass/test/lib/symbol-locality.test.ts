@@ -27,10 +27,6 @@ import { SYMBOL_LOCALITY_SCHEMA_VERSION } from "../../src/lib/symbol-locality-ty
 
 const specifierPattern = /\.tsx?$/;
 
-// V13.1 symbol locality on synthetic packages. Each fixture is one package in
-// a throwaway workspace; the report must be a pure function of that package's
-// own files, so the independence tests perturb everything else.
-
 const tempRoots: string[] = [];
 
 afterAll(() => {
@@ -39,7 +35,6 @@ afterAll(() => {
   }
 });
 
-/** A workspace holding `packages/p` (name `@f/p`) with the given package-relative files. */
 function workspace(
   files: Record<string, string>,
   extra: Record<string, string> = {}
@@ -89,7 +84,6 @@ function importOf(from: string, to: string, name = "X"): string {
   return `import { ${name} } from "${specifier}";\n`;
 }
 
-/** One consumer per path, each importing `X` from `declaration` and binding it once. */
 function consumers(
   declaration: string,
   paths: string[],

@@ -56,8 +56,6 @@ describe("questionnaireSchema", () => {
 describe("createQuestions", () => {
   it("exposes a schema-only ask_questions tool (no execute → loop pauses)", () => {
     const { tools } = createQuestions();
-    // No `execute`: the harness pauses on the call and the renderer resolves it
-    // by posting the user's answers back as the tool output.
     expect(tools.ask_questions.execute).toBeUndefined();
     expect(tools.ask_questions.inputSchema).toBe(questionnaireSchema);
   });

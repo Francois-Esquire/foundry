@@ -1,23 +1,15 @@
-// The finish: the water's linear frame with the bloom added, a warm
-// vignette, a shoulder that rolls off only what the bloom pushes past
-// SHOULDER (everything below it is untouched), and the sRGB encoding, into
-// the display-referred image the anti-aliasing reads.
 
 struct Finish {
   vignetteColor: vec3f,
-  // The vignette's strength, 0 for none.
   vignette: f32,
-  // What the bloom chain's sum is multiplied by: its strength over its gain.
   bloom: f32,
 }
 
 @group(0) @binding(0) var<uniform> finish: Finish;
 @group(0) @binding(1) var scene: texture_2d<f32>;
-// The bloom chain's top level, half the frame's size.
 @group(0) @binding(2) var glow: texture_2d<f32>;
 @group(0) @binding(3) var linear: sampler;
 
-// Linear brightness past which a channel rolls off toward 1.
 const SHOULDER = 0.85;
 
 fn shouldered(c: vec3f) -> vec3f {

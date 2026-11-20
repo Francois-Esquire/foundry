@@ -14,67 +14,39 @@ import { lstatOrNull } from "./fs";
 import { diffDirectory } from "./scan";
 
 const TIMESTAMP_SEPARATORS = /[:.]/g;
-/** Random hex characters that keep two same-millisecond stamps apart. */
 const STAMP_SUFFIX_LENGTH = 8;
 const NOTE_SUFFIX = ".json";
 
-/** Where disk edits that lost to committed records are kept, under the root. */
 export const ARTIFACT_CONFLICTS_DIRECTORY = ".conflicts";
 
-/**
- * Where each directory's last applied tree is noted, under the root, so a
- * later process can tell what it last wrote from what a person edited.
- */
 const APPLIED_DIRECTORY = ".applied";
 
-/** Disk edits that conflicted with committed records, kept before replacing them. */
 export interface ArtifactDiskConflict {
   readonly artifactId: ArtifactId;
-  /** The directory holding the kept files, at their tree paths. */
   readonly directory: string;
   readonly paths: readonly string[];
 }
 
-/** An Artifact's directory, as the filesystem last applied it. */
 export interface AppliedDirectory {
-  /** The tree this process last applied there; unset when it applied none. */
   readonly applied: StorageTree | undefined;
   readonly id: ArtifactId;
   readonly root: string;
 }
 
 export interface ConflictKeeperOptions {
-  /** Told when conflicting disk edits were kept aside. */
   readonly conflicted?: ((conflict: ArtifactDiskConflict) => void) | undefined;
-  /** How many kept conflict sets each Artifact retains; at least one. */
   readonly keptConflicts: number;
-  /** The filesystem's canonical root. */
   readonly root: () => Promise<string>;
 }
 
-/**
- * Keeps disk edits a commit is about to replace, under
- * `<root>/.conflicts/<artifact>/<stamp>/`, and notes each applied tree under
- * `<root>/.applied/`, so edits are never silently discarded and bytes an
- * earlier process applied are never mistaken for edits.
- */
 export interface ConflictKeeper {
-  /** Note the tree just written to `id`'s directory; it outlives the process. */
   applied(id: ArtifactId, tree: StorageTree): Promise<void>;
-  /**
-   * Keep what disk holds beyond the tree last applied, in this process or
-   * (noted on disk) an earlier one, before `artifact` is materialized over
-   * it. With no tree on record, disk is compared with the tree about to be
-   * applied and every version committed before it.
-   */
   preserve(
     directory: AppliedDirectory,
     artifact: ArtifactResolved,
     transaction: ArtifactOperations
   ): Promise<void>;
-  /** `id`'s directory is gone with its Artifact: forget what was applied there. */
   removed(id: ArtifactId): Promise<void>;
-  /** Forget the notes of Artifacts `exists` no longer knows, such as ones deleted while closed. */
   sweep(exists: (id: ArtifactId) => Promise<boolean>): Promise<void>;
 }
 
@@ -89,10 +61,6 @@ export function conflictKeeper(options: ConflictKeeperOptions): ConflictKeeper {
     return join(await notes(), `${directoryName(id)}${NOTE_SUFFIX}`);
   }
 
-  /**
-   * The tree last applied to the directory: by this process, or as an
-   * earlier one noted it. Null when neither is on record.
-   */
   async function lastApplied(
     directory: AppliedDirectory
   ): Promise<StorageTree | null> {
@@ -113,10 +81,6 @@ export function conflictKeeper(options: ConflictKeeperOptions): ConflictKeeper {
     }
   }
 
-  /**
-   * Write one conflict set to a new stamp directory, then prune the
-   * Artifact's oldest sets beyond `keptConflicts`. Stamps sort by time.
-   */
   async function keep(
     id: ArtifactId,
     files: readonly (readonly [string, Uint8Array])[]
@@ -168,9 +132,6 @@ export function conflictKeeper(options: ConflictKeeperOptions): ConflictKeeper {
           changed.push([path, bytes]);
         }
       }
-      // Without an applied tree, disk may still hold a version committed
-      // while nothing applied it (a crash, or a closed filesystem): stale,
-      // not edited.
       const kept = applied
         ? changed
         : await uncommitted(transaction, artifact, changed);
@@ -202,10 +163,6 @@ export function conflictKeeper(options: ConflictKeeperOptions): ConflictKeeper {
   };
 }
 
-/**
- * The files whose bytes no other committed version of the Artifact holds at
- * the same path; the target version was already compared.
- */
 async function uncommitted(
   transaction: ArtifactOperations,
   artifact: ArtifactResolved,
@@ -242,7 +199,6 @@ async function uncommitted(
   return kept;
 }
 
-/** Whether a tree entry already holds exactly these bytes. */
 async function holds(
   node: StorageNode | undefined,
   bytes: Uint8Array

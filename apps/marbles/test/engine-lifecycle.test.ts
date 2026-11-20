@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import type { Context } from "~/lib/types";
 import { testEngine, testInstances } from "./helpers/engine";
+import { storedRun } from "./helpers/stored-runs";
 
 function deferred() {
   let resolve!: () => void;
@@ -93,8 +94,8 @@ it.each(["factory", "interactions"] as const)(
     );
     await first.stop({ cancel: true });
     await first.dispose();
-    const path = join(state, "runs", `${launched.id}.json`);
-    const saved = await readFile(path, "utf8");
+    const saved = await storedRun(state, launched.id);
+    expect(saved).toMatchObject({ owner: null, status: "suspended" });
     const failed = testEngine({ askable: true, state });
     if (stage === "factory") {
       failed.define({
@@ -116,12 +117,7 @@ it.each(["factory", "interactions"] as const)(
       await expect(failed.start()).rejects.toThrow("recovery failed");
       await failed.stop();
       expect(failed.scopes.size).toBe(0);
-      const lock = failed.store.lock(`run-${launched.id}`);
-      expect("release" in lock).toBe(true);
-      if ("release" in lock) {
-        lock.release();
-      }
-      expect(await readFile(path, "utf8")).toBe(saved);
+      expect(await storedRun(state, launched.id)).toEqual(saved);
       await next.start();
       expect(next.scopes.has(launched.id)).toBe(true);
       const question = (await next.feed()).find(

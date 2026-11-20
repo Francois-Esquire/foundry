@@ -8,7 +8,6 @@ const IMPORT =
   /(?:import|export)[^"']*?from\s+["']([^"']+)["']|import\(["']([^"']+)["']\)/g;
 const ON_DEVICE = ["@huggingface/transformers", "@browser-ai/transformers-js"];
 
-/** Every module the base entry reaches, and the packages they import. */
 function graph(entry: string): { files: string[]; packages: Set<string> } {
   const files: string[] = [];
   const packages = new Set<string>();

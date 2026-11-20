@@ -24,10 +24,6 @@ import {
   resolveEditors,
 } from "./resolver";
 
-/**
- * The most a thumbnail reads: one transfer chunk at the `artifacts.chunkBytes`
- * default. Larger images show their type's icon instead.
- */
 export const THUMBNAIL_MAX_BYTES = 256 * 1024;
 
 const MARKDOWN_MIME = "text/markdown";
@@ -35,7 +31,6 @@ const NOT_FILE_NAME = /[^a-z0-9._-]+/g;
 const EDGE_DASHES = /^[-.]+|[-.]+$/g;
 const MAX_STEM_LENGTH = 80;
 
-/** A refused open: `code` is the RPC error it maps to. */
 export class ArtifactOpenError extends Error {
   override readonly name = "ArtifactOpenError";
   readonly code: "CONFLICT" | "NOT_FOUND";
@@ -47,19 +42,8 @@ export class ArtifactOpenError extends Error {
 }
 
 export interface ArtifactExplorer {
-  /**
-   * A new, empty Markdown File Artifact the user made: one entry, ready to
-   * open in an editor. It is a file, not a Module.
-   */
   create(input: { name: string }): Promise<{ id: string }>;
-  /** Product Artifacts, most recently updated first. */
   list(): Promise<ArtifactSummary[]>;
-  /**
-   * Open one resolved entry in one of its editors: a new editor binding for
-   * it. The entry's Content must still be active and the editor still a
-   * candidate; choosing among several is remembered for that MIME type. A
-   * write editor of a frozen version is bound to its working successor.
-   */
   open(input: {
     contentId: string;
     entry: string;
@@ -67,33 +51,25 @@ export interface ArtifactExplorer {
     moduleId: string;
     view: string;
   }): Promise<EditorOpenRequest>;
-  /** What opening this Artifact needs next. `entry` selects a file. */
   resolve(input: { entry?: string; id: string }): Promise<ArtifactResolution>;
-  /** A small stored image for the grid, or null. */
   thumbnail(input: { id: string }): Promise<ArtifactThumbnail | null>;
 }
 
 export interface ArtifactExplorerOptions {
-  /** Where opened entries are bound: the registry the Gateway providers resolve. */
   readonly bindings: EditorBindings;
-  /** Editors installed Modules declare; none by default. */
   readonly editors?: () => Promise<readonly EditorRegistration[]>;
-  /** Product files: creating them, and opening them for writing. */
   readonly files: Pick<ProductFiles, "create" | "working">;
-  /** Where choices between editors are remembered; in memory by default. */
   readonly preferences?: EditorPreferences;
 }
 
 type Reads = Pick<ArtifactOperations, "get" | "list" | "readFileRange">;
 
-// Matching only reads the type family; nothing is handled here.
 const registry = createRegistry<null>({ fallback: null });
 
 function isImage(mime: string | null): mime is string {
   return mime?.toLowerCase().startsWith("image/") === true;
 }
 
-/** The stored file a thumbnail shows: `metadata.thumbnail`, else an image entry. */
 function thumbnailPath(content: Content): string | null {
   for (const path of [content.metadata.thumbnail, rootPath(content)]) {
     const node =
@@ -142,11 +118,9 @@ async function readBounded(
     end: THUMBNAIL_MAX_BYTES,
     start: 0,
   });
-  // A file that grew past the bound since listing is not cut short.
   return chunk && chunk.data.byteLength === chunk.bytes ? chunk.data : null;
 }
 
-/** A Markdown file name from what the user called it: portable, never empty. */
 export function markdownFileName(name: string): string {
   const stem = name
     .normalize("NFKD")
@@ -158,11 +132,6 @@ export function markdownFileName(name: string): string {
   return `${stem || "untitled"}.md`;
 }
 
-/**
- * Listing, thumbnails and open resolution over the shared Artifact store.
- * Module Artifacts stay in the store and resolve to their Module when
- * addressed; the listing just leaves them out.
- */
 export function createArtifactExplorer(
   artifacts: Reads,
   options: ArtifactExplorerOptions

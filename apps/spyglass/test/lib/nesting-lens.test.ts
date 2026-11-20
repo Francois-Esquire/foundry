@@ -205,7 +205,6 @@ describe("the nesting lens", () => {
       { id: "@s/o", path: "packages/o" },
       { id: "@s/n", path: "packages/o/nested" },
     ];
-    // The outer topology also lists the nested package's root.
     const outer = internalsOf("@s/o", "packages/o", {
       ".": ".",
       nested: "nested",
@@ -221,7 +220,6 @@ describe("the nesting lens", () => {
     expect(
       regionOf(derive({ internals: [inner, outer], modules, packages }))
     ).toBe("inner");
-    // Without the nested package's own internals, the folder has no region.
     expect(
       regionOf(
         derive({ internals: [outer], missing: ["@s/n"], modules, packages })
@@ -235,7 +233,6 @@ describe("the nesting lens", () => {
       "packages/q/src/deep/a.ts",
       "packages/q/src/top.ts",
       "apps/a/src/index.ts",
-      // A folder of data files only: in the index, not in the topology.
       "packages/q/src/data/table.json",
     ];
     const placementSource: PlacementSourcePackage = {

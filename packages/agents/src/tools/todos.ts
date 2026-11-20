@@ -12,8 +12,6 @@ export interface TodoItem {
 }
 
 export interface TodoEventMap {
-  /** Fired after every mutation (and on hydrate) with the current list — the
-   *  single signal a live consumer needs to re-render. */
   changed: [TodoItem[]];
   "todo.added": [TodoItem];
   "todo.completed": [TodoItem];

@@ -26,7 +26,6 @@ import { validateHarnessProfile } from "./turn-driver";
 import type { GatedTurn } from "./turn-gate";
 import { createTurnGate } from "./turn-gate";
 
-/** A turn's parts, plus the failure `drive` hands its own source to rethrow. */
 type DriverQueuePart = StreamPart | { type: "driver-error"; error: unknown };
 
 export function createDriverSession(
@@ -93,8 +92,6 @@ export function createDriverSession(
           await sessions.createSession({ id: sessionId });
         }
         const history = await sessions.listMessages(sessionId);
-        // Only the harness records a native session mapping, and always as a
-        // system message; a mapping-shaped part inside turn input is content.
         const mapping = history
           .filter((message) => message.role === "system")
           .flatMap((message) => message.parts)

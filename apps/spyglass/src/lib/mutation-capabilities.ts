@@ -2,18 +2,11 @@ import { createHash } from "node:crypto";
 
 import type { PlannedTransformationKind } from "./operator-plan-types";
 
-// The registry describes supported transformation kinds and syntax forms.
-// Add mutator support before widening the default capabilities.
-
-/** Bumps when support changes: 3 adds internal named import rewrites. */
 const MUTATION_CAPABILITY_VERSION = 3;
 
 interface MutationCapability {
-  /** The edit lands in one write per file with no intermediate state. */
   atomic: boolean;
-  /** The edit is undone by restoring the pre-mutation bytes. */
   reversible: boolean;
-  /** Syntax forms (`PlannedTransformation.form`) the mutator handles; `*` for form-independent kinds. */
   supportedForms: string[];
   transformationKind: PlannedTransformationKind;
 }
@@ -60,7 +53,6 @@ export const DEFAULT_MUTATION_CAPABILITIES: MutationCapabilityRegistry = {
 
 export interface CapabilityLookup {
   atomic: boolean;
-  /** Why not, when unsupported. */
   reason?: string;
   reversible: boolean;
   supported: boolean;
@@ -103,7 +95,6 @@ export function lookupCapability(
   };
 }
 
-/** Stable over the registry contents, independent of capability order. */
 export function capabilityFingerprint(
   registry: MutationCapabilityRegistry
 ): string {

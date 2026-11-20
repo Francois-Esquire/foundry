@@ -2,14 +2,6 @@ import { z } from "zod";
 
 import type { WorkspaceState } from "~/model/connection";
 
-/**
- * What crosses the Marbles process's boundaries, as newline-delimited JSON:
- * clients and workers to the daemon over its Unix socket. One shape serves both. A
- * request carries an id and is answered once; a notification carries none
- * and is not. Params are validated where they arrive from outside the
- * process (the socket); the daemon trusts its own workers.
- */
-
 export const PROTOCOL = 1;
 
 const requestSchema = z.object({
@@ -56,7 +48,6 @@ export function encode(message: Message): string {
   return `${JSON.stringify(message)}\n`;
 }
 
-/** Decode a line; `undefined` for one that is not a message. */
 export function decode(line: string): Message | undefined {
   try {
     const parsed = messageSchema.safeParse(JSON.parse(line));
@@ -66,7 +57,6 @@ export function decode(line: string): Message | undefined {
   }
 }
 
-/** Split a byte stream into complete lines, keeping the partial tail. */
 export function lineSplitter(onLine: (line: string) => void) {
   let buffer = "";
   return (chunk: string): void => {
@@ -83,7 +73,6 @@ export function lineSplitter(onLine: (line: string) => void) {
   };
 }
 
-/** `error` as a wire error: its message, and its name when it has one worth keeping. */
 export function wireError(error: unknown): WireError {
   if (error instanceof Error) {
     return error.name === "Error"
@@ -93,7 +82,6 @@ export function wireError(error: unknown): WireError {
   return { message: String(error) };
 }
 
-/** An error a response carried, rebuilt on the calling side. */
 export class RemoteError extends Error {
   constructor(wire: WireError) {
     super(wire.message);
@@ -105,7 +93,6 @@ export const DAEMON_METHODS = {
   attach: "attach",
   detach: "detach",
   hello: "hello",
-  /** A worker's first request: the token it was spawned with. */
   register: "register",
   reload: "reload",
   shutdown: "shutdown",
@@ -124,7 +111,6 @@ export const helloResultSchema = z.object({
 });
 export type HelloResult = z.infer<typeof helloResultSchema>;
 
-/** A starter the client just wrote; the worker posts the setup milestone for it. */
 const setupDraftSchema = z.object({
   instructions: z.string(),
   name: z.string(),
@@ -133,10 +119,8 @@ const setupDraftSchema = z.object({
 export type SetupDraftParams = z.infer<typeof setupDraftSchema>;
 
 export const attachParamsSchema = z.object({
-  /** The workspace root when the source has no files: the client's cwd. */
   root: z.string().min(1).optional(),
   setup: setupDraftSchema.optional(),
-  /** The authoring folder or module, resolved by the client. */
   source: z.string().min(1),
 });
 
@@ -161,7 +145,6 @@ export const workspaceSummarySchema = z.object({
   state: z.enum(WORKSPACE_STATES as [WorkspaceState, ...WorkspaceState[]]),
 });
 
-/** Params for a method on one workspace carry its id beside the arguments. */
 export const WORKSPACE_PREFIX = "workspace.";
 
 export const WORKSPACE_METHODS = {
@@ -181,7 +164,6 @@ export const WORKSPACE_METHODS = {
   snapshot: "snapshot",
   steer: "steer",
   stopActivity: "stopActivity",
-  /** One task command; answered with a `TaskOutcome`, so a refusal keeps its code. */
   tasks: "tasks",
 } as const;
 export type WorkspaceMethod =
@@ -191,44 +173,97 @@ export function isWorkspaceMethod(name: string): name is WorkspaceMethod {
   return Object.values(WORKSPACE_METHODS).some((method) => method === name);
 }
 
-export const WORKER_NOTIFICATIONS = {
+export const GENERATION_NOTIFICATIONS = {
+  handed: "handed",
   line: "line",
-  /** The engine is up; params describe the workspace. */
-  ready: "ready",
-  /** The authoring source changed on disk. */
-  sourceChanged: "sourceChanged",
+  read: "read",
+  released: "released",
 } as const;
 
-/** What the daemon asks a worker beyond workspace methods. */
-export const WORKER_METHODS = {
-  /** Drain running work and exit. */
+export const GENERATION_METHODS = {
+  adopt: "adopt",
+  host: "host",
+  load: "load",
+  retire: "retire",
+  start: "start",
   stop: "stop",
+  takeQueued: "takeQueued",
+  unhost: "unhost",
 } as const;
 
-/**
- * How long a worker gets to answer `stop`, and then as long again to exit,
- * before the daemon kills it. A client waiting for the daemon to stop
- * budgets from this.
- */
-export const WORKER_STOP_TIMEOUT_MS = 30_000;
+export const GENERATION_STOP_TIMEOUT_MS = 30_000;
 
-export const readyParamsSchema = z.object({
+const identitySchema = z.object({
+  pid: z.number().int(),
+  started: z.string().nullable(),
+});
+
+const workspaceLoadSchema = z.object({
+  error: z.string().optional(),
+  id: z.string().optional(),
+  root: z.string(),
+});
+export type WorkspaceLoadResult = z.infer<typeof workspaceLoadSchema>;
+
+export const loadResultSchema = z.object({
+  identity: identitySchema,
+  loads: z.array(workspaceLoadSchema),
+});
+export type LoadResult = z.infer<typeof loadResultSchema>;
+
+export const startParamsSchema = z.object({
+  setups: z.record(z.string(), setupDraftSchema).optional(),
+});
+
+export const startResultSchema = z.object({
+  loads: z.array(workspaceLoadSchema),
+});
+
+export const hostParamsSchema = z.object({
   config: z.string().nullable(),
-  configPath: z.string(),
+  root: z.string(),
+  setup: setupDraftSchema.optional(),
+});
+
+export const hostResultSchema = z.object({
+  config: z.string().nullable(),
   id: z.string(),
   root: z.string(),
 });
-export type ReadyParams = z.infer<typeof readyParamsSchema>;
 
-export const lineParamsSchema = z.object({
-  /** The workspace the line is about, added by the daemon when forwarding. */
-  id: z.string().optional(),
-  line: z.string(),
+export const readParamsSchema = z.object({
+  file: z.string(),
+  readAt: z.number(),
+  root: z.string(),
 });
 
-/** Notifications the daemon forwards to subscribed clients. */
+export const releasedParamsSchema = z.object({
+  id: z.string(),
+  runId: z.string(),
+});
+
+export const queuedParamsSchema = z.object({
+  id: z.string(),
+  owner: identitySchema,
+  runId: z.string(),
+});
+
+export const queuedTakeSchema = z.discriminatedUnion("taken", [
+  z.object({ taken: z.literal(true) }),
+  z.object({ taken: z.literal(false), why: z.string() }),
+]);
+
+export const retireParamsSchema = z.object({
+  successor: identitySchema,
+});
+
+export const lineParamsSchema = z.object({
+  id: z.string().optional(),
+  line: z.string(),
+  root: z.string().optional(),
+});
+
 export const CLIENT_NOTIFICATIONS = {
   line: "line",
-  /** A workspace's state changed; params are its summary. */
   workspace: "workspace",
 } as const;

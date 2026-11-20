@@ -138,7 +138,6 @@ describe("Module Installation files", () => {
     await files.prepare({ installationId, persistence: "installation" });
     expect(await contents(directory)).toEqual(entries);
     await expect(stat(live)).rejects.toMatchObject({ code: "ENOENT" });
-    // Host-side snapshots are not the Program's; the legacy root stays.
     expect(await readdir(legacy)).toEqual(["snapshots"]);
 
     await files.prepare({ installationId, persistence: "installation" });
@@ -158,7 +157,6 @@ describe("Module Installation files", () => {
     const { files, live, directory } = await fixture();
     const entries = await seedLegacy(live);
     await mkdir(directory, { recursive: true });
-    // The earlier run got this far: one entry renamed, the rest still legacy.
     await rm(path.join(live, "data.sqlite"));
     await writeFile(path.join(directory, "data.sqlite"), "main");
 
@@ -206,7 +204,6 @@ describe("Module Installation files", () => {
     await files.backup(installationId);
     expect(snapshotDatabase).toHaveBeenCalledOnce();
     expect(snapshotDatabase.mock.calls[0]?.[0]).toBe(database);
-    // The rollback copy stays outside the directory the Program can write.
     expect(await readdir(directory)).toEqual(["data.sqlite"]);
     expect(await readdir(backups)).toEqual(["data.sqlite.bak"]);
     const backupMode = (await stat(path.join(backups, "data.sqlite.bak"))).mode;
@@ -225,7 +222,6 @@ describe("Module Installation files", () => {
       "upload.bin": "kept",
     });
     expect(await contents(backups)).toEqual({ "data.sqlite.bak": "before" });
-    // The copy survives a restore, so a second failed start restores again.
     await writeFile(database, "half migrated again");
     expect(await files.restoreBackup(installationId)).toBe(true);
     expect(await readFile(database, "utf8")).toBe("before");
@@ -287,14 +283,12 @@ describe("Module Installation files", () => {
     await files.prepare({ installationId, persistence: "installation" });
     const database = path.join(directory, "data.sqlite");
     await writeFile(database, "program data");
-    // Names the old layout used, written from inside the files directory.
     await symlink(outside, path.join(directory, "data.sqlite.bak"));
     await writeFile(path.join(directory, ".data.sqlite.backup-empty"), "");
 
     expect(await files.restoreBackup(installationId)).toBe(false);
     expect(await readFile(database, "utf8")).toBe("program data");
 
-    // A Program-placed name also no longer stands in for the host's baseline.
     await files.backup(installationId);
     expect(await readFile(path.join(backups, "data.sqlite.bak"), "utf8")).toBe(
       "program data"
@@ -313,8 +307,6 @@ describe("Module Installation files", () => {
   });
 
   it("honors the empty-backup marker by its presence alone, whatever kind of entry it is", async () => {
-    // Only the host writes under the backups directory, so the marker is a
-    // flag; its contents are never read, unlike the backup file's.
     for (const place of [
       (marker: string) => mkdir(marker),
       (marker: string) => symlink("missing-target", marker),
@@ -426,7 +418,6 @@ describe("Module Installation files", () => {
       const { files, root, ephemeral, directory } = await fixture();
       await files.prepare({ installationId, persistence: "none" });
       await writeFile(path.join(ephemeral, "left.txt"), "crash");
-      // A new adapter, as after a host restart, knows nothing of the run.
       const restarted = createModuleInstallationFiles({
         root,
         snapshotDatabase: () => Promise.reject(new Error("unused")),
@@ -448,7 +439,6 @@ describe("Module Installation files", () => {
       await files.prepare({ installationId, persistence: "installation" });
       await writeFile(path.join(directory, "data.sqlite"), "kept");
       await writeFile(path.join(directory, "notes.txt"), "kept too");
-      // The version change to a `none` release takes its baseline first.
       await files.backup(installationId);
 
       const run = await files.prepare({ installationId, persistence: "none" });
@@ -589,7 +579,6 @@ describe("Module Installation files", () => {
       resources: { cpus: 1, memoryBytes: 268_435_456 },
     };
 
-    /** Each start lists the files it was given, then writes its own. */
     async function supervised() {
       const { files, directory, ephemeral } = await fixture();
       const module = await publishedModule({ files });

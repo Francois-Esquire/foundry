@@ -469,7 +469,6 @@ describe("Module build publication", () => {
         "source/foundry.module.json",
       ])
     );
-    // The frozen Version is the saved source now; the next save revises it.
     const next = await projects.workspaceSource({ moduleId });
     expect(next.binding).toEqual(published.binding);
     await projects.saveWorkspaceSource({

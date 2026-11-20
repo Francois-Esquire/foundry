@@ -41,7 +41,6 @@ beforeAll(async () => {
   product = copyFixture("product");
   state = join(directory, "state");
   events = [];
-  // Given out of order: the collection scans by resolved root.
   scanned = await scan.collection([product, platform], {
     onProgress: (event) => events.push(event),
     state,

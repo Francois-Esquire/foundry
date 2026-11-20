@@ -4,7 +4,6 @@ import type { VercelRestModel } from "../../catalog/vercel";
 
 import { fromVercelRest } from "../../catalog/vercel";
 
-// Trimmed rows from a real https://ai-gateway.vercel.sh/v1/models payload.
 const TIERED: VercelRestModel = {
   context_window: 256_000,
   description: "Thinking-mode Qwen with tool support.",

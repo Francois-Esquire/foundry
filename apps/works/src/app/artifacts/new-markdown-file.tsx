@@ -7,11 +7,6 @@ import { Button } from "~/app/components/button";
 import { Dialog } from "~/app/components/dialog";
 import { Input } from "~/app/components/input";
 
-/**
- * "New Markdown file": a File Artifact the user makes and names, then opens
- * like any other — in an installed editor Module, or with an honest "load an
- * editor" answer when none opens Markdown. It never becomes a Module.
- */
 export function NewMarkdownFile() {
   const api = worksApi();
   const queryClient = useQueryClient();
@@ -40,7 +35,6 @@ export function NewMarkdownFile() {
       await queryClient.invalidateQueries({
         queryKey: api.artifacts.list.key(),
       });
-      // The Artifacts route opens it, asking for an editor when needed.
       await navigate(`/artifacts/${encodeURIComponent(created.id)}`);
     },
     [api, create.mutateAsync, name, navigate, queryClient]

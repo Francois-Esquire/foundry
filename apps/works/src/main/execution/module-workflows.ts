@@ -18,12 +18,10 @@ import {
   workflowIdentity,
 } from "./workflows";
 
-/** How many finished runs' answers are kept for their watchers. */
 const RETAINED_OUTPUTS = 200;
 
 export interface WorkflowStart {
   readonly input: unknown;
-  /** The caller's id for this start: resending it returns the same execution. */
   readonly request: string;
   readonly version: number;
   readonly workflow: string;
@@ -31,16 +29,13 @@ export interface WorkflowStart {
 
 export interface WorkflowStarted {
   readonly execution: string;
-  /** Answered from an earlier start of this request. */
   readonly retried: boolean;
   readonly status: ExecutionStatus;
 }
 
-/** One execution as its Module sees it. */
 export interface WorkflowExecutionState {
   readonly error: { readonly code: string; readonly message?: string } | null;
   readonly execution: string;
-  /** The workflow's answer once complete; null otherwise. */
   readonly output: unknown;
   readonly progress: unknown;
   readonly revision: number;
@@ -65,19 +60,11 @@ function isSettled(run: Pick<ExecutionRun, "status">): boolean {
   return SETTLED_EXECUTION_STATUSES.has(run.status);
 }
 
-/**
- * Module-started workflows (spec §7): each start of a host-registered
- * workflow is an engine run on the Module's `workflows` queue, correlated to
- * its Module, Installation and runtime. Only the runtime that started an
- * execution can watch or cancel it. Inputs and answers stay in this
- * process; the run carries their request identity and an input digest.
- */
 export class ModuleWorkflows {
   readonly #execution: ModuleWorkflowsOptions["execution"];
   readonly #models: WorkflowModels;
   readonly #outputs = new Map<string, unknown>();
   readonly #registry: WorkflowRegistry;
-  /** Starts and cancellations of one Installation, in order. */
   readonly #turns = new KeyedTurns<string>();
 
   constructor(options: ModuleWorkflowsOptions) {
@@ -86,13 +73,6 @@ export class ModuleWorkflows {
     this.#registry = options.registry ?? WORKS_WORKFLOWS;
   }
 
-  /**
-   * Start a registered workflow. The run is durably queued, with the
-   * request's identity and input digest, before the workflow does anything.
-   * A request already started by this runtime with the same input answers
-   * with that execution; with other input it is refused. `authorize`
-   * re-checks the caller's Grant in turn with revocations.
-   */
   start(
     principal: ModulePrincipal,
     start: WorkflowStart,
@@ -163,8 +143,6 @@ export class ModuleWorkflows {
             signal: context.signal,
             task: context,
           });
-          // Held before the run settles, so a watcher that sees `complete`
-          // also sees the answer.
           this.#remember(context.run.id, output);
           return output;
         }
@@ -178,12 +156,6 @@ export class ModuleWorkflows {
     });
   }
 
-  /**
-   * The caller's execution: a snapshot, then each newer revision (changes
-   * that arrive while the reader is busy collapse into the latest), ending
-   * once it settles or the request is cancelled. Reconnecting starts again
-   * from a fresh snapshot.
-   */
   async *watch(
     principal: ModulePrincipal,
     id: string,
@@ -196,8 +168,8 @@ export class ModuleWorkflows {
       read: () => runs.get(id),
       same: (sent, next) => next.revision <= sent.revision,
       signal,
-      subscribe(changed) {
-        const subscription = runs.subscribe((changedRun) => {
+      async subscribe(changed) {
+        const subscription = await runs.subscribe((changedRun) => {
           if (changedRun.id === id) {
             changed();
           }
@@ -213,7 +185,6 @@ export class ModuleWorkflows {
     }
   }
 
-  /** Cancel the caller's execution through the engine; settled runs stay as they are. */
   async cancel(
     principal: ModulePrincipal,
     id: string
@@ -225,10 +196,6 @@ export class ModuleWorkflows {
     return { status: this.#execution.runs.get(id)?.status ?? run.status };
   }
 
-  /**
-   * Cancel every unfinished execution of an Installation: its start Grant
-   * was revoked or its Program stopped. Ordered after any start in flight.
-   */
   cancelInstallation(installationId: string): Promise<void> {
     return this.#turns.run(installationId, () =>
       this.#cancelOpen(
@@ -237,7 +204,6 @@ export class ModuleWorkflows {
     );
   }
 
-  /** Quit: no Program outlives Works, so neither does work they started. */
   shutdown(): Promise<void> {
     return this.#cancelOpen(() => true);
   }
@@ -256,7 +222,6 @@ export class ModuleWorkflows {
     );
   }
 
-  /** The run, if it is a workflow this runtime started; otherwise the same refusal as for an unknown id. */
   #owned(principal: ModulePrincipal, id: string): ExecutionRun {
     const run = this.#execution.runs.get(id);
     if (

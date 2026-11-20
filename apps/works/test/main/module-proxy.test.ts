@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createModuleProxy } from "~/main/modules/runtime/proxy";
 
 const ORIGIN = "module-app://token";
-/** What a View's event-stream watch asks for, as `EventSource` does. */
 const EVENTS = { headers: { accept: "text/event-stream" } };
 
 function endpoint() {
@@ -17,7 +16,6 @@ function endpoint() {
   };
 }
 
-/** An upstream that answers with `respond` and records each request. */
 function upstream(
   respond: (init?: RequestInit) => Response | Promise<Response>
 ) {
@@ -29,7 +27,6 @@ function upstream(
   return { calls, fetcher };
 }
 
-/** A stream body the test writes to; it reports when it is cancelled. */
 function eventBody() {
   const encoder = new TextEncoder();
   let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -101,8 +98,6 @@ describe("Module proxy routes", () => {
       expect(await status("HEAD", path), `HEAD ${path}`).toBe(200);
       expect(await status("PUT", path), `PUT ${path}`).toBe(405);
     }
-    // The View's own accept decides: only an event-stream GET is a stream.
-    // The Program sees what the View accepts, never one forced on it.
     const [post, get, stream, head] = calls.map(
       (call) => new Headers(call.init?.headers)
     );
@@ -134,7 +129,6 @@ describe("Module proxy routes", () => {
       "http://127.0.0.1:3000/_module/a/b%20c?q=%2F",
       "http://127.0.0.1:3000/caf%C3%A9.js",
     ]);
-    // Never a path the Program could read as another origin.
     for (const path of ["//example.com/a.js", "/%2F%2Fexample.com/a.js"]) {
       expect((await proxy(new Request(`${ORIGIN}${path}`))).status).toBe(404);
     }
@@ -214,7 +208,6 @@ describe("Module proxy routes", () => {
     const read = response.body?.getReader().read();
     serving.abort();
     expect(calls[0]?.init?.signal?.aborted).toBe(true);
-    // The View's response ends with the Program, even if upstream stays open.
     await expect(read).rejects.toThrow("stopped serving");
     expect(events.cancelled).toHaveBeenCalled();
   });
@@ -261,7 +254,6 @@ describe("Module proxy routes", () => {
 describe("Module proxy request bodies", () => {
   const MIB = 1024 * 1024;
 
-  /** A body the test feeds chunk by chunk, sent without a content-length. */
   function chunked(chunks: Uint8Array[]) {
     const pending = [...chunks];
     const body = new ReadableStream<Uint8Array>({
@@ -332,12 +324,10 @@ describe("Module proxy request bodies", () => {
     const view = new AbortController();
     const reply = proxy(
       new Request(`${ORIGIN}/_module/graphql`, {
-        // The first chunk arrives; the rest never does.
         ...chunked([new Uint8Array(8)]),
         signal: view.signal,
       })
     );
-    // Abort while the proxy waits for the rest.
     await new Promise((resolve) => setTimeout(resolve, 10));
     view.abort();
     expect((await reply).status).toBe(502);

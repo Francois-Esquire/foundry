@@ -3,10 +3,8 @@ import { spawn as spawnNode } from "node:child_process";
 import { resolve } from "node:path";
 import { spawn } from "bun";
 
-/** The built CLI; tests wait for the package build. */
 export const CLI = resolve(import.meta.dirname, "../../dist/lib/spyglass.js");
 
-/** Starts the built CLI under the running Bun, with stdout and stderr piped. */
 export function spawnCli(
   args: string[],
   cwd: string,
@@ -20,7 +18,6 @@ export function spawnCli(
   });
 }
 
-/** Starts `args` under the running Bun as the leader of a new process group, so a test can signal the group as a terminal does. */
 export function spawnDetached(
   args: string[],
   cwd: string,

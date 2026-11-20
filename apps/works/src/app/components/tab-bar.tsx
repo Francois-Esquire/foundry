@@ -8,21 +8,14 @@ interface TabBarItem<T extends string> {
 }
 
 export interface TabBarProps<T extends string> {
-  /** The panels, as `TabPanel`s. */
   children: ReactNode;
   className?: string;
-  /** Names the tab list for assistive technology. */
   label?: string;
   onChange: (id: T) => void;
   tabs: readonly TabBarItem<T>[];
   value: T;
 }
 
-/**
- * The underline tab bar: small-caps labels with an accent underline on the
- * active tab. The row scrolls sideways when there are more tabs than fit.
- * Arrow keys move between tabs, and each tab names its panel.
- */
 export function TabBar<T extends string>({
   children,
   className,
@@ -64,5 +57,4 @@ export function TabBar<T extends string>({
   );
 }
 
-/** The panel of the tab whose id is its `value`. */
 export const TabPanel = Tabs.Content;

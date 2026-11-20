@@ -23,7 +23,7 @@ function emptyStream(): SessionStream {
     outcome: Promise.resolve("complete"),
     output: Promise.resolve(undefined as never),
     partialOutputStream: (async function* () {
-      // No structured output.
+      yield* [];
     })(),
     result: Promise.resolve(undefined),
     text: Promise.resolve(""),
@@ -38,8 +38,6 @@ function recordingAgent(): {
 } {
   const inputs: SessionInput[] = [];
   const calls: TurnOptions[] = [];
-  // `streamSessionAgent` only calls `.stream`, so a minimal fake cast to the
-  // class is enough — no need to construct a real harness.
   const agent = {
     stream(input: SessionInput, options: TurnOptions = {}) {
       inputs.push(input);
@@ -51,9 +49,7 @@ function recordingAgent(): {
 }
 
 async function drain(stream: AsyncIterable<unknown>): Promise<void> {
-  for await (const _ of stream) {
-    // discard — we assert on what the agent was called with, not the chunks
-  }
+  await Array.fromAsync(stream);
 }
 
 describe("turnHasInput", () => {

@@ -1,27 +1,61 @@
 import { KeyValue } from "~/components/ui/key-value";
 import { Text } from "~/components/ui/text";
-import { statusDisplay } from "~/model/run-status";
-import {
-  flattenSteps,
-  type RunSnapshot,
-  type StepSnapshot,
-} from "~/views/dashboard-model";
-import { costLabel, tokensLabel } from "~/views/usage-format";
+
+export interface RunOverviewView {
+  readonly cost: string;
+  readonly currentStep: string;
+  readonly elapsed: string;
+  readonly error?: string;
+  readonly id: string;
+  readonly name: string;
+  readonly observedSteps: number;
+  readonly started: string;
+  readonly status: string;
+  readonly timing?: {
+    readonly createdAt: number;
+    readonly endedAt?: number;
+    readonly startedAt?: number;
+  };
+  readonly tokens: string;
+  readonly trigger: string;
+}
+
+export interface StepOverviewView {
+  readonly children: number;
+  readonly costHere: string;
+  readonly costWithChildren: string;
+  readonly elapsed: string;
+  readonly error?: string;
+  readonly id: string;
+  readonly name: string;
+  readonly runId: string;
+  readonly status: string;
+}
 
 function at(ms: number | undefined, missing: string): string {
   return ms === undefined ? missing : new Date(ms).toLocaleString();
 }
 
-export function RunOverview({
-  run,
-  trigger,
-}: {
-  readonly run: RunSnapshot;
-  readonly trigger: string;
-}) {
-  const active = flattenSteps(run.steps).filter(
-    ({ step }) => step.status === "running"
-  );
+function timingFacts(run: RunOverviewView) {
+  if (!run.timing) {
+    return [{ key: "Started", value: run.started }];
+  }
+  return [
+    { key: "Queued", value: at(run.timing.createdAt, ""), wholeWords: true },
+    {
+      key: "Started",
+      value: at(run.timing.startedAt, "Not started"),
+      wholeWords: true,
+    },
+    {
+      key: "Ended",
+      value: at(run.timing.endedAt, "Not ended"),
+      wholeWords: true,
+    },
+  ];
+}
+
+export function RunOverview({ run }: { readonly run: RunOverviewView }) {
   return (
     <box flexDirection="column" gap={1}>
       <Text>
@@ -30,29 +64,14 @@ export function RunOverview({
       <KeyValue
         items={[
           { key: "Run", value: run.id },
-          { key: "Status", value: statusDisplay(run).label },
-          { key: "Trigger", value: trigger },
-          ...(run.timing
-            ? [
-                { key: "Queued", value: at(run.timing.createdAt, "") },
-                {
-                  key: "Started",
-                  value: at(run.timing.startedAt, "Not started"),
-                },
-                {
-                  key: "Ended",
-                  value: at(run.timing.endedAt, "Not ended"),
-                },
-              ]
-            : [{ key: "Started", value: run.started }]),
+          { key: "Status", value: run.status },
+          { key: "Trigger", value: run.trigger },
+          ...timingFacts(run),
           { key: "Elapsed", value: run.elapsed },
-          { key: "Cost", value: costLabel(run.usage) },
-          { key: "Tokens", value: tokensLabel(run.usage) },
-          { key: "Current step", value: active.at(-1)?.step.name ?? "None" },
-          {
-            key: "Observed steps",
-            value: String(flattenSteps(run.steps).length),
-          },
+          { key: "Cost", value: run.cost },
+          { key: "Tokens", value: run.tokens },
+          { key: "Current step", value: run.currentStep },
+          { key: "Observed steps", value: String(run.observedSteps) },
         ]}
       />
       {run.error && <Text>Error: {run.error}</Text>}
@@ -60,13 +79,7 @@ export function RunOverview({
   );
 }
 
-export function StepOverview({
-  run,
-  step,
-}: {
-  readonly run: RunSnapshot;
-  readonly step: StepSnapshot;
-}) {
+export function StepOverview({ step }: { readonly step: StepOverviewView }) {
   return (
     <box flexDirection="column" gap={1}>
       <Text>
@@ -74,16 +87,13 @@ export function StepOverview({
       </Text>
       <KeyValue
         items={[
-          { key: "Run", value: run.id },
+          { key: "Run", value: step.runId },
           { key: "Step", value: step.id },
-          { key: "Status", value: statusDisplay(step).label },
-          { key: "Elapsed", value: step.elapsed ?? "Not recorded" },
-          { key: "Children", value: String(step.children.length) },
-          { key: "Cost here", value: costLabel(step.usage?.direct) },
-          {
-            key: "With children",
-            value: costLabel(step.usage?.inclusive),
-          },
+          { key: "Status", value: step.status },
+          { key: "Elapsed", value: step.elapsed },
+          { key: "Children", value: String(step.children) },
+          { key: "Cost here", value: step.costHere },
+          { key: "With children", value: step.costWithChildren },
         ]}
       />
       {step.error && <Text>Error: {step.error}</Text>}

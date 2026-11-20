@@ -5,6 +5,7 @@ import type { WorkflowResult, WorkflowState } from "../workflow";
 
 export interface WorkflowEffectAccess<I, O> {
   readonly cancel: (reason?: string) => Effect.Effect<void>;
+  readonly markStarted: (at: string) => Effect.Effect<string>;
   readonly resolve: (name: string, value: unknown) => Effect.Effect<void>;
   readonly resolveOccurrence: (
     path: readonly string[],

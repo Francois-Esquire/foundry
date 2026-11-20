@@ -28,13 +28,6 @@ export function assertGuestPorts(guestPorts: readonly number[]): void {
   }
 }
 
-/**
- * Pick a free loopback port per requested guest port. The microVM runtime
- * wants the host port up front, so it is chosen here. The listener is closed
- * before the VM binds it, which leaves a small window where another process
- * could take the port — the boot then fails loudly rather than silently
- * mis-binding.
- */
 export async function reserveHostPorts(
   guestPorts: readonly number[]
 ): Promise<readonly ContainerPortMapping[]> {

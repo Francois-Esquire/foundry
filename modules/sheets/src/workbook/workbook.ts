@@ -9,19 +9,6 @@ export const MAX_CONTENTS_LENGTH = 32_767;
 const MAX_SHEET_NAME_LENGTH = 31;
 const NOT_IN_SHEET_NAME = /['[\]:*?/\\]/;
 
-/**
- * A workbook: named sheets of typed contents. It is the only way to change
- * one, and every change is atomic. The Workbook validates the next
- * contents, writes their file and has the engine calculate them before
- * anything is replaced, so a refused change (a broken rule, a file over the
- * size limit, an engine failure) leaves contents, file and values as they
- * were.
- *
- * Each change recalculates the whole workbook in a new calculation and
- * writes the whole file. That keeps atomicity simple and is fast enough for
- * the files Sheets saves (see `WORKBOOK_MAX_BYTES`); incremental
- * recalculation is future work.
- */
 export class Workbook {
   readonly #engine: FormulaEngine;
   #calculation: Calculation;
@@ -36,15 +23,10 @@ export class Workbook {
     this.#calculation = engine.calculate(sheets);
   }
 
-  /** A workbook with one empty sheet, `Sheet1`. */
   static create(engine: FormulaEngine): Workbook {
     return new Workbook([{ cells: {}, name: "Sheet1" }], engine);
   }
 
-  /**
-   * Opens a workbook file. Refuses one that breaks a rule as
-   * `invalid-file`, and one whose file Sheets could not save as `too-large`.
-   */
   static open(file: string, engine: FormulaEngine): Workbook {
     const sheets = parseWorkbookFile(file);
     try {
@@ -64,7 +46,6 @@ export class Workbook {
     return this.#sheets.map((sheet) => sheet.name);
   }
 
-  /** What was typed in the cell, exactly as typed; empty when nothing was. */
   contents(reference: CellReference): string {
     positionOf(reference.cell);
     return this.#sheet(reference.sheet).cells[reference.cell] ?? "";
@@ -75,7 +56,6 @@ export class Workbook {
     return this.#calculation.value(reference);
   }
 
-  /** Types contents into a cell; empty contents clear it. */
   enter(reference: CellReference, contents: string): void {
     this.contents(reference);
     this.#replace(
@@ -94,13 +74,11 @@ export class Workbook {
     );
   }
 
-  /** Adds an empty sheet at the end and returns its name. */
   addSheet(name = this.#nextSheetName()): string {
     this.#replace([...this.#sheets, { cells: {}, name }]);
     return name;
   }
 
-  /** Renames a sheet and rewrites the formulas that refer to it. */
   renameSheet(name: string, to: string): void {
     this.#sheet(name);
     if (to === name) {
@@ -110,7 +88,6 @@ export class Workbook {
       cells: { ...sheet.cells },
       name: sheet.name === name ? to : sheet.name,
     }));
-    // Check the new name before the engine sees it.
     validate(renamed);
     for (const { reference, contents } of this.#engine.renameSheetReferences(
       this.#sheets,
@@ -125,10 +102,6 @@ export class Workbook {
     this.#replace(renamed);
   }
 
-  /**
-   * Removes a sheet. Formulas that referred to it keep their contents and
-   * show `#REF!` until a sheet of that name exists again.
-   */
   removeSheet(name: string): void {
     this.#sheet(name);
     if (this.#sheets.length === 1) {
@@ -139,12 +112,10 @@ export class Workbook {
     this.#replace(this.#sheets.filter((sheet) => sheet.name !== name));
   }
 
-  /** The workbook file. The same contents always give the same file. */
   toFile(): string {
     return this.#file;
   }
 
-  /** Releases the calculation. Safe to call twice. */
   close(): void {
     this.#calculation.close();
   }

@@ -17,13 +17,10 @@ import type {
 import { displayWidth, padDisplay, truncateDisplay } from "./width";
 
 export interface BlockStyle {
-  /** Cells in a full bar; 0 draws no bars and prints numbers only. */
   barCells: number;
   glyphs: Glyphs;
-  /** Widest label before truncation. */
   labelCells: number;
   theme: RenderTheme;
-  /** Cells available to a wrapped prose line inside a section. */
   wrapCells: number;
 }
 
@@ -32,10 +29,6 @@ function rightAligned(values: readonly string[]): string[] {
   return values.map((value) => value.padStart(width));
 }
 
-/**
- * Text and terminal share every primitive; they differ only in style. A
- * target that cannot draw a bar prints the number the bar would have shown.
- */
 export function createRenderer(style: BlockStyle): Renderer {
   const { theme, glyphs } = style;
 
@@ -175,7 +168,6 @@ export function createRenderer(style: BlockStyle): Renderer {
       : [line, ...indent([theme.muted(detail)])];
   };
 
-  /** Framed aside; the only box in the vocabulary, reserved for teaching. */
   const note = (title: string, lines: string[]): string[] => {
     const { box } = glyphs;
     const inner = Math.max(20, style.wrapCells - 4);

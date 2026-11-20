@@ -5,71 +5,36 @@ import type { ToolEffectLocation } from "../schema";
 
 export type { ToolEffectLocation } from "../schema";
 
-/**
- * Who a tool call runs as: the agent preset (the authorization Subject), the
- * preset generation when the host tracks one, and the session that scopes
- * session-lifetime Grants. A harness fixes all three at construction, so every
- * call it compiles carries the same identity.
- */
 export interface AgentIdentity {
   agentGeneration?: number;
   agentId: string;
   sessionId: string;
 }
 
-/**
- * Everything a registration's {@link HarnessToolRegistration.capability}
- * function can use to derive a {@link Capability} from raw tool input — the
- * identity and call history available to a compiled tool.
- */
 export interface AgentInvocationContext extends AgentIdentity {
   experimentalContext?: unknown;
   messages: ModelMessage[];
   toolCallId: string;
 }
 
-/**
- * The compiler's own record for one tool: its name, its {@link ToolMeta}
- * resolved to concrete values, and the tool itself. Built by
- * {@link registrationsOf} from a plain tool map; not part of the harness's
- * public surface.
- */
 export interface HarnessToolRegistration {
-  /** Derive this call's capability from its input and invocation context.
-   *  Pure — no side effects, no I/O; policy consultation and the effect
-   *  boundary are the compiler's job, not the registration's. */
   capability: (input: unknown, context: AgentInvocationContext) => Capability;
-  /** Where the registered call's effect is performed. When omitted, the
-   *  compiler infers `runtime` for a tool with `execute` and `host` for a
-   *  schema-only tool. `executor` is for a connected execution service that
-   *  owns the effect outside both the runtime and its embedding host. */
   effectLocation?: ToolEffectLocation;
   name: string;
   source: ToolSource;
   tool: Tool;
 }
 
-/**
- * What the harness needs to know about a tool beyond its AI SDK shape: who
- * contributed it, what capability a call asks for, and where its effect runs.
- * Rides on the tool object itself under {@link TOOL_META}, so a tool map stays
- * a plain {@link ToolSet} the caller spreads and composes like any other.
- * Every field is optional; the compiler defaults `source` to `"declared"`,
- * `capability` to the generic `tool.call`, and infers `effectLocation`.
- */
 export interface ToolMeta {
   capability?: (input: unknown, context: AgentInvocationContext) => Capability;
   effectLocation?: ToolEffectLocation;
   source?: ToolSource;
 }
 
-/** Symbol key, not a plain field: it cannot collide with a future AI SDK
- *  `Tool` field and never serializes. Object spread carries it through. */
 export const TOOL_META: unique symbol = Symbol.for("foundry.tool-meta");
 
 type TaggedTool = Tool & { [TOOL_META]?: ToolMeta };
 
-/** Attach {@link ToolMeta} to one tool. Returns a new object; the input is untouched. */
 export function tagTool(tool: Tool, meta: ToolMeta): Tool {
   const tagged: TaggedTool = {
     ...tool,
@@ -78,7 +43,6 @@ export function tagTool(tool: Tool, meta: ToolMeta): Tool {
   return tagged;
 }
 
-/** Tag every tool in a map with a source. Existing sources are preserved. */
 export function tagTools(tools: ToolSet, source: ToolSource): ToolSet {
   const out: ToolSet = {};
   for (const [name, tool] of Object.entries(tools)) {
@@ -87,16 +51,10 @@ export function tagTools(tools: ToolSet, source: ToolSource): ToolSet {
   return out;
 }
 
-/** Read a tool's {@link ToolMeta}; empty when it was never tagged. */
 export function metaOf(tool: Tool): ToolMeta {
   return (tool as TaggedTool)[TOOL_META] ?? {};
 }
 
-/**
- * The compiler's view of a tool map: one registration per tool, with the
- * tool's own {@link ToolMeta} filled in by `fallbackSource` and the generic
- * `tool.call` capability where absent.
- */
 export function registrationsOf(
   tools: ToolSet | undefined,
   fallbackSource: ToolSource
@@ -119,15 +77,6 @@ export function registrationsOf(
   });
 }
 
-/**
- * Stable identity for one compiled tool call, handed to {@link
- * ToolEffectPort.execute} (design: "Effect boundary"). `invocationId` is the
- * idempotency/reconciliation key an externally-visible effect can key on
- * across a crash/replay boundary — derived stably per call by the compiler
- * (namespaced by agent and session over the AI SDK's own `toolCallId`), so a
- * replayed continuation reproduces the same id rather than minting a new one
- * and risking a double commit.
- */
 export interface RegisteredToolCall<TInput = unknown> extends AgentIdentity {
   capability: Capability;
   effectLocation: ToolEffectLocation;
@@ -138,12 +87,6 @@ export interface RegisteredToolCall<TInput = unknown> extends AgentIdentity {
   toolName: string;
 }
 
-/**
- * The boundary an approved runtime-owned tool effect runs through (design:
- * "Effect boundary"). {@link AgentHarness} supplies a direct in-process
- * default (see `effect-port.ts`). A workflow host can inject a run-aware
- * adapter with a recoverable child effect/step. Contains no workflow type.
- */
 export interface ToolEffectPort {
   execute<T>(call: RegisteredToolCall, effect: () => Promise<T>): Promise<T>;
 }

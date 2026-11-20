@@ -4,23 +4,15 @@ import { expect, it } from "vitest";
 
 const WEB = join(import.meta.dirname, "../../src/web");
 const FOUNDRY = /foundry/i;
-/** An import of a package the viewer depends on, such as the shared ordering helpers: code, not a name a reader sees. */
 const DEPENDENCY_IMPORT = /from "@foundry\/[^"]+"/g;
 
-/**
- * The switch to the copied renderer re-exports its dataset adapter, whose
- * function is named for where it came from: that one line of its export,
- * in that one file.
- */
 const SWITCH = join(WEB, "islands-host", "islands-api.ts");
 const ADAPTER_EXPORT = "  chartFromFoundry as chartFromDataset,";
 
-/** The renderer copied in from another repository, whose names are its own (`src/web/islands/README.md`). */
 const COPIED = join(WEB, "islands");
 const inCopy = (path: string) =>
   path === COPIED || path.startsWith(`${COPIED}${sep}`);
 
-/** The viewer's own files; its design notes may name where it came from. */
 function viewerFiles(): string[] {
   return readdirSync(WEB, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile() && !entry.name.endsWith(".md"))

@@ -115,11 +115,6 @@ export function packRelease(root: string, packages: Workspace[]): string[] {
   return verifyReleasePackages(root, packages, archives);
 }
 
-/**
- * Bun packs `workspace:` ranges from bun.lock, which can keep a workspace's
- * previous version after a release bump. A packed dependency on a package
- * released alongside it must accept the version being released.
- */
 function checkReleasedRanges(tarball: string, packages: Workspace[]): void {
   const packed = JSON.parse(
     execFileSync("tar", ["-xOzf", tarball, "package/package.json"], {

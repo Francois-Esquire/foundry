@@ -4,7 +4,6 @@ import type { RunExecutionContext } from "./orchestrator";
 // biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/workflows/definitions public API.
 export { DefinitionAuthoringError } from "./definition-errors";
 
-/** JSON-safe presentation of one code-defined workflow graph. */
 export interface DefinitionDescriptor {
   readonly definitionKey: string;
   readonly description?: string;
@@ -14,7 +13,6 @@ export interface DefinitionDescriptor {
   readonly schemaVersion: 1;
 }
 
-/** A placement of reusable behavior; only these nodes have behavior identity. */
 export interface DefinitionBehaviorNodeDescriptor {
   readonly children?: readonly DefinitionNodeDescriptor[];
   readonly definitionKey: string;
@@ -24,7 +22,6 @@ export interface DefinitionBehaviorNodeDescriptor {
   readonly nodeKey: string;
 }
 
-/** A synthetic control-flow node, identified only by its local placement. */
 export interface DefinitionCompositionNodeDescriptor {
   readonly children?: readonly DefinitionNodeDescriptor[];
   readonly kind: "sequence" | "parallel" | "race" | "branch";
@@ -35,14 +32,12 @@ export type DefinitionNodeDescriptor =
   | DefinitionBehaviorNodeDescriptor
   | DefinitionCompositionNodeDescriptor;
 
-/** Common structural contract shared by public Step and Workflow definitions. */
 export interface DefinitionSource<
   I = unknown,
   O = unknown,
   X extends BaseContext = BaseContext,
 > {
   __definitionContext?(context: X): void;
-  /** Type-only marker methods; definitions never allocate these at runtime. */
   __definitionInput?(input: I): void;
   __definitionOutput?(): O;
   readonly definition: DefinitionDescriptor;
@@ -52,7 +47,6 @@ type DefinitionValues<I, Values extends object> = {
   readonly input: I;
 } & Values;
 
-/** Read-only builder surface public Workflow subclasses receive. */
 export interface DefinitionGraphBuilder<
   I,
   O,
@@ -95,16 +89,11 @@ export interface DefinitionGraphBuilder<
   ): DefinitionGraphBuilder<I, O, Values & Record<string, ChildOutput>, X>;
 }
 
-/** Context supplied while materializing a definition into one runtime tree. */
 export interface DefinitionBinding<X extends BaseContext = BaseContext> {
   readonly execution?: RunExecutionContext;
   readonly seed?: Omit<X, "name">;
 }
 
-/**
- * Public context for a reusable definition invocation. Durable execution is
- * host-owned and injected only by the Orchestrator factory.
- */
 export type DefinitionContext<X extends BaseContext = BaseContext> = Partial<
   Omit<X, "name" | "execution">
 >;

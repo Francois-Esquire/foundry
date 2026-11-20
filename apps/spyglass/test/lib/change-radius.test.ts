@@ -261,7 +261,6 @@ describe("change radius", () => {
       packages: { max: 3, p50: 2, p90: 3, p95: 3 },
       singlePackageCommits: 2,
     });
-    // Equal support: smaller sets first, then lexical.
     expect(report.summary.packageCombinations).toEqual([
       { commits: 1, packages: ["@fixture/a", "@fixture/b"] },
       { commits: 1, packages: ["@fixture/a", "@fixture/c"] },

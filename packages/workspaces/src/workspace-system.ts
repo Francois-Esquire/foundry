@@ -24,25 +24,12 @@ import type {
 } from "./types";
 
 export interface WorkspaceSystemOptions {
-  /** Receives background failures: observations and change listeners. */
   readonly onError?: (error: unknown) => void;
   readonly store?: WorkspaceStore;
 }
 
 type ChangeListener = (change: WorkspaceChange) => void | Promise<void>;
 
-/**
- * Composes and owns Workspace instances.
- *
- * Registered extensions decide what a registration becomes: at `open` each
- * is asked whether it applies, and the ones that do are layered over the
- * root in registration order. The system holds one live instance per id and
- * runs its lifecycle; nothing else starts or stops one.
- *
- * `Exts` is the tuple of registered extensions. It types `load` by the refs
- * the floors accept and every returned Workspace by the capabilities the
- * layers declare, so what comes out of a system is what went into it.
- */
 export class WorkspaceSystem<
   Exts extends readonly AnyWorkspaceExtension[] = [],
 > {
@@ -70,7 +57,6 @@ export class WorkspaceSystem<
     };
   }
 
-  /** Future changes from this system; no replay. Listener failures do not fail committed operations. */
   on(_event: "change", listener: ChangeListener): () => void {
     this.listeners.add(listener);
     return () => {
@@ -78,7 +64,6 @@ export class WorkspaceSystem<
     };
   }
 
-  /** Later extensions wrap earlier ones. Affects instances opened from now on. */
   extend<const More extends readonly AnyWorkspaceExtension[]>(
     ...extensions: More
   ): WorkspaceSystem<[...Exts, ...More]> {
@@ -86,7 +71,6 @@ export class WorkspaceSystem<
     return this;
   }
 
-  /** The live instance for one id: composed and started once, then shared. */
   open(workspaceId: WorkspaceId): Promise<Workspace & CapOf<Exts>> {
     const closing = this.closing.get(workspaceId);
     if (closing) {
@@ -120,7 +104,6 @@ export class WorkspaceSystem<
     return opening;
   }
 
-  /** Stops and forgets one instance. A no-op for an id that is not open. */
   async close(workspaceId: WorkspaceId): Promise<void> {
     const closing = this.closing.get(workspaceId);
     if (closing) {
@@ -154,11 +137,6 @@ export class WorkspaceSystem<
     return { ...page, items };
   }
 
-  /**
-   * Register a source by its ref — `{ path }`, `{ artifactId }` — and hand
-   * back its Workspace. The floor whose key the ref carries turns it into an
-   * identity; registration does the rest.
-   */
   async load<R extends RefOf<Exts>>(
     ref: R
   ): Promise<Workspace & CapOf<Exts> & FloorFor<Exts, R>> {
@@ -174,16 +152,6 @@ export class WorkspaceSystem<
     return workspace as Workspace & CapOf<Exts> & FloorFor<Exts, R>;
   }
 
-  /**
-   * Register one source and catalog it, or hand back the Workspace already
-   * registered over it, reconciled.
-   *
-   * The complete inventory is built before anything is written, so a failed
-   * first scan creates nothing. An incumbent — found up front, or winning a
-   * concurrent registration — runs literally the path `refresh` runs and
-   * throws when its source cannot be observed, so it says the same thing a
-   * first load would.
-   */
   private async register(
     identity: WorkspaceIdentity
   ): Promise<Workspace & CapOf<Exts>> {
@@ -202,7 +170,6 @@ export class WorkspaceSystem<
       updatedAt: createdAt,
       ...identity,
     };
-    // Composed but never started or cached: it exists to run the first scan.
     const probe = await this.instantiate(registration);
     const entries = initialEntries(
       registration.id,
@@ -240,19 +207,14 @@ export class WorkspaceSystem<
         Composed = extension.wrap(Composed);
       }
     }
-    // The composed class is built at runtime; `Exts` is the static record of
-    // what it was built from.
     const workspace = new Composed(registration, this.context) as Workspace &
       CapOf<Exts>;
-    // A registration no layer claims composes to the bare root, which
-    // constructs fine and fails on first use. Refused here, by name, instead.
     if (!Workspace.hasFloor(workspace)) {
       throw new WorkspaceSourceUnsupportedError(registration.source.kind);
     }
     return workspace;
   }
 
-  /** Chains one task after whatever already runs for this Workspace. */
   private serialize<T>(
     workspaceId: WorkspaceId,
     task: () => Promise<T>

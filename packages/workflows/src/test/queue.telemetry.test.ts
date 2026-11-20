@@ -1,9 +1,3 @@
-/**
- * Queue telemetry — counters track the lifecycle events the Queue
- * already emits, and the optional `logger` option receives the same
- * events the in-memory ring buffer does.
- */
-
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -24,8 +18,6 @@ async function dispatchAndAwait<O>(
       })
     )
   );
-  // Wait for the queue to finish settling lifecycle counters before
-  // tests inspect telemetry.
   await queue.drain();
   return result;
 }
@@ -64,20 +56,16 @@ describe("Queue telemetry", () => {
 
     it("a failing run bumps queue.runs.failed", async () => {
       const queue = new Queue({ concurrency: 1, store: makeInMemoryStore() });
-      try {
-        await dispatchAndAwait(
-          {
-            execute: async () => {
-              throw new Error("boom");
-            },
-            input: undefined,
-            name: "boom",
+      await dispatchAndAwait(
+        {
+          execute: async () => {
+            throw new Error("boom");
           },
-          queue
-        );
-      } catch {
-        /* expected */
-      }
+          input: undefined,
+          name: "boom",
+        },
+        queue
+      ).catch(() => undefined);
       const { values } = queue.telemetry.metrics;
       expect(values["queue.runs.failed"]).toBe(1);
       expect(values["queue.runs.complete"]).toBeUndefined();

@@ -8,19 +8,10 @@ import { InMemoryMemoryStore, MEMORY_TYPES } from "./store";
 const memoryTypeSchema = z.enum(MEMORY_TYPES);
 
 export interface MemoryOptions {
-  /**
-   * Recover per-call provenance from the harness tool context
-   * — e.g. the resolved session id, which is only
-   * known at turn time, not when the agent (and this instance) is built.
-   */
   resolveSourceId?: (experimentalContext: unknown) => string | undefined;
   store?: MemoryStore;
 }
 
-/**
- * Agent memory over a {@link MemoryStore}. `tools()` builds the
- * `remember` / `recall` / `forget` AI SDK tools bound to this instance.
- */
 export class Memory {
   readonly store: MemoryStore;
   readonly #resolveSourceId: MemoryOptions["resolveSourceId"];

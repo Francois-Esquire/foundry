@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type {
   ModelCapabilities,
   ModelCosts,
@@ -7,32 +8,39 @@ import type {
 } from "../types";
 import { tokenLimits } from "./limits";
 
-interface VercelRestPricingTier {
-  cost: string;
-  max?: number;
-  min: number;
-}
+const TIER = z.object({
+  cost: z.string(),
+  max: z.number().optional(),
+  min: z.number().optional(),
+});
 
-interface VercelRestPricing {
-  input?: string;
-  input_cache_read?: string;
-  input_cache_write?: string;
-  input_tiers?: VercelRestPricingTier[];
-  output?: string;
-  output_tiers?: VercelRestPricingTier[];
-}
+const PRICING = z.object({
+  input: z.string().optional(),
+  input_cache_read: z.string().optional(),
+  input_cache_write: z.string().optional(),
+  input_tiers: z.array(TIER).optional(),
+  output: z.string().optional(),
+  output_tiers: z.array(TIER).optional(),
+});
 
-export interface VercelRestModel {
-  context_window?: number;
-  description?: string;
-  id: string;
-  max_tokens?: number;
-  name?: string;
-  owned_by?: string;
-  pricing?: VercelRestPricing;
-  tags?: string[];
-  type?: string;
-}
+const MODEL = z.object({
+  context_window: z.number().optional(),
+  description: z.string().optional(),
+  id: z.string().min(1),
+  max_tokens: z.number().optional(),
+  name: z.string().optional(),
+  owned_by: z.string().optional(),
+  pricing: PRICING.optional(),
+  tags: z.array(z.string()).optional(),
+  type: z.string().optional(),
+});
+
+const MODELS = z.array(MODEL);
+const LIST = z.union([z.object({ data: MODELS }), MODELS]);
+
+type VercelRestPricingTier = z.infer<typeof TIER>;
+type VercelRestPricing = z.infer<typeof PRICING>;
+export type VercelRestModel = z.infer<typeof MODEL>;
 
 export interface VercelRestModelList {
   data: VercelRestModel[];
@@ -62,13 +70,20 @@ export function fromVercelRest(
   });
 }
 
+export function parseVercelRest(
+  payload: unknown
+): ProviderModelDefinition[] | undefined {
+  const parsed = LIST.safeParse(payload);
+  return parsed.success ? fromVercelRest(parsed.data) : undefined;
+}
+
 function vercelDefinition(
   model: VercelRestModel
 ): ProviderModelDefinition | undefined {
-  const kind = KIND_BY_TYPE[model.type ?? ""];
-  if (!(kind && model.id)) {
+  if (!(model.type && Object.hasOwn(KIND_BY_TYPE, model.type) && model.id)) {
     return undefined;
   }
+  const kind = KIND_BY_TYPE[model.type] as ModelKind;
 
   const costs = normalizeCosts(model.pricing);
   const capabilities = normalizeTags(model.tags);
@@ -86,7 +101,6 @@ function vercelDefinition(
   };
 }
 
-/** Parse a per-token decimal string into USD per 1M tokens. */
 function per1M(value: string | undefined): number | undefined {
   if (value === undefined) {
     return undefined;
@@ -105,7 +119,7 @@ function normalizeTier(tier: VercelRestPricingTier): ModelCostTier | null {
   }
   return {
     costPer1M,
-    minTokens: tier.min,
+    minTokens: tier.min ?? 0,
     ...(tier.max === undefined ? {} : { maxTokens: tier.max }),
   };
 }
@@ -130,8 +144,6 @@ function normalizeCosts(
   }
   const input = per1M(pricing.input);
   const output = per1M(pricing.output);
-  // Without both base rates the pricing is unusable for estimation — omit
-  // rather than fabricate zeros that would read as "free".
   if (input === undefined || output === undefined) {
     return undefined;
   }
@@ -159,8 +171,8 @@ function normalizeTags(
   }
   const capabilities: ModelCapabilities = {};
   for (const tag of tags) {
-    const key = CAPABILITY_BY_TAG[tag];
-    if (key) {
+    if (Object.hasOwn(CAPABILITY_BY_TAG, tag)) {
+      const key = CAPABILITY_BY_TAG[tag] as keyof ModelCapabilities;
       capabilities[key] = true;
     }
   }

@@ -1,19 +1,3 @@
-/**
- * The foliage (WORLD.md layer 5): trees and shrubs on the islands' tops.
- * `set` packs the trees the plan names; `settle` scatters the rest on the
- * GPU from the zoning map (shaders/world/foliage-scatter.wgsl), only when the
- * plan or a map it reads changed, appending every plant through an atomic
- * tally into a buffer for the trees and one for the shrubs; `draw` puts
- * them into the film with three indirect draws, the trees, the shrubs and
- * their shadows on the ground (shaders/world/foliage.wgsl). The frame does no
- * layout and the CPU never reads a count to draw.
- *
- * The buffers start at `FOLIAGE_CAP` plants each. Once a scatter has run,
- * its tallies are read back; a buffer that overflowed grows to hold them
- * and the next `settle` scatters again, so a chart is never left with a
- * truncated forest. Past the device's largest storage binding, `settle`
- * throws.
- */
 import {
   type Compute,
   compute,
@@ -36,11 +20,8 @@ export interface FoliageShaders {
   foliageScatter: ShaderSource;
 }
 
-/** Chart units of a candidate cell: about a grove tree's spacing. */
 const FOLIAGE_CELL = 1.75;
-/** The plants each buffer holds before it first grows. */
 const FOLIAGE_CAP = 32_768;
-/** The plan's tree kinds as the scatter numbers them. */
 const PLANNED_KINDS: Readonly<Record<PlannedTree["kind"], number>> = {
   garden: 3,
   grove: 1,
@@ -48,35 +29,25 @@ const PLANNED_KINDS: Readonly<Record<PlannedTree["kind"], number>> = {
   street: 0,
 };
 
-/** vec4f a plant (shaders/world/foliage-scatter.wgsl `packInstance`). */
 const INSTANCE_BYTES = 64;
-/** vec4f a planned tree. */
 const PLANNED_FLOATS = 4;
 const GROUP = 8;
 const PLANNED_GROUP = 64;
-/** u32 of draw arguments: the trees, the shrubs, the shadows. */
 const ARGS_BYTES = 48;
 const SHRUB_ARGS = 16;
 const SHADOW_ARGS = 32;
 
-/** Plants placed, before the caps, and the plants the draws draw. */
 interface FoliageCount {
-  /** Trees and shrubs drawn: the placed, clamped to the buffers. */
   readonly drawn: number;
-  /** The plan's named trees. */
   readonly planned: number;
-  /** Shrubs scattered. */
   readonly shrubs: number;
-  /** Trees scattered, the named ones apart. */
   readonly trees: number;
 }
 
 export interface Foliage extends WorldLayer {
-  /** The plants the last scatter placed, read back: for tests and logs. */
   count: () => Promise<FoliageCount>;
 }
 
-/** The plan's trees as the scatter reads them: x, z, kind, crown radius. */
 function packPlanned(trees: readonly PlannedTree[]): Float32Array<ArrayBuffer> {
   const data = new Float32Array(Math.max(trees.length, 1) * PLANNED_FLOATS);
   for (const [index, tree] of trees.entries()) {
@@ -88,7 +59,6 @@ function packPlanned(trees: readonly PlannedTree[]): Float32Array<ArrayBuffer> {
   return data;
 }
 
-/** The starting cap doubled until it holds `count`. */
 function capacityFor(count: number, start = FOLIAGE_CAP): number {
   let cap = Math.max(start, 1);
   while (cap < count) {
@@ -97,10 +67,6 @@ function capacityFor(count: number, start = FOLIAGE_CAP): number {
   return cap;
 }
 
-/**
- * The foliage layer on `gpu`. `cap` is the plants each buffer starts with,
- * `FOLIAGE_CAP` unless a test wants to see a buffer grow.
- */
 export function createFoliage(
   gpu: Gpu,
   shaders: FoliageShaders,
@@ -125,7 +91,6 @@ export function createFoliage(
     });
   const treeDraw = plants("tree");
   const shrubDraw = plants("shrub");
-  // Over the terrain and the town, under nothing: no depth of its own.
   const shadowDraw: Draw = draw(gpu, {
     blend: "alpha",
     cull: "none",
@@ -151,7 +116,6 @@ export function createFoliage(
   let settledOn: Readonly<Record<MapName, Texture>> | null = null;
   let height: Texture | undefined;
   let scattered = false;
-  // Each scatter's number, so a late read-back of an older one is ignored.
   let scatters = 0;
   let failure: Error | null = null;
 
@@ -174,8 +138,6 @@ export function createFoliage(
     return true;
   };
 
-  // Once the scatter's frame has run: grow an overflowed buffer and have
-  // the next settle scatter again.
   const check = async (scatter: number) => {
     const data = new Uint32Array(await tallies.read());
     if (scatter !== scatters) {
@@ -263,7 +225,6 @@ export function createFoliage(
           ? planned
           : storage(gpu, data.byteLength, "read");
       planned.write(data);
-      // The planned trees always fit: they are placed before the scatter.
       grow("trees", plannedCount * 2);
       hasPlan = true;
       settledOn = null;
@@ -272,8 +233,6 @@ export function createFoliage(
       if (failure) {
         throw failure;
       }
-      // The maps the scatter reads; the light because each plant keeps
-      // the occlusion and sun at its foot.
       const reads = ["height", "light", "distance", "zoning"] as const;
       if (
         !hasPlan ||

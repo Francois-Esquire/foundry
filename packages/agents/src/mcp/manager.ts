@@ -10,18 +10,11 @@ import type {
   McpServerState,
 } from "./types";
 
-/**
- * The set of {@link McpClient}s a host runs, keyed by definition id. Holds
- * the definitions (what a host persists) and the clients (what runs for
- * them). Every client event is re-emitted here under the same name, so a
- * host can listen once or per client.
- */
 export class McpManager extends McpEmitter<McpClientEvents> {
   readonly #options: McpManagerOptions;
   readonly #clients = new Map<string, McpClient>();
   readonly #unsubscribe = new Map<string, () => void>();
 
-  /** Default elicitation handler for every client that has none of its own. */
   elicit: McpElicitationHandler | undefined;
 
   constructor(options: McpManagerOptions = {}) {
@@ -29,11 +22,6 @@ export class McpManager extends McpEmitter<McpClientEvents> {
     this.#options = options;
   }
 
-  /**
-   * Register or update a definition. An enabled definition connects in the
-   * background; await {@link McpManager.tools} or the client's `connect()`
-   * to wait for it.
-   */
   define(definition: McpServerDefinition): McpClient {
     const existing = this.#clients.get(definition.id);
     if (existing) {
@@ -76,7 +64,6 @@ export class McpManager extends McpEmitter<McpClientEvents> {
     return this.#require(id).disable();
   }
 
-  /** Close and forget a definition. */
   async remove(id: string): Promise<void> {
     const client = this.#clients.get(id);
     if (!client) {
@@ -100,11 +87,6 @@ export class McpManager extends McpEmitter<McpClientEvents> {
     return this.clients().map((c) => c.definition);
   }
 
-  /**
-   * The merged tools of every enabled, connected client, namespaced
-   * `<serverId>__<tool>`. Enabled clients that are not connected are
-   * connected first (a failed one only after its cooldown).
-   */
   async tools(): Promise<ToolSet> {
     let out: ToolSet = {};
     for (const client of this.#clients.values()) {

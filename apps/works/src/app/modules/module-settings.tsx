@@ -14,7 +14,6 @@ type Description = ModuleSettingsView["keys"][number];
 const KIB = 1024;
 const MINUTE_MS = 60_000;
 
-/** A value in its unit, readable: bytes in KiB/MiB/GiB, milliseconds in minutes. */
 function settingValue(value: number | string, unit: string): string {
   if (typeof value === "string") {
     return value;
@@ -96,11 +95,6 @@ function SettingRow({
   );
 }
 
-/**
- * Per-Module limits and preferences, within this host's ceilings. Saving
- * replaces the user's values; an empty field returns to the default. These
- * never approve access: that is Access.
- */
 export function ModuleSettingsPanel({ moduleId }: { moduleId: string }) {
   const view = useQuery(
     worksApi().moduleSettings.get.queryOptions({ input: { id: moduleId } })
@@ -144,10 +138,6 @@ export function ModuleSettingsPanel({ moduleId }: { moduleId: string }) {
   );
 }
 
-/**
- * The fields start from the saved values; a later refetch never clobbers
- * what the user is typing, and a save resets them to what it saved.
- */
 function SettingsForm({
   moduleId,
   view,

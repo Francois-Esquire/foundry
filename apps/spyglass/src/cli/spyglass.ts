@@ -35,20 +35,16 @@ import { openBrowser } from "./browser";
 import type { Loader } from "./loader";
 import { ScanProgress, summaryLine } from "./progress";
 
-/** Exit codes: `check` exits 3 on a violation, so that a broken rule is told from a failed run. */
 const FAILED = 1;
 const BAD_ARGUMENTS = 2;
 const VIOLATIONS = 3;
-/** 128 + the signal's number, as a shell reports a command a signal stopped; apply exits so once it restored its write. */
 const INTERRUPTED: Record<string, number> = { SIGINT: 130, SIGTERM: 143 };
 
-/** `check`'s exit code: a rule it could not check outranks a broken one. */
 const CHECK_EXIT: Record<CheckResult["outcome"], number> = {
   clean: 0,
   incomplete: FAILED,
   violations: VIOLATIONS,
 };
-/** `apply`'s exit code: 0 only for a preview, or a write that verified and whose scan published. */
 function applyExit(result: ApplyResult): number {
   const done =
     result.status === "preview" ||
@@ -62,7 +58,6 @@ function print(text: string): void {
   process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
 }
 
-/** A command's result on stdout: its library value as one line of JSON with `--json`, else the text for people. */
 function printResult(
   { json }: { json: boolean },
   value: unknown,
@@ -71,9 +66,7 @@ function printResult(
   print(json ? JSON.stringify(value) : text());
 }
 
-/** How a run reports progress: a live display in a terminal, lines when piped, nothing with `--quiet`. */
 interface Reporter {
-  /** Leaves the terminal as it was; `done` adds one summary line to the scrollback. */
   finish(outcome: "done" | "failed"): void;
   readonly progress?: (
     event: CollectionProgressEvent | ScanProgressEvent
@@ -82,15 +75,9 @@ interface Reporter {
 
 const SILENT: Reporter = { finish: () => undefined };
 
-/** The display draws on stderr and reads Ctrl-C from stdin, so both must be terminals. */
 const liveTerminal = () =>
   process.stderr.isTTY === true && process.stdin.isTTY === true;
 
-/**
- * Piped, each event prints the lines it always has: the phase, then
- * `internals: <package>` per package, and `workspace: <root>` as a
- * collection moves on. In a terminal the same events drive the loader.
- */
 async function reporter(
   { quiet }: { quiet: boolean },
   { compact }: { compact: boolean }
@@ -110,8 +97,6 @@ async function reporter(
   if (!liveTerminal()) {
     return lines;
   }
-  // Loaded only here, so a piped run never loads OpenTUI's native bindings;
-  // a terminal where they fail to load still gets the lines, never no scan.
   let loader: Loader;
   try {
     const { createLoader } = await import("./loader");
@@ -135,7 +120,6 @@ async function reporter(
   };
 }
 
-/** Runs `work` under a reporter, which is torn down before anything else prints. */
 async function reported<T>(
   report: Reporter,
   work: (progress: Reporter["progress"]) => Promise<T>
@@ -161,7 +145,6 @@ const collectionLines = (saved: CollectionScan) =>
 const serverLines = (server: SpyglassServer) =>
   `Spyglass: ${server.url.href}\nWorkspace: ${server.root}`;
 
-/** A scan of the one workspace, or of each workspace of the collection. */
 async function scanned(
   args: ArgsOf<"open"> | ArgsOf<"scan">,
   workspaces: Workspaces,
@@ -178,7 +161,6 @@ async function scanned(
   );
 }
 
-/** The viewer's server of the one workspace the viewer commands read. */
 function served(
   args: ArgsOf<"open"> | ArgsOf<"serve">
 ): Promise<SpyglassServer> {
@@ -189,7 +171,6 @@ function served(
 const scannedLines = (saved: CollectionScan | Scan) =>
   "workspaces" in saved ? collectionLines(saved) : savedLine(saved);
 
-/** Runs until SIGINT or SIGTERM, which stop the server and exit 0. */
 async function whileServing(
   server: Pick<SpyglassServer, "stop" | "url">,
   { "no-open": noOpen }: { "no-open": boolean }
@@ -203,7 +184,6 @@ async function whileServing(
   try {
     await openBrowser(server.url.href);
   } catch (error) {
-    // Not a failure, and not progress: --quiet keeps it.
     process.stderr.write(`${messageOf(error)} Open ${server.url.href}\n`);
   }
 }
@@ -273,9 +253,7 @@ const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
   },
   async open(args) {
     const [root] = args.paths;
-    // Fail before the scan, not after it, when there is no viewer to open.
     await viewerRoot();
-    // Compact: the result is the browser, so the terminal gets two rows.
     const saved = await scanned(args, { root }, { compact: true });
     if (!args.json) {
       print(scannedLines(saved));
@@ -284,7 +262,6 @@ const RUN: { readonly [C in Command]: (args: ArgsOf<C>) => Promise<void> } = {
     printResult(args, { ...saved, ...server }, () => serverLines(server));
     await whileServing(server, args);
   },
-  // Every verdict is a result, refused and blocked included: exit 0.
   async plan(args) {
     const [root] = args.paths;
     const result = await planSite(root, args.site, { state: args.state });

@@ -312,7 +312,11 @@ const PART_FIELDS: Readonly<Record<string, Fields>> = {
     },
   },
   tool_approval_response: {
-    optional: { reason: string, scope: oneOf(["once", "always"]) },
+    optional: {
+      granted: boolean,
+      reason: string,
+      scope: oneOf(["once", "always"]),
+    },
     required: { approvalId: string, approved: boolean },
   },
   tool_call: {

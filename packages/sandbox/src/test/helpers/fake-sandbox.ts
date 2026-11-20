@@ -19,7 +19,6 @@ export interface FakeSandboxCommandScript {
   readonly exitCode?: number;
   readonly stderr?: string;
   readonly stdout?: string;
-  /** Files the command leaves behind, relative to its cwd. */
   readonly writes?: Readonly<Record<string, string | Uint8Array>>;
 }
 
@@ -54,7 +53,6 @@ function commandMatches(
   );
 }
 
-/** In-memory Sandbox whose commands are scripted, not run. */
 export function createFakeSandbox(
   options: FakeSandboxOptions = {}
 ): FakeSandbox {
@@ -130,8 +128,6 @@ export function createFakeSandbox(
     },
     list(path, recursive) {
       const prefix = path === "/" ? "/" : `${path}/`;
-      // Only file paths are stored, so directories are inferred from the
-      // segments between the listed path and each file under it.
       const entries = new Map<string, SandboxDirectoryEntry>();
       for (const candidate of storedFiles.keys()) {
         if (!candidate.startsWith(prefix)) {

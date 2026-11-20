@@ -42,12 +42,9 @@ export interface ConceptBehavioralLocalitySource
   graph: WorkspaceModuleGraph;
 }
 
-/** Everything the shape rules and cautions read; the measurements come from `analyzeConceptBehavioralLocality`. */
 export interface LocalityFacts
   extends Omit<ConceptBehavioralLocality, "shape" | "cautions"> {
-  /** V7.3 found a method-bearing interface with no explicit implementation. */
   contractWithoutImplementations: boolean;
-  /** Some source behavior lives outside the target, where churn and hotspots are not measured. */
   foreignSourceBehavior: boolean;
 }
 
@@ -55,7 +52,6 @@ function share(part: number, total: number): number | null {
   return total === 0 ? null : part / total;
 }
 
-/** Shape and cautions from measured facts. Counts and distances only; no score. */
 export function assessLocality(
   facts: LocalityFacts,
   config: AnalysisConfig = ANALYSIS_CONFIG
@@ -63,9 +59,6 @@ export function assessLocality(
   const policy = config.behavioralLocality;
   const { behavior, span, traversal, halo } = facts;
   const { source } = behavior;
-  // A class seed's own members are not attributed as behavior (V7.3 counts
-  // members of implementing classes only), so little behavior on a class
-  // says nothing about how light it is.
   const broad =
     facts.concept.kind !== "class" &&
     halo.modules >= policy.behaviorLight.minReferenceModules;
@@ -105,8 +98,6 @@ export function assessLocality(
       kind: "test-heavy-behavior",
     });
   }
-  // A one-function `local` is trivially local; sparseness matters only
-  // where the shape claims spread.
   const claimsSpread =
     primaryShape === "single-package-distributed" ||
     primaryShape === "cross-package-localized" ||
@@ -158,7 +149,6 @@ interface Reach {
   viaAggregator: boolean;
 }
 
-/** Memoized single-source shortest paths in the dependency direction. */
 class Distances {
   private readonly memo = new Map<string, Map<string, Reach>>();
 
@@ -182,7 +172,6 @@ class Distances {
       [start, { distance: 0, viaAggregator: false }],
     ]);
     const queue = [start];
-    // for-of sees elements appended during iteration, so this drains the queue
     for (const current of queue) {
       const own = reach.get(current);
       if (own === undefined) {
@@ -545,12 +534,6 @@ function temporalOf(
   };
 }
 
-/**
- * Behavioral locality of every family. Composes V7.3 participants, V7.2
- * converters, the workspace module graph, and V6 history; the only new
- * work is shortest paths between participating modules and packages,
- * memoized per start node across concepts.
- */
 export function analyzeConceptBehavioralLocality(
   source: ConceptBehavioralLocalitySource,
   config: AnalysisConfig = ANALYSIS_CONFIG
@@ -683,9 +666,6 @@ export function analyzeConceptBehavioralLocality(
         });
       }
     };
-    // One function converting to two partners is still one participant.
-    // A converter V7.3 did not attribute (its signature wraps the concept in
-    // a Promise or array, which V7.2 looks through) joins as one.
     visitConversion();
     const behavior = behaviorMap(participants, roles);
     const sourceRows = behavior.byModule.filter((row) => row.kind === "source");

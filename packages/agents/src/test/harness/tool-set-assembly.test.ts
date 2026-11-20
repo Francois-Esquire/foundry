@@ -29,8 +29,6 @@ async function drain(
   return out;
 }
 
-/** An allow-everything policy that records every request it sees, so a test
- *  can inspect which `source` a compiled tool call actually carried. */
 function recordingAllowPolicy(): {
   policy: AgentAuthorizer;
   requests: AgentAuthorizationRequest[];

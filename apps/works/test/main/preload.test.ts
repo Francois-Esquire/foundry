@@ -19,7 +19,6 @@ vi.mock("electron", () => ({
   ipcRenderer: { invoke, postMessage },
 }));
 
-// The preload runs in a window; the node project has none.
 const fakeWindow = { addEventListener };
 vi.stubGlobal("window", fakeWindow);
 

@@ -42,20 +42,13 @@ export interface ModuleProject {
   readonly module: Module;
 }
 
-/** A build's result, published as a Version of the source it was built from. */
 export interface ModuleBuildPublication {
-  /** What the Manifest may select: the host's capabilities. */
   readonly catalog: Pick<ModuleCapabilityCatalog, "capabilities">;
-  /** The saved source the build read; publication refuses once it moved. */
   readonly expected: ModuleSourceBinding;
-  /** Merged into the Version's Content metadata in the same write (a host's attribution). */
   readonly metadata?: Readonly<Record<string, unknown>>;
   readonly moduleId: ModuleId;
-  /** Build outputs by path, each under a package's `dist/`. */
   readonly outputs: Readonly<Record<string, Uint8Array>>;
-  /** The source the Version embeds: the saved source and its resolved `bun.lock`. */
   readonly source: Readonly<Record<string, string>>;
-  /** The Version's SemVer tag, unused by any earlier Version. */
   readonly tag: string;
 }
 
@@ -65,13 +58,7 @@ export interface ModuleProjects {
     readonly name: string;
     readonly source: Readonly<Record<string, string>>;
   }): Promise<ModuleProject>;
-  /**
-   * Freezes a build's source and outputs as a new Version, in one write
-   * fenced on the source the build read. The Manifest must select only
-   * catalog capabilities and ask for nothing a host cannot run.
-   */
   publish(input: ModuleBuildPublication): Promise<{
-    /** The saved source now: the frozen Version's Content. */
     readonly binding: ModuleSourceBinding;
     readonly version: ModuleVersion;
   }>;
@@ -79,7 +66,6 @@ export interface ModuleProjects {
     readonly moduleId: ModuleId;
     readonly source: Readonly<Record<string, string>>;
     readonly expected: ModuleSourceBinding;
-    /** Merged into the saved Content's metadata in the same write (a host's save attribution). */
     readonly metadata?: Readonly<Record<string, unknown>>;
   }): Promise<ModuleSourceBinding>;
   workspaceSource(input: { readonly moduleId: ModuleId }): Promise<{
@@ -88,7 +74,6 @@ export interface ModuleProjects {
   }>;
 }
 
-/** Whether two bindings name the same saved revision of a Module's source. */
 function sameModuleSourceBinding(
   left: ModuleSourceBinding,
   right: ModuleSourceBinding
@@ -148,7 +133,6 @@ export function createModuleProjects(options: {
     throw error;
   }
 
-  /** Pass the transaction handle when called inside `artifacts.transaction`. */
   async function requireArtifact(
     moduleId: ModuleId,
     reader: Pick<ArtifactOperations, "get"> = artifacts
@@ -388,11 +372,6 @@ function sourceFiles(source: Readonly<Record<string, string>>): FileInputs {
   return files;
 }
 
-/**
- * {@link sourceFiles} for source entering the host: also within the host's
- * source limits, checked before anything is written. Reading back source
- * already stored only needs its paths to be valid.
- */
 function admittedSourceFiles(
   source: Readonly<Record<string, string>>
 ): FileInputs {

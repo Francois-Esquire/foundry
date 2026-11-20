@@ -8,7 +8,6 @@ const TONES: Readonly<Record<string, Tone>> = {
   s: "shadow",
 };
 
-// Match the approved artwork: a thin bright rim around a quiet center.
 const DIAMOND = [
   "    h    ",
   "    h    ",
@@ -26,7 +25,6 @@ const STAR = [" h ", "hhh", " h "];
 const CROSS = ["  b  ", "  b  ", "bbhbb", "  b  ", "  b  "];
 const DOT = ["h"];
 
-// Composition follows the reference, with breathing room and no enclosing pattern.
 const PLACEMENT = [
   { green: false, rows: DIAMOND, x: 0.065, y: 0.22 },
   { green: true, rows: DIAMOND, x: 0.925, y: 0.415 },
@@ -84,7 +82,6 @@ function sprite(rows: readonly string[]) {
   return { height, pixels, width };
 }
 
-/** Keep the composition fixed; use math only for independent light cycles. */
 export function createSparkles() {
   return PLACEMENT.map(({ rows, ...placement }, index) => {
     const point = rows === DOT;

@@ -1,10 +1,11 @@
 import { sleep } from "bun";
 import { act, useEffect, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import { dashboardSnapshot } from "../preview/snapshot";
-import { PreviewStartup } from "../preview/startup";
-import { SplashView } from "../src/views/splash";
-import { type SplashState, summarizeConfig } from "../src/views/splash-model";
+import { summarizeConfig } from "../src/cli/state/splash-model";
+import { DashboardView } from "../src/cli/views/dashboard";
+import { SplashView } from "../src/cli/views/splash";
+import type { SplashState } from "../src/model/splash";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { click, ctrlC, flush, mount, press, unmount } from "./helpers/render";
 
 let closed = false;
@@ -31,7 +32,6 @@ function ControlledSplash() {
     <SplashView
       onClose={close}
       onEnter={enterSplash}
-      preview
       state={state}
       workspace="foundry"
     />
@@ -46,7 +46,6 @@ function ready(
     <SplashView
       onClose={close}
       onEnter={enterSplash}
-      preview
       state={{ counts, hasConfig: true, status: "ready" }}
       workspace={workspace}
     />
@@ -114,6 +113,20 @@ test("ready splash stays centered, fits small terminals, and accepts clicks", as
   expect(entered).toBe(5);
 });
 
+test("splash lays out against its own viewport inside a larger terminal", async () => {
+  const ui = await mount(
+    <box height={18} width={52}>
+      {ready()}
+    </box>,
+    { height: 40, width: 120 }
+  );
+  const card = ui.renderer.root.findDescendantById("splash:card");
+  expect(card).toBeDefined();
+  expect(card?.width).toBeLessThanOrEqual(52);
+  expect(card?.height).toBeLessThanOrEqual(18);
+  expect(ui.captureCharFrame()).toContain("Press Enter to enter");
+});
+
 test("sparkles shimmer without changing silhouettes and pause for the quit dialog", async () => {
   const ui = await mount(ready());
   const first = ui.captureCharFrame();
@@ -151,8 +164,15 @@ test("splash quit confirmation blocks entry and supports a second Ctrl+C", async
   closed = false;
   entered = 0;
   const ui = await mount(ready(), { height: 24, width: 70 });
+  let focusedDialog = false;
+  ui.renderer.on("focused_renderable", () => {
+    if (ui.renderer.currentFocusedRenderable?.parent?.id === "dialog") {
+      focusedDialog = true;
+    }
+  });
   await ctrlC(ui);
   expect(closed).toBe(false);
+  expect(focusedDialog).toBe(true);
   expect(ui.captureCharFrame()).toContain("Quit Marbles?");
   await press(ui, "RETURN");
   expect(entered).toBe(0);
@@ -162,26 +182,17 @@ test("splash quit confirmation blocks entry and supports a second Ctrl+C", async
   expect(closed).toBe(true);
 });
 
-test("preview loads its config, waits for entry, and opens the dashboard once", async () => {
-  const ui = await mount(<PreviewStartup onClose={close} />, {
-    height: 24,
-    width: 70,
-  });
-  expect(ui.captureCharFrame()).toContain("Loading marbles");
-  await press(ui, "RETURN");
-  await act(async () => {
-    await sleep(1000);
-  });
-  await flush(ui);
-  expect(ui.captureCharFrame()).toContain("Marbles loaded");
+test("the dashboard entered from the splash opens on the overview of its snapshot", async () => {
+  const ui = await mount(
+    <DashboardView onClose={close} snapshot={dashboardSnapshot} />,
+    { height: 24, width: 70 }
+  );
   expect(ui.captureCharFrame()).not.toContain("1 Triggers");
-  await press(ui, "RETURN");
   expect(ui.captureCharFrame()).toContain("3 Runs");
-  expect(ui.captureCharFrame()).toContain("Running 1");
+  expect(ui.captureCharFrame()).toContain("Active runs");
+  expect(ui.captureCharFrame()).toContain("1 running");
   expect(ui.captureCharFrame()).not.toContain("Overview  Input");
   await press(ui, "m");
   expect(ui.captureCharFrame()).toContain("1 Triggers");
   expect(ui.captureCharFrame()).toContain("2 Marbles");
-  await click(ui, "nav:home");
-  expect(ui.captureCharFrame()).not.toContain("Marbles loaded");
 });

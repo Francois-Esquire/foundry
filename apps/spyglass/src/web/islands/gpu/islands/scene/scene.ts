@@ -1,18 +1,3 @@
-/**
- * The frame: the terrain, the props on the shallows (debris.ts) and the
- * world's drawn layers on the tops (WORLD.md layers 3 to 5, `WORLD_LAYERS`)
- * into the film, the water composited from the film into the post's
- * linear frame, then the post (post.ts: bloom, vignette, encoding,
- * anti-aliasing) onto the output. Shared by the browser and the headless
- * tools, which hand in their own prepared shaders.
- *
- * The film is a single-sample offscreen target, linear `rgba16float` colour
- * with a `depth32float` depth, reversed-Z (cleared to 0, terrain drawn with
- * `compare: "greater"`). Single-sample because the composite reads the depth
- * as a texture, which a multisampled target cannot give. The film may be
- * smaller than the output (render scale); the composite runs at the
- * output's size and upsamples it.
- */
 import {
   type Draw,
   draw,
@@ -64,7 +49,6 @@ export interface IslandsShaders
   water: ShaderSource;
 }
 
-/** GPU spans to time the passes with, where the adapter has them. */
 export interface SceneTimers {
   terrain?: TimerSpan;
   water?: TimerSpan;
@@ -73,7 +57,6 @@ export interface SceneTimers {
 const FILM_FORMAT = "rgba16float";
 const FILM_DEPTH = "depth32float";
 
-/** The film's size for an output and a render scale, at least a pixel. */
 function filmSize(
   output: readonly [number, number],
   scale: number
@@ -85,13 +68,10 @@ function filmSize(
 }
 
 export interface Scene {
-  /** The last frame's clipmap layout, for the readouts and tests. */
   readonly clip: ClipLayout | null;
   compile: (output: Target) => Promise<void>;
   dispose: () => void;
-  /** The film: the terrain's colour and depth, before the water. */
   readonly film: Target;
-  /** Draws a frame into `output`; encodes into `frame`, the caller submits. */
   render: (
     frame: Frame,
     output: Target,
@@ -100,38 +80,20 @@ export interface Scene {
     look: Look,
     timers?: SceneTimers
   ) => void;
-  /** The islands view's colours, one linear RGBA per island in chart order. */
   setIslandColors: (colors: Float32Array<ArrayBuffer>) => void;
-  /**
-   * What the water highlights: the chosen and the hovered as pick.wgsl
-   * keeps them, and each bank's islands (selection.ts `memberMasks`).
-   */
   setSelection: (
     selection: StorageBuffer,
     members: Uint32Array<ArrayBuffer>
   ) => void;
-  /**
-   * The world plan (world.ts), handed to every drawn layer, which draw it
-   * on the tops in the shaded view. Its zoning is the maps'
-   * (`Maps.setWorld`).
-   */
   setWorld: (plan: WorldPlan) => void;
 }
 
-/**
- * Makes one of the world's drawn layers on the scene's device, with the
- * scene's shaders and its linear sampler.
- */
 export type WorldLayerFactory = (
   gpu: Gpu,
   shaders: IslandsShaders,
   linear: GPUSampler
 ) => WorldLayer;
 
-/**
- * The world's drawn layers in draw order (WORLD.md): the surfaces first,
- * on the terrain, then the structures, then the foliage.
- */
 const WORLD_LAYERS: readonly WorldLayerFactory[] = [
   (gpu, shaders, linear) => createSurfaces(gpu, shaders.surfaces, linear),
   createTown,
@@ -155,8 +117,6 @@ export function createScene(
     label: "islands-film",
     size: [1, 1],
   });
-  // Clamp to edge (WebGPU's default): past the grid's edge the terrain
-  // reads the edge texel's paint and light.
   const linear = sampler(gpu, { magFilter: "linear", minFilter: "linear" });
   const meshOf = (isRing: boolean): Geometry =>
     geometry(gpu, {
@@ -184,7 +144,6 @@ export function createScene(
   const debris = createDebris(gpu, shaders, linear);
   const world = layers.map((make) => make(gpu, shaders, linear));
   const post = createPost(gpu, shaders, linear);
-  // The textures and densities the props were last placed on.
   let placedOn: Readonly<Record<MapName, Texture>> | null = null;
   let placedWith = "";
   let islandColors: StorageBuffer = storage(gpu, 16, "read");
@@ -200,7 +159,6 @@ export function createScene(
 
   let bound: Readonly<Record<MapName, Texture>> | null = null;
   let clip: ClipLayout | null = null;
-  // Nothing chosen until a picker hands over its selection.
   let members: StorageBuffer = storage(gpu, 8, "read");
   let selectionBuffer = storage(gpu, 16, "read");
   water.set({ members, selection: selectionBuffer });
@@ -278,7 +236,6 @@ export function createScene(
       for (const mesh of meshes) {
         mesh.destroy();
       }
-      // The film and the colour buffer belong to the gpu: its dispose frees them.
     },
     film,
     render(frame, output, view, maps, look, timers = {}) {
@@ -327,7 +284,6 @@ export function createScene(
         activeWater = largeWater;
       }
       const { frame: grid } = maps;
-      // A pixel's width at a unit of distance, in the film.
       const pixel = (2 * view.aperture[1]) / size[1];
       clip = clipLayout(view.eye, pixel, grid, clip?.stride, maps.seabed);
       const terrainSet = terrainUniforms(view, clip, grid, maps.seabed, look);
@@ -374,8 +330,6 @@ export function createScene(
       post.render(frame, output, postLookOf(look));
     },
     setIslandColors(colors) {
-      // A chart's island count is fixed, so this allocates once per chart;
-      // a palette change rewrites the same buffer.
       if (colors.byteLength !== islandColors.size) {
         islandColors = storage(gpu, Math.max(colors.byteLength, 16), "read");
         bindColors();

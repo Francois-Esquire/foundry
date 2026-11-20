@@ -21,14 +21,6 @@ import type {
   LatestArtifact,
 } from "../types";
 
-/**
- * Versioned outputs over the shared artifact store. A declared artifact
- * keeps its identity across runs, so each write adds a version instead of
- * a new artifact. Called on the manager, a write is just that. Through a
- * step's view, the n-th write in a body returns the version it created the
- * first time.
- */
-
 export interface ArtifactsDeps {
   readonly artifacts: Pick<
     ArtifactOperations,
@@ -40,12 +32,7 @@ export interface ArtifactsDeps {
     | "readRoot"
     | "revise"
   >;
-  /**
-   * Where `latest` also looks when `artifacts` has nothing: the real store
-   * under `--dry-run`, whose own store is in memory. Only read.
-   */
   readonly readThrough?: Pick<ArtifactOperations, "get" | "readFile">;
-  /** Part of a declared artifact's identity, so two configs never collide. */
   readonly workspaceId: string;
 }
 
@@ -67,7 +54,6 @@ function isFileInput(
   return typeof value === "object" && !(value instanceof Uint8Array);
 }
 
-/** Text and bytes become file inputs with a MIME from the path; a file input passes as it is. */
 function entriesOf(files: ArtifactFiles, fallbackMime?: string): FileInputs {
   return Object.fromEntries(
     Object.entries(files).map(([path, content]) => [
@@ -85,7 +71,6 @@ function entriesOf(files: ArtifactFiles, fallbackMime?: string): FileInputs {
   );
 }
 
-/** A version as Marbles hands it out: the package's Content, as JSON. */
 function versionOf(content: Content): ArtifactVersion {
   const { artifact: _artifact, ...version } = content as ContentResolved;
   return JSON.parse(JSON.stringify(version)) as ArtifactVersion;
@@ -100,7 +85,6 @@ export class ArtifactsManager implements Artifacts {
     this.#deps = deps;
   }
 
-  /** The package id an artifact goes by: its declaration's, or the one given. */
   #idOf(artifact: ArtifactRef): ArtifactId {
     return typeof artifact === "string"
       ? artifactIdSchema.parse(artifact)
@@ -187,7 +171,6 @@ export class ArtifactsManager implements Artifacts {
     return this.#deps.artifacts.getContent(contentIdSchema.parse(versionId));
   }
 
-  /** The current version from this store, else the read-through one. */
   async latest(artifact: ArtifactRef): Promise<LatestArtifact | undefined> {
     const id = this.#idOf(artifact);
     for (const source of [this.#deps.artifacts, this.#deps.readThrough]) {
@@ -225,12 +208,6 @@ export class ArtifactsManager implements Artifacts {
     return this.#deps.artifacts.readRoot(contentIdSchema.parse(versionId));
   }
 
-  /**
-   * What a step body sees: each version records the run and its session,
-   * and writes and creates are counted against the frame, so a replay
-   * returns the version it made instead of a second one. The ledger keeps
-   * the version's id; a replay reads the version back.
-   */
   scoped({ frame, scope }: ManagerArgs): Artifacts {
     const provenance: Provenance = {
       runId: scope.id,

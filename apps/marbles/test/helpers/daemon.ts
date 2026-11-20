@@ -1,16 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { expect, vi } from "vitest";
-import { layout } from "~/layout";
 import { daemonAlive } from "~/process/client";
 import { cliArgs } from "./cli";
+import type { TestHome } from "./home";
 
-/** Ask the Marbles process under `state` to stop, and wait until it has. */
-export async function stopDaemon(state: string): Promise<void> {
-  execFileSync("bun", [...cliArgs("stop"), "--state", state], {
-    stdio: "pipe",
-  });
-  const marbles = layout({ state });
-  await vi.waitFor(() => expect(daemonAlive(marbles)).toBe(false), {
+export async function stopDaemon(home: TestHome): Promise<void> {
+  execFileSync("bun", cliArgs("stop"), { env: home.env, stdio: "pipe" });
+  await vi.waitFor(() => expect(daemonAlive(home.layout)).toBe(false), {
     interval: 100,
     timeout: 30_000,
   });

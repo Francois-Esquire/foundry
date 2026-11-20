@@ -2,24 +2,34 @@ import { describe, expect, it } from "vitest";
 import {
   type CommandContext,
   capturesKeys,
+  footer as commandFooter,
   commandFor,
   type Dashboard,
-  footer,
   helpSections,
   type KeyPress,
-} from "~/views/dashboard-commands";
+} from "~/cli/state/dashboard-commands";
 import {
   type DashboardSnapshot,
   resolveSelection,
-} from "~/views/dashboard-model";
+} from "~/cli/state/dashboard-model";
 import {
   type DashboardEvent,
   type DashboardState,
   initialState,
   reduce,
-} from "~/views/dashboard-state";
-import type { RunActions } from "~/views/run-actions";
-import { dashboardSnapshot } from "../preview/snapshot";
+} from "~/cli/state/dashboard-state";
+import type { RunActions } from "~/cli/state/run-actions";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
+
+function footer(commandContext: CommandContext) {
+  const { hints, lasting } = commandFooter(commandContext);
+  return {
+    hints: [hints.focus, ...hints.actions.map(({ label }) => label)].join(
+      " · "
+    ),
+    lasting,
+  };
+}
 
 function key(name: string, extra: Partial<KeyPress> = {}): KeyPress {
   return { name, sequence: name, shift: false, ...extra };
@@ -37,7 +47,6 @@ const actions: RunActions = {
 };
 
 interface Setup {
-  /** `null` for a host with no run controls. */
   readonly actions?: RunActions | null;
   readonly canLaunch?: boolean;
   readonly canSwitchWorkspace?: boolean;
@@ -45,6 +54,7 @@ interface Setup {
   readonly events?: readonly DashboardEvent[];
   readonly snapshot?: DashboardSnapshot;
   readonly typing?: boolean;
+  readonly workspaces?: Omit<CommandContext["workspaces"], "ids">;
 }
 
 function context({
@@ -55,6 +65,7 @@ function context({
   events = [],
   snapshot = dashboardSnapshot,
   typing = false,
+  workspaces = { everywhere: false, others: false },
 }: Setup = {}) {
   const state: DashboardState = events.reduce(
     (current, event) => reduce(current, event, snapshot),
@@ -90,14 +101,17 @@ function context({
     },
     resolved: resolveSelection(snapshot, state.selected),
     state,
+    workspaces: { ...workspaces, ids: [] },
   };
   const dashboard: Dashboard = {
     ...built,
     act: record("act"),
+    chooseWorkspace: record("choose-workspace"),
     launch: record("launch"),
+    openWorkspaces: record("switch-workspace"),
     quit: record("quit"),
     send: (event: DashboardEvent) => calls.push(["send", event]),
-    switchWorkspace: record("switch-workspace"),
+    toggleWorkspaces: record("toggle-workspaces"),
   };
   function press(pressed: KeyPress) {
     const command = commandFor(pressed, built);
@@ -113,6 +127,57 @@ const paused: DashboardSnapshot = {
     run.id === "run-104" ? { ...run, status: "suspended" } : run
   ),
 };
+
+describe("another workspace's runs and triggers", () => {
+  const elsewhere = { id: "ws-docs", name: "docs" };
+  const shown: DashboardSnapshot = {
+    ...dashboardSnapshot,
+    runs: dashboardSnapshot.runs.map((run) =>
+      run.status === "running" ? { ...run, workspace: elsewhere } : run
+    ),
+    triggers: dashboardSnapshot.triggers.map((trigger) => ({
+      ...trigger,
+      managed: true,
+      workspace: elsewhere,
+    })),
+  };
+
+  it("are shown with no control", () => {
+    const running = shown.runs.find((run) => run.status === "running");
+    const { context: built, press } = context({
+      events: [
+        { selection: { id: running?.id ?? "", kind: "run" }, type: "select" },
+      ],
+      snapshot: shown,
+    });
+    expect(footer(built).hints).not.toContain("k cancel");
+    expect(footer(built).hints).not.toContain("p pause");
+    for (const name of ["s", "p", "k"]) {
+      expect(press(key(name))).toBeUndefined();
+    }
+    const [trigger] = shown.triggers;
+    const onTrigger = context({
+      events: [
+        {
+          selection: { id: trigger?.id ?? "", kind: "trigger" },
+          type: "select",
+        },
+      ],
+      snapshot: shown,
+    });
+    expect(footer(onTrigger.context).hints).not.toContain("delete trigger");
+    expect(onTrigger.press(key("k"))).toBeUndefined();
+  });
+
+  it("are toggled into the lists with g, once there are any", () => {
+    expect(footer(context().context).hints).not.toContain("g all workspaces");
+    const some = context({ workspaces: { everywhere: false, others: true } });
+    expect(footer(some.context).hints).toContain("g all workspaces");
+    expect(some.press(key("g"))).toEqual([["toggle-workspaces"]]);
+    const all = context({ workspaces: { everywhere: true, others: true } });
+    expect(footer(all.context).hints).toContain("g this workspace");
+  });
+});
 
 describe("run controls follow the target's status", () => {
   it("offers steer, pause, and cancel on a running run", () => {
@@ -214,8 +279,8 @@ describe("footer", () => {
     });
     expect(footer(built)).toEqual({
       hints:
-        "definition · ↑↓ select · l launch · f filter runs · / search · a active · e failed",
-      lasting: "Tab focus · Enter details · ? help · q / Ctrl+C quit",
+        "definition · Tab focus · Enter details · ↑↓ select · l launch · f filter runs · / search · a active · e failed",
+      lasting: "? help · q / Ctrl+C quit",
     });
   });
 
@@ -227,11 +292,9 @@ describe("footer", () => {
       ],
     });
     expect(footer(logs.context).hints).toBe(
-      "details · ←→ tabs · ↑↓ scroll · f follow · s steer · p pause · k cancel · b run · a active · e failed"
+      "details · Esc back · ←→ tabs · ↑↓ scroll · f follow · s steer · p pause · k cancel · b run · a active · e failed"
     );
-    expect(footer(logs.context).lasting).toBe(
-      "Esc back · ? help · q / Ctrl+C quit"
-    );
+    expect(footer(logs.context).lasting).toBe("? help · q / Ctrl+C quit");
     const input = context({ events: [{ tab: "input", type: "tab" }] });
     expect(footer(input.context).hints).toContain(
       "↑↓ browse · Space fold JSON"
@@ -265,7 +328,7 @@ describe("footer", () => {
     });
     expect(footer(built)).toEqual({
       hints:
-        "entries · ↑↓ select · Enter read · 1-2 answer · w workspace · x all",
+        "entries · ↑↓ select · Enter read · 1-2 answer · w feed scope · x all",
       lasting: "? help · q / Ctrl+C quit",
     });
   });
@@ -280,7 +343,9 @@ describe("key dispatch", () => {
       canSwitchWorkspace: true,
       events: [{ type: "view", view: "feed" }],
     });
-    expect(feed.press(key("w"))).toEqual([["cycle-scope"]]);
+    expect(feed.press(key("w"))).toEqual([["switch-workspace"]]);
+    expect(feed.press(key("W"))).toEqual([["cycle-scope"]]);
+    expect(feed.press(key("w", { shift: true }))).toEqual([["cycle-scope"]]);
   });
 
   it("lets text fields and overlays keep their keys", () => {
@@ -354,6 +419,7 @@ describe("keyboard help", () => {
       "Logs",
       "Feed",
       "Settings",
+      "Workspaces",
       "Typing",
       "Forms",
     ]);
@@ -362,5 +428,11 @@ describe("keyboard help", () => {
       const keys = section.items.map((item) => item.key);
       expect(new Set(keys).size).toBe(keys.length);
     }
+    expect(
+      sections.find(({ title }) => title === "Dashboard")?.items
+    ).toContainEqual({
+      key: "v on a trigger",
+      value: "Show or hide the selected trigger's configuration",
+    });
   });
 });

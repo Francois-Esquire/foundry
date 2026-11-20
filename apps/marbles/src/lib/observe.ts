@@ -3,15 +3,6 @@ import type { BaseContext } from "@foundry/workflows/executable";
 import type { Workflow } from "@foundry/workflows/workflow";
 import { formatLogValues } from "~/lib/log";
 
-/**
- * Print step lifecycle as it happens. The Orchestrator's run journal only
- * carries Run-level frames, so the step tree is read from the workflow's own
- * channel stream, through a subscription of its own so other readers can
- * attach. Resolves once the root step settles, cancelling the subscription.
- *
- * The root path segment is the definition key; it is
- * replaced by the registered name so lines match the final `[run]` line.
- */
 export async function observeSteps<I, O, X extends BaseContext>(
   name: string,
   workflow: Workflow<I, O, X>,

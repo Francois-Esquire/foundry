@@ -12,12 +12,14 @@ const seen = vi.hoisted(() => ({
   auth: [] as unknown[],
   codex: [] as unknown[],
   driven: [] as unknown[],
+  routes: [] as unknown[],
 }));
 
 vi.mock("@foundry/agents/harness", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@foundry/agents/harness")>()),
-  createDriverSession: (_settings: unknown, driver: unknown) => {
+  createDriverSession: (settings: { model: unknown }, driver: unknown) => {
     seen.driven.push(driver);
+    seen.routes.push(settings.model);
     return { sessionId: "session" };
   },
 }));
@@ -47,14 +49,15 @@ vi.mock("~/lib/sandbox/session-state", () => ({
 
 const container = { row: { nativeId: "guest-1" } } as unknown as Container;
 
-function open(execution?: Execution) {
+function open(execution?: Execution, wireModelId?: string) {
   return createSandboxSession({
     agentId: "coder",
     container,
     ...(execution ? { execution } : {}),
     harness: "codex",
+    hostCwd: process.cwd(),
     instructions: "inspect",
-    modelId: "gpt-5.5",
+    modelId: wireModelId === undefined ? "gpt-5.5" : "sol",
     options: {
       authority: { policy: createInMemoryAgentAuthorizer().authorizer },
       sandbox: {} as SandboxHandle,
@@ -63,6 +66,7 @@ function open(execution?: Execution) {
     sessionId: "session",
     signal: new AbortController().signal,
     store: new InMemorySessionStore(),
+    ...(wireModelId === undefined ? {} : { wireModelId }),
     write: () => undefined,
   });
 }
@@ -85,6 +89,20 @@ beforeEach(() => {
   seen.auth.length = 0;
   seen.codex.length = 0;
   seen.driven.length = 0;
+  seen.routes.length = 0;
+});
+
+it("uses the selected wire ID while keeping the sandbox session route", async () => {
+  await open(codex("work-codex", {}), "gpt-6.10-sol");
+  expect(seen.auth).toEqual([
+    expect.objectContaining({ modelId: "gpt-6.10-sol" }),
+  ]);
+  expect(seen.codex).toEqual([
+    expect.objectContaining({ modelId: "gpt-6.10-sol" }),
+  ]);
+  expect(seen.routes).toEqual([
+    { harness: "codex", id: "sol", provider: "work-codex" },
+  ]);
 });
 
 it("drives a guest CLI with the provider instance's own driver and environment", async () => {

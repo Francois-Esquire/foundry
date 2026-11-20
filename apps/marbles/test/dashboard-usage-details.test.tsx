@@ -1,24 +1,29 @@
-import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Sessions } from "@foundry/agents/session";
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
 import { step } from "../src/authoring/builder";
 import { catalog } from "../src/authoring/catalog";
 import { agent } from "../src/authoring/resources";
-import { JsonSessionStore } from "../src/lib/sessions/json-store";
-import { JsonStateStore } from "../src/lib/state/store";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { DashboardView } from "../src/cli/views/dashboard";
 import type { SessionRef } from "../src/lib/types";
-import { DashboardView } from "../src/views/dashboard";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
+import { MemoryUsageStore } from "../src/lib/usage-store";
 import { dashboardSnapshot } from "../src/workspace/snapshot";
+import { durableSessions, transcriptOf } from "./helpers/durable-sessions";
 import { startEngine } from "./helpers/engine";
 import { flush, mount, press, unmount } from "./helpers/render";
+import {
+  FailingUsageStore,
+  putStoredFact,
+  storedUsage,
+} from "./helpers/usage-store";
 
 const WARNING = "may be incomplete: 1 unreadable usage record";
 const PANEL_TEXT = /[│█▀▄\s]+/g;
 
-/** The frame's words in order, so a value wrapped inside a panel still reads as one line. */
 function words(frame: string): string {
   return frame.replace(PANEL_TEXT, " ");
 }
@@ -38,10 +43,6 @@ afterEach(async () => {
   state = undefined;
 });
 
-/**
- * A real run with one priced leaf and one malformed leaf in its document on
- * disk, read back by a new engine the way the dashboard host reads it.
- */
 async function damagedSnapshot(): Promise<DashboardSnapshot> {
   state = mkdtempSync(join(tmpdir(), "marbles-details-"));
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
@@ -50,37 +51,33 @@ async function damagedSnapshot(): Promise<DashboardSnapshot> {
     await session.generate("one");
   });
   const dir = state;
-  // Durable sessions beside durable state, as the host builds an engine.
   const durable = () => ({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(dir, "sessions")),
+    sessions: durableSessions(dir),
     state: dir,
   });
   const first = await startEngine(durable());
   const launched = await first.launch("priced", {});
   await launched.result;
   await first.dispose();
-  const disk = new JsonStateStore(state);
-  const key = `run.${encodeURIComponent(launched.id)}`;
-  const document = disk.read("usage", key) as {
-    facts: Record<string, Record<string, unknown>>;
-  };
-  const [saved] = Object.values(document.facts);
+  const [saved] = (await storedUsage(state))?.facts ?? [];
   if (!saved) {
     throw new Error("expected a saved fact");
   }
-  saved.cost = {
-    amount: 2,
-    currency: "USD",
-    kind: "reported",
-    reference: "probe",
-  };
-  document.facts.broken = {
+  const reported = {
     ...saved,
-    cost: { amount: "bad" },
-    turnId: "broken",
+    cost: { amount: 2, currency: "USD", kind: "reported", reference: "probe" },
   };
-  disk.write("usage", key, document);
+  await putStoredFact(state, {
+    runId: launched.id,
+    turnId: saved.turnId,
+    value: reported,
+  });
+  await putStoredFact(state, {
+    runId: launched.id,
+    turnId: "broken",
+    value: { ...reported, cost: { amount: "bad" }, turnId: "broken" },
+  });
   const second = await startEngine(durable());
   const snapshot = dashboardSnapshot(await second.runs(), {
     definitions: second.definitions(),
@@ -114,19 +111,16 @@ test("run, step and workflow details at 80 columns say a total may be incomplete
     }
   );
   expect(ui.captureCharFrame()).toContain("$2.00+?");
-  // Run details, scrolled to the cost lines.
   await press(ui, "RETURN");
   await scrollToEnd(ui);
   let frame = words(ui.captureCharFrame());
   expect(frame).toContain(`$2.00 reported · ${WARNING}`);
-  // Step details.
   await press(ui, "ESCAPE");
   await press(ui, "ARROW_DOWN");
   await press(ui, "RETURN");
   await scrollToEnd(ui);
   frame = words(ui.captureCharFrame());
   expect(frame).toContain(`Cost here : $2.00 reported · ${WARNING}`);
-  // Workflow details in the catalog.
   await press(ui, "ESCAPE");
   await press(ui, "2");
   await press(ui, "RETURN");
@@ -134,11 +128,10 @@ test("run, step and workflow details at 80 columns say a total may be incomplete
   frame = words(ui.captureCharFrame());
   expect(frame).toContain("Available");
   expect(frame).toContain(`$2.00 reported · ${WARNING}`);
-  // Overview's usage breakdown names it too.
   await press(ui, "ESCAPE");
   await press(ui, "3");
   await press(ui, "u");
-  expect(ui.captureCharFrame()).toContain("1 usage records could not be read");
+  expect(ui.captureCharFrame()).toContain("1 usage record could not be read");
 });
 
 test("a workflow with no valid facts shows unowned unreadable usage in its Catalog details instead of 'no usage recorded'", async () => {
@@ -146,7 +139,7 @@ test("a workflow with no valid facts shows unowned unreadable usage in its Catal
   const dir = state;
   const durable = () => ({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(dir, "sessions")),
+    sessions: durableSessions(dir),
     state: dir,
   });
   step("healthy").do(() => "no agents here");
@@ -154,8 +147,14 @@ test("a workflow with no valid facts shows unowned unreadable usage in its Catal
   const launched = await first.launch("healthy", {});
   await launched.result;
   await first.dispose();
-  // A usage document whose name says nothing about its owner, and cannot be read.
-  new JsonStateStore(dir).write("usage", "mystery", { facts: "broken" });
+  const mystery = new Sessions({ store: durableSessions(dir) });
+  await mystery.createSession({ id: "mystery" });
+  await mystery.appendMessage({
+    parts: [{ text: "?", type: "text" }],
+    role: "user",
+    sessionId: "mystery",
+  });
+  await transcriptOf(dir, "mystery").damage();
   const second = await startEngine(durable());
   const snapshot = dashboardSnapshot(await second.runs(), {
     definitions: second.definitions(),
@@ -192,7 +191,7 @@ test("a known workflow whose running run the reader cannot load shows an unattri
   const dir = state;
   const durable = () => ({
     print: () => undefined,
-    sessions: new JsonSessionStore(join(dir, "sessions")),
+    sessions: durableSessions(dir),
     state: dir,
   });
   const helper = agent({ name: "helper", prompt: "Help." });
@@ -219,11 +218,11 @@ test("a known workflow whose running run the reader cannot load shows an unattri
   const direct = await host.agents.session(helper);
   await direct.generate("saved direct turn");
   ({ ref } = direct);
-  const usageDir = join(dir, "usage");
-  const transcript = join(dir, "sessions", `${direct.ref.id}.json`);
-  const { mode } = statSync(transcript);
-  const writer = await startEngine(durable());
-  // A fresh reader: the consumer's run is still running in another engine.
+  const transcript = transcriptOf(dir, direct.ref.id);
+  const writer = await startEngine({
+    ...durable(),
+    usageStore: new FailingUsageStore(new MemoryUsageStore(), () => true),
+  });
   const catalogDetails = async (): Promise<string> => {
     catalog.reset();
     consumer();
@@ -253,7 +252,6 @@ test("a known workflow whose running run the reader cannot load shows an unattri
     return frame;
   };
   try {
-    chmodSync(usageDir, 0o500);
     const running = await writer.launch("consumer", {});
     await ready;
     const frame = await catalogDetails();
@@ -262,21 +260,18 @@ test("a known workflow whose running run the reader cannot load shows an unattri
       "Cost : unknown · 1 unattributed turn may belong here"
     );
     expect(frame).not.toContain("no usage recorded");
-    // Only direct facts name the unreadable transcript; its loss is not theirs alone.
-    chmodSync(transcript, 0o000);
+    await transcript.damage();
     const blind = await catalogDetails();
-    chmodSync(transcript, mode);
+    await transcript.restore();
     expect(blind).toContain("consumer");
     expect(blind).toContain(
       "Cost : unknown · 1 unreadable usage record may belong here"
     );
     expect(blind).not.toContain("no usage recorded");
-    chmodSync(usageDir, 0o700);
     release();
     await running.result;
   } finally {
-    chmodSync(transcript, mode);
-    chmodSync(usageDir, 0o700);
+    await transcript.restore();
     release();
     await writer.dispose();
     await host.dispose();

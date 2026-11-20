@@ -1,10 +1,3 @@
-/**
- * Step suspension — step.suspend({name, reason, meta?}) throws SuspendSignal,
- * parking the enclosing Workflow at status=suspended. workflow.resume(name, value)
- * records the resolution; the next run() short-circuits suspend(name) with the
- * stored value.
- */
-
 import { describe, expect, it, test } from "vitest";
 
 import { isSuspendSignal, SuspendSignal } from "../executable";
@@ -107,9 +100,6 @@ describe("Suspension — basic flow", () => {
 
 describe("Suspension — resume", () => {
   test("workflow.resume(name, value) records the resolution", async () => {
-    // After resume, calling step.suspend(name) again returns the value
-    // synchronously instead of throwing — that's what 'records the
-    // resolution' means.
     const step = await Step.make({
       execute: async () => undefined,
       input: undefined,
@@ -151,10 +141,8 @@ describe("Suspension — resume", () => {
       input: undefined,
       name: "wf-shortcircuit",
     });
-    // First run parks the workflow.
     await wf.run().catch(() => undefined);
     expect(observed).toBe(null);
-    // Resume with a value, then re-run.
     await wf.resume("approval", "approved");
     const result = await wf.run();
     expect(observed).toBe("approved");
@@ -198,22 +186,15 @@ describe("Suspension — multiple suspensions per run", () => {
       name: "wf-multi",
     });
 
-    // Park 1 — at "first".
     await wf.run().catch(() => undefined);
     expect(wf.status).toBe("suspended");
     expect(observed).toEqual([]);
 
-    // Resolve "first", re-run; should park at "second". The body
-    // replays from the top, so suspend("first") returns the resolution
-    // and "A" is pushed before suspend("second") parks.
     await wf.resume("first", "A");
     await wf.run().catch(() => undefined);
     expect(wf.status).toBe("suspended");
     expect(observed).toEqual(["A"]);
 
-    // Resolve "second", re-run; should complete. The body replays a
-    // third time — both suspends are now resolved — so "A" is pushed
-    // again, then "B".
     await wf.resume("second", "B");
     const result = await wf.run();
     expect(result).toBe("A-B");
@@ -231,9 +212,7 @@ describe("Suspension — multiple suspensions per run", () => {
       name: "multi",
     });
     const handle = collectEvents(step);
-    // First run parks at "first".
     await step.run().catch(() => undefined);
-    // Resolve "first", re-run; parks at "second".
     await step.resolve("first", undefined);
     await step.run().catch(() => undefined);
     handle.stop();

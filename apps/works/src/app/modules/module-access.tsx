@@ -22,7 +22,6 @@ const STATUS: Record<
 const NETWORK_NOTE =
   "Only HTTPS to these destinations is allowed. Approving or revoking network access stops and restarts the app if it is open.";
 
-/** What happens to the app's own files when it stops. */
 const PRIVATE_FILES = {
   installation: "Kept on this device between runs",
   none: "Discarded whenever the app stops. To keep it, set persistence.files to installation in foundry.module.json.",
@@ -142,11 +141,6 @@ function GrantItem({
   );
 }
 
-/**
- * The Module's Access: what its Version requests, the Grants approved on its
- * Installation, and the scope they leave it. Approval and revocation happen
- * only here; a request in the Manifest grants nothing.
- */
 export function ModuleAccessPanel({ moduleId }: { moduleId: string }) {
   const api = worksApi();
   const queryClient = useQueryClient();
@@ -157,7 +151,6 @@ export function ModuleAccessPanel({ moduleId }: { moduleId: string }) {
   const update = {
     onSuccess: async (updated: ModuleAccessView) => {
       queryClient.setQueryData(queryKey, updated);
-      // A network change restarts the app, which on/off shows.
       await queryClient.invalidateQueries({
         queryKey: api.power.get.queryKey({ input: { id: moduleId } }),
       });

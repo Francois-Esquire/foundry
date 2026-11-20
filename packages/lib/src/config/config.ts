@@ -1,31 +1,3 @@
-/**
- * Config — flat dot-notation runtime configuration store.
- *
- * Mental model: one VS Code-style settings store. Packages contribute
- * typed slices via top-level prefixes; consumers read by dot-path or
- * by prefix-as-object, and subscribe at any granularity (exact key,
- * prefix glob, or whole prefix).
- *
- * Storage, reads, leaf-level + glob events are inherited from
- * `ReactiveStore`. Config layers schema validation, per-prefix
- * defaults, and whole-prefix events with a `source` tag on top.
- *
- * Config is IO-free: it never reads or writes disk. Hosts ingest a
- * pre-parsed payload via `loadFromData` (the desktop from its store, the
- * CLI from a config file it scans) and persist `snapshot()` however they
- * like.
- *
- * Two composition models, distinct by *who owns the storage*:
- *
- *   contribute(prefix, schema, defaults)  — a PARENT-OWNED slice. This Config
- *     holds the values and validates them against the prefix schema.
- *   mount(prefix, child)                  — a CHILD-OWNED slice. The child
- *     ReactiveStore keeps owning (and validating) its own storage; this Config
- *     binds a reference under `prefix` and delegates reads/writes/events to it.
- *     Nothing is copied — `detach` (or override) leaves the child fully intact.
- *
- */
-
 import type { ZodType } from "zod";
 
 import type { LeafChange } from "./helpers";
@@ -51,24 +23,9 @@ interface PrefixEntry {
 
 export class Config extends ReactiveStore<Record<string, unknown>> {
   readonly #prefixes = new Map<string, PrefixEntry>();
-  /** Child-owned slices bound via {@link mount}, keyed by prefix. */
   readonly #mounts = new Map<string, ReactiveStore<Record<string, unknown>>>();
   #currentSource: ChangeSource = "set";
 
-  // ── Mounting (child-owned slices) ──────────────────────────────────────────
-
-  /**
-   * Bind a child-owned node under `prefix`. The child keeps owning and
-   * validating its storage; this Config delegates `prefix.*` reads/writes to it
-   * and re-emits its commits under the prefix. Nothing is copied.
-   *
-   * Conflict policy:
-   *   - same instance already mounted here → no-op (idempotent).
-   *   - a *different* child already mounted here → warn + override; the old
-   *     child is detached but stays fully alive (its owner keeps it).
-   *   - prefix already taken by a `contribute`d slice → throw (the two
-   *     ownership models can't share a prefix — almost always a wiring bug).
-   */
   mount(prefix: string, child: ReactiveStore<Record<string, unknown>>): void {
     if (prefix.includes(".")) {
       throw new Error(
@@ -98,11 +55,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
     });
   }
 
-  /**
-   * Unbind the child mounted at `prefix`. The child keeps all of its data and
-   * stays usable standalone — only the forwarding relay is severed. No-op if
-   * nothing is mounted there.
-   */
   detach(prefix: string): void {
     const child = this.#mounts.get(prefix);
     if (!child) {
@@ -112,13 +64,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
     this.#mounts.delete(prefix);
   }
 
-  // ── Contribution ─────────────────────────────────────────────────────────
-
-  /**
-   * Register a typed slice under `prefix`. Schema validates every write
-   * to that prefix; defaults seed the initial value. Throws if `prefix`
-   * is already registered.
-   */
   contribute<T>(prefix: string, schema: ZodType<T>, defaults: T): void {
     if (prefix.includes(".")) {
       throw new Error(
@@ -137,23 +82,13 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
       );
     }
     this.#prefixes.set(prefix, { defaults, schema });
-    // Seed silently — subscribers shouldn't see contribute() as a "change".
     this._values = { ...this._values, [prefix]: defaults };
   }
 
-  /**
-   * Registered prefixes — both `contribute`d (parent-owned) and `mount`ed
-   * (child-owned), in registration order: contributions first, then mounts.
-   */
   contributed(): readonly string[] {
     return [...this.#prefixes.keys(), ...this.#mounts.keys()];
   }
 
-  /**
-   * Read by dot-path. Returns the value at `"prefix"` (the whole prefix
-   * object), at `"prefix.a.b"` (a nested leaf), or `undefined` if any
-   * segment is missing. Typed by the augmented `ConfigShape` interface.
-   */
   override get<P extends Path>(path: P): ValueAt<ConfigShape, P>;
   override get(path: string): unknown;
   override get(path: string): unknown {
@@ -166,10 +101,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
     return super.get(path);
   }
 
-  /**
-   * Snapshot keyed by prefix — contributed slices from local storage, mounted
-   * slices from each child's live values (the child owns the truth).
-   */
   snapshot(): { readonly [K in keyof ConfigShape]: ConfigShape[K] } & Record<
     string,
     unknown
@@ -184,13 +115,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
     return out;
   }
 
-  // ── Writes ───────────────────────────────────────────────────────────────
-
-  /**
-   * Write a single value at a dot-path. Validates the entire prefix
-   * after the deep-set; on validation failure the stored value is
-   * untouched and the call throws.
-   */
   override set<P extends Path>(path: P, value: ValueAt<ConfigShape, P>): void;
   override set(path: string, value: unknown): void;
   override set(path: string, value: unknown): void {
@@ -219,10 +143,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
     this.#commitPrefix(prefix, validated, "set");
   }
 
-  /**
-   * Object-form multi-key write. The patch is grouped by top-level
-   * prefix; each prefix is validated and committed in turn.
-   */
   merge(patch: Partial<ConfigShape> | Record<string, unknown>): void {
     for (const [prefix, sub] of Object.entries(patch)) {
       if (sub === undefined) {
@@ -247,12 +167,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
     }
   }
 
-  /**
-   * Restore defaults. With no argument, resets every *contributed* prefix —
-   * mounted children are independently owned and left untouched (reset them via
-   * their own owner). With a prefix, resets that contributed slice, or delegates
-   * to the child if `prefix` is mounted.
-   */
   override reset(prefix?: string): void {
     if (prefix === undefined) {
       for (const p of this.#prefixes.keys()) {
@@ -268,29 +182,17 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
     this.#commitPrefix(prefix, this.#requirePrefix(prefix).defaults, "reset");
   }
 
-  // ── Loaders ──────────────────────────────────────────────────────────────
-
-  /**
-   * Apply a pre-parsed payload (e.g. from a tRPC settings save, the desktop
-   * store, or a config file the CLI scanned) to contributed or mounted prefixes. The
-   * single ingestion door — Config never reads disk itself. Unknown prefixes
-   * are warned and skipped; a prefix that fails validation keeps its previous
-   * value. Emits `"loaded"`.
-   */
   loadFromData(
     data: Partial<ConfigShape> | Record<string, unknown>
   ): LoadedPayload {
     return this.#load(data);
   }
 
-  // ── Event extension points ───────────────────────────────────────────────
-
   protected override onCommit(
     before: Record<string, unknown>,
     after: Record<string, unknown>,
     changes: LeafChange[]
   ): void {
-    // Whole-prefix event(s) first, one per touched prefix.
     const prefixesTouched = new Set<string>();
     for (const c of changes) {
       const [prefix] = c.path.split(".");
@@ -307,7 +209,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
       };
       this.emit(prefix, payload);
     }
-    // Then default leaf + glob fan-out (uses `makeLeafPayload` below).
     super.onCommit(before, after, changes);
   }
 
@@ -315,14 +216,6 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
     return { ...change, source: this.#currentSource };
   }
 
-  // ── Internals ────────────────────────────────────────────────────────────
-
-  /**
-   * Commit `value` to a contributed prefix through the base store, stamping
-   * the change `source` first. The single place `#currentSource` is written —
-   * every contributed write funnels here, so the override hooks (`onCommit` /
-   * `makeLeafPayload`) always read a source set immediately before the commit.
-   */
   #commitPrefix(prefix: string, value: unknown, source: ChangeSource): void {
     this.#currentSource = source;
     super.set(prefix, value);
@@ -360,20 +253,10 @@ export class Config extends ReactiveStore<Record<string, unknown>> {
     return payload;
   }
 
-  /**
-   * Relay a mounted child's commit as this Config's own namespaced events:
-   * whole-store `"changed"`, the whole-prefix event, and per-leaf + glob
-   * fan-out under `prefix`. The child's `source` rides along on its payloads
-   * (a plain `ReactiveStore` child has none → defaults to `"set"`). Fires only
-   * for the changed child; data still lives solely in the child.
-   */
   #onChildCommit(
     prefix: string,
     { before, after, changes, payloadFor }: CommitInfo<Record<string, unknown>>
   ): void {
-    // Assemble a faithful whole-store view for "changed" without persisting it:
-    // all current values (the changed child already committed), with the
-    // changed prefix swapped back to its pre-commit value for `before`.
     const assembledAfter: Record<string, unknown> = { ...this._values };
     for (const [p, c] of this.#mounts) {
       assembledAfter[p] = c.values;

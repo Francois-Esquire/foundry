@@ -8,67 +8,32 @@ import type {
   Polygon,
 } from "./types";
 
-/**
- * The structural terrain under the islands, from the settled layout. The
- * convention: water level is 0, land is above it,
- * the abyss is -1, and structure lifts the seabed toward the surface in two
- * bands. Internal workspace foundations raise a broad, deep basement; shared
- * third-party groups raise shelves on it. Neither band reaches the water, so
- * every shoreline is an island's own. How many relationships lie under a
- * point is kept apart from elevation, as unbounded thickness.
- */
 export const terrainLevels = {
   abyss: -1,
-  /** The highest an internal basement rises. */
   basementTop: -0.6,
-  /** Full land height, reached `land` map units inland. */
   land: 1,
-  /** The highest a shared shelf rises; below water, so a shelf is never coast. */
   shelfTop: -0.14,
   waterLevel: 0,
 } as const;
 
-/** How one relationship's influence falls off beyond a member's coast. */
 export interface FalloffProfile {
-  /** 1 is exponential, 2 Gaussian; larger exponents give a steeper face. */
   exponent: number;
-  /** Map units beyond the coast where the influence stays full. */
   plateau: number;
-  /** Map units over which it then falls to about 1/e. */
   width: number;
 }
 
 export const defaultTerrainSettings = {
-  /** Internal foundations: broad and gentle. */
   basement: { exponent: 1.6, plateau: 30, width: 80 },
-  /** Basement thickness at which the basement is half risen. */
   basementHalf: 8,
-  /** Map units per cell of the terrain grid. */
   cell: 4,
-  /** Each island's own descent from its coast toward the abyss. */
   coast: { exponent: 1, plateau: 0, width: 24 },
-  /**
-   * A dependent's share of a supplier's influence: the basement centres on
-   * the package relied upon and reaches more weakly under those relying on it.
-   */
   dependentShare: 0.5,
-  /** Map units inland at which land reaches full height. */
   land: 40,
-  /**
-   * Around an island outside a relationship, its influence is held off for
-   * `clearance` map units and returns over `width`: a recess, not a shelf
-   * under unrelated land.
-   */
   recess: { clearance: 12, width: 30 },
-  /** Shared groups: a closer plateau with a steeper face. */
   shelf: { exponent: 2.4, plateau: 26, width: 48 },
-  /** Shelf thickness at which a shelf is half risen above its base. */
   shelfHalf: 4,
-  /** Lift above the abyss, 0 to 1, that the outer silhouette encloses. */
   silhouetteLift: 0.1,
-  /** Smooth-maximum width where an island's descent meets the shelves. */
   smoothing: 0.08,
-  /** Extra plateau a supplier's own lobe takes as its dependents grow. */
   supplierReach: 80,
 };
 export type TerrainSettings = typeof defaultTerrainSettings;
@@ -81,31 +46,24 @@ export interface TerrainIsland {
   y: number;
 }
 
-/** One relationship's source: who takes part, and how much it adds at full influence. */
 export interface TerrainContributionSource {
-  /** Third-party dependencies a shared group represents; none for an internal foundation. */
   dependencyIds: readonly string[];
   id: string;
   kind: "internal" | "shared";
   members: readonly {
-    /** 0 to 1: how strongly this member takes part. */
     amplitude: number;
-    /** A supplier's lobe reaches farther than a dependent's. */
     supplier?: boolean;
     territoryId: string;
   }[];
-  /** Thickness added where the influence is full. */
   weight: number;
 }
 
 export interface TerrainInput {
   contributions: readonly TerrainContributionSource[];
-  /** The chart's extent, centred on the origin. */
   extent: { height: number; width: number };
   islands: readonly TerrainIsland[];
 }
 
-/** A contribution's influence, 0 to 1, on its own crop of the grid. */
 export interface TerrainContribution {
   column: number;
   height: number;
@@ -115,7 +73,6 @@ export interface TerrainContribution {
   width: number;
 }
 
-/** One composition of the contributions: thickness by band, and the elevation they give. */
 export interface TerrainSurface {
   basement: Float32Array;
   elevation: Float32Array;
@@ -123,39 +80,30 @@ export interface TerrainSurface {
 }
 
 export interface StructuralTerrain {
-  /** Map units per cell. */
   cell: number;
-  /** Recomposes from cached contributions; never re-measures distance. */
   compose(options?: { focus?: string; foundations?: boolean }): TerrainSurface;
   contributions: readonly TerrainContribution[];
   height: number;
   key: string;
-  /** Map position of the grid's west and north edges. */
   left: number;
   settings: TerrainSettings;
-  /** Map units to the nearest coast, negative on land. */
   signedDistance: Float32Array;
-  /** The full composition, every contribution included. */
   surface: TerrainSurface;
   top: number;
   width: number;
 }
 
 interface IslandCrop {
-  /** The coast's own bounds within the crop, in its cells. */
   coast: { bottom: number; left: number; right: number; top: number };
   column: number;
   height: number;
   row: number;
-  /** Map units, negative on land. */
   sdf: Float32Array;
   width: number;
 }
 
-/** Influence below this is no influence: it bounds each profile's reach. */
 const negligible = 0.002;
 
-/** 1 within the plateau, then `exp(-(d / width) ^ exponent)` beyond it. */
 export function falloff(distance: number, profile: FalloffProfile): number {
   const beyond = distance - profile.plateau;
   if (beyond <= 0) {
@@ -166,7 +114,6 @@ export function falloff(distance: number, profile: FalloffProfile): number {
   );
 }
 
-/** Map units past the coast at which a profile becomes negligible. */
 function falloffReach(profile: FalloffProfile): number {
   return (
     profile.plateau +
@@ -179,10 +126,6 @@ function smoothstep(low: number, high: number, value: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/**
- * Polynomial smooth maximum, equal to `max` once the two differ by `k`. Its
- * rounding fades toward the abyss, so an empty seabed stays exactly abyssal.
- */
 function smoothMax(a: number, b: number, k: number): number {
   const highest = Math.max(a, b);
   if (k <= 0) {
@@ -192,23 +135,14 @@ function smoothMax(a: number, b: number, k: number): number {
   return highest + ((h * h * k) / 4) * terrainLift(highest);
 }
 
-/** Saturating thickness: 0 at none, one half at `half`, approaching 1. */
 function saturate(thickness: number, half: number): number {
   return thickness > 0 ? thickness / (thickness + half) : 0;
 }
 
-/** How far a supplier's lobe extends its plateau for its number of dependents. */
 function supplierExtent(prominence: number, settings: TerrainSettings) {
   return (settings.supplierReach * prominence) / (prominence + 3);
 }
 
-/**
- * Terrain sources from the prepared relationships. A shared group weighs the
- * sum of its dependencies' mean member weights, so one shared dependency is
- * about 1 and ten about 10, and transitive reliance counts less. An internal
- * foundation weighs its attenuated dependents. Every group and foundation is
- * kept; none is cut off by rank.
- */
 export function terrainContributions(
   groups: readonly FoundationGroup[],
   foundations: readonly Pick<DependencyFoundation, "id" | "members">[],
@@ -268,7 +202,6 @@ export function terrainContributions(
   return [...shared, ...workspace].sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** Content identity for the terrain cache, never a security hash. */
 function terrainKey(input: TerrainInput, settings: TerrainSettings): string {
   const json = JSON.stringify([
     settings,
@@ -294,10 +227,8 @@ function terrainKey(input: TerrainInput, settings: TerrainSettings): string {
 }
 
 const cache = new Map<string, StructuralTerrain>();
-/** Scenes rebuild for a relayout; two entries cover the current and previous layout. */
 const cacheEntries = 2;
 
-/** The terrain for a layout, built once per content and reused while it is unchanged. */
 export function structuralTerrain(
   input: TerrainInput,
   settings: TerrainSettings = defaultTerrainSettings
@@ -406,11 +337,6 @@ function buildTerrain(
   };
 }
 
-/**
- * The rows and columns of a crop within `reach` map units of its coast,
- * placed at `offset`, that fall within a `width` by `height` grid: beyond
- * that reach the crop's distances can change nothing.
- */
 function overlap(
   crop: IslandCrop,
   offset: { column: number; row: number },
@@ -434,7 +360,6 @@ function overlap(
   };
 }
 
-/** Visits a crop's cells that lie on the grid, with local and global indices. */
 function eachCell(
   crop: Pick<IslandCrop, "column" | "height" | "row" | "width">,
   width: number,
@@ -456,7 +381,6 @@ function eachCell(
   }
 }
 
-/** A circle where an island has no coast yet, as its footprint radius. */
 function fallbackCoast(radius: number): Polygon[] {
   const ring: [number, number][] = Array.from({ length: 32 }, (_, i) => [
     Math.cos((i * Math.PI) / 16) * radius,
@@ -465,7 +389,6 @@ function fallbackCoast(radius: number): Polygon[] {
   return [[ring]];
 }
 
-/** One island's signed distance over its own crop: as far as anything reaches. */
 function islandCrop(
   island: TerrainIsland,
   grid: {
@@ -511,7 +434,6 @@ function islandCrop(
   }
   const outside = shoreDistances(land, width, height);
   const inside = insideDistances(land, width, height, marginCells - 1);
-  // Cell centres sit half a cell from the boundary between land and water.
   const sdf = Float32Array.from(land, (cell, index) =>
     cell
       ? -Math.max(0, (inside[index] ?? 0) - 0.5) * grid.cell
@@ -532,11 +454,6 @@ function islandCrop(
   };
 }
 
-/**
- * Distance from each land cell to the nearest water cell, measured only
- * over the coast's own bounds and a cell of water around them: the crop's
- * margin is water throughout, so nothing beyond that cell is nearer.
- */
 function insideDistances(
   land: Uint8Array,
   width: number,
@@ -564,7 +481,6 @@ function insideDistances(
   return distances;
 }
 
-/** A contribution's crop of the grid, in cells, and the grid's cell size. */
 interface ContributionFrame {
   cell: number;
   column: number;
@@ -573,7 +489,6 @@ interface ContributionFrame {
   width: number;
 }
 
-/** Multiplies one member's lobe into a contribution's complement: a probabilistic union. */
 function unionLobe(
   complement: Float32Array,
   frame: ContributionFrame,
@@ -596,7 +511,6 @@ function unionLobe(
   }
 }
 
-/** Holds a contribution off near an island outside it, so a recess forms there. */
 function holdOff(
   values: Float32Array,
   frame: ContributionFrame,
@@ -621,13 +535,6 @@ function holdOff(
   }
 }
 
-/**
- * A relationship's influence on its members' crops: the probabilistic union
- * of each member's falloff, so overlapping members reinforce without
- * exceeding 1, then held off near every island outside the relationship.
- * No edge between members is drawn; continuity only forms where their lobes
- * actually meet.
- */
 function contributionField(
   source: TerrainContributionSource,
   crops: ReadonlyMap<string, IslandCrop>,
@@ -683,7 +590,6 @@ function contributionField(
   return { column, height, row, source, values, width };
 }
 
-/** Thickness by band, then elevation: basement from the abyss, shelves on it, coasts above both. */
 function composeSurface(
   contributions: readonly TerrainContribution[],
   signedDistance: Float32Array,
@@ -721,8 +627,6 @@ function composeSurface(
     const descent =
       waterLevel +
       (abyss - waterLevel) * (1 - falloff(distance, settings.coast));
-    // The smoothing never lifts the shelves to the coast: they stay
-    // `waterLevel - shelfTop` below it, more than the smoothing width.
     elevation[index] = Math.min(
       waterLevel,
       smoothMax(descent, structure, settings.smoothing)
@@ -731,7 +635,6 @@ function composeSurface(
   return { basement, elevation, shelf };
 }
 
-/** Water over the terrain at `level`: 0 on land. */
 export function waterDepth(
   surface: Pick<TerrainSurface, "elevation">,
   level: number = terrainLevels.waterLevel
@@ -741,7 +644,6 @@ export function waterDepth(
   );
 }
 
-/** The terrain read as land at `level`: what is above it, and how high. */
 export function landReading(
   surface: Pick<TerrainSurface, "elevation">,
   level: number
@@ -752,13 +654,11 @@ export function landReading(
   );
 }
 
-/** Lift above the abyss, 0 to 1 at the water level and above. */
 function terrainLift(elevation: number): number {
   const { abyss, waterLevel } = terrainLevels;
   return Math.min(1, Math.max(0, (elevation - abyss) / (waterLevel - abyss)));
 }
 
-/** Contours of a grid-shaped field in map units, holes and separate pieces kept. */
 function fieldContours(
   terrain: Pick<StructuralTerrain, "cell" | "left" | "top">,
   values: ArrayLike<number>,
@@ -780,11 +680,6 @@ function fieldContours(
     );
 }
 
-/**
- * The outer silhouette of the whole formation: where the terrain rises
- * `silhouetteLift` above the abyss. Separate formations stay separate and
- * enclosed deep water stays a hole. It is an underwater contour, not a coast.
- */
 export function terrainSilhouette(
   terrain: StructuralTerrain,
   surface: TerrainSurface = terrain.surface
@@ -800,7 +695,6 @@ export function terrainSilhouette(
   );
 }
 
-/** One contribution's own boundary, where its influence is `level`. */
 export function contributionBoundary(
   terrain: StructuralTerrain,
   contribution: TerrainContribution,
@@ -811,7 +705,6 @@ export function contributionBoundary(
   );
 }
 
-/** Elevation contours at each level given, deepest first, from the terrain itself. */
 export function depthContours(
   terrain: StructuralTerrain,
   levels: readonly number[],
@@ -825,7 +718,6 @@ export function depthContours(
   );
 }
 
-/** A field's value at a map position, by its nearest cell; outside the grid, `outside`. */
 export function terrainAt(
   terrain: Pick<
     StructuralTerrain,
@@ -849,7 +741,6 @@ export function terrainAt(
   return values[row * terrain.width + column] ?? outside;
 }
 
-/** A contribution's influence at a map position: 0 outside its crop. */
 export function contributionAt(
   terrain: Pick<StructuralTerrain, "cell" | "left" | "top">,
   contribution: TerrainContribution,

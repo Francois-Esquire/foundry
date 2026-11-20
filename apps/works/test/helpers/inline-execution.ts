@@ -17,11 +17,6 @@ function inlineContext(signal?: AbortSignal): TaskContext {
   } as unknown as TaskContext;
 }
 
-/**
- * Runs each body at once, for renderer tests that drive the router in
- * happy-dom, where the engine cannot load. Main-process tests use the real
- * engine from `execution.ts`.
- */
 export const inlineExecution: Pick<WorksExecution, "dispatch" | "launch"> = {
   async dispatch(_name, options, body) {
     return await body(inlineContext(options.signal));

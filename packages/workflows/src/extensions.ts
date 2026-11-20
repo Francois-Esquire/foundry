@@ -6,7 +6,6 @@ export type ExtensionValue =
   | readonly ExtensionValue[]
   | { readonly [key: string]: ExtensionValue };
 
-/** Host-owned JSON-safe data keyed by namespace. `workflows.*` is reserved. */
 export type Extensions = Readonly<Record<string, ExtensionValue>>;
 
 export function createExtensions(value: unknown = {}): Extensions {
@@ -28,7 +27,6 @@ export function mergeExtensions(
   return createExtensions({ ...existing, ...createExtensions(patch) });
 }
 
-/** Decode untrusted persisted data without allowing malformed values into state. */
 export function extensionsFromUnknown(value: unknown): Extensions {
   try {
     return createExtensions(value);

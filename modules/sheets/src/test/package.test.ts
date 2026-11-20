@@ -7,7 +7,6 @@ import { expect, it } from "vitest";
 import { SHEETS_PACKAGE_PATH } from "..";
 import { WORKBOOK_MIME } from "../workbook/file";
 
-/** The package `bun run build` wrote (the test task runs after the build). */
 it("imports as a strict release registering a workbook write editor", async () => {
   const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
   const version = await importModulePackage({

@@ -109,9 +109,6 @@ describe("encodeAddress", () => {
     );
     expect(split).not.toBe(shifted);
 
-    // A field that embeds the exact quote-pipe-quote sequence the encoder uses
-    // between fields still cannot forge a field boundary, because JSON escapes
-    // the quotes it contains.
     const forged = encodeAddress(
       authorizationAddress(
         { id: "c", namespace: 'a"|"b' },

@@ -1,3 +1,4 @@
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
 import { and, eq, getTableColumns, inArray, max, or, sql } from "drizzle-orm";
@@ -76,7 +77,7 @@ export class SqliteTaskStore implements TaskStore {
   commit(write: TaskStoreWrite): Promise<void> {
     let owned: TaskStoreWrite;
     try {
-      owned = structuredClone(write);
+      owned = ownedWrite(write);
     } catch (error) {
       return Promise.reject(error);
     }

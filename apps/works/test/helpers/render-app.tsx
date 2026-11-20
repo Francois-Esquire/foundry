@@ -6,7 +6,6 @@ import { Shell } from "~/app/layout/shell";
 import { WorksRoutes } from "~/app/routes";
 import { ThemeProvider } from "~/app/theme/theme";
 
-/** Reports every location the app navigates to, as `pathname?search`. */
 function LocationProbe({ onLocation }: { onLocation: (to: string) => void }) {
   const { pathname, search } = useLocation();
   useEffect(() => {
@@ -15,7 +14,6 @@ function LocationProbe({ onLocation }: { onLocation: (to: string) => void }) {
   return null;
 }
 
-/** The whole renderer at one route, as the window shows it. */
 export function renderApp(
   path: string,
   options: { onLocation?: (to: string) => void } = {}
@@ -23,7 +21,6 @@ export function renderApp(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  // A data router, as the window has: pages may block leaving them.
   const router = createMemoryRouter(
     [
       {

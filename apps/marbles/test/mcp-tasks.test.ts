@@ -16,8 +16,6 @@ import { hostTasks } from "~/workspace/open";
 import { runTaskCommand } from "~/workspace/tasks";
 import { testEngine } from "./helpers/engine";
 
-// `~/workspace/open` loads sources through a Bun plugin; vitest runs under Node, and
-// these tests load none.
 vi.mock("bun", () => ({ plugin: vi.fn() }));
 
 const clock = () => new Date("2026-10-29T00:00:00.000Z");
@@ -31,10 +29,8 @@ afterEach(async () => {
   }
 });
 
-/** A client connected in-process to the task tools over a real backlog. */
 async function connect(tasks = new Tasks({ clock })) {
   const server = new McpServer({ name: "tasks-test", version: "1.0.0" });
-  // The workspace each call named, as the server's runner received it.
   const addressed: (string | undefined)[] = [];
   registerTaskTools(
     server,
@@ -64,7 +60,6 @@ async function call(
   );
 }
 
-/** The `{ code, message }` a refused command answers with. */
 const refusal = z.object({
   error: z.object({ code: z.string(), message: z.string() }),
 });
@@ -107,7 +102,6 @@ it("lists the task tools with input and output schemas", async () => {
   for (const tool of tools) {
     expect(tool.inputSchema.type, tool.name).toBe("object");
     expect(tool.outputSchema?.type, tool.name).toBe("object");
-    // Like every Marbles tool, each can be pointed at a hosted workspace.
     expect(tool.inputSchema.properties, tool.name).toHaveProperty("workspace");
   }
   const change = tools.find(({ name }) => name === "change_tasks");
@@ -124,8 +118,6 @@ it("lists the task tools with input and output schemas", async () => {
     "tags",
     "workspace",
   ]);
-  // The workspace a call names reaches the runner beside the command, and
-  // never the command itself.
   await call(client, "list_tasks", { workspace: "elsewhere" });
   await call(client, "change_tasks", {
     operations: [{ input: { title: "Here" }, key: "a", kind: "task.create" }],
@@ -191,7 +183,6 @@ it("commits, returns, and filters tags over a workspace's own records", async ()
   const read = await call(client, "get_task", { id: tagged?.id });
   expect(read.structuredContent).toMatchObject({ task: { tags: [] } });
   expect(await titles("list_tasks", { tags: { all: ["review"] } })).toEqual([]);
-  // What the tools answered is what the workspace holds.
   expect((await tasks.list()).total).toBe(2);
   const other = new Tasks({ store: engine.taskStore });
   expect((await other.get(tagged?.id ?? ""))?.tags).toEqual([]);
@@ -256,7 +247,6 @@ it("creates, reads, and changes tasks through the shared command language", asyn
     "design",
     "build",
   ]);
-  // The tools answered from the same backlog the library reads.
   expect((await tasks.get(build.id))?.metadata).toEqual({ size: "m" });
 
   const tree = await call(client, "get_task", { depth: 1, id: epic.id });
@@ -353,7 +343,6 @@ it("refuses a stale token or an invalid batch and leaves the backlog unchanged",
   expect(missing.code).toBe("not_found");
   expect(await tasks.list({ depth: 1 })).toEqual(before);
 
-  // The token from the latest read is accepted.
   const current = await call(client, "change_tasks", {
     operations: [
       {

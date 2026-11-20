@@ -4,12 +4,6 @@ import type { SavedSheet } from "../../workbook/file";
 
 const SPREADSHEET_ERROR = /^#/;
 
-/**
- * The FormulaEngine specification as tests. Every engine Sheets can be
- * composed with runs this suite; passing it is what "supports the
- * specification" means. It checks behavior through the specification's
- * operations only, never engine internals.
- */
 export function specifyFormulaEngine(
   name: string,
   makeEngine: () => FormulaEngine
@@ -36,7 +30,6 @@ export function specifyFormulaEngine(
     }
   }
 
-  /** The values of `cells` once the rename's rewrites are applied. */
   function afterRename(
     sheets: readonly SavedSheet[],
     from: string,
@@ -58,7 +51,6 @@ export function specifyFormulaEngine(
   }
 
   describe(`${name} meets the FormulaEngine specification`, () => {
-    /** The values of Sheet1's cells in a one-sheet snapshot. */
     function values(cells: Record<string, string>): Record<string, unknown> {
       return calculated(frozen([{ cells, name: "Sheet1" }]), (calculation) =>
         Object.fromEntries(
@@ -302,7 +294,6 @@ export function specifyFormulaEngine(
       second.close();
       expect(first.value(B1)).toEqual({ kind: "number", value: 10 });
       first.close();
-      // Closing twice is allowed.
       first.close();
     });
 

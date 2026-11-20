@@ -7,7 +7,6 @@ export interface OpenWorkbook {
   readonly writable: boolean;
 }
 
-/** A lost watch is visible even when no workbook update can be delivered. */
 export interface WatchUnavailable {
   readonly kind: "unavailable";
   readonly message: string;
@@ -16,7 +15,6 @@ export interface WatchUnavailable {
 
 export type WorkbookWatchUpdate = WatchEvent | WatchUnavailable;
 
-/** Artifact operations in the editor's terms; transport details stay outside. */
 export interface WorkbookHost {
   create(text: string, signal: AbortSignal): Promise<string>;
   read(binding: string, signal: AbortSignal): Promise<OpenWorkbook>;

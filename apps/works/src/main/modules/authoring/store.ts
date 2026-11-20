@@ -13,18 +13,6 @@ import type {
 import type { ModuleSourceRevision } from "~/shared/modules";
 import { moduleDirectory } from "../local-library";
 
-/**
- * Works authoring state: per Module, the conversation's Agent Session and
- * route, each turn's record, the Draft snapshot it started from and the
- * Edit proposal it captured. This is the chat's own state, apart from the
- * engine's redacted run records; answers to questions are never written.
- *
- * Layout under the root, per Module folder:
- * `conversation.json`, `turns/<turn>.json`, `turns/<turn>.snapshot.json`
- * (written once, before the turn has any effect) and
- * `turns/<turn>.proposal.json` (written once, when the turn captures it).
- */
-
 export interface ConversationRecord {
   readonly route?: AuthoringRoute;
   readonly sessionId?: string;
@@ -32,7 +20,6 @@ export interface ConversationRecord {
 
 export interface TurnRecord extends AuthoringTurnView {
   readonly agentSessionId: string;
-  /** The saved source the Draft was bound to when the turn started. */
   readonly binding: ModuleSourceRevision;
   readonly moduleId: string;
   runId?: string;
@@ -75,7 +62,6 @@ export class AuthoringStore {
     );
   }
 
-  /** Every turn record of the Module, oldest first. */
   async turns(moduleId: string): Promise<TurnRecord[]> {
     const directory = path.join(this.#module(moduleId), "turns");
     let names: string[];
@@ -138,7 +124,6 @@ export class AuthoringStore {
     return changes;
   }
 
-  /** Remove a turn with its snapshot and proposal. */
   async remove(moduleId: string, turnId: string) {
     await Promise.all(
       ["", ".snapshot", ".proposal"].map((kind) =>
@@ -152,7 +137,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const TURN_FILE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/u;
 
-/** The JSON at `file` as this store wrote it; undefined when missing. */
 async function readJson<T>(file: string): Promise<T | undefined> {
   return (await readJsonFile(file)) as T | undefined;
 }

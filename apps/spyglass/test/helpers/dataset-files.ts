@@ -10,11 +10,6 @@ function readJson(file: string): unknown {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
-/**
- * Every file the dataset names, sorted: `manifest.json` itself and what it
- * names directly (lenses included) or through `modules/index.json`, and, when the dataset
- * includes history, what `history/manifest.json` names under `history/`.
- */
 export function listedFiles(output: string): string[] {
   const manifest = readJson(join(output, "manifest.json")) as DatasetManifest;
   const index = readJson(

@@ -15,12 +15,6 @@ export interface LeafChangePayload {
   path: string;
 }
 
-/**
- * Everything a parent needs to forward a child's commit, handed to the relay
- * after the child has emitted its own events. `payloadFor` rebuilds the exact
- * per-leaf payload the child emitted (carrying its `source` tag for a `Config`
- * child) so the parent re-emits with the child's source, not a re-derived one.
- */
 export interface CommitInfo<T> {
   after: T;
   before: T;
@@ -28,35 +22,14 @@ export interface CommitInfo<T> {
   payloadFor: (change: LeafChange) => LeafChange;
 }
 
-/** Forwarder invoked once per commit. Wired by `Config.mount`. */
 export type CommitRelay<T> = (info: CommitInfo<T>) => void;
 
-/**
- * Event map for `ReactiveStore`. `"changed"` is typed; arbitrary
- * dot-path event names fall through the index signature.
- */
 export interface ReactiveStoreEventMap<T> {
   changed: [next: Readonly<T>, prev: Readonly<T>];
-  // Per-path / glob event payloads can't be statically typed (paths are
-  // runtime strings); `any[]` lets subclasses ship specific listener
-  // shapes (e.g. `Config`'s `ConfigChangePayload`).
   // biome-ignore lint/suspicious/noExplicitAny: Runtime event paths allow subclasses to provide distinct listener payload types.
   [key: string]: any[];
 }
 
-/**
- * Typed, observable bag with dot-path reads/writes and granular change
- * events. Minimal — no schema validation, no async commits, no file
- * loading. `Config` adds schema validation and accepts pre-parsed data.
- *
- * Events:
- *   - `"changed"`     → (next, prev)               // fires on any mutation
- *   - `"<dot.path>"`  → ({ path, before, after })  // exact leaf changed
- *   - `"<prefix>.*"`  → ({ path, before, after })  // any leaf under prefix
- *
- * `set(path, undefined)` clears the leaf; `patch({key: undefined})`
- * clears `key`. Same for any depth.
- */
 export class ReactiveStore<T extends object> extends EventEmitter<
   ReactiveStoreEventMap<T>
 > {
@@ -70,12 +43,7 @@ export class ReactiveStore<T extends object> extends EventEmitter<
     this._values = structuredClone(initial);
   }
 
-  /**
-   * @internal Wire (or clear, with `null`) a forwarder invoked after every
-   * commit. `Config.mount` uses this to relay a mounted child's changes up
-   * under its prefix; `detach`/override clears it. Not for application use —
-   * a node forwards to at most one parent.
-   */
+  /** @internal */
   attachRelay(relay: CommitRelay<T> | null): void {
     this.#relay = relay;
   }
@@ -110,7 +78,6 @@ export class ReactiveStore<T extends object> extends EventEmitter<
     this.commit(prev, next);
   }
 
-  /** Restore the constructor-provided initial values. */
   reset(): void {
     const prev = this._values;
     const next = structuredClone(this._initial);
@@ -124,8 +91,6 @@ export class ReactiveStore<T extends object> extends EventEmitter<
     }
     this._values = after;
     this.onCommit(before, after, changes);
-    // Forward to a mounting parent (if any) after local emits, so the parent's
-    // namespaced events fire in the same turn as the child's own.
     this.#relay?.({
       after,
       before,
@@ -134,12 +99,6 @@ export class ReactiveStore<T extends object> extends EventEmitter<
     });
   }
 
-  /**
-   * Subclass extension point. Default fires `"changed"`, then per-leaf
-   * exact-path + ancestor-prefix glob events. Override to add prefix-
-   * scoped events or otherwise customize fan-out — call `super.onCommit`
-   * to keep the default leaf/glob behavior.
-   */
   protected onCommit(before: T, after: T, changes: LeafChange[]): void {
     this.emit("changed", after, before);
     for (const change of changes) {
@@ -147,12 +106,6 @@ export class ReactiveStore<T extends object> extends EventEmitter<
     }
   }
 
-  /**
-   * Emit a leaf's exact-path event plus every ancestor `prefix.*` glob that
-   * currently has listeners. Shared by the local commit fan-out and the
-   * mounted-child relay (`Config.#onChildCommit`) so the glob-walk lives in
-   * exactly one place.
-   */
   protected emitLeafAndGlobs(path: string, payload: unknown): void {
     this.emit(path, payload);
     const segments = path.split(".");
@@ -164,11 +117,6 @@ export class ReactiveStore<T extends object> extends EventEmitter<
     }
   }
 
-  /**
-   * Subclass extension point. Default returns the leaf change as-is.
-   * Override to stamp additional fields (e.g. a `source` discriminator)
-   * onto every per-path / glob emit.
-   */
   protected makeLeafPayload(change: LeafChange): LeafChange {
     return change;
   }

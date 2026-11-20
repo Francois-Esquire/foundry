@@ -265,7 +265,7 @@ async function twoTurns(models: () => Promise<ModelManager>) {
   const { step } = await import("~/authoring/builder");
   const { startEngine } = await import("./helpers/engine");
   const { totalOf } = await import("~/workspace/usage");
-  const { costCell } = await import("~/views/usage-format");
+  const { costCell } = await import("~/cli/state/usage-format");
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
   step("review").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
@@ -276,9 +276,9 @@ async function twoTurns(models: () => Promise<ModelManager>) {
   const engine = await startEngine({ models: built, print: () => undefined });
   try {
     await (await engine.launch("review", {})).result;
-    const facts = engine.usage
-      .read()
-      .facts.toSorted((a, b) => a.completedAt - b.completedAt);
+    const facts = (await engine.usage.read()).facts.toSorted(
+      (a, b) => a.completedAt - b.completedAt
+    );
     return {
       cell: costCell(totalOf(facts)),
       costs: facts.map((fact) => fact.cost),

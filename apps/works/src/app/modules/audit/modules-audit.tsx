@@ -38,10 +38,6 @@ function moduleIdsOf(state: AuditState): string[] {
   return [...ids];
 }
 
-/**
- * The Modules audit tabs: one live view of the engine run store, scoped by
- * Module and time range, read-only. Access changes stay in Catalog detail.
- */
 export function ModulesAudit({ tab }: { tab: AuditTab }) {
   const { connection, error, retry, state } = useExecutionAudit();
   const { attempts, highlighted, moduleId, range, set, since } =
@@ -54,7 +50,6 @@ export function ModulesAudit({ tab }: { tab: AuditTab }) {
     }),
     [moduleId, since]
   );
-  // Scoped and sorted once per change, not on every render.
   const runs = useMemo(
     () => (state ? scopedRuns(state, filter) : []),
     [state, filter]

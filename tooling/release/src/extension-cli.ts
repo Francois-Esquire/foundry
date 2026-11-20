@@ -5,7 +5,6 @@ import { valid } from "semver";
 import { selectReleaseBuild, type WorkflowRun } from "./download";
 import { missingExtensionAssets, verifyExtension } from "./extension";
 
-/** The artifact name `ci.yml` uploads the extension's VSIX and record under. */
 const EXTENSION_BUILD_ARTIFACT = "release-extension";
 
 const repository = process.env.GITHUB_REPOSITORY;
@@ -26,15 +25,12 @@ if (release.draft || !release.published_at || release.tag_name !== tag) {
   throw new Error("Expected a published extension GitHub release");
 }
 const sha = gh("api", `repos/${repository}/commits/${tag}`, "--jq", ".sha");
-// Throws unless the tagged commit belongs to main.
 execFileSync("git", ["merge-base", "--is-ancestor", sha, "origin/main"]);
 
 const destination = resolve(".cache/extension-release");
 if (existsSync(destination)) {
   throw new Error("Remove .cache/extension-release before collecting");
 }
-// Attached files are the release: once both exist they are verified on
-// their own, so recovery does not depend on CI's expiring artifact.
 const missing = missingExtensionAssets(release.assets);
 let built: string | undefined;
 if (missing.length > 0) {

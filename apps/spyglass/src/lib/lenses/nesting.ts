@@ -15,7 +15,6 @@ import { NESTING_SCHEMA_VERSION } from "./nesting-types";
 import { readPackageInternals, rootRelativeFolder } from "./package-internals";
 import { folderOf, WORKSPACE_ROOT } from "./paths";
 
-/** One package's internals, by the fields the lens reads; directory ids are the package's own. */
 export interface NestingSourceInternals {
   id: string;
   root: string;
@@ -33,20 +32,13 @@ export interface NestingSource {
   internals: NestingSourceInternals[];
   missing: string[];
   modules: Pick<SemanticsModuleIndexEntry, "id">[];
-  /** The complete packages, by manifest id and root path. */
   packages: { id: string; path: string }[];
 }
 
-/** A package root as a folder id: `.` for the workspace root. */
 function rootFolder(path: string): string {
   return path === "" ? WORKSPACE_ROOT : path;
 }
 
-/**
- * A folder and every folder above it, nearest first, ending at the top of
- * the workspace: the workspace root only when a package lives there, since
- * otherwise no file of the index sits in it.
- */
 function chain(folder: string, rootIsPackage: boolean): string[] {
   const folders: string[] = [];
   let current = folder;
@@ -60,7 +52,6 @@ function chain(folder: string, rootIsPackage: boolean): string[] {
   return folders;
 }
 
-/** The tree: each folder's file counts, parent, and owning package. */
 function deriveFolders(
   modules: NestingSource["modules"],
   packages: NestingSource["packages"]
@@ -68,7 +59,6 @@ function deriveFolders(
   const roots = new Map(packages.map((pkg) => [rootFolder(pkg.path), pkg.id]));
   const rootIsPackage = roots.has(WORKSPACE_ROOT);
   const folders = new Map<string, NestingFolder>();
-  /** Every folder from `start` to the top, nearest first, each created when first reached. */
   const foldersFrom = (start: string): NestingFolder[] =>
     chain(start, rootIsPackage).map((id) => {
       const folder = folders.get(id) ?? newFolder(id, roots, rootIsPackage);
@@ -88,7 +78,6 @@ function deriveFolders(
   for (const module of modules) {
     countFile(module.id);
   }
-  // A package's root is a folder even when no file is counted in it.
   for (const root of roots.keys()) {
     foldersFrom(root);
   }
@@ -113,12 +102,6 @@ function newFolder(
   };
 }
 
-/**
- * Each package's folders, root-relative, with their path regions from its
- * own internal topology. A folder takes its region only from the package
- * that owns it, so a topology that also lists a nested package's folders
- * never decides theirs.
- */
 function pathRegionsByPackage(
   internals: readonly NestingSourceInternals[]
 ): Map<string, Map<string, string>> {
@@ -135,14 +118,6 @@ function pathRegionsByPackage(
   );
 }
 
-/**
- * How the workspace is nested: one tree of folders across every package,
- * from the folders above the package roots down to each file's folder,
- * built from the module index so that every analyzed package is in it; and,
- * for the packages with internals, each folder's path region, the path
- * regions, and the seams between them, copied from the internal topology.
- * Nothing is measured again.
- */
 export const nestingLens: Lens<"nesting", NestingSource> = {
   derive: ({ internals, missing, modules, packages }) => {
     const folders = deriveFolders(modules, packages);

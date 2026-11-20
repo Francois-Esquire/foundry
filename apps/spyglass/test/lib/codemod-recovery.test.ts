@@ -17,7 +17,6 @@ import {
 } from "../helpers/codemod-fixture";
 import { scanCacheSeeds } from "../helpers/scan-cache-seeds";
 
-/** Every scanned copy after the first of its kind starts from that copy's cache. */
 const seeds = scanCacheSeeds();
 afterAll(seeds.dispose);
 
@@ -111,7 +110,6 @@ describe("applyRecord, recovering", () => {
         "// someone else's edit\n"
       );
       expect(existsSync(copy.journal)).toBe(true);
-      // Restored from Git, the file holds its original, which the next apply skips.
       writeFileSync(join(copy.root, INDEX), original);
       expect((await copy.write()).refusal).toEqual({
         kind: "pending-write",

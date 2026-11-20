@@ -3,21 +3,14 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** The files every extension GitHub release carries. */
 const EXTENSION_ASSETS = ["prompts.vsix", "extension.json"] as const;
 
-/** Which extension files a release still lacks; attached files are never replaced. */
 export function missingExtensionAssets(assets: { name: string }[]): string[] {
   return EXTENSION_ASSETS.filter(
     (name) => !assets.some((asset) => asset.name === name)
   );
 }
 
-/**
- * Verify a VSIX and its `extension.json` record: a clean build of the
- * release commit, unchanged bytes, and the Marketplace identity and version.
- * Returns the archive's SHA-256 digest.
- */
 export function verifyExtension(
   directory: string,
   version: string,

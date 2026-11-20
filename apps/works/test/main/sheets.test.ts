@@ -28,7 +28,6 @@ afterEach(async () => {
 
 const decoded = (data: string) => Buffer.from(data, "base64").toString("utf8");
 
-/** A workbook file: Totals!A1 doubles Inputs!A1. */
 function budget(input: string): string {
   const workbook = Workbook.create();
   workbook.renameSheet("Sheet1", "Inputs");
@@ -40,7 +39,6 @@ function budget(input: string): string {
   return file;
 }
 
-/** The built Sheets package imported into Works, with a workbook file to open. */
 async function sheetsApp() {
   const composed = await composeModuleWorks(cleanups);
   const { works } = composed;
@@ -57,7 +55,6 @@ async function sheetsApp() {
   if (file.kind !== "created") {
     throw new Error(file.reason);
   }
-  // Works offers Sheets as the editor for workbook files.
   expect(
     await works.rpc.artifacts.resolve({ id: file.artifactId })
   ).toMatchObject({
@@ -91,7 +88,6 @@ it("edits a workbook through the Sheets View's routes, refuses a stale save and 
     "javascript"
   );
 
-  // Opened as the View opens it: read, then calculated in a Workbook.
   const read = await call<{ data: string; digest: string }>("read", {
     binding,
   });
@@ -122,7 +118,6 @@ it("edits a workbook through the Sheets View's routes, refuses a stale save and 
   expect(await watch.next()).toMatchObject({ kind: "change" });
   await watch.stop();
 
-  // A save fenced by the digest read before it loses, and writes nothing.
   const stale = await call<{
     current: { text: string };
     kind: string;
@@ -135,7 +130,6 @@ it("edits a workbook through the Sheets View's routes, refuses a stale save and 
   expect(stale).toMatchObject({ ok: true, output: { kind: "conflict" } });
   expect(stale.ok && stale.output.current.text).toBe(mine);
 
-  // Reopened from the host, the formulas are there and calculate again.
   const stored = await works.testing.files.read(
     file.artifactId,
     "budget.workbook.json",
@@ -188,7 +182,6 @@ it("creates workbooks through the View's routes, and only workbooks", {
       request: "sheets-create-markdown",
     })
   ).toEqual({ code: "unauthorized", ok: false });
-  // Only the four Artifact requests are relayed.
   expect(await call("watch", { binding: created.output.binding })).toEqual({
     code: "unknown-alias",
     ok: false,
@@ -199,7 +192,6 @@ it("runs the Sheets editor session over Works' proxy: open, save, follow another
   timeout: COMPOSED_WORKS_TIMEOUT_MS,
 }, async () => {
   const { binding, view } = await sheetsApp();
-  // The View's own transport, pointed at Works' proxy instead of the page.
   const transport: ArtifactTransport = {
     async request(alias, input, signal) {
       const response = await view("/_module/artifacts", {
@@ -248,7 +240,6 @@ it("runs the Sheets editor session over Works' proxy: open, save, follow another
   await mine.save();
   expect(mine.getSnapshot()).toMatchObject({ dirty: false, message: "Saved" });
 
-  // Another editor sees that save, then saves; the clean one follows it.
   const theirs = await editor();
   expect(total(theirs)).toEqual({ kind: "number", value: 100 });
   enter(theirs, "7");
@@ -258,7 +249,6 @@ it("runs the Sheets editor session over Works' proxy: open, save, follow another
     waitFor
   );
 
-  // With edits, a newer save is only surfaced, and saving over it loses.
   enter(mine, "100");
   enter(theirs, "8");
   await theirs.save();
@@ -269,15 +259,12 @@ it("runs the Sheets editor session over Works' proxy: open, save, follow another
   mine.takeSaved();
   expect(total(mine)).toEqual({ kind: "number", value: 16 });
   expect(mine.getSnapshot()).toMatchObject({ conflict: false, dirty: false });
-  // Both watches are still streaming when cleanup closes the Gateway.
 });
 
 it("carries the largest workbook Sheets accepts through the Gateway both ways", {
   timeout: COMPOSED_WORKS_TIMEOUT_MS,
 }, async () => {
   const { binding, call } = await sheetsApp();
-  // Escaping doubles a backslash or quote and grows control characters;
-  // the rest are multibyte. Fill the workbook until Sheets refuses more.
   const mixed = '\\"\n\t\u0001é漢😀'.repeat(4000).slice(0, 32_767);
   const workbook = Workbook.create();
   for (let row = 1; ; row += 1) {
@@ -307,7 +294,6 @@ it("carries the largest workbook Sheets accepts through the Gateway both ways", 
     text: largest,
   });
   expect(saved).toMatchObject({ ok: true, output: { kind: "saved" } });
-  // A lost save is answered with that whole file.
   const lost = await call<{ current: { text: string }; kind: string }>("save", {
     binding,
     expectedDigest: bound.output.entry.digest,
@@ -328,8 +314,6 @@ it("fails a lost save cleanly when the version saved elsewhere is too large to s
   if (!bound.ok) {
     throw new Error(bound.code);
   }
-  // Another writer saves a 1.5 MB entry: within Works' file limit, but
-  // larger than one Gateway frame can carry back.
   const outsized = await works.testing.files.save({
     actor: { kind: "user" },
     artifactId: file.artifactId,

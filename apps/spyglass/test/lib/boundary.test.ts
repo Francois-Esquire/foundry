@@ -191,8 +191,6 @@ describe("packagePathAliases", () => {
       "@fixture/conditions": [join(preferred, "c.ts")],
       "@fixture/conditions/other": [join(preferred, "d.ts")],
     });
-    // Forty nested `import` conditions with no TypeScript target: visiting
-    // each twice would take 2^40 steps.
     let conditions: unknown = "./index.js";
     for (let depth = 0; depth < 40; depth += 1) {
       conditions = { default: "./index.js", import: conditions };

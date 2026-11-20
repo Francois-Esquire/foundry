@@ -29,8 +29,6 @@ export default defineConfig({
         resolve: { alias },
         test: {
           environment: "happy-dom",
-          // The audit tabs render a real engine store, produced in Node
-          // once before them; no other renderer test waits for it.
           globalSetup: ["test/helpers/audit-fixture.setup.ts"],
           include: [AUDIT_TESTS],
           name: "renderer-audit",

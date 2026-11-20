@@ -218,7 +218,6 @@ describe("text-attached annotations", () => {
     }
     first.textContent = "Install the toolchain before running the tests.";
     second.textContent = "Bun users can skip this step.";
-    // A rebuilt page assigns new content-hash block identities.
     createAnchors(article, host);
     expect(anchors.resolveTarget(target)).toBeNull();
   });
@@ -276,7 +275,6 @@ describe("text-attached annotations", () => {
     second.textContent =
       "Moved here: Run the install step before running the tests in CI.";
     createAnchors(article, host);
-    // Offset 20 in the second paragraph, relative to the host's left edge at 20.
     expect(anchors.resolveTarget(target)?.[0]?.x).toBe(0);
   });
 

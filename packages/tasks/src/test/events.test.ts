@@ -13,6 +13,26 @@ function recorded(): { store: RecordingStore; tasks: Tasks } {
 }
 
 describe("task change events", () => {
+  test("each fact has an id of its own and the time the change was made", async () => {
+    const { store, tasks } = recorded();
+    const a = await tasks.create({ title: "A" });
+    const updated = await tasks.update(a.id, { title: "B" });
+    await tasks.remove(a.id);
+
+    const events = store.events();
+    expect(events.map((event) => event.type)).toEqual([
+      "tasks.changed",
+      "tasks.changed",
+      "tasks.changed",
+    ]);
+    expect(new Set(events.map((event) => event.id)).size).toBe(3);
+    expect(events[0]?.at).toBe(a.createdAt);
+    expect(events[1]?.at).toBe(updated.updatedAt);
+    expect(
+      store.writes.every((write) => (write.events?.length ?? 0) <= 1)
+    ).toBe(true);
+  });
+
   test("a create carries the new record and its edges, not the tasks it named", async () => {
     const { store, tasks } = recorded();
     const parent = await tasks.create({ title: "Parent" });
@@ -24,12 +44,14 @@ describe("task change events", () => {
 
     const event = store.events().at(-1);
     expect(event).toEqual({
+      at: expect.any(String),
       dependencies: {
         added: [{ dependsOnId: target.id, taskId: child.id }],
         removed: [],
       },
-      kind: "tasks.changed",
+      id: expect.any(String),
       tasks: [{ after: child, before: null, id: child.id }],
+      type: "tasks.changed",
     });
   });
 
@@ -52,7 +74,6 @@ describe("task change events", () => {
       tags: [],
       title: "U",
     });
-    // The removed tag stays in this event, whatever happens to the task later.
     await tasks.update(task.id, { tags: ["other"] });
     expect(event?.tasks[0]?.before?.tags).toEqual(["review"]);
   });
@@ -68,12 +89,14 @@ describe("task change events", () => {
       ],
     });
     expect(store.events().at(-1)).toEqual({
+      at: expect.any(String),
       dependencies: {
         added: [{ dependsOnId: b.id, taskId: a.id }],
         removed: [],
       },
-      kind: "tasks.changed",
+      id: expect.any(String),
       tasks: [],
+      type: "tasks.changed",
     });
 
     const before = store.events().length;
@@ -136,6 +159,7 @@ describe("task change events", () => {
     await tasks.remove(b.id);
 
     expect(store.events().at(-1)).toEqual({
+      at: expect.any(String),
       dependencies: {
         added: [],
         removed: [
@@ -143,16 +167,13 @@ describe("task change events", () => {
           { dependsOnId: b.id, taskId: c.id },
         ],
       },
-      kind: "tasks.changed",
+      id: expect.any(String),
       tasks: [{ after: null, before: b, id: b.id }],
+      type: "tasks.changed",
     });
   });
 });
 
-/**
- * A memory store whose transactions hold one store-wide turn, with a pause
- * after every read so an unguarded writer would interleave.
- */
 class TransactionalStore implements TaskStore {
   readonly #inner = new MemoryTaskStore();
   #turn: Promise<unknown> = Promise.resolve();
@@ -231,7 +252,6 @@ describe("store transactions", () => {
     await expect(guarded.remove(target.id)).resolves.toMatchObject({
       id: target.id,
     });
-    // The store's turn was handed back: later writes go through.
     await writer.update(other.id, { title: "After" });
     const titles = (await store.snapshot()).tasks.map((task) => task.title);
     expect(titles).toEqual(["After"]);
@@ -274,8 +294,6 @@ describe("store transactions", () => {
     during = (id) => writer.remove(id);
     expect(await code(guarded.remove(gone.id))).toBe("not_found");
 
-    // Without a token, the record as it is at commit is the one removed, and
-    // an edge added meanwhile is dropped with it.
     const target = await guarded.create({ title: "Target" });
     const anchor = await guarded.create({ title: "Anchor" });
     during = async (id) => {

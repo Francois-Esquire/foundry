@@ -81,11 +81,6 @@ const IMPORT_FORMS = [
   "type-import-relative",
 ];
 
-/**
- * The registry before 3.5 narrowed the default to what `editRoute`
- * performs: the import rewrites and compatibility exports too. These tests
- * judge the gate, so most plans here, which rewrite imports, run under it.
- */
 const legacy: MutationCapabilityRegistry = {
   capabilities: [
     ...DEFAULT_MUTATION_CAPABILITIES.capabilities,
@@ -107,7 +102,6 @@ const legacy: MutationCapabilityRegistry = {
   version: 1,
 };
 
-/** Every kind executable and reversible: what a finished V12 would register. */
 const permissive: MutationCapabilityRegistry = {
   capabilities: [
     ...legacy.capabilities,
@@ -307,8 +301,6 @@ describe("an authorized internalize (§95, §4, §41–43, §47)", () => {
   });
 
   it("makes no record for an operator built from no saved plan, before any baseline runs", () => {
-    // The record itself is asserted over real package reports, in
-    // workspace-e2e.test.ts: a manual operator has no saved plan to execute.
     const p = planned([internalize(HELPER, "@p/core")]);
     const authorizing = (rules: readonly Rule[]) =>
       authorizeMutationPlan(

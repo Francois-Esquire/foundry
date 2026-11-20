@@ -18,12 +18,10 @@ import { Grid } from "./grid";
 import type { PendingEdit } from "./pending";
 import type { EditorSession, WorkbookView } from "./session";
 
-/** A request to edit the selected cell, optionally starting from a typed key. */
 interface EditRequest {
   readonly initial?: string;
 }
 
-/** The sheet a new name is typed for. */
 interface SheetTarget {
   readonly sheet: string;
 }
@@ -38,10 +36,6 @@ interface SheetEditorProps {
   writable: boolean;
 }
 
-/**
- * The workbook's tabs, grid and contents field. Pending edits come from
- * SheetsApp so the fields and host state reports use the same inputs.
- */
 export function SheetEditor({
   contentsEdit,
   dirty,
@@ -107,7 +101,6 @@ export function SheetEditor({
   );
   const startEditing = useCallback(
     (initial?: string) => {
-      // Editing would replace the stranded text, so it waits for a discard.
       if (!currentContents()?.stranded) {
         setRequest({ initial });
       }
@@ -123,7 +116,6 @@ export function SheetEditor({
     (text: string) => typeContents({ cell, sheet }, text),
     [cell, sheet, typeContents]
   );
-  /** Enters pending text in its own cell. False when it stays pending. */
   const enter = useCallback((): boolean => {
     const entry = currentContents();
     if (!entry) {
@@ -150,7 +142,6 @@ export function SheetEditor({
       choose(session.getSnapshot().workbook?.sheets.at(-1) ?? "");
     }
   }, [session, choose]);
-  /** Gives the typed name to the sheet it was typed for, never another. */
   const renameSheet = useCallback(() => {
     const entry = currentName();
     if (!entry || entry.stranded) {
@@ -161,7 +152,6 @@ export function SheetEditor({
     if (
       session.apply({ kind: "rename-sheet", sheet: entry.target.sheet, to })
     ) {
-      // Renaming its sheet stranded the entry; it was applied, not lost.
       discardName();
       if (pendingContents?.target.sheet === entry.target.sheet) {
         renamedContents(pendingContents, to);
@@ -182,7 +172,6 @@ export function SheetEditor({
     ) {
       discardContents();
     }
-    // A name typed for the sheet the user removed goes with it.
     if (removed && entry && !entry.stranded && entry.target.sheet === sheet) {
       discardName();
     }
@@ -288,10 +277,6 @@ function SheetTab({
   );
 }
 
-/**
- * Adds, renames and removes sheets. The name being typed belongs to the
- * SheetEditor, so a save underneath that renames the sheet cannot lose it.
- */
 function SheetControls({
   editable,
   name,
@@ -301,7 +286,6 @@ function SheetControls({
   onRename,
   onType,
 }: {
-  /** False while a stranded name waits to be discarded. */
   editable: boolean;
   name: string;
   writable: boolean;
@@ -345,7 +329,6 @@ function SheetControls({
   );
 }
 
-/** Pending text whose sheet is gone: shown so it can be copied, never applied. */
 function StrandedText({
   children,
   label,
@@ -368,12 +351,6 @@ function StrandedText({
   );
 }
 
-/**
- * The selected cell's contents, or the text being typed for it. Enter, or
- * focus leaving the bar, enters the text; Escape drops it. Text the
- * workbook refuses stays beside the refusal in the status line. The text
- * itself belongs to the SheetEditor, so it survives this field.
- */
 function ContentsBar({
   cell,
   editable,
@@ -389,12 +366,9 @@ function ContentsBar({
   editable: boolean;
   initial: string;
   request: EditRequest | null;
-  /** Text typed for this cell and not entered yet. */
   typed: string | null;
-  /** Editing ended by Enter or Escape: focus returns to the grid. */
   onDone(): void;
   onDrop(): void;
-  /** Enters the typed text; false when it stays pending. */
   onEnter(): boolean;
   onType(text: string): void;
 }) {
@@ -409,7 +383,6 @@ function ContentsBar({
       onType(request.initial);
     }
     input.current?.focus();
-    // Only a new request starts editing, not a new cell to type into.
   }, [request]);
 
   const change = useCallback(
@@ -425,8 +398,6 @@ function ContentsBar({
     },
     [onEnter, onDone]
   );
-  // Focus moving between the field and the Enter button stays in the bar,
-  // so a mouse press on Enter does not enter the text before it submits.
   const blur = useCallback(
     (event: FocusEvent<HTMLButtonElement | HTMLInputElement>) => {
       const next = event.relatedTarget;

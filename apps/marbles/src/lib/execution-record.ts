@@ -1,29 +1,16 @@
 import type { JsonValue } from "@foundry/lib/json";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import { z } from "zod";
 import { EXECUTION_STATUSES, type ExecutionStatus } from "./execution-statuses";
-import { isRecord } from "./state/json";
-/** The default queue for a launch that names none. */
+import type { StoredExecution } from "./execution-store";
 export const DEFAULT_QUEUE = "marbles";
-const STATUSES: ReadonlySet<string> = new Set(EXECUTION_STATUSES);
-const OBSERVATION_STATUSES: ReadonlySet<string> = new Set<ObservationStatus>([
-  "running",
-  "complete",
-  "failed",
-  "denied",
-  "cancelled",
-]);
 
-/**
- * Token counts a provider reported for a model turn. A count is present only
- * when every model call in the turn reported it; otherwise it is unknown and
- * absent, never zero.
- */
 export interface ExecutionUsage {
   readonly cachedInputTokens?: number;
   readonly cacheWriteTokens?: number;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly reasoningTokens?: number;
-  /** Who measured it: the provider's own response. */
   readonly source: "provider";
   readonly totalTokens?: number;
 }
@@ -32,21 +19,17 @@ export type ObservationStatus =
   | "running"
   | "complete"
   | "failed"
-  /** A tool call the agent's authority refused. */
   | "denied"
   | "cancelled";
 
 interface ObservationBase {
   readonly endedAt?: string;
-  /** A short, safe classification of a failure, such as an error's name; never its message. */
   readonly errorCode?: string;
-  /** Unique within its run; recording the same id again replaces it. */
   readonly id: string;
   readonly startedAt: string;
   readonly status: ObservationStatus;
 }
 
-/** One `stream` or `generate` call on an agent session; it may span several model requests. */
 export interface ModelTurnObservation extends ObservationBase {
   readonly kind: "model-turn";
   readonly model: string;
@@ -55,14 +38,12 @@ export interface ModelTurnObservation extends ObservationBase {
   readonly usage?: ExecutionUsage;
 }
 
-/** A tool an agent called: its name and outcome, never its arguments or result. */
 export interface ToolCallObservation extends ObservationBase {
   readonly kind: "tool-call";
   readonly name: string;
   readonly sessionId: string;
 }
 
-/** What a host task did (`effect`) or produced (`result`), in the host's own `type` and data. */
 export interface HostObservation extends ObservationBase {
   readonly data?: JsonValue;
   readonly kind: "effect" | "result";
@@ -74,31 +55,19 @@ export type ExecutionObservation =
   | ToolCallObservation
   | HostObservation;
 
-/** A run's durable record. A new object, with a higher `revision`, at each change. */
 export interface ExecutionRun {
-  /** Host identifiers the run belongs to, such as `moduleId` or `agentSessionId`. */
   readonly correlation: Readonly<Record<string, string>>;
-  /** Why it failed or was interrupted. */
   readonly error?: { readonly code: string; readonly message?: string };
-  /** `rn-*`; a workflow run has the same id in the Orchestrator and the feed. */
   readonly id: string;
-  /** Kept only while queued, to admit the run again after a restart. */
   readonly input?: JsonValue;
-  /** A workflow definition run through the Orchestrator, or a host task. */
   readonly kind: "workflow" | "task";
-  /** The definition or task name it was launched by. */
   readonly name: string;
   readonly observations: readonly ExecutionObservation[];
-  /** The process that owns it while it is unsettled. */
-  readonly owner: { readonly pid: number };
-  /** The latest progress it reported. */
+  readonly owner: ProcessIdentity;
   readonly progress?: JsonValue;
   readonly queue: string;
-  /** Increases with every change; a subscriber keeps the highest it has seen. */
   readonly revision: number;
-  /** Admission order: increasing across launches, and kept across restarts. */
   readonly sequence: number;
-  /** The caller's identity for the request; launching its name with it again returns this run. */
   readonly source?: string;
   readonly status: ExecutionStatus;
   readonly timestamps: {
@@ -110,73 +79,40 @@ export interface ExecutionRun {
 }
 
 export interface QueueSettings {
-  /** Runs admitted at once: a positive integer, or `Infinity`. */
   readonly concurrency: number;
 }
 
 export interface QueueState extends QueueSettings {
-  /** Runs holding a slot now. */
   readonly active: number;
   readonly name: string;
-  /** Runs waiting their turn. */
   readonly waiting: number;
 }
 
-/**
- * What pruning removed from one host scope, such as a Module: a count and
- * the latest settlement among the removed runs. Runs of the scope that
- * settled up to `through` may be missing; later ones are all retained.
- */
 export interface RetentionGap {
-  /** Runs removed from this scope so far. */
   readonly removed: number;
   readonly scope: string;
-  /** The latest `settledAt` of a removed run. */
   readonly through: string;
-  /** When pruning last removed a run of this scope. */
   readonly updatedAt: string;
 }
 
-/** Retained runs at the moment of subscribing, and how to stop listening. */
 export interface ExecutionSubscription {
   readonly snapshot: readonly ExecutionRun[];
   unsubscribe(): void;
 }
 
-/**
- * What a host reads and steers: the retained runs, their lifecycle as it
- * happens, and the queues. Changes made by another process sharing the store
- * are not announced as they happen; subscribing reads the store again, so a
- * fresh subscription's snapshot carries what other processes wrote or
- * pruned since.
- */
 export interface ExecutionRuns {
-  /** Set a queue's concurrency, now; it is created if it does not exist. */
   configure(queue: string, settings: QueueSettings): void;
-  /** What pruning has removed, by scope. */
   gaps(): readonly RetentionGap[];
   get(id: string): ExecutionRun | undefined;
-  /** Every retained run, in admission order. */
   list(): readonly ExecutionRun[];
-  /**
-   * Remove settled runs for good, recording each one's scope in its gap
-   * first. Ids of unknown or unsettled runs are skipped. Returns the runs
-   * removed; subscribers are not told (the caller knows). Throws without
-   * removing anything if another process holds the retention lock; retry later.
-   */
   prune(
     ids: Iterable<string>,
     scopeOf: (run: ExecutionRun) => string
-  ): readonly ExecutionRun[];
+  ): Promise<readonly ExecutionRun[]>;
   queues(): readonly QueueState[];
-  /**
-   * Every change from now on, each as the whole new record. The snapshot is
-   * taken in the same tick, so snapshot and updates together miss nothing;
-   * reconcile by `id`, keeping the highest `revision`. The snapshot is read
-   * from the store, so after a disconnect, or to see what another process
-   * sharing the store did, subscribe again.
-   */
-  subscribe(listener: (run: ExecutionRun) => void): ExecutionSubscription;
+  subscribe(
+    listener: (run: ExecutionRun) => void
+  ): Promise<ExecutionSubscription>;
 }
 
 export interface EnqueueInput {
@@ -188,112 +124,86 @@ export interface EnqueueInput {
   readonly source?: string;
 }
 
-/** What one observation appends to its run's log. */
-export interface LoggedObservation {
-  readonly observation: ExecutionObservation;
-  readonly revision: number;
-  readonly updatedAt: string;
-}
-
 export function now(): string {
   return new Date().toISOString();
 }
 
-function optionalString(value: unknown): boolean {
-  return value === undefined || typeof value === "string";
-}
+const observationBase = {
+  endedAt: z.string().optional(),
+  errorCode: z.string().optional(),
+  id: z.string(),
+  startedAt: z.string(),
+  status: z.enum(["running", "complete", "failed", "denied", "cancelled"]),
+};
 
-/** A stored observation with every field its kind needs. */
-function isObservation(value: unknown): value is ExecutionObservation {
-  if (
-    !(
-      isRecord(value) &&
-      typeof value.id === "string" &&
-      typeof value.startedAt === "string" &&
-      typeof value.status === "string" &&
-      OBSERVATION_STATUSES.has(value.status) &&
-      optionalString(value.endedAt) &&
-      optionalString(value.errorCode)
-    )
-  ) {
-    return false;
-  }
-  switch (value.kind) {
-    case "model-turn":
-      return (
-        typeof value.model === "string" &&
-        typeof value.sessionId === "string" &&
-        optionalString(value.provider) &&
-        (value.usage === undefined || isRecord(value.usage))
-      );
-    case "tool-call":
-      return (
-        typeof value.name === "string" && typeof value.sessionId === "string"
-      );
-    case "effect":
-    case "result":
-      return typeof value.type === "string";
-    default:
-      return false;
-  }
-}
+const observationSchema = z.union([
+  z.looseObject({
+    ...observationBase,
+    kind: z.literal("model-turn"),
+    model: z.string(),
+    provider: z.string().optional(),
+    sessionId: z.string(),
+    usage: z.record(z.string(), z.unknown()).optional(),
+  }),
+  z.looseObject({
+    ...observationBase,
+    kind: z.literal("tool-call"),
+    name: z.string(),
+    sessionId: z.string(),
+  }),
+  z.looseObject({
+    ...observationBase,
+    data: z.unknown().optional(),
+    kind: z.enum(["effect", "result"]),
+    type: z.string(),
+  }),
+]);
 
-/**
- * A stored record, when it has every field a run needs. An unsettled run's
- * record leaves its observations to its log, unless its store keeps none.
- * An observation that is not one is left out, and counted in `dropped`.
- */
-export function parseRun(
-  value: unknown,
+const recordSchema = z.looseObject({
+  correlation: z.record(z.string(), z.string()),
+  error: z
+    .object({ code: z.string(), message: z.string().optional() })
+    .optional(),
+  id: z.string(),
+  input: z.unknown().optional(),
+  kind: z.enum(["workflow", "task"]),
+  name: z.string(),
+  owner: z.object({
+    pid: z.number(),
+    started: z.string().nullable().default(null),
+  }),
+  progress: z.unknown().optional(),
+  queue: z.string(),
+  revision: z.number(),
+  sequence: z.number(),
+  source: z.string().optional(),
+  status: z.enum(EXECUTION_STATUSES),
+  timestamps: z.object({
+    queuedAt: z.string(),
+    settledAt: z.string().optional(),
+    startedAt: z.string().optional(),
+    updatedAt: z.string(),
+  }),
+});
+
+export function parseStored(
+  stored: StoredExecution,
   dropped?: (count: number) => void
 ): ExecutionRun | undefined {
-  if (
-    !(isRecord(value) && isRecord(value.owner) && isRecord(value.timestamps))
-  ) {
+  const record = recordSchema.safeParse(stored.value);
+  if (!record.success || record.data.id !== stored.id) {
     return undefined;
   }
-  const valid =
-    typeof value.id === "string" &&
-    typeof value.name === "string" &&
-    typeof value.queue === "string" &&
-    typeof value.status === "string" &&
-    STATUSES.has(value.status) &&
-    (value.kind === "workflow" || value.kind === "task") &&
-    typeof value.revision === "number" &&
-    typeof value.sequence === "number" &&
-    typeof value.owner.pid === "number" &&
-    typeof value.timestamps.queuedAt === "string" &&
-    isRecord(value.correlation) &&
-    (value.observations === undefined || Array.isArray(value.observations));
-  if (!valid) {
-    return undefined;
+  const observations = stored.observations.flatMap((value) => {
+    const parsed = observationSchema.safeParse(value);
+    return parsed.success ? [parsed.data as ExecutionObservation] : [];
+  });
+  if (observations.length < stored.observations.length) {
+    dropped?.(stored.observations.length - observations.length);
   }
-  const stored: readonly unknown[] = Array.isArray(value.observations)
-    ? value.observations
-    : [];
-  const observations = stored.filter(isObservation);
-  if (observations.length < stored.length) {
-    dropped?.(stored.length - observations.length);
-  }
-  return { ...value, observations } as unknown as ExecutionRun;
+  return { ...record.data, observations } as unknown as ExecutionRun;
 }
 
-export function isLogged(value: unknown): value is LoggedObservation {
-  return (
-    isRecord(value) &&
-    isObservation(value.observation) &&
-    typeof value.revision === "number" &&
-    typeof value.updatedAt === "string"
-  );
-}
-
-/**
- * `observations` with `observation` recorded: replacing one by id moves it
- * last, and keeps the start it was first recorded with when `keepStart`
- * says its own was not given. `index` maps each id in `observations` to its
- * position, so a new id is found without a scan; it is rebuilt only when
- * one is replaced.
- */
 export function withObservation(
   observations: readonly ExecutionObservation[],
   index: Map<string, number>,
@@ -320,29 +230,17 @@ export function withObservation(
   return next;
 }
 
-/** Each observation's position by id. */
 export function indexOf(
   observations: readonly ExecutionObservation[]
 ): Map<string, number> {
   return new Map(observations.map((item, position) => [item.id, position]));
 }
 
-/**
- * A run's input as its record keeps it: plain JSON. A launch's input is
- * written on its queued record so an exited process's queued run can be let
- * in again, and the run gets this same copy whether it starts now or after a
- * restart, so a caller that changes its object later changes nothing.
- * Anything JSON would drop or alter is refused rather than lost: a function,
- * symbol, bigint, `undefined` in an array, a number that is not finite, a
- * cycle, and any object that is not a plain object or an array (a `Date`, a
- * `Map`, a class instance).
- */
 export function jsonInput(value: unknown, path = "input"): JsonValue {
   checkJson(value, path, new Set());
   return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
 
-/** Throw unless `item`, found at `at`, is plain JSON (see {@link jsonInput}). */
 function checkJson(item: unknown, at: string, seen: Set<object>): void {
   if (item === null || typeof item === "string" || typeof item === "boolean") {
     return;
@@ -392,47 +290,12 @@ function checkJsonObject(item: object, at: string, seen: Set<object>): void {
     );
   }
   for (const [key, entry] of Object.entries(item)) {
-    // A property left undefined is no property, as JSON has it.
     if (entry !== undefined) {
       checkJson(entry, `${at}.${key}`, seen);
     }
   }
 }
 
-export function parseGaps(value: unknown): Map<string, RetentionGap> {
-  const gaps = new Map<string, RetentionGap>();
-  const stored = isRecord(value) && isRecord(value.gaps) ? value.gaps : {};
-  for (const [scope, gap] of Object.entries(stored)) {
-    if (
-      isRecord(gap) &&
-      typeof gap.removed === "number" &&
-      typeof gap.through === "string" &&
-      typeof gap.updatedAt === "string"
-    ) {
-      gaps.set(scope, {
-        removed: gap.removed,
-        scope,
-        through: gap.through,
-        updatedAt: gap.updatedAt,
-      });
-    }
-  }
-  return gaps;
-}
-
 export function bySequence(a: ExecutionRun, b: ExecutionRun): number {
   return a.sequence - b.sequence || a.id.localeCompare(b.id);
-}
-
-/** The next revision of a run with `patch` applied. */
-export function nextRevision(
-  run: ExecutionRun,
-  patch: Partial<Omit<ExecutionRun, "id" | "revision">>
-): ExecutionRun {
-  return {
-    ...run,
-    ...patch,
-    revision: run.revision + 1,
-    timestamps: { ...run.timestamps, ...patch.timestamps, updatedAt: now() },
-  };
 }

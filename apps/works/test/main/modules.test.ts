@@ -99,7 +99,6 @@ describe("Module library", () => {
     }
     expect(artifact.id).toBe(module.artifactId);
     await manager.patchArtifactMetadata(artifact.id, { moduleId: 42 });
-    // One corrupt record no longer takes every other Module down with it.
     await expect(library.list()).resolves.toEqual([]);
     expect(reported).toHaveBeenCalledWith(
       `Module records skipped: Module Artifact ${artifact.id} has an invalid Module id\n`

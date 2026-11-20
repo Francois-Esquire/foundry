@@ -23,7 +23,6 @@ export type {
   LiveTarget,
 } from "./types";
 
-/** The browser entry's options. `MediaStream` here is the DOM type. */
 export interface BrowserLiveOptions extends LiveOptions {
   readonly feed?: MediaStream;
   readonly onStream?: (stream: MediaStream, direction: number) => void;
@@ -41,10 +40,7 @@ export async function open(
   options: BrowserLiveOptions
 ): Promise<BrowserLiveInteraction> {
   const adapter: HostAdapter = {
-    data: () => {
-      // `onData` is the Node entry's surface; a browser caller has no use for
-      // the kernel's control-plane strings and this entry does not declare it.
-    },
+    data: () => undefined,
     media: (media, direction) => {
       options.onStream?.(media as MediaStream, direction);
     },

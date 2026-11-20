@@ -47,7 +47,6 @@ it("lists every dirty file by its path as written, spaces, quotes, and non-ASCII
     'src/say "hi".ts',
     "src/with space.ts",
   ]);
-  // Relative to the workspace root, which may sit below the repository's.
   expect(workingTree(join(root, "src"))).toEqual({
     dirty: expect.arrayContaining(["with space.ts", "café.ts"]),
     kind: "repository",

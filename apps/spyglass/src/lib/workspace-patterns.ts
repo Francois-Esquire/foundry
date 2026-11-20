@@ -40,12 +40,6 @@ import type {
   WorkspaceReport,
 } from "./workspace-types";
 
-// V9.3: recurrence over V9.2 placements, V9.1 topology, V9.0 history, and
-// V8 reviews. Reads only the WorkspaceReport and its attached analyses;
-// never the package reports. Every aggregate is built from the V9.2 maps
-// (placements by id, directions by pair, loads by boundary), so no step
-// walks every concept against every boundary.
-
 function byId(a: string, b: string): number {
   if (a < b) {
     return -1;
@@ -91,9 +85,7 @@ interface Context {
   authoritative: WorkspaceConceptPlacement[];
   concepts: WorkspaceConceptIntelligence;
   config: AnalysisConfig["workspacePatterns"];
-  /** Unordered package pair → cross-package overlap ids with conversions. */
   conversions: Map<string, ConversionPair[]>;
-  /** Unordered package pair → source-source member couplings crossing it. */
   couplings: Map<string, PairCouplings>;
   edges: Set<string>;
   graph: WorkspaceGraphAnalysis;
@@ -107,7 +99,6 @@ interface Context {
 interface PairCouplings {
   concepts: Set<string>;
   ids: Map<string, number>;
-  /** Coupling ids with a package-level static path in either direction. */
   withPath: Set<string>;
 }
 
@@ -184,7 +175,6 @@ interface ReviewFact {
   disposition: ArchitecturalReviewDisposition;
   dominatedBaseline: boolean;
   dominatingKinds: RecenteringScenarioKind[];
-  /** Strongest observed center other than the declaring package. */
   gravityCenter: string | null;
   impactUncertainties: ScenarioImpactUncertaintyKind[];
   unmeasuredEdges: string[];
@@ -196,11 +186,6 @@ interface ReviewIndex {
   facts: ReviewFact[];
 }
 
-/**
- * The finding's strongest observed center other than its declaring package
- * (ties lexical); the key every V8 review is clustered under. Exported so
- * projections reuse this definition instead of restating it.
- */
 export function reviewGravityCenter(
   finding: WorkspaceRecenteringFinding
 ): string | null {
@@ -390,7 +375,6 @@ function directEdge(context: Context, a: string, b: string): string | null {
   return null;
 }
 
-/** Concepts on each side of the conversion pairs joining `a` and `b`. */
 function conversionSides(
   pairs: ConversionPair[],
   a: string,
@@ -402,7 +386,6 @@ function conversionSides(
   };
 }
 
-/** Several distinct concepts on both sides: one concept fanning out to many partners is not a projection. */
 function twoSided(pairs: ConversionPair[], a: string, b: string): boolean {
   const sides = conversionSides(pairs, a, b);
   return sides.a.length >= 2 && sides.b.length >= 2;
@@ -419,7 +402,6 @@ function pairCouplings(context: Context, a: string, b: string): PairCouplings {
 }
 
 interface PackageFacts {
-  /** Cross-package conversion pairs converted here. */
   conversionsOwned: ConversionPair[];
   crossPackageDeclared: WorkspaceConceptPlacement[];
   declared: WorkspaceConceptPlacement[];
@@ -429,7 +411,6 @@ interface PackageFacts {
     WorkspaceConceptPlacement[]
   >;
   package: string;
-  /** Foreign concepts whose cross-package conversion partner is declared here. */
   projected: WorkspaceConceptPlacement[];
 }
 
@@ -567,7 +548,6 @@ function packagesOf(
     ])
   );
   const loads = context.concepts.boundaries;
-  /** Boundary loads corroborating a role: edges out of `pkg` carrying the role, or into it for semantic centers. */
   const corroboration = (
     pkg: string,
     role: keyof WorkspaceBoundaryConceptLoad["roles"] | "incoming"
@@ -1221,7 +1201,6 @@ function conceptPatternsOf(
       "support" | "strength" | "coverage"
     > & {
       observations: WorkspacePatternEvidence[];
-      /** Support count in the threshold's own unit (concepts, pairs, reviews). */
       count: number;
       minimum: number;
     }
@@ -1243,8 +1222,6 @@ function conceptPatternsOf(
     });
   };
 
-  // Parallel implementations: families implemented in the contract package
-  // and in the same external package(s).
   const families = context.concepts.families.filter(
     (f) => f.implementationPackages.length >= 2
   );
@@ -1312,12 +1289,8 @@ function conceptPatternsOf(
     });
   }
 
-  // Conversion projection: repeated explicit converters between two packages,
-  // with several distinct concepts on each side (one concept fanning out to
-  // many partners is not a projection).
   visitEntries();
 
-  // Shared primitives: behavior-light concepts used upward by several packages.
   const primitives = context.authoritative.filter(
     (p) =>
       p.presence.behaviorPackages.length === 0 &&
@@ -1373,7 +1346,6 @@ function conceptPatternsOf(
     });
   }
 
-  // Cross-layer contracts: responsibility spread across layers, per declaring package.
   const crossLayer = context.authoritative.filter((p) =>
     p.shapes.includes("cross-layer")
   );
@@ -1432,8 +1404,6 @@ function conceptPatternsOf(
     });
   }
 
-  // Behavior externalization: V8 baselines dominated by re-homing behavior,
-  // grouped by the competing gravity center.
   const contested = context.reviews.facts.filter(
     (f) =>
       f.dominatedBaseline &&

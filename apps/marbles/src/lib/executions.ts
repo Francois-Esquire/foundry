@@ -1,16 +1,16 @@
-import { processAlive } from "@foundry/lib/file-lock";
-import {
-  type ExecutionRun,
-  type ExecutionRuns,
-  now,
-  type QueueSettings,
-  type QueueState,
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import type {
+  ExecutionRun,
+  ExecutionRuns,
+  QueueSettings,
+  QueueState,
 } from "./execution-record";
 import {
   ExecutionRecords,
   type ExecutionRecordsOptions,
 } from "./execution-records";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
+import type { ExecutionView } from "./execution-store";
 
 export type {
   ExecutionObservation,
@@ -31,12 +31,10 @@ export { DEFAULT_QUEUE } from "./execution-record";
 
 const DEFAULT_CONCURRENCY = 1;
 
-/** A run waiting for its queue to let it in. */
 interface Waiting {
-  /** Called when the run cannot be recorded as running, instead of `start`. */
   readonly fail: (error: unknown) => void;
   readonly id: string;
-  /** Called with the run's input once it is admitted and recorded as running. */
+  readonly parent?: string;
   readonly start: (input: unknown) => Promise<void>;
   started?: Promise<void>;
 }
@@ -59,10 +57,12 @@ function validConcurrency(queue: string, concurrency: number): number {
   );
 }
 
-/** Named FIFO admission over one inherited record authority; no storage encoding or duplicate record cache. */
 export class Executions extends ExecutionRecords implements ExecutionRuns {
   readonly #lanes = new Map<string, Lane>();
   readonly #idle = new Set<() => void>();
+  readonly #withdrawing = new Set<string>();
+  #closed = false;
+  readonly #kept = new Set<string>();
   constructor(
     options: ExecutionRecordsOptions & {
       readonly queues?: Readonly<Record<string, QueueSettings>>;
@@ -90,27 +90,29 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     }));
   }
 
-  /**
-   * Wait in the run's queue. Once admitted, the run is recorded as running,
-   * which drops its input from the record, and `start` is called with that
-   * input; a run that cannot be recorded as running is recorded failed and
-   * handed to `fail` without starting. Returns the start when the queue let
-   * it in at once.
-   */
   admit(
     id: string,
     start: (input: unknown) => Promise<void>,
-    fail: (error: unknown) => void
+    fail: (error: unknown) => void,
+    parent?: string
   ): Promise<void> | undefined {
     const run = this.requireRecord(id);
     const lane = this.#lane(run.queue);
-    const waiting: Waiting = { fail, id, start };
+    const waiting: Waiting = {
+      fail,
+      id,
+      start,
+      ...(parent === undefined ? {} : { parent }),
+    };
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
+    if (this.#closed && parent !== undefined) {
+      this.#kept.add(id);
+    }
     lane.waiting.push(waiting);
     this.#pump(lane);
     return waiting.started;
   }
 
-  /** Give up a running run's slot; the run itself goes on. */
   release(id: string): void {
     const run = this.get(id);
     const lane = run && this.#lanes.get(run.queue);
@@ -120,52 +122,114 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     }
   }
 
-  /** Parked on a question or a pause: its slot goes to the next run. */
   suspend(id: string): void {
-    this.changeRecord(id, { status: "suspended" });
+    this.moveRecord(id, "suspended");
     this.release(id);
   }
 
-  /** Back from a park: it takes its slot again without waiting. */
   resume(id: string): void {
-    const run = this.changeRecord(id, { status: "running" });
-    if (run) {
-      this.#lane(run.queue).active.add(id);
+    const run = this.get(id);
+    if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
+      return;
     }
+    this.moveRecord(id, "running");
+    this.#lane(run.queue).active.add(id);
   }
 
-  /**
-   * Take a queued run off its queue and record it cancelled; `false` when it
-   * is not waiting here or in a process that has exited. A run this process
-   * recorded queued but has not yet handed to its queue, which a subscriber
-   * told of it can cancel from that very update, is withdrawn too: nothing
-   * of it has run.
-   */
-  withdraw(id: string): boolean {
+  async withdraw(id: string): Promise<boolean> {
     const run = this.get(id);
     if (run?.status !== "queued") {
       return false;
     }
-    const lane = this.#lanes.get(run.queue);
-    const index = lane?.waiting.findIndex((item) => item.id === id) ?? -1;
-    if (lane && index >= 0) {
-      lane.waiting.splice(index, 1);
-    } else if (run.owner.pid !== process.pid && processAlive(run.owner.pid)) {
-      // Queued in another live process: that process cancels it.
-      return false;
+    this.#withdrawing.add(id);
+    let cancelled = false;
+    try {
+      cancelled = await this.cancelQueued(id);
+    } finally {
+      this.#withdrawing.delete(id);
+      const lane = this.#lane(run.queue);
+      if (cancelled) {
+        const index = lane.waiting.findIndex((item) => item.id === id);
+        if (index >= 0) {
+          lane.waiting.splice(index, 1);
+        }
+      }
+      this.#pump(lane);
+      this.#checkIdle();
     }
-    this.settle(id, "cancelled");
-    return true;
+    return cancelled;
   }
 
-  /** Runs waiting in this process's queues, in admission order. */
+  closeAdmission(active: (runId: string) => boolean): void {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; this sets it.
+    if (this.#closed) {
+      return;
+    }
+    this.#closed = true;
+    for (const lane of this.#lanes.values()) {
+      for (const item of lane.waiting) {
+        if (item.parent !== undefined && active(item.parent)) {
+          this.#kept.add(item.id);
+        }
+      }
+    }
+  }
+
+  async handOverAll(
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>,
+    onHanded: (id: string) => void
+  ): Promise<{
+    readonly failed: readonly {
+      readonly error: unknown;
+      readonly id: string;
+    }[];
+  }> {
+    const failed: { readonly error: unknown; readonly id: string }[] = [];
+    for (const id of this.waiting().filter((each) => !this.#kept.has(each))) {
+      try {
+        if (await this.#handOver(id, choose)) {
+          onHanded(id);
+        }
+      } catch (error) {
+        failed.push({ error, id });
+      }
+    }
+    return { failed };
+  }
+
+  async #handOver(
+    id: string,
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>
+  ): Promise<boolean> {
+    const run = this.get(id);
+    if (run?.status !== "queued") {
+      return false;
+    }
+    this.#withdrawing.add(id);
+    let handed = false;
+    try {
+      handed = await this.handQueued(id, choose);
+    } finally {
+      this.#withdrawing.delete(id);
+      const lane = this.#lane(run.queue);
+      if (handed) {
+        const index = lane.waiting.findIndex((item) => item.id === id);
+        if (index >= 0) {
+          lane.waiting.splice(index, 1);
+        }
+      }
+      this.#pump(lane);
+      this.#checkIdle();
+    }
+    return handed;
+  }
+
   waiting(): readonly string[] {
     return [...this.#lanes.values()].flatMap((lane) =>
       lane.waiting.map((item) => item.id)
     );
   }
 
-  /** Resolves once no queue has a run waiting or holding a slot. */
   drained(): Promise<void> {
     return new Promise((resolve) => {
       this.#idle.add(resolve);
@@ -186,34 +250,31 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     return lane;
   }
 
-  /** Let in waiting runs, first come first served, while the queue has room. */
   #pump(lane: Lane): void {
     while (lane.active.size < lane.concurrency) {
-      const next = lane.waiting.shift();
-      if (!next) {
+      // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
+      const index = this.#closed
+        ? lane.waiting.findIndex((item) => this.#kept.has(item.id))
+        : 0;
+      const next = index === -1 ? undefined : lane.waiting[index];
+      if (!next || this.#withdrawing.has(next.id)) {
         return;
       }
+      lane.waiting.splice(index, 1);
       lane.active.add(next.id);
       next.started = this.#start(next);
-      // Whoever awaits it sees the failure; `start` and `fail` handle it otherwise.
       next.started.catch(() => undefined);
     }
   }
 
   async #start({ fail, id, start }: Waiting): Promise<void> {
-    const run = this.requireRecord(id);
-    const at = now();
-    const { input, ...rest } = run;
-    // Running is on disk before the first effect, or the run does not start.
+    const { input } = this.requireRecord(id);
     try {
-      this.writeRecord({
-        ...rest,
-        revision: run.revision + 1,
-        status: "running",
-        timestamps: { ...run.timestamps, startedAt: at, updatedAt: at },
-      });
+      await this.startRecord(id);
     } catch (error) {
-      this.settle(id, "failed", { code: "not_recorded" });
+      await this.settle(id, "failed", { code: "not_recorded" }).catch(
+        () => undefined
+      );
       fail(error);
       throw error;
     }
@@ -244,17 +305,17 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     id: string,
     status: "complete" | "failed" | "cancelled" | "interrupted",
     error?: { readonly code: string; readonly message?: string }
-  ): void {
+  ): Promise<ExecutionRun | undefined> {
     const run = this.get(id);
-    if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
-      return;
+    if (!run) {
+      return Promise.resolve(undefined);
     }
-    super.settle(id, status, error);
+    const written = super.settle(id, status, error);
     const lane = this.#lanes.get(run.queue);
-    if (lane) {
-      lane.active.delete(id);
+    if (lane?.active.delete(id)) {
       this.#pump(lane);
     }
     this.#checkIdle();
+    return written;
   }
 }

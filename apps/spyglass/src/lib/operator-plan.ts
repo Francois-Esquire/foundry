@@ -82,11 +82,6 @@ import { topLevelDeclarations } from "./symbols";
 import type { ConceptFamily, PublicExposureRoute } from "./types";
 import { byId, sorted } from "./workspace-projection";
 
-// V11.3 planner: walks a composition's actions in graph order and resolves
-// each against the shared project into exact transformations. Every
-// resolution rule that chooses a file or a surface strategy lives in one
-// named function here; nothing chooses architecture, and nothing writes.
-
 function hash16(parts: unknown[]): string {
   return createHash("sha256")
     .update(JSON.stringify(parts))
@@ -108,9 +103,6 @@ function isManifest(file: string): boolean {
 
 const SOURCE_ONLY_KINDS = new Set<PlannedTransformationKind>(["verify-only"]);
 
-// ---------------------------------------------------------------------------
-// Assembly
-
 interface TransformationInput {
   action: ComposedStructuralAction;
   after?: PlannedSourceState;
@@ -119,7 +111,6 @@ interface TransformationInput {
   file: string;
   form?: string;
   kind: PlannedTransformationKind;
-  /** Extra preservation ids beyond the action's own. */
   preserves?: string[];
   status?: PlannedTransformation["status"];
   subject?: PlannedTransformation["subject"];
@@ -149,19 +140,15 @@ class Assembly {
   readonly gaps: OperatorPlanGap[] = [];
   readonly filesRead = new Set<string>();
   readonly addedEdges: AddedEdge[] = [];
-  /** `${from}→${to}` → import sites the plan rewrites away, with the rewrites. */
   readonly removedSites = new Map<
     string,
     { count: number; transformations: string[]; actions: string[] }
   >();
-  /** Preservation id → verification steps that prove it, registered by realizers. */
   readonly proofs = new Map<string, string[]>();
   readonly forms = new Map<string, number>();
   readonly unsupportedForms = new Set<string>();
   readonly byAction = new Map<string, Set<string>>();
-  /** Concept id → relocation records, filled by the placement pass. */
   readonly relocationsByConcept = new Map<string, PlannedRelocation[]>();
-  /** Symbol id → where it lands; several entries when actions disagree, which is a conflict. */
   readonly landing = new Map<string, Landing[]>();
 
   land(symbolId: string, landing: Landing): void {
@@ -399,9 +386,6 @@ function strongerStatus(
   return order.indexOf(a) >= order.indexOf(b) ? a : b;
 }
 
-// ---------------------------------------------------------------------------
-// Planner state
-
 interface Planner {
   acc: Assembly;
   composition: OperatorComposition;
@@ -465,9 +449,6 @@ function symbolOf(
   return undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Behavior members
-
 function referencesSymbol(node: Node | undefined, target: Node): boolean {
   if (node === undefined) {
     return false;
@@ -485,11 +466,6 @@ function referencesSymbol(node: Node | undefined, target: Node): boolean {
     });
 }
 
-/**
- * Governing behavior of a concept in one package, from the sources: classes
- * implementing the concept and functions returning it. Functions that only
- * take the concept as a parameter are generic consumers and stay.
- */
 function behaviorMembers(
   planner: Planner,
   concept: LocatedSymbol,
@@ -517,9 +493,6 @@ function behaviorMembers(
   }
   return { members, symbols };
 }
-
-// ---------------------------------------------------------------------------
-// Target module resolution (§10–13): one ordered rule list, no name similarity.
 
 interface TargetResolution {
   candidates: string[];
@@ -628,7 +601,6 @@ function resolveTargetModule(
     packageOfFile(context, file) === input.target.id && !isTestFile(file);
   const entrypointFiles = new Set(input.target.entrypoints.map((e) => e.file));
 
-  // 1. The concept's own declaring module, when it sits in the target.
   if (input.conceptId !== undefined) {
     const concept = facts.projection.lookup.conceptById.get(input.conceptId);
     if (
@@ -643,7 +615,6 @@ function resolveTargetModule(
         rule: "concept-declaration-module",
       };
     }
-    // 2. Modules in the target holding representations of the concept (V7 family).
     const home = concept?.package;
     const family =
       home === undefined
@@ -664,7 +635,6 @@ function resolveTargetModule(
       }
     }
   }
-  // 3. The single non-entrypoint module in the target that imports the concept today.
   if (input.concept !== undefined) {
     const importers = uniq(
       importSitesOf(context, input.concept)
@@ -692,7 +662,6 @@ function resolveTargetModule(
       };
     }
   }
-  // 4. A new module mirroring the source module's path under the target's source dir.
   if (input.target.sourceDir !== undefined) {
     const { sourceDir } = input.source;
     const relative = resolveTargetModuleEntries(sourceDir, input);
@@ -713,9 +682,6 @@ function resolveTargetModule(
   }
   return { candidates: [], isNew: false, rule: "no-source-dir" };
 }
-
-// ---------------------------------------------------------------------------
-// Relocation
 
 interface RelocationInput {
   action: ComposedStructuralAction;
@@ -933,7 +899,6 @@ function realizeRelocationEntries(
       });
     }
 
-    // Closure: what the moved code imports from where it lands.
     realizeRelocationEntriesDependency(
       closure,
       context,
@@ -943,8 +908,6 @@ function realizeRelocationEntries(
       moves
     );
 
-    // Import sites: target-package importers become local; what stays behind
-    // in the source imports the target; consumers belong to redirect actions.
     realizeRelocationEntriesSymbol(
       symbols,
       context,
@@ -1301,7 +1264,6 @@ interface RewriteInput {
   action: ComposedStructuralAction;
   moves?: PlannedTransformation[];
   site: ImportSite;
-  /** New specifier; undefined when the import becomes local to the site's own module. */
   specifier: string | undefined;
   symbol: LocatedSymbol;
   toPackage: string;
@@ -1388,9 +1350,6 @@ function resolveDetail(
   }
   return `${site.file}: default import of ${symbol.name} has no exact named rewrite`;
 }
-
-// ---------------------------------------------------------------------------
-// Exposure
 
 function realizeExposure(
   planner: Planner,
@@ -1645,7 +1604,6 @@ function resolveExistingExposure(
       conceptId === undefined
         ? undefined
         : acc.relocationsByConcept.get(conceptId);
-    // The relocation carries its own gap or blocker; nothing lands, so nothing is exposed.
     if (relocation !== undefined && relocation.length > 0) {
       return;
     }
@@ -1659,9 +1617,6 @@ function resolveExistingExposure(
   }
   return symbol;
 }
-
-// ---------------------------------------------------------------------------
-// Compatibility export
 
 function realizeCompatibility(
   planner: Planner,
@@ -1828,9 +1783,6 @@ function realizeCompatibilityEntriesEntries(
   return before;
 }
 
-// ---------------------------------------------------------------------------
-// Internalize
-
 function realizeInternalize(
   planner: Planner,
   action: ComposedStructuralAction
@@ -1909,7 +1861,6 @@ function realizeInternalize(
   }
 }
 
-/** Executable internalization projects the compiler's operations; it never plans those routes again. */
 function realizeCompiledInternalize(
   mutation: InternalizeEdits,
   action: ComposedStructuralAction,
@@ -2127,18 +2078,11 @@ interface InternalImportersInput {
   pkg: OperatorPlanningPackage;
   removal: PlannedTransformation;
   resolved: ResolvedRoute;
-  /** Sites already rewritten for another route of the symbol: one rewrite each. */
   rewrites: Map<ImportSite, PlannedTransformation>;
   sites: ImportSite[];
   symbol: LocatedSymbol;
 }
 
-/**
- * The package's own modules importing the route's name from its
- * entrypoint, however the specifier is spelled, get an import of the
- * declaration's module before the exposure goes. A module re-exporting the
- * entrypoint, other than a route file, has no exact rewrite.
- */
 function internalImporters(
   planner: Planner,
   input: InternalImportersInput
@@ -2200,7 +2144,6 @@ function internalImporters(
   }
 }
 
-/** The specifier an internal importer writes for the declaration's module. */
 function importerSpecifier(
   planner: Planner,
   site: ImportSite,
@@ -2216,9 +2159,6 @@ function importerSpecifier(
         resolved.declaration?.getModuleSpecifierValue()
       );
 }
-
-// ---------------------------------------------------------------------------
-// Redirect
 
 function realizeRedirect(
   planner: Planner,
@@ -2332,8 +2272,6 @@ function realizeRedirect(
   if (any) {
     return;
   }
-  // The dependency travels inside moved code: the moved members import the
-  // concept from the target, so the move itself carries the redirect.
   const carried = relocated
     .filter(
       (r) =>
@@ -2486,9 +2424,6 @@ function realizeRedirectSymbolSiteEntries(
   return specifier;
 }
 
-// ---------------------------------------------------------------------------
-// Preservation-only actions
-
 function realizeVerifyOnly(
   planner: Planner,
   action: ComposedStructuralAction
@@ -2517,9 +2452,6 @@ function realizeVerifyOnly(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Surface strategy (§20–22): derived from the actions present, never chosen.
-
 function rewritten(acc: Assembly, site: ImportSite): boolean {
   return [...acc.transformations.values()].some(
     (t) =>
@@ -2531,13 +2463,6 @@ function rewritten(acc: Assembly, site: ImportSite): boolean {
   );
 }
 
-/**
- * A relocation whose old exposure no action keeps or removes: when every
- * outside importer of the moved symbols is redirected by a planned rewrite
- * (or there is none), the old routes are dropped and the relocation is
- * direct. Otherwise the old path's fate is an open intent and the plan
- * stays partial; a breaking relocation is never the default.
- */
 function settleStrategies(planner: Planner): void {
   const { acc, composition, context } = planner;
   for (const r of acc.relocations) {
@@ -2622,15 +2547,11 @@ function settleStrategiesMember(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Finalization: manifests, cycles, conflicts, dependencies
-
 function finalizeManifests(planner: Planner): void {
   const { acc, context } = planner;
   const edges = packageImportEdges(context);
   const existing = new Map(edges.map((e) => [`${e.from}→${e.to}`, e]));
   finalizeManifestsAdded(acc, context, planner);
-  // Removals: only when every import site carrying the edge is rewritten away.
   for (const [id, removed] of [...acc.removedSites].sort(([a], [b]) =>
     byId(a, b)
   )) {
@@ -2877,11 +2798,6 @@ function finalizeDependencies(planner: Planner): void {
       }
     }
   }
-  // Action order carries over: every establishing realization of A precedes
-  // every realization of B. Cleanup steps of A (old exposure gone, module
-  // emptied, dependency dropped) come after everything and carry no order.
-  // A transformation shared by actions at different depths sits at the
-  // deepest one, so edges only ever point deeper.
   const { layer } = layers(composition.actions, composition.dependencies);
   const depth = (t: PlannedTransformation) =>
     Math.max(...t.actions.map((id) => layer.get(id) ?? 0));
@@ -2919,7 +2835,6 @@ function finalizeDependenciesDep(
   }
 }
 
-/** Steps whose place comes only from their own `requires` edges: manifests serve several actions at once. */
 function unordered(t: PlannedTransformation): boolean {
   return t.kind === "verify-only" || t.kind === "update-package-dependency";
 }
@@ -2948,7 +2863,6 @@ function isCleanup(t: PlannedTransformation): boolean {
   }
 }
 
-/** Nodes remaining after repeatedly peeling those lacking an in- or out-edge. */
 export function transformationCycles(
   ids: string[],
   dependencies: PlannedTransformationDependency[]
@@ -3003,9 +2917,6 @@ function layerOf(
   }
   return layer;
 }
-
-// ---------------------------------------------------------------------------
-// Coverage, preservation, deltas, verification
 
 function realizations(planner: Planner): StructuralActionRealization[] {
   const { acc, composition } = planner;
@@ -3242,7 +3153,6 @@ function buildVerificationP(
         v.add("verify-public-surface", [id], "unchanged", []);
       }
     }
-    // A path is kept when the concept it names never left its home.
     buildVerificationPEntries(p, composition, context, acc, v);
   }
 }
@@ -3415,9 +3325,6 @@ function deltas(planner: Planner): PlannedArchitecturalDelta[] {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Blocked and unsupported composition actions
-
 function carryCompositionState(planner: Planner): void {
   const { acc, composition, operators } = planner;
   for (const action of composition.actions) {
@@ -3469,9 +3376,6 @@ function carryCompositionState(planner: Planner): void {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Entry points
 
 function packageOfOperator(
   operator: ArchitecturalOperator | undefined
@@ -3624,12 +3528,6 @@ function diagnostics(
   };
 }
 
-/**
- * Resolve a composition against the sources. Placement actions are planned
- * first so exposure, redirect, and compatibility actions can see where
- * declarations land; then manifests, cycles, and conflicts are settled over
- * the whole set. Nothing here writes; the project is read and left as is.
- */
 export function planOperatorComposition(
   composition: OperatorComposition,
   operators: readonly ArchitecturalOperator[],
@@ -3811,7 +3709,6 @@ function planOperatorCompositionAction(
   }
 }
 
-/** Convenience for one operator: composes it alone, then plans the composition. */
 export function planArchitecturalOperator(
   operator: ArchitecturalOperator,
   decomposition: OperatorDecomposition,
@@ -3843,7 +3740,6 @@ const COMPARED: (keyof OperatorExecutionPlan)[] = [
   "status",
 ];
 
-/** Sections of `plan` that differ from `current`, a fresh plan of the same composition; empty when they agree. */
 export function comparePlans(
   plan: OperatorExecutionPlan,
   current: OperatorExecutionPlan
@@ -3857,11 +3753,6 @@ export function comparePlans(
   return problems;
 }
 
-/**
- * Re-plan and compare. `stale` when a fingerprinted file's bytes changed;
- * `invalid` when the record disagrees with what planning yields now or its
- * graph is cyclic.
- */
 export function validateOperatorExecutionPlan(
   plan: OperatorExecutionPlan,
   composition: OperatorComposition,
@@ -4029,7 +3920,6 @@ function resolveVisitSite(
       symbol,
       toPackage: input.target.id,
     });
-    // A split import keeps its declaration for the other names; the edge stays.
     if (local !== undefined && site.otherNames.length === 0) {
       acc.removeSite(input.target.id, input.source.id, local.id, action.id);
     }

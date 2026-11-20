@@ -3,15 +3,6 @@ import { AsyncIteratorClass } from "@orpc/server";
 import type { AuditEvent, AuditGap, AuditRun } from "~/shared/audit";
 import type { Compaction, ExecutionRetention } from "./retention";
 
-/**
- * The read side of Modules auditing: engine runs as the renderer reads
- * them. A watch starts with a snapshot of every retained run and gap, then
- * sends each change and each retention removal; reconnecting is a new
- * watch, so a fresh snapshot replaces what the reader held. Nothing here is
- * stored: runs are read straight from the engine.
- */
-
-/** A run without its queued input or owning process. */
 export function auditRun(run: ExecutionRun): AuditRun {
   const { input: _input, owner: _owner, ...rest } = run;
   return rest;
@@ -40,11 +31,9 @@ export class ExecutionAudit {
     this.#runs = options.runs;
   }
 
-  /**
-   * The snapshot, then every change. Events wait in order, unbounded, for
-   * a slow reader: dropping one would hide a change behind a later one.
-   */
-  watch(signal?: AbortSignal): AsyncIteratorClass<AuditEvent, void> {
+  async watch(
+    signal?: AbortSignal
+  ): Promise<AsyncIteratorClass<AuditEvent, void>> {
     const queue: AuditEvent[] = [];
     let wake: (() => void) | undefined;
     let ended = false;
@@ -55,11 +44,10 @@ export class ExecutionAudit {
       queue.push(event);
       wake?.();
     };
-    const subscription = this.#runs.subscribe((run) => {
+    const subscription = await this.#runs.subscribe((run) => {
       push({ run: auditRun(run), type: "run" });
     });
-    // Taken in the same tick as the subscription: nothing falls between.
-    push({
+    queue.unshift({
       gaps: auditGaps(this.#runs),
       runs: subscription.snapshot.map(auditRun),
       type: "snapshot",
@@ -76,6 +64,9 @@ export class ExecutionAudit {
       wake?.();
     };
     signal?.addEventListener("abort", end, { once: true });
+    if (signal?.aborted) {
+      end();
+    }
     return new AsyncIteratorClass<AuditEvent, void>(
       async () => {
         while (queue.length === 0 && !ended) {

@@ -1,6 +1,11 @@
-import type { SessionMessage, SessionRecord } from "../schema";
+import type {
+  SessionChangeEvent,
+  SessionMessage,
+  SessionRecord,
+} from "../schema";
 
 export interface SessionStoreWrite {
+  readonly events?: readonly SessionChangeEvent[];
   readonly putMessages?: readonly SessionMessage[];
   readonly putSessions?: readonly SessionRecord[];
 }

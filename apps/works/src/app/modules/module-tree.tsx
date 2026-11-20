@@ -23,8 +23,6 @@ export function ModuleTree({
   selected?: string;
   onSelect: (path: string) => void;
 }) {
-  // The tree keeps the options it was created with, so it reads the
-  // files it shows through this ref.
   const shown = useRef(paths);
   const selection = useCallback(
     (selectedPaths: readonly string[]) => {
@@ -44,7 +42,6 @@ export function ModuleTree({
     onSelectionChange: selection,
     paths,
   });
-  // Typing changes the source, not its files: reset only when they change.
   useEffect(() => {
     const same =
       shown.current.length === paths.length &&

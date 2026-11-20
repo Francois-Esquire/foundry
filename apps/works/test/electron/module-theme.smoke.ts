@@ -18,12 +18,6 @@ const PRIVATE_PATHS = [
   "/_module/gateway",
 ];
 
-/**
- * A released Program under Microsandbox, opened in a sandboxed window over
- * `module-app:`, follows main's theme through the Module SDK relay: the
- * initial snapshot, live explicit overrides, reconnect, disconnect, revoke,
- * re-approval and Program stop, with every private path unreachable.
- */
 async function smoke(userData: string) {
   const works = await smokeWorks(userData);
   const { access, sessions } = works.rpc;
@@ -50,7 +44,6 @@ async function smoke(userData: string) {
     evaluate<{ effective: string; mode: string }>(
       "({ effective: document.body.dataset.effective ?? '', mode: document.body.dataset.mode ?? '' })"
     );
-  /** Waits until the View shows `mode`/`effective` ("" = cleared). */
   const showing = (mode: string, effective: string, message: string) =>
     waitFor(
       async () => {
@@ -77,7 +70,6 @@ async function smoke(userData: string) {
     assert.equal(systemTheme.subscribers, 1);
     results.push(`initial: ${initial.mode}/${initial.effective}`);
 
-    // Explicit overrides arrive live, and the View's CSS appearance agrees.
     for (const mode of ["dark", "light"] as const) {
       await systemTheme.set(mode);
       await showing(mode, mode, `The ${mode} override did not arrive`);
@@ -94,9 +86,6 @@ async function smoke(userData: string) {
     await showing("auto", desktop, "Returning to auto did not arrive");
     results.push(`auto: auto/${desktop} (the desktop's appearance)`);
 
-    // The desktop cannot be switched from here. Forcing the native source
-    // behind main's back stands in for it: Electron emits `updated` with the
-    // other appearance while main's mode is still auto.
     const other = desktop === "dark" ? "light" : "dark";
     nativeTheme.themeSource = other;
     await showing("auto", other, "A native appearance change did not arrive");
@@ -106,7 +95,6 @@ async function smoke(userData: string) {
       `native appearance change in auto (simulated via themeSource): auto/${other}, then auto/${desktop}`
     );
 
-    // Reconnect takes a fresh snapshot on a fresh subscription.
     const before = await evaluate<number>("window.themeEvents.length");
     await evaluate("window.startTheme()");
     await waitFor(
@@ -118,7 +106,6 @@ async function smoke(userData: string) {
     );
     results.push("reconnect: fresh snapshot, one subscription");
 
-    // Disconnecting releases the Gateway stream.
     await evaluate("window.stopTheme()");
     await waitFor(
       () => systemTheme.subscribers === 0,
@@ -130,8 +117,6 @@ async function smoke(userData: string) {
       `Promise.all([${PRIVATE_PATHS.map((route) => JSON.stringify(route)).join(",")}].map((path) => fetch(path).then((response) => response.status, () => "failed")))`
     );
     assert.deepEqual(statuses, [404, 404, 404]);
-    // The proxy forwards a View's POST under /_module/; the Program, which
-    // serves the theme only as a stream, refuses it.
     assert.equal(
       await evaluate<number>(
         "fetch('/_module/theme', { method: 'POST' }).then((response) => response.status)"
@@ -142,7 +127,6 @@ async function smoke(userData: string) {
       `private paths: ${statuses.join(", ")}; POST theme: refused by the Program (502)`
     );
 
-    // Revoking ends the relay and clears mode state in the View.
     await evaluate("window.startTheme()");
     await showing("auto", desktop, "The theme did not come back");
     await access.revoke(imported.id, THEME_CAPABILITY);
@@ -153,12 +137,10 @@ async function smoke(userData: string) {
     );
     results.push("revoke: cleared, subscription released");
 
-    // Approving again: the View's next retry gets an authorized snapshot.
     await access.approve(imported.id, THEME_CAPABILITY);
     await showing("auto", desktop, "Re-approval did not restore the theme");
     results.push("approve again: restored by the View's retry");
 
-    // Stopping the Program ends the response; nothing stays subscribed.
     await watch.return();
     await showing("", "", "Stopping the Program left the View's theme");
     await waitFor(

@@ -52,7 +52,6 @@ describe.skipIf(!runGeneratedWorkspace)("generated Module workspace", () => {
       await withServer(root, port, { NODE_ENV: "production" }, async () => {
         await runTypedMutation(root, port);
         await assertGatewayHandshake(port);
-        // No host connected: the theme relay answers unavailable.
         const theme = await fetch(`http://localhost:${port}/_module/theme`);
         expect(theme.status).toBe(503);
         const introspection = await executeOperation(
@@ -215,12 +214,8 @@ async function waitForReady(
         `generated server exited before becoming ready: ${output.join("")}`
       );
     }
-    try {
-      if (await isReady(port)) {
-        return;
-      }
-    } catch {
-      // The Program has not started listening yet.
+    if (await isReady(port).catch(() => false)) {
+      return;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }

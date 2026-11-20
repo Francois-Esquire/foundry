@@ -21,11 +21,6 @@ async function drain(
   return out;
 }
 
-/**
- * Exercises the full `AgentHarness` → `SessionHarness` → `transformStream`
- * path, verifying the compiler's registration-derived capability reaches both
- * the live approval event and the persisted session message.
- */
 describe("stream-transform capability propagation", () => {
   it("attaches the registration-derived capability to the live tool-approval-request event", async () => {
     const dangerous = tool({
@@ -43,8 +38,6 @@ describe("stream-transform capability propagation", () => {
         source: "mcp",
       }),
     };
-    // A blanket "ask" default makes this capability approval-required —
-    // no exact grant, no kind override.
     const policy = createInMemoryAgentAuthorizer({
       policy: { global: "ask" },
     }).authorizer;

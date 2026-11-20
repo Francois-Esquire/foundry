@@ -37,7 +37,6 @@ vi.mock("@browser-ai/transformers-js", () => ({
 
 const { embedChunks } = await import("../../embeddings/pipeline");
 
-// Deterministic, topic-separable fake embedding (same scheme as semantic.test).
 function fakeEmbed(text: string): number[] {
   const v: number[] = new Array<number>(8).fill(0);
   for (const w of text.toLowerCase().split(NON_WORD_SEPARATOR_PATTERN)) {
@@ -79,7 +78,6 @@ const TWO_TOPIC = [
   "Analysts expect more volatility ahead.",
 ].join(" ");
 
-// This package's own source: a large, real input for the recursive path.
 const SRC_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 let corpus = "";
@@ -129,8 +127,6 @@ describe("embedChunks", () => {
       expect(c.vector).toEqual(fakeEmbed(c.text));
     }
     expect(out.map((c) => c.text).join("")).toBe(excerpt);
-    // Semantic embeds twice (boundary detection + chunk vectors), so it issues
-    // strictly more embedMany calls than the chunk batches alone would.
     expect(mockEmbedMany.mock.calls.length).toBeGreaterThan(
       Math.ceil(out.length / 32)
     );
@@ -170,7 +166,6 @@ describe("embedChunks", () => {
   });
 
   it("batches the embed pass: ceil(chunks / batchSize) embedMany calls", async () => {
-    // Recursive isolates the chunk-embed pass (no boundary-detection embed).
     const chunks = await collect(
       embedChunks(TWO_TOPIC, fakeSource, {
         chunkSize: 32,

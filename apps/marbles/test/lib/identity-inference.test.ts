@@ -1,10 +1,3 @@
-/**
- * Name inference under a host that transpiles the module, as vitest does:
- * positions in the running code are not the source's, and the call site
- * has to come back through the host's source maps. The fixture puts types
- * and multi-line chains before and between definitions so a transform
- * shifts lines and columns.
- */
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -35,7 +28,6 @@ afterEach(() => {
 
 let counter = 0;
 
-/** Write a module beside a `typescript` it can name from, and import it. */
 async function load(source: string, name = "marbles.config") {
   const dir = mkdtempSync(join(tmpdir(), "marbles-inference-"));
   dirs.push(dir);

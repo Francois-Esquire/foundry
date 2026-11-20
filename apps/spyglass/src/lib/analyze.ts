@@ -2,10 +2,6 @@ import type { AnalyzeSurfaceOptions, SurfaceReport } from "./types";
 
 import { analyzeWorkspaceSurfaces } from "./workspace-surface";
 
-/**
- * One package's report, using the batch path. It is the same report a
- * workspace sweep produces.
- */
 export async function analyzeSurface(
   options: AnalyzeSurfaceOptions
 ): Promise<SurfaceReport> {

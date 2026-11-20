@@ -1,13 +1,7 @@
 import type { ProposalFiles } from "~/shared/authoring";
 
-/**
- * Reconciling a chat Edit proposal into the Draft, one whole file at a time.
- * An absent file is a value (`null`) like any text. No within-file merge.
- */
-
 type FileValue = string | null;
 
-/** A file where both the Draft and the proposal changed it differently. */
 export interface ProposalConflict {
   base: FileValue;
   draft: FileValue;
@@ -17,7 +11,6 @@ export interface ProposalConflict {
 }
 
 export interface Reconciliation {
-  /** What to write into the Draft: `null` removes a file. */
   changes: ProposalFiles;
   conflicts: ProposalConflict[];
 }
@@ -26,11 +19,6 @@ function valueAt(files: Readonly<Record<string, string>>, path: string) {
   return Object.hasOwn(files, path) ? (files[path] ?? null) : null;
 }
 
-/**
- * Per path: Draft equals base → take the proposal; proposal equals base →
- * keep the Draft; Draft equals proposal → keep it; otherwise a conflict that
- * keeps both versions for comparison.
- */
 export function reconcileProposal(
   turnId: string,
   draft: Readonly<Record<string, string>>,
@@ -59,7 +47,6 @@ export function reconcileProposal(
   return { changes, conflicts };
 }
 
-/** `source` with `changes` written in: `null` removes a file. */
 export function applyFiles(
   source: Readonly<Record<string, string>>,
   changes: ProposalFiles
@@ -75,11 +62,6 @@ export function applyFiles(
   return next;
 }
 
-/**
- * Every file the proposal would change in the Draft, held as a conflict so
- * each is chosen by hand with both versions in view (after saved source
- * moved, when the base no longer says which side changed).
- */
 export function holdAll(
   turnId: string,
   draft: Readonly<Record<string, string>>,
@@ -96,7 +78,6 @@ export function holdAll(
     }));
 }
 
-/** `held` with `next` in place of any conflict on the same turn and path. */
 export function withConflicts(
   held: readonly ProposalConflict[],
   next: readonly ProposalConflict[]

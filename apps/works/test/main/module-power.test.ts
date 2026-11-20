@@ -62,7 +62,6 @@ it("turns a Module off with confirmed sandbox cleanup, refuses new work, and bac
     sandbox: true,
   });
 
-  // Idle while on: the sandbox stays.
   expect(sandboxes.live()).toEqual(["notes"]);
 
   await expect(power.set("notes", false)).resolves.toEqual({
@@ -75,7 +74,6 @@ it("turns a Module off with confirmed sandbox cleanup, refuses new work, and bac
   expect(runtime.instances.every((instance) => instance.removed)).toBe(true);
   await expect(power.admit("notes")).rejects.toBeInstanceOf(ModuleOffError);
   await expect(power.admit("other")).resolves.toBeUndefined();
-  // The coordinator refuses the Module's work instead of starting a sandbox.
   await expect(sandboxes.borrow("notes")).rejects.toBeInstanceOf(
     ModuleOffError
   );
@@ -85,7 +83,6 @@ it("turns a Module off with confirmed sandbox cleanup, refuses new work, and bac
     off: ["notes"],
   });
 
-  // Off survives a restart.
   const restarted = open();
   await expect(restarted.admit("notes")).rejects.toBeInstanceOf(ModuleOffError);
   await restarted.set("notes", true);

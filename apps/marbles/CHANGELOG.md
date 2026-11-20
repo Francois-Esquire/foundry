@@ -1,5 +1,79 @@
 # Changelog
 
+## [0.0.4](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.3...marbles-v0.0.4) (2026-11-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sandbox:** stateProviders is no longer exported from @foundry.sh/marbles/lib; call DatabaseProviderStore.forState(state).
+* **marbles:** stateProviders is no longer exported from @foundry.sh/marbles/lib; call DatabaseProviderStore.forState(state).
+* **marbles:** stateProviders is no longer exported from @foundry.sh/marbles/lib; call DatabaseProviderStore.forState(state).
+* **marbles:** stateProviders is no longer exported from @foundry.sh/marbles/lib; call DatabaseProviderStore.forState(state).
+* **marbles:** ProviderConfigurationOptions.state is replaced by `store`; the configuration is read by `read()` or `refresh()`, which a starting engine runs, not at construction. CONFIGURATION_PARTIAL is gone, since no write can land in part.
+* **marbles:** ProviderConfigurationOptions.state is replaced by `store`; the configuration is read by `read()` or `refresh()`, which a starting engine runs, not at construction. CONFIGURATION_PARTIAL is gone, since no write can land in part.
+* **marbles:** ProviderConfigurationOptions.state is replaced by `store`; the configuration is read by `read()` or `refresh()`, which a starting engine runs, not at construction. CONFIGURATION_PARTIAL is gone, since no write can land in part.
+* **marbles:** `MemoryTaskStore` is no longer exported from `@foundry/tasks` or `@foundry/tasks/store`; import it from `@foundry/tasks/store/memory`.
+* **agents:** `SessionStore` has `commit` and reads only; write through `new Sessions({ store })`. Import the store types from `@foundry/agents/store` and `InMemorySessionStore` from `@foundry/agents/store/memory`.
+* **marbles:** `MemoryTaskStore` is no longer exported from `@foundry/tasks` or `@foundry/tasks/store`; import it from `@foundry/tasks/store/memory`.
+* **workflows:** hold execution rules in one coordinator over memory and SQLite stores ([#86](https://github.com/Francois-Esquire/foundry/issues/86))
+* **workspaces:** import `MemoryWorkspaceStore` from `@foundry/workspaces/store/memory` instead of `@foundry/workspaces`.
+* **marbles:** Workspace no longer has touch(); existing workspace.json records are not imported, so a hosted workspace has to be attached again.
+* **agents:** `SessionStore` has `commit` and reads only; write through `new Sessions({ store })`. Import the store types from `@foundry/agents/store` and `InMemorySessionStore` from `@foundry/agents/store/memory`.
+
+### Features
+
+* **agents:** add the SQLite session store and persist one JSON form in every store ([#85](https://github.com/Francois-Esquire/foundry/issues/85)) ([fd5ac1b](https://github.com/Francois-Esquire/foundry/commit/fd5ac1bdc74e78e36af235c7f65d5e3ba3f90baa))
+* **agents:** define session store records as Zod schemas ([#67](https://github.com/Francois-Esquire/foundry/issues/67)) ([8ebaac2](https://github.com/Francois-Esquire/foundry/commit/8ebaac2b75c71c49c8fae4e4042f7c2fbab774f6))
+* **agents:** one write point for sessions, with store transactions ([#76](https://github.com/Francois-Esquire/foundry/issues/76)) ([92336c1](https://github.com/Francois-Esquire/foundry/commit/92336c1b008d69c88e27749a49056542282fc24e))
+* **artifacts:** add the SQLite store and its tables ([#84](https://github.com/Francois-Esquire/foundry/issues/84)) ([06e38fa](https://github.com/Francois-Esquire/foundry/commit/06e38fab26ccc7e9e3238eb335986f5861de0244))
+* **artifacts:** define persisted records as Zod schemas ([#70](https://github.com/Francois-Esquire/foundry/issues/70)) ([83cd472](https://github.com/Francois-Esquire/foundry/commit/83cd4724758798847bd78af7dd7bab5ce343323b))
+* **artifacts:** one atomic store commit, transactions and paged listing ([#75](https://github.com/Francois-Esquire/foundry/issues/75)) ([823ee85](https://github.com/Francois-Esquire/foundry/commit/823ee85b45684a218b1eb24a5361acd189fa2231))
+* **artifacts:** stage blob bytes before the store transaction ([#82](https://github.com/Francois-Esquire/foundry/issues/82)) ([26be7aa](https://github.com/Francois-Esquire/foundry/commit/26be7aadabe54954fc062ce0c17b08f9d8791758))
+* **marbles:** add durable embedded execution and host tasks ([#55](https://github.com/Francois-Esquire/foundry/issues/55)) ([79ea35b](https://github.com/Francois-Esquire/foundry/commit/79ea35b42b1cd2ac52e05e398deeea99c9d3dc6f))
+* **marbles:** add Textbook splash story ([bd4363d](https://github.com/Francois-Esquire/foundry/commit/bd4363d931782dd60c1255c3746c40c6feb2fd3c))
+* **marbles:** add the Marbles database and record workspaces in it ([#79](https://github.com/Francois-Esquire/foundry/issues/79)) ([656f4b7](https://github.com/Francois-Esquire/foundry/commit/656f4b7cbf0152a1e7f7b85382f5c56f14cd6a0d))
+* **marbles:** check model availability and discover live catalogs ([#108](https://github.com/Francois-Esquire/foundry/issues/108)) ([b15524f](https://github.com/Francois-Esquire/foundry/commit/b15524f625f02c53294c4a2832bc0ab31b01b8de))
+* **marbles:** export prompts, ship marbles mcp, and read prices and skills from direct sources ([#65](https://github.com/Francois-Esquire/foundry/issues/65)) ([b51ad17](https://github.com/Francois-Esquire/foundry/commit/b51ad1713369b7676cb694d3050b31cd151f428c))
+* **marbles:** host every workspace in one engine generation and switch generations on change ([#98](https://github.com/Francois-Esquire/foundry/issues/98)) ([b90c18d](https://github.com/Francois-Esquire/foundry/commit/b90c18d5abe8623c8b74ec44a3f056c56198ea26))
+* **marbles:** host several workspaces in one process, each run with its own execution context ([#96](https://github.com/Francois-Esquire/foundry/issues/96)) ([10aabc0](https://github.com/Francois-Esquire/foundry/commit/10aabc02ff76c9c479c782df28a24fe975193f40))
+* **marbles:** keep all remaining state in the Marbles database and derive every path from the Foundry home ([#95](https://github.com/Francois-Esquire/foundry/issues/95)) ([308794a](https://github.com/Francois-Esquire/foundry/commit/308794ab382536a3c0a8b9e2c827552230f16fa9))
+* **marbles:** keep artifacts, sandbox containers and the workspace catalogue in the Marbles database ([#89](https://github.com/Francois-Esquire/foundry/issues/89)) ([b07767b](https://github.com/Francois-Esquire/foundry/commit/b07767b51963b6d70c47b39d752ef74f14a29107))
+* **marbles:** keep execution runs, automations and usage in the Marbles database ([#94](https://github.com/Francois-Esquire/foundry/issues/94)) ([c7d1b47](https://github.com/Francois-Esquire/foundry/commit/c7d1b473c41582aed5611fa0b6daafe35bc029e7))
+* **marbles:** keep sessions in the Marbles database ([#88](https://github.com/Francois-Esquire/foundry/issues/88)) ([8e5d159](https://github.com/Francois-Esquire/foundry/commit/8e5d1595b1df16675aeedaaebb9f69bcc40f2ec5))
+* **marbles:** keep tasks in the Marbles database and deliver changes from it ([#83](https://github.com/Francois-Esquire/foundry/issues/83)) ([dc6eb44](https://github.com/Francois-Esquire/foundry/commit/dc6eb4407aff542595bdba05531bf49b49075d9b))
+* **marbles:** keep workflow runs, schedule ticks and monitor state in the Marbles database ([#92](https://github.com/Francois-Esquire/foundry/issues/92)) ([24eebed](https://github.com/Francois-Esquire/foundry/commit/24eebed42f19c41cb53f75054c0f3bbce8b1ef1d))
+* **marbles:** observe every source over one change log ([#99](https://github.com/Francois-Esquire/foundry/issues/99)) ([6aa0360](https://github.com/Francois-Esquire/foundry/commit/6aa03604afc65c5f41ebf96c0e59c9028762a7b7))
+* **marbles:** recover the database, containers and child processes at engine start ([#97](https://github.com/Francois-Esquire/foundry/issues/97)) ([3e0bdee](https://github.com/Francois-Esquire/foundry/commit/3e0bdeef08481fdd7e852a67bd287516a833b42e))
+* **marbles:** render portable prompts for the selected harness ([#110](https://github.com/Francois-Esquire/foundry/issues/110)) ([e5826c7](https://github.com/Francois-Esquire/foundry/commit/e5826c73cbc6f578ad01bbf8c38a209c448a9598))
+* **marbles:** share resources between workspaces, link artifacts, and view every workspace ([#100](https://github.com/Francois-Esquire/foundry/issues/100)) ([4fe9060](https://github.com/Francois-Esquire/foundry/commit/4fe9060dae22f19c5b54abcb78a4c12dc6b2bc67))
+* **modules:** centralize the reusable Module library ([#53](https://github.com/Francois-Esquire/foundry/issues/53)) ([3e5548c](https://github.com/Francois-Esquire/foundry/commit/3e5548c300f576caaf01fcdc34b08389cf01a498))
+* **sandbox,workspaces,agents:** carry change events in the store write ([#90](https://github.com/Francois-Esquire/foundry/issues/90)) ([b2c585f](https://github.com/Francois-Esquire/foundry/commit/b2c585f072de3e461042af70bbbdbbb4f658901d))
+* **sandbox:** commit container rows atomically through @foundry/sandbox/store ([#73](https://github.com/Francois-Esquire/foundry/issues/73)) ([7c8662d](https://github.com/Francois-Esquire/foundry/commit/7c8662dcee3286ebead2481d37801d93bdb2a632))
+* **sandbox:** define container store records as Zod schemas ([#68](https://github.com/Francois-Esquire/foundry/issues/68)) ([8e35495](https://github.com/Francois-Esquire/foundry/commit/8e354958b820a8b598dfca111bda3b84cac39443))
+* **sandbox:** SQLite container store, and the registry keeps every VM it could not remove ([#81](https://github.com/Francois-Esquire/foundry/issues/81)) ([1ec7117](https://github.com/Francois-Esquire/foundry/commit/1ec711790d1902e41622665cabe4b8d9ddc784c3))
+* **tasks:** define task store records as Zod schemas ([#69](https://github.com/Francois-Esquire/foundry/issues/69)) ([73bb830](https://github.com/Francois-Esquire/foundry/commit/73bb830c60e5f05e0afa3131e9715cd976afc1e7))
+* **tasks:** SQLite store, tables and conformance suite beside the in-memory store ([#77](https://github.com/Francois-Esquire/foundry/issues/77)) ([d812871](https://github.com/Francois-Esquire/foundry/commit/d812871dfedb0b65d9a9d99016e5ff383141f442))
+* **usage:** read remaining allowance and shared budgets ([#109](https://github.com/Francois-Esquire/foundry/issues/109)) ([4b056ca](https://github.com/Francois-Esquire/foundry/commit/4b056ca494dfdf135c5f57136d73e3f9f952d035))
+* **workflows,artifacts:** carry change events in the store write ([#91](https://github.com/Francois-Esquire/foundry/issues/91)) ([c368875](https://github.com/Francois-Esquire/foundry/commit/c36887557737e17aa7fd9fdebe2ff11d5529e0aa))
+* **workflows:** define persisted records as Zod schemas ([#78](https://github.com/Francois-Esquire/foundry/issues/78)) ([fea25ba](https://github.com/Francois-Esquire/foundry/commit/fea25ba1ea1a5264db83d537e572505fbe916e0f))
+* **workflows:** hold execution rules in one coordinator over memory and SQLite stores ([#86](https://github.com/Francois-Esquire/foundry/issues/86)) ([466a968](https://github.com/Francois-Esquire/foundry/commit/466a9688228e0d2b546f9e0158a80f3a18027fd8))
+* **workspaces:** define persisted records as Zod schemas ([#71](https://github.com/Francois-Esquire/foundry/issues/71)) ([859a3e3](https://github.com/Francois-Esquire/foundry/commit/859a3e33941d8b874a5635584b4abf85f08c4c11))
+* **workspaces:** one atomic commit and a transaction on the Workspace store ([#74](https://github.com/Francois-Esquire/foundry/issues/74)) ([bb908c3](https://github.com/Francois-Esquire/foundry/commit/bb908c3b5e156b48c1686995f7cfa72737b6e970))
+* **workspaces:** SQLite store and tables beside the in-memory store ([#80](https://github.com/Francois-Esquire/foundry/issues/80)) ([49ae4bf](https://github.com/Francois-Esquire/foundry/commit/49ae4bff34b51ec8bc3b1871c1d7b46b36e6570a))
+
+
+### Bug Fixes
+
+* **marbles:** keep test temp directories in one per-run root ([#72](https://github.com/Francois-Esquire/foundry/issues/72)) ([e91e208](https://github.com/Francois-Esquire/foundry/commit/e91e2085a6159aa74d05829d9ac2ea30f4494570))
+* **marbles:** load optional provider SDKs on demand ([7743011](https://github.com/Francois-Esquire/foundry/commit/77430117aa00fa24066b2b8567180f091ed17a8f))
+* **marbles:** preserve Textbook story teardown ([e6fad28](https://github.com/Francois-Esquire/foundry/commit/e6fad282ff70cfa156722681523dab6e7a5eee74))
+* **workflows:** persist cancelled step state ([5caa1d9](https://github.com/Francois-Esquire/foundry/commit/5caa1d97e259798bab237595c78791f2e1988993))
+
+
+### Code Refactoring
+
+* **sandbox:** make the container stores classes ([#102](https://github.com/Francois-Esquire/foundry/issues/102)) ([a2c5abc](https://github.com/Francois-Esquire/foundry/commit/a2c5abc6b0ef88a901747f37f31876de626f5a35))
+
 ## [0.0.3](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.2...marbles-v0.0.3) (2026-11-08)
 
 

@@ -46,7 +46,6 @@ function SidebarSection({
   );
 }
 
-/** One declarative registry supplies both reader and development sections. */
 export function CompassSidebar({
   context,
   entries = chromeEntries,

@@ -10,10 +10,6 @@ function openAudit(signal: AbortSignal) {
   return worksApi().audit.watch.call(undefined, { signal });
 }
 
-/**
- * Follows the engine run store: a snapshot, then each change, reconciled by
- * run id and revision.
- */
 export function useExecutionAudit() {
   return useReducedStream<AuditEvent, AuditState | null>({
     initial: null,

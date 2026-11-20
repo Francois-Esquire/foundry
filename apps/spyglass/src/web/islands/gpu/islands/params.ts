@@ -1,10 +1,3 @@
-/**
- * The settings: the dataset and view, the land's map parameters (named as
- * in `MapParams`, so look.ts `mapParamsOf` picks them straight out), the
- * frame, and the sea (sea-settings.ts, named as in `SeaParams`:
- * bathymetry, floor, flow, surface, shore). Groups run in that order down
- * the sidebar.
- */
 import type { ParamValues } from "../../lab/params";
 import { defineParams, param } from "../../lab/params";
 import { DEFAULT_MAP_PARAMS, VIEWED_MAPS } from "./maps/map-params";
@@ -24,7 +17,6 @@ export const islandsParams = defineParams({
     hint: "post: FXAA over the finished frame, smoothing the land's and the foam's edges",
     label: "anti-aliasing",
   }),
-  // Post: after the water, over the whole frame.
   bloom: param.number({
     hint: "post: a soft glow round what is brighter than the threshold, glints and sunlit foam; 0 for none",
     max: 2,
@@ -78,7 +70,6 @@ export const islandsParams = defineParams({
   dataset: param.select(ISLANDS_DATASETS, "foundry", {
     hint: "Foundry's own workspace, through its adapter",
   }),
-  // Coverage.
   feather: param.number({
     hint: "coverage: texels across the coast's ease",
     max: 8,
@@ -87,7 +78,6 @@ export const islandsParams = defineParams({
     value: MAP.feather,
   }),
 
-  // Files.
   fileRadius: param.number({
     hint: "files: each file's disc on its island, chart units (the files view)",
     label: "file radius",
@@ -201,12 +191,10 @@ export const islandsParams = defineParams({
     step: 0.05,
     value: 0.35,
   }),
-  // Paint.
   palette: param.select(ISLANDS_PALETTES, MAP.palette, {
     hint: "paint: which pastel cap an island takes, by island order or by a hash of its id",
     label: "palette",
   }),
-  // Height, chart units: the land (the sea's floor is the sea's).
   plateHeight: param.number({
     hint: "height: the land's flat top above sea level",
     label: "plate height",
@@ -216,7 +204,6 @@ export const islandsParams = defineParams({
     value: MAP.plateHeight,
   }),
 
-  // Frame.
   renderScale: param.number({
     hint: "the film's size against the canvas; the composite upsamples",
     label: "render scale",
@@ -260,7 +247,6 @@ export const islandsParams = defineParams({
     hint: "light: the fill from below, off the sea, on undersides and lee faces",
     label: "sea fill",
   }),
-  // Selection: click an island or a ring to choose it, Escape to let go.
   selection: param.toggle(true, {
     hint: "selection: click an island or a ring to choose it, hover to outline; off lets go and stops picking",
   }),
@@ -292,7 +278,6 @@ export const islandsParams = defineParams({
     step: 0.05,
     value: 0.45,
   }),
-  // Light.
   sunAzimuth: param.number({
     hint: "light: radians clockwise from north",
     label: "sun azimuth",
@@ -326,7 +311,6 @@ export const islandsParams = defineParams({
     value: 0.5,
   }),
 
-  // Distance.
   tileWorldSize: param.number({
     hint: "World units per tile; 0 preserves chart-fitted maps",
     label: "bake tile span",
@@ -366,8 +350,6 @@ export const islandsParams = defineParams({
     value: 9,
   }),
 
-  // The sea: bathymetry, floor and flow are baked into the maps; surface
-  // and shore are the frame's.
   ...seaSettings,
 });
 

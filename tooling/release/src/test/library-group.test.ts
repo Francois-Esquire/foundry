@@ -201,8 +201,6 @@ test("linked versions produce one library PR, preserve privacy and leave app ver
         workspace.manifest
       );
     }
-    // bun.lock workspace versions are not part of a release; CI's frozen
-    // install of the release PR and the packed-range check guard it instead.
     expect(updates.some(({ path }) => path === "bun.lock")).toBe(false);
   } finally {
     reader.mockRestore();

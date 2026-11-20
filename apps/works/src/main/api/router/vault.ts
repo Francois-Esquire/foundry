@@ -30,10 +30,8 @@ export const vaultRouter = {
       await context.vault.set(input.owner, input.key, input.value);
     }),
 
-  /** Presence and source per field. Never the values. */
   status: base.handler(({ context }) => context.vault.status()),
 
-  /** A fresh snapshot on every connection, then presence/source changes. */
   watch: base.handler(({ context, signal }) =>
     watchVault(context.vault, signal)
   ),

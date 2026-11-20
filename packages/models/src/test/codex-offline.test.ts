@@ -46,7 +46,6 @@ function provider() {
   });
 }
 
-/** Start a call that hangs on the silent app-server, once its process is up. */
 async function hangingCall(
   model: ReturnType<ReturnType<typeof provider>["languageModel"]>,
   pids: number

@@ -6,7 +6,6 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-/** A throwaway repository — never the checkout the suite runs in. */
 export async function seedRepository(): Promise<string> {
   const root = mkdtempSync(join(tmpdir(), "marbles-repo-"));
   const git = (...args: string[]) =>

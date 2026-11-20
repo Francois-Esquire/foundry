@@ -1,8 +1,3 @@
-/**
- * The GrantRepository contract, as one suite any adapter runs. The in-memory
- * reference adapter defines the semantics; durable adapters run the same suite.
- */
-
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type {
@@ -124,8 +119,6 @@ export function grantRepositoryContract(
           provenance: "human",
         });
 
-        // Claiming a one-shot grant moves it on, so the caller's earlier
-        // revision no longer describes it.
         await grants.claimOnce(grant.id, "invocation-1");
         const stale = grants.revoke(grant.id, grant.revision);
         await expect(stale).rejects.toBeInstanceOf(GrantRevisionError);
@@ -209,10 +202,6 @@ export function grantRepositoryContract(
       });
     });
 
-    /**
-     * One-shot claims are idempotent by invocation so a replay does not
-     * consume authority needed by the original call.
-     */
     describe("claiming one-shot authority", () => {
       it("consumes the grant, so it is no longer live", async () => {
         const grant = await grants.issue({

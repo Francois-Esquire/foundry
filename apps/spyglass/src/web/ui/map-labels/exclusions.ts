@@ -1,4 +1,3 @@
-/** A rectangle in host-local CSS pixels. */
 export interface ScreenRect {
   bottom: number;
   left: number;
@@ -6,7 +5,6 @@ export interface ScreenRect {
   top: number;
 }
 
-/** Measure the actual responsive controls before writing this frame's labels. */
 export function screenExclusions(host: HTMLElement): ScreenRect[] {
   const shell = host.closest(".spyglass-shell");
   if (!shell) {

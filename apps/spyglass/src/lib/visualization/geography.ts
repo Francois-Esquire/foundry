@@ -19,17 +19,10 @@ export function unit(id: string): number {
   return (h >>> 0) / 4_294_967_296;
 }
 
-/** The padding an island keeps around its coast when islands are spaced, as `landmassHull` pads it. */
 const shorePadding = 32;
-/** Open sea kept beyond the outermost islands when the chart's extent is measured. */
 const chartMargin = 120;
-/**
- * Further sea below the southernmost islands keeps the composition clear of
- * the legend in the lower right.
- */
 const footSea = 160;
 
-/** How far an island's padded coast reaches from its centre; its footprint radius before it has a coast. */
 function reach(territory: IslandGeometry): number {
   const points = territory.coast.flatMap((polygon) => polygon[0] ?? []);
   const farthest = points.length
@@ -38,7 +31,6 @@ function reach(territory: IslandGeometry): number {
   return farthest + shorePadding;
 }
 
-/** Original dependency-pulled geography, with soft layer anchors and two-dimensional separation. */
 export function settlePackages(
   regions: IslandGeometry[],
   layers: Readonly<Record<string, number | null>>,
@@ -93,7 +85,6 @@ export function settlePackages(
   if (field.connected.size) {
     refineFoundationLayout(regions, foundations, foundationInfluence);
   }
-  // Translation preserves the original composition while fitting the current viewport.
   if (regions.length) {
     const [x, y] = middleOf(regions, reach);
     for (const region of regions) {
@@ -125,7 +116,6 @@ function pullRoutes(
   }
 }
 
-/** Refine the established map without replacing its spacing or layer structure. */
 function refineFoundationLayout(
   regions: IslandGeometry[],
   foundations: readonly DependencyFoundation[],
@@ -140,7 +130,6 @@ function refineFoundationLayout(
   const field = createFoundationAttraction(foundations, ordered, influence);
   const separate = createCoastSeparation(ordered, 8);
   for (let step = 0; step < 450; step += 1) {
-    // Original positions resist aggregate collapse when many groups overlap.
     for (const { island, x, y } of origins) {
       island.x += (x - island.x) * 0.008;
       island.y += (y - island.y) * 0.008;
@@ -161,7 +150,6 @@ function finishCoastSeparation(regions: IslandGeometry[], gap: number): void {
   }
 }
 
-/** Unconnected islands follow an irregular orbit outside the connected islands' coasts. */
 function placeOffshoreIslands(
   regions: IslandGeometry[],
   connected: ReadonlySet<string>,
@@ -219,7 +207,6 @@ function placeOffshoreIslands(
         );
       }
     }
-    // Seeded extra water breaks a perfect ring without changing on each load.
     distance += 18 + unit(`${id}:offshore-distance`) * 42;
     region.x = cx + ux * distance;
     region.y = cy + uy * distance;
@@ -246,10 +233,6 @@ function settlePackagesEntries(regions: IslandGeometry[], clearance: number) {
   }
 }
 
-/**
- * The middle of the islands' padded extent, with `footSea` below it: the
- * offset that centres them on the origin, as the chart is.
- */
 function middleOf(
   territories: readonly IslandGeometry[],
   reachOf: (territory: IslandGeometry) => number
@@ -261,7 +244,6 @@ function middleOf(
   return [(west + east) / 2, (north + south) / 2];
 }
 
-/** The chart's extent: symmetric about the origin, with open sea beyond the outermost islands. */
 export function chartSize(territories: readonly IslandGeometry[]) {
   return {
     height:

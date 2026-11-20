@@ -8,7 +8,7 @@ import type {
 import { createModuleSelectedCheckouts } from "@foundry/modules/node/selected-checkouts";
 import { createModuleSystem } from "@foundry/modules/platform/system";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import type { WorksExecution } from "~/main/execution/contract";
 import type { ModulePersistence } from "../artifact-store";
 import { moduleFolder } from "../local-library";
@@ -25,33 +25,15 @@ import { connectModuleSocket } from "./websocket";
 
 export interface ModuleRuntimeOptions {
   readonly capacity: SandboxCapacity;
-  /** Version selection runs on the engine's `system` queue. */
   readonly execution: Pick<WorksExecution, "dispatch">;
-  /** Told of each Gateway invocation a Program makes (to record it on its run). */
   readonly observeInvocation?: (record: ModuleGatewayInvocationRecord) => void;
-  /**
-   * The Module records' one shared manager and ModuleStore (spec §2):
-   * Installations, Grants and releases are read and written through the
-   * same transactions as the library's saves and Access.
-   */
   readonly persistence: ModulePersistence;
-  /** The Gateway providers released Programs call, bound to Works' services. */
   readonly providers: readonly ModuleCapabilityProvider[];
-  /** The Modules root: each Module's folder holds `source/`, `artifact/` and `data/`. */
   readonly root: string;
-  /** Each Module's user setting values; none chosen when absent. */
   readonly settings?: Pick<ModuleSettings, "user">;
-  /** Told after a Program's confirmed stop: work it started ends with it. */
   readonly stopped?: (installationId: string) => Promise<void>;
 }
 
-/**
- * Released Programs on Microsandbox. Each Module's one Installation and its
- * Grants live in the library's Artifact-backed ModuleStore and survive
- * closing the app and restarting Works. A Program runs the selected
- * release's `artifact/` read-only, with its Module's `data/` (or disposable
- * files) as the only writable mount.
- */
 export async function createModuleRuntime(
   options: ModuleRuntimeOptions
 ): Promise<ModuleRuntime> {
@@ -60,7 +42,6 @@ export async function createModuleRuntime(
   );
   const { root } = options;
   const { artifacts, modules: store } = options.persistence;
-  // Only checkouts of earlier Works versions live here; it is removed at quit.
   const legacyRuntime = path.join(root, ".runtime");
   const runtime = createMicrosandboxRuntime();
   const files = createModulePrivateFiles({
@@ -77,12 +58,10 @@ export async function createModuleRuntime(
         .slice(0, 16),
       mountTargetRoot: "/foundry",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     }),
     files
   );
-  // Each Module's `artifact/`: the selected release's outputs, projected
-  // read-only and swapped when another Version is selected.
   const releases = createModuleSelectedCheckouts({
     artifacts,
     checkoutPath: (moduleId) => moduleFolder(root, moduleId).artifact,

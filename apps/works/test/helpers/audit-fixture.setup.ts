@@ -8,12 +8,6 @@ import type { AuditGap, AuditRun } from "~/shared/audit";
 import type { ModuleSummary } from "~/shared/modules";
 import { runAuditScenario } from "./audit-scenario";
 
-/**
- * The renderer cannot load the engine (happy-dom shims Node's built-ins),
- * so this runs the real audit scenario once, in Node, before the renderer
- * tests, and hands them the engine store it left: every retained run and
- * gap, and the Module and Artifact listings the tabs join names from.
- */
 export interface AuditFixture {
   readonly artifacts: readonly ArtifactSummary[];
   readonly gaps: readonly AuditGap[];

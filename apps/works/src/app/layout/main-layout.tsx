@@ -9,7 +9,6 @@ export interface MainLayoutProps {
   children: ReactNode;
   className?: string;
   logo: ReactNode;
-  /** Module nav items, rendered in their own scrollable band. */
   moduleNav?: ReactNode;
   onClose: () => void;
   onMaximize?: () => void;

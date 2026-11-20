@@ -1,23 +1,3 @@
-/**
- * The post: what the frame gets after the water, kept apart from it. The
- * water composites into `frame`, a linear `rgba16float` target at the
- * output's size; then
- *
- *   1. bloom (shaders/post/bloom.wgsl): a bright-pass to half size, four
- *      downsamples to a thirty-second, and tent upsamples back up, each
- *      added into the level above;
- *   2. finish (shaders/post/finish.wgsl): the bloom added, the vignette, a
- *      shoulder over what the bloom pushes past white, and the sRGB
- *      encoding, into an `rgba8unorm` target;
- *   3. anti-aliasing (shaders/post/antialias.wgsl): FXAA from that onto
- *      the output, or a copy.
- *
- * Everything that can be is baked upstream (the occlusion is the light
- * map's); the post is a handful of fullscreen passes, most at a fraction of
- * the frame. It is not timed per pass: on Metal a pass's timestamps take in
- * the wait for the passes before it, so they read many times the frame. The
- * bench's "no post" case measures it by difference instead.
- */
 import {
   type Effect,
   effect,
@@ -34,10 +14,8 @@ export interface PostShaders {
   postFinish: ShaderSource;
 }
 
-/** What the post reads of the look each frame. */
 export interface PostLook {
   readonly antialias: boolean;
-  /** The bloom's strength (0 skips the chain), threshold and radius. */
   readonly bloom: number;
   readonly bloomRadius: number;
   readonly bloomThreshold: number;
@@ -45,17 +23,13 @@ export interface PostLook {
   readonly vignetteColor: readonly number[];
 }
 
-/** Levels below the frame: half down to a thirty-second. */
 const LEVELS = 5;
-/** The bright-pass's knee, as a share of its threshold. */
 const KNEE = 0.5;
 const FRAME_FORMAT = "rgba16float";
 
-/** The upsample weight for a radius: a wider bloom leans on the deeper levels. */
 const weightFor = (radius: number) =>
   Math.min(Math.max(0.45 + 0.3 * radius, 0.3), 1.1);
 
-/** What the chain adds up to at a radius; the strength is divided by it, so it means the same at any radius. */
 function bloomGain(radius: number): number {
   const weight = weightFor(radius);
   let gain = 1;
@@ -68,11 +42,8 @@ function bloomGain(radius: number): number {
 export interface Post {
   compile: (output: Target) => Promise<void>;
   dispose: () => void;
-  /** The linear frame the water composites into, at the output's size. */
   readonly frame: Target;
-  /** Runs the post from `frame` onto `output`; encodes into `encoder`. */
   render: (encoder: Frame, output: Target, look: PostLook) => void;
-  /** Follows the output: the frame at its size, each level half the one above. */
   resize: (size: readonly [number, number]) => void;
 }
 
@@ -109,10 +80,7 @@ export function createPost(
   if (!top) {
     throw new Error("The bloom needs at least one level.");
   }
-  // Each step joins a level to the next, smaller one: the down pass reads
-  // the larger and draws into the smaller, the up pass the other way.
   const steps = levels.slice(1).map((smaller, i) => ({
-    // The step before this one ends on the larger level, so it is always there.
     larger: levels[i] ?? top,
     smaller,
   }));
@@ -152,7 +120,6 @@ export function createPost(
       for (const item of [bright, ...passes, finish, antialias]) {
         item.dispose();
       }
-      // The targets belong to the gpu: its dispose frees them.
     },
     frame,
     render(encoder, output, look) {
@@ -182,7 +149,6 @@ export function createPost(
         }
         for (let i = ups.length - 1; i >= 0; i -= 1) {
           const up = ups[i];
-          // The loop stays within the list, so every step is there.
           if (!up) {
             continue;
           }

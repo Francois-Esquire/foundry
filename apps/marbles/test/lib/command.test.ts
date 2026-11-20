@@ -1,8 +1,3 @@
-/**
- * Command steps and a body's `exec`: argument lists, never shell text,
- * wired to the step's directory, stream, signal, and dry run.
- */
-
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

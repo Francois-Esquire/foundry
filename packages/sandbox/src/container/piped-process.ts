@@ -6,7 +6,6 @@ import { SandboxError } from "../errors";
 import { ProcessController, processError } from "../process-controller";
 import type { SandboxPipedProcess } from "../types";
 
-/** The native protocol stays byte-oriented all the way to the host consumer. */
 export async function pipedProcess(
   handle: ExecHandle,
   signal?: AbortSignal
@@ -77,7 +76,6 @@ async function forwardOutput(
 ): Promise<number> {
   let exitCode: number | undefined;
   for await (const event of handle) {
-    // SDK 0.6.18 emits undefined for a failed guest spawn despite its declaration.
     if (event === undefined) {
       await handle.wait();
       throw new SandboxError(

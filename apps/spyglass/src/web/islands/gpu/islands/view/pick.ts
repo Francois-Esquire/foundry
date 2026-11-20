@@ -1,10 +1,3 @@
-/**
- * The pick: one dispatch of pick.wgsl, encoded at the head of a frame over
- * the film's depth as the last frame left it, which keeps what is chosen
- * and hovered in `selection`, the buffer the water highlights from. The
- * highlight follows in the same frame with no readback; `read` brings the
- * selection back for the readouts, a round trip later.
- */
 import {
   type Compute,
   compute,
@@ -25,7 +18,6 @@ import {
   selectionWords,
 } from "./selection";
 
-/** What a pick does (pick.wgsl `Pick.mode`). */
 const PICK_MODES = {
   choose: 1,
   hover: 0,
@@ -36,13 +28,8 @@ const PICK_MODES = {
 export type PickMode = keyof typeof PICK_MODES;
 
 export interface Picker {
-  /**
-   * Writes a choice made by id rather than by a pick, keeping `hovered` as
-   * it was last read; the next frame highlights it.
-   */
   choose: (chosen: Chosen, hovered: Chosen) => void;
   dispose: () => void;
-  /** Encodes a pick of the ground at screen uv, as `view` drew it into the film. */
   pick: (
     frame: Frame,
     mode: PickMode,
@@ -50,13 +37,11 @@ export interface Picker {
     uv: readonly [number, number],
     maps: MapSource
   ) => void;
-  /** The chosen and the hovered, and the chart point the last click chose at. */
   read: () => Promise<{
     chosen: Chosen;
     chosenAt: readonly [number, number];
     hovered: Chosen;
   }>;
-  /** The chosen and the hovered, as water.wgsl reads them. */
   readonly selection: StorageBuffer;
 }
 

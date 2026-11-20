@@ -1,14 +1,3 @@
-/**
- * Queue — reactive persistence (queue as runner).
- *
- * Verifies that the Queue mirrors `workflow.stateChanges` to the `runs` row
- * during execution, not just at the started/terminal boundaries. This is the
- * contract that lets a process restart at any point during execution see a
- * near-current snapshot of the world.
- *
- * Counterpart of queue.lifecycle.test.ts (which covers the boundary writes).
- */
-
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
@@ -48,7 +37,6 @@ function readWorkflowMeta(rawMeta: unknown): PersistedWorkflow | null {
 
 describe("Queue — reactive persistence", () => {
   test("mid-execution row shows a child step as complete before the parent terminates", async () => {
-    // The child completes before the parent, allowing a mid-execution snapshot.
     const store = makeInMemoryStore();
     const queue = new Queue({ concurrency: 1, store });
 
@@ -72,17 +60,12 @@ describe("Queue — reactive persistence", () => {
             name: "react-mid",
           });
           const d = queue.dispatch(wf);
-          // Sample mid-flight, after the throttle's leading edge has
-          // fired and the child's complete event has projected into
-          // workflow.state. Any sample after ~50ms should suffice.
           yield* Effect.sleep(120);
           const mid = requireRun(
             yield* Effect.promise(() => store.getRun(d.id))
           );
           const wfMeta = readWorkflowMeta(mid.metadata);
           expect(mid.status).toBe("running");
-          // The row's snapshot tree reflects the child as complete —
-          // this is the core reactive-persistence guarantee.
           expect(wfMeta?.steps?.["react-mid.fast-child"]?.status).toBe(
             "complete"
           );
@@ -97,10 +80,6 @@ describe("Queue — reactive persistence", () => {
   });
 
   test("suspension is persisted in the row before resume — not deferred to terminal", async () => {
-    // Pre-reactive-persistence behavior: a suspended run's metadata.workflow.
-    // suspension only landed at the synchronous terminal write inside #runOne.
-    // With reactive persistence, the SubscriptionRef flips to "suspended"
-    // during execute and the subscriber writes it immediately.
     const store = makeInMemoryStore();
     const queue = new Queue({ concurrency: 1, store });
 
@@ -118,15 +97,9 @@ describe("Queue — reactive persistence", () => {
             )
           );
           const d = queue.dispatch(wf);
-          // Wait until the run reaches "suspended" status. Polling the
-          // public DispatchedWorkflow.status is sufficient — once it
-          // reads "suspended", the subscriber has had at least one
-          // chance to project the suspension event.
           while (d.status !== "suspended") {
             yield* Effect.sleep(20);
           }
-          // One extra throttle-window sleep so the leading-edge write
-          // for the post-suspend state lands.
           yield* Effect.sleep(220);
           const row = requireRun(
             yield* Effect.promise(() => store.getRun(d.id))
@@ -143,10 +116,6 @@ describe("Queue — reactive persistence", () => {
   });
 
   test("after terminal, the row state is stable — no late reactive writes flicker the row", async () => {
-    // The reactive subscriber is interrupted before the synchronous
-    // terminal write. After result() resolves and we drain, the row
-    // must not change on a subsequent read — proving the subscriber
-    // is no longer firing background updates.
     const store = makeInMemoryStore();
     const queue = new Queue({ concurrency: 1, store });
 
@@ -166,15 +135,10 @@ describe("Queue — reactive persistence", () => {
     );
     await queue.drain();
     const row1 = requireRun(await store.getRun(id));
-    // Wait two full throttle windows so any drifted late emit would have
-    // had ample time to fire.
     await new Promise<void>((r) => setTimeout(r, 500));
     const row2 = requireRun(await store.getRun(id));
     expect(row2.status).toBe("complete");
-    // The terminal-write fields are immutable post-terminal.
     expect(row2.timestamps.completedAt).toBe(row1.timestamps.completedAt);
-    // metadata content is structurally equal (deep) — no trailing
-    // subscriber emit overwrote the corrected terminal state.
     const meta1 = readWorkflowMeta(row1.metadata);
     const meta2 = readWorkflowMeta(row2.metadata);
     expect(meta2?.status).toBe("complete");
@@ -182,14 +146,6 @@ describe("Queue — reactive persistence", () => {
   });
 
   test("the row reads 'running' (the synchronous boundary write) immediately after dispatch — not 'queued' from a re-emitted seed", async () => {
-    // SubscriptionRef.changes replays the *current* value as the first
-    // emit. That first value is the pre-run state ('queued') already
-    // covered by the synchronous boundary write in #runOne. Without
-    // `Stream.drop(1)` in #persistenceLoop, that first emit would race
-    // through the per-run mutex and clobber the row back to 'queued'.
-    //
-    // We block the workflow body briefly so the row is observable
-    // mid-flight; if the drop regresses, status would read 'queued'.
     const store = makeInMemoryStore();
     const queue = new Queue({ concurrency: 1, store });
 
@@ -205,9 +161,6 @@ describe("Queue — reactive persistence", () => {
             name: "first-emit-drop",
           });
           const d = queue.dispatch(wf);
-          // Sample mid-flight, after the synchronous boundary write but
-          // while the body is still running. Any sample after a few
-          // microtasks suffices; 50ms is conservative.
           yield* Effect.sleep(50);
           const mid = requireRun(
             yield* Effect.promise(() => store.getRun(d.id))
@@ -224,19 +177,6 @@ describe("Queue — reactive persistence", () => {
   });
 
   test("cancel-mid-flight: terminal row reads run.status='cancelled', not the lagged snap.status='running'", async () => {
-    // The terminal status correction guards against this race:
-    // workflow.cancel() flips run.status to 'cancelled' synchronously,
-    // but snap.status (state.status) lags by one fiber tick — the
-    // forked status.changes → state.status listener hasn't fired yet.
-    // #runOne reads run.status (not snap.status) for the terminal
-    // write; without that fix, the row would read 'running' instead of
-    // 'cancelled' when cancel races a never-resolving body.
-    //
-    // We force the race with a body that holds a never-resolving Promise
-    // and then cancel mid-flight. #runOne's race(workflow.run, statusChanges→cancelled)
-    // exits via the cancelled branch; the terminal write then reads
-    // run.status. If the regression flips to snap.status, the row
-    // status would be 'running'.
     const store = makeInMemoryStore();
     const queue = new Queue({ concurrency: 1, store });
     const id = await Effect.runPromise(
@@ -248,8 +188,6 @@ describe("Queue — reactive persistence", () => {
             name: "cancel-race",
           });
           const d = queue.dispatch(wf);
-          // Wait until the workflow is actually running before
-          // cancelling so we exercise the in-flight race path.
           yield* Effect.sleep(80);
           yield* Effect.promise(() => d.cancel("user-stop"));
           yield* Effect.promise(() => d.result());
@@ -263,14 +201,6 @@ describe("Queue — reactive persistence", () => {
     await queue.shutdown();
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// Recovery — cold-start from DB
-//
-// Validate that everything reactive persistence stores can be read back and
-// the run resumed, including across a "process restart" simulated by tearing
-// down the Queue instance and reconstructing one over the same DB.
-// ════════════════════════════════════════════════════════════════════════════
 
 describe("Queue — recovery (cold-start from DB)", () => {
   test("preserves namespaced extensions through snapshot writes and recovery", async () => {

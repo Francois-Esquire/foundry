@@ -10,18 +10,8 @@ import { MODULE_SDK_EMITTED } from "@foundry/modules/sdk/emitted";
 import { build } from "bun";
 import { SHEETS_MODULE_ID, SHEETS_PACKAGE_PATH } from ".";
 
-/**
- * Builds Sheets into a Module package: the Program and View bundled
- * with Bun, the emitted Module SDK beside them, and the Manifest, as one
- * frozen release Works imports through its package path.
- */
 const root = new URL("../", import.meta.url);
 
-/**
- * One self-contained script. The package carries text files at fixed
- * paths, so a bundle that splits into chunks or emits assets (WebAssembly,
- * workers) is refused rather than shipped without its parts.
- */
 async function bundle(entry: string, target: "browser" | "bun") {
   const built = await build({
     entrypoints: [fileURLToPath(new URL(entry, root))],
@@ -48,7 +38,6 @@ const files: Record<string, string> = {
   "outputs/program.js": await bundle("src/program.ts", "bun"),
   "outputs/sdk.js": MODULE_SDK_EMITTED.esm,
   "outputs/view.html": await readFile(new URL("src/view.html", root), "utf8"),
-  // The View bundles HyperFormula (GPL-3.0-only); see the README.
   "outputs/view.js": await bundle("src/view.tsx", "browser"),
 };
 const manifestText = await readFile(

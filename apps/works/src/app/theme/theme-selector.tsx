@@ -48,7 +48,6 @@ function ThemePillButton({ icon: Icon, label, value }: ThemeOption) {
   );
 }
 
-/** Full segmented pill: System, Light, and Dark all visible. */
 export function ThemeSelector() {
   return (
     <div className="flex rounded-full bg-muted/60 p-0.5">
@@ -76,7 +75,6 @@ function ThemeMenuItem({ icon: Icon, label, value }: ThemeOption) {
   );
 }
 
-/** The same choices folded into a dropdown for a cramped title bar. */
 export function ThemeSelectorCompact() {
   const { themeMode } = useTheme();
   const active = THEMES.find((theme) => theme.value === themeMode);

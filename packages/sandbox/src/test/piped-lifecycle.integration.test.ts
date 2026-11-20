@@ -2,13 +2,13 @@ import { expect, it } from "vitest";
 import { createContainers } from "../container/containers";
 import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
 import { prepareSandboxProcess } from "../process";
-import { createMemoryContainerStore } from "../store/memory";
+import { MemoryContainerStore } from "../store/memory";
 
 it("drives real public process pipes through the immediate hook and cancels them on close", async () => {
   const containers = createContainers({
     instanceLabel: `piped-lifecycle-${crypto.randomUUID()}`,
     runtime: createMicrosandboxRuntime(),
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
   });
   try {
     const container = await containers.start({
@@ -29,7 +29,6 @@ it("drives real public process pipes through the immediate hook and cancels them
       Array.fromAsync(child.stderr),
       child.exited,
     ]);
-    // Vitest's deep equality takes about a second on a MiB; Buffer.equals does not.
     const received = Buffer.concat(stdout);
     expect(received.byteLength).toBe(payload.byteLength);
     expect(received.equals(payload)).toBe(true);

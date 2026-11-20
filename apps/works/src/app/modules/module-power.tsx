@@ -20,11 +20,6 @@ function statusText(
   return state.sandbox ? "On · sandbox running" : "On";
 }
 
-/**
- * The Module's on/off control. Off stops its apps and removes its sandbox,
- * and refuses chat, builds and apps until it is on again; on keeps its
- * sandbox, once started, even while idle.
- */
 export function ModulePowerSwitch({ moduleId }: { moduleId: string }) {
   const api = worksApi();
   const queryClient = useQueryClient();
@@ -32,7 +27,6 @@ export function ModulePowerSwitch({ moduleId }: { moduleId: string }) {
   const state = useQuery(api.power.get.queryOptions({ input }));
   const set = useMutation(
     api.power.set.mutationOptions({
-      // Access shows whether the app is running, which this changes too.
       onSettled: () =>
         Promise.all(
           [api.power.get, api.access.get].map((procedure) =>

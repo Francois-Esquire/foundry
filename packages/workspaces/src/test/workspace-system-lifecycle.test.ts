@@ -38,10 +38,6 @@ describe("remove", () => {
   });
 });
 
-/**
- * The system owns the instance lifecycle: one live instance per id, layers
- * composed at open, hooks run by the system alone.
- */
 describe("lifecycle", () => {
   it("opens one instance per id and shares it until closed", async () => {
     const root = await makeRoot({ "README.md": "hello" });

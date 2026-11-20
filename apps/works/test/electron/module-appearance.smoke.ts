@@ -17,7 +17,6 @@ registerModuleScheme();
 const run = promisify(execFile);
 const APPEARANCE_CHANGE_MS = 30_000;
 
-/** The desktop's dark mode, through System Events (needs Automation access). */
 async function darkMode(): Promise<boolean> {
   const { stdout } = await run("osascript", [
     "-e",
@@ -33,13 +32,6 @@ async function setDarkMode(dark: boolean): Promise<void> {
   ]);
 }
 
-/**
- * A real macOS appearance change, with main in `auto` and a theme-approved
- * Module View open: Works' effective appearance and the View's theme follow
- * the desktop. It changes the user's desktop setting, so it is opt-in
- * (`test:appearance`) and always puts the original appearance back. Without
- * Automation access to System Events it stops before changing anything.
- */
 async function smoke(userData: string) {
   let original: boolean;
   try {

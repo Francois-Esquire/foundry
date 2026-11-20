@@ -6,7 +6,6 @@ import { DEFAULT_PORT } from "../src/lib/serve";
 import { workspaceState } from "../src/lib/state";
 import { startServer } from "../src/server/server";
 
-// Defaults are independent of Turbo's package working directory.
 const argv = process.argv.slice(2);
 const packageMode = argv.includes("--package");
 const args = parseArguments(
@@ -49,8 +48,6 @@ if (args.command === "help") {
     });
     await server.listen();
     server.printUrls();
-    // A signal handler replaces the default exit, so exit once both servers
-    // close rather than wait on whatever handle the watcher leaves open.
     const stop = async () => {
       files.stop(true);
       await server.close();

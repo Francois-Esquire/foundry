@@ -28,10 +28,6 @@ vi.mock("../../live/fal-webrtc", async () => {
   };
 });
 
-/**
- * The recorder double stands in for werift's `MediaRecorder`. It writes no
- * file, which is what lets the refusal cases assert that none was created.
- */
 vi.mock("werift/nonstandard", () => ({
   MediaRecorder: class {
     readonly stopped = false;

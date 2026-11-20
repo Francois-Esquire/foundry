@@ -4,44 +4,30 @@ import { dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type TS from "typescript";
 
-/**
- * Durable names for nameless definitions. `step()` captures where the module
- * called it; when the definition is finished, the top-level `const` whose
- * initializer contains that call names it. The file is read as source, so
- * positions are taken from the formatted stack, which a transpiling host
- * maps back to the source, and TypeScript's parser (the author's own copy)
- * finds the binding.
- */
-
-/** Where the authored module called a definition word. */
 export interface CallSite {
   readonly column: number;
   readonly file: string;
   readonly line: number;
 }
 
-/** A call site as a person looks for it: `file:line`. */
 export function originOf(site: CallSite): string {
   return `${site.file}:${String(site.line)}`;
 }
 
-/** Where this module lives; frames under it belong to the authoring words, not the authored module. */
 const LIB_DIR = dirname(fileURLToPath(import.meta.url));
 
 function pathOf(fileName: string): string {
-  return fileName.startsWith("file://") ? fileURLToPath(fileName) : fileName;
+  const path = fileName.startsWith("file://")
+    ? fileURLToPath(fileName)
+    : fileName;
+  const query = path.indexOf("?");
+  return query === -1 ? path : path.slice(0, query);
 }
 
-/**
- * One line of a formatted stack, `at fn (file:line:col)` or `at
- * file:line:col`, as V8 and Bun both print it.
- */
 const FRAME = /^\s*at\s+(?:.*?\()?(.+?):(\d+):(\d+)\)?$/;
 
-/** Frames to read past the authoring words before giving up. */
 const STACK_DEPTH = 50;
 
-/** A stack deep enough to reach past the authoring words, as the host formats it. */
 function formattedStack(): unknown {
   const limit = Error.stackTraceLimit;
   Error.stackTraceLimit = STACK_DEPTH;
@@ -52,12 +38,6 @@ function formattedStack(): unknown {
   }
 }
 
-/**
- * The first frame outside the lib, or `undefined` when there is none. The
- * formatted stack is read, not the structured one: a host that transpiles
- * the module (vitest, tsx, node with source maps) installs a formatter that
- * maps positions back to the source, and the source is what is parsed.
- */
 export function callSite(): CallSite | undefined {
   const stack = formattedStack();
   if (typeof stack !== "string") {
@@ -85,11 +65,6 @@ type Parser = Pick<
 
 const parsers = new Map<string, Parser | null>();
 
-/**
- * The author's `typescript`, resolved from the module's location; `null` when
- * absent or when it has no parser to call. TypeScript 7 exports only its
- * version from `typescript`, so it counts as absent.
- */
 function parserFor(file: string): Parser | null {
   const dir = dirname(file);
   const cached = parsers.get(dir);
@@ -111,7 +86,6 @@ function parserFor(file: string): Parser | null {
   return parser;
 }
 
-/** Top-level `const` bindings of one file: identifier by initializer span. */
 interface Binding {
   readonly end: number;
   readonly initializer: TS.Node;
@@ -170,7 +144,6 @@ function topLevelBindings(ts: Parser, source: TS.SourceFile): Binding[] {
   return result;
 }
 
-/** The innermost call expression whose span holds the offset, under `root`. */
 function callAt(
   ts: Parser,
   source: TS.SourceFile,
@@ -191,14 +164,6 @@ function callAt(
   return found;
 }
 
-/**
- * Whether `call` is the initializer's own definition: every step from the
- * call up to the initializer goes through a callee position (`x` in
- * `x(...)`, `x.y`, `(x)`, `x as T`, `x!`, `await x`). A call reached
- * through an argument list is a definition passed to another one, and a
- * call inside a function body belongs to whoever calls that function;
- * neither takes the const's name.
- */
 function owns(ts: Parser, call: TS.Node, initializer: TS.Node): boolean {
   const calleeKinds = new Set([
     ts.SyntaxKind.AsExpression,
@@ -254,13 +219,6 @@ function textOf(file: string): string {
   return text;
 }
 
-/**
- * The top-level `const` whose initializer *is* this call, or `undefined`
- * for a call inside a function, a call passed as an argument to another
- * definition, or a file TypeScript cannot read. Call-site columns are
- * one-based in some runtimes and zero-based in others; the call's own span
- * holds either, and a one-column tolerance covers the initializer's edge.
- */
 export function bindingAt(site: CallSite): string | undefined {
   const found = bindingsOf(site.file);
   const ts = parserFor(site.file);
@@ -278,12 +236,10 @@ export function bindingAt(site: CallSite): string | undefined {
   return call && owns(ts, call, match.initializer) ? match.name : undefined;
 }
 
-/** Whether a TypeScript parser is reachable from `file`. */
 export function canInfer(file: string): boolean {
   return parserFor(file) !== null;
 }
 
-/** Tests only: forget parsed files so a rewritten fixture is re-read. */
 export function resetIdentity(): void {
   bindings.clear();
   texts.clear();

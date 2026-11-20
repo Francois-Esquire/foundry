@@ -1,25 +1,3 @@
-/**
- * The virtual system: an execution environment that is a simulated machine
- * running entirely inside this process. No container, no daemon, no directory
- * on disk — a `just-bash` interpreter over an in-memory filesystem, which
- * disappears when nothing references it.
- *
- * It binds the same two facets every other provider does, so the sandbox
- * toolkit runs on it unchanged. An agent given a virtual system reads, writes,
- * edits, greps, globs, and runs supported commands without persistent state.
- *
- * What it is for: firing off an environment immediately — a scratch space for
- * a tool an agent is composing, a test that needs a real shell without Docker,
- * a place to run something untrusted where "untrusted" means "we do not want
- * it touching the machine at all". The simulator implements the commands
- * itself, so there is no host process to escape into.
- *
- * What it is NOT: a security boundary for the code *hosting* it, a place to
- * run real binaries, or anywhere durable. `just-bash` simulates a broad
- * toolbox — grep, sed, awk, find, jq, tar, sqlite3 and more — but it is a
- * simulation, and a command it does not implement simply is not there.
- */
-
 import type { Storage, StorageObserver } from "@foundry/core/storage";
 import type { IFileSystem } from "just-bash";
 import { Bash } from "just-bash";
@@ -42,31 +20,16 @@ import type {
 import { ObservableFileSystem } from "./filesystem";
 
 export interface VirtualSystemOptions {
-  /** Environment variables every command sees. */
   readonly environment?: Readonly<Record<string, string>>;
-  /** Files present the moment it starts. Relative paths resolve against the
-   *  working directory. */
   readonly files?: Readonly<Record<string, string | Uint8Array>>;
-  /** Where the environment starts. Defaults to `/workspace`, as everywhere
-   *  else in this package. */
   readonly workingDirectory?: string;
 }
 
-/** An in-memory {@link Sandbox}, plus the interpreter underneath for anything
- *  files and commands do not cover. */
 export interface VirtualSystem extends Sandbox {
   readonly bash: Bash;
   readonly files: SandboxFilesystemFacet & Storage & StorageObserver;
 }
 
-/**
- * Build one and use it immediately — no lifecycle, no provisioning:
- *
- * ```ts
- * const system = createVirtualSystem({ files: { "notes.md": "hello" } });
- * const { tools } = createSandboxToolkit(system);
- * ```
- */
 export function createVirtualSystem(
   options: VirtualSystemOptions = {}
 ): VirtualSystem {
@@ -76,11 +39,6 @@ export function createVirtualSystem(
   const fs = new ObservableFileSystem(seedFiles(options.files, workdir));
   const bash = new Bash({
     cwd: workdir,
-    // The guard patches Node's `Module._resolveFilename`, which Bun does not
-    // have, and treats that as a critical failure: every command then errors.
-    // It is a secondary layer by the library's own account; the simulator is
-    // the actual boundary, so it is off under Bun and capability-detected
-    // everywhere else.
     defenseInDepth: {
       enabled: process.versions.bun === undefined ? "auto" : false,
     },
@@ -216,7 +174,6 @@ function virtualFilesystemFacet(
       try {
         await fs.writeFile(temp, new Uint8Array(bytes));
         await fs.chmod(temp, stats.mode);
-        // The default in-memory filesystem swaps file entries synchronously in mv.
         await fs.mv(temp, resolved);
       } catch (error) {
         await fs.rm(temp, { force: true }).catch(() => undefined);
@@ -231,14 +188,6 @@ function virtualFilesystemFacet(
   });
 }
 
-/**
- * Enumerate a directory, one level or all the way down.
- *
- * Degrades rather than throws, per the facet contract: a path that is not a
- * readable directory yields nothing, so a scan over a partly built tree keeps
- * going. Symlinks are listed without traversal — `lstat`, not `stat`, so a link loop
- * cannot turn a recursive walk into an infinite one.
- */
 async function* walk(
   fs: IFileSystem,
   dir: string,
@@ -271,8 +220,6 @@ async function* walk(
   }
 }
 
-/** Seed paths resolve against the working directory, so a caller can pass
- *  `{"src/app.ts": …}` the way it does to every other provider. */
 function seedFiles(
   files: Readonly<Record<string, string | Uint8Array>> | undefined,
   workdir: string
@@ -284,15 +231,6 @@ function seedFiles(
   return seeded;
 }
 
-/**
- * Run one command in the simulator.
- *
- * The two command shapes stay genuinely distinct, which is the contract every
- * provider owes. A string is a shell line and is parsed as one. An array is
- * argv and rides `just-bash`'s own `args` channel, which bypasses shell
- * parsing entirely — so an argument containing a space, a quote, or a `$` is
- * one argument, and no host-side quoting is invented to make that true.
- */
 async function virtualExec(
   bash: Bash,
   workdir: string,
@@ -332,8 +270,6 @@ function toExecArgs(command: SandboxCommand): [string, string[] | undefined] {
     return [command.trim(), undefined];
   }
   const [file = "", ...rest] = command;
-  // `just-bash` parses the line it is given, so the command name goes in as
-  // one single-quoted word: `argv[0]` is a name, never shell source.
   return [file === "" ? "" : singleQuoted(file), rest];
 }
 

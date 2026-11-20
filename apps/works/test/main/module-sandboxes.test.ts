@@ -5,7 +5,6 @@ import { SandboxCapacity } from "~/main/modules/sandboxes/capacity";
 import { fakeModuleSandboxes } from "../helpers/module-sandboxes";
 
 const GIB = 1024 ** 3;
-/** Beside the build's scratch directory, never inside it. */
 const CATALOG_PATH = /^\/builds\/[^/]+\.catalog\.json$/u;
 const CATALOG_SUFFIX = /\.catalog\.json$/u;
 const SCRATCH_TMP = /^\/builds\/[^/]+\.tmp$/u;
@@ -54,7 +53,6 @@ describe("Module sandbox coordinator", () => {
         .map((command) => command.at(-1))
     );
     expect(directories.size).toBe(2);
-    // Scratch directories are gone; the sandbox stays on, idle.
     expect([...(instance?.files.keys() ?? [])]).toEqual([]);
     expect(instance?.stopped).toBe(false);
     await sandboxes.shutdown();
@@ -79,8 +77,6 @@ describe("Module sandbox coordinator", () => {
     for (const step of steps) {
       expect(step.env.FOUNDRY_MODULE_CATALOG_PATH).toMatch(CATALOG_PATH);
       expect(JSON.parse(step.catalog ?? "null")).toEqual(catalog);
-      // As root, in a directory only root may enter, with its own temp dir:
-      // an authoring turn works as another user and cannot reach it.
       expect(step.user).toBe("root");
       expect(step.env.TMPDIR).toBe(
         `${step.env.FOUNDRY_MODULE_CATALOG_PATH?.replace(CATALOG_SUFFIX, "")}.tmp`
@@ -136,7 +132,6 @@ describe("Module sandbox coordinator", () => {
       memoryMib: 1024,
     });
     expect(capacity.usage()).toMatchObject({ memoryBytes: GIB, sandboxes: 1 });
-    // An unmet requirement fails that start before any VM or reservation.
     await expect(sandboxes.borrow("module-b")).rejects.toThrow(
       "Module settings cannot be met"
     );
@@ -172,7 +167,6 @@ describe("Module sandbox coordinator", () => {
     expect(await settled(second)).toBe(false);
     expect(waiting).toHaveBeenCalledOnce();
     expect(runtime.instances).toHaveLength(1);
-    // An idle sandbox is not evicted to make room.
     expect(sandboxes.live()).toEqual(["module-a"]);
     await sandboxes.stop("module-a");
     const loan = await second;
@@ -191,7 +185,6 @@ describe("Module sandbox coordinator", () => {
     const second = await sandboxes.borrow("module-b");
     const third = sandboxes.borrow("module-c");
     expect(await settled(third)).toBe(false);
-    // Shutdown withdraws the waiting request and waits for borrowers.
     const stopping = sandboxes.shutdown();
     await expect(third).rejects.toThrow();
     expect(await settled(stopping)).toBe(false);
@@ -214,7 +207,6 @@ describe("Module sandbox coordinator", () => {
       stopped: true,
     });
     expect(sandboxes.live()).toEqual([]);
-    // The next request starts a fresh sandbox.
     (await sandboxes.borrow("module-a")).release();
     expect(runtime.instances).toHaveLength(2);
     await sandboxes.shutdown();
@@ -258,7 +250,6 @@ describe("Sandbox capacity", () => {
     const moduleSandbox = await capacity.acquire(2 * GIB);
     const program = await capacity.acquire(GIB / 2);
     const big = capacity.acquire(2 * GIB);
-    // A later request that would fit does not overtake the one waiting.
     const small = capacity.acquire(GIB / 4);
     expect(await settled(big)).toBe(false);
     expect(await settled(small)).toBe(false);

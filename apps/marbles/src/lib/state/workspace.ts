@@ -3,7 +3,6 @@ import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
 export interface Workspace {
-  /** `<state>/<id>`: runs, schedules, locks and sessions all live under it. */
   readonly dir: string;
   readonly id: string;
   readonly root: string;
@@ -11,8 +10,8 @@ export interface Workspace {
 
 export interface WorkspaceRecord {
   readonly config: string | null;
+  readonly cwd: string;
   readonly firstSeen: string;
-  /** The Marbles process starts a worker for it. */
   readonly hosted: boolean;
   readonly id: string;
   readonly lastSeen: string;

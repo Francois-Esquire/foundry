@@ -1,11 +1,3 @@
-/**
- * One island's town while the world planner (world-plan.ts) grows it: the
- * roads, parcels and buildings so far, in the island's own frame
- * (town-land.ts), with the checks every new piece must pass. Roads and
- * parcels are tested exactly against each other through a spatial index;
- * the land grid carries only the soft fields (how far the sea is, what
- * ground is taken) that the growth steers by.
- */
 import type { Import, Point } from "../../../data/chart";
 import { CELL, cellAt, FREE, type Land, STREET } from "./town-land";
 import type {
@@ -31,17 +23,13 @@ import {
   segmentPolygonDistance,
 } from "./world-plan-geometry";
 
-/** How far a parcel's front stands back from its road's edge. */
 export const KERB = 0.15;
-/** How far inside its coast the town stays: the rim and the lip. */
 export const COAST_MARGIN = 4;
 
 export interface RoadDraft {
-  /** Arclength of each point. */
   cum: number[];
   readonly folder: string | null;
   readonly id: number;
-  /** The road its start lies on, or null for the root's street. */
   readonly parent: number | null;
   points: Point[];
   readonly rank: RoadRank;
@@ -49,18 +37,14 @@ export interface RoadDraft {
 }
 
 export interface ParcelDraft {
-  /** False for a branch's reserved mouth once its street has grown. */
   alive: boolean;
   readonly axis: Point;
-  /** Its outline's box. */
   readonly box: Bounds;
   edge: "none" | "wall" | "hedge" | "fence";
-  /** Unit direction from its middle toward its road (its front). */
   readonly face: Point;
   readonly half: readonly [number, number];
   readonly id: number;
   readonly kind: ParcelKind | "reserve";
-  /** Its rectangle's frame: middle, along its road, half sizes. */
   readonly middle: Point;
   readonly outline: Point[];
   road: number | null;
@@ -68,7 +52,6 @@ export interface ParcelDraft {
 
 export interface BuildingDraft {
   readonly at: Point;
-  /** Unit direction its front faces. */
   readonly face: Point;
   files: string[];
   half: [number, number];
@@ -89,7 +72,6 @@ interface SegmentRef {
 
 export interface Town {
   readonly buildings: BuildingDraft[];
-  /** The town's middle: the plaza. */
   centre: Point;
   readonly imports: readonly Import[];
   readonly island: string;
@@ -97,11 +79,9 @@ export interface Town {
   readonly parcelIndex: SpatialIndex<number>;
   readonly parcels: ParcelDraft[];
   readonly poles: { at: Point; road: number }[];
-  /** How far from the centre the town is expected to reach. */
   radius: number;
   readonly roadIndex: SpatialIndex<SegmentRef>;
   readonly roads: RoadDraft[];
-  /** The island's seed, from its id. */
   readonly seed: number;
   readonly trees: PlannedTree[];
   readonly zones: ZoneDraft[];
@@ -131,13 +111,11 @@ export function newTown(
   };
 }
 
-/** How far a frame point lies from the sea, 0 off the grid. */
 export function clearAt(land: Land, p: Point): number {
   const cell = cellAt(land, p[0], p[1]);
   return cell < 0 ? 0 : (land.clear[cell] ?? 0);
 }
 
-/** What stands on the cell under a point: `FREE`, `STREET`, a parcel id, or `STREET` off the land. */
 export function takenAt(land: Land, p: Point): number {
   const cell = cellAt(land, p[0], p[1]);
   if (cell < 0 || (land.clear[cell] ?? 0) < land.margin) {
@@ -145,8 +123,6 @@ export function takenAt(land: Land, p: Point): number {
   }
   return land.taken[cell] ?? FREE;
 }
-
-// ------------------------------------------------------------------ roads
 
 export function newRoad(
   town: Town,
@@ -168,7 +144,6 @@ export function newRoad(
   return road;
 }
 
-/** Adds a point to a road's end and its new segment to the index. */
 export function extendRoad(town: Town, road: RoadDraft, p: Point) {
   const last = road.points.at(-1) as Point;
   road.points.push(p);
@@ -180,7 +155,6 @@ export function extendRoad(town: Town, road: RoadDraft, p: Point) {
   });
 }
 
-/** Cuts a road back to arclength `s` (its later index entries go stale). */
 export function trimRoad(road: RoadDraft, s: number) {
   if (s >= (road.cum.at(-1) ?? 0) - 1e-6) {
     return;
@@ -198,7 +172,6 @@ export function trimRoad(road: RoadDraft, s: number) {
   road.cum = arclengths(road.points);
 }
 
-/** A road's segment as it is now, or null if it was trimmed away. */
 function segmentOf(town: Town, ref: SegmentRef): [Point, Point] | null {
   const road = town.roads[ref.road];
   if (!road || ref.seg + 1 >= road.points.length) {
@@ -207,14 +180,9 @@ function segmentOf(town: Town, ref: SegmentRef): [Point, Point] | null {
   return [road.points[ref.seg] as Point, road.points[ref.seg + 1] as Point];
 }
 
-/** Says which road segments a test leaves out. */
 export type Skip = (road: RoadDraft, seg: number) => boolean;
 const SKIP_NONE: Skip = () => false;
 
-/**
- * The least gap from `p` to the edge of any road near it (centreline
- * distance less half the road's width), up to `reach`.
- */
 export function roadGap(
   town: Town,
   p: Point,
@@ -234,7 +202,6 @@ export function roadGap(
   return best;
 }
 
-/** The nearest point on any road's centreline to `p` within `reach`, with its road. */
 export function nearestRoadPoint(
   town: Town,
   p: Point,
@@ -257,9 +224,6 @@ export function nearestRoadPoint(
   return best;
 }
 
-// ---------------------------------------------------------------- parcels
-
-/** Whether a segment keeps `gap` clear of every live parcel. */
 export function segmentClearOfParcels(
   town: Town,
   a: Point,
@@ -282,7 +246,6 @@ export function segmentClearOfParcels(
   return true;
 }
 
-/** Whether every point along a polygon's edges, about a unit apart, and across its inside clears `margin`. */
 function onLand(land: Land, outline: readonly Point[], box: Bounds): boolean {
   const n = outline.length;
   for (let k = 0; k < n; k += 1) {
@@ -314,10 +277,8 @@ function onLand(land: Land, outline: readonly Point[], box: Bounds): boolean {
   return true;
 }
 
-/** How far inside a rectangle's corners the quick test looks: past any cell a neighbour's stamp can reach. */
 const CORNER_INSET = 0.6;
 
-/** A quick test before the exact ones: no ground already taken just inside any corner. */
 function cornersFree(land: Land, outline: readonly Point[]): boolean {
   let mu = 0;
   let mv = 0;
@@ -342,11 +303,6 @@ function cornersFree(land: Land, outline: readonly Point[]): boolean {
   return true;
 }
 
-/**
- * Whether a convex outline may be claimed: on land clear of the coast's
- * margin, overlapping no live parcel, and clear of every road's surface
- * by the kerb.
- */
 export function parcelFits(town: Town, outline: readonly Point[]): boolean {
   if (!cornersFree(town.land, outline)) {
     return false;
@@ -382,7 +338,6 @@ export function parcelFits(town: Town, outline: readonly Point[]): boolean {
   return true;
 }
 
-/** Claims a parcel: it joins the index and the land grid. */
 export function addParcel(
   town: Town,
   draft: Omit<ParcelDraft, "id" | "alive" | "box">
@@ -402,14 +357,12 @@ export function addParcel(
   return parcel;
 }
 
-/** Marks the cells whose middles lie inside an outline as `what`. */
 function stampPolygon(land: Land, outline: readonly Point[], what: number) {
   forCells(land, outline, (cell) => {
     land.taken[cell] = what;
   });
 }
 
-/** Marks the free cells whose middles lie inside an outline as `what`. */
 export function stampFree(land: Land, outline: readonly Point[], what: number) {
   forCells(land, outline, (cell) => {
     if (land.taken[cell] === FREE) {
@@ -418,7 +371,6 @@ export function stampFree(land: Land, outline: readonly Point[], what: number) {
   });
 }
 
-/** Frees the cells inside an outline that hold `what`. */
 export function unstamp(land: Land, outline: readonly Point[], what: number) {
   forCells(land, outline, (cell) => {
     if (land.taken[cell] === what) {
@@ -427,7 +379,6 @@ export function unstamp(land: Land, outline: readonly Point[], what: number) {
   });
 }
 
-/** Calls `visit` for each cell whose middle lies inside an outline. */
 function forCells(
   land: Land,
   outline: readonly Point[],
@@ -448,7 +399,6 @@ function forCells(
   }
 }
 
-/** Marks the free cells a road's surface covers as `STREET`. */
 export function stampRoad(land: Land, road: RoadDraft) {
   const half = road.width / 2 + CELL / 2;
   for (let k = 0; k + 1 < road.points.length; k += 1) {
@@ -477,9 +427,6 @@ export function stampRoad(land: Land, road: RoadDraft) {
   }
 }
 
-// --------------------------------------------------------------- paths
-
-/** A binary heap of cells by cost, for the path search. */
 class Heap {
   private readonly cells: number[] = [];
   private readonly costs: number[] = [];
@@ -556,13 +503,6 @@ const NEIGHBOURS: readonly (readonly [number, number, number])[] = [
   [-1, -1, Math.SQRT2],
 ];
 
-/**
- * The cheapest walk over free land from `from` to a road's ground, as
- * frame points from the road end to `from`, or null. It heads for the
- * nearest road point within `limit` (A*, the straight distance to it as
- * the guide) but stops at the first road cell it reaches. `halo` marks
- * the cells it may not cross.
- */
 export function pathToRoad(
   town: Town,
   from: Point,
@@ -599,7 +539,6 @@ interface Search {
   readonly cost: Float32Array;
   readonly done: Uint8Array;
   readonly heap: Heap;
-  /** The goal's cell coordinates, for the guide. */
   readonly ti: number;
   readonly tj: number;
 }
@@ -619,7 +558,6 @@ function newSearch(land: Land, start: number, goal: Point): Search {
   return search;
 }
 
-/** Relaxes a cell's neighbours: free land off the halo, or a road's ground to end on. */
 function expand(town: Town, search: Search, cell: number, halo: Uint8Array) {
   const { land } = town;
   const rough = roughOf(town);
@@ -639,7 +577,6 @@ function expand(town: Town, search: Search, cell: number, halo: Uint8Array) {
     if (search.done[next] === 1 || !open) {
       continue;
     }
-    // A gentle unevenness, so a footpath wanders rather than runs ruler-straight.
     const total = here + step * roughAt(rough, town.seed, next, x, y);
     if (total < (search.cost[next] ?? 0)) {
       search.cost[next] = total;
@@ -649,7 +586,6 @@ function expand(town: Town, search: Search, cell: number, halo: Uint8Array) {
   }
 }
 
-/** Each cell's footpath roughness, filled in as paths first cross it. */
 const roughCache = new WeakMap<Town, Float32Array>();
 
 function roughOf(town: Town): Float32Array {
@@ -689,7 +625,6 @@ function traceBack(land: Land, back: Int32Array, end: number): Point[] {
   return out;
 }
 
-/** A grid walk smoothed (two rounds of corner cutting) and resampled about a unit apart. */
 export function smoothPath(points: readonly Point[]): Point[] {
   let line = [...points];
   for (let round = 0; round < 3; round += 1) {
@@ -709,7 +644,6 @@ export function smoothPath(points: readonly Point[]): Point[] {
   return resample(line, 1);
 }
 
-/** A polyline resampled at even steps of about `step`, its ends kept. */
 export function resample(points: readonly Point[], step: number): Point[] {
   const cum = arclengths(points);
   const total = cum.at(-1) ?? 0;

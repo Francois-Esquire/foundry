@@ -62,7 +62,6 @@ function pairId(a: string, b: string): string {
 
 interface GraphIndex {
   chains: string[][];
-  /** from → (to → shortest distance in edges). */
   distance: Map<string, Map<string, number>>;
   edges: Map<string, WorkspacePackageGraphEdge>;
   nodes: Map<string, WorkspacePackageGraphAnalysis>;
@@ -82,7 +81,6 @@ function indexGraph(graph: WorkspaceGraphAnalysis): GraphIndex {
   for (const start of adjacency.keys()) {
     const seen = new Map<string, number>([[start, 0]]);
     const queue = [start];
-    // The array iterator sees nodes pushed during the walk, so this is a BFS.
     for (const node of queue) {
       const d = seen.get(node) ?? 0;
       for (const next of adjacency.get(node) ?? []) {
@@ -114,7 +112,6 @@ function joinedByUsageOnly(index: GraphIndex, a: string, b: string): boolean {
   return index.usageOnly.has(`${a}→${b}`) || index.usageOnly.has(`${b}→${a}`);
 }
 
-/** `pkg` relative to `center`: forward means `pkg` imports its way to `center`. */
 function pathTo(
   index: GraphIndex,
   pkg: string,
@@ -162,7 +159,6 @@ const EDGE_ROLE_ORDER: ConceptEdgeRole[] = [
   "conversion",
 ];
 
-/** Resolve from graph modules, churn files, or the longest matching package path. */
 function modulePackageResolver(
   workspace: WorkspaceReport
 ): (module: string) => string | null {
@@ -190,7 +186,6 @@ function modulePackageResolver(
 }
 
 interface RoleTable {
-  /** Source behavior that only names the concept in a signature: consumers, not a role. */
   contractOnly: Set<string>;
   converterPackages: Set<string>;
   roles: Map<string, Set<WorkspaceConceptPackageRole>>;

@@ -6,11 +6,6 @@ import {
   HISTORY_FILES,
 } from "./dataset-layout";
 
-// V12.5 canonical equivalence. Two datasets are equivalent when every
-// artifact matches after the documented volatile fields are removed. Nothing
-// architectural is dropped: the list below is timing and provenance only.
-
-/** Wall clock, timings, and cache provenance of the temporal dataset. */
 const HISTORY_MANIFEST_VOLATILE_FIELDS = [
   "generatedAt",
   "generation",
@@ -18,31 +13,17 @@ const HISTORY_MANIFEST_VOLATILE_FIELDS = [
   "snapshots.*.cached",
 ] as const;
 
-/**
- * Volatile fields per artifact, as JSON-pointer-like paths from the artifact
- * root. `*` matches any key or index. Anything not listed here is canonical.
- */
 const SEMANTICS_VOLATILE_FIELDS: Record<string, readonly string[]> = {
-  /** A history manifest compared on its own, under the `kind` override. */
   "history-manifest.json": HISTORY_MANIFEST_VOLATILE_FIELDS,
-  /** A history manifest inside a dataset. */
   [`${HISTORY_DIRECTORY}/${HISTORY_FILES.manifest}`]:
     HISTORY_MANIFEST_VOLATILE_FIELDS,
-  /** Wall clock and per-run timings of the current dataset. */
   [DATASET_FILES.manifest]: ["generatedAt", "generation"],
-  /** The V8 simulation clock inside every package report. */
   "packages/*.json": [
     "recenteringCandidates.impacts.summary.runtimeMs",
     "recenteringCandidates.reviews.summary.runtimeMs",
   ],
 };
 
-/**
- * String lists that are sets: their order followed the type checker's
- * property-resolution history before V12.6 and is sorted since, so a
- * comparison across that boundary sorts both sides. Same path syntax as
- * `SEMANTICS_VOLATILE_FIELDS`.
- */
 const SEMANTICS_UNORDERED_FIELDS: Record<string, readonly string[]> = {
   "packages/*.json": [
     "conceptOverlap.candidates.*.structure.shared",
@@ -57,7 +38,6 @@ interface SemanticsDifference {
   file: string;
   kind: "missing-left" | "missing-right" | "value";
   left?: unknown;
-  /** Dot path inside the artifact; empty when the file is missing on one side. */
   path: string;
   right?: unknown;
 }
@@ -153,11 +133,6 @@ function removePath(value: unknown, segments: string[]): unknown {
   return { ...record, [head]: removePath(record[head], rest) };
 }
 
-/**
- * The artifact without its volatile fields. `file` is the dataset-relative
- * path; pass `kind` to canonicalize a history manifest, whose file name
- * (`manifest.json`) collides with the current dataset's.
- */
 export function canonicalizeSemanticsArtifact(
   file: string,
   value: unknown,
@@ -173,7 +148,6 @@ export function canonicalizeSemanticsArtifact(
   return sortKeys(result);
 }
 
-/** Object keys in sorted order at every depth; key order is serialization, not semantics. */
 function sortKeys(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(sortKeys);
@@ -250,9 +224,7 @@ function collectDifferences(
 }
 
 export interface CompareSemanticsOptions {
-  /** Canonicalization kind override per file (history manifests). */
   kindOf?: (file: string) => string | undefined;
-  /** Stop after this many differences; the result is still `equivalent: false`. */
   limit?: number;
 }
 
@@ -274,7 +246,6 @@ function collectDifferencesEntries(
   }
 }
 
-/** Every JSON artifact under a dataset, relative posix paths, sorted. */
 export function listSemanticsFiles(dir: string, prefix = ""): string[] {
   if (!existsSync(dir)) {
     return [];
@@ -291,7 +262,6 @@ export function listSemanticsFiles(dir: string, prefix = ""): string[] {
   return files.sort();
 }
 
-/** Canonical comparison of two materialized datasets, artifact by artifact. */
 export function compareSemanticsDatasets(
   left: string,
   right: string,
@@ -341,7 +311,6 @@ export function compareSemanticsDatasets(
   };
 }
 
-/** Canonical content of one artifact as JSON; equal strings mean equivalent artifacts. */
 export function canonicalSemanticsText(
   file: string,
   value: unknown,

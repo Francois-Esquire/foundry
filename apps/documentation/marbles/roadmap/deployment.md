@@ -5,8 +5,8 @@ sidebar:
   label: Deployment targets
 ---
 
-Marbles runs today as one process per machine, hosting each workspace in a
-worker, driven from a terminal. The same engine should also run as a
+Marbles runs today as one process per machine, hosting every workspace in
+one engine subprocess it replaces on a change, driven from a terminal. The same engine should also run as a
 service: on a container host, as a library inside a serverless backend, and
 behind a network protocol that dashboards and MCP clients can reach.
 
@@ -52,10 +52,12 @@ What already supports these targets:
   restart.
 - The scheduler is externally drivable. `tick()` takes an injected clock,
   signal, and scheduled flag; the loop takes an injected sleep. Monitors
-  record what they last saw in the state store, so a poll in another
+  record what they last saw in the trigger store, so a poll in another
   process works.
-- Storage is partly an interface. `StateStore` (schedules, monitors,
-  automations) has JSON and in-memory implementations. `@foundry/workflows`
+- Storage is an interface per thing the engine keeps: `RunStore`,
+  `ExecutionStore`, `TriggerStore`, `AutomationStore` and `UsageStore`, each
+  with an in-memory implementation and one in the Marbles database (SQLite).
+  `@foundry/workflows`
   ships `ExecutionCoordinator` over `ExecutionRepository` and `RunJournal`
   contracts for runs, suspensions, queues, and frames.
 - Sandboxes are injected. The engine takes `containers` as a value or a
@@ -64,8 +66,8 @@ What already supports these targets:
 - The wire protocol is one step from JSON-RPC: id, method, params, result,
   error, and id-less notifications over a `Transport` interface. Methods
   are namespaced `workspace.*`.
-- Every location is parameterized through `layout()`: `FOUNDRY_HOME`,
-  `--state`, `--artifacts`.
+- Every location is parameterized through `layout()`, from one Foundry home
+  (`FOUNDRY_HOME`).
 
 What blocks them:
 
@@ -118,7 +120,7 @@ other option for the daemon.
 ### Service surface: HTTP, auth, health, logs
 
 Add an HTTP listener beside the socket with a bearer token, a health
-endpoint that reports the daemon and each worker, and MCP over Streamable
+endpoint that reports the daemon and each engine generation, and MCP over Streamable
 HTTP as a second binding of the same server. Move printed lines to
 structured events with a line renderer for terminals.
 
@@ -133,7 +135,7 @@ client call. Keep the `hosted` record as the restart path.
 Accept an `OrchestratorStore` on the engine options and give the run
 extras a home in it, defaulting to the in-memory store hydrated from run
 files. A durable implementation then supplies `ExecutionRepository` and
-`RunJournal`. Implement `StateStore` for the same backend. Convex tables are
+`RunJournal`. Implement Marbles' own stores for the same backend. Convex tables are
 the first proof; a SQL backend is the second.
 
 Rebuild run ownership from the store on start, so an engine constructed
@@ -164,7 +166,7 @@ choosing a third-party backend decides where those tokens may go.
 
 ### Two drivers over one lib
 
-- The VM driver is today's daemon and workers with the service surface
+- The VM driver is today's daemon and engine generations with the service surface
   above, one replica per state root.
 - A serverless driver, Convex first, imports the lib and defines its steps
   statically, so the workspace bucket is not involved. A cron calls

@@ -18,8 +18,6 @@ import {
 } from "..";
 
 const MANY_REFERENCES = 32_000;
-// A quadratic pass over this many references takes several seconds; a linear
-// one takes milliseconds, so the budget leaves room for a slow machine.
 const LINEAR_TIME_BUDGET_MS = 1000;
 
 describe("references by symbol", () => {
@@ -111,23 +109,22 @@ describe("cookedToRaw", () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: raw template source under test.
     const raw = "a\\${b}\\`c\\n\\u0041\\u{1F600}d";
     const toRaw = cookedToRaw(raw);
-    // cooked: a ${b} ` c \n A 😀 d
-    expect(toRaw(0)).toBe(0); // a
-    expect(toRaw(1)).toBe(1); // $ ← "\$"
-    expect(toRaw(2)).toBe(3); // {
-    expect(toRaw(5)).toBe(6); // ` ← "\`"
-    expect(toRaw(6)).toBe(8); // c
-    expect(toRaw(7)).toBe(9); // newline ← "\n"
-    expect(toRaw(8)).toBe(11); // A ← "A"
-    expect(toRaw(9)).toBe(17); // 😀 high surrogate ← "\u{1F600}"
-    expect(toRaw(10)).toBe(17); // 😀 low surrogate
-    expect(toRaw(11)).toBe(26); // d
-    expect(toRaw(12)).toBe(raw.length); // end maps to end
+    expect(toRaw(0)).toBe(0);
+    expect(toRaw(1)).toBe(1);
+    expect(toRaw(2)).toBe(3);
+    expect(toRaw(5)).toBe(6);
+    expect(toRaw(6)).toBe(8);
+    expect(toRaw(7)).toBe(9);
+    expect(toRaw(8)).toBe(11);
+    expect(toRaw(9)).toBe(17);
+    expect(toRaw(10)).toBe(17);
+    expect(toRaw(11)).toBe(26);
+    expect(toRaw(12)).toBe(raw.length);
   });
 
   it("drops a line continuation and clamps out-of-range offsets", () => {
     const toRaw = cookedToRaw("ab\\\ncd");
-    expect(toRaw(2)).toBe(4); // c
+    expect(toRaw(2)).toBe(4);
     expect(toRaw(-1)).toBe(0);
     expect(toRaw(99)).toBe(6);
   });
@@ -135,9 +132,8 @@ describe("cookedToRaw", () => {
   it("returns for a \\u{ that never closes, mapping monotonically", () => {
     const raw = "\\u{41 and more";
     const toRaw = cookedToRaw(raw);
-    // `\u` is read as a plain escape: cooked `u{41 and more`.
     expect(toRaw(0)).toBe(0);
-    expect(toRaw(1)).toBe(2); // {
+    expect(toRaw(1)).toBe(2);
     let previous = toRaw(0);
     for (let cooked = 1; cooked <= raw.length; cooked += 1) {
       const mapped = toRaw(cooked);
@@ -148,10 +144,10 @@ describe("cookedToRaw", () => {
   });
 
   it("stays finite for an empty \\u{} and a brace far later", () => {
-    expect(cookedToRaw("\\u{}x")(1)).toBe(4); // x
-    expect(cookedToRaw("\\u{}x")(2)).toBe(5); // end
+    expect(cookedToRaw("\\u{}x")(1)).toBe(4);
+    expect(cookedToRaw("\\u{}x")(2)).toBe(5);
     const far = cookedToRaw("\\u{41 then }z");
-    expect(far(1)).toBe(12); // z, after the whole braced run
+    expect(far(1)).toBe(12);
     expect(far(2)).toBe(13);
   });
 });
@@ -276,9 +272,6 @@ describe("check", () => {
   });
 
   it("checks many references mixing notations in linear time", () => {
-    // Pi's sigil opens the prompt, then Codex's and the own reading alternate,
-    // so the own dialect has a skill reading beside every foreign one. Each
-    // pair adds two own readings, so half as many keeps the token count level.
     const pairs = MANY_REFERENCES / 2;
     const prompt = `/skill:review ${"$review /review ".repeat(pairs)}`;
     const started = performance.now();

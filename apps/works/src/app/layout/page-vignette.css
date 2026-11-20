@@ -1,11 +1,3 @@
-/* PageVignette: cathedral-lighting overlay, scoped to a positioned container.
- *
- * --page-vignette-spread   : where the transparent center ends (default 30%)
- * --page-vignette-rx       : ellipse x-radius  (default 82%)
- * --page-vignette-ry       : ellipse y-radius  (default 78%)
- * --page-vignette-focal-y  : focal-point Y     (default 38%)
- */
-
 .page-vignette {
   position: absolute;
   inset: 0;
@@ -25,8 +17,6 @@
   );
 }
 
-/* Layered so a consumer's height utility wins: unlayered author CSS outranks
-   every Tailwind layer, which silently discarded any `h-*` passed in. */
 @layer components {
   .vignette-shell {
     position: relative;

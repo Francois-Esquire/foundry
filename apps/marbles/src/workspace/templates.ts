@@ -23,7 +23,6 @@ export const STARTERS = [
 ] as const;
 export type StarterId = (typeof STARTERS)[number]["id"];
 type Starter = (typeof STARTERS)[number];
-/** What `marbles init` creates when no starter is named. */
 export const DEFAULT_STARTER: StarterId = "product";
 
 export function starterFor(id: StarterId): Starter {
@@ -34,7 +33,6 @@ export function starterFor(id: StarterId): Starter {
   return starter;
 }
 
-/** A starter's settings. It names no provider, so new sessions follow the configured order. */
 export interface SetupDraft {
   readonly instructions: string;
   readonly name: string;

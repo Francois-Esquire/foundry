@@ -1,11 +1,6 @@
 import { z } from "zod";
 
-// Facet syntax: how the configuration addresses a place, a workspace-relative
-// path or `path#name`. Domains name their facets in it and rules their
-// subjects, so both are checked, and matched, alike.
-
 const DRIVE = /^[A-Za-z]:/;
-/** Kept for patterns, so that adding them later changes no facet's meaning. */
 const RESERVED = /[*?]|^!/;
 const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*$/u;
 

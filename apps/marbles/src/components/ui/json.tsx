@@ -1,4 +1,3 @@
-// Adapted from termcn's OpenTUI JSONView.
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -35,9 +34,10 @@ function linesFor(
     ? value.map((item, index) => [index, item] as const)
     : Object.entries(value);
   const folded = collapsed.has(id);
+  const count = entries.length;
   const summary = Array.isArray(value)
-    ? `[${entries.length} items]`
-    : `{${entries.length} fields}`;
+    ? `[${count} ${count === 1 ? "item" : "items"}]`
+    : `{${count} ${count === 1 ? "field" : "fields"}}`;
   const row = {
     branch: true,
     depth,

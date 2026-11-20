@@ -5,7 +5,6 @@ interface ProfileSession {
 
 type Interaction = "pan" | "pointer" | "sweep" | "zoom";
 
-/** Serialized into the page by the capture tool; no dependencies outside this function. */
 async function measureInteraction(kind: Interaction, x: number, y: number) {
   const canvas = document.querySelector("canvas");
   if (!canvas) {
@@ -13,8 +12,6 @@ async function measureInteraction(kind: Interaction, x: number, y: number) {
   }
   const longTasks: { milliseconds: number; start: number }[] = [];
   const started = performance.now();
-  // Each frame Islands submits, with the CPU time it took, as the map
-  // measures it (`spyglass:render-submit`, in a developer session only).
   const submits: { at: number; cpuMs: number }[] = [];
   const submitted = new PerformanceObserver((list) => {
     for (const entry of list.getEntriesByName("spyglass:render-submit")) {
@@ -105,7 +102,6 @@ async function measureInteraction(kind: Interaction, x: number, y: number) {
   };
 }
 
-/** Real canvas handlers and Chrome CPU samples, including native pointer capture for panning. */
 export async function profileInteraction(
   session: ProfileSession,
   input: string

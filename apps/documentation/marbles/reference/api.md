@@ -489,8 +489,8 @@ const region = await ask.question({
 
 `approval` is a hard block: the run shows as blocked until someone
 decides. `question` is input: the step waits, siblings keep going. Both
-need a process that can show them: a worker of the Marbles process parks
-the run for a dashboard to answer, while `--dry-run` cancels it at the ask. `choices` gives a pick list
+need a process that can show them: an engine generation of the Marbles
+process parks the run for a dashboard to answer, while `--dry-run` cancels it at the ask. `choices` gives a pick list
 of at most nine; without it the answer is free text. Both are identified
 by position in the body; `key` is optional, for updating one entry across
 steps.
@@ -700,7 +700,7 @@ exports these types:
 | Tasks | `Task`, `TaskNode`, `TaskStatus`, `TaskAvailability`, `TaskChange`, `TaskOperation`, `TaskRef`, `TaskToken`, `TaskChangeResult`, `TaskQuery`, `TagQuery`, `TaskRelations`, `DepthOptions`, `CreateTaskInput`, `UpdateTaskInput`, `TaskEvent`, `TaskDelta` |
 | Execution | `Context`, `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel` |
 | Triggers | `Schedule`, `ScheduleBuilder`, `MonitorBuilder`, `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`, `Change`, `FileChange`, `HttpChange` |
-| Usage | `Snapshot`, `Identity`, `Limit`, `Window`, `SpendCap`, `Balance`, `CreditBalance`, `Headroom`, `Money`, `Credits`, `Duration`, `Span`, `Consumption`, `SessionConsumption`, `Quantities`, `Charge`, `QueryOptions`, `QueryAllOptions`, `DurationText` |
+| Usage | `Snapshot`, `Identity`, `Limit`, `Window`, `SpendCap`, `Budget`, `BillingAccountOptions`, `Balance`, `CreditBalance`, `Headroom`, `Money`, `Credits`, `Duration`, `Span`, `Consumption`, `SessionConsumption`, `Quantities`, `Charge`, `QueryOptions`, `QueryAllOptions`, `DurationText` |
 
 The main entry also exports `prompts` and `ref`, with `PromptError` and
 the `Prompt` class beside them: a tag per harness (`prompts.claude`,
@@ -711,8 +711,8 @@ notation. They are not in `0.0.3` and ship in the next release. See
 The main entry also exports `tasks`, the workspace's backlog, with the
 `Tasks` class, `MemoryTaskStore`, and `TaskError` beside it. A module imports
 `tasks` to track what there is to do, what is ready, and what is done, or
-ignores it. Under a host (the worker the Marbles process runs for the
-workspace, or a program that hosts it with `hostWorkspace`) it is that
+ignores it. Under a host (the engine generation the Marbles process runs
+for every workspace, or a program that hosts it with `hostWorkspace`) it is that
 workspace's tasks, kept in the Marbles database (in memory under
 `--dry-run`); every process on the machine reads and writes the same tasks,
 and a change never lands between another's read and its write (see
@@ -738,42 +738,91 @@ step("triage").do(async () => {
 });
 ```
 
-`observe(tasks, handler)` calls `handler` with each change the workspace's
-tasks commit: one `tasks.changed` payload per write, holding each task it
-put or removed with its record `before` and `after`, and the dependency
-edges it added and removed. It returns nothing and takes no options.
+`observe(source, handler, options?)` calls `handler` with each change fact
+`source` commits in the workspace from now on. Each top-level word is a
+source: `tasks` (`tasks.changed`, one per write, holding each task it put
+or removed with its record `before` and `after`, and the dependency edges
+it added and removed), `workflow` (each Run's `run.queued`, `run.started`,
+`run.parked`, `run.resumed`, `run.completed`, `run.failed`,
+`run.cancelled`, `run.updated`, `run.removed`), `artifact`
+(`artifact.created`, `artifact.written`, ..., and `artifact.shared` and
+`artifact.unshared` when this workspace shows one of its artifacts in
+another workspace or stops, with that workspace's id in `workspace`),
+`sandbox`
+(`sandbox.created`, `sandbox.started`, `sandbox.stopped`,
+`sandbox.failed`, `sandbox.destroyed`), `workspace` (`workspace.created`,
+`workspace.updated`, `workspace.entries.changed`, `workspace.removed`) and
+`agent`, for its sessions (`session.created`, `session.updated`,
+`session.messages.appended`). Every fact is `{ type, id, at, ... }` with
+the ids of what it is about; read the object by id for anything more.
+`options.types` hands the observer only facts of those types. It returns
+the observer's identity, `{ kind: "observer", name, source }`.
 
 ```ts
-import { observe, tasks } from "@foundry.sh/marbles";
+import { observe, tasks, workflow } from "@foundry.sh/marbles";
 
-observe(tasks, async ({ tasks: changes }) => {
+export const reviewRequests = observe(tasks, async ({ tasks: changes }) => {
   for (const change of changes) {
     const added = change.after?.tags.includes("review");
     const before = change.before?.tags.includes("review") ?? false;
     if (added && !before) await requestReview(change.id);
   }
 });
+
+observe(workflow, async ({ runId }) => notifyFailure(runId), {
+  name: "failures",
+  types: ["run.failed"],
+});
 ```
 
-The host delivers from its start until it stops, one host per workspace at
-a time. Every change is stored
-with the task in the same write, whether or not anything observes it yet,
-and is kept, with the record of which handlers completed it; nothing
-removes either. A handler receives every stored change it has not
-completed, in the order the changes were made, so one declared later
-receives the changes made before it, and one that throws, or whose process
-stops first, receives the change again after a later change or at the next
-start. A handler is handed a change only once it has completed every
-earlier one: after it throws, its later changes wait, and the change it
-failed on comes first. Other handlers go on. A handler that completed but
-whose completion was not saved also runs again, before any later change.
-Handle a payload more than once safely: delivery is at least once. A
-handler runs outside any task write and outside any run, even when a
-step's write woke delivery, so a definition it calls starts a run of its
-own. It may change tasks itself. Each observer is known by its source
-text and its order among observers with the same text: edit a handler and
-it is a new observer, which receives every stored change from the start.
-The stored changes grow with every task change; nothing compacts them.
+An observer is known by its name within the workspace and source:
+`options.name`, else the top-level `const` the call is assigned to (found
+with the project's own `typescript`; without it, give a name), else the
+handler's function name; `observe` refuses one it cannot name, and a
+second observer of a source under a name already declared. Editing a
+handler keeps its place; renaming it makes a new observer. A new observer
+starts from now: it is handed the facts committed after its first start,
+never the ones before.
+
+The host delivers from its start until it stops or retires, one host per
+workspace at a time: across a switch the retiring generation gives
+delivery up, and the next takes each observer up from the place the
+retiring one left it. A host that declares no observer never delivers, so
+it never stands in the way of one that does. Every fact is stored with its
+change in the same write, whether or not anything observes it, with the
+run that made it when a run did. An
+observer is handed its source's facts in the order they were committed,
+each once it completed the one before. Observers are delivered to
+independently: one that is slow, failing or hung never delays another.
+Each pass hands an observer the facts committed when the pass began, so
+facts a handler writes to its own source go to the next pass.
+
+One that throws keeps its place and is tried again on the same fact after a
+backoff (a second, doubling to five minutes), and `marbles status` shows its
+failures, its last error and when it is tried next. A call has a time limit:
+`options.timeout`, in ms, else the host's (five minutes; `handlerTimeout`
+on the engine). A call past it counts as a failure, recorded and shown the
+same way, and the place does not move. The call is not abandoned: until it
+settles, the observer is handed nothing, and `marbles status` says it is
+stuck in a call and since when; its retry starts once the call settles.
+When the host stops, or its engine retires, it waits for the calls in
+flight ten seconds at most, then stops without them; an observer whose
+call did not finish keeps its place, and is handed the fact again later.
+One that completed but whose place was not saved is handed the fact again
+too: delivery is at least once, so handle a fact more than once safely. The
+handler takes the fact alone; nothing cancels a call past its limit. A
+handler runs outside any write and outside any run, even when a step's
+write woke delivery, so a definition it calls starts a run of its own. It
+may change things itself.
+
+Facts every observer has completed are removed a week after they
+committed, in a workspace with no observers too: every running host
+compacts, every ten minutes, whether it delivers or not. An observer a
+running host has declared always holds them back, whether it is
+delivering, waiting behind another host, idle, retrying or stuck in a
+call. One no host has declared for a week is not waited for: when it next
+moves on, it is told which facts it missed (once, in the host's output,
+and in `marbles status`) and goes on after them.
 
 `@foundry.sh/marbles/prebuilt` exports the
 [prebuilt step factories](/marbles/reference/project#prebuilt-steps).

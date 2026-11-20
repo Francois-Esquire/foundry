@@ -39,7 +39,6 @@ afterEach(async () => {
   }
 });
 
-/** The theme fixture Program, run by Bun on the host instead of in a VM. */
 async function startProgram(directory: string): Promise<string> {
   const outputs = path.join(directory, "program");
   await mkdir(path.join(outputs, "outputs"), { recursive: true });
@@ -62,7 +61,6 @@ async function startProgram(directory: string): Promise<string> {
   return `http://127.0.0.1:${line.replace("listening ", "")}`;
 }
 
-/** What a View sees: each report from the SDK's browser helper. */
 function view(sdk: BrowserSdk) {
   const seen: (ThemeSnapshot | null)[] = [];
   let controller = new AbortController();
@@ -112,7 +110,6 @@ it("relays the theme from main through the Gateway, a real Program and the proxy
     throw new Error("Program not active");
   }
 
-  // The host side of a released Program: the real Gateway over Works' socket.
   const origin = await startProgram(root);
   const session = await createModuleGateway({
     runtimeDispatcher: host.invocations,
@@ -126,7 +123,6 @@ it("relays the theme from main through the Gateway, a real Program and the proxy
   });
   cleanups.push(() => session.close("test complete"));
 
-  // The View's same-origin fetches go through Works' proxy to that Program.
   const serving = new AbortController();
   const endpoint = {
     origin,
@@ -154,7 +150,6 @@ it("relays the theme from main through the Gateway, a real Program and the proxy
   );
   expect(theme.subscribers).toBe(1);
 
-  // An explicit override and, in auto, a desktop change arrive live.
   await theme.set("dark");
   await vi.waitFor(() =>
     expect(page.latest()).toMatchObject({ effective: "dark", mode: "dark" })
@@ -165,25 +160,21 @@ it("relays the theme from main through the Gateway, a real Program and the proxy
     expect(page.latest()).toMatchObject({ effective: "dark", mode: "auto" })
   );
 
-  // Disconnecting the View closes its Gateway stream; reconnecting refreshes.
   page.stop();
   await vi.waitFor(() => expect(theme.subscribers).toBe(0));
   page.start();
   await vi.waitFor(() => expect(theme.subscribers).toBe(1));
   expect(page.latest()).toMatchObject({ mode: "auto" });
 
-  // Revoking ends the relay and clears mode state; retries stay unavailable.
   await host.access.revoke(module.id, THEME_CAPABILITY);
   await vi.waitFor(() => expect(page.latest()).toBeNull());
   expect(theme.subscribers).toBe(0);
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(page.latest()).toBeNull();
 
-  // Approving again lets the next retry take a fresh, authorized snapshot.
   await host.access.approve(module.id, THEME_CAPABILITY);
   await vi.waitFor(() => expect(page.latest()).toMatchObject({ mode: "auto" }));
 
-  // The Program stops serving: the View's response ends with it.
   serving.abort();
   await vi.waitFor(() => expect(page.latest()).toBeNull());
   await vi.waitFor(() => expect(theme.subscribers).toBe(0));

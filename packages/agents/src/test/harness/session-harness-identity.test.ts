@@ -69,8 +69,6 @@ describe("SessionHarness — session identity", () => {
     expect(harness.sessionId).not.toBe("");
     expect(first.scopeId).toBe(harness.sessionId);
     expect(await store.getSession(harness.sessionId)).toBeTruthy();
-    // A session-lifetime approval is refused without a scope; with one it is
-    // granted, and the Grant matches the next call in the same session.
     await expect(
       authorizer.resolveApproval(first, { approved: true, lifetime: "session" })
     ).resolves.toMatchObject({ kind: "allow" });

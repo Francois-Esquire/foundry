@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { EvlogError } from "evlog";
 import type { ModelCost } from "evlog/ai";
 import { modelErrors } from "./errors";
 import { configureModelObservability } from "./logger";
@@ -8,32 +9,34 @@ import type { Host, Resolution } from "./resolution";
 import { guarded, instanceOf, resolution } from "./resolution";
 import type { ModelSelection } from "./selection";
 import type { ModelKind, ProviderModelDefinition } from "./types";
+import { MODEL_KINDS } from "./types";
+
+const UNRESOLVED = new Set<string>([
+  modelErrors.MODEL_KIND_MISMATCH.code,
+  modelErrors.MODEL_NOT_FOUND.code,
+  modelErrors.NO_MODEL_OF_KIND.code,
+  modelErrors.PROVIDER_NOT_CONFIGURED.code,
+  modelErrors.PROVIDER_RESTRICTED.code,
+  modelErrors.PROVIDER_UNAVAILABLE.code,
+  modelErrors.SELECTION_AMBIGUOUS.code,
+]);
 
 export interface ModelManagerOptions {
   providers?: readonly Provider[];
 }
 
-/** A rule a host installs on one manager; Airplane Mode is one. */
 export interface ProviderPolicy {
-  /** `true` admits; a string refuses, with that reason. Pure and fast. */
   admit(provider: Provider): true | string;
   readonly id: string;
 }
 
-/**
- * An ordered set of provider instances and one way to choose among them.
- * Order is preference. Resolving checks catalogs; opening leases the
- * instance, so a session keeps it after it leaves the set.
- */
 export class ModelManager {
   private readonly _providers = new Map<string, Provider>();
   private readonly leaseCounts = new Map<Provider, number>();
-  /** Left the set while leased; disposed after the last release. */
   private readonly leaving = new Set<Provider>();
   private readonly disposing = new Set<Promise<void>>();
   private readonly policies = new Map<string, ProviderPolicy>();
   private readonly calls = new Map<Provider, Set<AbortController>>();
-  /** Each instance's guarded view, built once, so callers never hold an unguarded one. */
   private readonly views = new WeakMap<Provider, Provider>();
   private readonly leases: Host = {
     admit: (provider: Provider) => {
@@ -74,11 +77,6 @@ export class ModelManager {
     },
   };
 
-  /**
-   * `providers-changed`, `policies-changed`, `provider-retired` with the
-   * instance once it is disposed, `dispose-failed` with `{ error, provider }`,
-   * and `offline-failed` from Airplane Mode.
-   */
   readonly events = new EventEmitter();
 
   constructor(options: ModelManagerOptions = {}) {
@@ -90,21 +88,10 @@ export class ModelManager {
     );
   }
 
-  /**
-   * The configured instances, in preference order, each as a stable guarded
-   * view: a model built or live access granted through one is checked like
-   * any other. A provider is identified by its instance id; a view is not the
-   * object the host supplied, and passes back into `setProviders` of any
-   * manager as that instance.
-   */
   get providers(): readonly Provider[] {
     return [...this._providers.values()].map((provider) => this.view(provider));
   }
 
-  /**
-   * Replace the whole ordered set. An instance that leaves is disposed now,
-   * or after its last lease is released when a session still holds it.
-   */
   setProviders(given: readonly Provider[]): void {
     const providers = given.map(instanceOf);
     const ids = new Set(providers.map((provider) => provider.id));
@@ -120,20 +107,12 @@ export class ModelManager {
     this._providers.clear();
     for (const provider of providers) {
       this._providers.set(provider.id, provider);
-      // Back in the set before its last lease ended: it is no longer leaving.
       this.leaving.delete(provider);
     }
     this.syncCosts();
     this.events.emit("providers-changed");
   }
 
-  /**
-   * One catalog-checked route for `kind`. A provider and model are both
-   * checked; a model alone goes to the first provider in order that lists it;
-   * a provider alone uses its default for the kind; nothing picks the first
-   * available provider serving the kind. A string holding `/` is read both
-   * as `provider/model` and as a model id, and must match exactly one way.
-   */
   resolve<K extends ModelKind>(
     kind: K,
     selection?: ModelSelection
@@ -142,11 +121,23 @@ export class ModelManager {
     return resolution(this.leases, kind, provider, definition);
   }
 
-  /**
-   * Install a policy. New resolutions, opens, holds, checks, and every call
-   * on a model already opened consult it, and calls in flight on an instance
-   * it refuses are aborted. Returns the remover.
-   */
+  available(selection: ModelSelection): boolean {
+    return MODEL_KINDS.some((kind) => {
+      try {
+        this.find(kind, selection);
+        return true;
+      } catch (error) {
+        if (
+          EvlogError.isEvlogError(error) &&
+          UNRESOLVED.has(error.code ?? "")
+        ) {
+          return false;
+        }
+        throw error;
+      }
+    });
+  }
+
   restrict(policy: ProviderPolicy): () => void {
     if (this.policies.has(policy.id)) {
       throw new Error(`A policy "${policy.id}" is already installed`);
@@ -162,7 +153,6 @@ export class ModelManager {
     };
   }
 
-  /** Release every instance, including leased ones that left; one failure strands none. */
   async dispose(): Promise<void> {
     const remaining = new Set([...this._providers.values(), ...this.leaving]);
     this.leaving.clear();
@@ -172,7 +162,6 @@ export class ModelManager {
     ]);
   }
 
-  /** Resolve one selection to an instance and catalog row; see {@link resolve}. */
   private find(kind: ModelKind, selection: ModelSelection | undefined): Match {
     if (typeof selection !== "string") {
       return this.findRoute(kind, selection?.provider, selection?.model);
@@ -196,7 +185,6 @@ export class ModelManager {
     return this.findRoute(kind, qualified.provider, qualified.model);
   }
 
-  /** Whether a catalog lists `model` with `kind`; availability is not consulted. */
   private lists(
     kind: ModelKind,
     providerId: string | undefined,
@@ -242,7 +230,6 @@ export class ModelManager {
       if (serving.length === 0) {
         throw modelErrors.NO_MODEL_OF_KIND({ kind, provider: "any" });
       }
-      // An instance that could serve but a policy refuses explains more than "unavailable".
       const refused = serving.find((candidate) => candidate.available);
       throw (
         (refused && this.refusal(refused)) ??
@@ -252,7 +239,6 @@ export class ModelManager {
     return { definition: catalogRow(provider, kind), provider };
   }
 
-  /** The first instance in order whose catalog lists `model` with `kind`. */
   private firstListing(kind: ModelKind, model: string): Match {
     const skipped: string[] = [];
     let otherKind: ProviderModelDefinition | undefined;
@@ -302,7 +288,6 @@ export class ModelManager {
     return view;
   }
 
-  /** The error the first refusing policy gives, or undefined when all admit. */
   private refusal(provider: Provider): Error | undefined {
     for (const policy of this.policies.values()) {
       const verdict = policy.admit(provider);
@@ -368,10 +353,6 @@ export class ModelManager {
 
 const held = new WeakMap<ModelManager, () => readonly Provider[]>();
 
-/**
- * The guarded view of every instance `models` still answers for: its set,
- * then those that left while leased. For this package's policies; not public.
- */
 export function heldProviders(models: ModelManager): readonly Provider[] {
   return held.get(models)?.() ?? [];
 }
@@ -381,7 +362,6 @@ interface Match {
   readonly provider: Provider;
 }
 
-/** An instance's disposal as a promise, even when `dispose` throws synchronously. */
 function disposeOf(provider: Provider): Promise<void> {
   try {
     return Promise.resolve(provider.dispose?.());

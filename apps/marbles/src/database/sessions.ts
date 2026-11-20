@@ -1,24 +1,29 @@
 import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
-import type { SessionTransaction } from "@foundry/agents/store/sqlite";
+import type {
+  MessageTally,
+  SessionTransaction,
+} from "@foundry/agents/store/sqlite";
 import {
   capturedSessionWrite,
   SqliteSessionStore,
 } from "@foundry/agents/store/sqlite";
-import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { ChangeRecorder } from "~/database/changes";
 import { busyError } from "~/database/client";
+import { batches } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
-import { readDatabase } from "~/database/open";
 import { marblesSessionRevisions } from "~/database/tables";
-import { stateDatabase } from "~/layout";
+import { SESSIONS, sourceKey } from "~/lib/events/source";
 import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
 
 export interface DatabaseSessionStoreOptions {
+  readonly changes?: ChangeRecorder;
   readonly database: StoreDatabase;
   readonly scope: string;
 }
 
-const REVISION_BATCH = 500;
+const SESSIONS_KEY = sourceKey(SESSIONS) ?? "sessions";
 
 export class DatabaseSessionStore implements ListedSessionStore {
   readonly #database: StoreDatabase;
@@ -27,14 +32,19 @@ export class DatabaseSessionStore implements ListedSessionStore {
 
   constructor(options: DatabaseSessionStoreOptions) {
     const { database, scope } = options;
+    const changes = options.changes ?? new ChangeRecorder(scope);
     this.#database = database;
     this.#scope = scope;
-    this.#store = new SqliteSessionStore({
-      database,
-      onCommit: (transaction, write) =>
-        raiseRevisions(transaction, scope, write),
-      scope,
-    });
+    this.#store = changes.causing(
+      new SqliteSessionStore({
+        database,
+        onCommit: async (transaction, write) => {
+          await raiseRevisions(transaction, scope, write);
+          await changes.record(transaction, SESSIONS_KEY, write.events);
+        },
+        scope,
+      })
+    );
   }
 
   commit(write: SessionStoreWrite): Promise<void> {
@@ -58,6 +68,16 @@ export class DatabaseSessionStore implements ListedSessionStore {
 
   listMessages(sessionId: string): Promise<SessionMessage[]> {
     return asMarbles(() => this.#store.listMessages(sessionId));
+  }
+
+  getSessions(ids: readonly string[]): Promise<SessionRecord[]> {
+    return asMarbles(() => this.#store.getSessions(ids));
+  }
+
+  messageTallies(
+    sessionIds: readonly string[]
+  ): Promise<Map<string, MessageTally>> {
+    return asMarbles(() => this.#store.messageTallies(sessionIds));
   }
 
   stamps(): Promise<readonly SessionStamp[]> {
@@ -185,47 +205,10 @@ async function raiseRevisions(
 
 const raised = sql`${marblesSessionRevisions.revision} + 1`;
 
-function batches<T>(items: readonly T[]): T[][] {
-  const runs: T[][] = [];
-  for (let start = 0; start < items.length; start += REVISION_BATCH) {
-    runs.push(items.slice(start, start + REVISION_BATCH));
-  }
-  return runs;
-}
-
 async function asMarbles<T>(call: () => Promise<T>): Promise<T> {
   try {
     return await call();
   } catch (error) {
     throw busyError(error) ?? error;
   }
-}
-
-export async function sessionCounts(
-  state: string
-): Promise<ReadonlyMap<string, number>> {
-  const counted = await asMarbles(() =>
-    readDatabase(stateDatabase(state), (database) =>
-      database
-        .select({
-          scope: marblesSessionRevisions.scope,
-          sessions: count(),
-        })
-        .from(marblesSessionRevisions)
-        .groupBy(marblesSessionRevisions.scope)
-    )
-  );
-  return new Map(counted?.map((row) => [row.scope, row.sessions]) ?? []);
-}
-
-export function readSessions<T>(
-  state: string,
-  scope: string,
-  work: (sessions: DatabaseSessionStore) => Promise<T>
-): Promise<T | undefined> {
-  return asMarbles(() =>
-    readDatabase(stateDatabase(state), (database) =>
-      work(new DatabaseSessionStore({ database, scope }))
-    )
-  );
 }

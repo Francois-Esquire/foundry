@@ -8,15 +8,10 @@ export type Rendered = Awaited<ReturnType<typeof testRender>>;
 let current: Rendered | undefined;
 
 export async function flush(ui: Rendered) {
-  // Layout measurements update panel heights, then React commits the new sizes.
   await act(async () => ui.flush());
   await act(async () => ui.flush());
 }
 
-/**
- * Render with the keyboard protocol the dashboard expects, replacing the last
- * render; `unmount` cleans up after a test.
- */
 export async function mount(
   node: ReactNode,
   { width = 120, height = 40 }: { width?: number; height?: number } = {}
@@ -62,7 +57,6 @@ export async function ctrlC(ui: Rendered) {
   await flush(ui);
 }
 
-/** Markdown highlighting settles asynchronously after the first frame. */
 export async function frameWith(ui: Rendered, text: string): Promise<string> {
   const deadline = Date.now() + 3000;
   for (;;) {

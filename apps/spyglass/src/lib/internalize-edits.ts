@@ -12,7 +12,6 @@ import type {
   SurfaceReport,
 } from "./types";
 
-/** The exact edits preview, authorization, and mutation share. Text retains source formatting. */
 export interface InternalizeEdits {
   edits: MutationEdit[];
   files: { file: string; before: string; after: string }[];
@@ -21,7 +20,6 @@ export interface InternalizeEdits {
   sources: string[];
 }
 
-/** Compile on a private in-memory project. The planning program is never changed. */
 export function compileInternalizeEdits(
   source: Project,
   root: string,
@@ -33,8 +31,6 @@ export function compileInternalizeEdits(
     skipFileDependencyResolution: true,
     useInMemoryFileSystem: true,
   });
-  // Clone only the edited files and their import/re-export closure. This
-  // retains alias and barrel resolution without copying the whole workspace.
   const declaration = report.symbols.find(
     (symbol) => symbol.id === plan.subject.id
   )?.declarationFile;
@@ -87,7 +83,6 @@ export function compileInternalizeEdits(
   };
 }
 
-/** Install exactly the compiled text in the mutator's private program, after checking every source. */
 function materializeInternalizeEdits(
   project: Project,
   root: string,
@@ -121,7 +116,6 @@ function firstLine(text: string): string {
   return text.split("\n")[0] ?? text;
 }
 
-/** A declaration's header: its first line after any decorators, which may stand on lines of their own. */
 function header(node: Node): string {
   const decorators = Node.isDecoratable(node) ? node.getDecorators() : [];
   const last = decorators.at(-1);
@@ -213,7 +207,6 @@ function editRoute(
   };
 }
 
-/** Importers are repointed in memory before narrowing the public routes. */
 function editPlan(
   project: Project,
   root: string,
@@ -263,7 +256,6 @@ function editRoutes(
   return { edits, files };
 }
 
-/** The mutator uses a supplied compiled batch or compiles through the same path for a direct call. */
 export function prepareInternalizeEdits(
   project: Project,
   root: string,

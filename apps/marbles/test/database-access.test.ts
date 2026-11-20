@@ -24,7 +24,9 @@ import {
 import { marblesWorkspaces } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { workspaceState } from "~/lib/state/workspace";
+import { recordSpawned } from "~/process/spawned";
 import { cliArgs } from "./helpers/cli";
+import { type TestHome, testHome } from "./helpers/home";
 import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
 const SRC = resolve("src");
@@ -54,6 +56,12 @@ function snapshot(dir: string): Record<string, string> {
   );
 }
 
+function dataFiles(dir: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(snapshot(dir)).filter(([name]) => !name.endsWith("-shm"))
+  );
+}
+
 function row(id: string) {
   return { firstSeen: "x", id, lastSeen: "x", root: `/r/${id}` };
 }
@@ -68,7 +76,7 @@ function processWith(
   dir: string,
   file: string,
   id: string,
-  then: "exit" | "hold",
+  then: "exit" | "hold" | "open",
   migrations: string = MIGRATIONS
 ): Promise<ChildProcess> {
   const script = join(dir, `${then}-${id}.ts`);
@@ -84,12 +92,18 @@ if (${JSON.stringify(then)} === "hold") {
     process.stdout.write("ready\\n");
     await new Promise(() => undefined);
   });
+} else if (${JSON.stringify(then)} === "open") {
+  process.stdout.write("ready\\n");
+  await new Promise(() => undefined);
 } else {
   opened.close();
-  // libSQL lets the native connection go, and with it the side files, only once it is collected.
-  Bun.gc(true);
-  await new Promise((settle) => setTimeout(settle, 50));
-  Bun.gc(true);
+  // libSQL lets the native connection go, and with it the side files, only
+  // once it is collected: collect until they are gone, for a while.
+  const { existsSync } = await import("node:fs");
+  for (let i = 0; i < 100 && existsSync(${JSON.stringify(file)} + "-shm"); i += 1) {
+    Bun.gc(true);
+    await new Promise((settle) => setTimeout(settle, 20));
+  }
   process.stdout.write("ready\\n");
 }
 `
@@ -98,6 +112,7 @@ if (${JSON.stringify(then)} === "hold") {
     cwd: resolve("."),
     stdio: ["ignore", "pipe", "pipe"],
   });
+  recordSpawned(child.pid, false);
   children.push(child);
   return new Promise((ready, failed) => {
     let stderr = "";
@@ -110,7 +125,7 @@ if (${JSON.stringify(then)} === "hold") {
       }
     });
     child.once("exit", (code) => {
-      if (then === "hold" || code !== 0) {
+      if (then !== "exit" || code !== 0) {
         failed(new Error(`the writer exited ${String(code)}: ${stderr}`));
       }
     });
@@ -216,25 +231,41 @@ describe("reading the Marbles database", () => {
     });
   });
 
+  it("leaves this process free to write the database another process holds open", async () => {
+    const dir = join(scratch(), "state");
+    const file = join(dir, "marbles.db");
+    await processWith(scratch(), file, "a", "open");
+    const write = (id: string) =>
+      writeDatabase(file, (database) =>
+        database.insert(marblesWorkspaces).values(row(id))
+      );
+    await readDatabase(file, async (database) => {
+      expect(await ids(database)).toEqual(["a"]);
+      await write("b");
+    });
+    await write("c");
+    expect(await readDatabase(file, ids)).toEqual(["a", "b", "c"]);
+  });
+
   it("refuses a schema behind or ahead of this Marbles without touching the file", async () => {
     const work = scratch();
     const next = withProbeMigration(work);
     const older = join(scratch(), "marbles.db");
     await exited(await processWith(work, older, "a", "exit"));
-    const olderBefore = snapshot(join(older, ".."));
+    const olderBefore = dataFiles(join(older, ".."));
     await expect(
       readDatabase(older, ids, { migrations: next })
     ).rejects.toThrow(OLDER);
     await expect(
       readDatabase(older, ids, { migrations: next })
     ).rejects.toBeInstanceOf(IncompatibleDatabaseError);
-    expect(snapshot(join(older, ".."))).toEqual(olderBefore);
+    expect(dataFiles(join(older, ".."))).toEqual(olderBefore);
 
     const newer = join(scratch(), "marbles.db");
     await exited(await processWith(work, newer, "a", "exit", next));
-    const newerBefore = snapshot(join(newer, ".."));
+    const newerBefore = dataFiles(join(newer, ".."));
     await expect(readDatabase(newer, ids)).rejects.toThrow(NEWER);
-    expect(snapshot(join(newer, ".."))).toEqual(newerBefore);
+    expect(dataFiles(join(newer, ".."))).toEqual(newerBefore);
   });
 
   it("refuses a WAL file it would have to recover, creating nothing", async () => {
@@ -309,17 +340,19 @@ describe("writing to the Marbles database outside the Marbles process", () => {
 });
 
 describe("the CLI on the Marbles database", () => {
-  function marbles(cwd: string, ...args: string[]) {
+  function marbles(home: TestHome, cwd: string, ...args: string[]) {
     return spawnSync("bun", ["--no-env-file", ...cliArgs(...args)], {
       cwd,
       encoding: "utf8",
+      env: home.env,
       timeout: 60_000,
     });
   }
 
   it("says in one line that a database is newer, and leaves it alone", async () => {
     const work = scratch();
-    const state = join(scratch(), "state");
+    const home = testHome();
+    const { state } = home.layout;
     await exited(
       await processWith(
         work,
@@ -330,7 +363,7 @@ describe("the CLI on the Marbles database", () => {
       )
     );
     const before = snapshot(state);
-    const status = marbles(work, "status", "--state", state);
+    const status = marbles(home, work, "status");
     expect(status.status).toBe(1);
     expect(status.stderr).toMatch(NEWER);
     expect(status.stderr).not.toMatch(STACK_FRAME);
@@ -339,12 +372,13 @@ describe("the CLI on the Marbles database", () => {
 
   it("clears the record of a workspace whose state links out, without following the link", async () => {
     const root = scratch();
-    const state = join(scratch(), "state");
+    const home = testHome();
+    const { state } = home.layout;
     const workspace = workspaceState(state, root);
     await touchWorkspace(state, workspace, null, { hosted: true });
     const outside = scratch();
     symlinkSync(outside, workspace.dir);
-    const detached = marbles(root, "detach", "--state", state);
+    const detached = marbles(home, root, "detach");
     expect(detached.status, detached.stderr).toBe(0);
     expect(readdirSync(outside)).toEqual([]);
     const stored = async () => {
@@ -366,10 +400,11 @@ describe("the CLI on the Marbles database", () => {
 
   it("clears a hosted record when it detaches with no Marbles process running", async () => {
     const root = scratch();
-    const state = join(scratch(), "state");
+    const home = testHome();
+    const { state } = home.layout;
     const workspace = workspaceState(state, root);
     await touchWorkspace(state, workspace, null, { hosted: true });
-    const detached = marbles(root, "detach", "--state", state);
+    const detached = marbles(home, root, "detach");
     expect(detached.status, detached.stderr).toBe(0);
     expect(detached.stdout).toContain("no Marbles process is running");
     expect((await readWorkspace(state, workspace.id))?.hosted).toBe(false);

@@ -29,9 +29,7 @@ const PROBE = "native-probe.txt";
 const SEEN = "native-seen.txt";
 const NAME = "Parallel journey";
 const SCRATCH_HEADING = "Agent scratch heading";
-/** Module settings off the defaults, fractional and not MiB-aligned, to cross both roundings. */
 const USER_RESOURCES = { cpus: 1.5, memoryBytes: 1.5 * GIB + 512 * 1024 };
-/** A strict Manifest's minimums, above the defaults. */
 const MINIMUM_CPUS = 2;
 const PROGRAM_MINIMUM = { cpus: 2, memoryBytes: GIB };
 const TURN_DEADLINE_MS = 300_000;
@@ -40,12 +38,6 @@ const BUILDS_DIRECTORY = /^drwx------ \d+ root root .* \/builds$/m;
 const TWO_CPUS = /^nproc=2$/m;
 const BUILDS_EXIT = /^(list|write|read)-builds-exit=(\d+)$/gm;
 
-/**
- * Run as the agent's `bash`, as the guest user, while the build is in
- * flight: who it is, what the VM gives it, whether it reaches `/builds`,
- * and, for eight seconds while it keeps editing its scratch copy, which
- * build processes it can see in the shared kernel.
- */
 const PROBE_COMMAND = `{
   echo "user=$(id -un) uid=$(id -u)"
   echo "nproc=$(nproc)"
@@ -70,7 +62,6 @@ interface Timed<T> {
   readonly value: T;
 }
 
-/** Builds to the end, keeping each event and when it arrived. */
 async function build(
   works: Works,
   moduleId: string,
@@ -112,7 +103,6 @@ async function settledTurn(
   return settled;
 }
 
-/** The status of the Module's only chat turn. */
 async function onlyTurnStatus(works: Works, moduleId: string) {
   const { turns } = await works.rpc.authoring.conversation(moduleId);
   assert.equal(turns.length, 1);
@@ -129,15 +119,6 @@ async function filesUnder(directory: string): Promise<string[]> {
     .map((entry) => path.join(entry.parentPath, entry.name));
 }
 
-/**
- * Rows 1b and 7 natively: a scripted-model chat turn (host-side model, real
- * Marbles coding tools as the guest user) and a build of the same Module
- * run at once in its one Microsandbox VM. The build's input is the saved
- * source, never the turn's scratch copy; the turn cannot reach `/builds`;
- * the release matches saved source; the turn still yields a proposal. On
- * the way, Module settings and Manifest minimums are checked inside the
- * authoring/build VM and released Program VMs.
- */
 async function smoke(userData: string) {
   const report: string[] = [];
   const note = (line: string) => {
@@ -157,7 +138,6 @@ async function smoke(userData: string) {
   let startParallelBuild: () => Promise<void> = () =>
     Promise.reject(new Error("The build was started before the turn"));
   const script: ScriptedStep[] = [
-    // Turn on the parallel Module: a scratch edit with the coding tools...
     {
       tools: [
         {
@@ -170,14 +150,11 @@ async function smoke(userData: string) {
         },
       ],
     },
-    // ...then, once the build has borrowed the sandbox and copied its
-    // input in, the probe and more scratch edits while it runs.
     {
       tools: [{ input: { command: PROBE_COMMAND }, name: "bash" }],
       wait: () => startParallelBuild(),
     },
     { text: "Edited the heading." },
-    // Turn on the Manifest-minimum Module.
     {
       tools: [
         {
@@ -201,7 +178,6 @@ async function smoke(userData: string) {
   registerModuleProtocol(works.rpc.sessions);
   const { authoring, moduleSettings, modules } = works.rpc;
   try {
-    // ── Module settings first: a sandbox takes them when it starts ──
     const module = await modules.create(NAME);
     await moduleSettings.set(module.id, {
       "resources.cpus": USER_RESOURCES.cpus,
@@ -213,7 +189,6 @@ async function smoke(userData: string) {
     const savedSource = { ...saved.source };
     assert.ok(savedSource[APP]?.includes(JSON.stringify(NAME)));
 
-    // ── The chat turn and the build, at once ──
     startParallelBuild = async () => {
       const built = build(works, module.id, "0.1.0", savedBinding, buildEvents);
       built.catch(() => undefined);
@@ -254,13 +229,11 @@ async function smoke(userData: string) {
       `overlap: build installing at +0 ms while the turn was ${parallel.turnStatus}; turn complete at +${turnDoneAt - parallel.installingAt} ms; build ${buildDoneBeforeTurn ? "had already finished" : "still running"} then`
     );
 
-    // The turn yields a reviewable proposal of its scratch edits.
     const accepted = await authoring.accept(module.id, sent.id);
     const publishedBeforeAccept = buildEvents.some(
       (event) => event.value.phase === "complete"
     );
     if (accepted.status === "stale") {
-      // §3 step 4: the build's publish moved the saved binding first.
       assert.ok(publishedBeforeAccept, accepted.message);
     }
     const { base, proposal } = await authoring.proposal(module.id, sent.id);
@@ -277,7 +250,6 @@ async function smoke(userData: string) {
     );
     await authoring.settleProposal(module.id, sent.id, "dismissed");
 
-    // The agent ran as the guest user and could not reach /builds.
     assert.match(probe, GUEST_USER);
     const exits = [...probe.matchAll(BUILDS_EXIT)];
     assert.deepEqual(
@@ -304,7 +276,6 @@ async function smoke(userData: string) {
         )}); it saw ${rootBuildProcesses.length} root build processes in the shared kernel, e.g. "${rootBuildProcesses[0]?.slice(0, 80)}"`
     );
 
-    // ── The release: built from saved source, not the scratch copy ──
     const complete = await built;
     const buildDoneAt = Date.now();
     note(
@@ -337,7 +308,6 @@ async function smoke(userData: string) {
     );
     assert.match(probe, TWO_CPUS);
 
-    // The selected release's files hold the saved heading only.
     const app = await openAppWindow(
       works.rpc.sessions,
       module.id,
@@ -366,7 +336,6 @@ async function smoke(userData: string) {
       await app.close();
     }
 
-    // ── A Manifest minimum, on a released Program ──
     const { encoded } = await moduleReleasePackage({
       capabilities: [],
       compatibility: { gateway: "1", runtime: "bun@1" },
@@ -395,7 +364,6 @@ async function smoke(userData: string) {
       await fixture.close();
     }
 
-    // ── A Manifest minimum, on the authoring sandbox ──
     const minimum = await modules.create("Manifest minimum");
     const starter = await modules.details(minimum.id);
     assert.ok(starter?.binding);

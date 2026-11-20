@@ -4,11 +4,8 @@ import { WorkbookError } from "../workbook/errors";
 import { WORKBOOK_MAX_BYTES, WORKBOOK_MIME } from "../workbook/file";
 import type { OpenWorkbook, WorkbookHost, WorkbookWatchUpdate } from "./host";
 
-/** How the View reaches the Program's Artifact routes. */
 export interface ArtifactTransport {
-  /** `POST /_module/artifacts`: one relayed request, answered with its output. */
   request(alias: string, input: unknown, signal: AbortSignal): Promise<unknown>;
-  /** `GET /_module/artifacts/watch`: the bound entry's event stream. */
   watch(query: URLSearchParams, signal: AbortSignal): Promise<Response>;
 }
 
@@ -25,10 +22,8 @@ interface Chunk {
   readonly next: number | null;
 }
 
-/** Reads that see the entry change are retried this many times in all. */
 const READ_ATTEMPTS = 3;
 
-/** The routes on the View's own origin. */
 export const pageTransport: ArtifactTransport = {
   request: relay,
   watch: (query, signal) =>
@@ -61,14 +56,6 @@ async function relay(
   return answer.output;
 }
 
-/**
- * Works' Artifact protocol in the editor's terms: bindings, byte chunks,
- * digests and the watch stream stay here.
- *
- * A read returns one consistent version: every chunk must carry the digest
- * the binding reported, or the read starts over, at most three times. An
- * entry larger than a workbook file may be is refused before it is read.
- */
 export class ArtifactWorkbookHost implements WorkbookHost {
   readonly #transport: ArtifactTransport;
 
@@ -115,9 +102,6 @@ export class ArtifactWorkbookHost implements WorkbookHost {
         signal
       )) as SaveAnswer;
     } catch (error) {
-      // Sheets' own files always fit a Gateway frame, but a lost save is
-      // answered with the version saved elsewhere, which another writer
-      // may have made larger than one frame carries.
       if (error instanceof Error && error.message === "capacity-exceeded") {
         throw new Error(
           "Not saved: the host could not send its answer. The version saved elsewhere may be too large for Sheets.",
@@ -215,7 +199,6 @@ export class ArtifactWorkbookHost implements WorkbookHost {
     }
   }
 
-  /** The bound entry's bytes, or null when it changed while being read. */
   async #readEntry(
     binding: string,
     bound: Bound,

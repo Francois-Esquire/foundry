@@ -1,10 +1,5 @@
 import type { NativeTheme } from "~/main/system/theme";
 
-/**
- * Electron's `nativeTheme` as main sees it: a forced source paints that
- * appearance, `system` paints the desktop's, and every change of either
- * emits `updated`.
- */
 export function fakeNativeTheme(desktopDark = false) {
   const listeners = new Set<() => void>();
   let desktop = desktopDark;
@@ -30,7 +25,6 @@ export function fakeNativeTheme(desktopDark = false) {
     },
   };
   return {
-    /** The desktop switches appearance. */
     desktop(dark: boolean) {
       desktop = dark;
       emit();

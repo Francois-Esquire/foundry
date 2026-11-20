@@ -1,26 +1,3 @@
-/**
- * The sandbox toolkit: one set of tools — `read`, `write`, `edit`, `grep`,
- * `glob`, `cd`, `bash` — bound to a {@link Sandbox}'s facets rather than to
- * any one provider. Whatever the environment underneath (container,
- * web-container, host, or anything that binds the same facets), the
- * agent-facing surface is identical.
- *
- * Where each tool lands:
- *
- * - `read`, `write`, `edit`, `glob` go through the filesystem facet. `glob` is
- *   enumeration (`files.list`) plus a pattern match, so it needs nothing from
- *   the provider beyond the primitive every one of them implements.
- * - `grep` uses filesystem search when available, otherwise the command facet.
- *   `bash` uses the command facet.
- * - `cd` checks the filesystem before moving this module's working directory —
- *   what every relative path resolves against and where `bash` runs.
- *
- * This module deliberately imports nothing from `node:` — path handling comes
- * from `normalizeSandboxPath`, and the AI SDK is not a dependency: the tools
- * are plain `{ description, inputSchema, execute }` records, which is exactly
- * what an SDK tool is structurally.
- */
-
 import { globToRegExp } from "@foundry/lib/glob";
 import type { z } from "zod";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "../constants";
@@ -46,11 +23,6 @@ import {
 import type { SandboxToolGuards } from "./guards";
 import { guardExecute, guardState } from "./guards";
 
-/**
- * The slice of a tool-call's options this toolkit reads. Structurally a
- * subset of the AI SDK's own execution options, so a compiled tool can pass
- * its own without this package depending on the SDK.
- */
 export interface SandboxToolCallOptions {
   readonly abortSignal?: AbortSignal;
 }
@@ -64,47 +36,26 @@ export interface SandboxTool<Schema extends z.ZodType = z.ZodType> {
   readonly inputSchema: Schema;
 }
 
-/** The path a call named, for the audit record only — never for gating. */
 type PathOf = (input: unknown) => string | undefined;
 
 export interface SandboxToolkit {
   readonly instructions: string;
-  /** All of them, always — keyed rather than indexed, so a caller reaching for
-   *  one by name gets it, not `T | undefined`. */
   readonly tools: Record<SandboxToolName, SandboxTool>;
-  /** Where relative paths currently resolve. Moves when `cd` runs, so a host
-   *  showing the agent's location reads it per call rather than caching it. */
   readonly workingDirectory: string;
 }
 
-/** What a {@link SandboxToolkitOptions.resolvePath} call may do with the path. */
 export interface SandboxPathAccess {
-  /** True when the call may create the path, so it need not exist yet. */
   readonly create: boolean;
 }
 
 export interface SandboxToolkitOptions extends SandboxToolGuards {
-  /**
-   * Maps every path a tool hands to the sandbox, after it has resolved against
-   * the working directory. A host that jails the agent canonicalizes or refuses
-   * here, in one place, instead of wrapping each facet method. Messages and
-   * audit records keep the resolved path. Default: the path unchanged.
-   */
   readonly resolvePath?: (
     path: string,
     access: SandboxPathAccess
   ) => Promise<string>;
-  /**
-   * Which tools the caller intends to mount. The toolkit still builds all seven
-   * — a caller passes on only what it wants — but the instruction block
-   * narrows to match, so an agent is never told about a tool it does not
-   * have. A read-only mount is `["read", "grep", "glob"]`.
-   */
   readonly tools?: readonly SandboxToolName[];
 }
 
-/** Build the sandbox tools over one {@link Sandbox}. Relative paths resolve
- *  against its working directory. */
 export function createSandboxToolkit(
   sandbox: Sandbox,
   options: SandboxToolkitOptions = {}
@@ -112,7 +63,6 @@ export function createSandboxToolkit(
   let workdir = normalizeSandboxWorkingDirectory(sandbox.workingDirectory);
   const resolve = (path: string): string => normalizeSandboxPath(path, workdir);
   const { resolvePath = (path: string) => Promise.resolve(path) } = options;
-  /** The path a facet call receives: resolved, then through the host policy. */
   const reading = (path: string): Promise<string> =>
     resolvePath(path, { create: false });
   const writing = (path: string): Promise<string> =>
@@ -131,14 +81,12 @@ export function createSandboxToolkit(
     ...definition,
     execute: guardExecute(name, execute, guards, pathOf),
   });
-  /** Most tools name their subject in one of these two fields. */
   const namedPath =
     (field: "file_path" | "path"): PathOf =>
     (input) => {
       const raw = (input as Record<string, unknown> | null)?.[field];
       return typeof raw === "string" ? resolve(raw) : undefined;
     };
-  /** Report paths relative to the workdir — what the model asked in. */
   const relative = (path: string): string =>
     path.startsWith(`${workdir}/`) ? path.slice(workdir.length + 1) : path;
 
@@ -186,7 +134,6 @@ export function createSandboxToolkit(
           `old_string is not unique in ${path} (${count} matches) — add surrounding context or set replace_all.`
         );
       }
-      // Sized before it is built: split/join below allocates all of it.
       const resultChars =
         text.length + count * (new_string.length - old_string.length);
       if (resultChars > Math.max(text.length, MAX_EDIT_RESULT_CHARS)) {
@@ -194,7 +141,6 @@ export function createSandboxToolkit(
           `edit would grow ${path} to ${resultChars} characters, past the ${MAX_EDIT_RESULT_CHARS}-character limit — write the file in smaller steps.`
         );
       }
-      // split/join avoids String.replace's substitution pitfalls
       await sandbox.files.writeFile(
         await writing(path),
         text.split(old_string).join(new_string)
@@ -238,13 +184,11 @@ export function createSandboxToolkit(
       const matches = out === "" ? "No matches found." : out;
 
       if (fileGlob) {
-        // find: non-zero is error; grep's no-match doesn't propagate through -exec
         if (exitCode !== 0) {
           throw grepError(stderr, exitCode);
         }
         return matches;
       }
-      // grep exit codes: 0=matches, 1=no-match, >=2=error
       if (exitCode === 0) {
         return matches;
       }
@@ -346,13 +290,6 @@ export interface SandboxToolSchemas {
   readonly tools: Record<SandboxToolName, SandboxToolSchema>;
 }
 
-/**
- * The same tools with no `execute`, so the caller's own loop intercepts
- * each call and runs it wherever the sandbox actually lives — the shape a
- * browser client needs, where the environment is on the other side of the
- * boundary. Identical definitions to {@link createSandboxToolkit}, so a model
- * cannot tell the two bindings apart.
- */
 export function createSandboxToolSchemas(
   options: { workingDirectory?: string } = {}
 ): SandboxToolSchemas {
@@ -382,8 +319,6 @@ function numberLines(
     .join("\n");
 }
 
-/** Render facet-native search matches in the same three shapes `grep`'s
- *  `output_mode` produces from a command's stdout. */
 function formatMatches(
   matches: readonly SandboxSearchMatch[],
   relative: (path: string) => string,
@@ -415,15 +350,6 @@ function formatMatches(
     .join("\n");
 }
 
-/**
- * Resolve a `cd` target against the current directory, collapsing `..`.
- *
- * Every other tool goes through `normalizeSandboxPath`, which refuses `..`
- * outright — a cheap first line of defense that assumes you never move. `cd`
- * is the one tool whose whole point is moving, so it collapses the traversal
- * lexically here and hands the environment a plain absolute path. `..` past
- * the top lands on `/`; confinement depends on the host policy or provider.
- */
 function changeDirectory(input: string, workdir: string): string {
   const parts = input.startsWith("/")
     ? []
@@ -438,8 +364,6 @@ function changeDirectory(input: string, workdir: string): string {
       parts.push(part);
     }
   }
-  // Re-normalize so a NUL or a backslash is refused the same way it would be
-  // on any other path, rather than reaching the environment.
   return normalizeSandboxWorkingDirectory(`/${parts.join("/")}`);
 }
 
@@ -462,7 +386,6 @@ function grepCommand(
   } else if (input.line_numbers) {
     flags.push("-n");
   }
-  // Busybox grep lacks --include, so find selects files when a glob is present.
   if (input.glob) {
     return [
       "find",
@@ -504,7 +427,6 @@ function combineSignals(
   return AbortSignal.any(present);
 }
 
-/** `exactOptionalPropertyTypes` forbids passing an explicit `undefined`. */
 function signalOption(signal: AbortSignal | undefined): {
   signal?: AbortSignal;
 } {

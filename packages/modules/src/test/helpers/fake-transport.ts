@@ -32,7 +32,6 @@ export class FakeTransport implements ModuleTransport {
 class FrameQueue implements AsyncIterableIterator<unknown> {
   readonly #queued: unknown[] = [];
   #waiting: ((result: IteratorResult<unknown>) => void) | undefined;
-  // Widened so lint sees the flag as mutable; `end()` sets it later.
   #ended = false as boolean;
 
   [Symbol.asyncIterator](): AsyncIterableIterator<unknown> {

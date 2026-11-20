@@ -19,10 +19,8 @@ import type { FileAt } from "../../src/web/view/file-place";
 import { twoIslands as data } from "../helpers/island-fixture";
 import { flatScreen, perspectiveCamera } from "../helpers/label-screen";
 
-/** A fake measure: every character is 0.55 em wide, whatever the font. */
 const measure: TextMeasure = (text) => text.length * 0.55;
 
-/** The labels proposed and placed for a frame, as the labels layer does it. */
 function labelsFor(options: {
   data: SpyglassData;
   fileAt?: FileAt;
@@ -101,7 +99,6 @@ it("sets each label in the ladder's inks and halos, measured in its font", () =>
   });
   const selected = labels.find((label) => label.place?.file?.id === "one");
   const name = labels.find((label) => label.kind === "island");
-  // Other files are named while no file is focused in view.
   const file = labelsFor({ data, selected: "island", view: close }).find(
     (label) => label.place?.file?.id === "two"
   );
@@ -120,7 +117,6 @@ it("sets each label in the ladder's inks and halos, measured in its font", () =>
     ink: inks.label,
   });
   expect(file).toMatchObject({ halo: 3, ink: inks.label, kind: "file" });
-  // The gilt and amber the ladder replaced are gone from the labels.
   for (const label of labels) {
     expect(["#b38a32", "#875222"]).not.toContain(label.ink);
   }
@@ -183,7 +179,6 @@ it("keeps what a perspective camera shows on screen, not what a flat rectangle o
     pitch: 1.05,
     width: 600,
   });
-  // The view the chrome reads: exact at the centre only.
   const tilt = Math.PI / 2 - 1.05;
   const flatHeight = 400 / (camera.pixelsPerUnit * Math.cos(tilt));
   const [label] = labelsFor({ data, view });
@@ -196,11 +191,7 @@ it("keeps what a perspective camera shows on screen, not what a flat rectangle o
     x: 0,
     y,
   });
-  // Beyond the flat rectangle's far (north) edge, but on the canvas, near
-  // its top: the far side is shown smaller, so the canvas reaches further.
   const far = named("far", -0.55 * flatHeight);
-  // Inside the flat rectangle's near (south) edge, but below the canvas:
-  // the near side is shown larger.
   const near = named("near", 0.45 * flatHeight);
   expect(Math.abs(far.y)).toBeGreaterThan(flatHeight / 2);
   expect(camera.project(0, far.y).y).toBeGreaterThan(0);

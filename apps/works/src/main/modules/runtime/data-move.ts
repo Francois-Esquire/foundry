@@ -23,9 +23,7 @@ import { z } from "zod";
 import { ModuleRuntimeError } from "./controller";
 
 const DATABASE = "data.sqlite";
-/** Databases checked after copying; the live one is a fresh snapshot. */
 const DATABASES = [DATABASE, `${DATABASE}.bak`] as const;
-/** Folded into the snapshot; copied beside it they would replay stale frames. */
 const SIDECARS = new Set([`${DATABASE}-wal`, `${DATABASE}-shm`]);
 const STAGING = ".data-moving";
 
@@ -36,33 +34,18 @@ const stateSchema = z.object({
 type MoveStatus = z.infer<typeof stateSchema>["status"];
 
 export interface LegacyDataMove {
-  /** Opens a database where it lies and checks its integrity. */
   readonly checkDatabase: (file: string) => Promise<void>;
-  /** The earlier location, `.data/<moduleDirectory>/`. */
   readonly from: string;
-  /** A consistent copy of a database, WAL included, to a new path. */
   readonly snapshotDatabase: (
     source: string,
     destination: string
   ) => Promise<void>;
-  /** Where the move records how far it got, so a restart resumes it. */
   readonly state: string;
-  /** The Module's `data/`. */
   readonly to: string;
 }
 
 class DataMoveError extends ModuleRuntimeError {}
 
-/**
- * Moves a Module's private files from the earlier location into its
- * `data/` once. The caller guarantees its Program is stopped and nothing
- * holds the database open. A consistent copy is staged beside `data/`,
- * checked (databases opened and integrity-checked, other files compared
- * byte for byte), placed by one rename and opened again there. The
- * original stays until all of that succeeded; any failure leaves it in
- * use and the next attempt starts over. `data/` that already holds files
- * is never overwritten.
- */
 export async function moveLegacyData(move: LegacyDataMove): Promise<void> {
   const status = await readStatus(move.state);
   if (status === "done") {
@@ -70,7 +53,6 @@ export async function moveLegacyData(move: LegacyDataMove): Promise<void> {
   }
   const staging = path.join(path.dirname(move.to), STAGING);
   if (status === "adopting") {
-    // The checked copy was complete before the restart; finish placing it.
     if (await exists(staging)) {
       await adopt(staging, move.to);
     }
@@ -78,7 +60,6 @@ export async function moveLegacyData(move: LegacyDataMove): Promise<void> {
       await finish(move, staging);
       return;
     }
-    // Nothing was placed after all: start over from the original.
     await rm(move.state, { force: true });
   }
   const entries = await readdir(move.from).catch(missing);
@@ -129,7 +110,6 @@ async function copy(
   }
 }
 
-/** Real files, directories and links, never following a link. */
 async function copyTree(source: string, target: string) {
   const entry = await lstat(source);
   if (entry.isDirectory()) {
@@ -171,12 +151,10 @@ async function checkDatabases(move: LegacyDataMove, directory: string) {
   }
 }
 
-/** Opened again where it now lies; only then is the original let go. */
 async function finish(move: LegacyDataMove, staging: string) {
   try {
     await checkDatabases(move, move.to);
   } catch (error) {
-    // Undo the placement, so the original stays the one in use.
     await rename(move.to, staging);
     await rm(staging, { force: true, recursive: true });
     await rm(move.state, { force: true });
@@ -199,7 +177,6 @@ async function adopt(staging: string, destination: string) {
   await rename(staging, destination);
 }
 
-/** Same kind of entry with the same bytes, recursively. */
 async function same(left: string, right: string): Promise<boolean> {
   const [a, b] = await Promise.all([lstat(left), lstat(right)]);
   if (a.isDirectory() !== b.isDirectory() || a.isFile() !== b.isFile()) {

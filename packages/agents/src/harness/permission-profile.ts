@@ -33,7 +33,6 @@ function matchesRule(
   if (command === undefined) {
     return false;
   }
-  // An allow never authorizes a second shell statement, substitution, or redirect.
   if (SHELL_CONTROL.test(command)) {
     return !allow;
   }

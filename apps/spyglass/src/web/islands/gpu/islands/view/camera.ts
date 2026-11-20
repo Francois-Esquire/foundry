@@ -1,52 +1,30 @@
-/**
- * The camera: an orbit over the chart, its reversed-Z view, and the map-style
- * input that moves it. World space: chart `(x, y)` is
- * world `(x, 0, y)`, height is world `y`, sea level is `y = 0`, and north
- * (chart −y) is world −z.
- *
- * The projection is reversed-Z with an infinite far plane: depth is
- * `near / viewDistance`, 1 at the near plane and 0 at infinity. The film
- * clears to 0, terrain draws with `compare: "greater"`, and the water
- * composite reads a pixel's distance straight back as `near / depth`.
- */
 import type { Chart, Point } from "../../../data/chart";
 import { ignoresKeys, type KeyboardMode, listenKeys } from "./keys";
 
 export type Vec3 = readonly [number, number, number];
 
 export interface Orbit {
-  /** Distance from the target, in chart units. */
   distance: number;
-  /** Radians above the horizon: π/2 looks straight down. */
   pitch: number;
-  /** The point looked at, world space. */
   target: Vec3;
-  /** Radians around the vertical; 0 looks north. */
   yaw: number;
 }
 
-/** The camera for one frame: what the terrain and the composite need. */
 export interface View {
-  /** Image height over width's half-angle tangents: x and y. */
   readonly aperture: readonly [number, number];
   readonly eye: Vec3;
   readonly forward: Vec3;
-  /** The near plane's distance: depth is `near / viewDistance`. */
   readonly near: number;
   readonly right: Vec3;
   readonly up: Vec3;
-  /** Column-major, world to clip, reversed-Z and infinite. */
   readonly viewProjection: Float32Array;
 }
 
-/** Vertical field of view, degrees. */
 const FIELD_OF_VIEW = 34;
 const MIN_PITCH = 0.12;
 const MAX_PITCH = 1.5607;
-/** How close and how far the orbit may go, as shares of the fitted distance. */
 const NEAREST = 0.025;
 const FARTHEST = 2.5;
-/** The near plane, as a share of the orbit distance. */
 const NEAR_SHARE = 0.01;
 
 const TAN_HALF_FOV = Math.tan((FIELD_OF_VIEW * Math.PI) / 360);
@@ -63,7 +41,6 @@ const normalize = (a: Vec3): Vec3 => {
   return [a[0] / length, a[1] / length, a[2] / length];
 };
 
-/** Where the eye sits for an orbit. */
 function eyeOf(orbit: Orbit): Vec3 {
   const flat = Math.cos(orbit.pitch) * orbit.distance;
   return [
@@ -73,11 +50,9 @@ function eyeOf(orbit: Orbit): Vec3 {
   ];
 }
 
-/** The view of an orbit through an image `aspect` (width over height) wide. */
 export function viewOf(orbit: Orbit, aspect: number): View {
   const eye = eyeOf(orbit);
   const forward = normalize(sub(orbit.target, eye));
-  // Straight down, the world's up is degenerate: north stays up the image.
   const sideways = cross(forward, [0, 1, 0]);
   const right = normalize(
     Math.hypot(...sideways) > 1e-6
@@ -88,8 +63,6 @@ export function viewOf(orbit: Orbit, aspect: number): View {
   const near = Math.max(1e-3, orbit.distance * NEAR_SHARE);
   const fy = 1 / TAN_HALF_FOV;
   const fx = fy / Math.max(aspect, 1e-6);
-  // Rows of clip = M · (p, 1): x and y by the focal lengths, z the constant
-  // near (so depth = near / w), w the distance along the view.
   const rows = [
     [fx * right[0], fx * right[1], fx * right[2], -fx * dot(right, eye)],
     [fy * up[0], fy * up[1], fy * up[2], -fy * dot(up, eye)],
@@ -113,10 +86,8 @@ export function viewOf(orbit: Orbit, aspect: number): View {
   };
 }
 
-/** A world point in clip space: `[x, y, z, w]`. */
 function toClip(view: View, point: Vec3): [number, number, number, number] {
   const m = view.viewProjection;
-  // The view's matrix always holds sixteen entries, so the fallback never applies.
   const at = (index: number) => m[index] ?? 0;
   const [x, y, z] = point;
   return [
@@ -127,33 +98,18 @@ function toClip(view: View, point: Vec3): [number, number, number, number] {
   ];
 }
 
-/** World units a pixel spans at `distance` along the view, for an image `height` px tall. */
 function pixelSize(distance: number, height: number): number {
   return (2 * distance * TAN_HALF_FOV) / Math.max(1, height);
 }
 
-/**
- * A canvas point: CSS pixels from the top left, and whether it is in
- * front of the eye and inside the canvas.
- */
 export interface Projected {
-  /** In front of the eye and inside the canvas. */
   visible: boolean;
-  /** Always finite: held within a canvas's size of its edges. */
   x: number;
-  /** Always finite: held within a canvas's size of its edges. */
   y: number;
 }
 
-/** How near the eye's plane a point may come before it counts as behind it, along the view. */
 const BEHIND = 1e-6;
 
-/**
- * A world point on a canvas `width` by `height` CSS pixels. A point behind
- * the eye (or on its plane) is not visible, and its `x` and `y` lie off the
- * canvas on the side it is on; every `x` and `y` is held within one canvas
- * size of the edges, so it is finite and never NaN.
- */
 export function projectView(
   view: View,
   point: Vec3,
@@ -162,7 +118,6 @@ export function projectView(
 ): Projected {
   const [clipX, clipY, , w] = toClip(view, point);
   const ahead = w > BEHIND;
-  // Behind the eye the divide would mirror the point: keep its side, far out.
   const depth = ahead ? w : BEHIND;
   const across = clipX / depth;
   const up = clipY / depth;
@@ -175,11 +130,6 @@ export function projectView(
   };
 }
 
-/**
- * CSS pixels a world unit spans, across the view, at a world point, on a
- * canvas `height` CSS pixels tall; 0 for a point on or behind the eye's
- * plane.
- */
 export function pixelsPerUnitAt(
   view: View,
   point: Vec3,
@@ -192,14 +142,8 @@ export function pixelsPerUnitAt(
   return Math.max(1, height) / (2 * along * TAN_HALF_FOV);
 }
 
-/** How much of the image's shorter half-side a framed circle's radius spans. */
 const FRAME_SHARE = 0.6;
 
-/**
- * The orbit over a circle of the chart (centre, radius in chart units),
- * keeping the current turn and tilt: close enough that the circle fills
- * `FRAME_SHARE` of the image's shorter half-side.
- */
 export function frameOrbit(
   current: Orbit,
   centre: Point,
@@ -214,17 +158,11 @@ export function frameOrbit(
   };
 }
 
-/** Eases a share of a flight: slow out, slow in. */
 const easeInOut = (t: number): number => {
   const s = Math.min(1, Math.max(0, t));
   return s < 0.5 ? 4 * s * s * s : 1 - (-2 * s + 2) ** 3 / 2;
 };
 
-/**
- * The orbit `t` of the way from `from` to `to` (no easing; 0 is `from`, 1
- * is `to`): the target and the pitch straight, the distance by its log so
- * a zoom feels even, and the turn the short way round.
- */
 function blendOrbit(from: Orbit, to: Orbit, t: number): Orbit {
   if (t <= 0) {
     return from;
@@ -252,9 +190,7 @@ function blendOrbit(from: Orbit, to: Orbit, t: number): Orbit {
   };
 }
 
-/** The distance at which a chart's extent fills an image of this aspect. */
 function fitDistance(chart: Chart, aspect: number): number {
-  // A little over half the extent, so the margin of sea shows round it.
   const halfHeight = chart.extent.height * 0.56;
   const halfWidth = chart.extent.width * 0.56;
   const vertical = halfHeight / TAN_HALF_FOV;
@@ -262,12 +198,9 @@ function fitDistance(chart: Chart, aspect: number): number {
   return Math.max(vertical, horizontal);
 }
 
-/** The pitch the chart opens at: high enough to read every island. */
 const FIT_PITCH = 1.05;
 
-/** The orbit that frames a whole chart, looking north. */
 export function fit(chart: Chart, aspect: number): Orbit {
-  // A tilted view sees the far half shrink; step back a little for it.
   const tilt = 1 + 0.25 * Math.cos(FIT_PITCH);
   return {
     distance: fitDistance(chart, aspect) * tilt,
@@ -277,7 +210,6 @@ export function fit(chart: Chart, aspect: number): Orbit {
   };
 }
 
-/** Keeps an orbit within reach of the chart: pitch, zoom and target bounds. */
 function clampOrbit(orbit: Orbit, chart: Chart, aspect: number): Orbit {
   const fitted = fitDistance(chart, aspect);
   const halfX = chart.extent.width * 0.6;
@@ -305,58 +237,31 @@ const sameOrbit = (a: Orbit, b: Orbit) =>
   a.target[1] === b.target[1] &&
   a.target[2] === b.target[2];
 
-/** Radians a pixel of drag turns and tilts. */
 const TURN_PER_PIXEL = 0.006;
 const TILT_PER_PIXEL = 0.005;
-/** Image heights a held key pans a second. */
 const KEY_PAN = 0.9;
-/** Radians a held key turns a second. */
 const KEY_TURN = 1.2;
-/** Zoom per second while + or − is held, as a log factor. */
 const KEY_ZOOM = 1.5;
 const WHEEL_LINE = 0.05;
 const WHEEL_PIXEL = 0.0015;
-/** Longest step a held key advances, seconds: a stalled tab doesn't leap. */
 const LONGEST_STEP = 0.1;
 
-/** How long a flight takes, seconds. */
 const FLIGHT_SECONDS = 0.6;
 
-/** How the input may move the orbit. */
 export interface ControlOptions {
-  /** Where the keys listen (keys.ts); "window" by default. */
   keyboard?: KeyboardMode;
-  /** Whether the camera may turn; false holds it looking north. True by default. */
   turn?: boolean;
 }
 
 export interface OrbitControls {
-  /** Changes how the input may move the orbit; options left out keep their values. */
   configure: (options: ControlOptions) => void;
   dispose: () => void;
-  /**
-   * Flies to an orbit over `FLIGHT_SECONDS`, eased; any input, `set` or
-   * a new flight takes over from it.
-   */
   fly: (orbit: Orbit) => void;
-  /** The orbit as it stands. */
   readonly orbit: Orbit;
-  /** Replaces the orbit, as a fit does. */
   set: (orbit: Orbit) => void;
-  /**
-   * Advances held keys and a flight by `dt` seconds and clamps; true when
-   * the orbit changed since the last update, by input, a flight or `set`.
-   */
   update: (dt: number) => boolean;
 }
 
-/**
- * Map-style input on a canvas: drag pans, shift- or right-drag turns and
- * tilts, the wheel (or a pinch) zooms, WASD or the arrows pan, Q/E turn,
- * R/F tilt, +/− zoom. `bounds` gives the chart and image aspect the orbit
- * is clamped to. Keys typed into a field or inside an open dialog are left
- * alone (keys.ts `ignoresKeys`).
- */
 export function createOrbitControls(
   canvas: HTMLCanvasElement,
   initial: Orbit,
@@ -386,7 +291,6 @@ export function createOrbitControls(
     const s = pixelSize(orbit.distance, canvas.clientHeight);
     const right = [Math.cos(orbit.yaw), -Math.sin(orbit.yaw)] as const;
     const ahead = [-Math.sin(orbit.yaw), -Math.cos(orbit.yaw)] as const;
-    // A tilted view foreshortens the ground: a vertical drag moves farther.
     const stretch = 1 / Math.max(Math.sin(orbit.pitch), 0.35);
     const [x, y, z] = orbit.target;
     orbit = {

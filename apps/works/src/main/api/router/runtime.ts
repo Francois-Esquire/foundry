@@ -10,7 +10,6 @@ export const runtimeRouter = {
     .input(
       z.object({
         id: z.string().min(1),
-        /** Start this release, not the newest: an editor binding's. */
         release: z.string().min(1).optional(),
       })
     )

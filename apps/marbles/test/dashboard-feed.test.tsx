@@ -1,9 +1,9 @@
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
-import { dashboardSnapshot } from "../preview/snapshot";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { DashboardView } from "../src/cli/views/dashboard";
 import type { FeedAnswer } from "../src/lib/feed/entry";
-import { DashboardView } from "../src/views/dashboard";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { flush, frameWith, mount, unmount } from "./helpers/render";
 
 let closed = false;
@@ -24,12 +24,11 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
   };
   const ui = await mount(<DashboardView onClose={close} snapshot={snapshot} />);
   let frame = ui.captureCharFrame();
-  expect(frame).toContain("Overview  3");
-  expect(frame).toContain("Feed  4");
+  expect(frame).toContain("Dashboard");
+  expect(frame).toContain("Feed");
 
   await act(async () => ui.mockInput.pressKey("F"));
   frame = await frameWith(ui, "The docs workflow rewrote");
-  // Only the open question carries the pending marker.
   expect(frame).toContain("› ! Merge the docs update?");
   expect(frame).not.toContain("! Codebase summary");
   for (const label of [
@@ -41,8 +40,7 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
     "Needs your input",
     "1 merge",
     "2 hold",
-    "entries · ↑↓ select · Enter read",
-    "w workspace · x all",
+    "Enter read",
     "? help · q / Ctrl+C quit",
   ]) {
     expect(frame).toContain(label);
@@ -59,7 +57,7 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
   await act(async () => ui.mockInput.pressEnter());
   frame = await frameWith(ui, "Marbles is a local runner");
   expect(frame).toContain("Entry · ↑↓ scroll · Esc entries");
-  expect(frame).toContain("reader · ↑↓ scroll · Esc entries");
+  expect(frame).toContain("↑↓ scroll · Esc entries");
   expect(frame).toContain("media/walkthrough.mp4");
 
   await act(async () => ui.mockInput.pressKey("D"));
@@ -86,6 +84,39 @@ test("answers an open question from the feed with a number key", async () => {
   await act(async () => ui.mockInput.pressKey("2"));
   await flush(ui);
   expect(answers).toEqual([["feed-merge", "hold"]]);
+});
+
+test("shows a question shared from another workspace, and answers it only there", async () => {
+  const answers: [string, FeedAnswer][] = [];
+  const answer = (id: string, value: FeedAnswer) => {
+    answers.push([id, value]);
+    return Promise.resolve();
+  };
+  const snapshot: DashboardSnapshot = {
+    ...dashboardSnapshot,
+    feed: dashboardSnapshot.feed.map((entry) =>
+      entry.id === "feed-merge"
+        ? {
+            ...entry,
+            workspace: { id: "ws-docs", name: "docs" },
+            workspaces: ["ws-docs", "ws-foundry"],
+          }
+        : entry
+    ),
+  };
+  const ui = await mount(
+    <DashboardView onAnswer={answer} onClose={close} snapshot={snapshot} />
+  );
+  await act(async () => ui.mockInput.pressKey("F"));
+  await act(async () => ui.mockInput.pressKey("w"));
+  await flush(ui);
+  const frame = ui.captureCharFrame();
+  expect(frame).toContain("Feed · This workspace · foundry");
+  expect(frame).toContain("Merge the docs update?");
+  expect(frame).not.toContain("1-2 answer");
+  await act(async () => ui.mockInput.pressKey("2"));
+  await flush(ui);
+  expect(answers).toEqual([]);
 });
 
 test("a failed answer stays with its entry and clears on the next try", async () => {
@@ -153,8 +184,6 @@ test("an approval takes an optional note after the choice", async () => {
     { choice: "approve", note: "ship after the docs land" },
   ]);
 
-  // Esc drops the held choice; a second number key with an empty note sends
-  // the bare choice.
   await act(async () => ui.mockInput.pressKey("2"));
   await act(async () => ui.mockInput.pressEscape());
   await act(async () => ui.mockInput.pressKey("2"));

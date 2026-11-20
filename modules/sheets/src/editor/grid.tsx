@@ -3,7 +3,6 @@ import { addressOf, type CellPosition, columnName } from "../workbook/address";
 import type { CellValue } from "../workbook/value";
 import type { WorkbookView } from "./session";
 
-/** The part of a sheet the editor shows. The workbook itself runs to ZZ10000. */
 const GRID_ROWS = 100;
 const GRID_COLUMNS = 26;
 
@@ -42,7 +41,6 @@ function clamp(value: number, size: number): number {
 }
 
 interface GridProps {
-  /** Start editing the selected cell, optionally replacing it with a typed key. */
   onEdit(initial?: string): void;
   onSelect(position: CellPosition): void;
   selected: CellPosition;
@@ -51,10 +49,6 @@ interface GridProps {
   writable: boolean;
 }
 
-/**
- * The visible cells of one sheet. Values are read once per workbook revision
- * and sheet; moving the selection re-renders only the two cells it touches.
- */
 export const Grid = memo(function SheetGrid({
   view,
   sheet,

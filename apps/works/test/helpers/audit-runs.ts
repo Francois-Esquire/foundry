@@ -2,12 +2,6 @@ import { inject } from "vitest";
 import { ExecutionAudit } from "~/main/execution/audit";
 import type { AuditGap, AuditRun } from "~/shared/audit";
 
-/**
- * The run store the global setup recorded through the real engine, served
- * to the renderer through the real audit service and router. Tests can
- * announce a later change, add a retention gap, or make the next watch
- * fail, as main would.
- */
 export function fixtureAudit() {
   const fixture = inject("auditFixture");
   const listeners = new Set<(run: AuditRun) => void>();
@@ -19,7 +13,7 @@ export function fixtureAudit() {
   const audit = new ExecutionAudit({
     runs: {
       gaps: () => state.gaps as never,
-      subscribe: (listener) => {
+      subscribe: async (listener) => {
         listeners.add(listener as never);
         return {
           snapshot: [...state.runs.values()] as never,
@@ -29,7 +23,6 @@ export function fixtureAudit() {
     },
   });
   return {
-    /** What the router's `audit` service is. */
     audit: {
       watch: (signal?: AbortSignal) => {
         if (state.failNext > 0) {
@@ -39,7 +32,6 @@ export function fixtureAudit() {
         return audit.watch(signal);
       },
     },
-    /** A run changed in main. */
     change(run: AuditRun) {
       state.runs.set(run.id, run);
       for (const listener of listeners) {

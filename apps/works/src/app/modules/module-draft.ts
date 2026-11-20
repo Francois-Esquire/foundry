@@ -43,11 +43,6 @@ export function sameSource(
   );
 }
 
-/**
- * The Draft moved onto newly saved source: each file still as `before`
- * takes the saved version (deleted when the save removed it); a file
- * changed in the Draft since `before` keeps the Draft's version.
- */
 export function rebaseSource(
   before: Readonly<Record<string, string>>,
   draft: Readonly<Record<string, string>>,

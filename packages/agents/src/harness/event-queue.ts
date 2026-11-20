@@ -4,7 +4,6 @@ export interface EventQueue<T> {
   push(item: T): void;
 }
 
-/** Unbounded push queue with one async consumer; `close` ends iteration. */
 export function createEventQueue<T>(): EventQueue<T> {
   const items: T[] = [];
   const waiters: ((result: IteratorResult<T>) => void)[] = [];

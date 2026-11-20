@@ -6,13 +6,13 @@ import { Workflow } from "@foundry/workflows/workflow";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
-import { JsonStateStore } from "~/lib/state/store";
 import type { TaskContext } from "~/lib/tasks";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import {
   blockingTask,
   executionFixture,
   gate,
+  storedExecution,
   until,
 } from "../helpers/executions";
 
@@ -60,7 +60,6 @@ it.each(["anonymous", "registered"] as const)(
       });
     const state = join(fixture.root, "state");
     const engine = engineWith({ state });
-    const store = new JsonStateStore(state);
     const first = engine.execute<number>(definition, { n: 1 });
     const second = engine.execute<number>(definition, { n: 2 });
     try {
@@ -78,7 +77,7 @@ it.each(["anonymous", "registered"] as const)(
       expect(started).toEqual([1]);
       expect(records.every((run) => run.queue === "marbles")).toBe(true);
       for (const record of records) {
-        expect(store.read("executions", record.id)).toMatchObject({
+        expect(await storedExecution(state, record.id)).toMatchObject({
           name: record.name,
           status: record.status,
         });
@@ -262,8 +261,6 @@ it("cancels a workflow run whose dispatch is still in flight", async () => {
     }
   }
   const engine = engineWith();
-  // Its factory resolves only when let through: the run is recorded running
-  // while the Orchestrator has not stored it yet.
   const factory = new Record().factory();
   engine.register<string, string>("slow", async (input, context) => {
     await dispatch.opened;
@@ -349,7 +346,6 @@ it("keeps a long-lived run running after it gives up its slot, until it is stopp
       correlation: { kind: "program", moduleId: "notes" },
     }
   );
-  // Later work on the queue is not held up by the program's lifetime.
   expect(await engine.run("save", {})).toBe("saved");
   expect(engine.executions.get(program.id)?.status).toBe("running");
 
@@ -358,7 +354,6 @@ it("keeps a long-lived run running after it gives up its slot, until it is stopp
   await expect(program.result).rejects.toThrow("cancelled");
   expect(engine.executions.get(program.id)?.status).toBe("cancelled");
 
-  // One left running is stopped with the engine.
   const another = await engine.launch("program", {});
   await engine.stop();
   await expect(another.result).rejects.toThrow();
@@ -388,7 +383,6 @@ it("rejects names it cannot run, and one name held by two kinds of runnable", as
   expect(() => engine.task({ name: "taken", run: () => 1 })).toThrow(
     "already registered"
   );
-  // A raw factory may not take a task's name, or a definition's.
   const echo: Factory<string, string> = (input) =>
     Workflow.create({ execute: async (value) => value, input, name: "echo" });
   engine.task({ name: "save", run: () => 1 });
@@ -484,12 +478,10 @@ it("admits nothing on a cancelling stop while it waits on a dispatch in flight",
     .spyOn(engine.interactions, "close")
     .mockImplementation(() => closing.opened);
   const stopping = engine.stop({ cancel: true });
-  // Withdraw before waiting on delivery or interaction shutdown.
-  expect(engine.executions.get(queued.id)?.status).toBe("cancelled");
+  await until(() => engine.executions.get(queued.id)?.status === "cancelled");
   await until(() => close.mock.calls.length > 0);
   closing.open();
   close.mockRestore();
-  // The task frees its slot while the stop still waits on the factory.
   holding.open();
   await new Promise((resolve) => setTimeout(resolve, 20));
   dispatch.open();

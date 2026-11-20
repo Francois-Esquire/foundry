@@ -23,7 +23,6 @@ const answer = z.discriminatedUnion("kind", [
   z.object({ approved: z.boolean(), kind: z.literal("approval") }),
 ]);
 
-/** Turn a service refusal into a message the chat can show. */
 async function attempt<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
@@ -41,7 +40,6 @@ async function attempt<T>(work: () => Promise<T>): Promise<T> {
 const authoring = base.use(requires(["authoring"]));
 
 export const authoringRouter = {
-  /** Check the saved binding and hand back a proposal to reconcile, or report it stale. */
   accept: authoring
     .input(turn)
     .handler(({ context, input }) =>
@@ -64,7 +62,6 @@ export const authoringRouter = {
     .handler(({ context, input }) =>
       attempt(() => context.authoring.cancel(input.id, input.turnId))
     ),
-  /** A proposal and its captured base, without the saved-binding check: for comparing. */
   proposal: authoring
     .input(turn)
     .handler(({ context, input }) =>
@@ -95,7 +92,6 @@ export const authoringRouter = {
         context.authoring.settleProposal(input.id, input.turnId, input.status)
       )
     ),
-  /** The conversation now, then its changes. Ending the watch never cancels a turn. */
   watch: authoring
     .input(z.object({ id: z.string().min(1) }))
     .handler(({ context, input, signal }) =>

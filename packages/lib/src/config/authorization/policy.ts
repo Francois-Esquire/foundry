@@ -1,43 +1,13 @@
-/**
- * Policy: the rules consulted when exact authority does not settle a request.
- *
- * Policy supplies rules; storage, approvals, and grant issuance belong elsewhere.
- */
-
 import type { AuthorizationSubject } from "./address";
 
-/**
- * The three-way setting. `"allow"` and `"deny"` settle without a human;
- * `"ask"` means the caller must reach an approval checkpoint before the effect
- * can run.
- */
 export type AuthorizationMode = "allow" | "ask" | "deny";
 
-/**
- * A host-configured denial of one exact Subject/Capability pair.
- *
- * Expressed as a rule rather than a negative Grant so that "this is forbidden"
- * and "this is permitted" never live in the same table, where a bug in one
- * could produce the other.
- */
 export interface AuthorizationDenyRule<S extends AuthorizationSubject, C> {
   readonly capability: C;
   readonly reason: string;
   readonly subject: S;
 }
 
-/**
- * The declarative rule set.
- *
- * `failClosed` names kinds that must not inherit {@link global}. A kind belongs
- * there when its shape tells Policy nothing about what the effect actually
- * does, so a blanket `"allow"` written for understood kinds would be unsafe.
- * With no exact deny, no live Grant, and no explicit `byKind` entry, such a
- * kind denies rather than reaching the global tier.
- *
- * A deny-by-default posture is `global: "deny"` — adopting these tiers does not
- * relax it.
- */
 export interface AuthorizationPolicy<
   S extends AuthorizationSubject,
   C,
@@ -49,15 +19,6 @@ export interface AuthorizationPolicy<
   readonly global: AuthorizationMode;
 }
 
-/**
- * A live source of Policy, read per decision so a host can change a mode at
- * runtime without rebuilding the Authorizer.
- *
- * Reads are SYNCHRONOUS on purpose. The Authorizer snapshots the whole Policy
- * before its first `await`, so one decision cannot answer its deny tier from
- * one configuration and its global tier from another when a settings write
- * lands mid-lookup. An async source could not offer that guarantee.
- */
 export interface AuthorizationPolicySource<
   S extends AuthorizationSubject,
   C,

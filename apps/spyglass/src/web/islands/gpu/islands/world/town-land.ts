@@ -1,59 +1,34 @@
-/**
- * The land a town is planned on (world-plan.ts): an island's coast laid on a fine grid in the island's own
- * frame, its long axis along the frame's u and its short axis along v.
- * Each cell knows how far it lies from the sea and what stands on it, so
- * the planner can ask whether a lot or a stretch of street fits without
- * searching the coast again. Holes in the coast (craters) are sea too.
- *
- * world-plan.ts lays its streets and lots at any angle and uses the grid
- * only for its fields (clearance, what is taken), testing its shapes
- * exactly itself. The box helpers cover the cells whose middles lie
- * inside an upright rectangle.
- */
 import type { Point, Polygon, Ring } from "../../../data/chart";
 
-/** Chart units a side of a cell. */
 export const CELL = 0.5;
-/** What a cell holds: nothing yet, a street, or else the lot of that id. */
 export const FREE = -1;
 export const STREET = -2;
-/** Cells kept round the coast's box, so the grid's edge is always sea. */
 const PAD_CELLS = 2;
-/** A chamfer step's cost across a cell's corner, in cells. */
 const DIAGONAL = Math.SQRT2;
 
 export interface Land {
-  /** The frame's origin: the coast's centre of area. */
   readonly centre: Point;
-  /** Each cell's distance to the sea, chart units. */
   readonly clear: Float32Array;
   readonly cols: number;
-  /** The frame's u axis in the chart: (cos, sin); v is u turned a quarter left. */
   readonly cos: number;
-  /** How far inside the coast a building or street must stay. */
   readonly margin: number;
   readonly rows: number;
   readonly sin: number;
-  /** What stands on each cell: `FREE`, `STREET` or a lot's id. */
   readonly taken: Int32Array;
-  /** The frame position of cell (0, 0)'s lower corner. */
   readonly u0: number;
   readonly v0: number;
 }
 
-/** A frame position to the chart. */
 export const toChart = (land: Land, u: number, v: number): Point => [
   land.centre[0] + u * land.cos - v * land.sin,
   land.centre[1] + u * land.sin + v * land.cos,
 ];
 
-/** A frame direction to the chart. */
 export const directionToChart = (land: Land, du: number, dv: number): Point => [
   du * land.cos - dv * land.sin,
   du * land.sin + dv * land.cos,
 ];
 
-/** The ring's centre of area and second moments about it. */
 function momentsOf(ring: Ring) {
   let area = 0;
   let x = 0;
@@ -84,11 +59,6 @@ function momentsOf(ring: Ring) {
   return { angle, area: Math.abs(area), centre: [cx, cy] as Point };
 }
 
-/**
- * For each row of cells, the frame positions where the row's middle line
- * crosses the polygon's rings, in order. Each edge adds itself only to the
- * rows it spans.
- */
 function crossingsOf(
   rings: readonly (readonly (readonly [number, number])[])[],
   v0: number,
@@ -120,7 +90,6 @@ function crossingsOf(
   return crossings;
 }
 
-/** Two chamfer passes: each inside cell's distance to the nearest sea cell. */
 function chamfer(clear: Float32Array, cols: number, rows: number) {
   const look = (i: number, j: number): number =>
     i < 0 || j < 0 || i >= cols || j >= rows
@@ -151,7 +120,6 @@ function chamfer(clear: Float32Array, cols: number, rows: number) {
   pass(false);
 }
 
-/** An island's land from its coast polygon, `margin` kept clear of its lip. */
 export function landOf(polygon: Polygon, margin: number): Land {
   const { centre, angle } = momentsOf(polygon.outer);
   const cos = Math.cos(angle);
@@ -189,7 +157,6 @@ export function landOf(polygon: Polygon, margin: number): Land {
   return { centre, clear, cols, cos, margin, rows, sin, taken, u0, v0 };
 }
 
-/** The cell under a frame position, or -1 off the grid. */
 export function cellAt(land: Land, u: number, v: number): number {
   const i = Math.floor((u - land.u0) / CELL);
   const j = Math.floor((v - land.v0) / CELL);
@@ -199,11 +166,9 @@ export function cellAt(land: Land, u: number, v: number): number {
   return j * land.cols + i;
 }
 
-/** Whether a cell is land clear of the coast's margin. */
 export const isBuildable = (land: Land, cell: number): boolean =>
   cell >= 0 && (land.clear[cell] ?? 0) >= land.margin;
 
-/** The buildable cell farthest from the sea: the plateau's heart. */
 export function heartOf(land: Land): Point {
   let best = 0;
   let bestCell = -1;

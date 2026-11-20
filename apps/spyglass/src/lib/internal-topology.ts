@@ -34,17 +34,6 @@ import type {
 } from "./package-local-types";
 import type { FileKind } from "./types";
 
-// Internal package topology is a pure function of one
-// `PackageLocalReport`: no file system, no TypeScript program, no workspace.
-// Module ids are package-relative so the same package yields the same
-// topology wherever it sits. Every metric is a graph fact; nothing here
-// interprets a shape as good or bad.
-//
-// Primary topology is the subgraph of `source`-kind modules. Test, story,
-// and config modules stay as nodes and their edges stay in `edges`, but
-// fan counts, cycles, layers, seams, and roles are measured on primary
-// edges only, so a large test suite never becomes the package's shape.
-
 const ROOT_DIRECTORY = ".";
 const FILE_KINDS: FileKind[] = ["source", "test", "story", "config", "other"];
 
@@ -72,7 +61,6 @@ function byId<T extends { id: string }>(a: T, b: T): number {
   return a.id.localeCompare(b.id);
 }
 
-/** Nearest-rank percentile; 0 for an empty list. */
 function nearestRank(sorted: number[], percentile: number): number {
   return sorted[Math.max(0, Math.ceil(percentile * sorted.length) - 1)] ?? 0;
 }
@@ -117,11 +105,6 @@ function lineage(directory: string): string[] {
   return result;
 }
 
-/**
- * First directory segment after stripping one leading technical root; the
- * package root (`"."`) when nothing remains. `src/canvas/a.ts` → `canvas`,
- * `src/a.ts` → `.`, `test/a.test.ts` → `test`.
- */
 function regionOfDirectory(
   directory: string,
   technicalRoots: string[]
@@ -145,7 +128,6 @@ function directoryDistance(a: string, b: string): number {
   return left.length + right.length - 2 * common;
 }
 
-/** Articulation points of an undirected graph: iterative Tarjan lowpoint DFS. */
 function articulationPoints(
   nodes: string[],
   neighbors: Map<string, Set<string>>
@@ -281,12 +263,6 @@ function weakComponentCount(
   return count;
 }
 
-/**
- * Resolves a name imported from `module` to the declaration it forwards to,
- * following named re-exports, `export *`, and import-then-export
- * forwarding, all from report facts. Cycles of `export *` terminate on the
- * visited set.
- */
 class SymbolResolver {
   private readonly declared = new Map<string, Map<string, Resolution>>();
   private readonly namedReExports = new Map<
@@ -313,9 +289,6 @@ class SymbolResolver {
       }
       this.declared.set(module, names);
     }
-    // A module's `default` binds to a named declaration the local report
-    // already resolved, possibly in another module; anonymous defaults stay
-    // unresolved rather than being named after the file.
     for (const entry of report.defaultExports) {
       if (entry.symbolId === undefined) {
         continue;
@@ -531,8 +504,6 @@ export function analyzeInternalPackageTopology(
   };
   visitEdge3();
 
-  // Internal consumed surface: every resolved symbol on a primary edge,
-  // attributed to its declaring module rather than the module imported from.
   const visitEdge4 = () => {
     for (const edge of primaryEdges) {
       for (const symbol of edge.symbols) {
@@ -567,7 +538,6 @@ export function analyzeInternalPackageTopology(
       }
     }
   };
-  // A site that only forwards the symbol (`export … from`) is not a consumer.
   const consumed = new Map<
     string,
     {
@@ -680,8 +650,6 @@ export function analyzeInternalPackageTopology(
   });
   const moduleById = new Map(modules.map((module) => [module.id, module]));
 
-  // Directory tree from module paths; every ancestor of an owning directory
-  // is a node, so the hierarchy is complete even where a level holds no file.
   const directoryModules = new Map<string, string[]>();
   const descendants = new Map<string, number>([[ROOT_DIRECTORY, 0]]);
   analyzeInternalPackageTopologyId2(moduleIds, directoryModules, descendants);
@@ -748,8 +716,6 @@ export function analyzeInternalPackageTopology(
   for (const directory of directoryIds) {
     directoryStats.set(directory, { incoming: 0, internal: 0, outgoing: 0 });
   }
-  // An edge is internal to every shared ancestor, outgoing from the
-  // source-only ancestors, incoming to the target-only ones.
   visitEdge();
   const directories: InternalDirectoryNode[] = directoryIds.map((id) => {
     const parent = parentOf(id);
@@ -1010,8 +976,6 @@ export function analyzeInternalPackageTopology(
 
   const fanIns = primaryModules.map((id) => moduleById.get(id)?.fanIn ?? 0);
   const fanOuts = primaryModules.map((id) => moduleById.get(id)?.fanOut ?? 0);
-  // Cutoff over the connected modules only, so a package where most modules
-  // have no dependents still ranks the ones that do.
   const cutoff = (values: number[]) => {
     const connected = values.filter((value) => value > 0).sort((a, b) => a - b);
     if (connected.length === 0) {
@@ -1125,13 +1089,11 @@ export function analyzeInternalPackageTopology(
 }
 
 export interface InternalModuleNeighborhood {
-  /** Symbols this module consumes from others, by edge target. */
   consumed: InternalEdgeSymbol[];
   consumers: InternalModuleEdge[];
   dependencies: InternalModuleEdge[];
   directory: InternalDirectoryNode | undefined;
   module: InternalModuleNode;
-  /** Own declarations other modules consume. */
   provided: InternalConsumedSymbol[];
 }
 
@@ -1420,8 +1382,6 @@ function resolveVisitSite(
     return symbol;
   };
   if (site.kind === "namespace") {
-    // Only members actually accessed through the binding count; a bare use
-    // of the namespace names no symbol and stays a namespace site.
     analyzeInternalPackageTopologySiteMember(site, symbolOn);
     return;
   }

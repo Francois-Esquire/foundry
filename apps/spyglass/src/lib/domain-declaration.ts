@@ -1,26 +1,11 @@
 import { z } from "zod";
 import { facetSchema } from "./facet";
 
-// The domain declaration: how a workspace tells Spyglass its own mental model.
-// A configuration file declares it under `domains`. It is kept as written,
-// read by no analysis, and left out of the configuration fingerprint, so a
-// scan with new domains reuses every package's results. The domains lens
-// (lib/lenses/domains.ts) reads it.
-
 export interface DomainDeclaration {
-  /** Domains nested inside this one. A place in a nested domain is in this one too. */
   domains?: DomainDeclaration[];
-  /**
-   * The places this domain names as its own: a package, folder, or file by
-   * its workspace-relative path, or a top-level symbol as `path#name`. A
-   * facet's path need not exist.
-   */
   facets?: string[];
-  /** The domain's id: lowercase letters, digits, and hyphens, unique across the workspace. */
   name: string;
-  /** Why the workspace declares it, reported as written. */
   reason?: string;
-  /** The workspace's own emphasis, 0 to 1, reported as written; how weights combine is not decided. */
   weight?: number;
 }
 
@@ -31,14 +16,9 @@ const WEIGHT_RULE = "must be a number from 0 to 1";
 const REASON_RULE =
   "must be non-empty text with no leading or trailing whitespace";
 const OBJECT_RULE = "must be an object";
-/** Deeper than any model a workspace writes by hand; a cycle built in code is caught first. */
 const MAX_NESTING = 64;
 type IssuePath = (string | number)[];
 
-/**
- * An issue about a whole domain, which its message names; the configuration
- * error shows no "got" for it (`spyglass-config.ts`).
- */
 function addDomainIssue(
   context: z.RefinementCtx,
   domain: object,
@@ -110,9 +90,7 @@ const domainSchema: z.ZodType<DomainDeclaration> = z
 
 interface PlacedDomain {
   domain: DomainDeclaration;
-  /** Relative to the top-level list: `[0, "domains", 1]`. */
   path: IssuePath;
-  /** As a configuration error shows it: `domains[0].domains[1]`. */
   shown: string;
 }
 
@@ -173,11 +151,6 @@ function nestingIssue(
   }
 }
 
-/**
- * Before the schema walks the tree: a configuration file is code, so its
- * domains can hold themselves or nest without end, which would exhaust the
- * stack. One object listed twice is refused too, so the walk stays linear.
- */
 function checkNesting(value: unknown, context: z.RefinementCtx): void {
   const enclosing = new Set<object>();
   const placed = new Map<object, string>();

@@ -5,15 +5,6 @@ import type {
 
 import type { TranscribeOptions } from "../../types";
 
-/**
- * The bridge protocol between a host process and the local-inference worker.
- * Transport-agnostic: messages are structured-clone-safe objects (no functions,
- * no AbortSignal — cancellation is its own message). One request may produce
- * one terminal reply (`result`/`error`) and, for streams, any number of
- * `stream-part` messages before a `stream-end`.
- */
-
-/** Call options with the non-serializable members stripped for transit. */
 type WireCallOptions = Omit<
   LanguageModelV4CallOptions,
   "abortSignal" | "headers"
@@ -24,7 +15,6 @@ type WireEmbedOptions = Omit<
   "abortSignal" | "headers"
 >;
 
-/** Inference ops carry the wire model id; management ops carry the catalog id. */
 export type WorkerRequest =
   | { id: number; op: "generate"; model: string; options: WireCallOptions }
   | { id: number; op: "stream"; model: string; options: WireCallOptions }
@@ -33,7 +23,6 @@ export type WorkerRequest =
       id: number;
       op: "transcribe";
       model?: string;
-      /** Base64 of the Float32Array PCM buffer — portable across transports. */
       audio: string;
       options: TranscribeOptions;
     }
@@ -44,7 +33,6 @@ export type WorkerRequest =
   | { id: number; op: "set-offline"; offline: boolean }
   | { id: number; op: "cancel"; target: number };
 
-/** Provider events forwarded from the worker, outside any request. */
 interface WorkerBroadcast {
   id: 0;
   name: "download-progress" | "model-loaded";
@@ -59,11 +47,6 @@ export type WorkerReply =
   | { id: number; type: "error"; message: string; name?: string }
   | WorkerBroadcast;
 
-/**
- * The seam both sides speak through. Implementations: a Node IPC channel
- * (production), an in-memory cross-wired pair (tests). `onExit` fires when the
- * far side is gone — the provider uses it to reject in-flight requests.
- */
 interface WorkerTransport<TSend, TReceive> {
   onExit(handler: (reason: string) => void): void;
   onMessage(handler: (message: TReceive) => void): void;
@@ -71,7 +54,6 @@ interface WorkerTransport<TSend, TReceive> {
 }
 
 export type HostTransport = WorkerTransport<WorkerRequest, WorkerReply> & {
-  /** Stop the worker outright; its exit then rejects whatever was pending. */
   terminate?(): void;
 };
 export type WorkerSideTransport = WorkerTransport<WorkerReply, WorkerRequest>;

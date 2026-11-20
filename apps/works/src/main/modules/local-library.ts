@@ -43,16 +43,11 @@ const markerSchema = z.object({
     })
     .nullable(),
   digest: z.string().length(64),
-  /**
-   * Absent on folders written before `source/` existed: their source sits
-   * at the Module folder root until it is relocated once.
-   */
   layout: z.enum(["relocating", "source"]).optional(),
   paths: z.array(z.string()),
 });
 type Marker = z.infer<typeof markerSchema>;
 
-/** Where relocation gathers a legacy folder's entries before naming them `source/`. */
 const RELOCATING = ".relocating-source";
 
 const DIRECTORY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -63,14 +58,10 @@ export function moduleDirectory(id: string) {
   return createHash("sha256").update(id).digest("hex").slice(0, 24);
 }
 
-/** The installed folder of one Module and its three top-level directories. */
 export interface ModuleFolder {
-  /** The selected release's built output, read-only. */
   readonly artifact: string;
-  /** `data.sqlite` and its companions: the only read-write app mount. */
   readonly data: string;
   readonly root: string;
-  /** Everything buildable, `foundry.module.json` included. */
   readonly source: string;
 }
 
@@ -85,16 +76,12 @@ export function moduleFolder(root: string, id: string): ModuleFolder {
 }
 
 export interface ModuleStoreOptions {
-  /** The Works profile whose earlier `modules/artifacts.json` is copied in once. */
   readonly legacyUserData?: string;
-  /** The shared manager's per-file rejection limit; the manager default when absent. */
   readonly maxFileBytes?: number;
 }
 
 export interface LocalModuleLibraryOptions {
-  /** The Module records, over the store {@link openModuleStore} opened. */
   readonly records: ModuleRecords;
-  /** How source saves and releases run, are admitted and are recorded. */
   readonly saves: SourceSaves;
 }
 
@@ -121,12 +108,6 @@ async function exists(file: string) {
   }
 }
 
-/**
- * The Module library's records store, `.library/artifacts.json` under
- * `root`, with its one shared manager composed: new file bytes are backing
- * files under `.library/blobs`, and backing files a crashed write left
- * behind are removed.
- */
 export async function openModuleStore(
   root: string,
   options: ModuleStoreOptions = {}
@@ -142,26 +123,16 @@ export async function openModuleStore(
     }
   }
   const store = new JsonArtifactStore({ path: artifactFile });
-  // Composed before anything asks for it, so every caller of this store
-  // shares the one file-backed manager.
   const { artifacts } = modulePersistence(store, {
     files: blobFiles(path.join(privateRoot, "blobs")),
     ...(options.maxFileBytes === undefined
       ? {}
       : { maxFileBytes: options.maxFileBytes }),
   });
-  // Backing files a crashed write left behind, with no record naming them.
   await artifacts.recover();
   return store;
 }
 
-/**
- * Editable working folders and immutable Artifact releases share one
- * library. Records stay in the store {@link openModuleStore} opened, and
- * each Module's buildable source is materialized in its folder's
- * `source/`. Saves, releases and disk edits commit in the Module's turn,
- * between two synchronizations of its folder.
- */
 export async function openLocalModuleLibrary(
   root: string,
   options: LocalModuleLibraryOptions
@@ -193,13 +164,6 @@ export async function openLocalModuleLibrary(
       paths: Object.keys(details.source),
     });
   }
-  /**
-   * Moves a folder written before `source/` existed into its `source/`,
-   * once. Every entry moves by rename, so files (pending disk edits
-   * included) are never copied or rewritten, and an interrupted move
-   * resumes: the gathering directory exists before the marker says
-   * `relocating`, and disappears only by becoming `source/`.
-   */
   async function relocate(id: string) {
     const marker = await readMarker(id);
     const folder = moduleFolder(root, id);
@@ -225,7 +189,6 @@ export async function openLocalModuleLibrary(
     }
     await writeMarker(id, { ...marker, layout: "source" });
   }
-  /** Files at the folder root with no marker were never written by Works. */
   async function refuseUnregistered(id: string) {
     if (
       (await readMarker(id)) === null &&
@@ -311,7 +274,6 @@ export async function openLocalModuleLibrary(
     }
     return await saveDiskEdits(id, source, details.binding, details);
   }
-  /** Disk edits, admitted like any other source, saved on the binding they were made on. */
   async function saveDiskEdits(
     id: string,
     source: Record<string, string>,
@@ -325,7 +287,6 @@ export async function openLocalModuleLibrary(
       if (!(error instanceof SourceEvidenceRequired)) {
         throw error;
       }
-      // Refused for now: the edits stay on disk for the next sync.
       return details;
     }
     await saves.run(
@@ -369,7 +330,6 @@ export async function openLocalModuleLibrary(
   return library;
 }
 
-/** Anything in the folder besides the release output and private data. */
 async function occupied(folder: ModuleFolder): Promise<boolean> {
   if (!(await exists(folder.root))) {
     return false;

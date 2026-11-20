@@ -51,7 +51,6 @@ describe("SessionHarness — provider caching", () => {
     expect(lastMessage(captured.prompt)?.providerOptions?.anthropic).toEqual({
       cacheControl: { type: "ephemeral" },
     });
-    // Anthropic caches via the breakpoint only — no request-level option.
     expect(captured.providerOptions).toBeUndefined();
   });
 

@@ -14,12 +14,6 @@ export interface ImportTrafficSource {
 
 const byText = byCodeUnit((text: string) => text);
 
-/**
- * Each ordered package pair's endpoint files, from the import edges that
- * cross from one package into another, in one pass over the edges. An edge
- * with an end in no package of the index, or within one package, is left
- * out.
- */
 export function importPairs(
   edges: readonly Pick<SemanticsModuleEdge, "source" | "target">[],
   packageOf: ReadonlyMap<string, string>
@@ -53,12 +47,6 @@ export function importPairs(
     }));
 }
 
-/**
- * Where packages import from one another, file by file: for each ordered
- * pair the module edges cross, the files at each end. It reads the module
- * index, for each file's package, and every edge shard once, at scan time,
- * so that a reader of the pairs reads no shard.
- */
 export const importTrafficLens: Lens<"import-traffic", ImportTrafficSource> = {
   derive: ({ edges, modules }): ImportTraffic => ({
     pairs: importPairs(

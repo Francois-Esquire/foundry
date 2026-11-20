@@ -6,7 +6,6 @@ import type {
 } from "../../editor/host";
 import { workbooks } from "./workbooks";
 
-/** A workbook file with these Sheet1 cells. */
 export function workbookFile(cells: Record<string, string>): string {
   const workbook = workbooks.create();
   for (const [cell, contents] of Object.entries(cells)) {
@@ -29,12 +28,6 @@ function deferred() {
 
 type HeldRequest = "answer" | "create" | "read" | "save";
 
-/**
- * One saved workbook entry, as Works keeps it: saves are fenced by digest,
- * every save is watched, and other writers can save too. Requests can be
- * held to stage races: `save` before the entry is written, `answer` after
- * it is written (and watched) but before the save is answered.
- */
 export class FakeHost implements WorkbookHost {
   readonly contentId = "content";
   readonly name = "Budget";
@@ -44,9 +37,7 @@ export class FakeHost implements WorkbookHost {
   reads = 0;
   creates = 0;
   watches = 0;
-  /** Each accepted save, in order. */
   readonly saves: { readonly expected: string; readonly text: string }[] = [];
-  /** Every signal the editor passed, to check it aborts them. */
   readonly signals: AbortSignal[] = [];
   #version = 1;
   readonly #held: Record<HeldRequest, (() => Promise<void>)[]> = {
@@ -61,14 +52,12 @@ export class FakeHost implements WorkbookHost {
     this.text = text;
   }
 
-  /** Holds the next such request until the returned function runs. */
   hold(request: HeldRequest): () => void {
     const gate = deferred();
     this.#held[request].push(() => gate.promise);
     return gate.release;
   }
 
-  /** Another writer saves the entry. */
   saveElsewhere(text: string): void {
     this.#store(text);
   }
@@ -80,7 +69,6 @@ export class FakeHost implements WorkbookHost {
   async read(_binding: string, signal: AbortSignal): Promise<OpenWorkbook> {
     this.reads += 1;
     this.signals.push(signal);
-    // Answers with the entry as it was when asked, however late it arrives.
     const answer = {
       base: { contentId: this.contentId, digest: this.digest },
       name: this.name,

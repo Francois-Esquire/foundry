@@ -34,21 +34,6 @@ import type {
 
 type CatalogState = "current" | "refresh-required";
 
-/**
- * The root of every Workspace: identity, catalog, reconciliation, and the
- * serialization guarantee. It knows nothing about where bytes come from.
- * A layer over it (a directory, an Artifact) answers `scan`, `readFile`, and
- * `writeFile`; further layers add capabilities on top.
- *
- * Not declared `abstract`, though the source primitives are abstract in every
- * sense that matters: TypeScript would then require every mixin to be
- * abstract too, and nothing could construct the composed class. The system
- * checks for a floor at open instead.
- *
- * Identity and source are fixed at construction; everything else is read
- * from the catalog on every call, so an instance never goes stale and two
- * instances of the same id never disagree.
- */
 export class Workspace {
   readonly id: WorkspaceId;
   readonly source: WorkspaceSource;
@@ -61,7 +46,6 @@ export class Workspace {
     this.context = context;
   }
 
-  /** The system's entry to the protected lifecycle hooks. Nothing else calls these. */
   static start(workspace: Workspace): Promise<void> {
     return workspace.start();
   }
@@ -70,30 +54,22 @@ export class Workspace {
     return workspace.stop();
   }
 
-  /** True once a layer has answered the source primitives. */
   static hasFloor(workspace: Workspace): boolean {
     return workspace.scan !== Workspace.prototype.scan;
   }
 
-  /** The complete entry inventory; only regular files carry content metadata. */
   scan(): Promise<readonly ObservedFacts[]> {
     return Promise.reject(
       new WorkspaceSourceUnsupportedError(this.source.kind)
     );
   }
 
-  /** Current bytes for one catalogued File, decoded. */
   protected readFile(_file: WorkspaceFile): Promise<FileContentResult> {
     return Promise.reject(
       new WorkspaceSourceUnsupportedError(this.source.kind)
     );
   }
 
-  /**
-   * Replace one File's bytes when the source still holds the bytes the caller
-   * last read. `expectedDigest` is that version; a mismatch is the conflict
-   * outcome carrying what is there now.
-   */
   protected writeFile(
     _file: WorkspaceFile,
     _bytes: Uint8Array,
@@ -104,7 +80,6 @@ export class Workspace {
     );
   }
 
-  /** Create one File at a valid storage path that nothing occupies yet. */
   protected insertFile(
     _path: string,
     _bytes: Uint8Array
@@ -114,7 +89,6 @@ export class Workspace {
     );
   }
 
-  /** Runs once when the system opens this instance. Layers call `super`. */
   protected async start(): Promise<void> {
     this.observation = await observe(
       (changed, failed) => this.watch(changed, failed),
@@ -123,7 +97,6 @@ export class Workspace {
     );
   }
 
-  /** Runs once when the system closes this instance. Layers call `super`. */
   protected async stop(): Promise<void> {
     await this.observation?.close();
     this.observation = undefined;
@@ -136,12 +109,10 @@ export class Workspace {
     return Promise.resolve(undefined);
   }
 
-  /** The registration alone. Cheap, always current, and never scans. */
   registration(): Promise<WorkspaceRegistration> {
     return this.require();
   }
 
-  /** What a caller outside the trust boundary may see. */
   async summary(): Promise<WorkspaceSummary> {
     return summarize(
       await this.require(),
@@ -149,20 +120,10 @@ export class Workspace {
     );
   }
 
-  /**
-   * Reconcile, then return the Workspace with the catalog that observation
-   * produced.
-   *
-   * A source problem is reported beside the preserved prior catalog. Opening a
-   * Workspace whose directory is unplugged must still show what was last known
-   * — marking every File absent would turn a temporary outage into data loss.
-   */
   async refresh(): Promise<WorkspaceView> {
     await this.require();
     const source = await this.reconcile();
 
-    // One read of the rows answers both the catalog and its count, so the
-    // view's `fileCount` can never disagree with its own entries.
     const current = await this.require();
     const entries = await this.context.catalog.listEntries(this.id);
     return {
@@ -187,10 +148,6 @@ export class Workspace {
     return renamed;
   }
 
-  /**
-   * Forget this Workspace. The source is never touched — no unlink, no rmdir,
-   * no delete of any kind reaches it from here.
-   */
   async remove(): Promise<void> {
     await this.serialize(async () => {
       const result = await this.context.catalog.remove(this.id);
@@ -213,24 +170,12 @@ export class Workspace {
     return this.context.catalog.listEntries(this.id);
   }
 
-  /**
-   * Current bytes for one owned File. Identity is the only input: a caller
-   * names a File, never a path.
-   */
   async read(fileId: WorkspaceEntryId): Promise<FileContentResult> {
     await this.require();
     const entry = await this.catalogEntry(fileId);
     return entry.type === "file" ? this.readFile(entry) : notRegular(entry);
   }
 
-  /**
-   * Replace one File's bytes with the command's UTF-8 draft.
-   *
-   * The expected digest is the version of the exact bytes the caller last
-   * read. The write and its catalog update are serialized with this system's
-   * own observations so a concurrent reconciliation cannot restore pre-write
-   * facts.
-   */
   save(command: SaveFileCommand): Promise<SaveFileResult> {
     return this.serialize(async () => {
       const workspace = await this.require();
@@ -247,11 +192,6 @@ export class Workspace {
     });
   }
 
-  /**
-   * Create one File from UTF-8 text. Whether a new path joins the catalog is
-   * the scan's decision — ignore rules live there — so the catalog catches up
-   * through an ordinary observation rather than a one-row insert.
-   */
   createFile(command: CreateFileCommand): Promise<SaveFileResult> {
     return this.serialize(async () => {
       const workspace = await this.require();
@@ -270,16 +210,6 @@ export class Workspace {
     });
   }
 
-  /**
-   * The one write flow behind save and create.
-   *
-   * The draft is encoded first and refused when those bytes would not decode
-   * back to text, so the returned snapshot is truthful about the bytes at the
-   * source (a draft containing NUL would turn the File binary and break every
-   * later read/save round-trip). Once the layer reports `written`, the bytes
-   * are at the source: a catalog that cannot catch up is `refresh-required`,
-   * never a failed write and never an invitation to resend.
-   */
   private async write(
     path: string,
     text: string,
@@ -319,7 +249,6 @@ export class Workspace {
     return { catalog, kind: "saved", snapshot };
   }
 
-  /** The one-File catalog update after a successful replacement. */
   private async recordWrite(
     workspace: WorkspaceRegistration,
     file: WorkspaceFile,
@@ -348,12 +277,6 @@ export class Workspace {
     return result.kind === "committed" ? "current" : "refresh-required";
   }
 
-  /**
-   * One observation, queued behind every save and observation already
-   * pending, reading the registration only once it runs. A caller that
-   * changed the source and then refreshes therefore always gets a scan that
-   * began after its change — never one already in flight.
-   */
   private reconcile(): Promise<WorkspaceSourceStatus> {
     return this.serialize(async () => this.observeSource(await this.require()));
   }
@@ -362,13 +285,6 @@ export class Workspace {
     return this.context.serialize(this.id, task);
   }
 
-  /**
-   * One complete observation applied as one catalog change.
-   *
-   * The scan finishes entirely before the catalog is touched, so a source that
-   * failed halfway through never reaches a mutation. The catalog refuses a
-   * change that no longer matches its rows and leaves the prior catalog exact.
-   */
   private async observeSource(
     workspace: WorkspaceRegistration
   ): Promise<WorkspaceSourceStatus> {
@@ -382,8 +298,6 @@ export class Workspace {
       throw error;
     }
 
-    // Successful observations have a strict order, even within one clock tick.
-    // updatedAt advances only when the catalog changes.
     const at = nextWorkspaceObservation(workspace.lastReconciledAt);
     const change = diffCatalog({
       at,

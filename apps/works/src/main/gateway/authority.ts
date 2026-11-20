@@ -10,18 +10,11 @@ import type {
 } from "@foundry/modules/registry";
 import { denied } from "./provider-kit";
 
-/** A Grant an effect needs: the capability and its resolved digest. */
 export interface RequiredGrant {
   readonly capability: string;
   readonly digest: string;
 }
 
-/**
- * The caller's authority, read again from host state when its effect takes
- * its turn: the package's runtime admission (the Program is the live
- * realization of a running Installation), and every named Grant. A revoke
- * that committed first refuses the effect.
- */
 export async function authorizeRuntime(
   store: Pick<ModuleCommands, "loadGatewayContext">,
   principal: ModulePrincipal,

@@ -26,79 +26,33 @@ import { validateReductionPlan } from "./validate";
 import type { WorkingTree } from "./working-tree";
 import { workingTree } from "./working-tree";
 
-// The only mutating operator: internalize-export. It narrows a symbol's
-// package-public exposure — it never deletes the symbol, its implementation,
-// or its internal module export. Everything else in this package stays
-// read-only, and even this path defaults to preview: nothing is written
-// without an explicit write request, and a failed verification, or any
-// error between the first write and the last check, attempts to restore the
-// pre-mutation bytes and mode of every file it wrote. The restore guard leaves
-// files with intervening changes untouched and reports failures. Each write and restore
-// is a rename over the file, so it keeps the bytes and the mode, but not an
-// owner other than Spyglass's user, extended attributes, ACLs, or other hard
-// links to the file, which keep the old bytes. A crash mid-write can leave a
-// `<file>.<uuid>.tmp` beside it, which is safe to delete.
-
 export interface ApplyOptions {
-  /**
-   * More checks once the files are written and the structural checks ran,
-   * such as the readiness commands run again; any that fails rolls back.
-   */
   afterChecks?: () => Promise<VerificationCheck[]>;
-  /**
-   * The target's report once the files are written: `analyzeSurface` by
-   * default; `spyglass apply` passes the staged scan's. Whatever it throws
-   * restores the files as a failed check does.
-   */
   analyzeAfter?: (options: AnalyzeSurfaceOptions) => Promise<SurfaceReport>;
-  /**
-   * The target's report before the write, to validate the plan against and
-   * verify the write from: analyzed fresh by default; `spyglass apply` passes
-   * the saved dataset's once it is proven current. It must agree with a
-   * fresh analysis on every field validation and verification read.
-   */
   before?: SurfaceReport;
-  /**
-   * Called once every file's written bytes are known and checked, before
-   * the first write, so a caller can journal what a restore needs; required
-   * to write. Whatever it throws stops the write; nothing has been written.
-   */
   beforeWrite?: (files: readonly RestorableFile[]) => Promise<void>;
-  /**
-   * The SHA-256 each planned file must have just before the first write,
-   * as readiness's rollback recorded it; a file missing here, or with
-   * other bytes, stops the write as stale. Unchecked when absent.
-   */
   expectedHashes?: ReadonlyMap<string, string>;
-  /** Exact source edits authorized by readiness; direct callers compile the same representation. */
   prepared?: InternalizeEdits;
-  /** Monorepo root. Defaults to the nearest ancestor of cwd with a workspaces field. */
   root?: string;
   tsconfig?: string;
-  /** Write the planned changes. Default false: preview only, no file writes. */
   write?: boolean;
 }
 
-/** A planned file as it was before the mutation: its raw bytes and mode. */
 interface Snapshot {
   bytes: Buffer;
   mode: number;
 }
 
-/** A file the mutation writes: its snapshot, and the hash of the bytes written over it, which the restore guard compares. */
 export interface RestorableFile {
   file: string;
   original: Snapshot;
-  /** SHA-256 of the written bytes. */
   writtenHash: string;
 }
 
-/** A file about to be written: what a restore needs, and the bytes. */
 interface PendingWrite extends RestorableFile {
   written: Buffer;
 }
 
-/** Some written file could not be restored; it is left as it is, and the error names it. */
 export class RestoreError extends Error {
   override readonly name = "RestoreError";
 }
@@ -108,13 +62,10 @@ export function sha256(bytes: Uint8Array): string {
 }
 
 const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
-/** A mode's permission and special bits, the part a restore puts back; the rest says what kind of file it is. */
 const PERMISSION_MODULUS = 0o1_0000;
 
-/** The start of a dirty planned file's blocker detail; the file follows it. */
 export const DIRTY_DETAIL = "Planned file has existing uncommitted changes: ";
 
-/** Why a write cannot go ahead without a readable working tree, by what is missing. */
 function noGit(tree: Exclude<WorkingTree, { kind: "repository" }>): string {
   switch (tree.kind) {
     case "git-missing":
@@ -126,11 +77,6 @@ function noGit(tree: Exclude<WorkingTree, { kind: "repository" }>): string {
   }
 }
 
-/**
- * Why the planned files cannot be written now: a planned file with
- * uncommitted changes, or, for a write, no Git to tell. Only files the
- * mutator writes are checked; other dirty files are not its concern.
- */
 function workingTreeBlockers(
   root: string,
   files: readonly string[],
@@ -149,7 +95,6 @@ function workingTreeBlockers(
     }));
 }
 
-/** Each planned file's raw bytes and mode; a symbolic link is refused, since Spyglass does not write through links. */
 function snapshots(
   root: string,
   files: readonly string[]
@@ -172,7 +117,6 @@ function snapshots(
   return taken;
 }
 
-/** A file's text as bytes to write; ts-morph drops a byte order mark, so the original's is kept. */
 function writtenBytes(fullText: string, original: Snapshot): Buffer {
   const text = Buffer.from(fullText, "utf8");
   const bom = original.bytes.subarray(0, BOM.length).equals(BOM);
@@ -181,7 +125,6 @@ function writtenBytes(fullText: string, original: Snapshot): Buffer {
     : text;
 }
 
-/** A file's bytes, or undefined once it is gone; a restore cannot compare a missing file, so it leaves it alone. */
 function readIfPresent(path: string): Buffer | undefined {
   try {
     return readFileSync(path);
@@ -193,16 +136,6 @@ function readIfPresent(path: string): Buffer | undefined {
   }
 }
 
-/**
- * Puts every written file back as it was, one at a time and atomically,
- * with its mode. A file that still holds its original bytes is left alone;
- * one that holds neither those nor the written bytes changed after the
- * write, so it is not overwritten. Each restore is flushed to disk. Every
- * file is tried; when any is left untouched or fails to restore, it throws
- * once, naming them all, with `cause` (the error that called for the
- * restore) or else the first failure as its cause. Otherwise it returns the
- * files it restored and those it found already as they were.
- */
 export function restoreWritten(
   root: string,
   written: readonly RestorableFile[],
@@ -254,7 +187,6 @@ export function restoreWritten(
   );
 }
 
-/** Error-severity diagnostic counts per file+code for files under `dir`. */
 function diagnosticCounts(project: Project, dir: string): Map<string, number> {
   const prefix = dir.endsWith(sep) ? dir : dir + sep;
   const counts = new Map<string, number>();
@@ -298,13 +230,6 @@ function routesRemaining(
   return afterPlan?.publicRoutes ?? [];
 }
 
-/**
- * Structural verification of an applied internalize-export: proves the symbol
- * left the package-public surface without disturbing anything else. Deltas
- * use package-public semantics (route disappearance), matching the plan's
- * prediction — not the module-level summary counts, which deliberately do not
- * move when the declaring module keeps its own export.
- */
 export function verifyInternalizeExport(
   plan: InternalizeSymbolPlan,
   before: SurfaceReport,
@@ -394,12 +319,6 @@ function result(
   };
 }
 
-/**
- * Run a plan through the mutation lifecycle: revalidate against a fresh
- * analysis, protect dirty files, edit deterministically, and — only with
- * `write` — save, verify, and roll back on any verification failure. Without
- * `write` this is a preview: no file is ever modified.
- */
 export async function applyReductionPlan(
   plan: ReductionPlan,
   options: ApplyOptions = {}
@@ -506,8 +425,6 @@ export async function applyReductionPlan(
   await beforeWrite(
     pending.map(({ written: _bytes, ...restorable }) => restorable)
   );
-  // Again once the journal is down: a file may have moved while it was
-  // flushed. The caller deletes the journal of a write that never began.
   const staleAfter = staleBeforeWrite(root, pending, options.expectedHashes);
   if (staleAfter !== undefined) {
     return result(plan, "stale", plan.predictedDelta, {
@@ -560,12 +477,6 @@ export async function applyReductionPlan(
   });
 }
 
-/**
- * A planned file whose text, written back unedited, would not be its
- * snapshot's bytes: one that is not UTF-8, which the rewrite would
- * re-encode, or one that changed between the snapshot and the project's
- * read of it.
- */
 function unfaithfulFile(
   project: Project,
   root: string,
@@ -585,7 +496,6 @@ function unfaithfulFile(
   }
 }
 
-/** Each edited file's snapshot and the bytes to write over it. */
 function pendingWrites(
   files: ReadonlyMap<string, SourceFile>,
   originals: ReadonlyMap<string, Snapshot>
@@ -600,11 +510,6 @@ function pendingWrites(
   });
 }
 
-/**
- * Why the write cannot start: a planned file that no longer holds its
- * snapshot's bytes, read again now, or whose hash is not the one the
- * rollback recorded (A2). Nothing has been written yet.
- */
 function staleBeforeWrite(
   root: string,
   pending: readonly PendingWrite[],
@@ -626,11 +531,6 @@ function staleBeforeWrite(
   }
 }
 
-/**
- * Writes each file atomically, with its original mode. Each is listed in
- * `written` before its write, so a failure part-way restores it too: the
- * restore leaves a file that still holds its original bytes alone.
- */
 function writeEdited(
   root: string,
   pending: readonly PendingWrite[],
@@ -645,7 +545,6 @@ function writeEdited(
   }
 }
 
-/** A verification with more checks after its own; any that fails fails it. */
 function withChecks(
   verification: VerificationResult,
   checks: readonly VerificationCheck[]
@@ -658,7 +557,6 @@ function withChecks(
   };
 }
 
-/** The checks after the write: no new TypeScript error in the package, and the structural proof. */
 async function verifyWritten(context: {
   analyze: (options: AnalyzeSurfaceOptions) => Promise<SurfaceReport>;
   analyzeOptions: AnalyzeSurfaceOptions;

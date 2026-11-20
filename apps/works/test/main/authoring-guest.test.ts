@@ -28,8 +28,6 @@ it("runs an authoring agent's commands, processes, reads and writes as the autho
 
   const [id, copy, cleanup] = executions;
   expect(id).toMatchObject({ command: ["id"], user: AUTHORING_GUEST_USER });
-  // Staged at an unguessable name, then copied in by the authoring user, so
-  // the write has only that user's permissions; root removes the stage.
   expect(copy).toMatchObject({ user: AUTHORING_GUEST_USER });
   const [staged, target] = copy?.command.slice(-2) ?? [];
   expect(staged).toMatch(STAGED);
@@ -37,7 +35,6 @@ it("runs an authoring agent's commands, processes, reads and writes as the autho
   expect(files()?.has(staged ?? "")).toBe(false);
   expect(cleanup).toMatchObject({ command: ["rm", "-f", "--", staged] });
   expect(cleanup?.user).toBeUndefined();
-  // Reads run as the authoring user too, so root-only files stay closed.
   executions.length = 0;
   expect(new TextDecoder().decode(await guest.files.readFile("src/a.ts"))).toBe(
     "export {};"
@@ -57,7 +54,6 @@ it("runs an authoring agent's commands, processes, reads and writes as the autho
   await expect(guest.files.readFile("/builds/secret")).rejects.toThrow(
     "/builds/secret could not be read"
   );
-  // Only what the agent was given: the rest of the container is refused.
   await expect(guest.files.copyOut("/builds")).rejects.toThrow(
     "Not available to an authoring agent"
   );
@@ -68,7 +64,6 @@ it("runs an authoring agent's commands, processes, reads and writes as the autho
     "Not available to an authoring agent"
   );
   expect(guest.volumes).toBeUndefined();
-  // No shell or service runs as root on the agent's behalf.
   await expect(guest.shell.open()).rejects.toThrow(
     "Not available to an authoring agent"
   );

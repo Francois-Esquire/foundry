@@ -16,8 +16,6 @@ import { smokeWorks } from "../helpers/smoke-works";
 
 registerModuleScheme();
 
-// A deliberately small editor fixture, not a substitute for Sheets/Documents
-// acceptance. Runs in a real sandboxed iframe and uses the selected wire API.
 const HTML =
   '<!doctype html><form id="editor-form"><textarea id="draft">retained draft</textarea><button id="enter" type="submit">Enter</button></form><script src="/editor.js"></script>';
 const SCRIPT = `
@@ -109,8 +107,6 @@ async function smoke(userData: string) {
   let choice = 0;
   let dialogs = 0;
   const originalDialog = dialog.showMessageBoxSync;
-  // Real Electron beforeunload/close/quit wiring; native dialog button choice
-  // is deterministic here. This does not test OS dialog rendering/input.
   dialog.showMessageBoxSync = () => {
     dialogs += 1;
     return choice;
@@ -121,8 +117,6 @@ async function smoke(userData: string) {
       () => evaluate("!!document.querySelector('nav[aria-label=Main]')"),
       "Shell missing"
     );
-    // Set the initial location before an editor is mounted; subsequent changes
-    // use React Router links, so its actual blocker handles them.
     await evaluate("location.hash = '#/m/preview-fixture?view=editor'");
     await waitFor(
       async () =>
@@ -220,8 +214,6 @@ async function smoke(userData: string) {
     assert.equal(window.isDestroyed(), false);
     assert.equal(frame(), initial);
 
-    // A cancelled actual app.quit must not shut down the backend. A later
-    // confirmed quit runs cleanup only after Electron destroyed the window.
     let cleanups = 0;
     let reports = 0;
     registerQuitCleanup(
@@ -251,7 +243,6 @@ async function smoke(userData: string) {
     assert.equal(cleanups, 0);
     assert.equal(window.isDestroyed(), false);
 
-    // Leave the retained dirty frame explicitly, then reopen a live editor.
     await settings();
     await waitFor(prompt, "Second navigation did not ask");
     await button("Leave anyway");
@@ -272,7 +263,6 @@ async function smoke(userData: string) {
       "Editor reopen missing"
     );
     choice = 1;
-    // Close anyway is also the confirmation path used by an app quit.
     const closed = new Promise<void>((resolve) =>
       window.once("closed", () => resolve())
     );
@@ -295,7 +285,6 @@ async function smoke(userData: string) {
       "Final editor missing"
     );
     completed = true;
-    // The smoke runner now issues a real app.quit with a dirty frame.
     app.once("will-quit", () => {
       assert.equal(cleanups, 1);
       assert.equal(dialogs, 4);

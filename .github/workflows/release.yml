@@ -1,7 +1,5 @@
 name: Prepare Releases
 
-# Releases are cut only from a main commit whose CI build passed; that build's
-# tested archives are what the releases carry and npm receives.
 on:
   workflow_run:
     workflows: [CI]

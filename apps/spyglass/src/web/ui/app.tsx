@@ -8,7 +8,6 @@ import {
 import { afterFirstFrame } from "../timings";
 import Spyglass from "./spyglass-view";
 
-/** Page options; developer instrumentation is enabled only by Vite's compile-time flag. */
 export function readSession(search = window.location.search) {
   const params = new URLSearchParams(search);
   return {
@@ -34,9 +33,6 @@ export function App() {
     const load = async () => {
       try {
         const spyglass = await loadSpyglass(controller.signal);
-        // Read beside the scene's build and merged after its first frame,
-        // so neither the read nor the re-render it causes delays it; a
-        // refusal fails the page as a refusal at load does.
         const read = loadLateReadings(spyglass, controller.signal);
         read.catch(fail);
         setLate(

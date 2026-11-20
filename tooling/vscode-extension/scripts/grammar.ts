@@ -1,5 +1,3 @@
-/** Writes the contributed grammars to `syntaxes/`. Run through `bun run grammar`, which formats them after. */
-
 import { writeFileSync } from "node:fs";
 import { grammars } from "../src/grammar";
 

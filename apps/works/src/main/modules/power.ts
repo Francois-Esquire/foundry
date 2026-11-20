@@ -14,7 +14,6 @@ const recordSchema = z.object({
   off: z.array(z.string()),
 });
 
-/** A runtime refusal, so every surface (app, preview, build, chat) shows its message. */
 export class ModuleOffError extends ModuleRuntimeError {
   constructor() {
     super("This Module is off. Turn it on in the Module's page to use it.");
@@ -23,24 +22,14 @@ export class ModuleOffError extends ModuleRuntimeError {
 
 export interface ModulePowerOptions {
   readonly execution: Pick<WorksExecution, "dispatch">;
-  /** Works state: which Modules the user turned off. */
   readonly file: string;
 }
 
-/** Something a Module's power governs: its apps, or its sandbox. */
 export interface PoweredPart {
-  /** Whether the Module's part is live now; a live one shows as its sandbox. */
   live?(moduleId: string): boolean;
-  /** Module off: stop the Module's part, resolving once cleanup is confirmed. */
   stop(moduleId: string): Promise<void>;
 }
 
-/**
- * Turns Modules on and off. A Module is on unless the user turned it off.
- * While it is on, its sandbox, once started, stays on even when idle; off
- * refuses new work, stops its apps and removes its sandbox, and stays off
- * across restarts until turned on. Each change is a `system` engine run.
- */
 export class ModulePower {
   readonly #execution: ModulePowerOptions["execution"];
   readonly #file: string;
@@ -53,10 +42,6 @@ export class ModulePower {
     this.#file = options.file;
   }
 
-  /**
-   * Govern `part` too: Module off stops it, after the parts governed before
-   * it (apps before the sandbox they run in).
-   */
   govern(part: PoweredPart): void {
     this.#parts.push(part);
   }
@@ -70,18 +55,12 @@ export class ModulePower {
     };
   }
 
-  /** Throws `ModuleOffError` when the Module is off. */
   async admit(moduleId: string): Promise<void> {
     if ((await this.#offModules()).has(moduleId)) {
       throw new ModuleOffError();
     }
   }
 
-  /**
-   * Off is recorded first, so nothing new starts while the Module's apps and
-   * sandbox stop; it resolves once their cleanup is confirmed. A failed
-   * cleanup leaves the Module off: turning it off again retries.
-   */
   set(moduleId: string, on: boolean): Promise<ModulePowerView> {
     return this.#execution.dispatch(
       WORKS_TASKS.power,

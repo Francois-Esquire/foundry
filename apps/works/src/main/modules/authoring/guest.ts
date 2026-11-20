@@ -9,20 +9,12 @@ import type {
 } from "@foundry/sandbox/types";
 import { MODULE_SANDBOX_ROOT } from "../sandboxes/coordinator";
 
-/**
- * The guest user an authoring agent works as in its Module sandbox. Builds
- * share that sandbox and run as root in a directory only root can enter, so
- * an agent (which runs commands without asking, and may be steered by what
- * it fetches) cannot change a build's outputs between build and publish.
- * `oven/bun` images ship it, with its own home.
- */
 export const AUTHORING_GUEST_USER = "bun";
 
 type GuestFiles = Pick<Container, "commands" | "files">;
 
 const UNAVAILABLE = "Not available to an authoring agent";
 
-/** `find -printf %y` letters, as directory entry types. */
 const ENTRY_TYPES: Readonly<Record<string, SandboxDirectoryEntry["type"]>> = {
   b: "device",
   c: "device",
@@ -33,16 +25,6 @@ const ENTRY_TYPES: Readonly<Record<string, SandboxDirectoryEntry["type"]>> = {
   s: "socket",
 };
 
-/**
- * The Module sandbox as an authoring agent sees it: every command, process,
- * read and write runs as {@link AUTHORING_GUEST_USER}, so the agent has
- * that user's permissions and no way to act as root. A write is staged at a
- * name nobody can predict and copied into place by that user.
- *
- * Built member by member, never by spreading the root container: a member
- * the container gains later is missing here (a type error, or absent at
- * runtime when optional) until someone decides how the agent may use it.
- */
 export function authoringGuest(container: Container): Container {
   const refuse = () => Promise.reject(new Error(UNAVAILABLE));
   const asGuest = (options: SandboxExecOptions = {}) => ({
@@ -92,8 +74,6 @@ export function authoringGuest(container: Container): Container {
     path: string,
     options: SandboxListOptions = {}
   ): Promise<readonly SandboxDirectoryEntry[]> {
-    // Like the facet: links are not followed, and what cannot be read is
-    // left out rather than failing the listing.
     const listed = await exec([
       "find",
       "-P",
@@ -163,21 +143,14 @@ export function authoringGuest(container: Container): Container {
   };
 }
 
-/**
- * Before root touches the workspace (seeding a turn, collecting its
- * changes): end everything the authoring user left running, so nothing it
- * started can race root's file operations.
- */
 export async function endAuthoringProcesses(
   container: GuestFiles
 ): Promise<void> {
-  // `kill -1` signals every process the user may signal, except itself.
   await container.commands.exec(["sh", "-c", "kill -9 -1 2>/dev/null; true"], {
     user: AUTHORING_GUEST_USER,
   });
 }
 
-/** Hand the seeded workspace to the authoring user, who edits it. */
 export async function giveWorkspaceToAuthor(
   container: GuestFiles
 ): Promise<void> {

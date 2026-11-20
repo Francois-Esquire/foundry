@@ -34,11 +34,6 @@ import { verdict } from "./verdict";
 
 const churnPattern = /-/g;
 
-/**
- * Default report: what is this → what stands out → who consumes it → what
- * could change → supporting detail. Every line reads a report field; the
- * builder sorts and slices but decides nothing.
- */
 export function buildSurfaceView(
   report: SurfaceReport,
   config: AnalysisConfig,

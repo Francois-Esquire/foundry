@@ -1,9 +1,6 @@
-// The anti-aliasing: FXAA (shaders/post/fxaa.wgsl) over the finished,
-// display-referred frame, onto the output; or the frame as it is.
 import { fxaa } from "../../../../shaders/post/fxaa.wgsl";
 
 struct Antialias {
-  // 1 runs FXAA; 0 copies.
   enabled: f32,
 }
 
