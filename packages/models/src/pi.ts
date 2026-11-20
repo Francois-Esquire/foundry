@@ -1,5 +1,4 @@
 import { wrapLanguageModel } from "ai";
-import type { PiProviderSettings } from "ai-sdk-provider-pi";
 import { deferredLanguageModel } from "./deferred-language-model";
 import type { Provider } from "./provider";
 import type { ModelKind, ProviderModelDefinition } from "./types";
@@ -8,8 +7,30 @@ export type { PiDriverOptions } from "./harness/pi";
 // biome-ignore lint/performance/noBarrelFile: Provider subpaths expose their native turn drivers.
 export { createPiDriver } from "./harness/pi";
 
-export interface PiProviderConfig extends PiProviderSettings {
+interface PiLogger {
+  debug(msg: string): void;
+  error(msg: string): void;
+  info(msg: string): void;
+  warn(msg: string): void;
+}
+
+interface PiSettings {
+  agentDir?: string;
+  cwd?: string;
+  defaultProvider?: string;
+  instructions?: string;
+  logger?: PiLogger | false;
+  maxToolResultSize?: number;
+  sessionId?: string;
+  sessionPersistence?: "memory" | "disk";
+  thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  tools?: "coding" | "readOnly" | "all";
+  verbose?: boolean;
+}
+
+export interface PiProviderConfig {
   available?: boolean;
+  defaultSettings?: PiSettings;
 }
 
 export interface PiProviderOptions {

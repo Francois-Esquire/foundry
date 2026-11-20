@@ -1,8 +1,9 @@
 import { jsonSchema, tool } from "ai";
-import { describe, expect, it, vi } from "vitest";
+import type { PiSettings } from "ai-sdk-provider-pi";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 import { createPiDriver, type PiDriverOptions } from "../harness/pi";
-import { piProvider } from "../pi";
+import { type PiProviderConfig, piProvider } from "../pi";
 import { collect, runOptions } from "./helpers/cli";
 import { FakePi } from "./helpers/pi";
 
@@ -23,6 +24,12 @@ function setup(options: Partial<PiDriverOptions> = {}) {
 }
 
 describe("Pi provider", () => {
+  it("declares the Pi SDK's settings as its default settings", () => {
+    expectTypeOf<
+      NonNullable<PiProviderConfig["defaultSettings"]>
+    >().toEqualTypeOf<PiSettings>();
+  });
+
   it("uses host-owned availability and the AI SDK compatibility adapter", async () => {
     expect(piProvider().available).toBe(false);
     const provider = piProvider({ config: { available: true } });
