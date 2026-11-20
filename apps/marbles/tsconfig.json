@@ -14,12 +14,6 @@
     "jsx": "react-jsx",
     "jsxImportSource": "@opentui/react"
   },
-  "include": [
-    "src/**/*",
-    "test/**/*",
-    "preview/**/*",
-    "stories/**/*",
-    "templates/**/*"
-  ],
+  "include": ["src/**/*", "test/**/*", "stories/**/*", "templates/**/*"],
   "exclude": ["node_modules", "dist"]
 }

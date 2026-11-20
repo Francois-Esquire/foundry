@@ -562,7 +562,6 @@ export function DashboardView({
           hosted={hosted}
           onHome={ui.goHome}
           onWorkspaces={ui.workspaces.length ? ui.openWorkspaces : undefined}
-          preview={snapshot.mode === "snapshot"}
           workspace={snapshot.workspace}
         />
         <ViewTabs onChange={ui.setView} view={state.view} />
@@ -623,7 +622,6 @@ export function DashboardView({
           hosted={hosted !== undefined}
           onCancel={ui.quit.cancel}
           onConfirm={onClose}
-          preview={snapshot.mode === "snapshot"}
         />
       )}
     </box>

@@ -101,7 +101,6 @@ function DashboardApp({
     <SplashView
       onClose={onClose}
       onEnter={onEnter}
-      preview={false}
       state={
         snapshot
           ? { counts: summarizeConfig(snapshot), hasConfig, status: "ready" }

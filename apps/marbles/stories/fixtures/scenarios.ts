@@ -2,7 +2,7 @@ import type {
   DashboardSnapshot,
   RunSnapshot,
   StepSnapshot,
-} from "../src/cli/state/dashboard-model";
+} from "../../src/cli/state/dashboard-model";
 import { dashboardSnapshot } from "./snapshot";
 
 export interface PreviewScenario {

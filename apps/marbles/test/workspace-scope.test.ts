@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { dashboardSnapshot } from "../preview/snapshot";
 import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
 import {
   resolveSelection,
@@ -9,6 +8,7 @@ import {
 } from "../src/cli/state/dashboard-model";
 import { scopedRuns } from "../src/cli/state/dashboard-tree";
 import { showsOthers, workspaceScoped } from "../src/cli/state/workspace-scope";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 const [first, second] = dashboardSnapshot.runs;
 const [trigger] = dashboardSnapshot.triggers;

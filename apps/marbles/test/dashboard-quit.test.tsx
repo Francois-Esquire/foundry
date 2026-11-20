@@ -1,8 +1,8 @@
+import type { KeyEvent } from "@opentui/core";
 import { afterEach, expect, test } from "vitest";
-import { PreviewApp } from "../preview/app";
-import { dashboardSnapshot } from "../preview/snapshot";
 import { selectionKey } from "../src/cli/state/dashboard-model";
 import { DashboardView } from "../src/cli/views/dashboard";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { click, ctrlC, mount, press, unmount } from "./helpers/render";
 
 let closed = false;
@@ -29,7 +29,6 @@ test("quit defaults to cancel and restores the selected step", async () => {
   expect(frame).toContain("Quit Marbles?");
   expect(frame).toContain("Quitting stops schedules and monitoring");
   expect(frame).toContain("Running steps are cancelled.");
-  expect(frame).toContain("Preview only:");
   expect(closed).toBe(false);
   await press(ui, "RETURN");
   expect(closed).toBe(false);
@@ -112,12 +111,25 @@ test("quit controls remain visible in a narrow short terminal", async () => {
   expect(ui.captureCharFrame()).not.toContain("Quit Marbles?");
 });
 
-test("preview scenario shortcuts are blocked while the quit dialog is open", async () => {
-  const ui = await mount(<PreviewApp onClose={close} />);
+test("host shortcuts are blocked while the quit dialog is open", async () => {
+  const shortcuts: string[] = [];
+  const shortcut = (key: KeyEvent) => {
+    shortcuts.push(key.sequence);
+  };
+  const ui = await mount(
+    <DashboardView
+      onClose={close}
+      onShortcut={shortcut}
+      snapshot={dashboardSnapshot}
+    />
+  );
   const before = ui.captureCharFrame();
   await press(ui, "q");
   await press(ui, "]");
   await press(ui, "n");
   await press(ui, "ESCAPE");
   expect(ui.captureCharFrame()).toBe(before);
+  expect(shortcuts).toEqual(["q"]);
+  await press(ui, "]");
+  expect(shortcuts).toEqual(["q", "]"]);
 });

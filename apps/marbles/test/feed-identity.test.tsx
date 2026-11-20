@@ -1,9 +1,9 @@
 import { act, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import { dashboardSnapshot } from "../preview/snapshot";
 import { feedKey } from "../src/cli/state/feed-model";
 import { useFeed } from "../src/cli/state/use-feed";
 import type { FeedEntrySnapshot } from "../src/lib/feed/read";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { mount, unmount } from "./helpers/render";
 
 afterEach(unmount);

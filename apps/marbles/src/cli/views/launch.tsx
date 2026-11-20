@@ -55,11 +55,7 @@ export function LaunchView({
     <SetupFlow
       overlay={
         quit.quitting && (
-          <QuitDialog
-            onCancel={quit.cancel}
-            onConfirm={onClose}
-            preview={false}
-          />
+          <QuitDialog onCancel={quit.cancel} onConfirm={onClose} />
         )
       }
       title={`Launch ${definition.name}`}

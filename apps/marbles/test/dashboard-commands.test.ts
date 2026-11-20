@@ -19,7 +19,7 @@ import {
   reduce,
 } from "~/cli/state/dashboard-state";
 import type { RunActions } from "~/cli/state/run-actions";
-import { dashboardSnapshot } from "../preview/snapshot";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 function footer(commandContext: CommandContext) {
   const { hints, lasting } = commandFooter(commandContext);

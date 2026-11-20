@@ -3,22 +3,17 @@ import { Action } from "~/components/ui/action";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 
-function hostLabel(preview: boolean, hosted?: HostedWorkspace): string {
-  if (preview) {
-    return "preview";
-  }
+function hostLabel(hosted?: HostedWorkspace): string {
   return hosted && hosted.state !== "ready" ? hosted.state : "";
 }
 
 export function WorkspaceHeader({
   workspace,
-  preview,
   hosted,
   onHome,
   onWorkspaces,
 }: {
   readonly workspace: string;
-  readonly preview: boolean;
   readonly hosted?: HostedWorkspace;
   readonly onHome: () => void;
   readonly onWorkspaces?: () => void;
@@ -48,7 +43,7 @@ export function WorkspaceHeader({
       )}
       <box flexGrow={1} />
       <text fg={failed ? theme.colors.error : theme.colors.mutedForeground}>
-        {hostLabel(preview, hosted)}
+        {hostLabel(hosted)}
       </text>
     </box>
   );

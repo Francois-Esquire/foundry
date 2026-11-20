@@ -1,12 +1,12 @@
 import { RGBA } from "@opentui/core";
 import { act, useEffect, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import { previewScenarios } from "../preview/scenarios";
-import { dashboardSnapshot } from "../preview/snapshot";
 import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
 import { selectionKey } from "../src/cli/state/dashboard-model";
 import { DashboardView } from "../src/cli/views/dashboard";
 import { theme } from "../src/components/ui/theme";
+import { previewScenarios } from "../stories/fixtures/scenarios";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import {
   click,
   flush,
@@ -112,7 +112,6 @@ test("composes an operating overview with runs, and a separate typed catalog", a
   const ui = await render();
   const frame = ui.captureCharFrame();
   for (const label of [
-    "preview",
     "Dashboard",
     "Catalog",
     "3 Runs",

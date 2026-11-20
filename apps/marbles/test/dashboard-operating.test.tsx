@@ -1,11 +1,11 @@
 import { RGBA } from "@opentui/core";
 import { act, useCallback, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import { dashboardSnapshot } from "../preview/snapshot";
 import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
 import { DashboardView } from "../src/cli/views/dashboard";
 import { applyTheme, theme } from "../src/components/ui/theme";
 import type { SettingsChange } from "../src/model/settings";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { click, flush, mount, press, unmount } from "./helpers/render";
 
 const ACTIVE_STEP = /Step\s+: write/;

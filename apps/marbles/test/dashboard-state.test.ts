@@ -10,7 +10,7 @@ import {
   reduce,
   visibleLists,
 } from "~/cli/state/dashboard-state";
-import { dashboardSnapshot } from "../preview/snapshot";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 const empty: DashboardSnapshot = {
   ...dashboardSnapshot,

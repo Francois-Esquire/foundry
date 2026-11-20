@@ -21,7 +21,6 @@ function ReadySplash() {
       key={visit}
       onClose={reset}
       onEnter={stayOnSplash}
-      preview
       state={ready}
       workspace="foundry"
     />

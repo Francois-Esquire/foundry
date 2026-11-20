@@ -26,7 +26,7 @@ import {
   operatingStats,
 } from "~/cli/state/operating-model";
 import { Diagnostics, lineLevel } from "~/workspace/diagnostics";
-import { dashboardSnapshot } from "../preview/snapshot";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 function hintText(context: CommandContext): string {
   const { hints } = footer(context);

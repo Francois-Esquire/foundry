@@ -178,13 +178,7 @@ export function OnboardingView({
       }
       maxHeight={STAGES[stage].height}
       overlay={
-        quitting && (
-          <QuitDialog
-            onCancel={quit.cancel}
-            onConfirm={onClose}
-            preview={false}
-          />
-        )
+        quitting && <QuitDialog onCancel={quit.cancel} onConfirm={onClose} />
       }
       title="Set up your workspace"
     >

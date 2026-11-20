@@ -1,9 +1,9 @@
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
-import { dashboardSnapshot } from "../preview/snapshot";
 import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
 import { DashboardView } from "../src/cli/views/dashboard";
 import type { FeedAnswer } from "../src/lib/feed/entry";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { flush, frameWith, mount, unmount } from "./helpers/render";
 
 let closed = false;

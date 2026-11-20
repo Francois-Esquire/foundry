@@ -1,55 +1,18 @@
-# Dashboard preview
+# Terminal UI stories
 
-From the repository root:
+Marbles' terminal UI is developed with [Textbook](https://textbook.sh)
+stories. From `apps/marbles`:
 
 ```sh
-bun run --cwd apps/marbles preview:ui
+bun run stories
+bun run stories:web
 ```
 
-The preview uses deterministic snapshots. It does not start schedules, connect to
-models, or read persisted state. The existing `marbles run` command is unchanged.
-
-## Startup
-
-The preview opens a centered Marbles splash. It simulates loading for 900 ms,
-then shows config totals and waits for Enter or a click on "Press Enter to enter".
-Counts come from the same snapshot used by the initial dashboard. This delay
-belongs to `preview/startup.tsx`; `SplashView` receives loading/ready state from
-its host and does not load config or start runs.
-
-The title uses OpenTUI's ASCII font, with a compact font on narrow terminals.
-Quit confirmation works on the splash too. Clicking `marbles` in the dashboard
-header, or pressing `h`, returns from details or help to the dashboard while
-preserving selection and filters.
-
-## Scenarios and playback
-
-- `[` / `]`: previous / next scenario.
-- `p`: play or pause the Running scenario.
-- `n`: advance one frame.
-- `r`: reset to the first frame.
-- Toolbar labels also respond to clicks.
-
-Scenarios include Running, Idle, Failed, Completed, Long history, Long output,
-Deep steps, and Narrow terminal. Running advances through queued, starting,
-working, and completed snapshots every 1.2 seconds and stops at the last frame.
-Playback starts paused. Switching scenarios resets playback and navigation;
-advancing frames preserves selection and expansion.
-
-Overview shows run counts and timings, a usage line, and Runs; Latest and
-Usage sit beside Runs in wide terminals, and Latest sits below it in narrow
-ones. Catalog stacks Triggers over a larger Marbles list. Triggers combines
-schedules and monitors, with badges identifying each kind. Logs, Feed, and
-Settings each fill the area below the tabs. Focusing Triggers or Marbles shows
-Catalog; focusing Runs shows Overview.
-
-Enter or clicking a row opens a full-height details view. Escape returns to the
-same selection in its dashboard panel. Marbles contains workflow and step
-definitions and supports the same search, details, and run filtering controls.
-
-The header shows the workspace and preview/live label. Scenario controls sit at
-the bottom. Narrow terminal constrains the preview to 70 columns without changing
-the layout. Edit `snapshot.ts` and `scenarios.ts` to explore other data and states.
+`stories` opens the story browser in the terminal; `stories:web` serves it in a
+browser at `http://localhost:8008/`. Both load every `stories/**/*.stories.tsx` file. Stories render the
+real views and components with deterministic data from `stories/fixtures/`
+(`snapshot.ts` and `scenarios.ts`), which the tests share. They do not start
+schedules, connect to models, or read persisted state.
 
 ## Navigation
 
@@ -72,34 +35,13 @@ the layout. Edit `snapshot.ts` and `scenarios.ts` to explore other data and stat
 | x | Clear all searches and the run filter |
 | f in logs | Toggle follow; scrolling pauses follow |
 | v / o / f / x on the Logs tab | Minimum level / source / follow / clear filters |
-| Left / Right on the Settings tab | Change the theme (read-only in the preview) |
+| Left / Right on the Settings tab | Change the theme (read-only when the host cannot save settings) |
 | Page Up / Page Down | Scroll the whole inspector in short terminals |
 | ? | Open keyboard help; Escape or ? closes it |
 | q / Ctrl+C | Open the quit confirmation |
 | Ctrl+C in the quit dialog | Quit immediately |
 | Tab / Left / Right in the dialog | Choose Keep open or Quit |
 | Enter / Escape in the dialog | Activate the choice / cancel |
-
-Clicking schedule, monitor, catalog, run, or step rows opens their details.
-Inspector tabs and breadcrumbs also respond to clicks. Click branch arrows to
-expand independently of selection. Mouse wheel scrolling is available in panels
-and the JSON viewer.
-
-Details has Overview, Input, Output, and Logs tabs for runs and steps. JSON arrays
-and objects have individually expandable nodes. Step logs include that step and
-its descendants. Missing values, empty logs, and missing items have explicit
-states. Errors appear in Overview and Output.
-
-The quit dialog defaults to Keep open and supports mouse clicks. It blocks
-background controls and restores the previous selection, search, and help view
-when cancelled. Its warning distinguishes saved results and successful monitor
-checkpoints from interrupted runs, which cannot resume. The preview closes only
-the renderer. The existing live CLI still drains active runs during graceful
-shutdown; immediate interruption is not wired to this UI yet.
-
-The default palette is [Gruvbox Dark](https://github.com/morhetz/gruvbox), using
-the original medium background, warm foreground, and bright accent colors.
-Gruvbox Light is the other theme Settings offers.
 
 ## Composition
 
@@ -108,7 +50,6 @@ Gruvbox Light is the other theme Settings offers.
 - `src/cli/views/dashboard.tsx`: layout and host toolbar slot.
 - `src/cli/views/splash.tsx`: centered loading/ready screen.
 - `src/cli/state/splash-model.ts`: startup state and snapshot counts.
-- `preview/startup.tsx`: simulated loading and explicit entry into the preview.
 - `src/cli/state/dashboard-state.ts`: dashboard state (focus, selection, expansion, queries, run filter, launch form) as a pure reducer.
 - `src/cli/state/dashboard-commands.ts`: the one command table behind key handling, the footer, and keyboard help.
 - `src/cli/state/use-dashboard.ts`: wires the reducer and the command table to the renderer.
@@ -116,7 +57,6 @@ Gruvbox Light is the other theme Settings offers.
 - `src/cli/state/dashboard-tree.ts`: run filtering and visible tree rows.
 - `src/cli/state/dashboard-model.ts`: read-only presentation data and selection resolution.
 - `src/model/`: plain JSON and log entry types shared by the data layer and `ui/`.
-- `preview/app.tsx`: scenario switching and the playback clock.
 
 The host supplies a snapshot and a close callback. Components do not query state,
 invoke workflows, or own the renderer. Runs have distinct IDs and contain observed
@@ -128,7 +68,7 @@ Inputs, results, and trigger configuration accept JSON values. Log entries carry
 stable IDs and optional step IDs. Timestamps and elapsed times are display-ready
 strings supplied by the host. The live CLI uses `src/cli` to map engine
 records into the same views. Run `bun run start` or `bun run start -- run` for
-real configuration, triggers, execution history, and shutdown. Preview scenarios
+real configuration, triggers, execution history, and shutdown. Story fixtures
 remain isolated from that runtime.
 
 ## termcn source
@@ -152,19 +92,7 @@ logs retain their position when follow is paused. Dialog adds a modal backdrop,
 scrollable body, mouse actions, and a default cancel choice on each open. Theme files live under
 `components/ui`; unused provider and motion APIs are omitted.
 
-## Setup and manual launches
-
-Run `bun run preview:ui --setup` to try the setup flow without writing files.
-Use `--setup-error` to preview an existing-config write failure and `--load-error`
-to preview a newly created config that cannot load. Use `--config-error` for the
-existing-config error screen. The default preview's `]`
-key cycles through empty config, steps without triggers, no run history, launch
-arguments, and launch failure scenarios. Press `2`, select a definition, then
-`l` to launch a simulated run. No preview action calls a model or starts a real
-schedule. Search any panel with `/` to preview no matching results; `x` or the
-Clear filters action restores the list.
-
 The setup composition adapts termcn's [OpenTUI Setup Flow](https://www.termcn.dev/docs/templates/opentui/setup-flow)
 and Select components. Form input uses OpenTUI input/textarea primitives, with
-Gruvbox colors, keyboard focus, and mouse actions. Views receive snapshots and
-callbacks; the live host creates configs and dispatches runs.
+keyboard focus and mouse actions. Views receive snapshots and callbacks; the
+live host creates configs and dispatches runs.

@@ -11,13 +11,11 @@ import type { SplashState } from "~/model/splash";
 export function SplashView({
   workspace,
   state,
-  preview,
   onEnter,
   onClose,
 }: {
   readonly workspace: string;
   readonly state: SplashState;
-  readonly preview: boolean;
   readonly onEnter: () => void;
   readonly onClose: () => void;
 }) {
@@ -58,18 +56,11 @@ export function SplashView({
       <SplashCard
         height={height}
         onEnter={enter}
-        preview={preview}
         state={state}
         width={width}
         workspace={workspace}
       />
-      {quitting && (
-        <QuitDialog
-          onCancel={quit.cancel}
-          onConfirm={onClose}
-          preview={preview}
-        />
-      )}
+      {quitting && <QuitDialog onCancel={quit.cancel} onConfirm={onClose} />}
     </box>
   );
 }
