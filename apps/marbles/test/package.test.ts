@@ -32,7 +32,7 @@ import { inspectDashboard } from "./helpers/terminal";
 const CURRENT_GENERATION = /engine generation \d+: pid \d+ · current/;
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
-function privateImports(source: string): string[] {
+function moduleSpecifiers(source: string): string[] {
   const imports: string[] = [];
   function inspect(node: Node) {
     let specifier: Node | undefined;
@@ -46,18 +46,30 @@ function privateImports(source: string): string[] {
     ) {
       [specifier] = node.arguments;
     }
-    if (
-      specifier &&
-      isStringLiteral(specifier) &&
-      (specifier.text.startsWith("@foundry/") ||
-        specifier.text.startsWith("~/"))
-    ) {
+    if (specifier && isStringLiteral(specifier)) {
       imports.push(specifier.text);
     }
     forEachChild(node, inspect);
   }
   inspect(createSourceFile("package.ts", source, ScriptTarget.Latest, true));
   return imports;
+}
+
+function privateImports(source: string): string[] {
+  return moduleSpecifiers(source).filter(
+    (specifier) =>
+      specifier.startsWith("@foundry/") || specifier.startsWith("~/")
+  );
+}
+
+function importedPackages(source: string): string[] {
+  return moduleSpecifiers(source).flatMap((specifier) => {
+    if (specifier.startsWith(".") || specifier.startsWith("node:")) {
+      return [];
+    }
+    const [scope = "", name = ""] = specifier.split("/");
+    return [scope.startsWith("@") ? `${scope}/${name}` : scope];
+  });
 }
 
 test("package import inspection checks declarations and dynamic imports, not config source strings", () => {
@@ -69,6 +81,14 @@ test("package import inspection checks declarations and dynamic imports, not con
   expect(
     privateImports('const config = `import { step } from "@foundry/private";`;')
   ).toEqual([]);
+});
+
+test("package import inspection names the package of every bare declaration import", () => {
+  expect(
+    importedPackages(
+      "import { A } from '@fal-ai/client'; import 'drizzle-orm/sqlite-core'; import { B } from './chunk.js'; import { EventEmitter } from 'node:events'; type C = import(\"ai-sdk-provider-pi\").C;"
+    )
+  ).toEqual(["@fal-ai/client", "drizzle-orm", "ai-sdk-provider-pi"]);
 });
 
 const OPTIONAL_PROVIDER_SDKS = [
@@ -151,6 +171,7 @@ test("the tarball installs and shares the library registry with the CLI", async 
       JSON.stringify({
         dependencies: {
           "@foundry.sh/marbles": `file:${archive}`,
+          "@types/node": "^26.4.1",
           zod: "^4.4.3",
         },
         name: "marbles-package-consumer",
@@ -181,6 +202,14 @@ test("the tarball installs and shares the library registry with the CLI", async 
       if (file.endsWith(".js") || file.endsWith(".d.ts")) {
         expect(
           privateImports(readFileSync(join(installed, "dist", file), "utf8"))
+        ).toEqual([]);
+      }
+      if (file.endsWith(".d.ts")) {
+        expect(
+          importedPackages(
+            readFileSync(join(installed, "dist", file), "utf8")
+          ).filter((name) => !Object.hasOwn(manifest.dependencies, name)),
+          `${file} imports a package that is not a dependency`
         ).toEqual([]);
       }
     }
@@ -363,6 +392,8 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
         "--noEmit",
         "--strict",
         "--skipLibCheck",
+        "--types",
+        "node",
         "--target",
         "esnext",
         "--module",
