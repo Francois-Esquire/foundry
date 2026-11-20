@@ -222,8 +222,15 @@ runs, has no saved journal to watch. Output files have no retention policy yet.
 
 The watcher exits with code 0 on completion, 1 on failure or cancellation,
 and 130 when interrupted. Interrupting the watcher does not cancel the run.
-If the owner disappears without recording an ending, the watcher reports
-that interruption rather than waiting indefinitely.
+If the owner disappears without recording an ending, the watcher reads the
+run's Execution Run from the Marbles database before it gives up. A run
+that is parked or queued, or running under a live owner, is still being
+handed over, and the watcher keeps following it to its new owner's ending.
+A run recorded as completed, failed or cancelled ends the watch with that
+status. Otherwise, or without a database, the watcher reports that the run
+lost its owner rather than waiting indefinitely. A journal with no
+readable start record two seconds after the watcher opened it is reported
+as such.
 
 Diagnostics and the workspace's status lines go to stderr; stdout carries MCP
 messages only. The server runs in a child process whose stdout is stderr,
