@@ -1,6 +1,6 @@
 import { defineStories, story } from "textbook-sh";
 import { LoadingIndicator } from "~/components/ui/loading-indicator";
-import { renderFrame } from "./frame";
+import { renderFrame } from "../frame";
 
 export default defineStories({
   component: "LoadingIndicator",

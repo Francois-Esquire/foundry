@@ -1,7 +1,7 @@
 import { defineStories, story } from "textbook-sh";
 import { Log } from "~/components/ui/log";
 import type { LogEntry } from "~/model/log";
-import { renderFrame } from "./frame";
+import { renderFrame } from "../frame";
 
 const size = { height: 10, width: 72 };
 

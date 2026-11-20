@@ -1,7 +1,7 @@
 import type { CliRenderer } from "@opentui/core";
 import type { ReactNode } from "react";
 import { theme } from "~/components/ui/theme";
-import { renderReactStory } from "../render-react-story";
+import { renderReactStory } from "./render-react-story";
 
 interface FrameSize {
   readonly height: number;

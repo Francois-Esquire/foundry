@@ -1,6 +1,6 @@
 import { defineStories, story } from "textbook-sh";
 import { theme } from "~/components/ui/theme";
-import { renderFrame } from "./frame";
+import { renderFrame } from "../frame";
 
 function Swatches() {
   return (

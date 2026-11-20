@@ -2,7 +2,7 @@ import { useState } from "react";
 import { defineStories, story } from "textbook-sh";
 import { Select } from "~/components/ui/select";
 import { Text } from "~/components/ui/text";
-import { ignore, renderFrame } from "./frame";
+import { ignore, renderFrame } from "../frame";
 
 const size = { height: 7, width: 40 };
 

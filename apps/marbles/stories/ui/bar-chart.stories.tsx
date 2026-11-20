@@ -2,7 +2,7 @@ import { defineStories, story } from "textbook-sh";
 import { BarChart } from "~/components/ui/bar-chart";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import { renderFrame } from "./frame";
+import { renderFrame } from "../frame";
 
 interface Ranking {
   readonly label: string;

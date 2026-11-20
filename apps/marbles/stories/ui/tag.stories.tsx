@@ -1,7 +1,7 @@
 import { defineStories, story } from "textbook-sh";
 import { Tag } from "~/components/ui/tag";
 import { theme } from "~/components/ui/theme";
-import { renderFrame } from "./frame";
+import { renderFrame } from "../frame";
 
 const size = { height: 3, width: 40 };
 

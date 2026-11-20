@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { defineStories, story } from "textbook-sh";
 import { Text } from "~/components/ui/text";
 import { TextInput } from "~/components/ui/text-input";
-import { renderFrame } from "./frame";
+import { renderFrame } from "../frame";
 
 const size = { height: 5, width: 50 };
 

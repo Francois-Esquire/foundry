@@ -6,7 +6,7 @@ import { Panel, type PanelHints, PanelShortcuts } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import { ignore, renderFrame } from "./frame";
+import { ignore, renderFrame } from "../frame";
 
 const size = { height: 10, width: 60 };
 

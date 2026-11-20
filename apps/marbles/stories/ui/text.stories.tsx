@@ -1,7 +1,7 @@
 import { defineStories, story } from "textbook-sh";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import { renderFrame } from "./frame";
+import { renderFrame } from "../frame";
 
 const sentence =
   "Quitting stops schedules and monitoring for this session; saved results are kept.";

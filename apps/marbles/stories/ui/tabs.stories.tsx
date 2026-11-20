@@ -2,7 +2,7 @@ import { type ReactNode, useState } from "react";
 import { defineStories, story } from "textbook-sh";
 import { Tabs } from "~/components/ui/tabs";
 import { Text } from "~/components/ui/text";
-import { ignore, renderFrame } from "./frame";
+import { ignore, renderFrame } from "../frame";
 
 type Section = "overview" | "runs" | "logs";
 

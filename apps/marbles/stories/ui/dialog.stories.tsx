@@ -4,7 +4,7 @@ import { Action } from "~/components/ui/action";
 import { Dialog } from "~/components/ui/dialog";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import { ignore, renderFrame } from "./frame";
+import { ignore, renderFrame } from "../frame";
 
 const size = { height: 22, padded: false, width: 80 };
 

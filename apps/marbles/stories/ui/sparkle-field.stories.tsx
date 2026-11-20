@@ -1,6 +1,6 @@
 import { defineStories, story } from "textbook-sh";
 import { SparkleField } from "~/components/ui/sparkle-field";
-import { renderFrame } from "./frame";
+import { renderFrame } from "../frame";
 
 export default defineStories({
   component: "SparkleField",

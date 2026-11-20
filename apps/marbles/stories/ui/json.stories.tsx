@@ -1,7 +1,7 @@
 import { defineStories, story } from "textbook-sh";
 import { JSONView } from "~/components/ui/json";
 import type { JsonValue } from "~/model/json";
-import { renderFrame } from "./frame";
+import { renderFrame } from "../frame";
 
 const size = { height: 10, width: 52 };
 

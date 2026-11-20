@@ -2,7 +2,7 @@ import { useState } from "react";
 import { defineStories, story } from "textbook-sh";
 import { Action } from "~/components/ui/action";
 import { Text } from "~/components/ui/text";
-import { ignore, renderFrame } from "./frame";
+import { ignore, renderFrame } from "../frame";
 
 const size = { height: 5, width: 40 };
 const choices = ["Run", "Pause", "Stop"] as const;

@@ -1,7 +1,7 @@
 import { defineStories, story } from "textbook-sh";
 import { KeyValue } from "~/components/ui/key-value";
 import { theme } from "~/components/ui/theme";
-import { renderFrame } from "./frame";
+import { renderFrame } from "../frame";
 
 const size = { height: 7, width: 50 };
 

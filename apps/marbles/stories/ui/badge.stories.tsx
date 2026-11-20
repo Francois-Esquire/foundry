@@ -1,6 +1,6 @@
 import { defineStories, story } from "textbook-sh";
 import { Badge } from "~/components/ui/badge";
-import { renderFrame } from "./frame";
+import { renderFrame } from "../frame";
 
 const size = { height: 3, width: 30 };
 
