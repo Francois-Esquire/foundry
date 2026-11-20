@@ -4,7 +4,7 @@ import { Plate } from "@/components/blocks/plate";
 import { hud } from "@/model/palette";
 import type { Size } from "@/model/screen";
 
-const RAIL_WIDTH = 28;
+const RAIL_WIDTH = 30;
 
 export interface HudSection {
   readonly content: ReactNode;
@@ -16,18 +16,18 @@ export interface HudSection {
 
 export function HudLayout({
   goal,
+  hints,
   main,
-  meta,
   onResize,
   sections,
-  title,
+  steps,
 }: {
   readonly goal: ReactNode;
+  readonly hints: ReactNode;
   readonly main: ReactNode;
-  readonly meta?: string;
   readonly onResize: (size: Size) => void;
   readonly sections: readonly HudSection[];
-  readonly title: string;
+  readonly steps: ReactNode;
 }) {
   const measure = useCallback(
     function measureHud(this: BoxRenderable) {
@@ -37,30 +37,35 @@ export function HudLayout({
   );
   return (
     <box
-      backgroundColor={hud.gutter}
-      flexDirection="row"
-      gap={1}
+      backgroundColor={hud.ink}
+      flexDirection="column"
       height="100%"
       onSizeChange={measure}
       width="100%"
     >
-      <box flexDirection="column" flexShrink={0} width={RAIL_WIDTH}>
-        {sections.map((section) => (
-          <Plate
-            grow={section.grow}
-            key={section.key}
-            meta={section.meta}
-            title={section.title}
-          >
-            {section.content}
-          </Plate>
-        ))}
+      <box flexDirection="row" flexGrow={1} flexShrink={1} gap={1}>
+        <box flexDirection="column" flexShrink={0} width={RAIL_WIDTH}>
+          {sections.map((section) => (
+            <Plate
+              grow={section.grow}
+              key={section.key}
+              meta={section.meta}
+              title={section.title}
+            >
+              {section.content}
+            </Plate>
+          ))}
+        </box>
+        <box flexDirection="column" flexGrow={1} flexShrink={1}>
+          <box flexShrink={0} height={1} paddingX={1}>
+            {steps}
+          </box>
+          <Plate grow>{main}</Plate>
+          <Plate tone={hud.amber}>{goal}</Plate>
+        </box>
       </box>
-      <box flexDirection="column" flexGrow={1} flexShrink={1} gap={1}>
-        <Plate grow meta={meta} screen title={title}>
-          {main}
-        </Plate>
-        <Plate>{goal}</Plate>
+      <box flexShrink={0} height={1} paddingX={1}>
+        {hints}
       </box>
     </box>
   );
