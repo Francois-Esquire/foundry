@@ -1,6 +1,7 @@
 import type { BoxRenderable } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { cellWidth } from "./cells";
 import { Text } from "./text";
 import { TextInput } from "./text-input";
 
@@ -23,13 +24,15 @@ export function fitInputRow(
     return { label: full, showsHint: false };
   }
   const label =
-    trimmed.find((entry) => entry.length + GAP + MIN_INPUT_WIDTH <= width) ??
+    trimmed.find(
+      (entry) => cellWidth(entry) + GAP + MIN_INPUT_WIDTH <= width
+    ) ??
     trimmed.at(-1) ??
     full;
   const showsHint =
     hint !== undefined &&
     label === full &&
-    width >= full.length + GAP + MIN_INPUT_WIDTH + GAP + hint.length;
+    width >= cellWidth(full) + GAP + MIN_INPUT_WIDTH + GAP + cellWidth(hint);
   return { label, showsHint };
 }
 

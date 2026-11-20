@@ -244,3 +244,13 @@ test("a long typed answer in a narrow feed reader keeps its label", async () => 
   const frame = lines(ui.captureCharFrame());
   expect(frame.some((line) => ANSWER_LABEL_THEN_DRAFT.test(line))).toBe(true);
 });
+
+test("a wide-character label is measured in cells", () => {
+  const label = "界".repeat(10);
+  const hint = "Enter send · Esc cancel";
+  expect(fitInputRow([label], hint, 50)).toEqual({ label, showsHint: false });
+  expect(fitInputRow([label], hint, 20 + 1 + 12 + 1 + 23)).toEqual({
+    label,
+    showsHint: true,
+  });
+});

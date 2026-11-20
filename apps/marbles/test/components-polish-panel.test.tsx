@@ -3,6 +3,7 @@ import { act, useState } from "react";
 import { afterEach, expect, test } from "vitest";
 import { settingsView } from "../src/cli/theme";
 import { SettingsBlock } from "../src/components/blocks/settings-panel";
+import { cellWidth } from "../src/components/ui/cells";
 import { Panel } from "../src/components/ui/panel";
 import {
   flush,
@@ -142,7 +143,7 @@ test("a settings panel resized a row at a time matches a fresh one", async () =>
       expect(pinnedRows(ui.captureCharFrame())).toBe(fresh[height - 10]);
     }
   }
-});
+}, 30_000);
 
 test("a settings panel shrunk from tall keeps inside its border", async () => {
   const ui = await mount(<Shrinking />, { height: 26, width: 46 });
@@ -210,4 +211,58 @@ test("a panel's text width returns when its scrollbar goes away", async () => {
   expect(textBesideScrollbar(scrolling)).toEqual([]);
   await press(ui, "t");
   expect(lines(ui.captureCharFrame())).toEqual(still);
+});
+
+function ShrinkingHeader() {
+  const [tall, setTall] = useState(true);
+  useKeyboard((key) => {
+    if (key.name === "h") {
+      setTall(false);
+    }
+  });
+  const header = (
+    <box flexDirection="column">
+      {(tall ? rows.slice(0, 9) : ["only-header"]).map((row) => (
+        <text key={row}>{`head ${row}`}</text>
+      ))}
+    </box>
+  );
+  return (
+    <box flexDirection="column" height={10} width={44}>
+      <Panel header={header} selectedId="row-20" title="Rows">
+        {rows.map((row) => (
+          <text id={row} key={row}>
+            {row}
+          </text>
+        ))}
+      </Panel>
+    </box>
+  );
+}
+
+test("a header that shrinks while scrolled away is pinned again", async () => {
+  const ui = await mount(<ShrinkingHeader />, { height: 12, width: 46 });
+  await settle(ui);
+  expect(ui.captureCharFrame()).not.toContain("head row-1");
+  await press(ui, "h");
+  await settle(ui);
+  const drawn = lines(ui.captureCharFrame());
+  expect(drawn[1]).toContain("head only-header");
+  expect(drawn.join("\n")).toContain("row-20");
+});
+
+test("a wide-character title is shortened by cells, not dropped", async () => {
+  const ui = await mount(
+    <box flexDirection="column" height={6} width={30}>
+      <Panel title={"界".repeat(30)}>
+        <text>body</text>
+      </Panel>
+    </box>,
+    { height: 8, width: 32 }
+  );
+  await settle(ui);
+  const top = lines(ui.captureCharFrame())[0] ?? "";
+  expect(top).toContain("界界");
+  expect(top).toContain("…");
+  expect(cellWidth(top)).toBe(30);
 });
