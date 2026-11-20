@@ -45,12 +45,13 @@ schedules, connect to models, or read persisted state.
 
 ## Composition
 
-- `src/components/ui/`: adapted termcn Tabs, Key Value, JSON, Log, Dialog, themed text, and the theme singleton, plus panels, selectable rows, actions, and the text input. Nothing in `ui/` imports blocks.
-- `src/components/blocks/`: kind badges, status labels, catalogs, run tree, run inspector, catalog details, activity details, overview, values, logs, help, quit confirmation, workspace header.
-- Components are presentational: props and callbacks in, rendering out. They import React, OpenTUI, other components, and `model/` types (feed and input types from `lib/`), never `cli/`; `test/components-boundary.test.ts` enforces it. Blocks that select take the selection type as a type parameter.
-- `src/cli/views/dashboard.tsx`: layout and host toolbar slot.
+- `src/components/ui/`: adapted termcn Tabs, Key Value, JSON, Log, Dialog, themed text, and the theme singleton, plus panels, selectable rows, actions, the text input, and form focus. Nothing in `ui/` imports blocks or layouts.
+- `src/components/blocks/`: kind badges, status labels, catalogs, run tree, run inspector, catalog details, activity details, overview, values, logs, help, quit confirmation, workspace header, search and prompt bars, work status, the dashboard footer, and setup intro details and actions. Blocks import no layouts.
+- `src/components/layouts/`: chrome with `ReactNode` slots. `dashboard.tsx` arranges header, tabs, search, help, notices, main, workspace rail, docked or overlaid drawer, prompt, status, footer, toolbar, and overlay, and `dashboardMain` gives the main region's width; `catalog.tsx` puts details beside the catalog; `feed.tsx` places the list and reader side by side or stacked; `setup-flow.tsx` is the centred framed screen; `splash.tsx` is the sparkle field behind a centred card.
+- Components are presentational: props and callbacks in, rendering out. They import React, OpenTUI, other components, and `model/` types (feed and input types from `lib/`), never `cli/`; `test/components-boundary.test.ts` enforces it and the layering above. Blocks that select take the selection type as a type parameter.
+- `src/cli/views/dashboard.tsx`: fills the dashboard layout's slots and the host toolbar slot; `dashboard-main.tsx` picks the feed, details, usage, catalog (`dashboard-catalog.tsx`), or overview (`dashboard-overview.tsx`); `dashboard-drawer.tsx` picks the workspaces, settings, or logs drawer and its dock.
 - `src/cli/views/inspector.tsx`: the details panel; picks the inspector block for the resolved selection.
-- `src/cli/views/splash.tsx`: centered loading/ready screen.
+- `src/cli/views/splash.tsx`: fills the splash layout with the loading/ready card.
 - `src/cli/state/splash-model.ts`: startup state and snapshot counts.
 - `src/cli/state/dashboard-state.ts`: dashboard state (focus, selection, expansion, queries, run filter, launch form) as a pure reducer.
 - `src/cli/state/dashboard-commands.ts`: the one command table behind key handling, the footer, and keyboard help.

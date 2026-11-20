@@ -1,11 +1,9 @@
-import type { BoxRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useState } from "react";
 import { useQuitGuard } from "~/cli/hooks/use-quit-guard";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { SplashCard } from "~/components/blocks/splash-card";
-import { SparkleField } from "~/components/ui/sparkle-field";
-import { theme } from "~/components/ui/theme";
+import { SplashLayout, type Viewport } from "~/components/layouts/splash";
 import type { SplashState } from "~/model/splash";
 
 export function SplashView({
@@ -20,11 +18,8 @@ export function SplashView({
   readonly onClose: () => void;
 }) {
   const terminal = useTerminalDimensions();
-  const [viewport, setViewport] = useState<typeof terminal>();
-  const { height, width } = viewport ?? terminal;
-  const measure = useCallback(function measureSplash(this: BoxRenderable) {
-    setViewport({ height: this.height, width: this.width });
-  }, []);
+  const [measured, setMeasured] = useState<Viewport>();
+  const viewport = measured ?? terminal;
   const quit = useQuitGuard(onClose);
   const { quitting } = quit;
   const enter = useCallback(() => {
@@ -44,23 +39,23 @@ export function SplashView({
     }
   });
   return (
-    <box
-      alignItems="center"
-      backgroundColor={theme.colors.background}
-      height="100%"
-      justifyContent="center"
-      onSizeChange={measure}
-      width="100%"
-    >
-      <SparkleField height={height} paused={quitting} width={width} />
-      <SplashCard
-        height={height}
-        onEnter={enter}
-        state={state}
-        width={width}
-        workspace={workspace}
-      />
-      {quitting && <QuitDialog onCancel={quit.cancel} onConfirm={onClose} />}
-    </box>
+    <SplashLayout
+      card={
+        <SplashCard
+          height={viewport.height}
+          onEnter={enter}
+          state={state}
+          width={viewport.width}
+          workspace={workspace}
+        />
+      }
+      height={viewport.height}
+      onResize={setMeasured}
+      overlay={
+        quitting && <QuitDialog onCancel={quit.cancel} onConfirm={onClose} />
+      }
+      paused={quitting}
+      width={viewport.width}
+    />
   );
 }

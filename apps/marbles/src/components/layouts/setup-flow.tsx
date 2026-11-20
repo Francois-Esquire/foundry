@@ -1,13 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/react";
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-} from "react";
+import { type ReactNode, useCallback, useRef } from "react";
+import { FormFocusProvider } from "~/components/ui/form-focus";
 import { theme } from "~/components/ui/theme";
 
 export function SetupFlow({
@@ -55,24 +49,11 @@ export function SetupFlow({
           scrollX={false}
           viewportCulling={false}
         >
-          <FocusContext.Provider value={reveal}>
-            {children}
-          </FocusContext.Provider>
+          <FormFocusProvider value={reveal}>{children}</FormFocusProvider>
         </scrollbox>
         {footer}
       </box>
       {overlay}
     </box>
   );
-}
-
-const FocusContext = createContext<((id: string) => void) | undefined>(
-  undefined
-);
-export function useFormFocus(id: string) {
-  const reveal = useContext(FocusContext);
-  useEffect(() => {
-    const timer = setTimeout(() => reveal?.(id), 20);
-    return () => clearTimeout(timer);
-  }, [id, reveal]);
 }

@@ -4,8 +4,8 @@ import { useAsyncAction } from "~/cli/hooks/use-async-action";
 import { useQuitGuard } from "~/cli/hooks/use-quit-guard";
 import { ArgumentForm } from "~/components/blocks/argument-form";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
+import { SetupFlow } from "~/components/layouts/setup-flow";
 import { Action } from "~/components/ui/action";
-import { SetupFlow } from "~/components/ui/setup-flow";
 import { Text } from "~/components/ui/text";
 import {
   type InputField,

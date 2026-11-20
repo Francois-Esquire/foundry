@@ -1,6 +1,6 @@
 import { useKeyboard } from "@opentui/react";
+import { SetupFlow } from "~/components/layouts/setup-flow";
 import { Action } from "~/components/ui/action";
-import { SetupFlow } from "~/components/ui/setup-flow";
 import { Text } from "~/components/ui/text";
 
 export function ConfigErrorView({

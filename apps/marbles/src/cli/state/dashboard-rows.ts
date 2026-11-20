@@ -8,6 +8,7 @@ import type { WorkspaceSummary } from "~/model/connection";
 import { statusDisplay } from "~/model/run-status";
 import {
   type DashboardSelection,
+  type DashboardSnapshot,
   type DefinitionSnapshot,
   isSelected,
   runSelection,
@@ -15,9 +16,23 @@ import {
   type TriggerSnapshot,
   triggerSelection,
 } from "./dashboard-model";
-import type { RunRow } from "./dashboard-tree";
+import type { CatalogSelection, RunRow } from "./dashboard-tree";
 import type { LatestItem, OperatingLogEntry } from "./operating-model";
 import { costView } from "./usage-format";
+
+export function describeFilter(
+  snapshot: DashboardSnapshot,
+  filter?: CatalogSelection
+): string | undefined {
+  if (!filter) {
+    return undefined;
+  }
+  const name =
+    filter.kind === "trigger"
+      ? snapshot.triggers.find((item) => isSelected(item, filter))?.name
+      : snapshot.definitions.find((item) => item.id === filter.id)?.name;
+  return `${filter.kind}: ${name ?? filter.id}`;
+}
 
 function triggerRowId(trigger: TriggerSnapshot): string {
   return trigger.workspace === undefined

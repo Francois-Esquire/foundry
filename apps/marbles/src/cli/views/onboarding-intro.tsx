@@ -9,8 +9,8 @@ import {
 import { useAsyncAction } from "~/cli/hooks/use-async-action";
 import { useQuitGuard } from "~/cli/hooks/use-quit-guard";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
-import { Action } from "~/components/ui/action";
-import { SetupFlow } from "~/components/ui/setup-flow";
+import { IntroActions, IntroDetails } from "~/components/blocks/setup-intro";
+import { SetupFlow } from "~/components/layouts/setup-flow";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import type { discoverProviderSetup } from "~/workspace/provider-setup";
@@ -47,6 +47,12 @@ function Intro({
     },
     [action.busy, action.run, quit.quitting]
   );
+  const proceed = useCallback(() => act(onContinue), [act, onContinue]);
+  const skip = useCallback(() => {
+    if (onSkip) {
+      act(onSkip);
+    }
+  }, [act, onSkip]);
   const { keyInput } = useRenderer();
   const handleKey = useEffectEvent((key: KeyEvent) => {
     if (quit.handleKey(key) || action.busy) {
@@ -55,12 +61,10 @@ function Intro({
     switch (key.name) {
       case "enter":
       case "return":
-        act(onContinue);
+        proceed();
         break;
       case "escape":
-        if (onSkip) {
-          act(onSkip);
-        }
+        skip();
         break;
       case "q":
         quit.ask();
@@ -78,23 +82,12 @@ function Intro({
   return (
     <SetupFlow
       footer={
-        <box flexDirection="row" flexWrap="wrap" gap={2}>
-          {action.busy ? (
-            <Text>Saving…</Text>
-          ) : (
-            <>
-              <Action
-                active
-                label={primary}
-                onAction={act}
-                value={onContinue}
-              />
-              {onSkip && (
-                <Action label="Esc · Skip" onAction={act} value={onSkip} />
-              )}
-            </>
-          )}
-        </box>
+        <IntroActions
+          busy={action.busy}
+          onContinue={proceed}
+          onSkip={onSkip ? skip : undefined}
+          primary={primary}
+        />
       }
       maxHeight={15}
       overlay={
@@ -104,17 +97,9 @@ function Intro({
       }
       title={title}
     >
-      <box flexDirection="column" gap={1} marginTop={1}>
-        <text fg={theme.colors.mutedForeground} wrapMode="word">
-          Workspace · {workspace}
-        </text>
+      <IntroDetails error={action.error} workspace={workspace}>
         {children}
-        {action.error && (
-          <text fg={theme.colors.error} wrapMode="word">
-            {action.error}
-          </text>
-        )}
-      </box>
+      </IntroDetails>
     </SetupFlow>
   );
 }

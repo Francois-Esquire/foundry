@@ -250,6 +250,7 @@ export function useDashboard({
       }
       send({ selection: logRun(entry, entry.runId), type: "inspect" });
     },
+    openSettings: () => send({ type: "view", view: "settings" }),
     openWorkspaces,
     pane: paneOf(state),
     quit,
@@ -270,3 +271,5 @@ export function useDashboard({
     workspaces,
   };
 }
+
+export type Dashboard = ReturnType<typeof useDashboard>;

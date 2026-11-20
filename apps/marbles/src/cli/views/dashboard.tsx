@@ -1,542 +1,30 @@
 import { useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useState } from "react";
-import { DefinitionsBlock, TriggersBlock } from "~/components/blocks/catalog";
-import { CatalogPanels } from "~/components/blocks/catalog-panels";
-import { DashboardMetrics } from "~/components/blocks/dashboard-metrics";
+import { DashboardFooter } from "~/components/blocks/dashboard-footer";
 import { KeyboardHelp } from "~/components/blocks/keyboard-help";
-import { LogsBlock } from "~/components/blocks/logs-panel";
-import {
-  LatestBlock,
-  OverviewPanels,
-  UsageBreakdown,
-} from "~/components/blocks/operating-overview";
+import { PromptBar } from "~/components/blocks/prompt-bar";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
-import { RunsBlock } from "~/components/blocks/runs";
-import { SettingsBlock } from "~/components/blocks/settings-panel";
 import { type ViewTabItem, ViewTabs } from "~/components/blocks/view-tabs";
+import { WorkStatus } from "~/components/blocks/work-status";
 import { WorkspaceHeader } from "~/components/blocks/workspace-header";
 import { WorkspacesPanel } from "~/components/blocks/workspaces-panel";
-import { Action } from "~/components/ui/action";
+import { DashboardLayout, dashboardMain } from "~/components/layouts/dashboard";
 import { PanelShortcuts } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
-import { TextInput } from "~/components/ui/text-input";
-import { theme } from "~/components/ui/theme";
 import { helpSections } from "../state/dashboard-commands";
-import { dashboardMetrics } from "../state/dashboard-metrics";
-import type { DashboardSnapshot } from "../state/dashboard-model";
-import {
-  isSelected,
-  selectionKey,
-  triggerSelection,
-} from "../state/dashboard-model";
-import {
-  definitionRows,
-  latestRows,
-  logLines,
-  runListRows,
-  triggerRows,
-  workspaceRows,
-} from "../state/dashboard-rows";
+import { workspaceRows } from "../state/dashboard-rows";
 import type { DashboardViewKey } from "../state/dashboard-state";
-import type { CatalogSelection } from "../state/dashboard-tree";
-import { latestActivity, nextSchedule } from "../state/operating-model";
-import type { RunActions, RunPrompt } from "../state/run-actions";
-import { usageBreakdown } from "../state/usage-format";
 import { type DashboardOptions, useDashboard } from "../state/use-dashboard";
-import { settingsView } from "../theme";
-import { FeedView } from "./feed";
-import { Inspector } from "./inspector";
+import { DashboardDrawer, drawerDock } from "./dashboard-drawer";
+import { DashboardMain } from "./dashboard-main";
+import { BrowseSearch, browsing } from "./dashboard-search";
 import { LaunchView } from "./launch";
 
-function describeFilter(
-  snapshot: DashboardSnapshot,
-  filter?: CatalogSelection
-): string | undefined {
-  if (!filter) {
-    return undefined;
-  }
-  const name =
-    filter.kind === "trigger"
-      ? snapshot.triggers.find((item) => isSelected(item, filter))?.name
-      : snapshot.definitions.find((item) => item.id === filter.id)?.name;
-  return `${filter.kind}: ${name ?? filter.id}`;
-}
-
-const WIDE = 110;
-const UTILITY_WIDTH = 46;
-const UTILITY_REMAINDER = 68;
-const RAIL_WIDTH = 27;
-const LATEST_ITEMS = 12;
 const VIEW_TABS: readonly ViewTabItem<DashboardViewKey>[] = [
   { label: "Dashboard", view: "overview" },
   { label: "Catalog", view: "catalog" },
   { label: "Feed", view: "feed" },
 ];
-
-function DashboardSearch({
-  filterLabel,
-  searching,
-  quitting,
-  pane,
-  query,
-  onInput,
-  onSubmit,
-}: {
-  readonly filterLabel?: string;
-  readonly searching: boolean;
-  readonly quitting: boolean;
-  readonly pane: string;
-  readonly query: string;
-  readonly onInput: (value: string) => void;
-  readonly onSubmit: () => void;
-}) {
-  return (
-    <>
-      {filterLabel && (
-        <text fg={theme.colors.info}>
-          Run filter: {filterLabel} · x all runs
-        </text>
-      )}
-      {searching ? (
-        <box flexDirection="row" height={1}>
-          <Text>Search {pane}: </Text>
-          <TextInput
-            flexGrow={1}
-            focused={!quitting}
-            onInput={onInput}
-            onSubmit={onSubmit}
-            value={query}
-          />
-          <Text>Enter apply · Esc clear</Text>
-        </box>
-      ) : (
-        query && (
-          <Text>
-            Search {pane}: {query} · / edit · x clear
-          </Text>
-        )
-      )}
-    </>
-  );
-}
-
-function PromptBar({
-  prompt,
-  draft,
-  onInput,
-  onSubmit,
-  quitting,
-}: {
-  readonly prompt: RunPrompt;
-  readonly draft: string;
-  readonly onInput: (value: string) => void;
-  readonly onSubmit: () => void;
-  readonly quitting: boolean;
-}) {
-  const label =
-    prompt.kind === "steer"
-      ? `steer ${prompt.stepId} › `
-      : `resume ${prompt.stepId} · prompt optional › `;
-  return (
-    <box flexDirection="row" height={1}>
-      <Text>{label}</Text>
-      <TextInput
-        flexGrow={1}
-        focused={!quitting}
-        onInput={onInput}
-        onSubmit={onSubmit}
-        value={draft}
-      />
-      <Text>Enter send · Esc cancel</Text>
-    </box>
-  );
-}
-
-function WorkStatus({
-  busy,
-  error,
-  label,
-}: {
-  readonly busy: boolean;
-  readonly error?: string;
-  readonly label: string;
-}) {
-  if (busy) {
-    return <Text>{label}</Text>;
-  }
-  return error ? <Text>{error}</Text> : null;
-}
-
-type DashboardUi = ReturnType<typeof useDashboard>;
-
-function BrowserContent({
-  ui,
-  snapshot,
-  width,
-  height,
-  onLaunch,
-  onRollSchedule,
-  stream,
-}: {
-  readonly ui: DashboardUi;
-  readonly snapshot: DashboardSnapshot;
-  readonly width: number;
-  readonly height: number;
-  readonly onLaunch?: (id: string) => void;
-  readonly onRollSchedule?: (key: string) => void;
-  readonly stream?: RunActions["stream"];
-}) {
-  const { state } = ui;
-  const wide = width >= WIDE;
-  const activePane = ui.inputActive ? undefined : ui.pane;
-  const details =
-    ui.pane === "details" ? (
-      <Inspector
-        active={activePane === "details"}
-        configuration={state.configuration}
-        onFilter={ui.filterRuns}
-        onInspect={ui.inspect}
-        onLaunch={onLaunch}
-        onRollSchedule={onRollSchedule}
-        onTab={ui.changeTab}
-        onToggleConfiguration={ui.toggleConfiguration}
-        resolved={ui.resolved}
-        selection={state.selected}
-        snapshot={snapshot}
-        stream={stream}
-        tab={state.tab}
-      />
-    ) : undefined;
-  if (details && !(wide && state.view === "catalog")) {
-    return details;
-  }
-  if (state.breakdown) {
-    return (
-      <UsageBreakdown
-        active={!ui.inputActive}
-        usage={snapshot.usage && usageBreakdown(snapshot.usage)}
-      />
-    );
-  }
-  const selectedId = state.selected && selectionKey(state.selected);
-  if (state.view === "catalog") {
-    const catalog = (
-      <CatalogPanels
-        catalog={
-          <DefinitionsBlock
-            active={activePane === "definition"}
-            compact={Boolean(details) || width < 75}
-            items={definitionRows(ui.definitions, state.selected)}
-            onReset={ui.clearFilters}
-            onSelect={ui.inspect}
-            searching={state.queries.definition.length > 0}
-            selectedId={selectedId}
-            workspace={snapshot.workspace}
-          />
-        }
-        triggers={
-          <TriggersBlock
-            active={activePane === "trigger"}
-            compact={Boolean(details)}
-            items={triggerRows(ui.triggers, state.selected)}
-            onReset={ui.clearFilters}
-            onSelect={ui.inspect}
-            searching={state.queries.trigger.length > 0}
-            selectedId={selectedId}
-          />
-        }
-      />
-    );
-    return details ? (
-      <box flexDirection="row" flexGrow={1} gap={1} minHeight={0}>
-        <box flexBasis={0} flexDirection="column" flexGrow={2} minWidth={0}>
-          {catalog}
-        </box>
-        <box flexBasis={0} flexDirection="column" flexGrow={3} minWidth={0}>
-          {details}
-        </box>
-      </box>
-    ) : (
-      catalog
-    );
-  }
-  const next = nextSchedule(snapshot.triggers);
-  return (
-    <>
-      <DashboardMetrics
-        height={height}
-        metrics={dashboardMetrics(snapshot)}
-        width={width}
-      />
-      {next && (
-        <box flexShrink={0} paddingLeft={1}>
-          <Action
-            label={`Up next · ${next.name} · ${next.next}`}
-            onAction={ui.inspect}
-            value={triggerSelection(next)}
-          />
-        </box>
-      )}
-      <OverviewPanels
-        latest={
-          <LatestBlock
-            items={latestRows(latestActivity(snapshot, LATEST_ITEMS))}
-            onSelect={ui.inspect}
-          />
-        }
-        runs={
-          <RunsBlock
-            active={activePane === "run"}
-            filtered={Boolean(state.filter || state.queries.run)}
-            filterLabel={describeFilter(snapshot, state.filter)}
-            onReset={ui.clearFilters}
-            onSelect={ui.inspect}
-            onToggle={ui.toggle}
-            rows={runListRows(ui.rows, state.selected)}
-            selectedId={selectedId}
-            triggerCount={snapshot.triggers.length}
-          />
-        }
-        wide={wide}
-      />
-    </>
-  );
-}
-
-function DashboardDrawer({
-  ui,
-  docked,
-  rail,
-  onRail,
-  editable,
-}: {
-  readonly ui: DashboardUi;
-  readonly docked: boolean;
-  readonly rail: boolean;
-  readonly onRail: (show: boolean) => void;
-  readonly editable: boolean;
-}) {
-  const { state, snapshot } = ui;
-  const { picker } = state;
-  let content: ReactNode;
-  const right = picker === undefined && state.drawer === "settings";
-  if (picker !== undefined) {
-    content = (
-      <WorkspacesPanel
-        current={snapshot.workspaceId}
-        onSelect={ui.chooseWorkspace}
-        selected={picker}
-        workspaces={workspaceRows(ui.workspaces)}
-      />
-    );
-  } else if (right) {
-    content = (
-      <SettingsBlock
-        onRail={ui.workspaces.length ? onRail : undefined}
-        onTheme={editable ? ui.changeTheme : undefined}
-        rail={rail}
-        settings={snapshot.settings && settingsView(snapshot.settings)}
-      />
-    );
-  } else {
-    content = (
-      <>
-        <DashboardSearch
-          onInput={ui.setQuery}
-          onSubmit={ui.finishSearch}
-          pane="logs"
-          query={state.logs.query}
-          quitting={ui.quit.quitting}
-          searching={state.searching}
-        />
-        {state.logs.runId && <Text>Run {state.logs.runId} · x clear</Text>}
-        <LogsBlock
-          active={!ui.inputActive}
-          filters={state.logs}
-          lines={logLines(ui.logs)}
-          onSelect={ui.openLog}
-          selectedId={ui.log?.id}
-          total={ui.logTotal}
-        />
-      </>
-    );
-  }
-  return (
-    <box
-      backgroundColor={theme.colors.background}
-      flexDirection="column"
-      flexShrink={0}
-      minHeight={0}
-      width={docked ? UTILITY_WIDTH : "100%"}
-    >
-      <PanelShortcuts.Provider value={ui.footer.hints}>
-        {content}
-      </PanelShortcuts.Provider>
-    </box>
-  );
-}
-
-function DashboardSurface({
-  ui,
-  obscured,
-  height,
-  options,
-  width,
-}: {
-  readonly ui: DashboardUi;
-  readonly obscured: boolean;
-  readonly height: number;
-  readonly options: DashboardOptions;
-  readonly width: number;
-}) {
-  if (ui.state.view === "feed") {
-    return (
-      <FeedView
-        feed={ui.feed}
-        inputActive={ui.inputActive || obscured}
-        width={width}
-      />
-    );
-  }
-  return (
-    <BrowserContent
-      height={height}
-      onLaunch={options.onLaunch ? ui.launch : undefined}
-      onRollSchedule={options.onRollSchedule ? ui.rollSchedule : undefined}
-      snapshot={ui.snapshot}
-      stream={options.actions?.stream}
-      ui={{
-        ...ui,
-        inputActive: ui.inputActive || obscured,
-      }}
-      width={width}
-    />
-  );
-}
-
-function DashboardBody({
-  ui,
-  width,
-  height,
-  options,
-  rail,
-  onRail,
-}: {
-  readonly ui: DashboardUi;
-  readonly width: number;
-  readonly height: number;
-  readonly options: DashboardOptions;
-  readonly rail: boolean;
-  readonly onRail: (show: boolean) => void;
-}) {
-  const { state, snapshot } = ui;
-  const picker = state.picker !== undefined;
-  const openingUtility = state.drawer !== undefined || picker;
-  const docked =
-    (picker || state.drawer === "settings") &&
-    width >= UTILITY_WIDTH + UTILITY_REMAINDER + 1;
-  const showRail =
-    !openingUtility && rail && width >= 94 && ui.workspaces.length > 0;
-  const surfaceWidth =
-    width - (docked ? UTILITY_WIDTH + 1 : 0) - (showRail ? RAIL_WIDTH : 0);
-  const drawer = openingUtility && (
-    <DashboardDrawer
-      docked={docked}
-      editable={options.onSettings !== undefined}
-      onRail={onRail}
-      rail={rail}
-      ui={ui}
-    />
-  );
-  if (drawer && !docked) {
-    return (
-      <box flexDirection="row" flexGrow={1} minHeight={0}>
-        {drawer}
-      </box>
-    );
-  }
-  const right = !picker && state.drawer === "settings";
-  return (
-    <box flexDirection="row" flexGrow={1} gap={docked ? 1 : 0} minHeight={0}>
-      {!right && drawer}
-      {showRail && (
-        <box
-          flexDirection="column"
-          flexShrink={0}
-          paddingRight={1}
-          width={RAIL_WIDTH}
-        >
-          <WorkspacesPanel
-            compact
-            current={snapshot.workspaceId}
-            onSelect={ui.chooseWorkspace}
-            selected={snapshot.workspaceId ?? ""}
-            workspaces={workspaceRows(ui.workspaces)}
-          />
-        </box>
-      )}
-      <box
-        flexBasis={0}
-        flexDirection="column"
-        flexGrow={1}
-        minWidth={0}
-        overflow="hidden"
-      >
-        <PanelShortcuts.Provider
-          value={openingUtility ? undefined : ui.footer.hints}
-        >
-          <DashboardSurface
-            height={height}
-            obscured={openingUtility}
-            options={options}
-            ui={ui}
-            width={surfaceWidth}
-          />
-        </PanelShortcuts.Provider>
-      </box>
-      {right && drawer}
-    </box>
-  );
-}
-
-function DashboardFooter({ ui }: { readonly ui: DashboardUi }) {
-  return (
-    <box
-      flexDirection="row"
-      flexShrink={0}
-      flexWrap="wrap"
-      gap={2}
-      justifyContent="space-between"
-    >
-      <box flexDirection="row" gap={2}>
-        {ui.workspaces.length > 0 && (
-          <Action
-            label="w Workspaces"
-            onAction={ui.openWorkspaces}
-            value="workspaces"
-          />
-        )}
-        <Action
-          id="view:logs"
-          label="d Diagnostics"
-          onAction={ui.openDiagnostics}
-          value="logs"
-        />
-      </box>
-      <box flexDirection="row" gap={2}>
-        <text fg={theme.colors.mutedForeground} wrapMode="none">
-          {ui.footer.lasting}
-        </text>
-        <Action
-          id="view:settings"
-          label="S Settings"
-          onAction={ui.setView}
-          value="settings"
-        />
-      </box>
-    </box>
-  );
-}
 
 type DashboardProps = DashboardOptions & {
   readonly toolbar?: ReactNode;
@@ -571,93 +59,131 @@ export function DashboardView({
       />
     );
   }
-  const browsing =
-    (state.view === "overview" || state.view === "catalog") &&
-    state.drawer === undefined &&
-    state.picker === undefined;
+  const utility = state.drawer !== undefined || state.picker !== undefined;
+  const dock = drawerDock(state);
+  const showRail = rail && ui.workspaces.length > 0;
+  const main = dashboardMain({
+    drawer: utility,
+    drawerDock: dock,
+    rail: showRail,
+    width,
+  });
+  const openWorkspaces = ui.workspaces.length ? ui.openWorkspaces : undefined;
 
   return (
-    <box
-      backgroundColor={theme.colors.background}
-      flexDirection="column"
-      height="100%"
-      paddingX={1}
-      width={width}
-    >
-      <box
-        flexDirection="row"
-        flexShrink={0}
-        gap={2}
-        justifyContent="space-between"
-      >
+    <DashboardLayout
+      drawer={
+        utility ? (
+          <PanelShortcuts.Provider value={ui.footer.hints}>
+            <DashboardDrawer
+              dashboard={ui}
+              editable={options.onSettings !== undefined}
+              onRail={onRail}
+              rail={rail}
+            />
+          </PanelShortcuts.Provider>
+        ) : undefined
+      }
+      drawerDock={dock}
+      footer={
+        <DashboardFooter
+          onDiagnostics={ui.openDiagnostics}
+          onSettings={ui.openSettings}
+          onWorkspaces={openWorkspaces}
+          shortcuts={ui.footer.lasting}
+        />
+      }
+      header={
         <WorkspaceHeader
           onHome={ui.goHome}
-          onWorkspaces={ui.workspaces.length ? ui.openWorkspaces : undefined}
+          onWorkspaces={openWorkspaces}
           state={hosted?.state}
           workspace={snapshot.workspace}
         />
-        <ViewTabs onChange={ui.setView} tabs={VIEW_TABS} view={state.view} />
-      </box>
-      {browsing && (
-        <DashboardSearch
-          filterLabel={describeFilter(snapshot, state.filter)}
-          onInput={ui.setQuery}
-          onSubmit={ui.finishSearch}
-          pane={ui.pane}
-          query={ui.pane === "details" ? "" : state.queries[ui.pane]}
-          quitting={ui.quit.quitting}
-          searching={state.searching}
-        />
-      )}
-      {state.help && (
-        <KeyboardHelp active={!ui.quit.quitting} sections={helpSections()} />
-      )}
-      {(snapshot.notices ?? []).map((notice) => (
+      }
+      help={
+        state.help ? (
+          <KeyboardHelp active={!ui.quit.quitting} sections={helpSections()} />
+        ) : undefined
+      }
+      main={
+        <PanelShortcuts.Provider value={utility ? undefined : ui.footer.hints}>
+          <DashboardMain
+            dashboard={ui}
+            height={dimensions.height}
+            inputActive={ui.inputActive || utility}
+            onLaunch={onLaunch ? ui.launch : undefined}
+            onRollSchedule={
+              options.onRollSchedule ? ui.rollSchedule : undefined
+            }
+            stream={options.actions?.stream}
+            wide={main.wide}
+            width={main.width}
+          />
+        </PanelShortcuts.Provider>
+      }
+      notices={(snapshot.notices ?? []).map((notice) => (
         <Text key={notice}>{notice}</Text>
       ))}
-      {!state.help && (
-        <DashboardBody
-          height={dimensions.height}
-          onRail={onRail}
-          options={options}
-          rail={rail}
-          ui={ui}
-          width={width - 2}
+      overlay={
+        ui.quit.quitting ? (
+          <QuitDialog
+            hosted={hosted !== undefined}
+            onCancel={ui.quit.cancel}
+            onConfirm={onClose}
+          />
+        ) : undefined
+      }
+      prompt={
+        state.prompt ? (
+          <PromptBar
+            draft={state.draft}
+            focused={!ui.quit.quitting}
+            kind={state.prompt.kind}
+            onInput={ui.setDraft}
+            onSubmit={ui.submitPrompt}
+            stepId={state.prompt.stepId}
+          />
+        ) : undefined
+      }
+      rail={
+        showRail ? (
+          <WorkspacesPanel
+            compact
+            current={snapshot.workspaceId}
+            onSelect={ui.chooseWorkspace}
+            selected={snapshot.workspaceId ?? ""}
+            workspaces={workspaceRows(ui.workspaces)}
+          />
+        ) : undefined
+      }
+      search={browsing(state) ? <BrowseSearch dashboard={ui} /> : undefined}
+      status={
+        <>
+          <WorkStatus
+            busy={ui.control.busy}
+            error={ui.control.error}
+            label="Working…"
+          />
+          <WorkStatus
+            busy={ui.schedule.busy}
+            error={ui.schedule.error}
+            label="Waiting for schedule run…"
+          />
+        </>
+      }
+      tabs={
+        <ViewTabs onChange={ui.setView} tabs={VIEW_TABS} view={state.view} />
+      }
+      toolbar={toolbar}
+      trailingStatus={
+        <WorkStatus
+          busy={ui.starting.busy}
+          error={ui.starting.error}
+          label="Launching..."
         />
-      )}
-      {state.prompt && (
-        <PromptBar
-          draft={state.draft}
-          onInput={ui.setDraft}
-          onSubmit={ui.submitPrompt}
-          prompt={state.prompt}
-          quitting={ui.quit.quitting}
-        />
-      )}
-      <WorkStatus
-        busy={ui.control.busy}
-        error={ui.control.error}
-        label="Working…"
-      />
-      <WorkStatus
-        busy={ui.schedule.busy}
-        error={ui.schedule.error}
-        label="Waiting for schedule run…"
-      />
-      <DashboardFooter ui={ui} />
-      <WorkStatus
-        busy={ui.starting.busy}
-        error={ui.starting.error}
-        label="Launching..."
-      />
-      {!state.help && toolbar}
-      {ui.quit.quitting && (
-        <QuitDialog
-          hosted={hosted !== undefined}
-          onCancel={ui.quit.cancel}
-          onConfirm={onClose}
-        />
-      )}
-    </box>
+      }
+      width={width}
+    />
   );
 }

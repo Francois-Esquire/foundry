@@ -126,18 +126,52 @@ function allowed(path: string, reference: ModuleReference): boolean {
   );
 }
 
-it("components import only React, OpenTUI, components, and model or lib types", async () => {
+const LAYERS = ["ui", "blocks", "layouts"].map((layer) =>
+  resolve(components, layer)
+);
+
+interface ComponentReference extends ModuleReference {
+  readonly file: string;
+  readonly path: string;
+}
+
+async function componentReferences(): Promise<ComponentReference[]> {
   const files = await readdir(components, { recursive: true });
-  const violations: string[] = [];
+  const found: ComponentReference[] = [];
   for (const file of files.filter((name) => SOURCE_FILE.test(name))) {
     const path = resolve(components, file);
     const text = await readFile(path, "utf8");
     const parsed = ts.createSourceFile(path, text, ts.ScriptTarget.Latest);
     for (const reference of references(parsed)) {
-      if (!allowed(path, reference)) {
-        violations.push(`${file}: ${reference.specifier}`);
-      }
+      found.push({ ...reference, file, path });
     }
   }
+  return found;
+}
+
+function layerOf(path: string): number {
+  return LAYERS.findIndex((layer) => within(layer, path));
+}
+
+function reachesHigherLayer(reference: ComponentReference): boolean {
+  const resolved = target(reference.path, reference.specifier);
+  return (
+    resolved !== undefined &&
+    within(components, resolved) &&
+    layerOf(resolved) > layerOf(reference.path)
+  );
+}
+
+it("components import only React, OpenTUI, components, and model or lib types", async () => {
+  const violations = (await componentReferences())
+    .filter((reference) => !allowed(reference.path, reference))
+    .map(({ file, specifier }) => `${file}: ${specifier}`);
+  expect(violations).toEqual([]);
+});
+
+it("ui imports no blocks or layouts, and blocks import no layouts", async () => {
+  const violations = (await componentReferences())
+    .filter(reachesHigherLayer)
+    .map(({ file, specifier }) => `${file}: ${specifier}`);
   expect(violations).toEqual([]);
 });

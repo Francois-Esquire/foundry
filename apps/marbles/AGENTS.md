@@ -458,6 +458,10 @@ Lookups, filtering, selection, statistics, eligibility, and usage formatting
 live in `cli/state/` and `cli/views/`, which hand components ready rows:
 `dashboard-rows.ts`, `dashboard-metrics.ts`, `inspector.ts` (with
 `views/inspector.tsx`), and `cli/hooks/use-run-stream.ts`; `cli/theme.ts`
-resolves theme names to palettes. `src/components/ui/` holds primitives that
-import nothing from blocks; `src/components/blocks/` holds the domain
-components.
+resolves theme names to palettes. `src/components/ui/` holds primitives;
+`src/components/blocks/` holds the domain components; `src/components/layouts/`
+holds the chrome: each layout arranges `ReactNode` slots and owns its
+breakpoints, and a view that sizes content by the arrangement calls the pure
+function beside it (`dashboardMain`). `ui/` imports neither blocks nor layouts,
+and blocks import no layouts; the boundary test holds that too. A view in
+`cli/views/` selects what fills each slot and wires callbacks.
