@@ -14,6 +14,17 @@ real views and components with deterministic data from `stories/fixtures/`
 (`snapshot.ts` and `scenarios.ts`), which the tests share. They do not start
 schedules, connect to models, or read persisted state.
 
+Story files mirror the source they show: `stories/ui/`, `stories/blocks/`, and
+`stories/layouts/` follow `src/components/`, and `stories/views/` follows
+`src/cli/views/`. Titles use the same grouping (`UI/Tabs`, `Blocks/RunsBlock`,
+`Layouts/Dashboard`, `Views/Dashboard`). Each state is its own story.
+`stories/frame.tsx` gives a story a fixed-size themed frame, and
+`stories/render-react-story.tsx` mounts React content for Textbook.
+
+`test/stories-render.test.ts` loads every story file through Textbook's
+registry and renders each story once, so a story that throws, draws nothing,
+or leaves a key listener behind fails the test suite.
+
 ## Navigation
 
 | Keys | Action |
