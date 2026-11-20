@@ -13,8 +13,6 @@ import { smokeWorks } from "../helpers/smoke-works";
 
 const MODULE_NAME = "Restart smoke module";
 
-/** The rail keeps its fixed places around the shortcut, and Artifacts lists
- *  the shared store without the Module Artifact. */
 async function checkRail(window: BrowserWindow) {
   assert.deepEqual(
     await window.webContents.executeJavaScript(

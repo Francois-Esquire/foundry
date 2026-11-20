@@ -6,14 +6,12 @@ import { createIslands } from "../../src/web/islands/gpu/islands/api/islands";
 import Spyglass from "../../src/web/ui/spyglass-view";
 import { loadSpyglass } from "../helpers/reference-spyglass";
 
-/** The Islands the map opened, as the fake below records it. */
 const fake = vi.hoisted(() => {
   type Listener = (value: unknown) => void;
   const make = () => {
     const listeners = new Map<string, Set<Listener>>();
     return {
       dispose: vi.fn(),
-      /** Sends an Islands event to the map's listeners. */
       emit: (event: string, value: unknown) => {
         for (const listener of listeners.get(event) ?? []) {
           listener(value);
@@ -54,7 +52,6 @@ const fake = vi.hoisted(() => {
   };
 });
 
-// The engine behind `<IslandsCanvas>`, inside the synced copy.
 vi.mock("../../src/web/islands/gpu/islands/api/islands", () => ({
   createIslands: vi.fn(() => fake.create()),
   DEFAULT_ISLANDS_SETTINGS: { selection: false, waveAmplitude: 1 },
@@ -100,7 +97,6 @@ afterEach(async () => {
   container.remove();
 });
 
-/** The Islands the map last opened. */
 function islands() {
   const opened = fake.instances.at(-1);
   if (!opened) {
@@ -109,12 +105,10 @@ function islands() {
   return opened;
 }
 
-/** Islands draws a frame: the first makes the map ready. */
 async function drawFrame() {
   await act(() => islands().emit("frame", { cpuMs: 1 }));
 }
 
-/** Mounts the viewer and, unless told not to, lets Islands draw its first frame. */
 async function mount(options: { ready?: boolean } = {}) {
   const data = await loadSpyglass();
   await act(async () => {
@@ -271,7 +265,6 @@ it("sets the camera angle in the Rendering section without rebuilding the map", 
   );
   await act(() => {
     if (elevation) {
-      // React tracks the value it last set; the prototype's setter goes past it.
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value"
@@ -294,7 +287,6 @@ it("writes what Islands chose to the snapshot's selection, and Escape clears it"
   }
   const map = islands();
   expect(map.select).toHaveBeenLastCalledWith(null);
-  // A click in Islands reaches the snapshot, which shows it back in Islands.
   await act(() =>
     map.emit("select", {
       id: file.id,
@@ -314,7 +306,6 @@ it("writes what Islands chose to the snapshot's selection, and Escape clears it"
   );
   expect(map.select).toHaveBeenLastCalledWith(territory.id);
   expect(map.frame).toHaveBeenLastCalledWith(territory.id);
-  // Escape lets it go and, as Whole spyglass does, sends the camera home.
   await act(() =>
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
   );

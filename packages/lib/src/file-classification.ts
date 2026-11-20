@@ -1,6 +1,5 @@
 import { HTML_MIME } from "./mime";
 
-/** Coarse whole-file categories; code symbols belong to analysis. */
 export const FILE_KINDS = [
   "code",
   "document",
@@ -23,11 +22,6 @@ export interface FileClassification {
   readonly name: string;
 }
 
-/**
- * The versioned extension table. Deterministic and deliberately small: an
- * unknown extension is `other` with a null media type, never a reason to open
- * the file or invoke analysis.
- */
 export const CLASSIFICATION_VERSION = 1;
 
 const BY_EXTENSION: Readonly<

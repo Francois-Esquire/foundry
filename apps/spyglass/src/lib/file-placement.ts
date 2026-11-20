@@ -77,11 +77,6 @@ export function placeFiles(
 
 const NEIGHBOUR_OFFSETS = [-1, 0, 1] as const;
 
-/**
- * Pushes `f` and the files in its own and the eight neighbouring cells apart.
- * The loops count fixed offsets, not cell coordinates: at a coordinate as
- * large as 2^53, or an infinite one, adding one no longer changes it.
- */
 function separateFiles(
   gx: number,
   gy: number,

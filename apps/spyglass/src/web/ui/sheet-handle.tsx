@@ -1,6 +1,5 @@
 import { type MouseEvent, type PointerEvent, useCallback, useRef } from "react";
 
-/** A real drag target; activating it with a click or keyboard also closes the sheet. */
 export function SheetHandle({ onClose }: { onClose: () => void }) {
   const drag = useRef<{ id: number; y: number; distance: number } | null>(null);
   const dragged = useRef(false);

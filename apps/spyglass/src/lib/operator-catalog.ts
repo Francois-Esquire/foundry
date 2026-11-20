@@ -9,11 +9,6 @@ import type {
 } from "./operator-types";
 import type { RecenteringScenarioKind } from "./types";
 
-// Operator definitions are data: what an operation type means, which
-// subjects it accepts, and what must later be proven. No apply/verify here;
-// V12 binds mutators. The legacy internalize-export path stays where it is
-// (operators.ts) and is reachable through `legacyOperatorId`.
-
 const DEFINITIONS: Record<ArchitecturalOperatorKind, OperatorDefinition> = {
   internalize: {
     decomposition: "supported",
@@ -121,12 +116,6 @@ export function listOperatorDefinitions(): OperatorDefinition[] {
   return OPERATOR_KINDS.map((kind) => DEFINITIONS[kind]);
 }
 
-/**
- * Which V8.2 scenario kinds an operator kind can express. `preserve-current`
- * is the baseline and describes no change, so it yields no instance;
- * representation formalization and responsibility splits have no operator
- * yet and are reported as catalog gaps rather than forced into `move`.
- */
 const SCENARIO_OPERATOR_MAPPINGS: ScenarioOperatorMapping[] = [
   { operatorKind: "rehome-concept", scenarioKind: "rehome-semantic-center" },
   { operatorKind: "rehome-behavior", scenarioKind: "rehome-behavior" },

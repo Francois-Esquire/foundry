@@ -1,15 +1,23 @@
 import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { Output } from "ai";
-import { catalog } from "~/authoring/catalog";
 import type { AgentDeclaration, DefineAgent } from "~/authoring/instances";
 import {
   agentInstance,
   artifactInstance,
+  promptFields,
   recipeInstance,
   sandboxInstance,
   workspaceInstance,
 } from "~/authoring/instances";
+import { declaringCatalog } from "~/authoring/runtime";
+import {
+  ARTIFACTS,
+  observable,
+  SANDBOXES,
+  SESSIONS,
+  WORKSPACES,
+} from "~/lib/events/source";
 import type {
   Agent,
   ArtifactInstance,
@@ -23,26 +31,6 @@ import type {
 
 import { bindingAt, callSite, originOf } from "./identity";
 
-/**
- * The definition words. Each is a preset with defaults; the context creates
- * the same things on the spot.
- *
- * An agent's id is durable: approvals granted "for future runs" and the
- * triggers it creates are filed under it, so it must not move when the
- * config is edited around it. It is the name given, else the top-level
- * `const` the call is assigned to, else a digest of its prompt. The route
- * is not part of it: `extend` keeps the id on another route. Workspaces,
- * sandboxes and artifacts keep registration-order ids: nothing durable is
- * keyed by them.
- *
- * An agent declared with a function is named by its `const`, else a
- * digest of the function's source. The function runs as each session
- * opens, never on import, and returns the rest of the definition. Its id
- * belongs to that one function: another function claiming it, even one
- * with the same source, is refused rather than merged.
- */
-
-/** The id a declaration claims: the name, else its `const`, else its digest. */
 function claimAgentId(
   name: string | undefined,
   digest: string,
@@ -53,11 +41,10 @@ function claimAgentId(
     name ??
     (site === undefined ? undefined : bindingAt(site)) ??
     `agent-${digest.slice(0, 16)}`;
-  catalog.claimAgent(id, digest, site && originOf(site), define);
+  declaringCatalog().claimAgent(id, digest, site && originOf(site), define);
   return id;
 }
 
-/** An agent declared with a function: claimed now, built as each session opens. */
 function agentFromFunction<OUTPUT extends Output.Output, INPUT>(
   define: DefineAgent<OUTPUT, INPUT>
 ): DeferredAgent<OUTPUT, INPUT> {
@@ -71,14 +58,13 @@ function agentFromFunction<OUTPUT extends Output.Output, INPUT>(
     route: {},
     settings: [],
   });
-  catalog.agents.set(
+  declaringCatalog().agents.set(
     id,
     definition as unknown as DeferredAgent<Output.Output, unknown>
   );
   return definition;
 }
 
-/** An agent from its definition: complete, and usable at once. */
 export function agent<OUTPUT extends Output.Output = never>(
   spec: AgentDeclaration<OUTPUT>
 ): Agent<OUTPUT>;
@@ -91,19 +77,29 @@ export function agent<OUTPUT extends Output.Output = never, INPUT = undefined>(
   if (typeof spec === "function") {
     return agentFromFunction(spec);
   }
-  const { name, ...rest } = spec;
-  if (!rest.prompt.trim()) {
+  const { name, prompt, ...rest } = spec;
+  const fields = promptFields(prompt);
+  if (!fields.prompt.trim()) {
     throw new Error("agent(): a prompt is required");
   }
   if (name?.trim() === "") {
     throw new Error("agent(): a name cannot be blank");
   }
   const digest = createHash("sha256")
-    .update(canonicalizeJson([rest.prompt]))
+    .update(
+      canonicalizeJson(
+        typeof prompt === "string" ? [prompt] : ["portable", prompt.key]
+      )
+    )
     .digest("hex");
   const id = claimAgentId(name, digest);
-  const definition = agentInstance<OUTPUT>({ id, kind: "agent", ...rest });
-  catalog.agents.set(id, definition as Agent<Output.Output>);
+  const definition = agentInstance<OUTPUT>({
+    id,
+    kind: "agent",
+    ...rest,
+    ...fields,
+  });
+  declaringCatalog().agents.set(id, definition as Agent<Output.Output>);
   return definition;
 }
 
@@ -111,9 +107,10 @@ export function workspace(spec: { readonly path: string }): WorkspaceInstance {
   if (!spec.path.trim()) {
     throw new Error("workspace(): a path is required");
   }
-  catalog.workspaces.add(spec.path);
+  const into = declaringCatalog();
+  into.workspaces.add(spec.path);
   return workspaceInstance({
-    id: catalog.claimId("workspace"),
+    id: into.claimId("workspace"),
     kind: "workspace",
     path: spec.path,
   });
@@ -124,7 +121,7 @@ export function sandbox(spec: SandboxSpec): SandboxInstance {
     throw new Error("sandbox({ files }): give it at least one file");
   }
   return sandboxInstance({
-    id: catalog.claimId("sandbox"),
+    id: declaringCatalog().claimId("sandbox"),
     kind: "sandbox",
     ...spec,
   });
@@ -138,7 +135,7 @@ export function artifact(spec: {
     throw new Error("artifact(): a name and a type are required");
   }
   return artifactInstance({
-    id: catalog.claimId("artifact"),
+    id: declaringCatalog().claimId("artifact"),
     kind: "artifact",
     ...spec,
   });
@@ -173,8 +170,12 @@ export const skills = {
   load(): SkillSet {
     return skillSet([{ kind: "load" }]);
   },
-  /** No skills yet: start a set from only what `.add` gives it. */
   none(): SkillSet {
     return skillSet([]);
   },
 };
+
+observable(agent, SESSIONS);
+observable(artifact, ARTIFACTS);
+observable(sandbox, SANDBOXES);
+observable(workspace, WORKSPACES);

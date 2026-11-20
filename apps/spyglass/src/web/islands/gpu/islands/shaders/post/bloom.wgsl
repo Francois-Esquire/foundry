@@ -1,17 +1,9 @@
-// The bloom chain's passes (shaders/post/bloom.wgsl): a bright-pass from
-// the water's linear frame to half size, downsamples to a thirty-second,
-// then upsamples back up, each added into the level above (the effect
-// blends additively). One effect per level, each with its own source; all
-// share these bindings.
 import { bloomDownsample, bloomPrefilter, bloomUpsample } from "../../../../shaders/post/bloom.wgsl";
 
 struct Bloom {
-  // One texel of the source, in uv.
   texel: vec2f,
-  // Bright-pass threshold and knee (bright-pass only).
   threshold: f32,
   knee: f32,
-  // Upsample tent radius in source texels, and the weight of what it adds.
   radius: f32,
   weight: f32,
 }

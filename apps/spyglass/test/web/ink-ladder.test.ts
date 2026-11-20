@@ -13,7 +13,6 @@ import {
 } from "../../src/web/ladder/ink-ladder";
 import { type InkId, inkStyle, inkTable } from "../../src/web/ladder/ink-table";
 
-/** Each drawn mark's contrast with its ground at a zoom. */
 function measured(pixels: number) {
   return ladderMarks
     .map((mark) => ({
@@ -25,7 +24,6 @@ function measured(pixels: number) {
 
 describe("the ink ladder", () => {
   it("meets each rung's floor on the darkest ground each mark is drawn on, at every named zoom", () => {
-    // The sea ground is the darkest sea a line crosses, probed on screen.
     for (const pixels of Object.values(zooms)) {
       for (const mark of measured(pixels)) {
         expect(
@@ -55,8 +53,6 @@ describe("the ink ladder", () => {
   });
 
   it("keeps every mark lighter than every mark of the rungs above, on every ground, at every named zoom", () => {
-    // An order between inks, not a ceiling: on a light shore a line can pass
-    // the floor of the rung above and still read under every mark of it.
     for (const pixels of Object.values(zooms)) {
       for (const ground of Object.values(grounds)) {
         const marks = ladderMarks
@@ -108,7 +104,6 @@ describe("the ink table", () => {
       (row) => `${row.kind}|${row.hue}|${row.dash.join(",")}|${row.weight}`
     );
     expect(new Set(styles).size).toBe(styles.length);
-    // Rows of one kind, hue, and dash must differ by at least a pixel of weight.
     for (const a of inkTable) {
       for (const b of inkTable) {
         if (
@@ -128,8 +123,6 @@ describe("the ink table", () => {
   });
 
   it("keeps hover readable over the coast rule and apart from the selection", () => {
-    // Both at 3:1 is impossible: the rule is light and the selection near
-    // black, so hover sits between them, at least 2.3:1 from each.
     expect(
       contrast(inks.hover, inkAlpha.hoverLine, inks.coastRule)
     ).toBeGreaterThanOrEqual(2.3);
@@ -146,15 +139,12 @@ describe("the ink table", () => {
     expect(line.hue).not.toBe(ring.hue);
     const apart = Math.abs(hue(line.hue) - hue(ring.hue));
     expect(Math.min(apart, 360 - apart)).toBeLessThan(5);
-    // The line is clipped to the sea; on the sea it meets the departure rung.
     expect(contrast(line.hue, 1, grounds.sea)).toBeGreaterThanOrEqual(
       rungFloor.departure
     );
   });
 
   it("shares an ink across kinds only where the table means it to", () => {
-    // A line and a fill, or a line and a text, in one ink read as one thing;
-    // each pair here is that one thing on purpose.
     const intended: Record<string, string[]> = {
       [inks.crossing]: ["crossing", "crossing-bead"],
       "district pigment": [
@@ -197,14 +187,12 @@ describe("the ink table", () => {
   });
 
   it("names every row a painter asks for", () => {
-    // The ids are typed; a row removed after a painter was written is still caught when the painter asks.
     expect(() => inkStyle("no such row" as InkId)).toThrow(
       'The ink table has no row "no such row".'
     );
   });
 });
 
-/** A colour's hue angle, 0 to 360. */
 function hue(hex: string): number {
   const [r = 0, g = 0, b = 0] = [1, 3, 5].map(
     (start) => Number.parseInt(hex.slice(start, start + 2), 16) / 255
@@ -223,7 +211,6 @@ function hue(hex: string): number {
   return (raw * 60 + 360) % 360;
 }
 
-/** Linear-light RGB of an sRGB colour, 0 to 1. */
 function linearRgb(hex: string): [number, number, number] {
   const [r = 0, g = 0, b = 0] = [1, 3, 5].map((start) => {
     const c = Number.parseInt(hex.slice(start, start + 2), 16) / 255;
@@ -232,10 +219,6 @@ function linearRgb(hex: string): [number, number, number] {
   return [r, g, b];
 }
 
-/**
- * Machado, Oliveira, and Fernandes (2009) at full severity, applied in linear
- * RGB: how each colour-vision deficiency sees a colour.
- */
 const deficiencies = {
   deutan: [
     [0.367_322, 0.860_646, -0.227_968],
@@ -255,7 +238,6 @@ const deficiencies = {
 } as const;
 type Deficiency = keyof typeof deficiencies;
 
-/** CIE L*a*b* of an sRGB colour, D65, as seen with a deficiency or without. */
 function lab(hex: string, deficiency?: Deficiency): [number, number, number] {
   let [r, g, b] = linearRgb(hex);
   if (deficiency) {
@@ -275,7 +257,6 @@ function lab(hex: string, deficiency?: Deficiency): [number, number, number] {
   return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
 }
 
-/** ΔE76: the distance between two colours in L*a*b*; about 2.3 is a just-noticeable step. */
 function deltaE(a: string, b: string, deficiency?: Deficiency): number {
   const [l1, a1, b1] = lab(a, deficiency);
   const [l2, a2, b2] = lab(b, deficiency);
@@ -298,8 +279,6 @@ describe("file inks", () => {
   });
 
   it("keeps every two file inks 10 ΔE76 apart under deutan, protan, and tritan vision", () => {
-    // At overview every file is the same dot, so every pair shares a shape
-    // and the ink alone has to tell the kinds apart.
     const files = Object.entries(inks.files);
     for (const deficiency of Object.keys(deficiencies) as Deficiency[]) {
       for (const [kind, ink] of files) {
@@ -397,9 +376,6 @@ describe("file inks", () => {
   });
 
   it("keeps the domain's cobalt 10 ΔE76 from every ink it can lie beside, and its name from every label ink, in every vision", () => {
-    // The band lies over district washes and their outlines, folder cuts,
-    // coasts, files, ties and departure rings, and over an overlay's inks
-    // when one is open.
     const beside = {
       ...inks.files,
       ...Object.fromEntries(
@@ -461,10 +437,6 @@ describe("file inks", () => {
   });
 
   it("keeps the crossing violet 10 ΔE76 from every ink a sea line sits beside, in every vision", () => {
-    // A crossing runs over the sea between frames, beneath islands and cut
-    // around names, beside departure and selection lines, the coast's inks,
-    // names on their halo, and the sea's own lines; it ends near the coast,
-    // where file marks, rings and a domain's band lie.
     const beside = {
       ...inks.files,
       coastFrame: inks.coastFrame,

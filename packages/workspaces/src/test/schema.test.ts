@@ -9,6 +9,7 @@ import {
   type WorkspaceFile,
   type WorkspaceId,
   workspaceEntrySchema,
+  workspaceEventSchema,
   workspaceFileSchema,
   workspaceRegistrationSchema,
 } from "../schema";
@@ -142,5 +143,28 @@ describe("record schemas", () => {
     expect(
       workspaceEntrySchema.safeParse({ ...docs, path: "../docs" }).success
     ).toBe(false);
+  });
+});
+
+describe("event schema", () => {
+  const entriesChanged = {
+    added: [],
+    at: "2026-01-01T00:00:00.000Z",
+    changed: [],
+    id: "e",
+    removed: [],
+    type: "workspace.entries.changed",
+    workspaceId: hostWorkspace({ path: newRoot("alpha") }).id,
+  };
+
+  it("refuses an entries change that names no entry", () => {
+    expect(workspaceEventSchema.safeParse(entriesChanged).success).toBe(false);
+  });
+
+  it("describes an entries change that adds, changes or removes an entry", () => {
+    for (const list of ["added", "changed", "removed"]) {
+      const event = { ...entriesChanged, [list]: ["entry"] };
+      expect(workspaceEventSchema.parse(event)).toStrictEqual(event);
+    }
   });
 });

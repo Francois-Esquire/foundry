@@ -9,7 +9,6 @@ export type JsonValue =
   | readonly JsonValue[]
   | { readonly [key: string]: JsonValue };
 
-/** The exact Model, Operation, and fact one live interaction runs against. */
 export interface LiveTarget {
   readonly fact: CapabilityFact;
   readonly modelId: string;
@@ -17,12 +16,6 @@ export interface LiveTarget {
   readonly provider: string;
 }
 
-/**
- * How an interaction reaches a vendor. `token` and `proxy` are what `grant`
- * hands a party outside the key-owning process. `credential` carries that
- * process's configured client, so only a holder of the key can construct one
- * (see `falCredentialAccess`); `grant` never produces it.
- */
 export type LiveAccess =
   | {
       readonly kind: "token";
@@ -32,16 +25,11 @@ export type LiveAccess =
   | { readonly kind: "proxy"; readonly url: string }
   | { readonly kind: "credential"; readonly client: FalEndpointClient };
 
-/** What the Model is being asked for right now. Replaced by `direct`. */
 export interface LiveDirection {
   readonly prompt: string;
   readonly settings?: Readonly<Record<string, JsonValue>>;
 }
 
-/**
- * A result-per-input output. `direction` is the sequence carried by the
- * echoed send, or by the most recent send if the correlation is missing or expired.
- */
 export interface LiveResult {
   readonly direction: number;
   readonly input?: string;
@@ -50,7 +38,6 @@ export interface LiveResult {
 
 export type LiveClosedReason = "closed" | "disconnected" | "expired";
 
-/** Options both entries share; each entry adds its own host-shaped media. */
 export interface LiveOptions {
   readonly direction: LiveDirection;
   readonly onClosed?: (reason: LiveClosedReason, message?: string) => void;
@@ -62,7 +49,6 @@ export interface LiveOptions {
 
 export type LiveState = "open" | "closed" | "disconnected";
 
-/** The lifecycle both entries share. Host-shaped members live on each entry. */
 export interface LiveInteraction {
   close(): void;
   direct(direction: LiveDirection): number;

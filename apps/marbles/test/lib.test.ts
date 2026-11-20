@@ -11,7 +11,7 @@ import {
   runSchedules,
 } from "~/lib/schedule";
 import { JSON_INPUT_FIELD } from "~/lib/schema";
-import { InMemoryStateStore } from "~/lib/state/store";
+import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { CalendarSlot, Schedule } from "~/lib/triggers";
 
 import { declared, testEngine } from "./helpers/engine";
@@ -28,7 +28,6 @@ const NO_NAME_PATTERN = /has no name/;
 
 const text = z.object({ text: z.string() });
 
-/** An engine as the loop sees it: these triggers, a memory store, a stub launch. */
 function loopEngine(
   schedules: readonly Schedule[],
   started: () => void
@@ -40,8 +39,8 @@ function loopEngine(
       started();
       return Promise.resolve({ id: "run", result: Promise.resolve() });
     },
-    schedules: () => schedules,
-    store: new InMemoryStateStore(),
+    schedules: () => Promise.resolve(schedules),
+    triggers: new MemoryTriggerStore(),
   } as ScheduledEngine;
 }
 
@@ -248,8 +247,137 @@ describe("cadence", () => {
         return Promise.resolve();
       },
     });
-    // Each run takes 25 > cadence 10; the next fires 10 after completion.
     expect(dispatched).toEqual([10, 45, 80]);
+  });
+
+  it("launches nothing once stopped while it read the schedules", async () => {
+    const stop = new AbortController();
+    const reading = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    const due: Schedule = {
+      input: null,
+      key: "s",
+      kind: "schedule",
+      label: "s",
+      registeredAt: 0,
+      trigger: { kind: "interval", ms: 1000 },
+      workflow: "job",
+    };
+    let reads = 0;
+    let launched = 0;
+    const engine = {
+      cancel: () => Promise.resolve(),
+      has: () => true,
+      launch: () => {
+        launched += 1;
+        return Promise.resolve({ id: "run", result: Promise.resolve() });
+      },
+      schedules: async () => {
+        reads += 1;
+        if (reads === 1) {
+          entered.resolve();
+          await reading.promise;
+        }
+        return [due];
+      },
+      triggers: new MemoryTriggerStore(),
+    } as unknown as ScheduledEngine;
+    const done = runSchedules(engine, {
+      now: () => 2000,
+      print: () => undefined,
+      signal: stop.signal,
+    });
+    await entered.promise;
+    stop.abort();
+    reading.resolve();
+    await done;
+    expect(launched).toBe(0);
+  });
+
+  it("launches nothing once stopped while its tick waited for the claim, and gives the claim up", async () => {
+    const stop = new AbortController();
+    const claiming = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    const due: Schedule = {
+      input: null,
+      key: "s",
+      kind: "schedule",
+      label: "s",
+      registeredAt: 0,
+      trigger: { kind: "interval", ms: 1000 },
+      workflow: "job",
+    };
+    const triggers = new MemoryTriggerStore();
+    const { claimTick } = triggers;
+    let launched = 0;
+    const engine = {
+      cancel: () => Promise.resolve(),
+      has: () => true,
+      launch: () => {
+        launched += 1;
+        return Promise.resolve({ id: "run", result: Promise.resolve() });
+      },
+      schedules: () => Promise.resolve([due]),
+      triggers: Object.assign(triggers, {
+        async claimTick(key: string) {
+          entered.resolve();
+          await claiming.promise;
+          return await claimTick.call(triggers, key);
+        },
+      }),
+    } as unknown as ScheduledEngine;
+    const done = runSchedules(engine, {
+      now: () => 2000,
+      print: () => undefined,
+      signal: stop.signal,
+    });
+    await entered.promise;
+    stop.abort();
+    claiming.resolve();
+    await done;
+    expect(launched).toBe(0);
+    expect(await claimTick.call(triggers, "s")).toEqual({ claimed: true });
+  });
+
+  it("reports a failed read of the schedules and reads again after the polling delay", async () => {
+    let clock = 0;
+    const controller = new AbortController();
+    const every: Schedule = {
+      input: null,
+      key: "read",
+      kind: "schedule",
+      label: "read",
+      trigger: { kind: "interval", ms: 10 },
+      workflow: "w",
+    };
+    const dispatched: number[] = [];
+    const engine = loopEngine([every], () => {
+      dispatched.push(clock);
+      controller.abort();
+    });
+    const reads = engine.schedules;
+    let failures = 1;
+    engine.schedules = () => {
+      if (failures > 0) {
+        failures -= 1;
+        return Promise.reject(new Error("database busy"));
+      }
+      return reads();
+    };
+    const lines: string[] = [];
+    await runSchedules(engine, {
+      now: () => clock,
+      print: (line) => lines.push(line),
+      signal: controller.signal,
+      sleep: (ms) => {
+        clock += ms;
+        return Promise.resolve();
+      },
+    });
+    expect(lines).toContain(
+      "[schedule] reading schedules failed: Error: database busy"
+    );
+    expect(dispatched).toEqual([1010]);
   });
 
   it("waits a cadence after a tick another holder skipped, rather than spinning", async () => {
@@ -266,7 +394,7 @@ describe("cadence", () => {
     const engine = loopEngine([every], () => {
       throw new Error("a held trigger must not start");
     });
-    const held = engine.store.lock("schedule:held");
+    expect(await engine.triggers.claimTick("held")).toEqual({ claimed: true });
     const skipped: number[] = [];
     await runSchedules(engine, {
       now: () => clock,
@@ -285,9 +413,7 @@ describe("cadence", () => {
       },
     });
     expect(skipped).toEqual([10, 20, 30]);
-    if ("release" in held) {
-      held.release();
-    }
+    await engine.triggers.finishTick("held");
   });
 });
 
@@ -317,7 +443,6 @@ describe("calendar", () => {
     trigger: { kind: "calendar", slot },
     workflow: "w",
   });
-  // Local-time constructors, never ISO strings, so the zone does not matter.
   const tuesday = new Date(2026, 8, 8, 10);
   expect(tuesday.getDay()).toBe(2);
 

@@ -1,7 +1,6 @@
 import { Dialect } from "../dialect";
 import { notation } from "../notation";
 
-/** Built-in slash commands, a snapshot of the `/` popup. A `command` prompt source extends it. */
 const COMMANDS: readonly string[] = [
   "agents",
   "archive",
@@ -41,14 +40,6 @@ const COMMANDS: readonly string[] = [
   "worktree",
 ];
 
-/**
- * Codex CLI. A skill is mentioned with `$name` (`$plugin:skill` under a
- * plugin) anywhere in the message. A custom prompt in `~/.codex/prompts` is
- * invoked as `/prompts:name`, with `$1`..`$9`, `$ARGUMENTS`, and uppercase
- * `$NAME` placeholders filled from `KEY=value` arguments; `$$` writes a
- * literal `$`. `@path` mentions a file. A message that opens with `!` is run
- * in the shell. Codex has no explicit subagent mention.
- */
 export const codex = new Dialect({
   id: "codex",
   known: { command: COMMANDS },

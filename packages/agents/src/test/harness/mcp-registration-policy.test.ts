@@ -36,10 +36,6 @@ async function drain(
   return out;
 }
 
-/**
- * Connect one fake MCP server exposing one `dangerous(target)` tool and
- * return its client-produced registration, not a hand-authored stand-in.
- */
 async function dangerousMcpRegistration(
   execute: (input: { target: string }) => unknown
 ): Promise<Tool> {
@@ -65,18 +61,11 @@ async function dangerousMcpRegistration(
   return registration;
 }
 
-/**
- * Exercises the real `McpManager` → `SessionHarness` → `AgentHarness` path:
- * manager registrations reach the compiler and are gated by the harness's
- * `AgentAuthorizer`.
- */
 describe("MCP registrations through the harness policy", () => {
   it("allow: the mcp.tool capability is exact, and the effect runs exactly once through the compiled tool", async () => {
     const execute = vi.fn(({ target }: { target: string }) => `did ${target}`);
     const registration = await dangerousMcpRegistration(execute);
     expect(metaOf(registration).source).toBe("mcp");
-    // Metadata and schema are the manager's own untouched tool — preserved
-    // through tagging and compilation.
     expect(registration.description).toBe("does something dangerous");
 
     const policy = createInMemoryAgentAuthorizer({
@@ -135,9 +124,6 @@ describe("MCP registrations through the harness policy", () => {
 
     const events = await drain(harness.stream("do it"));
 
-    // The absence of an MCP-specific approval handler used to mean the raw
-    // tool ran unguarded; now the harness's own policy decides, and a global
-    // "deny" default is honored.
     expect(execute).not.toHaveBeenCalled();
     const result = events.find((e) => e.type === "tool-result");
     expect(result).toMatchObject({ output: { approved: false } });
@@ -182,8 +168,6 @@ describe("MCP registrations through the harness policy", () => {
   });
 
   it("a resolved approval runs the manager-produced mcp registration's effect exactly once", async () => {
-    // The manager's tagged tool output must keep its approval behavior through
-    // persistence and replay.
     const execute = vi.fn(({ target }: { target: string }) =>
       Promise.resolve(`did ${target}`)
     );

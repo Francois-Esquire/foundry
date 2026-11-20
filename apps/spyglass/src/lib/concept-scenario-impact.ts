@@ -46,13 +46,10 @@ import type {
   SurfaceImpact,
 } from "./types";
 
-/** What the simulator reads; derived once per finding from the V8.0 facts and the V8.2 derivation. */
 export interface ScenarioImpactFacts {
-  /** Edges touching the home with V5 interaction data. */
   boundaries: RecenteringBoundaryUse[];
   couplings: RecenteringSourceCoupling[];
   disconnectedPairs: { left: string; right: string }[];
-  /** V7.4 edges between source behavior packages. */
   edges: { from: string; to: string }[];
   historyAvailable: boolean;
   hotspotModules: string[];
@@ -60,9 +57,7 @@ export interface ScenarioImpactFacts {
   modules: RecenteringBehaviorModule[];
   scenario: ScenarioFacts;
   seed: { module: string; packagePublic: boolean; externallyUsed: boolean };
-  /** Packages importing the seed module, with their import sites into it. */
   seedImporters: { package: string; importSites: number }[];
-  /** Parameter consumption and construction per package; never relocated. */
   weakByPackage: { package: string; weak: number }[];
 }
 
@@ -154,21 +149,12 @@ function metric(
   };
 }
 
-/** Where a module would sit; `to` absent means the scenario names no destination. */
 interface Relocation {
   from: string;
   module: string;
   to?: string;
 }
 
-/**
- * Modules a scenario would carry. A package leaving `domain-behavior`
- * carries its return behavior, leaving `implementation` its adapters,
- * leaving `conversion` its converters; the seed module follows the
- * semantic contract. Weak behavior never moves (§18). The destination is
- * known only when the proposed placement names exactly one package for
- * that responsibility.
- */
 function relocations(
   facts: ScenarioImpactFacts,
   current: ScenarioPlacement,
@@ -266,9 +252,6 @@ function behaviorImpact(
   };
   let relocated = 0;
   let unplaced = 0;
-  // V8.1 counts converters inside `governing` and reports adapters beside
-  // it, so a conversion move debits both while an adapter move debits only
-  // `implementation`.
   const move = (
     from: ScenarioBehaviorPlacement,
     count: number,
@@ -345,7 +328,6 @@ function holdsSourceBehavior(row: ScenarioBehaviorPlacement): boolean {
   );
 }
 
-/** Packages that would still hold source behavior: weak behavior stays, so a vacated package with consumers stays in the span. */
 function predictedSpan(behavior: BehaviorImpact): string[] {
   return behavior.predictedByPackage
     .filter(holdsSourceBehavior)
@@ -359,12 +341,6 @@ interface EdgePlan {
   states: ScenarioBoundaryState[];
 }
 
-/**
- * Concept-scoped edges: the V7.4 behavior-package edges plus every package
- * importing the seed module. An edge changes only where a concept module
- * on it relocates; consumers never relocate, so a consumer edge changes
- * only when the contract it imports moves, and then its fate is unresolved.
- */
 function planEdges(
   facts: ScenarioImpactFacts,
   current: ScenarioPlacement,
@@ -495,10 +471,6 @@ function planEdgesEdge(
       seedImports,
       sum
     );
-    // Import sites naming a concept module are the concept's share of the
-    // edge. Exclusivity asks whether anything else crosses it: with the
-    // gate on, every imported module must be the concept's; off, every
-    // importing module.
     const conceptImportSites = importedSites;
     const exclusive =
       boundary !== undefined &&
@@ -517,15 +489,11 @@ function planEdgesEdge(
     };
     currentEdges.push(dependency);
 
-    // The seed module leaves an edge only with the contract: behavior it
-    // hosts may move, the declaration others import stays.
     const semanticMoves = proposed.semanticCenter !== home;
     const leavesEdge = (module: string) =>
       moves.has(module) && (module !== facts.seed.module || semanticMoves);
     const vacated = conceptModules.filter(leavesEdge);
     const remaining = conceptModules.filter((module) => !leavesEdge(module));
-    // The concept crosses the edge from its importing modules to its
-    // imported modules; the interaction ends when either side empties.
     const sideEmpties = (modules: string[]) =>
       modules.length > 0 && modules.every(leavesEdge);
     const interactionEnds =
@@ -537,9 +505,6 @@ function planEdgesEdge(
         responsibilitiesOf(proposed, edge.from).join() ||
       responsibilitiesOf(current, edge.to).join() !==
         responsibilitiesOf(proposed, edge.to).join();
-    // A package that imports a contract which moves elsewhere keeps or
-    // drops that import depending on an exposure strategy nobody chose
-    // (§53); only the new center itself certainly stops importing it.
     const contractRetargets =
       semanticMoves &&
       vacated.includes(facts.seed.module) &&
@@ -624,8 +589,6 @@ function planEdgesEdgeEntries(
   let outcome: ScenarioBoundaryOutcome;
   let certainty: ImpactCertainty;
   if (boundary === undefined) {
-    // No interaction data: a foreign-to-foreign edge with a changed
-    // endpoint cannot be settled.
     outcome = endpointChanged ? "uncertain" : "preserved";
     certainty = endpointChanged ? "unknown" : "certain";
   } else if (contractRetargets) {
@@ -1197,13 +1160,6 @@ function intentImpactAnchor(
   }
 }
 
-/**
- * Structural consequences of one V8.2 scenario against the current
- * placement. Pure over the derived facts: no scan, no history parse, no
- * graph recomputation. Every dimension is present for every scenario so a
- * later version can compare vectors; nothing here ranks, scores, or
- * recommends, and no file, import, or manifest change is predicted.
- */
 export function simulateScenarioImpact(
   facts: ScenarioImpactFacts,
   scenario: RecenteringScenario,
@@ -1463,9 +1419,6 @@ export function simulateScenarioImpact(
       constraint,
     })
   );
-
-  // Unresolved consumer edges are the expected answer under a contract
-  // move (§53), not a simulation gap; missing evidence is.
 
   const status: ScenarioImpactAnalysis["status"] =
     simulateScenarioImpactEntries3(scenario, facts, plan);

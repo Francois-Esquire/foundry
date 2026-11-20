@@ -21,7 +21,6 @@ import type {
   ScenarioResponsibility,
 } from "./types";
 
-/** Precedence for dedup and truncation; never a ranking. */
 export const KIND_ORDER: RecenteringScenarioKind[] = [
   "preserve-current",
   "rehome-semantic-center",
@@ -54,7 +53,6 @@ const DIRECTION: Record<
   "split-responsibility": "split",
 };
 
-/** V7.2 relations strong enough to make a partner's package a supporting-family center. */
 const STRONG_RELATIONS = new Set([
   "conversion",
   "near-equivalent",
@@ -70,16 +68,13 @@ export interface ScenarioBehaviorPackage {
   package: string;
 }
 
-/** A V7.2 partner in another package whose converters live there too. */
 interface ScenarioBoundary {
   concept: ConceptIdentity;
   converterPackages: string[];
   package: string;
-  /** Projection-shaped partner whose package owns every converter: a stored representation with its own adapter. */
   persistenceLike: boolean;
 }
 
-/** Everything scenario generation reads; derived once per finding from V8.0/V8.1 facts. */
 export interface ScenarioFacts {
   anchors: { package: string; reason?: string }[];
   behavior: ScenarioBehaviorPackage[];
@@ -92,7 +87,6 @@ export interface ScenarioFacts {
   publicContract: boolean;
   referenceShares: { package: string; share: number }[];
   representationShares: { package: string; share: number }[];
-  /** Strongly related families by the package that declares or converts them. */
   supportingFamilies: { package: string; families: string[] }[];
   unobservedConformance: boolean;
 }
@@ -219,7 +213,6 @@ export function deriveScenarioFacts(
   };
 }
 
-/** Responsibilities with evidence only; sorted packages, fixed order. */
 function currentPlacement(facts: ScenarioFacts): ScenarioPlacement {
   const rows: Partial<Record<ScenarioResponsibility, string[]>> = {};
   rows["semantic-contract"] = [facts.home];
@@ -432,15 +425,6 @@ function diff(
   return { affected, preserved };
 }
 
-/**
- * Evidence-backed alternatives for one V8.1 finding, beside an explicit
- * baseline. Signal-gated: external findings get both readings (the concept
- * belongs where its behavior is, or the behavior drifted out and should
- * return); drift gets consolidation toward the home and, where a V7.2
- * partner with converters exists, an explicit representation boundary;
- * split gets consolidation toward each supported center and a
- * responsibility split. No scenario is preferred, scored, or ranked.
- */
 export function generateRecenteringScenarios(
   facts: ScenarioFacts,
   config: AnalysisConfig = ANALYSIS_CONFIG
@@ -548,7 +532,6 @@ export function generateRecenteringScenarios(
     }
     return cautions;
   };
-  /** Evidence at one package that supports it as a center, in the given direction. */
   const centerRationale = (
     pkg: string,
     supports: RecenteringScenarioEvidence["supports"]
@@ -775,9 +758,6 @@ export function generateRecenteringScenarios(
       (center.reasons.implementation !== undefined ||
         center.reasons.conversion !== undefined)
   );
-  // Foreign behavior that is entirely converters reads as a conversion
-  // responsibility, not domain behavior; anything beyond that stays where
-  // it is. The scenario formalizes the split rather than moving behavior.
   const behaviorBeyondConversion = unique(
     facts.behavior
       .filter(
@@ -851,8 +831,6 @@ export function generateRecenteringScenarios(
         byPlacement.set(key, draft);
         continue;
       }
-      // Constraints describe the kept draft's move; a merged draft adds only
-      // its rationale and cautions.
       deduplicated += 1;
       const rationaleKey = (item: RecenteringScenarioEvidence) =>
         `${item.kind}|${item.package ?? ""}|${String(item.detail)}`;
@@ -1160,9 +1138,6 @@ function generateRecenteringScenariosEntries(
       constraints.push({ kind: "public-contract", package: home });
     }
     constraints.push(...conformance(), ...boundaryConstraint());
-    // Related rows, stores, and mappers say where representations live,
-    // not where the concept belongs: they qualify a center but never
-    // argue for moving the semantic contract.
     const rationale = centerRationale(destination, "rehome").filter(
       (item) => item.kind !== "supporting-family-center"
     );
@@ -1275,7 +1250,6 @@ function percentile(values: number[], p: number): number {
   return sorted[index] ?? 0;
 }
 
-/** Scenarios for every V8.1 finding, in finding order. */
 export function analyzeRecenteringScenarios(
   target: string,
   miscentered: MiscenteredConceptReport,

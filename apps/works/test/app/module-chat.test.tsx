@@ -41,7 +41,6 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-/** Hand each turn to the test, which decides what the agent does. */
 function scriptedRunner() {
   const turns: {
     run: AuthoringTurnRun;
@@ -147,7 +146,6 @@ it("streams a turn's progress, shows denied attempts, and accepts disjoint edits
   typeInto(OTHER, "my readme");
   await ask("Make it say hello");
   const turn = await agent.next();
-  // The Draft the turn works on includes the unsaved edit.
   expect(
     new TextDecoder().decode(
       await turn.run.container.files.readFile(`/workspace/${OTHER}`)
@@ -163,8 +161,6 @@ it("streams a turn's progress, shows denied attempts, and accepts disjoint edits
       type: "tool-call",
     }
   );
-  // The scripted runner supplies the classification the real compiler
-  // adapter produces; the output's shape alone is not a policy denial.
   turn.run.onEvent(
     {
       output: { approved: false, reason: "Denied by harness profile." },
@@ -173,14 +169,12 @@ it("streams a turn's progress, shows denied attempts, and accepts disjoint edits
     },
     true
   );
-  // Each event reaches the chat on its own; wait for each one.
   await chatPane().findByText("Updating the app");
   await chatPane().findByText(
     "create_automation · denied (Denied by harness profile.)"
   );
   expect(chatPane().getByText("Working…")).toBeDefined();
   await writeGuest(turn.run, APP, "export const App = () => 'hello';");
-  // The user keeps typing in another file while the agent works.
   typeInto(OTHER, "my readme, still typing");
   turn.finish();
   const card = await chatPane().findByRole("region", {
@@ -189,7 +183,6 @@ it("streams a turn's progress, shows denied attempts, and accepts disjoint edits
   expect(within(card).getByText(APP)).toBeDefined();
   fireEvent.click(within(card).getByRole("button", { name: "Accept" }));
   await chatPane().findByText(APPLIED_ONE);
-  // The applied status comes back from main as its own event.
   await within(card).findByText("Applied to your draft.");
   fireEvent.click(screen.getByRole("button", { name: APP }));
   expect(
@@ -199,7 +192,6 @@ it("streams a turn's progress, shows denied attempts, and accepts disjoint edits
   expect(
     (screen.getByLabelText("Source code") as HTMLTextAreaElement).value
   ).toBe("my readme, still typing");
-  // Nothing was saved for the user; saving is explicit.
   expect((await library.details(module.id))?.source[APP]).not.toContain(
     "hello"
   );
@@ -219,7 +211,6 @@ it("keeps an accepted proposal on the binding a save made while accepting", asyn
   const card = await chatPane().findByRole("region", {
     name: "Proposed changes",
   });
-  // Main has checked the saved binding; the answer is still on its way.
   const { promise: answered, resolve: answer } = Promise.withResolvers<void>();
   const { promise: checked, resolve: markChecked } =
     Promise.withResolvers<void>();
@@ -237,8 +228,6 @@ it("keeps an accepted proposal on the binding a save made while accepting", asyn
   await screen.findByText("Source saved.");
   answer();
   await chatPane().findByText(APPLIED_ONE);
-  // The Draft kept for the next launch is bound to the save, not the
-  // revision the accept started from, so saving it later succeeds.
   rendered.unmount();
   render(tree(details));
   await screen.findByText(
@@ -269,8 +258,6 @@ it("holds overlapping edits as a whole-file conflict with both versions", async 
   const card = await chatPane().findByRole("region", {
     name: "Proposed changes",
   });
-  // In every render, the chat sends the user to Changes only once Changes
-  // shows the conflicts.
   const early: string[] = [];
   const observer = new MutationObserver(() => {
     if (
@@ -294,7 +281,6 @@ it("holds overlapping edits as a whole-file conflict with both versions", async 
   ).getByRole("region", { name: `Changes in ${APP}` });
   expect(within(versions).getByText("my version")).toBeDefined();
   expect(within(versions).getByText("agent version")).toBeDefined();
-  // Nothing overwrote the Draft.
   fireEvent.mouseDown(screen.getByRole("tab", { name: SOURCE_TAB }));
   expect(
     (screen.getByLabelText("Source code") as HTMLTextAreaElement).value
@@ -407,7 +393,6 @@ it("cancels a request, and leaving the Module neither cancels nor loses it", asy
   await screen.findByText("First");
   expect(first.run.signal.aborted).toBe(false);
   expect(chatPane().getByText("Working…")).toBeDefined();
-  // Streaming goes on after coming back, each delta shown once.
   emit(first.run, { delta: "Still here.", type: "text-delta" });
   await chatPane().findByText("Still here.");
   expect(chatPane().getAllByText("Still here.")).toHaveLength(1);
@@ -433,8 +418,6 @@ it("shows unfinished work from an earlier run of Works as interrupted", async ()
     .catch(() => undefined);
   await chatPane().findByRole("form", { name: "Agent question" });
   rendered.unmount();
-  // A question the user can see is already on disk, so the process may go
-  // away now.
   expect(
     await readFile(
       path.join(
@@ -446,7 +429,6 @@ it("shows unfinished work from an earlier run of Works as interrupted", async ()
       "utf8"
     )
   ).toContain('"kind":"question"');
-  // A new main process over the same authoring state.
   active.api = fakeApi(await openFakeVault(), undefined, {
     authoring: open(),
   });

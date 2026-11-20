@@ -1,13 +1,23 @@
+import type { ChannelMessage } from "@foundry/workflows/channels";
 import { RGBA } from "@opentui/core";
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
-import { dashboardSnapshot } from "../preview/snapshot";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { selectionKey } from "../src/cli/state/dashboard-model";
+import type { RunActions } from "../src/cli/state/run-actions";
+import { DashboardView } from "../src/cli/views/dashboard";
 import { theme } from "../src/components/ui/theme";
-import { DashboardView } from "../src/views/dashboard";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
-import type { RunActions } from "../src/views/run-actions";
-import { click, flush, mount, press, unmount } from "./helpers/render";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
+import {
+  click,
+  flush,
+  frameWith,
+  mount,
+  press,
+  unmount,
+} from "./helpers/render";
 
+const SELECTED_FAILURE = /› ▸ check-api +failed\b/;
 const WRITE_STEP = /Step\s+: write/;
 
 function close() {
@@ -100,7 +110,7 @@ test.each(["approval", "question"] as const)(
   }
 );
 
-test("attention reads in the warning colour, not the grey of other statuses", async () => {
+test("attention uses the warning badge colour", async () => {
   const attentive: DashboardSnapshot = {
     ...dashboardSnapshot,
     runs: dashboardSnapshot.runs.map((run) =>
@@ -112,7 +122,7 @@ test("attention reads in the warning colour, not the grey of other statuses", as
     .captureSpans()
     .lines.flatMap((line) => line.spans)
     .find((item) => item.text.includes("Waiting for approval"));
-  expect(span?.fg.toInts()).toEqual(
+  expect(span?.bg.toInts()).toEqual(
     RGBA.fromHex(theme.colors.warning).toInts()
   );
 });
@@ -120,14 +130,11 @@ test("attention reads in the warning colour, not the grey of other statuses", as
 test("run keys pause, steer, and cancel the selected step", async () => {
   const { actions, calls } = recordingActions();
   const ui = await render(dashboardSnapshot, actions);
-  // The running run is selected first; its root frame, keyed by the
-  // definition's name, is the target.
   expect(ui.captureCharFrame()).toContain("s steer · p pause · k cancel");
   await act(async () => ui.mockInput.pressKey("p"));
   await flush(ui);
   expect(calls).toEqual([["pause", "run-104", "docs"]]);
 
-  // Steer opens a prompt; typing does not reach the dashboard keys.
   await act(async () => ui.mockInput.pressKey("s"));
   await flush(ui);
   expect(ui.captureCharFrame()).toContain("steer docs ›");
@@ -143,7 +150,6 @@ test("run keys pause, steer, and cancel the selected step", async () => {
     "stop and summarise",
   ]);
 
-  // Esc drops a prompt without sending anything.
   await act(async () => ui.mockInput.pressKey("s"));
   await act(async () => ui.mockInput.typeText("nothing"));
   await act(async () => ui.mockInput.pressEscape());
@@ -163,7 +169,7 @@ test("a settled run offers no controls and its keys do nothing", async () => {
   await press(ui, "ARROW_DOWN");
   await press(ui, "ARROW_DOWN");
   const frame = ui.captureCharFrame();
-  expect(frame).toContain("› ▸ check-api failed");
+  expect(frame).toMatch(SELECTED_FAILURE);
   expect(frame).not.toContain("s steer");
   expect(frame).not.toContain("p pause");
   expect(frame).not.toContain("k cancel");
@@ -219,7 +225,6 @@ test("a paused step resumes with an optional prompt", async () => {
     "docs",
     "focus on the tests",
   ]);
-  // Without actions the keys and the footer hint are absent.
   const bare = await render(paused);
   expect(bare.captureCharFrame()).not.toContain("p resume");
 });
@@ -268,7 +273,15 @@ test.each([
     const frame = ui.captureCharFrame();
     expect(frame).toContain("task: Background test run");
     expect(frame).not.toContain("[step] task:");
-    await click(ui, 'run:run-104:activity:["child-session","child"]');
+    await click(
+      ui,
+      selectionKey({
+        activityId: "child",
+        id: "run-104",
+        kind: "run",
+        sessionId: "child-session",
+      })
+    );
     expect(ui.captureCharFrame()).toContain("Background test run");
     expect(ui.captureCharFrame()).not.toContain("s steer");
     expect(ui.captureCharFrame().includes("k stop activity")).toBe(stoppable);
@@ -322,3 +335,56 @@ test.each(["running", "paused"] as const)(
     ]);
   }
 );
+
+function textChunk(path: readonly string[], text: string): ChannelMessage {
+  return {
+    _tag: "chunk",
+    chunk: {
+      at: "2026-09-22T14:32:09.000Z",
+      path,
+      payload: { kind: "text", text },
+      stepId: path.join("."),
+    },
+  };
+}
+
+function streamingActions() {
+  const opened: string[] = [];
+  const pushes: ((message: ChannelMessage) => void)[] = [];
+  let aborted = 0;
+  const stream: RunActions["stream"] = (runId, signal) => {
+    opened.push(runId);
+    signal?.addEventListener("abort", () => {
+      aborted += 1;
+    });
+    return new ReadableStream<ChannelMessage>({
+      start(controller) {
+        pushes.push((message) => controller.enqueue(message));
+      },
+    });
+  };
+  return {
+    aborted: () => aborted,
+    actions: { ...recordingActions().actions, stream },
+    opened,
+    push: (message: ChannelMessage) => pushes.at(-1)?.(message),
+  };
+}
+
+test("the stream tab opens the run's live stream only while it is shown", async () => {
+  const live = streamingActions();
+  const ui = await render(dashboardSnapshot, live.actions);
+  await click(ui, selectionKey({ id: "run-104", kind: "run" }));
+  await click(ui, "tab:overview");
+  expect(live.opened).toEqual([]);
+  await click(ui, "tab:stream");
+  expect(live.opened).toEqual(["run-104"]);
+  const waiting = await frameWith(ui, "Waiting for output");
+  expect(waiting).toContain("Waiting for output");
+  expect(waiting).toContain("Live · last 12 lines");
+  await act(async () => live.push(textChunk(["update"], "drafting docs")));
+  expect(await frameWith(ui, "drafting docs")).toContain("drafting docs");
+  await click(ui, "tab:overview");
+  expect(live.aborted()).toBe(1);
+  expect(ui.captureCharFrame()).not.toContain("drafting docs");
+});

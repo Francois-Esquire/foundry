@@ -16,12 +16,10 @@ import {
   toolCallStreamResult,
 } from "../helpers/mock-language-model";
 
-/** Allow everything; identity is what these tests assert on, not behaviour. */
 function allowPolicy(): AgentAuthorizer {
   return fakeAuthorizer(() => ({ kind: "allow", source: "grant" }));
 }
 
-/** A tool that records the context passed to `execute`. */
 function contextCapturingTool() {
   const seen: { context?: unknown } = {};
   return {
@@ -50,15 +48,11 @@ function probingModel() {
 }
 
 async function drainGeneric(stream: AsyncIterable<unknown>): Promise<void> {
-  for await (const _event of stream) {
-    // exhaust
-  }
+  await Array.fromAsync(stream);
 }
 
 async function drain(stream: AsyncIterable<SessionEvent>): Promise<void> {
-  for await (const _event of stream) {
-    // exhaust
-  }
+  await Array.fromAsync(stream);
 }
 
 describe("AgentHarness.policy", () => {
@@ -126,8 +120,6 @@ describe("AgentHarness — policy on the tool context", () => {
   });
 
   it("preserves a frozen, WeakSet-branded context — the shape hosts actually use", async () => {
-    // `@foundry/analyze` brands its analysis context this way and rejects any
-    // context it did not itself mint, so binding a policy must not copy it.
     const branded = new WeakSet();
     const callerContext = Object.freeze({ db: "the-db" });
     branded.add(callerContext);

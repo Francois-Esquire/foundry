@@ -71,13 +71,11 @@ describe("Editor bindings and the Artifact providers", {
     );
     expect(again.chunks).toBeGreaterThan(1);
 
-    // In place: one ready Content, the one created.
     expect(
       (
         await persistence.artifacts.listContents(created.artifactId as never)
       ).map((content) => [content.id, content.state])
     ).toEqual([[created.contentId, "ready"]]);
-    // Origin names the Module runtime; the engine run records the save.
     const artifact = await persistence.artifacts.get(
       created.artifactId as never
     );
@@ -102,13 +100,11 @@ describe("Editor bindings and the Artifact providers", {
       expect.objectContaining({ actor: "module", moduleId: app.module.id }),
     ]);
 
-    // Reopened from Artifacts: a fresh binding reads the saved text.
     const reopened = await openIn(created.artifactId, app.module.id, "editor");
     expect(
       (await as<Bound>("binding", { binding: reopened.binding })).entry.digest
     ).toBe(again.digest);
     expect((await readAll(as, reopened.binding)).text).toBe(again.text);
-    // A file the host made is just as editable.
     const host = await files.read(created.artifactId, "draft.md", {
       length: 1024,
       offset: 0,
@@ -125,7 +121,6 @@ describe("Editor bindings and the Artifact providers", {
     const as = <T>(alias: string, input: unknown) => call<T>(app, alias, input);
     const bound = await as<Bound>("binding", { binding: opened.binding });
 
-    // The version the editor is on freezes; the host keeps editing a newer one.
     await persistence.artifacts.freeze(bound.contentId as never);
     const working = await files.working(note.artifactId);
     const hosted = await files.save({
@@ -137,7 +132,6 @@ describe("Editor bindings and the Artifact providers", {
     });
     expect(hosted).toMatchObject({ kind: "saved" });
     expect(working).not.toBe(bound.contentId);
-    // Unrefreshed, the binding still describes what it reads and saves.
     expect(await as<Bound>("binding", { binding: opened.binding })).toEqual(
       expect.objectContaining({
         contentId: bound.contentId,
@@ -145,8 +139,6 @@ describe("Editor bindings and the Artifact providers", {
       })
     );
 
-    // Frozen again with no working version: a refresh revises it once, and
-    // the refreshed binding saves on its first try.
     await persistence.artifacts.freeze(working as never);
     const refreshed = await as<Bound>("binding", {
       binding: opened.binding,
@@ -201,7 +193,6 @@ describe("Editor bindings and the Artifact providers", {
     const app = await editorApp();
     const note = await markdownFile("note", "text");
     const opened = await openIn(note.artifactId, app.module.id, "editor");
-    // The saved source now asks for more than the user chose.
     const details = await works.rpc.modules.details(app.module.id);
     if (!details?.binding) {
       throw new Error("Source missing");
@@ -283,7 +274,6 @@ describe("Editor bindings and the Artifact providers", {
         text: "changed",
       })
     );
-    // Another Module's runtime cannot resolve, read, save or watch it.
     const editing = await openIn(file.artifactId, app.module.id, "editor");
     await call(app, "binding", { binding: editing.binding });
     await denial(call(other, "binding", { binding: editing.binding }));
@@ -296,12 +286,8 @@ describe("Editor bindings and the Artifact providers", {
         text: "stolen",
       })
     );
-    // A stream reports its refusal on the first read.
     await denial((await watch(other, { binding: editing.binding })).next());
-    // Opened for the editor but not yet claimed: left for the next runtime.
     const unclaimed = await openIn(file.artifactId, app.module.id, "editor");
-    // Nor can the same Module's next runtime once this one stopped: what
-    // its runtime claimed is released with it.
     await app.app.close();
     expect(
       bindings.current({ id: editing.binding } as Parameters<
@@ -423,8 +409,6 @@ describe("Editor bindings and the Artifact providers", {
       binding: opened.binding,
     });
 
-    // The save is admitted; as it reaches its write, a revoke takes the
-    // store's write lock first, so the save's transaction sees the revoke.
     let revoking: Promise<unknown> | undefined;
     const save = works.testing.files.save.bind(works.testing.files);
     vi.spyOn(works.testing.files, "save").mockImplementationOnce((input) => {
@@ -501,7 +485,6 @@ describe("Editor bindings and the Artifact providers", {
     const seen = (change.value as WatchedEntry).entry?.digest;
     expect(seen).not.toBe(base.entry.digest);
 
-    // Recovery tells observers again; the same committed state is not a change.
     await persistence.artifacts.recover();
     const pending = stream.next();
     const later = await call<Bound>(app, "binding", {
@@ -518,7 +501,6 @@ describe("Editor bindings and the Artifact providers", {
     controller.abort();
     await stream.return?.();
 
-    // Reconnect: a fresh snapshot, reporting what moved since it last saw.
     const fresh = await watch(app, {
       after: { contentId: file.contentId, digest: seen },
       binding: opened.binding,
@@ -534,12 +516,10 @@ describe("Editor bindings and the Artifact providers", {
     });
     expect((await current.next()).value).toMatchObject({ gap: false });
 
-    // Removal ends the stream.
     await persistence.artifacts.archive(file.artifactId as never);
     expect((await fresh.next()).value).toMatchObject({ kind: "removed" });
     expect((await fresh.next()).done).toBe(true);
 
-    // Revoking the watch Grant ends a live watch and refuses new ones.
     await persistence.artifacts.unarchive(file.artifactId as never);
     const live = await watch(app, { binding: opened.binding });
     await live.next();
@@ -563,7 +543,6 @@ describe("Editor bindings and the Artifact providers", {
     await live.next();
     const ended = live.next();
     await access.revoke(app.module.id, ARTIFACT_CAPABILITIES.read);
-    // The watch Grant still stands; its binding is gone, so the stream ends.
     expect((await ended).done).toBe(true);
     await access.approve(app.module.id, ARTIFACT_CAPABILITIES.read);
     await denial(call(app, "read", { binding: opened.binding }));
@@ -606,7 +585,6 @@ describe("Editor bindings and the Artifact providers", {
   });
 });
 
-/** The editor plus a broader scope: every Markdown Artifact, listed and read by id. */
 const SCOPED_MANIFEST = {
   ...EDITOR_MANIFEST,
   capabilities: [
@@ -741,8 +719,6 @@ describe("Broader Artifact scope", {
     const paused = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const { modules } = persistence;
-    // The watch reads the Grants, then the release's Manifest: the revoke
-    // lands in between.
     const host: ArtifactHost = {
       artifacts: persistence.artifacts,
       bindings: works.testing.bindings,
@@ -767,7 +743,6 @@ describe("Broader Artifact scope", {
     });
     await paused.promise;
     await access.revoke(app.module.id, ARTIFACT_CAPABILITIES.list);
-    // What the list capability's revoke hook does to the watches it ends.
     scopes.revoke(principal.installationId);
     release.resolve();
     const stream = watchEntry(
@@ -810,7 +785,6 @@ describe("Broader Artifact scope", {
     await expect(
       call(app, "read", { artifactId: note.artifactId })
     ).rejects.toMatchObject({ message: NOT_IN_SCOPE });
-    // Declining the broader scope leaves the binding as it was.
     await call(app, "read", { binding: opened.binding });
   });
 
@@ -819,7 +793,6 @@ describe("Broader Artifact scope", {
       await setup();
     const app = await editorApp();
     await app.app.close();
-    // A newer release, not selected: the Installation still runs 1.0.0.
     const newer = await release(app.module.id, "1.1.0");
     const file = await markdownFile("pinned", "text");
 
@@ -827,7 +800,6 @@ describe("Broader Artifact scope", {
     expect(opened.release).toBe(app.version.contentId);
     expect(opened.release).not.toBe(newer.contentId);
 
-    // What opening the editor starts: the binding's release resolves it.
     const pinned = await start(app.version);
     expect(
       (
@@ -837,7 +809,6 @@ describe("Broader Artifact scope", {
       ).mode
     ).toBe("write");
     await pinned.app.close();
-    // The newest release, as opening the app used to start, cannot.
     const latest = await start(newer);
     await denial(
       call({ ...latest, version: newer }, "binding", {

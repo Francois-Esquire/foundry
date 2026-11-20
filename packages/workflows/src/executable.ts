@@ -17,36 +17,14 @@ import type { Step, StepContext } from "./step";
 import type { Bail, Duration, RetryPolicy, Unsubscribe } from "./types";
 import { isBail, StepBailError } from "./types";
 
-/**
- * Per-frame execution unit. Owns input, name, path, context, cancellation
- * control, and suspension resolutions. Config (`blocking`, `maxAttempts`,
- * `timeout`, `retry`) are per-Run defaults; Step metadata overrides.
- *
- * Attempt count lives in {@link drive}'s local Ref and stamps each event
- * for correlation. Identity-free (no `runId`/`queueId`). Scope-managed
- * for clean cancellation teardown.
- */
-
-/**
- * Base context shape every frame carries. `name` is the current
- * frame's path segment (matches `path[path.length - 1]`).
- */
 export interface BaseContext {
   readonly name: string;
 }
 
-/**
- * Per-Run defaults. Each field is overridable at the Step level via
- * Step metadata; this is the fallback.
- */
 export interface ExecutableConfig {
-  /** Caller waits for child completion. False = fire-and-forget. */
   readonly blocking: boolean;
-  /** Ceiling on retry attempts (1 = no retry, just one try). */
   readonly maxAttempts: number;
-  /** Full retry policy. Undefined = no retry. */
   readonly retry?: RetryPolicy;
-  /** Per-step timeout. Undefined = no timeout. */
   readonly timeout?: Duration;
 }
 
@@ -77,49 +55,18 @@ export function suspensionOccurrenceKey(
   return JSON.stringify([stepPath, name, occurrence]);
 }
 
-/**
- * Runtime surface Executable needs: Channels for step events, plus
- * per-frame Composer for nested composition. Channels' `events.push`
- * synchronously projects into Snapshot.
- */
 export interface Witness {
   readonly channels: Channels;
-  /**
-   * Composer owning the current frame. Routes `ctx.parallel/race/...`
-   * to the current frame (not the step's original composer).
-   */
   readonly composer?: Composer;
 }
 
-/**
- * Options layered onto {@link Executable.drive} by {@link Step.run}.
- * Composer-driven synthetic frames pass none (lean composition path).
- */
 export interface DriveOptions<I> {
-  /**
-   * Validation hook invoked on the completed (non-bail) result value
-   * immediately before the terminal `step.complete` event. {@link Step.run}
-   * supplies a JSON-serializability guard here; Composer frames pass none.
-   */
   readonly assertResult?: (value: unknown) => void;
-  /** Extra fields layered onto the body `ctx` (from `step.invoke(input, ext)`). */
   readonly ctxExtension?: object;
-  /** Override the frame's bound input for this drive. */
   readonly input?: I;
-  /**
-   * Enable Step-only lifecycle hooks: pre-exec short-circuits
-   * (skip / abort / persisted-complete), the pause gate, `progress=100`, and the
-   * `ctx.next` / `ctx.pipe` middleware affordances. Off for Composer
-   * frames. Child draining and abort-failed suppression apply to both modes.
-   */
   readonly stepMode?: boolean;
 }
 
-/**
- * Path-relative lookup keys for `ctx.resultOf` / `ctx.statusOf`. Sibling
- * scope (same parent namespace) first, then child scope. Callers iterate
- * in order and take the first present record.
- */
 function lookupKeys(
   path: readonly string[],
   name: string
@@ -130,19 +77,6 @@ function lookupKeys(
   return [siblingKey, childKey];
 }
 
-/**
- * Normalize a step body to a Promise. Async-function bodies resolve
- * directly; async-generator bodies are driven to completion with each
- * `yield` routed through `ctx.write` (string → text, `undefined`/`null`
- * → no-op, else → data chunk), and the generator's `return` value
- * becomes the step output.
- *
- * Cancellation: if `signal` aborts between yields, the iterator is
- * `.return()`-ed (best-effort, errors swallowed) to run the body's
- * `finally` blocks, then the abort surfaces as a throw for the outer
- * `Effect.tryPromise` to catch. A throw inside the body propagates the
- * same way.
- */
 async function runBody<O>(
   execute: (
     input: unknown,
@@ -206,10 +140,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     this.#resolutions = args.resolutions;
   }
 
-  /**
-   * Allocate a root Executable. `Scope`-managed so cancellation
-   * finalizer aborts pending consumers on close.
-   */
   static make<Input, Context extends BaseContext = BaseContext>(args: {
     readonly input: Input;
     readonly name: string;
@@ -238,17 +168,11 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     });
   }
 
-  /**
-   * Build a child frame. Extends path, updates name and context,
-   * swaps input if provided. Shares controller and resolutions; config is fresh.
-   */
   fork<NewI = unknown>(args: {
     name: string;
     input?: NewI;
     config?: Partial<ExecutableConfig>;
   }): Executable<NewI, X> {
-    // Config does NOT inherit down the fork graph.
-    // A parent's timeout/retry applies only to its own frame, not its children.
     return new Executable({
       config: { blocking: false, maxAttempts: 1, ...args.config },
       context: { ...this.context, name: args.name },
@@ -268,7 +192,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     return this.#controller.signal.reason as unknown;
   }
 
-  /** Hand-off for `fetch(url, { signal: rt.signal })` etc. */
   get signal(): AbortSignal {
     return this.#controller.signal;
   }
@@ -279,15 +202,14 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     }
   }
 
-  /** Subscribe to cancellation; returns an unsubscribe. */
   onAbort(handler: (reason: unknown) => void): Unsubscribe {
     const { signal } = this.#controller;
-    // Wrap to isolate handler throw from poisoning other subscribers.
     const safe = (reason: unknown): void => {
       try {
         handler(reason);
       } catch {
-        // Handler responsible for its own errors.
+        // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+        return;
       }
     };
     if (signal.aborted) {
@@ -305,7 +227,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     };
   }
 
-  /** Effect-typed observation: fails with `"interrupted"` on abort. */
   get interrupted(): Effect.Effect<never, "interrupted"> {
     const ctl = this.#controller;
     return Effect.async<never, "interrupted">((resume) => {
@@ -323,11 +244,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     });
   }
 
-  /**
-   * Effect-typed `suspend`: returns the recorded resolution if
-   * present, otherwise fails with a {@link SuspendSignal}.
-   * Resolutions are durable for the lifetime of the Run.
-   */
   suspend<T>(args: SuspensionRequest, occurrence = 0): Effect.Effect<T, Error> {
     const ref = this.#resolutions;
     const originPath = [...this.path];
@@ -362,12 +278,10 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     });
   }
 
-  /** Deliver a resolution so the next replay of `suspend(name)` returns. */
   resolve(name: string, value: unknown): Effect.Effect<void> {
     return Ref.update(this.#resolutions, HashMap.set(name, value));
   }
 
-  /** Deliver a value to one deterministic suspension occurrence. */
   resolveOccurrence(
     stepPath: readonly string[],
     name: string,
@@ -380,24 +294,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     );
   }
 
-  /**
-   * The single execution engine. Runs `step` against `witness` for this
-   * frame: publishes `step.started` per attempt, executes the body under
-   * the merged retry/timeout policy (step metadata > config), and
-   * publishes the terminal event (complete / failed / bailed / suspended).
-   *
-   * Two callers share it:
-   *
-   *   - **{@link Step.run}** passes `{ input, ctxExtension, stepMode: true }`.
-   *     `stepMode` enables the Step-only hooks: pre-exec short-circuits,
-   *     the pause gate, `progress=100`, and the
-   *     `ctx.next` / `ctx.pipe` middleware affordances.
-   *   - **Composer** (`ctx.invoke` / `parallel` / `race` / `branch` /
-   *     `sequence`) passes no options — a lean synthetic frame.
-   *
-   * Attempt count lives in a local Ref, stamped on every event for
-   * started/complete correlation across retries.
-   */
   drive<O>(
     witness: Witness,
     step: Step<unknown, O>,
@@ -407,10 +303,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     const stepMode = opts?.stepMode ?? false;
     const effectiveInput: unknown = resolveInput(opts?.input, self.input);
 
-    // Drain this step's pending children in append order. `propagate=false`
-    // (post-body cascade) swallows failures; `propagate=true` (ctx.next)
-    // surfaces the first throw / bail / suspend. Eager-driven children
-    // (status no longer "pending") are skipped to avoid double-runs.
     const drainChildren = (propagate: boolean): Effect.Effect<void, Error> =>
       Effect.gen(function* () {
         for (const child of step.children) {
@@ -419,8 +311,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
           if (persistedChild && persistedChild.status !== "pending") {
             continue;
           }
-          // Drive each child through the same engine in stepMode (its own
-          // frame, pre-skip, cascade — equivalent to child.run()).
           const runChild = child.executable.drive(
             { channels: child.channels, composer: child.composer },
             child,
@@ -441,9 +331,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
 
     const suspensionOccurrences = new Map<string, number>();
 
-    // Single ctx builder. `next` / `pipe` are layered only in stepMode
-    // (Composer frames omit them). Routes composition to the witness
-    // composer (current frame) or the step's own composer.
     const buildCtx = (): StepContext<unknown, O> => {
       const base = {
         ...step.context,
@@ -521,7 +408,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
           return Effect.runPromise(step.snapshot.currentWorkflow);
         },
         write: step.write.bind(step),
-        // Middleware affordances — Step-only (Composer frames omit them).
         ...(stepMode
           ? {
               next: () => runEffectPromise(drainChildren(true)),
@@ -530,15 +416,11 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
             }
           : {}),
       };
-      // Composer frames omit `next`/`pipe`, so the object isn't a complete
-      // StepContext structurally — one cast at the engine seam.
       return base as unknown as StepContext<unknown, O>;
     };
 
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This sequential execution state machine preserves pause, retry, cancellation, and lifecycle-event ordering in one Effect scope.
     return Effect.gen(function* () {
-      // Skip / aborted / persisted-complete short-circuit without firing
-      // started/complete. The transitioning event already moved status.
       if (stepMode) {
         if (step.status === "skipped") {
           return undefined as O;
@@ -546,9 +428,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
         if (step.aborted || step.status === "aborted") {
           return undefined as O;
         }
-        // Skip-on-complete (recovery): a seeded snapshot may already mark
-        // this path complete from a prior run — honor it, return the
-        // persisted output. Only `complete` short-circuits.
         const persistedState = yield* step.snapshot.current;
         const persisted = persistedState.steps[step.path.join(".")];
         if (persisted?.status === "complete") {
@@ -559,8 +438,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
       const ctx = buildCtx();
       const attemptRef = yield* Ref.make(0);
 
-      // Step metadata > executable config > package defaults.
-      // resolveStepExecution applies package defaults; layer Executable.config for per-Run overrides.
       const stepPolicy = resolveStepExecution(step.config);
       const policy = {
         retry: stepPolicy.retry ?? self.config.retry,
@@ -579,8 +456,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
 
       const oneAttempt: Effect.Effect<O | Bail<unknown>, Error> = Effect.gen(
         function* () {
-          // One-seam pause-check (stepMode) — every attempt parks here if
-          // paused. `step.waitIfPaused()` resolves immediately when not.
           if (stepMode) {
             yield* Effect.promise(() => step.waitIfPaused());
           }
@@ -594,8 +469,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
                 catch: (e) => (e instanceof Error ? e : new Error(String(e))),
                 try: () =>
                   runBody<O>(
-                    // Bind so `this` inside a `function`-style body is the
-                    // Step (the original method receiver), not undefined.
                     step.invoke.bind(step),
                     effectiveInput,
                     ctx,
@@ -650,9 +523,6 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
               }
               return;
             }
-            // Abort suppression: a mid-flight abort already fired
-            // step.aborted; don't double-emit step.failed for the
-            // abort-driven throw.
             if (self.aborted) {
               return;
             }
@@ -677,18 +547,10 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
         return result;
       }
 
-      // Validate the result before the terminal complete event.
       opts?.assertResult?.(result);
 
-      // Drain declared/forked children (fire-and-forget) before the
-      // terminal complete. Unconditional so steps driven via Composer
-      // (`ctx.invoke` / `parallel` / `race`) drain their declared
-      // children too — not just the `.run()` path.
       yield* drainChildren(false);
 
-      // Completion implies progress=100 (stepMode only; the setter
-      // no-ops past terminal). Emitted before complete so a single
-      // subscribe-and-take sees the final tick.
       if (stepMode) {
         step.progress = 100;
       }

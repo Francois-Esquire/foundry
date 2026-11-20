@@ -21,6 +21,11 @@ export type SessionDatabase = BaseSQLiteDatabase<
   Record<string, unknown>
 >;
 
+export interface MessageTally {
+  readonly messages: number;
+  readonly summarized: boolean;
+}
+
 export type SessionTransaction = SQLiteTransaction<
   "async",
   unknown,
@@ -149,6 +154,62 @@ export class SqliteSessionStore implements SessionStore {
           and(eq(agentSessions.scope, this.#scope), eq(agentSessions.id, id))
         );
       return row ? sessionOf(row, this.#scope) : null;
+    });
+  }
+
+  getSessions(ids: readonly string[]): Promise<SessionRecord[]> {
+    return this.#turns.run(async () => {
+      const sessions: SessionRecord[] = [];
+      for (const batch of batches(
+        [...new Set(ids.filter(storable))],
+        MAX_PARAMETERS - 1
+      )) {
+        const rows = await this.#database
+          .select(sessionColumns)
+          .from(agentSessions)
+          .where(
+            and(
+              eq(agentSessions.scope, this.#scope),
+              inArray(agentSessions.id, batch)
+            )
+          );
+        sessions.push(...rows.map((row) => sessionOf(row, this.#scope)));
+      }
+      return sessions;
+    });
+  }
+
+  messageTallies(
+    sessionIds: readonly string[]
+  ): Promise<Map<string, MessageTally>> {
+    return this.#turns.run(async () => {
+      const tallies = new Map<string, MessageTally>();
+      for (const batch of batches(
+        [...new Set(sessionIds.filter(storable))],
+        MAX_PARAMETERS - 1
+      )) {
+        const rows = await this.#database
+          .select({
+            messages: sql<number>`count(*)`,
+            sessionId: agentMessages.sessionId,
+            summaries: sql<number>`sum(${agentMessages.role} = 'summary')`,
+          })
+          .from(agentMessages)
+          .where(
+            and(
+              eq(agentMessages.scope, this.#scope),
+              inArray(agentMessages.sessionId, batch)
+            )
+          )
+          .groupBy(agentMessages.sessionId);
+        for (const row of rows) {
+          tallies.set(row.sessionId, {
+            messages: Number(row.messages),
+            summarized: Number(row.summaries) > 0,
+          });
+        }
+      }
+      return tallies;
     });
   }
 

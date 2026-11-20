@@ -29,62 +29,39 @@ import { moduleDirectory } from "./local-library";
 
 const RECORD_FORMAT = "works.module-settings/1";
 
-/**
- * A released Program's memory when neither its Manifest nor the user asks
- * for more: the Modules platform's own baseline, under the shared ceiling.
- */
 export const PROGRAM_MEMORY_BYTES = 512 * 1024 * 1024;
 
-/** The host policy a released Program starts under: its own defaults. */
 export const PROGRAM_SETTINGS_POLICY = withModuleSettingDefaults({
   "resources.memoryBytes": PROGRAM_MEMORY_BYTES,
 });
 
-/** The values stay unchecked here; `parseModuleSettingValues` checks them. */
 const recordSchema = z.object({
   format: z.literal(RECORD_FORMAT),
   values: z.unknown(),
 });
 
-/** What one authoring turn may use, from the Module's effective settings. */
 export interface AuthoringTurnLimits {
   readonly deadlineMs: number;
   readonly maxSteps: number;
   readonly source: ModuleSourceLimits;
 }
 
-/** What a Module's sandbox starts with, from its effective settings. */
 export interface SandboxResources {
   readonly cpus: number;
   readonly memoryBytes: number;
 }
 
 export interface ModuleSettingsOptions {
-  /** Where user values are kept: one JSON file per Module. */
   readonly directory: string;
   readonly execution: Pick<
     WorksExecution,
     "configureModuleQueues" | "dispatch"
   >;
-  /** Saved source, whose `foundry.module.json` declares requests/defaults. */
   readonly library: Pick<ModuleLibrary, "manifest">;
 }
 
-/**
- * Per-Module settings in Works state: user values by Module ID, resolved
- * against the Module's saved Manifest and the host ceilings. Changes are
- * `system` engine runs. Nothing here grants authority. Reads have no side
- * effects: they read the saved Manifest (never the Module folder) and leave
- * queues alone; queue concurrency is applied by {@link applyQueues} and by
- * a settings change.
- *
- * Effective settings are kept per Module, since every Artifact read asks for
- * them, until its settings change here or {@link applyQueues} is told its
- * Manifest may have changed.
- */
 export class ModuleSettings {
   readonly #directory: string;
-  /** Each Module's effective settings under the host's own policy. */
   readonly #effective = new Map<string, Promise<EffectiveModuleSettings>>();
   readonly #execution: ModuleSettingsOptions["execution"];
   readonly #library: ModuleSettingsOptions["library"];
@@ -96,7 +73,6 @@ export class ModuleSettings {
     this.#library = options.library;
   }
 
-  /** The user's values, effective values and unmet requirements. */
   async get(moduleId: string): Promise<ModuleSettingsView> {
     return view(
       moduleId,
@@ -105,12 +81,6 @@ export class ModuleSettings {
     );
   }
 
-  /**
-   * Replace the user's values. Keys must be settings, values within the
-   * host ceilings and the Module's minimums; a value that cannot be met is
-   * refused, never stored. Runs on the `system` queue, then applies the
-   * Module's queue concurrency.
-   */
   set(moduleId: string, values: unknown): Promise<ModuleSettingsView> {
     return this.#execution.dispatch(
       WORKS_TASKS.settings,
@@ -139,16 +109,11 @@ export class ModuleSettings {
     );
   }
 
-  /** The values the user chose; none until they choose. */
   async user(moduleId: string): Promise<ModuleSettingValues> {
     const record = await readRecord(this.#file(moduleId));
     return record === undefined ? {} : parseModuleSettingValues(record.values);
   }
 
-  /**
-   * Effective settings for the Module's saved Manifest. Throws
-   * `ModuleSettingsError` when a requirement is unmet.
-   */
   effective(
     moduleId: string,
     policy?: ModuleSettingsHostPolicy
@@ -162,7 +127,6 @@ export class ModuleSettings {
     }
     const resolving = this.#resolve(moduleId);
     this.#effective.set(moduleId, resolving);
-    // A failure is not kept: the next read tries again.
     resolving.catch(() => {
       if (this.#effective.get(moduleId) === resolving) {
         this.#effective.delete(moduleId);
@@ -182,18 +146,11 @@ export class ModuleSettings {
     });
   }
 
-  /**
-   * The Module's Manifest may have changed (or Works just started): read its
-   * effective settings afresh and apply their queue concurrency to its
-   * engine queues. Throws `ModuleSettingsError` when a requirement is unmet;
-   * its queues then keep the engine's defaults.
-   */
   async applyQueues(moduleId: string): Promise<void> {
     this.#effective.delete(moduleId);
     this.#configureQueues(moduleId, await this.effective(moduleId));
   }
 
-  /** The limits of the Module's next authoring turn. */
   async authoringLimits(moduleId: string): Promise<AuthoringTurnLimits> {
     const effective = await this.effective(moduleId);
     return {
@@ -208,10 +165,6 @@ export class ModuleSettings {
     };
   }
 
-  /**
-   * How much the Module's Program may read per chunk and write per file,
-   * and how many Artifacts one page of its scoped listing holds.
-   */
   async artifactLimits(
     moduleId: string
   ): Promise<{ chunkBytes: number; maxFileBytes: number; pageSize: number }> {
@@ -223,7 +176,6 @@ export class ModuleSettings {
     };
   }
 
-  /** How long, and how many, of the Module's settled runs the run store keeps. */
   async auditRetention(moduleId: string): Promise<RetentionPolicy> {
     const effective = await this.effective(moduleId);
     return {
@@ -232,7 +184,6 @@ export class ModuleSettings {
     };
   }
 
-  /** CPU and memory of the Module's shared authoring/build sandbox. */
   async sandboxResources(moduleId: string): Promise<SandboxResources> {
     return sandboxResources(await this.effective(moduleId));
   }
@@ -249,7 +200,6 @@ export class ModuleSettings {
   }
 }
 
-/** The sandbox capacity effective settings allocate. */
 export function sandboxResources(
   effective: EffectiveModuleSettings
 ): SandboxResources {

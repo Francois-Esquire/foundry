@@ -13,7 +13,6 @@ export class ModuleRuntimeError extends Error {
 }
 
 export interface ModuleRuntime {
-  /** A Grant was revoked: cancel the Installation's active Invocations under it. */
   revoked(input: {
     readonly installationId: InstallationId;
     readonly capability: string;
@@ -28,59 +27,39 @@ export interface ModuleRuntime {
   }>;
 }
 
-/** Where the `module-app://` host of an open app's Program is served from. */
 export interface ModuleEndpoint {
   readonly origin: string;
-  /** Aborts when the Program stops serving, ending its streamed responses. */
   readonly signal: AbortSignal;
   readonly views: ModuleSession["views"];
 }
 
-/** One Program lifetime of an open app: a `system` run from start to stop. */
 interface ProgramLifetime {
-  /**
-   * Resolves once the Program is up, with the `module-app://` host serving
-   * it; rejects when it fails to start.
-   */
   readonly origin: Promise<string>;
-  /** Settles once the Program has stopped; rejects when it fails to start or stop. */
   readonly settled: Promise<void>;
-  /** Ends a Program that is up. */
   stop(): void;
 }
 
-/** What an open app's watcher is shown; only the latest matters. */
 type AppState =
   | { readonly kind: "starting" }
   | { readonly kind: "up" | "restarting"; readonly origin: string }
   | { readonly error: unknown; readonly kind: "failed" };
 
-/** An open app and the Program lifetime currently serving it. */
 interface OpenApp {
-  /** Set once the app closes: its Programs stopped, or how they failed to. */
   closed?: Promise<void>;
-  /** Ends the app: its watch, and the Program it shows. */
   readonly controller: AbortController;
   readonly moduleId: string;
-  /** Unset while the app opens: no Program has started yet. */
   program?: {
-    /** Starts the next Program lifetime, which reports to `state`. */
     readonly launch: () => ProgramLifetime;
     lifetime: ProgramLifetime;
   };
-  /** Restarts run one at a time per app. */
   restarts: Promise<unknown>;
-  /** Aborted when the app ends, whether closed here or by its watcher. */
   readonly signal: AbortSignal;
   readonly state: Changing<AppState>;
 }
 
 export interface ModuleSessionsOptions {
-  /** Refuses a Module that may not start now, such as one turned off. */
   readonly admit?: (moduleId: string) => Promise<void>;
-  /** Where each Program's Gateway invocations are recorded on its run. */
   readonly calls?: Pick<ProgramCalls, "attach">;
-  /** Each Program lifetime is a `system` engine run, from its start to its stop. */
   readonly execution: Pick<WorksExecution, "dispatch">;
   readonly library: Pick<ModuleLibrary, "release">;
   readonly runtime: ModuleRuntime;
@@ -88,11 +67,6 @@ export interface ModuleSessionsOptions {
 
 export class ModuleSessions {
   readonly #active = new Map<string, ModuleEndpoint>();
-  /**
-   * Each open app from the moment its watch starts, before anything is
-   * awaited, so a stop while it is still opening ends it before its Program
-   * starts.
-   */
   readonly #apps = new Set<OpenApp>();
   readonly #shutdown = new AbortController();
   readonly #admit: (moduleId: string) => Promise<void>;
@@ -109,12 +83,6 @@ export class ModuleSessions {
     this.#runtime = options.runtime;
   }
 
-  /**
-   * Open an app: its Program's endpoint once it is up, a `restarting`
-   * marker while a restart replaces it (a watcher that was not waiting
-   * skips straight to the new endpoint), and the error if a start fails.
-   * Ends when `signal` aborts, the Module stops, or Works shuts down.
-   */
   watch(
     id: string,
     contentId: string,
@@ -123,7 +91,6 @@ export class ModuleSessions {
     if (this.#shutdown.signal.aborted) {
       throw new ModuleRuntimeError("Module runtime is shutting down");
     }
-    // Returning ends the watch at once, even while it waits for a change.
     const closed = new AbortController();
     const iterator = this.#watch(
       id,
@@ -196,10 +163,6 @@ export class ModuleSessions {
     }
   }
 
-  /**
-   * Ends the app once; every caller waits for the same stop. A restart in
-   * flight finishes first, then the Program shown last stops.
-   */
   #close(app: OpenApp): Promise<void> {
     app.closed ??= (async () => {
       app.controller.abort();
@@ -214,11 +177,6 @@ export class ModuleSessions {
     return app.closed;
   }
 
-  /**
-   * One Program lifetime as a `system` run. A stop before the Program is up
-   * cancels its run; a stop after that ends it complete. A crash leaves it
-   * running for the next start to mark interrupted.
-   */
   #launch(app: {
     readonly contentId: string;
     readonly id: string;
@@ -257,7 +215,6 @@ export class ModuleSessions {
           const token = randomUUID();
           const serving = new AbortController();
           try {
-            // Its start is ordered on the queue; its lifetime holds no slot.
             context.release();
             this.#active.set(token, {
               origin: handle.origin,
@@ -269,7 +226,6 @@ export class ModuleSessions {
               AbortSignal.any([signal, context.signal, stop.signal])
             );
           } finally {
-            // Unreachable first, and no proxied response outlives the Program.
             this.#active.delete(token);
             serving.abort();
             try {
@@ -290,14 +246,6 @@ export class ModuleSessions {
     return lifetime;
   }
 
-  /**
-   * Stop and start every open app of the Module again, so each Program runs
-   * under the authority its Installation holds now (network policy is fixed
-   * when a Program starts). Resolves once every previous Program has stopped
-   * and its replacement is up or has failed to start; rejects when a
-   * previous Program did not stop, as its authority may still be live.
-   * Returns how many Programs were replaced.
-   */
   async restart(moduleId: string): Promise<number> {
     const apps = [...this.#apps].filter((app) => app.moduleId === moduleId);
     const replaced = await Promise.all(
@@ -312,18 +260,14 @@ export class ModuleSessions {
 
   async #replace(app: OpenApp): Promise<boolean> {
     const { program } = app;
-    // An app still opening starts its Program under the authority held then.
     if (!program || app.signal.aborted) {
       return false;
     }
     const previous = program.lifetime;
-    // A start already under way read the old authority: let it come up,
-    // then replace it.
     let token: string;
     try {
       token = await previous.origin;
     } catch {
-      // It never ran.
       return false;
     }
     app.state.set({ kind: "restarting", origin: `module-app://${token}` });
@@ -337,7 +281,6 @@ export class ModuleSessions {
     return true;
   }
 
-  /** Module off: close the Module's open apps, waiting for their Programs to stop. */
   async stop(moduleId: string): Promise<void> {
     const failures = await closeAll(
       [...this.#apps].filter((app) => app.moduleId === moduleId),
@@ -363,7 +306,6 @@ export class ModuleSessions {
   }
 }
 
-/** Closes every app, collecting the failures. */
 async function closeAll(
   apps: readonly OpenApp[],
   close: (app: OpenApp) => Promise<void>

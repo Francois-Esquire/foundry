@@ -290,6 +290,9 @@ describe("public surface", () => {
       "PersistedWorkflowSchema",
       "QueueRecordSchema",
       "QueueStatusSchema",
+      "RunEventSchema",
+      "RunEventTypeSchema",
+      "RunFieldSchema",
       "RunFramePayloadSchema",
       "RunFrameSchema",
       "RunLinksSchema",
@@ -310,6 +313,12 @@ describe("public surface", () => {
       expect(typeof schemaPublic[name].safeParse).toBe("function");
     }
     expect(schemaPublic.ORCHESTRATOR_STORE_SNAPSHOT_VERSION).toBe(1);
+    expect(schemaPublic.RUN_EVENT_TYPES).toStrictEqual(
+      schemaPublic.RunEventTypeSchema.options
+    );
+    expect(schemaPublic.RUN_FIELDS).toStrictEqual(
+      schemaPublic.RunFieldSchema.options
+    );
   });
 
   test("exports map remains curated and targets existing files", () => {

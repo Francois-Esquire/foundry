@@ -28,7 +28,6 @@ async function setup(
   directories.push(directory);
   const file = path.join(directory, "artifacts.json");
   const execution = await startTestExecution();
-  /** A Works process over the library file; a second call is a restart. */
   const restart = () =>
     installedProcess(
       new JsonArtifactStore({ path: file }),
@@ -109,7 +108,6 @@ describe("Works released Programs on one durable Installation", () => {
     expect(crashed?.installation.status).toBe("active");
     const crashedRuntime = await first.programs.active(id);
 
-    // A new process: the persisted `active` is not a live Program.
     const second = restart();
     await vi.waitFor(async () => {
       expect(
@@ -141,10 +139,7 @@ describe("Works released Programs on one durable Installation", () => {
     const updated = await listed();
     await (await open(first, version)).close();
     await (await open(first, version)).close();
-    // The Catalog's "Updated" is source time: opening the app moves nothing.
     expect(await listed()).toBe(updated);
-    // Installation transitions patch Artifact metadata, not the Content the
-    // binding fences on.
     expect((await first.library.details(module.id))?.binding).toEqual(
       details.binding
     );
@@ -171,7 +166,6 @@ describe("Works released Programs on one durable Installation", () => {
     ]);
     await (await open(first, v1)).close();
 
-    // Same weather request, new destinations: weather carries over, network asks again.
     const v2 = await first.release(module.id, "0.2.0", {
       ...weather("Oslo"),
       ...network("other.example.com"),
@@ -192,7 +186,6 @@ describe("Works released Programs on one durable Installation", () => {
       )
     ).toEqual(["host.weather.read"]);
 
-    // A changed required constraint asks again, and blocks the start until approved.
     const v3 = await first.release(module.id, "0.3.0", weather("Bergen"));
     await expect(open(first, v3)).rejects.toThrow(
       "Approve it in the Module's Access panel"
@@ -314,7 +307,6 @@ describe("Works released Programs on one durable Installation", () => {
   });
 
   it("keeps a Program's capacity and slot until a failed stop is confirmed on retry", async () => {
-    // One sandbox on the machine: whatever holds it shows in a probe.
     const capacity = new SandboxCapacity({
       memoryBytes: Number.MAX_SAFE_INTEGER,
       sandboxes: 1,
@@ -328,7 +320,6 @@ describe("Works released Programs on one durable Installation", () => {
     await expect(app.close()).rejects.toThrow();
     expect(first.stopped).toHaveBeenCalledOnce();
 
-    // The VM may still be live: another sandbox cannot take its share.
     const waiting = vi.fn();
     const probe = new AbortController();
     const blocked = capacity.acquire(1, { signal: probe.signal, waiting });
@@ -336,7 +327,6 @@ describe("Works released Programs on one durable Installation", () => {
     probe.abort();
     await expect(blocked).rejects.toMatchObject({ name: "AbortError" });
 
-    // The next start drives the stop again before it starts anything.
     const reopened = await open(first, version);
     expect(first.stopped).toHaveBeenCalledTimes(2);
     expect((await first.programs.active(id))?.runtimeInstanceId).toBe(
@@ -361,7 +351,6 @@ describe("Works released Programs on one durable Installation", () => {
     first.stopped.mockRejectedValueOnce(new Error("VM still running"));
 
     const closing = app.close();
-    // A start that queued behind the stop wakes when it fails and tries it.
     const next = open(first, version);
     await vi.waitFor(() => expect(first.stopped).toHaveBeenCalledOnce());
     stop.reject(new Error("VM did not stop"));
@@ -396,7 +385,6 @@ describe("Works released Programs on one durable Installation", () => {
     const cleaned = Promise.withResolvers<void>();
     first.stopped.mockReturnValueOnce(cleaned.promise);
 
-    // Longer than the supervisor waits: the stop is reported pending.
     await expect(app.close()).rejects.toMatchObject({
       code: "cleanup-pending",
     });
@@ -404,7 +392,6 @@ describe("Works released Programs on one durable Installation", () => {
     const next = capacity.acquire(1, { waiting });
     expect(waiting).toHaveBeenCalledOnce();
 
-    // Cleanup finishes by itself; Works notices and gives the share back.
     cleaned.resolve();
     (await next).release();
     expect(

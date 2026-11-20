@@ -1,19 +1,12 @@
 import { spawnSync } from "node:child_process";
-import {
-  cp,
-  mkdtemp,
-  readdir,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { ModuleVersion } from "@foundry/modules/domain";
 import type { ExecutionRun, TaskContext } from "@foundry.sh/marbles/engine";
+import { openWorkspaceDatabase } from "@foundry.sh/marbles/engine";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProductFiles } from "~/main/artifacts/files";
 import { auditRun, ExecutionAudit } from "~/main/execution/audit";
@@ -79,23 +72,6 @@ function named(runs: readonly ExecutionRun[], name: string) {
   return runs.filter((run) => run.name === name);
 }
 
-/** Every file under `directory`, with its text. */
-async function filesUnder(directory: string): Promise<[string, string][]> {
-  const entries = await readdir(directory, {
-    recursive: true,
-    withFileTypes: true,
-  });
-  return Promise.all(
-    entries
-      .filter((entry) => entry.isFile())
-      .map(async (entry): Promise<[string, string]> => {
-        const file = path.join(entry.parentPath, entry.name);
-        return [file, await readFile(file, "utf8")];
-      })
-  );
-}
-
-/** Collect a watch's events until `count` have arrived. */
 async function take(
   events: AsyncIterator<AuditEvent>,
   count: number
@@ -118,7 +94,6 @@ function reduce(
   return events.reduce<AuditState | null>(applyAuditEvent, state);
 }
 
-/** A pid that belonged to a process which has exited. */
 function deadPid(): number {
   const child = spawnSync(process.execPath, ["-e", ""]);
   return child.pid ?? 999_999;
@@ -145,7 +120,6 @@ describe("engine run-store coverage", {
       correlation: { moduleId },
       status: "complete",
     });
-    // The release is attributed to its build.
     expect(publish?.correlation).toEqual({
       moduleId,
       parentRunId: build?.id,
@@ -196,7 +170,6 @@ describe("engine run-store coverage", {
         ["file", "saved", "user", undefined],
       ])
     );
-    // Failures never appear as saves; they are typed attempts.
     const attempts = runs
       .map((run) => [run.name, failedSaveAttempt(run)] as const)
       .filter(([, attempt]) => attempt !== null);
@@ -209,7 +182,6 @@ describe("engine run-store coverage", {
     );
     expect(saves.some((save) => attemptRuns.has(save.runId))).toBe(false);
 
-    // Calls: a real coding turn's model turns and tool calls, and Gateway calls.
     const calls = callRows(runs);
     const turn = calls.filter((call) => call.runId === scenario.turnRunId);
     expect(turn.filter((call) => call.kind === "model-turn")).not.toHaveLength(
@@ -244,29 +216,32 @@ describe("engine run-store coverage", {
     const scenario = await runAuditScenario(directory);
     cleanups.push(() => scenario.close());
     const planted = [SCENARIO_PROMPT, SCENARIO_FILE_BODY, SCENARIO_SOURCE_BODY];
-    const files = await filesUnder(path.join(directory, "engine", "state"));
-    expect(files.length).toBeGreaterThan(10);
-    for (const [file, text] of files) {
+    const database = openWorkspaceDatabase({
+      state: path.join(directory, "engine", "state"),
+      workspaceId: "foundry-works",
+    });
+    cleanups.push(() => database.close());
+    const records = await database.executions.list();
+    expect(records.length).toBeGreaterThan(10);
+    for (const record of records) {
       for (const secret of planted) {
-        expect(text, file).not.toContain(secret.trim());
+        expect(JSON.stringify(record), record.id).not.toContain(secret.trim());
       }
     }
     const audit = new ExecutionAudit({ runs: scenario.execution.runs });
     const controller = new AbortController();
-    const [snapshot] = await take(audit.watch(controller.signal), 1);
+    const [snapshot] = await take(await audit.watch(controller.signal), 1);
     controller.abort();
     const payload = JSON.stringify(snapshot);
     for (const secret of planted) {
       expect(payload).not.toContain(secret.trim());
     }
     expect(payload).not.toContain('"input":{"request"');
-    // The conversation itself is the Agent Session's separate persistence.
-    const sessions = await filesUnder(
-      path.join(directory, "engine", "sessions")
+    const sessions = await database.sessions.stamps();
+    const transcripts = await Promise.all(
+      sessions.map(({ id }) => database.sessions.listMessages(id))
     );
-    expect(sessions.some(([, text]) => text.includes(SCENARIO_PROMPT))).toBe(
-      true
-    );
+    expect(JSON.stringify(transcripts)).toContain(SCENARIO_PROMPT);
   });
 
   it("keeps a failed chat turn's provider text out of the run, with its code", async () => {
@@ -280,7 +255,6 @@ describe("engine run-store coverage", {
       { recordErrorMessage: false },
       () => Promise.reject(failure)
     );
-    // The caller still gets the error itself.
     await expect(launched.result).rejects.toBe(failure);
     const run = execution.runs.get(launched.id);
     expect(run?.error).toEqual({ code: "AI_APICallError:401" });
@@ -387,7 +361,6 @@ describe("Gateway invocations on Program runs", () => {
         status: "complete",
       });
     }
-    // Another Module's calls never land on this run.
     calls.record({
       endedAt: new Date().toISOString(),
       invocationId: "other",
@@ -468,7 +441,6 @@ describe("run-store retention", () => {
   it("prunes only settled runs past retention, keeping each Artifact's latest save, a file's creation receipt and active work", async () => {
     const { created, directory, execution, module, store } =
       await savesFixture();
-    // A Program still running when retention runs.
     const release = Promise.withResolvers<void>();
     const program = await execution.launch(
       WORKS_TASKS.program,
@@ -487,7 +459,6 @@ describe("run-store retention", () => {
     const keep = [
       latest(WORKS_TASKS.save),
       latest(WORKS_TASKS.fileSave),
-      // The file's first result: a retried create still finds it.
       latest(WORKS_TASKS.fileCreate),
       program.id,
     ];
@@ -509,12 +480,10 @@ describe("run-store retention", () => {
         execution.runs.gaps().map((gap) => [gap.scope, gap.removed])
       )
     ).toEqual({
-      // Create, three saves and the file saves are host or Module runs.
       [HOST_AUDIT_SCOPE]: named(before, WORKS_TASKS.create).length + 1,
       [`module:${module.id}`]: 2,
     });
 
-    // The kept checkpoints are what startup recovery reads: nothing to recover.
     const again = new ProductFiles({
       artifacts: modulePersistence(store).artifacts,
       execution,
@@ -555,12 +524,10 @@ describe("run-store retention", () => {
       runs: execution.runs,
     });
     await retention.compact();
-    // The newest two: the last source save and the settings change.
     expect(moduleRuns().map((run) => run.name)).toEqual([
       WORKS_TASKS.save,
       WORKS_TASKS.settings,
     ]);
-    // Nothing of the host scope was old enough or over its limit.
     expect(execution.runs.gaps().map((gap) => gap.scope)).toEqual([
       `module:${module.id}`,
     ]);
@@ -637,7 +604,6 @@ describe("crash durability", () => {
     });
     const app = sessions.watch(module.id, release.version.contentId);
     await app.next();
-    // One chat turn holds the Module's authoring slot; the next waits.
     const hold = Promise.withResolvers<void>();
     const queue = { kind: "authoring", moduleId: module.id } as const;
     const running = await first.launch(
@@ -657,19 +623,38 @@ describe("crash durability", () => {
       await Promise.allSettled([running.result, waiting.result]);
     });
 
-    // The crash: the store as the dead process left it.
     const copy = path.join(directory, "after-crash");
-    await cp(engine, copy, { recursive: true });
     const dead = deadPid();
-    const executions = path.join(copy, "state", "executions");
-    for (const file of await readdir(executions)) {
-      const record = JSON.parse(
-        await readFile(path.join(executions, file), "utf8")
-      ) as ExecutionRun;
-      await writeFile(
-        path.join(executions, file),
-        JSON.stringify({ ...record, owner: { pid: dead } })
-      );
+    const copied = openWorkspaceDatabase({
+      state: path.join(copy, "state"),
+      workspaceId: "foundry-works",
+    });
+    try {
+      for (const run of first.runs.list()) {
+        const owner = { pid: dead, started: "exited-test-process" };
+        await copied.executions.create({
+          ...run,
+          owner,
+          status: run.observations.length ? "running" : run.status,
+        });
+        for (const observation of run.observations) {
+          await copied.executions.observe(
+            run.id,
+            observation,
+            run.timestamps.updatedAt
+          );
+        }
+        if (run.observations.length) {
+          await copied.executions.transition(run.id, {
+            from: ["running"],
+            owner,
+            status: run.status,
+            updatedAt: run.timestamps.updatedAt,
+          });
+        }
+      }
+    } finally {
+      await copied.close();
     }
 
     const second = await startWorksEngine({ directory: copy });
@@ -688,7 +673,6 @@ describe("crash durability", () => {
         status: "failed",
       })
     );
-    // The committed save survives with its result; nothing appears as saved twice.
     const saves = artifactSaves(second.runs.list().map(auditRun));
     expect(saves.map((save) => [save.kind, save.tag])).toEqual(
       expect.arrayContaining([
@@ -716,13 +700,12 @@ describe("audit watch", () => {
     });
     const audit = new ExecutionAudit({ retention, runs: execution.runs });
     const controller = new AbortController();
-    const events = audit.watch(controller.signal);
+    const events = await audit.watch(controller.signal);
     const [snapshot] = await take(events, 1);
     expect(snapshot).toMatchObject({ gaps: [], type: "snapshot" });
     expect(snapshot?.type === "snapshot" && snapshot.runs).toHaveLength(1);
 
     const module = await library.create("After");
-    // Queued, running, its result, complete: one event per revision.
     const updates = await take(events, 4);
     expect(updates.map((event) => event.type)).toEqual([
       "run",
@@ -730,7 +713,6 @@ describe("audit watch", () => {
       "run",
       "run",
     ]);
-    // Replaying an event (a duplicate delivery) changes nothing.
     const state = reduce([...(snapshot ? [snapshot] : []), ...updates]);
     const replayed = reduce(updates, state);
     expect(replayed).toBe(state);
@@ -739,7 +721,6 @@ describe("audit watch", () => {
       "complete",
     ]);
 
-    // Retention removes both: the watch says so, with the gap.
     await retention.compact();
     const [removed] = await take(events, 1);
     expect(removed).toMatchObject({
@@ -750,11 +731,10 @@ describe("audit watch", () => {
     expect(pruned.runs.size).toBe(0);
     expect(pruned.gaps).toHaveLength(1);
 
-    // A reconnect is a fresh snapshot that replaces what the reader held.
     controller.abort();
     expect(await events.next()).toEqual({ done: true, value: undefined });
     await library.details(module.id);
-    const again = audit.watch();
+    const again = await audit.watch();
     const [fresh] = await take(again, 1);
     expect(reduce(fresh ? [fresh] : [], state)).toMatchObject({
       gaps: [{ scope: HOST_AUDIT_SCOPE }],

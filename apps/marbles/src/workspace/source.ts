@@ -14,20 +14,23 @@ const MODULE_EXTENSIONS = new Set([
 ]);
 const DECLARATION_FILE = /\.d\.(?:ts|mts|cts)$/;
 
+export const DATA_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".json",
+  ".jsonc",
+  ".toml",
+  ".txt",
+  ".yaml",
+  ".yml",
+]);
+
 export function isModulePath(path: string): boolean {
   return MODULE_EXTENSIONS.has(extname(path));
 }
 
 export interface SourceFilesOptions {
-  /**
-   * Include leading-underscore files and directories. Discovery skips them
-   * (an entry imports a helper; nothing loads it on its own), but a watcher
-   * must see them change.
-   */
   readonly helpers?: boolean;
 }
 
-/** Discovery belongs to the host, never the engine. Symlinks are not followed. */
 export function sourceFiles(
   path: string,
   { helpers = false }: SourceFilesOptions = {}
@@ -65,7 +68,6 @@ export function sourceFiles(
   return files.sort();
 }
 
-/** Conventional authoring folders operate on the project above .foundry. */
 export function sourceRoot(path: string): string {
   const absolute = resolve(path);
   const isDirectory = existsSync(absolute) && statSync(absolute).isDirectory();
@@ -84,10 +86,9 @@ export function sourceRoot(path: string): string {
   return isDirectory ? absolute : dirname(absolute);
 }
 
-/** Existing single-file consumers remain available through --config. */
-export function resolveSource(path: string): string {
-  const absolute = resolve(path);
-  const legacy = resolve("marbles.config.ts");
+export function resolveSource(path: string, directory: string): string {
+  const absolute = resolve(directory, path);
+  const legacy = resolve(directory, "marbles.config.ts");
   return path === DEFAULT_SOURCE && !existsSync(absolute) && existsSync(legacy)
     ? legacy
     : absolute;

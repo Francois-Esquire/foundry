@@ -93,7 +93,6 @@ describe("adding accounts", () => {
     expect(added.map(({ name }) => name)).toEqual(["fake"]);
     expect(added[0]?.provider).toBe(provider);
     expect(await usage.initialize()).toEqual(added);
-    // The name is taken after the first call, so the provider is not asked again.
     expect(asked.detect).toBe(1);
     expect(signedOut.asked.detect).toBe(2);
     expect(asked.limits).toEqual([]);
@@ -117,13 +116,48 @@ describe("adding accounts", () => {
     await Promise.all([racing.usage.initialize(), racing.usage.initialize()]);
     expect(await racing.usage.query()).toHaveLength(1);
 
-    // An account of another provider under "fake" is not fake's default account.
     const borrowed = setup();
     borrowed.usage.add(
       fakeProvider({ id: "other" }).provider({ name: "fake" })
     );
     const added = await borrowed.usage.initialize();
     expect(added.map(({ name }) => name)).toEqual(["other"]);
+  });
+});
+
+describe("reading headroom share", () => {
+  it("reads the named account's current allowance without reading history", async () => {
+    let usedPercent = 80;
+    const { asked, provider, usage } = setup({
+      limits: () => ({
+        limits: [
+          window.weekly({ model: "special", usedPercent: 100 }),
+          window.weekly({ usedPercent }),
+          window.hourly({ hours: 5, usedPercent: 30 }),
+        ],
+      }),
+    });
+    usage.add(provider({ dir: "work", name: "work" }));
+
+    await expect(usage.share("work")).resolves.toBe(0.2);
+    usedPercent = 100;
+    await expect(usage.share("work")).resolves.toBe(0);
+    await expect(usage.share("work", "hourly")).resolves.toBe(0.7);
+    await expect(usage.share("work", "monthly")).resolves.toBeUndefined();
+    expect(asked.limits).toEqual(["work", "work", "work", "work"]);
+    expect(asked.history).toEqual([]);
+  });
+
+  it("has no share when the account is missing or cannot report limits", async () => {
+    const { provider, usage } = setup({
+      limits: () => {
+        throw new Error("Provider unreachable");
+      },
+    });
+    usage.add(provider());
+
+    await expect(usage.share("missing")).resolves.toBeUndefined();
+    await expect(usage.share("fake")).resolves.toBeUndefined();
   });
 });
 
@@ -325,7 +359,6 @@ describe("querying", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const { asked, provider, usage } = setup({
       limits: (dir) => {
-        // The clock moves while the limits are read; `at` was stamped before.
         vi.setSystemTime(NOW.getTime() + HOUR);
         switch (dir) {
           case "model":
@@ -375,7 +408,6 @@ describe("querying", () => {
       exact,
       new Date(NOW.getTime() - 3 * DAY),
     ]);
-    // A per-model window is listed, but it is no account's weekly window.
     expect(model.weekly).toBeUndefined();
     expect(model.limits[0]).toMatchObject({ model: "Fable", span: "weekly" });
   });

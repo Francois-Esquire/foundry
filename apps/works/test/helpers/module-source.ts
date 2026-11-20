@@ -6,7 +6,6 @@ export const sourceText =
 
 const RAIL_MODULES = "nav[aria-label=Main] a[aria-label=Modules]";
 
-/** Open the Modules destination from the rail; Catalog is its first tab. */
 export async function openLibrary(window: BrowserWindow) {
   await waitFor(
     () =>
@@ -32,13 +31,10 @@ export async function selectManagementView(
   name: string
 ) {
   const tab = `Array.from(document.querySelectorAll('[role=tab]')).find(tab => tab.textContent.startsWith(${JSON.stringify(name)}))`;
-  // The page around the workspace has tabs of its own, so wait for this one.
   await waitFor(
     () => window.webContents.executeJavaScript(`!!${tab}`),
     `Management view ${name} did not appear`
   );
-  // Radix Tabs select on a primary mousedown. Focus alone only selects while
-  // the window has OS focus, which a background smoke window may not.
   await window.webContents.executeJavaScript(
     `${tab}.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))`
   );

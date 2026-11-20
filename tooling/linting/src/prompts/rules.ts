@@ -11,11 +11,6 @@ interface Located {
   readonly range: readonly [number, number];
 }
 
-/**
- * One check per prompt node, shared by every rule: the first rule to visit a
- * node computes its findings, the others reuse them for the same node and
- * settings object. A different settings object triggers recomputation.
- */
 const checked = new WeakMap<
   Candidate,
   { settings: unknown; found: readonly Located[] }
@@ -50,7 +45,6 @@ export interface RuleSpec {
   readonly name: string;
 }
 
-/** One rule per diagnostic code a rule can see in source, named after the code. The two codes about interpolated values need the value, so no rule reports them. */
 export const RULES: readonly RuleSpec[] = [
   {
     code: "unresolved-reference",

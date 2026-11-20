@@ -11,7 +11,6 @@ import type { SemanticsDeclarationSource } from "./semantics-types";
 
 const isTsSourcePattern = /\.tsx?$/;
 
-/** Generated and vendored directories no analysis looks inside. */
 export const EXCLUDED_DIRS = [
   "node_modules",
   "dist",
@@ -24,22 +23,11 @@ export const EXCLUDED_DIRS = [
   "storybook-static",
 ];
 
-/**
- * Test fixtures below an analyzed root are inputs to that package's tests,
- * not part of its semantic surface: their manifests would otherwise register
- * phantom workspace packages. Matched relative to the root, so analyzing a
- * fixture directory itself is unaffected.
- */
 export const FIXTURE_DIR = "test/fixtures";
 
 export interface Boundary {
   dir: string;
-  /** True when package.json declares `"private": false`. */
   explicitlyPublishable: boolean;
-  /**
-   * Subpaths declared in package.json "exports" ("" = root entry).
-   * null means no exports field: only the bare package name counts as public.
-   */
   exportSubpaths: Set<string> | null;
   packageName?: string;
   relPath: string;
@@ -64,15 +52,8 @@ function readPackageJson(dir: string): PackageJson | undefined {
   return JSON.parse(readFileSync(file, "utf8")) as PackageJson;
 }
 
-/** The package patterns a workspace's package manager reads, and where they came from. */
 export interface WorkspaceDeclaration {
-  /** The patterns as the file lists them. */
   readonly declared: readonly string[];
-  /**
-   * The patterns the analyses expand, each through `normalizeWorkspacePath`:
-   * negations dropped, and patterns that resolve to the workspace root or
-   * escape it ignored.
-   */
   readonly patterns: readonly string[];
   readonly source: SemanticsDeclarationSource;
 }
@@ -80,12 +61,6 @@ export interface WorkspaceDeclaration {
 const PNPM_WORKSPACE_FILE = "pnpm-workspace.yaml";
 const LEADING_DOT_SLASHES = /^(?:\.\/)+/;
 
-/**
- * A workspace-relative POSIX path in its one spelling: a leading `./` and
- * trailing slashes removed. Undefined for a path that is empty, the root
- * itself (`.`), absolute, or not plain, with a backslash or an empty, `.`,
- * or `..` segment.
- */
 export function normalizeWorkspacePath(path: string): string | undefined {
   const normalized = withoutTrailingSlashes(
     path.replace(LEADING_DOT_SLASHES, "")
@@ -102,11 +77,6 @@ export function normalizeWorkspacePath(path: string): string | undefined {
   return plain ? normalized : undefined;
 }
 
-/**
- * `path` without its trailing slashes, found by one backward scan: an
- * unanchored `/\/+$/` retries at every slash of a run that does not end the
- * string, which grows with the square of the run.
- */
 function withoutTrailingSlashes(path: string): string {
   let end = path.length;
   while (end > 0 && path[end - 1] === "/") {
@@ -119,12 +89,6 @@ function readOptional(file: string): string | undefined {
   return existsSync(file) ? readFileSync(file, "utf8") : undefined;
 }
 
-/**
- * The workspace declaration: `pnpm-workspace.yaml#packages` when that file
- * lists packages, else `package.json#workspaces`, as an array or as
- * `{ "packages": [] }`. Undefined when neither declares a list. Read afresh
- * on every call. `**` is not expanded (see `expandPattern`).
- */
 export function workspaceDeclaration(
   root: string
 ): WorkspaceDeclaration | undefined {
@@ -191,12 +155,10 @@ function declarationOf(
   };
 }
 
-/** The declaration's patterns, ready to expand; empty when the workspace declares none. */
 export function workspacePatterns(root: string): readonly string[] {
   return workspaceDeclaration(root)?.patterns ?? [];
 }
 
-/** Walk up from `start` to the nearest directory with a workspace declaration. */
 export function findRepoRoot(start: string): string {
   let dir = resolve(start);
   for (;;) {
@@ -263,8 +225,6 @@ function pickTsTarget(value: unknown): string | undefined {
     return undefined;
   }
   const conditions = value as Record<string, unknown>;
-  // A set, so `import` and `default` lead without being visited again in
-  // their own place: each condition once, or nested conditions repeat.
   for (const key of new Set([
     "import",
     "default",
@@ -281,7 +241,6 @@ function pickTsTarget(value: unknown): string | undefined {
   return undefined;
 }
 
-/** Declared entry targets (subpath → package-relative TS source), first declaration wins. */
 function packageEntryTargets(
   pkg: PackageJson,
   dir: string
@@ -342,12 +301,6 @@ function packageEntryTargetsEntries(
   }
 }
 
-/**
- * Path aliases mapping each workspace package's declared entry points to its
- * TypeScript sources. TypeScript's own resolution follows the "types"
- * condition into built d.ts output, which would disconnect consumers from the
- * source declarations we analyze — these aliases force source resolution.
- */
 export function workspacePathAliases(root: string): Record<string, string[]> {
   const aliases: Record<string, string[]> = {};
   for (const pattern of workspacePatterns(root)) {
@@ -360,7 +313,6 @@ export function workspacePathAliases(root: string): Record<string, string[]> {
   return aliases;
 }
 
-/** The aliases one package's manifest declares for itself. */
 export function packagePathAliases(dir: string): Record<string, string[]> {
   const aliases: Record<string, string[]> = {};
   const pkg = readPackageJson(dir);
@@ -376,17 +328,10 @@ export function packagePathAliases(dir: string): Record<string, string[]> {
 }
 
 export interface BoundaryEntrypoint {
-  /** Import specifier for this entry (package name, or name/subpath). */
   entrypoint: string;
-  /** Root-relative posix path of the resolved TypeScript source. */
   file: string;
 }
 
-/**
- * The boundary package's declared entrypoints resolved to TypeScript sources.
- * Wildcard subpaths are not enumerable and are omitted — callers must check
- * `boundary.exportSubpaths` for wildcards separately.
- */
 export function boundaryEntrypoints(boundary: Boundary): BoundaryEntrypoint[] {
   const pkg = readPackageJson(boundary.dir);
   const name = boundary.packageName;
@@ -461,12 +406,6 @@ export function boundaryContains(
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
-/**
- * Classify an import module specifier reaching into the boundary.
- * Returns "public" when it goes through the package name and a declared
- * exports subpath (or the bare name), "deep" otherwise (relative paths,
- * aliases, undeclared subpaths).
- */
 export function classifySpecifier(
   boundary: Boundary,
   specifier: string
@@ -504,7 +443,6 @@ export function classifySpecifier(
 const ownerCache = new Map<string, string>();
 const workspaceDirsCache = new Map<string, Set<string> | null>();
 
-/** Realpaths of the root's workspace package directories; null when the root declares none. */
 function workspaceDirs(root: string): Set<string> | null {
   let dirs = workspaceDirsCache.get(root);
   if (dirs === undefined) {
@@ -522,14 +460,6 @@ function workspaceDirs(root: string): Set<string> | null {
   return dirs;
 }
 
-/**
- * Name of the workspace boundary owning `filePath`: the nearest ancestor
- * workspace package's name (or its root-relative path when unnamed). A
- * manifest outside the root's workspace patterns (a skill nested in a
- * plugin, say) is not a boundary: its files belong to the enclosing
- * workspace package, the same package whose local analysis owns them. When
- * the root declares no workspaces, the nearest manifest owns the file.
- */
 export function ownerBoundary(root: string, filePath: string): string {
   const members = workspaceDirs(root);
   let dir = dirname(filePath);

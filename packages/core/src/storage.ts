@@ -1,14 +1,11 @@
 export interface FileNode {
-  /** Length in bytes. */
   readonly bytes: number;
-  /** SHA-256 hex digest of the observed bytes. */
   readonly digest: string;
   readonly mime: string | null;
   readonly type: "file";
 }
 
 export interface FileRepresentation extends FileNode {
-  /** Root-relative POSIX path without empty, `.` or `..` segments. */
   readonly path: string;
 }
 
@@ -22,7 +19,6 @@ export type StorageNode =
 
 export type StorageEntry = StorageNode & { readonly path: string };
 
-/** Keys use the same root-relative paths as StorageEntry.path. */
 export type StorageTree = Readonly<Record<string, StorageNode>>;
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
@@ -104,8 +100,6 @@ export function withParentDirectories(tree: StorageTree): StorageTree {
     let slash = path.lastIndexOf("/");
     while (slash !== -1) {
       const parent = path.slice(0, slash);
-      // A present parent's own ancestors are covered by its own walk, so each
-      // directory is visited once rather than once per descendant.
       if (Object.hasOwn(result, parent)) {
         break;
       }
@@ -150,52 +144,28 @@ export function storageTree(entries: Iterable<StorageEntry>): StorageTree {
   return tree;
 }
 
-/** Classification of the entry itself, without following a symbolic link. */
 export interface EntryStats {
   readonly type: StorageNode["type"] | "unknown";
 }
 
 export interface DirectoryEntry extends EntryStats {
-  /** One entry name, not a path. */
   readonly name: string;
 }
 
-/**
- * All operations share the adapter's path namespace. This contract does not
- * grant access or enforce confinement.
- */
 export interface StorageReader {
-  /** Inspects the entry without following its final symbolic link. */
   lstat(path: string): Promise<EntryStats>;
-  /**
-   * Lists immediate children without following symbolic links. Rejects on
-   * incomplete or failed enumeration; an empty list means an empty directory.
-   */
   readDirectory(path: string): Promise<readonly DirectoryEntry[]>;
-  /** Reads detached bytes without text decoding. Rejects when the file cannot be read. */
   readFile(path: string): Promise<Uint8Array>;
-  /** Reads the stored target without resolving it, including dangling links. */
   readLink(path: string): Promise<string>;
-  /** Resolves an existing path to its canonical location, following links. */
   realpath(path: string): Promise<string>;
-  /** Separator in this storage's path namespace, independent of the caller's OS. */
   readonly separator: "/" | "\\";
 }
 
 export interface StorageWriter {
-  /**
-   * Writes owned bytes or UTF-8 text, creating missing parent directories.
-   * Does not imply atomic replacement.
-   */
   writeFile(path: string, content: string | Uint8Array): Promise<void>;
 }
 
 export interface AtomicStorageWriter {
-  /**
-   * Replaces an existing regular file. Failure leaves the original bytes
-   * unchanged unless StorageApplicationError reports a committed source write.
-   * Implementations supporting a digest fence refuse stale writes atomically.
-   */
   replaceFile(
     path: string,
     bytes: Uint8Array,
@@ -204,7 +174,6 @@ export interface AtomicStorageWriter {
 }
 
 export interface StorageFileCreator {
-  /** Creates a regular file in an existing directory; refuses any existing entry. */
   createFile(path: string, bytes: Uint8Array): Promise<void>;
 }
 
@@ -226,13 +195,10 @@ export interface Storage
     AtomicStorageWriter {}
 
 export interface StorageSubscription {
-  /** Stops notifications and releases the source subscription. */
   close(): Promise<void>;
 }
 
-/** Signals invalidate an inventory; they are not committed entry changes. */
 export interface StorageObserver {
-  /** Resolves when subscribed. Callers must scan afterwards to close the startup gap. */
   watch(
     root: string,
     changed: () => void,
@@ -240,13 +206,10 @@ export interface StorageObserver {
   ): Promise<StorageSubscription>;
 }
 
-/** Effects registered inside a transaction, awaited only after its outermost commit. */
 export interface CommitEffects {
-  /** Discarded on rollback; still runs if another committed effect fails. */
   afterCommit(operation: () => Promise<void>): void;
 }
 
-/** Runs every committed effect, preserving a sole failure and aggregating multiple failures. */
 export async function runAfterCommit(
   callbacks: readonly (() => Promise<void>)[]
 ): Promise<void> {

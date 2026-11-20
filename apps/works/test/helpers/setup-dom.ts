@@ -1,7 +1,3 @@
-// Node 25+ defines a `localStorage` global that is undefined unless the
-// process was started with `--localstorage-file`, and the happy-dom
-// environment leaves an existing global key alone. Give the renderer suite a
-// plain in-memory Storage when nothing usable is there.
 function createMemoryStorage(): Storage {
   const entries = new Map<string, string>();
   return {

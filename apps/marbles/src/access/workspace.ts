@@ -30,10 +30,6 @@ export class RecordsHeldError extends Error {
 
 const ATTACH_HINT = "`marbles attach` in its root hosts it";
 
-function machine(args: HostOptions) {
-  return layout({ artifacts: args.artifacts, state: args.state });
-}
-
 function withStoredTasks<T>(
   args: HostOptions,
   opened: OpenedWorkspace,
@@ -43,7 +39,7 @@ function withStoredTasks<T>(
     const tasks = new Tasks();
     return work((command) => runTaskCommand(tasks, command));
   }
-  const { state } = machine(args);
+  const { state } = args;
   const { id } = opened.workspace;
   return work((command) =>
     (command.kind === "change" ? changeTasks : readTasks)(state, id, (tasks) =>
@@ -52,11 +48,9 @@ function withStoredTasks<T>(
   );
 }
 
-export async function joinProcess(
-  args: HostOptions
-): Promise<MarblesClient | undefined> {
+export async function joinProcess(): Promise<MarblesClient | undefined> {
   try {
-    return await connect({ layout: machine(args), start: false });
+    return await connect({ layout: layout(), start: false });
   } catch (error) {
     if (error instanceof NoProcessError) {
       return undefined;
@@ -65,14 +59,13 @@ export async function joinProcess(
   }
 }
 
-async function hostingWorker(
-  args: HostOptions,
+async function hostingGeneration(
   id: string
 ): Promise<
   | { readonly client: MarblesClient; readonly workspace: WorkspaceConnection }
   | undefined
 > {
-  const client = await joinProcess(args);
+  const client = await joinProcess();
   if (client === undefined) {
     return undefined;
   }
@@ -85,7 +78,7 @@ async function hostingWorker(
     }
     if (summary?.state === "starting" || summary?.state === "reloading") {
       throw new RecordsHeldError(
-        `the tasks of this workspace are about to be in use by Marbles process pid ${String(client.hello.pid)}, whose worker is ${summary.state}; retry once it is ready`
+        `the tasks of this workspace are about to be in use by Marbles process pid ${String(client.hello.pid)}, which has it ${summary.state}; retry once it is ready`
       );
     }
   } catch (error) {
@@ -102,13 +95,13 @@ export async function withTasks<T>(
   work: (tasks: TaskRunner) => Promise<T>
 ): Promise<T> {
   const { dir, id } = opened.workspace;
-  const { state } = machine(args);
+  const { state } = args;
   if (!(args.dry || insideState(state, id))) {
     throw new Error(
       `the state of workspace ${id} at ${dir} is not a directory inside ${state}`
     );
   }
-  const hosted = args.dry ? undefined : await hostingWorker(args, id);
+  const hosted = args.dry ? undefined : await hostingGeneration(id);
   if (hosted === undefined) {
     return withStoredTasks(args, opened, work);
   }
@@ -126,13 +119,13 @@ export async function withRunningWorkspace<T>(
 ): Promise<T> {
   if (args.dry) {
     throw new NotHostedError(
-      `--dry-run joins no Marbles process, so no worker is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles roll --dry-run\`.`
+      `--dry-run joins no Marbles process, so no engine generation is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles roll --dry-run\`.`
     );
   }
-  const client = await joinProcess(args);
+  const client = await joinProcess();
   if (client === undefined) {
     throw new NotHostedError(
-      `no Marbles process runs for ${machine(args).state}, so nothing hosts workspace ${id}; ${ATTACH_HINT}`
+      `no Marbles process runs for ${args.state}, so nothing hosts workspace ${id}; ${ATTACH_HINT}`
     );
   }
   try {
@@ -146,12 +139,12 @@ export async function withRunningWorkspace<T>(
     }
     if (summary.state === "starting" || summary.state === "reloading") {
       throw new NotHostedError(
-        `the worker for workspace ${id} is ${summary.state}; retry once it is ready`
+        `workspace ${id} is ${summary.state} in the Marbles process; retry once it is ready`
       );
     }
     if (summary.state !== "ready") {
       throw new NotHostedError(
-        `the worker for workspace ${id} is ${summary.state}${summary.error ? `: ${summary.error}` : ""}; ${ATTACH_HINT}`
+        `workspace ${id} is ${summary.state} in the Marbles process${summary.error ? `: ${summary.error}` : ""}; ${ATTACH_HINT}`
       );
     }
     return await work(client.workspace(summary));
@@ -176,6 +169,7 @@ export function hostHere(
   return hostWorkspace({
     ...options,
     artifacts: args.artifacts,
+    directory: args.directory,
     dry: args.dry,
     source: args.config,
     state: args.state,
@@ -183,14 +177,15 @@ export function hostHere(
 }
 
 export async function attachToProcess(
-  args: HostOptions,
+  args: HostOptions & { readonly directory: string },
   run: (hosted: Hosted) => Promise<void>
 ): Promise<void> {
-  const client = await connect({ layout: machine(args) });
+  const client = await connect({ layout: layout() });
   try {
-    const summary = await client.attach(resolveSource(args.config), {
-      root: process.cwd(),
-    });
+    const summary = await client.attach(
+      resolveSource(args.config, args.directory),
+      { root: args.directory }
+    );
     await run({
       client,
       id: summary.id,

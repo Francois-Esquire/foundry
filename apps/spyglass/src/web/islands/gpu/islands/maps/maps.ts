@@ -1,35 +1,3 @@
-/**
- * The chart as textures: every map Islands samples, built on the GPU from a
- * `Chart` and `MapParams`, and rebuilt only when its inputs change.
- *
- * distance and islands come from one pass over the coast segments, and
- * coasts (each island's own distance, one layer per island) from one pass
- * per island; coverage from the distance; height from the distance and
- * coasts (its banks also from the chart's groups, `packBanks`), and with
- * it rings (the bank whose plate each sea texel stands on); flow (the
- * sea's surf) from the distance and height; light and shade (the sun at
- * the sea surface) from the height, by one pass; paint from islands,
- * coverage and distance; files from the chart's modules alone, a disc each;
- * zoning from the world plan alone (`setWorld`, zoning.ts): what its roads,
- * parcels and buildings reserve and what its zones grow; seabed, the open
- * sea's floor far past the frame, from the seascape, the distance map
- * (its distance from the coasts and the way out from them, run on past the
- * frame's edge) and the height map (where it starts at the frame's edge),
- * over its own larger, coarser square (map-uniforms.ts `seabedFrame`).
- * Formats that WebGPU cannot write as storage without an optional device
- * feature (rg16float, r8unorm, r16float, r32uint) are rendered by fullscreen
- * passes straight into the published texture, one mip level at a time;
- * flow, light, shade and paint are compute passes writing storage textures;
- * files and zoning are instanced draws, blended into their render
- * targets. A
- * build encodes every rebuilt map into one frame, one submit. Each map
- * keeps two textures and a rebuild writes the one not on show, so a map's
- * texture object changes exactly when that map rebuilds, and a rebuild
- * never pays for a fresh map texture (on Metal that costs the GPU more than
- * the kernels do). The height kernel's scratch (height-bake.ts) is the
- * exception: allocated per height rebuild and freed once it has run, so
- * a large chart's workspace is not kept resident between rebuilds.
- */
 import {
   type Compute,
   compute,
@@ -97,62 +65,38 @@ import {
   zoningUniforms,
 } from "./map-uniforms";
 
-/** One prepared shader per map kernel. */
 export interface MapShaders {
   coasts: ShaderSource;
   coverage: ShaderSource;
   distance: ShaderSource;
-  /** One mip level from the level above, for distance and height. */
   downsample: ShaderSource;
-  /** A disc per module, instanced. */
   files: ShaderSource;
   flow: ShaderSource;
   height: ShaderSource;
   light: ShaderSource;
   paint: ShaderSource;
-  /** The open sea's floor past the frame. */
   seabed: ShaderSource;
-  /** The world plan's zones, rings and reserves, instanced. */
   zoning: ShaderSource;
 }
 
-/**
- * Each map's texture format. distance and height carry a full mip chain;
- * coasts is an array, one layer per island.
- */
 const MAP_FORMATS = {
   coasts: "r16float",
   coverage: "r8unorm",
   distance: "rg16float",
-  // rgb each file's colour by kind, premultiplied; a its cover.
   files: "rgba8unorm",
   flow: "rgba16float",
   footprints: "rgba32uint",
-  // r the height; g and b what the terrain rebuilds the land from between
-  // texels: the rim's distance inland and the floor at the coast; a how
-  // far past the platform's edge the floor is (height.wgsl `Texel`).
   height: "rgba16float",
   islands: "r32uint",
   light: "rgba16float",
   paint: "rgba8unorm",
-  // r the bank whose plate the floor stands on, its index in the global
-  // order (banks.ts) + 1, 0 on land, the platform and the deep; g, b, a
-  // every bank whose plate covers it, under what stands on it, a bit per
-  // index, the first 48.
   rings: "rgba16uint",
-  // r the floor's height past the frame; g, b its normal, x and z; a how
-  // far the open sea's floor has taken over (seabed.wgsl).
   seabed: "rgba16float",
-  // One channel used: rgba8unorm is the smallest format a compute pass
-  // can write and the water can filter.
   shade: "rgba8unorm",
-  // The zoning map (WORLD.md layer 2), baked from the plan: r reserved,
-  // g trees, b shrubs, a open ground; shaders read the same channels. Filtered, so the reserve's soft edge reads smoothly.
   zoning: "rgba8unorm",
 } as const satisfies Record<MapName, GPUTextureFormat>;
 
 const MIPPED: ReadonlySet<MapName> = new Set<MapName>(["distance", "height"]);
-/** The maps compute passes write as storage; the rest are render targets. */
 const WRITTEN_BY_COMPUTE: ReadonlySet<MapName> = new Set<MapName>([
   "flow",
   "light",
@@ -161,76 +105,28 @@ const WRITTEN_BY_COMPUTE: ReadonlySet<MapName> = new Set<MapName>([
 ]);
 
 interface MapsReport {
-  /**
-   * Main-thread milliseconds to bind and encode each rebuilt map (the first
-   * build at a resolution includes pipeline creation). The GPU runs the
-   * work afterwards; `settled` times the whole of it.
-   */
   readonly ms: Partial<Record<MapName, number>>;
-  /** The maps this build rebuilt, in build order. */
   readonly rebuilt: readonly MapName[];
-  /**
-   * Resolves once the GPU has finished every rebuilt map, with the wall
-   * milliseconds from the start of `build` to then. One total: the queue
-   * reports completions in batches, so no honest per-map split exists
-   * without timestamp queries.
-   */
   readonly settled: Promise<number>;
 }
 
-/**
- * A large chart's bank footprints, which selection-cache.ts resolves into
- * the highlight when the selection changes; small charts' rings map holds
- * every bank itself.
- */
 interface BakedSelection {
   readonly footprints: Texture;
   readonly wordsPerBank: number;
 }
 
-/** What the frame reads of the maps: their square and their textures. */
 export interface MapSource {
   readonly frame: MapFrame;
-  /** The seabed map's square, larger and coarser than `frame`, centred on it. */
   readonly seabed: MapFrame;
-  /** Null where the rings map holds every bank (`BakeLayout.footprints` off). */
   readonly selection: BakedSelection | null;
   readonly textures: Readonly<Record<MapName, Texture>>;
 }
 
 export interface Maps extends MapSource {
-  /**
-   * Builds or rebuilds only the maps whose inputs or parameters changed,
-   * encoding all of them into one frame.
-   *
-   * Without `into`, the build opens and submits a frame of its own, so it
-   * must not run inside another frame's callback (a `frame(gpu, cb)` or a
-   * `frameLoop` tick): vgpu throws `VGPU-FRAME-REENTRANT` for a nested
-   * frame. From inside a frame, pass that frame as `into`: the build
-   * encodes after whatever the frame already holds and submits with it.
-   * Passes encoded before the build still see the old textures, passes
-   * after it the new ones (`textures` is updated on return). The frame must
-   * be submitted before the current task ends, as `frame(gpu, cb)` and
-   * `frameLoop` do; after a change of resolution the replaced textures are
-   * freed once it has run. A canceled frame leaves the new textures
-   * unwritten.
-   */
   build: (chart: Chart, params: MapParams, into?: Frame) => MapsReport;
   dispose: () => void;
-  /** The frame of the last build. Throws before the first build. */
   readonly frame: MapFrame;
-  /**
-   * The world plan the zoning map is baked from. The next build rebuilds
-   * the zoning map alone; null leaves it empty: nothing reserved, nothing
-   * grown.
-   */
   setWorld: (plan: WorldPlan | null) => void;
-  /**
-   * One texture per map, replaced (new object) only when its map
-   * rebuilds; the replaced texture is overwritten by the next rebuild (or
-   * destroyed with a new resolution), so rebind after every
-   * build that rebuilt something. Throws before the first build.
-   */
   readonly textures: Readonly<Record<MapName, Texture>>;
 }
 
@@ -238,19 +134,12 @@ const WORKGROUP = 8;
 
 type PassOptions = Parameters<Target["renderPassDescriptor"]>[0];
 
-/**
- * One mip level (and array layer) of a published texture as a render
- * target (with the second texture of an MRT pass alongside), so a pass
- * writes the map in place: no working copy, no copy commands, and the
- * whole build fits one frame.
- */
 function levelTarget(
   textures: readonly [Texture, ...Texture[]],
   level: number,
   layer = 0
 ): Target {
   const [first] = textures;
-  // Maps are square.
   const side = first.size[0] / 2 ** level;
   const size = [side, side] as const;
   return {
@@ -284,28 +173,21 @@ function levelTarget(
   };
 }
 
-/** The passes for one resolution, rebound to fresh textures every build. */
 interface Passes {
-  /** One pass per layer, its island set before each. */
   readonly coasts: Effect;
   readonly coverage: Effect;
   readonly distance: Effect;
-  /** One per mip level from 1 on, for distance and height. */
   readonly downsample: Readonly<Record<"distance" | "height", Effect[]>>;
-  /** One instanced disc per module. */
   readonly files: Draw;
   readonly flow: Compute;
   readonly height: Draw;
-  /** What the passes were made for: its resolution and specializations. */
   readonly key: string;
   readonly light: Compute;
   readonly paint: Compute;
   readonly seabed: Effect;
-  /** The world plan's ground, in draw order (zoning.wgsl). */
   readonly zoning: ZoningDraws;
 }
 
-/** The zoning map's draws: a zone kind's each, the rings, the reserves. */
 interface ZoningDraws {
   readonly reserves: Draw;
   readonly rings: Draw;
@@ -313,11 +195,9 @@ interface ZoningDraws {
   readonly zones: Readonly<Record<ZoneKind, Draw>>;
 }
 
-/** Passes are remade only when the resolution or a specialization changes. */
 const passesKey = (layout: BakeLayout): string =>
   `${layout.frame.resolution}:${layout.scalable}:${layout.footprints}`;
 
-/** Each map's texture: shape, format and usage, as a layout sizes it. */
 function mapTextureDescriptor(name: MapName, layout: BakeLayout) {
   const { resolution } = layout.frame;
   const usage = (writer: "render_attachment" | "storage_binding") =>
@@ -343,7 +223,6 @@ function mapTextureDescriptor(name: MapName, layout: BakeLayout) {
     } as const;
   }
   if (name === "footprints") {
-    // A 1×1 stand-in where the rings map holds every bank.
     const side = layout.footprints ? resolution : 1;
     return {
       format: MAP_FORMATS.footprints,
@@ -365,7 +244,6 @@ function mapTextureDescriptor(name: MapName, layout: BakeLayout) {
   } as const;
 }
 
-/** The textures after a build: the rebuilt maps' new ones, the rest kept. */
 function mergeTextures(
   before: Readonly<Record<MapName, Texture>> | undefined,
   rebuilt: Partial<Record<MapName, Texture>>
@@ -395,24 +273,14 @@ function mergeTextures(
   };
 }
 
-/**
- * A zone over the map by its cover, which is its alpha: g and b come
- * premultiplied from the fragment, and a from the blend constant, the
- * kind's open ground (zoning.wgsl `fs_zone`).
- */
 const ZONE_BLEND = {
   alpha: { dst: "one-minus-src-alpha", src: "constant" },
   color: { dst: "one-minus-src-alpha", src: "one" },
 } as const;
-/** The larger of the ring's density and the map's, channel by channel. */
 const RING_BLEND = {
   alpha: { dst: "one", op: "max", src: "one" },
   color: { dst: "one", op: "max", src: "one" },
 } as const;
-/**
- * A reserve over the map by its cover: r gains it, and g, b and a lose
- * the same share of what they hold.
- */
 const RESERVE_BLEND = {
   alpha: { dst: "one-minus-src-alpha", src: "zero" },
   color: { dst: "one-minus-src-alpha", src: "one" },
@@ -459,7 +327,6 @@ function createZoningDraws(gpu: Gpu, shader: ShaderSource): ZoningDraws {
 export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
   let passes: Passes | undefined;
   let published: Record<MapName, Texture> | undefined;
-  /** The last successful build's inputs and layout. */
   let last: { chart: Chart; layout: BakeLayout; params: MapParams } | undefined;
   let coastBuffers:
     | { chart: Chart; coasts: StorageBuffer; segments: StorageBuffer }
@@ -469,7 +336,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
     | undefined;
   let colorBuffer: StorageBuffer | undefined;
   let moduleBuffer: StorageBuffer | undefined;
-  /** The world plan's packed ground, and whether the zoning map has drawn it yet. */
   let world: PackedZoning | null = null;
   let worldBuffers:
     | {
@@ -480,13 +346,10 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
     | undefined;
   let worldDirty = false;
   let bankBuffers: BankBuffers | undefined;
-  /** Each map's texture not on show, at the current resolution. */
   const spares = new Map<MapName, Texture>();
-  /** Replaced textures a caller's frame may still use, freed once it ran. */
   const retired = new Set<Texture>();
   const linear = sampler(gpu, { magFilter: "linear", minFilter: "linear" });
 
-  /** A buffer at least `bytes` long, reusing `current` while it fits. */
   const fit = (current: StorageBuffer | undefined, bytes: number) => {
     if (current && current.size >= bytes) {
       return current;
@@ -498,7 +361,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
     );
   };
 
-  /** `data` in a buffer at least its size, reusing `current` while it fits. */
   const upload = (
     current: StorageBuffer | undefined,
     data: ArrayBuffer | Float32Array<ArrayBuffer> | Uint32Array<ArrayBuffer>
@@ -508,10 +370,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
     return buffer;
   };
 
-  /**
-   * The chart's coast segments, uploaded once per chart: the distance and
-   * coasts kernels both read them.
-   */
   const uploadCoasts = (chart: Chart) => {
     if (coastBuffers?.chart === chart) {
       return coastBuffers;
@@ -598,7 +456,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
     p.paint.dispose();
   };
 
-  /** Each level of a mipped map from the one above, in place. */
   const encodeMips = (f: Frame, dest: Texture, chain: readonly Effect[]) => {
     for (const [i, pass] of chain.entries()) {
       pass.set({
@@ -608,7 +465,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
     }
   };
 
-  /** One build's inputs: `maps` are the textures as they stand after it. */
   interface Build {
     readonly chart: Chart;
     readonly f: Frame;
@@ -618,19 +474,12 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
     readonly params: MapParams;
   }
 
-  /** Compute passes' workgroups across a map. */
   const groupsOf = (mf: MapFrame) => Math.ceil(mf.resolution / WORKGROUP);
 
-  /**
-   * The world plan's ground into the zoning map, in one pass: each zone
-   * kind's growth in `ZONE_ORDER`, then the rings, then what the parcels,
-   * buildings and roads reserve, which clears the growth under them.
-   */
   const encodeZoning = ({ f, layout, maps, p }: Build) => {
     worldDirty = false;
     const packed = world;
     if (!packed) {
-      // The pass clears the map: nothing reserved, nothing grown.
       f.pass(levelTarget([maps.zoning], 0), () => undefined);
       return;
     }
@@ -660,7 +509,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
     });
   };
 
-  /** Binds each map's kernel to its inputs and encodes it. */
   const encoders: Record<MapPassName, (build: Build) => void> = {
     coasts: ({ chart, f, layout, maps, p }) => {
       const { segments } = uploadCoasts(chart);
@@ -678,7 +526,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
         texel: (mf.texel * mf.resolution) / cellSide,
       });
       const cellsPerLayer = columns * columns;
-      // One pass a cell: each captures its own island when encoded.
       for (let island = 0; island < chart.islands.length; island += 1) {
         const cell = island % cellsPerLayer;
         const offset = [
@@ -736,7 +583,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
         files: moduleBuffer,
         params: filesUniforms(params, layout.frame),
       });
-      // The pass clears the map; a chart without files draws nothing on it.
       f.pass(levelTarget([maps.files], 0), (pass) => {
         if (chart.modules.length > 0) {
           pass.draw(p.files, { instances: chart.modules.length });
@@ -860,10 +706,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
     return passes;
   };
 
-  /**
-   * A texture to write for each rebuilt map: its spare while it still has
-   * the layout's shape, or a new one.
-   */
   const take = (rebuilt: readonly MapName[], layout: BakeLayout) => {
     const next: Partial<Record<MapName, Texture>> = {};
     for (const name of rebuilt) {
@@ -884,11 +726,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
     return next;
   };
 
-  /**
-   * After a build: each replaced texture becomes its map's spare, or at a
-   * new resolution is freed, once the frame that may still use it has run.
-   * Resolves with the wall milliseconds from `begun` to the GPU finishing.
-   */
   const release = (
     rebuilt: readonly MapName[],
     resized: boolean,
@@ -912,11 +749,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
         .onSubmittedWorkDone()
         .then(() => performance.now() - begun);
     }
-    // The caller's frame may draw with the replaced textures and submits
-    // only when its callback returns: free them, and time the work, once
-    // that frame has run. `done` is read a tick later because submitting
-    // replaces it: during the callback it is a placeholder, already
-    // resolved.
     for (const old of replaced) {
       retired.add(old);
     }
@@ -957,7 +789,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
           const start = performance.now();
           encoders[pass.name](build);
           ms[pass.name] = performance.now() - start;
-          // Companion maps are written by the same pass, with no separate encode.
           for (const output of pass.outputs) {
             ms[output] ??= 0;
           }
@@ -970,7 +801,6 @@ export function createMaps(gpu: Gpu, shaders: MapShaders): Maps {
           frame(gpu, encode);
         }
       } catch (error) {
-        // Nothing was submitted: the textures taken stay spare.
         for (const name of rebuilt) {
           const taken = next[name];
           if (taken) {

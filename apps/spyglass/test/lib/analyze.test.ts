@@ -6,7 +6,6 @@ import { canonicalizeSemanticsArtifact } from "../../src/lib/semantics-equivalen
 import type { SurfaceReport, SurfaceSymbol } from "../../src/lib/types";
 
 const root = join(import.meta.dirname, "fixtures", "workspace");
-/** Churn recency is measured against a clock; pin it so runs compare equal. */
 const now = new Date("2027-01-01T00:00:00Z");
 
 let report: SurfaceReport;
@@ -49,8 +48,6 @@ describe("target", () => {
 
 describe("symbol inventory", () => {
   it("counts top-level declarations once, including barreled symbols", () => {
-    // order.ts: Order, Store, OrderStatus, createOrder, normalizeOrder,
-    // OrderParser, ORDER_LIMIT, helper — testing.ts: makeTestOrder
     expect(report.summary.totalSymbols).toBe(9);
     expect(
       report.symbols.filter((entry) => entry.name === "Order")
@@ -180,7 +177,6 @@ describe("determinism", () => {
       target: "packages/orders",
       tsconfig: "tsconfig.json",
     });
-    // `recenteringCandidates.*.summary.runtimeMs` is the one volatile field
     const canonical = (value: SurfaceReport) =>
       JSON.stringify(canonicalizeSemanticsArtifact("packages/x.json", value));
     expect(canonical(again)).toBe(canonical(report));

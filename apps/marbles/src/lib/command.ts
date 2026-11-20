@@ -1,14 +1,8 @@
 import { execFile } from "node:child_process";
 import { showArgv } from "@foundry/lib/argv";
+import { recordChild, SPAWN_RECOVERY_ENV } from "@foundry/lib/spawn-record";
 
 import type { SandboxHandle, SandboxInstance } from "./types";
-
-/**
- * Commands a step runs: an argument list, never shell text. On the host
- * they run with `execFile` in the step's working directory, stop with its
- * signal, and write to its stream; `--dry-run` prints them instead. With a
- * sandbox they run there.
- */
 
 export interface CommandResult {
   readonly exitCode: number;
@@ -17,33 +11,27 @@ export interface CommandResult {
 }
 
 export interface ExecOptions {
-  /** A non-zero exit fails the step unless this is `false`. */
   readonly check?: boolean;
-  /** Where to run; the step's working directory by default. */
   readonly cwd?: string;
-  /** Added to the environment the command inherits. */
   readonly environment?: Readonly<Record<string, string>>;
-  /** Run in this sandbox instead of on the host. */
   readonly sandbox?: SandboxHandle | SandboxInstance;
 }
 
-/** Run one command; see {@link ExecOptions}. */
 export type Exec = (
   argv: readonly string[],
   options?: ExecOptions
 ) => Promise<CommandResult>;
 
-/** What a runner reports to: the step's signal and stream, read per call. */
 export interface CommandSite {
   readonly cwd: () => string;
-  /** Print instead of run. */
   readonly dry: boolean;
+  readonly environment?: Readonly<Record<string, string>>;
   readonly print: (line: string) => void;
   readonly signal: () => AbortSignal | undefined;
+  readonly spawned?: string;
   readonly write?: (value: unknown) => void;
 }
 
-/** A command that exited non-zero, with what it said. */
 export class CommandError extends Error {
   override readonly name = "CommandError";
   readonly result: CommandResult;
@@ -60,7 +48,6 @@ export class CommandError extends Error {
   }
 }
 
-/** Large enough for a build's output; past it the command fails. */
 const MAX_BUFFER = 64 * 1024 * 1024;
 
 function onHost(
@@ -78,7 +65,7 @@ function onHost(
       {
         cwd: options.cwd ?? site.cwd(),
         encoding: "utf8",
-        env: { ...process.env, ...options.environment },
+        env: { ...(site.environment ?? process.env), ...options.environment },
         maxBuffer: MAX_BUFFER,
         ...(signal ? { signal } : {}),
       },
@@ -88,7 +75,6 @@ function onHost(
           return;
         }
         if (error && typeof error.code !== "number") {
-          // It never ran: not found, not executable, output too large.
           reject(new Error(`${program}: ${error.message}`, { cause: error }));
           return;
         }
@@ -97,10 +83,16 @@ function onHost(
     );
     child.stdout?.on("data", (chunk: string) => site.write?.(chunk));
     child.stderr?.on("data", (chunk: string) => site.write?.(chunk));
+    recordChild(
+      child,
+      false,
+      site.spawned === undefined
+        ? process.env
+        : { ...process.env, [SPAWN_RECOVERY_ENV]: site.spawned }
+    );
   });
 }
 
-/** A runner for one step, or for the engine outside any. */
 export function commandRunner(site: CommandSite): Exec {
   return async (argv, options = {}) => {
     if (argv.length === 0 || argv[0] === "") {

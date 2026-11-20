@@ -32,10 +32,6 @@ const { recursiveChunk, recursiveChunkStream } = await import(
 );
 const { collectSource } = await import("../../embeddings/source");
 
-// ── deterministic, topic-separable fake embedding ────────────────────────────
-// A bag-of-words hash into a small fixed-dim vector, normalized. Texts that
-// share words land near each other, so the real SemanticChunker sees genuine
-// similarity valleys at topic boundaries — no network, fully deterministic.
 function fakeEmbed(text: string): number[] {
   const v: number[] = new Array<number>(8).fill(0);
   for (const w of text.toLowerCase().split(NON_WORD_SEPARATOR_PATTERN)) {
@@ -65,7 +61,6 @@ afterEach(() => {
 
 const FAKE_MODEL = { modelId: "fake-embed", provider: "fake" };
 
-// Two clearly distinct topics, enough sentences to exercise valley detection.
 const TWO_TOPIC = [
   "Cats are small carnivorous mammals.",
   "They are kept as pets across the world.",
@@ -134,7 +129,6 @@ describe("semanticChunk", () => {
   it("splits a two-topic document at the semantic boundary", async () => {
     const chunks = await semanticChunk(TWO_TOPIC, source, { chunkSize: 256 });
     expect(chunks.length).toBeGreaterThan(1);
-    // The embedder was actually consumed for boundary detection.
     expect(mockEmbedMany).toHaveBeenCalled();
   });
 

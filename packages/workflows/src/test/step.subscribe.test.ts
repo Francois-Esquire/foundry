@@ -1,13 +1,3 @@
-/**
- * Run-level subscriptions and path-scoped chunks.
- *
- *   - `step.subscribe()` opens any number of streams over the run's events
- *     and chunks; each replays history, then follows live, then ends when
- *     the run's scope closes.
- *   - Chunks carry the writer's `path`, so two same-named steps under
- *     different parents do not mix their output in `step.stream`.
- */
-
 import { describe, expect, it } from "vitest";
 
 import type { ChannelMessage, ChunkPayload } from "../channels";
@@ -39,10 +29,6 @@ function texts(messages: readonly ChannelMessage[]): string[] {
   );
 }
 
-/**
- * root → a → work and root → b → work, run concurrently so the two steps
- * named "work" are writing at the same time.
- */
 async function twoWorkers(
   onWork?: (step: StreamSource, label: string) => void
 ): Promise<Step<undefined, string>> {

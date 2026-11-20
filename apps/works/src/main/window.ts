@@ -7,7 +7,6 @@ import { systemTheme } from "./system/theme";
 
 const SHELL_SCALE = 0.75;
 
-/** Matched to the pre-paint colours in index.html. */
 export function themeBackground(appearance: ThemeAppearance): string {
   return appearance === "dark" ? "#0a0a0a" : "#ffffff";
 }
@@ -20,14 +19,11 @@ function shellSize(): { height: number; width: number } {
   };
 }
 
-/** The windows a quit closes before cleanup. */
 export const quitWindows = new QuitWindows<BrowserWindow>();
 
 export function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
     ...shellSize(),
-    // Main's theme, matched to the pre-paint colour in index.html, so the
-    // first frame the compositor shows is the colour that replaces it.
     backgroundColor: themeBackground(
       systemTheme.snapshot()?.effective ??
         (nativeTheme.shouldUseDarkColors ? "dark" : "light")
@@ -51,9 +47,6 @@ export function createMainWindow(): BrowserWindow {
     return { action: "deny" };
   });
 
-  // The renderer blocks unloading while a Module's source Draft or an open
-  // editor View holds unsaved work; ask before closing anyway. Keeping the
-  // window cancels a quit that is closing it, before any cleanup.
   window.webContents.on("will-prevent-unload", (event) => {
     const choice = dialog.showMessageBoxSync(window, {
       buttons: ["Keep editing", "Close anyway"],

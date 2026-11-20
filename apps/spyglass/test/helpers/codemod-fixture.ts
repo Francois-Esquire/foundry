@@ -33,7 +33,6 @@ export const RULES: Rule[] = [
   { effect: "permit", operator: "internalize", subject: "packages/plans" },
   { effect: "permit", operator: "internalize", subject: "packages/plans-pub" },
 ];
-/** Wide enough that no line wraps, whatever the temporary path. */
 export const UNWRAPPED = { width: 1000 };
 
 export const pass: ReadinessCommandRunner = () => ({ exitCode: 0, output: "" });
@@ -41,7 +40,6 @@ export const refuse: ReadinessCommandRunner = () => {
   throw new Error("a baseline command ran");
 };
 
-/** Every file of a saved dataset, by path, with its text: what a published dataset holds. */
 export function outputFiles(output: string): Record<string, string> {
   const files: Record<string, string> = {};
   const walk = (directory: string, prefix: string) => {
@@ -58,10 +56,8 @@ export function outputFiles(output: string): Record<string, string> {
   return files;
 }
 
-/** A wall-clock measurement, which every report names `…Ms` and no two runs share. */
 const TIMING = /Ms$/;
 
-/** A value without its wall-clock measurements, at any depth. */
 function withoutTimings(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(withoutTimings);
@@ -76,17 +72,10 @@ function withoutTimings(value: unknown): unknown {
   );
 }
 
-/**
- * A dataset file as two scans of the same sources agree on it: without
- * wall-clock measurements anywhere, and the two manifests without what says
- * when and how a scan ran (its times, phases, and what it reused, cached, or
- * derived); everything else whole.
- */
 export function withoutVolatile(
   file: string,
   text: string | undefined
 ): unknown {
-  // A manifest's shape as far as the test strips it; other files pass through.
   const parsed = withoutTimings(JSON.parse(text ?? "null")) as Record<
     string,
     unknown
@@ -121,7 +110,6 @@ export function withoutVolatile(
   return parsed;
 }
 
-/** A journal an apply left, for the refusals that read it. */
 export function journalFor(
   site: string,
   phase: ApplyJournal["phase"],
@@ -137,20 +125,12 @@ export function journalFor(
   };
 }
 
-/**
- * A scanned copy of the deps fixture: every package private unless the
- * fixture publishes it, each with a test script for readiness to run,
- * committed unless `git` is false, and a rule permitting internalize in two
- * of its packages. Every copy after the first of its kind starts from the
- * first's scan cache.
- */
 export async function scannedCopy(
   seeds: ScanCacheSeeds,
   prefix: string,
   { git = true, history = false }: { git?: boolean; history?: boolean } = {}
 ) {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
-  // The caller removes the directory only once it has it back.
   try {
     const root = join(directory, "workspace");
     copyFixture(FIXTURE, root);
@@ -191,7 +171,6 @@ export async function scannedCopy(
   }
 }
 
-/** A fresh scanned copy, with the plan for READY authorized; `directories` collects it for removal. */
 export async function plannedCopy(
   seeds: ScanCacheSeeds,
   directories: string[],
@@ -226,7 +205,6 @@ export async function plannedCopy(
   return { ...copy, journal, read, record, site, status, write };
 }
 
-/** A runner that passes the baseline, then answers `after` for every run after the write. */
 export function afterTheWrite(
   after: ReadinessCommandRunner
 ): ReadinessCommandRunner & { runs: number } {

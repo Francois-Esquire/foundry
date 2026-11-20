@@ -45,17 +45,7 @@ export interface DirectoryOptions<Ref extends object = DirectoryRef> {
   readonly source?: string;
 }
 
-/**
- * The layer over a directory in the supplied storage. Answers the three source
- * primitives from `source.path`, which is the canonical absolute root.
- *
- * Every read and write re-runs the confinement chain immediately before
- * touching bytes: lexical escape, root availability, stored-path resolution,
- * final lstat, symlink refusal, regular-file check, realpath, beneath-root
- * confinement. The storage adapter owns atomic replacement.
- */
 export interface DirectoryCapable {
-  /** The canonical absolute root. Never leaves the trust boundary. */
   readonly root: string;
 }
 
@@ -232,11 +222,6 @@ export function WithDirectory<
       return { kind: "written" };
     }
 
-    /**
-     * The one confinement-and-read chain both `readFile` and `writeFile` run.
-     * A failure names its issue so each consumer maps it to its own result
-     * vocabulary without re-deciding policy.
-     */
     private async resolveBytes(
       file: WorkspaceFile
     ): Promise<ResolvedBytes | ResolveFailure> {
@@ -249,9 +234,6 @@ export function WithDirectory<
         return rootFailure;
       }
 
-      // The stored path is normalized; the source's own spelling may not be,
-      // so the File is looked up rather than assumed to answer to its
-      // composed name.
       const absolute = await resolveStoredPath(
         filesystem,
         this.root,
@@ -272,10 +254,6 @@ export function WithDirectory<
         return nonRegularFileFailure(file.path);
       }
 
-      // The lexical check above and the lstat only cover the final component.
-      // A directory component swapped for a symlink after the scan would still
-      // resolve outside the root, so the resolved path — not the joined one —
-      // is what has to be confined.
       const resolved = await resolveConfinedPath(
         filesystem,
         this.root,
@@ -295,19 +273,10 @@ export function WithDirectory<
   };
 }
 
-/** The selected directory path, canonicalized when loaded. */
 export interface DirectoryRef {
   readonly path: string;
 }
 
-/**
- * The directory layer as an extension: claims every record of its source
- * kind and turns a ref into an identity.
- *
- * A duplicate canonical root — including a different spelling of the same
- * directory, and including a concurrent load that wins the race — resolves
- * to the Workspace that already exists.
- */
 export function directory<Ref extends object = DirectoryRef>(
   options: DirectoryOptions<Ref>
 ): WorkspaceExtension<Ref, DirectoryCapable> {
@@ -329,7 +298,6 @@ export function directory<Ref extends object = DirectoryRef>(
   };
 }
 
-/** The filesystem's own resolver, or the ref itself when it names a path. */
 function resolveSource<Ref extends object>(
   filesystem: WorkspaceFileSystem<Ref>,
   ref: Ref
@@ -378,8 +346,6 @@ async function verifyWorkspaceRoot(
   filesystem: Pick<StorageReader, "lstat" | "realpath">,
   root: string
 ): Promise<ResolveFailure | undefined> {
-  // Asked before the File itself, so an unplugged source reads as one
-  // unavailable Workspace rather than as every File having gone stale.
   try {
     await verifyRoot(filesystem, root);
     return undefined;
@@ -435,9 +401,6 @@ async function readStoredFile(
   try {
     return await filesystem.readFile(resolved);
   } catch (error) {
-    // The error's own message embeds the absolute path Node was opening,
-    // and this reason reaches callers outside the trust boundary. Only the
-    // relative path and a code.
     return failure(
       "read-error",
       `Could not read ${path} (${errorCode(error)})`
@@ -448,7 +411,6 @@ async function readStoredFile(
 interface ResolvedBytes {
   readonly bytes: Uint8Array;
   readonly kind: "bytes";
-  /** The confined, resolved absolute path. Never leaves this module. */
   readonly resolved: string;
 }
 
@@ -483,11 +445,6 @@ function contentKindFor(
   }
 }
 
-/**
- * How `writeFile` reports the same failures. A path now missing or occupied
- * by a directory or symlink is no longer representable as writable text →
- * `stale`; refusals and read errors left the bytes unchanged → `failed`.
- */
 function saveKindFor(issue: ResolveFailure["issue"]): "stale" | "failed" {
   // biome-ignore lint/style/useDefaultSwitchClause: All members of the discriminated union are handled; keep TypeScript exhaustiveness checking.
   switch (issue) {

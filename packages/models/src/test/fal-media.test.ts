@@ -174,8 +174,6 @@ describe("falMediaModel — segment-video", () => {
       "tracks",
     ]);
     expect(output.preview?.mime).toBe("video/mp4");
-    // The pinned endpoint contract declares one segmented video and no
-    // per-frame masks, so a Track cannot be built from it.
     expect(output.tracks).toEqual([]);
   });
 });
@@ -237,8 +235,6 @@ describe("falMediaModel — refusal and abort", () => {
   it("rejects when the run is aborted", async () => {
     const controller = new AbortController();
     install(SEGMENT_IMAGE, {
-      // Never settles without a signal, so dropping the forwarding shows up as
-      // a failure rather than a pass.
       subscribe: (_endpointId, request) =>
         new Promise((_resolve, reject) => {
           const signal = request.abortSignal;

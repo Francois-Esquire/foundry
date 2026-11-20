@@ -14,11 +14,6 @@ function noFiles(): Record<PackageSizeKind, number> {
   return { config: 0, other: 0, source: 0, story: 0, test: 0, unknown: 0 };
 }
 
-/**
- * Each package's place in the dependency graph joined to its file count by
- * kind. It reads the graph projection and the module index, which every
- * dataset has.
- */
 export const packageSizesLens: Lens<"package-sizes", PackageSizesSource> = {
   derive: ({ modules, nodes }) => {
     const byPackage = new Map<string, Record<PackageSizeKind, number>>();

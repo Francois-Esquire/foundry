@@ -9,12 +9,10 @@ export interface SandboxContractFixture {
 }
 
 export interface SandboxContractOptions {
-  /** A fresh sandbox per case. It must answer both command fixtures. */
   create(): Promise<SandboxContractFixture> | SandboxContractFixture;
   readonly label: string;
 }
 
-/** What every backend's files and commands must do, whatever is underneath. */
 export function runSandboxContract(options: SandboxContractOptions): void {
   const withSandbox = async (
     body: (sandbox: Sandbox) => Promise<void>
@@ -85,7 +83,6 @@ export function runSandboxContract(options: SandboxContractOptions): void {
           ])
         );
 
-        // A path that isn't a readable directory degrades to empty, never throws.
         await expect(
           sandbox.files.list(`${base}/tree/top.txt`)
         ).resolves.toEqual([]);

@@ -1,31 +1,18 @@
-/**
- * What the world planner (world-plan.ts) builds before it lays anything
- * out: each island's files sorted into what they are (TOWNS.md rule 4),
- * the folder tree that becomes its streets (rule 2), the test grounds
- * beside the streets they test (rule 5), and each street's households
- * gathered into buildings by how crowded it is (rule 3). Nothing here
- * knows about the land; the order of everything is the order things will
- * stand along their streets.
- */
 import type { Import, Module } from "../../../data/chart";
 import type { BuildingKind, RoadRank } from "./world";
 
-/** Folder names that hold tests; their files are grounds, not streets. */
 const TEST_FOLDERS: ReadonlySet<string> = new Set([
   "test",
   "tests",
   "__tests__",
 ]);
-/** A source file imported by this many or more is a public building. */
 const CIVIC_FAN_IN = 20;
-/** How many lots a street of each rank holds before its households build up. */
 const LOT_CAP: Readonly<Record<RoadRank, number>> = {
   lane: 14,
   main: 40,
   path: 4,
   street: 24,
 };
-/** A folder with more homes than this may build the island's one tower. */
 const TOWER_FOLDER = 48;
 const TOWER_STOREYS = 10;
 const TOWER_FLATS = 6;
@@ -34,7 +21,6 @@ const BLOCK_MAX = 24;
 const WALKUP_MIN = 4;
 const WALKUP_MAX = 8;
 const PAIR_MAX = 3;
-/** Lots' worth of frontage each kind of building takes. */
 const SLOTS: Readonly<Partial<Record<BuildingKind, number>>> = {
   block: 3,
   pair: 1,
@@ -57,18 +43,15 @@ const folderOf = (id: string): string =>
 const segmentsOf = (path: string): string[] =>
   path === "" ? [] : path.split("/");
 
-/** Where a path's first test folder is among its segments, or -1. */
 const testSegmentOf = (path: string): number =>
   segmentsOf(path).findIndex((segment) => TEST_FOLDERS.has(segment));
 
 const isTestLike = (module: Module): boolean =>
   module.kind === "test" || testSegmentOf(folderOf(module.id)) >= 0;
 
-/** A file nothing imports and that imports nothing: it stands alone (rule 15). */
 const isAlone = (module: Module): boolean =>
   module.fanIn === 0 && module.fanOut === 0 && module.kind !== "config";
 
-/** A street's rank from its folder's depth below the package root. */
 const rankOf = (depth: number): RoadRank => {
   if (depth <= 1) {
     return "main";
@@ -76,7 +59,6 @@ const rankOf = (depth: number): RoadRank => {
   return depth === 2 ? "street" : "lane";
 };
 
-/** The kind of ground a test group makes, by its number of tests (rule 5). */
 export type GroundKind = "playground" | "pitch" | "track" | "stadium";
 
 export const groundKindOf = (tests: number): GroundKind => {
@@ -94,16 +76,13 @@ export interface Ground {
   readonly key: string;
 }
 
-/** A building before it has a place: its kind, files and floors. */
 export interface Household {
   readonly files: Module[];
-  /** Flats a floor, which sets its length along the street. */
   readonly flats: number;
   readonly kind: BuildingKind;
   readonly storeys: number;
 }
 
-/** One thing that stands along a street, in order. */
 export type Unit =
   | {
       readonly kind: "building";
@@ -120,31 +99,23 @@ export type Unit =
 export interface FolderNode {
   readonly children: FolderNode[];
   readonly depth: number;
-  /** Every file its street and its branches hold, grounds included. */
   files: Module[];
   readonly grounds: Ground[];
-  /** Its own files that are homes, in id order. */
   readonly homes: Module[];
   readonly path: string;
   readonly rank: RoadRank;
-  /** Its own files that are other places. */
   readonly specials: Module[];
-  /** What stands along its street, in order; set by `orderStreets`. */
   units: Unit[];
 }
 
-/** One island's files, sorted into what they are. */
 export interface Sorted {
-  /** Files that stand alone, for the shore row and the lighthouse. */
   readonly alone: Module[];
   readonly nodes: ReadonlyMap<string, FolderNode>;
   readonly places: ReadonlyMap<string, Place>;
-  /** The station's file, or null when the island has no source file. */
   readonly station: Module | null;
   readonly top: FolderNode;
 }
 
-/** What each of an island's town files is: its place in town (rule 4). */
 function placesOf(files: readonly Module[]) {
   const places = new Map<string, Place>();
   let station: Module | null = null;
@@ -189,7 +160,6 @@ function commonFolder(paths: readonly string[]): string {
   return common.join("/");
 }
 
-/** The package root: the deepest folder holding every street's files. */
 function rootOf(streetFiles: readonly Module[], all: readonly Module[]) {
   let root = commonFolder(
     (streetFiles.length > 0 ? streetFiles : all).map((m) => folderOf(m.id))
@@ -225,7 +195,6 @@ function newNode(path: string, depth: number): FolderNode {
   };
 }
 
-/** The folder tree below `root`: a node for each folder a street's file is in. */
 function treeOf(
   root: string,
   streetFiles: readonly Module[],
@@ -259,7 +228,6 @@ function treeOf(
   return { nodes, top };
 }
 
-/** A test group's key: its folder, cut one level below its test folder. */
 function groundKeyOf(module: Module): string {
   const folder = folderOf(module.id);
   const at = testSegmentOf(folder);
@@ -270,7 +238,6 @@ function groundKeyOf(module: Module): string {
         .join("/");
 }
 
-/** The folder a tally names most, ties to the first by name. */
 function mostOf(
   tally: ReadonlyMap<string, number> | undefined,
   nodes: ReadonlyMap<string, FolderNode>
@@ -289,7 +256,6 @@ function mostOf(
   return best ? (nodes.get(best[0]) ?? null) : null;
 }
 
-/** A ground whose tests import nothing in town: the folder its name mirrors. */
 function mirrorOf(
   key: string,
   nodes: ReadonlyMap<string, FolderNode>,
@@ -313,7 +279,6 @@ function mirrorOf(
   return nodes.get(path) ?? top;
 }
 
-/** The test files' grounds, each on the street of the folder its tests import most. */
 function attachGrounds(
   tests: readonly Module[],
   nodes: ReadonlyMap<string, FolderNode>,
@@ -350,11 +315,6 @@ function attachGrounds(
   }
 }
 
-/**
- * A folder with nothing of its own and one folder below it is only a
- * junction on the way there: its child's street branches straight off
- * the parent's instead, so no stub of road is left at the corner.
- */
 function collapse(node: FolderNode, nodes: Map<string, FolderNode>) {
   for (const [k, child] of node.children.entries()) {
     let only = child;
@@ -372,7 +332,6 @@ function collapse(node: FolderNode, nodes: Map<string, FolderNode>) {
   }
 }
 
-/** Each folder's files from its branches up. */
 function gather(node: FolderNode): Module[] {
   const files = [...node.homes, ...node.specials];
   for (const ground of node.grounds) {
@@ -385,11 +344,6 @@ function gather(node: FolderNode): Module[] {
   return files;
 }
 
-/**
- * One island's files sorted into the shore, the station, the folder tree
- * and its grounds. The station's file stands at the plaza, not on its
- * folder's street.
- */
 export function sortIsland(
   files: readonly Module[],
   imports: readonly Import[]
@@ -410,12 +364,9 @@ export function sortIsland(
   return { alone, nodes, places, station, top };
 }
 
-// --------------------------------------------------------- the households
-
 const clamp = (x: number, lo: number, hi: number): number =>
   Math.max(lo, Math.min(hi, x));
 
-/** A building of `files` homes of a kind, its floors and flats a floor. */
 export function householdOf(kind: BuildingKind, files: Module[]): Household {
   const n = files.length;
   let storeys = 2;
@@ -429,7 +380,6 @@ export function householdOf(kind: BuildingKind, files: Module[]): Household {
   return { files, flats: Math.ceil(n / storeys), kind, storeys };
 }
 
-/** The sizes of the buildings a street's homes stack into, biggest first. */
 function stackSizes(
   homes: number,
   cap: number,
@@ -457,12 +407,6 @@ function stackSizes(
   return kinds;
 }
 
-/**
- * A street's homes, in their order along it, gathered into buildings: as
- * many houses as the street has lots for, the rest stacked into as few
- * bigger buildings as hold them (rule 3), standing first in the street's
- * order, nearest its mouth and the town's middle.
- */
 function householdsOf(
   homes: readonly Module[],
   cap: number,
@@ -502,9 +446,6 @@ const sizeCap = (kind: BuildingKind): number => {
   return kind === "walkup" ? WALKUP_MAX : PAIR_MAX;
 };
 
-// ---------------------------------------------------------- the ordering
-
-/** The imports between each two items (both ways), and each item's in all. */
 function affinityOf(
   groups: readonly (readonly Module[])[],
   imports: readonly Import[]
@@ -541,11 +482,6 @@ const isBetter = (a: readonly number[], b: readonly number[]): boolean => {
   return false;
 };
 
-/**
- * Items in chain order: the first `fixed` stay first, then each next is
- * the one most imported to or from the last, ties to everything placed so
- * far, then to the most connected, then the given order.
- */
 function chainOf<T>(
   items: readonly T[],
   filesOf: (item: T) => readonly Module[],
@@ -609,7 +545,6 @@ const SPECIAL_KIND: Readonly<Record<Exclude<Place, "home">, BuildingKind>> = {
   utility: "utility",
 };
 
-/** One street's units in order, its homes gathered into buildings. */
 function unitsOf(
   node: FolderNode,
   sorted: Sorted,
@@ -654,7 +589,6 @@ function unitsOf(
   }));
   for (const item of items) {
     if (item.kind === "home") {
-      // Each home's place in the chain goes to the next household in turn.
       const unit = homeUnits[next];
       if (unit && unit.home.files[0] === item.file) {
         units.push(unit);
@@ -678,12 +612,6 @@ function unitsOf(
   return units;
 }
 
-/**
- * Orders every street's units. `share` scales how many lots a street
- * holds (below 1 on a crowded island). The island's one tower goes to its
- * most crowded folder, if that folder holds more homes than blocks
- * nearby could take.
- */
 export function orderStreets(
   sorted: Sorted,
   imports: readonly Import[],

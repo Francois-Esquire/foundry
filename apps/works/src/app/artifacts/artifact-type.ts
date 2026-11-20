@@ -25,10 +25,6 @@ const KINDS: Readonly<Record<ArtifactBase, ArtifactKind>> = {
   video: { icon: FileVideoIcon, label: "Video" },
 };
 
-/**
- * A recognizable label and fallback icon. An unrecognized type stays visible
- * under its own MIME type rather than a guessed family.
- */
 export function artifactKind(artifact: ArtifactSummary): ArtifactKind {
   return artifact.base === null
     ? { icon: FileIcon, label: artifact.type }

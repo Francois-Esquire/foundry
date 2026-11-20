@@ -4,20 +4,11 @@ import type { Container } from "@foundry/sandbox/container/containers";
 import { MODULE_SANDBOX_ROOT } from "../sandboxes/coordinator";
 import { endAuthoringProcesses, giveWorkspaceToAuthor } from "./guest";
 
-/**
- * A turn's scratch copy of the Draft in its Module sandbox. The agent's
- * coding tools work in the sandbox workspace root, which holds nothing
- * else: builds keep their directories outside it. The workspace belongs to
- * the authoring guest user; root seeds and collects it only once nothing
- * that user started is still running.
- */
-
 const MAX_DEPTH = 32;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 type GuestFiles = Pick<Container, "commands" | "files">;
 
-/** Replace what an earlier turn left in the workspace with the Draft snapshot. */
 export async function seedWorkspace(
   container: GuestFiles,
   source: Readonly<Record<string, string>>,
@@ -48,11 +39,6 @@ export async function seedWorkspace(
   await giveWorkspaceToAuthor(container);
 }
 
-/**
- * The authored files the turn left in the workspace, read into memory.
- * Installed and generated files are left out, except where the snapshot
- * itself carries them (a Module may author files under a package's dist).
- */
 export async function collectWorkspace(
   container: GuestFiles,
   snapshot: Readonly<Record<string, string>>,

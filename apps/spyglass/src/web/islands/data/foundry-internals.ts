@@ -1,20 +1,3 @@
-/**
- * The islands' insides from a Spyglass dataset: its modules, the imports
- * between them, and its responsibility groups as districts. Read by
- * narrowing like the rest of foundry.ts: whatever does not fit is left out,
- * one line in `source.notes` per reason.
- *
- * The files keep the dataset's own shapes, so a full dataset reads the same
- * as the fixture's trimmed copy (`capture.ts` in `foundry/`):
- *
- * - `modules`: `modules/index.json`, every module with its package, its
- *   place on its island (`mapPosition`), kind, role and fan-in and fan-out;
- * - `shards`: the module shards, `modules/<package>.json`, read for each
- *   module's `evolution`;
- * - `edges`: the edge shards, `modules/edges/<package>.json`;
- * - `responsibilityGroups` and `frequentChange`: those lenses,
- *   `lenses/<id>.json`.
- */
 import type {
   Change,
   District,
@@ -35,7 +18,6 @@ import {
 } from "./foundry-read";
 import { polygonContains } from "./geometry";
 
-/** What `chartFromFoundry` adds to a chart from the internals. */
 export interface Internals {
   readonly districts: District[];
   readonly imports: Import[];
@@ -59,7 +41,6 @@ const entriesOf = (records: unknown, key: string): readonly unknown[] =>
     listOf(isFields(record) ? record[key] : undefined)
   );
 
-/** A module as the index lists it, before its districts are known. */
 type Placed = Omit<Module, "change" | "districts">;
 
 function readModule(
@@ -98,7 +79,6 @@ function readModule(
     return 0;
   };
   const at: Point = [island.at[0] + place[0], island.at[1] + place[1]];
-  // A file off its coast may indicate mismatched scans.
   const { coast } = island.shape;
   if (
     coast.length > 0 &&
@@ -269,7 +249,6 @@ function readDistricts(
   return districts;
 }
 
-/** One edge as an import, or null with a note when it joins no two modules. */
 function readImport(
   value: unknown,
   modules: ReadonlyMap<string, Placed>,
@@ -313,7 +292,6 @@ function readImports(
     const key = `${read.from}\n${read.to}`;
     const known = imports.get(key);
     if (known) {
-      // One import of the pair that runs makes the pair run.
       imports.set(key, { ...known, typeOnly: known.typeOnly && read.typeOnly });
       notes.add("module edges: a repeated import merged");
     } else {
@@ -323,10 +301,6 @@ function readImports(
   return [...imports.values()];
 }
 
-/**
- * The internals for the chart's `islands`, or empty lists with a note when
- * there are none.
- */
 export function readInternals(
   internals: unknown,
   islands: readonly Island[],

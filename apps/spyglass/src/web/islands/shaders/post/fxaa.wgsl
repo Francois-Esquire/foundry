@@ -1,13 +1,5 @@
-// FXAA (Lottes' console variant): finds an edge from the luma of the four
-// diagonal neighbours, and blurs along it, never across, by up to SPAN_MAX
-// texels; where the longer blur strays outside the neighbourhood's luma it
-// keeps the shorter one. Reads a display-referred image (luma is taken on
-// it as stored). The entry shader owns the texture and the sampler.
 
-// Luma contrast below which a pixel is left alone: flat areas stay sharp.
 const EDGE_MIN = 1.0 / 24.0;
-// How far the blur may run along an edge, texels, and how short edges
-// are kept from over-reaching.
 const SPAN_MAX = 8.0;
 const REDUCE_MUL = 1.0 / 8.0;
 const REDUCE_MIN = 1.0 / 128.0;
@@ -16,7 +8,6 @@ fn fxaaLuma(c: vec3f) -> f32 {
   return dot(c, vec3f(0.299, 0.587, 0.114));
 }
 
-// The anti-aliased colour at `uv` of `src`, `texel` one texel in uv.
 export fn fxaa(src: texture_2d<f32>, s: sampler, uv: vec2f, texel: vec2f) -> vec3f {
   let rgbM = textureSampleLevel(src, s, uv, 0.0).rgb;
   let nw = fxaaLuma(textureSampleLevel(src, s, uv + vec2f(-1.0, -1.0) * texel, 0.0).rgb);

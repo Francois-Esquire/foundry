@@ -30,7 +30,6 @@ export class ModuleBuilds {
   readonly #execution: Pick<WorksExecution, "dispatch">;
   readonly #library: ModuleLibrary;
   readonly #runtime: BuildRuntime;
-  /** Each build is a `system` engine run; cancelling the build cancels the run. */
   constructor(options: {
     readonly execution: Pick<WorksExecution, "dispatch">;
     readonly library: ModuleLibrary;
@@ -154,7 +153,6 @@ export class ModuleBuilds {
     });
     signal.throwIfAborted();
     progress({ phase: "publishing" });
-    // The publish run names this build run as its parent.
     const { version, binding } = await this.#library.publish(id, expected, {
       ...built,
       builtBy: runId,

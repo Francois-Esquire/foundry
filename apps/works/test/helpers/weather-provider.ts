@@ -14,10 +14,6 @@ const schema: ModuleCapabilitySchema<unknown> = {
   parse: (value) => value,
 };
 
-/**
- * A `host.weather.read@1` capability: its digest is the requested city, so
- * a changed constraint is a changed Grant.
- */
 export function weatherProvider(
   invoke: (
     input: unknown,

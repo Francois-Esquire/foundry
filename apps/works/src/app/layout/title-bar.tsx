@@ -27,8 +27,6 @@ export function TitleBar({
   className,
 }: TitleBarProps) {
   return (
-    // `@container/titlebar` lets the right cluster collapse to compact forms
-    // off the bar's own width (the window), not the OS viewport.
     <div
       className={cn(
         "@container/titlebar flex h-9 w-full shrink-0 items-center px-3",

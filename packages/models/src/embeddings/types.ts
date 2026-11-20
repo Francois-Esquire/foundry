@@ -3,7 +3,6 @@ import type { EmbeddingModelV4 } from "@ai-sdk/provider";
 import type { AiLoggerSession } from "../logger";
 import type { ChunkStrategy } from "./chunk";
 
-/** Anything that resolves an embedding model by id; the manager qualifies as-is. */
 export interface EmbedSource {
   embedding(model?: string, provider?: string): EmbeddingModelV4;
 }

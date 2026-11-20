@@ -25,7 +25,6 @@ afterEach(async () => {
   );
 });
 
-/** A strict Manifest for the starter: same Program, Views and data. */
 function strictManifest(legacyText: string, change: object = {}) {
   const legacy = JSON.parse(legacyText) as Record<string, unknown>;
   return JSON.stringify({
@@ -151,7 +150,6 @@ describe("Module settings in Works state", () => {
       values: { "authoring.maxSteps": 12, "queues.workflows.concurrency": 3 },
     });
 
-    // Another process reads the same values back and reapplies them.
     const restarted = settings();
     expect(await restarted.user(module.id)).toEqual({
       "authoring.maxSteps": 12,
@@ -166,7 +164,6 @@ describe("Module settings in Works state", () => {
   it("reads effective settings without touching queues; applying them is explicit", async () => {
     const { execution, module, settings } = await setup();
     await settings().set(module.id, { "queues.workflows.concurrency": 3 });
-    // As a restarted process finds them: the engine's defaults.
     execution.configureModuleQueues(module.id, { workflows: 1 });
     const workflowsQueue = () =>
       execution.runs
@@ -259,7 +256,6 @@ describe("Module settings in Works state", () => {
       maxSteps: 6,
     });
 
-    // A Manifest change reaches the kept settings once Works says so.
     await declare({ settings: { "authoring.maxSteps": { minimum: 9 } } });
     await expect(service.authoringLimits(module.id)).resolves.toMatchObject({
       maxSteps: 6,

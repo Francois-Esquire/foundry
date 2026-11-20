@@ -1,15 +1,9 @@
 import type { DependencyFoundation, FoundationGroup } from "./types";
 
-/** Group identity follows membership, never geometry, focus, or input order. */
 function foundationGroupId(memberIds: readonly string[]): string {
   return `foundation-group:${JSON.stringify([...new Set(memberIds)].sort())}`;
 }
 
-/**
- * Exact membership sets coalesce; partial overlaps retain separate
- * identities. A group is membership only: its shape is the structural
- * terrain's, from the settled layout.
- */
 export function prepareFoundationGroups(
   foundations: readonly DependencyFoundation[]
 ): FoundationGroup[] {

@@ -12,7 +12,6 @@ import { type AuditGap, gapModule } from "~/shared/audit";
 import { Time } from "./audit-table";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** How often a time range's start moves on while the view stays open. */
 const CLOCK_MS = 60_000;
 const RANGES = [
   { days: 1, id: "1d", label: "Last 24 hours" },
@@ -22,7 +21,6 @@ const RANGES = [
 ] as const;
 type Range = (typeof RANGES)[number];
 
-/** Module names and Artifact names, joined to runs by ID only. */
 export interface Names {
   artifact(id: string): string;
   module(id: string | undefined): string;
@@ -54,7 +52,6 @@ export function useNames(): Names {
   }, [modules.data, artifacts.data]);
 }
 
-/** The time now, moving on every `CLOCK_MS` while `ticking`. */
 function useClock(ticking: boolean): number {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -68,10 +65,6 @@ function useClock(ticking: boolean): number {
   return now;
 }
 
-/**
- * The audit scope and filters, kept in the page's search parameters. A
- * time range's start follows the clock, so "Last 24 hours" keeps sliding.
- */
 export function useAuditParams() {
   const [params, setParams] = useSearchParams();
   const set = useCallback(
@@ -173,7 +166,6 @@ export function ScopeControls({
   );
 }
 
-/** Retention gaps are shown, never hidden: older history may be missing. */
 export function RetentionNotice({
   gaps,
   names,
@@ -223,7 +215,6 @@ export function ModuleLink({
   );
 }
 
-/** Enough of a run id to tell runs apart, whatever the engine prefixes it with. */
 const SHORT_RUN_ID = 8;
 
 export function RunLink({ id }: { id: string }) {

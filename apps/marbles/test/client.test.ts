@@ -1,10 +1,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Layout, layout } from "~/layout";
 import { Channel, socketTransport } from "~/process/channel";
 import {
@@ -15,12 +13,8 @@ import {
   stopProcess,
 } from "~/process/client";
 import { type HelloResult, PROTOCOL } from "~/process/protocol";
-
-/**
- * The client against daemons that misbehave: one that never answers, one
- * of another version, and one that is exiting when the client looks. The
- * state root sits in a short temp path for the socket's sake.
- */
+import { recordSpawned, SPAWN_RECORD_ENV } from "~/process/spawned";
+import { testHome } from "./helpers/home";
 
 const cleanup: (() => Promise<void> | void)[] = [];
 
@@ -28,14 +22,15 @@ afterEach(async () => {
   for (const step of cleanup.splice(0).reverse()) {
     await step();
   }
+  vi.unstubAllEnvs();
 });
 
 function machine(): Layout {
-  const home = mkdtempSync(join(tmpdir(), "mb-cl-"));
-  cleanup.push(() => rmSync(home, { force: true, recursive: true }));
-  const machineLayout = layout({ home });
-  mkdirSync(machineLayout.state, { recursive: true });
-  return machineLayout;
+  const home = testHome({ providers: false });
+  vi.stubEnv("FOUNDRY_HOME", home.path);
+  vi.stubEnv(SPAWN_RECORD_ENV, home.env[SPAWN_RECORD_ENV]);
+  mkdirSync(home.layout.state, { recursive: true });
+  return home.layout;
 }
 
 async function fakeDaemon(
@@ -99,8 +94,6 @@ describe("connecting to the Marbles process", () => {
     await expect(refused).rejects.toThrow("marbles stop");
     expect(asked).toEqual(["hello"]);
 
-    // `marbles stop` stops whatever version it finds, and says it is
-    // stopping once the daemon has agreed to, not before it was asked.
     const agreed: string[][] = [];
     const stopped = await stopProcess({
       layout: at,
@@ -131,13 +124,11 @@ describe("connecting to the Marbles process", () => {
 
   it("refuses another artifact store before it would replace an older daemon", async () => {
     const at = machine();
-    const elsewhere = layout({
+    const elsewhere = {
+      ...layout({ home: at.home }),
       artifacts: join(at.home, "elsewhere"),
-      home: at.home,
-    });
+    };
     const asked = await fakeDaemon(at, () => oldHello(at));
-    // A starting connect replaces an older daemon, but not one that keeps
-    // another store: that would stop it and start one on the wrong store.
     const refused = connect({ layout: elsewhere, timeoutMs: 2000 });
     await expect(refused).rejects.toThrow(ProcessMismatchError);
     await expect(refused).rejects.toThrow(`keeps artifacts in ${at.artifacts}`);
@@ -161,7 +152,6 @@ describe("connecting to the Marbles process", () => {
         })
       );
 
-    // The socket failed: that is the reason, whatever the state root says.
     const failure = new Error("read ECONNRESET");
     expect(await explainDisconnect(at, hello, failure, false)).toEqual({
       error: failure,
@@ -170,11 +160,9 @@ describe("connecting to the Marbles process", () => {
     expect(await explainDisconnect(at, hello, undefined, true)).toEqual({
       kind: "closed",
     });
-    // Nothing at the state root names the daemon: it stopped and released.
     expect(await explainDisconnect(at, hello, undefined, false)).toEqual({
       kind: "stopped",
     });
-    // Its claim still names a pid that no longer runs: it died.
     writeFileSync(lock, String(hello.pid));
     record(hello.pid);
     expect(await explainDisconnect(at, hello, undefined, false)).toEqual({
@@ -182,7 +170,6 @@ describe("connecting to the Marbles process", () => {
       log: join(at.state, "daemon.log"),
       pid: hello.pid,
     });
-    // Its claim names a live pid: it is up, and closed this connection.
     const alive = { ...hello, pid: process.pid };
     writeFileSync(lock, String(process.pid));
     record(process.pid);
@@ -194,8 +181,8 @@ describe("connecting to the Marbles process", () => {
 
   it("starts a fresh daemon when the one holding the claim exits meanwhile", async () => {
     const at = machine();
-    // A daemon on its way out: it holds the claim, and its socket is gone.
     const leaving: ChildProcess = spawn("sleep", ["1.5"], { stdio: "ignore" });
+    recordSpawned(leaving.pid, false);
     const pid = leaving.pid ?? 0;
     mkdirSync(join(at.state, "locks"), { recursive: true });
     writeFileSync(join(at.state, "locks", "process"), String(pid));

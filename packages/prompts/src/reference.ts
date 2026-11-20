@@ -6,7 +6,6 @@ import type {
   PromptReference,
 } from "./language";
 
-/** A reference invoked by name; arguments are omitted when undefined. */
 export function invoked<K extends InvocationKind>(
   kind: K,
   name: string,
@@ -15,7 +14,6 @@ export function invoked<K extends InvocationKind>(
   return args === undefined ? { kind, name } : { arguments: args, kind, name };
 }
 
-/** The name a reference resolves by, or `undefined` for kinds that have none. */
 export function nameOf(reference: PromptReference): string | undefined {
   if ("name" in reference) {
     return reference.name;
@@ -23,12 +21,6 @@ export function nameOf(reference: PromptReference): string | undefined {
   return "path" in reference ? reference.path : undefined;
 }
 
-/**
- * The reference an interpolated value stands for, or `null` for plain text.
- * A value is a reference when it implements the reference protocol or is
- * plain reference data with a string `kind`; anything else, a `Prompt`
- * included, is inserted as its text.
- */
 export function referenceOf(value: Interpolation): PromptReference | null {
   if (isReferenceable(value)) {
     return value[REFERENCE]();
@@ -44,15 +36,8 @@ function isPromptReference(value: unknown): value is PromptReference {
   );
 }
 
-/**
- * Typed references to interpolate into a dialect's template literal. Each is
- * written in the target dialect's own notation, so one prompt renders for
- * every harness: `ref.skill("review")` is `/review` for Claude Code and
- * `$review` for Codex.
- */
 export const ref = {
   agent: (name: string): PromptReference => ({ kind: "agent", name }),
-  /** No selector: every argument. A number: that position. A string: that named argument. */
   argument: (selector?: number | string): PromptReference => {
     if (selector === undefined) {
       return { kind: "argument", selector: { by: "all" } };

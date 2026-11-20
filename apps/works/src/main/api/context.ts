@@ -17,11 +17,6 @@ import type { ModuleSettings } from "~/main/modules/settings";
 import type { SystemTheme } from "~/main/system/theme";
 import type { Vault } from "~/main/vault/vault";
 
-/**
- * What every procedure receives. Supplied once when the port is upgraded.
- * Main supplies every service; a renderer test supplies the ones it needs,
- * and a procedure whose service is missing answers that it is unavailable.
- */
 export interface RouterContext {
   access?: Pick<ModuleAccess, "approve" | "get" | "revoke">;
   artifacts?: ArtifactExplorer;
@@ -63,11 +58,6 @@ function provides<S extends Service>(
   return services.every((service) => context[service] !== undefined);
 }
 
-/**
- * Procedures that need `services`: refused as unavailable (with `message`,
- * or what each missing service says) when the host lacks one, and handed
- * them as present otherwise.
- */
 export function requires<S extends Service>(
   services: readonly S[],
   message?: string
@@ -84,11 +74,6 @@ export function requires<S extends Service>(
   });
 }
 
-/**
- * Refusals a person can act on, as typed RPC errors: a missing Artifact or
- * stale editor choice, a conflicting change, or settings that break a
- * requirement. Anything else passes through as it is.
- */
 export const refusals = base.middleware(async ({ next }) => {
   try {
     return await next();

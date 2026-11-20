@@ -16,10 +16,6 @@ export interface NavItemConfig {
   to: string;
 }
 
-/**
- * Every link stays in the Tab order; the arrow keys also step through the
- * whole rail top to bottom, wrapping, and Home/End jump to either end.
- */
 function moveRailFocus(event: KeyboardEvent<HTMLAnchorElement>) {
   const links = [
     ...(event.currentTarget

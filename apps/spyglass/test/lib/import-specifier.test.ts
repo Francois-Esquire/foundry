@@ -2,7 +2,6 @@ import { Project, ts } from "ts-morph";
 import { expect, it } from "vitest";
 import { importSpecifierFor } from "../../src/lib/import-specifier";
 
-/** An in-memory project of `files`, by absolute path, resolved as a bundler would. */
 function projectOf(files: Record<string, string>): Project {
   const project = new Project({
     compilerOptions: {
@@ -18,7 +17,6 @@ function projectOf(files: Record<string, string>): Project {
   return project;
 }
 
-/** The specifier `/src/user.ts` would write for `target`, given its imports. */
 function specifierFor(
   imports: string,
   target = "/src/model.ts",

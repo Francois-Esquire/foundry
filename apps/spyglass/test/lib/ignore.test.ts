@@ -48,10 +48,8 @@ describe("createIgnorer", () => {
     expect(ignorer.ignores("apps/web/.claude/skills/a.mjs")).toBe(true);
     expect(ignorer.ignores("debug.log")).toBe(true);
     expect(ignorer.ignores("apps/web/important.log")).toBe(false);
-    // the nested negation re-includes a directory the root ignored
     expect(ignorer.ignores("apps/web/generated/")).toBe(false);
     expect(ignorer.ignores("apps/api/generated/")).toBe(true);
-    // nothing below an ignored directory can be re-included
     expect(ignorer.ignores("apps/api/generated/important.log")).toBe(true);
   });
 

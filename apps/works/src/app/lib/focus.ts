@@ -1,19 +1,10 @@
 import type { KeyboardEvent } from "react";
 
-/** How focusable items are laid out. */
 interface FocusLayout {
-  /** Items per row; without it, one column that moves only up and down. */
   readonly columns?: number;
-  /** Past either end, continue from the other; otherwise stop there. */
   readonly wrap?: boolean;
 }
 
-/**
- * Moves focus from the event's item among `items` for a navigation key:
- * the arrows by one item (up and down by a row in a grid), Home and End to
- * either end. Any other key passes through. Every item stays in the Tab
- * order; this only adds the keys.
- */
 export function moveFocusAmong(
   event: KeyboardEvent<HTMLElement>,
   items: readonly HTMLElement[],

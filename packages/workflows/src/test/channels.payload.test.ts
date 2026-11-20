@@ -18,7 +18,6 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
           const snap = yield* Snapshot.make();
           const channels = yield* Channels.make(snap);
           const reader = channels.stream.getReader();
-          // Allow the multiplexer fibers to attach before publishing.
           yield* Effect.sleep(5);
 
           channels.events.push(
@@ -64,9 +63,6 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
           reader.releaseLock();
 
           expect(collected).toHaveLength(4);
-          // The multiplexer drives events and chunks on independent fibers,
-          // so global interleaving across the two pubsubs is not guaranteed
-          // — assert per-kind ordering and tag-discriminated narrowing.
           const eventTags: string[] = [];
           const chunkPayloads: { kind: string; value: unknown }[] = [];
           for (const m of collected) {

@@ -22,7 +22,6 @@ import type { HostTransport, WorkerRequest } from "./protocol";
 import { encodeAudio } from "./protocol";
 
 export interface RemoteLocalProviderOptions extends LocalProviderOptions {
-  /** How long the worker has to confirm it went offline before it is stopped. */
   offlineTimeoutMs?: number;
   transport: HostTransport;
 }
@@ -36,16 +35,6 @@ interface Pending {
   resolve: (value: unknown) => void;
 }
 
-/**
- * The local provider's surface with worker backing: every inference call
- * crosses the injected {@link HostTransport} to a real {@link LocalProvider}
- * in an unbound Node process (see worker.ts). Exists because Electron's main
- * process caps JS-side buffer memory far below what ~GB weights need.
- *
- * Sync status surfaces (`status`, `progress`) answer from a cache refreshed by
- * a background round-trip per call — one poll tick stale, which the polling UI
- * absorbs. The downloaded-probe reads the shared disk directly.
- */
 export class RemoteLocalProvider
   extends OnDeviceProvider
   implements LocalProviderSurface
@@ -99,7 +88,6 @@ export class RemoteLocalProvider
     });
   }
 
-  /** True once the worker is gone; the host adapter swaps in a fresh one. */
   get workerLost(): boolean {
     return this.exitReason !== null;
   }
@@ -145,7 +133,6 @@ export class RemoteLocalProvider
     return {
       doGenerate: async (options: LanguageModelV4CallOptions) => {
         const { abortSignal, headers: _headers, ...wire } = options;
-        // Boundary cast: the wire carries the worker model's real result.
         return (await this.request(
           (rid) => ({ id: rid, model: modelId, op: "generate", options: wire }),
           {},
@@ -190,7 +177,6 @@ export class RemoteLocalProvider
     return {
       doEmbed: async (options: EmbeddingModelV4CallOptions) => {
         const { abortSignal, headers: _headers, ...wire } = options;
-        // Boundary cast: the wire carries the worker model's real result.
         return (await this.request(
           (rid) => ({ id: rid, model: modelId, op: "embed", options: wire }),
           {},
@@ -243,13 +229,6 @@ export class RemoteLocalProvider
     return this.progressCache.get(id) ?? null;
   }
 
-  /**
-   * The worker holds its own `@huggingface/transformers` env, so Airplane Mode
-   * has to cross the process boundary or the child keeps allowing remote
-   * fetches. Settles once the worker has applied it. A worker that fails or
-   * does not answer in time while going offline is stopped, so nothing it
-   * runs can keep fetching.
-   */
   async setOffline(offline: boolean): Promise<void> {
     const applied = this.request((rid) => ({
       id: rid,

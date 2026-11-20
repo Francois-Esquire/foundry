@@ -28,7 +28,6 @@ const capability: Capability = {
   tool: "dangerous",
 };
 
-/** Seed a session with an assistant turn that requested (and is awaiting) approval. */
 async function seedPendingApproval(
   store: InMemorySessionStore,
   sessionId: string
@@ -104,9 +103,6 @@ describe("SessionHarness — approval responses", () => {
       })
     );
 
-    // The persisted, already-issued approval is honored — the tool actually
-    // runs, proving the converter's reconstructed AI SDK parts round-trip
-    // through the real tool loop, not just past a text-substring check.
     expect(execute).toHaveBeenCalledWith({ target: "prod" }, expect.anything());
     expect(events.some((e) => e.type === "tool-result")).toBe(true);
 

@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { lockHolder } from "@foundry/lib/file-lock";
+import { holdsLock } from "@foundry/lib/file-lock";
 
 import { and, asc, eq } from "drizzle-orm";
 import { IncompatibleDatabaseError } from "~/database/migrate";
@@ -20,6 +20,7 @@ import type { Workspace, WorkspaceRecord } from "~/lib/state/workspace";
 import { insideState } from "~/lib/state/workspace";
 
 export interface TouchOptions {
+  readonly cwd?: string;
   readonly hosted?: boolean;
 }
 
@@ -44,10 +45,16 @@ export class WorkspaceRegistry {
   ): Promise<void> {
     const now = new Date().toISOString();
     const { hosted } = options;
+    const cwd =
+      options.cwd === undefined || options.cwd === workspace.root
+        ? null
+        : options.cwd;
+    const registersCwd = options.cwd === undefined ? {} : { cwd };
     await this.#database
       .insert(marblesWorkspaces)
       .values({
         config,
+        cwd,
         firstSeen: now,
         hosted: hosted ?? false,
         id: workspace.id,
@@ -58,6 +65,7 @@ export class WorkspaceRegistry {
         set: {
           config,
           lastSeen: now,
+          ...registersCwd,
           root: workspace.root,
           ...(hosted === undefined ? {} : { hosted }),
         },
@@ -81,7 +89,9 @@ export class WorkspaceRegistry {
       .select()
       .from(marblesWorkspaces)
       .where(eq(marblesWorkspaces.id, id));
-    return record !== undefined && this.#counts(record) ? record : undefined;
+    return record !== undefined && this.#counts(record)
+      ? registered(record)
+      : undefined;
   }
 
   async list(): Promise<readonly WorkspaceRecord[]> {
@@ -89,12 +99,20 @@ export class WorkspaceRegistry {
       .select()
       .from(marblesWorkspaces)
       .orderBy(asc(marblesWorkspaces.id));
-    return records.filter((record) => this.#counts(record));
+    return records
+      .filter((record) => this.#counts(record))
+      .map((record) => registered(record));
   }
 
-  #counts(record: WorkspaceRecord): boolean {
+  #counts(record: Pick<WorkspaceRecord, "id">): boolean {
     return insideState(this.#state, record.id);
   }
+}
+
+function registered(
+  row: typeof marblesWorkspaces.$inferSelect
+): WorkspaceRecord {
+  return { ...row, cwd: row.cwd ?? row.root };
 }
 
 export async function recordedWorkspaces(
@@ -129,7 +147,7 @@ export async function openHostDatabase(
         claim.release();
       }
     }
-    if (lockHolder(join(root, "locks", PROCESS_LOCK)) === process.pid) {
+    if (holdsLock(join(root, "locks", PROCESS_LOCK))) {
       return await initializeDatabase(file, options);
     }
     let opened: MarblesDatabase | undefined;

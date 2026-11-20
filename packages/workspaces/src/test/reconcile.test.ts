@@ -304,9 +304,6 @@ describe("diffCatalog", () => {
       ]
     );
 
-    // One departure, one arrival, one shared fingerprint — the letter of the
-    // move rule. But every zero-byte file has that fingerprint, so `.gitkeep`
-    // and a new empty `index.ts` are not evidence of anything.
     expect(change.updated).toEqual([]);
     expect(change.deleted.map((entry) => entry.id)).toEqual([placeholder.id]);
     expect(change.inserted).toHaveLength(1);
@@ -377,10 +374,6 @@ describe("diffCatalog", () => {
         "f44e64e75f3948e9f73f8dfa94721c4ce8cbb4f265c4790c702b2d41cfbf2753",
     });
 
-    // `a.md` is deleted and `b.md` is renamed onto its path. The candidate at
-    // `a.md` matches `a.md`'s row, so that row survives carrying b's content
-    // and b's row is deleted — path beats byte evidence, deliberately. The
-    // alternative makes every ordinary edit a deletion and a creation.
     const change = diff(
       [staying, renamed],
       [

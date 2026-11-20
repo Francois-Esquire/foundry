@@ -19,7 +19,6 @@ interface ImportEdits {
   files: Map<string, SourceFile>;
 }
 
-/** Repoint the saved plan's internal named imports before its entrypoint exports go. */
 export function editInternalImports(
   project: Project,
   root: string,

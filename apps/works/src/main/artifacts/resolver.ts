@@ -6,14 +6,11 @@ import type {
   EditorMatch,
 } from "~/shared/artifacts";
 
-/** An editor a released Module declares: one View, the MIME types it opens. */
 export interface EditorRegistration extends EditorCandidate {
   readonly mimeTypes: readonly string[];
-  /** The release (Content) declaring it, which the editor runs. */
   readonly release: string;
 }
 
-/** The remembered editor for one MIME type. */
 export interface EditorPreference {
   readonly moduleId: string;
   readonly view: string;
@@ -22,15 +19,12 @@ export interface EditorPreference {
 export interface EditorResolution {
   readonly candidates: EditorCandidate[];
   readonly match: EditorMatch;
-  /** The MIME type matched on; a choice is remembered under it. */
   readonly mime: string;
   readonly preferred: EditorCandidate | null;
 }
 
-// Only classifies MIME families; nothing is handled here.
 const registry = createRegistry<null>({ fallback: null });
 
-/** `type/subtype`, lowercase, without parameters, as editors declare them. */
 function normalizeMime(mime: string): string {
   return (mime.split(";", 1)[0] ?? "").trim().toLowerCase();
 }
@@ -67,7 +61,6 @@ function declaring(
     .sort(byName);
 }
 
-/** Each tier in precedence order: the MIME it matches on and its editors. */
 function* tiers(
   type: string,
   entryMime: string | null,
@@ -89,7 +82,6 @@ function* tiers(
       mime: entryMime,
     };
   }
-  // The registry's family rule: the Artifact type's, else the entry file's.
   const typeFamily = family(type);
   const familyMime = typeFamily === null ? entryMime : type;
   const base = familyMime === null ? null : family(familyMime);
@@ -102,13 +94,6 @@ function* tiers(
   }
 }
 
-/**
- * Which editors open an Artifact entry. Precedence: editors declaring the
- * exact Artifact type, then the entry file's exact MIME type, then any MIME
- * type in the same registry family; otherwise none (the honest fallback).
- * A remembered choice applies only while several editors match and it is
- * still one of them.
- */
 export function resolveEditors(input: {
   readonly editors: readonly EditorRegistration[];
   readonly entryMime: string | null;
@@ -131,7 +116,6 @@ export function resolveEditors(input: {
       return { ...tier, preferred };
     }
   }
-  // Nothing opens it: name the file's own type when it has one.
   return {
     candidates: [],
     match: "none",
@@ -155,11 +139,6 @@ function fileAt(
     : null;
 }
 
-/**
- * The entry to open without asking: the declared `metadata.entry`, the
- * only file, or root `index.html` (the package's documented default). A
- * declared entry that is not a file is never replaced by another file.
- */
 function primaryEntry(
   content: Pick<Content, "metadata" | "tree">
 ): ArtifactEntryOption | null {
@@ -167,10 +146,6 @@ function primaryEntry(
   return path === null ? null : fileAt(content, path);
 }
 
-/**
- * The entry to open: `requested` when given (null when it is not a file),
- * else the primary entry, else every file for an explicit choice.
- */
 export function chooseEntry(
   content: Pick<Content, "metadata" | "tree">,
   requested?: string

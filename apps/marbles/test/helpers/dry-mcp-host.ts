@@ -11,6 +11,7 @@ const { artifacts, state } = layout();
 const host = await hostWorkspace({
   artifacts,
   askable: false,
+  directory: process.cwd(),
   dry: true,
   env: "require",
   print: (line) => process.stderr.write(`${line}\n`),

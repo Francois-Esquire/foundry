@@ -32,7 +32,6 @@ interface EditorOptions {
   initial: AnnotationDocument;
   onChange: (document: AnnotationDocument) => void;
   onShare?: (document: AnnotationDocument) => Promise<ShareResult>;
-  /** A copy of earlier notes the caller can swap back in; the editor never reads storage. */
   previous?: { available: () => boolean; restore: () => void };
   resolveAnchor: (anchor: Anchor) => Point | null;
   textAnchors: TextAnchors;
@@ -51,7 +50,6 @@ function isSelectTool(tool: Tool): tool is SelectTool {
   return SELECT_TOOLS.has(tool);
 }
 
-/** The editor accepts serializable state; callers own persistence and transport. */
 export function mountEditor(
   host: HTMLElement,
   options: EditorOptions

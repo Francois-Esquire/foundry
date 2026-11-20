@@ -29,19 +29,7 @@ const DATABASE_FILE = "data.sqlite";
 const DATABASE_SIDECARS = ["-wal", "-shm"] as const;
 const BACKUP_FILE = "data.sqlite.bak";
 const EMPTY_BACKUP_FILE = ".data.sqlite.backup-empty";
-/**
- * Backups sit under the root but outside every files directory: the Program
- * may write anything in its own mounted directory, so the host keeps its
- * rollback copy where no mount reaches. The leading dot keeps the name out of
- * the Installation directory namespace.
- */
 const BACKUPS_DIRECTORY = ".backups";
-/**
- * Files of Programs whose persistence is `none` live in their own namespace,
- * so a run never sees, and never erases, the Installation's persistent files
- * or held backup. Each is removed after a confirmed stop and, should a host
- * crash leave one, before the next prepare.
- */
 const EPHEMERAL_DIRECTORY = ".ephemeral";
 const COPY_CHUNK_BYTES = 1024 * 1024;
 const PRIVATE_FILE_MODE = 0o600;
@@ -50,14 +38,9 @@ const FILES_DIRECTORY_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 export const DEFAULT_INSTALLATION_FILES_QUOTA_BYTES = 512 * 1024 * 1024;
 
 export interface CreateModuleInstallationFilesOptions {
-  /** The retired Data Space root whose `live` directories are moved in. */
   readonly legacyRoot?: string;
   readonly quotaBytes?: number;
   readonly root: string;
-  /**
-   * Writes a transactionally consistent copy of a SQLite database, WAL
-   * included, to a path that does not exist yet. The host supplies its driver.
-   */
   readonly snapshotDatabase: (
     source: string,
     destination: string
@@ -139,7 +122,6 @@ export function createModuleInstallationFiles(
     return directory;
   }
 
-  /** The backup directory when one was ever made; never created here. */
   async function existingBackupDirectory(
     installationId: InstallationId
   ): Promise<string | undefined> {
@@ -159,10 +141,6 @@ export function createModuleInstallationFiles(
     return path.join(ephemeralRoot, directoryName(installationId));
   }
 
-  /**
-   * Removes the ephemeral directory a previous run left; true if there was
-   * one. A link or other entry in its place is refused, never followed.
-   */
   async function removeEphemeralDirectory(
     installationId: InstallationId
   ): Promise<boolean> {
@@ -193,7 +171,6 @@ export function createModuleInstallationFiles(
     await assertRealDirectory(ephemeralRoot, "ephemeral files root");
     await chmod(ephemeralRoot, 0o700);
     const directory = ephemeralDirectoryOf(installationId);
-    // Exclusive: a concurrent or planted entry fails the prepare.
     await mkdir(directory, { mode: 0o700 });
     await chmod(directory, 0o700);
     return directory;
@@ -288,8 +265,6 @@ export function createModuleInstallationFiles(
           );
         }
         signal?.throwIfAborted();
-        // No Program runs while it prepares, so whatever a crashed `none`
-        // run left is gone before either kind starts.
         await removeEphemeralDirectory(installationId);
         const directory =
           persistence === "none"
@@ -299,7 +274,6 @@ export function createModuleInstallationFiles(
           signal?.throwIfAborted();
         } catch (error) {
           if (persistence === "none") {
-            // Should this fail too, the next prepare or release removes it.
             await removeEphemeralDirectory(installationId).catch(
               () => undefined
             );
@@ -311,8 +285,6 @@ export function createModuleInstallationFiles(
 
     release: (installationId) =>
       turns.run(installationId, async () => {
-        // A `none` run's files go once it is stopped. The persistent files
-        // were not mounted, so their quota is not this release's to check.
         if (await removeEphemeralDirectory(installationId)) {
           return;
         }
@@ -352,8 +324,6 @@ export function createModuleInstallationFiles(
           } finally {
             await backup.close();
           }
-          // A sidecar left beside the restored file would replay the failed
-          // version's frames into it on the next open.
           await removeDatabaseSidecars(database);
           await rename(temporary, database);
         } finally {
@@ -375,11 +345,6 @@ function legacyDirectory(
   );
 }
 
-/**
- * Moves every entry of the legacy live directory, SQLite sidecars included.
- * An occupied destination stops the move. Across devices, a copy is published
- * before the source is removed, so interruption can leave both copies.
- */
 async function moveLegacyLiveDirectory(
   legacyRoot: string,
   installationId: InstallationId,
@@ -401,9 +366,6 @@ async function moveLegacyLiveDirectory(
     await moveEntry(path.join(live, name), target);
   }
   await rmdir(live).catch(() => undefined);
-  // Snapshots and staging copies may remain, so this goes only when empty.
-  // The root itself is the host's: a live container registry may still
-  // resolve it as a trusted mount root.
   await rmdir(legacy).catch(() => undefined);
 }
 
@@ -433,10 +395,6 @@ async function holdsBackup(backups: string): Promise<boolean> {
   return false;
 }
 
-/**
- * Whether the database holds anything to snapshot. The host driver opens the
- * database and its sidecars by name, so each must be a regular file.
- */
 async function hasSnapshotContent(database: string): Promise<boolean> {
   const metadata = await lstat(database).catch(missingOnly);
   if (metadata !== undefined && !metadata.isFile()) {
@@ -470,11 +428,6 @@ async function assertRealDirectory(
   }
 }
 
-/**
- * Opens the regular file the host wrote, refusing a link or any other kind of
- * entry in its place; undefined when absent. Non-blocking, so a pipe never
- * stalls the open.
- */
 async function openHostFile(file: string): Promise<FileHandle | undefined> {
   let handle: FileHandle;
   try {
@@ -523,8 +476,6 @@ async function copyInto(source: FileHandle, target: string): Promise<void> {
       if (bytesRead === 0) {
         break;
       }
-      // A write may take fewer bytes than offered, so the rest of the chunk
-      // is written before the next read.
       let written = 0;
       while (written < bytesRead) {
         const { bytesWritten } = await destination.write(
@@ -536,18 +487,12 @@ async function copyInto(source: FileHandle, target: string): Promise<void> {
       }
       position += bytesRead;
     }
-    // The umask may have narrowed the mode `open` was given.
     await destination.chmod(PRIVATE_FILE_MODE);
   } finally {
     await destination.close();
   }
 }
 
-/**
- * Removes a directory the Program wrote. A Program may have taken its owner's
- * permissions off its own subdirectories, so a refused removal restores them
- * on every real directory (never through a link) and tries once more.
- */
 async function removeProgramTree(directory: string): Promise<void> {
   try {
     await rm(directory, { force: false, recursive: true });
@@ -611,7 +556,6 @@ async function moveEntry(source: string, target: string): Promise<void> {
   }
 }
 
-/** A held backup counts against the quota it was taken under. */
 async function enforceQuota(
   directories: readonly (string | undefined)[],
   quotaBytes: number

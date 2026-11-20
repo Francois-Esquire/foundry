@@ -1,10 +1,3 @@
-/**
- * Distance in cells from every raster cell to the nearest land cell, by the exact
- * Euclidean distance transform: squared distances along each row, then
- * along each column, each a lower envelope of parabolas. Land cells read 0.
- * Scratch arrays are reused across lines. Row results are stored as 32-bit
- * floats before the column pass.
- */
 export function shoreDistances(
   land: Uint8Array,
   width: number,
@@ -41,7 +34,6 @@ export function shoreDistances(
   return distances;
 }
 
-/** Reused buffers for one line's lower envelope: its input, output, sites and boundaries. */
 interface Envelope {
   boundaries: Float64Array;
   line: Float64Array;
@@ -49,11 +41,6 @@ interface Envelope {
   sites: Int32Array;
 }
 
-/**
- * The squared distance transform of the first `count` entries of
- * `scratch.line` into `scratch.out`: each entry the least of
- * `(q - site)² + line[site]` over every site.
- */
 function squaredDistances(scratch: Envelope, count: number): void {
   const { boundaries, line, out, sites } = scratch;
   if (count <= 0) {

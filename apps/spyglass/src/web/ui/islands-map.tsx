@@ -40,46 +40,15 @@ import {
 import { type LabelsReport, MapLabels } from "./map-labels/map-labels";
 import type { SpyglassState } from "./spyglass-state";
 
-/**
- * The Islands renderer as the viewer's map, mounted by `spyglass-view.tsx`,
- * with the `MapHandle` behind `mapRef`. It reaches Islands only through
- * `islands-host/islands-api.ts`.
- *
- * It loads the chart from the spyglass's one dataset and the map its
- * territories were laid out from, then composes the map: an
- * `<IslandsCanvas>` with the DOM labels (`MapLabels`) and the chart chrome
- * drawn over it, the labels placing themselves through the canvas's
- * `useIslands`. The reader's settings, the selection and the controls go
- * in as props; Islands' events come out as callbacks.
- *
- * Selection is the host's: a click in Islands tells it through `onSelect`,
- * and the snapshot's selection reaches Islands as `selected`, the camera
- * framing an island with `frame`. A ring has no selection in the viewer:
- * choosing one clears the host's, and `selected` is left out while Islands
- * keeps the ring chosen, until the host selects something, or Escape or the
- * overview lets it go. The camera is held north-up (`turn: false`), the labels and the
- * chrome reading the view unturned, and stands at the reader's elevation
- * from the moment Islands fits the chart.
- */
-
 interface IslandsMapProps {
-  /** Commands used by the surrounding UI, filled once the map is up. */
   mapRef?: RefObject<MapHandle | null>;
-  /** Escape was pressed with no dialog open: the host clears its selection. */
   onEscape: () => void;
   onHover?: (selection: SpyglassSelection | null) => void;
   onReadyChange?: (ready: boolean) => void;
-  /** A click or a label's activation named a place, or nothing: the host writes its selection. */
   onSelect: (selection: SpyglassSelection | null) => void;
   state: SpyglassState;
 }
 
-/**
- * Names what a pick chose in the console, for now, until a panel shows it:
- * the package, the building and its files, the file, or the bank and its
- * shared dependencies, with how long after the click Islands named it.
- * Letting go logs nothing.
- */
 function logPick(
   chosen: Described | null,
   chart: Chart,
@@ -107,7 +76,6 @@ const MAP_LABEL = "Codebase spyglass. Drag to pan, scroll to zoom.";
 
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
 
-/** A developer session's timing of Islands' CPU steps, as performance measures. */
 const measuredSteps: IslandsDebug = {
   time: (name, ms) => {
     const end = performance.now();
@@ -115,28 +83,18 @@ const measuredSteps: IslandsDebug = {
   },
 };
 
-/** What one open map was opened with: its chart, the camera it opened at, and where its chrome is presented. */
 interface Opened {
   chart: Chart;
   present: ReturnType<typeof createChromePresenter>;
   view: IslandsView | undefined;
 }
 
-/** What one open map keeps between Islands' events. */
 interface Session {
-  /** The selection the map last showed; null while Islands holds a ring. */
   applied: SelectionRef | null;
-  /** The chart Islands draws, once loaded. */
   chart: Chart | null;
   failure: string | null;
-  /** Whether Islands has drawn its first frame. */
   framed: boolean;
   islands: Islands | null;
-  /**
-   * Whether Islands has placed its camera (fitted the chart, or opened at
-   * the saved view) and the map has stood it at the reader's elevation.
-   * Until then the snapshot's selection is left out.
-   */
   settled: boolean;
   stats: IslandsStats | null;
 }
@@ -151,7 +109,6 @@ const newSession = (): Session => ({
   stats: null,
 });
 
-/** The words a failure is shown in: a browser without WebGPU is told so; anything else, as it came. */
 function failureText(failure: IslandsError): string {
   if (failure.kind === "unsupported") {
     return NO_WEBGPU;
@@ -163,7 +120,6 @@ function failureText(failure: IslandsError): string {
 const sameSelection = (a: SelectionRef | null, b: SelectionRef | null) =>
   a?.territoryId === b?.territoryId && a?.fileId === b?.fileId;
 
-/** Whether the page asks for reduced motion; false outside a browser. */
 const prefersReducedMotion = () =>
   typeof window !== "undefined" &&
   window.matchMedia(reducedMotionQuery).matches;
@@ -175,15 +131,12 @@ export function IslandsMap(props: IslandsMapProps) {
   const latest = useRef(props);
   const session = useRef<Session>(newSession());
   const labelsReport = useRef<LabelsReport | null>(null);
-  /** When the last click let go, so the log can say how long Islands took to name what it fell on. */
   const click = useRef<{ at: number | null }>({ at: null });
-  /** The camera as the last map left it, so a reopened map opens there. */
   const savedView = useRef<IslandsView | null>(null);
   const [opened, setOpened] = useState<Opened | null>(null);
   const [chrome, setChrome] = useState<ChartChromeModel | null>(null);
   const [status, setStatus] = useState(LOADING);
   const [settled, setSettled] = useState(false);
-  /** Whether Islands holds a ring chosen, which the host's selection cannot name. */
   const [heldRing, setHeldRing] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(prefersReducedMotion);
 
@@ -195,18 +148,11 @@ export function IslandsMap(props: IslandsMapProps) {
     const failure = failureText(reported);
     session.current.failure = failure;
     if (!session.current.framed) {
-      // No frame will come; what waits for one goes ahead.
       releaseFirstFrame();
     }
     setStatus(failure);
   }, []);
 
-  /**
-   * Once Islands has placed its camera (its first stats come straight
-   * after it fits the chart, before any frame is drawn): the reader's
-   * elevation, then the snapshot's selection, which a file frames from
-   * there.
-   */
   const settle = useCallback(() => {
     const { current } = session;
     const { islands } = current;
@@ -236,8 +182,6 @@ export function IslandsMap(props: IslandsMapProps) {
             updateMs: labelsReport.current?.updateMs ?? null,
           }),
         focus: (selection) => {
-          // The overview lets a held ring go too: the host's selection is
-          // already null, so nothing else would clear it.
           if (selection === null) {
             setHeldRing(false);
           }
@@ -253,13 +197,9 @@ export function IslandsMap(props: IslandsMapProps) {
 
   const drew = useCallback(
     ({ cpuMs }: IslandsFrame) => {
-      // A closed map's last frame, before its listeners are gone, is not
-      // the next map's.
       if (!session.current.islands) {
         return;
       }
-      // The FPS readout counts these; each is the time Islands took to
-      // encode and submit the frame.
       recordStage(developer, "render-submit", cpuMs);
       settle();
       const { current } = session;
@@ -293,14 +233,10 @@ export function IslandsMap(props: IslandsMapProps) {
   const chose = useCallback((chosen: Described | null) => {
     const { data, selection } = latest.current.state;
     const { chart } = session.current;
-    // Named once the viewer has taken the choice, so the log can never
-    // hold it up.
     if (chart) {
       queueMicrotask(() => logPick(chosen, chart, data, click.current));
     }
     if (chosen?.kind === "ring") {
-      // The viewer has no ring selection: the host's is cleared, and
-      // Islands keeps the ring, `selected` left out while it does.
       setHeldRing(true);
       session.current.applied = null;
       if (selection) {
@@ -310,9 +246,6 @@ export function IslandsMap(props: IslandsMapProps) {
     }
     setHeldRing(false);
     if (chosen?.kind === "building") {
-      // A building is picked where the reader is looking: the viewer
-      // takes its package (and its file, when it holds one alone)
-      // without the camera moving, and Islands keeps the building.
       const picked = selectionOf(chosen, data);
       session.current.applied = picked && {
         territoryId: picked.territory.id,
@@ -321,8 +254,6 @@ export function IslandsMap(props: IslandsMapProps) {
       latest.current.onSelect(picked);
       return;
     }
-    // The echo of the snapshot's own selection (a file selects its
-    // island) is not the reader's choice.
     if ((chosen?.id ?? null) !== selectedIdOf(selection)) {
       latest.current.onSelect(selectionOf(chosen, data));
     }
@@ -357,8 +288,6 @@ export function IslandsMap(props: IslandsMapProps) {
     return () => element?.removeEventListener("pointerup", markClick);
   }, []);
 
-  // Only a new geometry (or a developer session) opens a new map; every
-  // other change reaches the open one as the canvas's props.
   useEffect(() => {
     let disposed = false;
     const controller = new AbortController();
@@ -369,7 +298,6 @@ export function IslandsMap(props: IslandsMapProps) {
     setHeldRing(false);
     setStatus(LOADING);
     latest.current.onReadyChange?.(false);
-    // A spyglass is one workspace's, laid out as one frame (`loadSpyglass`).
     const [frame] = geometry.frames;
     if (!frame) {
       return;
@@ -379,8 +307,6 @@ export function IslandsMap(props: IslandsMapProps) {
         document.fonts.load("16px SpyglassDisplay"),
         document.fonts.load("12px SpyglassBody"),
       ]);
-      // The map the territories were laid out from, so the chart and the
-      // labels share coordinates.
       const { chart } = await loadIslandsChart({
         dataset: frame.dataset,
         places: filePlacesOf(geometry),
@@ -399,8 +325,6 @@ export function IslandsMap(props: IslandsMapProps) {
       setOpened({ chart, present, view: savedView.current ?? undefined });
     };
     start().catch((error: unknown) => {
-      // Closed while loading: the abort's rejection is not a failure, and
-      // the next map waits for its own first frame.
       if (!disposed) {
         fail({ error, kind: "runtime" });
       }
@@ -419,8 +343,6 @@ export function IslandsMap(props: IslandsMapProps) {
         !event.defaultPrevented &&
         !document.querySelector("dialog[open]")
       ) {
-        // A ring the host cannot clear: letting it go names the host's
-        // (cleared) selection as `selected` again, and Islands lets go.
         setHeldRing(false);
         latest.current.onEscape();
       }
@@ -429,11 +351,6 @@ export function IslandsMap(props: IslandsMapProps) {
     return () => window.removeEventListener("keydown", handleEscape);
   }, []);
 
-  // The snapshot's selection: the camera goes to a new island (a file is
-  // chosen as its module, which Islands frames on its own). A cleared
-  // selection leaves the camera; the overview is `focus(null)`'s. The
-  // host's change wins over a ring Islands holds; the host clearing its
-  // selection for a ring (`applied` already null) leaves the ring.
   useEffect(() => {
     const { current } = session;
     const { islands } = current;
@@ -450,8 +367,6 @@ export function IslandsMap(props: IslandsMapProps) {
     }
   }, [settled, state.selection]);
 
-  // The camera's elevation, whenever the reader changes it; the map stands
-  // at it from the moment it settles, so the panel and the camera agree.
   const { elevation } = state.chartSettings;
   useEffect(() => {
     const { islands } = session.current;
@@ -461,10 +376,6 @@ export function IslandsMap(props: IslandsMapProps) {
     islands.setView({ ...islands.view, pitch: pitchOf(elevation) });
   }, [elevation]);
 
-  // The reader's settings Islands has a counterpart for, and whether the
-  // camera flies or jumps. Escape and the camera's keys listen on the
-  // canvas once it has focus, so they never take keys from the panels; the
-  // window's Escape is the host's (above).
   const { waves } = state.chartSettings;
   const settings = useMemo(
     () => islandsSettingsOf({ waves }, reducedMotion),
@@ -474,7 +385,6 @@ export function IslandsMap(props: IslandsMapProps) {
     () => ({ keyboard: "canvas", reducedMotion, turn: false }),
     [reducedMotion]
   );
-  // Left out until the camera is placed, and while Islands holds a ring.
   const selected =
     settled && !(heldRing && state.selection === null)
       ? selectedIdOf(state.selection)

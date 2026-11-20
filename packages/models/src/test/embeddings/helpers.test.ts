@@ -30,8 +30,8 @@ describe("rankBySimilarity", () => {
   it("ranks rows by descending cosine similarity and slices to topK", () => {
     const query = [1, 0];
     const rows = [
-      { embedding: serializeEmbedding([0, 1]), id: "a" }, // orthogonal
-      { embedding: serializeEmbedding([1, 0]), id: "b" }, // identical
+      { embedding: serializeEmbedding([0, 1]), id: "a" },
+      { embedding: serializeEmbedding([1, 0]), id: "b" },
       { embedding: serializeEmbedding([0.5, 0.5]), id: "c" },
     ];
 
@@ -51,8 +51,8 @@ describe("topK (raw-vector ranking)", () => {
   it("ranks candidates by descending cosine similarity and slices to k", () => {
     const query = [1, 0];
     const candidates = [
-      { embedding: [0, 1], item: { id: "a" } }, // orthogonal
-      { embedding: [1, 0], item: { id: "b" } }, // identical
+      { embedding: [0, 1], item: { id: "a" } },
+      { embedding: [1, 0], item: { id: "b" } },
       { embedding: [0.5, 0.5], item: { id: "c" } },
     ];
 

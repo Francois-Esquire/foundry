@@ -1,34 +1,55 @@
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-
-import { lockHolder, processAlive } from "@foundry/lib/file-lock";
-import { sessionCounts } from "~/database/sessions";
+import {
+  isGone,
+  type ProcessState,
+  processState,
+} from "@foundry/lib/process-identity";
+import { readStoredObservers } from "~/database/changes";
+import {
+  type GenerationRecord,
+  type GenerationState,
+  readLiveGenerations,
+} from "~/database/generations";
+import { readDatabase } from "~/database/open";
+import { readLastRecovery } from "~/database/recoveries";
+import type { RunResource, Shown } from "~/database/resources";
+import { ResourceView } from "~/database/resources";
+import type { StoredTick } from "~/database/triggers";
+import { isMonitorTick, readStoredTicks } from "~/database/triggers";
 import { recordedWorkspaces } from "~/database/workspaces";
-
-import { isRecord, readJson } from "~/lib/state/json";
-import { scheduleKeyOfLock } from "~/lib/state/locks";
-import { TERMINAL_RUN_STATUSES } from "~/lib/state/runs";
+import { stateDatabase } from "~/layout";
+import type { RecoveryReport } from "~/lib/crash-recovery";
+import type { ObserverState } from "~/lib/events/log";
+import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
+import { runSteps } from "~/lib/run-trace";
 import type { WorkspaceRecord } from "~/lib/state/workspace";
-import type { ProcessHost, ProcessStatus } from "~/process/instance";
+import type { ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
 
 export interface StatusReport {
+  readonly generations: readonly GenerationStatus[];
   readonly process: ProcessStatus | null;
   readonly root: string;
   readonly workspaces: readonly WorkspaceStatus[];
 }
 
-export interface WorkspaceStatus {
-  /** A process holds `locks/process` and its pid is alive. */
+interface GenerationStatus {
   readonly alive: boolean;
+  readonly number: number;
+  readonly pid: number;
+  readonly state: GenerationState | "cannot tell";
+}
+
+export interface WorkspaceStatus {
+  readonly alive: boolean;
+  readonly artifacts: number;
   readonly config: string | null;
-  /** What holds the workspace: its worker, or the daemon itself. */
-  readonly host: ProcessHost | null;
-  /** The Marbles process starts a worker for it. */
+  readonly host: "generation" | null;
   readonly hosted: boolean;
   readonly id: string;
   readonly lastSeen: string | null;
+  readonly observers: readonly ObserverStatus[];
   readonly pid: number | null;
+  readonly recovery: RecoveryReport | null;
   readonly root: string;
   readonly runs: RunsStatus;
   readonly schedules: readonly ScheduleStatus[];
@@ -42,12 +63,14 @@ interface ScheduleStatus {
   readonly lastStatus: string | null;
   readonly name: string;
   readonly nextDue: string | null;
-  /** Pid of the live tick holding the lock, if any. */
   readonly running: number | null;
 }
 
+interface ObserverStatus extends ObserverState {
+  readonly behind: number;
+}
+
 interface RunsStatus {
-  /** Newest first, at most five. */
   readonly recent: readonly RunSummary[];
   readonly total: number;
 }
@@ -55,133 +78,162 @@ interface RunsStatus {
 interface RunSummary {
   readonly createdAt: number;
   readonly id: string;
-  /** Not settled, and the process that owned it is gone. */
   readonly orphaned: boolean;
+  readonly sharedFrom?: string;
   readonly status: string;
   readonly step: string;
+  readonly steps: readonly { readonly name: string; readonly status: string }[];
 }
+
+interface Shows {
+  readonly artifacts: number;
+  readonly runs: readonly Shown<RunResource>[];
+  readonly sessions: number;
+}
+
+const NOTHING_SHOWN: Shows = { artifacts: 0, runs: [], sessions: 0 };
 
 const RECENT = 5;
 
 export async function readStatus(stateRoot: string): Promise<StatusReport> {
   const records = await recordedWorkspaces(stateRoot);
-  const sessions: ReadonlyMap<string, number> =
-    records.length === 0 ? new Map() : await sessionCounts(stateRoot);
+  const shows =
+    records.length === 0
+      ? undefined
+      : await readDatabase(stateDatabase(stateRoot), async (database) => {
+          const read = new Map<string, Shows>();
+          for (const record of records) {
+            const view = new ResourceView({
+              database,
+              scope: { workspace: record.id },
+              state: stateRoot,
+            });
+            read.set(record.id, {
+              artifacts: (await view.artifacts()).length,
+              runs: await view.runs(),
+              sessions: (await view.sessions()).length,
+            });
+          }
+          return read;
+        });
+  const live = await readLiveGenerations(stateRoot);
+  const generations = live.map(generationStatus);
+  const index = generations.findIndex(
+    (generation) => generation.state === "current" && generation.alive
+  );
+  const current =
+    index === -1
+      ? undefined
+      : {
+          pid: live[index]?.pid ?? 0,
+          workspaces: live[index]?.workspaces ?? [],
+        };
   return {
+    generations,
     process: readProcess(stateRoot) ?? null,
     root: stateRoot,
-    workspaces: records.map((record) =>
-      readWorkspaceStatus(
-        join(stateRoot, record.id),
-        record,
-        sessions.get(record.id) ?? 0
+    workspaces: await Promise.all(
+      records.map(async (record) =>
+        readWorkspaceStatus(
+          current,
+          record,
+          shows?.get(record.id) ?? NOTHING_SHOWN,
+          await readStoredTicks(stateRoot, record.id),
+          await readLastRecovery(stateRoot, record.id),
+          await readStoredObservers(stateRoot, record.id)
+        )
       )
     ),
   };
 }
 
-function readWorkspaceStatus(
-  dir: string,
-  record: WorkspaceRecord,
-  sessions: number
-): WorkspaceStatus {
-  const owner = readProcess(dir);
+function generationStatus(record: GenerationRecord): GenerationStatus {
+  const seen = processOf(record);
   return {
-    alive: owner?.alive ?? false,
+    alive: seen === "running",
+    number: record.number,
+    pid: record.pid,
+    state: seen === "unknown" ? "cannot tell" : record.state,
+  };
+}
+
+function processOf(record: GenerationRecord): ProcessState {
+  if (record.pid <= 0) {
+    return "gone";
+  }
+  if (record.started === null) {
+    return "unknown";
+  }
+  return processState({ pid: record.pid, started: record.started });
+}
+
+interface CurrentHost {
+  readonly pid: number;
+  readonly workspaces: readonly string[];
+}
+
+function readWorkspaceStatus(
+  current: CurrentHost | undefined,
+  record: WorkspaceRecord,
+  shows: Shows,
+  ticks: readonly StoredTick[],
+  recovery: RecoveryReport | null,
+  log: Awaited<ReturnType<typeof readStoredObservers>>
+): WorkspaceStatus {
+  const host =
+    record.hosted && current?.workspaces.includes(record.id) === true
+      ? current
+      : undefined;
+  return {
+    alive: host !== undefined,
+    artifacts: shows.artifacts,
     config: record.config,
-    host: owner?.alive ? owner.host : null,
+    host: host === undefined ? null : "generation",
     hosted: record.hosted,
     id: record.id,
     lastSeen: record.lastSeen,
-    pid: owner?.pid ?? null,
+    observers: log.observers.map((observer) => ({
+      ...observer,
+      behind: Math.max(0, log.head - observer.position),
+    })),
+    pid: host?.pid ?? null,
+    recovery,
     root: record.root,
-    runs: readRuns(join(dir, "runs")),
-    schedules: readSchedules(dir),
-    sessions,
+    runs: runsStatus(record.id, shows.runs),
+    schedules: ticks.map(scheduleStatus),
+    sessions: shows.sessions,
   };
 }
 
-function readSchedules(dir: string): ScheduleStatus[] {
-  const locks = join(dir, "locks");
-  const running = new Map<string, number>();
-  for (const name of listFiles(locks)) {
-    const key = scheduleKeyOfLock(name);
-    if (key === undefined) {
-      continue;
-    }
-    const holder = lockHolder(join(locks, name));
-    if (holder !== undefined && processAlive(holder)) {
-      running.set(key, holder);
-    }
-  }
-  const names = new Set([
-    ...jsonFiles(join(dir, "schedules")).map((file) => file.slice(0, -5)),
-    ...running.keys(),
-  ]);
-  return [...names].sort().map((name) => {
-    const history = readJson(join(dir, "schedules", `${name}.json`));
-    const field = (key: string) =>
-      isRecord(history) && typeof history[key] === "string"
-        ? history[key]
-        : null;
-    return {
-      key: name,
-      kind: field("kind") === "monitor" ? "monitor" : null,
-      lastFinish: field("lastFinish"),
-      lastStatus: field("lastStatus"),
-      // Older history files carry no label; the key is the filename.
-      name: field("label") ?? name,
-      nextDue: field("nextDue"),
-      running: running.get(name) ?? null,
-    };
-  });
-}
-
-function readRuns(dir: string): RunsStatus {
-  const runs = jsonFiles(dir)
-    .map((file) => readRun(join(dir, file)))
-    .filter((run) => run !== undefined)
-    .sort((a, b) => b.createdAt - a.createdAt);
-  return { recent: runs.slice(0, RECENT), total: runs.length };
-}
-
-function readRun(path: string): RunSummary | undefined {
-  const file = readJson(path);
-  if (!(isRecord(file) && isRecord(file.run))) {
-    return undefined;
-  }
-  const { run } = file;
-  if (
-    typeof run.id !== "string" ||
-    typeof run.step !== "string" ||
-    typeof run.status !== "string" ||
-    !isRecord(run.timestamps) ||
-    typeof run.timestamps.createdAt !== "number"
-  ) {
-    return undefined;
-  }
-  const owner = typeof file.pid === "number" ? file.pid : undefined;
+function scheduleStatus(tick: StoredTick): ScheduleStatus {
+  const { key, last, running } = tick;
   return {
-    createdAt: run.timestamps.createdAt,
-    id: run.id,
-    orphaned:
-      !TERMINAL_RUN_STATUSES.has(run.status) &&
-      (owner === undefined || !processAlive(owner)),
-    status: run.status,
-    step: run.step,
+    key,
+    kind: isMonitorTick(tick) ? "monitor" : null,
+    lastFinish: last?.lastFinish ?? null,
+    lastStatus: last?.lastStatus ?? null,
+    name: last?.label ?? key,
+    nextDue: last?.nextDue ?? null,
+    running,
   };
 }
 
-function listFiles(dir: string): string[] {
-  if (!existsSync(dir)) {
-    return [];
-  }
-  return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .sort();
-}
-
-function jsonFiles(dir: string): string[] {
-  return listFiles(dir).filter((name) => name.endsWith(".json"));
+function runsStatus(
+  workspace: string,
+  shown: readonly Shown<RunResource>[]
+): RunsStatus {
+  const runs = shown.map(
+    ({ ref, value: { owner, record } }): RunSummary => ({
+      createdAt: record.timestamps.createdAt,
+      id: record.id,
+      orphaned:
+        !TERMINAL_RUN_STATUSES.has(record.status) &&
+        (owner === null || isGone(owner)),
+      ...(ref.owner === workspace ? {} : { sharedFrom: ref.owner }),
+      status: record.status,
+      step: record.step,
+      steps: runSteps(record).map(({ name, status }) => ({ name, status })),
+    })
+  );
+  return { recent: runs.slice(0, RECENT), total: runs.length };
 }

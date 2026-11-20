@@ -9,41 +9,56 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { parseArgs } from "~/args";
-import { applyTheme, theme } from "~/components/ui/theme";
-import { runInteractive } from "~/dashboard/command";
-import type { WorkspaceConnection, WorkspaceSummary } from "~/model/connection";
+import { parseArgs } from "~/cli/args";
+import { runInteractive } from "~/cli/interactive";
+import { applyTheme } from "~/cli/theme";
+import { theme } from "~/components/ui/theme";
+import type {
+  RollResult,
+  WorkspaceConnection,
+  WorkspaceSummary,
+} from "~/model/connection";
 import type { DashboardSnapshot } from "~/model/dashboard";
 import type { SettingsChange } from "~/model/settings";
 import type * as Client from "~/process/client";
-
-/**
- * The dashboard command's own settings action, from a real `runInteractive`
- * against a stand-in terminal and Marbles process: what it saves, what it
- * shows, and how a file it cannot use fails.
- */
+import { SPAWN_RECORD_ENV } from "~/process/spawned";
+import { testHome } from "./helpers/home";
 
 interface Captured {
   controller?: AbortController;
+  providerReviews?: boolean[];
+  rollResult?: RollResult;
+  rollSchedule?: (key: string) => Promise<void>;
   settings?: (changes: SettingsChange) => Promise<void>;
   readonly updates: DashboardSnapshot[];
 }
 
 const captured = vi.hoisted((): Captured => ({ updates: [] }));
 
-vi.mock("~/dashboard/terminal", () => ({
+vi.mock("~/cli/app", () => ({
   openDashboard: (_name: string, controller: AbortController) => {
     captured.controller = controller;
     return Promise.resolve({
       close: () => undefined,
       connect: (host: {
         settings?: (changes: SettingsChange) => Promise<void>;
+        rollSchedule?: (key: string) => Promise<void>;
       }) => {
         captured.settings = host.settings;
+        captured.rollSchedule = host.rollSchedule;
       },
       entry: Promise.resolve(true),
       failure: () => Promise.resolve(),
       onboard: () => Promise.resolve(true),
+      reviewProviders: async (
+        _root: string,
+        review: { offered: readonly unknown[] },
+        proceed: (accept: boolean) => Promise<void>
+      ) => {
+        captured.providerReviews?.push(review.offered.length > 0);
+        await proceed(false);
+        return true;
+      },
       update: (snapshot: DashboardSnapshot) => {
         captured.updates.push(snapshot);
       },
@@ -51,9 +66,7 @@ vi.mock("~/dashboard/terminal", () => ({
   },
 }));
 
-// Only `--dry-run` hosts the workspace in this process, through Bun's loader.
 vi.mock("~/workspace/host", () => ({ hostWorkspace: vi.fn() }));
-vi.mock("~/workspace/open", () => ({ loadSource: vi.fn() }));
 
 vi.mock("~/process/client", async (importOriginal) => ({
   ...(await importOriginal<typeof Client>()),
@@ -76,6 +89,7 @@ vi.mock("~/process/client", async (importOriginal) => ({
       workspace: (target: WorkspaceSummary) =>
         ({
           actions: {},
+          roll: () => Promise.resolve(captured.rollResult ?? { lines: [] }),
           snapshot: () =>
             Promise.resolve({
               definitions: [],
@@ -100,16 +114,25 @@ let dir: string;
 let state: string;
 let running: Promise<void> | undefined;
 
-beforeEach(async () => {
+async function useHome(providers: boolean) {
   dir = await mkdtemp(join(tmpdir(), "marbles-settings-production-"));
-  state = join(dir, "state");
-  await mkdir(state);
+  const home = testHome({ providers });
+  vi.stubEnv("FOUNDRY_HOME", home.path);
+  vi.stubEnv(SPAWN_RECORD_ENV, home.env[SPAWN_RECORD_ENV]);
+  ({ state } = home.layout);
   captured.updates.length = 0;
   captured.settings = undefined;
   captured.controller = undefined;
-});
+  captured.providerReviews = [];
+  captured.rollSchedule = undefined;
+  captured.rollResult = undefined;
+  await mkdir(state, { recursive: true });
+}
+
+beforeEach(() => useHome(true));
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   captured.controller?.abort();
   await running;
   running = undefined;
@@ -120,8 +143,6 @@ afterEach(async () => {
 
 async function open() {
   const args = parseArgs([
-    "--state",
-    state,
     "--config",
     join(dir, "workspace", ".foundry", "marbles"),
   ]);
@@ -132,7 +153,6 @@ async function open() {
   return captured.settings;
 }
 
-/** Call the action as the dashboard does; it must not throw out of the key handler. */
 function change(
   settings: ((changes: SettingsChange) => Promise<void>) | undefined,
   changes: SettingsChange
@@ -181,7 +201,6 @@ it("rejects a save over a malformed settings file, changes nothing, and saves on
 });
 
 it("rejects a save the state root cannot hold, and a later save works", async () => {
-  // Root writes through a read-only directory.
   if (process.getuid?.() === 0) {
     return;
   }
@@ -195,4 +214,40 @@ it("rejects a save the state root cannot hold, and a later save works", async ()
   await change(settings, { theme: "light" });
   expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ theme: "light" });
   expect(shown()?.settings?.theme).toBe("light");
+});
+
+it("continues past provider review without overwriting unreadable settings", async () => {
+  await rm(dir, { force: true, recursive: true });
+  await useHome(false);
+  vi.stubEnv("PATH", "/usr/bin:/bin");
+  const path = join(state, "settings.json");
+  await writeFile(path, "{not json");
+
+  await open();
+
+  expect(captured.providerReviews).toEqual([false]);
+  expect(await readFile(path, "utf8")).toBe("{not json");
+  expect(shown()?.settings?.problem).toContain("is not valid JSON");
+  expect(shown()?.diagnostics?.map((entry) => entry.message)).toContainEqual(
+    expect.stringContaining("could not record provider setup")
+  );
+});
+
+it("reports a held schedule and accepts a dispatched run with no output", async () => {
+  await open();
+  const roll = captured.rollSchedule;
+  if (!roll) {
+    throw new Error("the dashboard connected no schedule action");
+  }
+
+  captured.rollResult = {
+    lines: ["another log format"],
+    skipped: "held by this process",
+  };
+  await expect(roll("daily")).rejects.toThrow(
+    "daily skipped: held by this process"
+  );
+
+  captured.rollResult = { lines: ["[schedule] daily → summarize-day"] };
+  await expect(roll("daily")).resolves.toBeUndefined();
 });

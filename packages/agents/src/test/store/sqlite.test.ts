@@ -1,8 +1,12 @@
+import { asc, sql } from "drizzle-orm";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
 import { SessionWindow } from "../../contexts/session-window";
+import type { SessionChangeEvent } from "../../schema";
 import type { SessionStore } from "../../store";
 import type { SessionDatabase } from "../../store/sqlite";
 import { capturedSessionWrite, SqliteSessionStore } from "../../store/sqlite";
+import type { RecordingSessionStorage } from "../../testing/store";
 import { describeSessionStore } from "../../testing/store";
 import { libsqlDatabases } from "../helpers/sqlite";
 
@@ -19,15 +23,78 @@ function scopedStores(
   };
 }
 
+const recordedEvents = sqliteTable("recorded_events", {
+  payload: text("payload", { mode: "json" })
+    .$type<SessionChangeEvent>()
+    .notNull(),
+  seq: integer("seq").primaryKey({ autoIncrement: true }),
+});
+
+async function recordingStores(
+  database: SessionDatabase
+): Promise<RecordingSessionStorage> {
+  await database.run(
+    sql`CREATE TABLE "recorded_events" ("seq" integer PRIMARY KEY AUTOINCREMENT, "payload" text NOT NULL)`
+  );
+  let failNext = false;
+  const scopes = new Map<string, SessionStore>();
+  return {
+    failNextCommit: () => {
+      failNext = true;
+    },
+    recorded: async () =>
+      (
+        await database
+          .select()
+          .from(recordedEvents)
+          .orderBy(asc(recordedEvents.seq))
+      ).map((row) => row.payload),
+    storage: (scope) => {
+      const store =
+        scopes.get(scope) ??
+        new SqliteSessionStore({
+          database,
+          onCommit: async (transaction, write) => {
+            for (const payload of write.events ?? []) {
+              await transaction.insert(recordedEvents).values({ payload });
+            }
+            if (failNext) {
+              failNext = false;
+              throw new Error("host refused the commit");
+            }
+          },
+          scope,
+        });
+      scopes.set(scope, store);
+      return store;
+    },
+  };
+}
+
 for (const location of ["memory", "file"] as const) {
   const databases = libsqlDatabases(location);
-  describeSessionStore(`SqliteSessionStore on libSQL (${location})`, async () =>
-    scopedStores(await databases.open())
+  describeSessionStore(
+    `SqliteSessionStore on libSQL (${location})`,
+    async () => scopedStores(await databases.open()),
+    {
+      hooked: true,
+      recording: async () => recordingStores(await databases.open()),
+    }
   );
   describeSessionStore(
     `SessionWindow over SqliteSessionStore on libSQL (${location})`,
     async () =>
-      scopedStores(await databases.open(), (store) => new SessionWindow(store))
+      scopedStores(await databases.open(), (store) => new SessionWindow(store)),
+    {
+      hooked: true,
+      recording: async () => {
+        const recording = await recordingStores(await databases.open());
+        return {
+          ...recording,
+          storage: (scope) => new SessionWindow(recording.storage(scope)),
+        };
+      },
+    }
   );
 }
 

@@ -15,7 +15,6 @@ afterEach(async () => {
   }
 });
 
-/** The starter's Manifest in the strict format, asking for `concurrency` workflow runs. */
 function manifestWith(legacy: string | undefined, concurrency: number) {
   return JSON.stringify({
     ...(JSON.parse(legacy ?? "{}") as object),
@@ -40,10 +39,8 @@ it("applies a Module's queue settings when it is created and whenever its Manife
       .queues()
       .find((queue) => queue.name === moduleQueue(module.id, "workflows"))
       ?.concurrency;
-  // Created after startup: its queues already follow its settings.
   expect(concurrency()).toBe(1);
 
-  // A source save that asks for more takes effect at once.
   const details = await works.rpc.modules.details(module.id);
   if (!details?.binding) {
     throw new Error("Starter binding missing");
@@ -56,7 +53,6 @@ it("applies a Module's queue settings when it is created and whenever its Manife
   );
   expect(concurrency()).toBe(3);
 
-  // So does a disk edit, once Works picks it up.
   await writeFile(
     path.join(
       moduleFolder(path.join(directory, "modules"), module.id).source,
@@ -84,12 +80,10 @@ it("closes the engine and what else had opened when startup fails partway", {
       },
     })
   ).rejects.toThrow("No Program runtime here");
-  // The engine started before the failure, and was stopped by it.
   expect(execution).toBeDefined();
   await expect(
     execution?.dispatch(WORKS_TASKS.power, {}, () => Promise.resolve())
   ).rejects.toThrow();
-  // So the same directory composes again.
   const { works } = await composeTestWorks(directory);
   await works.close();
 });

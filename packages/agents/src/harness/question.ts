@@ -42,7 +42,6 @@ const questionsSchema = z.object({
 
 const questionExecutors = new WeakSet<NonNullable<Tool["execute"]>>();
 
-/** Only the shared communication factory bypasses effect permission checks. */
 export function isHarnessQuestionTool(candidate: Tool): boolean {
   return (
     candidate.execute !== undefined && questionExecutors.has(candidate.execute)
@@ -54,8 +53,6 @@ export interface HarnessQuestionToolSettings {
   sessionId: string;
 }
 
-/** Raw answers enter the model's tool-result history, like other user input.
- * Hosts must avoid logging the callback request or answer values. */
 export function createHarnessQuestionTool(
   settings: HarnessQuestionToolSettings
 ): Tool {
@@ -190,7 +187,6 @@ async function waitForAnswer(
     if (signal.aborted) {
       throw error;
     }
-    // Host exceptions may echo credentials or answer values into the transcript.
     // biome-ignore lint/style/useErrorCause: Original exceptions may contain secrets and must not reach host event logs.
     throw new Error("Host question handler failed.");
   }

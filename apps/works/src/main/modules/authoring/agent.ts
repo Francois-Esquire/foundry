@@ -8,29 +8,13 @@ import type {
 import type { AuthoringRoute } from "~/shared/authoring";
 import { authoringGuest } from "./guest";
 
-/**
- * One authoring turn's Agent Session: the built-in coding harness on a
- * network model, opened through the run's own agents so its model turns
- * and tool calls are recorded on the run, working inside the borrowed
- * Module sandbox with the shared Marbles guest coding tools.
- */
-
-/**
- * The `authoring.deadline` and `authoring.maxSteps` settings' host defaults
- * (spec §10); a Module's settings choose its own within the ceilings.
- */
 export const AUTHORING_LIMITS = {
-  /** A turn's deadline, distinct from the sandbox's lifetime. */
   deadlineMs: MODULE_SETTING_HOST_POLICY["authoring.deadline"].default,
   maxSteps: MODULE_SETTING_HOST_POLICY["authoring.maxSteps"].default,
 } as const;
 
 const AUTHORING_AGENT_ID = "works-authoring";
 
-/**
- * Tools the engine offers a sandboxed agent that a Works authoring turn must
- * never use. They stay advertised, so an attempt is denied, not hidden.
- */
 export const AUTHORING_DISALLOWED_TOOLS = [
   "create_automation",
   "delete_automation",
@@ -40,7 +24,6 @@ export const AUTHORING_DISALLOWED_TOOLS = [
   "delegate",
 ] as const;
 
-/** Scratch-container coding: the guest tools run without asking; the rest is denied or asked. */
 function authoringProfile(
   maxSteps: number
 ): NonNullable<SandboxAgentOptions["profile"]> {
@@ -69,23 +52,18 @@ export type AuthoringApprovalHandler = NonNullable<
 >;
 
 export interface AuthoringTurnRun {
-  /** Live approvals, routed to the owning chat. */
   readonly approve: AuthoringApprovalHandler;
   readonly container: Container;
   readonly context: TaskContext;
   readonly maxSteps: number;
-  /** Live compiler classification travels separately from a tool's business output. */
   readonly onEvent: (event: SessionEvent, policyDenied?: boolean) => void;
   readonly prompt: string;
-  /** `ask_user`, routed to the owning chat. */
   readonly question: AuthoringQuestionHandler;
   readonly route: AuthoringRoute;
-  /** The Agent Session to continue, or to start under this id. */
   readonly sessionId: string;
   readonly signal: AbortSignal;
 }
 
-/** Runs the agent; scratch files are what it leaves in the workspace. */
 export type AuthoringTurnRunner = (run: AuthoringTurnRun) => Promise<void>;
 
 export const runAuthoringAgent: AuthoringTurnRunner = async (run) => {

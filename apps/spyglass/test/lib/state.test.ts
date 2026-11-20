@@ -12,7 +12,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { processAlive } from "@foundry/lib/file-lock";
+import { lockContents } from "@foundry/lib/file-lock";
+import { processAlive } from "@foundry/lib/process-identity";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { WorkspaceState } from "../../src/lib/state";
 import {
@@ -40,7 +41,6 @@ afterEach(() => {
   rmSync(directory, { force: true, recursive: true });
 });
 
-/** A process that was running a moment ago and is not now. */
 function exitedProcess(): number {
   const { pid } = spawnSync(process.execPath, ["-e", ""]);
   if (pid === undefined || processAlive(pid)) {
@@ -73,7 +73,7 @@ it("refuses a lock held by another live process, and says which file to remove",
 it("takes over a lock whose process has exited", () => {
   writeFileSync(lock, String(exitedProcess()));
   const release = lockState(state);
-  expect(readFileSync(lock, "utf8")).toBe(String(process.pid));
+  expect(readFileSync(lock, "utf8")).toBe(lockContents());
   release();
   expect(existsSync(lock)).toBe(false);
 });
@@ -81,7 +81,6 @@ it("takes over a lock whose process has exited", () => {
 it("refuses a lock whose process has exited while another scan takes it over", () => {
   const exited = exitedProcess();
   writeFileSync(lock, String(exited));
-  // The turn to break the lock, held by the scan taking it over.
   writeFileSync(`${lock}.break`, "");
   expect(() => lockState(state)).toThrow(
     `Workspace ${state.root} is locked by process ${exited}, which has exited; another scan, export, or apply is taking the lock over. Retry.`
@@ -121,7 +120,6 @@ function workspaces(...names: string[]): string[] {
   });
 }
 
-/** Whether the temporary directory's file system ignores case, as macOS's does by default. */
 function ignoresCase(): boolean {
   const probe = mkdtempSync(join(tmpdir(), "spyglass-Case-"));
   try {
@@ -218,8 +216,8 @@ it("locks every workspace of a collection, and releases them all once", async ()
   );
   const release = lockStates(collection);
   expect(locks.map((path) => readFileSync(path, "utf8"))).toEqual([
-    String(process.pid),
-    String(process.pid),
+    lockContents(),
+    lockContents(),
   ]);
   release();
   expect(locks.some((path) => existsSync(path))).toBe(false);
@@ -246,7 +244,6 @@ it("locks no workspace of a collection when one is held", async () => {
   held();
 });
 
-/** Stand-in locks, failing where `failing` says, that record their releases by workspace id. */
 function standIns(
   failing: (workspace: WorkspaceState) => "lock" | "release" | undefined
 ) {
@@ -265,7 +262,6 @@ function standIns(
   return { released, standInLock };
 }
 
-/** A collection of the named workspaces, ordered as `lockStates` takes their locks. */
 async function lockOrder(...names: string[]): Promise<WorkspaceState[]> {
   const collection = await resolveCollection(
     workspaces(...names),
@@ -280,7 +276,6 @@ it("tries every release before it throws a release's failure", async () => {
   const { released, standInLock } = standIns((workspace) =>
     workspace === middle ? "release" : undefined
   );
-  // Given in reverse, taken in the order of the directories, released in reverse.
   const release = lockStates([...collection].reverse(), standInLock);
   expect(release).toThrow(`release ${middle?.id}`);
   expect(released).toEqual(

@@ -4,10 +4,6 @@ import type { ModuleLibrary } from "~/main/modules/library";
 import { ensureModuleInstallation } from "~/main/modules/runtime/installation";
 import { publishStrict } from "./module-build";
 
-/**
- * A Module whose installed release declares `editors`, each on its own View
- * titled after the View name.
- */
 export async function installEditorModule(
   storage: { modules: ModuleLibrary; moduleStore: ModuleCommands },
   name: string,

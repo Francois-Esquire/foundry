@@ -68,7 +68,6 @@ describe("Module build paths", () => {
     expect(isDerivedBuildPath("packages/app/dist/index.js")).toBe(true);
     expect(isDerivedBuildPath("packages/app/generated")).toBe(true);
     expect(isDerivedBuildPath("packages/app/src/index.ts")).toBe(false);
-    // Narrower than capture: credentials are authored-looking, not derived.
     expect(isDerivedBuildPath(".env")).toBe(false);
   });
 

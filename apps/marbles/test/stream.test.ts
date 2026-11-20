@@ -51,7 +51,6 @@ describe("stream", () => {
     })();
     await expect(launched.result).resolves.toBe("counted");
     await reading;
-    // Settled runs are no longer streamed by this process.
     expect(engine.stream(launched.id)).toBeUndefined();
     await engine.stop();
 

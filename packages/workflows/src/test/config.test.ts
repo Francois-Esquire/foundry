@@ -14,8 +14,6 @@ describe("resolveStepExecution", () => {
   test("a step with no fields returns the empty default (no spurious keys)", () => {
     const out = resolveStepExecution({});
     expect(out).toEqual({});
-    // Keys are only present when a value was provided — `if (policy.timeout)`
-    // works without a `?? null` dance.
     expect("retry" in out).toBe(false);
     expect("timeout" in out).toBe(false);
   });
@@ -44,7 +42,6 @@ describe("resolveStepExecution", () => {
   });
 
   test("step values override package defaults when both exist", () => {
-    // The defaults are empty, so this checks the supplied step value.
     expect(defaultStepExecution.retry).toBeUndefined();
     expect(defaultStepExecution.timeout).toBeUndefined();
     const out = resolveStepExecution({ retry: { maxAttempts: 7 } });

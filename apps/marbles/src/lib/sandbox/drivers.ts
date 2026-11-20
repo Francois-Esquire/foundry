@@ -12,12 +12,10 @@ interface GuestDriverInput {
   readonly settings: SandboxSessionSettings;
 }
 
-/** Drives a CLI prepared in the guest from the host, spawning it in the sandbox. */
 export type GuestDriver = (
   input: GuestDriverInput
 ) => HarnessTurnDriver | Promise<HarnessTurnDriver>;
 
-/** The first-party driver for each CLI harness. */
 export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
   "claude-code": async ({ guest, settings }) => {
     const { createClaudeCodeDriver } = await import(
@@ -25,7 +23,7 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
     );
     return createClaudeCodeDriver({
       agentId: settings.agentId,
-      cwd: settings.hostCwd ?? process.cwd(),
+      cwd: settings.hostCwd,
       modelId: settings.modelId,
       settings: {
         env: { ...guest.environment },

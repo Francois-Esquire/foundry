@@ -117,7 +117,6 @@ describe("the authorizer", () => {
         global: "allow",
       };
 
-      // A different path and a different preset are untouched by the rule.
       await expect(
         authorizer(policy).decide(request(fsRead("/other")))
       ).resolves.toMatchObject({ kind: "allow" });
@@ -368,7 +367,6 @@ describe("the authorizer", () => {
         kind: "authorized",
       });
 
-      // Spent — a later call must ask again.
       await expect(policy.decide(call)).resolves.toEqual({
         kind: "requires-approval",
       });
@@ -467,7 +465,6 @@ describe("the authorizer", () => {
       const decision = await policy.resolveApproval(call, { approved: true });
       expect(decision).toEqual({ kind: "allow", source: "approval" });
 
-      // No durable authority was written, so the next call asks again.
       await expect(policy.decide(call)).resolves.toEqual({
         kind: "requires-approval",
       });
@@ -580,12 +577,6 @@ describe("the authorizer", () => {
       );
     });
 
-    /**
-     * One decision must answer from one configuration. Reading the source
-     * again after the repository lookup would let a settings write land
-     * mid-decision, and the same call could then deny on one tier while
-     * allowing on another.
-     */
     it("snapshots one coherent policy per decision", async () => {
       const current = vi.fn((): TestPolicy => ({ global: "ask" }));
       const policy = createAuthorizer({

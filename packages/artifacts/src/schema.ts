@@ -205,3 +205,71 @@ export const artifactRecordsSchema = z
   })
   .readonly();
 export type ArtifactRecords = z.infer<typeof artifactRecordsSchema>;
+
+const eventFields = {
+  artifactId: artifactIdSchema,
+  at: z.iso.datetime(),
+  id: z.string().min(1),
+};
+const contentEventFields = { ...eventFields, contentId: contentIdSchema };
+
+export const artifactEventSchema = z.discriminatedUnion("type", [
+  z.strictObject({ ...eventFields, type: z.literal("artifact.created") }),
+  z.strictObject({
+    ...contentEventFields,
+    sourceArtifactId: artifactIdSchema,
+    sourceContentId: contentIdSchema,
+    type: z.literal("artifact.forked"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    type: z.literal("artifact.written"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    sourceContentId: contentIdSchema,
+    type: z.literal("artifact.revised"),
+  }),
+  z.strictObject({ ...contentEventFields, type: z.literal("artifact.frozen") }),
+  z.strictObject({
+    ...contentEventFields,
+    type: z.literal("artifact.published"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    type: z.literal("artifact.selected"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    type: z.literal("artifact.cleared"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    tag: nonBlankSchema.nullable(),
+    type: z.literal("artifact.tagged"),
+  }),
+  z.strictObject({
+    ...eventFields,
+    contentId: contentIdSchema.nullable(),
+    type: z.literal("artifact.updated"),
+  }),
+  z.strictObject({
+    ...eventFields,
+    name: nonBlankSchema,
+    type: z.literal("artifact.renamed"),
+  }),
+  z.strictObject({ ...eventFields, type: z.literal("artifact.archived") }),
+  z.strictObject({ ...eventFields, type: z.literal("artifact.unarchived") }),
+  z.strictObject({
+    ...eventFields,
+    artifactType: nonBlankSchema,
+    name: nonBlankSchema,
+    type: z.literal("artifact.removed"),
+  }),
+  z.strictObject({
+    ...contentEventFields,
+    type: z.literal("artifact.discarded"),
+  }),
+]);
+export type ArtifactEvent = z.infer<typeof artifactEventSchema>;
+export type ArtifactEventType = ArtifactEvent["type"];

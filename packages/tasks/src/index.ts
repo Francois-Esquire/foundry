@@ -1,13 +1,3 @@
-/**
- * `@foundry/tasks` — the backlog.
- *
- * A Task says what there is to do; `ready()` says what is next; a settled
- * status says what is done. Dependencies and a parent reference shape the
- * graph and availability is derived from it. Changes use an atomic batch
- * language shared by code, CLI, and agent tools; removal is separate.
- * Execution lives in workflows; a Job correlates to a task by id only.
- */
-
 export type { AvailabilityOptions } from "./availability";
 // biome-ignore lint/performance/noBarrelFile: This is a declared package entry point; preserve its public exports.
 export { deriveAvailability } from "./availability";

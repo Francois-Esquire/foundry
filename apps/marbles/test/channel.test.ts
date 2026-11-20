@@ -40,7 +40,6 @@ describe("the socket transport", () => {
     const { client, server } = await socketPair();
     const channel = new Channel(socketTransport(server));
     const pending = channel.request("hello");
-    // What a write after the other side hung up raises; unheard, it throws.
     const failure = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
     expect(() => server.emit("error", failure)).not.toThrow();
     client.destroy();
@@ -62,8 +61,6 @@ describe("the socket transport", () => {
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
     client.destroy();
-    // A hang-up the kernel reports as end-of-stream is a clean close; a
-    // write that fails first is a reason. Either way nothing throws.
     const reason = await channel.closed;
     expect(channel.open).toBe(false);
     if (reason !== undefined) {
@@ -74,8 +71,6 @@ describe("the socket transport", () => {
   it("closes with no reason when the peer hangs up cleanly", async () => {
     const { client, server } = await socketPair();
     const channel = new Channel(socketTransport(server));
-    // Nothing unread on either side, so the hang-up is an end-of-stream,
-    // not a reset (Linux resets a socket destroyed with unread data).
     client.end();
     expect(await channel.closed).toBeUndefined();
     expect(channel.open).toBe(false);

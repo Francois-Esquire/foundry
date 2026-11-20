@@ -1,12 +1,6 @@
 import type { LogOrigin } from "~/lib/log";
 import type { LogEntry, SetupLogEntry } from "~/model/log";
 
-/**
- * A host's own lines (engine status, schedule ticks, warnings, failed
- * launches) kept in memory for the dashboard's Logs tab. Nothing is written
- * or sent: they last as long as the process keeping them, the newest `limit`.
- */
-
 const TROUBLE =
   /\b(error|failed|could not|not saved|not published|unavailable)\b/i;
 const DEFAULT_LIMIT = 500;
@@ -40,7 +34,6 @@ export class Diagnostics {
     ].slice(-this.#limit);
   }
 
-  /** A workflow setup's line, kept with its run: no run record keeps it. */
   setup(
     level: LogEntry["level"],
     message: string,
@@ -60,7 +53,6 @@ export class Diagnostics {
     ].slice(-this.#limit);
   }
 
-  /** Oldest first; a new array only when a line was added. */
   get entries(): readonly LogEntry[] {
     return this.#entries;
   }
@@ -70,14 +62,6 @@ export class Diagnostics {
   }
 }
 
-/**
- * A workspace host's two outputs for its engine. `print` carries the
- * engine's own lines: each becomes the status line and a diagnostic.
- * `log` carries definitions' `log(...)` lines with their origin, and each
- * becomes the status line. A step body's line is in its run's record
- * already, so the Logs tab shows it from there, with its run and step. A
- * workflow setup's line is in no record, so it is kept here with its run.
- */
 export function hostOutput(
   diagnostics: Diagnostics,
   status: (line: string) => void

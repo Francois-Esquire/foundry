@@ -3,12 +3,10 @@ import { access, readdir, stat } from "node:fs/promises";
 import { delimiter, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 
-/** Environment variables visible to a provider. */
 export type Env = Readonly<Record<string, string | undefined>>;
 
 const READ_CONCURRENCY = 8;
 
-/** Expands `~` and `~/…` from `home`, which must be absolute. */
 export const expandHome = (dir: string, home: string): string => {
   if (dir === "~") {
     return home;
@@ -22,7 +20,6 @@ export const exists = (path: string): Promise<boolean> =>
     () => false
   );
 
-/** A spawned client's environment: the host's, without `drop`, with `set` over it. */
 export const childEnv = (
   env: Env,
   drop: readonly string[],
@@ -37,7 +34,6 @@ export const childEnv = (
   return { ...result, ...set };
 };
 
-/** The first executable named `name` on the environment's PATH. */
 export const which = async (
   name: string,
   env: Env
@@ -54,7 +50,6 @@ export const which = async (
   }
 };
 
-/** A path that is gone: a root never created, or a file removed while listing. */
 const missing =
   <T>(fallback: T) =>
   (error: unknown): T => {
@@ -78,13 +73,6 @@ const walk = async (dir: string, found: string[]): Promise<void> => {
   }
 };
 
-/**
- * Every `.jsonl` file under `roots` last written at or after `since`, by path. History
- * is only appended, so an older file holds nothing in the span. A missing root
- * has no files, and a file removed while listing is skipped. Any other error,
- * such as a directory that cannot be read, throws: a history read that fails
- * reports `consumptionFailed` instead of undercounting.
- */
 export const historyFiles = async (
   roots: readonly string[],
   since: Date
@@ -97,11 +85,9 @@ export const historyFiles = async (
     const info = await stat(path).catch(missing(undefined));
     return info && info.mtimeMs >= since.getTime() ? path : undefined;
   });
-  // Sorted, so which copy of repeated work counts first is the same each read.
   return fresh.filter((path) => path !== undefined).sort();
 };
 
-/** Maps with up to eight workers and returns results in input order. */
 export const mapLimit = async <T, R>(
   items: readonly T[],
   map: (item: T) => Promise<R>
@@ -119,10 +105,6 @@ export const mapLimit = async <T, R>(
   return results;
 };
 
-/**
- * Each line of a file that contains one of `markers`, parsed as JSON. Other
- * lines, most of any transcript, are never parsed; unparsable ones are skipped.
- */
 export async function* jsonLines(
   path: string,
   markers: readonly string[]
@@ -138,7 +120,8 @@ export async function* jsonLines(
     try {
       yield JSON.parse(line);
     } catch {
-      // Skip malformed lines, including a trailing line still being written.
+      // biome-ignore lint/complexity/noUselessContinue: Skip this rejected line within the generator.
+      continue;
     }
   }
 }

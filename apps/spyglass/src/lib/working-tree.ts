@@ -5,27 +5,14 @@ import { hasErrorCode } from "@foundry/lib/atomic-file";
 import { CHILD_CWD } from "./worker-runtime";
 
 const NOT_A_REPOSITORY = /not a git repository/i;
-/** A porcelain status whose entry is followed by the path it was renamed or copied from. */
 const RENAMED_OR_COPIED = /^[RC]|^.[RC]/;
 
-/**
- * What Git says of a workspace's working tree: whether Git is installed,
- * whether the workspace is in a repository, and, when it is, every dirty
- * file (untracked ones included) relative to the workspace root. `failed`:
- * Git ran in a repository and could not read it, such as for dubious
- * ownership or a held `index.lock`, with Git's own message.
- */
 export type WorkingTree =
   | { kind: "git-missing" }
   | { kind: "not-a-repository" }
   | { kind: "failed"; message: string }
   | { kind: "repository"; dirty: string[] };
 
-/**
- * The paths `git status --porcelain -z` lists, each as Git wrote it: no
- * quoting, so spaces, quotes, and non-ASCII names come through whole. A
- * rename or copy is `XY new\0old\0`; the new path is kept.
- */
 function porcelainPaths(output: string): string[] {
   const paths: string[] = [];
   let source = false;
@@ -53,7 +40,6 @@ function gitMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** The working tree of the workspace at `root`; reads only. */
 export function workingTree(root: string): WorkingTree {
   const run = (args: string[]) =>
     execFileSync("git", ["-C", resolve(root), ...args], {
@@ -64,7 +50,6 @@ export function workingTree(root: string): WorkingTree {
   try {
     top = realpathSync(run(["rev-parse", "--show-toplevel"]).trim());
   } catch (error) {
-    // ENOENT is Git missing; a missing directory is Git failing `-C`.
     if (hasErrorCode(error, "ENOENT") && existsSync(root)) {
       return { kind: "git-missing" };
     }
@@ -74,7 +59,6 @@ export function workingTree(root: string): WorkingTree {
       : { kind: "failed", message };
   }
   try {
-    // Porcelain paths are relative to the repository, so they are re-based.
     const base = realpathSync(root);
     const dirty = porcelainPaths(
       run(["status", "--porcelain", "-z", "--untracked-files=all"])

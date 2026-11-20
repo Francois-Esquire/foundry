@@ -26,7 +26,6 @@ function Probe() {
   return null;
 }
 
-/** Main's theme over a fresh preference file, served to the renderer. */
 async function mainTheme(stored?: string) {
   const directory = await mkdtemp(path.join(tmpdir(), "works-theme-"));
   const file = path.join(directory, "theme.json");
@@ -96,7 +95,6 @@ describe("theme", () => {
     expect(window.localStorage.getItem(THEME_MODE_STORAGE_KEY)).toBe("light");
     expect(document.documentElement.classList.contains("light")).toBe(true);
 
-    // A change made in main reaches the selector.
     await act(() => theme.set("dark"));
     await waitFor(() => expect(captured?.themeMode).toBe("dark"));
   });
@@ -144,7 +142,6 @@ describe("theme", () => {
     expect(captured?.resolvedTheme).toBe("dark");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     await waitFor(() => expect(theme.snapshot()?.mode).toBe("dark"));
-    // Cached for the next launch's first paint once main has it.
     await waitFor(() =>
       expect(window.localStorage.getItem(THEME_MODE_STORAGE_KEY)).toBe("dark")
     );

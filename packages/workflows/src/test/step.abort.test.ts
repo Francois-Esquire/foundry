@@ -76,7 +76,6 @@ describe("step.abort — event emission + projection", () => {
     );
     step.abort("second");
     step.abort("third");
-    // Allow time for any duplicate events to reach the collector.
     await sleep(20);
     sink.stop();
     const count = sink.events.filter((e) => e._tag === "step.aborted").length;
@@ -93,7 +92,6 @@ describe("step.abort — event emission + projection", () => {
     await step.run();
     expect(step.status).toBe("complete");
     step.abort("too-late");
-    // Check that the terminal status stays unchanged after abort.
     await sleep(10);
     expect(step.status).toBe("complete");
   });
@@ -117,7 +115,6 @@ describe("step.onAbort — handler registration", () => {
     step.onAbort(() => {
       fired = true;
     });
-    // The already-aborted handler is queued as a microtask.
     await Promise.resolve();
     await Promise.resolve();
     expect(fired).toBe(true);
@@ -223,7 +220,6 @@ describe("step.run() interaction with abort", () => {
     await vi.waitFor(() => expect(listening).toBe(true));
     step.abort("mid-flight");
     await settled.catch(() => undefined);
-    // Allow time for any incorrectly emitted failure event to arrive.
     await sleep(20);
     sink.stop();
 
@@ -298,9 +294,6 @@ describe("Abort cascade across forks", () => {
   });
 
   it("sibling root steps don't share a signal — abort on one leaves the other alone", async () => {
-    // The "downward only" intent applies to fresh sub-Steps that aren't
-    // forked from a parent. Forked children share the parent's substrate
-    // AbortController; independent roots do not.
     const a = await makeStep("a");
     const b = await makeStep("b");
     a.abort("a-only");
@@ -381,8 +374,6 @@ describe("Abort cascade across forks", () => {
   });
 
   it("parent.abort() after parent completes still aborts a dynamic child", async () => {
-    // Substrate-cascade judgment call: executable.abort always fires through
-    // forked children, even when the parent has reached a terminal status.
     let parentRef: StepType<void, "ok"> | undefined;
     let dynRef: StepType | undefined;
 

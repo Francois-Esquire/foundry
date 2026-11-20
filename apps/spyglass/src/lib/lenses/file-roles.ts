@@ -25,7 +25,6 @@ type RoleEvidence = Pick<
   >;
 };
 
-/** One package's fields the lens reads; module ids are the package's own. */
 interface FileRolesSourcePackage {
   id: string;
   primitives: { modules: RoleEvidence[] };
@@ -45,7 +44,6 @@ export interface FileRolesSource {
   packages: FileRolesSourcePackage[];
 }
 
-/** The first role that holds, in the order `FileRole` documents. */
 function roleOf(
   compositionRoot: boolean,
   evidence: RoleEvidence | undefined
@@ -99,12 +97,6 @@ function derivePackage(pkg: FileRolesSourcePackage): FileRolesPackage {
   };
 }
 
-/**
- * Each module's role in its package, and its fan-in against the package's
- * high fan-in cutoff, joined from the topology, the primitive conventions,
- * and the rewiring's composition evidence. Nothing is measured again: the
- * fan-in, the `high-fan-in` role, and the cutoff are the topology's own.
- */
 export const fileRolesLens: Lens<"file-roles", FileRolesSource> = {
   derive: ({ missing, packages }) => ({
     missing,

@@ -7,7 +7,7 @@ import {
   withRunningWorkspace,
   withTasks,
 } from "~/access/workspace";
-import type { Flags } from "~/args";
+import type { Flags } from "~/cli/args";
 import { recordedWorkspaces } from "~/database/workspaces";
 import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
@@ -20,7 +20,6 @@ const print = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 
-/** What the server answers for, and how to let go of it. */
 interface Served extends McpServerOptions {
   readonly release: () => Promise<void>;
 }
@@ -121,7 +120,7 @@ function serveWorkspace(flags: Flags): Served {
       if (flags.dry) {
         return [ownSummary];
       }
-      const client = await joinProcess(flags);
+      const client = await joinProcess();
       let listed: readonly WorkspaceSummary[];
       if (client === undefined) {
         listed = (await recordedWorkspaces(flags.state)).map(
@@ -143,7 +142,7 @@ function serveWorkspace(flags: Flags): Served {
 
 async function serve(flags: Flags): Promise<void> {
   const output = protocolOutput();
-  const configPath = resolveSource(flags.config);
+  const configPath = resolveSource(flags.config, flags.directory);
   let served: Served;
   try {
     served = serveWorkspace(flags);

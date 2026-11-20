@@ -14,10 +14,6 @@ describe("Channels — Snapshot bridge (publish-then-read-snapshot ordering)", (
         Effect.gen(function* () {
           const snap = yield* Snapshot.make();
           const channels = yield* Channels.make(snap);
-          // Push an event; immediately read snapshot. The synchronous
-          // bridge guarantees the read sees the projected state — no
-          // microtask, no fiber yield. This is the contract authors
-          // depend on when they `step.write(...)` then `step.progress`.
           channels.events.push({
             _tag: "step.started",
             at: at(0),
@@ -84,11 +80,7 @@ describe("Channels — race-free eager subscribers", () => {
         Effect.gen(function* () {
           const snap = yield* Snapshot.make();
           const channels = yield* Channels.make(snap);
-          // Acquire the eager subscription under the current scope —
-          // the PubSub subscription is live as soon as this returns.
           const stream = yield* channels.subscribeStatus(["root"]);
-          // Synchronously publish; if subscribe were lazy, this event
-          // would race the first pull and be dropped.
           channels.events.push({
             _tag: "step.started",
             at: at(0),
@@ -172,7 +164,6 @@ describe("Channels.statusFor — custom + step.resolved excluded from path proje
         Effect.gen(function* () {
           const snap = yield* Snapshot.make();
           const channels = yield* Channels.make(snap);
-          // Eagerly bind a subscription so we don't race the publishes.
           const stream = yield* channels.subscribeStatus(["root"]);
           channels.events.push({
             _tag: "step.started",
@@ -205,10 +196,6 @@ describe("Channels.statusFor — custom + step.resolved excluded from path proje
             path: ["root"],
             value: undefined,
           });
-          // Take 2 — only `step.started` (running) + `step.complete`
-          // (complete) should land. If `step.resolved` or `custom`
-          // mapped to a status, we'd get an extra emission and Take(2)
-          // would short-circuit early on the wrong values.
           return yield* Stream.runCollect(Stream.take(stream, 2));
         })
       )
@@ -244,7 +231,6 @@ describe("Channels.chunksFor — stepId filter + signal close", () => {
           const next = yield* Effect.promise(() => reader.read());
           expect(next.done).toBe(false);
           expect(next.value).toEqual({ kind: "text", text: "right-step" });
-          // Cancel so the test's scope finalizers shut down cleanly.
           yield* Effect.promise(() => reader.cancel());
         })
       )
@@ -291,8 +277,6 @@ describe("Channels.stream — multiplexed events + chunks", () => {
           const snap = yield* Snapshot.make();
           const channels = yield* Channels.make(snap);
           const reader = channels.stream.getReader();
-          // The PubSub→ReadableStream multiplexer is two forked Effect
-          // fibers; allow them to attach before publishing.
           yield* Effect.sleep(5);
           channels.events.push({
             _tag: "step.started",

@@ -1,5 +1,4 @@
 const MS_PER_SECOND = 1000;
-/** Numeric times at least this large are milliseconds; smaller values are seconds. */
 const EPOCH_MS_FLOOR = 1e12;
 
 export const record = (value: unknown): Record<string, unknown> =>
@@ -13,11 +12,9 @@ export const text = (value: unknown): string | undefined =>
 export const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
-/** A token count: a finite number above zero, truncated; anything else is 0. */
 export const count = (value: unknown): number =>
   finite(value) && value > 0 ? Math.trunc(value) : 0;
 
-/** A parseable date string or positive epoch time in seconds or milliseconds. */
 export const dateFrom = (value: unknown): Date | undefined => {
   let ms: number | undefined;
   if (typeof value === "string") {

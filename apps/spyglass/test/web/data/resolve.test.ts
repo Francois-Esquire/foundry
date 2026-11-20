@@ -47,7 +47,6 @@ const source: CodexSource = {
       to: "@foundry/core",
     },
   ],
-  // The manifest lists ui only, as no real one would: core's folder is empty.
   domains: {
     domains: [
       {
@@ -179,7 +178,6 @@ const source: CodexSource = {
   ],
 };
 
-/** The readings read after the layout. */
 const late: LateCodexSource = {
   nesting: {
     folders: [
@@ -370,11 +368,6 @@ describe("resolveCodex", () => {
   });
 });
 
-/**
- * 2.2f's characterization, moved unchanged from the retired
- * `current-field.test.ts`: the dependency graph's pair counts, which the
- * codex's routes carry, equal the viewer's old per-pair count of file edges.
- */
 describe("pair traffic", () => {
   it("the captured routes' weights equal each pair's cross-package file edges", async () => {
     const data = await loadSpyglass();

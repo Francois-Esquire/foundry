@@ -43,7 +43,7 @@ tools that need a host name the missing source. What each tool needs:
 
 - The task tools work with or without a running Marbles process, for the
   server's own workspace and any workspace recorded under the state root.
-  A worker that hosts the workspace answers them; otherwise the server
+  The Marbles process, when it hosts the workspace, answers them; otherwise the server
   opens the stored tasks for that one call and gives them up, the same as
   `marbles tasks`. Calls sent together take turns.
 - `list_workspaces` lists what the Marbles process hosts. Without one, it
@@ -51,16 +51,18 @@ tools that need a host name the missing source. What each tool needs:
   server's own workspace is always listed.
 - `list_config`, `dispatch_workflow`, `dispatch_agent`, `get_run`, and
   `cancel_run` need a running Marbles process that hosts the workspace and
-  has its worker `ready`. Without one they return a tool error that says
+  has it `ready`. Without one they return a tool error that says
   `marbles attach` hosts it. Host the workspace with `marbles attach`,
   `marbles run`, or `marbles roll` first.
 
 The server joins the Marbles process on each call and leaves it after, so
 a process started or stopped while the server runs is seen by the next
-call. The worker loads the source, watches it, and reloads on an edit. The
-workspace's schedules and monitors run in that worker, never in the server.
+call. The process's current engine generation loads the source; an edit
+starts the next generation, which takes over once it has loaded. The
+workspace's schedules and monitors run in the current generation, never in
+the server.
 
-The server also accepts `--state`, `--artifacts`, and `--dry-run`. Their defaults match the [CLI flags](/marbles/reference/cli#flags).
+The server also accepts `--dry-run`, and keeps everything under the Foundry home `FOUNDRY_HOME` names, as the [CLI](/marbles/reference/cli#flags) does.
 Diagnostics go to stderr; stdout carries MCP messages only. The server
 runs in a child process whose stdout is stderr, so whatever it and the
 processes it starts print to stdout goes to stderr too.
@@ -92,8 +94,8 @@ tools reach any workspace recorded under the state root, even one whose
 checkout is gone; an id with no record is a tool error. A symlink under
 the state root is not a record, and the server's own workspace is refused
 when its state directory is a symlink. The other tools reach a workspace only through the
-worker that hosts it: an id that is not hosted is a tool error, and a call
-to a workspace whose worker is not `ready` fails with its state.
+Marbles process that hosts it: an id that is not hosted is a tool error, and a call
+to a workspace that is not `ready` fails with its state.
 
 Under `--dry-run`, `list_workspaces` names only the server's own workspace,
 as `stopped`. The task tools answer from memory for that workspace and
@@ -141,8 +143,8 @@ bun apps/marbles/src/cli.ts watch <runId>
 
 The watcher replays earlier output, follows new output, prints the result
 and terminal status, then exits. It needs no source path and can run from
-another working directory. If you set a custom `--state` on the MCP server,
-pass the same value to the watcher. See [watching runs](/marbles/reference/cli#watch-a-background-run)
+another working directory. If you set `FOUNDRY_HOME` for the MCP server,
+set the same for the watcher. See [watching runs](/marbles/reference/cli#watch-a-background-run)
 for exit codes and interruption behavior.
 
 ## Agent options
@@ -177,7 +179,7 @@ For example:
 loop for Claude Code. It does not ask the
 server to send repeated follow-up prompts or force that many replies.
 Continue a conversation by making another dispatch with its `session`.
-Concurrent dispatches cannot use the same active session in one worker.
+Concurrent dispatches cannot use the same active session in one engine generation.
 
 ## Status, cancellation, and lifetime
 
@@ -194,19 +196,20 @@ Cancellation is a request; keep reading status until the run settles.
 Code inside workflow bodies must honor the context's `signal` to stop its
 external work. Cancellation cannot undo completed side effects.
 
-A dispatched run belongs to the workspace's worker, not to the MCP
-connection. Closing stdin, ending the `marbles mcp` process, or SIGINT or
+A dispatched run belongs to its workspace's engine. Closing stdin, ending the
+`marbles mcp` process, or SIGINT or
 SIGTERM ends the server and nothing else. Shutdown takes a few seconds at
 most; a task call that does not finish in time is cut off. The Marbles process keeps hosting the workspace, its triggers
 keep running, and runs already dispatched run to completion. Several MCP
 clients can run at once against one process. `get_run` and `cancel_run`
-look a run up in the worker that hosts its workspace, so any server for
-that workspace can read or cancel a run another one dispatched. That lookup is held in the worker's memory: a
-source edit, `marbles stop`, or a crash replaces the worker and forgets it,
-though the run's [output journal](/marbles/reference/state#run-output) on
-disk stays watchable, and a run parked on a question or a pause is adopted
-by the fresh worker. The journal is not a persistent job queue, and output
-files have no automatic retention policy yet.
+go to the generation that owns the run. The returned run ID still works
+after queued or parked work moves to a new generation. A queued agent
+dispatch reopens the same saved session when the new engine starts the
+turn. The lookup also accepts other workflow run IDs the engine knows,
+including runs started by a schedule or by `launch`. Host task runs use
+their separate task controls. The
+[output journal](/marbles/reference/state#run-output) stays on disk, and
+its files have no automatic retention policy yet.
 
 Under `--dry-run` the server runs nothing. Its in-memory tasks end with
 the connection.

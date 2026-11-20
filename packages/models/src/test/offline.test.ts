@@ -14,7 +14,6 @@ vi.mock("@browser-ai/transformers-js", () => ({
   },
 }));
 
-/** A remote file that streams until its fetch is aborted. */
 function endlessFetch(_input: string | URL, init?: RequestInit) {
   const body = new ReadableStream<Uint8Array>({
     start: (controller) => {

@@ -8,7 +8,6 @@ import { listPrices } from "../consumption";
 import { type ClaudeQuery, claudeReading } from "../providers/anthropic/limits";
 import { createAnthropic } from "../providers/anthropic/provider";
 import { createUsage } from "../usage";
-/** A live Max response (SDK 0.3.205, CLI 2.1.310), email and organization scrubbed. */
 import LIVE from "./fixtures/claude-usage.json";
 import { tempHome, touch, writeJsonl } from "./helpers/machine";
 
@@ -356,15 +355,14 @@ describe("Claude history", () => {
     await writeJsonl(join(projects, "s1.jsonl"), [
       { message: { content: "hi" }, type: "user" },
       one,
-      one, // the same response, once per content block
-      assistant("2", "claude-sonnet-4-5", "2026-10-27T23:00:00Z"), // before the span
+      one,
+      assistant("2", "claude-sonnet-4-5", "2026-10-27T23:00:00Z"),
       assistant("3", "<synthetic>"),
       assistant("4", "claude-mystery-9"),
       assistant("5", "claude-sonnet-4-5", "2026-10-28T13:00:00Z", {
         speed: "fast",
       }),
     ]);
-    // A resumed session's copy of an earlier response, and a subagent's own work.
     await writeJsonl(join(projects, "s2.jsonl"), [
       one,
       { ...assistant("6", "claude-sonnet-4-5"), sessionId: "s2" },
@@ -437,7 +435,7 @@ describe("Claude history", () => {
     });
 
     const [s1, mystery, s2] = consumption?.bySession ?? [];
-    expect(s1?.charge).toBeUndefined(); // one of its responses ran fast
+    expect(s1?.charge).toBeUndefined();
     expect(mystery?.charge).toBeUndefined();
     expect(s2?.charge).toEqual({
       amount: { amount: expect.closeTo(0.002_505, 9), unit: "usd" },

@@ -82,10 +82,6 @@ export async function embedFields(
   const strategy = options.strategy ?? { kind: "whole" };
   const model = resolveEmbeddingModel(source, options);
 
-  // Expand every field into a flat list of (field, chunk) pairs in a
-  // stable order, batch-embed in one call, then re-attach metadata.
-  // `embedMany` returns embeddings in the same order as `values`, and
-  // transparently splits the request if the model has a per-call cap.
   const expanded = active.flatMap(({ field, text }) =>
     chunk(text, strategy).map((c) => ({ chunk: c, field }))
   );
@@ -141,7 +137,6 @@ export function deserializeEmbedding(json: string): number[] {
   return parsed.map(Number);
 }
 
-/** {@link topK} over rows whose embedding is still serialized. */
 export function rankBySimilarity<T extends { embedding: string }>(
   query: number[],
   rows: T[],
@@ -162,7 +157,6 @@ export interface ScoredCandidate<T> {
   score: number;
 }
 
-/** Rank embeddings by cosine similarity to `query` and keep the top `k`. */
 export function topK<T>(
   query: number[],
   candidates: { item: T; embedding: number[] }[],
@@ -176,10 +170,6 @@ export function topK<T>(
   return scored.slice(0, k);
 }
 
-/**
- * Run an embed call under telemetry: reuse the caller's logger `session` when
- * present, otherwise open a scoped {@link withAiLogger} for `ctx`.
- */
 export function runEmbed<T>(
   session: AiLoggerSession | undefined,
   ctx: { operation: string; provider?: string },
@@ -188,22 +178,12 @@ export function runEmbed<T>(
   return session ? run(session) : withAiLogger(ctx, run);
 }
 
-/**
- * Local transformers models don't report token usage, which would land in
- * the wide event as `NaN`/`undefined` tokens. Normalize to 0 so the
- * `ai.embedding` field stays clean and queryable.
- */
 export function embedUsage(usage: { tokens: number } | undefined): {
   tokens: number;
 } {
   const tokens = usage?.tokens ?? 0;
   return { tokens: Number.isFinite(tokens) ? tokens : 0 };
 }
-
-// Local transformers.js pipeline — singleton because model load is
-// expensive. Used only by `embedViaPipeline` for the manager-less path, on
-// the same model as the on-device catalog's embedding row; `embed` routes
-// through `LocalProvider`, which has its own cache.
 
 type FeatureExtractionPipeline = (
   text: string,

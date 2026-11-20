@@ -1,58 +1,131 @@
-import { KeyValue } from "~/components/ui/key-value";
+import { Action } from "~/components/ui/action";
 import { Panel } from "~/components/ui/panel";
+import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import { type SettingsSnapshot, THEME_NAMES } from "~/model/settings";
+import type { SettingsSnapshot, ThemeName } from "~/model/settings";
 
-/** Global preferences, and what Marbles keeps locally about its own work. */
+export interface ThemeChoice {
+  readonly label: string;
+  readonly name: ThemeName;
+  readonly swatches: {
+    readonly accent: string;
+    readonly background: string;
+    readonly primary: string;
+  };
+}
+
+export interface SettingsView extends SettingsSnapshot {
+  readonly label: string;
+  readonly themes: readonly ThemeChoice[];
+}
+
+function ThemeChoices({
+  current,
+  themes,
+  onTheme,
+}: {
+  readonly current: ThemeName;
+  readonly themes: readonly ThemeChoice[];
+  readonly onTheme: (name: ThemeName) => void;
+}) {
+  return themes.map(({ label, name, swatches }) => (
+    <SelectableRow
+      id={`theme:${name}`}
+      key={name}
+      onSelect={onTheme}
+      selected={current === name}
+      value={name}
+    >
+      <Text flexGrow={1} minWidth={0} truncate wrapMode="none">
+        {label}
+      </Text>
+      <text flexShrink={0} wrapMode="none">
+        <span bg={swatches.background}>{"  "}</span>
+        <span bg={swatches.primary}>{"  "}</span>
+        <span bg={swatches.accent}>{"  "}</span>
+      </text>
+    </SelectableRow>
+  ));
+}
+
 export function SettingsBlock({
   settings,
-  editable,
+  onTheme,
+  onRail,
+  rail,
 }: {
-  readonly settings?: SettingsSnapshot;
-  readonly editable: boolean;
+  readonly settings?: SettingsView;
+  readonly onTheme?: (name: ThemeName) => void;
+  readonly onRail?: (show: boolean) => void;
+  readonly rail?: boolean;
 }) {
-  return (
-    <Panel active id="panel:settings" title="Settings · every workspace">
+  const header = (
+    <box flexDirection="column" gap={1} paddingBottom={1}>
       {settings ? (
-        <box flexDirection="column" gap={1}>
-          <box flexDirection="row" gap={1} height={1}>
-            <Text>Theme</Text>
-            {THEME_NAMES.map((name) => (
-              <text
-                fg={
-                  name === settings.theme
-                    ? theme.colors.primary
-                    : theme.colors.mutedForeground
-                }
-                key={name}
-              >
-                {name === settings.theme ? <strong>[{name}]</strong> : name}
-              </text>
-            ))}
-            <text fg={theme.colors.mutedForeground}>
-              {editable ? "←→ change" : "read-only here"}
-            </text>
-          </box>
+        <>
+          <Text>
+            Theme: <strong>{settings.label}</strong>
+            {!onTheme && (
+              <span fg={theme.colors.mutedForeground}> read-only here</span>
+            )}
+          </Text>
           {settings.problem && (
-            <text fg={theme.colors.warning}>{settings.problem}</text>
+            <box flexDirection="column">
+              <text fg={theme.colors.warning} wrapMode="word">
+                {settings.problem}
+              </text>
+              <text fg={theme.colors.mutedForeground} wrapMode="word">
+                {settings.path}
+              </text>
+            </box>
           )}
-          <KeyValue items={[{ key: "Saved in", value: settings.path }]} />
-        </box>
+          <Text>Applies to all workspaces</Text>
+          <Text>
+            Preview <span fg={theme.colors.primary}>dreaming</span>{" "}
+            <span fg={theme.colors.success}>complete</span>
+          </Text>
+        </>
       ) : (
         <Text>This host has no settings to change.</Text>
       )}
-      <box flexDirection="column" marginTop={1}>
-        <Text>
-          <strong>Local diagnostics</strong>
-        </Text>
-        <Text>
-          Run records, step logs, and each agent turn's tokens, duration and
-          cost stay on this machine, under the state directory; Marbles' own
-          status lines stay in memory while the workspace is hosted. Nothing is
-          sent anywhere.
-        </Text>
-      </box>
+      {onRail && (
+        <box flexDirection="column">
+          <Text>Workspace navigation · this terminal</Text>
+          <box columnGap={2} flexDirection="row" flexWrap="wrap">
+            <Action
+              active={!rail}
+              label="Picker"
+              onAction={onRail}
+              value={false}
+            />
+            <Action
+              active={rail}
+              label="Rail (wide terminals)"
+              onAction={onRail}
+              value={true}
+            />
+          </box>
+        </box>
+      )}
+    </box>
+  );
+
+  return (
+    <Panel
+      active
+      header={header}
+      id="panel:settings"
+      selectedId={settings && onTheme ? `theme:${settings.theme}` : undefined}
+      title="Settings"
+    >
+      {settings && onTheme && (
+        <ThemeChoices
+          current={settings.theme}
+          onTheme={onTheme}
+          themes={settings.themes}
+        />
+      )}
     </Panel>
   );
 }

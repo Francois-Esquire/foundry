@@ -16,13 +16,9 @@ export type { ByteInput, ReferenceInput } from "./blob-staging";
 // biome-ignore lint/performance/noBarrelFile: A compatibility re-export at the path consumers imported it from.
 export { isReferenceInput } from "./blob-staging";
 
-/** What one operation did to backing storage, settled by the manager. */
 export interface BlobEffects {
-  /** Backing files written by the operation; removed on rollback. */
   readonly published: Set<string>;
-  /** Blobs that may have lost their last reference; reclaimed before commit. */
   readonly released: Set<BlobId>;
-  /** Backing files no committed record names; removed after commit. */
   readonly retired: Set<string>;
 }
 
@@ -42,7 +38,6 @@ export async function requireBlob(
   return blob;
 }
 
-/** Yield `blob`'s bytes in [start, end). Chunks load only as the consumer pulls. */
 export async function* readBlob(
   blob: Blob,
   start: number,
@@ -132,7 +127,6 @@ export class BlobRepository implements BlobReader {
     return readBlob(blob, start, end, this);
   }
 
-  /** The existing object a reference input names. */
   async resolve(path: string, input: ReferenceInput): Promise<Blob> {
     if ("blobId" in input) {
       const blob = await this.require(input.blobId);
@@ -157,14 +151,12 @@ export class BlobRepository implements BlobReader {
     return this.#store(staged, owned);
   }
 
-  /** Delete released blobs nothing references, then the chunks they held. */
   reclaim(): Promise<number> {
     const released = [...this.#effects.released];
     this.#effects.released.clear();
     return this.#collect(released);
   }
 
-  /** Delete every blob nothing references. */
   async reclaimAll(): Promise<number> {
     this.#effects.released.clear();
     return this.#collect((await this.#change.listBlobs()).map(({ id }) => id));
@@ -217,7 +209,6 @@ export class BlobRepository implements BlobReader {
     return ids;
   }
 
-  /** An immutable chunk; never the object being rewritten, which would contain itself. */
   async #leaf(chunk: StagedChunk, exclude: BlobId | undefined): Promise<Blob> {
     const existing = await this.#change.findBlob(chunk.digest);
     if (existing && existing.id !== exclude) {
@@ -269,7 +260,6 @@ export class BlobRepository implements BlobReader {
     }
   }
 
-  /** The previous bytes of a rewritten or deleted object are no longer named. */
   #retire(blob: Blob): void {
     if (blob.path) {
       this.#effects.retired.add(blob.path);
@@ -279,7 +269,6 @@ export class BlobRepository implements BlobReader {
 
   async #collect(queue: BlobId[]): Promise<number> {
     let count = 0;
-    // A chunk checked before its manifest is re-queued when the manifest goes.
     for (let id = queue.pop(); id !== undefined; id = queue.pop()) {
       const blob = await this.#change.getBlob(id);
       if (!blob || (await this.#change.isBlobReferenced(id))) {

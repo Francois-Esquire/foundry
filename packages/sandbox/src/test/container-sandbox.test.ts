@@ -19,7 +19,6 @@ describe("resolveContainerSpec", () => {
     });
 
     expect(spec.memoryMib).toBe(512);
-    // 1.5 fractional cores cannot be handed to a guest — round up to 2.
     expect(spec.cpus).toBe(2);
     expect(spec.pidsLimit).toBe(256);
   });
@@ -35,7 +34,6 @@ describe("resolveContainerSpec", () => {
   it("stamps the base and immutable environment-id labels alongside caller labels", async () => {
     const spec = await resolveContainerSpec({
       labels: {
-        // A caller label can never spoof the native identity.
         "com.foundry.environment.id": "forged",
         "com.foundry.session": "s1",
       },
@@ -92,12 +90,6 @@ describe("container sandbox", () => {
     expect(await box.hostPort(9999)).toBeUndefined();
   });
 
-  /**
-   * The regression behind "[InvalidConfig] workdir does not exist in guest".
-   * The microVM runtime refuses to boot without the workdir, and stock images
-   * rarely carry the caller's path (`node:*-slim` ships `/home/node`, not
-   * `/home/user`).
-   */
   it("creates the working directory in the guest before handing the sandbox over", async () => {
     const runtime = createFakeContainerRuntime();
     await using box = await createContainerSandbox(

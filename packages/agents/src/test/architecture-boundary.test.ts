@@ -97,12 +97,6 @@ describe("architecture boundary — package independence", () => {
 
 const LOOP_AGENT_CONSTRUCTOR = /new\s+(?:LoopAgent|ToolLoopAgent)\s*\(/;
 
-/**
- * The complete, curated set of `new LoopAgent(...)`/`new ToolLoopAgent(...)`
- * call sites inside this architecture's own scope. A file entering this list
- * must justify why its tool set either never leaves the compiler
- * (`compileRegistrations`/`compiled.tools`) or carries no tools at all.
- */
 const KNOWN_CONSTRUCTOR_SITES: Readonly<Record<string, string>> = {
   "packages/agents/src/harness/agent-harness.ts":
     "the harness itself; tools are `compiled.tools` from `compileRegistrations` — every tool source passed through the one policy/effect-gated compiler.",
@@ -140,9 +134,6 @@ describe("architecture boundary — no tool-assembly bypass", () => {
       join(AGENTS_SRC, "harness/agent-harness.ts"),
       "utf8"
     );
-    // The caller's `tools` map goes through `compileTools`; the constructed
-    // `LoopAgent` only ever receives `compiled.tools`, never `tools` (or any
-    // other raw map) directly.
     expect(source).toContain("compileTools(tools ?? {}");
     expect(source).toMatch(TOOLS_COMPILED_TOOLS_PATTERN);
     expect(source).not.toMatch(TOOLS_TOOLS_PATTERN);

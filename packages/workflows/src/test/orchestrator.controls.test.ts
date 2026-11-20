@@ -13,6 +13,7 @@ import type {
   UpdateRunInput,
 } from "../index";
 import { ExecutionCoordinator } from "../index";
+import { decodeMetadataValue, stepsFromMetadata } from "../metadata-codec";
 import type { RunExecutionContext } from "../orchestrator";
 import { Orchestrator } from "../orchestrator";
 import type {
@@ -367,7 +368,6 @@ describe("Orchestrator explicit controls", () => {
       DUPLICATE_PATTERN
     );
     expect(concurrentB.status).toBe("fulfilled");
-    // The duplicate never reached the factory.
     expect(factoryInputs).toEqual(["original", "other"]);
     expect(originalClaim).toBe(true);
     await orchestrator.drain();
@@ -432,7 +432,6 @@ describe("Orchestrator explicit controls", () => {
       const a = await open("a");
       const b = await open("b");
 
-      // Two Orchestrators sharing a store: the store admits one Run.
       const [fromA, fromB] = await Promise.allSettled([
         a.run("shared", "A", { runId: "rn-shared" }),
         b.run("shared", "B", { runId: "rn-shared" }),
@@ -518,6 +517,7 @@ describe("Orchestrator explicit controls", () => {
     expect(executions).toBe(0);
     await expect(store.getRun(run.id)).resolves.toMatchObject({
       status: "cancelled",
+      timestamps: { failedAt: expect.any(Number), startedAt: null },
     });
     await orchestrator.stop();
   });
@@ -541,7 +541,17 @@ describe("Orchestrator explicit controls", () => {
     const suspension = await pendingSuspension(orchestrator, run.id);
 
     await expect(orchestrator.cancelRun(run.id)).resolves.toMatchObject({
+      metadata: {
+        workflow: {
+          status: "cancelled",
+          steps: { "suspended-direct": { status: "aborted" } },
+        },
+      },
       status: "cancelled",
+      timestamps: {
+        failedAt: expect.any(Number),
+        startedAt: expect.any(Number),
+      },
     });
     await expect(
       orchestrator.getSuspension(suspension.id)
@@ -776,26 +786,51 @@ describe("Orchestrator explicit controls", () => {
   test("cancel wins a deterministic race with completion at durable authority", async () => {
     const store = new DelayedCompletionStore();
     const { orchestrator } = await startedOrchestrator(store);
+    const body = gate();
     orchestrator.register("completion-race", () =>
       Workflow.create({
-        execute: async () => "body complete",
+        execute: async () => {
+          await body.promise;
+          return "body complete";
+        },
         input: null,
         name: "completion-race",
       })
     );
     await orchestrator.start();
     const run = await orchestrator.run("completion-race", null);
+    await waitFor(async () => {
+      const record = await orchestrator.getRun(run.id);
+      const steps = stepsFromMetadata(decodeMetadataValue(record?.metadata));
+      return steps?.["completion-race"]?.status === "running" ? record : null;
+    });
+    body.release();
     await store.completionWriteStarted;
 
-    const cancellation = await orchestrator.cancelRun(run.id);
-    store.releaseCompletionWrite();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const cancelledAt = Date.now() + 1000;
+      vi.setSystemTime(cancelledAt);
+      const cancellation = await orchestrator.cancelRun(run.id);
+      vi.setSystemTime(cancelledAt + 1000);
+      store.releaseCompletionWrite();
 
-    expect(cancellation.status).toBe("cancelled");
-    await expect(run.result()).resolves.toMatchObject({ status: "cancelled" });
-    await expect(store.getRun(run.id)).resolves.toMatchObject({
-      status: "cancelled",
-    });
-    await orchestrator.stop();
+      expect(cancellation.status).toBe("cancelled");
+      await expect(run.result()).resolves.toMatchObject({
+        status: "cancelled",
+      });
+      await expect(orchestrator.getRun(run.id)).resolves.toMatchObject({
+        metadata: {
+          workflow: { steps: { "completion-race": { status: "aborted" } } },
+        },
+        status: "cancelled",
+        timestamps: { failedAt: cancelledAt },
+      });
+    } finally {
+      store.releaseCompletionWrite();
+      vi.useRealTimers();
+      await orchestrator.stop();
+    }
   });
 
   test("resolution wins its barrier before Run cancellation", async () => {

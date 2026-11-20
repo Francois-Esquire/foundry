@@ -60,7 +60,6 @@ function share(part: number, total: number): number {
   return total === 0 ? 0 : part / total;
 }
 
-/** Distinct symbols attached to the family, seed first, keyed by symbol id. */
 function members(family: ConceptFamily): Map<string, Member> {
   const result = new Map<string, Member>();
   result.set(family.seed.id, {
@@ -446,12 +445,6 @@ function analyzeFamily(
   };
 }
 
-/**
- * Distribute every V7.0 family across packages, modules, representations,
- * and references, and annotate members with V6 history. Pure aggregation
- * over family evidence: no TypeScript rescan, no Git reparse, and history
- * never adds a member.
- */
 export function analyzeConceptDistribution(
   inventory: ConceptInventoryReport,
   source: ConceptDistributionSource,

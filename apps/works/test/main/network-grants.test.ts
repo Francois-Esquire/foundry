@@ -56,22 +56,17 @@ describe("Released app network follows the Installation's network Grant", () => 
         await works.runtime.start(version, new AbortController().signal)
       ).close();
 
-    // Undeclared.
     await open(await works.release(module.id, "0.1.0", {}));
-    // Declared, not approved.
     const declared = await works.release(
       module.id,
       "0.2.0",
       network("api.example.com")
     );
     await open(declared);
-    // Approved.
     await works.access.approve(module.id, "network");
     await open(declared);
-    // Revoked.
     await works.access.revoke(module.id, "network");
     await open(declared);
-    // Approved, then the declaration changes: no access, Access asks again.
     await works.access.approve(module.id, "network");
     const changed = await works.release(
       module.id,
@@ -112,7 +107,6 @@ describe("Released app network follows the Installation's network Grant", () => 
       order.push("stopped");
       return Promise.resolve();
     });
-    // Nothing pulls the app's next session while the revoke runs.
     await works.access.revoke(module.id, "network");
     order.push("revoked");
 
@@ -172,7 +166,6 @@ describe("Released app network follows the Installation's network Grant", () => 
     await expect(works.access.revoke(module.id, "network")).rejects.toThrow(
       "Network access was revoked, but the running app did not stop"
     );
-    // The Grant itself is gone; nothing new starts under it.
     expect(
       (await works.modules.loadGatewayContext(moduleInstallationId(module.id)))
         ?.grants
@@ -235,7 +228,6 @@ describe("Module session restart", () => {
     const first = watch.next();
     await vi.waitFor(() => expect(gates).toHaveLength(1));
 
-    // This start may have read the old authority.
     const restarted = sessions.restart(id);
     gates[0]?.resolve();
     await first;
@@ -265,7 +257,6 @@ describe("Module session restart", () => {
 
     const pending = watch.next();
     const restarted = sessions.restart(id);
-    // The gap: the old Program stops before the new one is up.
     expect((await pending).value).toEqual({
       origin: shown?.origin,
       restarting: true,

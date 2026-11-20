@@ -32,6 +32,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@foundry/lib": "workspace:*",
     "@foundry/models": "workspace:*"
   },
   "devDependencies": {
@@ -44,5 +45,10 @@
   },
   "peerDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.205"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/claude-agent-sdk": {
+      "optional": true
+    }
   }
 }

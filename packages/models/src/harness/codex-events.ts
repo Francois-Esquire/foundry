@@ -20,7 +20,6 @@ export function createCodexEvents(options: EventOptions) {
   const activities = createNativeActivities(run, crypto.randomUUID());
   const tools = toolReporter(options.agentId, "codex", () => run);
   let steps = 0;
-  /** A child thread's activity; the parent thread runs under none. */
   const activityId = (threadId: unknown) =>
     typeof threadId === "string" && !options.isParentThread(threadId)
       ? activities.id(threadId)
@@ -177,7 +176,6 @@ function deltaPart(
   };
 }
 
-/** Codex reports usage as it changes; each update replaces the turn's total. */
 function usagePart(params: Record<string, unknown>): StreamPart {
   const usage = record(record(params.tokenUsage).last);
   return {

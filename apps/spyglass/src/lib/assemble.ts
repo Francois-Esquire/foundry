@@ -5,11 +5,6 @@ import type { SurfaceReport, SurfaceSymbol } from "./types";
 import { patchBooleanParameters } from "./workspace-derive";
 import type { WorkspaceDerivedPackageFacts } from "./workspace-derive-types";
 
-// V12.6 assembly: a `SurfaceReport` is the package-local report joined with
-// the workspace-derived facts for the same package. Nothing is analyzed
-// here — no files, no program, no Git — and field order follows the report
-// the monolithic analyzer produced, so unchanged reports stay byte-identical.
-
 export function assembleSurfaceReport(
   local: PackageLocalReport,
   derived: WorkspaceDerivedPackageFacts

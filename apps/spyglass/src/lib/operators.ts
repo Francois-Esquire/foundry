@@ -13,13 +13,6 @@ import type {
 } from "./types";
 import { validateReductionPlan } from "./validate";
 
-// One convention for structural operations: detect (V2 policy, not here) →
-// plan → validate → apply → verify. Operators implement only the stages they
-// support; unsupported stages are explicit capabilities, never silent no-ops.
-// internalize-export operates on internalize-symbol opportunities/plans; the
-// operator is named for the transformation it performs, the opportunity for
-// the structural finding.
-
 type OperatorId = "internalize-export" | "fold-package";
 
 export interface StructuralOperator {

@@ -3,15 +3,12 @@ import type { OrchestratorStore } from "./execution-coordinator";
 import type { JsonValue } from "./json-value";
 import type { RunFrame, RunFramePayload } from "./schema";
 
-/** Named temporary retention policy for the platform proof. */
 export const RUN_FRAME_RETENTION_POLICY = "retain-all-proof" as const;
 
 export interface ObserveRunOptions {
-  /** Replay frames whose cursor is strictly greater than this value. */
   readonly after?: number;
 }
 
-/** Replayable, detachable frame stream. Closing it never affects execution. */
 export interface RunObservation extends AsyncIterable<RunFrame> {
   close(): void;
 }
@@ -110,11 +107,6 @@ class BufferedRunObservation
   }
 }
 
-/**
- * Durable per-Run journal. One per-run lock covers both publish and observe so
- * replay plus live attachment has no gap. Subscriber delivery is synchronous
- * enqueue only; consumers drain their own buffers at any speed.
- */
 export class RunObservationJournal {
   readonly #store: OrchestratorStore;
   readonly #observers = new Map<string, Set<BufferedRunObservation>>();
@@ -135,11 +127,6 @@ export class RunObservationJournal {
     );
   }
 
-  /**
-   * Durably reserve one effect key for a Run before the caller performs it.
-   * The claim marker shares the publication lock and ordered journal, so a
-   * recovered process sees the reservation even when workflow snapshots lag.
-   */
   claimEffect(
     runId: string,
     key: string,
@@ -261,7 +248,6 @@ export class RunObservationJournal {
     });
   }
 
-  /** Delete a Run and its retained journal under the publication lock. */
   deleteRun(runId: string): Promise<void> {
     return this.#withRunLock(runId, async () => {
       await this.#store.deleteRunFrames(runId);

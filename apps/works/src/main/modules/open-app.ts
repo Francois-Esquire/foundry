@@ -4,11 +4,6 @@ import type { ModuleBuilds } from "./builds/controller";
 import type { ModuleLibrary } from "./library";
 import type { ModuleSessions } from "./runtime/controller";
 
-/**
- * Opening a module owns its build/start lifetime; closing it stops its VM.
- * It starts the newest release, or `release` when given: the one an editor
- * binding was opened for, which only that release's runtime can resolve.
- */
 export function openModuleApp(
   library: ModuleLibrary,
   builds: ModuleBuilds,
@@ -59,7 +54,6 @@ export function openModuleApp(
   );
 }
 
-/** The release to start: `release` if it is still one, else the newest. */
 function releaseToStart(
   details: Pick<ModuleDetails, "releases">,
   release: string | undefined

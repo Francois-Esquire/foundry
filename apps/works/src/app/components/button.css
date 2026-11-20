@@ -1,11 +1,3 @@
-/* btn-raised: skeuomorphic raised surface, used only via variant="raised".
- * Colors come from the caller; this class owns shape and shadow only.
- *
- * Active state is signalled semantically:
- *   aria-current="page"  for nav links on the current route
- *   aria-pressed="true"  for toggle and filter buttons
- */
-
 .btn-raised:hover:not(:disabled) {
   box-shadow:
     inset 0 1px 0 oklch(100% 0 0 / 0.52),

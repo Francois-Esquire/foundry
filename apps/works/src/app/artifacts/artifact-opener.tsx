@@ -21,9 +21,7 @@ type OpenerState =
 
 export interface ArtifactOpener {
   close: () => void;
-  /** Opens at the declared entry and remembered editor, asking only when needed. */
   open: (id: string) => void;
-  /** Always asks which editor, even with one match or a remembered choice. */
   openWith: (id: string) => void;
   pickEditor: (editor: EditorCandidate) => void;
   pickEntry: (entry: ArtifactEntryOption) => void;
@@ -34,7 +32,6 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** The editor to open without asking: the only match or the remembered one. */
 function directEditor(
   resolution: ArtifactResolution,
   choose: boolean
@@ -48,15 +45,9 @@ function directEditor(
     : resolution.preferred;
 }
 
-/**
- * The open flow: resolve the Artifact, ask for an entry when it has no
- * primary one, ask for an editor when several match (main remembers the
- * choice), then hand the open request to the editor route.
- */
 export function useArtifactOpener(): ArtifactOpener {
   const navigate = useNavigate();
   const [state, setState] = useState<OpenerState>({ step: "idle" });
-  // Each step supersedes the last; a late answer to an older one is dropped.
   const attempt = useRef(0);
 
   const step = useCallback(async (work: (current: number) => Promise<void>) => {
@@ -261,7 +252,6 @@ function EditorsDialog({
   );
 }
 
-/** The opener's questions and refusals as a dialog; nothing otherwise. */
 export function ArtifactOpenerDialog({ opener }: { opener: ArtifactOpener }) {
   const { close, pickEditor, pickEntry, state } = opener;
   if (state.step === "failed") {

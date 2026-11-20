@@ -4,25 +4,6 @@ export type ChunkStrategy =
   | { kind: "whole" }
   | { kind: "fixed-cutoff"; maxChars: number };
 
-/**
- * Source provenance for a chunk — where in the original resource this chunk
- * came from, so chunks can be stitched back together or revised in place.
- *
- * Offsets are zero-based UTF-16 code units (JS string indices) and exact:
- * `resource.slice(startOffset, endOffset) === text`. **Revise via offsets** —
- * they round-trip losslessly; the line numbers are for human display.
- *
- * Lines are zero-based. `startLine` is the line of the chunk's first character
- * (`countNewlines(resource.slice(0, startOffset))`). `endLine` is a *position*
- * pointer, not an inclusive bound: it is the line at `endOffset`, i.e. the line
- * the next chunk begins on (`countNewlines(resource.slice(0, endOffset))`), and
- * equals the successor chunk's `startLine` — that is what makes spans stitch.
- *
- * Because a cut can land mid-line, `[startLine, endLine]` is NOT the set of
- * lines the chunk occupies: when the chunk ends mid-line both bounds and the
- * next chunk name the same shared line. For the inclusive last line a chunk
- * touches, use `countNewlines(resource.slice(0, endOffset - 1))`.
- */
 interface ChunkSpan {
   endLine: number;
   endOffset: number;
@@ -48,12 +29,6 @@ function countNewlines(s: string): number {
   return n;
 }
 
-/**
- * Chunks `text` per `strategy`. When `resourceId` is provided, each chunk
- * carries a {@link ChunkSpan} locating it in the source so chunks can be
- * stitched back together or revised in place. Omit `resourceId` to skip
- * provenance entirely (no `span` field is set).
- */
 export function chunk(
   text: string,
   strategy: ChunkStrategy,

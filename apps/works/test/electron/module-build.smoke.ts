@@ -103,7 +103,6 @@ async function smoke(userData: string) {
     await window.webContents.executeJavaScript(
       "document.querySelector('form').requestSubmit()"
     );
-    // The Modules page has its own tabs, so wait for the route itself.
     await waitFor(
       async () =>
         managementRoute.test(

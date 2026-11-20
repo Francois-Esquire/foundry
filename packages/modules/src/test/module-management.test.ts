@@ -213,7 +213,6 @@ describe("Module management", () => {
 
   it("keeps the Module registered when archiving fails so a retry completes", async () => {
     const { management, module, artifacts, store } = await fixture();
-    // deleteModule archives through its transaction handle, not the manager.
     const archive = vi
       .spyOn(ArtifactTransaction.prototype, "archive")
       .mockRejectedValueOnce(new Error("archive failed"));

@@ -29,11 +29,6 @@ import { planFingerprint } from "./validate";
 const walkPattern = /\.tsx?$/;
 const walkPattern2 = /\.config\.[cm]?[jt]sx?$/;
 
-// Read-only fold planning: assembles the concrete shape of an existing
-// fold-package opportunity — what crosses the boundary, what would become
-// internal, what metadata is affected. Never decides fold eligibility
-// (that is V2 policy) and never mutates anything.
-
 const SKIP_DIRS = new Set([
   "node_modules",
   "dist",
@@ -83,7 +78,6 @@ function walkEntry(
     if (walkPattern2.test(entry.name)) {
       files.push({ file: rel, kind: "config" });
     } else if (walkPattern.test(entry.name) && !entry.name.endsWith(".d.ts")) {
-      // Stories fold like source; the shared classifier decides test-ness.
       const kind = classifyFile(toPosix(relative(boundary.dir, abs)));
       files.push({ file: rel, kind: kind === "test" ? "test" : "source" });
     }

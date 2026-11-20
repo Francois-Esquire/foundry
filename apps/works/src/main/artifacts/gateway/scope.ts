@@ -28,12 +28,6 @@ const listConstraints = z
   })
   .strict();
 
-/**
- * The broader Artifact scope: the product Artifact types (exact MIME,
- * lowercase) a Module may list, and read and watch beyond its bindings. The
- * approved `works.artifacts.list` Grant IS that scope; reading and watching
- * still need their own Grants. Without it a Module stays binding-only.
- */
 export const listPolicy = constrained(ARTIFACT_CAPABILITIES.list, (raw) => {
   const types = [...new Set(listConstraints.parse(raw).types)].sort();
   if (types.some((type) => !isProductArtifact({ type }))) {
@@ -42,14 +36,9 @@ export const listPolicy = constrained(ARTIFACT_CAPABILITIES.list, (raw) => {
   return { types };
 });
 
-/**
- * Ends broader-scope reads in flight for an Installation whose list Grant
- * was revoked; each later request is checked against its Grants anyway.
- */
 export class ArtifactScopes {
   readonly #revocations = new Map<string, AbortController>();
 
-  /** Aborted when the Installation's broader scope is revoked. */
   signal(installationId: string): AbortSignal {
     let controller = this.#revocations.get(installationId);
     if (!controller) {
@@ -65,11 +54,6 @@ export class ArtifactScopes {
   }
 }
 
-/**
- * The runtime's approved broader scope, read from host state on every call:
- * its Installation still running this release and holding a list Grant for
- * exactly what this release requests. `null` means binding-only.
- */
 export async function broaderScope(
   host: Pick<ArtifactHost, "artifacts" | "modules">,
   principal: ModulePrincipal
@@ -85,7 +69,6 @@ export async function broaderScope(
   if (!context) {
     return null;
   }
-  // The release's own Manifest: retained by the store, else the frozen file.
   const manifest =
     (await host.modules.loadRetainedManifest(principal.contentId)) ??
     (await embeddedManifest(host.artifacts, principal.contentId).catch(
@@ -121,10 +104,8 @@ function inScope(
   return scope.includes(artifact.type.toLowerCase());
 }
 
-/** The same answer for out of scope, archived, Module and unknown IDs. */
 const notInScope = () => denied("This Artifact is not available to this app");
 
-/** The entry `path` names, or the primary entry, of an Artifact in scope. */
 export function scopedPath(
   scope: readonly string[],
   artifact: ArtifactResolved | null,
@@ -140,7 +121,6 @@ export function scopedPath(
   return path ?? rootPath(content);
 }
 
-/** An entry of an Artifact the caller's broader scope covers, or a refusal. */
 export async function scopedEntry(
   host: Pick<ArtifactHost, "artifacts" | "modules">,
   principal: ModulePrincipal,
@@ -157,8 +137,6 @@ export async function scopedEntry(
   }
   return { artifact, contentId: artifact.contentId, entry, scope };
 }
-
-// ── Listing ──
 
 const cursorSchema = z.object({ at: z.iso.datetime(), id: z.string() });
 
@@ -196,11 +174,6 @@ function listed(artifact: ArtifactResolved) {
   };
 }
 
-/**
- * One page (`explorer.pageSize`) of the product Artifacts the scope covers.
- * Only listed Artifacts ever shape the cursor, so nothing out of scope is
- * revealed, not even an id.
- */
 export async function listScope(
   host: Pick<ArtifactHost, "artifacts">,
   scope: readonly string[],

@@ -8,11 +8,6 @@ type SessionOverrides = Partial<
   Pick<HarnessSession, "close" | "interrupt" | "stopActivity" | "stream">
 >;
 
-/**
- * A session that forwards to `session` except where `overrides` says
- * otherwise. The original session is unchanged. An overridden `stream`
- * serves `generate` too, as both sandbox harnesses do themselves.
- */
 export function wrapSession(
   session: HarnessSession,
   overrides: SessionOverrides
@@ -45,12 +40,6 @@ export function wrapSession(
   };
 }
 
-/**
- * A sandboxed session recording on the run that owns it what nothing else
- * records: `turns`, a CLI harness's model turns, which no model wrapper
- * sees; `tools`, the tool calls of a delegated child, whose events never
- * reach the session the run opened. Each is filed under this session's id.
- */
 export function observedSession(
   session: HarnessSession,
   record: RecordObservation,
@@ -98,7 +87,6 @@ export function observedSession(
       );
     }
     if (tools) {
-      // Calls the turn left open end with it.
       turn.message.then(tools.end, tools.end);
     }
     return turn;

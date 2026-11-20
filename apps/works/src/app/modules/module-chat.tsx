@@ -54,11 +54,6 @@ function QuestionForm({
 }) {
   const formId = useId();
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
-  /**
-   * Options and text fields name their question in `data-question`. A
-   * checkbox adds or removes its option; a radio or a text field is the
-   * whole answer.
-   */
   const change = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     const {
       checked,
@@ -326,7 +321,6 @@ function ChatTurn({
   const cancelled = useCallback(() => cancel(turn.id), [cancel, turn.id]);
   const status = turnStatus(turn);
   const live = !isSettledTurn(turn.status);
-  // Items only ever append, and text items have no id of their own.
   let texts = 0;
   return (
     <article aria-label="Request" className="flex flex-col gap-2">
@@ -392,7 +386,6 @@ export function ModuleChatPanel({
   chat: ModuleChat;
   disabled: boolean;
   onReview: (turnId: string) => void;
-  /** Send with the Draft as it is now; resolves whether it was sent. */
   onSend: (prompt: string) => Promise<boolean>;
 }) {
   const [message, setMessage] = useState("");

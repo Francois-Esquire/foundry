@@ -28,10 +28,6 @@ export interface ModuleApplicationRecoverySnapshot {
   readonly revision: number;
 }
 
-/**
- * Application-level owner for Module normalization and automatic starts.
- * `start()` only schedules work: host readiness never awaits this campaign.
- */
 export class ModuleApplicationRecovery {
   readonly #events = new EventEmitter();
   readonly #normalized: Promise<void>;
@@ -51,7 +47,6 @@ export class ModuleApplicationRecovery {
     installation: Installation
   ) => Promise<ModuleProgramLaunch>;
 
-  /** `launch`: what each automatically started Program starts with. */
   constructor(
     recovery: ModuleRuntimeRecovery,
     launch: (installation: Installation) => Promise<ModuleProgramLaunch>
@@ -62,8 +57,6 @@ export class ModuleApplicationRecovery {
       this.#resolveNormalized = resolve;
       this.#rejectNormalized = reject;
     });
-    // The gate can reject before a mutation observes it; ownership of that
-    // rejection stays here so it never becomes an unhandled process error.
     this.#normalized.catch(() => undefined);
   }
 
@@ -75,7 +68,6 @@ export class ModuleApplicationRecovery {
     return this.#events;
   }
 
-  /** Mutations wait only for persisted-state normalization, not auto-starts. */
   whenNormalized(): Promise<void> {
     return this.#normalized;
   }
@@ -91,8 +83,6 @@ export class ModuleApplicationRecovery {
   async shutdown(reason: string): Promise<void> {
     this.#publish("stopping", this.#snapshot.outcomes, null);
     this.#campaignAbort.abort(new Error("Host is shutting down"));
-    // The campaign is finite and every Program stop has its own observation
-    // bound. Waiting here prevents an automatic start from racing releaseAll.
     await this.#task?.catch(() => undefined);
     await this.recovery.releaseAll(reason);
   }

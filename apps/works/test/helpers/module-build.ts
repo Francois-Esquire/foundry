@@ -1,7 +1,6 @@
 import type { BuildRuntime } from "~/main/modules/builds/controller";
 import type { ModuleLibrary } from "~/main/modules/library";
 
-/** The build run a release published outside any build names as its builder. */
 export const TEST_BUILD_RUN = "rn-test-build";
 
 export function buildResult(source: Record<string, string>) {
@@ -24,10 +23,6 @@ export const successfulBuildRuntime: BuildRuntime = {
   },
 };
 
-/**
- * Publishes the Module's saved starter as a release whose Manifest is the
- * strict format with `manifest` merged in.
- */
 export async function publishStrict(
   library: Pick<ModuleLibrary, "details" | "publish">,
   moduleId: string,

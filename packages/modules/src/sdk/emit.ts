@@ -1,16 +1,3 @@
-/**
- * Compiles the Module SDK's authored source into the artifacts the pack ships.
- *
- * Only the `emit-sdk` script and `module-sdk-emit.test.ts` import this file;
- * no runtime module may. A host that bundles this package's runtime modules
- * cannot carry `typescript`: it resolves its own installation through
- * `__filename`, which an ES output does not define. Keeping the compiler here
- * lets `./index.ts` serve the emitted text with no compiler in the graph.
- *
- * Run `bun run emit-sdk` after editing `./source.ts` or `./generator-core.ts`;
- * the script writes raw output and Biome formats it.
- * `module-sdk-emit.test.ts` fails when the committed output is stale.
- */
 import { readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";

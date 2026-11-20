@@ -1,10 +1,4 @@
-// Smooth reads of a mipped map. Pure: the caller passes its own texture and
-// sampler (a linear one).
 
-// Channel r of `map` at uv from mip `level`, through a cubic B-spline so the
-// result is smooth to the second derivative, where bilinear reads of a
-// coarse level crease at every texel: four bilinear taps placed to weigh
-// sixteen texels.
 export fn splineLevel(map: texture_2d<f32>, linear: sampler, uv: vec2f, level: u32) -> f32 {
   let size = vec2f(textureDimensions(map, level));
   let st = uv * size - 0.5;

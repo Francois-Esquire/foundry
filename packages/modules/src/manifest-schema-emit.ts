@@ -1,10 +1,3 @@
-/**
- * Writes the generated Manifest JSON Schema to the committed file.
- *
- * Only the `emit-manifest-schema` script runs this file; no runtime module
- * imports it, so the package's runtime keeps no filesystem access outside
- * its Node entry. The script formats the output with Biome next.
- */
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

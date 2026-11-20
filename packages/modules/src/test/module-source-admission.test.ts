@@ -16,7 +16,6 @@ const limits = {
 
 describe("Module source admission", () => {
   it("counts file length in UTF-16 code units and the total in UTF-8 bytes", () => {
-    // Two code units, four UTF-8 bytes each.
     const emoji = "😀";
     expect(
       moduleSourceAdmissionProblem({ a: emoji.repeat(3) }, limits)
@@ -24,7 +23,6 @@ describe("Module source admission", () => {
     expect(
       moduleSourceAdmissionProblem({ a: emoji.repeat(4) }, limits)
     ).toContain("UTF-16 code units");
-    // Within the per-file unit limit, over the aggregate byte limit.
     expect(
       moduleSourceAdmissionProblem(
         { a: emoji.repeat(2), b: emoji.repeat(2) },

@@ -5,7 +5,6 @@ import { pathToFileURL } from "node:url";
 
 import { MODULE_SDK_EMITTED } from "../../sdk/emitted";
 
-/** The emitted SDK's exports these tests use, as a Program or View sees them. */
 export interface ModuleSdk {
   createGatewayClient(transport: unknown): GatewayClient;
   createProgramGateway(): ProgramGateway;
@@ -59,7 +58,6 @@ export interface ModuleTheme {
 
 let loaded: Promise<ModuleSdk> | undefined;
 
-/** Imports the SDK's emitted ESM, the exact `dist/index.js` a workspace receives. */
 export function importModuleSdk(): Promise<ModuleSdk> {
   loaded ??= (async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "module-sdk-"));

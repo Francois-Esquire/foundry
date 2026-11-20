@@ -14,7 +14,6 @@ it("retains the canonical survey and isolates mutable settings between maps", as
   const second = createSpyglassState(data);
   expect(first.data).toBe(data);
   expect(second.data).toBe(data);
-  // Each map's settings are its own objects, at the defaults.
   expect(first.chartSettings).not.toBe(second.chartSettings);
   expect(first.chartSettings.composition).not.toBe(
     second.chartSettings.composition

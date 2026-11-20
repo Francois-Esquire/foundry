@@ -14,6 +14,16 @@ export function blobFiles(root: string): BlobFiles {
     await mkdir(directory, { recursive: true });
     return realpath(directory);
   }
+  async function located(): Promise<string | undefined> {
+    try {
+      return await realpath(directory);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) {
+        return;
+      }
+      throw error;
+    }
+  }
   function filename(path: string): string {
     if (!BLOB_FILENAME.test(path)) {
       throw new Error("Invalid blob storage path");
@@ -22,7 +32,11 @@ export function blobFiles(root: string): BlobFiles {
   }
   return {
     async *list() {
-      for (const entry of await readdir(await ready(), {
+      const base = await located();
+      if (base === undefined) {
+        return;
+      }
+      for (const entry of await readdir(base, {
         withFileTypes: true,
       })) {
         if (BLOB_FILENAME.test(entry.name)) {
@@ -41,7 +55,7 @@ export function blobFiles(root: string): BlobFiles {
     },
     async *read(path, { start, end }) {
       const file = await open(
-        join(await ready(), filename(path)),
+        join((await located()) ?? directory, filename(path)),
         // biome-ignore lint/suspicious/noBitwiseOperators: Node open flags require a bitmask to reject symlinks.
         constants.O_RDONLY | constants.O_NOFOLLOW
       );
@@ -70,8 +84,12 @@ export function blobFiles(root: string): BlobFiles {
       }
     },
     async remove(path) {
+      const base = await located();
+      if (base === undefined) {
+        return;
+      }
       try {
-        await unlink(join(await ready(), filename(path)));
+        await unlink(join(base, filename(path)));
       } catch (error) {
         if (!hasErrorCode(error, "ENOENT")) {
           throw error;

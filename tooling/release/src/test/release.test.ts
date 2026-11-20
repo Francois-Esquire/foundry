@@ -244,8 +244,6 @@ test("group packing makes every archive available to consumers and records only 
 
 test("packing refuses a dependency range that excludes a package released alongside it", () => {
   const root = mkdtempSync(join(tmpdir(), "release-ranges-"));
-  // bun.lock can keep a bumped workspace's previous version, and Bun packs
-  // `workspace:` ranges from it.
   const packages = [
     workspace("first", { scripts: { "test:package": "true" } }),
     workspace("second", {
@@ -309,8 +307,6 @@ const ACTION_SHA = /@[a-f0-9]{40}$/;
 const ALPHA_OR_CHANNEL = /alpha|dist_tag|DIST_TAG/;
 const actionExpression = (value: string): string => `\${{ ${value} }}`;
 
-// One runner: a package's `test` is one Vitest run, on Bun where the
-// package's code needs it, and no script reaches for `bun test`.
 const VITEST_RUN =
   /^(vitest|bun \.\.\/\.\.\/node_modules\/vitest\/vitest\.mjs) run(?: --project unit)?$/;
 const BUN_TEST = /\bbun test\b/;
@@ -349,7 +345,6 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
   ]);
   expect(ci.on.push).toEqual({ branches: ["main"] });
   expect(ci.permissions).toEqual({ contents: "read" });
-  // A newer push must never cancel the build a release of main depends on.
   expect(ci.concurrency?.["cancel-in-progress"]).toBe(
     actionExpression("github.event_name == 'pull_request'")
   );
@@ -377,8 +372,6 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
     expect(commandsOf(id)).not.toContain("bun run docs:typecheck");
   }
 
-  // Branch protection requires Verify. It runs even when a job fails, and
-  // fails then, because a skipped required check would let the merge through.
   const verify = job("verify");
   expect(verify.name).toBe("Verify");
   expect(verify.if).toBe("always()");
@@ -410,12 +403,10 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
 
   expect(commandsOf("validate")).toContain("bun run validate");
 
-  // Each package's tests run in exactly one test job: affected on a pull
-  // request, all of them on main and manual runs.
   const testSteps = {
     test: [
-      "bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always",
-      "bun run test --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always",
+      "bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=1 --continue=always -- --maxWorkers=2",
+      "bun run test --filter=!@foundry.sh/spyglass --concurrency=1 --continue=always -- --maxWorkers=2",
     ],
     "test-spyglass": [
       "bun run turbo run test --affected --filter=@foundry.sh/spyglass -- --shard=$SHARD/3",
@@ -431,8 +422,6 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
       "github.event_name != 'pull_request'"
     );
   }
-  // Spyglass's shards together run its whole `test` task, one Vitest run,
-  // each shard with a Turbo cache of its own.
   const spyglass = job("test-spyglass");
   expect(spyglass.strategy?.matrix).toEqual({ shard: [1, 2, 3] });
   for (const { run, env } of spyglass.steps) {
@@ -449,8 +438,6 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
     ).toBe(`test-spyglass-${actionExpression("matrix.shard")}`);
   }
 
-  // The archives a release attaches are built from source alone: the
-  // release job restores no Turbo cache and builds before it packs.
   const release = job("release");
   const releaseCommands = commandsOf("release");
   expect(
@@ -533,7 +520,6 @@ test("main-branch publication keeps its isolated tested artifact and approval ga
   expect(commands).toContain(
     'npm publish "artifact/$archive" --ignore-scripts --access public --tag latest '
   );
-  // Product maturity is not an npm channel: every release becomes latest.
   expect(JSON.stringify(workflow)).not.toMatch(ALPHA_OR_CHANNEL);
   expect(commands).toContain("EXPECTED_PACKAGES");
   expect(commands).toContain("Artifact digest changed");

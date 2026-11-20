@@ -22,7 +22,7 @@ import {
 import { modulePersistence } from "~/main/modules/artifact-store";
 import { WORKS_TASKS } from "~/shared/execution";
 import { startTestExecution } from "../helpers/execution";
-import { FlakyStateStore } from "../helpers/flaky-state";
+import { FlakyExecutionStore } from "../helpers/flaky-state";
 
 const USER: FileActor = { kind: "user" };
 const ONE_MIB = 1024 * 1024;
@@ -43,9 +43,13 @@ async function temporary() {
   return directory;
 }
 
-/** One Works process: the shared JSON record store, the engine, product files. */
-async function open(directory: string, state?: FlakyStateStore) {
-  const execution = await startTestExecution(state ? { store: state } : {});
+async function open(directory: string, state?: FlakyExecutionStore) {
+  const execution = await startTestExecution({
+    directory: path.join(directory, "engine"),
+    ...(state
+      ? { executionStore: (executions) => state.wrap(executions) }
+      : {}),
+  });
   const store = new JsonArtifactStore({
     path: path.join(directory, "modules", ".library", "artifacts.json"),
   });
@@ -96,7 +100,6 @@ it("creates a Markdown File Artifact on the host, saves it in place and reopens 
   const first = await readText(files, created.artifactId);
   expect(first.text).toBe("# Notes\n");
 
-  // It is a product file with its own directory, not a Module.
   const artifact = await artifacts.get(created.artifactId as never);
   expect(artifact).toMatchObject({ type: "text/markdown" });
   expect(artifact?.content?.metadata).toMatchObject({
@@ -123,7 +126,6 @@ it("creates a Markdown File Artifact on the host, saves it in place and reopens 
     kind: "saved",
     retried: false,
   });
-  // In place: the same Content, still ready, and no snapshot was taken.
   const contents = await artifacts.listContents(created.artifactId as never);
   expect(contents.map((content) => [content.id, content.state])).toEqual([
     [created.contentId, "ready"],
@@ -132,7 +134,6 @@ it("creates a Markdown File Artifact on the host, saves it in place and reopens 
     "# Notes\n\nSaved.\n"
   );
 
-  // The origin on the Content names the engine run that recorded the save.
   const current = await artifacts.get(created.artifactId as never);
   const origin = originOf(current?.content ?? { metadata: {} });
   const [run] = runsNamed(execution.runs.list(), WORKS_TASKS.fileSave);
@@ -158,7 +159,6 @@ it("creates a Markdown File Artifact on the host, saves it in place and reopens 
     1
   );
 
-  // Reopened by another process over the same records.
   await files.close();
   const reopened = await open(directory);
   expect((await readText(reopened.files, created.artifactId)).text).toBe(
@@ -206,7 +206,6 @@ it("answers a retried request from its committed operation and refuses a reused 
   };
   const saved = await files.save(request);
   expect(saved).toMatchObject({ kind: "saved", retried: false });
-  // The same request again: the first answer, without another write.
   expect(await files.save({ ...request, retry: true })).toMatchObject({
     digest: saved.kind === "saved" ? saved.digest : "",
     kind: "saved",
@@ -215,12 +214,10 @@ it("answers a retried request from its committed operation and refuses a reused 
   expect(runsNamed(execution.runs.list(), WORKS_TASKS.fileSave)).toHaveLength(
     1
   );
-  // The same id for other text fails.
   expect(await files.save({ ...request, text: "other" })).toMatchObject({
     kind: "refused",
   });
 
-  // After a later save replaced the origin, the run store still answers.
   const later = await readText(files, created.artifactId);
   await files.save({
     ...request,
@@ -232,21 +229,16 @@ it("answers a retried request from its committed operation and refuses a reused 
     kind: "saved",
     retried: true,
   });
-  // Until retention has pruned anything, the run store holds every
-  // committed write's result: a retry nothing vouches for never committed,
-  // so it is a new request (here against an old fence: a conflict).
   expect(
     await files.save({ ...request, request: "lost", retry: true })
   ).toMatchObject({ kind: "conflict" });
-  // Once retention has pruned the user's runs, it may have been one of them.
   const [oldest] = execution.runs
     .list()
     .filter((run) => run.name === WORKS_TASKS.fileSave);
-  execution.runs.prune([oldest?.id ?? ""], () => HOST_AUDIT_SCOPE);
+  await execution.runs.prune([oldest?.id ?? ""], () => HOST_AUDIT_SCOPE);
   expect(
     await files.save({ ...request, request: "lost-2", retry: true })
   ).toMatchObject({ kind: "uncertain" });
-  // A Module's pruned runs say nothing about the user's requests.
   expect(execution.runs.gaps().map((gap) => gap.scope)).toEqual([
     HOST_AUDIT_SCOPE,
   ]);
@@ -255,7 +247,7 @@ it("answers a retried request from its committed operation and refuses a reused 
 
 it("reports a save whose result could not be recorded, and blocks the next until it is recovered", async () => {
   const directory = await temporary();
-  const state = new FlakyStateStore();
+  const state = new FlakyExecutionStore();
   const { execution, files } = await open(directory, state);
   const created = await createNotes(files);
   const base = await readText(files, created.artifactId);
@@ -274,7 +266,6 @@ it("reports a save whose result could not be recorded, and blocks the next until
   });
   const next = await readText(files, created.artifactId);
   expect(next.text).toBe("saved without evidence");
-  // The next save waits while the evidence still cannot be written.
   expect(
     await files.save({
       actor: USER,
@@ -288,7 +279,6 @@ it("reports a save whose result could not be recorded, and blocks the next until
     "saved without evidence"
   );
 
-  // Once it can be, the missing result is recorded first, then the save.
   state.failing = false;
   expect(
     await files.save({
@@ -299,7 +289,10 @@ it("reports a save whose result could not be recorded, and blocks the next until
       text: "after recovery",
     })
   ).toMatchObject({ evidence: "recorded", kind: "saved" });
-  const [recovery] = runsNamed(execution.runs.list(), WORKS_TASKS.fileRecover);
+  const [recovery] = runsNamed(
+    execution.runs.list(),
+    WORKS_TASKS.fileRecover
+  ).filter((run) => run.observations.length > 0);
   expect(fileEvidence(recovery as ExecutionRun)).toEqual([
     expect.objectContaining({
       artifactId: created.artifactId,
@@ -310,7 +303,7 @@ it("reports a save whose result could not be recorded, and blocks the next until
 
 it("recovers a missing save result from the origin at startup, before another save", async () => {
   const directory = await temporary();
-  const state = new FlakyStateStore();
+  const state = new FlakyExecutionStore();
   const before = await open(directory, state);
   const created = await createNotes(before.files);
   const base = await readText(before.files, created.artifactId);
@@ -326,14 +319,12 @@ it("recovers a missing save result from the origin at startup, before another sa
   await before.files.close();
   await before.execution.close();
 
-  // The next process: the run store never got that result.
   state.failing = false;
   const after = await open(directory, state);
   const recovered = runsNamed(
     after.execution.runs.list(),
     WORKS_TASKS.fileRecover
   );
-  // The recovered evidence describes the saved entry, as the save's own would.
   const saved = await readText(after.files, created.artifactId);
   expect(recovered.flatMap(fileEvidence)).toEqual([
     expect.objectContaining({
@@ -343,7 +334,6 @@ it("recovers a missing save result from the origin at startup, before another sa
       recoveredFrom: expect.any(String),
     }),
   ]);
-  // Recovery is not another save: the Content is untouched.
   expect((await readText(after.files, created.artifactId)).text).toBe(
     "committed"
   );
@@ -361,15 +351,12 @@ it("writes disk edits back as system runs with a disk origin", async () => {
       ),
     { timeout: 5000 }
   );
-  // The run records its result just after the commit lands.
   await vi.waitFor(() => {
     const [sync] = runsNamed(execution.runs.list(), WORKS_TASKS.fileSync);
     expect(sync?.status).toBe("complete");
   });
   const current = await artifacts.get(created.artifactId as never);
   const [sync] = runsNamed(execution.runs.list(), WORKS_TASKS.fileSync);
-  // A disk edit may touch any entry: its answer is the whole tree, as
-  // recovery would rebuild it from this origin.
   expect(originOf(current?.content ?? { metadata: {} })).toMatchObject({
     actor: "disk",
     path: null,
@@ -404,7 +391,6 @@ it("keeps conflicting disk edits aside when a save lands first", async () => {
   const base = await readText(files, created.artifactId);
   const folder = await files.directory(created.artifactId);
   await writeFile(path.join(folder, "notes.md"), "edited on disk");
-  // A save that lands before the poll writes the disk edit back.
   await files.save({
     actor: USER,
     artifactId: created.artifactId,
@@ -435,7 +421,6 @@ it("opens a frozen version for writing once: a ready working successor, the froz
 
   const working = await files.working(created.artifactId);
   expect(working).not.toBe(created.contentId);
-  // Opening again binds the same successor; nothing new is made.
   expect(await files.working(created.artifactId)).toBe(working);
   expect(await states()).toEqual(
     [
@@ -449,7 +434,6 @@ it("opens a frozen version for writing once: a ready working successor, the froz
     from: created.contentId,
   });
 
-  // Saves edit the successor in place.
   const base = await readText(files, created.artifactId);
   for (const text of ["first edit", "second edit"]) {
     const current = await readText(files, created.artifactId);
@@ -471,7 +455,6 @@ it("opens a frozen version for writing once: a ready working successor, the froz
   );
   expect(new TextDecoder().decode(frozen?.blob)).toBe("# Notes\n");
 
-  // A working copy is recorded, but it is not a save.
   const [revise, ...others] = runsNamed(
     execution.runs.list(),
     WORKS_TASKS.fileRevise
@@ -574,7 +557,6 @@ it("creates a Markdown file a person names from the Artifacts destination", asyn
   expect(runsNamed(execution.runs.list(), WORKS_TASKS.fileCreate)).toHaveLength(
     1
   );
-  // Not a Module: it lists as a file and resolves to its editors (none here).
   expect((await explorer.list()).map((summary) => summary.id)).toEqual([id]);
   expect(await explorer.resolve({ id })).toMatchObject({
     candidates: [],
@@ -616,9 +598,7 @@ it("answers overlapping creates of one request with the one file they made", asy
 });
 
 it("answers a retried create whose result was not persisted with the file it made", async () => {
-  // The engine keeps an observation it could not persist on the live run,
-  // so this process still finds the answer; a restart recovers it.
-  const state = new FlakyStateStore();
+  const state = new FlakyExecutionStore();
   const { artifacts, files } = await open(await temporary(), state);
   const request = {
     actor: USER,
@@ -641,7 +621,6 @@ it("answers a retried create whose result was not persisted with the file it mad
 
 it("keeps a file's creation receipt through retention, so a later retry returns the same file", async () => {
   const { artifacts, execution, files } = await open(await temporary());
-  // A Module's writes: its own retention settings apply.
   const actor: FileActor = {
     installationId: "installation-kept",
     kind: "module",
@@ -660,7 +639,6 @@ it("keeps a file's creation receipt through retention, so a later retry returns 
   if (created.kind !== "created") {
     throw new Error("not created");
   }
-  // Later saves replace the origin and the latest save checkpoint.
   for (const text of ["one", "two", "three"]) {
     const current = await readText(files, created.artifactId);
     await files.save({
@@ -693,7 +671,7 @@ it("keeps a file's creation receipt through retention, so a later retry returns 
 
 it("answers a retried save of a non-primary entry with that entry, also when recovered", async () => {
   const directory = await temporary();
-  const state = new FlakyStateStore();
+  const state = new FlakyExecutionStore();
   const { artifacts, files } = await open(directory, state);
   const made = await artifacts.create({
     entries: {
@@ -732,7 +710,6 @@ it("answers a retried save of a non-primary entry with that entry, also when rec
   if (saved.kind !== "saved") {
     throw new Error("not saved");
   }
-  // Rebuilt from the origin: the saved entry, not the primary one.
   expect(await files.save({ ...request, retry: true })).toMatchObject({
     bytes: saved.bytes,
     digest: saved.digest,
@@ -741,7 +718,6 @@ it("answers a retried save of a non-primary entry with that entry, also when rec
   expect(
     (await artifacts.get(made.id))?.content?.metadata.origin
   ).toMatchObject({ path: "appendix.md" });
-  // Recovery records that entry, so the next save's fence holds.
   const next = await files.save({
     ...request,
     expectedDigest: saved.digest,

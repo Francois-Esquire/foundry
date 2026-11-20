@@ -14,37 +14,10 @@ import {
 } from "@foundry.sh/marbles";
 import { z } from "zod";
 
-/**
- * An adversarial review of one change, in two separate axes:
- *
- * - **Standards**: does the change follow the repository's written rules
- *   (AGENTS.md, CLAUDE.md, CONTRIBUTING.md)?
- * - **Spec**: does the change do what the supplied spec asks? Skipped,
- *   without a model call, when no spec is given.
- *
- * Each axis opens a fresh reviewer session, then a fresh challenger
- * session that tries to refute that axis's findings by reading the code.
- * Only findings the challenger confirms count. Neither axis sees the
- * other's findings. A model failure is reported in that axis's
- * result instead of cancelling the other axis; invalid input, or a
- * checkout that changes while it is reviewed, fails the run.
- *
- * Git is read with `execFile` rather than the context's `exec`: these are
- * read-only commands, and `--dry-run` would replace `exec` results with
- * empty ones, which would hide the change from a dry run.
- */
-
 const execFileAsync = promisify(execFile);
 
-/** Patch text sent to each reviewer; larger patches are cut and say so. */
 const MAX_PATCH_CHARS = 40_000;
 const MAX_SPEC_CHARS = 40_000;
-/**
- * A deliberately loose byte bound on the spec file, checked before reading.
- * UTF-8 takes at most three bytes per UTF-16 unit, so a file over this size
- * is over the character limit, unless more than about 40,000 bytes of it
- * is whitespace that `trim` would remove.
- */
 const MAX_SPEC_FILE_BYTES = MAX_SPEC_CHARS * 4;
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const DEFAULT_TURN_TIMEOUT_MS = 600_000;
@@ -53,7 +26,6 @@ const MAX_CAUSES = 4;
 const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"] as const;
 const ROOT_ONLY_INSTRUCTIONS = ["CONTRIBUTING.md"] as const;
 
-/** The CLI harness ids Marbles defines; `pi` is the third. */
 const harness = z.enum(["claude-code", "codex", "pi"]);
 
 export const adversarialReviewInput = z.object({
@@ -260,7 +232,6 @@ async function revision(
   }
 }
 
-/** Inside `root`, or an error naming what was asked for. */
 function inside(root: string, path: string, what: string): string {
   const absolute = resolve(root, path);
   const rel = relative(root, absolute);
@@ -289,7 +260,6 @@ async function checkoutRoot(
   return realpath(top.trim());
 }
 
-/** `--numstat -z` without renames: `added\tdeleted\tpath\0`, `-` for binary. */
 function numstat(output: string): z.output<typeof changedFile>[] {
   const files: z.output<typeof changedFile>[] = [];
   for (const record of output.split("\0")) {
@@ -307,7 +277,6 @@ function numstat(output: string): z.output<typeof changedFile>[] {
   return files;
 }
 
-/** Tracked changes from the merge base, then untracked files when included. */
 async function changes(
   root: string,
   mergeBase: string,
@@ -334,7 +303,6 @@ async function changes(
   return { files, patch };
 }
 
-/** Hash the tracked tree, index entries, and untracked bytes or link targets. */
 async function fingerprint(root: string, signal: AbortSignal): Promise<string> {
   const snapshots = await Promise.all([
     git(root, ["rev-parse", "HEAD"], signal),
@@ -357,10 +325,6 @@ async function fingerprint(root: string, signal: AbortSignal): Promise<string> {
   return hash.digest("hex");
 }
 
-/**
- * One file's path, mode, and content digest; a link's target text, never
- * what it points to. Streamed, so a large file is never held in memory.
- */
 async function fileDigest(
   root: string,
   path: string,
@@ -377,12 +341,6 @@ async function fileDigest(
   return `${path}\0${String(info.mode)}\0${content.digest("hex")}\0`;
 }
 
-/**
- * The checkout's fingerprint with the instruction files' bytes. Reviewing
- * the working tree, agents read them from disk, and a Git-ignored one is not
- * in `print`; a missing one counts as a change too. Reviewing commits only,
- * they are read at HEAD, which `print` already pins.
- */
 async function sealed(
   root: string,
   print: string,
@@ -403,10 +361,6 @@ async function sealed(
   return hash.digest("hex");
 }
 
-/**
- * The repository's instruction files that govern the changed paths: on disk
- * when the working tree is reviewed, at HEAD when only commits are.
- */
 async function instructionFiles(
   root: string,
   files: readonly { path: string }[],
@@ -487,7 +441,6 @@ interface Captured {
   readonly patch: string;
 }
 
-/** Everything a reviewer is given, read once per axis from the checkout. */
 async function capture(
   workspaceRoot: string,
   input: AdversarialReviewInput,
@@ -545,7 +498,6 @@ async function capture(
   };
 }
 
-/** The error and its causes: the AI SDK wraps a provider's failure in its own. */
 function message(error: unknown): string {
   const parts: string[] = [];
   let current: unknown = error;
@@ -556,10 +508,6 @@ function message(error: unknown): string {
   return parts.join(" ← ");
 }
 
-/**
- * Where agents read files. Reviewing commits only, the working tree may
- * differ from HEAD; this asks them to read HEAD, and cannot enforce it.
- */
 function readingRule(packet: Packet): string {
   return packet.includeWorkingTree
     ? "The checkout root is the working directory; read files from it."
@@ -622,7 +570,6 @@ function challengePrompt(
   ].join("\n\n");
 }
 
-/** One structured turn on a fresh session, with its stage record. */
 async function turn<T>(
   agents: Agents,
   definition: typeof standardsReviewer,
@@ -831,7 +778,6 @@ function axisStep(axis: Axis) {
 const standardsAxis = axisStep("standards");
 const specAxis = axisStep("spec");
 
-/** Both axes saw the same checkout, and it is still in that state. */
 const assemble = step("adversarial-review-assemble")
   .describe(
     "Checks both axes reviewed the same unchanged checkout and combines them."
@@ -890,7 +836,6 @@ const assemble = step("adversarial-review-assemble")
     };
   });
 
-/** Launch this one: the axes alone skip the integrity check. */
 export const adversarialReview = workflow("adversarial-review")
   .describe(
     "Review a change in two separate axes, Standards and Spec, each challenged by a fresh verifier."

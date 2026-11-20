@@ -1,6 +1,6 @@
 import { sleep, spawn } from "bun";
+import { recordSpawned } from "~/process/spawned";
 
-/** Exercise the packaged renderer in a real PTY without dispatching work. */
 export async function inspectDashboard(
   cli: string,
   cwd: string,
@@ -17,6 +17,7 @@ export async function inspectDashboard(
       rows: 40,
     },
   });
+  recordSpawned(child.pid, true);
   async function waitFor(text: string) {
     const deadline = Date.now() + 8000;
     while (!output.includes(text)) {

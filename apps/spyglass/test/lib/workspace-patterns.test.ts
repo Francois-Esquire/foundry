@@ -40,7 +40,6 @@ function pairOf(patterns: WorkspaceArchitecturalPatterns, id: string) {
   return found;
 }
 
-/** `n` concepts declared in `pkg`, each implemented (and behaved) in `impl`. */
 function implemented(pkg: string, impl: string, n: number): ConceptSpec[] {
   return Array.from({ length: n }, (_, i) => ({
     behavior: { [impl]: { implementationBehaviors: 2, sourceBehaviors: 2 } },
@@ -55,7 +54,6 @@ function implemented(pkg: string, impl: string, n: number): ConceptSpec[] {
   }));
 }
 
-/** `n` concepts declared in `pkg` and merely used by `user`. */
 function used(pkg: string, user: string, n: number): ConceptSpec[] {
   return Array.from({ length: n }, (_, i) => ({
     id: `${pkg}/u${i}.ts#${pkg}Used${i}`,

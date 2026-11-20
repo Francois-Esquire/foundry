@@ -218,7 +218,6 @@ try {
 }
 `;
 
-/** What composer 12 wrote before Programs owned their migrations. */
 export const INLINE_SCHEMA_DATABASE_INDEX_SOURCE = `${DEVELOPMENT_DATABASE_IMPORTS}
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -285,8 +284,6 @@ export const INLINE_SCHEMA_NOTES_MIGRATION_SOURCE = `CREATE TABLE \`notes\` (
 );
 `;
 
-// `IF NOT EXISTS`: databases created by the inline schema already hold the
-// table but no migration journal.
 export const NOTES_MIGRATION_SOURCE = `CREATE TABLE IF NOT EXISTS \`notes\` (
   \`id\` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
   \`body\` text NOT NULL
@@ -312,7 +309,6 @@ export const DATABASE_PACKAGE_FILES: Readonly<Record<string, string>> = {
     dependencies: { "drizzle-orm": "0.45.2" },
     exports: {
       ".": "./src/index.ts",
-      // Build-time consumers take the schema without opening the Data Space.
       "./build": "./src/build.ts",
     },
     name: "@module/database",
@@ -518,7 +514,6 @@ export const MODULE_CLIENT_SOURCE = `export {
 } from "../generated/client/graphql";
 `;
 
-/** What earlier composers wrote, importing a root output that upgrades prune. */
 export const LEGACY_MODULE_CLIENT_SOURCE = `export {
   CreateModuleNoteDocument,
   ModuleHealthDocument,

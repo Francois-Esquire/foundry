@@ -28,16 +28,9 @@ export interface ClaudeToolsOptions {
   activities: NativeActivities;
   agentId: string;
   run: DriverRun;
-  /** The turn's own abort, joined with each request's signal. */
   signal: AbortSignal;
 }
 
-/**
- * Tool authority for one Claude Code turn. The CLI asks through two channels,
- * the PreToolUse hook and `canUseTool`, and either may arrive first; both
- * reach the same permission decision, the same AskUserQuestion bridge, and the
- * same deduplicated outcome reports.
- */
 export function createClaudeTools({
   activities,
   agentId,
@@ -52,7 +45,6 @@ export function createClaudeTools({
       activityId: toolActivities.get(event.toolCallId),
     });
 
-  /** One answer per tool call, however many channels ask for it. */
   const questionReplies = new Map<string, Promise<HarnessPermissionResult>>();
   const questionReply = (request: HarnessPermissionRequest) => {
     let reply = questionReplies.get(request.toolCallId);
@@ -105,8 +97,6 @@ export function createClaudeTools({
       return await askQuestion(request);
     }
     const hostName = foundryToolName(request.toolName, run.tools);
-    // Only a call through Foundry's MCP server runs a host tool; a native tool
-    // that shares a host tool's name is still the CLI's own tool.
     const hostTool = hostName === undefined ? undefined : run.tools?.[hostName];
     if (hostTool && isHarnessQuestionTool(hostTool)) {
       return { behavior: "allow", updatedInput: request.input };
@@ -219,10 +209,6 @@ function hookSignal(value: unknown, parent: AbortSignal): AbortSignal {
     : parent;
 }
 
-/**
- * The host tool a Foundry MCP call names, or `undefined` for any other call.
- * A Foundry MCP tool answers to its host name, so host policy sees one name.
- */
 function foundryToolName(
   toolName: string,
   tools: DriverRun["tools"]

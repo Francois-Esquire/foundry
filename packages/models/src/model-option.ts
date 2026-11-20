@@ -1,43 +1,22 @@
-/** Flatten catalog rows for model pickers without importing runtime code. */
-
 import type { ModelCosts, ProviderModelDefinition } from "./types";
 
 const MODEL_ID_WORD_SEPARATOR_PATTERN = /[-_\s]+/;
 
-/** One selectable model, flattened for display. */
 export interface ModelOption {
-  /**
-   * Catalog rate card, USD per 1M tokens. The full {@link ModelCosts} rather
-   * than a narrowed copy, so tiered and cached rates survive the projection and
-   * reach the cost estimate intact. Absent when the provider reports no pricing.
-   */
   costs?: ModelCosts;
   group?: string;
   id: string;
   label: string;
   maxInputTokens?: number | null;
-  /**
-   * Provider that serves this model (`gateway`, `vercel`, `local`, …) — the
-   * routing target, chosen in the picker's source pane rather than its list.
-   */
   provider: string;
   supportsFunctionCalling?: boolean;
   supportsReasoning?: boolean;
   supportsVision?: boolean;
-  /** Model maker (OpenAI, Anthropic, …) — the in-list group heading. */
   vendor?: string;
 }
 
-/** A catalog row tagged with where it came from. */
 export type CatalogRow = ProviderModelDefinition & { provider: string };
 
-/**
- * Flatten a catalog row for display.
- *
- * `vendor` names the maker and drives the group heading; `provider` names the
- * routing target. They are deliberately distinct — a model made by Anthropic
- * can be served by the gateway, by Vercel, or by a CLI harness.
- */
 export function toModelOption(row: CatalogRow): ModelOption {
   const vendor = row.vendor ?? "other";
   return {
@@ -54,11 +33,6 @@ export function toModelOption(row: CatalogRow): ModelOption {
   };
 }
 
-/**
- * Vendor from a bare model id, for rows whose source names no maker — a CLI
- * harness reports slugs, not provenance. Prefix matching only: a guess beyond
- * that would mislabel more than it fixed.
- */
 export function vendorOf(id: string): string {
   const lower = id.toLowerCase();
   if (lower.startsWith("claude")) {
@@ -73,7 +47,6 @@ export function vendorOf(id: string): string {
   return "other";
 }
 
-/** Id → label: `vercel` → "Vercel", `ai_gateway` → "Ai Gateway". */
 function titleCase(id: string): string {
   return id
     .split(MODEL_ID_WORD_SEPARATOR_PATTERN)

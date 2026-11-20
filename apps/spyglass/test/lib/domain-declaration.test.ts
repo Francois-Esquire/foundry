@@ -1,9 +1,6 @@
 import { expect, it } from "vitest";
 import { parseConfigFile } from "../../src/lib/spyglass-config";
 
-// Domains are validated as part of a configuration file's default export,
-// so these tests go through the same parse the loader runs on each file.
-
 const FILE = ".foundry/spyglass/domains.ts";
 
 function domains(value: unknown): unknown {

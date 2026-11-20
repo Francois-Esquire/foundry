@@ -47,7 +47,6 @@ export interface ModuleManagement extends ModuleProjects {
     readonly moduleId: ModuleId;
     readonly page?: PageInput;
   }): Promise<Page<ModuleVersion>>;
-  /** Requires a stopped Installation; activation and approval are separate. */
   selectVersion(input: {
     readonly installationId: InstallationId;
     readonly contentId: ContentId;
@@ -58,11 +57,6 @@ export interface ModuleManagement extends ModuleProjects {
   }): Promise<readonly ModuleView[]>;
 }
 
-/**
- * The Installation `installationId`, created disabled at `version` when
- * absent, in one Store transaction. For a host that names its
- * Installations itself, such as one per Module.
- */
 export function ensureInstallation(input: {
   readonly store: ModuleRegistryUnit<
     "createInstallation" | "loadGatewayContext"

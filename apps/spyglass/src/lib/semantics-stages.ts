@@ -22,13 +22,6 @@ import {
   WORKSPACE_SCHEMA_VERSION,
 } from "./workspace-types";
 
-// V12.5 semantic stage graph. Every cached or materialized artifact names the
-// stage that produced it; a stage's fingerprint covers its own versions and,
-// transitively, those of the stages it consumes. Bumping a version therefore
-// invalidates exactly the artifacts downstream of the change: a projection
-// schema bump leaves package reports and history snapshots reusable, a
-// package policy bump invalidates everything.
-
 export type SemanticStage =
   | "packageLocalAnalysis"
   | "internalPackageTopology"
@@ -46,7 +39,6 @@ export type SemanticStage =
   | "historySnapshot"
   | LensStage;
 
-/** One stage per lens, named by its id. */
 export type LensStage = `lens:${LensId}`;
 
 export function lensStage(id: LensId): LensStage {
@@ -63,15 +55,12 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   SemanticStageVersions
 > = {
   historySnapshot: { schemaVersion: HISTORY_SCHEMA_VERSION },
-  /** Pure derivation from one local report. */
   internalPackageTopology: {
     schemaVersion: INTERNAL_PACKAGE_TOPOLOGY_SCHEMA_VERSION,
   },
-  /** V13.2: pure derivation from the local report, its topology, and its locality. */
   internalResponsibilities: {
     schemaVersion: INTERNAL_RESPONSIBILITY_SCHEMA_VERSION,
   },
-  /** V13.4: pure derivation from the five package-intelligence reports above. */
   internalRewiring: { schemaVersion: INTERNAL_REWIRING_SCHEMA_VERSION },
   "lens:domains": { schemaVersion: LENS_SCHEMA_VERSIONS.domains },
   "lens:file-roles": { schemaVersion: LENS_SCHEMA_VERSIONS["file-roles"] },
@@ -92,12 +81,10 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   },
   "lens:rules": { schemaVersion: LENS_SCHEMA_VERSIONS.rules },
   materialization: { schemaVersion: DATASET_SCHEMA_VERSION },
-  /** The assembled `SurfaceReport`: local analysis joined with derivation. */
   packageAnalysis: {
     policyVersion: ANALYSIS_POLICY_VERSION,
     schemaVersion: Math.max(...SUPPORTED_PACKAGE_SCHEMAS),
   },
-  /** V13.5: pure derivation from the rewiring report alone. */
   packageArchitectureReview: {
     schemaVersion: PACKAGE_ARCHITECTURE_REVIEW_SCHEMA_VERSION,
   },
@@ -105,9 +92,7 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
     policyVersion: ANALYSIS_POLICY_VERSION,
     schemaVersion: PACKAGE_LOCAL_REPORT_SCHEMA_VERSION,
   },
-  /** V13.3: pure derivation from the local report, topology, locality, and responsibilities. */
   primitiveConventions: { schemaVersion: PRIMITIVE_CONVENTION_SCHEMA_VERSION },
-  /** V13.1: pure derivation from one local report and its topology. */
   symbolLocality: { schemaVersion: SYMBOL_LOCALITY_SCHEMA_VERSION },
   workspaceDerivation: {
     policyVersion: ANALYSIS_POLICY_VERSION,
@@ -121,7 +106,6 @@ export const SEMANTIC_STAGE_VERSIONS: Record<
   workspaceProjection: { schemaVersion: WORKSPACE_PROJECTION_SCHEMA_VERSION },
 };
 
-/** Direct inputs of each stage; the analyzer's real data flow, nothing implied. */
 const SEMANTIC_STAGE_DEPENDENCIES: Record<
   SemanticStage,
   readonly SemanticStage[]
@@ -140,7 +124,6 @@ const SEMANTIC_STAGE_DEPENDENCIES: Record<
     "internalResponsibilities",
     "primitiveConventions",
   ],
-  /** A lens reads the dataset, and the lenses it consumes. */
   "lens:domains": ["materialization", "lens:placement"],
   "lens:file-roles": ["materialization"],
   "lens:frequent-change": ["materialization"],
@@ -151,7 +134,6 @@ const SEMANTIC_STAGE_DEPENDENCIES: Record<
   "lens:proximity": ["materialization"],
   "lens:responsibility-groups": ["materialization"],
   "lens:rules": ["materialization"],
-  /** The dataset before its lenses: the workspace, its projections, and each package's internals. */
   materialization: [
     "workspaceIntelligence",
     "workspaceProjection",
@@ -173,7 +155,6 @@ const SEMANTIC_STAGE_DEPENDENCIES: Record<
   workspaceProjection: ["workspaceIntelligence"],
 };
 
-/** The stage and everything it transitively consumes, in a stable order. */
 export function stageClosure(stage: SemanticStage): SemanticStage[] {
   const seen = new Set<SemanticStage>();
   const visit = (current: SemanticStage): void => {
@@ -193,7 +174,6 @@ export function sha1(material: string): string {
   return createHash("sha1").update(material).digest("hex");
 }
 
-/** Versions of the stage closure, hashed; equal whenever the semantics they govern are. */
 export function stageFingerprint(stage: SemanticStage): string {
   return sha1(
     JSON.stringify(

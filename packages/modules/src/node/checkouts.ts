@@ -66,13 +66,9 @@ export function createModuleCheckouts(options: {
       if (await matches(hostPath, outputs)) {
         return { hostPath };
       }
-      // A live VM may still hold the damaged tree; move it aside, never
-      // rewrite it in place.
       await rename(hostPath, path.join(root, `.corrupt-${randomUUID()}`));
     }
 
-    // Filled beside its final name and published by one rename, so a
-    // concurrent start of the same digest never sees a partial tree.
     const temporary = path.join(root, `.tmp-${randomUUID()}`);
     try {
       await mkdir(temporary, { mode: 0o700 });
@@ -189,7 +185,6 @@ async function matches(
   return true;
 }
 
-/** `null` when the tree holds anything but real files and directories. */
 async function listFiles(
   root: string,
   relative: string

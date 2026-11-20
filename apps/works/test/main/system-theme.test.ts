@@ -62,7 +62,6 @@ describe("main's theme", () => {
       mode: "light",
     });
 
-    // A later start reads the preference before anything is shown.
     const second = await openTheme(file, true);
     expect(second.snapshot).toMatchObject({
       effective: "light",
@@ -80,7 +79,6 @@ describe("main's theme", () => {
     const second = await openTheme(file);
     expect(await second.theme.adopt("light")).toMatchObject({ mode: "dark" });
 
-    // No stored renderer mode: auto is stored, and later offers change nothing.
     const fresh = await openTheme(
       path.join(await temporaryDirectory(), "theme.json")
     );
@@ -182,7 +180,6 @@ describe("works.system.theme", () => {
       revision: 1,
     });
 
-    // Three changes and a no-op while the consumer is busy: it gets the last.
     await theme.set("dark");
     await theme.set("light");
     native.desktop(true);
@@ -280,7 +277,6 @@ describe("works.system.theme", () => {
         signal: new AbortController().signal,
       });
 
-    // Not approved: no mode state at all.
     await expect(observe("request-1")).rejects.toMatchObject({
       code: "unauthorized",
     });

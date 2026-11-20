@@ -1,12 +1,5 @@
 import { execFile } from "node:child_process";
-import {
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -25,19 +18,43 @@ import {
   GrantClaimError,
   GrantRevisionError,
 } from "@foundry/lib/config/authorization";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
+import { DatabaseGrantStorage } from "~/database/grants";
+import type { MarblesDatabase } from "~/database/open";
+import { initializeDatabase } from "~/database/open";
+import { marblesAgentGrants } from "~/database/tables";
+import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
 
 let directory: string;
-let path: string;
+let file: string;
+let opened: MarblesDatabase;
 let now: number;
 const subject = agentSubject("helper", 3);
 const capability: Capability = { domain: "example.com", kind: "web.fetch" };
 const address = agentAddressing.addressOf(subject, capability);
 const execute = promisify(execFile);
 
-function repository(): JsonAgentGrantRepository {
-  return new JsonAgentGrantRepository(path, { now: () => now });
+function repository(scope = "ws"): StoredAgentGrantRepository {
+  return new StoredAgentGrantRepository(
+    new DatabaseGrantStorage({ database: opened.database, scope }),
+    { now: () => now }
+  );
+}
+
+async function stored(): Promise<string | undefined> {
+  const [row] = await opened.database
+    .select({ grants: marblesAgentGrants.grants })
+    .from(marblesAgentGrants)
+    .where(eq(marblesAgentGrants.scope, "ws"));
+  return row?.grants;
+}
+
+async function replace(grants: string): Promise<void> {
+  await opened.database
+    .update(marblesAgentGrants)
+    .set({ grants })
+    .where(eq(marblesAgentGrants.scope, "ws"));
 }
 
 function input(
@@ -48,11 +65,13 @@ function input(
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "agent-grants-"));
-  path = join(directory, "authority", "grants.json");
+  file = join(directory, "marbles.db");
+  opened = await initializeDatabase(file);
   now = 100;
 });
 
 afterEach(async () => {
+  opened.close();
   await rm(directory, { force: true, recursive: true });
 });
 
@@ -68,9 +87,11 @@ it("preserves grant metadata, ordering and unique ids through reopen", async () 
   expect(await repository().find(address, now)).toEqual([issued, second]);
   expect(issued).toMatchObject({ issuedAt: 100, revision: 1 });
   expect(second).toMatchObject({ id: "grant_2", issuedAt: 110 });
-  // biome-ignore lint/suspicious/noBitwiseOperators: Mask file type bits to check private POSIX permissions.
-  expect((await stat(path)).mode & 0o777).toBe(0o600);
-  expect(await readdir(join(directory, "authority"))).toEqual(["grants.json"]);
+  expect(JSON.parse((await stored()) ?? "")).toMatchObject({
+    format: "agent-grants/1",
+    sequence: 2,
+  });
+  expect(await repository("another").find(address, now)).toEqual([]);
 });
 
 it("enforces the original session scope after reopening through the agent authorizer", async () => {
@@ -141,19 +162,24 @@ it("allows exactly one concurrent invocation and replays that claim after restar
 
 it("serializes competing claims from separate host processes", async () => {
   const grant = await repository().issue(input({ kind: "once" }));
-  const source = resolve(
-    import.meta.dirname,
-    "../../src/lib/sandbox/grants.ts"
-  );
+  const src = resolve(import.meta.dirname, "../../src");
   const claim = (invocation: string) =>
-    execute("bun", [
-      "--eval",
-      `
-    import { JsonAgentGrantRepository } from ${JSON.stringify(source)};
-    const claim = await new JsonAgentGrantRepository(${JSON.stringify(path)}).claimOnce(${JSON.stringify(grant.id)}, ${JSON.stringify(invocation)});
+    execute(
+      "bun",
+      [
+        "--eval",
+        `
+    import { DatabaseGrantStorage } from ${JSON.stringify(join(src, "database/grants.ts"))};
+    import { writeDatabase } from ${JSON.stringify(join(src, "database/open.ts"))};
+    import { StoredAgentGrantRepository } from ${JSON.stringify(join(src, "lib/sandbox/grants.ts"))};
+    const claim = await writeDatabase(${JSON.stringify(file)}, (database) =>
+      new StoredAgentGrantRepository(new DatabaseGrantStorage({ database, scope: "ws" })).claimOnce(${JSON.stringify(grant.id)}, ${JSON.stringify(invocation)})
+    );
     process.stdout.write(JSON.stringify(claim));
   `,
-    ]);
+      ],
+      { cwd: resolve(import.meta.dirname, "../..") }
+    );
   const results = await Promise.allSettled([
     claim("process-1"),
     claim("process-2"),
@@ -277,7 +303,7 @@ it.each([
   "fails closed for corrupt saved data without replacing it",
   async (contents) => {
     await repository().issue(input());
-    await writeFile(path, contents);
+    await replace(contents);
     await expect(repository().find(address, now)).rejects.toThrow(
       "refusing authorization"
     );
@@ -290,10 +316,7 @@ it.each([
     await expect(repository().revoke("grant_1")).rejects.toThrow(
       "refusing authorization"
     );
-    expect(await readFile(path, "utf8")).toBe(contents);
-    expect(await readdir(join(directory, "authority"))).toEqual([
-      "grants.json",
-    ]);
+    expect(await stored()).toBe(contents);
   }
 );
 
@@ -303,8 +326,7 @@ it("rejects an address inconsistent with the saved capability", async () => {
     ...grant,
     capability: { domain: "attacker.example", kind: "web.fetch" },
   };
-  await writeFile(
-    path,
+  await replace(
     JSON.stringify({
       format: "agent-grants/1",
       grants: [{ grant: inconsistent, revoked: false }],
@@ -319,8 +341,7 @@ it("rejects an address inconsistent with the saved capability", async () => {
 it("rejects a consumed grant corrupted back to live authority", async () => {
   const grant = await repository().issue(input({ kind: "once" }));
   const claim = await repository().claimOnce(grant.id, "first");
-  await writeFile(
-    path,
+  await replace(
     JSON.stringify({
       format: "agent-grants/1",
       grants: [{ claim, grant: { ...grant, revision: 2 }, revoked: false }],
@@ -331,14 +352,3 @@ it("rejects a consumed grant corrupted back to live authority", async () => {
     "refusing authorization"
   );
 });
-
-it("fails closed on an abandoned writer lock without deleting it", async () => {
-  await repository().issue(input());
-  await writeFile(`${path}.lock`, "", { mode: 0o600 });
-  await expect(repository().claimOnce("grant_1", "call")).rejects.toThrow(
-    "remove the abandoned lock"
-  );
-  expect(await stat(`${path}.lock`)).toBeDefined();
-  await rm(`${path}.lock`);
-  expect(await repository().find(address, now)).toHaveLength(1);
-}, 10_000);

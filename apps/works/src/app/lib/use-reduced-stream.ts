@@ -1,26 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/** How long to wait before opening the stream again after it dropped. */
 const RECONNECT_MS = [1000, 2000, 5000, 10_000] as const;
 
 export type StreamConnection =
-  /** Waiting for the first event. */
   | "connecting"
-  /** Following live changes. */
   | "live"
-  /** Lost the stream; the last state stays until the stream opens again. */
   | "reconnecting"
-  /** Main does not offer this stream; retrying is left to the person. */
   | "failed";
 
 export interface ReducedStream<Event, State> {
   readonly initial: State;
-  /**
-   * Opens the stream. Its identity names the stream: a new `open` starts
-   * over from `initial`; the same one is reopened after a drop.
-   */
   readonly open: (signal: AbortSignal) => Promise<AsyncIterable<Event>>;
-  /** Folds each event in; the first event of every opening is a snapshot. */
   readonly reduce: (state: State, event: Event) => State;
 }
 
@@ -39,13 +29,6 @@ function unavailable(error: unknown): boolean {
   );
 }
 
-/**
- * Follows a snapshot-then-changes stream from main, folding it into state.
- * A stream that fails or ends opens again with backoff, and its fresh
- * snapshot replaces what was held, so nothing is duplicated and nothing
- * missed while away stays hidden. A stream main does not offer fails
- * without retrying until `retry`.
- */
 export function useReducedStream<Event, State>({
   initial,
   open,
@@ -102,7 +85,6 @@ export function useReducedStream<Event, State>({
       controller.abort();
       clearTimeout(timer);
     };
-    // `attempt` is a dependency so that `retry` opens the stream again.
   }, [open, attempt]);
 
   const retry = useCallback(() => setAttempt((value) => value + 1), []);

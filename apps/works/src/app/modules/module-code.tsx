@@ -26,7 +26,6 @@ export function ModuleCode({
   disabled: boolean;
   onChange: (path: string, contents: string) => void;
 }) {
-  // Pierre owns the active document. Draft updates must not feed back into it.
   const [file] = useState<FileContents>(() => ({ contents, name: path }));
   const { resolvedTheme } = useTheme();
   const options = useMemo(

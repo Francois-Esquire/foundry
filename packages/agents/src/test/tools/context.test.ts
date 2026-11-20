@@ -56,8 +56,6 @@ describe("createToolContext (engine-free base)", () => {
 
 describe("createToolContext — attaching a policy to a host's own context", () => {
   it("returns the caller's exact object, frozen or branded, never a copy", () => {
-    // The shape `@foundry/analyze` uses: branded into a WeakSet and frozen, so
-    // a copy fails its check and a write throws.
     const branded = new WeakSet();
     const base = Object.freeze({ engine: "the-engine" });
     branded.add(base);
@@ -83,8 +81,6 @@ describe("createToolContext — attaching a policy to a host's own context", () 
   });
 
   it("tracks a context the host reshaped after the policy was attached", () => {
-    // Dynamically loaded tools and MCP servers change what a context carries;
-    // only `policy` is held outside the object, so the rest stays live.
     const policy = fakePolicy();
     const base: { space?: string } = {};
     createToolContext({ policy }, base);
@@ -109,8 +105,6 @@ describe("createToolContext — attaching a policy to a host's own context", () 
 
 describe("getPolicy", () => {
   it("never honours a `policy` field — authority is never part of the shape", () => {
-    // A context is data a host (or, one day, something it deserialized) can
-    // compose; being handed one must not be a way to claim authority.
     const forged = { policy: fakePolicy() };
     expect(getPolicy(forged)).toBeUndefined();
 

@@ -62,7 +62,6 @@ function keyed(
   });
 }
 
-/** One row bearing live facts for two Operations, plus a request-only fact. */
 const TWO_LIVE: ProviderModelDefinition[] = [
   {
     id: "vendor/dual",

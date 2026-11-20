@@ -12,10 +12,6 @@ export interface AgentPresetCatalogEntry extends AgentPresetIdentity {
   readonly preset: AgentPreset;
 }
 
-/** The named migration surface for consumers that still require a live
- * `ToolLoopAgent`/`LoopAgent`. Canonical catalogs derive this projection from
- * presets; Session meshes may use a mutable compatibility registry for their
- * already-live, Session-bound agents. */
 export interface AgentCompatibilityProjection {
   get(id: string): AgentEntry | undefined;
   has(id: string): boolean;
@@ -63,14 +59,6 @@ function staleGenerationError(
   );
 }
 
-/**
- * A stable, generation-pinned raw projection. It resolves the retained preset
- * only on first invocation, so file-defined specs remain retained definitions
- * at load time rather than eagerly freezing a harness. Existing callers use
- * only the invocation methods (`stream`/`generate`), so those are all it
- * carries; every other `ToolLoopAgent` member is outside this compatibility
- * contract.
- */
 function compatibilityEntry(entry: AgentPresetCatalogEntry): AgentEntry {
   let projected: Promise<LoopAgent> | undefined;
   const resolve = (): Promise<LoopAgent> => {
@@ -187,8 +175,6 @@ export function createAgentRegistry(): AgentRegistry {
   });
 }
 
-/** Mutable raw registry for Session-bound live agents. The name makes the
- * compatibility status explicit; it is not a second preset catalog. */
 export function createAgentCompatibilityRegistry(): AgentCompatibilityRegistry {
   const agents = new Map<string, AgentEntry>();
   return {

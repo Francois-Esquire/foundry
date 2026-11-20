@@ -32,7 +32,6 @@ function readyApp(
   return state?.phase === "ready" ? state.app : undefined;
 }
 
-/** Only an unguarded editor may automatically adopt a different runtime. */
 function nextDisplayedApp(
   current: ModuleSession | undefined,
   displayed: ModuleSession | undefined,
@@ -60,17 +59,13 @@ function lostDisplayedRuntime(
 export function ModuleAppPage() {
   const { moduleId = "" } = useParams<{ moduleId: string }>();
   const [search] = useSearchParams();
-  // An approved route change is a new editor, not the retained old frame.
   return <ModuleAppSession key={`${moduleId}?${search.toString()}`} />;
 }
 
 function ModuleAppSession() {
   const { moduleId = "" } = useParams<{ moduleId: string }>();
-  // An entry opened from Artifacts names its editor View and the binding
-  // the View is opened with.
   const [search] = useSearchParams();
   const binding = search.get("binding");
-  // The release an opened entry's binding is for; otherwise the newest.
   const release = search.get("release");
   const details = useQuery(
     worksApi().modules.details.queryOptions({ input: { id: moduleId } })
@@ -80,8 +75,6 @@ function ModuleAppSession() {
     input: release ? { id: moduleId, release } : { id: moduleId },
     retry: false,
   });
-  // A new binding must not display a cached endpoint whose old watcher is
-  // stopping. The approved route owns a fresh live-query lifetime.
   const opened = useQuery({
     ...opening,
     queryKey: [...opening.queryKey, { binding, view: search.get("view") }],
@@ -92,8 +85,6 @@ function ModuleAppSession() {
     opened.error?.message ??
     (state?.phase === "failed" ? state.message : undefined);
   const currentApp = readyApp(state);
-  // Runtime revocation stops the Program immediately. Keep its already-loaded
-  // View in memory until unsaved work is resolved; this retains no authority.
   const [displayedApp, setDisplayedApp] = useState<ModuleSession>();
   const app = displayedApp ?? currentApp;
   const [viewId, setViewId] = useState(search.get("view") ?? undefined);
@@ -111,7 +102,6 @@ function ModuleAppSession() {
     setDisplayedApp(replacement);
   }
   const runtimeChanged = lostDisplayedRuntime(displayedApp, currentApp);
-  // Leaving the View unmounts its frame and whatever it has not saved.
   const leaves = useCallback<BlockerFunction>(
     ({ currentLocation, nextLocation }) =>
       guarded &&
@@ -124,7 +114,6 @@ function ModuleAppSession() {
     if (!guarded) {
       return;
     }
-    // Closing or quitting asks main first, before anything shuts down.
     const warn = (unload: BeforeUnloadEvent) => unload.preventDefault();
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
@@ -224,8 +213,6 @@ function ModuleAppSession() {
         <iframe
           className="min-h-0 w-full flex-1 bg-white"
           ref={setFrame}
-          // Client-side submit handlers need forms enabled. The proxy's
-          // form-action 'none' still forbids native form navigation.
           sandbox="allow-scripts allow-same-origin allow-forms"
           src={boundViewUrl(app.origin, view.path, binding)}
           title={view.title ?? details.data?.name ?? "Module app"}

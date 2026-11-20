@@ -30,7 +30,6 @@ export interface NodeSandboxPipedProcess extends SandboxPipedProcess {
   readonly stdout: Readable;
 }
 
-/** Return immediately for child-process hooks while the sandbox launch is pending. */
 export function prepareSandboxProcess(
   launch: () => Promise<SandboxPipedProcess>
 ): NodeSandboxPipedProcess {

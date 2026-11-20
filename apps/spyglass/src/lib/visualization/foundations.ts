@@ -11,10 +11,8 @@ type FoundationIsland = Pick<IslandGeometry, "id" | "x" | "y" | "radius">;
 type DependencyGraph = NonNullable<DependencyInventory["graph"]>;
 type DependencyEdge = DependencyGraph["edges"][number];
 
-/** Each transitive step relies less, for third-party and workspace reliance alike. */
 const relianceAttenuation = 0.45;
 
-/** Only runtime installation chains form the default underwater geography. */
 function isRuntime(edge: DependencyEdge): boolean {
   return edge.kind === "dependencies" || edge.kind === "optionalDependencies";
 }
@@ -75,7 +73,6 @@ function mergeUsage(
   };
 }
 
-/** Declaration remains the baseline; observed imports refine it by at most a quarter. */
 function usageStrength(usage: FoundationMember["usage"]): number {
   if (!usage) {
     return 1;
@@ -91,7 +88,6 @@ function usageStrength(usage: FoundationMember["usage"]): number {
   );
 }
 
-/** Breadth-first traversal counts a consumer once, even through diamonds or cycles. */
 function dependenciesOf(
   consumer: string,
   outgoing: ReadonlyMap<string, readonly DependencyEdge[]>,
@@ -121,7 +117,6 @@ function dependenciesOf(
   return reached;
 }
 
-/** Shared external names, with resolved versions preserved and shortest-path attenuation. */
 export function deriveFoundations(
   inventory: DependencyInventory,
   territoryIds: readonly string[]
@@ -183,7 +178,6 @@ export function deriveFoundations(
     }));
 }
 
-/** Runtime edges from one workspace package to another, by source. */
 function workspaceRuntimeEdges(graph: DependencyGraph): Map<string, string[]> {
   const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
   const workspaceIds = new Map(
@@ -197,7 +191,6 @@ function workspaceRuntimeEdges(graph: DependencyGraph): Map<string, string[]> {
       edge.resolution === "resolved" && edge.target
         ? nodes.get(edge.target)
         : undefined;
-    // An unresolved declaration still names a workspace package.
     const target =
       node?.kind === "workspace" ? node.id : workspaceIds.get(edge.name);
     if (target && node?.kind !== "external") {
@@ -207,7 +200,6 @@ function workspaceRuntimeEdges(graph: DependencyGraph): Map<string, string[]> {
   return outgoing;
 }
 
-/** Breadth-first: every workspace package `consumer` relies on, at its shortest distance. */
 function reliedUpon(
   consumer: string,
   outgoing: ReadonlyMap<string, readonly string[]>
@@ -227,13 +219,6 @@ function reliedUpon(
   return distances;
 }
 
-/**
- * Workspace packages that other workspace packages reach through runtime
- * chains, each with its dependents at their shortest distance. A supplier
- * with no third-party overlap, such as a shared `lib`, still appears here.
- * Development and peer chains are not structure; neither is a package
- * outside the islands given.
- */
 export function deriveInternalFoundations(
   inventory: DependencyInventory,
   territoryIds: readonly string[]
@@ -270,7 +255,6 @@ export function deriveInternalFoundations(
     }));
 }
 
-/** Rebuild the visible field from settled islands; hiding it never changes geography. */
 export function positionFoundations(
   foundations: readonly DependencyFoundation[],
   territories: readonly FoundationIsland[]

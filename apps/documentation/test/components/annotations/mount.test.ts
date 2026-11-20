@@ -18,7 +18,6 @@ const PREVIOUS = "foundry:annotations-previous:v1:/guide";
 const ARTICLE =
   '<div id="blume-content"><article><h2 id="one">One</h2><p>Install Bun before running the tests.</p><h2 id="two">Two</h2><p>Second section.</p></article></div><p data-annotation-storage></p>';
 
-/** Happy DOM has no layout, so block-attached notes list as unresolved. */
 const LIST_PREFIX = /^(Unresolved · )?text: /;
 
 let storage: ReturnType<typeof installMemoryStorage>;
@@ -35,7 +34,6 @@ function currentHost() {
   return document.querySelector<HTMLElement>("[data-annotation-host]");
 }
 
-/** Remounting waits for an async share decode, so poll for a new host element. */
 async function mounted(previous: HTMLElement | null) {
   await settle();
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -48,7 +46,6 @@ async function mounted(previous: HTMLElement | null) {
   throw new Error("Annotations did not remount");
 }
 
-/** Debounce plus native gzip encoding. */
 const urlWritten = () => settle(260);
 
 function host() {
@@ -121,7 +118,6 @@ function note(id: string, text: string): AnnotationDocument["marks"][number] {
   };
 }
 
-/** Astro pushes a same-page fragment entry from the current URL, then dispatches popstate. */
 async function followHeading(hash: string) {
   const previous = currentHost();
   const url = new URL(location.href);
@@ -142,10 +138,6 @@ async function back() {
   await mounted(previous);
 }
 
-/**
- * Happy DOM discards forward entries after replaceState, so Forward is
- * emulated: the traversed entry's URL becomes current, then popstate fires.
- */
 async function revisit(url: string) {
   const previous = currentHost();
   history.replaceState(history.state, "", url);
@@ -284,7 +276,6 @@ describe("annotation mount lifecycle", () => {
     expect(texts(storage.data.get(LOCAL))).toEqual(["shared", "reply"]);
     expect(texts(storage.data.get(PREVIOUS))).toEqual(["mine"]);
     await urlWritten();
-    // Back to the shared entry is now this browser's history, not a new import.
     await back();
     expect(`${location.pathname}${location.search}${location.hash}`).toBe(
       sharedPath

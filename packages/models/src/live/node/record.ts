@@ -4,15 +4,6 @@ import { MediaRecorder } from "werift/nonstandard";
 
 import { modelErrors } from "../../errors";
 
-/**
- * Video codecs werift's webm writer carries; anything else is a refusal.
- *
- * The audio list is reachable only on a session that negotiates an audio
- * track. At this pin the WMA extension offers exactly one recv-only *video*
- * transceiver, so on the shipped `continuous` facts neither this list nor the
- * `audio/webm` mime below is reached. Both are kept because the codec check is
- * per received track, not per endpoint.
- */
 const WEBM_VIDEO_CODECS = ["h264", "vp8", "vp9", "av1x"];
 const WEBM_AUDIO_CODECS = ["opus"];
 
@@ -28,7 +19,6 @@ export interface LiveRecording {
   stop(): Promise<RecordedSegment>;
 }
 
-/** What `record` needs from the interaction, so the recorder holds no state. */
 export interface RecordContext {
   readonly active: boolean;
   readonly direction: number;
@@ -50,7 +40,6 @@ export function startRecording(
     });
   }
   for (const track of context.tracks) {
-    // Refusal, never a transcode: what the writer cannot carry is not re-encoded.
     const name = track.codec?.name.toLowerCase();
     const carried =
       track.kind === "audio" ? WEBM_AUDIO_CODECS : WEBM_VIDEO_CODECS;
@@ -64,8 +53,6 @@ export function startRecording(
   const startedDirection = context.direction;
   const startedAt = Date.now();
   const hasVideo = context.tracks.some((track) => track.kind === "video");
-  // Supplying `tracks` is what starts it: the constructor sets `numOfTracks`
-  // and calls its own private `start` (`nonstandard/recorder/index.js`).
   const recorder = new MediaRecorder({
     path: destination,
     tracks: [...context.tracks],

@@ -17,16 +17,10 @@ import { isFilesystemPathWithin } from "@foundry/lib/paths";
 
 import { lstatOrNull, writeAtomically } from "./fs";
 
-/** Streams the stored bytes of the file at a tree path. */
 export type ReadTreeFile = (path: string) => Promise<AsyncIterable<Uint8Array>>;
 
 type SpecialNode = Extract<StorageNode, { type: "socket" | "pipe" | "device" }>;
 
-/**
- * Make `root` mirror `tree`. Paths absent from the tree are removed, changed
- * files are replaced atomically, and catalog-only nodes (sockets, pipes,
- * devices) leave nothing new on disk.
- */
 export async function materialize(
   root: string,
   tree: StorageTree,
@@ -113,7 +107,6 @@ async function ensureDirectory(
   await mkdir(path, { recursive: true });
 }
 
-/** Every parent between `root` and `target` is a real directory inside `root`. */
 async function confinedParents(root: string, target: string): Promise<void> {
   let parent = dirname(target);
   while (parent !== root) {

@@ -5,7 +5,6 @@ import { worksApi } from "~/app/api/client";
 import { Button } from "~/app/components/button";
 import { Input } from "~/app/components/input";
 
-/** The Module library: create, import, and open each Module's management. */
 export function ModuleCatalog() {
   const api = worksApi();
   const queryClient = useQueryClient();

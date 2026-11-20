@@ -26,7 +26,6 @@ interface Manifest {
 
 const root = new URL("../../../", import.meta.url);
 
-/** What the editor shows: one highlighted reference, with the kind its scope stands for. */
 export interface Highlight {
   readonly kind: TokenKind;
   readonly text: string;
@@ -39,7 +38,6 @@ const KIND_BY_SCOPE = new Map(
   ])
 );
 
-/** Every grammar the manifest contributes, registered the way VS Code reads it. */
 export function contributedGrammars(): LanguageRegistration[] {
   const manifest = JSON.parse(
     readFileSync(new URL("package.json", root), "utf8")
@@ -51,11 +49,6 @@ export function contributedGrammars(): LanguageRegistration[] {
   }));
 }
 
-/**
- * VS Code's built-in `prompt-basics` gives SKILL.md and agent files a root
- * grammar that only wraps markdown. Injections are collected for the root
- * scope, so this is what the markdown injection has to reach.
- */
 const promptMarkdown: LanguageRegistration = {
   embeddedLangs: ["markdown"],
   name: "skill",
@@ -64,7 +57,6 @@ const promptMarkdown: LanguageRegistration = {
   scopeName: "text.html.markdown.prompt",
 };
 
-/** Shiki's copies of VS Code's Dark+ and Light+, and the GitHub themes VS Code's 2026 themes take their palette from. */
 const THEME_REGISTRATIONS = [
   darkPlus,
   lightPlus,
@@ -86,7 +78,6 @@ function highlighter(): Promise<HighlighterCore> {
     engine: createOnigurumaEngine(import("shiki/wasm")),
     langs: [
       ...typescript,
-      // VS Code always has YAML; without it markdown drops its frontmatter rule.
       ...yaml,
       ...markdown,
       promptMarkdown,
@@ -97,15 +88,12 @@ function highlighter(): Promise<HighlighterCore> {
   return loading;
 }
 
-/** One run of text as a theme paints it. */
 export interface Painted {
   readonly color: string;
-  /** The prompt kind its scopes stand for; none for the host's own text. */
   readonly kind?: TokenKind;
   readonly text: string;
 }
 
-/** `source` as `theme` colours it, token by token. */
 export async function paint(
   language: "skill" | "typescript",
   source: string,
@@ -131,11 +119,6 @@ export async function foreground(theme: Theme): Promise<string> {
   return (await highlighter()).getTheme(theme).fg;
 }
 
-/**
- * The prompt references a language's grammar, with the contributed
- * injections, highlights in `source`. Scopes outside `HIGHLIGHT_SCOPES`
- * (the host language's own) are dropped.
- */
 export async function highlight(
   language: "markdown" | "skill" | "typescript",
   source: string
@@ -163,16 +146,13 @@ export async function highlight(
 }
 
 const TOKEN_TYPES = ["other", "comment", "string", "regex"] as const;
-/** vscode-textmate packs the token type into bits 8 and 9 of each token's metadata. */
 const TOKEN_TYPE_UNIT = 2 ** 8;
 
-/** One run of text with the type VS Code gives it, which decides bracket matching and auto-closing. */
 export interface Typed {
   readonly text: string;
   readonly type: (typeof TOKEN_TYPES)[number];
 }
 
-/** `source` split into runs by the standard token type its grammar gives each. */
 export async function tokenTypes(
   language: "typescript",
   source: string

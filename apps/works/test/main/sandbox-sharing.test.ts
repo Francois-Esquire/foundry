@@ -11,7 +11,6 @@ import { startTestExecution } from "../helpers/execution";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Counts the Module sandbox loans out at once, and which containers they lent. */
 function trackLoans(sandboxes: ModuleSandboxes) {
   const state = { active: 0, containers: new Set<unknown>(), peak: 0 };
   const borrow = sandboxes.borrow.bind(sandboxes);
@@ -38,7 +37,6 @@ function trackLoans(sandboxes: ModuleSandboxes) {
 }
 
 it("lends a Module's one sandbox to a chat turn and a build at once, and keeps it on while idle", async () => {
-  // The chat turn's model call holds until the turn is cancelled.
   const { models } = scriptedModels([{ hold: true }]);
   const execution = await startTestExecution({ models });
   const { binding, details, library, module, runtime, sandboxes, service } =
@@ -52,8 +50,6 @@ it("lends a Module's one sandbox to a chat turn and a build at once, and keeps i
   });
   await expect.poll(() => loans.active).toBe(1);
 
-  // A build of the same Module is not queued behind the chat turn: it
-  // borrows the same live sandbox while the turn still holds it.
   const builds = new ModuleBuilds({
     execution,
     library,
@@ -72,7 +68,6 @@ it("lends a Module's one sandbox to a chat turn and a build at once, and keeps i
   await service.cancel(module.id, sent.id);
   await expect.poll(() => loans.active).toBe(0);
 
-  // Idle, it stays on: no timeout stops it while the Module is on.
   vi.useFakeTimers();
   try {
     vi.advanceTimersByTime(DAY_MS);
@@ -82,7 +77,6 @@ it("lends a Module's one sandbox to a chat turn and a build at once, and keeps i
   expect(sandboxes.live()).toEqual([module.id]);
   expect(runtime.instances[0]?.stopped).toBe(false);
 
-  // Only turning the Module off (or quitting) stops it.
   await sandboxes.stop(module.id);
   expect(sandboxes.live()).toEqual([]);
   expect(runtime.instances[0]?.stopped).toBe(true);

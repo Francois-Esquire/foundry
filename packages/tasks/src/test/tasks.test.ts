@@ -7,7 +7,6 @@ import { SqliteTaskStore } from "../store/sqlite";
 import { Tasks } from "../tasks";
 import { libsqlDatabases } from "./helpers/sqlite";
 
-/** A fixed clock; `Tasks` keeps instants strictly increasing on its own. */
 const clock = () => new Date("2026-10-29T00:00:00.000Z");
 
 async function failure(work: Promise<unknown>): Promise<TaskError> {
@@ -407,8 +406,6 @@ describe.each(stores)("Tasks over the %s store", (storeName, open) => {
         ],
       });
 
-    // A dependency added after the caller last read the task leaves its
-    // token unchanged, so only the commit-time check refuses the start.
     await tasks.change({
       operations: [
         {
@@ -423,7 +420,6 @@ describe.each(stores)("Tasks over the %s store", (storeName, open) => {
     expect(refused.message).toContain(`depends on open ${blocker.id}`);
     expect((await tasks.get(work.id))?.status).toBe("open");
 
-    // Earlier operations in the same batch count, in order.
     const fresh = await tasks.create({ title: "fresh" });
     expect(
       (
@@ -443,7 +439,6 @@ describe.each(stores)("Tasks over the %s store", (storeName, open) => {
       dependsOn: [],
     });
 
-    // The parent gate is the instance's own.
     const child = await tasks.create(
       { title: "child" },
       { parent: { id: fresh.id } }
@@ -455,9 +450,7 @@ describe.each(stores)("Tasks over the %s store", (storeName, open) => {
     await tasks.complete(blocker.id);
     const started = await startWhenReady(work.id);
     expect(started.tasks[0]?.status).toBe("active");
-    // Already active is not ready either: a second runner cannot take it.
     expect((await failure(startWhenReady(work.id))).code).toBe("not_ready");
-    // Without the flag, start is unguarded, as before.
     expect((await tasks.start(child.id)).status).toBe("active");
   });
 

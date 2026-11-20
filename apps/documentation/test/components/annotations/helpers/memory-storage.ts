@@ -1,7 +1,3 @@
-/**
- * Node can shadow happy-dom's `window.localStorage` with an unconfigured
- * built-in, so lifecycle tests install a Map-backed store explicitly.
- */
 export function installMemoryStorage() {
   const data = new Map<string, string>();
   let failing: ((key: string) => boolean) | undefined;

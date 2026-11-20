@@ -24,6 +24,8 @@ export { TaskError, Tasks } from "@foundry/tasks";
 export { MemoryTaskStore } from "@foundry/tasks/store/memory";
 export type {
   Balance,
+  BillingAccountOptions,
+  Budget,
   Charge,
   Consumption,
   CreditBalance,
@@ -108,6 +110,7 @@ export type {
 export { step, workflow } from "./builder";
 export type { AgentSpec, DefineAgent } from "./instances";
 export type { Runnable, StepDefinition, WorkflowDefinition } from "./lock";
+export { models } from "./models";
 export { observe } from "./observe";
 export { agent, artifact, sandbox, skills, workspace } from "./resources";
 export { tasks } from "./tasks";

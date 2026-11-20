@@ -13,12 +13,6 @@ import type {
   SurfaceReport,
 } from "./types";
 
-/**
- * The report sections pressure composes. The architectural profile already
- * restates surface, consumption, gravity, complexity, and intent, so only
- * module gravity, boundary traffic, and per-function control flow are read
- * from their own sections.
- */
 export type StructuralPressureSource = Pick<
   SurfaceReport,
   | "architecturalProfile"
@@ -39,12 +33,6 @@ function dimensionsOf(evidence: PressureEvidence[]): PressureDimension[] {
   return seen;
 }
 
-/**
- * Highest fan-in among source modules that are not aggregators. A barrel's
- * fan-in is the package surface and a test setup's fan-in is test
- * infrastructure; an internal center is what this gate looks for. Modules
- * without a role (graph-only sources) count as internal.
- */
 function topInternalModuleByFanIn(source: StructuralPressureSource) {
   let top: DependencyGravity | undefined;
   for (const module of source.dependencyGravity.modules) {
@@ -78,11 +66,6 @@ function maxModuleDepth(source: StructuralPressureSource): number {
   return max;
 }
 
-/**
- * Where incoming traffic lands, summed by declaring module across every
- * consumer, as a share of all incoming import sites. Same basis as V5.2
- * destination concentration — barrels contribute edges, not sites.
- */
 function incomingDestination(source: StructuralPressureSource): {
   module: string;
   share: number;
@@ -403,11 +386,6 @@ function resolveShape(
   return "concentrated";
 }
 
-/**
- * Compose pressure signals from sections that already exist on the report.
- * No scanning, no graph walks: every value is read or summed from V5.0–V5.2
- * output. Signals never become opportunities and carry no score.
- */
 export function analyzeStructuralPressure(
   source: StructuralPressureSource,
   config: AnalysisConfig = ANALYSIS_CONFIG

@@ -9,7 +9,6 @@ export const WEB_FETCH_MAX_BODY_CHARS = 50_000;
 
 const FETCH_TIMEOUT_MS = 30_000;
 
-/** Maximum redirects followed within the authorized host. */
 export const WEB_FETCH_MAX_REDIRECTS = 5;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -21,17 +20,9 @@ const webFetchInputSchema = z.object({
 });
 
 export interface CreateWebFetchToolsOptions {
-  /** Test seam; defaults to the global `fetch`. */
   fetchImpl?: FetchLike;
 }
 
-/**
- * Derive the `web.fetch{domain}` capability from a raw (not-yet-validated)
- * call — pure, so it can run ahead of the tool's own URL validation (design:
- * "Tool registration"). An unparseable/missing URL falls back to an empty
- * domain: the policy authorizes against it, then the tool's own validation
- * below still refuses to fetch, so nothing is gained by guessing.
- */
 function domainOf(input: unknown): string {
   const parsed = webFetchInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -44,13 +35,6 @@ function domainOf(input: unknown): string {
   }
 }
 
-/**
- * The web-fetch tool: fetch a public http(s) URL as text. Carries the
- * `web.fetch{domain}` capability as its tool metadata — the harness's policy
- * decides allow/ask/deny before this file's `execute` ever runs; a denial
- * never reaches the fetch below. This file owns only the URL validation and
- * the fetch itself.
- */
 export function createWebFetchTools(opts: CreateWebFetchToolsOptions = {}) {
   const { fetchImpl = fetch } = opts;
 
@@ -120,12 +104,6 @@ export function createWebFetchTools(opts: CreateWebFetchToolsOptions = {}) {
 
 type FetchOutcome = { response: Response } | { error: string };
 
-/**
- * Fetch `url`, following redirects only while they stay on `host` — the host
- * the call's `web.fetch{domain}` capability was authorized for. A redirect to
- * any other host ends the call with the new URL, so the model can ask for it
- * in a fresh call that goes through authorization for that host.
- */
 async function fetchWithinHost(
   fetchImpl: FetchLike,
   url: string,

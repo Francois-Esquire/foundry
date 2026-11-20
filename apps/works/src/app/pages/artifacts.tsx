@@ -4,7 +4,6 @@ import { ArtifactExplorer } from "~/app/artifacts/artifact-explorer";
 import { NewMarkdownFile } from "~/app/artifacts/new-markdown-file";
 import { VignettePage } from "~/app/layout/page-vignette";
 
-/** `/artifacts`, or `/artifacts/:artifactId` to open one Artifact by ID. */
 export function ArtifactsPage() {
   const { artifactId } = useParams<{ artifactId: string }>();
   const navigate = useNavigate();

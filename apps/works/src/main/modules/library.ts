@@ -33,20 +33,13 @@ export interface ModuleLibrary {
   details(id: string): Promise<ModuleDetails | null>;
   importPackage(encoded: string): Promise<ModuleSummary>;
   list(): Promise<ModuleSummary[]>;
-  /**
-   * The Manifest of the Module's saved source, read from its records alone:
-   * no disk synchronization and no other source file. `null` without a
-   * `foundry.module.json`; throws for an unknown Module.
-   */
   manifest(id: string): Promise<ModuleManifest | null>;
-  /** Publish a build's outputs as a frozen release, attributed to that build. */
   publish(
     id: string,
     expected: ModuleSourceRevision,
     release: BuiltRelease
   ): Promise<PublishedRelease>;
   release(id: string, contentId: string): Promise<ModuleVersion | null>;
-  /** Save a person's edits to the Module's working source. */
   saveSource(
     id: string,
     source: Record<string, string>,
@@ -54,9 +47,7 @@ export interface ModuleLibrary {
   ): Promise<ModuleSourceRevision>;
 }
 
-/** What a build publishes. */
 interface BuiltRelease {
-  /** The build run that built it, named as the publish run's parent. */
   readonly builtBy: string;
   readonly outputs: Record<string, Uint8Array>;
   readonly source: Record<string, string>;
@@ -68,11 +59,6 @@ interface PublishedRelease {
   readonly version: ModuleVersion;
 }
 
-/**
- * The library's records: everything but its saves, plus the two writes a
- * save commits with, each stamping the save's origin in the same write
- * (spec §4). Only a library's saves call the writes.
- */
 export interface ModuleRecords
   extends Omit<ModuleLibrary, "publish" | "saveSource"> {
   writeRelease(
@@ -89,18 +75,11 @@ export interface ModuleRecords
   ): Promise<ModuleSourceRevision>;
 }
 
-/** Where a save commits: right away, or in the local library's per-Module turn. */
 export type SavePlacement = <T>(
   moduleId: string,
   commit: () => Promise<T>
 ) => Promise<T>;
 
-/**
- * A library over `records` whose saves and publishes go through `saves`:
- * each is a recorded run whose commit, placed by `place`, admits the save,
- * writes it with its origin and reports it committed before anything
- * `place` does after the write.
- */
 export function savingLibrary(
   records: ModuleRecords,
   saves: SourceSaves,
@@ -141,14 +120,12 @@ export function savingLibrary(
   };
 }
 
-/** Module records in Works' legacy single-file layout. */
 export function openModuleLibrary(userData: string): ModuleRecords {
   return createModuleRecords(
     new JsonArtifactStore({ path: join(userData, "modules", "artifacts.json") })
   );
 }
 
-/** A library over `store` with no folders: each save commits as soon as it is admitted. */
 export function createModuleLibrary(
   store: ArtifactStore,
   options: ModuleRecordsOptions & { readonly saves: SourceSaves }
@@ -161,7 +138,6 @@ export function createModuleLibrary(
 }
 
 export interface ModuleRecordsOptions {
-  /** What release builds may select; Works' own providers by default. */
   readonly catalog?: ModuleCapabilityCatalog;
 }
 
@@ -181,8 +157,6 @@ export function createModuleRecords(
       artifactId: artifact.id,
       id: moduleIdSchema.parse(artifact.metadata.moduleId),
       name: artifact.name,
-      // Source time: Installation and Grant changes patch the Module
-      // Artifact's metadata, which must not read as an edit.
       updatedAt: (
         artifact.content?.updatedAt ?? artifact.updatedAt
       ).toISOString(),

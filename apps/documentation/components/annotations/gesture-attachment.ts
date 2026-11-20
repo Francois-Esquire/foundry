@@ -5,7 +5,6 @@ import type {
   TextTarget,
 } from "../../lib/annotations/model.ts";
 
-/** Infer a target without altering an ordinary sketch unless the user confirms it. */
 export function interpretGesture(
   mark: Mark,
   first: Point,

@@ -17,7 +17,6 @@ import {
 
 export const THEME_CAPABILITY = "works.system.theme";
 
-/** What the provider reads of main's theme. */
 export type ThemeFeed = Pick<SystemTheme, "watch">;
 
 const input: ModuleCapabilitySchema<Record<string, never>> = {
@@ -75,11 +74,6 @@ const event: ModuleCapabilitySchema<ThemeSnapshot> = {
   },
 };
 
-/**
- * `works.system.theme@1`: a read-only stream of the host theme, an initial
- * snapshot and then each change. Receiving it cannot change the preference.
- * Like every Capability it is delivered only under an approved Grant.
- */
 export function themeCapability(theme: ThemeFeed): WorksCapability {
   return defineStream({
     capability: THEME_CAPABILITY,

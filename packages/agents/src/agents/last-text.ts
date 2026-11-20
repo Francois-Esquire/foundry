@@ -2,12 +2,6 @@ import type { UIMessage, UIMessageChunk } from "ai";
 
 import { isTextUIPart, readUIMessageStream } from "ai";
 
-/**
- * The final text a sub-agent said: the last text part of its last message.
- * An absent message, no text part, or an empty text part all fall through to
- * `fallback` — the length test matters, since a reply that ends on a tool
- * result (no text) must not surface as an empty string.
- */
 export function lastTextValue(
   message: UIMessage | undefined,
   fallback: string
@@ -17,10 +11,6 @@ export function lastTextValue(
   return text.length > 0 ? text : fallback;
 }
 
-/**
- * Drive a sub-agent's UI-message stream to completion and return the final
- * text ({@link lastTextValue} of the last message).
- */
 export async function collapseFinalText(
   stream: ReadableStream<UIMessageChunk>,
   fallback: string

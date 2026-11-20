@@ -1,6 +1,5 @@
 import { displayWidth, padDisplay } from "./width";
 
-/** Width tiers; the only place a renderer compares against a column count. */
 const WIDTH = { narrow: 70, wide: 110 } as const;
 
 type WidthTier = "narrow" | "normal" | "wide";
@@ -25,17 +24,14 @@ export function barCells(width: number): number {
   return BAR_CELLS[widthTier(width)];
 }
 
-/** Widest label before truncation. */
 export function labelCells(width: number): number {
   return Math.max(16, Math.floor(width * 0.4));
 }
 
-/** Prose width inside a section: the section indent plus the summary indent. */
 export function wrapCells(width: number): number {
   return Math.max(24, width - 4);
 }
 
-/** Aligns values two columns past the widest label. */
 export function labelValueLines(
   rows: readonly { label: string; value: string }[]
 ): string[] {
@@ -43,10 +39,6 @@ export function labelValueLines(
   return rows.map((row) => `${padDisplay(row.label, width)}  ${row.value}`);
 }
 
-/**
- * Greedy wrap. Breaks at ` · ` separators first so a metric never splits;
- * a run with no separators that still overflows breaks on spaces.
- */
 export function wrap(text: string, width: number): string[] {
   const lines: string[] = [];
   let current = "";

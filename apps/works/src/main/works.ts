@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { ContainerRuntime } from "@foundry/sandbox/container/types";
-import type { ModelManager, StateStore } from "@foundry.sh/marbles/engine";
+import type { ExecutionStore, ModelManager } from "@foundry.sh/marbles/engine";
 import type { RouterContext } from "./api/context";
 import { EditorBindings } from "./artifacts/bindings";
 import { EditorPreferences } from "./artifacts/editor-preferences";
@@ -63,31 +63,19 @@ import { type QuitCleanup, shutdownInStages } from "./quit";
 import type { SystemTheme } from "./system/theme";
 
 export interface WorksOptions {
-  /** Product File Artifacts, one directory each (`~/.foundry/artifacts`). */
   readonly artifactRoot: string;
-  // ── Stand-ins, for tests and smokes; the real ones otherwise ──
-  /** How a Module's builds run in its sandbox. */
   readonly builds?: (sandboxes: ModuleSandboxes) => BuildRuntime;
-  /** The VM runtime of Module sandboxes; Microsandbox, loaded at first use. */
   readonly containers?: () => Promise<ContainerRuntime>;
-  /** The providers engine agent sessions route to. */
+  readonly executionStore?: (store: ExecutionStore) => ExecutionStore;
   readonly models: ModelManager;
-  /** Module folders: source, selected release and private data (`~/.foundry/modules`). */
   readonly moduleRoot: string;
   readonly print: (line: string) => void;
-  /** Released Programs; Microsandbox VMs under `moduleRoot`. */
   readonly programs?: (options: ModuleRuntimeOptions) => Promise<ModuleRuntime>;
-  /** Model routes for chat turns and Module workflows. */
   readonly routes: AuthoringModels;
-  /** The engine's state store, in place of the one under `userData/engine`. */
-  readonly state?: (directory: string) => StateStore;
-  /** Main's theme, opened by the caller before any window or Program. */
   readonly theme: SystemTheme;
-  /** Works' own state: engine, settings, chat, editor choices and Module on/off. */
   readonly userData: string;
 }
 
-/** What main serves the renderer's RPC router, besides the vault. */
 interface WorksServices {
   readonly access: ModuleAccess;
   readonly artifacts: ArtifactExplorer;
@@ -101,14 +89,10 @@ interface WorksServices {
   readonly theme: SystemTheme;
 }
 
-/** Works main, composed. */
 export interface Works {
-  /** Runs the quit stages; tests and smokes close Works with it. */
   close(): Promise<void>;
   readonly rpc: WorksServices;
-  /** Quit cleanup: work drains before the sandboxes and engine it uses close. */
   readonly stages: readonly (readonly QuitCleanup[])[];
-  /** Parts tests and smokes reach into; the Electron entry never does. */
   readonly testing: {
     readonly bindings: EditorBindings;
     readonly calls: ProgramCalls;
@@ -120,30 +104,17 @@ export interface Works {
   };
 }
 
-/**
- * Works main, composed: the engine, the Module library with its save
- * evidence, product files, Module settings, sandboxes, builds, released
- * Programs, Access with every capability's Grant hooks, chat, workflows,
- * retention and audit. Resolves once startup recovery is done and Works may
- * accept a save or a launch; a failure on the way closes what had opened.
- * The Electron entry adds windows, the `module-app:` protocol, the vault and
- * quit; smokes and tests compose the same Works with stand-ins for what they
- * cannot run.
- */
 export async function composeWorks(options: WorksOptions): Promise<Works> {
   const { print, userData } = options;
-  // The required engine starts, recovering its queues and run store, before
-  // Works accepts a save or a launch.
   const execution = await startWorksEngine({
     directory: path.join(userData, "engine"),
     models: options.models,
     print,
-    ...(options.state
-      ? { store: options.state(path.join(userData, "engine")) }
+    ...(options.executionStore
+      ? { executionStore: options.executionStore }
       : {}),
     workflows: WORKS_WORKFLOWS,
   });
-  // What has opened, newest first: closed in that order if a later step fails.
   const opened: QuitCleanup[] = [{ shutdown: () => execution.close() }];
   try {
     return await composeOver(execution, options, (part) => {
@@ -159,16 +130,12 @@ export async function composeWorks(options: WorksOptions): Promise<Works> {
   }
 }
 
-/** Everything after the engine; `opened` learns each part that needs closing. */
 async function composeOver(
   execution: WorksExecution,
   options: WorksOptions,
   opened: (part: QuitCleanup) => void
 ): Promise<Works> {
   const { moduleRoot, print, userData } = options;
-  // The Module records store and its one shared manager: the library,
-  // Module settings, Access, released Programs and product files all read
-  // and write through it, in one transaction order.
   const store = await openModuleStore(moduleRoot, { legacyUserData: userData });
   const persistence = modulePersistence(store);
   const records = createModuleRecords(store);
@@ -177,17 +144,10 @@ async function composeOver(
     execution,
     library: records,
   });
-  // Settings reads never touch queues: a Module's queues take its settings
-  // at startup, on a settings change and whenever its Manifest may have
-  // changed, which is also when its kept effective settings are read again.
-  // A problem keeps the engine's defaults; it never fails a save.
   const applyQueues = (moduleId: string) =>
     moduleSettings.applyQueues(moduleId).catch((error: unknown) => {
       print(`Module ${moduleId} queues keep their defaults: ${String(error)}`);
     });
-  // Source and release saves stamp their origin; one whose result could not
-  // be recorded blocks the Module's next save until it is recovered, which
-  // startup does first, before anything saves.
   const sourceEvidence = new SourceEvidence({
     execution,
     modules: persistence.modules,
@@ -205,9 +165,6 @@ async function composeOver(
     added: applyQueues,
   });
 
-  // Product File Artifacts: one directory each, edited through Workspaces
-  // on the same manager as Module records, so a save and a Grant revocation
-  // share one transaction order.
   const files = new ProductFiles({
     artifacts: persistence.artifacts,
     execution,
@@ -222,7 +179,6 @@ async function composeOver(
   const bindings = new EditorBindings();
   const workflows = new ModuleWorkflows({ execution, models: options.routes });
   const capacity = new SandboxCapacity();
-  // Module off stops its apps, then its sandbox; while off, neither starts.
   const power = new ModulePower({
     execution,
     file: path.join(userData, "module-power.json"),
@@ -263,7 +219,6 @@ async function composeOver(
       options.builds?.(sandboxes) ??
       createBuildRuntime(sandboxes, worksCapabilityCatalog(providers)),
   });
-  // Each Program's Gateway invocations are recorded on its lifetime run.
   const calls = new ProgramCalls();
   const runtime = await (options.programs ?? createModuleRuntime)({
     capacity,
@@ -273,7 +228,6 @@ async function composeOver(
     providers,
     root: moduleRoot,
     settings: moduleSettings,
-    // A stopped Program's workflows and claimed editor bindings end with it.
     stopped: async (installationId) => {
       bindings.stopped(installationId);
       await workflows.cancelInstallation(installationId);
@@ -286,15 +240,12 @@ async function composeOver(
     library: modules,
     runtime,
   });
-  // Shutting the sessions down shuts the Program runtime down after them.
   opened(sessions);
   power.govern(sessions);
   power.govern({
     live: (moduleId) => sandboxes.live().includes(moduleId),
     stop: (moduleId) => sandboxes.stop(moduleId),
   });
-  // Access: every Gateway capability, and `network`, whose change restarts
-  // the Module's running apps.
   const capabilities: readonly WorksCapability[] = [
     ...gateway,
     networkAccess((moduleId) => sessions.restart(moduleId)),
@@ -330,21 +281,16 @@ async function composeOver(
   for (const module of await modules.list()) {
     await applyQueues(module.id);
   }
-  // Run-store retention: each Module's audit settings, host defaults
-  // otherwise. File saves recover their missing results first, so a save
-  // checkpoint is in place before anything is pruned.
   await files.ready();
   opened(retention);
   try {
     await retention.start();
   } catch (error) {
-    // History stays whole; the next interval tries again.
     print(`Run retention failed: ${String(error)}`);
   }
 
   const stages: Works["stages"] = [
     [authoring, builds, sessions, workflows, retention],
-    // Disk synchronization dispatches on the engine: close it first.
     [sandboxes, { shutdown: () => files.close() }],
     [{ shutdown: () => execution.close() }],
   ];
@@ -381,10 +327,6 @@ async function composeOver(
   };
 }
 
-/**
- * `saves`, telling `changed` once a save committed: the Module's Manifest
- * may have changed with it.
- */
 function followSaves(
   saves: SourceSaves,
   changed: (moduleId: string) => Promise<void>
@@ -392,7 +334,6 @@ function followSaves(
   return {
     admit: (moduleId) => saves.admit(moduleId),
     async run<T>(save: SourceSave, commit: SourceCommitter<T>): Promise<T> {
-      // Also when the work after a committed write fails.
       let committed = false;
       try {
         const value = await saves.run<T>(save, (origin, record) =>

@@ -18,7 +18,10 @@ identity. Keep it stable to retain access to the same saved runs and artifacts. 
 
 Discovery walks subdirectories and imports JavaScript and TypeScript modules
 in sorted path order: `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, and
-`.cjs`. A module also imported by another module executes only once per process.
+`.cjs`. Every module, and every file it imports by path, must be an ES module:
+a file that uses `require()`, `module.exports` or `exports` and has no `import`
+or `export` fails the load with an error naming it. Installed packages may be
+CommonJS. A module also imported by another module executes only once per process.
 Names must be unique across the whole catalog.
 
 A leading underscore excludes a file or directory from automatic discovery.
@@ -42,9 +45,10 @@ when their source must not load at startup.
 ```
 
 Keep top-level code to declarations. Start servers and other work in step
-bodies, rather than during module import. Discovery runs when the
-workspace's worker starts, and the worker restarts itself when anything
-under the folder changes.
+bodies, rather than during module import. Discovery runs when an engine
+generation loads the workspace, and the Marbles process starts the next
+generation when anything under the folder, or any module or data file the
+load read elsewhere, changes.
 
 ## Setup
 
@@ -98,16 +102,26 @@ from the Keychain:
 FIGMA_TOKEN=exec(`security find-generic-password -s figma -w`)
 ```
 
-The workspace's worker in the Marbles process, and `list`, load the schema
+The Marbles process's engine generation, and `list`, load the schema
 before importing authoring modules, using the workspace's own `varlock` or
-one on `PATH`. Resolved values are added to the environment without
-replacing values already set; a worker starts from the environment of the
-Marbles process, not of the command that attached it. Marbles resolves
-secrets each time a worker starts, so after every source reload, and does
-not persist the loaded values. Without a schema, Marbles leaves the
-environment as it is.
+one on `PATH`. Resolved values become the workspace's environment: every
+run of the workspace carries it, and the commands its steps run (`exec`),
+its CLI harnesses and its sandboxes inherit it, beneath values already set
+in the Marbles process, which win. A generation starts from the environment
+of the Marbles process, not of the command that attached it. Marbles resolves
+secrets each time a workspace loads, so after every source reload, and does
+not persist the loaded values. Without a schema, the workspace's
+environment is the Marbles process's.
 
-A value that does not resolve is a warning in the worker and in `list`:
+Marbles does not write the values to `process.env`, which every workspace
+hosted in one process shares. Code that reads `process.env` itself, in a
+module as it loads or in a step body, sees the Marbles process's
+environment, not the workspace's values; so does a provider whose SDK runs
+in the Marbles process and reads `process.env` for its keys, such as Pi's.
+Pass a value to a command through `exec`, or set it in the environment the
+Marbles process starts with.
+
+A value that does not resolve is a warning in the engine generation and in `list`:
 what is missing is printed and loading continues; work that needs the value
 can still fail. `roll --dry-run` stops instead. `help`, `init`, `mcp`,
 `status`, `sessions`, `tasks`, `watch`, `daemon`, and `stop` do not load

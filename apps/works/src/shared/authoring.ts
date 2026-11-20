@@ -1,23 +1,15 @@
-/**
- * The Module authoring chat as both processes see it: main runs each turn
- * and keeps its record; the renderer shows it and owns the Draft the turn
- * started from.
- */
-
 export type AuthoringTurnStatus =
   | "queued"
   | "running"
   | "complete"
   | "failed"
   | "cancelled"
-  /** Works stopped while the turn was queued or running. */
   | "interrupted";
 
 export type AuthoringToolStatus =
   | "running"
   | "complete"
   | "failed"
-  /** Refused by policy: the attempt is shown, it did not run. */
   | "denied"
   | "cancelled";
 
@@ -29,13 +21,11 @@ interface AuthoringQuestion {
   question: string;
 }
 
-/** A question or approval: only `open` can still be answered. */
 type AuthoringInputStatus =
   | "open"
   | "answered"
   | "declined"
   | "cancelled"
-  /** Works stopped while it waited; the agent is no longer listening. */
   | "interrupted";
 
 export type AuthoringItem =
@@ -78,13 +68,11 @@ export interface AuthoringTurnView {
   error?: string;
   id: string;
   items: AuthoringItem[];
-  /** Something the user should know, such as a new conversation after a route change. */
   notice?: string;
   prompt: string;
   proposal?: AuthoringProposalView;
   route: AuthoringRoute;
   status: AuthoringTurnStatus;
-  /** Waiting for machine capacity to start the Module's sandbox. */
   waiting?: boolean;
 }
 
@@ -96,13 +84,10 @@ export interface AuthoringConversationView {
 export type AuthoringEvent =
   | { conversation: AuthoringConversationView; type: "conversation" }
   | { turn: AuthoringTurnView; type: "turn" }
-  /** Model text, appended to the turn's last text item. */
   | { delta: string; turnId: string; type: "text" };
 
-/** Files by path; `null` is an absent file. */
 export type ProposalFiles = Record<string, string | null>;
 
-/** A proposal and the captured Draft files it changes. */
 export interface AuthoringProposalFiles {
   base: ProposalFiles;
   proposal: ProposalFiles;
@@ -110,7 +95,6 @@ export interface AuthoringProposalFiles {
 
 export type AuthoringAcceptResult =
   | ({ status: "ready" } & AuthoringProposalFiles)
-  /** Saved source moved since the turn started; nothing was applied. */
   | { message: string; status: "stale" };
 
 export type AuthoringAnswer =
@@ -122,7 +106,6 @@ export function isSettledTurn(status: AuthoringTurnStatus): boolean {
   return status !== "queued" && status !== "running";
 }
 
-/** Apply one event to a conversation, as main applies it to its own record. */
 export function applyAuthoringEvent(
   conversation: AuthoringConversationView | null,
   event: AuthoringEvent

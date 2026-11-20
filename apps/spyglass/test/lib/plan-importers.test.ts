@@ -426,7 +426,6 @@ describe("analysis stability", () => {
         )
       )
     );
-    // Computed at 461822b, before the importer scan: unchanged by it.
     expect(planned).toEqual({
       "packages/plans-multi/src/core.ts#PlanShared": "ready 7fdf76015a1dde18",
       "packages/plans-multi/src/extra.ts#PlanExtraOnly":
@@ -507,7 +506,6 @@ describe("the operator side", () => {
 
   const executionOf = (name: string) =>
     executionPlanFor(facts, planning, planFor(shapes, name).id);
-  /** A manual operator: a saved plan that is not ready plans nothing. */
   const manual = (name: string, file: string) => {
     const operator = internalizeOperator(`${file}#${name}`, PACKAGE);
     const composition = composeArchitecturalOperators(

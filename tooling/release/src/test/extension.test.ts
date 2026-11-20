@@ -68,7 +68,6 @@ test("only the separate, enabled, approval-gated Marketplace workflow can publis
   });
   expect(publish.jobs.assets?.permissions?.["id-token"]).toBeUndefined();
   const steps = publish.jobs.publish?.steps ?? [];
-  // The OIDC job runs no lifecycle scripts and restores no cache.
   expect(steps.some(({ uses }) => uses?.startsWith("./"))).toBe(false);
   expect(steps.some(({ uses }) => uses?.startsWith("actions/cache"))).toBe(
     false
@@ -124,7 +123,6 @@ test("attachment promotes CI's VSIX of the tagged main commit and hands on the a
     actions: "read",
     contents: "write",
   });
-  // The tag's ancestry check needs main's history.
   expect(steps[0]?.with).toMatchObject({ "fetch-depth": 0 });
   expect(steps.map(({ run }) => run)).toContain(
     "bun tooling/release/src/extension-cli.ts"
@@ -145,7 +143,6 @@ test("attachment promotes CI's VSIX of the tagged main commit and hands on the a
   const upload = ci.findIndex(
     ({ with: options }) => options?.name === "release-extension"
   );
-  // The release job tests the very archive it uploads.
   expect(build).toBeGreaterThanOrEqual(0);
   expect(tested).toBeGreaterThan(build);
   expect(upload).toBe(tested + 1);
@@ -225,7 +222,6 @@ test("extension promotion rejects mismatched identity, dirty builds, and tampere
     expect(() => verifyExtension(root, "0.0.1", sha)).toThrow(
       "uncommitted sources"
     );
-    // A matching checksum cannot disguise an archive for another extension.
     writeArtifact(root, { ...identity, name: "other" });
     expect(() => verifyExtension(root, "0.0.1", sha)).toThrow("VSIX identity");
     writeArtifact(root, { ...identity, version: "0.0.2" });

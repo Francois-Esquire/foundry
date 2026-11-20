@@ -44,11 +44,6 @@ const SERVER_TIMEOUT_MS = 20_000;
 const TEST_TIMEOUT_MS = 300_000;
 const COMMAND_TIMEOUT_MS = 300_000;
 
-/**
- * Every module a source file imports or re-exports from, statically, by
- * type, or dynamically. A syntax walk rather than a text search, because the
- * bundle carries `@foundry/` in string literals that are not imports.
- */
 function importedModules(source: string): string[] {
   const imports: string[] = [];
   function inspect(node: Node) {
@@ -162,15 +157,11 @@ async function readServerUrl(
   throw new Error(`Server did not print its URL:\n${text}`);
 }
 
-/** The exports map, `types` first so every resolver takes the declarations. */
 const EXPORTS = {
   ".": { default: "./dist/lib/index.js", types: "./dist/lib/index.d.ts" },
 };
 const NEEDS_BUN = "Spyglass serve needs Bun (>=1.3.14).";
 
-// One install for every test below. The fixture is copied so no test touches
-// the repository copy, and its configuration directory is loaded by the
-// installed config worker.
 let consumer = "";
 let installed = "";
 let cli = "";
@@ -249,9 +240,6 @@ test(
 
     expect(run(cli, ["--help"], consumer)).toContain("spyglass scan [path...]");
     const state = join(consumer, "state");
-    // Started by an absolute path with no PATH: the workers must not need a
-    // `bun` there. The fixture is not a Git repository, so the scan never
-    // looks for git.
     const scanned = run(
       process.execPath,
       [cli, "scan", workspace, "--state", state],
@@ -334,8 +322,6 @@ test(
       schemaVersion: 5,
       workspacePackages: 3,
     });
-    // A workspace-level scan saves over the full one, so the full scan's
-    // accessors refuse to read the replacement.
     expect(result.level).toEqual({
       internals: false,
       keys: ["manifest", "output"],
@@ -380,9 +366,6 @@ test(
   TEST_TIMEOUT_MS
 );
 
-// Under Node, `scan` starts its workers with `bun` from the PATH, so the
-// running Bun's directory leads it; `serve` needs Bun itself and says so
-// before anything else.
 test(
   "Node imports the installed library and scans with bun on the PATH",
   () => {
@@ -404,13 +387,10 @@ test(
   TEST_TIMEOUT_MS
 );
 
-// Last: it deletes the installed viewer.
 test(
   "the installed bin names the missing viewer before it scans or serves",
   () => {
     const state = join(consumer, "state");
-    // The CLI reports the resolved path; macOS temporary directories are
-    // reached through a symlink.
     const viewer = join(realpathSync(installed), "dist/web");
     rmSync(viewer, { force: true, recursive: true });
     const missingViewer = `Spyglass: The viewer's files are missing from ${viewer}. Reinstall the package, or build it first when running from source.\n`;

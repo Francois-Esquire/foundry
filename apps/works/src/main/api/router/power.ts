@@ -4,7 +4,6 @@ import { base, requires } from "../context";
 const id = z.object({ id: z.string().min(1) });
 const power = base.use(requires(["power"]));
 
-/** Module on/off: off stops its apps and sandbox; on lets them start again. */
 export const powerRouter = {
   get: power
     .input(id)

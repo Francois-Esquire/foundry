@@ -14,13 +14,11 @@ const manifest = JSON.parse(
 const git = (...args: string[]) =>
   execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 const sha = git("rev-parse", "HEAD");
-// Releases accept only an archive whose sources match the commit it records.
 const clean = git("status", "--porcelain", "--", ".", "../../LICENSE") === "";
 
 await rm(staging, { force: true, recursive: true });
 await mkdir(staging, { recursive: true });
 await mkdir(output, { recursive: true });
-// README images resolve to the recorded commit on GitHub, so media stays out.
 for (const path of [".vscodeignore", "README.md", "syntaxes"]) {
   await cp(resolve(root, path), resolve(staging, path), { recursive: true });
 }

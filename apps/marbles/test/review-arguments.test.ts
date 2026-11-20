@@ -21,7 +21,6 @@ beforeAll(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "marbles-review-")));
   checkout = join(root, "another-checkout");
   await mkdir(join(checkout, "src"), { recursive: true });
-  // Linked worktrees have a .git file instead of a directory.
   await writeFile(join(checkout, ".git"), "gitdir: /unused-in-this-test\n");
   mock = bindMock(
     (call) => {

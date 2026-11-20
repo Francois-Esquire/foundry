@@ -1,8 +1,8 @@
 import { act, useEffect, useState } from "react";
 import { afterEach, expect, test } from "vitest";
+import { useAsyncAction } from "../src/cli/hooks/use-async-action";
 import { JSONView } from "../src/components/ui/json";
 import { Log } from "../src/components/ui/log";
-import { useAsyncAction } from "../src/hooks/use-async-action";
 import type { LogEntry } from "../src/model/log";
 import { flush, mount, press, unmount } from "./helpers/render";
 

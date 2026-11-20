@@ -1,5 +1,6 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { pageLimit, sliceRanked } from "@foundry/lib/pagination";
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
 import type {
   WorkspaceEntry,
@@ -231,7 +232,7 @@ function withOwnCopy(
 ): Promise<void> {
   let copy: WorkspaceStoreWrite;
   try {
-    copy = structuredClone(write);
+    copy = ownedWrite(write);
   } catch (error) {
     return Promise.reject(error);
   }

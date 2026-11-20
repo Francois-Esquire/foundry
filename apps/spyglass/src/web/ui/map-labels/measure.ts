@@ -10,12 +10,9 @@ export function fontFamily(font: LabelFont): string {
   return families[font.face];
 }
 
-/** The size everything is measured at: widths and baselines scale with the size, so one measure serves every zoom. */
 const canonicalSize = 100;
 
-/** The browser's measure of text: widths in em, and where each face's baseline falls in a line of its own height. */
 export interface TextMetrics {
-  /** How far below the top of a line set at `line-height: 1` the baseline lies, in em, for a font. */
   baseline: (font: LabelFont) => number;
   dispose: () => void;
   measure: TextMeasure;
@@ -25,13 +22,6 @@ function fontKey(font: LabelFont): string {
   return `${font.face}|${font.italic ? "italic" : "normal"}|${font.letterSpacing}`;
 }
 
-/**
- * Measures text as the browser will set it: a hidden element in the labels'
- * root, set at the canonical size in the font, read once per text and font
- * and kept. Widths agree with the lettering, since the same engine lays out
- * both; the baseline is read from an empty inline block, whose bottom sits
- * on it. Both reads force a layout, so the layer measures before it writes.
- */
 export function createTextMetrics(root: HTMLElement): TextMetrics {
   const probe = document.createElement("span");
   probe.className = "spyglass-measure";

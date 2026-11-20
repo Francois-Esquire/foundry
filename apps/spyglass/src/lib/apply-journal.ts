@@ -7,40 +7,18 @@ import {
 } from "@foundry/lib/atomic-file";
 import type { WorkspaceState } from "./state";
 
-// The apply journal, `<state directory>/apply/journal.json`: the one record
-// that an apply is writing, or has written, sources the saved dataset does
-// not describe. It is flushed to disk before the first source write, holds
-// every written file's original bytes, and is deleted only once the scan
-// after the write has published, or the files are restored.
-
-/**
- * The journal's mode: owner read and write only, whatever the umask, since
- * it holds copies of source files that may themselves be private.
- */
 const JOURNAL_MODE = 0o600;
 
-/** Bumped when `ApplyJournal` changes shape or meaning. */
 const APPLY_JOURNAL_SCHEMA_VERSION = 1;
 
-/** One file an apply writes: its original bytes and mode, and the hashes the restore guard compares. */
 interface JournalFile {
   file: string;
-  /** The file's permission bits before the write. */
   mode: number;
-  /** The original bytes, base64. */
   original: string;
-  /** SHA-256 of the original bytes. */
   originalHash: string;
-  /** SHA-256 of the bytes the apply writes. */
   writtenHash: string;
 }
 
-/**
- * `writing`: the sources may hold part of a write, or all of it before its
- * checks passed; the next apply restores them. `verified`: every check
- * passed, so the sources hold the write and only the scan after it is
- * missing; the next scan publishes and then deletes the journal.
- */
 type JournalPhase = "writing" | "verified";
 
 export interface ApplyJournal {
@@ -48,9 +26,7 @@ export interface ApplyJournal {
   phase: JournalPhase;
   planId: string;
   schemaVersion: typeof APPLY_JOURNAL_SCHEMA_VERSION;
-  /** The symbol, as a facet: `path#name`. */
   site: string;
-  /** When the write began, ISO 8601. */
   startedAt: string;
 }
 
@@ -58,7 +34,6 @@ export function journalPath(workspace: WorkspaceState): string {
   return join(workspace.directory, "apply", "journal.json");
 }
 
-/** The journal, or undefined when no apply is unfinished; one that cannot be read throws, naming it. */
 export function readJournal(
   workspace: WorkspaceState
 ): ApplyJournal | undefined {
@@ -89,11 +64,6 @@ export function readJournal(
   );
 }
 
-/**
- * Writes the journal atomically and flushes it, and its directory, to disk;
- * the state directory too when `apply/` is new, so the journal's directory
- * survives a crash as well.
- */
 export async function writeJournal(
   workspace: WorkspaceState,
   journal: ApplyJournal
@@ -114,7 +84,6 @@ export function deleteJournal(workspace: WorkspaceState): void {
   rmSync(journalPath(workspace), { force: true });
 }
 
-/** What each phase asks of the user before anything else may read or replace the dataset. */
 function unfinishedApplyMessage(
   workspace: WorkspaceState,
   journal: ApplyJournal
@@ -125,7 +94,6 @@ function unfinishedApplyMessage(
     : `An spyglass apply of ${where} wrote and verified the sources, but the scan after it did not publish, so the saved dataset does not describe them. Run spyglass scan.`;
 }
 
-/** Refuses while any apply is unfinished, saying whether to restore or to scan; `plan` and `check` call it. */
 export function refuseUnfinishedApply(workspace: WorkspaceState): void {
   const journal = readJournal(workspace);
   if (journal !== undefined) {
@@ -133,11 +101,6 @@ export function refuseUnfinishedApply(workspace: WorkspaceState): void {
   }
 }
 
-/**
- * Refuses an interrupted write, which apply must restore first; a scan
- * calls it. Returns a verified journal, which the scan deletes once its
- * dataset has published.
- */
 export function verifiedJournal(
   workspace: WorkspaceState
 ): ApplyJournal | undefined {

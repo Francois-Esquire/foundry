@@ -1,20 +1,10 @@
 import { agent, step, workflow } from "@foundry.sh/marbles";
 import { z } from "zod";
 
-/**
- * Example compositions, written in the same dialect a configuration module
- * uses.
- *
- * Every agent turn goes through `agents.session`: the working directory,
- * cancellation, and streaming are wired by the context, so the steps below
- * are about the work only.
- */
-
 const PASS = "PASS";
 
 const VERDICT_PROTOCOL = `Reply with exactly "${PASS}" on a line of its own if you find nothing worth changing. Otherwise list one finding per line, no preamble.`;
 
-/** Read a review turn's text as a verdict. `PASS` anywhere alone means clean. */
 export function findingsIn(reviewText: string): readonly string[] {
   const lines = reviewText
     .split("\n")
@@ -31,7 +21,6 @@ const implementer = agent({
     "Implement the task in this working tree. Keep changes small and report what you changed.",
 });
 
-// Named: `review-with-arguments.ts` also has a `reviewer`, and a workspace
 const reviewer = agent({
   name: "development-reviewer",
   prompt:
@@ -62,7 +51,6 @@ export const review = step("review")
     return { findings: [...findingsIn(text)], text };
   });
 
-/** Implement, then review what was implemented. The reviewer runs last. */
 export const developRound = workflow("develop-round")
   .input(task)
   .do(({ input }) => review({ implemented: implement({}, input) }, input));
@@ -75,10 +63,6 @@ const revision = z.object({
 const reviewPrompt = (base: string) =>
   `Review the code in this working tree, checked out from ${base}. Report what you would change, most important first.`;
 
-/**
- * A review inside a throwaway worktree. The session opened in the callback
- * runs in the worktree: the context narrows the working directory for it.
- */
 export const reviewInWorktree = step("review-in-worktree")
   .input(revision)
   .do(async ({ agents, input, log, workspaces }) => {
@@ -94,7 +78,6 @@ export const reviewInWorktree = step("review-in-worktree")
     );
   });
 
-/** One session per base, so a scheduled review remembers what it said last time. */
 export const reviewSession = step("review-session")
   .input(revision)
   .do(async ({ agents, input, workspaces }) => {

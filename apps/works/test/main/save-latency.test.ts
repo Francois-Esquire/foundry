@@ -10,16 +10,8 @@ import {
 import { startTestExecution } from "../helpers/execution";
 import { recordedSaves, unrecordedSaves } from "../helpers/source-saves";
 
-/** Saves per path; small enough for the default suite, enough for a median. */
 const SAMPLES = 20;
-/** The spec's recommended added-latency target, used here on the median. */
 const TARGET_MS = 50;
-/**
- * Forty fenced saves on disk, each with disk synchronization, take 2.5–5 s
- * while the whole repository's tests run in parallel: past vitest's 5 s
- * default. The assertion compares medians, so a slow machine is not a
- * failure; only the time budget is widened.
- */
 const BUDGET_MS = 30_000;
 
 const roots: string[] = [];
@@ -42,8 +34,6 @@ it("adds no noticeable latency to a fenced save on disk", {
   const execution = await startTestExecution({
     directory: path.join(root, "engine"),
   });
-  // One Module store and folder, saved through two libraries: one whose
-  // saves record nothing, one whose saves are recorded runs, as in Works.
   const modules = path.join(root, "modules");
   const store = await openModuleStore(modules);
   const records = createModuleRecords(store);
@@ -62,7 +52,6 @@ it("adds no noticeable latency to a fenced save on disk", {
   }
   let { binding } = details;
   const timings = { direct: [] as number[], routed: [] as number[] };
-  // Alternate the paths so disk and cache drift affects both alike.
   for (let index = 0; index < SAMPLES * 2; index += 1) {
     const route = index % 2 === 0 ? "direct" : "routed";
     const library = route === "direct" ? direct : routed;

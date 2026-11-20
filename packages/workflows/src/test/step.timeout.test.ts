@@ -44,9 +44,6 @@ describe("Step.timeout — duration parsing", () => {
     await expect(fast.run()).rejects.toThrow(TIMED_OUT_AFTER_20MS_PATTERN);
     expect(fast.status).toBe("failed");
 
-    // '5s' / '2m' are valid syntactically — exercise via a step that
-    // completes immediately so the budget is irrelevant. The test is
-    // about parsing acceptance, not enforcement.
     const seconds = await Step.make({
       config: { timeout: "5s" },
       execute: async () => "ok",
@@ -169,11 +166,9 @@ describe("Step.timeout — interaction with retry", () => {
       execute: async () => {
         calls += 1;
         if (calls < 3) {
-          // First two attempts blow the budget.
           await sleep(150);
           return "late";
         }
-        // Third attempt finishes inside the budget.
         return "ok";
       },
       input: undefined,
@@ -182,9 +177,6 @@ describe("Step.timeout — interaction with retry", () => {
     const result = await step.run();
     expect(result).toBe("ok");
     expect(calls).toBe(3);
-    // If the budget were shared across attempts, the third attempt would
-    // never get a chance to run. Sanity floor: at least two timed-out
-    // budgets elapsed before success.
     expect(Date.now() - start).toBeGreaterThanOrEqual(60);
   });
 
@@ -221,7 +213,6 @@ describe("Step.timeout — interaction with retry", () => {
           maxAttempts: 5,
           shouldRetry: (err) => {
             observed.push(err instanceof Error ? err.message : String(err));
-            // Opt out the moment we see a timeout.
             return err instanceof Error
               ? !err.message.includes("timed out")
               : true;
@@ -238,8 +229,6 @@ describe("Step.timeout — interaction with retry", () => {
       name: "opt-out",
     });
     await expect(step.run()).rejects.toThrow(TIMED_OUT_PATTERN_4);
-    // shouldRetry sees the timeout error on the first attempt and bails out;
-    // exactly one execute call (no retries).
     expect(calls).toBe(1);
     expect(observed.length).toBeGreaterThanOrEqual(1);
     expect(observed.some((m) => m.includes("timed out"))).toBe(true);
@@ -293,7 +282,6 @@ describe("Step.timeout — distinct from cancellation", () => {
       current: undefined,
     };
     const step = await Step.make<void, void>({
-      // Generous budget so the external abort wins.
       config: { timeout: "5s" },
       execute: () =>
         new Promise<void>((_resolve, reject) => {

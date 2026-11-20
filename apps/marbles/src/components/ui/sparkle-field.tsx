@@ -10,7 +10,6 @@ const FRAME_MS = 200;
 function shade(color: string, background: RGBA, brightness: number): RGBA {
   const [r, g, b] = RGBA.fromHex(color).toInts();
   const [br, bg, bb] = background.toInts();
-  // Preblend each half-pixel so foreground opacity cannot mix with its lower neighbor.
   return RGBA.fromInts(
     Math.round(br + (r - br) * brightness),
     Math.round(bg + (g - bg) * brightness),
@@ -18,7 +17,6 @@ function shade(color: string, background: RGBA, brightness: number): RGBA {
   );
 }
 
-/** Brightness gives fixed silhouettes depth; staggered glints never blink off. */
 export function SparkleField({
   width,
   height,

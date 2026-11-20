@@ -16,17 +16,11 @@ export interface VaultStores {
 }
 
 export interface VaultOptions {
-  /** Environment consulted for fallbacks. Defaults to process.env. */
   env?: Readonly<Record<string, string | undefined>>;
 }
 
 export type VaultListener = (status: VaultStatus) => void;
 
-/**
- * The credentials the app holds, warm in memory and persisted per tier. Values
- * only leave through resolve(); everything the renderer sees goes through
- * status(), which reports presence and source and never the value.
- */
 export class Vault {
   readonly #stores: VaultStores;
   readonly #env: Readonly<Record<string, string | undefined>>;
@@ -45,7 +39,6 @@ export class Vault {
     this.#encryption = encryption;
   }
 
-  /** Hydrate every registered field from its tier. */
   static async open(
     stores: VaultStores,
     options: VaultOptions = {}
@@ -90,7 +83,6 @@ export class Vault {
     return { encryption: this.#encryption, fields };
   }
 
-  /** The value a consumer should use: store, then environment, then fallback. */
   resolve(ownerId: VaultOwnerId, key: string): string | null {
     const match = findVaultField(ownerId, key);
     if (!match) {
@@ -104,12 +96,6 @@ export class Vault {
     );
   }
 
-  /**
-   * Store a value, or clear it with null or blank. The tier is written before
-   * memory changes, so a failed write leaves the vault as it was and the error
-   * reaches the caller. Mutations run in request order, including their no-op
-   * checks and notifications.
-   */
   async set(
     ownerId: VaultOwnerId,
     key: string,
@@ -146,14 +132,12 @@ export class Vault {
       await store.set(storeKey, next);
       this.#values.set(storeKey, next);
       if (match.field.tier === "secure") {
-        // A secret just went through the encryptor, so it is usable again.
         this.#encryption = "available";
       }
     }
     this.#notify();
   }
 
-  /** Observe every change. Returns the unsubscribe function. */
   onChange(listener: VaultListener): () => void {
     this.#listeners.add(listener);
     return () => {

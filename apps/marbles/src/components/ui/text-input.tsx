@@ -1,7 +1,6 @@
 import type { InputProps } from "@opentui/react";
 import { theme } from "./theme";
 
-/** A one-line text field in the theme's colours; props override them. */
 export function TextInput(props: InputProps) {
   return (
     <input

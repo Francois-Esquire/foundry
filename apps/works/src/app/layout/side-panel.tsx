@@ -1,11 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "~/app/lib/cn";
 
-/**
- * Shared container for sub-nav side panels. The nested borders with a 2px gap
- * give the subtle double-border frame; both layers stay here so every side
- * panel matches.
- */
 export function SidePanel({
   children,
   className,

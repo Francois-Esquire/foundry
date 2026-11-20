@@ -14,7 +14,6 @@ import { cn } from "~/app/lib/cn";
 interface LayoutContextValue {
   setSubNavActive: (active: boolean) => void;
   setSubNavSlotEl: (el: HTMLElement | null) => void;
-  /** True while a page has a non-collapsed SubNav mounted. */
   subNavActive: boolean;
   subNavSlotEl: HTMLElement | null;
 }
@@ -29,7 +28,6 @@ function useLayout(): LayoutContextValue {
   return context;
 }
 
-/** Owned by MainLayout, not the consumer. */
 export function LayoutProvider({ children }: PropsWithChildren) {
   const [subNavSlotEl, setSubNavSlotEl] = useState<HTMLElement | null>(null);
   const [subNavActive, setSubNavActive] = useState(false);
@@ -41,7 +39,6 @@ export function LayoutProvider({ children }: PropsWithChildren) {
   return <LayoutContext value={value}>{children}</LayoutContext>;
 }
 
-/** Rendered by MainLayout between the sidebar and the content. */
 export function SubNavSlot({ className }: { className?: string }) {
   const { setSubNavSlotEl, subNavActive } = useLayout();
   const ref = useCallback(
@@ -59,10 +56,6 @@ export function SubNavSlot({ className }: { className?: string }) {
   );
 }
 
-/**
- * Pages render this to inject content into the slot. `collapsed` is owned by
- * the page so the toggle is per instance.
- */
 export function SubNav({
   children,
   collapsed = false,

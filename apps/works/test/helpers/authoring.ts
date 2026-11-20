@@ -29,12 +29,6 @@ async function authoringDirectory() {
   return directory;
 }
 
-/**
- * A Module in an in-memory library and the authoring service over the
- * in-memory sandbox runtime. The execution and runner decide how real the
- * turn is: the engine and a scripted model, or inline and scripted guest
- * edits.
- */
 export async function authoringFixture(options: {
   directory?: string;
   execution: Pick<WorksExecution, "launch">;

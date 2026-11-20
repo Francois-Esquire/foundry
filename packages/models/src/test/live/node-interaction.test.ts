@@ -98,8 +98,6 @@ describe("the Node interaction", () => {
       })
     ).not.toThrow();
 
-    // The failure costs the host that one track, not the rest of the session:
-    // the second track is still delivered and still listed.
     expect(seen).toEqual(["video", "audio"]);
     expect(live.tracks).toHaveLength(2);
     expect(live.state).toBe("open");
@@ -134,8 +132,6 @@ describe("the Node interaction", () => {
     } finally {
       Reflect.deleteProperty(globalThis, "MediaStream");
     }
-    // Both extensions negotiate a stream, and the wrapping belongs to the entry
-    // that owns Node media rather than to a transport the browser shares.
     expect(wrapped).toEqual([[feed]]);
     expect(webrtc.doubles[0]?.options.feed).toBeInstanceOf(InstalledStream);
   });

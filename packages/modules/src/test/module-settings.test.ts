@@ -30,7 +30,6 @@ interface ManifestSettingsInput {
   readonly user?: ModuleSettingValues;
 }
 
-/** Settings resolved against what `manifest` requests. */
 function resolveModuleSettings({ manifest, ...input }: ManifestSettingsInput) {
   return resolveRequests({
     ...input,
@@ -106,7 +105,6 @@ describe("Module settings resolution", () => {
     expect(effective["resources.cpus"]).toBe(2);
     expect(effective["resources.memoryBytes"]).toBe(256 * 1024 * 1024);
     expect(effective["explorer.pageSize"]).toBe(100);
-    // A smaller minimum never lowers a larger default.
     expect(requireModuleSettings({ manifest })["resources.memoryBytes"]).toBe(
       2 * GIB
     );

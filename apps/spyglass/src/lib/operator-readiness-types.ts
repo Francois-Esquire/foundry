@@ -8,25 +8,10 @@ import type {
   OperatorPreservationKind,
 } from "./operator-types";
 
-// V11.4 readiness: the last read-only gate before a mutator touches the
-// repository. It judges the plan we have against the repository as it is
-// now and answers with one explicit authorization; it never repairs the
-// plan, never chooses transformations, and never writes.
-
-/** Readiness records persist and are consumed by V12; independent of the plan schema. */
 export const OPERATOR_READINESS_SCHEMA_VERSION = 1;
 
-/** Bumps when a gate rule changes: coverage requirements, baseline handling, cautions vs blockers. */
 export const OPERATOR_READINESS_POLICY_VERSION = 1;
 
-/**
- * Precedence: `stale` (a planned file's bytes changed) > `unsupported` (a
- * transformation or its syntax form has no mutator) > `blocked` (a positive
- * contradiction: conflict, violated preservation, cycle, failed baseline,
- * impossible rollback) > `not-authorized` (something required is missing:
- * an unrealized action, a conditional transformation, an unproven
- * preservation, a verification step that cannot run) > `authorized`.
- */
 export type MutationAuthorization =
   | "authorized"
   | "not-authorized"
@@ -38,7 +23,6 @@ type ReadinessFileStatus = "unchanged" | "changed" | "missing" | "unexpected";
 
 export interface ReadinessFileState {
   actual: string;
-  /** Hash the plan fingerprinted; `absent` for files the plan creates. */
   expected: string;
   file: string;
   status: ReadinessFileStatus;
@@ -46,9 +30,7 @@ export interface ReadinessFileState {
 
 interface ReadinessGitState {
   available: boolean;
-  /** Planned files with uncommitted changes whose bytes still match the plan. */
   plannedDirty: string[];
-  /** Dirty files the plan does not touch; context, never a gate. */
   unplannedDirty: number;
 }
 
@@ -59,17 +41,11 @@ export interface ReadinessSourceState {
   missingFiles: string[];
   staleFiles: string[];
   unchanged: boolean;
-  /** Files the plan creates that already exist. */
   unexpectedFiles: string[];
 }
 
 export interface ReadinessCompleteness {
   complete: boolean;
-  /**
-   * Transformations the plan marks conditional, each resolved now: `required`
-   * when fresh planning against the unchanged sources still yields it (the
-   * condition holds), `unresolved` otherwise. Nothing conditional reaches V12.
-   */
   conditionalTransformations: ReadinessConditionalResolution[];
   coveredEffects: number;
   coveredPreservations: number;
@@ -90,7 +66,6 @@ export interface ReadinessConditionalResolution {
 
 export interface ReadinessConsistency {
   consistent: boolean;
-  /** The plan re-plans to the same record against the current sources. */
   matchesFreshPlanning: boolean;
   noActionCoverageConflict: boolean;
   noDestinationConflicts: boolean;
@@ -155,7 +130,6 @@ export interface ReadinessRealizability {
   closures: ReadinessClosureState[];
   mutationCapabilities: ReadinessMutationCapability[];
   realizable: boolean;
-  /** Modules with top-level execution that a move would relocate. */
   sideEffectModules: string[];
   supportedSyntaxForms: string[];
   supportedTransformations: number;
@@ -185,7 +159,6 @@ export interface ReadinessPreservationStatus {
 
 export interface ReadinessCommand {
   args: string[];
-  /** Root-relative. */
   cwd: string;
   executable: string;
   expectedExitCode: number;
@@ -196,24 +169,19 @@ type ReadinessVerificationMode = "command" | "analyzer" | "unresolvable";
 export interface ReadinessVerificationStep {
   command?: ReadinessCommand;
   dependsOn: string[];
-  /** Why the step cannot run. */
   detail?: string;
   expected: OperatorFact;
   id: string;
   kind: PlannedVerificationKind;
   mode: ReadinessVerificationMode;
-  /** Analyzer query V12 runs after mutation; `<check>:<scope>`. */
   query?: string;
   scope: string[];
 }
 
 export interface VerificationBaselineAllowance {
   allowed: boolean;
-  /** Verification step id or kind the allowance applies to. */
   check: string;
-  /** Failure identities (diagnostic keys, failing test ids) known before this plan. */
   knownFailures: string[];
-  /** Where the allowance comes from: a ticket, a stream, a baseline record. */
   provenance: string;
 }
 
@@ -221,12 +189,10 @@ type ReadinessBaselineStatus = "pass" | "allowed-failure" | "fail" | "skipped";
 
 export interface ReadinessCommandResult {
   exitCode: number;
-  /** Failure identities the check extracted, sorted. */
   failures: string[];
 }
 
 export interface ReadinessBaselineCheck {
-  /** Allowance that turned a failure into `allowed-failure`. */
   allowance?: string;
   detail: string;
   id: string;
@@ -255,11 +221,9 @@ export interface ReadinessVerificationStatus {
 type RollbackAction = "restore" | "delete" | "recreate";
 
 export interface RollbackFile {
-  /** What rollback does: restore edited bytes, delete a created file, recreate a deleted one. */
   action: RollbackAction;
   detail?: string;
   file: string;
-  /** Hash of the bytes to restore; `absent` for created files. */
   hash: string;
   restorable: boolean;
 }
@@ -285,7 +249,6 @@ export type ReadinessRiskKind =
   | "structural-conformance-gap";
 
 export interface ReadinessRisk {
-  /** The risk also produced a blocker. */
   blocking: boolean;
   detail: string;
   entities: string[];
@@ -353,7 +316,6 @@ export interface ReadinessIntentCoverage {
 
 export interface MutationAuthorizationFingerprint {
   capabilityFingerprint: string;
-  /** `auth:<hash>` over the five above. */
   hash: string;
   planFingerprint: string;
   rollbackFingerprint: string;
@@ -361,7 +323,6 @@ export interface MutationAuthorizationFingerprint {
   verificationFingerprint: string;
 }
 
-/** Wall-clock measurements; outside every fingerprint and never compared. */
 interface ReadinessTimings {
   baselineMs: number;
   sourceMs: number;
@@ -376,7 +337,6 @@ export interface OperatorPlanReadiness {
   completeness: ReadinessCompleteness;
   consistency: ReadinessConsistency;
   constraints: ReadinessConstraintStatus;
-  /** What V12 must and must not do with this record. */
   contract: string[];
   fingerprint: MutationAuthorizationFingerprint;
   intents: ReadinessIntentCoverage[];
@@ -393,59 +353,32 @@ export interface OperatorPlanReadiness {
   verification: ReadinessVerificationStatus;
 }
 
-/** The authorization record's own shape version; until 3.2 it shared readiness's 1. */
 export const AUTHORIZED_MUTATION_PLAN_SCHEMA_VERSION = 2;
 
-/**
- * The record's fingerprint: readiness's five parts, every rule, and the hash
- * over all six, so a later re-authorization can name the part that moved.
- * `planFingerprint` is the execution plan's, as readiness has it; the saved
- * plan's is `execution.planFingerprint`.
- */
 export interface AuthorizedMutationFingerprint
   extends Omit<MutationAuthorizationFingerprint, "hash"> {
-  /** `auth:<hash>` over the six parts. */
   hash: string;
-  /** Every rule in canonical form, by index (`rules.ts` `ruleFingerprint`). */
   ruleFingerprint: string;
 }
 
-/** One file the plan was judged against, with its bytes' hash when authorized. */
 interface AuthorizedSourceFile {
   file: string;
-  /** SHA-256 of its bytes; `"missing"` for a file the plan would create. */
   hash: string;
 }
 
-/**
- * What executes an authorized plan: a mutator and the saved plan it runs, by
- * id and fingerprint, never a copy. Both belong to the saved plan (the
- * package report's), not to the execution plan readiness judged.
- */
 export interface MutationExecution {
   mutator: "internalize-export";
-  /** That plan's fingerprint, which the mutator's own validation checks again. */
   planFingerprint: string;
-  /** The saved (legacy) plan's id: `plan:internalize-symbol:<path#name>`. */
   planId: string;
 }
 
-/** The handoff to a mutator: ids and fingerprints only, never a plan copy. */
 export interface AuthorizedMutationPlan {
   authorization: "authorized";
   authorizationFingerprint: AuthorizedMutationFingerprint;
   execution: MutationExecution;
-  /** The execution plan's id, which readiness judged; the saved plan's is `execution.planId`. */
   executionPlanId: string;
-  /** Indexes of the rules that permit the plan, in order. */
   permittedBy: number[];
-  /** The readiness assessment's own `fingerprint.hash`. */
   readinessFingerprint: string;
   schemaVersion: typeof AUTHORIZED_MUTATION_PLAN_SCHEMA_VERSION;
-  /**
-   * Every source file and manifest the plan was judged against, by path,
-   * with the hash `sourceFingerprint` covers, so a re-authorization can name
-   * the file that moved.
-   */
   sourceFiles: AuthorizedSourceFile[];
 }

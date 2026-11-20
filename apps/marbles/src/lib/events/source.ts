@@ -1,44 +1,57 @@
+import type { SessionChangeEvent } from "@foundry/agents/schema";
+import type { ArtifactEvent } from "@foundry/artifacts";
+import type { SandboxEvent } from "@foundry/sandbox/store";
 import type { TaskEvent } from "@foundry/tasks";
+import type { RunEvent } from "@foundry/workflows/schema";
+import type { WorkspaceEvent } from "@foundry/workspaces/schema";
+import type { ArtifactShareEvent } from "~/lib/resources";
 
 declare const payloadType: unique symbol;
 
-/** A source's identity. The payload it emits is carried in the type only. */
-export type Source<T> = symbol & { readonly [payloadType]?: T };
+export interface Fact {
+  readonly at: string;
+  readonly id: string;
+  readonly type: string;
+}
 
-/** What an observer is handed: the payload, never the stored item. */
-export type Handler<T> = (payload: T) => void | Promise<void>;
+export type Source<T extends Fact = Fact> = symbol & {
+  readonly [payloadType]?: T;
+};
 
-/** Where an object `observe` accepts keeps the source it emits under. */
+export type Handler<T> = (fact: T) => void | Promise<void>;
+
 export const SOURCE: unique symbol = Symbol("marbles.source");
 
-/** An object whose changes `observe` can follow. */
-export interface Observable<T> {
+export interface Observable<T extends Fact> {
   readonly [SOURCE]: Source<T>;
 }
 
 const keys = new Map<symbol, string>();
-const sources = new Map<string, symbol>();
+const sources = new Set<string>();
 
-function defineSource<T>(key: string): Source<T> {
+function defineSource<T extends Fact>(key: string): Source<T> {
   if (sources.has(key)) {
     throw new Error(`source "${key}" is already defined`);
   }
   const source = Symbol(key);
   keys.set(source, key);
-  sources.set(key, source);
+  sources.add(key);
   return source as Source<T>;
 }
 
-/** The key a stored item names `source` by; `undefined` for a symbol that is not one. */
 export function sourceKey(source: symbol): string | undefined {
   return keys.get(source);
 }
 
-/** Every committed task change, as one `tasks.changed` payload per write. */
 export const TASKS: Source<TaskEvent> = defineSource("tasks");
+export const RUNS: Source<RunEvent> = defineSource("runs");
+export const ARTIFACTS: Source<ArtifactEvent | ArtifactShareEvent> =
+  defineSource("artifacts");
+export const SANDBOXES: Source<SandboxEvent> = defineSource("sandboxes");
+export const SESSIONS: Source<SessionChangeEvent> = defineSource("sessions");
+export const WORKSPACES: Source<WorkspaceEvent> = defineSource("workspaces");
 
-/** `target`, marked as emitting under `source`; nothing else about it changes. */
-export function observable<O extends object, T>(
+export function observable<O extends object, T extends Fact>(
   target: O,
   source: Source<T>
 ): O & Observable<T> {

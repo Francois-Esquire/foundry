@@ -41,21 +41,10 @@ import { boundaryIdOf, byId, sorted } from "./workspace-projection";
 import type { WorkspaceProjectionContext } from "./workspace-projection-types";
 import type { WorkspaceConcept, WorkspacePackage } from "./workspace-types";
 
-// Operators are built from canonical facts and validated against them
-// again later. Building reads facts once into preconditions (expected =
-// what was true); validating re-reads the same facts (actual). Nothing
-// here inspects source files, and nothing here decides what to do.
-
 function packageIdOf(report: SurfaceReport): string {
   return report.target.name ?? report.target.path;
 }
 
-/**
- * Attach the package-level V8 records (placements, impact vectors, reviews)
- * and legacy internalize plans that the workspace only digests. Scenarios
- * absent from the ingested workspace are ignored, so the context never
- * carries a scenario the canonical intelligence does not know.
- */
 export function createOperatorContext(
   projection: WorkspaceProjectionContext,
   reports: readonly SurfaceReport[] = []
@@ -133,7 +122,6 @@ function placementPackages(
   );
 }
 
-/** The same fact reader serves building and validation. */
 function readOperatorFact(
   context: OperatorContext,
   kind: OperatorPreconditionKind,
@@ -256,11 +244,6 @@ function sortRefs(refs: OperatorEvidenceRef[]): OperatorEvidenceRef[] {
   );
 }
 
-/**
- * Existence and distinctness are declared, not observed: an operator always
- * assumes its entities exist (a vanished entity reads as stale) and that its
- * placement changes something (a no-op reads as unsupported).
- */
 const DECLARED_TRUE = new Set<OperatorPreconditionKind>([
   "concept-exists",
   "package-exists",
@@ -460,7 +443,6 @@ function coverageConstraint(
   ];
 }
 
-/** Interface or type concepts with no observed implementation anywhere may conform structurally, unseen by the analyzer. */
 function conformanceConstraint(
   concept: WorkspaceConcept | undefined,
   effect: OperatorConstraint["effect"]
@@ -1023,11 +1005,6 @@ function planStatus(
   return status === "ready" ? "valid" : status;
 }
 
-/**
- * Represent a V3 internalize-symbol plan as an architectural operator. The
- * plan keeps its own fingerprint and mutation path; the operator points at
- * it and restates nothing about routes or edits.
- */
 export function createInternalizeOperator(
   context: OperatorContext,
   planId: string
@@ -1142,9 +1119,6 @@ function validateInternalize(
     };
   }
   const legacy = validateReductionPlan(entry.plan, report);
-  // V3 facts are prose-keyed: "symbol still …" describe the public surface,
-  // "external …" describe external usage. Each operator precondition holds
-  // when every legacy fact of its family holds.
   const family = (kind: OperatorPreconditionKind) =>
     legacy.preconditions.filter((fact) =>
       kind === "public-surface-state"
@@ -1378,12 +1352,6 @@ function scenarioConstraints(
   return out;
 }
 
-/**
- * Turn one explicitly selected V8.2 scenario into an operator. Expected
- * effects and preservations are the V8.3 impact's own `changes` and
- * `preserved`, never recomputed; the scenario, impact, and review ids stay
- * attached so the chain observation → reasoning → operation is auditable.
- */
 export function createOperatorFromScenario(
   context: OperatorContext,
   scenarioId: string,
@@ -1634,12 +1602,6 @@ function createOperatorFromScenarioEntries(
   return preservations;
 }
 
-/**
- * Re-read every precondition against the current facts. A failed
- * precondition is `stale` (the facts moved), a failed no-op guard is
- * `unsupported`, a blocking constraint is `blocked`; otherwise `valid`.
- * Never executes anything and never re-analyzes a package.
- */
 export function validateArchitecturalOperator(
   operator: ArchitecturalOperator,
   context: OperatorContext
@@ -1733,7 +1695,6 @@ export function validateArchitecturalOperator(
   };
 }
 
-/** Scenario kinds present in the workspace that no operator can express yet. */
 export function operatorCatalogGaps(
   context: OperatorContext
 ): { scenarioKind: RecenteringScenarioKind; scenarios: number; gap: string }[] {

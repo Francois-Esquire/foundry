@@ -72,9 +72,9 @@ step("inventory").do(async ({ workspaces, log }) => {
 marbles roll inventory
 ```
 
-The result now includes `typescript`. The workspace's worker in the Marbles
-process notices the edit and reloads before the next `roll`; an open
-dashboard shows `reloading` and then the new module. Nothing needs
+The result now includes `typescript`. The Marbles process notices the edit
+and starts its next engine generation, which takes over before the next
+`roll`; an open dashboard shows `reloading` and then the new module. Nothing needs
 restarting.
 
 ## Find the run again

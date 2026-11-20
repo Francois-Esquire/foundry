@@ -56,17 +56,11 @@ function moduleActor(principal: ModulePrincipal) {
   };
 }
 
-/** Revoking a binding Grant closes the Installation's editor bindings. */
 function closesBindings(host: ArtifactHost) {
   return ({ installationId }: { readonly installationId: string }) =>
     host.bindings.invalidate(installationId);
 }
 
-/**
- * A binding as its reads and saves see it: the entry of the Content it is
- * pinned to, even once the Artifact has moved on to newer Content (the
- * guest refreshes to follow it).
- */
 async function describeBinding(host: ArtifactHost, binding: EditorBinding) {
   const artifact = await loadArtifact(host, binding.artifactId);
   const pinned =
@@ -88,7 +82,6 @@ async function describeBinding(host: ArtifactHost, binding: EditorBinding) {
   };
 }
 
-/** The Content a binding is pinned to, if it is still its Artifact's. */
 async function pinnedContent(host: ArtifactHost, binding: EditorBinding) {
   const parsed = contentIdSchema.safeParse(binding.contentId);
   const content = parsed.success
@@ -97,11 +90,6 @@ async function pinnedContent(host: ArtifactHost, binding: EditorBinding) {
   return content?.artifactId === binding.artifactId ? content : null;
 }
 
-/**
- * The Content a refreshed binding moves to: the Artifact's active one, or
- * for a write binding its ready working successor, as opening for writing
- * binds (a frozen version is revised once), so the next save lands.
- */
 async function refreshedContent(
   host: ArtifactHost,
   binding: EditorBinding
@@ -143,7 +131,6 @@ function bindingCapability(host: ArtifactHost): WorksCapability {
   });
 }
 
-/** The Content and entry a read names: through its binding, or in scope. */
 async function readTarget(
   host: ArtifactHost,
   principal: ModulePrincipal,
@@ -295,7 +282,6 @@ function createCapability(host: ArtifactHost): WorksCapability {
         throw denied(created.reason);
       }
       if (created.retried) {
-        // A retry remints a binding only for a runtime authorized now.
         await authorizeRuntime(host.modules, principal, grants);
       }
       const binding = host.bindings.open(
@@ -366,17 +352,11 @@ function listCapability(
     },
     output: listOutput,
     policy: listPolicy,
-    // Broader-scope watches end with the scope.
     revoked: ({ installationId }) => scopes.revoke(installationId),
     scope: { area: "artifacts", of: ({ types }) => types },
   });
 }
 
-/**
- * The six Artifact capabilities over `host`. Revoking a binding Grant
- * closes the Installation's editor bindings; revoking the list Grant ends
- * its broader-scope watches.
- */
 export function artifactCapabilities(host: ArtifactHost): WorksCapability[] {
   const scopes = new ArtifactScopes();
   return [

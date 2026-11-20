@@ -1,8 +1,3 @@
-/**
- * Reading Foundry's files, which arrive as `unknown`: narrowing helpers and
- * the notes an adapter leaves behind. Shared by foundry.ts and
- * foundry-internals.ts.
- */
 import type { Point } from "./chart";
 
 export type Fields = Readonly<Record<string, unknown>>;
@@ -30,16 +25,11 @@ export function readPoint(value: unknown): Point | null {
   return isFiniteNumber(x) && isFiniteNumber(y) ? [x, y] : null;
 }
 
-/** A record's own `x`, `y`, if both are finite. */
 export function readPlace(fields: Fields): Point | null {
   const { x, y } = fields;
   return isFiniteNumber(x) && isFiniteNumber(y) ? [x, y] : null;
 }
 
-/**
- * What the adapter leaves behind. Identical lines are merged with a count,
- * so a thousand bad points make one line, not a thousand.
- */
 export interface Notes {
   add: (line: string) => void;
   lines: () => string[];

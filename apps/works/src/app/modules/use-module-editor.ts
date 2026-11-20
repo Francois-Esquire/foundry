@@ -41,35 +41,21 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Build failed";
 }
 
-/**
- * The Draft: the working source, the saved source and binding it is
- * edited against, and the proposal files waiting for a choice. One record,
- * written in one place, so every reader sees the same Draft.
- */
 interface Draft {
-  /** Saved source at `expected`; what "unsaved changes" compare against. */
   readonly baseline: Readonly<Record<string, string>>;
   readonly conflicts: readonly ProposalConflict[];
   readonly expected: ModuleSourceRevision | null;
   readonly source: Readonly<Record<string, string>>;
 }
 
-/** What the chat changes in the Draft. Every call acts on the Draft as it is now. */
 export interface DraftProposals {
-  /**
-   * Reconcile an accepted proposal against the Draft now and apply it in
-   * the same step; conflicting files wait for a choice.
-   */
   accept(
     turnId: string,
     files: AuthoringProposalFiles
   ): { applied: number; conflicts: number };
   current(): Pick<Draft, "expected" | "source">;
-  /** Forget a dismissed proposal's conflicts. */
   drop(turnId: string): void;
-  /** Hold every file the proposal would change; returns how many. */
   holdAll(turnId: string, files: AuthoringProposalFiles): number;
-  /** Settle one conflict with a whole version; returns how many of its proposal remain. */
   resolve(conflict: ProposalConflict, choice: "draft" | "proposal"): number;
 }
 
@@ -95,7 +81,6 @@ function initialDraft(details: ModuleDetails) {
 export function useModuleEditor(
   details: ModuleDetails,
   refresh: () => Promise<ModuleDetails>,
-  /** Told in the same update that holds new conflicts. */
   onConflicts: () => void
 ) {
   const [initial] = useState(() => initialDraft(details));
@@ -135,15 +120,10 @@ export function useModuleEditor(
     if (!dirty) {
       return;
     }
-    // Electron asks main to confirm before a window with unsaved edits closes.
     const warn = (unload: BeforeUnloadEvent) => unload.preventDefault();
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
-  /**
-   * The one writer of the Draft. Unsaved changes are kept locally with the
-   * binding they are edited against, so a reload recovers exactly this Draft.
-   */
   const update = useCallback(
     (change: Partial<Draft>) => {
       const next = { ...draft.current, ...change };
@@ -163,7 +143,6 @@ export function useModuleEditor(
     },
     [details.id]
   );
-  /** Replace the working source; refused while there is no editable source. */
   const keepSource = useCallback(
     (next: Record<string, string>) => {
       if (draft.current.expected) {
@@ -172,7 +151,6 @@ export function useModuleEditor(
     },
     [update]
   );
-  /** Write proposal files into the source; the open file reloads if it changed. */
   const write = useCallback(
     (changes: ProposalFiles) => {
       if (Object.keys(changes).length === 0) {
@@ -195,7 +173,6 @@ export function useModuleEditor(
     },
     [update]
   );
-  // The editor reports its own text, so the open file is not reloaded.
   const edit = useCallback(
     (file: string, contents: string) =>
       keepSource({ ...draft.current.source, [file]: contents }),
@@ -207,8 +184,6 @@ export function useModuleEditor(
         if (!draft.current.expected) {
           throw new Error("This module has no editable source");
         }
-        // Reconciled and applied in one synchronous step against the Draft
-        // as it is now, so no edit can land between the two.
         const { changes, conflicts: held } = reconcileProposal(
           turnId,
           draft.current.source,
@@ -265,7 +240,6 @@ export function useModuleEditor(
         { expected: binding, id: details.id, source: saving },
         { signal }
       );
-      // Edits made while saving stay unsaved, now against the new binding.
       update({ baseline: saving, expected: next });
       return next;
     },
@@ -300,8 +274,6 @@ export function useModuleEditor(
         saved.binding?.contentId === progress.binding.contentId &&
         saved.binding.updatedAt === progress.binding.updatedAt
       ) {
-        // The build saved what it built (a lockfile, say); edits accepted
-        // into the Draft while it ran stay unsaved on top of that.
         const { baseline: built, source: working } = draft.current;
         update({
           baseline: saved.source,

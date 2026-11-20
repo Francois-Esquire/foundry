@@ -2,8 +2,6 @@ import type { ReactNode } from "react";
 import { TooltipProvider } from "~/app/components/tooltip";
 import { cn } from "~/app/lib/cn";
 
-// Thin, controlled scrollbar. Electron is Chromium, so the WebKit
-// pseudo-elements are the lever that actually controls the width.
 const THIN_SCROLLBAR =
   "[scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-foreground/15 [&::-webkit-scrollbar-thumb]:hover:bg-foreground/25";
 
@@ -19,11 +17,6 @@ function Fold() {
 export interface SidebarProps {
   bottomNav: ReactNode;
   className?: string;
-  /**
-   * Loaded Module shortcuts in their own band between the fixtures. Pass `null`
-   * when there are none to drop the band and its folds. The band scrolls
-   * when the window is too short.
-   */
   moduleNav?: ReactNode;
   topNav: ReactNode;
 }

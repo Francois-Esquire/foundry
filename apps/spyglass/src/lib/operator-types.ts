@@ -10,12 +10,6 @@ import type {
 } from "./types";
 import type { WorkspaceProjectionContext } from "./workspace-projection-types";
 
-// V11.0 architectural operators: a selected architectural intention as an
-// immutable, evidence-backed contract. An operator says what responsibility
-// should change, what must stay, what must hold first, and what must later
-// be proven. It never says how source files change; that is V12.
-
-/** Independent of the package and workspace schemas: operators may persist on their own. */
 export const OPERATOR_SCHEMA_VERSION = 1;
 
 export type ArchitecturalOperatorKind =
@@ -44,7 +38,6 @@ interface PackageOperatorSubject {
 }
 
 interface BoundaryOperatorSubject {
-  /** `${from}→${to}` */
   boundaryId: string;
   from: string;
   kind: "boundary";
@@ -68,7 +61,6 @@ type OperatorSubjectKind = OperatorSubject["kind"];
 
 type OperatorIntentSource = "manual" | "architectural-review" | "existing-plan";
 
-/** The free-form reason never carries authority; the structured operator does. */
 export interface OperatorIntent {
   planId?: string;
   reason: string;
@@ -82,7 +74,6 @@ export interface OperatorLocation {
   package?: string;
 }
 
-/** Package level is sufficient for architectural operators; module refinement is later planning. */
 export interface OperatorPlacement {
   current?: OperatorLocation;
   target?: OperatorLocation;
@@ -97,7 +88,6 @@ type OperatorEvidenceSource =
   | "impact"
   | "anchor";
 
-/** A pointer into canonical analysis; never a copy of it. */
 export interface OperatorEvidenceRef {
   entityIds: string[];
   source: OperatorEvidenceSource;
@@ -148,10 +138,8 @@ export type OperatorEffectDimension =
   | "ownership"
   | "representation";
 
-/** Architecture-level before → after; never an edit prediction. */
 export interface OperatorExpectedEffect {
   certainty: "certain" | "conditional";
-  /** V8.3 change kind when inherited from an impact, else the builder's own vocabulary. */
   change: string;
   dimension: OperatorEffectDimension;
   evidenceRefs: OperatorEvidenceRef[];
@@ -169,7 +157,6 @@ export type OperatorVerificationKind =
   | "boundary-interaction"
   | "anchor-preserved";
 
-/** What a later execution must prove; nothing runs here. */
 export interface OperatorVerificationRequirement {
   expected: OperatorFact;
   kind: OperatorVerificationKind;
@@ -191,7 +178,6 @@ export interface OperatorConstraint {
   kind: OperatorConstraintKind;
 }
 
-/** Relevant facts only, never the repository; a mismatch later means the operator is stale. */
 export interface OperatorFingerprint {
   facts: string[];
   hash: string;
@@ -208,7 +194,6 @@ export interface ArchitecturalOperator {
   evidence: OperatorEvidenceRef[];
   expectedEffects: OperatorExpectedEffect[];
   fingerprint: OperatorFingerprint;
-  /** `operator:<kind>:<subject id>[:<current>→<target>]`; stable across runs and input order. */
   id: string;
   intent: OperatorIntent;
   kind: ArchitecturalOperatorKind;
@@ -216,16 +201,13 @@ export interface ArchitecturalOperator {
   preconditions: OperatorPrecondition[];
   preservations: OperatorPreservation[];
   schemaVersion: typeof OPERATOR_SCHEMA_VERSION;
-  /** Validation outcome against the facts the operator was built from; `draft` when built without facts. */
   status: ArchitecturalOperatorStatus;
   subject: OperatorSubject;
   verification: OperatorVerificationRequirement[];
 }
 
 export interface OperatorDefinition {
-  /** V11.1: `partial` when every decomposition of this kind leaves a realization gap. */
   decomposition: "supported" | "partial" | "unsupported";
-  /** Only the legacy internalize path can run today, through `legacyOperatorId`. */
   executable: boolean;
   kind: ArchitecturalOperatorKind;
   legacyOperatorId?: "internalize-export";
@@ -235,7 +217,6 @@ export interface OperatorDefinition {
   verificationKinds: OperatorVerificationKind[];
 }
 
-/** V8.2 scenario kind → V11.0 operator kind, or the exact gap. */
 export interface ScenarioOperatorMapping {
   gap?: string;
   operatorKind: ArchitecturalOperatorKind | null;
@@ -256,7 +237,6 @@ interface OperatorConstraintResult extends OperatorConstraint {
 export interface OperatorValidation {
   cautions: string[];
   constraints: OperatorConstraintResult[];
-  /** Fingerprint over the same facts read from the current context; absent when a fact no longer resolves. */
   currentFingerprint?: string;
   fingerprint: string;
   operatorId: string;
@@ -264,7 +244,6 @@ export interface OperatorValidation {
   status: OperatorValidationStatus;
 }
 
-/** Full V8 records for one scenario, from the declaring package's report. */
 export interface OperatorScenarioSource {
   disposition?: ArchitecturalReviewDisposition;
   impact?: ScenarioImpactAnalysis;
@@ -274,11 +253,6 @@ export interface OperatorScenarioSource {
   scenario: RecenteringScenario;
 }
 
-/**
- * Canonical workspace facts plus the package-level V8 records the workspace
- * only digests (placements, impact vectors) and the legacy internalize
- * plans. Reports are optional: manual operators need only the workspace.
- */
 export interface OperatorContext {
   legacyPlansById: Map<
     string,

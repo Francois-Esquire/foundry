@@ -1,7 +1,3 @@
-/**
- * Spyglass imports the renderer's public entry through this barrel. See
- * `src/web/islands/README.md` for synchronization instructions.
- */
 // biome-ignore-all lint/performance/noBarrelFile: the single switch between Spyglass and the synced renderer copy.
 
 export {

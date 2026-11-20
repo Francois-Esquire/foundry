@@ -3,10 +3,6 @@ import type { ContentId } from "@foundry/artifacts";
 import type { InstallationId, ModuleId, RuntimeInstanceId } from "../domain";
 import type { ModuleCapabilityRequest, PortableSchema } from "../manifest";
 
-/**
- * One running Program as the host bound it: the Installation generation and
- * Content it was started under. Never accepted from the guest.
- */
 export interface ModuleRuntimeIdentity {
   readonly contentId: ContentId;
   readonly generation: number;
@@ -14,27 +10,15 @@ export interface ModuleRuntimeIdentity {
   readonly runtimeInstanceId: RuntimeInstanceId;
 }
 
-/** The only identity a provider receives. Every field is bound by the host. */
 export interface ModulePrincipal extends ModuleRuntimeIdentity {
   readonly moduleId: ModuleId;
 }
 
-/**
- * What constraint resolution may depend on: the Installation and Content,
- * not one running instance, so preflight resolves the same digest before a
- * Program starts that invocation admission resolves while it runs.
- *
- * `generation` is here to identify the occurrence, not to key policy: a
- * Grant is approved and preflighted at the Installation's generation, and
- * its Program then runs, and is admitted, under the next one. A digest that
- * depended on it would never match the Grant it was approved as.
- */
 export type ModuleConstraintsPrincipal = Omit<
   ModulePrincipal,
   "runtimeInstanceId"
 >;
 
-/** Transport adapter owned by the host. Frame parsing remains inside Gateway. */
 export interface ModuleTransport {
   close(reason: string): Promise<void>;
   readonly closed: Promise<void>;
@@ -44,7 +28,6 @@ export interface ModuleTransport {
 
 export type ModuleGatewaySessionMode = "development" | "runtime";
 
-/** Trusted host composition selects one mode; a Program cannot upgrade it. */
 export interface ModuleGatewayDevelopmentBinding {
   readonly catalog: ModuleCapabilityCatalog;
   readonly developmentId: string;
@@ -206,14 +189,9 @@ export interface ModuleGatewaySession {
   publishCatalogChange(revision: string): Promise<void>;
 }
 
-/** The complete public Gateway. Security parts are intentionally not exposed. */
 export interface ModuleGateway {
   connect(input: {
     readonly runtime: ModuleRuntimeIdentity;
-    /**
-     * The Manifest selections of the runtime's pinned Content. Content is
-     * immutable, so they are bound once here rather than reloaded per call.
-     */
     readonly capabilities: readonly ModuleCapabilityRequest[];
     readonly transport: ModuleTransport;
   }): Promise<ModuleGatewaySession>;
@@ -226,7 +204,6 @@ export interface ModuleGateway {
 
 export type ModuleCapabilityMode = "unary" | "stream";
 
-/** A host-owned validator paired with its portable development description. */
 export interface ModuleCapabilitySchema<Value> {
   readonly description: PortableSchema;
   parse(input: unknown): Value;
@@ -256,15 +233,12 @@ export type ModuleCapabilityDescriptor =
   | ModuleStreamCapabilityDescriptor;
 
 export interface ModuleCapabilityInvocationContext {
-  /** Host-resolved policy facts; never serialized into a Program-visible frame. */
   readonly constraints: unknown;
-  /** Gateway-created stable identity for one already-admitted invocation. */
   readonly invocationId: string;
   readonly principal: ModulePrincipal;
   readonly signal: AbortSignal;
 }
 
-/** The catalog descriptor takes its `mode` from the registration. */
 export interface ModuleUnaryCapabilityRegistration<Input, Output> {
   readonly descriptor: Omit<ModuleUnaryCapabilityDescriptor, "mode">;
   readonly input: ModuleCapabilitySchema<Input>;
@@ -291,17 +265,8 @@ export type ModuleCapabilityRegistration =
   | ModuleUnaryCapabilityRegistration<unknown, unknown>
   | ModuleStreamCapabilityRegistration<unknown, unknown>;
 
-/**
- * The host composes its ceilings here; Gateway only compares the resulting
- * bounded digest to Installation authority before it admits an Invocation.
- */
 export interface ModuleCapabilityProvider {
   readonly registration: ModuleCapabilityRegistration;
-  /**
-   * The bounded digest of `releaseConstraints` for `principal`. It must be
-   * stable across the Installation's generations: resolve it from the
-   * constraints and the Installation's identity, never `principal.generation`.
-   */
   resolveConstraints(input: {
     readonly principal: ModuleConstraintsPrincipal;
     readonly releaseConstraints: unknown;
@@ -313,12 +278,7 @@ export interface ModuleCapabilityCatalog {
   readonly generation: number;
 }
 
-/**
- * One Gateway invocation as the host may record it: identity, Capability,
- * timing, outcome and a safe failure code. Never its input or output.
- */
 export type ModuleGatewayInvocationRecord = {
-  /** Absent when the alias named no declared Capability. */
   readonly capability?: {
     readonly name: string;
     readonly version: number;
@@ -329,18 +289,14 @@ export type ModuleGatewayInvocationRecord = {
   readonly startedAt: string;
 } & (ModuleGatewayInvocationEnd | { readonly status: "running" });
 
-/** How an invocation ended; `running` records an open stream instead. */
 export type ModuleGatewayInvocationEnd = { readonly endedAt: string } & (
   | { readonly status: "complete" }
   | {
-      /** `denied`: the request was not authorized. */
       readonly status: "cancelled" | "denied" | "failed";
-      /** Absent when a non-Gateway error ended it. */
       readonly errorCode?: ModuleGatewayFailureCode;
     }
 );
 
-/** Admits each runtime Invocation against Installation Grants, then runs its provider. */
 export interface ModuleGatewayRuntimeDispatcher {
   dispatch(input: {
     readonly runtime: ModuleRuntimeIdentity;

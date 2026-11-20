@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import type { EventInput } from "../change";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ref";
-import type { Artifact, Blob, Content } from "../schema";
+import type { Artifact, ArtifactEvent, Blob, Content } from "../schema";
 import type {
   ArtifactListQuery,
   ArtifactStore,
@@ -33,6 +34,68 @@ function artifact(fields: Partial<Artifact> = {}): Artifact {
     updatedAt: AT,
     ...fields,
   };
+}
+
+function unplainArrays(): unknown[][] {
+  const hidden: unknown[] = ["a"];
+  Object.defineProperty(hidden, "hidden", { value: () => undefined });
+  const symbolic: unknown[] = ["a"];
+  Object.defineProperty(symbolic, Symbol("extra"), {
+    enumerable: true,
+    value: 1n,
+  });
+  class Entries extends Array<unknown> {}
+  return [hidden, symbolic, Entries.from(["a"])];
+}
+
+function holed(): number[] {
+  const values: number[] = [];
+  values[1] = 2;
+  return values;
+}
+
+function unplainEvents(): readonly unknown[] {
+  const base = event({ artifactId: artifactId(), type: "artifact.created" });
+  class Instance {
+    readonly artifactId = base.artifactId;
+    readonly at = base.at;
+    readonly id = base.id;
+    readonly type = base.type;
+  }
+  return [
+    new Instance(),
+    { ...base, at: new Date() },
+    { ...base, extra: Number.NaN },
+    { ...base, extra: -0 },
+    { ...base, extra: 1n },
+    { ...base, extra: undefined },
+    { ...base, extra: () => undefined },
+    { ...base, extra: holed() },
+    { ...base, extra: new Map() },
+    { ...base, [Symbol("extra")]: 1 },
+    ...unplainArrays().map((array) => ({ ...base, extra: array })),
+    Object.defineProperty({ ...base }, "hidden", {
+      enumerable: false,
+      value: 1,
+    }),
+  ];
+}
+
+function removedEvent(): ArtifactEvent {
+  return event({
+    artifactId: artifactId(),
+    artifactType: "text/plain",
+    name: "gone",
+    type: "artifact.removed",
+  });
+}
+
+function event(input: EventInput): ArtifactEvent {
+  return {
+    ...input,
+    at: AT.toISOString(),
+    id: crypto.randomUUID(),
+  } as ArtifactEvent;
 }
 
 function content(owner: ArtifactId, blobs: readonly BlobId[] = []): Content {
@@ -129,10 +192,27 @@ function scramble(write: ArtifactStoreWrite, other: BlobId): void {
 
 export type ScopedArtifactStores = (scope: string) => ArtifactStore;
 
+export interface RecordingArtifactStores {
+  readonly failNextCommit: () => void;
+  readonly recorded: () => Promise<readonly ArtifactEvent[]>;
+  readonly stores: ScopedArtifactStores;
+}
+
+export type ArtifactStoreMode =
+  | { readonly hooked: false }
+  | {
+      readonly hooked: true;
+      readonly recording: () => Promise<RecordingArtifactStores>;
+    };
+
 export function describeArtifactStore(
   name: string,
-  open: () => ScopedArtifactStores | Promise<ScopedArtifactStores>
+  open: () => ScopedArtifactStores | Promise<ScopedArtifactStores>,
+  mode: ArtifactStoreMode
 ): void {
+  if (mode.hooked) {
+    describeRecordedEvents(name, mode.recording);
+  }
   const fresh = async () => (await open())("conformance");
   const everyArtifact = async (store: ArtifactStore) =>
     (await store.listArtifacts({ includeArchived: true, limit: 1000 }))
@@ -297,6 +377,74 @@ export function describeArtifactStore(
       expect(await store.getArtifact(record.id)).toEqual(replaced);
     });
 
+    it("keeps no record of a write's events, with records or alone", async () => {
+      const store = await fresh();
+      const owner = artifact();
+      const version = content(owner.id);
+      await store.commit({
+        events: [
+          event({ artifactId: owner.id, type: "artifact.created" }),
+          event({
+            artifactId: owner.id,
+            contentId: version.id,
+            type: "artifact.written",
+          }),
+        ],
+        putArtifacts: [owner],
+        putContents: [version],
+      });
+      await store.commit({
+        events: [removedEvent()],
+      });
+
+      expect(await everyArtifact(store)).toEqual([owner]);
+      expect(await store.listContents()).toEqual([version]);
+      expect(await store.listBlobs()).toEqual([]);
+    });
+
+    it("refuses whole a write whose event is not plain JSON, whatever kind of value", async () => {
+      const store = await fresh();
+      const base = event({
+        artifactId: artifactId(),
+        type: "artifact.created",
+      });
+      for (const value of unplainEvents()) {
+        await expect(
+          store.commit({
+            events: [value as ArtifactEvent],
+            putArtifacts: [artifact()],
+          })
+        ).rejects.toThrow(TypeError);
+      }
+      await expect(
+        store.commit({ events: base as unknown as ArtifactEvent[] })
+      ).rejects.toThrow("events must be an array");
+      expect(await everyArtifact(store)).toEqual([]);
+    });
+
+    it("refuses such a write through a transaction's view, and the transaction goes on", async () => {
+      const store = await fresh();
+      const refused = artifact();
+      const kept = artifact();
+      await requireTransaction(store)(async (view) => {
+        for (const value of unplainEvents()) {
+          await expect(
+            view.commit({
+              events: [value as ArtifactEvent],
+              putArtifacts: [refused],
+            })
+          ).rejects.toThrow(TypeError);
+        }
+        await view.commit({
+          events: [event({ artifactId: kept.id, type: "artifact.created" })],
+          putArtifacts: [kept],
+        });
+      });
+
+      expect(await store.getArtifact(refused.id)).toBeNull();
+      expect(await store.getArtifact(kept.id)).toEqual(kept);
+    });
+
     it("keeps nothing from a commit that fails", async () => {
       const store = await fresh();
       const before = artifact();
@@ -313,6 +461,65 @@ export function describeArtifactStore(
       ).rejects.toThrow();
       expect(await everyArtifact(store)).toEqual([before]);
       expect(await store.listBlobs()).toEqual([]);
+    });
+
+    it("lands a commit made after one that fails in its turn", async () => {
+      const store = await fresh();
+      await store
+        .commit({
+          putArtifacts: [artifact({ createdAt: new Date(Number.NaN) })],
+        })
+        .catch(() => undefined);
+      const after = artifact();
+      expect(
+        await settlesWithin(store.commit({ putArtifacts: [after] }), 2000)
+      ).toBe("resolved");
+      expect(await store.getArtifact(after.id)).toEqual(after);
+    });
+
+    it("lands a commit made after a transaction whose work throws, and keeps nothing of it", async () => {
+      const store = await fresh();
+      const transaction = requireTransaction(store);
+      const doomed = artifact();
+      await expect(
+        transaction(async (view) => {
+          await view.commit({ putArtifacts: [doomed] });
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+      const after = artifact();
+      expect(
+        await settlesWithin(store.commit({ putArtifacts: [after] }), 2000)
+      ).toBe("resolved");
+      expect(await store.getArtifact(doomed.id)).toBeNull();
+      expect(await store.getArtifact(after.id)).toEqual(after);
+    });
+
+    it("lands a commit queued behind a transaction that fails, and one queued behind a failing commit", async () => {
+      const store = await fresh();
+      const transaction = requireTransaction(store);
+      const entered = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      const failing = transaction(async () => {
+        entered.resolve(undefined);
+        await release.promise;
+        throw new Error("work failed");
+      });
+      await entered.promise;
+      const queued = artifact();
+      const waiting = store.commit({ putArtifacts: [queued] });
+      const refused = store.commit({
+        putArtifacts: [artifact({ createdAt: new Date(Number.NaN) })],
+      });
+      const last = artifact();
+      const behind = store.commit({ putArtifacts: [last] });
+      release.resolve(undefined);
+      await expect(failing).rejects.toThrow("work failed");
+      await refused.catch(() => undefined);
+      expect(await settlesWithin(waiting, 2000)).toBe("resolved");
+      expect(await settlesWithin(behind, 2000)).toBe("resolved");
+      expect(await store.getArtifact(queued.id)).toEqual(queued);
+      expect(await store.getArtifact(last.id)).toEqual(last);
     });
 
     it("detaches what it stores from what it returns", async () => {
@@ -1179,6 +1386,137 @@ export function describeArtifactStore(
         })
       ).rejects.toThrow("abandoned");
       expect(await everyArtifact(store)).toEqual([before]);
+    });
+  });
+}
+
+function describeRecordedEvents(
+  name: string,
+  recording: () => Promise<RecordingArtifactStores>
+): void {
+  const recorder = async () => {
+    const opened = await recording();
+    return { ...opened, store: opened.stores("conformance") };
+  };
+  const created = (owner: Artifact) =>
+    event({ artifactId: owner.id, type: "artifact.created" });
+
+  describe(`${name} Artifact store events handed to the host`, () => {
+    it("hands on each commit's events once, in order, and none for a write without", async () => {
+      const { recorded, store } = await recorder();
+      const owner = artifact();
+      const version = content(owner.id);
+      const first = [
+        created(owner),
+        event({
+          artifactId: owner.id,
+          contentId: version.id,
+          type: "artifact.written",
+        }),
+      ];
+      await store.commit({
+        events: first,
+        putArtifacts: [owner],
+        putContents: [version],
+      });
+      await store.commit({ putArtifacts: [{ ...owner, name: "renamed" }] });
+      const gone = removedEvent();
+      await store.commit({ events: [gone] });
+
+      expect(await recorded()).toStrictEqual([...first, gone]);
+    });
+
+    it("hands on the events as they were when commit was called", async () => {
+      const { recorded, store } = await recorder();
+      const owner = artifact();
+      const events = [created(owner)];
+      const expected = structuredClone(events);
+
+      const pending = store.commit({ events, putArtifacts: [owner] });
+      Object.assign(events[0] ?? {}, { type: "artifact.removed" });
+      events.push(removedEvent());
+      await pending;
+
+      expect(await recorded()).toStrictEqual(expected);
+    });
+
+    it("hands on plain JSON, and nothing of a write whose event is not", async () => {
+      const { recorded, store } = await recorder();
+      const owner = artifact();
+      const dated = { ...created(owner), at: new Date() };
+
+      await expect(
+        store.commit({
+          events: [dated as unknown as ArtifactEvent],
+          putArtifacts: [owner],
+        })
+      ).rejects.toThrow(TypeError);
+      expect(await store.getArtifact(owner.id)).toBeNull();
+      expect(await recorded()).toStrictEqual([]);
+    });
+
+    it("records nothing for a write it refuses", async () => {
+      const { recorded, store } = await recorder();
+      const owner = artifact({ metadata: { unstorable: () => undefined } });
+
+      await expect(
+        store.commit({ events: [created(owner)], putArtifacts: [owner] })
+      ).rejects.toThrow();
+      expect(await recorded()).toStrictEqual([]);
+    });
+
+    it("runs the hook inside the commit: a throw from it keeps neither the write nor its events", async () => {
+      const { failNextCommit, recorded, store } = await recorder();
+      const owner = artifact();
+      failNextCommit();
+
+      await expect(
+        store.commit({ events: [created(owner)], putArtifacts: [owner] })
+      ).rejects.toThrow();
+      expect(await store.getArtifact(owner.id)).toBeNull();
+      expect(await recorded()).toStrictEqual([]);
+
+      const kept = created(owner);
+      await store.commit({ events: [kept], putArtifacts: [owner] });
+      expect(await recorded()).toStrictEqual([kept]);
+    });
+
+    it("records a transaction's events only when it is kept", async () => {
+      const { recorded, store } = await recorder();
+      const transaction = requireTransaction(store);
+      const dropped = artifact();
+      const owner = artifact();
+      const version = content(owner.id);
+      const kept = [
+        created(owner),
+        event({
+          artifactId: owner.id,
+          contentId: version.id,
+          type: "artifact.written",
+        }),
+      ];
+
+      await expect(
+        transaction(async (view) => {
+          await view.commit({
+            events: [created(dropped)],
+            putArtifacts: [dropped],
+          });
+          throw new Error("work failed");
+        })
+      ).rejects.toThrow("work failed");
+      await transaction(async (view) => {
+        await view.commit({
+          events: [kept[0] as ArtifactEvent],
+          putArtifacts: [owner],
+        });
+        await view.commit({
+          events: [kept[1] as ArtifactEvent],
+          putContents: [version],
+        });
+      });
+
+      expect(await recorded()).toStrictEqual(kept);
     });
   });
 }

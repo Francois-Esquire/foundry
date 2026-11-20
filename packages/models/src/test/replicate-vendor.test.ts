@@ -1,11 +1,3 @@
-/**
- * Caller-owned instrument. Nothing here runs without a token, and nothing here
- * is a gate: it closes the one Replicate claim this Step could not source from
- * an installed declaration — the image row's output MIME, which comes from the
- * model's documented default output format rather than from the adapter.
- *
- *   REPLICATE_API_TOKEN=… bun run --cwd=packages/models test:integration -- replicate-vendor
- */
 import { describe, expect, it } from "vitest";
 
 import { operationsOf } from "../provider";
@@ -40,8 +32,6 @@ describe.skipIf(!TOKEN)("Replicate vendor obligations", () => {
     if (!(first instanceof Uint8Array)) {
       throw new Error("expected image bytes");
     }
-    // PNG, JPEG, and WebP are distinguishable by their leading bytes, which is
-    // the only MIME evidence the adapter passes through.
     const signature = Buffer.from(first.subarray(0, 12));
     let observed = "image/jpeg";
     if (signature.subarray(8, 12).toString("ascii").startsWith("WEBP")) {

@@ -42,14 +42,6 @@ const expectedTextPattern7 = /^follows colocate-primitive:/;
 const expectedTextPattern8 = /"exactPath":"(?!deferred")/;
 const specifierPattern = /\.tsx?$/;
 
-// V13.4 rewiring scenarios on synthetic packages. Each fixture is one
-// package in a throwaway workspace. The high-fan cutoff floors at 3, so a
-// root module with dependents in three directories is a connector and
-// stays unresolved; the package-wide floor is 3 responsibilities; and a
-// seed consumed by fewer than 3 modules joins its endpoints' regions, so
-// cross-region fixtures carry constants and functions, or seeds consumed
-// by 3+ modules.
-
 const tempRoots: string[] = [];
 
 afterAll(() => {
@@ -167,11 +159,6 @@ function responsibilityOf(report: InternalRewiringReport, module: string) {
   return entry?.responsibility;
 }
 
-/**
- * Three directory regions a, b, c; a root hub with a localized symbol into
- * each (unresolved distributed primitive); a wide-dependent app module
- * without wiring (unresolved, unclear). `LOCAL_B` sits in a and serves b.
- */
 function hubFixture(): Record<string, string> {
   return {
     "src/a/a1.ts":
@@ -263,8 +250,6 @@ describe("hub", () => {
       before: "declared-in-unresolved-module",
       symbols: 4,
     });
-    // a1 and app keep importing other symbols from the hub, so both edges
-    // are retargeted rather than removed, and each consumer gains an edge.
     expect(colocate.effects.responsibilityBoundaries).toMatchObject({
       crossingSymbols: { after: 0, before: 4 },
       unresolvedEdges: { after: 3, before: 2 },
@@ -485,8 +470,6 @@ describe("hub", () => {
     expect(report.summary.byKind["preserve-current"]).toBe(
       report.summary.families.total
     );
-    // 7 symbol groups, 4 redirects, and A2: the one type beside a constant
-    // against an 8:1 dedicated-module convention.
     expect(report.summary.families.total).toBe(12);
     expect(
       kindsFor(report, "src/a/a2.ts|align:type/responsibility-local")
@@ -508,7 +491,6 @@ describe("hub", () => {
   });
 });
 
-/** A root that constructs one implementation per responsibility, plus an a-local constant. */
 function compositionFixture(): Record<string, string> {
   const files: Record<string, string> = {
     "src/bootstrap.ts":
@@ -540,7 +522,6 @@ function compositionFixture(): Record<string, string> {
 
 describe("composition root", () => {
   const report = rewiringOf(compositionFixture());
-  // `ImplA` splits between use.ts and the root, so use.ts is its own region.
   const regionUse = responsibilityOf(report, "src/a/use.ts") ?? "";
 
   it("reads construction across responsibilities as composition and preserves the root", () => {
@@ -603,8 +584,6 @@ describe("composition root", () => {
         module: "src/a/use.ts",
       },
     ]);
-    // The only module of the target responsibility is the consumer itself:
-    // the edge disappears and nothing is added.
     expect(colocate.effects.dependencies).toMatchObject({
       edgesAdded: 0,
       edgesRemoved: 1,
@@ -629,11 +608,6 @@ describe("composition root", () => {
   });
 });
 
-/**
- * A responsibility-local mixed-role module beside a package that keeps
- * contracts in dedicated modules (a, b, c), and the same module without
- * that convention.
- */
 function roleFixture(withConvention: boolean): Record<string, string> {
   const files: Record<string, string> = {
     "src/index.ts": 'export * from "./z/use";\n',
@@ -714,7 +688,6 @@ describe("split by role", () => {
   });
 });
 
-/** Four regions keep their contract in a dedicated module; region e declares it beside the implementation. */
 function outlierFixture(): Record<string, string> {
   const files: Record<string, string> = {
     "src/index.ts": 'export * from "./a/use";\n',
@@ -786,12 +759,6 @@ describe("convention outlier", () => {
   });
 });
 
-/**
- * Region A (a1, a2, a3) reaches three deep modules of region B; b1 keeps
- * two callable contracts beside its behavior, consumed by a1, a3, and b2.
- * A seed with 3 consumers is not localized, so it joins nothing; every A
- * module stays below the high-fan-out cutoff.
- */
 function surfaceFixture(): Record<string, string> {
   return {
     "src/a/a1.ts":
@@ -895,7 +862,6 @@ describe("responsibility surfaces", () => {
   });
 });
 
-/** A seed declared in a and consumed by a, b, c: package-wide at the floor of 3. */
 function promotionFixture(): Record<string, string> {
   return {
     "src/a/a1.ts":
@@ -954,15 +920,10 @@ describe("promotion", () => {
     expect(promote.uncertainties.map((u) => u.reason)).toContain(
       "package-public-external-impact"
     );
-    // Promotion places the group at its measured scope, so that scope is kept.
     expect(promote.preservations).toContain("package-wide-scope");
   });
 });
 
-/**
- * `X` in m/m1 serves a alone and is annotated with `Z`, which stays; m1
- * already depends on a2, so importing `Z` back from a would close a cycle.
- */
 function cycleFixture(): Record<string, string> {
   return {
     "src/a/a1.ts":
@@ -1007,7 +968,6 @@ describe("cycle guard and closure size", () => {
   });
 });
 
-/** a1 → helper → core, with the helper thin; a2 → adapter → port/core, with the adapter an implementation. */
 function indirectionFixture(): Record<string, string> {
   return {
     "src/a/a1.ts":

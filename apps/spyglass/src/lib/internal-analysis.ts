@@ -17,9 +17,7 @@ export type InternalAnalysisStage =
   | "rewiring"
   | "review";
 
-/** Before one package's internals are derived, before the dataset is published. */
 export interface InternalsProgressEvent {
-  /** The package's position, 1-based, of `total`. */
   index: number;
   kind: "internals";
   package: string;
@@ -39,7 +37,6 @@ export function runInternalAnalysis(
   };
 }
 
-/** The internal stages over one package-local report, through `through`, with each stage's time. */
 function analyzeInternals(
   local: PackageLocalReport,
   through: InternalAnalysisStage
@@ -105,7 +102,6 @@ function analyzeInternals(
   };
 }
 
-/** Every internal stage of one package, through the review, without timings. */
 export function packageInternals(local: PackageLocalReport): PackageInternals {
   const topology = analyzeInternalPackageTopology(local);
   const locality = analyzeSymbolLocality(local, topology);
@@ -131,11 +127,6 @@ export function packageInternals(local: PackageLocalReport): PackageInternals {
   return { locality, primitives, responsibilities, review, rewiring, topology };
 }
 
-/**
- * Writes each complete package's internals, in id order, announcing each one
- * first. A package is complete when it has a report, and so a local report.
- * An internals crash throws.
- */
 export function writeInternals(
   outcomes: readonly {
     local?: PackageLocalReport;
