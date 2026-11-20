@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { keepingLinks } from "~/database/artifact-links";
+import { DatabaseAssociationStore } from "~/database/associations";
 import { artifactPlace, linkName, rebuildLinks } from "~/database/links";
 import { readResourceView, resourceAssociations } from "~/database/resources";
 import { artifactBlobs, workspaceStores } from "~/database/stores";
@@ -608,6 +609,60 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       ".marbles/artifacts/notes goes through a link, a file or a path outside .marbles"
     );
     expect(readdirSync(outside)).toEqual([]);
+  });
+
+  it("list the shares once ahead of every workspace an update reaches, and again under each lock", async () => {
+    const { artifacts, machine, one, two } = await arranged();
+    const { database } = machine.database;
+    const fourRoot = join(one.root, "..", "four");
+    mkdirSync(workspaceLinks(fourRoot), { recursive: true });
+    const four = workspaceState(machine.root, fourRoot);
+    await new WorkspaceRegistry({ database, state: machine.root }).touch(
+      four,
+      null
+    );
+    const plain = workspaceStores(database, one.id).artifacts;
+    const id = artifactIdSchema.parse("artifact#plan");
+    await new ArtifactManager({
+      files: blobFiles(artifactBlobs(artifacts, one.id)),
+      store: plain,
+    }).create({
+      entries: { "plan.md": { bytes: "# Plan\n", mime: "text/markdown" } },
+      id,
+      name: "plan",
+      type: "text/markdown",
+    });
+    const ref = { id, kind: "artifact", owner: one.id } as const;
+    const associations = resourceAssociations(database, machine.root);
+    await associations.share(ref, two.id);
+    await associations.share(ref, four.id);
+    const record = await plain.getArtifact(id);
+    if (record === null) {
+      throw new Error("the artifact was created");
+    }
+    const lines: string[] = [];
+    const store = keeping(machine, artifacts, one, lines);
+    const listed = vi.spyOn(DatabaseAssociationStore.prototype, "list");
+    try {
+      await store.commit({ putArtifacts: [record] });
+      await store.drainLinks(10_000);
+      expect(listed).toHaveBeenCalledTimes(3);
+    } finally {
+      listed.mockRestore();
+    }
+    expect(lines).toEqual([]);
+    for (const workspace of [two, four]) {
+      expect(
+        await readFile(
+          join(
+            resourceLinks(workspace.root, "artifact"),
+            ...artifactPlace(ref, workspace.id),
+            "plan.md"
+          ),
+          "utf8"
+        )
+      ).toBe("# Plan\n");
+    }
   });
 });
 
