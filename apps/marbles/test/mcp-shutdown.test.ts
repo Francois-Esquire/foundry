@@ -1,8 +1,9 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { Readable } from "node:stream";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { cliArgs } from "./helpers/cli";
@@ -74,6 +75,7 @@ async function start(
   body: string,
   options: {
     readonly args?: readonly string[];
+    readonly env?: NodeJS.ProcessEnv;
     readonly home?: TestHome;
     readonly piped?: boolean;
   } = {}
@@ -82,7 +84,7 @@ async function start(
   const env = await serverPreload(
     home.path,
     `console.error("PIDS=" + process.pid + "," + process.ppid);\n${body}`,
-    home.env
+    { ...home.env, ...options.env }
   );
   const marbles = [
     "--no-env-file",
@@ -145,6 +147,103 @@ it("exits once shutdown is done, though a timer is pending", async () => {
   } finally {
     kill(started?.relay);
     kill(started?.server);
+    await rm(root, { force: true, recursive: true });
+  }
+}, 30_000);
+
+it("shuts down in order when the relay passes on SIGHUP", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-hangup-"));
+  let started: Started | undefined;
+  try {
+    started = await start(root, "");
+    const { relay, server, session } = started;
+    process.kill(relay, "SIGHUP");
+    const ended = await within(session.ended(), 10_000, "the exit");
+    expect(ended.code, ended.stderr).toBe(0);
+    expect(alive(server)).toBe(false);
+  } finally {
+    kill(started?.relay);
+    kill(started?.server);
+    await rm(root, { force: true, recursive: true });
+  }
+}, 30_000);
+
+it("removes the server's recovery record once the server exits", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-record-"));
+  const recovery = await mkdtemp(join(tmpdir(), "marbles-mcp-recovery-"));
+  let started: Started | undefined;
+  try {
+    started = await start(root, "", {
+      env: { MARBLES_SPAWN_RECOVERY: recovery },
+    });
+    const { server, session } = started;
+    const record = join(recovery, `${String(server)}.json`);
+    expect(existsSync(record)).toBe(true);
+    const ended = await within(session.close(), 10_000, "the exit");
+    expect(ended.code, ended.stderr).toBe(0);
+    expect(existsSync(record)).toBe(false);
+  } finally {
+    kill(started?.relay);
+    kill(started?.server);
+    await rm(root, { force: true, recursive: true });
+    await rm(recovery, { force: true, recursive: true });
+  }
+}, 30_000);
+
+it("shuts down in order when the protocol output fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-epipe-"));
+  const home = testHome();
+  const { VITEST: _vitest, ...env } = home.env;
+  const server = spawn(
+    "bun",
+    ["--no-env-file", resolve("src/cli.ts"), "mcp", "--dry-run"],
+    {
+      cwd: root,
+      env: { ...env, MARBLES_MCP_SERVER: "1" },
+      stdio: ["pipe", "ignore", "pipe", "pipe", "pipe"],
+    }
+  );
+  let stderr = "";
+  server.stderr?.setEncoding("utf8").on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const ended = new Promise<number | null>((settle) => {
+    server.once("exit", (code) => settle(code));
+  });
+  try {
+    const [input, protocol] = [server.stdin, server.stdio[3]];
+    if (input === null || !(protocol instanceof Readable)) {
+      throw new Error("the server's pipes did not open");
+    }
+    let frames = "";
+    protocol.setEncoding("utf8");
+    protocol.on("data", (chunk: string) => {
+      frames += chunk;
+    });
+    input.write(
+      `${JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: {
+          capabilities: {},
+          clientInfo: { name: "test", version: "0" },
+          protocolVersion: "2025-06-18",
+        },
+      })}\n`
+    );
+    await vi.waitFor(() => expect(frames).toContain('"id":1'), {
+      timeout: 15_000,
+    });
+    protocol.destroy();
+    input.write(
+      `${JSON.stringify({ id: 2, jsonrpc: "2.0", method: "tools/list" })}\n`
+    );
+    const code = await within(ended, 10_000, "the exit");
+    expect(code, stderr).toBe(0);
+    expect(stderr).toContain("marbles mcp: the protocol output failed");
+  } finally {
+    kill(server.pid);
     await rm(root, { force: true, recursive: true });
   }
 }, 30_000);
