@@ -926,20 +926,23 @@ describe("engine generations", () => {
     client.close();
   }, 150_000);
 
-  it("gives up an adoption that never answers, so a later hand-over of its workspace goes through", async () => {
+  it("offers no run again while its adoption is outstanding past the deadline, lets the workspace's next hand-over through, and adopts it once when the late adoption lands", async () => {
     const clock = handClock();
     const lines: string[] = [];
-    const marker = join(testHome({ providers: false }).path, "hang-adopt");
-    process.env.MARBLES_TEST_HANG_ADOPT = marker;
+    const scratch = testHome({ providers: false }).path;
+    const stall = join(scratch, "stall-adopt");
+    const release = join(scratch, "release-adopt");
+    process.env.MARBLES_TEST_STALL_ADOPT = stall;
+    process.env.MARBLES_TEST_RELEASE_ADOPT = release;
     try {
       const files = generationFiles(testHome({ providers: false }));
-      const gate = join(files.gates, "late");
       const parking = (name: string) =>
         `export const ${name} = step(${JSON.stringify(name)}).do(async ({ ask }) => {
   note(${JSON.stringify(name)});
-  while (!existsSync(${JSON.stringify(gate)})) {
+  while (!existsSync(${JSON.stringify(join(files.gates, name))})) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  note(${JSON.stringify(`asking-${name}`)});
   const answer = await ask.question({ title: ${JSON.stringify(`${name}?`)}, choices: ["yes", "no"] });
   note(${JSON.stringify(`answered-${name}`)});
   return answer;
@@ -959,42 +962,100 @@ describe("engine generations", () => {
           generationEntry: join(
             import.meta.dirname,
             "helpers",
-            "generation-hanging-adopt.ts"
+            "generation-stalling-adopt.ts"
           ),
           print: (line) => lines.push(line),
         },
         (started) => daemons.push(started)
       );
+      const asked = (runId: string) =>
+        lines.filter((line) => line.endsWith(`adopt asked ${runId}`)).length;
+      const { id } = fixture.summary;
       const first = fixture.summary.pid ?? 0;
       const workspace = fixture.client.workspace(fixture.summary);
       await workspace.actions.launch("parkOne", {});
       await whenLogged(fixture, `parkOne ${String(first)}`);
-      writeFileSync(marker, "");
-      await fixture.client.reload(fixture.summary.id);
+      await fixture.client.reload(id);
       const second = await readyOn(fixture, (pid) => pid !== first);
-      writeFileSync(gate, "");
+      await workspace.actions.launch("parkTwo", {});
+      await whenLogged(fixture, `parkTwo ${String(second)}`);
+      await fixture.client.reload(id);
+      const third = await readyOn(
+        fixture,
+        (pid) => pid !== first && pid !== second
+      );
+
+      writeFileSync(stall, "");
+      open("parkOne", fixture);
+      const stalled = await vi.waitFor(
+        () => {
+          const line = lines.find((each) => each.includes("adopt stalls "));
+          expect(line, lines.join("\n")).toBeDefined();
+          return line?.split("adopt stalls ")[1] ?? "";
+        },
+        { interval: 50, timeout: 30_000 }
+      );
+      open("parkTwo", fixture);
+      await whenLogged(fixture, `asking-parkTwo ${String(second)}`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      clock.advance(30_000);
       await vi.waitFor(
         () =>
           expect(
-            lines.some((line) => line.includes("adopt hangs for")),
+            lines.some((line) =>
+              line.includes(`adopting run ${stalled} timed out`)
+            ),
+            lines.join("\n")
+          ).toBe(true),
+        { interval: 50, timeout: 10_000 }
+      );
+      await vi.waitFor(
+        () =>
+          expect(
+            lines.some((line) => line.includes("[run] parkTwo taken over")),
             lines.join("\n")
           ).toBe(true),
         { interval: 50, timeout: 30_000 }
       );
-      await workspace.actions.launch("parkTwo", {});
-      const entry = await openEntry(workspace, "parkTwo?");
-      clock.advance(30_000);
-      await workspace.actions.answer(entry, "yes");
-      await whenLogged(fixture, `answered-parkTwo ${String(second)}`);
+      const two = await openEntry(workspace, "parkTwo?");
+      await workspace.actions.answer(two, "yes");
+      await whenLogged(fixture, `answered-parkTwo ${String(third)}`);
+
+      const now = Date.now.bind(Date);
+      const later = vi
+        .spyOn(Date, "now")
+        .mockImplementation(() => now() + 60_000);
+      try {
+        await fixture.daemon.sweepNow();
+      } finally {
+        later.mockRestore();
+      }
+      expect(asked(stalled), lines.join("\n")).toBe(1);
+
+      writeFileSync(release, "");
+      await vi.waitFor(
+        () =>
+          expect(
+            lines.some((line) =>
+              line.includes(`[run] parkOne taken over ${stalled}`)
+            ),
+            lines.join("\n")
+          ).toBe(true),
+        { interval: 50, timeout: 30_000 }
+      );
+      const one = await openEntry(workspace, "parkOne?");
+      await workspace.actions.answer(one, "yes");
+      await whenLogged(fixture, `answered-parkOne ${String(third)}`);
+      expect(asked(stalled), lines.join("\n")).toBe(1);
       expect(
-        lines.some((line) => line.includes("timed out")),
-        lines.join("\n")
-      ).toBe(true);
+        logged(fixture).filter((line) => line.startsWith("answered-parkOne "))
+      ).toEqual([`answered-parkOne ${String(third)}`]);
       fixture.client.close();
     } finally {
-      delete process.env.MARBLES_TEST_HANG_ADOPT;
+      delete process.env.MARBLES_TEST_STALL_ADOPT;
+      delete process.env.MARBLES_TEST_RELEASE_ADOPT;
     }
-  }, 150_000);
+  }, 240_000);
 
   it("runs a queued run on the current generation that its retired one handed over only after the current one started", async () => {
     const marker = join(testHome({ providers: false }).path, "fail-handover");

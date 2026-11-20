@@ -678,6 +678,27 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     of: 0,
   };
   const waiting = new Map<string, Set<() => void>>();
+  const adopting = new Map<string, Promise<unknown>>();
+  const taking = new Map<string, Promise<unknown>>();
+
+  function outstanding(
+    table: Map<string, Promise<unknown>>,
+    key: string,
+    asked: Promise<unknown>,
+    settled: (value: unknown) => void
+  ): Promise<unknown> {
+    table.set(key, asked);
+    const clear = (): void => {
+      if (table.get(key) === asked) {
+        table.delete(key);
+      }
+    };
+    asked.then((value) => {
+      clear();
+      settled(value);
+    }, clear);
+    return asked;
+  }
 
   function changed(id?: string): void {
     for (const [key, wakers] of waiting) {
@@ -715,6 +736,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (pending !== undefined) {
       return pending;
     }
+    if (adopting.has(key)) {
+      return Promise.resolve();
+    }
     const previous = handovers.get(id) ?? Promise.resolve();
     const next = previous.then(async () => {
       for (let attempt = 0; attempt < HANDOVER_ATTEMPTS; attempt += 1) {
@@ -727,13 +751,25 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         ) {
           return;
         }
+        if (adopting.has(key)) {
+          return;
+        }
         try {
+          const asked = outstanding(
+            adopting,
+            key,
+            ask(target, GENERATION_METHODS.adopt, { id, runId }),
+            (adopted) => {
+              if (adopted === true) {
+                declined.delete(key);
+                held(target, key);
+                changed(id);
+              }
+            }
+          );
           if (
-            (await within(
-              ask(target, GENERATION_METHODS.adopt, { id, runId }),
-              HELD_WAIT_MS,
-              `adopting run ${runId}`
-            )) === true
+            (await within(asked, HELD_WAIT_MS, `adopting run ${runId}`)) ===
+            true
           ) {
             declined.delete(key);
             held(target, key);
@@ -843,17 +879,24 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   ): Promise<void> {
     const key = `${id}\0${runId}`;
     const at = orphansDeclined.get(key);
-    if (at !== undefined && Date.now() - at < REOFFER_MS) {
+    if (taking.has(key) || (at !== undefined && Date.now() - at < REOFFER_MS)) {
       return;
     }
     let why: string;
     try {
+      const asked = outstanding(
+        taking,
+        key,
+        ask(target, GENERATION_METHODS.takeQueued, { id, owner, runId }),
+        (value) => {
+          if (queuedTakeSchema.safeParse(value).data?.taken === true) {
+            orphansDeclined.delete(key);
+            orphansReported.delete(key);
+          }
+        }
+      );
       const take = queuedTakeSchema.parse(
-        await within(
-          ask(target, GENERATION_METHODS.takeQueued, { id, owner, runId }),
-          HELD_WAIT_MS,
-          `taking queued run ${runId}`
-        )
+        await within(asked, HELD_WAIT_MS, `taking queued run ${runId}`)
       );
       if (take.taken) {
         orphansDeclined.delete(key);
