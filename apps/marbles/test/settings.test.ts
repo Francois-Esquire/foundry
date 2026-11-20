@@ -3,15 +3,16 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "bun";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { parseArgs } from "~/args";
-import { applyTheme, theme } from "~/components/ui/theme";
-import { THEME_NAMES } from "~/model/settings";
+import { parseArgs } from "~/cli/args";
 import {
   DEFAULT_SETTINGS,
   loadSettings,
   saveSettings,
   settingsPath,
-} from "~/settings";
+} from "~/cli/settings";
+import { applyTheme, settingsView, terminalTheme } from "~/cli/theme";
+import { theme } from "~/components/ui/theme";
+import { THEME_NAMES } from "~/model/settings";
 
 let state: string;
 
@@ -123,4 +124,24 @@ it("applies a theme in place, and the default palette is unchanged", () => {
   expect(theme.colors.background).toBe("#fbf1c7");
   applyTheme("dark");
   expect(theme.colors.background).toBe("#282828");
+});
+
+it("lists every theme with its label and swatches for the settings panel", () => {
+  const view = settingsView({ path: "settings.json", theme: "light" });
+  expect(view).toMatchObject({
+    label: "Light",
+    path: "settings.json",
+    theme: "light",
+  });
+  expect(view.themes.map(({ name }) => name)).toEqual(THEME_NAMES);
+  const { colors } = terminalTheme("light");
+  expect(view.themes[1]).toEqual({
+    label: "Light",
+    name: "light",
+    swatches: {
+      accent: colors.accent,
+      background: colors.background,
+      primary: colors.primary,
+    },
+  });
 });

@@ -1,42 +1,42 @@
-import { basename, dirname, join, sep } from "node:path";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import type { WorkspaceSummary } from "~/model/connection";
 
-function workspaceLabel(
-  root: string,
-  workspaces: readonly WorkspaceSummary[]
-): string {
-  let label = basename(root);
-  let parent = dirname(root);
-  while (
-    workspaces.some(
-      (other) => other.root !== root && other.root.endsWith(sep + label)
-    )
-  ) {
-    if (parent === dirname(parent)) {
-      return root;
-    }
-    label = join(basename(parent), label);
-    parent = dirname(parent);
-  }
-  return label;
+export interface WorkspaceRow extends WorkspaceSummary {
+  readonly label: string;
+  readonly qualified: boolean;
+}
+
+export interface WorkspaceDetails {
+  readonly error?: string;
+  readonly root: string;
+}
+
+function Details({ details }: { readonly details: WorkspaceDetails }) {
+  return (
+    <box flexDirection="column" marginTop={1}>
+      <Text>{details.root}</Text>
+      {details.error && <text fg={theme.colors.error}>{details.error}</text>}
+    </box>
+  );
 }
 
 export function WorkspacesPanel({
   compact,
   current,
+  details,
   onSelect,
   selected,
   workspaces,
 }: {
   readonly compact?: boolean;
   readonly current?: string;
+  readonly details?: WorkspaceDetails;
   readonly onSelect: (id: string) => void;
   readonly selected: string;
-  readonly workspaces: readonly WorkspaceSummary[];
+  readonly workspaces: readonly WorkspaceRow[];
 }) {
   const prefix = compact ? "workspace-rail" : "workspace";
   return (
@@ -46,60 +46,40 @@ export function WorkspacesPanel({
       selectedId={`${prefix}:${selected}`}
       title="Workspaces"
     >
-      {workspaces.map((workspace) => {
-        const label = workspaceLabel(workspace.root, workspaces);
-        return (
-          <SelectableRow
-            id={`${prefix}:${workspace.id}`}
-            key={workspace.id}
-            onSelect={onSelect}
-            selected={workspace.id === selected}
-            value={workspace.id}
+      {workspaces.map((workspace) => (
+        <SelectableRow
+          id={`${prefix}:${workspace.id}`}
+          key={workspace.id}
+          onSelect={onSelect}
+          selected={workspace.id === selected}
+          value={workspace.id}
+        >
+          <box
+            columnGap={1}
+            flexDirection={compact && workspace.qualified ? "column" : "row"}
+            flexWrap={compact ? "wrap" : "no-wrap"}
+            minWidth={0}
           >
-            <box
-              flexDirection={
-                compact && label !== basename(workspace.root) ? "column" : "row"
-              }
-              minWidth={0}
-            >
-              <Text minWidth={0} truncate wrapMode="none">
-                {label}
-              </Text>
-              <box
-                flexDirection="row"
-                flexShrink={0}
-                gap={1}
-                paddingLeft={
-                  compact && label !== basename(workspace.root) ? 0 : 1
+            <Text minWidth={0} truncate wrapMode="none">
+              {workspace.label}
+            </Text>
+            <box flexDirection="row" flexShrink={0} gap={1}>
+              {workspace.id === current && <Text wrapMode="none">current</Text>}
+              <text
+                fg={
+                  workspace.state === "failed"
+                    ? theme.colors.error
+                    : theme.colors.mutedForeground
                 }
+                wrapMode="none"
               >
-                {workspace.id === current && (
-                  <Text wrapMode="none">current</Text>
-                )}
-                <text
-                  fg={
-                    workspace.state === "failed"
-                      ? theme.colors.error
-                      : theme.colors.mutedForeground
-                  }
-                  wrapMode="none"
-                >
-                  {workspace.state}
-                </text>
-              </box>
+                {workspace.state}
+              </text>
             </box>
-          </SelectableRow>
-        );
-      })}
-      {!compact &&
-        workspaces
-          .filter((item) => item.id === selected)
-          .map((item) => (
-            <box flexDirection="column" key={item.id} marginTop={1}>
-              <Text>{item.root}</Text>
-              {item.error && <text fg={theme.colors.error}>{item.error}</text>}
-            </box>
-          ))}
+          </box>
+        </SelectableRow>
+      ))}
+      {details && <Details details={details} />}
     </Panel>
   );
 }

@@ -11,14 +11,12 @@ const CARD_MARGIN = 4;
 export function SplashCard({
   height,
   onEnter,
-  preview,
   state,
   width,
   workspace,
 }: {
   readonly height: number;
   readonly onEnter: () => void;
-  readonly preview: boolean;
   readonly state: SplashState;
   readonly width: number;
   readonly workspace: string;
@@ -55,7 +53,7 @@ export function SplashCard({
         text="MARBLES"
       />
       <text fg={theme.colors.mutedForeground} wrapMode="none">
-        {workspace} · {preview ? "module preview" : "workspace"}
+        {workspace} · workspace
       </text>
       {state.status === "loading" ? (
         <LoadingIndicator label="Loading marbles" />

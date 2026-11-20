@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isGone } from "@foundry/lib/process-identity";
 import { expect, it, vi } from "vitest";
+import { watchRun } from "~/cli/watch";
 import { RunOutput } from "~/lib/state/output";
-import { watchRun } from "~/watch";
 
 vi.mock("@foundry/lib/process-identity", async (actual) => ({
   ...(await actual<typeof import("@foundry/lib/process-identity")>()),

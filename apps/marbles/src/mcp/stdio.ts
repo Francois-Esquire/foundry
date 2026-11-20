@@ -7,7 +7,7 @@ import {
   withRunningWorkspace,
   withTasks,
 } from "~/access/workspace";
-import type { Flags } from "~/args";
+import type { Flags } from "~/cli/args";
 import { recordedWorkspaces } from "~/database/workspaces";
 import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";

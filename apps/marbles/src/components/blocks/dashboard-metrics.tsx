@@ -1,20 +1,45 @@
 import type { ReactNode } from "react";
-import { BarChart } from "~/components/ui/bar-chart";
+import { BarChart, chartBarWidth } from "~/components/ui/bar-chart";
+import { cellWidth, cutToCells } from "~/components/ui/cells";
 import { Panel } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import type { DashboardSnapshot } from "~/views/dashboard-model";
-import {
-  duration,
-  operatingStats,
-  workflowRankings,
-} from "~/views/operating-model";
-import {
-  costCell,
-  unattributedTurns,
-  unreadableUsageRecords,
-} from "~/views/usage-format";
-import { CostTag } from "./cost-tag";
+import { CostTag, type CostView } from "./cost-tag";
+
+interface RunCounts {
+  readonly cancelled: number;
+  readonly complete: number;
+  readonly failed: number;
+  readonly queued: number;
+  readonly running: number;
+  readonly waiting: number;
+}
+
+interface SpendRanking {
+  readonly amount: number;
+  readonly cost: CostView;
+  readonly id: string;
+  readonly name: string;
+}
+
+interface ElapsedRanking {
+  readonly id: string;
+  readonly ms: number;
+  readonly name: string;
+  readonly timing: string;
+}
+
+export interface WorkflowRankingsView {
+  readonly elapsed: readonly ElapsedRanking[];
+  readonly spend: readonly SpendRanking[];
+}
+
+export interface DashboardMetricsView {
+  readonly counts: RunCounts;
+  readonly notes: readonly string[];
+  readonly spend: { readonly detail: string; readonly value: string };
+  readonly successRate: string;
+}
 
 interface MetricValue {
   readonly color?: string;
@@ -23,21 +48,47 @@ interface MetricValue {
   readonly value: string | number;
 }
 
-function Metric({ label, value, detail, color }: MetricValue) {
+const FOUR_ACROSS = 68;
+const CARD_GAP = 2;
+const CARD_INSET = 2;
+
+function fit(text: string, width: number): string {
+  if (cellWidth(text) <= width) {
+    return text;
+  }
+  return width > 1 ? `${cutToCells(text, width - 1).trimEnd()}…` : "";
+}
+
+function cardWidth(width: number, across: number): number {
+  return Math.floor((width - CARD_INSET - CARD_GAP * (across - 1)) / across);
+}
+
+function Metric({
+  label,
+  value,
+  detail,
+  color,
+  details,
+  width,
+}: MetricValue & { readonly details: boolean; readonly width: number }) {
   return (
     <box flexBasis={0} flexDirection="column" flexGrow={1} minWidth={0}>
-      <text fg={theme.colors.mutedForeground} truncate wrapMode="none">
-        {label}
+      <text fg={theme.colors.mutedForeground} wrapMode="none">
+        {fit(label, width)}
       </text>
-      <Text fg={color} truncate wrapMode="none">
-        <strong>{value}</strong>
+      <Text fg={color} wrapMode="none">
+        <strong>{fit(String(value), width)}</strong>
       </Text>
-      <text fg={theme.colors.mutedForeground} truncate wrapMode="none">
-        {detail}
-      </text>
+      {details && (
+        <text fg={theme.colors.mutedForeground} wrapMode="none">
+          {fit(detail, width)}
+        </text>
+      )}
     </box>
   );
 }
+
+const PANEL_INSET = 4;
 
 interface RankingRow {
   readonly id: string;
@@ -52,7 +103,7 @@ function Ranking({
   caption,
   empty,
   rows,
-  limit,
+  bars,
   width,
   color,
 }: {
@@ -60,7 +111,7 @@ function Ranking({
   readonly caption: string;
   readonly empty: string;
   readonly rows: readonly RankingRow[];
-  readonly limit: number;
+  readonly bars: number | undefined;
   readonly width: number;
   readonly color: string;
 }) {
@@ -77,152 +128,140 @@ function Ranking({
       <BarChart
         availableWidth={width}
         color={color}
-        data={rows.slice(0, limit)}
+        data={rows}
+        maxBarWidth={bars}
       />
     </Panel>
   );
 }
 
 function WorkflowRankings({
-  snapshot,
+  rankings,
   limit,
   width,
 }: {
-  readonly snapshot: DashboardSnapshot;
+  readonly rankings: WorkflowRankingsView;
   readonly limit: number;
   readonly width: number;
 }) {
-  const { elapsed, spend } = workflowRankings(snapshot);
-  const chartWidth = Math.floor((width - 1) / 2) - 4;
+  const { elapsed, spend } = rankings;
+  const spendWidth = Math.ceil((width - 1) / 2);
+  const timeWidth = width - 1 - spendWidth;
+  const spendRows = spend.slice(0, limit).map(({ id, name, amount, cost }) => ({
+    id,
+    label: name,
+    value: amount,
+    valueLabel: <CostTag cost={cost} />,
+    valueWidth: cellWidth(cost.value) + 2,
+  }));
+  const timeRows = elapsed.slice(0, limit).map(({ id, name, ms, timing }) => ({
+    id,
+    label: name,
+    value: ms,
+    valueLabel: (
+      <Text fg={theme.colors.info} flexShrink={0} wrapMode="none">
+        {timing}
+      </Text>
+    ),
+    valueWidth: cellWidth(timing),
+  }));
+  const fits = [
+    chartBarWidth(spendRows, spendWidth - PANEL_INSET),
+    chartBarWidth(timeRows, timeWidth - PANEL_INSET),
+  ].filter((room) => room !== undefined);
+  const bars = fits.length > 0 ? Math.min(...fits) : undefined;
   return (
     <box flexDirection="row" flexShrink={0} gap={1} height={limit + 3}>
-      <Ranking
-        caption="USD · ~ estimated · +? partial"
-        color={theme.colors.accent}
-        empty="No priced workflow usage"
-        limit={limit}
-        rows={spend.map(({ id, name, amount, cost }) => {
-          const price = costCell(cost);
-          return {
-            id,
-            label: name,
-            value: amount,
-            valueLabel: <CostTag value={price} />,
-            valueWidth: price.length + 2,
-          };
-        })}
-        title="Workflow spend"
-        width={chartWidth}
-      />
-      <Ranking
-        caption="Total elapsed · finished runs"
-        color={theme.colors.info}
-        empty="No finished workflow runs"
-        limit={limit}
-        rows={elapsed.map(({ id, name, ms, runs }) => {
-          const timing = `${duration(ms)} · ${runs} ${runs === 1 ? "run" : "runs"}`;
-          return {
-            id,
-            label: name,
-            value: ms,
-            valueLabel: (
-              <Text fg={theme.colors.info} flexShrink={0} wrapMode="none">
-                {timing}
-              </Text>
-            ),
-            valueWidth: timing.length,
-          };
-        })}
-        title="Workflow time"
-        width={chartWidth}
-      />
+      <box flexDirection="column" flexShrink={0} width={spendWidth}>
+        <Ranking
+          bars={bars}
+          caption="USD · ~ estimated · +? partial"
+          color={theme.colors.accent}
+          empty="No priced workflow usage"
+          rows={spendRows}
+          title="Workflow spend"
+          width={spendWidth - PANEL_INSET}
+        />
+      </box>
+      <box flexDirection="column" flexShrink={0} width={timeWidth}>
+        <Ranking
+          bars={bars}
+          caption="Total elapsed · finished runs"
+          color={theme.colors.info}
+          empty="No finished workflow runs"
+          rows={timeRows}
+          title="Workflow time"
+          width={timeWidth - PANEL_INSET}
+        />
+      </box>
     </box>
   );
 }
 
-function metrics(
-  snapshot: DashboardSnapshot,
-  { counts, successRate }: ReturnType<typeof operatingStats>,
-  compact: boolean
+function metricCards(
+  { counts, spend, successRate }: DashboardMetricsView,
+  full: boolean
 ): readonly MetricValue[] {
-  const { total } = snapshot.usage ?? {};
-  const spend = costCell(total);
-  const emptySpend = spend ? "Usage incomplete" : "No usage recorded";
   return [
     {
       color: theme.colors.info,
-      detail: compact
-        ? `${counts.running} running`
-        : `${counts.running} running · ${counts.queued} queued`,
+      detail: full
+        ? `${counts.running} running · ${counts.queued} queued`
+        : `${counts.running} running`,
       label: "Active runs",
       value: counts.running + counts.queued,
     },
     {
       color:
         counts.failed + counts.waiting > 0 ? theme.colors.warning : undefined,
-      detail: compact
-        ? `${counts.failed} failed`
-        : `${counts.failed} failed · ${counts.waiting} waiting`,
+      detail: full
+        ? `${counts.failed} failed · ${counts.waiting} waiting`
+        : `${counts.failed} failed`,
       label: "Needs attention",
       value: counts.failed + counts.waiting,
     },
     {
       color: theme.colors.success,
-      detail: compact
-        ? `${counts.complete} completed`
-        : `${counts.complete} completed · ${counts.cancelled} cancelled`,
+      detail: full
+        ? `${counts.complete} completed · ${counts.cancelled} cancelled`
+        : `${counts.complete} completed`,
       label: "Success rate",
-      value:
-        successRate === undefined ? "—" : `${Math.round(successRate * 100)}%`,
+      value: successRate,
     },
     {
       color: theme.colors.accent,
-      detail:
-        total && total.turns > 0
-          ? `${total.turns} ${total.turns === 1 ? "turn" : "turns"}`
-          : emptySpend,
+      detail: spend.detail,
       label: "Tracked spend",
-      value: spend || "—",
+      value: spend.value,
     },
   ];
 }
 
+export function showsWorkflowRankings(width: number, height: number): boolean {
+  return width >= FOUR_ACROSS && height >= 22;
+}
+
 export function DashboardMetrics({
-  snapshot,
+  metrics,
+  rankings,
   width,
   height,
 }: {
-  readonly snapshot: DashboardSnapshot;
+  readonly metrics: DashboardMetricsView;
+  readonly rankings?: WorkflowRankingsView;
   readonly width: number;
   readonly height: number;
 }) {
-  const stacked = width < 68 && height >= 22;
-  const stats = operatingStats(snapshot.runs);
-  const cards = metrics(snapshot, stats, !stacked && width < 106);
+  const stacked = width < FOUR_ACROSS;
+  const card = cardWidth(width, stacked ? 2 : 4);
+  const details = !stacked || height >= 22;
+  const full = metricCards(metrics, true);
+  const cards = full.every(({ detail }) => cellWidth(detail) <= card)
+    ? full
+    : metricCards(metrics, false);
   const rows = stacked ? [cards.slice(0, 2), cards.slice(2)] : [cards];
   const limit = height >= 30 ? 3 : 2;
-  const { medianRunMs, medianQueueMs } = stats;
-  const { usage } = snapshot;
-  const notes = [
-    ...(medianRunMs === undefined
-      ? []
-      : [`Median run ${duration(medianRunMs)}`]),
-    ...(medianQueueMs === undefined
-      ? []
-      : [`Median wait ${duration(medianQueueMs)}`]),
-    ...(usage?.unreadable
-      ? [`${unreadableUsageRecords(usage.unreadable)}, totals partial`]
-      : []),
-    ...(usage?.recovered
-      ? [`${usage.recovered} turns recovered from transcripts`]
-      : []),
-    ...(usage?.unattributed
-      ? [`${unattributedTurns(usage.unattributed)}`]
-      : []),
-    ...(usage?.unsaved
-      ? [`${usage.unsaved} unsaved turn${usage.unsaved === 1 ? "" : "s"}`]
-      : []),
-  ];
+  const { notes } = metrics;
   return (
     <box
       flexDirection="column"
@@ -233,7 +272,12 @@ export function DashboardMetrics({
       {rows.map((row) => (
         <box flexDirection="row" gap={2} key={row[0]?.label} paddingX={1}>
           {row.map((metric) => (
-            <Metric {...metric} key={metric.label} />
+            <Metric
+              {...metric}
+              details={details}
+              key={metric.label}
+              width={card}
+            />
           ))}
         </box>
       ))}
@@ -242,8 +286,8 @@ export function DashboardMetrics({
           {notes.join(" · ")}
         </text>
       )}
-      {width >= 64 && height >= 22 && (
-        <WorkflowRankings limit={limit} snapshot={snapshot} width={width} />
+      {rankings && (
+        <WorkflowRankings limit={limit} rankings={rankings} width={width} />
       )}
     </box>
   );

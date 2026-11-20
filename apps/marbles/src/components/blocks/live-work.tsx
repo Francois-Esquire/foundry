@@ -1,19 +1,15 @@
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import { statusDisplay } from "~/model/run-status";
-import type { LiveWorkSnapshot } from "~/views/dashboard-model";
-import { workLabel } from "~/views/run-actions";
 
-const INPUT: Readonly<Record<LiveWorkSnapshot["input"], string>> = {
-  none: "· output only",
-  stdin: "· s input: a line to its stdin, not a terminal",
-  steer: "· s steer: interrupts the turn with your prompt",
-};
+export interface LiveWorkItem {
+  readonly attention: boolean;
+  readonly hint: string;
+  readonly id: string;
+  readonly kind: "agent" | "command";
+  readonly label: string;
+}
 
-function LiveWorkRow({ work }: { readonly work: LiveWorkSnapshot }) {
-  const waiting = work.attention
-    ? statusDisplay({ attention: work.attention, status: "running" }).label
-    : undefined;
+function LiveWorkRow({ work }: { readonly work: LiveWorkItem }) {
   return (
     <box flexDirection="row" flexShrink={0} gap={1}>
       <text
@@ -21,23 +17,19 @@ function LiveWorkRow({ work }: { readonly work: LiveWorkSnapshot }) {
       >
         {work.kind === "agent" ? "◆" : "▸"}
       </text>
-      <Text wrapMode="none">
-        {workLabel(work)} in {work.stepId}
-      </Text>
-      {waiting ? (
-        <text fg={theme.colors.warning}>· {waiting} · i answer</text>
-      ) : (
-        <text fg={theme.colors.mutedForeground}>{INPUT[work.input]}</text>
-      )}
+      <Text wrapMode="none">{work.label}</Text>
+      <text
+        fg={
+          work.attention ? theme.colors.warning : theme.colors.mutedForeground
+        }
+      >
+        {work.hint}
+      </text>
     </box>
   );
 }
 
-export function LiveWork({
-  work,
-}: {
-  readonly work: readonly LiveWorkSnapshot[];
-}) {
+export function LiveWork({ work }: { readonly work: readonly LiveWorkItem[] }) {
   if (work.length === 0) {
     return null;
   }
