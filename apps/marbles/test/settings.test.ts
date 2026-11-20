@@ -1,9 +1,11 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "bun";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { parseArgs } from "~/args";
 import { applyTheme, theme } from "~/components/ui/theme";
+import { THEME_NAMES } from "~/model/settings";
 import {
   DEFAULT_SETTINGS,
   loadSettings,
@@ -77,11 +79,28 @@ it("keeps keys it does not know when it saves", async () => {
 
 it("falls back to the default theme for a value it does not know, and says why", async () => {
   const path = settingsPath(state);
-  await writeFile(path, JSON.stringify({ theme: "solarized" }));
+  await writeFile(path, JSON.stringify({ theme: "nonexistent" }));
   const loaded = loadSettings(path);
   expect(loaded.settings).toEqual(DEFAULT_SETTINGS);
-  expect(loaded.problem).toContain('theme "solarized"');
+  expect(loaded.problem).toContain('theme "nonexistent"');
 });
+
+it("lists all bundled themes and gets and sets the active theme from the CLI", () => {
+  const cli = (...args: string[]) =>
+    spawnSync([process.execPath, "src/cli.ts", "settings", ...args], {
+      env: { ...process.env, FOUNDRY_HOME: state },
+    });
+  const listed = cli("themes");
+  expect(listed.exitCode).toBe(0);
+  expect(listed.stdout.toString().trim().split("\n")).toEqual(THEME_NAMES);
+  expect(THEME_NAMES).toHaveLength(42);
+  expect(cli("set", "theme", "opencode").exitCode).toBe(0);
+  expect(cli("get", "theme").stdout.toString().trim()).toBe("opencode");
+  expect(cli("set", "theme", "dark", "--dry-run").exitCode).toBe(1);
+  expect(
+    loadSettings(settingsPath(join(state, "marbles"))).settings.theme
+  ).toBe("opencode");
+}, 15_000);
 
 it("ignores an unreadable file, and refuses to overwrite it", async () => {
   const path = settingsPath(state);

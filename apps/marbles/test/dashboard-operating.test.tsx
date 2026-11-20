@@ -47,7 +47,7 @@ test("Logs lists run and Marbles lines, filters them, and opens a line's run at 
   expect(frame).toContain("[agents] no list price for openai/gpt-local");
   expect(frame).toContain("run-104 write");
   expect(frame).toContain("Following");
-  expect(frame).toContain("logs · ↑↓ select · Enter open run");
+  expect(frame).toContain("↑↓ select · Enter open run");
 
   await press(ui, "v");
   await press(ui, "v");
@@ -144,20 +144,21 @@ test("clicking a run's line in Logs still opens its run", async () => {
   expect(ui.captureCharFrame()).not.toContain("Logs · runs and Marbles");
 });
 
-function foreground(ui: Awaited<ReturnType<typeof render>>, text: string) {
+function styledText(ui: Awaited<ReturnType<typeof render>>, text: string) {
   return ui
     .captureSpans()
     .lines.flatMap((line) => line.spans)
-    .find((span) => span.text.trim() === text)
-    ?.fg.toInts();
+    .find((span) => span.text.trim() === text);
 }
 
 test("kind badges and status labels draw in the light palette once it is applied", async () => {
   applyTheme("light");
   const ui = await render();
-  expect(foreground(ui, "failed")).toEqual(RGBA.fromHex("#9d0006").toInts());
+  expect(styledText(ui, "failed")?.bg.toInts()).toEqual(
+    RGBA.fromHex("#9d0006").toInts()
+  );
   await press(ui, "2");
-  expect(foreground(ui, "[workflow]")).toEqual(
+  expect(styledText(ui, "[workflow]")?.fg.toInts()).toEqual(
     RGBA.fromHex("#b57614").toInts()
   );
 });
@@ -191,22 +192,40 @@ test("Settings changes the theme through the host and redraws in its palette", a
   const ui = await mount(<SettingsHost />, { height: 30, width: 120 });
   await click(ui, "view:settings");
   let frame = ui.captureCharFrame();
-  expect(frame).toContain("Settings · every workspace");
-  expect(frame).toContain("Theme [dark] light ←→ change");
-  expect(frame).toContain("~/.foundry/marbles/settings.json");
-  expect(frame).toContain("Nothing is sent");
-  expect(frame).toContain("settings · ←→ theme");
+  expect(frame).toContain("Settings");
+  expect(frame).toContain("Theme: Dark");
+  expect(frame).toContain("Applies to all workspaces");
+  expect(frame).toContain("Preview");
+  expect(frame).toContain("↑↓ theme");
   await press(ui, "ARROW_RIGHT");
   frame = ui.captureCharFrame();
-  expect(frame).toContain("Theme dark [light]");
+  expect(frame).toContain("Theme: Light");
   const background = ui
     .captureSpans()
     .lines.flatMap((line) => line.spans)
-    .find((span) => span.text.includes("Settings · every workspace"));
+    .find((span) => span.text.includes("Settings"));
   expect(background?.bg.toInts()).toEqual(
     RGBA.fromHex(theme.colors.background).toInts()
   );
   expect(theme.colors.background).toBe("#fbf1c7");
+});
+
+test("Settings scrolls to the chosen termCN theme and applies its palette", async () => {
+  const ui = await mount(<SettingsHost />, { height: 24, width: 80 });
+  await press(ui, "S");
+  await press(ui, "ARROW_UP");
+  const frame = ui.captureCharFrame();
+  expect(frame).toContain("Theme: Zenburn");
+  expect(frame).toContain("› Zenburn");
+  expect(theme.colors.background).toBe("#3f3f3f");
+  await press(ui, "ESCAPE");
+  await press(ui, "S");
+  expect(ui.captureCharFrame()).toContain("› Zenburn");
+  await press(ui, "ARROW_DOWN");
+  expect(ui.captureCharFrame()).toContain("Theme: Dark");
+  await click(ui, "theme:dracula");
+  expect(ui.captureCharFrame()).toContain("Theme: Dracula");
+  expect(theme.colors.background).toBe("#282A36");
 });
 
 function FailingSettingsHost() {
@@ -245,10 +264,10 @@ test("a rejected settings save is reported, leaves nothing busy, and the next ch
   let frame = ui.captureCharFrame();
   expect(frame).toContain("fix or remove it");
   expect(frame).not.toContain("Working…");
-  expect(frame).toContain("Theme [dark] light");
+  expect(frame).toContain("Theme: Dark");
   await press(ui, "ARROW_RIGHT");
   frame = ui.captureCharFrame();
-  expect(frame).toContain("Theme dark [light]");
+  expect(frame).toContain("Theme: Light");
   expect(frame).not.toContain("fix or remove it");
 });
 
@@ -257,16 +276,18 @@ test("Settings is read-only where the host cannot save, and says why a file was 
     ...dashboardSnapshot,
     settings: {
       path: "/tmp/settings.json",
-      problem: "/tmp/settings.json is not valid JSON; using defaults",
+      problem: "Settings file is not valid JSON; using defaults",
       theme: "dark",
     },
   });
   await shift(ui, "S");
   const frame = ui.captureCharFrame();
   expect(frame).toContain("read-only here");
-  expect(frame).toContain("is not valid JSON; using defaults");
+  expect(frame).toContain("Settings file is not valid JSON");
+  expect(frame).toContain("/tmp/settings.json");
+  expect(frame).toContain("defaults");
   await press(ui, "ARROW_RIGHT");
-  expect(ui.captureCharFrame()).toContain("Theme [dark] light");
+  expect(ui.captureCharFrame()).toContain("Theme: Dark");
 });
 
 const AGENT_NAMES = [
@@ -319,7 +340,7 @@ test("at 80 columns, u opens every agent's and workflow's cost, more than five i
   for (const [index, name] of AGENT_NAMES.entries()) {
     expect(frame).toContain(`${name}: $${((index + 1) / 100).toFixed(4)} est.`);
   }
-  expect(frame).toContain("usage · ↑↓ scroll");
+  expect(frame).toContain("↑↓ scroll");
   expect(frame).toContain("Esc back");
   await press(ui, "ESCAPE");
   frame = ui.captureCharFrame();
@@ -327,12 +348,13 @@ test("at 80 columns, u opens every agent's and workflow's cost, more than five i
   expect(frame).not.toContain("Usage · every workflow and agent");
 });
 
-test("the wide Usage panel says how many agents it leaves out, and u shows them", async () => {
+test("the wide dashboard summarizes workflow spend and u shows the per-agent detail", async () => {
   const ui = await mount(
     <DashboardView onClose={close} snapshot={manyAgents()} />,
     { height: 40, width: 120 }
   );
-  expect(ui.captureCharFrame()).toContain("+2 more · u shows all");
+  expect(ui.captureCharFrame()).toContain("Workflow spend");
+  expect(ui.captureCharFrame()).not.toContain("releaser");
   await press(ui, "u");
   expect(ui.captureCharFrame()).toContain("releaser: $0.0700 est.");
 });

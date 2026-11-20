@@ -7,12 +7,7 @@ function hostLabel(preview: boolean, hosted?: HostedWorkspace): string {
   if (preview) {
     return "preview";
   }
-  if (!hosted) {
-    return "live";
-  }
-  const position =
-    hosted.count > 1 ? `${hosted.position}/${hosted.count} · ` : "";
-  return `${position}${hosted.state}`;
+  return hosted && hosted.state !== "ready" ? hosted.state : "";
 }
 
 export function WorkspaceHeader({
@@ -20,11 +15,13 @@ export function WorkspaceHeader({
   preview,
   hosted,
   onHome,
+  onWorkspaces,
 }: {
   readonly workspace: string;
   readonly preview: boolean;
   readonly hosted?: HostedWorkspace;
   readonly onHome: () => void;
+  readonly onWorkspaces?: () => void;
 }) {
   const failed = hosted?.state === "failed";
   return (
@@ -37,9 +34,19 @@ export function WorkspaceHeader({
         value="home"
       />
       <text fg={theme.colors.mutedForeground}>/</text>
-      <Text flexGrow={1} wrapMode="none">
-        <strong>{workspace}</strong>
-      </Text>
+      {onWorkspaces ? (
+        <Action
+          id="nav:workspaces"
+          label={`${workspace} ▾`}
+          onAction={onWorkspaces}
+          value="workspaces"
+        />
+      ) : (
+        <Text wrapMode="none">
+          <strong>{workspace}</strong>
+        </Text>
+      )}
+      <box flexGrow={1} />
       <text fg={failed ? theme.colors.error : theme.colors.mutedForeground}>
         {hostLabel(preview, hosted)}
       </text>

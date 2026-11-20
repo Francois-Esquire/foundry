@@ -78,6 +78,7 @@ export function FeedList({
   return (
     <Panel
       active={active}
+      borderHint={entries.length > 0 ? " ↑↓ select · Enter read " : undefined}
       id="panel:feed"
       selectedId={selected && `feed:${feedKey(selected)}`}
       title={`Feed · ${scopeLabel}`}
@@ -86,7 +87,7 @@ export function FeedList({
         <EmptyState
           description={
             filtered
-              ? "Nothing from this workspace yet. w changes workspace."
+              ? "Nothing from this workspace yet. x shows all workspaces."
               : "Steps publish results and milestones here with feed.post()."
           }
           title={filtered ? "No entries here." : "No entries yet."}

@@ -33,19 +33,19 @@ function gaps(total: UsageTotal): string[] {
   ];
 }
 
-function records(value: number): string {
+export function unreadableUsageRecords(value: number): string {
   return value === 1
     ? "1 unreadable usage record"
     : `${value} unreadable usage records`;
 }
 
-function unattributedTurns(value: number): string {
+export function unattributedTurns(value: number): string {
   return value === 1 ? "1 unattributed turn" : `${value} unattributed turns`;
 }
 
 function elsewhere(total: UsageTotal): string {
   return [
-    ...(total.unreadable > 0 ? [records(total.unreadable)] : []),
+    ...(total.unreadable > 0 ? [unreadableUsageRecords(total.unreadable)] : []),
     ...(total.unattributed > 0 ? [unattributedTurns(total.unattributed)] : []),
   ].join(", ");
 }
@@ -127,6 +127,8 @@ export function tokensLabel(total: UsageTotal | undefined): string {
   return `${count(tokens.total)} tokens (${count(tokens.input)} in · ${count(tokens.output)} out) · ${turns}${suffix}`;
 }
 
+export const UNPRICED_COST_CELL = "cost ?";
+
 export function costCell(total: UsageTotal | undefined): string {
   if (!total || isEmpty(total)) {
     return "";
@@ -136,7 +138,7 @@ export function costCell(total: UsageTotal | undefined): string {
     ...total.estimated.map((value) => `~${money(value)}`),
   ];
   if (parts.length === 0) {
-    return "cost ?";
+    return UNPRICED_COST_CELL;
   }
   const incomplete =
     total.unpriced > 0 || total.missing > 0 || hasElsewhere(total);

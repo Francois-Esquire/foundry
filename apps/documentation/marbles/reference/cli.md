@@ -143,6 +143,7 @@ dashboard, where the question can be answered as it comes.
 | `--config <path>` | Same as `--source` | Compatibility alias. A legacy `marbles.config.ts` is used when the default folder is absent. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`, or the batch for `tasks change`. Overrides a schedule's recorded input. |
 | `--dry-run` | Off | Host the workspace in this process, echo agent turns, git mutations, and sandbox commands instead of running them, and write no state: reading the Marbles database may create or update its SQLite side files (`marbles.db-shm`, `marbles.db-wal`), and nothing else is written. Never touches the Marbles process. `mcp` hosts nothing under it. See [safety and limits](/marbles/reference/safety). |
+| `--recheck-providers` | Off | Show provider discovery again when opening the live dashboard in a terminal. Keeps any existing provider configuration. |
 
 `FOUNDRY_HOME` moves the whole home (default `~/.foundry`): the state root,
 the Marbles database, the artifact store, and the process socket under it.
@@ -160,29 +161,29 @@ harnesses even when neither CLI is installed.
 ## The dashboard
 
 With a terminal on both stdin and stdout, `marbles` attaches the workspace
-to the Marbles process and opens the dashboard on it. The header shows the
-workspace's state in the process (`ready`, `reloading`, or `failed` with the
-error), as `<position>/<count> · <state>` when the process hosts more than
-one workspace.
+to the Marbles process and opens the dashboard on it. The workspace name
+opens the picker, where you can see other workspaces and their states. A
+workspace that is starting, reloading, or failed shows that state in the
+header.
 
-- **Overview** counts running, queued, waiting, failed, completed, and
-  cancelled runs, with success rate and median run and wait times. It lists
-  Runs with live steps and saved history, the latest run changes and feed
-  entries, and agent usage by workflow and by agent.
-- **Catalog** shows Triggers and the workflows and steps (Marbles) the
-  workspace's source declares, with the file each was declared in. Every
-  top-level definition is available throughout that workspace.
-- **Logs** lists every run's log lines and Marbles' own status lines, oldest
-  first, filtered by level, source, and search. The engine generation
-  hosting the workspace keeps its status lines in memory while it hosts it,
-  so they outlast one dashboard, though not a switch to the next
-  generation; the dashboard adds its own.
-- **Feed** lists reports and questions from every workspace, newest first.
-- **Settings** chooses the theme for every workspace. The dashboard reads and
-  saves it itself; a dashboard already open keeps its theme until restarted.
+- **Dashboard** puts active runs, runs that need attention, success rate, and
+  tracked spend above upcoming work, run history, and recent activity.
+  The workflow rankings use known USD costs for the current workspace and
+  sum elapsed time for finished runs with recorded start and end times.
+  Rankings cover workflows in the current catalog. When there is room for
+  a comparison, the bars show each value relative to the highest ranked
+  workflow, alongside the cost or duration. `u` opens the full usage
+  breakdown, including agent usage and records with unknown prices.
+- **Catalog** lists the current workspace's triggers, workflows, and steps.
+  On a wide terminal, inspecting a schedule or definition keeps the list
+  in view alongside its detail frame.
+- **Feed** shows reports and questions for the current workspace and those
+  shared with it. You can widen it to all workspaces.
 
-Each tab except Settings shows its count, capped at 99+. Focusing Triggers or
-Marbles shows Catalog; focusing Runs shows Overview.
+Open **Diagnostics** from the left for workspace logs, or press `d` from a
+run inspector to filter to that run. **Settings** opens from the right.
+Each focused frame shows its own shortcuts along its border. The bottom
+bar holds shortcuts for the whole terminal.
 
 Usage is recorded once per agent turn inside a run, from the token counts the
 harness reports. A cost is estimated at the list price the model's catalog
@@ -226,12 +227,22 @@ lost. So is a workspace whose
 sessions cannot be listed. A settled run's file that cannot be read is noted on
 that run and its workflow.
 
-A workspace without a source offers setup: choosing a starter writes it,
-attaches the workspace, and its engine generation posts a setup milestone to the Feed.
+On first setup, the live dashboard shows the workspace path and any detected
+model providers. You can use the detected providers across workspaces or skip
+this step. A machine with providers already configured goes straight to
+workspace setup when opening a new workspace.
+
+In workspace setup, you can load existing Marbles source, create a starter, or
+skip starter creation and open an empty dashboard. Creating a starter attaches
+the workspace and posts a setup milestone to the Feed. Use
+`marbles --recheck-providers` to revisit provider discovery.
 
 | Key | Action |
 | --- | --- |
-| Shift+D / C / L / F / S | Show Overview, Catalog, Logs, Feed, or Settings |
+| Shift+D / C / F | Show Dashboard, Catalog, or Feed |
+| `d` / Shift+L, Shift+S | Open Diagnostics or Settings. From a run inspector, `d` opens that run's logs. Shift+L opens logs across runs. Esc closes the panel |
+| `r` on a schedule | Run the selected schedule now |
+| `v` in trigger details | Show or hide its configuration when available |
 | 1 / 2 / 3, Tab, `m` | Focus Triggers, Marbles, or Runs |
 | ↑ / ↓, Enter, Esc | Select rows, open details, return |
 | ← / →, Space | Collapse or expand run branches; change inspector tab |
@@ -239,18 +250,18 @@ attaches the workspace, and its engine generation posts a setup milestone to the
 | `f` in Marbles | Filter runs to this schedule, monitor, workflow, or step; `x` clears |
 | `s` / `p` / `k` on a run | Steer the running agent, pause or resume the step, cancel the run. Each shows only when the run's status allows it: steer and pause while running, resume while paused, cancel until the run settles |
 | `p` / `k` on a trigger an agent created | Pause or resume the trigger; delete it |
-| `u` on Overview | Show every workflow's and agent's usage; Esc or `u` closes it |
+| `u` on Dashboard | Show every workflow's and agent's usage; Esc or `u` closes it |
 | `a` / `e`, `b` | Jump to the active step or failure; return from step details to the run |
 | `/` | Search the focused marble or run list |
 | `f` in a run's logs | Toggle following new log lines |
 | ↑ / ↓, Enter in Logs | Select a line (stops following); open the run and step it came from |
 | `f` / `v` / `o` / `/` / `x` in Logs | Follow new lines; raise the minimum level; cycle all, run, or Marbles lines; search; clear the filters |
-| ← / → in Settings | Change the theme |
-| `w` on Overview or Catalog | Show the next workspace the Marbles process hosts; offered only when it hosts more than one |
-| `g` on Overview or Catalog | Show every workspace's runs and triggers, or this workspace's again (its own and those shared with it); offered once another workspace has any. Another workspace's runs and triggers are read only here: no control acts on them |
-| `w` / `x` in the Feed | Cycle the workspace filter (all workspaces, this workspace and what is shared with it, then any other that has posted); show every workspace. Another workspace's questions are answered where they were posted |
+| ↑ / ↓ or ← / → in Settings | Browse and apply themes |
+| `w` | Open the workspace picker. ↑ and ↓ select a workspace, and Enter switches to it |
+| `g` on Dashboard or Catalog | Show every workspace's runs and triggers, or this workspace's again (its own and those shared with it); offered once another workspace has any. Another workspace's runs and triggers are read only here: no control acts on them |
+| Shift+W / `x` in the Feed | Cycle the workspace filter (all workspaces, this workspace and what is shared with it, then any other that has posted); show every workspace. Another workspace's questions are answered where they were posted |
 | 1 through 9 / `a` in the Feed | Answer an open question by choice, or type a free-text answer. An approval takes an optional note after the choice |
-| `h` | Return to the Overview or Catalog list with focus |
+| `h` | Return to the Dashboard or Catalog list with focus |
 | `?` | Keyboard help |
 | `q` / Ctrl+C | Confirm quit; Ctrl+C again quits. Quitting detaches: triggers keep running in the Marbles process |
 
@@ -259,9 +270,18 @@ attaches the workspace, and its engine generation posts a setup milestone to the
 Settings are global: `settings.json` at the state root
 (`~/.foundry/marbles/settings.json`, under `FOUNDRY_HOME` when set). A missing
 file or key uses the default theme, `dark`. A value Marbles does not know, or
-a file it cannot read, falls back to the default and is named on the Settings
-tab; Marbles does not overwrite a file it cannot read. Saving keeps keys it
-does not know. Under `--dry-run` the Settings tab is read-only.
+a file it cannot read, falls back to the default and is named in the Settings
+panel; Marbles does not overwrite a file it cannot read. Saving keeps keys it
+does not know. Under `--dry-run` theme changes are read-only.
+
+Settings includes a scrollable picker for the bundled
+[termCN OpenTUI themes](https://www.termcn.dev/docs/theming/opentui) and
+the original `dark` and `light` palettes. The bundled `default` theme is a termCN palette. Marbles starts with `dark` when no preference is saved. Use
+`marbles settings themes` to list the theme names, `marbles settings get theme`
+to see the saved theme, or `marbles settings set theme opencode` to change it
+from the command line. Reopen an existing dashboard to pick up a CLI change.
+On wide terminals, Shift+W in Settings toggles the workspace rail for the
+current terminal.
 
 Marbles measures its own work locally and sends nothing anywhere. Run records
 and each agent turn's tokens, duration, model, and cost are kept in the

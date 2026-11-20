@@ -15,6 +15,7 @@ import { z } from "zod";
 import { layout } from "~/layout";
 import type { ResourceKind } from "~/lib/resources";
 import { isResourceKind, RESOURCE_KINDS } from "~/lib/resources";
+import { isTheme, type ThemeName } from "~/model/settings";
 import type { TaskCommand } from "~/model/tasks";
 import type { HostOptions } from "~/workspace/open";
 import { DEFAULT_SOURCE } from "~/workspace/source";
@@ -59,6 +60,9 @@ interface Positionals {
   readonly runs: Listing;
   readonly sandboxes: Listing;
   readonly sessions: Listing;
+  readonly settings:
+    | { readonly action: "get" | "themes" }
+    | { readonly action: "set"; readonly theme: ThemeName };
   readonly share: Association;
   readonly status: NoPositionals;
   readonly stop: NoPositionals;
@@ -152,6 +156,35 @@ const GRAMMAR: {
   runs: listing("runs"),
   sandboxes: listing("sandboxes"),
   sessions: listing("sessions"),
+  settings: ([action, key, value, ...rest], flags) => {
+    if (action === "themes" && key === undefined) {
+      return { action, command: "settings" };
+    }
+    if (action === "get" && key === "theme" && value === undefined) {
+      return { action, command: "settings" };
+    }
+    if (
+      action === "set" &&
+      key === "theme" &&
+      value !== undefined &&
+      rest.length === 0
+    ) {
+      if (flags.dry) {
+        throw new UsageError(
+          "settings set writes settings; it takes no --dry-run"
+        );
+      }
+      if (!isTheme(value)) {
+        throw new UsageError(
+          `unknown theme "${value}"; run marbles settings themes`
+        );
+      }
+      return { action, command: "settings", theme: value };
+    }
+    throw new UsageError(
+      "settings takes themes, get theme, or set theme <name>"
+    );
+  },
   share: association("share"),
   status: none("status"),
   stop: none("stop"),
@@ -515,6 +548,7 @@ function isCommand(name: string): name is Command {
 export interface Flags extends HostOptions {
   readonly directory: string;
   readonly inputJson: string | undefined;
+  readonly recheckProviders?: true;
 }
 
 export type ArgsOf<C extends Command> = Flags & Parsed<C>;
@@ -527,7 +561,6 @@ const VALUE_FLAGS = {
   "--source": "config",
 } as const;
 
-const REMOVED_FLAGS = ["--state", "--artifacts"] as const;
 type ValueFlag = keyof typeof VALUE_FLAGS;
 
 function isValueFlag(arg: string): arg is ValueFlag {
@@ -543,34 +576,47 @@ function parseFlags(argv: readonly string[]): {
   let removed: string | undefined;
   const values: Partial<Record<(typeof VALUE_FLAGS)[ValueFlag], string>> = {};
   let dry = false;
+  let recheckProviders = false;
 
   const argumentsIterator = argv.values();
   for (const arg of argumentsIterator) {
-    if (arg === "--dry-run" || arg === "--dry") {
-      dry = true;
-    } else if (arg === "--harness") {
-      harness = true;
-      argumentsIterator.next();
-    } else if ((REMOVED_FLAGS as readonly string[]).includes(arg)) {
-      removed ??= arg;
-      argumentsIterator.next();
-    } else if (isValueFlag(arg)) {
-      const { value } = argumentsIterator.next();
-      if (value !== undefined) {
-        values[VALUE_FLAGS[arg]] = value;
-      }
-    } else {
-      positional.push(arg);
+    switch (arg) {
+      case "--dry-run":
+      case "--dry":
+        dry = true;
+        break;
+      case "--recheck-providers":
+        recheckProviders = true;
+        break;
+      case "--harness":
+        harness = true;
+        argumentsIterator.next();
+        break;
+      case "--state":
+      case "--artifacts":
+        removed ??= arg;
+        argumentsIterator.next();
+        break;
+      default:
+        if (isValueFlag(arg)) {
+          const { value } = argumentsIterator.next();
+          if (value !== undefined) {
+            values[VALUE_FLAGS[arg]] = value;
+          }
+        } else {
+          positional.push(arg);
+        }
     }
   }
 
   const { artifacts, state } = layout();
-  const flags = {
+  const flags: Flags = {
     artifacts,
     config: values.config ?? DEFAULT_SOURCE,
     directory: process.cwd(),
     dry,
     inputJson: values.inputJson,
+    ...(recheckProviders ? { recheckProviders: true } : {}),
     state,
   };
   const help = argv.includes("--help") || argv.includes("-h");
@@ -595,6 +641,9 @@ export function parseArgs(argv: readonly string[]): Args {
   const [command = "run", ...positionals] = positional;
   if (!isCommand(command)) {
     throw new UsageError(`unknown command "${command}"`);
+  }
+  if (flags.recheckProviders && (command !== "run" || flags.dry)) {
+    throw new UsageError("--recheck-providers requires a live dashboard");
   }
   const parsed = GRAMMAR[command](positionals, flags);
   return { ...flags, ...parsed };

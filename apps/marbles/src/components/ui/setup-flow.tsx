@@ -12,11 +12,15 @@ import { theme } from "~/components/ui/theme";
 
 export function SetupFlow({
   children,
+  footer,
+  maxHeight = 36,
   title,
   overlay,
 }: {
   readonly overlay?: ReactNode;
   readonly children: ReactNode;
+  readonly footer?: ReactNode;
+  readonly maxHeight?: number;
   readonly title: string;
 }) {
   const scroll = useRef<ScrollBoxRenderable>(null);
@@ -38,7 +42,7 @@ export function SetupFlow({
         borderColor={theme.colors.primary}
         borderStyle="rounded"
         flexDirection="column"
-        height={Math.min(36, Math.max(1, dimensions.height - 2))}
+        height={Math.min(maxHeight, Math.max(1, dimensions.height - 2))}
         paddingX={1}
         width={Math.min(80, Math.max(1, dimensions.width - 2))}
       >
@@ -55,26 +59,9 @@ export function SetupFlow({
             {children}
           </FocusContext.Provider>
         </scrollbox>
+        {footer}
       </box>
       {overlay}
-    </box>
-  );
-}
-
-export function SetupStep({
-  status,
-  children,
-}: {
-  readonly status: "done" | "active" | "pending" | "error";
-  readonly children: ReactNode;
-}) {
-  const color = status === "error" ? theme.colors.error : theme.colors.primary;
-  return (
-    <box flexDirection="column" marginTop={1}>
-      <text fg={status === "pending" ? theme.colors.mutedForeground : color}>
-        {status === "active" ? "◆" : "◇"} {children}
-      </text>
-      <text fg={theme.colors.mutedForeground}>│</text>
     </box>
   );
 }

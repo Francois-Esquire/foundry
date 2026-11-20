@@ -31,6 +31,7 @@ import type { ResourceKind } from "~/lib/resources";
 import { ResourceAssociationError } from "~/lib/resources";
 import { describeTrigger } from "~/lib/schedule";
 import { RunOutputError } from "~/lib/state/output";
+import { THEME_NAMES } from "~/model/settings";
 import type { TaskCommandResult } from "~/model/tasks";
 import {
   describeDisconnect,
@@ -44,6 +45,7 @@ import { ProcessHeldError } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
 import type { ResourceCommandContext } from "~/resources/commands";
 import { changeAssociation, listResources, relink } from "~/resources/commands";
+import { loadSettings, saveSettings, settingsPath } from "~/settings";
 import { readStatus } from "~/status/model";
 import { statusText } from "~/status/text";
 import { taskCommandText } from "~/tasks/text";
@@ -71,6 +73,9 @@ const USAGE = `marbles — programmable workspace automation
   roll <name> [--input json] dispatch one workflow or schedule now, then exit
   list                       workflows, then each schedule and monitor with its cadence
   status                     the Marbles process and every workspace it has run
+  settings themes            list terminal themes
+  settings get theme         print the saved theme
+  settings set theme <name>  save a theme for every workspace
   runs [--all]               workflow runs, each with its steps; --all: every workspace's
   sessions [--all]           agent sessions: id, messages, updated, summary
   artifacts [--all]          artifacts: id, name, type, status, updated
@@ -89,6 +94,7 @@ const USAGE = `marbles — programmable workspace automation
   --source <path>    authoring folder or module (default: ./.foundry/marbles)
   --config <path>    compatibility alias for --source
   --dry-run          echo every model turn and git mutation instead of running them
+  --recheck-providers  reopen provider setup for the interactive dashboard
 
 One Marbles process per machine hosts every attached workspace, all in one engine
 process it replaces on a source edit, and keeps their triggers running after the dashboard closes; run and
@@ -464,6 +470,30 @@ async function serveMcp(args: ArgsOf<"mcp">): Promise<void> {
   await serveStdio(args);
 }
 
+function terminalSettings(args: ArgsOf<"settings">): void {
+  if (args.action === "themes") {
+    print(THEME_NAMES.join("\n"));
+    return;
+  }
+  const path = settingsPath(args.state);
+  if (args.action === "set") {
+    try {
+      print(saveSettings(path, { theme: args.theme }).theme);
+    } catch (error) {
+      throw new UsageError(
+        error instanceof Error ? error.message : String(error),
+        { cause: error }
+      );
+    }
+    return;
+  }
+  const loaded = loadSettings(path);
+  if (loaded.problem) {
+    diagnose(`${loaded.problem} (${loaded.path})`);
+  }
+  print(loaded.settings.theme);
+}
+
 export const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   artifacts: listing("artifact"),
   attach: {
@@ -502,6 +532,7 @@ export const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   runs: listing("run"),
   sandboxes: listing("sandbox"),
   sessions: listing("session"),
+  settings: { dry: "reads only", needs: "nothing", run: terminalSettings },
   share: association("share"),
   status: { dry: "reads only", needs: "workspace", run: showStatus },
   stop: {
@@ -625,11 +656,10 @@ export async function main(entry: string): Promise<void> {
   }
   const interactive = process.stdout.isTTY && process.stdin.isTTY;
   try {
-    if (
-      interactive &&
-      !args.dry &&
-      (args.command === "run" || args.command === "roll")
-    ) {
+    if (args.recheckProviders && !interactive) {
+      throw new UsageError("--recheck-providers requires a terminal");
+    }
+    if (interactive && !args.dry && args.command === "roll") {
       const { workspace } = findWorkspace(args);
       await setupProviders({
         confirm: askYes,

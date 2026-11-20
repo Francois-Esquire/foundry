@@ -52,7 +52,8 @@
     "dist/**/*.js",
     "dist/**/*.d.ts",
     "dist/migrations/**",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "LICENSE.vendors"
   ],
   "scripts": {
     "build": "bun run db:generate && NODE_OPTIONS=--max-old-space-size=8192 tsup",

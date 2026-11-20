@@ -1,3 +1,4 @@
+import { Badge } from "~/components/ui/badge";
 import { theme } from "~/components/ui/theme";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 
@@ -45,9 +46,13 @@ export function FeedMetaLine({
       flexWrap="wrap"
       minWidth={0}
     >
-      <text fg={color} flexShrink={0} wrapMode="none">
-        {isPending(entry) ? <strong>{label}</strong> : label}
-      </text>
+      {isPending(entry) ? (
+        <Badge variant="warning">{label}</Badge>
+      ) : (
+        <text fg={color} flexShrink={0} wrapMode="none">
+          {label}
+        </text>
+      )}
       {shown.map((detail) => (
         <text
           fg={theme.colors.mutedForeground}

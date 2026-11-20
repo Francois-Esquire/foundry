@@ -3,13 +3,14 @@ import { useKeyboard } from "@opentui/react";
 import { useMemo, useState } from "react";
 import { useAsyncAction } from "~/hooks/use-async-action";
 import { useQuitGuard } from "~/hooks/use-quit-guard";
-import type { WorkspaceState } from "~/model/connection";
-import type { SettingsChange } from "~/model/settings";
+import type { WorkspaceState, WorkspaceSummary } from "~/model/connection";
+import type { SettingsChange, ThemeName } from "~/model/settings";
 import {
   type CommandContext,
   capturesKeys,
   commandFor,
   footer,
+  openDiagnostics,
 } from "./dashboard-commands";
 import {
   type DashboardSelection,
@@ -41,10 +42,9 @@ import { type AnswerHandler, useFeed } from "./use-feed";
 import { showsOthers, workspaceScoped } from "./workspace-scope";
 
 export interface HostedWorkspace {
-  readonly count: number;
   readonly error?: string;
-  readonly position: number;
   readonly state: WorkspaceState;
+  readonly workspaces?: readonly WorkspaceSummary[];
 }
 
 export interface DashboardOptions {
@@ -53,10 +53,13 @@ export interface DashboardOptions {
   readonly onAnswer?: AnswerHandler;
   readonly onClose: () => void;
   readonly onLaunch?: Launcher;
+  readonly onRollSchedule?: (key: string) => Promise<void>;
   readonly onSettings?: (changes: SettingsChange) => Promise<void>;
   readonly onShortcut?: (key: KeyEvent) => void;
-  readonly onSwitchWorkspace?: () => void;
+  readonly onSwitchWorkspace?: (id: string) => void;
+  readonly onWorkspaceRail?: (show: boolean) => void;
   readonly snapshot: DashboardSnapshot;
+  readonly workspaceRail?: boolean;
 }
 
 function selectLog(
@@ -80,20 +83,47 @@ export function useDashboard({
   onAnswer,
   onClose,
   onLaunch,
+  onRollSchedule,
   onSettings,
   onShortcut,
   onSwitchWorkspace,
+  onWorkspaceRail,
+  workspaceRail,
   snapshot: whole,
 }: DashboardOptions) {
   const [everywhere, setEverywhere] = useState(false);
+  const workspaces = hosted?.workspaces ?? [];
   const snapshot = workspaceScoped(whole, everywhere);
-  const [state, setState] = useState(() => initialState(snapshot));
+  const [state, setState] = useState(() => {
+    const initial = initialState(snapshot);
+    return hosted
+      ? reduce(initial, { type: "view", view: "overview" }, snapshot)
+      : initial;
+  });
   const send = (event: DashboardEvent) =>
     setState((previous) => reduce(previous, event, snapshot));
-  const feed = useFeed(snapshot.feed, snapshot.workspaceId, onAnswer);
+  const openWorkspaces = () => {
+    const id = whole.workspaceId ?? workspaces[0]?.id;
+    if (id !== undefined) {
+      send({ id, type: "picker" });
+    }
+  };
+  function chooseWorkspace(id: string) {
+    send({ type: "picker" });
+    if (id !== whole.workspaceId && workspaces.some((item) => item.id === id)) {
+      onSwitchWorkspace?.(id);
+    }
+  }
+  const feed = useFeed(
+    snapshot.feed,
+    snapshot.workspaceId,
+    onAnswer,
+    hosted ? snapshot.workspaceId : undefined
+  );
   const quit = useQuitGuard(onClose);
   const control = useAsyncAction();
   const starting = useAsyncAction();
+  const schedule = useAsyncAction();
   const resolved = resolveSelection(snapshot, state.selected);
   const form = onLaunch
     ? snapshot.definitions.find((item) => item.id === state.launching)
@@ -112,6 +142,12 @@ export function useDashboard({
     starting.run(async () => {
       send({ id: await onLaunch(id, undefined), type: "show-run" });
     });
+  }
+
+  function rollSchedule(id: string) {
+    if (onRollSchedule) {
+      schedule.run(() => onRollSchedule(id));
+    }
   }
 
   function submitPrompt() {
@@ -137,8 +173,8 @@ export function useDashboard({
   const context: CommandContext = {
     actions,
     canLaunch: onLaunch !== undefined,
-    canSwitchWorkspace:
-      onSwitchWorkspace !== undefined && (hosted?.count ?? 0) > 1,
+    canRollSchedule: onRollSchedule !== undefined,
+    canSwitchWorkspace: workspaces.length > 0,
     feed,
     ...(log ? { log } : {}),
     resolved,
@@ -150,11 +186,16 @@ export function useDashboard({
           },
         }
       : {}),
+    canToggleRail: workspaces.length > 0 && onWorkspaceRail !== undefined,
     state,
-    workspaces: { everywhere, others: showsOthers(whole) },
+    workspaces: {
+      everywhere,
+      ids: workspaces.map(({ id }) => id),
+      others: showsOthers(whole),
+    },
   };
   useKeyboard((key) => {
-    if (form || quit.handleKey(key)) {
+    if (form !== undefined || quit.handleKey(key)) {
       return;
     }
     const command = commandFor(key, context);
@@ -165,10 +206,13 @@ export function useDashboard({
       {
         ...context,
         act: control.run,
+        chooseWorkspace,
         launch,
+        openWorkspaces,
         quit: quit.ask,
+        rollSchedule,
         send,
-        switchWorkspace: () => onSwitchWorkspace?.(),
+        toggleRail: () => onWorkspaceRail?.(!workspaceRail),
         toggleWorkspaces: () => setEverywhere((all) => !all),
       },
       key
@@ -178,6 +222,12 @@ export function useDashboard({
   return {
     ...visibleLists(state, snapshot),
     changeTab: (tab: InspectorTab) => send({ tab, type: "tab" }),
+    changeTheme: (theme: ThemeName) => {
+      if (onSettings && !quit.quitting && theme !== snapshot.settings?.theme) {
+        control.run(() => onSettings({ theme }));
+      }
+    },
+    chooseWorkspace,
     clearFilters: () => send({ type: "clear-filters" }),
     control,
     feed,
@@ -187,6 +237,7 @@ export function useDashboard({
     form,
     goHome: () => send({ type: "home" }),
     inputActive:
+      state.picker !== undefined ||
       state.searching ||
       state.help ||
       quit.quitting ||
@@ -198,6 +249,7 @@ export function useDashboard({
     log,
     logs,
     logTotal: allLogs.length,
+    openDiagnostics: () => openDiagnostics({ ...context, send }),
     openLog: (entry: OperatingLogEntry) => {
       if (entry.runId === undefined) {
         setState((previous) => selectLog(previous, snapshot, entry));
@@ -205,9 +257,12 @@ export function useDashboard({
       }
       send({ selection: logRun(entry, entry.runId), type: "inspect" });
     },
+    openWorkspaces,
     pane: paneOf(state),
     quit,
     resolved,
+    rollSchedule,
+    schedule,
     setDraft: (value: string) => send({ type: "draft", value }),
     setQuery: (value: string) => send({ type: "query", value }),
     setView: (view: DashboardViewKey) => send({ type: "view", view }),
@@ -218,5 +273,7 @@ export function useDashboard({
     submitPrompt,
     toggle: (selection: DashboardSelection) =>
       send({ selection, type: "toggle" }),
+    toggleConfiguration: () => send({ type: "configuration" }),
+    workspaces,
   };
 }

@@ -475,7 +475,7 @@ function hosted(
         const { lines, value } = await capture(() =>
           tick(engine, { ...schedule, input: launchInput }, { print })
         );
-        return value === undefined ? { lines } : { lines, value: value.value };
+        return { lines, ...value };
       }
       if (!dispatches.definitions().some((entry) => entry.name === name)) {
         throw new Error(`no workflow or schedule named "${name}"`);

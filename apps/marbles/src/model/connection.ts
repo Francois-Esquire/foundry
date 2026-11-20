@@ -99,6 +99,7 @@ export type DispatchInfo = Pick<
 
 export interface RollResult {
   readonly lines: readonly string[];
+  readonly skipped?: string;
   readonly value?: unknown;
 }
 

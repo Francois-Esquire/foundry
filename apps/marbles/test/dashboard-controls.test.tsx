@@ -9,6 +9,7 @@ import { selectionKey } from "../src/views/dashboard-model";
 import type { RunActions } from "../src/views/run-actions";
 import { click, flush, mount, press, unmount } from "./helpers/render";
 
+const SELECTED_FAILURE = /› ▸ check-api +failed\b/;
 const WRITE_STEP = /Step\s+: write/;
 
 function close() {
@@ -101,7 +102,7 @@ test.each(["approval", "question"] as const)(
   }
 );
 
-test("attention reads in the warning colour, not the grey of other statuses", async () => {
+test("attention uses the warning badge colour", async () => {
   const attentive: DashboardSnapshot = {
     ...dashboardSnapshot,
     runs: dashboardSnapshot.runs.map((run) =>
@@ -113,7 +114,7 @@ test("attention reads in the warning colour, not the grey of other statuses", as
     .captureSpans()
     .lines.flatMap((line) => line.spans)
     .find((item) => item.text.includes("Waiting for approval"));
-  expect(span?.fg.toInts()).toEqual(
+  expect(span?.bg.toInts()).toEqual(
     RGBA.fromHex(theme.colors.warning).toInts()
   );
 });
@@ -160,7 +161,7 @@ test("a settled run offers no controls and its keys do nothing", async () => {
   await press(ui, "ARROW_DOWN");
   await press(ui, "ARROW_DOWN");
   const frame = ui.captureCharFrame();
-  expect(frame).toContain("› ▸ check-api failed");
+  expect(frame).toMatch(SELECTED_FAILURE);
   expect(frame).not.toContain("s steer");
   expect(frame).not.toContain("p pause");
   expect(frame).not.toContain("k cancel");

@@ -366,6 +366,7 @@ export function dashboardSnapshot(
       options.lastFinish.get(schedule.key) ??
       schedule.registeredAt ??
       options.startedAt;
+    const nextAt = nextDue(schedule, finished);
     return {
       ...(automation
         ? {
@@ -387,7 +388,8 @@ export function dashboardSnapshot(
       id: schedule.key,
       kind: schedule.kind,
       name: schedule.label,
-      next: new Date(nextDue(schedule, finished)).toLocaleString(),
+      next: new Date(nextAt).toLocaleString(),
+      nextAt,
       status,
       targetId: automation?.workflow ?? schedule.workflow,
     };

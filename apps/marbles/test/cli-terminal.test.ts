@@ -182,17 +182,25 @@ test("a config error restores the terminal and exits instead of leaving the spla
 async function openTestCli(
   home: TestHome,
   config: string,
-  flags: readonly string[] = ["--dry-run"]
+  flags: readonly string[] = ["--dry-run"],
+  cwd?: string,
+  detectCodex = true
 ) {
   const bin = join(dirname(config), "test-bin");
-  mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 1\n");
-  chmodSync(join(bin, "codex"), 0o755);
+  if (detectCodex) {
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(bin, "codex"), 0o755);
+  }
   let output = "";
   const child = spawn(
     [process.execPath, resolve("src/cli.ts"), ...flags, "--config", config],
     {
-      env: { ...home.env, PATH: `${bin}:${home.env.PATH}` },
+      cwd,
+      env: {
+        ...home.env,
+        PATH: detectCodex ? `${bin}:${home.env.PATH}` : "/usr/bin:/bin",
+      },
       terminal: {
         cols: 100,
         data(_terminal, bytes) {
@@ -229,8 +237,8 @@ async function openTestCli(
   };
 }
 
-test("first-run provider setup is offered to a run, never to a dry run, and declining writes nothing", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "marbles-providers-"));
+test("first-run provider setup precedes workspace setup, preserves dry runs, and can be skipped", async () => {
+  const dir = mkdtempSync("/tmp/mb-providers-");
   const home = testHome({ providers: false });
   const config = join(dir, ".foundry", "marbles");
   const { state } = home.layout;
@@ -243,11 +251,14 @@ test("first-run provider setup is offered to a run, never to a dry run, and decl
   } finally {
     await dry.dispose();
   }
-  const live = await openTestCli(home, config, []);
+  const live = await openTestCli(home, config, [], dir);
   try {
-    await live.see("Use these for every workspace?");
-    await live.send("n\r");
-    await live.see("Nothing saved");
+    await live.see("Set up model providers");
+    await live.see("Codex");
+    await live.see(dir);
+    expect(live.output()).not.toContain("Choose a starter");
+    await live.send("\x1b");
+    await live.see("Choose a starter", 0, STARTUP_MS);
     expect(await machine()).toBeUndefined();
   } finally {
     await live.dispose();
@@ -269,6 +280,79 @@ test("first-run provider setup is offered to a run, never to a dry run, and decl
     rmSync(dir, { force: true, recursive: true });
   }
 }, 30_000);
+
+test("a corrupt settings file lets an unconfigured terminal continue and reopen", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "marbles-corrupt-settings-"));
+  const home = testHome({ providers: false });
+  const { state } = home.layout;
+  const settings = join(state, "settings.json");
+  const config = join(dir, "marbles.config.ts");
+  mkdirSync(state, { recursive: true });
+  writeFileSync(settings, "{not json");
+  writeFileSync(config, "export {};");
+
+  try {
+    const first = await openTestCli(home, config, [], dir, false);
+    try {
+      await first.see("No machine-wide providers are available");
+      await first.send("\r");
+      await first.see("Open this workspace");
+      await first.send("\r");
+      await first.see("Press Enter to enter", 0, STARTUP_MS);
+      await first.send("\r");
+      await first.see("Dashboard");
+      await first.send("q");
+      await first.see("Quit Marbles?");
+      await first.send("\x1b");
+      await first.send("S");
+      await first.see("is not valid JSON");
+    } finally {
+      await first.dispose();
+    }
+
+    const reopened = await openTestCli(home, config, [], dir, false);
+    try {
+      await reopened.see("Press Enter to enter", 0, STARTUP_MS);
+      expect(reopened.output()).not.toContain("Set up model providers");
+      expect(readFileSync(settings, "utf8")).toBe("{not json");
+    } finally {
+      await reopened.dispose();
+    }
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 75_000);
+
+test("an initialized machine welcomes a new workspace and can recheck providers without replacing them", async () => {
+  const dir = mkdtempSync("/tmp/mb-onboarding-");
+  const config = join(dir, "marbles.config.ts");
+  writeFileSync(config, "export {};");
+  const home = testHome();
+  const store = DatabaseProviderStore.forState(home.layout.state);
+  const before = (await store.read()).machine;
+  const first = await openTestCli(home, config, []);
+  try {
+    await first.see("Open this workspace", 0, STARTUP_MS);
+    await first.see(config);
+    expect(first.output()).not.toContain("Set up model providers");
+    await first.send("\r");
+    await first.see("Press Enter to enter", 0, STARTUP_MS);
+  } finally {
+    await first.dispose();
+  }
+  const next = await openTestCli(home, config, ["--recheck-providers"]);
+  try {
+    await next.see("Set up model providers");
+    await next.see("already configured");
+    await next.send("\r");
+    await next.see("Press Enter to enter", 0, STARTUP_MS);
+    expect(next.output()).not.toContain("Open this workspace");
+    expect((await store.read()).machine).toEqual(before);
+  } finally {
+    await next.dispose();
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 60_000);
 
 test("a dry run with no authoring folder offers no starter, writes nothing, and says to run marbles init", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-setup-"));
@@ -317,7 +401,7 @@ test("a missing authoring folder onboards against the Marbles process, which pos
       "@foundry.sh/marbles/prebuilt"
     );
     await terminal.send("\r");
-    await terminal.see("ready");
+    await terminal.see("Dashboard");
     await terminal.send("C");
     await terminal.see("2 Marbles");
     await terminal.send("F");
@@ -342,7 +426,9 @@ test("setup skip leaves the config absent and opens the empty dashboard", async 
     await terminal.send("\x1b");
     await terminal.see("setup skipped");
     await terminal.send("\r");
-    await terminal.see("No workflows or steps.", 0, STARTUP_MS);
+    await terminal.see("Dashboard", 0, STARTUP_MS);
+    await terminal.send("C");
+    await terminal.see("No workflows or steps.");
     expect(existsSync(config)).toBe(false);
     await terminal.send("q");
     await terminal.see("Quit Marbles?");
@@ -431,11 +517,13 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
     existsSync(ticks) ? readFileSync(ticks, "utf8").length : 0;
   const terminal = await openTestCli(home, config, ["run"]);
   try {
+    await terminal.see("Open this workspace", 0, STARTUP_MS);
+    await terminal.send("\r");
     await terminal.see("Press Enter to enter", 0, STARTUP_MS);
     expect(readProcess(state)?.host).toBe("daemon");
     await terminal.send("\r");
     await terminal.see("remote-step");
-    await terminal.see("ready");
+    await terminal.see("Dashboard");
     await until(() => tickCount() > 0);
     const other = join(dir, "other");
     mkdirSync(other, { recursive: true });
@@ -455,11 +543,18 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
     );
     home.track(follower.pid, false);
     try {
-      await terminal.see("w workspace");
+      await terminal.see("w Workspaces");
+      const picker = terminal.mark();
       await terminal.send("w");
-      await terminal.see("other-step");
+      await terminal.see("other", picker);
+      await terminal.send("\x1b[B");
+      await terminal.send("\r");
+      await terminal.send("C");
+      await terminal.see("other-step", picker);
       const back = terminal.mark();
       await terminal.send("w");
+      await terminal.send("\x1b[B");
+      await terminal.send("\r");
       await terminal.see("remote-step", back);
     } finally {
       follower.kill("SIGTERM");

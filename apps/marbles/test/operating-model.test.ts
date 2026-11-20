@@ -28,6 +28,11 @@ import {
 import { Diagnostics, lineLevel } from "~/workspace/diagnostics";
 import { dashboardSnapshot } from "../preview/snapshot";
 
+function hintText(context: CommandContext): string {
+  const { hints } = footer(context);
+  return [hints.focus, ...hints.actions.map(({ label }) => label)].join(" · ");
+}
+
 function play(
   events: readonly DashboardEvent[],
   snapshot: DashboardSnapshot = dashboardSnapshot
@@ -74,7 +79,7 @@ function commands(
     ...(log ? { log } : {}),
     resolved: resolveSelection(dashboardSnapshot, state.selected),
     state,
-    workspaces: { everywhere: false, others: false },
+    workspaces: { everywhere: false, ids: [], others: false },
     ...extra,
   };
   const dashboard: Dashboard = {
@@ -83,10 +88,11 @@ function commands(
       calls.push(["act"]);
       work().catch(() => undefined);
     },
+    chooseWorkspace: () => undefined,
     launch: () => undefined,
+    openWorkspaces: () => calls.push(["switch-workspace"]),
     quit: () => undefined,
     send: (event) => calls.push(["send", event]),
-    switchWorkspace: () => calls.push(["switch-workspace"]),
     toggleWorkspaces: () => calls.push(["toggle-workspaces"]),
   };
   return {
@@ -137,7 +143,11 @@ describe("tabs", () => {
       { pane: "definition", type: "focus" },
       { type: "view", view: "logs" },
     ]);
-    expect(state).toMatchObject({ focus: "definition", view: "logs" });
+    expect(state).toMatchObject({
+      drawer: "logs",
+      focus: "definition",
+      view: "catalog",
+    });
     expect(reduce(state, { type: "home" }, dashboardSnapshot).view).toBe(
       "catalog"
     );
@@ -263,8 +273,8 @@ describe("logs", () => {
 
   it("Enter opens the run a line came from, at its step; host lines open nothing", () => {
     const onRunLine = commands([{ type: "view", view: "logs" }]);
-    expect(footer(onRunLine.context).hints).toBe(
-      "logs · ↑↓ select · Enter open run · f stop following · v level debug+ · o source all · / search · x clear"
+    expect(hintText(onRunLine.context)).toBe(
+      "logs · Esc close · ↑↓ select · Enter open run · f stop following · v level debug+ · o source all · / search · x clear"
     );
     expect(onRunLine.press(key("return"))).toEqual([
       [
@@ -306,7 +316,7 @@ describe("settings keys", () => {
         current: { path: "/tmp/settings.json", theme: "dark" },
       },
     });
-    expect(footer(editable.context).hints).toBe("settings · ←→ theme");
+    expect(hintText(editable.context)).toBe("settings · Esc close · ↑↓ theme");
     expect(editable.press(key("right"))).toEqual([["act"]]);
     await Promise.resolve();
     expect(saved).toEqual([{ theme: "light" }]);
