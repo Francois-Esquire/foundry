@@ -289,6 +289,26 @@ it("refuses a load its host gave up while an older engine still answers, and lea
   });
 });
 
+it("leaves a load answering its own catalog when an overlapping load of the same workspace fails", async () => {
+  const workspace = "overlapping-failure";
+  const first = new Catalog();
+  const second = new Catalog();
+  let firstLoad = 0;
+  const { promise: gate, resolve: open } = Promise.withResolvers<undefined>();
+  const loading = loadInto(workspace, first, async (n) => {
+    firstLoad = n;
+    await gate;
+  });
+  await expect(
+    loadInto(workspace, second, () => Promise.reject(new Error("broken")))
+  ).rejects.toThrow("broken");
+  open(undefined);
+  await loading;
+  const answered = await reached((call) => inLoad(firstLoad, call));
+  expect(answered.catalog).toBe(first);
+  expect(answered.runtime).not.toBe("WorkspaceReleasedError");
+});
+
 it("refuses a first load's late work once its engine closed, though the workspace is hosted again", async () => {
   const workspace = "hosted-again";
   const old = new Catalog();

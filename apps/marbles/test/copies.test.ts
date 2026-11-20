@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -254,5 +254,118 @@ report.second = globalThis.seen;`
   expect(report).toEqual({
     first: { dynamic: "note 1", static: "static 1" },
     second: { dynamic: "note 2", static: "static 2" },
+  });
+});
+
+it("leaves an import that does not resolve as written, as Bun would, so a type-only import or a guarded one does not fail the load", async () => {
+  const root = await scratch();
+  await writeFile(join(root, "types.d.ts"), "export type A = number;\n");
+  await writeFile(
+    join(root, "entry.ts"),
+    `import type { A } from "./types";
+export type { A as B } from "./types";
+const a: A = 1;
+globalThis.seen = {
+  a,
+  guarded: globalThis.never === true ? (await import("./maybe")).value : "skipped",
+};
+`
+  );
+  const report = await withLoader(
+    root,
+    `report.load = await importLoad(${JSON.stringify(root)}, [${JSON.stringify(join(root, "entry.ts"))}]).then(
+  () => "loaded",
+  (error) => String(error)
+);
+report.seen = globalThis.seen;`
+  );
+  expect(report).toEqual({
+    load: "loaded",
+    seen: { a: 1, guarded: "skipped" },
+  });
+});
+
+it("rejects an import computed at run time that does not resolve from the importing file, and never resolves it from Marbles' own directory", async () => {
+  const root = await scratch();
+  await writeFile(
+    join(root, "entry.ts"),
+    `globalThis.attempt = (specifier) => {
+  let promise;
+  try {
+    promise = import(specifier);
+  } catch (error) {
+    return Promise.resolve({ threw: String(error) });
+  }
+  return promise.then(
+    () => ({ loaded: true }),
+    (error) => ({ rejected: String(error) })
+  );
+};
+`
+  );
+  const report = await withLoader(
+    root,
+    `await importLoad(${JSON.stringify(root)}, [${JSON.stringify(join(root, "entry.ts"))}]);
+report.missing = await globalThis.attempt("./missing");
+report.relative = await globalThis.attempt("./copies.ts");
+report.bare = await globalThis.attempt("oxc-parser");`
+  );
+  expect(report.missing).toEqual({
+    rejected: expect.stringContaining("./missing"),
+  });
+  expect(report.relative).toEqual({
+    rejected: expect.stringContaining("./copies.ts"),
+  });
+  expect(report.bare).toEqual({
+    rejected: expect.stringContaining("oxc-parser"),
+  });
+});
+
+it("copies a directory imported as `.` or `..`, and a module reached only by `export {} from`, afresh for each load and tracked as read", async () => {
+  const root = await scratch();
+  const sub = join(root, "sub");
+  await mkdir(sub);
+  const write = async (n: number) => {
+    await writeFile(
+      join(root, "index.ts"),
+      `export const parent = ${String(n)};\n`
+    );
+    await writeFile(
+      join(sub, "index.ts"),
+      `export const here = ${String(n)};\n`
+    );
+    await writeFile(join(sub, "bare.ts"), `globalThis.bare = ${String(n)};\n`);
+  };
+  await write(1);
+  const entry = join(sub, "entry.ts");
+  await writeFile(
+    entry,
+    `import { parent } from "..";
+import { here } from ".";
+export {} from "./bare.ts";
+globalThis.seen = { here, parent };
+`
+  );
+  const report = await withLoader(
+    root,
+    `const { filesRead } = await import(${JSON.stringify(join(SRC, "workspace/copies.ts"))});
+await importLoad(${JSON.stringify(root)}, [${JSON.stringify(entry)}], 101);
+report.first = { ...globalThis.seen, bare: globalThis.bare };
+report.read = filesRead(101);
+await Bun.write(${JSON.stringify(join(root, "index.ts"))}, "export const parent = 2;\\n");
+await Bun.write(${JSON.stringify(join(sub, "index.ts"))}, "export const here = 2;\\n");
+await Bun.write(${JSON.stringify(join(sub, "bare.ts"))}, "globalThis.bare = 2;\\n");
+await importLoad(${JSON.stringify(root)}, [${JSON.stringify(entry)}], 102);
+report.second = { ...globalThis.seen, bare: globalThis.bare };`
+  );
+  expect(report).toEqual({
+    first: { bare: 1, here: 1, parent: 1 },
+    read: [
+      join(root, "index.ts"),
+      join(sub, "bare.ts"),
+      join(sub, "entry.ts"),
+      join(sub, "index.ts"),
+    ],
+    second: { bare: 2, here: 2, parent: 2 },
   });
 });
