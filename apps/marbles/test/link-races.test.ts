@@ -10,7 +10,12 @@ import {
   HostBoundStoreError,
   keepingLinks,
 } from "~/database/artifact-links";
-import { linkName, rebuildLinks, relinkArtifact } from "~/database/links";
+import {
+  LinksPlacementError,
+  linkName,
+  rebuildLinks,
+  relinkArtifact,
+} from "~/database/links";
 import { initializeDatabase } from "~/database/open";
 import type { ResourceView } from "~/database/resources";
 import { artifactBlobs, workspaceStores } from "~/database/stores";
@@ -374,5 +379,170 @@ describe("keepers of one workspace's links", () => {
     } finally {
       opened.close();
     }
+  });
+});
+
+describe("a relink that ends early", () => {
+  async function heldLock(root: string) {
+    const held = tryFileLock(join(root, ".marbles", ".lock"));
+    if (!("release" in held)) {
+      throw new Error("the lock is free");
+    }
+    return held;
+  }
+
+  async function entries(dir: string): Promise<string[]> {
+    const found = await real.readdir(dir, { recursive: true });
+    return found.map(String).sort();
+  }
+
+  it("touches nothing on disk when it is aborted before it begins", async () => {
+    const { artifacts, root } = await arranged();
+    await real.rm(join(root, ".marbles", "artifacts"), { recursive: true });
+    const controller = new AbortController();
+    controller.abort(new Error("stopped"));
+    await expect(
+      relinkArtifact({
+        artifacts,
+        files: [{ blob: "blob", path: "nested/f" }],
+        ref: note,
+        root,
+        signal: controller.signal,
+        workspace: "one",
+      })
+    ).rejects.toThrow("stopped");
+    expect(await real.readdir(join(root, ".marbles"))).toEqual([]);
+  });
+
+  it("leaves no directory behind when it is aborted waiting for the lock", async () => {
+    const { artifacts, root } = await arranged();
+    const held = await heldLock(root);
+    const controller = new AbortController();
+    const relinking = relinkArtifact({
+      artifacts,
+      files: [{ blob: "blob", path: "nested/f" }],
+      ref: note,
+      root,
+      signal: controller.signal,
+      workspace: "one",
+    });
+    await new Promise((settle) => setTimeout(settle, 100));
+    expect(await entries(resourceLinks(root, "artifact"))).not.toEqual([]);
+    controller.abort(new Error("stopped"));
+    await expect(relinking).rejects.toThrow("stopped");
+    held.release();
+    expect(await entries(resourceLinks(root, "artifact"))).toEqual([]);
+  });
+
+  it("leaves no directory behind when the files read under the lock are gone", async () => {
+    const { artifacts, root } = await arranged();
+    const shared = { ...note, owner: "two" };
+    await relinkArtifact({
+      artifacts,
+      files: [{ blob: "blob", path: "f" }],
+      ref: shared,
+      root,
+      workspace: "one",
+    });
+    expect(await entries(resourceLinks(root, "artifact"))).toEqual([
+      "@two",
+      join("@two", "note"),
+      join("@two", "note", "f"),
+    ]);
+    let reads = 0;
+    await relinkArtifact({
+      artifacts,
+      files: () => {
+        reads += 1;
+        return Promise.resolve(
+          reads === 1 ? [{ blob: "blob", path: "nested/g" }] : []
+        );
+      },
+      ref: shared,
+      root,
+      workspace: "one",
+    });
+    expect(reads).toBe(2);
+    expect(await entries(resourceLinks(root, "artifact"))).toEqual([]);
+  });
+
+  it("removes the link it made for a rename that failed", async () => {
+    const { artifacts, root } = await arranged();
+    let reads = 0;
+    const rename = vi
+      .spyOn(real, "rename")
+      .mockRejectedValueOnce(
+        Object.assign(new Error("the disk failed"), { code: "EIO" })
+      );
+    try {
+      await expect(
+        relinkArtifact({
+          artifacts,
+          files: () => {
+            reads += 1;
+            return Promise.resolve([
+              { blob: reads === 1 ? "old" : "new", path: "f" },
+            ]);
+          },
+          ref: note,
+          root,
+          workspace: "one",
+        })
+      ).rejects.toThrow("the disk failed");
+    } finally {
+      rename.mockRestore();
+    }
+    expect(
+      (await entries(resourceLinks(root, "artifact"))).filter((entry) =>
+        entry.endsWith(".link")
+      )
+    ).toEqual([]);
+  });
+
+  it("takes no lock through a .marbles that became a link while it waited", async () => {
+    const { artifacts, outside, root } = await arranged();
+    const held = await heldLock(root);
+    let reads = 0;
+    let strayLock = false;
+    const relinking = relinkArtifact({
+      artifacts,
+      files: async () => {
+        reads += 1;
+        strayLock ||= await real
+          .lstat(join(outside, ".lock"))
+          .then(() => true)
+          .catch(() => false);
+        return [{ blob: "blob", path: "f" }];
+      },
+      ref: note,
+      root,
+      workspace: "one",
+    });
+    const top = join(root, ".marbles");
+    let swapped = false;
+    const swap = async () => {
+      if (swapped) {
+        return;
+      }
+      swapped = true;
+      held.release();
+      await real.rename(top, `${top}-saved`);
+      await real.symlink(outside, top);
+    };
+    await new Promise((settle) => setTimeout(settle, 100));
+    hooks.current = async (kind, path) => {
+      if (kind === "lstat" && path === top) {
+        await swap();
+      }
+    };
+    const unchecked = setTimeout(() => swap(), 1000);
+    try {
+      await expect(relinking).rejects.toThrow(LinksPlacementError);
+    } finally {
+      clearTimeout(unchecked);
+    }
+    expect(strayLock).toBe(false);
+    expect(reads).toBe(1);
+    expect(await real.readdir(outside)).toEqual([]);
   });
 });

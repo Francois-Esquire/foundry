@@ -10,13 +10,9 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, normalize, resolve, sep } from "node:path";
 import { hasErrorCode } from "@foundry/lib/atomic-file";
-import {
-  FileLockTimeoutError,
-  tryFileLock,
-  withFileLock,
-} from "@foundry/lib/file-lock";
+import { FileLockTimeoutError, tryFileLock } from "@foundry/lib/file-lock";
 import type { ArtifactFile, ResourceView } from "~/database/resources";
 import { artifactBlobs } from "~/database/stores";
 import { workspaceLinks } from "~/layout";
@@ -86,7 +82,7 @@ export async function rebuildLinks(
     let wanted = await wantedLinks(view, workspace, artifacts);
     let report = emptyReport();
     for (let round = 0; round < REBUILD_ROUNDS; round += 1) {
-      report = await tree.reconcile([], wanted, new Map());
+      report = await tree.reconcile([], wanted, nothingPrepared());
       const again = await wantedLinks(view, workspace, artifacts);
       if (sameLinks(again.links, wanted.links)) {
         break;
@@ -112,6 +108,7 @@ export async function relinkArtifact(
   options: RelinkArtifactOptions
 ): Promise<LinksReport | undefined> {
   const { artifacts, files, ref, root, signal, workspace } = options;
+  signal?.throwIfAborted();
   const tree = new LinkTree(root, artifacts);
   if (!(await tree.open(false))) {
     return;
@@ -120,6 +117,7 @@ export async function relinkArtifact(
     typeof files === "function" ? files : () => Promise.resolve(files);
   const place = artifactPlace(ref, workspace);
   const ahead = linksOf(place, artifacts, ref, await read());
+  signal?.throwIfAborted();
   const prepared = await tree.prepare(ahead.links);
   try {
     return await tree.locked(
@@ -231,7 +229,17 @@ interface Tally {
   unlinkable: number;
 }
 
-type Prepared = Map<string, { readonly path: string; readonly target: string }>;
+interface Prepared {
+  readonly links: Map<
+    string,
+    { readonly path: string; readonly target: string }
+  >;
+  readonly made: string[];
+}
+
+function nothingPrepared(): Prepared {
+  return { links: new Map(), made: [] };
+}
 
 class LinkTree {
   readonly #root: string;
@@ -279,15 +287,10 @@ class LinkTree {
 
   async locked<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const path = join(this.#top, LOCK_FILE);
-    if (signal === undefined) {
-      return withFileLock(path, work, {
-        breakStale: true,
-        waitMs: LOCK_WAIT_MS,
-      });
-    }
     const deadline = performance.now() + LOCK_WAIT_MS;
     for (;;) {
-      signal.throwIfAborted();
+      signal?.throwIfAborted();
+      await this.#topChecked();
       const attempt = tryFileLock(path, { breakStale: true });
       if ("release" in attempt) {
         try {
@@ -303,23 +306,49 @@ class LinkTree {
     }
   }
 
+  async #topChecked(): Promise<void> {
+    try {
+      await this.#checked(this.#top);
+    } catch (error) {
+      if (error instanceof Refused) {
+        throw new LinksPlacementError(
+          `${error.message} is not a directory Marbles made; move it away to link the workspace's artifacts`,
+          { cause: error }
+        );
+      }
+      throw error;
+    }
+  }
+
   async prepare(links: ReadonlyMap<string, WantedLink>): Promise<Prepared> {
-    const prepared: Prepared = new Map();
+    const prepared = nothingPrepared();
     for (const [key, link] of links) {
-      const path = await this.#temporary(link).catch(() => undefined);
+      const path = await this.#temporary(link, prepared.made).catch(
+        () => undefined
+      );
       if (path !== undefined) {
-        prepared.set(key, { path, target: link.target });
+        prepared.links.set(key, { path, target: link.target });
       }
     }
     return prepared;
   }
 
   async discard(prepared: Prepared): Promise<void> {
-    for (const { path } of prepared.values()) {
-      await this.#checked(dirname(path))
-        .then(() => removeLink(path))
-        .catch(() => undefined);
+    for (const { path } of prepared.links.values()) {
+      await this.#removeChecked(path, removeLink);
     }
+    for (const dir of prepared.made.toReversed()) {
+      await this.#removeChecked(dir, removeEmpty);
+    }
+  }
+
+  async #removeChecked(
+    path: string,
+    remove: (path: string) => Promise<void>
+  ): Promise<void> {
+    await this.#checked(dirname(path))
+      .then(() => remove(path))
+      .catch(() => undefined);
   }
 
   async reconcile(
@@ -342,8 +371,9 @@ class LinkTree {
       await this.#prune(scoped, [...scope], wanted.links, prepared, report);
     }
     for (const [key, link] of wanted.links) {
-      await this.#link(link, prepared.get(key), report);
+      await this.#link(link, prepared.links.get(key), report);
     }
+    await this.discard(prepared);
     if (wanted.links.size === 0) {
       await this.#removeEmptyScope(scope);
     }
@@ -394,7 +424,7 @@ class LinkTree {
     prepared: Prepared,
     report: Tally
   ): Promise<void> {
-    const keep = new Set([...prepared.values()].map(({ path }) => path));
+    const keep = new Set([...prepared.links.values()].map(({ path }) => path));
     try {
       for (const entry of await entriesOf(dir)) {
         const path = join(dir, entry.name);
@@ -427,7 +457,7 @@ class LinkTree {
     if (target === undefined || keep.has(path)) {
       return;
     }
-    if (!target.startsWith(this.#ours)) {
+    if (!this.#owned(target)) {
       report.kept.add(this.#shown(at));
     } else if (wanted.get(at.join("/"))?.target !== target) {
       await this.#checked(dir);
@@ -508,10 +538,18 @@ class LinkTree {
       dirname(prepared.path) === parent &&
       (await readlinkOrUndefined(prepared.path)) === link.target;
     const temporary = usable ? prepared.path : await this.#temporary(link);
-    const placed =
-      temporary === undefined
-        ? await this.#replace(parent, path, link.target, current === "stale")
-        : await this.#renamed(parent, temporary, path);
+    let placed: boolean;
+    try {
+      placed =
+        temporary === undefined
+          ? await this.#replace(parent, path, link.target, current === "stale")
+          : await this.#renamed(parent, temporary, path);
+    } catch (error) {
+      if (!usable && temporary !== undefined) {
+        await this.#removeChecked(temporary, removeLink);
+      }
+      throw error;
+    }
     if (placed) {
       report.linked += 1;
       return "done";
@@ -571,15 +609,22 @@ class LinkTree {
     if (current === undefined) {
       return "missing";
     }
-    return current.startsWith(this.#ours) ? "stale" : "kept";
+    return this.#owned(current) ? "stale" : "kept";
   }
 
-  async #temporary(link: WantedLink): Promise<string | undefined> {
+  #owned(target: string): boolean {
+    return normalize(target).startsWith(this.#ours);
+  }
+
+  async #temporary(
+    link: WantedLink,
+    made?: string[]
+  ): Promise<string | undefined> {
     const name = `.${link.segments.at(-1) ?? ""}.${randomUUID().slice(0, 8)}.link`;
     if (Buffer.byteLength(name) > NAME_BYTES) {
       return;
     }
-    const parent = await this.#directories(link.segments.slice(0, -1));
+    const parent = await this.#directories(link.segments.slice(0, -1), made);
     const path = join(parent, name);
     await this.#checked(parent);
     await symlink(link.target, path);
@@ -587,22 +632,26 @@ class LinkTree {
     return path;
   }
 
-  async #directories(segments: readonly string[]): Promise<string> {
+  async #directories(
+    segments: readonly string[],
+    made?: string[]
+  ): Promise<string> {
     let path = this.#dir;
     await this.#checked(path);
     for (const segment of segments) {
       path = join(path, segment);
-      await this.#directory(path);
+      await this.#directory(path, made);
     }
     return path;
   }
 
-  async #directory(path: string): Promise<void> {
+  async #directory(path: string, made?: string[]): Promise<void> {
     if ((await lstatOrUndefined(path)) === undefined) {
       const parent = dirname(path);
       await this.#checked(parent);
       if (await makeDirectory(path)) {
         await this.#madeIn(parent, path, removeEmpty);
+        made?.push(path);
       }
     }
     await this.#checked(path);
@@ -662,15 +711,15 @@ function byCodeUnit(a: string, b: string): number {
   return a < b ? -1 : 1;
 }
 
-function pause(ms: number, signal: AbortSignal): Promise<void> {
+function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
   return new Promise((done) => {
     const timer = setTimeout(finish, ms);
     function finish(): void {
       clearTimeout(timer);
-      signal.removeEventListener("abort", finish);
+      signal?.removeEventListener("abort", finish);
       done();
     }
-    signal.addEventListener("abort", finish, { once: true });
+    signal?.addEventListener("abort", finish, { once: true });
   });
 }
 
