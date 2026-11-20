@@ -14,7 +14,9 @@ import {
   forEachChild,
   isCallExpression,
   isExportDeclaration,
+  isExternalModuleReference,
   isImportDeclaration,
+  isImportEqualsDeclaration,
   isImportTypeNode,
   isLiteralTypeNode,
   isStringLiteral,
@@ -32,12 +34,18 @@ import { inspectDashboard } from "./helpers/terminal";
 const CURRENT_GENERATION = /engine generation \d+: pid \d+ · current/;
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
+const SCOPE_MARK = /^@/;
 function moduleSpecifiers(source: string): string[] {
   const imports: string[] = [];
   function inspect(node: Node) {
     let specifier: Node | undefined;
     if (isImportDeclaration(node) || isExportDeclaration(node)) {
       specifier = node.moduleSpecifier;
+    } else if (
+      isImportEqualsDeclaration(node) &&
+      isExternalModuleReference(node.moduleReference)
+    ) {
+      specifier = node.moduleReference.expression;
     } else if (isImportTypeNode(node) && isLiteralTypeNode(node.argument)) {
       specifier = node.argument.literal;
     } else if (
@@ -51,8 +59,17 @@ function moduleSpecifiers(source: string): string[] {
     }
     forEachChild(node, inspect);
   }
-  inspect(createSourceFile("package.ts", source, ScriptTarget.Latest, true));
-  return imports;
+  const file = createSourceFile(
+    "package.ts",
+    source,
+    ScriptTarget.Latest,
+    true
+  );
+  inspect(file);
+  return [
+    ...file.typeReferenceDirectives.map(({ fileName }) => fileName),
+    ...imports,
+  ];
 }
 
 function privateImports(source: string): string[] {
@@ -72,6 +89,22 @@ function importedPackages(source: string): string[] {
   });
 }
 
+function undeclaredPackages(
+  names: readonly string[],
+  dependencies: Readonly<Record<string, string>>
+): string[] {
+  return names.filter(
+    (name) =>
+      !(
+        Object.hasOwn(dependencies, name) ||
+        Object.hasOwn(
+          dependencies,
+          `@types/${name.replace(SCOPE_MARK, "").replace("/", "__")}`
+        )
+      )
+  );
+}
+
 test("package import inspection checks declarations and dynamic imports, not config source strings", () => {
   expect(
     privateImports(
@@ -89,6 +122,21 @@ test("package import inspection names the package of every bare declaration impo
       "import { A } from '@fal-ai/client'; import 'drizzle-orm/sqlite-core'; import { B } from './chunk.js'; import { EventEmitter } from 'node:events'; type C = import(\"ai-sdk-provider-pi\").C;"
     )
   ).toEqual(["@fal-ai/client", "drizzle-orm", "ai-sdk-provider-pi"]);
+  expect(
+    importedPackages('/// <reference types="optional-package" />\nexport {};')
+  ).toEqual(["optional-package"]);
+  expect(
+    importedPackages(
+      'import SDK = require("@optional/package/sub");\nexport = SDK;'
+    )
+  ).toEqual(["@optional/package"]);
+  expect(
+    undeclaredPackages(["node", "@scope/typed", "zod", "optional-package"], {
+      "@types/node": "^26.4.1",
+      "@types/scope__typed": "1.0.0",
+      zod: "^4.4.3",
+    })
+  ).toEqual(["optional-package"]);
 });
 
 const OPTIONAL_PROVIDER_SDKS = [
@@ -206,9 +254,12 @@ test("the tarball installs and shares the library registry with the CLI", async 
       }
       if (file.endsWith(".d.ts")) {
         expect(
-          importedPackages(
-            readFileSync(join(installed, "dist", file), "utf8")
-          ).filter((name) => !Object.hasOwn(manifest.dependencies, name)),
+          undeclaredPackages(
+            importedPackages(
+              readFileSync(join(installed, "dist", file), "utf8")
+            ),
+            manifest.dependencies
+          ),
           `${file} imports a package that is not a dependency`
         ).toEqual([]);
       }
