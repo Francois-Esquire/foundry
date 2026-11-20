@@ -207,13 +207,17 @@ interface Following {
   readonly opened: number;
   readonly reader: OutputReader;
   readonly runId: string;
+  stored: EndRecord | undefined;
   readonly workspace: string;
 }
 
 type Idle = { readonly end: EndRecord } | { readonly wait: number };
 
 async function idle(following: Following): Promise<Idle> {
-  const { reader, runId } = following;
+  const { reader, runId, stored } = following;
+  if (stored !== undefined) {
+    return { end: stored };
+  }
   const { owner } = reader;
   if (owner === undefined) {
     if (performance.now() - following.opened >= START_RECORD_WAIT_MS) {
@@ -228,7 +232,8 @@ async function idle(following: Following): Promise<Idle> {
       kind: "lost",
     };
     if (holding.kind === "settled") {
-      return { end: holding.end };
+      following.stored = holding.end;
+      return { wait: 0 };
     }
     if (holding.kind === "lost") {
       throw new RunOutputError(
@@ -265,6 +270,7 @@ export async function* readRunOutput(
       opened: performance.now(),
       reader,
       runId,
+      stored: undefined,
       workspace,
     };
     for (;;) {

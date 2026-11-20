@@ -10,7 +10,13 @@ import { DatabaseExecutionStore } from "~/database/executions";
 import { initializeDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
 import type { ExecutionRun } from "~/lib/execution-record";
-import { RunOutput, RunOutputError } from "~/lib/state/output";
+import {
+  type OutputRecord,
+  type RunHolding,
+  RunOutput,
+  RunOutputError,
+  readRunOutput,
+} from "~/lib/state/output";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { cliArgs } from "./helpers/cli";
 import { testEngine } from "./helpers/engine";
@@ -396,3 +402,43 @@ it.each(["running", "interrupted"] as const)(
     }
   }
 );
+
+it("reads what the adopter appended while the stored record was read before using the stored ending", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-watch-settling-"));
+  await mkdir(join(root, "workspace", "output"), { recursive: true });
+  try {
+    await writeFile(journal(root), startLine(GONE));
+    const holder = (): Promise<RunHolding> => {
+      const adopter = new RunOutput(
+        join(root, "workspace"),
+        "rn-test",
+        "parked",
+        () => undefined
+      );
+      adopter.text("final text");
+      adopter.finish("completed", "the result");
+      return Promise.resolve({
+        end: { status: "completed", type: "end" },
+        kind: "settled",
+      });
+    };
+    const records: OutputRecord[] = [];
+    for await (const record of readRunOutput(
+      root,
+      "rn-test",
+      undefined,
+      holder
+    )) {
+      records.push(record);
+    }
+    expect(records.map((record) => record.type)).toEqual([
+      "start",
+      "start",
+      "text",
+      "end",
+    ]);
+    expect(records.at(-1)).toMatchObject({ output: "the result" });
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
