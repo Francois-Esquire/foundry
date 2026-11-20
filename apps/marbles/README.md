@@ -282,10 +282,10 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
 
 ```text
 <home>/
-  marbles/                    the state root
+  marbles/                    the state root, readable by its owner only
     marbles.db                the Marbles database, readable by its owner only, with its
     marbles.db-wal, -shm      SQLite side files while a process has it open
-    marbles.sock              the Marbles process's socket
+    marbles.sock              the Marbles process's socket, its owner's only
     locks/process             the Marbles process's claim on the state root
     process.json              who holds that claim, for `marbles status`
     daemon.log                what a Marbles process started in the background prints
@@ -310,7 +310,8 @@ workspace catalogue, agent grants, deferred approvals, harness activities,
 who delivers its task changes, and the machine's and each workspace's
 provider configuration with the identity key. Provider settings can hold
 secrets, which is why the database is its owner's only. The Marbles process
-claims `locks/process` at the state root and listens on `marbles.sock`
+creates the state root mode 0700 and tightens an existing one to that when
+it starts, claims `locks/process` at the state root and listens on `marbles.sock`
 beside it, so a second Marbles process for the same home is refused with
 the holder's pid. `marbles daemon` runs the process in the
 foreground for a service manager, and `marbles status` shows it and which

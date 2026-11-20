@@ -851,6 +851,151 @@ describe("engine generations", () => {
     }
   }, 150_000);
 
+  it("shows its workspaces failed at once when the candidate that took over from their generation does not start", async () => {
+    const clock = handClock();
+    const lines: string[] = [];
+    const marker = join(testHome({ providers: false }).path, "throw-start");
+    process.env.MARBLES_TEST_THROW_START = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          clock,
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-throwing-start.ts"
+          ),
+          print: (line) => lines.push(line),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      writeFileSync(marker, "");
+      await expect(fixture.client.reload(fixture.summary.id)).rejects.toThrow(
+        "the test throws in this start"
+      );
+      const [failed] = await fixture.client.workspaces();
+      expect(failed?.state, lines.join("\n")).toBe("failed");
+      expect(failed?.error).toContain("the test throws in this start");
+      await gone(first);
+
+      rmSync(marker);
+      clock.advance(1000);
+      await fixture.daemon.idle();
+      const [started] = await fixture.client.workspaces();
+      expect(started?.state, lines.join("\n")).toBe("ready");
+      expect(started?.pid).not.toBe(first);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_THROW_START;
+    }
+  }, 150_000);
+
+  it("leaves nothing of a first attach that failed while another workspace is hosted, so a retry starts clean and switches go on", async () => {
+    const fixture = await setUp();
+    const first = fixture.summary.pid ?? 0;
+    const { client, machine } = fixture;
+    const broken = join(machine.home, "broken");
+    mkdirSync(broken);
+    const brokenSource = join(broken, "marbles.config.ts");
+    writeFileSync(brokenSource, 'throw new Error("never loads");\n');
+    const brokenId = machine.workspace(broken).id;
+
+    await expect(client.attach(brokenSource)).rejects.toThrow("never loads");
+    expect((await client.workspaces()).map((each) => each.id)).toEqual([
+      fixture.summary.id,
+    ]);
+    expect(await stored(fixture, brokenId)).not.toBe(true);
+
+    await expect(client.attach(brokenSource)).rejects.toThrow("never loads");
+    expect((await client.workspaces()).map((each) => each.id)).toEqual([
+      fixture.summary.id,
+    ]);
+    expect(await stored(fixture, brokenId)).not.toBe(true);
+
+    const second = await switchFrom(fixture, first, 1);
+    expect(second).not.toBe(first);
+
+    const other = join(broken, "other.ts");
+    writeFileSync(
+      other,
+      'import { step } from "@foundry.sh/marbles";\nexport const fine = step("fine").do(() => "fine");\n'
+    );
+    const attached = await client.attach(other);
+    expect(attached).toMatchObject({ config: other, state: "ready" });
+    expect(await stored(fixture, brokenId)).toBe(true);
+    client.close();
+  }, 150_000);
+
+  it("gives up an adoption that never answers, so a later hand-over of its workspace goes through", async () => {
+    const clock = handClock();
+    const lines: string[] = [];
+    const marker = join(testHome({ providers: false }).path, "hang-adopt");
+    process.env.MARBLES_TEST_HANG_ADOPT = marker;
+    try {
+      const files = generationFiles(testHome({ providers: false }));
+      const gate = join(files.gates, "late");
+      const parking = (name: string) =>
+        `export const ${name} = step(${JSON.stringify(name)}).do(async ({ ask }) => {
+  note(${JSON.stringify(name)});
+  while (!existsSync(${JSON.stringify(gate)})) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const answer = await ask.question({ title: ${JSON.stringify(`${name}?`)}, choices: ["yes", "no"] });
+  note(${JSON.stringify(`answered-${name}`)});
+  return answer;
+});`;
+      const fixture = await startSwitchingWorkspace(
+        files,
+        [
+          'import { appendFileSync, existsSync } from "node:fs";',
+          'import { step } from "@foundry.sh/marbles";',
+          `const note = (what) => appendFileSync(${JSON.stringify(files.log)}, what + " " + process.pid + "\\n");`,
+          parking("parkOne"),
+          parking("parkTwo"),
+          "",
+        ].join("\n"),
+        {
+          clock,
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-hanging-adopt.ts"
+          ),
+          print: (line) => lines.push(line),
+        },
+        (started) => daemons.push(started)
+      );
+      const first = fixture.summary.pid ?? 0;
+      const workspace = fixture.client.workspace(fixture.summary);
+      await workspace.actions.launch("parkOne", {});
+      await whenLogged(fixture, `parkOne ${String(first)}`);
+      writeFileSync(marker, "");
+      await fixture.client.reload(fixture.summary.id);
+      const second = await readyOn(fixture, (pid) => pid !== first);
+      writeFileSync(gate, "");
+      await vi.waitFor(
+        () =>
+          expect(
+            lines.some((line) => line.includes("adopt hangs for")),
+            lines.join("\n")
+          ).toBe(true),
+        { interval: 50, timeout: 30_000 }
+      );
+      await workspace.actions.launch("parkTwo", {});
+      const entry = await openEntry(workspace, "parkTwo?");
+      clock.advance(30_000);
+      await workspace.actions.answer(entry, "yes");
+      await whenLogged(fixture, `answered-parkTwo ${String(second)}`);
+      expect(
+        lines.some((line) => line.includes("timed out")),
+        lines.join("\n")
+      ).toBe(true);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_HANG_ADOPT;
+    }
+  }, 150_000);
+
   it("runs a queued run on the current generation that its retired one handed over only after the current one started", async () => {
     const marker = join(testHome({ providers: false }).path, "fail-handover");
     process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
