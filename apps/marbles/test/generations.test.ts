@@ -91,6 +91,11 @@ schedule(tick).every("1s");`
   while (!existsSync(${JSON.stringify(join(fixture.gates, "gated"))})) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  await tasks.create({ title: "after-crash" });
+  note("wrote");
+  while (!existsSync(${JSON.stringify(join(fixture.gates, "gated-end"))})) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
   note("ungated");
 });
 schedule(gated).every("1s");`
@@ -1520,7 +1525,7 @@ describe("engine generations", () => {
     next.close();
   }, 180_000);
 
-  it("when the daemon crashes, the orphaned generation finishes the scheduled run it has rather than cancel it, then exits", async () => {
+  it("when the daemon crashes, the orphaned generation finishes the scheduled run it has rather than cancel it, delivering nothing meanwhile, then exits", async () => {
     const { child, fixture } = await crashableDaemon({ gated: true });
     const client = await connect({ layout: fixture.machine, start: false });
     const summary = await client.attach(fixture.source);
@@ -1532,13 +1537,38 @@ describe("engine generations", () => {
     expect(processAlive(first)).toBe(true);
 
     open("gated", fixture);
+    await whenLogged(fixture, `wrote ${String(first)}`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    expect(logged(fixture)).not.toContain(`seen-after-crash ${String(first)}`);
+    open("gated-end", fixture);
     await whenLogged(fixture, `ungated ${String(first)}`);
     await gone(first, 60_000);
+    expect(logged(fixture)).not.toContain(`seen-after-crash ${String(first)}`);
     const statuses = (await executions(fixture, summary.id))
       .filter((row) => row.name === "gated")
       .map((row) => row.status);
     expect(statuses).toContain("complete");
     expect(statuses).not.toContain("cancelled");
+  }, 180_000);
+
+  it("when the daemon crashes, a SIGTERM to the orphaned generation cancels the scheduled run it waits for, and it exits", async () => {
+    const { child, fixture } = await crashableDaemon({ gated: true });
+    const client = await connect({ layout: fixture.machine, start: false });
+    const summary = await client.attach(fixture.source);
+    const first = summary.pid ?? 0;
+    await whenLogged(fixture, `gated ${String(first)}`);
+    await crash(child);
+    client.close();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(processAlive(first)).toBe(true);
+
+    process.kill(first, "SIGTERM");
+    await gone(first, 30_000);
+    expect(logged(fixture)).not.toContain(`wrote ${String(first)}`);
+    const statuses = (await executions(fixture, summary.id))
+      .filter((row) => row.name === "gated")
+      .map((row) => row.status);
+    expect(statuses).toEqual(["cancelled"]);
   }, 180_000);
 
   it("when the daemon crashes between a detach's steps, the next leaves the workspace detached and the generation finishing its run", async () => {

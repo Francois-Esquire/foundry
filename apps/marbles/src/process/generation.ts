@@ -191,6 +191,7 @@ async function main(): Promise<void> {
   let hosted: HostedWorkspaces | undefined;
   let staged: StagedWorkspaces | undefined;
   const ticking = new Map<string, Ticking>();
+  const halting = new Set<Ticking>();
   let retiring: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
   const finished = Promise.withResolvers<void>();
@@ -233,11 +234,13 @@ async function main(): Promise<void> {
       return;
     }
     ticking.delete(id);
+    halting.add(loop);
     loop.stop.abort();
     if (cancel) {
       loop.cancel.abort();
     }
     await loop.done;
+    halting.delete(loop);
   };
 
   const postSetup = (host: WorkspaceHost, draft: SetupDraftParams): void => {
@@ -349,10 +352,16 @@ async function main(): Promise<void> {
   };
 
   const leave = async (cancel: boolean): Promise<void> => {
-    await Promise.all([...ticking.keys()].map((id) => untick(id, cancel)));
+    const unticked = Promise.all(
+      [...ticking.keys()].map((id) => untick(id, cancel))
+    );
+    if (cancel) {
+      await unticked;
+    }
     await Promise.allSettled(
       (hosted?.list() ?? []).map((each) => each.engine.stop())
     );
+    await unticked;
     await Promise.allSettled(unhosting.values());
     await staged?.abandon().catch(() => undefined);
     await hosted?.close();
@@ -410,6 +419,11 @@ async function main(): Promise<void> {
   };
 
   const stop = (cancel: boolean): Promise<void> => {
+    if (cancel) {
+      for (const loop of halting) {
+        loop.cancel.abort();
+      }
+    }
     stopping ??= retiring ?? leave(cancel);
     stopping.then(finished.resolve, finished.reject);
     return stopping;
