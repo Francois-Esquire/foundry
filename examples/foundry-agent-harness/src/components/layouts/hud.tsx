@@ -2,8 +2,6 @@ import type { BoxRenderable } from "@opentui/core";
 import { type ReactNode, useCallback, useMemo } from "react";
 import { PixelArt } from "@/components/blocks/pixel-art";
 import { type HudPart, hudArt, hudGeometry, type Rect } from "@/model/hud-art";
-import { fineHudArt } from "@/model/hud-fine";
-import type { Detail } from "@/model/pixels";
 import type { Size } from "@/model/screen";
 
 export interface HudSection extends HudPart {
@@ -35,7 +33,6 @@ function Region({
 }
 
 export function HudLayout({
-  detail = "fine",
   goal,
   hints,
   main,
@@ -44,7 +41,6 @@ export function HudLayout({
   size,
   steps,
 }: {
-  readonly detail?: Detail;
   readonly goal: ReactNode;
   readonly hints: ReactNode;
   readonly main: ReactNode;
@@ -60,11 +56,7 @@ export function HudLayout({
     [onResize]
   );
   const geometry = useMemo(() => hudGeometry(size, sections), [size, sections]);
-  const art = useMemo(
-    () =>
-      detail === "fine" ? fineHudArt(size, sections) : hudArt(size, sections),
-    [detail, size, sections]
-  );
+  const art = useMemo(() => hudArt(size, sections), [size, sections]);
   return (
     <box height="100%" onSizeChange={measure} width="100%">
       <box left={0} position="absolute" top={0}>

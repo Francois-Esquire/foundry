@@ -30,19 +30,3 @@ export const Short = story({
       { height: 9, width: 26 }
     ),
 });
-
-export const Coarse = story({
-  description: "The half-block tier.",
-  name: "Coarse",
-  render: (renderer) =>
-    renderFrame(
-      renderer,
-      <PortraitBay
-        caption="holding steady"
-        detail="coarse"
-        rows={11}
-        width={24}
-      />,
-      { height: 13, width: 26 }
-    ),
-});

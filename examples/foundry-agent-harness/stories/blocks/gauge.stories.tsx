@@ -30,14 +30,3 @@ export const Full = story({
   render: (renderer) =>
     renderFrame(renderer, <Gauge cells={24} level={1} tone="green" />, size),
 });
-
-export const Coarse = story({
-  description: "The half-block tier, for terminals without sextant glyphs.",
-  name: "Coarse",
-  render: (renderer) =>
-    renderFrame(
-      renderer,
-      <Gauge cells={24} detail="coarse" level={0.64} tone="red" />,
-      size
-    ),
-});

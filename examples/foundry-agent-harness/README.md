@@ -132,27 +132,14 @@ The live screen does not use it. It has a status rail on the left, built from
 a list of sections, and the steps, conversation, goal, and key hints on the
 right.
 
-It is drawn as pixel art from terminal characters, in one of two tiers chosen
-by the `detail` prop on `HudLayout` and on each art block. Nothing detects the
-terminal yet.
-
-- `fine`, the default, draws six pixels to a cell with the sextant glyphs
-  (U+1FB00 to U+1FB3B, and four older block glyphs for the patterns that have
-  no sextant). A cell holds two colours, so
-  [`src/model/sextants.ts`](./src/model/sextants.ts) keeps a cell's two
-  commonest colours, folds any other into the nearer of them, and puts the
-  darker one behind. The art is drawn so that no cell needs a third colour.
-  It needs a terminal that draws sextants itself, such as Ghostty.
-- `coarse` draws two pixels to a cell with half blocks, and edge lines with
-  eighth blocks. It works wherever block elements do.
-
-`src/model/hud-art.ts` works out where each region goes for a screen size and
-paints the coarse metal; `src/model/hud-fine.ts` and
-`src/model/fine-parts.ts` paint the fine tier. The `PixelArt` block renders
-either as rows of coloured text. Below 90 columns or 28 rows the section heads
-drop from two rows to one. The `Blocks/PixelArt` story `Test card` shows the
-same art in both tiers, every sextant glyph, and a striped field, to check a
-terminal with.
+It is drawn as pixel art from terminal characters. `src/model/pixels.ts` holds
+a canvas with two pixels to a cell, which becomes rows of half blocks with a
+foreground and a background colour; text and eighth-block edge lines are
+written over it. `src/model/hud-art.ts` works out where each region goes for a
+screen size and paints the metal around them, and the `PixelArt` block renders
+the rows. The numerals, gauges, step keys, and portrait bay are painted the
+same way from `src/model`. Below 90 columns or 28 rows the section heads drop
+from two rows to one.
 
 ## TermCN components
 
