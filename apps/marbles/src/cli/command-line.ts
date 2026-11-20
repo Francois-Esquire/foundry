@@ -597,7 +597,7 @@ async function withLocalHost(
   const host = await hostHere(args, { env: envMode(args), print });
   const { engine } = host;
   try {
-    printErrors(engine.automations);
+    await printErrors(engine.automations);
     print(
       `[providers] ${engine.models.providers.map((provider) => provider.id).join(", ") || "none configured"}`
     );
