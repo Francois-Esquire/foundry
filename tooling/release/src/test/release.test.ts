@@ -405,8 +405,8 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
 
   const testSteps = {
     test: [
-      "bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always",
-      "bun run test --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always",
+      "bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=1 --continue=always -- --maxWorkers=2",
+      "bun run test --filter=!@foundry.sh/spyglass --concurrency=1 --continue=always -- --maxWorkers=2",
     ],
     "test-spyglass": [
       "bun run turbo run test --affected --filter=@foundry.sh/spyglass -- --shard=$SHARD/3",
