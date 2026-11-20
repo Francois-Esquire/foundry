@@ -110,16 +110,17 @@ export async function relinkArtifact(
   const { artifacts, files, ref, root, signal, workspace } = options;
   signal?.throwIfAborted();
   const tree = new LinkTree(root, artifacts);
-  if (!(await tree.open(false))) {
-    return;
-  }
-  const read =
-    typeof files === "function" ? files : () => Promise.resolve(files);
-  const place = artifactPlace(ref, workspace);
-  const ahead = linksOf(place, artifacts, ref, await read());
-  signal?.throwIfAborted();
-  const prepared = await tree.prepare(ahead.links);
+  const prepared = nothingPrepared();
   try {
+    if (!(await tree.open(false, prepared.made))) {
+      return;
+    }
+    const read =
+      typeof files === "function" ? files : () => Promise.resolve(files);
+    const place = artifactPlace(ref, workspace);
+    const ahead = linksOf(place, artifacts, ref, await read());
+    signal?.throwIfAborted();
+    await tree.prepare(ahead.links, prepared);
     return await tree.locked(
       async () =>
         tree.reconcile(
@@ -255,7 +256,7 @@ class LinkTree {
     this.#ours = `${join(resolve(artifacts), "workspaces")}${sep}`;
   }
 
-  async open(create: boolean): Promise<boolean> {
+  async open(create: boolean, made?: string[]): Promise<boolean> {
     const top = await lstatOrUndefined(this.#top);
     if (top === undefined && !create) {
       return false;
@@ -271,7 +272,7 @@ class LinkTree {
         throw new Refused(this.#top);
       }
       this.#realTop = realTop;
-      await this.#directory(this.#dir);
+      await this.#directory(this.#dir, made);
       await ignoredByGit(this.#top);
     } catch (error) {
       if (error instanceof Refused) {
@@ -320,8 +321,10 @@ class LinkTree {
     }
   }
 
-  async prepare(links: ReadonlyMap<string, WantedLink>): Promise<Prepared> {
-    const prepared = nothingPrepared();
+  async prepare(
+    links: ReadonlyMap<string, WantedLink>,
+    prepared: Prepared
+  ): Promise<void> {
     for (const [key, link] of links) {
       const path = await this.#temporary(link, prepared.made).catch(
         () => undefined
@@ -330,7 +333,6 @@ class LinkTree {
         prepared.links.set(key, { path, target: link.target });
       }
     }
-    return prepared;
   }
 
   async discard(prepared: Prepared): Promise<void> {
@@ -637,7 +639,7 @@ class LinkTree {
     made?: string[]
   ): Promise<string> {
     let path = this.#dir;
-    await this.#checked(path);
+    await this.#directory(path, made);
     for (const segment of segments) {
       path = join(path, segment);
       await this.#directory(path, made);

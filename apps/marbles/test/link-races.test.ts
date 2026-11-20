@@ -499,50 +499,87 @@ describe("a relink that ends early", () => {
     ).toEqual([]);
   });
 
-  it("takes no lock through a .marbles that became a link while it waited", async () => {
+  it("takes no lock through a .marbles that became a link after it was opened", async () => {
     const { artifacts, outside, root } = await arranged();
-    const held = await heldLock(root);
+    const top = join(root, ".marbles");
     let reads = 0;
     let strayLock = false;
-    const relinking = relinkArtifact({
-      artifacts,
-      files: async () => {
-        reads += 1;
-        strayLock ||= await real
-          .lstat(join(outside, ".lock"))
-          .then(() => true)
-          .catch(() => false);
-        return [{ blob: "blob", path: "f" }];
-      },
-      ref: note,
-      root,
-      workspace: "one",
-    });
-    const top = join(root, ".marbles");
     let swapped = false;
-    const swap = async () => {
-      if (swapped) {
-        return;
-      }
-      swapped = true;
-      held.release();
-      await real.rename(top, `${top}-saved`);
-      await real.symlink(outside, top);
-    };
-    await new Promise((settle) => setTimeout(settle, 100));
-    hooks.current = async (kind, path) => {
-      if (kind === "lstat" && path === top) {
-        await swap();
+    hooks.current = async (kind) => {
+      if (!swapped && reads === 1 && kind.startsWith("symlink:")) {
+        swapped = true;
+        await real.rename(top, `${top}-saved`);
+        await real.symlink(outside, top);
       }
     };
-    const unchecked = setTimeout(() => swap(), 1000);
-    try {
-      await expect(relinking).rejects.toThrow(LinksPlacementError);
-    } finally {
-      clearTimeout(unchecked);
-    }
+    await expect(
+      relinkArtifact({
+        artifacts,
+        files: async () => {
+          reads += 1;
+          strayLock ||= await real
+            .lstat(join(outside, ".lock"))
+            .then(() => true)
+            .catch(() => false);
+          return [{ blob: "blob", path: "f" }];
+        },
+        ref: note,
+        root,
+        workspace: "one",
+      })
+    ).rejects.toThrow(LinksPlacementError);
+    expect(swapped).toBe(true);
     expect(strayLock).toBe(false);
     expect(reads).toBe(1);
     expect(await real.readdir(outside)).toEqual([]);
+  });
+
+  it("removes the artifacts directory it made itself when a relink links nothing", async () => {
+    const { artifacts, root } = await arranged();
+    await real.rm(join(root, ".marbles", "artifacts"), { recursive: true });
+    await expect(
+      relinkArtifact({
+        artifacts,
+        files: [],
+        ref: note,
+        root,
+        workspace: "one",
+      })
+    ).resolves.toMatchObject({ linked: 0 });
+    expect(await real.readdir(join(root, ".marbles"))).toEqual([".gitignore"]);
+  });
+
+  it("removes the artifacts directory it made itself when it is aborted reading the files", async () => {
+    const { artifacts, root } = await arranged();
+    await real.rm(join(root, ".marbles", "artifacts"), { recursive: true });
+    const controller = new AbortController();
+    await expect(
+      relinkArtifact({
+        artifacts,
+        files: () => {
+          controller.abort(new Error("stopped"));
+          return Promise.resolve([{ blob: "blob", path: "nested/f" }]);
+        },
+        ref: note,
+        root,
+        signal: controller.signal,
+        workspace: "one",
+      })
+    ).rejects.toThrow("stopped");
+    expect(await real.readdir(join(root, ".marbles"))).toEqual([".gitignore"]);
+  });
+
+  it("keeps an artifacts directory that was there before, when a relink links nothing", async () => {
+    const { artifacts, root } = await arranged();
+    await expect(
+      relinkArtifact({
+        artifacts,
+        files: [],
+        ref: note,
+        root,
+        workspace: "one",
+      })
+    ).resolves.toMatchObject({ linked: 0 });
+    expect(await real.readdir(resourceLinks(root, "artifact"))).toEqual([]);
   });
 });
