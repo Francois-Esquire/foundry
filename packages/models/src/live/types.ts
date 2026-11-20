@@ -1,4 +1,3 @@
-import type { FalEndpointClient } from "../fal/client";
 import type { CapabilityFact, InputForm, Media, OperationName } from "../types";
 
 export type JsonValue =
@@ -23,7 +22,7 @@ export type LiveAccess =
       readonly expiresAt: number;
     }
   | { readonly kind: "proxy"; readonly url: string }
-  | { readonly kind: "credential"; readonly client: FalEndpointClient };
+  | { readonly kind: "credential"; readonly client: unknown };
 
 export interface LiveDirection {
   readonly prompt: string;

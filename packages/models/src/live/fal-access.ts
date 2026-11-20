@@ -4,7 +4,7 @@ import type { LiveAccess } from "./types";
 
 export function falClientFor(access: LiveAccess): FalEndpointClient {
   if (access.kind === "credential") {
-    return access.client;
+    return access.client as FalEndpointClient;
   }
   return createFalClient(
     access.kind === "proxy"
