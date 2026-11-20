@@ -25,10 +25,6 @@ import { createUrlState } from "./url-state.ts";
 let dispose: (() => void) | undefined;
 let generation = 0;
 
-/**
- * A shared snapshot shown without replacing this browser's notes. The first
- * edit keeps `previous` as the restorable copy, then saves the snapshot locally.
- */
 interface OpenedLink {
   payload: string;
   previous: AnnotationDocument | null;
@@ -47,15 +43,9 @@ interface StartingPoint {
   error: boolean;
   message: string;
   opened: OpenedLink | null;
-  /** A recognized history entry whose document differs from local storage. */
   staleUrl: boolean;
 }
 
-/**
- * Choose the document a page view starts with. A payload this browser saved
- * belongs to its own history (Back, a heading entry, reload), so the current
- * local copy wins. Any other valid payload is a shared snapshot.
- */
 function startingPoint(
   pathname: string,
   href: string,
@@ -79,8 +69,6 @@ function startingPoint(
   const same = sameDocument(local.document, incoming.document);
   if (local.status === "restored" && (same || isKnownLink(pathname, payload))) {
     if (same) {
-      // This snapshot already is the local document. Record it before later
-      // edits so its heading/history entries cannot be mistaken for imports.
       rememberLink(pathname, payload);
     }
     return {
@@ -134,7 +122,6 @@ async function mountAnnotations(notice?: string): Promise<void> {
   const start = startingPoint(pathname, href, local, incoming);
   let { opened } = start;
   let latest = start.document;
-  // True when local storage holds the document on screen, so links it emits are ours.
   let localIsCurrent = !opened && local.status !== "unavailable";
   let localError = start.error;
   let localMessage = notice ?? start.message;
@@ -201,7 +188,6 @@ async function mountAnnotations(notice?: string): Promise<void> {
     localError = !saved.saved;
     localMessage = saved.message;
     if (opened && saved.saved) {
-      // The snapshot is now this browser's copy, so revisiting its URL shows local notes.
       rememberLink(pathname, opened.payload);
       opened = null;
       if (kept) {

@@ -13,12 +13,6 @@ import {
 } from "./manifest";
 import type { InstallationGrant } from "./registry";
 
-/**
- * The Grant a strict Manifest's `network` request asks for. Capability names
- * are dotted (`CAPABILITY_NAME_PATTERN`), so this one cannot collide with a
- * Gateway Capability. Its digest covers the requested destinations, so a
- * changed destination list asks again.
- */
 export const NETWORK_GRANT = Object.freeze({
   capability: "network",
   version: 1,
@@ -28,10 +22,8 @@ export type NetworkDestination = NonNullable<
   StrictModuleManifest["network"]
 >["destinations"][number];
 
-/** What a Grant has to match: a capability, its version and a resolved digest. */
 export interface GrantTarget {
   readonly capability: string;
-  /** `null` while unavailable: nothing matches it. */
   readonly constraintsDigest: string | null;
   readonly version: number;
 }
@@ -41,26 +33,21 @@ type GrantFields = Pick<
   "capability" | "constraintsDigest" | "version"
 >;
 
-/** A Capability request of the Version, resolved against the host's provider. */
 export type ModuleCapabilityAccessRequest = {
-  /** `request.capability`, here so every request is matched the same way. */
   readonly capability: string;
   readonly kind: "capability";
   readonly reason: string;
-  /** The Manifest's request: its alias and raw constraints. */
   readonly request: ModuleCapabilityRequest;
   readonly required: boolean;
   readonly version: number;
 } & (
   | { readonly availability: "available"; readonly constraintsDigest: string }
   | {
-      /** `unknown`: no provider; `denied`: the provider refuses the constraints. */
       readonly availability: "denied" | "unknown";
       readonly constraintsDigest: null;
     }
 );
 
-/** The Version's released-app network request: its destinations, by digest. */
 export interface ModuleNetworkAccessRequest {
   readonly availability: "available";
   readonly capability: typeof NETWORK_GRANT.capability;
@@ -72,19 +59,10 @@ export interface ModuleNetworkAccessRequest {
   readonly version: typeof NETWORK_GRANT.version;
 }
 
-/**
- * One thing a Version asks the user to approve, resolved against the host:
- * a Gateway Capability, or released-app network access.
- */
 export type ModuleAccessRequest =
   | ModuleCapabilityAccessRequest
   | ModuleNetworkAccessRequest;
 
-/**
- * The digest a Grant for `constraints` must carry: the provider's, for the
- * raw requested constraints. Invocation admission and Access both resolve
- * it here. Throws when the provider refuses them or answers a blank digest.
- */
 export async function resolveCapabilityDigest(
   provider: ModuleCapabilityProvider,
   principal: ModuleConstraintsPrincipal,
@@ -103,12 +81,6 @@ export async function resolveCapabilityDigest(
   return constraintsDigest;
 }
 
-/**
- * Every request of a Version, resolved the way invocation admission resolves
- * it: Capability Grants match the digest the provider returns for the raw
- * requested constraints; the network Grant matches the digest of the
- * normalized destination list.
- */
 export async function moduleAccessRequests(input: {
   readonly version: Pick<ModuleVersion, "manifest">;
   readonly providers: readonly ModuleCapabilityProvider[];
@@ -170,12 +142,6 @@ export async function moduleAccessRequests(input: {
   return Object.freeze(requests);
 }
 
-/**
- * The destinations a released Program may reach: the selected Version's
- * requested destinations when the Installation holds a network Grant for
- * exactly that list, otherwise `null` (no network). The Grant records only a
- * digest, so a changed declaration matches nothing and asks again in Access.
- */
 export async function approvedNetworkDestinations(input: {
   readonly grants: readonly GrantFields[];
   readonly manifest: ModuleVersion["manifest"];
@@ -186,7 +152,6 @@ export async function approvedNetworkDestinations(input: {
     : null;
 }
 
-/** Whether `grant` approves `target` as it stands. */
 export function grantMatches(grant: GrantFields, target: GrantTarget): boolean {
   return (
     target.constraintsDigest !== null &&
@@ -196,7 +161,6 @@ export function grantMatches(grant: GrantFields, target: GrantTarget): boolean {
   );
 }
 
-/** Whether any of `grants` approves `target`. */
 export function isGranted(
   grants: readonly GrantFields[],
   target: GrantTarget
@@ -204,11 +168,6 @@ export function isGranted(
   return grants.some((grant) => grantMatches(grant, target));
 }
 
-/**
- * The Grants that carry over to a Version with these requests: those whose
- * capability, capability version and resolved constraints digest are
- * unchanged. The rest are dropped, so a changed request asks again.
- */
 export function carriedGrants<Grant extends InstallationGrant>(
   grants: readonly Grant[],
   requests: readonly ModuleAccessRequest[]
@@ -218,7 +177,6 @@ export function carriedGrants<Grant extends InstallationGrant>(
   );
 }
 
-/** A strict Manifest's `network` request, with the digest its Grant carries. */
 async function networkRequest(
   manifest: ModuleVersion["manifest"]
 ): Promise<ModuleNetworkAccessRequest | null> {

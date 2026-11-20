@@ -1,81 +1,51 @@
 import { AsyncResource } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import {
+  type ProcessIdentity,
+  sameProcess,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import type { Container } from "@foundry/sandbox/container/containers";
+import { asRun, callingRun } from "~/lib/calling-run";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
+import type { ExecutionView } from "~/lib/execution-store";
 import type { ExecutionRun, Executions } from "~/lib/executions";
 import { DEFAULT_QUEUE } from "~/lib/executions";
 import { errorCode } from "~/lib/observations";
 import type { TaskContext, TaskDefinition } from "~/lib/tasks";
 import type { Agents, SandboxHandle } from "~/lib/types";
-
-/**
- * Launches: every run from the moment it is launched until it settles. The
- * launcher records it queued, lets its queue admit it, runs a host task's
- * body here or hands a workflow to the engine to dispatch, records how it
- * ends, and hands its caller the value. It holds what is owed to callers
- * and what runs here now; everything about following a workflow through
- * the Orchestrator stays with the engine, behind {@link WorkflowDispatch}.
- */
+import type { ExecutionContext } from "./execution-context";
+import { withinContext } from "./execution-context";
 
 export interface LaunchOptions {
-  /** Host identifiers recorded on the run, such as `moduleId` or `agentSessionId`. */
   readonly correlation?: Readonly<Record<string, string>>;
-  /** The queue to wait in; the task's own, or `marbles`, by default. */
   readonly queue?: string;
-  /**
-   * Whether a failure's message goes on the run's record beside its safe
-   * code; on by default. Turn it off for work whose errors may quote what
-   * was sent (a provider's reply): the record keeps the code, and the
-   * caller's `result` still rejects with the error itself. A run let in
-   * again after a restart has no caller, and records its message.
-   */
   readonly recordErrorMessage?: boolean;
-  /**
-   * The request's identity: launching the same name with it again returns
-   * the run it started, for as long as that run is retained.
-   */
   readonly source?: string;
-  /** The trigger that started it, recorded on the run. */
   readonly triggerId?: string;
 }
 
-/** A launched run: its id now, its value once it settles. */
 export interface Launched<O> {
   readonly id: string;
   readonly result: Promise<O>;
 }
 
-/** A workflow run the engine has dispatched, or adopted, and follows to its end. */
 export interface DispatchedRun {
-  /** Cancel it through the Orchestrator. */
   cancel(): Promise<void>;
-  /**
-   * How a rejected `result` ended the run: `undefined` when it has not
-   * ended, such as a run left parked when the engine stops.
-   */
   endedAs(): "cancelled" | "failed" | undefined;
-  /** Its value, once it is followed to its end. */
   readonly result: Promise<unknown>;
 }
 
-/** The engine's side of a workflow run: the one way the launcher reaches the Orchestrator. */
 interface WorkflowDispatch {
-  /** Cancel a Run the Orchestrator holds that is not running here. */
   cancel(id: string): Promise<void>;
-  /**
-   * Dispatch the run under its own id, and follow it. An abort of `signal`
-   * before the Orchestrator takes the run withdraws it, and this rejects.
-   */
   dispatch(
     run: ExecutionRun,
     input: unknown,
     signal: AbortSignal
   ): Promise<DispatchedRun>;
-  /** Whether a workflow by this name can run. */
   has(name: string): boolean;
 }
 
-/** What a task run's agent sessions belong to. */
 interface TaskRunSite {
   readonly id: string;
   readonly name: string;
@@ -88,13 +58,11 @@ interface Closable {
 }
 
 export interface LauncherOptions {
-  /** Sessions for a task run: they stop with it, close when it settles, and record on it. */
   readonly agents: (run: TaskRunSite) => Agents;
+  readonly context?: ExecutionContext;
   readonly executions: Executions;
   readonly print: (line: string) => void;
-  /** Whether queued runs an exited process left are let in again at start. */
   readonly recoverQueued: boolean;
-  /** Lend a task run a container the host owns; exec through it stops with the run. */
   readonly sandbox: (
     container: Container,
     signal: AbortSignal
@@ -102,46 +70,59 @@ export interface LauncherOptions {
   readonly workflows: WorkflowDispatch;
 }
 
-/** A run's value, owed to whoever launched it until it settles. */
 interface Owed extends PromiseWithResolvers<unknown> {
   readonly recordErrorMessage: boolean;
 }
 
-/** A run admitted here, from its start until it settles. */
 type Live =
   | {
-      /** Withdraws a dispatch in flight; absent for an adopted run. */
       readonly controller?: AbortController;
       readonly kind: "workflow";
-      /**
-       * Its dispatch; `undefined` when dispatching failed or was withdrawn,
-       * given only once the record is settled.
-       */
       readonly dispatched: Promise<DispatchedRun | undefined>;
     }
   | {
       readonly controller: AbortController;
-      /** Settles once the run is recorded settled. */
       done: Promise<void>;
       readonly kind: "task";
-      /** It gave up its slot, so only a stop ends it. */
       released: boolean;
     };
 
 type Ending = "cancelled" | "failed" | undefined;
 
-/**
- * A run its queue has let in or is about to, until it settles: its abort
- * controller exists before any lifecycle update is published, so a cancel
- * a subscriber sends from that update reaches it before its body starts.
- */
+export class RunNotRecordedError extends Error {
+  override readonly name = "RunNotRecordedError";
+
+  constructor(id: string, cause: unknown) {
+    super(
+      `run ${id} ended, but how it ended could not be recorded: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause }
+    );
+  }
+}
+
+class EngineRetiringError extends Error {
+  override readonly name = "EngineRetiringError";
+
+  constructor(name: string) {
+    super(
+      `${name} was not launched: this engine is retiring; launch it on the next engine generation`
+    );
+  }
+}
+
+const HAND_OVER_RETRY_MS = 1000;
+const HAND_OVER_RETRY_MAX_MS = 30_000;
+const HAND_OVER_PASS_MS = 2000;
+
 interface Admission {
   readonly controller: AbortController;
-  /** Resolves once its caller has been paid: the run has settled here. */
   readonly settled: PromiseWithResolvers<void>;
 }
 
-/** How a stop in progress treats what is still running: absent until one begins. */
+export type QueuedTake =
+  | { readonly taken: true }
+  | { readonly taken: false; readonly why: string };
+
 type Halting = "stop" | "cancel" | undefined;
 
 export class Launcher {
@@ -151,47 +132,34 @@ export class Launcher {
   readonly #owed = new Map<string, Owed>();
   readonly #live = new Map<string, Live>();
   readonly #admitted = new Map<string, Admission>();
-  /**
-   * Set when a stop begins and kept: the engine never starts again. A task
-   * that gives up its slot from then on is stopped at once, and one that
-   * starts while a cancelling stop runs never gets to its body.
-   */
+  readonly #withdrawing: Promise<void>[] = [];
   #halting: Halting;
+  #retiring = false;
+  readonly #launching = new Set<Promise<void>>();
 
   constructor(options: LauncherOptions) {
     this.#options = options;
     this.executions = options.executions;
   }
 
-  /** Whether a task has this name. */
   has(name: string): boolean {
     return this.#tasks.has(name);
   }
 
-  /** Add a host task; the engine has checked its name. */
   task(definition: TaskDefinition): void {
     this.#tasks.set(definition.name, definition);
   }
 
-  /** Whether anything here can run this name: a task or a workflow. */
   #runnable(name: string): boolean {
     return this.#tasks.has(name) || this.#options.workflows.has(name);
   }
 
-  /** Whether what is registered under the run's name is the kind it was launched as. */
   #runnableAs(run: Pick<ExecutionRun, "kind" | "name">): boolean {
     return run.kind === "task"
       ? this.#tasks.has(run.name)
       : this.#options.workflows.has(run.name);
   }
 
-  /**
-   * Record a run queued and let its queue admit it. When the queue lets it
-   * in at once, it has also started when this resolves, so a bad input
-   * still rejects here. A `source` already launched under this name returns
-   * that run: its value when it is running here, `undefined` once it
-   * completed, else the reason it did not.
-   */
   async launch<O>(
     name: string,
     input: unknown,
@@ -200,8 +168,33 @@ export class Launcher {
     if (!this.#runnable(name)) {
       throw new Error(`Definition is not registered: ${name}`);
     }
+    const parent = this.#activeCaller();
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring && parent === undefined) {
+      throw new EngineRetiringError(name);
+    }
+    const admitted = Promise.withResolvers<void>();
+    const done = () => {
+      this.#launching.delete(admitted.promise);
+      admitted.resolve();
+    };
+    this.#launching.add(admitted.promise);
+    try {
+      return await this.#launch<O>(name, input, options, done, parent);
+    } finally {
+      done();
+    }
+  }
+
+  async #launch<O>(
+    name: string,
+    input: unknown,
+    options: LaunchOptions,
+    admitted: () => void,
+    parent: string | undefined
+  ): Promise<Launched<O>> {
     const task = this.#tasks.get(name);
-    const { existing, run } = this.executions.enqueue({
+    const { existing, run } = await this.executions.enqueue({
       correlation: {
         ...options.correlation,
         ...(options.triggerId === undefined
@@ -215,18 +208,18 @@ export class Launcher {
       ...(options.source === undefined ? {} : { source: options.source }),
     });
     if (existing) {
+      admitted();
       return { id: run.id, result: this.#resultOf<O>(run) };
     }
     const owed = this.#owe(run.id, options.recordErrorMessage ?? true);
-    // A subscriber told it is queued may have cancelled it already.
-    const started = this.#admit(run.id);
+    const started = this.#admit(run.id, parent);
+    admitted();
     if (started) {
       await started;
     }
     return { id: run.id, result: owed.promise as Promise<O> };
   }
 
-  /** Follow a parked workflow run this process adopted from an earlier one. */
   follow(id: string, dispatched: DispatchedRun): void {
     this.#live.set(id, {
       dispatched: Promise.resolve(dispatched),
@@ -235,23 +228,17 @@ export class Launcher {
     this.#finish(id, dispatched.result, dispatched.endedAs);
   }
 
-  /**
-   * Take over the Execution Runs of processes that have exited: what was
-   * running is recorded interrupted, unless its workflow's file says how it
-   * ended or that it parked, adopted parked runs stay this process's, and
-   * queued runs are let in again in their order when the host asked for
-   * that and what is registered under their name is the kind they were
-   * launched as.
-   */
-  recover(options: {
+  async recover(options: {
     readonly adopted: ReadonlySet<string>;
-    /** What a workflow run's own file says its status is; `undefined` without one. */
     readonly fileStatus: (run: ExecutionRun) => string | undefined;
-  }): void {
-    const readmitted = this.executions.recover({
+  }): Promise<void> {
+    const readmitted = await this.executions.recover({
       adopted: options.adopted,
       fileStatus: options.fileStatus,
-      readmit: (run) => this.#options.recoverQueued && this.#runnableAs(run),
+      readmit: (run) =>
+        (this.#options.recoverQueued ||
+          sameProcess(run.owner, thisProcess())) &&
+        this.#runnableAs(run),
     });
     for (const run of readmitted) {
       this.#options.print(`[run] ${run.name} queued again ${run.id}`);
@@ -260,17 +247,173 @@ export class Launcher {
     }
   }
 
-  /**
-   * Cancel one run, wherever it is: off its queue if it is still waiting,
-   * aborted if it is a task, and through the Orchestrator otherwise. A run
-   * still being dispatched is withdrawn, so its body never starts, or, if
-   * the Orchestrator took it first, cancelled there once it is dispatched.
-   * A run whose process exited and that no process adopted is recorded
-   * cancelled here. A task is settled when this returns; a run that has
-   * already settled is left as it is.
-   */
+  async handOver(
+    successor: ProcessIdentity,
+    onHanded: (id: string) => void = () => undefined
+  ): Promise<readonly string[]> {
+    this.beginRetiring();
+    const handed: string[] = [];
+    const told = (id: string) => {
+      handed.push(id);
+      this.#pay(
+        id,
+        new Error(`run ${id} was handed to the next engine generation`)
+      );
+    };
+    await Promise.all(this.#launching);
+    const { failed } = await this.executions.handOverAll(
+      () => Promise.resolve(successor),
+      told
+    );
+    const said = new Set<string>();
+    this.#sayFailed(failed, said);
+    this.#handOverLater(
+      (view) =>
+        view.successor === undefined
+          ? Promise.resolve(successor)
+          : view.successor(),
+      onHanded,
+      said,
+      failed.length > 0 ? HAND_OVER_RETRY_MS : HAND_OVER_PASS_MS
+    );
+    return [...handed];
+  }
+
+  #sayFailed(
+    failed: readonly { readonly error: unknown; readonly id: string }[],
+    said: Set<string>
+  ): void {
+    for (const { error, id } of failed) {
+      const why = error instanceof Error ? error.message : String(error);
+      if (!said.has(why)) {
+        said.add(why);
+        this.#options.print(
+          `[run] ${id} not handed to the next engine generation: ${why}; it stays queued here, unstarted, and is tried again`
+        );
+      }
+    }
+  }
+
+  #handOverLater(
+    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>,
+    onHanded: (id: string) => void,
+    said: Set<string>,
+    delay: number
+  ): void {
+    const timer = setTimeout(async () => {
+      if (
+        this.#halting === "cancel" ||
+        (this.#halting === "stop" && this.executions.waiting().length === 0)
+      ) {
+        return;
+      }
+      const told = (id: string) => {
+        this.#pay(
+          id,
+          new Error(`run ${id} was handed to the next engine generation`)
+        );
+        onHanded(id);
+      };
+      let failed: readonly { readonly error: unknown; readonly id: string }[];
+      try {
+        await this.#takeUpQueued();
+        ({ failed } = await this.executions.handOverAll(choose, told));
+      } catch (error) {
+        failed = [{ error, id: "a queued run" }];
+      }
+      this.#sayFailed(failed, said);
+      this.#handOverLater(
+        choose,
+        onHanded,
+        said,
+        failed.length === 0
+          ? HAND_OVER_PASS_MS
+          : Math.min(
+              delay === HAND_OVER_PASS_MS ? HAND_OVER_RETRY_MS : delay * 2,
+              HAND_OVER_RETRY_MAX_MS
+            )
+      );
+    }, delay);
+    timer.unref?.();
+  }
+
+  async #takeUpQueued(): Promise<void> {
+    for (const id of await this.executions.queuedHere()) {
+      if (this.#owed.has(id) || this.#admitted.has(id)) {
+        continue;
+      }
+      const run = await this.executions.readHanded(id);
+      if (run === undefined || this.#owed.has(id) || this.#admitted.has(id)) {
+        continue;
+      }
+      this.#owe(id, true);
+      this.#admit(id);
+    }
+  }
+
+  async takeOrphaned(id: string, owner: ProcessIdentity): Promise<QueuedTake> {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring) {
+      return { taken: false, why: "this engine is retiring" };
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return { taken: true };
+    }
+    const stored = await this.executions.peek(id);
+    if (stored === undefined) {
+      return { taken: false, why: "it is no longer stored" };
+    }
+    if (!this.#runnableAs(stored)) {
+      return {
+        taken: false,
+        why: `no ${stored.kind} named "${stored.name}" is registered here`,
+      };
+    }
+    const run = await this.executions.takeQueuedFrom(id, owner);
+    if (run === undefined) {
+      return {
+        taken: false,
+        why: "it is no longer queued under a process proved gone",
+      };
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return { taken: true };
+    }
+    this.#options.print(
+      `[run] ${run.name} taken over from a gone process ${id}`
+    );
+    this.#owe(id, true);
+    this.#admit(id);
+    return { taken: true };
+  }
+
+  async takeHanded(id: string): Promise<boolean | undefined> {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring) {
+      return false;
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return true;
+    }
+    const run = await this.executions.readHanded(id);
+    if (run === undefined) {
+      return;
+    }
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
+    if (this.#retiring || !this.#runnableAs(run)) {
+      return false;
+    }
+    if (this.#owed.has(id) || this.#admitted.has(id)) {
+      return true;
+    }
+    this.#options.print(`[run] ${run.name} handed over ${id}`);
+    this.#owe(id, true);
+    this.#admit(id);
+    return true;
+  }
+
   async cancel(id: string): Promise<void> {
-    if (this.executions.withdraw(id)) {
+    if (await this.executions.withdraw(id)) {
       this.#pay(id, new Error(`run ${id} was cancelled before it started`));
       return;
     }
@@ -282,8 +425,6 @@ export class Launcher {
     }
     const admission = this.#admitted.get(id);
     if (!live && admission) {
-      // Recorded running, its body not yet started: a subscriber cancelling
-      // from that update. Its start sees the abort and runs nothing.
       admission.controller.abort(new Error(`run ${id} was cancelled`));
       await admission.settled.promise;
       return;
@@ -298,8 +439,7 @@ export class Launcher {
     if (run && SETTLED_EXECUTION_STATUSES.has(run.status)) {
       return;
     }
-    // Its owner exited and nothing adopted it: nothing will settle it but this.
-    if (this.executions.cancelOrphan(id)) {
+    if (await this.executions.cancelOrphan(id)) {
       return;
     }
     if (run?.kind === "task") {
@@ -308,32 +448,28 @@ export class Launcher {
     await this.#options.workflows.cancel(id);
   }
 
-  /**
-   * Withdraw queued work and abort live dispatches and tasks before
-   * shutdown awaits anything; from now on, a task that starts here is
-   * aborted before its body runs.
-   */
   cancelPending(): void {
     this.#halting = "cancel";
     for (const id of this.executions.waiting()) {
-      this.executions.withdraw(id);
-      this.#pay(id, new Error(`run ${id} was cancelled before it started`));
+      this.#withdrawing.push(
+        this.executions.withdraw(id).then(
+          (cancelled) => {
+            if (cancelled) {
+              this.#pay(
+                id,
+                new Error(`run ${id} was cancelled before it started`)
+              );
+            }
+          },
+          (error: unknown) => this.#pay(id, error)
+        )
+      );
     }
     for (const [id, live] of this.#live) {
       live.controller?.abort(new Error(`run ${id} stopped with the engine`));
     }
   }
 
-  /**
-   * The first half of a stop. When cancelling, every waiting run comes off
-   * its queue, every dispatch in flight is withdrawn and every task is
-   * aborted at once, before anything is awaited, so a slot freed meanwhile
-   * lets nothing in. Otherwise the tasks that cannot outlive the stop,
-   * those that gave up their slot, are aborted first, so a factory waiting
-   * on what such a task holds is not waited on forever. Then wait for the
-   * dispatches in flight. From the start of the stop, a task that gives up
-   * its slot is aborted as it does.
-   */
   async halt(cancel: boolean): Promise<void> {
     if (cancel) {
       this.cancelPending();
@@ -341,6 +477,7 @@ export class Launcher {
       this.#halting ??= "stop";
     }
     this.#abortHalted();
+    await Promise.all(this.#withdrawing.splice(0));
     await Promise.all(
       [...this.#live.values()].map((live) =>
         live.kind === "workflow" ? live.dispatched : undefined
@@ -349,7 +486,6 @@ export class Launcher {
     this.#abortHalted();
   }
 
-  /** Abort each task a stop in progress does not let outlive it. */
   #abortHalted(): void {
     for (const [id, live] of this.#live) {
       if (
@@ -361,7 +497,6 @@ export class Launcher {
     }
   }
 
-  /** Resolves once every task running here has settled. */
   async settled(): Promise<void> {
     await Promise.all(
       [...this.#live.values()].map((live) =>
@@ -375,13 +510,11 @@ export class Launcher {
       ...Promise.withResolvers<unknown>(),
       recordErrorMessage,
     };
-    // The host may attach later, or never: a recovered run has no caller.
     owed.promise.catch(() => undefined);
     this.#owed.set(id, owed);
     return owed;
   }
 
-  /** Hand the launcher its value, or the reason there is none. */
   #pay(id: string, error: unknown, value?: unknown): void {
     const admission = this.#admitted.get(id);
     this.#admitted.delete(id);
@@ -395,7 +528,6 @@ export class Launcher {
     }
   }
 
-  /** The value of a run launched before, as far as this process knows it. */
   #resultOf<O>(run: ExecutionRun): Promise<O> {
     const owed = this.#owed.get(run.id);
     if (owed) {
@@ -409,12 +541,7 @@ export class Launcher {
     );
   }
 
-  /**
-   * Wait in the run's queue; the start, when the queue let it in at once.
-   * A run no longer queued, cancelled by a subscriber told it was, is paid
-   * its cancellation instead.
-   */
-  #admit(id: string): Promise<void> | undefined {
+  #admit(id: string, parent?: string): Promise<void> | undefined {
     if (this.executions.get(id)?.status !== "queued") {
       this.#pay(id, new Error(`run ${id} was cancelled before it started`));
       return;
@@ -426,20 +553,33 @@ export class Launcher {
     this.#admitted.set(id, admission);
     return this.executions.admit(
       id,
-      // Admission may happen when another run frees its queue slot. Keep
-      // this launch's request context for its body and output observers.
       AsyncResource.bind((input: unknown) =>
         this.#start(id, input, admission.controller)
       ),
-      (error) => this.#pay(id, error)
+      (error) => this.#pay(id, error),
+      parent
     );
   }
 
-  /**
-   * Let in: a task runs its body, a workflow is dispatched under the run's
-   * id. What it was launched as decides which, so a task replaced by a
-   * workflow of its name (or the reverse) is never handed the other's input.
-   */
+  #activeCaller(): string | undefined {
+    const id = callingRun();
+    return id !== undefined && this.#active(id) ? id : undefined;
+  }
+
+  #active(id: string): boolean {
+    const run = this.executions.get(id);
+    return (
+      this.#live.has(id) &&
+      run?.status === "running" &&
+      sameProcess(run.owner, thisProcess())
+    );
+  }
+
+  beginRetiring(): void {
+    this.#retiring = true;
+    this.executions.closeAdmission((id) => this.#active(id));
+  }
+
   #start(
     id: string,
     input: unknown,
@@ -457,9 +597,9 @@ export class Launcher {
       const error = new Error(
         `run ${id}: no task is registered as ${run.name}`
       );
-      this.executions.settle(id, "failed", this.#failure(id, error));
-      this.#pay(id, error);
-      return Promise.reject(error);
+      return this.#end(id, "failed", { error }).then(() => {
+        throw error;
+      });
     }
     this.#run(task, run, input, controller);
     return Promise.resolve();
@@ -473,11 +613,7 @@ export class Launcher {
     if (this.#halting === "cancel") {
       controller.abort(new Error(`run ${run.id} stopped with the engine`));
     }
-    // The dispatch's outcome: the run it became, or nothing, given only once
-    // a failed dispatch has settled the record. A cancel or a stop awaiting
-    // it therefore reads a settled record, whatever else awaits the dispatch.
     const outcome = Promise.withResolvers<DispatchedRun | undefined>();
-    // Held from now, so a cancel or a stop finds it before it is dispatched.
     this.#live.set(run.id, {
       controller,
       dispatched: outcome.promise,
@@ -493,12 +629,12 @@ export class Launcher {
     } catch (error) {
       this.#live.delete(run.id);
       if (controller.signal.aborted) {
-        this.executions.settle(run.id, "cancelled");
-        this.#pay(run.id, new Error(`run ${run.id} was cancelled`));
+        await this.#end(run.id, "cancelled", {
+          error: new Error(`run ${run.id} was cancelled`),
+        });
         return;
       }
-      this.executions.settle(run.id, "failed", this.#failure(run.id, error));
-      this.#pay(run.id, error);
+      await this.#end(run.id, "failed", { error });
       throw error;
     } finally {
       outcome.resolve(dispatched);
@@ -506,7 +642,6 @@ export class Launcher {
     this.#finish(run.id, dispatched.result, dispatched.endedAs);
   }
 
-  /** Run a task's body in the background, and record how it ends. */
   #run(
     task: TaskDefinition,
     run: ExecutionRun,
@@ -517,7 +652,6 @@ export class Launcher {
     if (this.#halting === "cancel") {
       controller.abort(new Error(`run ${id} stopped with the engine`));
     }
-    // Completion closes resource lifetime without changing cancellation outcome.
     const lifetime = new AbortController();
     const resourceSignal = AbortSignal.any([
       controller.signal,
@@ -546,16 +680,12 @@ export class Launcher {
             startedAt: observation.startedAt ?? new Date().toISOString(),
             status: observation.status ?? "complete",
           },
-          // Completing one it began keeps the start it began with.
           { keepStart: observation.startedAt === undefined }
         ),
       progress: (value) => this.executions.progress(id, value),
       release: () => {
         live.released = true;
         this.executions.release(id);
-        // A stop has begun: a task that gives up its slot cannot outlive
-        // it. Aborted just after this returns, so a body that goes on to
-        // wait for its signal is listening when it fires.
         if (this.#halting !== undefined) {
           queueMicrotask(() =>
             controller.abort(new Error(`run ${id} stopped with the engine`))
@@ -567,16 +697,13 @@ export class Launcher {
       signal: resourceSignal,
     };
     this.#live.set(id, live);
-    const result = (async () => {
+    const result = withinContext(this.#options.context, async () => {
       let value: unknown;
       try {
-        // Cancelled before its body started: it never runs.
         controller.signal.throwIfAborted();
-        value = await task.run(input, context);
+        value = await asRun(id, () => task.run(input, context));
       } finally {
         lifetime.abort(new Error(`run ${id} resource lifetime ended`));
-        // Last opened first, one at a time, as a run scope closes: a
-        // session's turn stops before the sandbox under it goes.
         for (const closable of [...opened].reverse()) {
           await Promise.resolve()
             .then(() => closable.close())
@@ -587,38 +714,60 @@ export class Launcher {
         throw new Error(`run ${id} was cancelled`);
       }
       return value;
-    })();
+    });
     live.done = this.#finish(id, result, () =>
       controller.signal.aborted ? "cancelled" : "failed"
     );
   }
 
-  /** Record how a run ended, once `result` settles, and pay its caller. */
   #finish(
     id: string,
     result: Promise<unknown>,
     endedAs: (error: unknown) => Ending
   ): Promise<void> {
     return result.then(
-      (value) => {
+      async (value) => {
         this.#live.delete(id);
-        this.executions.settle(id, "complete");
-        this.#pay(id, undefined, value);
+        await this.#end(id, "complete", { value });
       },
-      (error: unknown) => {
+      async (error: unknown) => {
         this.#live.delete(id);
-        const ending = endedAs(error);
-        if (ending === "cancelled") {
-          this.executions.settle(id, "cancelled");
-        } else if (ending === "failed") {
-          this.executions.settle(id, "failed", this.#failure(id, error));
-        }
-        this.#pay(id, error);
+        await this.#end(id, endedAs(error), { error });
       }
     );
   }
 
-  /** What a failed run records: its safe code, and its message unless its launch said not to. */
+  async #end(
+    id: string,
+    ending: "complete" | Ending,
+    outcome: { readonly error?: unknown; readonly value?: unknown }
+  ): Promise<void> {
+    if (ending !== undefined) {
+      let stored: ExecutionRun | undefined;
+      try {
+        stored = await this.executions.settle(
+          id,
+          ending,
+          ending === "failed" ? this.#failure(id, outcome.error) : undefined
+        );
+      } catch (failure) {
+        this.#pay(id, new RunNotRecordedError(id, failure));
+        return;
+      }
+      if (stored && stored.status !== ending) {
+        this.#pay(
+          id,
+          stored.status === "complete"
+            ? undefined
+            : new Error(`run ${id} was ${stored.status} already`),
+          undefined
+        );
+        return;
+      }
+    }
+    this.#pay(id, outcome.error, outcome.value);
+  }
+
   #failure(id: string, error: unknown): { code: string; message?: string } {
     const code = errorCode(error);
     if (this.#owed.get(id)?.recordErrorMessage === false) {

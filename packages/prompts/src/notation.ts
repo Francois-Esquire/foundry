@@ -1,14 +1,3 @@
-/**
- * The notation builders: the "mini syntaxes" a dialect is composed from. Each
- * builder is one lexical shape parameterized by sigil, kind, and position, so
- * Claude Code's `/name`, Codex's `$name`, and Pi's `/skill:name` are three
- * instances of one builder, not three parsers.
- *
- * Builders using `atBoundary` accept the start of text or a preceding
- * whitespace, opening bracket, quote, comma, or semicolon. This keeps `user@host`,
- * `US$5`, and `a/b` out of their results.
- */
-
 import type {
   ArgumentSelector,
   InvocationKind,
@@ -46,7 +35,6 @@ function atBoundary(text: string, at: number): boolean {
   return at === 0 || BOUNDARY_BEFORE.test(text.charAt(at - 1));
 }
 
-/** The path without its trailing sentence punctuation. One pass from the end, so a long run of punctuation costs its length. */
 function withoutTrailingPunctuation(path: string): string {
   let end = path.length;
   while (end > 0 && TRAILING_PUNCTUATION.has(path.charAt(end - 1))) {
@@ -66,21 +54,11 @@ function restOfLine(text: string, from: number): string | undefined {
 export interface InvocationSpec {
   readonly id: string;
   readonly kind: InvocationKind;
-  /** Match only names the harness itself knows (built-in commands). */
   readonly known?: boolean;
   readonly position?: Notation["position"];
-  /** What precedes the name: `/`, `$`, `/skill:`, `/prompts:`. */
   readonly sigil: string;
 }
 
-/**
- * `<sigil><name> [arguments…]`: a skill, template, or command invoked by
- * name. Matched segments start and end with an ASCII letter or digit, with
- * underscores or hyphens allowed inside, and may be namespaced with `:`
- * (`plugin:skill`). A name followed by `/` is a path, not an invocation.
- * Arguments are the rest of the first line when the invocation opens the
- * message.
- */
 function invocation(spec: InvocationSpec): Notation {
   const { sigil } = spec;
   return {
@@ -121,11 +99,9 @@ function invocation(spec: InvocationSpec): Notation {
 
 export interface MentionSpec {
   readonly id: string;
-  /** Defaults to `@`. */
   readonly sigil?: string;
 }
 
-/** `@path`: a file or folder mention. Trailing sentence punctuation is not part of the path. */
 function mention(spec: MentionSpec): Notation {
   const sigil = spec.sigil ?? "@";
   return {
@@ -161,7 +137,6 @@ export interface AgentMentionSpec {
   readonly id: string;
 }
 
-/** `@"name (agent)"`: Claude Code's explicit subagent mention. */
 function agentMention(spec: AgentMentionSpec): Notation {
   return {
     consumes: false,
@@ -189,10 +164,6 @@ function agentMention(spec: AgentMentionSpec): Notation {
   };
 }
 
-/**
- * The written forms of an argument placeholder, in match precedence:
- * `$ARGUMENTS`, `$ARGUMENTS[N]`, `$@`, `$N`, `$NAME`, `$name`.
- */
 export type PlaceholderForm =
   | "all"
   | "indexed"
@@ -271,7 +242,6 @@ function renderSelector(
   }
 }
 
-/** `$…`: a placeholder the harness fills from the invocation's arguments when it expands a template. */
 function placeholder(spec: PlaceholderSpec): Notation {
   const forms = new Set(spec.forms);
   const rules = PLACEHOLDER_RULES.filter((rule) => forms.has(rule.form));
@@ -309,7 +279,6 @@ export interface VariableSpec {
   readonly id: string;
 }
 
-/** `${NAME}`: a value the harness provides when it expands a template. */
 function variable(spec: VariableSpec): Notation {
   const open = "${";
   return {
@@ -345,7 +314,6 @@ export interface ShellSpec {
   readonly id: string;
 }
 
-/** `` !`command` ``: output injected into a template before it is sent. */
 function inlineShell(spec: ShellSpec): Notation {
   const open = "!`";
   return {
@@ -378,7 +346,6 @@ function inlineShell(spec: ShellSpec): Notation {
   };
 }
 
-/** `!command` as the whole message: the harness runs it in the shell instead of sending it. */
 function shellLine(spec: ShellSpec): Notation {
   return {
     consumes: true,
@@ -408,11 +375,9 @@ function shellLine(spec: ShellSpec): Notation {
 
 export interface EscapeSpec {
   readonly id: string;
-  /** The written sequence, such as `$$`. */
   readonly sequence: string;
 }
 
-/** A sequence the harness turns into a literal character. Tokenized so it is never read as a sigil. */
 function escapeSequence(spec: EscapeSpec): Notation {
   return {
     consumes: false,
@@ -428,7 +393,6 @@ function escapeSequence(spec: EscapeSpec): Notation {
   };
 }
 
-/** The builders a dialect is composed from. */
 export const notation = {
   agentMention,
   escape: escapeSequence,

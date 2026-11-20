@@ -6,16 +6,6 @@ import {
   downloadCodeLanguages,
 } from "../../embeddings/code";
 
-/**
- * Runs against the real tree-sitter TypeScript grammar, which is downloaded
- * unless already cached. It is part of the
- * integration project, not the default unit suite:
- *
- *   bun run --cwd=packages/models test:integration -- code.integration
- *
- * If the grammar is not cached and cannot be downloaded, the file fails with
- * CODE_GRAMMAR_DOWNLOAD_FAILED; it does not skip.
- */
 await downloadCodeLanguages(["typescript"]);
 
 const SOURCE = `import { readFile } from "node:fs/promises";

@@ -8,22 +8,9 @@ import type {
   WorkerSideTransport,
 } from "./protocol";
 
-/**
- * Node IPC transports for the bridge. Messages ride the built-in `ipc` channel
- * (JSON-serialized), leaving stdout/stderr as plain log passthrough — the
- * runtime logs freely without corrupting the protocol.
- */
-
 export interface ForkLocalWorkerOptions {
-  /** transformers-js cache dir the worker should serve (passed as --cache). */
   cacheDir: string;
-  /**
-   * Path to the executable worker entry. Defaults to this package's
-   * worker-entry next to the compiled module — override when a bundler has
-   * relocated it.
-   */
   entry?: string;
-  /** Node-compatible runtime to fork with; defaults to the current one. */
   execPath?: string;
 }
 
@@ -32,7 +19,6 @@ export interface ForkedLocalWorker {
   transport: HostTransport;
 }
 
-/** Spawn the unbound inference worker and return the host-side transport. */
 export function forkLocalWorker(
   options: ForkLocalWorkerOptions
 ): ForkedLocalWorker {
@@ -68,7 +54,6 @@ export function forkLocalWorker(
   return { child, transport };
 }
 
-/** The worker-process side of the IPC channel (`process.send`/`message`). */
 export function processIpcTransport(): WorkerSideTransport {
   if (typeof process.send !== "function") {
     throw new Error(

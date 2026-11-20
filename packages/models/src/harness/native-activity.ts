@@ -32,7 +32,6 @@ const CODEX_TURN_STATUS: Record<string, ActivityStatus> = {
 
 export type NativeActivities = ReturnType<typeof createNativeActivities>;
 
-/** IDs belong to a CLI process, not a resumable transcript. */
 export function createNativeActivities(
   initialRun: DriverRun,
   generation: string
@@ -95,7 +94,6 @@ export function createNativeActivities(
       }
       await publish(data.agent_id, {
         kind: "subagent",
-        // Stop hooks run before the agent stops, and can cause it to continue.
         status:
           data.hook_event_name === "SubagentStart" ? "running" : "unknown",
         title:

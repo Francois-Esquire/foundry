@@ -98,7 +98,6 @@ describe("task tags", () => {
     expect(await ready({ tags: { all: ["review", "api"] } })).toEqual([
       both.id,
     ]);
-    // Empty lists impose nothing; tags are exact strings.
     expect(await ready({ tags: { all: [], any: [] } })).toHaveLength(4);
     expect(await ready({ tags: { any: ["Review"] } })).toEqual([]);
     const page = await tasks.ready({ limit: 1, tags: { any: ["api"] } });

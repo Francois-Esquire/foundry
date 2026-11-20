@@ -37,8 +37,6 @@ function fakeModel(): AgentModel {
   return createScriptedMockModel({ stream: [usageStreamResult("ok", 1, 0)] });
 }
 
-/** A model that scripts one tool call, then stops — fresh scripted responses
- *  per resolution, so each constructed harness gets its own independent queue. */
 function toolCallModel(): AgentModel {
   return createScriptedMockModel({
     generate: [
@@ -63,8 +61,6 @@ function trackingPolicy(
   });
 }
 
-/** A harmless declared tool whose capability derivation carries nothing
- *  fixture-specific — used only to force a policy check per generated turn. */
 function probeTools(): ToolSet {
   return {
     probe: tool({
@@ -525,9 +521,6 @@ describe("createAgentPreset", () => {
     expect(direct).not.toBeInstanceOf(SessionHarness);
     expect(session).toBeInstanceOf(SessionHarness);
 
-    // Same base tool set on both (the todo built-in + the shared tool; the
-    // spec names no skills, so no skill tools) — the Session variant adds only
-    // the mesh tools it alone owns.
     const baseToolNames = ["probe", "todo"];
     expect(Object.keys(direct.agent.tools).sort()).toEqual(baseToolNames);
     expect(Object.keys(session.agent.tools).sort()).toEqual(
@@ -537,9 +530,6 @@ describe("createAgentPreset", () => {
     expect(session.store).toBe(store);
     expect(mesh.has("researcher")).toBe(true);
 
-    // Exercising both compiled `probe` tools proves the SAME policy (not a
-    // duplicate) gates both variants, and both report the preset's real
-    // agent identity — never a generic placeholder.
     await direct.generate({ prompt: "go" });
     await session.generate("go");
 
@@ -611,7 +601,6 @@ describe("createAgentPreset", () => {
     const effectPort: ToolEffectPort = {
       execute: vi.fn((_call, effect) => effect()),
     };
-    // Settings are plain data at runtime; these keys are outside AgentSettings.
     const settings = {
       effectPort: null,
       model: null,
@@ -628,7 +617,6 @@ describe("createAgentPreset", () => {
     });
     expect(agent.policy).toBe(policy);
     expect(agent.model).toBe(model);
-    // The probe call runs through the host's port, not a settings value.
     await agent.generate({ prompt: "go" });
     expect(effectPort.execute).toHaveBeenCalledOnce();
     const session = await preset.createSession({ sessionId: "s1" });
@@ -651,10 +639,6 @@ describe("createAgentPreset", () => {
       surfaceContext: { roadmapId: "r1" },
     });
 
-    // `resolve.ts` forwards `surfaceContext` opaquely -- it neither validates
-    // it nor merges it into a harness's tool context. A concrete preset (e.g.
-    // a planning preset) is the one that reads it and decides what to
-    // fold into its own tool context.
     expect(Object.keys(withContext.agent.tools).sort()).toEqual(
       Object.keys(plain.agent.tools).sort()
     );

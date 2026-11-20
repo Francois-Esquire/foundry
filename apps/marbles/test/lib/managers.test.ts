@@ -7,7 +7,7 @@ import type { ArtifactId, ContentId } from "@foundry/artifacts";
 import { ArtifactManager } from "@foundry/artifacts";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
@@ -16,6 +16,7 @@ import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { skills } from "~/authoring/resources";
 import { echoGit } from "~/create";
+import { workspaceStores } from "~/database/stores";
 import type { Bindings, ManagerArgs } from "~/lib/bindings";
 import { ArtifactsManager, artifactIdFor } from "~/lib/managers/artifacts";
 import {
@@ -27,6 +28,7 @@ import {
 import { skillResolver } from "~/lib/managers/skills";
 import { repositoryRoot, WorkspacesManager } from "~/lib/managers/workspaces";
 import { current, RunScope } from "~/lib/run-scope";
+import { testMachine } from "./../helpers/records";
 import { seedRepository } from "./../helpers/repository";
 
 const NOT_A_REPOSITORY = /not a git repository/;
@@ -42,7 +44,6 @@ afterEach(async () => {
   await rm(tmp, { force: true, recursive: true });
 });
 
-/** These managers never reach the bindings a body's context carries. */
 const NO_BINDINGS = {} as Bindings;
 
 function args(
@@ -122,8 +123,6 @@ describe("skills", () => {
     await expect(names(skills.load().pick("nope"))).rejects.toThrow(
       UNKNOWN_SKILL
     );
-    // The static prefix resolves against the workspace, so a glob may leave
-    // it or be absolute; a pattern without a glob names one directory.
     await expect(
       names(skills.load().add("../sibling/skills/*"))
     ).resolves.toEqual(["caveman", "shared", "unslop"]);
@@ -293,7 +292,6 @@ describe("workspaces", () => {
       const home = realpathSync(worktreeHome);
       expect(root.startsWith(home)).toBe(true);
 
-      // `worktree()` takes the same default, and so does a worktree's own call.
       const cut = await workspaces.current.git.worktree({ base: "main" });
       expect(cut.root.startsWith(home)).toBe(true);
       const nested = await cut.withWorktree({ base: "main" }, (inner) =>
@@ -376,7 +374,6 @@ describe("artifacts", () => {
     const file = await system.readFile(second.id as ContentId, "report.md");
     expect(new TextDecoder().decode(file?.blob)).toBe("# two\n");
 
-    // A replay of the same body returns the recorded version, no new write.
     await a.scope.enter(a.frame);
     const replayed = await artifacts.write(report, { "report.md": "# x\n" });
     expect(replayed.id).toBe(first.id);
@@ -389,7 +386,6 @@ describe("artifacts", () => {
     const fresh = await artifacts.create(prototype);
     expect(fresh.artifactId).not.toBe(first.artifactId);
 
-    // A replayed create returns the artifact it made, not a second one.
     await a.scope.enter(a.frame);
     await artifacts.write(report, { "report.md": "# x\n" });
     expect((await artifacts.create(prototype)).id).toBe(fresh.id);
@@ -412,7 +408,6 @@ describe("artifacts", () => {
     });
     await expect(kept?.text("missing.json")).resolves.toBeUndefined();
 
-    // A dry run writes to memory and reads what real runs left.
     const dry = new ArtifactsManager({
       artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
       readThrough: real,
@@ -516,8 +511,6 @@ describe("sandboxes", () => {
       destinations: [{ host: "api.anthropic.com", ports: [443] }],
       mode: "allowlist",
     });
-    // "." is the step's working directory; a declared workspace stays
-    // relative to the config's directory.
     const inWorktree = { cwd: join(tmp, "wt"), root };
     expect(
       constraintsFor({ image: "img:1" }, inWorktree).mounts?.[0]?.source
@@ -526,7 +519,6 @@ describe("sandboxes", () => {
       constraintsFor({ image: "img:1", mount: site }, inWorktree).mounts?.[0]
         ?.source
     ).toBe(join(tmp, "site"));
-    // Only host folders that exist are allowed; the registry canonicalizes them.
     expect(allowedMountRoots([root, join(tmp, "site")])).toEqual([
       root,
       join(tmp, "site"),
@@ -577,7 +569,7 @@ describe("sandboxes", () => {
       allowedMountRoots: allowedMountRoots([root]),
       instanceLabel: "test",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const manager = new SandboxesManager({
       containers: () => Promise.resolve(containers),
@@ -616,7 +608,7 @@ describe("sandboxes", () => {
       allowedMountRoots: allowedMountRoots([root, worktreeHome]),
       instanceLabel: "test",
       runtime: createFakeContainerRuntime(),
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const manager = new SandboxesManager({
       containers: () => Promise.resolve(containers),
@@ -632,7 +624,6 @@ describe("sandboxes", () => {
     const spec = JSON.parse(row?.spec ?? "{}") as {
       mounts?: readonly { id: string; source: string }[];
     };
-    // The registry accepted the mount, so the worktree home is trusted.
     expect(spec.mounts?.find((mount) => mount.id === "workspace")?.source).toBe(
       worktree
     );
@@ -647,7 +638,7 @@ describe("sandboxes", () => {
       allowedMountRoots: [],
       instanceLabel: "test",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const owned = await containers.start({
       format: "foundry.sandbox.container/1",
@@ -692,7 +683,7 @@ describe("sandboxes", () => {
       allowedMountRoots: allowedMountRoots([root]),
       instanceLabel: "test",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const a = args(root);
     const sandboxes = new SandboxesManager({
@@ -716,7 +707,6 @@ describe("sandboxes", () => {
     expect(written.get("/workspace/b.txt")).toBe("beta");
     expect(instance?.spec.mounts ?? []).toEqual([]);
 
-    // A recorded container that is gone (a new process) is started afresh.
     await env.close();
     await containers.remove(env.id);
     await a.scope.enter(a.frame);
@@ -729,5 +719,62 @@ describe("sandboxes", () => {
     expect(fresh.id).not.toBe(env.id);
     await a.scope.settle();
     await containers.shutdown();
+  });
+
+  it("a step replayed in a later process starts its own container, files and all, though the row it recorded is kept", async () => {
+    const root = join(tmp, "project");
+    await mkdir(root, { recursive: true });
+    const machine = await testMachine();
+    try {
+      const registry = () => {
+        const runtime = createFakeContainerRuntime();
+        return {
+          containers: createContainers({
+            allowedMountRoots: allowedMountRoots([root]),
+            instanceLabel: "test",
+            runtime,
+            store: workspaceStores(machine.database.database, "ws").containers,
+          }),
+          runtime,
+        };
+      };
+      const sandbox = {
+        files: { "a.txt": "alpha" },
+        id: "sandbox#1",
+        image: "img:2",
+        kind: "sandbox",
+      } as const;
+      const a = args(root);
+      const first = registry();
+      const env = await new SandboxesManager({
+        containers: () => Promise.resolve(first.containers),
+        root,
+      })
+        .scoped(a)
+        .start(sandbox);
+      await env.close();
+      await first.containers.shutdown();
+
+      const later = registry();
+      expect((await later.containers.list()).map((row) => row.id)).toEqual([
+        env.id,
+      ]);
+      await a.scope.enter(a.frame);
+      const replayed = await new SandboxesManager({
+        containers: () => Promise.resolve(later.containers),
+        root,
+      })
+        .scoped(a)
+        .start(sandbox);
+      expect(replayed.id).not.toBe(env.id);
+      const [instance] = later.runtime.instances;
+      expect(
+        new TextDecoder().decode(instance?.files.get("/workspace/a.txt"))
+      ).toBe("alpha");
+      await a.scope.settle();
+      await later.containers.shutdown();
+    } finally {
+      machine.close();
+    }
   });
 });

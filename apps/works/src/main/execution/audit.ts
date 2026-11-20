@@ -31,7 +31,9 @@ export class ExecutionAudit {
     this.#runs = options.runs;
   }
 
-  watch(signal?: AbortSignal): AsyncIteratorClass<AuditEvent, void> {
+  async watch(
+    signal?: AbortSignal
+  ): Promise<AsyncIteratorClass<AuditEvent, void>> {
     const queue: AuditEvent[] = [];
     let wake: (() => void) | undefined;
     let ended = false;
@@ -42,10 +44,10 @@ export class ExecutionAudit {
       queue.push(event);
       wake?.();
     };
-    const subscription = this.#runs.subscribe((run) => {
+    const subscription = await this.#runs.subscribe((run) => {
       push({ run: auditRun(run), type: "run" });
     });
-    push({
+    queue.unshift({
       gaps: auditGaps(this.#runs),
       runs: subscription.snapshot.map(auditRun),
       type: "snapshot",
@@ -62,6 +64,9 @@ export class ExecutionAudit {
       wake?.();
     };
     signal?.addEventListener("abort", end, { once: true });
+    if (signal?.aborted) {
+      end();
+    }
     return new AsyncIteratorClass<AuditEvent, void>(
       async () => {
         while (queue.length === 0 && !ended) {

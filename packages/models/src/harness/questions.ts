@@ -47,7 +47,6 @@ export function nativeQuestions(
   return questions;
 }
 
-/** Cancel an in-process question even when the host callback ignores its signal. */
 export async function askQuestions(
   run: DriverRun,
   toolCallId: string,

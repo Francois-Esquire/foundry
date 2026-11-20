@@ -24,7 +24,6 @@ export const PORTABLE_SCHEMA_DIALECT = "foundry.schema/json-schema-2020-12@1";
 const semverExpression =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
-/** One owner-namespaced Capability name, such as `platform.fetch`. */
 export const CAPABILITY_NAME_PATTERN =
   /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
 
@@ -35,7 +34,6 @@ export function capabilityIdentity(
   return `${capability}@${version}`;
 }
 
-/** Every Module-declared path is relative, separator-safe, and traversal-free. */
 export function isPortableRelativePath(path: string): boolean {
   return (
     path.length > 0 &&
@@ -149,9 +147,7 @@ const capabilityRequestSchema = z
   })
   .strict();
 
-/** The original Manifest format. Its semantics and frozen bytes never change. */
 export const LEGACY_MODULE_MANIFEST_FORMAT = "foundry.module/1";
-/** The strict Manifest format: the legacy fields plus the declarations below. */
 export const MODULE_MANIFEST_FORMAT = "foundry.module-manifest/1";
 export const MODULE_MANIFEST_FORMATS = Object.freeze([
   LEGACY_MODULE_MANIFEST_FORMAT,
@@ -200,7 +196,6 @@ const legacyManifestSchema = z
   .strict()
   .superRefine(refineCapabilities);
 
-/** A lowercase `type/subtype` MIME type, as the Manifest spells one. */
 export const MIME_TYPE_PATTERN =
   /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
 
@@ -208,11 +203,6 @@ const mimeTypeSchema = z
   .string()
   .regex(MIME_TYPE_PATTERN, "must be a lowercase type/subtype MIME type");
 
-/**
- * One requested destination, in the shape the sandbox destination allowlist
- * takes (`@foundry/sandbox/container/constraints`), so an approved request
- * becomes `network: { mode: "allowlist", destinations }` unchanged.
- */
 const networkDestinationSchema = z
   .object({
     host: z
@@ -238,7 +228,6 @@ const settingRequestSchema = z
 const strictManifestSchema = z
   .object({
     ...sharedManifestFields,
-    /** Released app editors: an existing View that opens these MIME types. */
     editors: z
       .array(
         z
@@ -255,10 +244,6 @@ const strictManifestSchema = z
           "Editors this released app provides: an existing View, the MIME types it opens, and read or write mode. Each View appears once.",
       }),
     format: z.literal(MODULE_MANIFEST_FORMAT),
-    /**
-     * Requested released-app network access. A request grants nothing: only
-     * an approved Grant becomes the Program's destination allowlist.
-     */
     network: z
       .object({
         destinations: z.array(networkDestinationSchema).min(1).max(64),
@@ -270,7 +255,6 @@ const strictManifestSchema = z
         description:
           "Requested released-app network destinations. A request grants nothing; only an approved Grant allows access. Approved destinations accept TLS (HTTPS) connections only, on port 443 unless ports are listed.",
       }),
-    /** `installation`: private files survive on the durable Installation. */
     persistence: z
       .object({ files: z.enum(["none", "installation"]) })
       .strict()
@@ -279,12 +263,10 @@ const strictManifestSchema = z
         description:
           'Private files: "installation" keeps them on the durable Installation (required by data); "none" removes them after a confirmed stop.',
       }),
-    /** Requested sandbox capacity: minimums, raised to by host defaults. */
     resources: z
       .object({
         cpus: z.number().positive().optional(),
         memoryBytes: z.number().int().positive().optional(),
-        /** A hard private-files limit; refused while no runtime enforces one. */
         storageBytes: z.number().int().positive().optional(),
       })
       .strict()
@@ -293,7 +275,6 @@ const strictManifestSchema = z
         description:
           "Minimum sandbox capacity. Hosts raise defaults to meet it and refuse what they cannot meet, including any hard storage limit they cannot enforce.",
       }),
-    /** Dot-notation setting key → requested `minimum` and/or `default`. */
     settings: z
       .record(z.string(), settingRequestSchema)
       .optional()
@@ -331,18 +312,12 @@ export function isStrictModuleManifest(
   return manifest.format === MODULE_MANIFEST_FORMAT;
 }
 
-/**
- * What a Manifest asks of Module settings: a strict Manifest's `settings`
- * entries, plus its `resources` as minimums of the matching resource
- * settings. Legacy and absent Manifests ask nothing.
- */
 export function moduleSettingRequests(
   manifest: ModuleManifest | null
 ): ModuleSettingRequests {
   if (manifest === null || !isStrictModuleManifest(manifest)) {
     return {};
   }
-  // Validation admitted only setting keys (refineStrictManifest).
   const requests: Partial<Record<ModuleSettingKey, ModuleSettingRequest>> = {
     ...(manifest.settings as ModuleSettingRequests | undefined),
   };
@@ -375,11 +350,6 @@ function refineCapabilities(
   }
 }
 
-/**
- * An Installation holds one Grant per Capability, so a second request for
- * one could never be granted beside the first. The legacy format's bytes
- * are frozen and keep their own rules.
- */
 function refineOneRequestPerCapability(
   manifest: {
     readonly capabilities: readonly { readonly capability: string }[];
@@ -521,7 +491,6 @@ export function parseModuleManifest(input: unknown): ModuleManifest {
   return normalizeModuleManifest(result.data);
 }
 
-/** Parses editable `foundry.module.json` text without evaluating workspace code. */
 export function parseModuleManifestSourceText(text: string): ModuleManifest {
   try {
     return parseModuleManifest(JSON.parse(text));
@@ -536,7 +505,6 @@ export function parseModuleManifestSourceText(text: string): ModuleManifest {
   }
 }
 
-/** Validates the portable JSON Schema dialect used for generated Gateway code. */
 export function parsePortableSchema(input: unknown): PortableSchema {
   const result = portableSchemaSchema.safeParse(input);
   if (!result.success) {
@@ -547,13 +515,8 @@ export function parsePortableSchema(input: unknown): PortableSchema {
   return deepFreeze(result.data);
 }
 
-/**
- * Release-build validation: all Manifest paths resolve in this exact immutable
- * Content tree and each selected capability exists in the build's catalog.
- */
 export function validateModuleManifestBuild(input: {
   readonly manifest: unknown;
-  /** every path the build's Content will hold */
   readonly paths: Iterable<string>;
   readonly capabilities: readonly {
     readonly capability: string;
@@ -578,7 +541,6 @@ export function validateModuleManifestBuild(input: {
   return manifest;
 }
 
-/** Every declared output must be one of the paths being bound. */
 export function assertModuleManifestPaths(
   manifest: ModuleManifest,
   paths: Iterable<string>
@@ -620,8 +582,6 @@ function normalizeModuleManifest(manifest: ModuleManifest): ModuleManifest {
   if (!isStrictModuleManifest(manifest)) {
     return deepFreeze({ ...common, format: manifest.format });
   }
-  // Canonical JSON sorts keys, not arrays: order every array here so equal
-  // declarations compare equal however their source was written.
   return deepFreeze({
     ...common,
     format: manifest.format,

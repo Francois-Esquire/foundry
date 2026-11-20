@@ -52,6 +52,6 @@ export function observeResult<T extends keyof WorksResults>(
   context: TaskContext,
   type: T,
   data: WorksResults[T]
-): boolean {
+): Promise<boolean> {
   return context.observe({ data, kind: "result", type });
 }

@@ -21,7 +21,6 @@
   fill: var(--chrome-paper, #f4eddb);
 }
 
-/* A dark cut edge and a fine inset glint give the cast area a shallow bevel. */
 .spyglass-cast-inset {
   opacity: 0.75;
   fill: none;
@@ -36,7 +35,6 @@
   stroke-linejoin: miter;
 }
 
-/* Keep map lettering below the fixed coordinate furniture. */
 .spyglass-labels .spyglass-islands,
 .spyglass-labels .spyglass-captions {
   z-index: 0;

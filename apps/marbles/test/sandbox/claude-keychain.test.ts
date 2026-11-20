@@ -5,16 +5,15 @@ const calls = vi.hoisted(
   () => [] as { args: string[]; env?: Record<string, string>; file: string }[]
 );
 
-vi.mock("node:child_process", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("node:child_process")>()),
-  execFile: (
+vi.mock("@foundry/lib/spawn-record", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@foundry/lib/spawn-record")>()),
+  execFileRecorded: (
     file: string,
     args: string[],
-    options: { env?: Record<string, string> },
-    callback: (error: Error | null, result?: unknown) => void
+    options: { env?: Record<string, string> } = {}
   ) => {
     calls.push({ args, file, ...(options.env ? { env: options.env } : {}) });
-    callback(null, {
+    return Promise.resolve({
       stderr: "",
       stdout: JSON.stringify({
         claudeAiOauth: {

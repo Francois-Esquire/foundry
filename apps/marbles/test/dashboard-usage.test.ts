@@ -13,16 +13,16 @@ import { afterEach, expect, it } from "vitest";
 import { step, workflow } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
+import { filterLogs, operatingLogs } from "~/cli/state/operating-model";
+import { costCell, costLabel, tokensLabel } from "~/cli/state/usage-format";
 import type { Engine } from "~/lib/engine";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
-import { JsonStateStore } from "~/lib/state/store";
 import type { DirectUsageFact, RunUsageFact, UsageCost } from "~/lib/usage";
-import { filterLogs, operatingLogs } from "~/views/operating-model";
-import { costCell, costLabel, tokensLabel } from "~/views/usage-format";
 import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { stepUsages, totalOf, workspaceUsage } from "~/workspace/usage";
+import { durableSessions } from "./helpers/durable-sessions";
 import { startEngine } from "./helpers/engine";
+import { putStoredFact, storedUsage } from "./helpers/usage-store";
 
 const engines: Engine[] = [];
 
@@ -89,14 +89,12 @@ it("a step's inclusive total sums its descendants' facts, never their totals", (
     fact("a", ["outer"], estimate(1)),
     fact("b", ["outer", "child"], estimate(2)),
     fact("c", ["outer", "child", "leaf"], estimate(4)),
-    // A sibling whose name shares a prefix is not a descendant.
     fact("d", ["outer", "children"], estimate(8)),
   ];
   const child = stepUsages(facts)(["outer", "child"]);
   expect(child?.direct.estimated).toEqual([{ amount: 2, currency: "USD" }]);
   expect(child?.inclusive.estimated).toEqual([{ amount: 6, currency: "USD" }]);
   expect(child?.inclusive.turns).toBe(2);
-  // The run's total is the facts once, not the root's inclusive plus each child's.
   expect(totalOf(facts).estimated).toEqual([{ amount: 15, currency: "USD" }]);
   expect(stepUsages(facts)(["elsewhere"])).toBeUndefined();
 });
@@ -109,7 +107,6 @@ it("a step is its path's segments: a step named `a.b` is neither `a`'s child `b`
     fact("deeper", ["flow", "a.b", "c"], estimate(8)),
   ];
   const at = stepUsages(facts);
-  // Both would be `flow.a.b` joined; each keeps its own turns.
   expect(at(["flow", "a", "b"])?.inclusive.estimated).toEqual([
     { amount: 1, currency: "USD" },
   ]);
@@ -117,14 +114,12 @@ it("a step is its path's segments: a step named `a.b` is neither `a`'s child `b`
     { amount: 4, currency: "USD" },
   ]);
   expect(at(["flow", "a.b"])?.inclusive.turns).toBe(2);
-  // `a` holds its child `b`, never its sibling `a.b`.
   expect(at(["flow", "a"])?.inclusive.estimated).toEqual([
     { amount: 3, currency: "USD" },
   ]);
   expect(at(["flow", "a", "b", "c"])).toBeUndefined();
   expect(at(["flow", "a.b.c"])).toBeUndefined();
   expect(at(["flow"])?.inclusive.turns).toBe(4);
-  // What may belong to the run may belong to a step with no facts.
   expect(
     stepUsages(facts, { unattributed: 0, unreadable: 1 })(["flow", "z"])
   ).toMatchObject({ direct: { turns: 0, unreadable: 1 } });
@@ -208,7 +203,6 @@ it("groups by workflow and agent, scoped to the workspace, and carries unreadabl
   );
   expect([...byRun.keys()]).toEqual(["run-1", "run-2", "run-3"]);
   expect(usage.unreadable).toBe(2);
-  // The direct turn counts in the workspace and its agent, not any workflow.
   expect(usage.total.estimated).toEqual([{ amount: 2.5, currency: "USD" }]);
   expect(usage.outsideRuns).toMatchObject({
     estimated: [{ amount: 0.5, currency: "USD" }],
@@ -246,10 +240,10 @@ it("projects recorded turns onto real runs and steps, and catalog origins onto t
     lastFinish: new Map(),
     monitors: engine.monitors(),
     root: HERE,
-    schedules: engine.schedules(),
+    schedules: await engine.schedules(),
     startedAt: 0,
     status: "Ready",
-    usage: engine.usage.read(),
+    usage: await engine.usage.read(),
     workspaceId: "test",
   });
   const run = snapshot.runs.find((item) => item.id === launched.id);
@@ -268,7 +262,6 @@ it("projects recorded turns onto real runs and steps, and catalog origins onto t
   expect(snapshot.usage?.byAgent.map((group) => group.id)).toEqual([
     "reviewer",
   ]);
-  // Declared in this file, inside the workspace root: a local source.
   expect(
     snapshot.definitions.find((item) => item.id === "outer")?.origin
   ).toEqual({
@@ -310,7 +303,6 @@ it("a step's log line shows once in Logs, attributed to its run and step, even w
         .map((line) => [line.source, line.runId, line.stepId])
     ).toEqual([["run", launched.id, "hear"]]);
   }
-  // The host-only filter shows Marbles' own lines and nothing a step logged.
   const host = filterLogs(lines, {
     level: "debug",
     query: "",
@@ -377,10 +369,9 @@ it("after a restart, a malformed leaf in a run's document makes that run's, its 
       await session.generate("one");
     });
     step("other").do(() => "no agents here");
-    // Durable sessions beside durable state, as the host builds an engine.
     const durable = () => ({
       print: () => undefined,
-      sessions: new JsonSessionStore(join(state, "sessions")),
+      sessions: durableSessions(state),
       state,
     });
     const first = await startEngine(durable());
@@ -389,27 +380,29 @@ it("after a restart, a malformed leaf in a run's document makes that run's, its 
     const quiet = await first.launch("other", {});
     await quiet.result;
     await first.dispose();
-    const disk = new JsonStateStore(state);
-    const key = `run.${encodeURIComponent(launched.id)}`;
-    const document = disk.read("usage", key) as {
-      facts: Record<string, Record<string, unknown>>;
-    };
-    const [saved] = Object.values(document.facts);
+    const [saved] = (await storedUsage(state))?.facts ?? [];
     if (!saved) {
       throw new Error("expected a saved fact");
     }
-    saved.cost = {
-      amount: 2,
-      currency: "USD",
-      kind: "reported",
-      reference: "probe",
-    };
-    document.facts.broken = {
+    const reported = {
       ...saved,
-      cost: { amount: "bad" },
-      turnId: "broken",
+      cost: {
+        amount: 2,
+        currency: "USD",
+        kind: "reported",
+        reference: "probe",
+      },
     };
-    disk.write("usage", key, document);
+    await putStoredFact(state, {
+      runId: launched.id,
+      turnId: saved.turnId,
+      value: reported,
+    });
+    await putStoredFact(state, {
+      runId: launched.id,
+      turnId: "broken",
+      value: { ...reported, cost: { amount: "bad" }, turnId: "broken" },
+    });
 
     catalog.reset();
     step("priced").do(() => undefined);
@@ -443,13 +436,11 @@ it("after a restart, a malformed leaf in a run's document makes that run's, its 
         snapshot.usage?.byWorkflow.find((group) => group.id === "priced")?.total
       )
     ).toBe(warning);
-    // The record was filed under one run: other runs and workflows are not implicated.
     const other = snapshot.runs.find((item) => item.id === quiet.id);
     expect(other?.usage).toBeUndefined();
     expect(snapshot.usage?.byWorkflow.map((group) => group.id)).toEqual([
       "priced",
     ]);
-    // Any agent's total may hold it: the record's own agent is not trusted.
     expect(costLabel(snapshot.usage?.byAgent[0]?.total)).toBe(warning);
   } finally {
     rmSync(state, { force: true, recursive: true });
@@ -584,8 +575,6 @@ it("an unattributed turn counts in the workspace and its agent's totals, and is 
   expect(mayBelongTo("during-run").unattributed).toBe(1);
   const workflowTotal = (id: string) =>
     usage.byWorkflow.find((group) => group.id === id)?.total;
-  // Its run ended before the turn, but another run of it, one this reader
-  // cannot load, may have taken it.
   expect(costLabel(workflowTotal("early"))).toBe(
     "$1.00 est. · may be incomplete: 1 unattributed turn"
   );

@@ -52,7 +52,6 @@ import { commitFixture } from "./helpers/commit-fixture";
 
 const JSON_TYPE = /^application\/json/;
 
-// These suites drive the built CLI; a test without its own timeout gets a minute.
 vi.setConfig({ testTimeout: 60_000 });
 
 const directories: string[] = [];
@@ -91,7 +90,6 @@ test("workspace identity resolves symlinks and isolates separate checkouts", asy
 test("the workspace id, the first 12 hex digits of the root's SHA-256, names the state directory", async () => {
   const { directory } = await fixture();
   const state = join(directory, "state");
-  // sha256("/") is 8a5edab282632443219e051e4ade2d1d5bbc671c781051bf1437897cbdfea0f1.
   const workspace = await workspaceState("/", state);
   expect(workspace.id).toBe("8a5edab28263");
   expect(workspace.directory).toBe(join(state, "8a5edab28263"));
@@ -254,7 +252,6 @@ test("serve(root) refuses an invalid port, and a workspace with no saved dataset
   );
 });
 
-/** A hand-written schema 5 manifest that holds what the collection manifest reads. */
 function collectionFixtureManifest(
   generatedAt: string,
   packages: {
@@ -300,7 +297,6 @@ test("serve.collection derives the collection manifest per request and serves ea
     await writeFile(join(workspace.output, "manifest.json"), text);
   };
   await write(platform, platformManifest);
-  // The second workspace has no dataset yet, and is named.
   await expect(serve.collection(roots, { port: 0, state })).rejects.toThrow(
     `No dataset found for ${product.root} in ${product.output}. Run spyglass scan to save one.`
   );
@@ -313,7 +309,6 @@ test("serve.collection derives the collection manifest per request and serves ea
       },
     ])
   );
-  // Given out of order, served in the collection's.
   const server = await serve.collection([...roots].reverse(), {
     port: 0,
     state,
@@ -348,7 +343,6 @@ test("serve.collection derives the collection manifest per request and serves ea
     ]) {
       expect((await data(missing)).status).toBe(404);
     }
-    // A later scan of one workspace is seen at the next request.
     await write(
       product,
       collectionFixtureManifest("2026-10-11T00:00:00.000Z", [{ id: "@p/app" }])
@@ -365,8 +359,6 @@ test("serve.collection derives the collection manifest per request and serves ea
     expect(head.status).toBe(200);
     expect(head.headers.get("Content-Type")).toMatch(JSON_TYPE);
     expect(await head.text()).toBe("");
-    // An encoded slash is decoded before the path is split, and no path
-    // leaves the dataset it names, through `..` or a link.
     await symlink(
       join(platform.directory, "workspace.json"),
       join(platform.output, "record.json")
@@ -380,8 +372,6 @@ test("serve.collection derives the collection manifest per request and serves ea
     ]) {
       expect((await data(outside)).status).toBe(404);
     }
-    // A workspace whose dataset is gone, as mid-swap, makes the manifest
-    // unavailable for now, naming it.
     await rm(join(product.output, "manifest.json"));
     const unavailable = await data("collection-manifest.json");
     expect(unavailable.status).toBe(503);
@@ -408,7 +398,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     workspace.root,
     { recursive: true }
   );
-  // A domain across two packages; the analyses never read it.
   await mkdir(join(workspace.root, ".foundry/spyglass"), { recursive: true });
   await writeFile(
     join(workspace.root, ".foundry/spyglass/domains.ts"),
@@ -426,7 +415,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     ]);
     expect(code, stderr).toBe(0);
     expect(stdout).toBe(`Dataset saved to ${workspace.output}\n`);
-    // Progress is the CLI's formatting of the library's events.
     const lines = stderr.trimEnd().split("\n");
     expect(lines[0]).toBe("discover");
     expect(lines.slice(lines.indexOf("write"))).toEqual([
@@ -470,7 +458,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     missing: [],
     packages: [
       {
-        // No source module of @s/a has a dependent, so the topology saved no cutoff.
         highFanInCutoff: 0,
         id: "@s/a",
         modules: [
@@ -503,8 +490,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
       "utf8"
     )
   ) as ResponsibilityGroups;
-  // @s/c's two responsibilities join, anchored on pad.ts; one import edge
-  // and one symbol each way between them give 4 · log1p(1).
   const pad = "responsibility:6912c01d6d10";
   const unit = "responsibility:91296e76ff97";
   const [weight] = groups.packages.flatMap((saved) =>
@@ -525,10 +510,8 @@ test("built CLI scans an external workspace and the web loaders read its saved d
             anchor: pad,
             anchorModule: "tooling/c/src/pad.ts",
             anchorWeight: weight,
-            // SHA-256 of the two ids, one per line, first 12 hex digits.
             id: "responsibility-group:154ae5bf7ebf",
             label: "src/pad.ts",
-            // Both responsibilities' modules, each once, sorted.
             modules: [
               "tooling/c/src/index.ts",
               "tooling/c/src/pad.ts",
@@ -545,9 +528,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
   const placements = JSON.parse(
     await readFile(join(workspace.output, "lenses/placement.json"), "utf8")
   ) as Placements;
-  // @s/b's symbols are used only in other packages: each departs toward its
-  // one consuming source file, or is spread over two. @s/a's test file is
-  // no consumer, so perimeter departs toward @s/c alone.
   const away = (pkgId: string, modules: string[]) => ({
     modules,
     package: pkgId,
@@ -592,9 +572,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
       toward: "@s/c",
     }),
   ]);
-  // apps/a shares the shapes domain with packages/b and tooling/c does not:
-  // area, used only from apps/a, shares a domain; perimeter, used only from
-  // tooling/c, is a domain departure; a place used from both stays spread.
   const domains = JSON.parse(
     await readFile(join(workspace.output, "lenses/domains.json"), "utf8")
   ) as Domains;
@@ -649,7 +626,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
       placements.packages.map((saved) => [saved.id, saved.counts])
     )
   ).toEqual({
-    // `src` is each package's technical root, so none has a folder place.
     "@s/a": {
       file: { ...none, unconsumed: 1 },
       folder: none,
@@ -662,7 +638,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
       package: { ...none, spread: 1 },
       symbol: { ...none, departs: 2, spread: 1 },
     },
-    // Used only at home: pad.ts, unit.ts, and their symbols fit.
     "@s/c": {
       file: { ...none, fits: 2, unconsumed: 1 },
       folder: none,
@@ -673,8 +648,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
   const nesting = JSON.parse(
     await readFile(join(workspace.output, "lenses/nesting.json"), "utf8")
   ) as Nesting;
-  // Each package of the fixture is one path region, `.`, with `src` a
-  // technical root; no region imports another, so there are no seams.
   expect(nesting.missing).toEqual([]);
   expect(nesting.seams).toEqual([]);
   expect(nesting.pathRegions).toEqual([
@@ -682,10 +655,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     { files: 2, id: ".", package: "@s/b", primaryFiles: 2 },
     { files: 3, id: ".", package: "@s/c", primaryFiles: 3 },
   ]);
-  // Nesting's tree comes from the module index, placement's folders from
-  // each topology's directories: every directory is a folder of the tree
-  // under the same id, in the same path region. The index may hold more,
-  // such as a folder of JSON files only, which then has no path region.
   for (const saved of second.packages) {
     const { topology } = JSON.parse(
       await readFile(join(workspace.output, saved.internals ?? ""), "utf8")
@@ -702,7 +671,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
       );
       expect([id, folders.get(id)]).toEqual([id, topologyDirectory.region]);
     }
-    // The fixture holds TypeScript files only, so here the two agree exactly.
     expect(folders.size).toBe(topology.directories.length);
   }
   expect(nesting.folders.map((folder) => folder.id)).toEqual([
@@ -716,9 +684,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     "tooling/c",
     "tooling/c/src",
   ]);
-  // @s/c's two responsibilities share tooling/c/src and import each other,
-  // so they are one group: nothing sits close unrelated. Every file is in
-  // its responsibility's folder, and the fixture has no Git history.
   expect(
     JSON.parse(
       await readFile(join(workspace.output, "lenses/proximity.json"), "utf8")
@@ -742,9 +707,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
   await expect(
     readFile(join(workspace.output, "manifests", filename))
   ).rejects.toThrow("ENOENT");
-  // The viewer's loaders read through the same reader as the library, here
-  // over fetch from the real server. Rendering uses the saved output even
-  // after the source workspace is removed.
   await rm(workspace.root, { recursive: true });
   const server = startServer({ output: workspace.output, port: 0 });
   const nativeFetch = globalThis.fetch;
@@ -760,7 +722,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
   try {
     performance.clearMarks();
     const spyglass = await loadSpyglass();
-    // The load marks its three points, in order, for the capture script.
     expect(
       performance.getEntriesByType("mark").map((entry) => entry.name)
     ).toEqual([
@@ -772,21 +733,15 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     if (!territory) {
       throw new Error(`The map has no island for ${pkg.id}.`);
     }
-    // The map keeps the lens's entry from load and binds it on entering the island.
     const { fileRoles } = territory;
     expect(fileRoles?.modules).toEqual(
       roles.packages.find((saved) => saved.id === pkg.id)?.modules
     );
-    // The frame keeps the map its islands were laid out from, which the
-    // Islands chart is made from, so the chart and the labels agree.
     const islands = spyglass.frames[0]?.visualization?.islands ?? [];
     expect(islands.map((island) => island.id).sort()).toEqual(
       spyglass.territories.map((item) => item.id).sort()
     );
     expect(islands.find((island) => island.id === pkg.id)?.x).toBe(territory.x);
-    // The nesting and proximity lenses come after the layout, pinned to its
-    // dataset, and mark their arrival.
-    // A single workspace is one frame, at the data root, pinned to its manifest.
     const [frame] = spyglass.frames;
     expect(spyglass.frames).toHaveLength(1);
     expect(frame?.dataset).toEqual({
@@ -804,8 +759,6 @@ test("built CLI scans an external workspace and the web loaders read its saved d
     expect(
       performance.getEntriesByName("spyglass:readings-loaded")
     ).toHaveLength(1);
-    // No edge shard is read at load: each file's counts come from the module
-    // index, and the edges themselves from a trace.
     expect(spyglass.fileEdges).toEqual([]);
     const edges = await loadImports(spyglass);
     const files = spyglass.territories.flatMap((item) => item.files);
@@ -846,7 +799,6 @@ async function runCli(
   return { code, stderr, stdout };
 }
 
-/** Starts the built CLI, hands its first line of stdout to `use`, then stops it. */
 async function withFirstLine(
   args: string[],
   cwd: string,
@@ -943,7 +895,6 @@ describe("built CLI commands", () => {
     expect(markdown.code, markdown.stderr).toBe(0);
     expect(markdown.stdout.split("\n")[0]).toBe("# SEMANTIC SURFACE");
     expect(markdown.stdout).toContain("| Target | @s/a |");
-    // Piped, the default is text, without colour.
     const text = await report([]);
     expect(text.stdout).toContain("Target  @s/a");
     expect(text.stdout).not.toContain("\u001b[");
@@ -1119,7 +1070,6 @@ describe("built CLI collections", () => {
   });
 
   test("scan reads two paths as a collection, in the collection's order, and prints its result", async () => {
-    // Given out of order: the collection scans by resolved root.
     const text = await runCli(
       ["scan", roots[1], roots[0], "--state", state],
       directory
@@ -1173,9 +1123,6 @@ describe("built CLI collections", () => {
       { preconnect: nativeFetch.preconnect }
     );
     try {
-      // No manifest.json at the data root, and a collection served: refused
-      // without reading the collection manifest, since the map draws one
-      // workspace's chart.
       await expect(loadSpyglass()).rejects.toThrow(COLLECTION_UNSUPPORTED);
       expect(
         asked.filter((request) => request.includes("collection-manifest"))
@@ -1323,8 +1270,6 @@ describe("built CLI check", () => {
         },
       ],
     });
-    // Rules read back from the lens hash as the configuration's do, so an
-    // authorization made from either matches the other.
     expect(ruleFingerprint(result.lens.rules)).toBe(
       ruleFingerprint((await loadConfiguration(root)).rules)
     );
@@ -1402,8 +1347,6 @@ describe("built CLI plan", () => {
   const plan = (words: string[]) =>
     runCli(["plan", ...words, "--state", state], root);
 
-  // A committed copy of the semantics fixture whose @s/c has a test script,
-  // which readiness runs, and a rule permitting internalize there.
   beforeAll(async () => {
     directory = await realpath(await mkdtemp(join(tmpdir(), "spyglass-plan-")));
     root = join(directory, "workspace");
@@ -1498,7 +1441,6 @@ describe("built CLI apply", () => {
     });
     return (await new Response(child.stdout).text()).trim();
   };
-  /** Runs `body` with a workspace file rewritten, then puts it back. */
   const withFile = async (
     file: string,
     edit: (text: string) => string,
@@ -1514,8 +1456,6 @@ describe("built CLI apply", () => {
     }
   };
 
-  // A committed copy of the semantics fixture whose @s/c has a test script
-  // and a rule requiring internalize there, which also permits it.
   beforeAll(async () => {
     directory = await realpath(
       await mkdtemp(join(tmpdir(), "spyglass-apply-"))
@@ -1547,9 +1487,6 @@ describe("built CLI apply", () => {
   test("checks, plans, refuses what moved, previews, writes, verifies, and scans again", async () => {
     expect((await cli(["check"])).code).toBe(3);
 
-    // A file edited since the scan makes the dataset stale: plan fails early.
-    // Scanned with the edit, a dirty file it writes refuses the write, and
-    // nothing is written.
     await withFile(
       FILE,
       (text) => `${text}// local edit\n`,
@@ -1571,7 +1508,6 @@ describe("built CLI apply", () => {
       }
     );
 
-    // Rules edited after the plan refuse it, naming the rule.
     await scan(root, { state });
     expect((await cli(["plan", SITE])).code).toBe(0);
     await withFile(
@@ -1635,9 +1571,6 @@ describe("built CLI apply, interrupted", () => {
   let root: string;
   let state: string;
 
-  // The test script passes at once before the write, and sleeps after it,
-  // so the interrupt lands while apply runs it again; with TRAP_INT set it
-  // traps SIGINT and exits 0, as a test runner that cleans up might.
   beforeAll(async () => {
     directory = await realpath(await mkdtemp(join(tmpdir(), "spyglass-int-")));
     root = join(directory, "workspace");
@@ -1679,11 +1612,6 @@ describe("built CLI apply, interrupted", () => {
     await rm(directory, { force: true, recursive: true });
   });
 
-  /**
-   * Runs `apply --write` in its own process group, and sends that group
-   * `signal` once the file is written and, unless `during` is `scan`, once
-   * the script runs again, after the scan after the write.
-   */
   async function interrupted(
     env: Record<string, string>,
     signal: NodeJS.Signals,
@@ -1881,8 +1809,6 @@ test.each(["dev:spyglass", "dev:spyglass:package"])(
       }
     );
     const stderr = new Response(child.stderr).text();
-    // Keep reading stdout once the URL shows, so the server never writes to
-    // a pipe nobody reads, and so a failure can report all it printed.
     let output = "";
     let found: (url: string | undefined) => void = () => undefined;
     const listening = new Promise<string | undefined>((settle) => {

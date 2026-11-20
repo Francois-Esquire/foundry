@@ -129,10 +129,8 @@ describe("Module access requests and Grant carry-over", () => {
     );
     expect(grants).toHaveLength(2);
 
-    // Same requests: both Grants carry over.
     expect(carriedGrants(grants, before)).toEqual(grants);
 
-    // Changed destinations and changed constraints ask again.
     const changed = await moduleAccessRequests({
       principal,
       providers,
@@ -155,7 +153,6 @@ describe("Module access requests and Grant carry-over", () => {
     });
     expect(carriedGrants(grants, changed)).toEqual([]);
 
-    // A new capability version asks again too.
     const bumped = await moduleAccessRequests({
       principal,
       providers: [],

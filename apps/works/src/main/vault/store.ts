@@ -1,14 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { writeFileAtomic } from "@foundry/lib/atomic-file";
 
-/** The storage surface the vault drives. One per tier. */
 export interface KeyValueStore {
   delete(key: string): Promise<void>;
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
 }
 
-/** Process-local store for tests and for a vault that must not touch disk. */
 export class MemoryStore implements KeyValueStore {
   readonly #entries = new Map<string, string>();
 
@@ -27,10 +25,6 @@ export class MemoryStore implements KeyValueStore {
   }
 }
 
-/**
- * A flat string map persisted as one JSON document. Reads load the file once;
- * writes replace it by writing a sibling file and renaming it.
- */
 export class JsonFileStore implements KeyValueStore {
   readonly #filePath: string;
   #entries: Map<string, string> | undefined;
@@ -57,7 +51,6 @@ export class JsonFileStore implements KeyValueStore {
     });
   }
 
-  /** One read for all callers, so concurrent first calls share a map. */
   #load(): Promise<Map<string, string>> {
     if (this.#entries) {
       return Promise.resolve(this.#entries);
@@ -70,7 +63,6 @@ export class JsonFileStore implements KeyValueStore {
   }
 
   #write(update: (entries: Map<string, string>) => boolean): Promise<void> {
-    // Queue the whole mutation and publish its map only after disk succeeds.
     const write = this.#queue.then(async () => {
       const entries = new Map(await this.#load());
       if (!update(entries)) {

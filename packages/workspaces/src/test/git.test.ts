@@ -36,8 +36,6 @@ afterAll(async () => {
 async function git(cwd: string, ...args: string[]): Promise<string> {
   const { stdout } = await execFile("git", args, {
     cwd,
-    // The fixture must not inherit the developer's identity, template dir, or
-    // init.defaultBranch — every assertion below names what it set itself.
     env: {
       ...process.env,
       GIT_AUTHOR_EMAIL: "fixture@example.invalid",
@@ -185,10 +183,6 @@ describe("Git.status at a repository root", () => {
   it("gives a rename's origin the index column alone", async () => {
     const root = await makeRepository({ "old-name.md": "hello" });
     await git(root, "mv", "old-name.md", "new-name.md");
-    // Edited after the rename was staged, which makes the raw status
-    // `{ index: "R", working_dir: "M", from: "old-name.md" }`. The `M`
-    // describes the destination's bytes; the origin has no working-tree
-    // entry at all and must not inherit it.
     await write(root, { "new-name.md": "hello, edited afterwards" });
 
     const snapshot = await inspectGit(root);
@@ -252,10 +246,6 @@ describe("Git.status inside a repository", () => {
   });
 
   it("keeps a backslash in a filename, which POSIX allows and Git reports literally", async () => {
-    // The name below is one path segment containing backslashes. Rewriting
-    // them to `/` would annotate a path the catalog does not hold, losing the
-    // mark — and, for a name that starts with `..\`, would name a directory
-    // outside the Workspace entirely.
     const repository = await makeRepository({ "inside/kept.md": "hello" });
     await write(repository, {
       [join("inside", String.raw`a\b.md`)]: "backslashes",
@@ -277,10 +267,6 @@ describe("Git.status inside a repository", () => {
   });
 
   it("keeps a colon in a filename, which POSIX allows and no Git path ever means as a drive", async () => {
-    // `:` is legal in a POSIX filename, and Git porcelain reports
-    // repository-relative paths on every platform — never drive-lettered. A
-    // drive-letter guard would therefore have no true positives at all, and
-    // would silently drop exactly these two marks.
     const repository = await makeRepository({ "inside/kept.md": "hello" });
     await write(repository, {
       [join("inside", "C:notes.md")]: "colon after a letter",
@@ -323,17 +309,6 @@ describe("Git.status inside a repository", () => {
 });
 
 describe("Git.status failures", () => {
-  /**
-   * The first question — "is this a working tree?" — has three outcomes, and
-   * only two of them mean the same thing. A `false` is an answer: no
-   * repository. A throw is not: the repository is there and Git cannot open
-   * it, and calling that an ordinary directory hides a broken environment.
-   *
-   * Deliberately not fixtured with `chmod` and deliberately not with a
-   * corrupt `HEAD`: Git itself reports that as "not a git repository", so
-   * `simple-git` resolves false and no caller can tell it from a plain
-   * directory. That is recorded below rather than asserted as unavailable.
-   */
   it("reports a repository whose config Git refuses as unavailable", async () => {
     const root = await makeRepository({ "README.md": "hello" });
     await writeFile(
@@ -369,8 +344,6 @@ describe("Git.status failures", () => {
   });
 
   it("still reports a plain directory as no repository, not as unavailable", async () => {
-    // The other side of the boundary above: widening `unavailable` must not
-    // swallow the ordinary case the whole capability rests on.
     expect(await inspectGit(await makeDirectory({ "a.md": "hi" }))).toEqual({
       kind: "none",
     });
@@ -394,10 +367,6 @@ describe("Git.isRepository and Git.open", () => {
   });
 });
 
-/**
- * The layer. Git is optional, supplementary, and never allowed to touch the
- * catalog it annotates.
- */
 describe("WithGit", () => {
   it("applies to a directory Workspace inside a working tree and reads live status", async () => {
     const root = await makeRepository({ "README.md": "hello" });
@@ -520,8 +489,6 @@ describe("WithGit", () => {
     await added.git?.status();
     expect(intercept).not.toHaveBeenCalled();
 
-    // The probe's positive control. Without it an empty list would prove only
-    // that the instrumentation never fired.
     await writeFile(join(root, "arrived.md"), "new file");
     await added.refresh();
     expect(intercept).toHaveBeenCalledOnce();

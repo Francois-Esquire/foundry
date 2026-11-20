@@ -16,7 +16,6 @@ import type {
   ParamValues,
 } from "../islands/lab/params";
 
-/** Native inputs keep their hit targets aligned with the visible control. */
 export function SettingsRange<Key extends string>({
   name,
   label,
@@ -205,12 +204,6 @@ function SettingsToggle({
   );
 }
 
-/**
- * One param's control, from its spec (`lab/params.ts`): a range for a
- * number, a list for a choice, a checkbox for a toggle, each under the
- * spec's label (its key without one). The viewer declares no colour or
- * seed params, so it has no control for them.
- */
 function ParamSetting({
   disabled,
   name,
@@ -269,12 +262,6 @@ function ParamSetting({
   }
 }
 
-/**
- * One section of a settings panel, drawn from a param schema and its
- * layout group: the group's title and hint, then a control for each of its
- * params in the group's order. `children` go between the hint and the
- * controls, for a control the schema does not hold (a preset over a param).
- */
 export function ParamSection<S extends ParamSchema>({
   children,
   disabled,

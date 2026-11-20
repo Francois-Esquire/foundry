@@ -12,7 +12,6 @@ export interface CountResult {
   readonly files: number;
 }
 
-/** Runs the `count` step in this process: no CLI, daemon, or agent. */
 export async function countFiles(
   root: string,
   extension: string

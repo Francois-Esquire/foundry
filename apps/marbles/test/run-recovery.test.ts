@@ -3,7 +3,11 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import type { RunRecord } from "@foundry/workflows/schema";
 import { afterEach, expect, it } from "vitest";
+import { adoptParkedRun } from "~/lib/run-recovery";
+import type { RunStore } from "~/lib/run-store";
+import { readStoredRuns } from "./helpers/stored-runs";
 
 const SRC = resolve("src");
 const HELPERS = resolve("test/helpers");
@@ -73,6 +77,11 @@ function run(
   return JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
 }
 
+async function storedStatus(root: string, runId: string) {
+  const stored = await readStoredRuns(join(root, "state"), "test");
+  return stored.find((entry) => entry.id === runId)?.status;
+}
+
 function lines(root: string, file: string): string[] {
   const path = join(root, file);
   return existsSync(path)
@@ -80,7 +89,7 @@ function lines(root: string, file: string): string[] {
     : [];
 }
 
-function pausedRun(root: string): string {
+async function pausedRun(root: string): Promise<string> {
   const pause = phase(
     root,
     "pause",
@@ -96,15 +105,11 @@ await engine.stop({ cancel: true });`
   const paused = run(pause, { MARBLES_TEST_HOLD: "1" });
   expect(paused.paused).toBe(true);
   const runId = paused.runId as string;
-  expect(
-    JSON.parse(
-      readFileSync(join(root, "state", "runs", `${runId}.json`), "utf8")
-    ).run.status
-  ).toBe("suspended");
+  expect(await storedStatus(root, runId)).toBe("suspended");
   return runId;
 }
 
-function parkedRun(root: string): string {
+async function parkedRun(root: string): Promise<string> {
   const park = phase(
     root,
     "park",
@@ -118,11 +123,7 @@ await engine.stop({ cancel: true });`
   const parked = run(park, ASK);
   expect(parked.questions).toEqual(["Go on?"]);
   const runId = parked.runId as string;
-  expect(
-    JSON.parse(
-      readFileSync(join(root, "state", "runs", `${runId}.json`), "utf8")
-    ).run.status
-  ).toBe("suspended");
+  expect(await storedStatus(root, runId)).toBe("suspended");
   expect(lines(root, "entries.log")).toHaveLength(1);
   expect(lines(root, "answers.log")).toEqual([]);
   return runId;
@@ -133,7 +134,7 @@ it(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "marbles-recovery-paused-"));
     roots.push(root);
-    const runId = pausedRun(root);
+    const runId = await pausedRun(root);
 
     const resume = phase(
       root,
@@ -165,7 +166,7 @@ it(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "marbles-recovery-crashed-"));
     roots.push(root);
-    const runId = pausedRun(root);
+    const runId = await pausedRun(root);
 
     const resume = phase(
       root,
@@ -207,7 +208,7 @@ it(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "marbles-recovery-parked-"));
     roots.push(root);
-    const runId = parkedRun(root);
+    const runId = await parkedRun(root);
 
     const answer = phase(
       root,
@@ -240,7 +241,7 @@ it(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "marbles-recovery-answered-"));
     roots.push(root);
-    const runId = parkedRun(root);
+    const runId = await parkedRun(root);
 
     const answer = phase(
       root,
@@ -281,3 +282,35 @@ report.questions = (await engine.feed()).filter((entry) => entry.input?.status =
   },
   TEST_TIMEOUT
 );
+
+it("gives up its claim on a parked run when a read after the claim fails", async () => {
+  for (const failing of ["settled", "recorded"] as const) {
+    const released: (string | undefined)[] = [];
+    const runs = {
+      claim: () => Promise.resolve(true),
+      durable: true,
+      recorded: () =>
+        failing === "recorded"
+          ? Promise.reject(new Error("database busy"))
+          : Promise.resolve({ ledger: {} }),
+      release: (runId?: string) => {
+        released.push(runId);
+        return Promise.resolve();
+      },
+    } as unknown as RunStore;
+    await expect(
+      adoptParkedRun({ id: "parked", step: "hold" } as RunRecord, {
+        askable: true,
+        print: () => undefined,
+        registered: () => true,
+        runs,
+        settled: () =>
+          failing === "settled"
+            ? Promise.reject(new Error("database busy"))
+            : Promise.resolve(false),
+        store: { listRuns: () => Promise.reject(new Error("unused")) },
+      })
+    ).rejects.toThrow("database busy");
+    expect(released).toEqual(["parked"]);
+  }
+});

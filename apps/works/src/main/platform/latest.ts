@@ -2,7 +2,7 @@ export interface Followed<Value> {
   read(): Value | undefined | Promise<Value | undefined>;
   same?(previous: Value, next: Value): boolean;
   readonly signal?: AbortSignal | undefined;
-  subscribe(changed: () => void): () => void;
+  subscribe(changed: () => void): (() => void) | Promise<() => void>;
 }
 
 export async function* latest<Value>(
@@ -12,7 +12,7 @@ export async function* latest<Value>(
   let changed = false;
   let wake: (() => void) | undefined;
   const woken = () => wake?.();
-  const unsubscribe = followed.subscribe(() => {
+  const unsubscribe = await followed.subscribe(() => {
     changed = true;
     wake?.();
   });

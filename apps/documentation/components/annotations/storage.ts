@@ -14,7 +14,6 @@ function pagePath(pathname: string): string {
   return path.replace(TRAILING_SLASHES, "") || "/";
 }
 
-/** Queries and fragments select a view of the same document. */
 export function storageKey(pathname: string): string {
   return `foundry:annotations:v1:${pagePath(pathname)}`;
 }
@@ -88,7 +87,6 @@ export function saveDocument(
   }
 }
 
-/** The one copy kept when an opened share link replaces this page's notes. */
 export function loadPrevious(pathname: string): AnnotationDocument | null {
   try {
     const source = window.localStorage.getItem(previousKey(pathname));
@@ -139,10 +137,6 @@ function knownLinks(pathname: string): string[] {
   }
 }
 
-/**
- * Record a `notes` payload whose document this browser has saved locally.
- * A later visit to a URL carrying it selects the current local copy.
- */
 export function rememberLink(pathname: string, payload: string): void {
   const value = digest(payload);
   const links = knownLinks(pathname).filter((entry) => entry !== value);

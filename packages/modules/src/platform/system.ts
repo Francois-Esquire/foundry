@@ -22,7 +22,6 @@ import { createModuleRuntimeRecovery } from "./runtime-recovery";
 export interface CreateModuleSystemOptions {
   readonly artifacts: Artifacts;
   readonly checkouts: ModuleCheckouts;
-  /** The backend used by containers, for confirming retained native cleanup. */
   readonly containerRuntime: Pick<
     ContainerRuntime,
     "listResources" | "stopResource" | "removeResource"
@@ -30,7 +29,6 @@ export interface CreateModuleSystemOptions {
   readonly containers: Containers;
   readonly fetch?: CreateContainerModuleProgramRuntimeOptions["fetch"];
   readonly files: ModuleInstallationFiles;
-  /** Told of each Gateway invocation of an admitted runtime (fail-soft). */
   readonly observeInvocation?: (record: ModuleGatewayInvocationRecord) => void;
   readonly onSettledTransition?: (installationId: InstallationId) => void;
   readonly providers: readonly ModuleCapabilityProvider[];

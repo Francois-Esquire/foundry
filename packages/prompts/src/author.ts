@@ -8,7 +8,6 @@ import type {
 } from "./language";
 import { nameOf, referenceOf } from "./reference";
 
-/** An interpolated reference: what was asked for, and where it landed in the text. */
 export interface Interpolated {
   readonly reference: PromptReference;
   readonly span: Span;
@@ -16,20 +15,10 @@ export interface Interpolated {
 
 export interface Rendered {
   readonly diagnostics: Diagnostic[];
-  /** Each interpolated reference the dialect wrote, in order of position. */
   readonly symbols: Interpolated[];
   readonly text: string;
 }
 
-/**
- * Render a template literal into prompt text. Cooked strings are used, so
- * `\${` writes a literal `${` and `` \` `` a backtick. Strings and numbers
- * are inserted as written; a prompt as its text, whose references are then
- * read from the text like any other. A reference, or a value implementing
- * the reference protocol, is written in the dialect's notation, or as its
- * bare name with a diagnostic when the dialect cannot express it. A hole
- * holding `undefined` writes nothing.
- */
 export function interpolate(
   dialect: Dialect,
   strings: TemplateStringsArray,
@@ -87,6 +76,12 @@ function bareName(reference: PromptReference): string {
       return selectorName(reference.selector);
     case "shell":
       return reference.command;
+    case "command":
+    case "skill":
+    case "template":
+      return reference.arguments === undefined
+        ? reference.name
+        : `${reference.name} ${reference.arguments}`;
     default:
       return nameOf(reference) ?? "";
   }

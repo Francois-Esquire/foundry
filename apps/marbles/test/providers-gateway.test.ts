@@ -1,10 +1,4 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  utimesSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -25,6 +19,11 @@ import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { dispose, instanceRuntime } from "~/authoring/runtime";
 import { createEngine } from "~/create";
+import type { MarblesDatabase } from "~/database/open";
+import { initializeDatabase } from "~/database/open";
+import { DatabaseProviderStore } from "~/database/providers";
+import { marblesProviderConfigurations } from "~/database/tables";
+import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { ProviderPlugin, RegisteredPlugin } from "~/lib/providers/plugins";
@@ -47,6 +46,7 @@ let server: Server;
 let baseURL: string;
 let closedURL: string;
 let state: string;
+let opened: MarblesDatabase;
 
 function listen(target: Server): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -102,18 +102,37 @@ afterAll(() => {
   return new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   served = ["served/chat"];
   asked = 0;
   hang = false;
   failing = false;
   state = mkdtempSync(join(tmpdir(), "providers-gateway-"));
+  opened = await initializeDatabase(stateDatabase(state));
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  opened.close();
   rmSync(state, { force: true, recursive: true });
 });
+
+async function machineProviders(
+  providers: readonly object[],
+  database = opened
+): Promise<void> {
+  await new DatabaseProviderStore({ database: database.database }).update(
+    undefined,
+    () => ({
+      machine: { providers, version: 1 } as never,
+    })
+  );
+}
+
+async function loaded(config: ProviderConfiguration): Promise<void> {
+  await config.read();
+  config.load();
+}
 
 const other: ProviderPlugin<Record<string, never>> = {
   catalog: () => [{ id: "local", kind: "text", modelId: "local" }],
@@ -132,25 +151,20 @@ const other: ProviderPlugin<Record<string, never>> = {
   settings: z.object({}),
 };
 
-function configure(url: string, defaults?: Record<string, string>): string {
-  const file = join(state, "providers.json");
-  writeFileSync(
-    file,
-    JSON.stringify({
-      providers: [
-        {
-          ...(defaults ? { defaults } : {}),
-          enabled: true,
-          id: "gw",
-          plugin: "gateway",
-          settings: { apiKey: "GW_KEY", baseURL: url },
-        },
-        { enabled: true, id: "other", plugin: "other" },
-      ],
-      version: 1,
-    })
-  );
-  return file;
+function configure(
+  url: string,
+  defaults?: Record<string, string>
+): Promise<void> {
+  return machineProviders([
+    {
+      ...(defaults ? { defaults } : {}),
+      enabled: true,
+      id: "gw",
+      plugin: "gateway",
+      settings: { apiKey: "GW_KEY", baseURL: url },
+    },
+    { enabled: true, id: "other", plugin: "other" },
+  ]);
 }
 
 function configuration(
@@ -166,7 +180,7 @@ function configuration(
       environment: { machine: ENV, workspace: {} },
       models,
       plugins: [registered(gatewayPlugin), registered(other), ...extra],
-      state,
+      store: new DatabaseProviderStore({ database: opened.database }),
       ...(workspace
         ? { workspace: { dir: workspace, id: "ws", root: state } }
         : {}),
@@ -187,17 +201,9 @@ function lister(
   });
 }
 
-function configureOnly(...plugins: string[]): void {
-  writeFileSync(
-    join(state, "providers.json"),
-    JSON.stringify({
-      providers: plugins.map((plugin) => ({
-        enabled: true,
-        id: plugin,
-        plugin,
-      })),
-      version: 1,
-    })
+function configureOnly(...plugins: string[]): Promise<void> {
+  return machineProviders(
+    plugins.map((plugin) => ({ enabled: true, id: plugin, plugin }))
   );
 }
 
@@ -215,10 +221,10 @@ function entry(configured: ProviderConfiguration, id: string) {
 
 it("runs a model the gateway's server lists, and refuses one it does not", async () => {
   served = ["served/chat", "served/other"];
-  configure(baseURL);
+  await configure(baseURL);
   const { configuration: configured, models } = configuration();
   try {
-    configured.load();
+    await loaded(configured);
     expect(entry(configured, "gw")).toMatchObject({
       problem: "its models have not been listed yet",
       state: "unavailable",
@@ -247,7 +253,7 @@ it("runs a model the gateway's server lists, and refuses one it does not", async
 });
 
 it("checks a gateway's defaults against what its server lists", async () => {
-  configure(baseURL, { text: "served/gone" });
+  await configure(baseURL, { text: "served/gone" });
   const { configuration: configured } = configuration();
   try {
     await configured.refresh();
@@ -261,7 +267,7 @@ it("checks a gateway's defaults against what its server lists", async () => {
 });
 
 it("starts without the gateway when its server cannot be reached, and says why", async () => {
-  configure(closedURL);
+  await configure(closedURL);
   const { configuration: configured, models } = configuration();
   try {
     const [problem, ...rest] = await configured.refresh();
@@ -281,7 +287,7 @@ it("gives up on a server that does not answer in time", {
   timeout: 15_000,
 }, async () => {
   hang = true;
-  configure(baseURL);
+  await configure(baseURL);
   const { configuration: configured } = configuration();
   try {
     expect(await configured.refresh()).toEqual([
@@ -298,7 +304,7 @@ it("gives up on a server that does not answer in time", {
 });
 
 it("picks up a changed list when the configuration reloads, and keeps the last list when the server fails", async () => {
-  const file = configure(baseURL);
+  await configure(baseURL);
   const { configuration: configured, models } = configuration();
   const reported: string[] = [];
   const unwatch = configured.watch((problem) => reported.push(problem));
@@ -307,18 +313,15 @@ it("picks up a changed list when the configuration reloads, and keeps the last l
     expect(models.resolve("text", "gw/served/chat").model).toBe("served/chat");
 
     served = ["served/next"];
-    const touch = (seconds: number) => {
-      const at = new Date(Date.now() + seconds * 1000);
-      utimesSync(file, at, at);
-    };
-    touch(5);
+    const touch = () => configure(baseURL);
+    await touch();
     await expect
       .poll(() => routed(models, "gw/served/next"))
       .toBe("served/next");
     expect(() => models.resolve("text", "gw/served/chat")).toThrow(DROPPED);
 
     failing = true;
-    touch(10);
+    await touch();
     await expect.poll(() => reported.length).toBeGreaterThan(0);
     expect(reported[0]).toBe(
       '"gw" kept its last model list; its models could not be listed: GET /models answered 500'
@@ -331,7 +334,7 @@ it("picks up a changed list when the configuration reloads, and keeps the last l
 });
 
 it("asks no server while Airplane Mode is on, and asks again when it is off", async () => {
-  configure(baseURL);
+  await configure(baseURL);
   const engine = createEngine({
     catalog,
     dry: false,
@@ -362,7 +365,7 @@ it("asks no server while Airplane Mode is on, and asks again when it is off", as
 });
 
 it("lists the gateway's models when the engine starts", async () => {
-  configure(baseURL);
+  await configure(baseURL);
   const engine = createEngine({
     catalog,
     dry: false,
@@ -414,7 +417,7 @@ function engineOver(print: (line: string) => void): Engine {
 }
 
 it("starts when the gateway gives no list, and prints why", async () => {
-  configure(closedURL);
+  await configure(closedURL);
   const lines: string[] = [];
   const engine = engineOver((line) => lines.push(line));
   try {
@@ -430,12 +433,14 @@ it("starts when the gateway gives no list, and prints why", async () => {
   }
 });
 
-it("starts when providers.json became unreadable after the engine was built", async () => {
-  const file = configure(baseURL);
+it("starts when its provider configuration became unreadable after the engine was built", async () => {
+  await configure(baseURL);
   const lines: string[] = [];
   const engine = engineOver((line) => lines.push(line));
   try {
-    writeFileSync(file, "not json");
+    await opened.database
+      .update(marblesProviderConfigurations)
+      .set({ configuration: "not json" });
     await engine.start();
     expect(lines.some((line) => line.startsWith("[providers]"))).toBe(true);
   } finally {
@@ -445,11 +450,12 @@ it("starts when providers.json became unreadable after the engine was built", as
 
 it("lists the gateway's models for definitions called outside a run", async () => {
   const home = join(state, "home");
-  mkdirSync(join(home, "marbles"), { recursive: true });
-  writeFileSync(
-    join(home, "marbles", "providers.json"),
-    JSON.stringify({
-      providers: [
+  const machine = await initializeDatabase(
+    stateDatabase(join(home, "marbles"))
+  );
+  try {
+    await machineProviders(
+      [
         {
           enabled: true,
           id: "gw",
@@ -457,9 +463,11 @@ it("lists the gateway's models for definitions called outside a run", async () =
           settings: { apiKey: "GW_KEY", baseURL },
         },
       ],
-      version: 1,
-    })
-  );
+      machine
+    );
+  } finally {
+    machine.close();
+  }
   vi.stubEnv("FOUNDRY_HOME", home);
   vi.stubEnv("GW_KEY", "secret");
   try {
@@ -473,7 +481,7 @@ it("lists the gateway's models for definitions called outside a run", async () =
 });
 
 it("drops a list still in flight when Airplane Mode turns on", async () => {
-  configureOnly("slow", "other");
+  await configureOnly("slow", "other");
   let answer: (
     models: { id: string; kind: "text"; modelId: string }[]
   ) => void = () => undefined;
@@ -501,7 +509,7 @@ it("drops a list still in flight when Airplane Mode turns on", async () => {
 });
 
 it("loads nothing for an edit that was still listing when it was disposed", async () => {
-  configureOnly("other");
+  await configureOnly("other");
   let listing = false;
   const { configuration: configured, models } = configuration([
     lister(
@@ -524,7 +532,7 @@ it("loads nothing for an edit that was still listing when it was disposed", asyn
 it("stops waiting for a plugin whose list never settles when disposed", {
   timeout: 2000,
 }, async () => {
-  configureOnly("slow", "other");
+  await configureOnly("slow", "other");
   let listing = false;
   const { configuration: configured } = configuration([
     lister(() => {
@@ -541,7 +549,7 @@ it("stops waiting for a plugin whose list never settles when disposed", {
 it("gives up on a plugin whose list never settles", {
   timeout: 15_000,
 }, async () => {
-  configureOnly("slow", "other");
+  await configureOnly("slow", "other");
   const { configuration: configured } = configuration([
     lister(() => new Promise(() => undefined)),
   ]);
@@ -556,12 +564,12 @@ it("gives up on a plugin whose list never settles", {
 });
 
 it("asks no gateway the workspace's order leaves out", async () => {
-  configure(baseURL);
+  await configure(baseURL);
   const workspace = join(state, "workspace");
   mkdirSync(workspace);
-  writeFileSync(
-    join(workspace, "providers.json"),
-    JSON.stringify({ order: ["other"], providers: [], version: 1 })
+  await new DatabaseProviderStore({ database: opened.database }).update(
+    "ws",
+    () => ({ workspace: { order: ["other"], providers: [], version: 1 } })
   );
   const { configuration: configured, models } = configuration([], workspace);
   try {
@@ -575,7 +583,7 @@ it("asks no gateway the workspace's order leaves out", async () => {
 });
 
 it("asks no plugin for its models once disposed", async () => {
-  configureOnly("slow", "other");
+  await configureOnly("slow", "other");
   let calls = 0;
   const { configuration: configured } = configuration([
     lister(() => {

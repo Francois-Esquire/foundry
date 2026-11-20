@@ -39,11 +39,6 @@ function readIdentity(root: string) {
   return { name: manifest.name as string, version: manifest.version as string };
 }
 
-/**
- * The extracted `package` must be a real directory holding only directories
- * and regular files. `zip` follows links, so a link's target bytes would ship
- * in the ZIP in place of the link.
- */
 function assertPlainPackage(root: string): void {
   if (!lstatSync(root).isDirectory()) {
     throw new Error("The archive's package entry must be a directory");

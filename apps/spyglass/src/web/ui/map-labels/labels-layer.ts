@@ -26,30 +26,16 @@ import {
   setText,
 } from "./text-element";
 
-/** What the labels layer is built over: the projection labels are placed with, the host the layer's root goes in, and the device's pixel ratio. */
 export interface LabelsLayerOptions extends LabelLayerInputs {
   host: HTMLElement;
-  /** The browser's measure of text, from an always-measurable host; a test passes its own. */
   metrics?: (root: HTMLElement) => TextMetrics;
   present?: (frame: Frame, metrics: TextMetrics) => void;
 }
 
-/**
- * Builds the chart in the host as one section of elements over the canvas,
- * positioned from the map's projection each frame, and returns it as a layer.
- * On each update it proposes and places the labels, publishes them to the
- * map's view state, then reconciles the elements (`label-items.ts`): each placed label is an
- * element kept by what it names, set in its font at its size, cut from its
- * halo and moved to its anchor's projection. A separate annotation update
- * presents chrome even while map labels are hidden. The layer takes no pointer events; Enter
- * or Space on a focused item selects what it names through `setActivation`.
- */
 export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
   const { host, project } = options;
   const root = create(host, "section", "spyglass-labels");
   root.setAttribute("aria-label", "Chart");
-  // Chrome still measures text while map labels are hidden. Keep its probes
-  // outside the label root so display:none cannot poison the shared cache.
   const measureHost = create(host, "div", "spyglass-labels");
   measureHost.setAttribute("aria-hidden", "true");
   measureHost.inert = true;
@@ -61,10 +47,6 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
   let placedCount = 0;
   let visible = true;
 
-  /**
-   * The labels proposed for the frame: kept while nothing they read has
-   * changed, since a pan or a zoom changes what fits.
-   */
   const propose = (frame: Frame): MapLabel[] => {
     const { state, view } = frame;
     const keys = [
@@ -175,7 +157,6 @@ export function createLabelsLayer(options: LabelsLayerOptions): LabelLayer {
         frame.exclusions
       );
       placedCount = placed.length;
-      // Measure before writing label elements to avoid interleaving layout reads and writes.
       for (const label of placed) {
         metrics.baseline(label.font);
         if (label.kind === "island") {
@@ -217,13 +198,6 @@ function labelInputs(
   };
 }
 
-/**
- * The canvas as the labels are placed on it: its size in CSS pixels (the
- * view's extent at its centre, times the scale there and, north to south,
- * the tilt's foreshortening, which `inkViewOf` divided out), and each
- * label's anchor by the projection that letters it, so what is placed is
- * where it is drawn.
- */
 function screenOf(frame: Frame): LabelScreen {
   const { view } = frame;
   return {
@@ -239,10 +213,6 @@ function anchorOnScreen(label: MapLabel, frame: Frame): ScreenPoint {
   return frame.screen(point.x, point.y, point.z);
 }
 
-/**
- * Letters one placed label: at its size on screen, in its ink and halo, at
- * its opacity, its baseline centred on its anchor's projection.
- */
 function showLabel(
   element: HTMLElement,
   label: MapLabel,
@@ -265,12 +235,6 @@ function showLabel(
   );
 }
 
-/**
- * Shows an island's name with its caption beneath: the caption's baseline
- * sits its drop below the name's, so its top margin makes up the
- * difference between the two lines' heights and baselines. The name's box
- * is the wider of the two lines, which centres both over the anchor.
- */
 function showIslandName(
   island: IslandItem,
   label: IslandLabel,

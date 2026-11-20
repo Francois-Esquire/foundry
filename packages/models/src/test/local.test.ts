@@ -24,8 +24,6 @@ vi.mock("@browser-ai/transformers-js", () => ({
   },
 }));
 
-// The raw ASR path (LocalProvider.transcribe) loads a real HF pipeline; mock it
-// so the test exercises our audio normalization + segment extraction.
 const mockAsrPipe = vi.fn(() =>
   Promise.resolve({
     chunks: [
@@ -42,8 +40,6 @@ vi.mock("@huggingface/transformers", () => ({
   pipeline: mockPipeline,
 }));
 
-// Override only `embed` (used to warm the embedding pipeline in preload);
-// keep the rest of `ai` real so the wrapLanguageModel path is unaffected.
 const mockEmbed = vi.fn(() =>
   Promise.resolve({ embedding: [0], usage: { tokens: 0 } })
 );
@@ -52,8 +48,6 @@ vi.mock("ai", async (orig) => {
   return { ...actual, embed: mockEmbed };
 });
 
-// Capture the download trace seam so tests can assert the provider feeds the
-// logger correctly; the trace's own lifecycle is covered in logger.test.ts.
 const mockTraceTrack = vi.fn();
 const mockTraceFinish = vi.fn();
 const mockTraceModelDownload = vi.fn(() => ({
@@ -102,8 +96,6 @@ beforeEach(() => {
   mockTraceTrack.mockClear();
   mockTraceFinish.mockClear();
   mockTraceModelDownload.mockClear();
-  // Caches are class-level (shared across instances) so a stale entry from a
-  // prior test would short-circuit the upstream factory.
   LocalProvider.clearCache();
 });
 
@@ -390,8 +382,6 @@ describe("LocalProvider", () => {
     const b = new LocalProvider();
 
     expect(text(a)).toBe(text(a));
-    // A second instance (dev hot-reload, stray boot) must not double the
-    // loaded weights in RAM.
     expect(text(a)).toBe(text(b));
     expect(mockLanguageModel).toHaveBeenCalledTimes(1);
 

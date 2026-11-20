@@ -14,7 +14,6 @@ interface WriteVisualizationOptions {
   write: (file: string, value: unknown) => void;
 }
 
-/** A previous visualization is a disposable cache; rescanning repairs corrupt cache files. */
 async function previousVisualization(
   previous: string | undefined
 ): Promise<PreparedVisualization | undefined> {
@@ -35,7 +34,6 @@ async function previousVisualization(
   }
 }
 
-/** Prepare after lenses; publish with the same atomic dataset swap as the analysis. */
 export async function writeVisualization(
   options: WriteVisualizationOptions
 ): Promise<void> {

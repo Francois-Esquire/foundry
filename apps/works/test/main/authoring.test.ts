@@ -1,7 +1,8 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { MODULE_SOURCE_LIMITS } from "@foundry/modules/source";
+import { openWorkspaceDatabase } from "@foundry.sh/marbles/engine";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { moduleQueue } from "~/main/execution/contract";
 import { AUTHORING_DISALLOWED_TOOLS } from "~/main/modules/authoring/agent";
@@ -280,12 +281,18 @@ it("persists the Agent Session in the engine's Marbles session store", async () 
     .list()
     .find((candidate) => candidate.correlation.turnId === sent.id);
   const sessionId = run?.correlation.agentSessionId ?? "";
-  const files = await readdir(path.join(directory, "sessions"));
-  const stored = files.find((file) => file.startsWith(sessionId));
-  expect(stored).toBeDefined();
-  expect(
-    await readFile(path.join(directory, "sessions", String(stored)), "utf8")
-  ).toContain("Remember me");
+  const database = openWorkspaceDatabase({
+    state: path.join(directory, "state"),
+    workspaceId: "foundry-works",
+  });
+  try {
+    expect(await database.sessions.getSession(sessionId)).not.toBeNull();
+    expect(
+      JSON.stringify(await database.sessions.listMessages(sessionId))
+    ).toContain("Remember me");
+  } finally {
+    await database.close();
+  }
 });
 
 it("fails a turn that reaches its deadline, naming the limit", async () => {

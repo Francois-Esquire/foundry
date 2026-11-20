@@ -3,7 +3,6 @@ import { useCallback } from "react";
 import type { ChartSettings, ReaderSettings } from "../settings/chart-settings";
 import { ReaderSettingsSection } from "./reader-settings";
 
-/** The reader's controls: the camera and the atmosphere. */
 export function ChartSettingsPanel({
   onChange,
   disabled,

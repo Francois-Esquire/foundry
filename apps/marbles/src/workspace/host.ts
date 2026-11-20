@@ -1,13 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { catalog } from "~/authoring/catalog";
+import { abandonHost, releaseEngine } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
 import { openHostDatabase } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
+import type { FeedReader } from "~/lib/feed/read";
 import { tick } from "~/lib/schedule";
 import { inputFromFields, SchemaError } from "~/lib/schema";
-import { lastFinish as recordedFinish } from "~/lib/state/schedules";
 import type { Workspace } from "~/lib/state/workspace";
+import { finishedAt } from "~/lib/trigger-store";
 import type { UsageRecords } from "~/lib/usage";
 import type {
   DispatchInfo,
@@ -21,56 +22,46 @@ import type {
 import type { DashboardSnapshot } from "~/model/dashboard";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
+import { workspaceFeed } from "~/workspace/feed";
 import { runSchedulesUntilStopped } from "~/workspace/loop";
 import type { OpenedWorkspace } from "~/workspace/open";
 import {
+  asRegistered,
   hostEngine,
   hostTasks,
   openWorkspace,
   touchWorkspace,
 } from "~/workspace/open";
+import { otherWorkspaces } from "~/workspace/others";
+import type { OtherWorkspaces } from "~/workspace/snapshot";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { runTaskCommand } from "~/workspace/tasks";
 
-/**
- * One workspace, hosted in this process: its source loaded, its engine
- * built and started, and everything a host does with it behind the
- * `WorkspaceConnection` the dashboard, the CLI, and MCP are written
- * against. The Marbles process runs one of these per workspace in a worker;
- * a program that embeds Marbles for a single workspace runs it directly.
- */
-
 export interface HostWorkspaceOptions {
-  /** The shared artifact store. */
   readonly artifacts: string;
-  /** Whether something here can answer `ask`; the dashboard can. */
   readonly askable?: boolean;
-  /** Echo every model turn and git mutation, and persist nothing. */
+  readonly cwd?: string;
+  readonly database?: MarblesDatabase;
+  readonly directory?: string;
   readonly dry?: boolean;
-  /** What a `.env.schema` that does not resolve does; `warn` when omitted. */
   readonly env?: "require" | "warn";
-  /** Nothing is at the source: offer to create it. Resolves true once something loads there. */
+  readonly onClose?: (closing: Promise<void>) => void;
   readonly onMissing?: (configPath: string) => Promise<boolean>;
-  /** Runs on the built engine before it starts: host steps registered beside the source. */
   readonly prepare?: (engine: Engine) => void;
-  /** Receives each status line; the last one is the host's `status`. */
   readonly print?: (line: string) => void;
-  /** The authoring folder or module. */
+  readonly read?: (file: string) => void;
   readonly source: string;
-  /** The Marbles state root. */
+  readonly spawned?: string;
   readonly state: string;
 }
 
 export interface WorkspaceHost extends WorkspaceConnection {
-  /** Stop the engine, cancelling live runs, and close what it opened. */
   close(): Promise<void>;
-  /** Where the source is, or would be created. */
   readonly configPath: string;
   readonly engine: Engine;
-  /** Tick the live triggers until `signal` aborts. */
-  run(signal: AbortSignal): Promise<void>;
+  readonly files: readonly string[];
+  run(signal: AbortSignal, cancel?: AbortSignal): Promise<void>;
   setStatus(line: string): void;
-  /** The last status line; shown in the dashboard's toolbar. */
   readonly status: string;
   readonly workspace: Workspace;
 }
@@ -79,8 +70,11 @@ class LaunchInputError extends Error {
   override readonly name = "LaunchInputError";
 }
 
-/** A rejected launch input in one line: what the definition takes, and where to get it. */
-function inputHint(engine: Engine, name: string, error: SchemaError): string {
+async function inputHint(
+  engine: Engine,
+  name: string,
+  error: SchemaError
+): Promise<string> {
   const fields =
     engine.definitions().find((entry) => entry.name === name)?.input.fields ??
     [];
@@ -95,8 +89,7 @@ function inputHint(engine: Engine, name: string, error: SchemaError): string {
       fields.filter((field) => field.required).map((field) => [field.name, "…"])
     )
   );
-  const keys = engine
-    .schedules()
+  const keys = (await engine.schedules())
     .filter((record) => record.workflow === name && record.input !== undefined)
     .map((record) => record.key);
   const carried =
@@ -115,8 +108,22 @@ function inputHint(engine: Engine, name: string, error: SchemaError): string {
 export async function hostWorkspace(
   options: HostWorkspaceOptions
 ): Promise<WorkspaceHost> {
-  // The lines of the call printing them: overlapping rolls, and the
-  // schedule loop beside them, each keep their own.
+  return await (await stageWorkspace(options)).start();
+}
+
+export interface StagedWorkspace {
+  abandon(): Promise<void>;
+  readonly config: string | null;
+  readonly configPath: string;
+  readonly files: readonly string[];
+  readonly id: string;
+  readonly root: string;
+  start(): Promise<WorkspaceHost>;
+}
+
+export async function stageWorkspace(
+  options: HostWorkspaceOptions
+): Promise<StagedWorkspace> {
   const captured = new AsyncLocalStorage<string[]>();
   let status = "Loading marbles";
   const diagnostics = new Diagnostics();
@@ -129,73 +136,157 @@ export async function hostWorkspace(
   const hostOptions = {
     artifacts: options.artifacts,
     config: options.source,
+    ...(options.directory === undefined
+      ? {}
+      : { directory: options.directory }),
     dry: options.dry ?? false,
+    ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
     state: options.state,
   };
-  const opened = await openWorkspace(hostOptions, {
+  const loaded = await openWorkspace(hostOptions, {
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     env: options.env,
     onMissing: options.onMissing,
     print,
+    ...(options.read === undefined ? {} : { read: options.read }),
   });
-  const database = hostOptions.dry
-    ? undefined
-    : await openHostDatabase(hostOptions.state);
+  const shared = hostOptions.dry ? undefined : options.database;
+  let own: MarblesDatabase | undefined;
+  const unbind = (): void => {
+    abandonHost(loaded.workspace.id, loaded.catalog);
+    own?.close();
+  };
+  const release = async (built: Engine): Promise<void> => {
+    try {
+      await built.dispose();
+    } finally {
+      try {
+        releaseEngine(built);
+      } finally {
+        unbind();
+      }
+    }
+  };
+  let engine: Engine;
+  let opened: OpenedWorkspace;
+  let dispatches: BackgroundRuns;
   try {
-    const engine = await hostEngine(hostOptions, opened, {
+    own =
+      hostOptions.dry || shared !== undefined
+        ? undefined
+        : await openHostDatabase(hostOptions.state);
+    opened = await asRegistered(
+      shared ?? own,
+      hostOptions,
+      loaded,
+      options.cwd
+    );
+    engine = await hostEngine(hostOptions, opened, {
       askable: options.askable,
-      ...(database === undefined ? {} : { database }),
+      ...((shared ?? own) === undefined ? {} : { database: shared ?? own }),
       log,
       print,
     });
-    try {
-      options.prepare?.(engine);
-      // Defined before the engine starts: background agent dispatch is a step.
-      const dispatches = new BackgroundRuns(engine, catalog);
-      await engine.start();
-      await touchWorkspace(database, hostOptions, opened);
-      return hosted(engine, opened, dispatches, {
-        captured,
-        database,
-        diagnostics,
-        fail: (line) => {
-          report(line);
-          diagnostics.add(line, "error");
-        },
-        print,
-        setStatus: (line) => {
-          status = line;
-        },
-        status: () => status,
-      });
-    } catch (error) {
-      await engine.dispose();
-      throw error;
-    }
   } catch (error) {
-    database?.close();
+    unbind();
     throw error;
   }
+  try {
+    options.prepare?.(engine);
+    dispatches = new BackgroundRuns(engine, opened.catalog);
+  } catch (error) {
+    await release(engine);
+    throw error;
+  }
+  const database = shared ?? own;
+  let used = false;
+  const once = (): void => {
+    if (used) {
+      throw new Error(
+        `workspace ${opened.workspace.id} was started or abandoned already`
+      );
+    }
+    used = true;
+  };
+  return {
+    async abandon() {
+      once();
+      await release(engine);
+    },
+    config: opened.config,
+    configPath: opened.configPath,
+    files: opened.files,
+    id: opened.workspace.id,
+    root: opened.workspace.root,
+    async start() {
+      once();
+      try {
+        await engine.start();
+        await touchWorkspace(
+          database,
+          hostOptions,
+          opened,
+          options.cwd === undefined ? {} : { cwd: options.cwd }
+        );
+        return hosted(engine, opened, dispatches, {
+          captured,
+          database: own,
+          diagnostics,
+          fail: (line) => {
+            report(line);
+            diagnostics.add(line, "error");
+          },
+          feed:
+            database === undefined
+              ? engine.feed
+              : workspaceFeed({
+                  artifacts: hostOptions.artifacts,
+                  database: database.database,
+                  own: engine.feed,
+                  state: hostOptions.state,
+                  workspace: opened.workspace.id,
+                }),
+          ...(database === undefined
+            ? {}
+            : {
+                others: otherWorkspaces({
+                  database: database.database,
+                  state: hostOptions.state,
+                  workspace: opened.workspace.id,
+                }),
+              }),
+          lastFinish: await lastFinishes(engine),
+          ...(options.onClose === undefined
+            ? {}
+            : { onClose: options.onClose }),
+          print,
+          setStatus: (line) => {
+            status = line;
+          },
+          status: () => status,
+        });
+      } catch (error) {
+        await release(engine);
+        throw error;
+      }
+    },
+  };
 }
 
 interface Status {
   readonly captured: AsyncLocalStorage<string[]>;
   readonly database: MarblesDatabase | undefined;
   readonly diagnostics: Diagnostics;
-  /** An error line: the status, and an error in the Logs tab. */
   readonly fail: (line: string) => void;
+  readonly feed: FeedReader;
+  readonly lastFinish: ReadonlyMap<string, number>;
+  readonly onClose?: (closing: Promise<void>) => void;
+  readonly others?: (now: number) => Promise<OtherWorkspaces>;
   readonly print: (line: string) => void;
   readonly setStatus: (line: string) => void;
   readonly status: () => string;
 }
 
-/**
- * What agent turns consumed, as much of it as can be read: a usage read
- * that fails must not take the runs, Logs and Feed down with it. The part
- * that failed counts as one unowned unreadable record, as a session listing
- * that fails does, so every total it may belong to says it is incomplete
- * rather than showing nothing or zero. Nothing is cached: the next snapshot
- * reads again. `read` hears each attempt: no error when it succeeded.
- */
 async function readUsage(
   engine: Engine,
   read: (error?: unknown) => void
@@ -208,8 +299,7 @@ async function readUsage(
     read(error);
   }
   try {
-    // The saved facts alone, without what the transcripts would recover.
-    const saved = engine.usage.read();
+    const saved = await engine.usage.read();
     return {
       ...saved,
       unreadable: saved.unreadable + 1,
@@ -230,18 +320,43 @@ async function readUsage(
   }
 }
 
+async function lastFinishes(
+  engine: Engine
+): Promise<ReadonlyMap<string, number>> {
+  const finished = new Map<string, number>();
+  for (const schedule of await engine.schedules()) {
+    const finish = finishedAt(
+      await engine.triggers.lastTick(schedule.key).catch(() => undefined)
+    );
+    if (finish !== undefined) {
+      finished.set(schedule.key, finish);
+    }
+  }
+  return finished;
+}
+
 function hosted(
   engine: Engine,
   opened: OpenedWorkspace,
   dispatches: BackgroundRuns,
-  { captured, database, diagnostics, fail, print, setStatus, status }: Status
+  {
+    captured,
+    database,
+    diagnostics,
+    fail,
+    feed,
+    lastFinish,
+    onClose,
+    others,
+    print,
+    setStatus,
+    status,
+  }: Status
 ): WorkspaceHost {
-  const { config, configPath, workspace } = opened;
-  const { activities, automations, store } = engine;
+  const { catalog, config, configPath, workspace } = opened;
+  const { activities, automations } = engine;
   const tasks = hostTasks(engine);
   const startedAt = Date.now();
-  // Each poll would repeat it: a usage read failure is logged when it
-  // starts or changes, and again if it comes back after a read succeeds.
   let usageFailure: string | undefined;
   const usageRead = (error?: unknown): void => {
     if (error === undefined) {
@@ -254,12 +369,6 @@ function hosted(
       diagnostics.add(line, "error");
     }
   };
-  const lastFinish = new Map(
-    engine.schedules().flatMap((schedule) => {
-      const finish = recordedFinish(store, schedule.key);
-      return finish === undefined ? [] : [[schedule.key, finish] as const];
-    })
-  );
   const actions: WorkspaceActions = {
     async answer(entryId, answer) {
       await engine.answer(entryId, answer);
@@ -268,18 +377,13 @@ function hosted(
       if (!dispatches.definitions().some((entry) => entry.name === name)) {
         throw new Error("This definition is not available for manual launch.");
       }
-      // The factory is the one parser: it validates at dispatch, a bad
-      // value rejects the launch, and a transform runs once.
       const launched = await engine.launch(name, inputFromFields(input ?? {}));
       launched.result.catch((error: unknown) => fail(`[run] ${String(error)}`));
       return launched.id;
     },
     runs: {
       cancel: (runId) => engine.cancel(runId),
-      deleteTrigger(id) {
-        automations.delete(id);
-        return Promise.resolve();
-      },
+      deleteTrigger: (id) => automations.delete(id),
       pause(runId, stepId) {
         if (!engine.pause(runId, stepId)) {
           throw new Error("This step is not running in this process.");
@@ -287,9 +391,8 @@ function hosted(
         return Promise.resolve();
       },
       resume: (runId, stepId, prompt) => engine.resume(runId, stepId, prompt),
-      setTriggerEnabled(id, enabled) {
-        automations.setEnabled(id, enabled);
-        return Promise.resolve();
+      async setTriggerEnabled(id, enabled) {
+        await automations.setEnabled(id, enabled);
       },
       steer(runId, stepId, prompt) {
         engine.steer(runId, stepId, prompt);
@@ -301,7 +404,6 @@ function hosted(
     },
   };
 
-  /** Lines `work` printed, with its value. */
   async function capture<T>(
     work: () => Promise<T>
   ): Promise<{ readonly lines: string[]; readonly value: T }> {
@@ -310,19 +412,28 @@ function hosted(
     return { lines, value };
   }
 
+  let closing: Promise<void> | undefined;
+  const shutDown = async () => {
+    try {
+      await dispatches.close();
+    } finally {
+      try {
+        await engine.dispose();
+      } finally {
+        releaseEngine(engine);
+        database?.close();
+      }
+    }
+  };
   return {
     actions,
     cancelRun: (runId) => dispatches.cancel(runId),
-    async close() {
-      try {
-        await dispatches.close();
-      } finally {
-        try {
-          await engine.dispose();
-        } finally {
-          database?.close();
-        }
+    close() {
+      if (closing === undefined) {
+        closing = shutDown();
+        onClose?.(closing);
       }
+      return closing;
     },
     config,
     configPath,
@@ -352,47 +463,57 @@ function hosted(
     dispatchWorkflow: (name, input): Promise<DispatchInfo> =>
       dispatches.startWorkflow(name, input),
     engine,
+    files: opened.files,
     getRun: (runId): Promise<RunInfo> => dispatches.get(runId),
     id: workspace.id,
     async roll(name, input): Promise<RollResult> {
-      const schedule = engine.schedules().find((record) => record.key === name);
+      const schedule = (await engine.schedules()).find(
+        (record) => record.key === name
+      );
       const launchInput = input === undefined ? schedule?.input : input;
       if (schedule) {
         const { lines, value } = await capture(() =>
           tick(engine, { ...schedule, input: launchInput }, { print })
         );
-        return value === undefined ? { lines } : { lines, value: value.value };
+        return { lines, ...value };
       }
       if (!dispatches.definitions().some((entry) => entry.name === name)) {
         throw new Error(`no workflow or schedule named "${name}"`);
       }
       const { lines, value } = await capture(() =>
-        engine.run<unknown>(name, launchInput).catch((error: unknown) => {
+        engine.run<unknown>(name, launchInput).catch(async (error: unknown) => {
           throw error instanceof SchemaError
-            ? new LaunchInputError(inputHint(engine, name, error))
+            ? new LaunchInputError(await inputHint(engine, name, error))
             : error;
         })
       );
       return { lines, value };
     },
     root: workspace.root,
-    run: (signal) => runSchedulesUntilStopped(engine, { print, signal }),
+    run: (signal, cancel) =>
+      runSchedulesUntilStopped(engine, {
+        ...(cancel === undefined ? {} : { cancel }),
+        print,
+        signal,
+      }),
     setStatus,
     async snapshot(): Promise<DashboardSnapshot> {
-      // First, so a failure it logs is in this snapshot's diagnostics.
       const usage = await readUsage(engine, usageRead);
+      const now = Date.now();
       return dashboardSnapshot(await engine.runs(), {
         activities: activities.list(),
-        automationErrors: automations.errors(),
-        automations: automations.list(),
+        automationErrors: await automations.errors(),
+        automations: await automations.list(),
         definitions: dispatches.definitions(),
         diagnostics: diagnostics.entries,
-        feed: await engine.feed(),
+        feed: await feed(),
         lastFinish,
         monitors: engine.monitors(),
+        now,
+        ...(others === undefined ? {} : { others: await others(now) }),
         queued: engine.executions.list(),
         root: workspace.root,
-        schedules: engine.schedules(),
+        schedules: await engine.schedules(),
         setupLogs: diagnostics.setupEntries,
         startedAt,
         status: status(),

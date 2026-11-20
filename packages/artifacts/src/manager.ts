@@ -48,18 +48,8 @@ export interface ArtifactManagerOptions {
   readonly store?: ArtifactStore;
 }
 
-/**
- * The transaction a call runs inside, if any. `open` turns false once its
- * operation returns: work it scheduled to outlive it (a timer, a poll)
- * inherits the async context but must start transactions of its own.
- */
 interface TransactionScope {
   readonly effects: CommitEffects;
-  /**
-   * A call that joined it failed. Whatever that call wrote before failing
-   * is part of the transaction, and a joined call has no savepoint to undo
-   * it, so the transaction rolls back even if the failure was caught.
-   */
   failed?: { readonly error: unknown };
   open: boolean;
   readonly transaction: ArtifactTransaction;
@@ -177,10 +167,9 @@ export class ArtifactManager implements Artifacts {
             } finally {
               scope.open = false;
             }
-            if (scope.failed) {
-              throw new TransactionRolledBackError({
-                cause: scope.failed.error,
-              });
+            const failed = scope.failed ?? change.failure;
+            if (failed) {
+              throw new TransactionRolledBackError({ cause: failed.error });
             }
             await transaction.reclaim();
             attempted = change.write();
@@ -449,7 +438,6 @@ export class ArtifactManager implements Artifacts {
     } while (cursor);
   }
 
-  /** The open transaction this call runs inside, if any. */
   #joinedScope(): TransactionScope | undefined {
     const scope = this.#scope.getStore();
     return scope?.open ? scope : undefined;
@@ -743,8 +731,6 @@ export class ArtifactManager implements Artifacts {
     } catch (cause) {
       failure = new ArtifactApplicationError([...effects.changed], { cause });
     }
-    // The records committed either way; observers see them, and `recover`
-    // later reapplies what failed (and prunes retired files).
     this.#notify(effects.changed, "commit");
     if (failure) {
       throw failure;

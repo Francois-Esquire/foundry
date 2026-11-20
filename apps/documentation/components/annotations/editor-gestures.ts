@@ -15,7 +15,6 @@ interface GestureOptions {
   tool: () => string;
 }
 
-/** Pointer capture and raw gesture geometry are independent of annotation meaning. */
 export function createGestureInput(
   host: HTMLElement,
   surface: SVGElement,

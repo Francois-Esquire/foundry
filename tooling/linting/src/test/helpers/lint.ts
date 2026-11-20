@@ -9,13 +9,11 @@ import type { PromptsSettings } from "../../index";
 
 const require = createRequire(import.meta.url);
 
-/** The extension's sample files: every notation per dialect. */
 export const FIXTURES = resolve(
   import.meta.dirname,
   "../../../../vscode-extension/fixtures"
 );
 
-/** The bundle Node can load, for Oxlint and for the parity check. */
 const DIST = resolve(import.meta.dirname, "../../../dist/index.js");
 
 export const RULE_NAMES = [
@@ -25,7 +23,6 @@ export const RULE_NAMES = [
   "unresolved-reference",
 ] as const;
 
-/** One reported problem, the same shape from either linter. */
 export interface Finding {
   readonly column: number;
   readonly endColumn: number;
@@ -61,7 +58,6 @@ function compare(a: Finding, b: Finding): number {
   );
 }
 
-/** Lint files with ESLint through the built bundle, the TypeScript parser, and every rule on. */
 export async function lintWithEslint(
   files: readonly string[],
   settings: PromptsSettings | undefined,
@@ -127,7 +123,6 @@ interface OxlintDiagnostic {
 
 const RULE_ID = /^foundry\(prompts\/(.+)\)$/;
 
-/** Line and column, 1-based, of an offset into text; what ESLint reports. */
 function locate(
   text: string,
   offset: number
@@ -138,7 +133,6 @@ function locate(
   return { column, line };
 }
 
-/** Lint files with the `oxlint` binary, loading the built bundle as a JS plugin. */
 export function lintWithOxlint(
   files: readonly string[],
   settings: PromptsSettings | undefined,
@@ -202,10 +196,8 @@ export function lintWithOxlint(
   return found.sort(compare);
 }
 
-/** The Biome rules as committed, loaded from `biome/`. */
 export const GRIT = resolve(import.meta.dirname, "../../../biome");
 
-/** A Biome finding: the rule named in the message, and the range it covers. */
 export interface BiomeFinding {
   readonly column: number;
   readonly endColumn: number;
@@ -228,7 +220,6 @@ interface BiomeDiagnostic {
 
 const BIOME_RULE = /\(foundry\/prompts\/([a-z-]+)\)$/;
 
-/** Lint files with the `biome` binary and only the generated prompt rules, no built-in ones. */
 export function lintWithBiome(
   files: readonly string[],
   cwd: string

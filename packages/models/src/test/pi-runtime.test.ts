@@ -10,7 +10,6 @@ import { createPiDriver } from "../harness/pi";
 import { piProvider } from "../pi";
 import { collect, runOptions } from "./helpers/cli";
 
-/** Runs the actual CLI and a local fixture provider, with no vendor credentials or paid calls. */
 it("runs Pi's real tool loop, persists native history, and serves the model API", async () => {
   const binPath = process.env.PI_BIN;
   if (!binPath) {

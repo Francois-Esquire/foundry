@@ -1,13 +1,5 @@
 import { z } from "zod";
 
-/**
- * Branded identifier for an Artifact.
- *
- * Declared here rather than alongside the other domain ids because the Artifact
- * primitive must not depend on the Module domain — the dependency runs the
- * other way. `z.brand` is structural on the brand string, so an `ArtifactId`
- * parsed here and one parsed by a Module-side re-export are the same type.
- */
 export const artifactIdSchema = z
   .string()
   .min(1, "ArtifactId must not be empty")

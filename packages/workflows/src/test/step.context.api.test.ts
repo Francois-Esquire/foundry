@@ -1,23 +1,3 @@
-/**
- * StepContext public contract.
- *
- * An execute body receives `(input, ctx)` where production `StepContext`
- * exposes the current Step, typed context, composition helpers, snapshot
- * values, channels, and suspension controls. These tests pin that contract so
- * an execute body can:
- *
- *   - read its typed services (`agent`, db handle, etc.) without closure
- *   - fork a dynamic child that *inherits the typed services type*
- *   - drive children via the composer's invoke / parallel / race / branch /
- *     sequence (currently undocumented on the user-facing surface)
- *   - read the current snapshot (results, step statuses, workflow tree)
- *     and subscribe to state changes — "get results when they're available"
- *   - publish chunks / events / suspend, all delegated to the step
- *
- * Deferred scheduling and eager await-result semantics are explicit package
- * non-goals; they are not represented as skipped executable tests.
- */
-
 import { describe, expect, it } from "vitest";
 
 import type { BaseContext, SuspendSignal } from "../executable";
@@ -25,11 +5,6 @@ import { isSuspendSignal } from "../executable";
 import type { StepContext, StepSpec } from "../step";
 
 import { Step } from "../step";
-
-// ────────────────────────────────────────────────────────────────────────────
-// Test plumbing keeps literal output inference while using the production
-// StepContext type directly.
-// ────────────────────────────────────────────────────────────────────────────
 
 type CtxExecute<I, O, X extends BaseContext> = (
   input: I,
@@ -151,21 +126,6 @@ describe("ctx — shape and identity", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// 2. ctx — typed context spread (Step-owned, inherited via composition)
-// ════════════════════════════════════════════════════════════════════════════
-//
-// Step owns the typed context X (today via `step.context: X`, set at
-// construction through `spec.seed`). Workflow inherits this because
-// Workflow IS a Step wrapper. Every child created through composition
-// (`executable.fork` chain) carries the same X by reference — that's the
-// headline value-prop: set the agent / db / tenant once at the root, every
-// step in the tree sees it via `ctx.<name>` with no re-injection.
-//
-// X is spread onto ctx directly: `ctx.agent`, not `ctx.services.agent`.
-
-// Synthetic agent — class instance so we can verify reference identity
-// (instanceof, ===) survives the seed → context → ctx pipeline.
 class FakeAgent {
   readonly id: string;
   constructor(id: string) {
@@ -625,7 +585,6 @@ describe("ctx.fork — dynamic child creation with typed X", () => {
     expect(child).toBeDefined();
     expect(child?.snapshot).toBe(step.snapshot);
     expect(child?.channels).toBe(step.channels);
-    // And declared-child events fold into parent's snapshot under namespaced key.
     const { steps } = step;
     expect(Object.keys(steps).sort()).toEqual([
       "declared-parent",
@@ -952,8 +911,6 @@ describe("ctx.suspend — Promise-flavored suspend", () => {
     expect((suspended as SuspendSignal).suspension.name).toBe("approval");
     expect(attempts).toBe(1);
 
-    // Resolve from the *parent* frame — the shared resolutions Ref makes the
-    // child's next ctx.suspend("approval") read it back.
     await parent.resolve("approval", "approved-by-mike");
 
     const out = await parent.run();
@@ -982,14 +939,12 @@ describe("ctx.suspend — Promise-flavored suspend", () => {
 
     const step = await Step.make(spec);
 
-    // First attempt suspends — run() rejects.
     const suspended = await step.run().catch((e: unknown) => e);
     expect(isSuspendSignal(suspended)).toBe(true);
     expect((suspended as SuspendSignal).suspension.name).toBe("approval");
     expect(attempts).toBe(1);
     expect(captured.value).toBeUndefined();
 
-    // Resolve from outside the body — writes to the shared resolutions Ref.
     await step.resolve("approval", "approved");
 
     const second = await step.run();

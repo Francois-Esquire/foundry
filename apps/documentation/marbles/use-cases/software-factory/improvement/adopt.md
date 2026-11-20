@@ -14,7 +14,7 @@ For prompts and skills, name the version to activate and where it is loaded.
 Retain the previous version and a way to restore it. Marbles does not supply
 an automatic promotion system for these instructions.
 
-Module edits reload the workspace's worker on their own; restart the
+Module edits start the Marbles process's next engine generation on their own; restart the
 Marbles process (`marbles stop`, then `marbles`) when cached directory-based
 skills outside the authoring folder change.
 For file-triggered skill trials, follow the

@@ -15,14 +15,14 @@ import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandb
 import { SandboxError } from "@foundry/sandbox/errors";
 import { normalizeSandboxPath } from "@foundry/sandbox/path";
 import { sandboxFromAdapter } from "@foundry/sandbox/sandbox";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { expect, it } from "vitest";
 import packageJson from "../../package.json";
 
 it("loads portable and container functions through leaf exports", () => {
   for (const entry of [
     normalizeSandboxPath,
-    createMemoryContainerStore,
+    MemoryContainerStore,
     SandboxError,
     sandboxFromAdapter,
     createContainers,

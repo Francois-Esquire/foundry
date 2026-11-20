@@ -17,8 +17,6 @@ const OPENING_SEND_REFUSED_PATTERN = /opening send refused/;
 const NEGOTIATES_ITS_FEED_AT_OPEN_PATTERN = /negotiates its feed at open/;
 const OPTIONS_FEED_PATTERN = /options\.feed/;
 
-// The mock factories are hoisted above every import, so they reach the
-// per-test registries through this holder rather than closing over one.
 const state = vi.hoisted(() => ({
   samplerStops: 0,
   samplerThrows: false,
@@ -90,7 +88,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** Let the core's in-flight send settle so the next one can leave. */
 async function settle(): Promise<void> {
   for (let tick = 0; tick < 4; tick += 1) {
     await Promise.resolve();
@@ -291,7 +288,6 @@ describe("supersession and throttling", () => {
     live.supply(frame(1), "a");
     live.supply(frame(2), "b");
     live.supply(frame(3), "c");
-    // The first supply is in flight; b and c contend for the single pending slot.
     expect(
       double?.sent.filter((send) => send.frame !== undefined)
     ).toHaveLength(1);
@@ -408,8 +404,6 @@ describe("feed at open on a continuous fact", () => {
       token(),
       { direction: { prompt: "p" }, feed }
     );
-    // Present in the options the transport was constructed with, not applied
-    // to an already-open session.
     expect(webrtc.doubles[0]?.options.feed).toBe(feed);
   });
 

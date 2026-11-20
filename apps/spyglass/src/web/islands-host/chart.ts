@@ -14,31 +14,19 @@ type ChartReader = Pick<
   | "moduleShards"
 >;
 
-/**
- * What `chartFromDataset(map, graph, internals)` is handed: the dataset's
- * own files, in the shapes the prototype's capture script copies them in
- * for its fixtures, plus why anything optional was left out.
- */
 export interface IslandsChartInputs {
   graph: unknown;
   internals: {
     edges: unknown;
-    /** The lens, or undefined when the dataset has none it can read. */
     frequentChange: unknown;
     modules: unknown;
     responsibilityGroups: unknown;
     shards: unknown;
   };
   map: PreparedVisualization;
-  /** One line per input left out, for the developer panel beside the chart's own notes. */
   notes: string[];
 }
 
-/**
- * Each file's place on its island as the viewer laid it out, by id: the
- * dataset's `mapPosition`, or for a dataset that saved none, the place the
- * viewer worked out (`placeFiles`).
- */
 export type FilePlaces = ReadonlyMap<string, { x: number; y: number }>;
 
 export function filePlacesOf(
@@ -53,10 +41,6 @@ export function filePlacesOf(
   return places;
 }
 
-/**
- * The module index with every module the dataset saved no place for placed
- * where the viewer laid it out, so the chart draws the files the labels name.
- */
 function placedModules(
   index: SemanticsModuleIndex,
   places: FilePlaces | undefined,
@@ -83,7 +67,6 @@ function placedModules(
   return { ...index, modules };
 }
 
-/** A lens the adapter can do without: undefined, with a note, when the dataset cannot give it. */
 async function optionalLens(
   reader: ChartReader,
   id: "frequent-change" | "responsibility-groups",
@@ -98,13 +81,6 @@ async function optionalLens(
   }
 }
 
-/**
- * Reads what the chart is made from, all at once. `map` is the map the
- * viewer laid its territories out from (the frame's `visualization`), so
- * the chart shares coordinates with the labels and the chrome, which read
- * `SpyglassData`; `places`, the viewer's file places, fill in any the
- * dataset did not save.
- */
 export async function readIslandsChartInputs(
   reader: ChartReader,
   map: PreparedVisualization,
@@ -134,7 +110,6 @@ export async function readIslandsChartInputs(
   };
 }
 
-/** The chart for a dataset the viewer was served with, and every note on what it left out. */
 export async function loadIslandsChart({
   dataset,
   places,
@@ -142,7 +117,6 @@ export async function loadIslandsChart({
   visualization,
 }: {
   dataset?: DatasetRef;
-  /** The viewer's file places (`filePlacesOf`), for a dataset that saved none. */
   places?: FilePlaces;
   signal?: AbortSignal;
   visualization: PreparedVisualization;

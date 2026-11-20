@@ -1,7 +1,8 @@
 import { fillArgv, parseArgv, placeholdersOf } from "@foundry/lib/argv";
 import type { Bail } from "@foundry/workflows/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { catalog } from "~/authoring/catalog";
+import type { Scope } from "~/authoring/runtime";
+import { captureScope, declaringCatalog } from "~/authoring/runtime";
 import type { CommandResult, ExecOptions } from "~/lib/command";
 import type {
   LockedNode,
@@ -11,6 +12,7 @@ import type {
   StepFn,
 } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
+import { observable, RUNS } from "~/lib/events/source";
 import type { Input, Output } from "~/lib/schema";
 import { inputKeysOf } from "~/lib/schema";
 import { timeoutMs } from "~/lib/tree";
@@ -20,27 +22,12 @@ import { bindingAt, callSite, canInfer, originOf } from "./identity";
 import type { StepDefinition, WorkflowDefinition } from "./lock";
 import { lockable } from "./lock";
 
-/**
- * `step(name?).describe(text).input(schema).output(schema).do(fn)`.
- * Schemas come before the body so `do` is typed from them. A name makes the
- * definition launchable from outside the module. Without one, the top-level
- * `const` it is assigned to names it; a definition made inside a function or
- * inline stays internal.
- */
-
 type Empty = Record<string, never>;
 
-/** What a node produces: the output schema's type, else the body's return. */
 type Produces<O, X> = unknown extends O ? X : O;
 
-/**
- * The name to register under (the given one, else the binding's, else
- * none), with where the call was and how to name it, in the words the
- * engine quotes back without knowing how names are inferred.
- */
 interface Identity {
   readonly fields: Pick<Shared, "name" | "nameHint" | "origin">;
-  /** The name came from the config's `const`, not the call. */
   readonly inferred: boolean;
 }
 
@@ -70,19 +57,17 @@ function identify(
   return { fields: { nameHint, origin }, inferred: false };
 }
 
-/**
- * `I`: parsed input the body sees. `R`: raw input a literal takes. `Ret`:
- * what the body must return (the output schema's input). `O`: what the node
- * produces for its parent (the output schema's output).
- */
 interface StepFields {
   readonly config?: StepConfig;
   readonly description?: string;
   readonly input?: StandardSchemaV1;
   readonly name?: string;
   readonly output?: StandardSchemaV1;
+  readonly scope?: Scope;
   readonly site?: CallSite;
 }
+
+const now: Scope = (work) => work();
 
 export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
   readonly #fields: StepFields;
@@ -91,16 +76,10 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
     this.#fields = fields;
   }
 
-  /** Shown in the catalog and the launch form. */
   describe(text: string): StepBuilder<I, R, Ret, O> {
     return new StepBuilder({ ...this.#fields, description: text });
   }
 
-  /**
-   * How the step runs: `retry` (the workflows package's policy, e.g.
-   * `{ maxAttempts: 3, backoff: { kind: "exponential", initial: "1s" } }`)
-   * and `timeout` per attempt (`"30s"`, `"10m"`, or milliseconds).
-   */
   config(config: StepConfig): StepBuilder<I, R, Ret, O> {
     if (config.timeout !== undefined) {
       try {
@@ -127,15 +106,6 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
     return new StepBuilder({ ...this.#fields, output: schema });
   }
 
-  /**
-   * A step whose work is one command. A template is split into arguments
-   * now, not by a shell: `$name` fills one argument from the input (an
-   * array, one per element), so a value can never add an argument or a
-   * command. The program must be written out, and every placeholder must
-   * be an input key. A function returns the argument list instead. The
-   * output is `{ exitCode, stdout, stderr }`; a non-zero exit fails the
-   * step unless `{ check: false }`.
-   */
   exec(
     command:
       | string
@@ -146,7 +116,6 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
       typeof command === "string"
         ? templateCommand(command, this.#fields)
         : command;
-    // The result is the command's; an output schema does not apply.
     const { output: _output, ...fields } = this.#fields;
     const untyped = new StepBuilder<I, R>(fields);
     return untyped.do(async (context) =>
@@ -154,25 +123,27 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
     ) as unknown as StepDefinition<I, CommandResult, R>;
   }
 
-  /** The body; it may return `bail(error)` for a failure the run should not retry. */
   do<X extends Ret | Bail<unknown>>(
     fn: StepFn<I, X>
   ): StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R> {
-    const { config, description, input, name, output, site } = this.#fields;
-    const identity = identify("step", name, site);
-    const definition = lockable<
-      StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R>
-    >({
-      ...(config === undefined ? {} : { config }),
-      ...(description === undefined ? {} : { description }),
-      fn,
-      ...identity.fields,
-      ...(input === undefined ? {} : { input }),
-      kind: "step",
-      ...(output === undefined ? {} : { output }),
+    const { config, description, input, name, output, scope, site } =
+      this.#fields;
+    return (scope ?? now)(() => {
+      const identity = identify("step", name, site);
+      const definition = lockable<
+        StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R>
+      >({
+        ...(config === undefined ? {} : { config }),
+        ...(description === undefined ? {} : { description }),
+        fn,
+        ...identity.fields,
+        ...(input === undefined ? {} : { input }),
+        kind: "step",
+        ...(output === undefined ? {} : { output }),
+      });
+      declaringCatalog().define(definition, identity.inferred);
+      return definition;
     });
-    catalog.define(definition, identity.inferred);
-    return definition;
   }
 }
 
@@ -215,6 +186,7 @@ function templateCommand(
 export function step(name?: string): StepBuilder {
   return new StepBuilder({
     ...(name === undefined ? {} : { name }),
+    scope: captureScope(),
     site: callSite(),
   });
 }
@@ -224,21 +196,30 @@ export class WorkflowBuilder<I = Empty, R = Empty> {
   readonly #site: CallSite | undefined;
   readonly #description: string | undefined;
   readonly #input: StandardSchemaV1 | undefined;
+  readonly #scope: Scope;
 
   constructor(
     name?: string,
     site?: CallSite,
     description?: string,
-    input?: StandardSchemaV1
+    input?: StandardSchemaV1,
+    scope: Scope = now
   ) {
     this.#name = name;
     this.#site = site;
     this.#description = description;
     this.#input = input;
+    this.#scope = scope;
   }
 
   describe(text: string): WorkflowBuilder<I, R> {
-    return new WorkflowBuilder(this.#name, this.#site, text, this.#input);
+    return new WorkflowBuilder(
+      this.#name,
+      this.#site,
+      text,
+      this.#input,
+      this.#scope
+    );
   }
 
   input<S extends StandardSchemaV1>(
@@ -248,17 +229,19 @@ export class WorkflowBuilder<I = Empty, R = Empty> {
       this.#name,
       this.#site,
       this.#description,
-      schema
+      schema,
+      this.#scope
     );
   }
 
-  /** Setup: prepares things and returns the tree. Not durable. */
   do<O>(setup: SetupFn<I, O>): WorkflowDefinition<I, O, R> {
-    return finishWorkflow<I, O, R>(
-      identify("workflow", this.#name, this.#site),
-      this.#description,
-      this.#input,
-      setup
+    return this.#scope(() =>
+      finishWorkflow<I, O, R>(
+        identify("workflow", this.#name, this.#site),
+        this.#description,
+        this.#input,
+        setup
+      )
     );
   }
 }
@@ -276,7 +259,7 @@ function finishWorkflow<I, O, R = I>(
     kind: "workflow",
     setup,
   });
-  catalog.define(definition, identity.inferred);
+  declaringCatalog().define(definition, identity.inferred);
   return definition;
 }
 
@@ -296,7 +279,13 @@ export function workflow(
   const site = callSite();
   const tree = typeof first === "string" ? second : first;
   if (tree === undefined) {
-    return new WorkflowBuilder(name, site);
+    return new WorkflowBuilder(
+      name,
+      site,
+      undefined,
+      undefined,
+      captureScope()
+    );
   }
   const identity = identify("workflow", name, site);
   if (typeof tree === "function") {
@@ -309,3 +298,5 @@ export function workflow(
   }
   return finishWorkflow(identity, undefined, undefined, () => tree);
 }
+
+observable(workflow, RUNS);

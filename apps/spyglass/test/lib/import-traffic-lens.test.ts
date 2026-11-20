@@ -20,7 +20,6 @@ describe("the import-traffic lens", () => {
           { source: "ui/b.ts", target: "core/x.ts" },
           { source: "ui/a.ts", target: "core/y.ts" },
           { source: "ui/a.ts", target: "core/x.ts" },
-          // Within one package, and to a file in no package: left out.
           { source: "ui/a.ts", target: "ui/b.ts" },
           { source: "ui/a.ts", target: "elsewhere.ts" },
           { source: "core/x.ts", target: "ui/a.ts" },

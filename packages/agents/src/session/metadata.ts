@@ -10,14 +10,6 @@ export type RawMessageMetadata = {
 
 export type RawUsage = SessionUsage;
 
-/**
- * Project a store's raw metadata blob onto the canonical {@link MessageMetadata},
- * deep-picking exactly the known model / usage / timing / output fields and dropping the
- * rest. Store-agnostic: every persistent backend reads back the same canonical
- * shape, including the harness environment identity, so this normalization
- * lives here once rather than being re-implemented in each adapter. Returns
- * `undefined` for an absent blob.
- */
 export function normalizeMessageMetadata(
   raw: RawMessageMetadata | null | undefined
 ): MessageMetadata | undefined {
@@ -66,11 +58,6 @@ export function normalizeMessageMetadata(
   return metadata;
 }
 
-/**
- * Narrow the AI SDK's turn usage to {@link SessionUsage}. Absent counts read
- * as zero, a missing total as input plus output, and the cache and reasoning
- * details are kept only when non-zero.
- */
 export function normalizeUsage(usage: LanguageModelUsage): SessionUsage {
   const inputTokens = usage.inputTokens ?? 0;
   const outputTokens = usage.outputTokens ?? 0;

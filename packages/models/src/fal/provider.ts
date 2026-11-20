@@ -13,12 +13,7 @@ import { falMediaModel } from "./media";
 
 export interface FalProviderConfig {
   apiKey?: string;
-  /** Injection seam for the token mint and result downloads. */
   fetch?: FalFetch;
-  /**
-   * When set, `grant` hands back this URL instead of minting a token. The
-   * single switch behind the decided proxy fallback; no proxy is built here.
-   */
   proxyUrl?: string;
 }
 
@@ -28,11 +23,6 @@ export interface FalProviderOptions {
   models?: ProviderModelDefinition[];
 }
 
-/**
- * Live access for the key-owning process itself: the configured client rides
- * on the access, so only a holder of the key can construct one. `grant` never
- * produces it; it is for opening a live interaction in this process.
- */
 export function falCredentialAccess(apiKey: string): LiveAccess {
   return {
     client: createFalClient({ credentials: apiKey }),
@@ -40,12 +30,6 @@ export function falCredentialAccess(apiKey: string): LiveAccess {
   };
 }
 
-/**
- * FAL. Request-mode image, video, speech, and transcription run through the AI
- * SDK adapter; segmentation, music, and sound effects run through the native
- * client behind `mediaModel`; live access is a grant. The key lives here and
- * nowhere else.
- */
 export function falProvider(options: FalProviderOptions = {}): Provider {
   const vendor = vendorClient(options.config ?? {}, (config) => ({
     runtime: runtimeFor(config),
@@ -68,9 +52,6 @@ export function falProvider(options: FalProviderOptions = {}): Provider {
         runtime: vendor.client.runtime,
       }),
     id: options.id ?? "fal",
-    // `createFal()` names these `speech` and `transcription`, not the
-    // `ProviderV4` optional `speechModel`/`transcriptionModel`, so `fromSdk`
-    // would type-check and then drop both kinds. They are mapped by hand.
     imageModel: (modelId) => vendor.client.sdk.imageModel(modelId),
     languageModel: () => {
       throw modelErrors.CAPABILITY_UNSUPPORTED({
@@ -91,8 +72,6 @@ export function falProvider(options: FalProviderOptions = {}): Provider {
 
 function sdkSettings(config: FalProviderConfig) {
   return {
-    // The adapter falls back to FAL_API_KEY/FAL_KEY when this is undefined;
-    // an empty string keeps an unkeyed provider from borrowing the ambient one.
     apiKey: config.apiKey ?? "",
   };
 }

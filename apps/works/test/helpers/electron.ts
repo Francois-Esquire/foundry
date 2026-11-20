@@ -49,7 +49,6 @@ export async function captureThemes(
           ),
         "Theme did not update"
       );
-      // Guest views render in another process; let its compositor finish the theme frame.
       await delay(100);
       const screenshot = await window.webContents.capturePage();
       await writeFile(

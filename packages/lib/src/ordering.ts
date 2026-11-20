@@ -1,4 +1,3 @@
-/** Compare string keys by UTF-16 code units, independent of locale. */
 export function byCodeUnit<T>(
   key: (value: T) => string
 ): (a: T, b: T) => number {

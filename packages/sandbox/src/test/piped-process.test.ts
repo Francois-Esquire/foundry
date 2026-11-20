@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 import { createContainers } from "../container/containers";
 import { prepareSandboxProcess } from "../process";
 import { ProcessController } from "../process-controller";
-import { createMemoryContainerStore } from "../store/memory";
+import { MemoryContainerStore } from "../store/memory";
 import { createFakeContainerRuntime } from "../testing";
 
 it("exchanges binary input and separate output through the container process facet", async () => {
@@ -20,7 +20,7 @@ it("exchanges binary input and separate output through the container process fac
         return process;
       },
     }),
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
   });
   const container = await containers.start({
     format: "foundry.sandbox.container/1",
@@ -66,7 +66,6 @@ it("queues stdin across an asynchronous launch and preserves deferred output", a
   const output = Array.fromAsync(child.stdout);
   child.stderr.resume();
   gate.resolve();
-  // Vitest's deep equality takes about a second on a MiB; Buffer.equals does not.
   const received = Buffer.concat(await output);
   expect(received.byteLength).toBe(data.byteLength);
   expect(received.equals(data)).toBe(true);

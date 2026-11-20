@@ -8,7 +8,6 @@ import type {
   WorkspaceModuleGraph,
 } from "./types";
 
-/** The subset of `Boundary` gravity needs; kept structural for testability. */
 export interface GravityBoundary {
   packageName?: string | undefined;
   relPath: string;
@@ -45,14 +44,12 @@ export function buildAdjacency(
   return { into, nodes: nodeList, out };
 }
 
-/** Unique nodes reachable from `start` (excluding itself); cycle-safe BFS. */
 export function reachableCount(
   start: string,
   adjacency: Map<string, Set<string>>
 ): number {
   const visited = new Set([start]);
   const queue = [start];
-  // for-of sees elements appended during iteration, so this drains the queue
   for (const current of queue) {
     for (const next of adjacency.get(current) ?? []) {
       if (visited.has(next)) {
@@ -65,7 +62,6 @@ export function reachableCount(
   return visited.size - 1;
 }
 
-/** Iterative post-order finish times over out-edges (Kosaraju pass one). */
 function finishOrder(graph: Adjacency): string[] {
   const visited = new Set<string>();
   const order: string[] = [];
@@ -103,16 +99,12 @@ function finishOrder(graph: Adjacency): string[] {
 }
 
 export interface Condensation {
-  /** Node → its strongly connected component's id. */
   componentOf: Map<string, string>;
-  /** Component-level DAG in the dependent direction. */
   into: Map<string, Set<string>>;
-  /** Component-level DAG in the dependency direction. */
   out: Map<string, Set<string>>;
   size: Map<string, number>;
 }
 
-/** Kosaraju SCCs plus the acyclic component-level graph in both directions. */
 export function condense(graph: Adjacency): Condensation {
   const componentOf = new Map<string, string>();
   const size = new Map<string, number>();
@@ -159,10 +151,6 @@ export function condense(graph: Adjacency): Condensation {
   return { componentOf, into, out, size };
 }
 
-/**
- * Longest path length (in edges) starting from each node. `adjacency` must be
- * acyclic — it is only ever the SCC condensation.
- */
 export function longestPathLengths(
   adjacency: Map<string, Set<string>>
 ): Map<string, number> {
@@ -196,9 +184,7 @@ export function longestPathLengths(
 export interface MeasuredGraph {
   adjacency: Adjacency;
   condensation: Condensation;
-  /** Longest dependent chain per component (downstream depth). */
   downstream: Map<string, number>;
-  /** Longest dependency chain per component (upstream depth). */
   upstream: Map<string, number>;
 }
 
@@ -270,11 +256,6 @@ function concentration(
     .sort((a, b) => b.edges - a.edges || a.module.localeCompare(b.module));
 }
 
-/**
- * Which workspace package each module belongs to (the target by boundary,
- * others by owner), and the module edges between owned modules. Modules
- * owned by no package are left out.
- */
 export function workspacePackages(
   graph: WorkspaceModuleGraph,
   boundary: GravityBoundary
@@ -299,12 +280,6 @@ export function workspacePackages(
   return { moduleEdges, packageOf };
 }
 
-/**
- * Dependency gravity over the workspace-wide module graph: fan-in/out,
- * cycle-safe transitive reach, condensation depth, and cycle membership for
- * the target package and each of its modules. Modules owned by no workspace
- * package (`"<root>"`) are excluded.
- */
 export function analyzeDependencyGravity(
   graph: WorkspaceModuleGraph,
   boundary: GravityBoundary,

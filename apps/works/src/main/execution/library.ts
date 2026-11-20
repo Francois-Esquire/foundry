@@ -21,7 +21,7 @@ export function routeModuleLibrary(
       added(
         await execution.dispatch(WORKS_TASKS.create, {}, async (context) => {
           const module = await library.create(name);
-          observeResult(context, OBSERVATION.create, {
+          await observeResult(context, OBSERVATION.create, {
             artifactId: module.artifactId,
             moduleId: module.id,
           });
@@ -32,7 +32,7 @@ export function routeModuleLibrary(
       added(
         await execution.dispatch(WORKS_TASKS.import, {}, async (context) => {
           const module = await library.importPackage(encoded);
-          observeResult(context, OBSERVATION.import, {
+          await observeResult(context, OBSERVATION.import, {
             artifactId: module.artifactId,
             moduleId: module.id,
           });

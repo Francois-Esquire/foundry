@@ -97,7 +97,6 @@ describe("structural terrain", () => {
   it("leaves two islands without shared dependencies on open abyss", () => {
     const field = terrain([island("a", -200), island("b", 200)]);
     const middle = terrainAt(field, field.surface.elevation, 0, 0);
-    // Only the exponential tail of each island's own descent remains.
     expect(middle).toBeCloseTo(terrainLevels.abyss, 2);
     expect(terrainAt(field, field.surface.shelf, 0, 0)).toBe(0);
     expect(terrainAt(field, field.surface.basement, 0, 0)).toBe(0);
@@ -131,7 +130,6 @@ describe("structural terrain", () => {
     if (!(first && second)) {
       throw new Error("Missing contributions");
     }
-    // At b, both groups are full; the shelf counts both groups' dependencies.
     expect(contributionAt(field, first, 0, 45)).toBeCloseTo(1, 3);
     expect(contributionAt(field, second, 0, 45)).toBeCloseTo(1, 3);
     expect(terrainAt(field, field.surface.shelf, 0, 45)).toBeCloseTo(5, 3);
@@ -141,7 +139,6 @@ describe("structural terrain", () => {
     );
     expect(terrainAt(field, focused.shelf, 0, 45)).toBeCloseTo(2, 3);
     expect(terrainAt(field, focused.shelf, 160, 45)).toBe(0);
-    // Each keeps its own boundary; one union would have erased which is which.
     expect(contributionBoundary(field, first).length).toBeGreaterThan(0);
     expect(contributionBoundary(field, first)).not.toEqual(
       contributionBoundary(field, second)
@@ -167,7 +164,6 @@ describe("structural terrain", () => {
     const low = terrainAt(field, field.surface.elevation, -200, 70);
     expect(high - low).toBeGreaterThan(0.25);
     expect(Math.min(...along)).toBeLessThan(low);
-    // The shallow shelf's face drops most of its height within 40 units.
     const edge = along.findIndex(
       (elevation, i) => i > 30 && elevation > low + 0.8 * (high - low)
     );
@@ -221,11 +217,9 @@ describe("structural terrain", () => {
     expect(terrainAt(field, field.surface.basement, 85, 0)).toBeGreaterThan(1);
     expect(near).toBeGreaterThan(terrainLevels.abyss + 0.1);
     expect(near).toBeLessThanOrEqual(terrainLevels.basementTop);
-    // The basement centres on the supplier and reaches more weakly under dependents.
     expect(terrainAt(field, field.surface.basement, 0, 45)).toBeGreaterThan(
       terrainAt(field, field.surface.basement, -170, 55)
     );
-    // An unrelated island sits in a recess, not on the basement.
     const recess = terrainAt(field, field.surface.basement, 0, -190 + 50);
     expect(recess).toBeLessThan(
       terrainAt(field, field.surface.basement, 0, -190 + 120)
@@ -240,7 +234,6 @@ describe("structural terrain", () => {
       field.compose({ foundations: false })
     );
     const full = terrainSilhouette(field);
-    // Without the shelf, a and b are separate; with it they share one outline.
     expect(bare).toHaveLength(3);
     expect(full.length).toBeLessThan(bare.length);
     expect(area(field, full)).toBeGreaterThan(area(field, bare));
@@ -293,7 +286,6 @@ describe("structural terrain", () => {
       if (land !== (field.signedDistance[index] ?? 0) < 0) {
         misplacedCoast += 1;
       }
-      // Lowering the water only uncovers land; it never moves or reshapes it.
       if (land && height <= 0) {
         submerged += 1;
       }
@@ -306,7 +298,6 @@ describe("structural terrain", () => {
     }
     expect([misplacedCoast, submerged, both]).toEqual([0, 0, 0]);
     expect(added).toBeGreaterThan(0);
-    // The land reading's coast is the ocean reading's depth contour at that level.
     const [contour] = depthContours(field, [-0.7]);
     expect(contour?.length).toBeGreaterThan(0);
   });

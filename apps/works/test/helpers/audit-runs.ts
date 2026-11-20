@@ -13,7 +13,7 @@ export function fixtureAudit() {
   const audit = new ExecutionAudit({
     runs: {
       gaps: () => state.gaps as never,
-      subscribe: (listener) => {
+      subscribe: async (listener) => {
         listeners.add(listener as never);
         return {
           snapshot: [...state.runs.values()] as never,

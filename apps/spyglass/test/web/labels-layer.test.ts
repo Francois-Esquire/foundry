@@ -39,7 +39,6 @@ import {
 import { twoIslands as data } from "../helpers/island-fixture";
 import { recordStyleWrites } from "../helpers/style-writes";
 
-/** The composition with only `shown` on. */
 const only = (...shown: SceneLayerId[]): SceneComposition => ({
   "chart-frame": shown.includes("chart-frame"),
   coordinates: shown.includes("coordinates"),
@@ -48,7 +47,6 @@ const only = (...shown: SceneLayerId[]): SceneComposition => ({
   "sea-caption": shown.includes("sea-caption"),
 });
 
-/** Placement is under test, so the labels and the ruler the app bar starts hidden are drawn. */
 const everyLayer = {
   ...defaultChartSettings,
   composition: only(
@@ -60,7 +58,6 @@ const everyLayer = {
   ),
 };
 
-/** A measure every test can predict: 0.55 em a character, the baseline 0.8 em down. */
 const metrics: TextMetrics = {
   baseline: () => 0.8,
   dispose: vi.fn(),
@@ -69,13 +66,6 @@ const metrics: TextMetrics = {
 
 const viewport = { height: 400, width: 600 };
 
-/**
- * An orthographic camera over a 600 × 400 viewport looking at the chart's
- * origin, tilted off the vertical by `tilt`, at the pixels per unit asked
- * for: the view as the labels read it, and the projection the map hands
- * them. A chart point (y south) at a height moves up the screen as it
- * rises, as a camera looking south and down sees it.
- */
 function cameraAt(pixelsPerUnit: number, tilt = chartTilt) {
   const view: InkView = {
     height: viewport.height / pixelsPerUnit / Math.cos(tilt),
@@ -85,9 +75,7 @@ function cameraAt(pixelsPerUnit: number, tilt = chartTilt) {
     x: 0,
     y: flatMarkHeight * Math.tan(tilt),
   };
-  /** How far the camera has moved east since, in chart units. */
   const pan = { x: 0 };
-  /** A chart point (y south) at a height, on screen. */
   const screen = (x: number, y: number, z: number) => ({
     x: viewport.width / 2 + (x - pan.x) * pixelsPerUnit,
     y:
@@ -162,8 +150,6 @@ it("builds the chart as a section of islands, names each for assistive technolog
   expect(root.getAttribute("aria-label")).toBe("Chart");
   expect(layer.id).toBe("labels");
   expect(layer.kind).toBe("labels");
-  // The stylesheet scopes every label rule to this class: the layer's
-  // class names are plain words the sheets use for prose too.
   expect(root.className).toBe("spyglass-labels");
   layer.update(view, state, 0);
   const islands = [...root.querySelectorAll(".spyglass-islands > li")];
@@ -171,12 +157,10 @@ it("builds the chart as a section of islands, names each for assistive technolog
     "Island, package, 2 files",
     "Other, package, 0 files",
   ]);
-  // Only a visibly placed island name is a keyboard target.
   expect(islands.map((item) => item.getAttribute("tabindex"))).toEqual([
     "0",
     "-1",
   ]);
-  // The island's name is placed; the other island's lies east of the view.
   const [placed] = published;
   assert(placed);
   expect(placed.map((each) => each.text)).toEqual(["Island"]);
@@ -191,14 +175,12 @@ it("builds the chart as a section of islands, names each for assistive technolog
   expect(name.textContent).toBe("Island2 FILES");
   expect(name.style.fontSize).toBe(`${label.height * 2}px`);
   expect(name.style.color).toBe(inks.label);
-  // Lettered at its anchor's projection: the top-left is the baseline centre less half the width and the squashed baseline.
   const size = label.height * 2;
   const width = Math.max(label.width * 2, label.caption.length * 0.55 * 9.5);
   const anchor = screen(label.x, label.y, label.z);
   expect(name.style.transform).toBe(
     `translate(${Math.round(anchor.x - width / 2)}px, ${Math.round(anchor.y - 0.8 * size)}px) scaleY(1)`
   );
-  // Margin notes are hidden from assistive technology; the sea's caption is among them.
   const margin = chrome.querySelector(".spyglass-margin");
   assert(margin);
   expect(margin.querySelectorAll(".spyglass-reference").length).toBeGreaterThan(
@@ -245,7 +227,6 @@ it("lists the files labelled on the selected island under it, removes them as th
     "one.ts, file",
     "two.ts, file",
   ]);
-  // Published before anything else reads them, each frame.
   expect(state.labels).toEqual([]);
   const places: LabelPlace[] = [];
   layer.setActivation((place) => places.push(place));
@@ -269,8 +250,6 @@ it("lists the files labelled on the selected island under it, removes them as th
     },
     { territory: data.territories[0] },
   ]);
-  // Deselected, the files are no longer named, and their items go; the
-  // island's item stays, and takes the focus of the item that went.
   const before = one;
   assert(before instanceof HTMLElement && island instanceof HTMLElement);
   before.focus();
@@ -283,7 +262,6 @@ it("lists the files labelled on the selected island under it, removes them as th
   expect(root.contains(before)).toBe(false);
   expect(root.contains(island)).toBe(true);
   expect(document.activeElement).toBe(island);
-  // Named again, the same item is kept rather than made anew.
   state.selected = "island";
   layer.update(view, state, 0);
   const again = island.querySelector(".spyglass-island-labels > li");
@@ -307,7 +285,6 @@ it("sets the latitude scale in the margin, with a tick and a number for each pla
   expect(scale.style.opacity).toBe("1");
 });
 
-/** The styles that hold from frame to frame: written when an element is made, and again only when the font, the ink or the halo changes. */
 const staticStyles = new Set([
   "color",
   "fontFamily",
@@ -330,11 +307,9 @@ it("writes an element's static styles once, and again only when its ink changes;
   expect(item.style.color).toBe(inks.label);
   const nameWrites = recordStyleWrites(name);
   const itemWrites = recordStyleWrites(item);
-  // A still frame moves and sizes the elements, and letters none again.
   layer.update(view, state, 0);
   expect(itemWrites).toEqual(["opacity", "fontSize", "transform"]);
   expect(statics(nameWrites)).toEqual([]);
-  // The file selected, its name takes the selection's ink and a wider halo; the island's name is as it was.
   state.selectedFile = "one";
   layer.update(view, state, 0);
   expect(item.style.color).toBe(inks.selection);

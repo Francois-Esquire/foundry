@@ -48,22 +48,10 @@ import type {
   SymbolKind,
 } from "./types";
 
-// V12.6 package-local analysis. Everything here is a function of one
-// package's own sources and manifest: the project is an in-memory file
-// system holding exactly the package-owned files, so an import of another
-// workspace package cannot resolve and nothing outside the boundary is ever
-// read. Facts that need the rest of the workspace — who uses a symbol, how
-// far a module reaches, which concepts overlap, what history says — are
-// derived once per workspace from these reports (workspace-derive.ts).
-//
-// Invariant: an unchanged package yields a byte-identical report in any
-// workspace, under any Git history, on any day.
-
 export interface AnalyzePackageLocalOptions {
   config?: AnalysisConfig;
   root?: string;
   target: string;
-  /** Optional tsconfig whose `paths` into the package are honoured. */
   tsconfig?: string;
 }
 
@@ -102,13 +90,6 @@ function tsconfigPathsInto(
   return inside;
 }
 
-/**
- * A project holding exactly the package-owned sources, on an in-memory file
- * system at their real paths. Only the package's own aliases resolve — its
- * manifest entrypoints and the `paths` of its own tsconfig.json that point
- * inside it — so a self-import through the package name or a `~/` alias
- * works and every other workspace specifier stays unresolved by construction.
- */
 function createLocalProject(
   root: string,
   boundary: Boundary,
@@ -150,19 +131,11 @@ function isSeedKind(
 }
 
 interface BindingOccurrences {
-  /** `left.right` accesses (value or type position) per left identifier, per member. */
   members: Map<string, Map<string, number>>;
-  /** Identifier spellings per name, skipping import and export declarations. */
   names: Map<string, number>;
-  /** Wiring uses per name; only names with at least one. */
   uses: Map<string, PackageLocalBindingUses>;
 }
 
-/**
- * The wiring use of one identifier reference, read from its parent once a
- * member chain rooted at it is folded in. A member name (`obj.X`) is not a
- * reference of `X`.
- */
 function bindingUseOf(node: Node): keyof PackageLocalBindingUses | undefined {
   let head: Node = node;
   let parent = head.getParent();
@@ -251,12 +224,6 @@ function bindingOccurrences(file: SourceFile): BindingOccurrences {
   return { members, names, uses };
 }
 
-/**
- * Each module's `default` export resolved to an owned top-level declaration,
- * following ts-morph's alias resolution (`export default Foo`, `export { Foo
- * as default }`, `export { default } from`). Anonymous and expression
- * defaults yield an entry with no id.
- */
 function collectDefaultExports(
   project: Project,
   boundary: Boundary,
@@ -278,11 +245,6 @@ function collectDefaultExports(
   return defaults.sort((a, b) => a.module.localeCompare(b.module));
 }
 
-/**
- * The V7 sweep's evidence folded per concept and module: only the package's
- * own files are in the project, so this is the part of each concept's
- * structural family that lives inside the package.
- */
 function collectConceptParticipation(
   group: ConceptSeedGroup
 ): PackageLocalConceptParticipation[] {
@@ -392,7 +354,6 @@ function initializerOf(node: Node): PackageLocalInitializer {
   return "other";
 }
 
-/** The leftmost identifier of a call or member chain. */
 function rootIdentifier(node: Node): Node | undefined {
   let current: Node = node;
   for (;;) {
@@ -419,7 +380,6 @@ function rootIdentifier(node: Node): Node | undefined {
   }
 }
 
-/** The leftmost identifier of a (possibly qualified) type name or `typeof` expression name. */
 function leftmostName(node: Node): Node | undefined {
   let current: Node = node;
   while (Node.isQualifiedName(current)) {
@@ -524,12 +484,6 @@ function memberCountsEntries(
   return { methods, properties };
 }
 
-/**
- * Each collected symbol's declaration shape plus its own V7 relationships to
- * local seeds. Local identities named by an annotation, a `typeof` query, or
- * a call's root are resolved through the checker; an external callee keeps
- * the import specifier that bound it.
- */
 function collectDeclarations(
   collected: CollectedSymbol[],
   group: ConceptSeedGroup

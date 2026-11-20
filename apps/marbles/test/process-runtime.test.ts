@@ -16,7 +16,6 @@ import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
 let workspace: string;
 let scripts: string;
 
-/** A script that prints what Bun loaded from the workspace's `.env`, if anything. */
 function probe(shebang: string): string {
   const path = join(scripts, `probe-${Math.random().toString(36).slice(2)}`);
   writeFileSync(
@@ -125,8 +124,8 @@ it("refuses the MCP server when Bun loaded a workspace .env, and starts it as do
   expect(flagged.stdout).toContain("mcp   ");
 }, 30_000);
 
-it("refuses a worker started without the flag beside a workspace .env", () => {
-  const ran = spawnSync(runtime(), [resolve("src/process/worker.ts")], {
+it("refuses a generation started without the flag beside a workspace .env", () => {
+  const ran = spawnSync(runtime(), [resolve("src/process/generation.ts")], {
     cwd: workspace,
     encoding: "utf8",
   });

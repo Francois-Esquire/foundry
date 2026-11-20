@@ -20,7 +20,6 @@ function aggregate(p95: number, max: number): MetricAggregate {
   return { average: 0, distribution: { max, p50: 0, p90: 0, p95 }, total: 0 };
 }
 
-/** A function with 6 control-flow decisions: exactly the branch-heavy bar. */
 function branchHeavyFunction(index: number): FunctionComplexity {
   return {
     exported: false,
@@ -74,7 +73,6 @@ function moduleGravity(
 }
 
 interface BoundaryOptions {
-  /** Declaring modules as [name, importSites]; share derives from the total. */
   destinations?: [string, number][];
   from?: string;
   importSites: number;
@@ -421,7 +419,6 @@ describe("internal structure pressure", () => {
           reExports: 0,
         },
       },
-      // Test infrastructure with high fan-in is not an internal center.
       moduleGravity("packages/t/src/tests/setup.ts", 80, 5, 14),
     ];
     expect(

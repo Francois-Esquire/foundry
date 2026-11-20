@@ -1,36 +1,10 @@
 "use strict";
-/**
- * The viewer's layer direction. The leaves
- * import only leaves above them in the order data, settings, view, ladder;
- * `layout/` imports leaves and layout; `interaction/` imports those and
- * itself; `islands-host/`, the bridge to the Islands renderer, imports
- * those and itself, and only its `islands-api.ts` imports the renderer;
- * the one exception is the copy's `lab/params.ts`, the framework-free
- * vocabulary settings are declared in (`defineParams`, the group layout),
- * which `settings/` and `ui/` import directly;
- * `ui/` sees everything; `islands/`, the
- * renderer's synced copy, owned by another repository, is unrestricted
- * here; `main.tsx` is the entry nothing imports, and
- * `timings.ts`, the load and stage instrumentation, is read by any layer.
- * Both of those are the only modules directly under `src/web`. The library
- * under `src/lib` is below every layer, as it is for the data leaf.
- * Type-only imports count, so a type that would cross the direction moves
- * to the right layer instead.
- *
- * `test/lib/layers.test.ts` checks them.
- */
 
-// Computational preparation stays usable in scans and browsers. read.ts and
-// write.ts are adapters; storage and renderer dependencies do not belong here.
 const pureVisualization =
   "^src/lib/visualization/(affinity|coast-collision|distance-field|scanline-fill|foundations|geography|geology|groups|island-geometry|prepare|sea-stacks|terrain|types)\\.ts$";
 
 const timings = "^src/web/timings\\.ts$";
 
-/**
- * The settings vocabulary in the renderer's synced copy: schema types and
- * pure functions, no renderer code. Settings are declared in it.
- */
 const params = "^src/web/islands/lab/params\\.ts$";
 
 const layer = (name, allowed, files = []) => ({

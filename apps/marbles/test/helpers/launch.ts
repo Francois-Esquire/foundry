@@ -12,7 +12,6 @@ export function bindLaunch(bindings: Bindings): void {
   bound = bindings;
 }
 
-/** A definition a test launches by hand; the engine only ever holds named ones. */
 export function named(definition: AnyDefinition): NamedDefinition {
   if (!isNamed(definition)) {
     throw new Error("only named definitions can be launched");
@@ -20,11 +19,6 @@ export function named(definition: AnyDefinition): NamedDefinition {
   return definition;
 }
 
-/**
- * Run a named definition outside the engine against the bindings last given
- * to `bindLaunch`, then close what the run opened. The caller states the
- * output type it expects, as with `engine.run`.
- */
 export async function launch<O = unknown>(
   definition: AnyDefinition,
   input: unknown = {}

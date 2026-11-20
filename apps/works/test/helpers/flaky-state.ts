@@ -1,57 +1,32 @@
-import { InMemoryStateStore, JsonStateStore } from "@foundry.sh/marbles/engine";
+import type { ExecutionStore, ExecutionView } from "@foundry.sh/marbles/engine";
 
-type Write = InMemoryStateStore["write"];
-type Append = InMemoryStateStore["append"];
-
-function carriesResult(
-  collection: Parameters<Write>[0],
-  value: Parameters<Write>[2]
-): boolean {
-  if (collection === "observations") {
-    const { observation } = value as { observation?: { kind: string } };
-    return observation?.kind === "result";
-  }
-  const { observations = [] } = value as {
-    observations?: { kind: string }[];
-  };
-  return (
-    collection === "executions" &&
-    observations.some((observation) => observation.kind === "result")
-  );
-}
-
-export class FlakyStateStore extends InMemoryStateStore {
+/** Fail result evidence at the real store boundary, including transactions. */
+export class FlakyExecutionStore {
   failing = false as boolean;
 
-  override append(...[collection, key, entry]: Parameters<Append>): void {
-    if (this.failing && carriesResult(collection, entry)) {
-      throw new Error("disk full");
-    }
-    super.append(collection, key, entry);
-  }
-
-  override write(...[collection, key, value]: Parameters<Write>): void {
-    if (this.failing && carriesResult(collection, value)) {
-      throw new Error("disk full");
-    }
-    super.write(collection, key, value);
-  }
-}
-
-export class FlakyJsonStateStore extends JsonStateStore {
-  failing = false as boolean;
-
-  override append(...[collection, key, entry]: Parameters<Append>): void {
-    if (this.failing && carriesResult(collection, entry)) {
-      throw new Error("disk full");
-    }
-    super.append(collection, key, entry);
-  }
-
-  override write(...[collection, key, value]: Parameters<Write>): void {
-    if (this.failing && carriesResult(collection, value)) {
-      throw new Error("disk full");
-    }
-    super.write(collection, key, value);
+  wrap(inner: ExecutionStore): ExecutionStore {
+    const view = <T extends ExecutionView>(target: T): T =>
+      new Proxy(target, {
+        get: (object, key) => {
+          if (key === "observe") {
+            return (...args: Parameters<ExecutionView["observe"]>) => {
+              if (this.failing && args[1].kind === "result") {
+                return Promise.reject(new Error("disk full"));
+              }
+              return object.observe(...args);
+            };
+          }
+          const value = Reflect.get(object, key);
+          return typeof value === "function" ? value.bind(object) : value;
+        },
+      });
+    const guarded = view(inner);
+    return new Proxy(guarded, {
+      get: (object, key) =>
+        key === "transaction"
+          ? <T>(work: (store: ExecutionView) => Promise<T>) =>
+              inner.transaction((store) => work(view(store)))
+          : Reflect.get(object, key),
+    });
   }
 }

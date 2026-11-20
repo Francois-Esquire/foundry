@@ -1,54 +1,27 @@
-/** Provider-specific request and message breakpoint cache directives. */
-
-/** Structural provider-options bag (provider → key → value). */
 export type ProviderOptions = Record<string, Record<string, unknown>>;
 
-/** Provider families we have explicit cache rules for. */
 export type CacheProvider = "anthropic" | "openai" | "google";
 
 const OPENAI_REASONING_MODEL_PATTERN = /^o\d/;
 
-/**
- * What to apply, split by the two injection seams:
- *  - `request` — request-level `providerOptions` (OpenAI `promptCacheKey`,
- *    Google explicit `cachedContent`). Set on the stream/generate call.
- *  - `breakpoint` — `providerOptions` to merge onto the **anchor** message part
- *    (Anthropic `cacheControl`). Marks the cached prefix.
- */
 export interface CacheDirectives {
   breakpoint?: ProviderOptions;
   request?: ProviderOptions;
 }
 
-/** Per-agent overrides layered over the provider-family base rule. */
 interface CacheOverrides {
-  /** Anthropic ephemeral TTL; omitted when unset. */
   anthropicTtl?: "5m" | "1h";
-  /** Turn caching off for this agent/turn (emits no directives). */
   disabled?: boolean;
 }
 
 export interface CacheRuleInput {
-  /** Pre-created Google `CachedContent` resource name (explicit caching). */
   cachedContent?: string;
-  /** Model id. Its prefix is the provider family under gateway routing. */
   modelId?: string;
-  /** Per-agent overrides. */
   overrides?: CacheOverrides;
-  /** Explicit provider; used when it names a real family (not a gateway). */
   provider?: string;
-  /** Stabilizes OpenAI cache routing — typically the session id. */
   sessionId?: string;
 }
 
-/**
- * Resolve the provider family from an explicit provider or the model id.
- *
- * Under gateway routing the active `provider` is often `"gateway"` while the
- * real family is the model-id prefix (e.g. `google/gemini-3.5-flash`). So we try
- * the explicit provider first, then the model-id prefix, then the whole id.
- * Returns `null` when no known family matches.
- */
 export function resolveCacheProvider(
   input: Pick<CacheRuleInput, "provider" | "modelId">
 ): CacheProvider | null {
@@ -66,10 +39,6 @@ export function resolveCacheProvider(
   return null;
 }
 
-/**
- * The rules. Map the resolved provider family to its cache directives, applying
- * any per-agent overrides. Pure — no I/O.
- */
 export function cacheDirectivesFor(input: CacheRuleInput): CacheDirectives {
   if (input.overrides?.disabled) {
     return {};
@@ -99,11 +68,6 @@ export function cacheDirectivesFor(input: CacheRuleInput): CacheDirectives {
   return undefined as never;
 }
 
-/**
- * Merge cache directives' provider options into an existing bag without
- * clobbering sibling keys — notably the Gemini `thoughtSignature` already on a
- * tool-call part. Per-provider objects are shallow-merged.
- */
 export function mergeProviderOptions(
   base: ProviderOptions | undefined,
   add: ProviderOptions | undefined
@@ -121,7 +85,6 @@ export function mergeProviderOptions(
   return out;
 }
 
-/** Match a provider/model token to a known family, by id prefix or model name. */
 function familyFromToken(token: string): CacheProvider | null {
   const t = token.toLowerCase();
   if (t.includes("anthropic") || t.includes("claude")) {

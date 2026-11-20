@@ -1,8 +1,3 @@
-/**
- * The sea's settings, named as in `SeaParams` (sea-params.ts): bathymetry,
- * floor and flow, baked into the maps, then surface and shore, the frame's.
- * The last groups down the sidebar, after params.ts's own.
- */
 import { defineParams, param } from "../../../lab/params";
 import { DEFAULT_SEA_PARAMS, linearToHex } from "./sea-params";
 

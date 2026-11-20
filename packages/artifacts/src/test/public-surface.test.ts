@@ -29,8 +29,6 @@ describe("Artifact package public surface", () => {
   });
 
   test("carries the additive streamed-store and ranged-read vocabulary in byte terms", () => {
-    // The stream variant is a source of bytes with an optional declared length —
-    // no chunk/leaf/manifest vocabulary crosses the contract.
     expectTypeOf<{
       readonly source: AsyncIterable<Uint8Array>;
       readonly bytes?: number;

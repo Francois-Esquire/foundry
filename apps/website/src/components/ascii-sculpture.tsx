@@ -14,7 +14,6 @@ import type { SculptureShape } from "./ascii-scene";
 const AsciiScene = lazy(() => import("./ascii-scene"));
 const shapes: SculptureShape[] = ["Weave", "Stack", "Loop"];
 
-// A renderer failure must leave the server-rendered artwork and page usable.
 class SceneBoundary extends Component<
   { children: ReactNode; onFailure: () => void },
   { failed: boolean }

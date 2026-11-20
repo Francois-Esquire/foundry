@@ -11,7 +11,6 @@ export const TASK_ERROR_CODES = [
 
 export type TaskErrorCode = (typeof TASK_ERROR_CODES)[number];
 
-/** Every refusal the package makes; `code` is stable, `message` is not. */
 export class TaskError extends Error {
   readonly code: TaskErrorCode;
 

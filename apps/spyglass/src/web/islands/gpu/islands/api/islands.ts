@@ -1,17 +1,3 @@
-/**
- * The Islands renderer, framework-free: given a canvas and a chart, it
- * builds the chart's maps and draws a frame only when something changed:
- * the camera moved, a setting changed, a map rebuilt, the canvas resized,
- * the selection changed, or the waves are on. A still chart with the waves
- * off submits nothing. It never fetches: the host hands it a `Chart` and
- * replaces it with `setChart`.
- *
- * A click chooses what is under it, a building, else its island, or a
- * ring, and the pointer hovers; Escape lets go; `select` chooses by id, a
- * module (a file) too. Each pick (pick.ts) is
- * of the last frame's film at the head of the next, kept on the GPU for
- * the highlight and read back for the events and the stats.
- */
 import {
   type Frame,
   type FrameLoopHandle,
@@ -88,14 +74,11 @@ import type {
   IslandsStats,
 } from "./types";
 
-/** Every setting at its default (params.ts). */
 export const DEFAULT_ISLANDS_SETTINGS: IslandsSettings =
   defaultValues(islandsParams);
 
-/** How often the GPU timings refresh the readouts, ms. */
 const STATS_INTERVAL = 250;
 
-/** The orbit before the first chart is fitted. */
 const UNFITTED: Orbit = {
   distance: 1000,
   pitch: 1,
@@ -115,20 +98,16 @@ type Listeners = {
   [E in IslandsEvent]: Set<(value: IslandsEvents[E]) => void>;
 };
 
-/** What only exists once the GPU is up. */
 interface Running {
-  /** Chooses by id; false when that changed nothing (already chosen, or covered by the chosen building). */
   select: (id: string | null) => boolean;
   setChart: (chart: Chart) => void;
 }
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
-/** Whether the page asks for reduced motion; false where there is no page. */
 const prefersReducedMotion = () =>
   typeof matchMedia === "function" && matchMedia(REDUCED_MOTION).matches;
 
-/** An error with its kind: a failure to start is the browser's lack of WebGPU. */
 const kindOf = (error: unknown, kind: IslandsError["kind"]): IslandsError => ({
   error,
   kind,
@@ -148,20 +127,14 @@ export function createIslands(
   let gpuTimer: Timer | undefined;
   let selection: SelectionController | undefined;
   let running: Running | undefined;
-  // The chart given last, and the one drawn: the camera keeps to the
-  // drawn one, and to none before the first.
   let given = options.chart;
   let drawn: Chart | null = null;
-  // The drawn chart's buildings, from its world plan; null before the first.
   let buildings: BuildingIndex | null = null;
-  // The settings asked for last; the frame takes them up when it next runs.
   let wanted: IslandsSettings = {
     ...DEFAULT_ISLANDS_SETTINGS,
     ...options.settings,
   };
-  // Set once the host places the camera, so the first chart isn't fitted over it.
   let placed = options.view !== undefined;
-  // A choice made before the GPU is up.
   let choice: string | null | undefined;
   const listeners: Listeners = {
     error: new Set(),
@@ -183,8 +156,6 @@ export function createIslands(
     controlled
   );
   let unfocusable = focusableFor(canvas, controlled.keyboard ?? "window");
-  // The chart's banks, for ids that name a ring and the sea's depth, kept
-  // for the chart they were worked out for.
   let banked: { banks: Banks; chart: Chart } | null = null;
   const banksFor = (chart: Chart): Banks => {
     if (banked?.chart !== chart) {
@@ -197,7 +168,6 @@ export function createIslands(
       return;
     }
     if (listeners.error.size === 0) {
-      // Nobody is listening: let the page see it rather than lose it.
       reportError(failure.error);
       return;
     }
@@ -272,8 +242,6 @@ export function createIslands(
     }
     let chart = given;
     drawn = chart;
-    // The world plan: the scene's layers draw it, the zoning map is baked
-    // from it, and a click finds its buildings in it.
     const plan = (next: Chart) => {
       const planned = performance.now();
       const world = planWorld(next);
@@ -304,8 +272,6 @@ export function createIslands(
       waterMs: null,
     };
     let statsAt = 0;
-    // The last frame's main-thread time: it goes out with whatever
-    // readout is published next, never a stats event a frame.
     let frameMs: number | null = null;
     const publish = (next: Partial<IslandsStats>) => {
       stats = { ...stats, frameMs, ...next };
@@ -332,7 +298,6 @@ export function createIslands(
       });
     }
 
-    /** Rebuilds the maps the settings or the chart changed; true when any rebuilt. */
     const rebuild = (next: IslandsSettings): boolean => {
       const params = mapParamsOf(next);
       const report = chartMaps.build(chart, params);
@@ -361,11 +326,8 @@ export function createIslands(
 
     let settings = wanted;
     rebuild(settings);
-    // Set by anything that changes the picture but the camera.
     let dirty = true;
 
-    // The selection: picks of the last drawn frame, kept on the GPU, and
-    // read back for the events and the stats one at a time.
     const gpuPicker = createPicker(device, pickShader, gpuScene.film);
     gpuScene.setSelection(gpuPicker.selection, memberMasks(banks));
     const selectionController = createSelectionController(canvas, gpuPicker, {
@@ -409,11 +371,6 @@ export function createIslands(
           ? null
           : chosenOf(chart, banks, id, (building) => buildings?.byId(building))
       );
-    /**
-     * A new chart, between frames: replans the world and rebuilds every
-     * map (a build compares charts by identity). What was chosen stays
-     * chosen if the new chart has it.
-     */
     const replace = (next: Chart) => {
       if (next === chart) {
         return;
@@ -439,8 +396,6 @@ export function createIslands(
     running = {
       select,
       setChart(next) {
-        // A build submits frames of its own, which can't nest in a
-        // frame: the chart is replaced once the caller's task is done.
         queueMicrotask(() => {
           if (disposed || given !== next) {
             return;
@@ -466,9 +421,6 @@ export function createIslands(
         settings = next;
         dirty = true;
         selectionController.setEnabled(next.selection);
-        // A build encodes and submits frames of its own, which can't nest
-        // in this one: this frame draws with the maps as they stand, and
-        // the build runs once it has closed, drawing again when done.
         queueMicrotask(() => {
           if (disposed || settings !== next) {
             return;
@@ -486,7 +438,6 @@ export function createIslands(
         waveTime += dt * settings.waveSpeed;
       }
       if (!(dirty || moved || moving)) {
-        // Nothing changed: drop the frame, so nothing is submitted.
         frame.cancel();
         return;
       }
@@ -501,13 +452,10 @@ export function createIslands(
         lookOf(settings, banks, waveTime),
         spans
       );
-      // The loop would submit once this returns; submitting here (it is
-      // idempotent) lets the time count the submission too.
       frame.submit();
       const cpuMs = performance.now() - now;
       frameMs = cpuMs;
       if (!gpuTimer && now - statsAt >= STATS_INTERVAL) {
-        // Without GPU timings nothing else publishes as frames go by.
         statsAt = now;
         publish({});
       }
@@ -518,7 +466,6 @@ export function createIslands(
       try {
         tick(frame);
       } catch (error) {
-        // The loop stops on a throw, out of any caller's reach: say why.
         fail(error);
         throw error;
       }
@@ -527,9 +474,7 @@ export function createIslands(
 
   start().catch(fail);
 
-  /** The chart the camera and the heights keep to: the drawn one, else the one given. */
   const current = () => drawn ?? given;
-  // The rules the heights follow, kept for the settings and banks they were worked out for.
   let ruled: {
     banks: Banks;
     rules: HeightRules;
@@ -625,8 +570,6 @@ export function createIslands(
       return projectView(view, [x, height, y], width, tall);
     },
     select(id) {
-      // A module the reader is already looking at (its building was just
-      // clicked) keeps the camera where it is.
       let changed = true;
       if (running) {
         changed = running.select(id);

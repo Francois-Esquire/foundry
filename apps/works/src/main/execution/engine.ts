@@ -7,12 +7,13 @@ import {
   blobFiles,
   Engine,
   type ExecutionRuns,
+  type ExecutionStore,
   InMemoryArtifactStore,
   InMemorySessionStore,
   JsonArtifactStore,
-  JsonSessionStore,
+  MemoryExecutionStore,
   ModelManager,
-  type StateStore,
+  openWorkspaceDatabase,
 } from "@foundry.sh/marbles/engine";
 import { WORKS_TASKS } from "~/shared/execution";
 import {
@@ -40,9 +41,9 @@ class AbandonedRequestError extends Error {
 
 export interface WorksEngineOptions {
   readonly directory?: string;
+  readonly executionStore?: (store: ExecutionStore) => ExecutionStore;
   readonly models?: ModelManager;
   readonly print?: (line: string) => void;
-  readonly store?: StateStore;
   readonly workflows?: Pick<WorkflowRegistry, "identities">;
 }
 
@@ -55,10 +56,18 @@ export async function startWorksEngine(
 ): Promise<WorksExecution> {
   const { directory } = options;
   const print = options.print ?? (() => undefined);
+  const database =
+    directory === undefined
+      ? undefined
+      : openWorkspaceDatabase({
+          state: path.join(directory, "state"),
+          workspaceId: "foundry-works",
+        });
   try {
     if (directory !== undefined) {
       await mkdir(directory, { mode: 0o700, recursive: true });
     }
+    const keptExecutions = database?.executions ?? new MemoryExecutionStore();
     const engine = new Engine({
       artifacts:
         directory === undefined
@@ -78,21 +87,31 @@ export async function startWorksEngine(
       queues: { [SYSTEM_QUEUE]: { concurrency: Number.POSITIVE_INFINITY } },
       recoverQueued: true,
       root: directory ?? tmpdir(),
-      sessions:
-        directory === undefined
-          ? new InMemorySessionStore()
-          : new JsonSessionStore(path.join(directory, "sessions"), {
-              warn: print,
-            }),
       ...(directory === undefined
         ? {}
         : { state: path.join(directory, "state") }),
-      ...(options.store === undefined ? {} : { store: options.store }),
+      sessions: database?.sessions ?? new InMemorySessionStore(),
+      ...(database === undefined
+        ? {}
+        : {
+            activityStore: database.activityStore,
+            approvals: database.approvals,
+            automationStore: database.automations,
+            grants: database.grants,
+            records: database.records,
+            recoveryLog: database.recoveryLog,
+            runs: database.runs,
+            triggers: database.triggers,
+            usageStore: database.usage,
+          }),
+      executionStore:
+        options.executionStore?.(keptExecutions) ?? keptExecutions,
       workspaceId: "foundry-works",
     });
     const execution = new EngineExecution(
       engine,
-      options.workflows?.identities() ?? []
+      options.workflows?.identities() ?? [],
+      () => database?.close() ?? Promise.resolve()
     );
     try {
       await engine.start();
@@ -102,6 +121,7 @@ export async function startWorksEngine(
     }
     return execution;
   } catch (error) {
+    await database?.close().catch(() => undefined);
     throw new WorksEngineStartError(
       `The execution engine could not start: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error }
@@ -112,10 +132,16 @@ export async function startWorksEngine(
 class EngineExecution implements WorksExecution {
   readonly #bodies = new Map<string, RunBody<unknown>>();
   readonly #engine: Engine;
+  readonly #release: () => Promise<void>;
   readonly #tasks = new Set<string>();
   readonly runs: ExecutionRuns;
 
-  constructor(engine: Engine, tasks: readonly string[]) {
+  constructor(
+    engine: Engine,
+    tasks: readonly string[],
+    release: () => Promise<void>
+  ) {
+    this.#release = release;
     this.#engine = engine;
     this.runs = engine.executions;
     for (const name of [...Object.values(WORKS_TASKS), ...tasks]) {
@@ -221,6 +247,10 @@ class EngineExecution implements WorksExecution {
 
   async close() {
     await this.#engine.stop();
-    await this.#engine.dispose();
+    try {
+      await this.#engine.dispose();
+    } finally {
+      await this.#release();
+    }
   }
 }

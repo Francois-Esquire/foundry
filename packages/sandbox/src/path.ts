@@ -20,7 +20,6 @@ export function normalizeSandboxWorkingDirectory(path: string): string {
   }
 }
 
-/** Normalizes one sandbox-internal path without ever consulting the host. */
 export function normalizeSandboxPath(
   path: string,
   workingDirectory = DEFAULT_SANDBOX_WORKING_DIRECTORY

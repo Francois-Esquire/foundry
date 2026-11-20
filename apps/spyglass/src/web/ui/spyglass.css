@@ -97,7 +97,6 @@ h2 {
 .spyglass-map {
   position: relative;
 }
-/* Islands sizes its drawing buffer from the canvas's CSS size. */
 .spyglass-map canvas {
   display: block;
   width: 100%;
@@ -108,19 +107,6 @@ h2 {
   outline-offset: -2px;
 }
 
-/*
- * The labels layer (ui/map-labels/): every string on the chart is an element
- * over the canvas, positioned from the camera each frame. The layer takes no
- * pointer events; its items are focusable. Each text is set at line-height 1
- * and moved by its transform to its anchor, squashed by the tilt about its
- * top. The halo is a centred text stroke painted under the fill. No italic face
- * is bundled, so folder names ask the browser to synthesise one. Every rule
- * is scoped to the layer's section: its class names
- * are plain words (a note, a label, a caption) that the sheets' prose uses
- * too, and a note in a sheet must stay a paragraph. The latitude plate's
- * paper, padding and height are custom properties the margin notes set
- * once from `ui/chart-margin-layout.ts`, so the numbers live on one side.
- */
 .spyglass-labels {
   position: absolute;
   inset: 0;
@@ -203,10 +189,6 @@ h2 {
   inset: 50% 0 auto;
   text-align: center;
 }
-/*
- * The title and the legend sit at the bottom right, on the same right edge
- * as the compass above, in a bar the height of the controls at the top.
- */
 .spyglass-bottom-bar {
   position: absolute;
   right: calc(var(--chrome-inset) + env(safe-area-inset-right));
@@ -251,7 +233,6 @@ h2 {
 .spyglass-bottom-bar button:last-child {
   margin-right: 0;
 }
-/* The same short rule as between the controls at the top. */
 .spyglass-bottom-bar button + button::before {
   position: absolute;
   top: 50%;
@@ -455,12 +436,6 @@ h2 {
     animation: none;
   }
 }
-/*
- * On a wide window the sheet is a card that rises from the bar at the bottom
- * right, on the chrome's right edge, as the chart controls drop from the
- * compass at the top right. A narrow window keeps the full-width sheet with
- * its drag handle.
- */
 @media (min-width: 521px) {
   .spyglass-sheet {
     inset: auto calc(var(--chrome-inset) + env(safe-area-inset-right))

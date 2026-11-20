@@ -1,9 +1,5 @@
 import type { ModelLimits } from "../types";
 
-/**
- * Token bounds from a wire format's nullable fields. A field the source left
- * out stays absent, which reads as Unknown; `undefined` when it gave neither.
- */
 export function tokenLimits(
   maxInputTokens: number | null | undefined,
   maxOutputTokens: number | null | undefined

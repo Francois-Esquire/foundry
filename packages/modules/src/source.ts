@@ -4,20 +4,11 @@ import { decodeUtf8 } from "@foundry/lib/encoding";
 import { isPortableRelativePath } from "./manifest";
 import { MODULE_SETTING_HOST_POLICY } from "./settings";
 
-/**
- * The most Module source a host admits, whichever path it enters through
- * (a save, disk synchronization, or a proposal). Each limit names its unit;
- * these are the `authoring.source.*` settings' host ceilings, and a
- * Module's effective settings may lower them.
- */
 export const MODULE_SOURCE_LIMITS = Object.freeze({
-  /** All files together, in UTF-8 bytes. */
   maxBytes: MODULE_SETTING_HOST_POLICY["authoring.source.maxBytes"].ceiling,
-  /** One text file, in UTF-16 code units (a JavaScript string's length). */
   maxFileCodeUnits:
     MODULE_SETTING_HOST_POLICY["authoring.source.maxFileCodeUnits"].ceiling,
   maxFiles: MODULE_SETTING_HOST_POLICY["authoring.source.maxFiles"].ceiling,
-  /** One path, in UTF-16 code units. */
   maxPathCharacters:
     MODULE_SETTING_HOST_POLICY["authoring.source.maxPathCharacters"].ceiling,
 } as const);
@@ -32,10 +23,6 @@ export class ModuleSourceAdmissionError extends Error {
 
 const encoder = new TextEncoder();
 
-/**
- * Why `source` cannot be admitted, or `null` when it can. `effective` may be
- * a Module's lower effective limits; the host ceilings bind either way.
- */
 export function moduleSourceAdmissionProblem(
   source: Readonly<Record<string, string>>,
   effective: ModuleSourceLimits = MODULE_SOURCE_LIMITS
@@ -79,7 +66,6 @@ function withinCeilings(limits: ModuleSourceLimits): ModuleSourceLimits {
   };
 }
 
-/** Throws a {@link ModuleSourceAdmissionError} unless `source` is admissible. */
 export function admitModuleSource(
   source: Readonly<Record<string, string>>,
   limits: ModuleSourceLimits = MODULE_SOURCE_LIMITS

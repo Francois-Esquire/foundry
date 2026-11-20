@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 import { createSkillRegistry } from "../../skills/registry";
 import type { Skill } from "../../skills/types";
 
-// The two meta-tools ignore the call options, so a minimal stub satisfies the
-// `tool()` execute signature when invoking them directly in a test.
 const opts = { context: undefined, messages: [], toolCallId: "test" };
 
 function skill(name: string, partial: Partial<Skill> = {}): Skill {
@@ -86,7 +84,6 @@ describe("createSkillRegistry", () => {
     );
     expect(result).toContain("# Skill: audit");
     expect(result).toContain("Apply expert judgment.");
-    // The index lists file names, not their contents — content stays out of context.
     expect(result).toContain("- refs/guide.md");
     expect(result).toContain("- data.json");
     expect(result).not.toContain("the full guide body");

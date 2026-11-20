@@ -93,7 +93,6 @@ export async function executePiTool(
 async function validateToolInput(tool: Tool, input: unknown): Promise<unknown> {
   const schema = asSchema(tool.inputSchema);
   if (!schema.validate) {
-    // Zod narrows the dialect string in its JSON Schema type; unsupported dialects fail at conversion.
     const json = (await schema.jsonSchema) as Parameters<
       typeof z.fromJSONSchema
     >[0];
@@ -106,7 +105,6 @@ async function validateToolInput(tool: Tool, input: unknown): Promise<unknown> {
   return validated.value;
 }
 
-/** Only this extension is loaded; native tools may be enabled explicitly. */
 export function piExtension(
   tools: PiToolDefinition[],
   provider: string,

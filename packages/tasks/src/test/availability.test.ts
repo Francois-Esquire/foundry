@@ -91,7 +91,6 @@ describe("deriveAvailability", () => {
   });
 });
 
-/** A small deterministic generator, so a failing shape reproduces. */
 function sequence(seed: number): () => number {
   let state = seed;
   return () => {
@@ -100,7 +99,6 @@ function sequence(seed: number): () => number {
   };
 }
 
-/** Parents chosen anywhere (cycles and missing ids included), statuses mixed. */
 function shuffledSnapshot(seed: number, size: number): TaskSnapshot {
   const next = sequence(seed);
   const pick = (count: number) => Math.floor(next() * count);

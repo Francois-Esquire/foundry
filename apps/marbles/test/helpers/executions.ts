@@ -4,11 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import { catalog } from "~/authoring/catalog";
+import { DatabaseExecutionStore } from "~/database/executions";
+import { initializeDatabase, readDatabase } from "~/database/open";
+import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
+import { parseStored } from "~/lib/execution-record";
+import type { ExecutionStore } from "~/lib/execution-store";
 import type { ExecutionRun } from "~/lib/executions";
-import { JsonStateStore, type StateStore } from "~/lib/state/store";
 import { testEngine } from "./engine";
-/** Each suite owns its engines and directory; close engines before removing watched files. */
 export function executionFixture() {
   let root: string;
   const engines: Engine[] = [];
@@ -39,7 +42,6 @@ export function gate() {
   return { open: () => open(), opened };
 }
 
-/** Resolves once `check` holds, polling briefly. */
 export async function until(check: () => boolean): Promise<void> {
   const deadline = Date.now() + 3000;
   while (!check()) {
@@ -50,7 +52,6 @@ export async function until(check: () => boolean): Promise<void> {
   }
 }
 
-/** A task that records when it starts and waits for its gate. */
 export function blockingTask(
   engine: Engine,
   name: string,
@@ -72,7 +73,6 @@ export function blockingTask(
   });
 }
 
-/** A pid that has certainly exited. */
 export function exitedPid(): number {
   const { pid } = spawnSync(process.execPath, ["-e", ""]);
   if (pid === undefined) {
@@ -81,43 +81,77 @@ export function exitedPid(): number {
   return pid;
 }
 
-/** Records as a crashed process would have left them. */
-export function leftBehind(
+export async function withExecutions<T>(
   state: string,
-  pid: number,
-  runs: readonly Partial<ExecutionRun>[]
-): void {
-  const store = new JsonStateStore(state);
-  for (const [index, run] of runs.entries()) {
-    const at = new Date(Date.now() - 1000 + index).toISOString();
-    store.write("executions", run.id ?? `rn-left-${index}`, {
-      correlation: {},
-      id: `rn-left-${index}`,
-      kind: "task",
-      name: "save",
-      observations: [],
-      owner: { pid },
-      queue: "system",
-      revision: 2,
-      sequence: 1000 + index,
-      status: "queued",
-      timestamps: { queuedAt: at, updatedAt: at },
-      ...run,
-    });
+  work: (store: ExecutionStore) => Promise<T>,
+  scope = "test"
+): Promise<T> {
+  const opened = await initializeDatabase(stateDatabase(state));
+  try {
+    return await work(
+      new DatabaseExecutionStore({ database: opened.database, scope })
+    );
+  } finally {
+    opened.close();
   }
 }
 
-/** An unsettled run an exited process left, written straight to `store`. */
-export function orphan(
-  store: StateStore,
+export async function storedExecution(
+  state: string,
+  id: string,
+  scope = "test"
+): Promise<ExecutionRun | undefined> {
+  const stored = await readDatabase(stateDatabase(state), (database) =>
+    new DatabaseExecutionStore({ database, scope }).get(id)
+  );
+  return stored ? parseStored(stored) : undefined;
+}
+
+export async function seedExecution(
+  store: ExecutionStore,
+  run: ExecutionRun
+): Promise<void> {
+  await store.remove(run.id);
+  await store.create(run);
+}
+
+export async function leftBehind(
+  state: string,
+  pid: number,
+  runs: readonly Partial<ExecutionRun>[]
+): Promise<void> {
+  await withExecutions(state, async (store) => {
+    for (const [index, run] of runs.entries()) {
+      const at = new Date(Date.now() - 1000 + index).toISOString();
+      await seedExecution(store, {
+        correlation: {},
+        id: `rn-left-${index}`,
+        kind: "task",
+        name: "save",
+        observations: [],
+        owner: { pid, started: null },
+        queue: "system",
+        revision: 2,
+        sequence: 1000 + index,
+        status: "queued",
+        timestamps: { queuedAt: at, updatedAt: at },
+        ...run,
+      });
+    }
+  });
+}
+
+export async function orphan(
+  store: ExecutionStore,
   run: Partial<ExecutionRun> & { readonly id: string }
-): void {
+): Promise<void> {
   const at = new Date().toISOString();
-  store.write("executions", run.id, {
+  await seedExecution(store, {
     correlation: {},
     kind: "workflow",
     name: "flow",
-    owner: { pid: exitedPid() },
+    observations: [],
+    owner: { pid: exitedPid(), started: null },
     queue: "marbles",
     revision: 3,
     sequence: 1,

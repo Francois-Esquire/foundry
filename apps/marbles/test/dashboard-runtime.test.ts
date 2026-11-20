@@ -8,8 +8,10 @@ import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import type { Engine } from "~/lib/engine";
 import type * as Harnesses from "~/lib/harnesses";
+import { runSteps } from "~/lib/run-trace";
 import { tick } from "~/lib/schedule";
 import { dashboardSnapshot } from "~/workspace/snapshot";
+import { startEngine } from "./helpers/engine";
 
 vi.mock("~/lib/harnesses", async (importOriginal) => ({
   ...(await importOriginal<typeof Harnesses>()),
@@ -28,10 +30,6 @@ const textFields = [
   { label: "Text", name: "text", required: true, type: "text" },
 ];
 
-/**
- * A started engine over `root`; `stateDir` makes its runs survive a restart.
- * Not dry, which would persist nothing; these steps run no agent or git.
- */
 function engineIn(root: string, stateDir?: string) {
   return createEngine({
     catalog,
@@ -43,12 +41,12 @@ function engineIn(root: string, stateDir?: string) {
   }).start();
 }
 
-function view(engine: Engine) {
+async function view(engine: Engine) {
   return {
     ...options,
     definitions: engine.definitions(),
     monitors: engine.monitors(),
-    schedules: engine.schedules(),
+    schedules: await engine.schedules(),
   };
 }
 
@@ -83,10 +81,8 @@ it("projects real nested runs, logs and trigger provenance, including restored h
       throw new Error("missing fixture schedule");
     }
     await tick(engine, scheduled, { print });
-    const snapshot = dashboardSnapshot(await engine.runs(), view(engine));
+    const snapshot = dashboardSnapshot(await engine.runs(), await view(engine));
     expect(snapshot.mode).toBe("live");
-    // Anonymous `bang` is internal; the schema gives each entry its form.
-    // Declared in this test file, outside the workspace root: external.
     const declaredHere = {
       external: true,
       source: expect.stringContaining("dashboard-runtime.test.ts:"),
@@ -137,7 +133,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
     await engine.stop();
     await engine.dispose();
     engine = await engineIn(dir, dir);
-    const restored = dashboardSnapshot(await engine.runs(), view(engine));
+    const restored = dashboardSnapshot(await engine.runs(), await view(engine));
     expect(restored.runs).toEqual(snapshot.runs);
   } finally {
     await engine.stop();
@@ -177,7 +173,7 @@ it("shows a running step and cancels it on shutdown without starting queued work
     const queued = engine
       .run("wait", {}, "other")
       .catch((error: unknown) => error);
-    const snapshot = dashboardSnapshot(await engine.runs(), view(engine));
+    const snapshot = dashboardSnapshot(await engine.runs(), await view(engine));
     expect(
       snapshot.runs.find((run) => run.triggerId === "watch")?.steps[0]?.status
     ).toBe("running");
@@ -190,6 +186,48 @@ it("shows a running step and cancels it on shutdown without starting queued work
       (await engine.runs()).every((run) => run.status === "cancelled")
     ).toBe(true);
     await expect(engine.run("wait", {})).rejects.toThrow("engine is stopping");
+  } finally {
+    await engine.dispose();
+  }
+});
+
+it("shows a parked step as cancelled and keeps its completed prerequisite", async () => {
+  const prepare = step("prepare").do(() => "draft");
+  const askForReview = step("ask-review")
+    .input(z.object({ draft: z.string() }))
+    .do(({ ask, input }) => ask.question({ title: `Keep ${input.draft}?` }));
+  workflow("review").do(() => askForReview({ draft: prepare({}) }));
+
+  const engine = await startEngine({ askable: true });
+  try {
+    const run = await engine.launch("review", {});
+    const result = run.result.catch((error: unknown) => error);
+    await vi.waitFor(async () => {
+      expect((await engine.runs())[0]?.status).toBe("suspended");
+    });
+
+    await engine.cancel(run.id);
+    expect(await result).toBeInstanceOf(Error);
+    const records = await engine.runs();
+    const [record] = records;
+    if (!record) {
+      throw new Error("Expected a cancelled run");
+    }
+    const steps = [
+      {
+        children: [{ name: "draft", status: "complete" }],
+        name: "review",
+        status: "cancelled",
+      },
+    ];
+    expect(runSteps(record)).toMatchObject(steps);
+    const snapshot = dashboardSnapshot(records, await view(engine));
+    expect(snapshot.runs[0]).toMatchObject({
+      id: run.id,
+      status: "cancelled",
+      steps,
+      timing: { endedAt: expect.any(Number), startedAt: expect.any(Number) },
+    });
   } finally {
     await engine.dispose();
   }

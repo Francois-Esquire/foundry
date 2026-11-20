@@ -8,7 +8,6 @@ import { analyzeWorkspaceGraph } from "./workspace-graph";
 import { analyzeWorkspacePatterns } from "./workspace-patterns";
 import type { WorkspaceReport } from "./workspace-types";
 
-/** Attaches every derived workspace layer (V9.1 graph, V9.2 concepts, V9.3 patterns) under one policy stamp. */
 export function analyzeWorkspace(
   workspace: WorkspaceReport,
   config: AnalysisConfig = ANALYSIS_CONFIG

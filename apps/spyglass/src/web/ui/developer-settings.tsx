@@ -12,7 +12,6 @@ import type {
 } from "../view/map-contract";
 import { ParamSection } from "./settings-controls";
 
-/** Frame time is rounded so the readout does not re-render on every tick. */
 const renderStatusKey = (status: RenderStatus | null) =>
   status
     ? [
@@ -26,7 +25,6 @@ const renderStatusKey = (status: RenderStatus | null) =>
       ].join("|")
     : "";
 
-/** The renderer's status, polled while the developer controls are open. */
 function useRenderStatus(scene: RefObject<MapHandle | null>) {
   const [status, setStatus] = useState<RenderStatus | null>(
     () => scene.current?.getRenderStatus() ?? null
@@ -45,7 +43,6 @@ function useRenderStatus(scene: RefObject<MapHandle | null>) {
   return status;
 }
 
-/** A node's row as text, so the table re-renders only when a node changes: times to a tenth of a millisecond. */
 const nodeKey = (node: CompositionNode) =>
   [
     node.id,
@@ -59,7 +56,6 @@ const nodeKey = (node: CompositionNode) =>
 const compositionKey = (nodes: CompositionNode[]) =>
   nodes.map(nodeKey).join("\n");
 
-/** The composition the map describes, polled while the developer controls are open. */
 function useComposition(scene: RefObject<MapHandle | null>) {
   const [nodes, setNodes] = useState<CompositionNode[]>(
     () => scene.current?.describe() ?? []
@@ -78,7 +74,6 @@ function useComposition(scene: RefObject<MapHandle | null>) {
   return nodes;
 }
 
-/** One node's counts as "marks 120 · batches 4"; a millisecond count keeps one decimal. */
 function countsText(counts: Record<string, number> | undefined) {
   return Object.entries(counts ?? {})
     .map(
@@ -88,11 +83,6 @@ function countsText(counts: Record<string, number> | undefined) {
     .join(" · ");
 }
 
-/**
- * The composition as one table: every node in order, with whether it is
- * drawn, its last update in milliseconds and what it holds. The GPU passes
- * have no CPU time of their own; their GPU milliseconds are in the counts.
- */
 function CompositionTable({ nodes }: { nodes: CompositionNode[] }) {
   return (
     <table className="spyglass-composition">
@@ -125,7 +115,6 @@ function LiveComposition({ scene }: { scene: RefObject<MapHandle | null> }) {
   return <CompositionTable nodes={useComposition(scene)} />;
 }
 
-/** The renderer's status in one line: the backend, any failure, and the GPU's time per frame when the device gives it. */
 export function renderStatusText(status: RenderStatus | null): string {
   if (!status) {
     return "Waiting for the map…";
@@ -150,10 +139,6 @@ function LiveRenderStatus({ scene }: { scene: RefObject<MapHandle | null> }) {
   );
 }
 
-/**
- * A developer session's readouts: what the renderer draws with, and the
- * map's composition, each node with its last update time and what it holds.
- */
 export function DeveloperSettingsSection({
   scene,
 }: {
@@ -181,11 +166,6 @@ export function DeveloperSettingsSection({
   );
 }
 
-/**
- * A developer session's controls, drawn from `sceneLayerParams` in
- * `sceneLayout`'s sections: which of the viewer's layers show over the map,
- * one at a time, where the app bar turns them on in groups.
- */
 export function SceneLayersSection({
   composition,
   onChange,

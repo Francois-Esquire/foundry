@@ -32,7 +32,6 @@ function metricLabel(metric: string): string {
 const SHARE_METRIC =
   /(Share|Reach|Concentration|Ratio|Rate|Utilization|Coverage)$/;
 
-/** Analysis emits shares as 0..1 under a few name suffixes; show those as percent. */
 export function metricValue(
   metric: string,
   value: number | string | boolean

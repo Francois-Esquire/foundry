@@ -1,11 +1,5 @@
 import { defineConfig } from "vitest/config";
 
-/**
- * Two projects, each run on purpose by its script. `unit` is the default
- * gate. `integration` installs, builds, and serves a generated Module
- * workspace with real processes, and also needs
- * FOUNDRY_RUN_GENERATED_MODULE_WORKSPACE=1.
- */
 export default defineConfig({
   test: {
     coverage: {

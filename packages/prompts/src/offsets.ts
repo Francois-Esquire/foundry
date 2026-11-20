@@ -1,17 +1,9 @@
-/**
- * Map offsets in a template's cooked text back to its raw source text. A
- * prompt is parsed cooked, so `\${` is two characters to the parser and
- * three in the file; an editor highlighting from diagnostics needs the raw
- * position. Pure, so a static tool can bundle it.
- */
-
-const HEX_ESCAPE_LENGTH = 4; // \xHH
-const UNICODE_ESCAPE_LENGTH = 6; // \uHHHH
-const BRACED_UNICODE_OPEN_LENGTH = 3; // \u{
+const HEX_ESCAPE_LENGTH = 4;
+const UNICODE_ESCAPE_LENGTH = 6;
+const BRACED_UNICODE_OPEN_LENGTH = 3;
 const ASTRAL_PLANE = 0x1_00_00;
 const UTF16_UNITS_ASTRAL = 2;
 
-/** One raw escape: how many raw characters it spans and how many cooked characters it yields. */
 function escapeAt(raw: string, at: number): { cooked: number; width: number } {
   const next = raw.charAt(at + 1);
   if (next === "\n" || next === " " || next === " ") {
@@ -29,7 +21,6 @@ function escapeAt(raw: string, at: number): { cooked: number; width: number } {
     }
     const close = raw.indexOf("}", at + BRACED_UNICODE_OPEN_LENGTH);
     if (close === -1) {
-      // Never closed: not a code point escape, so `\u` is a plain escape.
       return { cooked: 1, width: 2 };
     }
     const codepoint = Number.parseInt(
@@ -44,11 +35,6 @@ function escapeAt(raw: string, at: number): { cooked: number; width: number } {
   return { cooked: 1, width: 2 };
 }
 
-/**
- * For one raw chunk of a template, the function from a cooked offset to the
- * raw offset of the same character. The cooked length maps to the raw
- * length, so a span's `end` maps too.
- */
 export function cookedToRaw(raw: string): (cooked: number) => number {
   const table: number[] = [];
   let at = 0;
@@ -62,7 +48,6 @@ export function cookedToRaw(raw: string): (cooked: number) => number {
     for (let unit = 0; unit < sequence.cooked; unit += 1) {
       table.push(at);
     }
-    // Every escape spans at least its backslash, so the scan always advances.
     at += Math.max(sequence.width, 1);
   }
   table.push(raw.length);

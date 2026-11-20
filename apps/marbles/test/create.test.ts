@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  readFile,
   realpath,
   rm,
   writeFile,
@@ -17,9 +18,12 @@ import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
+import { DatabaseProviderStore } from "~/database/providers";
+import { stateDatabase } from "~/layout";
 import { Engine } from "~/lib/engine";
 import { RunScope } from "~/lib/run-scope";
 
+import { fakeCodex } from "./helpers/codex";
 import { testInstances } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
 
@@ -43,7 +47,7 @@ it("exposes the config directory and dry-run git through the engine's workspaces
   });
   const scope = new RunScope("runtime-test", root);
   try {
-    // Nothing is installed, yet --dry-run still echoes every harness.
+    await engine.providers?.refresh();
     expect(engine.harnesses).toEqual(["claude-code", "codex", "pi"]);
     await writeFile(join(root, "notes.md"), "initial");
     const workspaces = engine.bindings.workspaces({
@@ -58,7 +62,6 @@ it("exposes the config directory and dry-run git through the engine's workspaces
     expect(loaded.root).toBe(root);
     expect(() => workspaces.current.git).toThrow(NOT_A_REPOSITORY);
 
-    // A `.git` entry is what marks a repository; the git itself is echoed.
     await mkdir(join(root, ".git"));
     const seen = await workspaces.current.git.withWorktree(
       { base: "HEAD" },
@@ -175,7 +178,6 @@ it("declares the config to the engine it builds", () => {
     workspaceId: "ws",
   });
   expect(engine.definitions().map((entry) => entry.name)).toEqual(["count"]);
-  // The engine keeps its own registry: what it adds never reaches the config's.
   expect([...catalog.definitions.keys()]).toEqual(["count"]);
   expect(engine.has("__automation_monitor")).toBe(true);
 });
@@ -213,7 +215,9 @@ it("builds an engine over the instances a host hands in", async () => {
 });
 
 it("runs model-free work without provider configuration, and refuses a session with guidance", async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "create-unconfigured-"));
+  const root = await mkdtemp(join(tmpdir(), "create-unconfigured-"));
+  const stateRoot = join(root, "state");
+  await mkdir(stateRoot);
   const reviewer = agent({ prompt: "Review." });
   step("count").do(() => 1);
   step("review").do(async ({ agents }) => {
@@ -232,10 +236,10 @@ it("runs model-free work without provider configuration, and refuses a session w
     await engine.start();
     await expect(engine.run("count", {})).resolves.toBe(1);
     await expect(engine.run("review", {})).rejects.toThrow(
-      `No model providers are configured. Run marbles without --dry-run in a terminal to set them up, or write ${join(stateRoot, "providers.json")}.`
+      "No model providers are configured. Run marbles without --dry-run in a terminal to set them up."
     );
     await engine.providers?.add(
-      { id: "codex", plugin: "codex" },
+      { id: "codex", plugin: "codex", settings: { binPath: fakeCodex(root) } },
       { scope: "machine" }
     );
     expect(engine.providers?.list().map((entry) => entry.id)).toEqual([
@@ -244,19 +248,26 @@ it("runs model-free work without provider configuration, and refuses a session w
     expect(await readdir(stateRoot)).toEqual([]);
   } finally {
     await engine.dispose();
-    await rm(stateRoot, { force: true, recursive: true });
+    await rm(root, { force: true, recursive: true });
   }
 });
 
 it("echoes the configured providers under dry, lets a programmatic set supersede them, and gives each engine its own Airplane", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "create-configured-"));
-  await writeFile(
-    join(stateRoot, "providers.json"),
-    JSON.stringify({
-      providers: [{ enabled: true, id: "codex", plugin: "codex" }],
+  await DatabaseProviderStore.forState(stateRoot).update(undefined, () => ({
+    machine: {
+      providers: [
+        {
+          enabled: true,
+          id: "codex",
+          plugin: "codex",
+          settings: { binPath: fakeCodex(stateRoot) },
+        },
+      ],
       version: 1,
-    })
-  );
+    },
+  }));
+  const before = await readFile(stateDatabase(stateRoot));
   const base = {
     catalog,
     print: () => undefined,
@@ -267,6 +278,7 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
   const dry = createEngine({ ...base, dry: true });
   const other = createEngine({ ...base, dry: true });
   const programmatic = createEngine({ ...base, dry: false, providers: [] });
+  await Promise.all([dry, other].map((each) => each.providers?.refresh()));
   try {
     expect(dry.models.providers.map((provider) => provider.id)).toEqual([
       "codex",
@@ -282,7 +294,6 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
     expect(other.models.resolve("text", "codex/gpt-5.5").provider).toBe(
       "codex"
     );
-    // A dry session is stamped with an identity, but no key is written.
     const session = await other.agents.session({
       id: "reviewer",
       kind: "agent",
@@ -292,7 +303,12 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
     });
     await session.generate("Look.");
     expect(session.ref.instance).toEqual(expect.any(String));
-    expect(await readdir(stateRoot)).toEqual(["providers.json"]);
+    expect(
+      await DatabaseProviderStore.forState(stateRoot).identityKey(false)
+    ).toBeUndefined();
+    expect((await readFile(stateDatabase(stateRoot))).equals(before)).toBe(
+      true
+    );
   } finally {
     await Promise.all([dry.dispose(), other.dispose(), programmatic.dispose()]);
     await rm(stateRoot, { force: true, recursive: true });

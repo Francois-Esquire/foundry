@@ -1,10 +1,3 @@
-/**
- * The tree contract on real package Steps: parent last with merged input,
- * siblings independent, validation at the seams, suspension replay with
- * finished children skipped, reports and asks identified by position,
- * and cancellation reaching bodies.
- */
-
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { bail as bailWith } from "@foundry/workflows/types";
 import { Workflow } from "@foundry/workflows/workflow";
@@ -267,7 +260,6 @@ describe("trees", () => {
         ? [message.event.payload as { key: string; kind: string }]
         : []
     );
-    // The milestone repeats on each replay (three attempts); the keyed result posts once.
     expect(posts.map((post) => `${post.kind}:${post.key}`)).toEqual([
       "milestone:milestone:0",
       "milestone:milestone:0",
@@ -349,8 +341,6 @@ describe("trees", () => {
   it("a failing parallel sibling aborts the others, and the run fails only once they have stopped", async () => {
     const seen: string[] = [];
     const hang = step().do(async ({ signal }) => {
-      // Ignores its signal for a moment: the run must not read as failed
-      // while this is still going.
       await new Promise((resolve) => setTimeout(resolve, 30));
       seen.push(signal.aborted ? "stopped after the abort" : "ran");
       return "late";
@@ -364,7 +354,6 @@ describe("trees", () => {
     const flow = workflow("fails", both.parallel({ a: hang({}), b: bail({}) }));
     const { wf } = await launch(flow);
     await expect(wf.run()).rejects.toThrow("boom");
-    // The sibling had finished before the failure was reported.
     expect(seen).toEqual(["stopped after the abort"]);
     expect(wf.status).toBe("failed");
     expect(

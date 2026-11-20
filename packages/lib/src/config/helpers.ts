@@ -1,22 +1,3 @@
-/**
- * Shared helpers for `Config` and `ReactiveStore`.
- *
- * Two sets of deep-write helpers live here because the two consumers
- * disagree about what `undefined` means at a leaf:
- *
- *   - `*PreserveUndefined` — `Config` variant. Leaves an undefined leaf
- *     in place (Zod's `.optional()` will strip it on parse); the merge
- *     skips undefined entries so a partial patch doesn't accidentally
- *     clear neighbouring fields under a schema-validated prefix.
- *
- *   - `*ClearUndefined` — `ReactiveStore` variant. `undefined` at the
- *     leaf *deletes* the key, matching the flat-bag intuition that
- *     `set(path, undefined)` is the documented way to clear a leaf.
- *
- * Same shape, deliberately different semantics. Keep both — collapsing
- * them breaks one of the two contracts.
- */
-
 export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return (
     typeof v === "object" &&
@@ -43,10 +24,6 @@ export interface LeafChange {
   path: string;
 }
 
-/**
- * Yield every leaf path whose value differs between `before` and
- * `after`. Adds, removes, and changes all surface as leaf events.
- */
 export function* leafDiff(
   path: string,
   before: unknown,
@@ -69,8 +46,6 @@ export function* leafDiff(
   }
   yield { after, before, path };
 }
-
-// ── Zod-friendly variants (preserve undefined) ───────────────────────────────
 
 export function setDeepPreserveUndefined(
   value: unknown,
@@ -113,8 +88,6 @@ export function deepMergePreserveUndefined(
   }
   return out;
 }
-
-// ── Flat-bag variants (undefined clears the key) ─────────────────────────────
 
 export function setDeepClearUndefined(
   base: unknown,

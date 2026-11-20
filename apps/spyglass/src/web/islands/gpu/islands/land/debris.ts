@@ -1,12 +1,3 @@
-/**
- * The props on the shallows: pebbles, shells and now and then a sea stack,
- * as real 3D instances. `place` scatters them from the maps on the GPU
- * (shaders/land/debris/place.wgsl) whenever the maps or the densities change:
- * an atomic tally appends each kept candidate, and a finalize pass writes
- * the draws' arguments, so the CPU never reads a count back. `draw` puts
- * the bodies and the stacks' foam rings into the film with the terrain
- * (shaders/land/debris/props.wgsl).
- */
 import {
   type Compute,
   compute,
@@ -29,10 +20,6 @@ export interface DebrisShaders {
   debrisProps: ShaderSource;
 }
 
-/**
- * The maps `place` reads. Only their rebuilds move the props: a rebuilt
- * files or zoning map leaves the sea as it lies.
- */
 export const DEBRIS_MAPS = [
   "height",
   "light",
@@ -42,24 +29,16 @@ export const DEBRIS_MAPS = [
 
 type DebrisMap = (typeof DEBRIS_MAPS)[number];
 
-/** What placement keeps, per candidate. */
 export interface DebrisDensity {
-  /** Pebbles: the share of candidates on a lip, a third of it on flat floor. */
   readonly pebbles: number;
-  /** Shells: the share of candidates at the water's edge. */
   readonly shells: number;
-  /** Multiplies every prop's size. */
   readonly size: number;
-  /** Stacks per thousand square chart units of shallow plate. */
   readonly stacks: number;
 }
 
-/** What the draws read each frame. */
 export interface DebrisLight {
-  /** The baked occlusion's power, and the sun's share of it. */
   readonly occlusion: number;
   readonly occlusionSun: number;
-  /** The foam rings round the stacks, 0 for none. */
   readonly rings: number;
   readonly rock: readonly number[];
   readonly seaFill: readonly number[];
@@ -71,34 +50,24 @@ export interface DebrisLight {
   readonly sunStrength: number;
   readonly time: number;
   readonly viewProjection: Float32Array | readonly number[];
-  /** The film's size, pixels. */
   readonly viewport: readonly [number, number];
 }
 
-/** Chart units of a candidate cell: about a pebble's spacing at full density. */
 const DEBRIS_CELL = 1.25;
-/** The most props the buffer holds. */
 const DEBRIS_CAP = 65_536;
-/** vec4f per prop (shaders/land/debris/instance.wgsl). */
 const INSTANCE_VEC4S = 3;
 const BYTES_PER_VEC4 = 16;
-/** u32 of draw arguments: the bodies, then the rings. */
 const ARGS_U32S = 8;
 const RINGS_OFFSET = 16;
 const GROUP = 8;
-/** Props shrink away between these radii on screen, pixels. */
 const FADE_PIXELS = [0.45, 1.3] as const;
-/** The surf's foam (shaders/sea/shore.wgsl `FOAM`). */
 const FOAM = [0.97, 0.98, 0.96] as const;
 
 export interface Debris {
   compile: (film: Target) => Promise<void>;
-  /** Props placed, before the cap: for tests and logs. */
   count: () => Promise<number>;
   dispose: () => void;
-  /** Draws the bodies and rings into the film pass. */
   draw: (pass: FramePass, light: DebrisLight) => void;
-  /** Places the props on `textures`, encoding into `frame`. */
   place: (
     frame: Frame,
     grid: MapFrame,

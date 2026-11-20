@@ -11,49 +11,25 @@ import { collectSource } from "./source";
 import { embedUsage, resolveEmbeddingModel, runEmbed } from "./text";
 import type { EmbedSource } from "./types";
 
-/**
- * The embed pipeline: take a text {@link ChunkSource}, cut it into chunks, embed
- * each chunk, and stream out one {@link EmbeddedChunk} per chunk in order.
- *
- * Chunking is chonkie-backed (see `recursive.ts` / `semantic.ts`) and **semantic
- * by default** — boundaries fall on topic shifts rather than syntax. Because the
- * chonkie chunkers are whole-text, the source is buffered first; the streaming
- * value is the **batched embed pass**, which embeds `batchSize` chunks per
- * `embedMany` call so a large document doesn't pay per-chunk round-trips.
- *
- * **Semantic mode embeds twice.** Boundary detection embeds sentence windows
- * (internal, untracked — see {@link toEmbedFunction}); then this pipeline embeds
- * the final chunk texts (tracked telemetry, the vectors you keep). Recursive
- * mode embeds once. That second pass is the only one that surfaces here.
- */
 type ChunkMethod = "semantic" | "recursive";
 
 export interface EmbedChunksOptions {
   abortSignal?: AbortSignal;
-  /** Chunks embedded per `embedMany` call. Default 32. */
   batchSize?: number;
-  /** Maximum tokens per chunk. Default 512 (character tokenizer ⇒ ≈ chars). */
   chunkSize?: number;
-  /** Chunking strategy. Default `"semantic"`. */
   method?: ChunkMethod;
   model?: string;
   provider?: string;
   session?: AiLoggerSession;
-  /** Semantic only: sentences per sliding-similarity window. */
   similarityWindow?: number;
-  /** Semantic only: similarity-valley threshold (0–1); lower → more splits. */
   threshold?: number;
 }
 
-/** One embedded chunk: chonkie's native chunk fields plus its vector. */
 export interface EmbeddedChunk {
   dimensions: number;
-  /** Offset one past the chunk's last character in the source text. */
   endIndex: number;
-  /** Sequential position in the stream, from 0. */
   index: number;
   model: string;
-  /** Offset of the chunk's first character in the source text. */
   startIndex: number;
   text: string;
   tokenCount: number;
@@ -62,10 +38,6 @@ export interface EmbeddedChunk {
 
 const DEFAULT_BATCH_SIZE = 32;
 
-/**
- * Chunk `input` (semantic by default), embed the chunks in batches, and yield an
- * {@link EmbeddedChunk} per chunk in order.
- */
 export async function* embedChunks(
   input: ChunkSource,
   source: EmbedSource,

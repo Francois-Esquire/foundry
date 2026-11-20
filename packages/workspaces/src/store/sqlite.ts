@@ -1,6 +1,7 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { FILE_KINDS, type FileKind } from "@foundry/lib/file-classification";
 import { buildPage, pageLimit } from "@foundry/lib/pagination";
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
 import {
@@ -89,7 +90,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     let owned: WorkspaceStoreWrite;
     let unstorable: RangeError | undefined;
     try {
-      owned = structuredClone(write);
+      owned = ownedWrite(write);
       unstorable = refuseUnstorable(owned);
     } catch (error) {
       return Promise.reject(error);

@@ -6,11 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { beginTurnObservation, configureModelObservability } from "../logger";
 
-// beginTurnObservation owns the unit-of-work the model wrap can't see: a whole
-// tool-loop turn. observe() wraps the model + hands back telemetry; emit()
-// settles ONE wide event for the turn. These tests prove the wrap accumulates
-// and emit() flushes — the piece createAIMiddleware alone never did.
-
 interface AiEvent {
   ai?: { model?: string; totalTokens?: number };
   error?: { message?: string };
@@ -82,7 +77,6 @@ describe("beginTurnObservation", () => {
     });
     expect(result.text).toBe("hello world");
 
-    // The wrap only set()s; nothing is emitted until the turn owner says so.
     expect(events).toHaveLength(0);
 
     obs.emit();

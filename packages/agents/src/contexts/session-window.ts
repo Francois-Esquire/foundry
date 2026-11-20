@@ -1,4 +1,3 @@
-/** Wraps a session store and provides a separate context estimate for a turn. */
 import type { SessionMessage, SessionRecord } from "../session/types";
 import type { SessionStore, SessionStoreWrite } from "../store";
 import { effectiveLimit, resolveBudget } from "./budget";
@@ -52,15 +51,10 @@ export class SessionWindow implements SessionStore {
     return this.#store.getSession(id);
   }
 
-  /** Raw history, insertion order — the unchanged `SessionStore` contract. */
   listMessages(sessionId: string): Promise<SessionMessage[]> {
     return this.#store.listMessages(sessionId);
   }
 
-  /**
-   * Return the history and its current fit estimate for a turn. The fit
-   * currently keeps the full history unchanged.
-   */
   async windowFor(
     sessionId: string,
     model: WindowModel
@@ -77,9 +71,6 @@ export class SessionWindow implements SessionStore {
     return { budget, messages, plan };
   }
 
-  /**
-   * Store provider-reported usage for the session.
-   */
   recordUsage(sessionId: string, usage: SessionUsage): void {
     const prev = this.#state.get(sessionId);
     const velocity =

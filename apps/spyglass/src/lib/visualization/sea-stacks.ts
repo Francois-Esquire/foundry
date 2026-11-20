@@ -5,72 +5,31 @@ import { unit } from "./geography";
 import { elevationAtDepth, elevationAtHeight } from "./geology";
 import type { Polygon } from "./types";
 
-/**
- * Sea stacks: small rock pillars and islets on the shelf off an island's
- * coast, one for each third-party package the island's package depends on
- * at runtime and no other workspace package reaches. A shared dependency
- * already raises a shelf under every package that relies on it; a
- * dependency of one package alone is that package's own, and stands off its
- * coast. The more the package relies on it, by the files that import it,
- * the taller, broader and nearer the coast the stack stands; the most
- * relied upon break the surface, and one declared but never imported is a
- * pinnacle under the water.
- *
- * A stack is often smaller than one cell of the terrain grid, so it is not a
- * seabed contribution: it is drawn as an instance over the world field and
- * never changes a coast. Placement is deterministic: each stack's bearing
- * from its island comes from its island's and its dependency's names, and a
- * stack that finds no clear water on its island's shelf is left out.
- */
 export const defaultSeaStackSettings = {
-  /** The most stacks on the chart, the most relied upon first. */
   cap: 40,
-  /**
-   * Map units kept clear between a stack's footprint and any coast, at
-   * least one terrain cell so the seabed under it is never sampled as land,
-   * and between two stacks' footprints.
-   */
   clearance: { coast: 6, stack: 6 },
-  /** Radians from vertical a stack leans seaward: none at full reliance, all of it at none. */
   lean: 0.14,
-  /** The most stacks off one island. */
   perIsland: 5,
-  /**
-   * Map units of a stack's footprint radius: least and most relied upon.
-   * At the overview's half a pixel a map unit, the least is a few pixels
-   * across and the most about eight, visible without rivalling an island.
-   */
   radius: { least: 3.5, most: 8 },
-  /** How much a package relies on a dependency, 0 to 1, from the files that import it. */
   reliance: {
-    /** Declared and analysed, but imported by no file. */
     declared: 0.1,
-    /** Imported at runtime: from `base`, and half the rest at `half` files. */
     runtime: { base: 0.5, half: 4 },
-    /** Imported, but only for its types. */
     typeOnly: 0.3,
-    /** Declared, with no source analysis to say how it is used. */
     unmeasured: 0.5,
   },
-  /** Map units from the coast to a stack's centre: the most relied upon at `inner`. */
   ring: { inner: 18, outer: 52 },
-  /** A stack's top elevation: least relied upon 4 m under the water, most 150 m over it. */
   top: { least: elevationAtDepth(4), most: elevationAtHeight(150) },
-  /** Bearings tried around the coast, alternating either side of the seeded one, before a stack is left out. */
   tries: 16,
 };
 export type SeaStackSettings = typeof defaultSeaStackSettings;
 
-/** A third-party package one workspace package alone depends on at runtime. */
 export interface OwnDependency {
   name: string;
-  /** 0 to 1: how much the package relies on it, from the files that import it. */
   reliance: number;
   territoryId: string;
 }
 
 export interface SeaStackIsland {
-  /** Island-local, offset by `x` and `y`, as the structural terrain's. */
   coast: readonly Polygon[];
   id: string;
   radius: number;
@@ -78,13 +37,10 @@ export interface SeaStackIsland {
   y: number;
 }
 
-/** Something a stack stands for, off one island's coast. */
 export interface SeaStackSource {
   islandId: string;
   label?: string;
-  /** The island first, then what the stack stands for; the stack's id joins them. */
   members: readonly string[];
-  /** 0 to 1: how much the island relies on it. */
   reliance: number;
 }
 
@@ -93,18 +49,13 @@ export interface SeaStackInput {
   sources: readonly SeaStackSource[];
 }
 
-/** One sea stack: a footprint on the shelf and the elevation of its top. */
 export interface SeaStack {
-  /** Elevation of the top, in `geologyLevels` units; above 0 it breaks the surface. */
   height: number;
-  /** `stack:<members joined by +>`, stable for one input. */
   id: string;
   islandId: string;
   label?: string;
-  /** How far the top leans from vertical, in radians, toward a bearing in the map's frame (x right, y down). */
   lean?: { angle: number; bearing: number };
   members: readonly string[];
-  /** Map units of the footprint's radius. */
   radius: number;
   x: number;
   y: number;
@@ -116,7 +67,6 @@ function isRuntime(edge: DependencyEdge): boolean {
   return edge.kind === "dependencies" || edge.kind === "optionalDependencies";
 }
 
-/** How much a package relies on a dependency, from the files of the package that import it. */
 function relianceOf(
   usage: DependencyEdge["usage"],
   settings: SeaStackSettings["reliance"]
@@ -132,13 +82,6 @@ function relianceOf(
   return usage.typeOnlyFiles.length > 0 ? settings.typeOnly : settings.declared;
 }
 
-/**
- * Each workspace package's own third-party dependencies: those it declares
- * at runtime, directly, that no other of `territoryIds` reaches through a
- * runtime chain, as `deriveFoundations` measures sharing. A dependency
- * reached only transitively is not the package's own choice, and
- * development and peer dependencies are not structure; neither is a stack.
- */
 export function ownDependencies(
   inventory: DependencyInventory,
   territoryIds: readonly string[],
@@ -187,7 +130,6 @@ export function ownDependencies(
   );
 }
 
-/** An island's coast in map units, with its bounding box for quick rejection. */
 interface Shore {
   box: { bottom: number; left: number; right: number; top: number };
   id: string;
@@ -230,7 +172,6 @@ function shore(island: SeaStackIsland): Shore {
   };
 }
 
-/** Each closed edge of a ring, as its two ends. */
 function* edges(ring: readonly Point[]): Generator<[Point, Point]> {
   for (let index = 0; index < ring.length; index += 1) {
     const a = ring[index];
@@ -252,7 +193,6 @@ function segmentDistance([x, y]: Point, [ax, ay]: Point, [bx, by]: Point) {
   return Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
 }
 
-/** Map units from a point to a shore's coast: negative on its land, by the even-odd rule. */
 function signedDistance(shoreline: Shore, point: Point): number {
   let nearest = Number.POSITIVE_INFINITY;
   let inside = false;
@@ -275,7 +215,6 @@ function signedDistance(shoreline: Shore, point: Point): number {
   return inside ? -nearest : nearest;
 }
 
-/** A lower bound on the map units from a point to a shore's coast. */
 function boxDistance(shoreline: Shore, [x, y]: Point): number {
   const { bottom, left, right, top } = shoreline.box;
   return Math.hypot(
@@ -284,7 +223,6 @@ function boxDistance(shoreline: Shore, [x, y]: Point): number {
   );
 }
 
-/** How far from its centre a shore's coast last crosses a bearing: its outermost coast that way. */
 function reach(shoreline: Shore, direction: Point): number {
   let farthest = -1;
   const [dx, dy] = direction;
@@ -308,7 +246,6 @@ function reach(shoreline: Shore, direction: Point): number {
   return farthest >= 0 ? farthest : shoreline.radius;
 }
 
-/** Bearings to try: the seeded one first, then alternately either side of it. */
 function bearings(seed: number, tries: number): number[] {
   const step = (2 * Math.PI) / Math.max(1, tries);
   return Array.from({ length: Math.max(1, tries) }, (_, k) => {
@@ -317,7 +254,6 @@ function bearings(seed: number, tries: number): number[] {
   });
 }
 
-/** Whether a footprint sits in clear water on its own island's shelf. */
 function clearWater(
   shores: readonly Shore[],
   owner: Shore,
@@ -337,12 +273,6 @@ function clearWater(
   );
 }
 
-/**
- * The stacks for each source, the most relied upon first: each off its own
- * island, on the shelf ring, clear of every coast and of the stacks before
- * it, at the first clear bearing from its seeded one. Each island takes at
- * most `perIsland` and the chart at most `cap`, so open water stays open.
- */
 export function seaStacks(
   input: SeaStackInput,
   settings: SeaStackSettings = defaultSeaStackSettings

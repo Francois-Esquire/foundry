@@ -2,22 +2,25 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
+import type {
+  SessionChangeEvent,
+  SessionMessage,
+  SessionRecord,
+} from "@foundry/agents/schema";
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStoreWrite } from "@foundry/agents/store";
 import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
+import type { RecordingSessionStorage } from "@foundry/agents/testing/store";
 import { describeSessionStore } from "@foundry/agents/testing/store";
 import { afterAll, describe, expect, it } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
+import { ChangeRecorder } from "~/database/changes";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { openWorkspaceDatabase } from "~/database/managed";
-import {
-  DatabaseSessionStore,
-  readSessions,
-  sessionCounts,
-} from "~/database/sessions";
+import { readResourceView } from "~/database/resources";
+import { DatabaseSessionStore } from "~/database/sessions";
 import { stateDatabase } from "~/layout";
 import { workspaceState } from "~/lib/state/workspace";
 import type { ListedSessionStore } from "~/lib/usage-evidence";
@@ -25,6 +28,13 @@ import { listsSessions } from "~/lib/usage-evidence";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 import { temporaryDirectory } from "./helpers/temporary";
+
+async function sessionCount(state: string, scope: string): Promise<number> {
+  const sessions = await readResourceView(state, { workspace: scope }, (view) =>
+    view.sessions()
+  );
+  return sessions?.length ?? 0;
+}
 
 const machines: TestMachine[] = [];
 const opened: WorkspaceDatabase[] = [];
@@ -88,8 +98,45 @@ const KINDS: readonly {
   },
 ];
 
+async function recordingSessions(): Promise<RecordingSessionStorage> {
+  const machine = await testMachine();
+  machines.push(machine);
+  const fail: { next: boolean } = { next: false };
+  class FailingRecorder extends ChangeRecorder {
+    override async record(
+      ...args: Parameters<ChangeRecorder["record"]>
+    ): Promise<void> {
+      await super.record(...args);
+      if (fail.next) {
+        fail.next = false;
+        throw new Error("the host refused the commit");
+      }
+    }
+  }
+  return {
+    failNextCommit: () => {
+      fail.next = true;
+    },
+    recorded: async () =>
+      (await machine.changes(join(machine.root, "scope"), "sessions")).map(
+        (change) => change.payload as unknown as SessionChangeEvent
+      ),
+    storage: perScope(
+      (scope) =>
+        new DatabaseSessionStore({
+          changes: new FailingRecorder(scope),
+          database: machine.database.database,
+          scope,
+        })
+    ),
+  };
+}
+
 for (const kind of KINDS) {
-  describeSessionStore(kind.name, async () => (await kind.storage()).stores);
+  describeSessionStore(kind.name, async () => (await kind.storage()).stores, {
+    hooked: true,
+    recording: recordingSessions,
+  });
 }
 
 function session(id: string, title: string | null = null): SessionRecord {
@@ -308,12 +355,12 @@ for (const kind of KINDS) {
         await through.commit(store, { putMessages: [filed("m", "later")] });
         await expect(store.getSession("later")).resolves.toBeNull();
         await expect(store.stamps()).resolves.toEqual([]);
-        expect(await sessionCounts(state)).toEqual(new Map());
+        expect(await sessionCount(state, "ws")).toBe(0);
 
         await through.commit(store, { putSessions: [session("later")] });
         const put = await stampsOf(store);
         expect([...put.keys()]).toEqual(["later"]);
-        expect(await sessionCounts(state)).toEqual(new Map([["ws", 1]]));
+        expect(await sessionCount(state, "ws")).toBe(1);
         await through.commit(store, {
           putMessages: [{ ...filed("m", "later"), status: "error" }],
         });
@@ -327,7 +374,7 @@ for (const kind of KINDS) {
           "later",
           "together",
         ]);
-        expect(await sessionCounts(state)).toEqual(new Map([["ws", 2]]));
+        expect(await sessionCount(state, "ws")).toBe(2);
       });
     }
   });
@@ -418,16 +465,20 @@ describe("an engine Marbles creates over a workspace's state", () => {
     }
     expect(readFileSync(left, "utf8")).toContain('"old"');
     expect(existsSync(stateDatabase(workspace.dir))).toBe(false);
-    const listed = await readSessions(stateRoot, workspace.id, (store) =>
-      store.stamps()
+    const listed = await readResourceView(
+      stateRoot,
+      { workspace: workspace.id },
+      (view) => view.sessions()
     );
-    expect(listed?.map(({ id }) => id)).toEqual(["new"]);
+    expect(listed?.map(({ ref }) => ref.id)).toEqual(["new"]);
   });
 
   it("reads no sessions, and makes no database, where none was made", async () => {
     const stateRoot = temporaryDirectory("marbles-sessions-none-");
     await expect(
-      readSessions(stateRoot, "ws", (store) => store.stamps())
+      readResourceView(stateRoot, { workspace: "ws" }, (view) =>
+        view.sessions()
+      )
     ).resolves.toBeUndefined();
     expect(existsSync(stateDatabase(stateRoot))).toBe(false);
   });
@@ -471,10 +522,18 @@ await host.close();
     });
     expect(hosted.status, hosted.stderr).toBe(0);
     const { dir, id } = workspaceState(state, workspace);
-    return readSessions(state, id, async (store) => ({
-      messages: (await store.listMessages("hosted")).length,
-      stamps: (await store.stamps()).map((stamp) => stamp.id),
-    })).then((read) => {
+    return readResourceView(state, { workspace: id }, async (view) => {
+      const sessions = await view.sessions();
+      const [kept] = sessions;
+      return {
+        messages:
+          kept === undefined
+            ? 0
+            : ((await view.messageTallies([kept.ref])).get(kept.ref)
+                ?.messages ?? 0),
+        stamps: sessions.map(({ ref }) => ref.id),
+      };
+    }).then((read) => {
       expect(read).toEqual({ messages: 1, stamps: ["hosted"] });
       expect(existsSync(join(dir, "sessions"))).toBe(false);
     });

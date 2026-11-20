@@ -12,17 +12,12 @@ const expectedTextPattern3 = /score/i;
 
 interface Spec {
   anchored?: string[];
-  /** Unrelated indexes, to prove they do not leak into graph facts. */
   concepts?: number;
-  /** `A→B` or `A→B:n` (module edges, default 1). */
   edges?: string[];
   findings?: number;
-  /** Packages without a report; makes coverage partial. */
   missing?: string[];
-  /** `A/a→B/x`; the package is the path's first segment. */
   moduleEdges?: string[];
   moduleRoles?: Record<string, ModuleRole["kind"]>;
-  /** Extra packages beyond edge endpoints. */
   packages?: string[];
 }
 
@@ -411,7 +406,6 @@ describe("corridors", () => {
     const analysis = analyzeWorkspaceGraph(
       workspace({ edges: ["S1→B", "S2→B", "B→C", "C→T1", "C→T2"] })
     );
-    // A pair whose whole route is the segment counts: (B, T1) supports B→C→T1.
     expect(analysis.corridors.map((c) => [c.id, c.support])).toEqual([
       ["B→C→T1", 3],
       ["B→C→T2", 3],

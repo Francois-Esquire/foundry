@@ -63,10 +63,6 @@ function applyThemeClass(mode: ThemeMode): ResolvedTheme {
   return resolved;
 }
 
-/**
- * Put the stored theme on the document before React mounts, so the first
- * paint is already the right colour instead of being corrected afterwards.
- */
 export function applyStoredTheme(): void {
   applyThemeClass(readStoredMode());
 }

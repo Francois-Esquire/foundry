@@ -1,28 +1,15 @@
 import { districtPigment, inks } from "./ink-ladder";
 
-/**
- * The ink table: the hue × dash × weight rows of the map key, each row the
- * meaning of one line, mark, fill or text, and the typed lookup a painter
- * names its ink by. The palette and the ladder's rungs are in
- * `ink-ladder.ts`; this is the key read from them.
- */
-
-/** A line's dash in screen pixels; empty is solid. */
 type Dash = readonly number[];
 
-/** One row of the hue × dash × weight table: what a line or mark means. */
 export interface InkStyle {
-  /** A second cue beside the hue, for readers who cannot tell the hue apart. */
   cue?: string;
   dash: Dash;
   hue: string;
   id: string;
-  /** Lines and marks can be confused with each other; fills and text only with their own kind. */
   kind: "fill" | "line" | "text";
   meaning: string;
-  /** Dash and weight are in screen pixels unless the row says map units, as a sea lane's are. */
   units?: "map";
-  /** Line width in screen pixels; 0 for a fill or text. */
   weight: number;
 }
 
@@ -52,12 +39,6 @@ const flat = <Id extends string>(
   meaning: string
 ): InkRow<Id> => ({ dash: [], hue, id, kind, meaning, weight: 0 });
 
-/**
- * Every line, mark, fill and text a reader's map can show, by hue, dash and
- * weight. No two rows of one kind share all three, so no two meanings look
- * alike; the map key reads its rows from here. The rows are a tuple, so a
- * painter's ink id is checked where it is written (`InkId`).
- */
 export const inkTable = [
   line(
     "selection",
@@ -414,7 +395,6 @@ export type InkId = (typeof inkTable)[number]["id"];
 
 const inkRows = new Map<InkId, InkStyle>(inkTable.map((row) => [row.id, row]));
 
-/** The table's row for an id. The ids are typed, so a miss is a row removed after a painter was written. */
 export function inkStyle(id: InkId): InkStyle {
   const style = inkRows.get(id);
   if (!style) {

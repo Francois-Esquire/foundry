@@ -2,7 +2,6 @@ import "./developer-frame-rate.css";
 import { useEffect, useState } from "react";
 import type { AppBarContext } from "./chrome-entries";
 
-/** Count submitted map frames, including periods when the scene draws nothing. */
 function useFrameRate() {
   const [fps, setFps] = useState<number | null>(null);
   useEffect(() => {
@@ -42,7 +41,6 @@ function useFrameRate() {
   return fps;
 }
 
-/** Visible in the app bar even when settings are closed. */
 export default function DeveloperFrameRate({ onOpen }: AppBarContext) {
   const fps = useFrameRate();
   return (

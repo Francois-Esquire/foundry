@@ -15,13 +15,6 @@ import type {
   MetricDistribution,
 } from "./types";
 
-// Local complexity: how each function is shaped, measured as raw structural
-// facts — never scored, labeled, or gated. All metric semantics live in this
-// module. Each source file is walked once with a stack of active function
-// records; every node contributes to the innermost enclosing function only,
-// so nested function bodies never inflate a parent's decisions, nesting,
-// exits, or statements — the parent sees them through `callbacks` alone.
-
 export interface ComplexityOwner {
   exported: boolean;
   node: Node;
@@ -86,12 +79,6 @@ function functionName(node: Node): string {
   return "<anonymous>";
 }
 
-/**
- * Annotated boolean semantics only: `boolean`, `true | false`, or an alias
- * or union resolving to boolean literals. Unannotated parameters are never
- * counted (no contextual inference), and only non-keyword annotations touch
- * the type checker — keeps the pass cheap on large packages.
- */
 function isBooleanParameter(parameter: ParameterDeclaration): boolean {
   const annotation = parameter.getTypeNode();
   if (annotation === undefined) {
@@ -129,12 +116,6 @@ function booleanParameters(node: Node): number {
   return count;
 }
 
-/**
- * `parameters.boolean` of every function in the boundary, keyed by function
- * id, measured on `project`. A package-local project resolves an annotation
- * naming another package's type as non-boolean; workspace derivation calls
- * this on the shared program to restore the workspace answer.
- */
 export function booleanParameterCounts(
   project: Project,
   boundary: Boundary
@@ -162,11 +143,6 @@ export function booleanParameterCounts(
   return counts;
 }
 
-/**
- * Executable statements: everything a reader steps through. Blocks carry no
- * behavior of their own; interfaces and type aliases are erased; nested
- * function declarations are separate analysis units.
- */
 const STATEMENT_KINDS = new Set<SyntaxKind>([
   SyntaxKind.VariableStatement,
   SyntaxKind.ExpressionStatement,
@@ -234,11 +210,6 @@ const NESTING_KINDS = new Set<SyntaxKind>([
   SyntaxKind.TryStatement,
 ]);
 
-/**
- * Control-flow constructs that deepen nesting for their descendants. An
- * `else if` continues the same decision ladder and deliberately does not
- * deepen; a chain of else-ifs reads flat.
- */
 function deepensNesting(node: Node): boolean {
   if (node.getKind() === SyntaxKind.IfStatement) {
     return !isElseIf(node);
@@ -366,7 +337,6 @@ function nearestRank(sorted: number[], quantile: number): number {
   return sorted[Math.max(0, Math.ceil(quantile * sorted.length) - 1)] ?? 0;
 }
 
-/** Nearest-rank percentiles; shared with churn so every distribution agrees. */
 export function distribution(values: number[]): MetricDistribution {
   const sorted = [...values].sort((a, b) => a - b);
   return {
@@ -401,14 +371,6 @@ export function summarize(
   };
 }
 
-/**
- * Measure the local structural complexity of every function in the boundary
- * using the already-loaded project — one walk per file, no rescans. `owners`
- * ties functions back to collected surface symbols: a function that is the
- * direct implementation of a symbol (the declaration, a variable initializer,
- * or a member of a collected class) inherits its exported/packagePublic
- * status; nested callbacks keep the owner id but report both flags false.
- */
 export function analyzeLocalComplexity(
   project: Project,
   boundary: Boundary,
@@ -454,10 +416,6 @@ export function analyzeLocalComplexity(
         owner = ownersByNode.get(current);
         current = current.getParent();
       }
-      // Direct implementation of the owning symbol: the declaration itself,
-      // a variable initializer, or a member of a collected class — and never
-      // inside another function. Anything else (array elements, object
-      // properties, callbacks) is not itself surface API.
       const direct =
         stack.length === 0 &&
         owner !== undefined &&
@@ -482,7 +440,7 @@ export function analyzeLocalComplexity(
       const kind = functionKind(node);
       if (kind !== undefined) {
         if (bodyOf(node) === undefined) {
-          return; // overload/abstract signature
+          return;
         }
         analyzeLocalComplexityEntries(stack);
         const record = createRecord(node, kind);

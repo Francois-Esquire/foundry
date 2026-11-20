@@ -51,13 +51,13 @@ package depending on the SDK.
 ```typescript
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createVirtualSystem } from "@foundry/sandbox/virtual/system";
 
 const containers = createContainers({
   instanceLabel: "example",
   runtime: createMicrosandboxRuntime(),
-  store: createMemoryContainerStore(),
+  store: new MemoryContainerStore(),
 });
 const c = await containers.start({
   format: "foundry.sandbox.container/1",
@@ -160,7 +160,8 @@ read-modify-write through it when offered, and serializes its own writes
 either way. `@foundry/sandbox/schema` defines `ContainerRow` as a Zod schema.
 
 A store reads a write once, when `commit` is called. Both stores here take
-one `structuredClone` of the whole write then, before the commit waits its
+its events by the event rule (see Change events) and the rest by one
+`structuredClone` then, before the commit waits its
 turn, and check, store and hand on (to `onCommit`) only that copy, through
 a transaction's view as well. A caller that changes its write after the
 call changes nothing, even while the commit is still queued. A write the
@@ -169,12 +170,59 @@ clone refuses, such as one holding a function, rejects and writes nothing.
 | Path                             | Holds                                                              |
 | -------------------------------- | ------------------------------------------------------------------ |
 | `@foundry/sandbox/store`         | `ContainerStore`, `ContainerStoreWrite`, and the row types.        |
-| `@foundry/sandbox/store/memory`  | `createMemoryContainerStore`, the default `createContainers` uses. |
-| `@foundry/sandbox/store/sqlite`  | `createSqliteContainerStore`, over a host's Drizzle database.      |
+| `@foundry/sandbox/store/memory`  | `MemoryContainerStore`, the default `createContainers` uses.       |
+| `@foundry/sandbox/store/sqlite`  | `SqliteContainerStore`, over a host's Drizzle database.            |
 | `@foundry/sandbox/store/tables`  | The Drizzle table it uses: `sandbox_containers`.                   |
 | `@foundry/sandbox/testing/store` | `describeContainerStore`, the suite every store passes.            |
 
+`describeContainerStore(name, open, mode)` says, in `mode`
+(`ContainerStoreMode`), whether the storage has a host hook: `{ hooked: false }`,
+or `{ hooked: true, recording }`, where `recording` opens storage whose hook
+records each write's events in the commit's own transaction
+(`RecordingContainerStores`). Every store is held to the event rule above;
+a hooked one is also proven to hand its hook every kept commit's events
+once, in order, as they were when `commit` was called, and none for a
+commit that fails.
+
 `CONTAINER_ROW_STATUSES` lives in `@foundry/sandbox/container/constants`.
+
+### Change events
+
+Each registry write that changes a container's life carries the events that
+say so, in `events` on the write, so a host can record them in the same
+transaction as the change (the SQLite store's `onCommit`). The registry
+builds them, from the row as stored against the row it puts. A store keeps
+none, and one with a host hook hands them to it unchanged and in order.
+Every store takes the events when `commit` is
+called, by one rule: each is copied as plain JSON, and a write holding one
+that is not (anything but plain objects whose own properties are all
+enumerable, arrays without holes, text, finite numbers other than `-0`,
+booleans and `null`) is refused whole with a `TypeError` naming it, through
+a transaction's view too. It is the rule the workflows and artifacts stores
+take their events by. The schema is
+`sandboxEventSchema` on `@foundry/sandbox/schema`, which also exports the
+type, `SandboxEvent` (re-exported from `@foundry/sandbox/store`). Every event
+has `type`, `id` (unique to it, made once per registry call, before its
+transaction), `at` (an ISO time, the stamp of the row it changed)
+and `containerId`:
+
+| `type`              | Emitted by                                                                         |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| `sandbox.created`   | `start`, in the write that inserts the row                                         |
+| `sandbox.started`   | the write that moves the row into `running`: a first boot, a reopen (after a failure too) or a restart |
+| `sandbox.stopped`   | the write that moves the row into `stopped`: its last handle closing, or `shutdown` |
+| `sandbox.failed`    | the write that moves the row into `failed`: a boot that does not come up           |
+| `sandbox.destroyed` | `remove`, in the write that deletes the row; none if it was already gone           |
+
+A row that enters `starting` or `restarting`, a new native name, a spec
+recorded for the next boot, and a row put again in the status it already has
+carry no event.
+
+`at` is the stamp of the record a change wrote, or the time the event was
+built where the change stamps none; it is not the commit time, and two
+writers' events can commit in the other order from their `at`. It cannot
+establish commit order: a host that needs one orders events by its own
+sequence, assigned in `onCommit`.
 
 Both stores take their calls in turns: a call made while a transaction runs
 waits for it, and a call to the store from inside its own transaction's work
@@ -182,7 +230,7 @@ waits for it, and a call to the store from inside its own transaction's work
 `ReentrantCallError` that says to use the view, instead of waiting on itself
 forever. The registry calls only the view inside a transaction.
 
-`createSqliteContainerStore` takes the host's database and never opens one.
+`SqliteContainerStore` takes the host's database and never opens one.
 The host composes the table from `./store/tables` into its own schema and
 owns the migrations; `drizzle-orm` is an optional peer dependency, needed
 only on the two SQLite paths. Every row carries a `scope`, an opaque
@@ -193,9 +241,9 @@ lists rows by it.
 
 ```ts
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createSqliteContainerStore } from "@foundry/sandbox/store/sqlite";
+import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 
-const store = createSqliteContainerStore({
+const store = new SqliteContainerStore({
   database, // a drizzle-orm/libsql database, or a transaction on one
   scope: workspaceId,
   // Optional: runs in the commit's transaction, after the store's statements.
@@ -207,7 +255,8 @@ const containers = createContainers({ instanceLabel, runtime, store });
 ```
 
 Each `commit` is one database transaction, and a throwing `onCommit` rolls
-it back. `onCommit` uses the `transaction` it is given. `get` and `list` are
+it back. `onCommit` receives the store's copy of the write, its `events`
+included, and uses the `transaction` it is given. `get` and `list` are
 one query each. `transaction(work)` runs `work` in one database transaction;
 a commit through its view that fails rolls back only itself. Across
 connections, each transaction takes SQLite's write lock at its first
@@ -448,6 +497,45 @@ A VM is not adopted across processes. `open` on a row that is not live in this
 process removes whatever the runtime still holds under the old native name and
 boots again under `<rowId>-<generation>`.
 
+Every store has an identity of its own (`ContainerStore.identity`). A store in
+memory makes a fresh one per instance. A durable store keeps an id in its
+database, the same for every process over that database and scope; the SQLite
+store combines it with `location`, where the host says the database lives
+(Marbles gives the real path of its database file), so a byte copy of the
+database, which carries the id, still has another identity. Without a
+`location` the identity is the kept id alone, and a copy shares it. A home
+that is moved or renamed gets a new identity: the VMs it booted before the
+move are then not provably its own, so they are passed over and named, never
+removed, and taken out by hand as below. The registry puts
+it on every VM it boots, as the `com.foundry.container.store` label. A VM is a
+row's only when all three say so: it carries this store's identity, its name
+is one of that row's own (`<rowId>-<generation>`), and its id label names that
+row. Every stop or removal asks this right before it acts (`recover`,
+`remove`, `sweep`, the retries of `sweep` and `shutdown`, `open`'s removal of
+the old VM, a close, a restart, a failed boot), and a VM is kept to retry only
+if it passes. The instance label names a workspace, not a store, so two
+engines over one workspace root (two Foundry homes, or a script with no host
+database beside a daemon) share it; the store label is what keeps one's sweep
+from taking the other's VMs.
+
+A VM that does not pass is never stopped or removed, and never left unseen.
+`recover` and `remove` name one that bears a claimed row's id or name in
+`conflicts` and keep the row `removing`. `sweep` (and `recover`, through it)
+names every VM under this instance's labels it could not prove its own in
+`passedOver`: another store's, one with no store or no id label, one whose
+name and label disagree. When `open` cannot read the runtime's inventory, the
+old VM's name, the row's own, is kept to retry, and judged once the inventory
+can be read; the registry says so through `report` (stderr by default).
+
+VMs booted before stores had an identity carry no store label, so no sweep or
+recovery removes them now. `msb` is the CLI of the `microsandbox` package
+Foundry installs, at `node_modules/.bin/msb` in the install (it is not put on
+PATH). List them with
+`msb list --label com.foundry.environment.managed-by=foundry-sandbox`, check
+one's labels with `msb inspect <name>`, and remove one, running or not, with
+`msb rm -f <name>` (`-f` stops a running VM first). Every message that names a
+VM left this way gives the same command (`removeByHand`).
+
 A registry owns every VM it boots. If the commit that records a boot fails
 (a SQLite store busy under another connection's lock, say), `start`, `open`
 or `restart` removes the VM it just booted, tries to mark the row `failed`,
@@ -463,8 +551,15 @@ Limits:
 
 - The list of VMs the registry could not remove is in memory. If the process
   is lost first, their cleanup is not guaranteed: the next process's `open`
-  or `remove` of the row removes a VM whose name the row still records, but
-  nothing removes one whose row has moved on to a later name.
+  removes a VM whose name the row still records, but not one whose row has
+  moved on to a later name. `remove` and `recover` delete a row only once
+  every VM labelled with its id is gone, whatever its name.
+- VMs a crashed engine left over a store in memory (a script with no host
+  database) carry that store's identity, which no later store has: no one
+  removes them, and they are named only by a start that reads the inventory.
+- A row left `removing` whose claiming process still runs, as when two
+  engine generations overlap, is named by no start while that process runs;
+  once it is gone, a start takes the row over and retries it.
 - `sweep` removes VMs; it does not repair rows. A row left `starting`,
   `restarting` or `running` with no VM (after a commit that failed while a
   VM was removed) stays so until a later `open` or `remove` of it.

@@ -11,22 +11,13 @@ import {
 // biome-ignore lint/performance/noBarrelFile: `./operations` is a declared entry point and has always exported the metadata schema.
 export { taskMetadataSchema } from "./schema";
 
-/**
- * The command language. A change is a batch of operations applied atomically;
- * every edge (code, CLI, MCP tools) submits the same shape and the graph
- * rules — hierarchy, cycles, status transitions, tokens — are enforced once.
- */
-
-/** A persistent task by id, or one created earlier in the same batch by key. */
 export type TaskRef = { readonly id: string } | { readonly key: string };
 
 export interface CreateTaskInput {
   readonly description?: string | null;
-  /** Caller-supplied identity; the package generates one when omitted. */
   readonly id?: string;
   readonly metadata?: JsonObject;
   readonly status?: TaskStatus;
-  /** Exact strings; repeats collapse to the first. None when omitted. */
   readonly tags?: readonly string[];
   readonly title: string;
 }
@@ -34,12 +25,10 @@ export interface CreateTaskInput {
 export interface UpdateTaskInput {
   readonly description?: string | null;
   readonly metadata?: JsonObject;
-  /** Replaces every tag; `[]` clears them and omission keeps them. */
   readonly tags?: readonly string[];
   readonly title?: string;
 }
 
-/** Optimistic token: the exact `updatedAt` the caller last read. */
 export interface TaskToken {
   readonly expectedUpdatedAt?: string;
 }
@@ -58,13 +47,6 @@ export type TaskOperation =
     } & TaskToken)
   | ({
       readonly kind: "task.set_status";
-      /**
-       * Refuse with `not_ready` unless the task is ready as the batch finds
-       * it: open, with existing dependencies settled and every open ancestor
-       * started when the parent gate is on. The check uses the batch working
-       * copy at this operation; later operations are not rechecked. Exclusion
-       * from other instances requires a store transaction.
-       */
       readonly requireReady?: boolean;
       readonly task: TaskRef;
       readonly status: TaskStatus;
@@ -72,7 +54,6 @@ export type TaskOperation =
   | ({
       readonly kind: "task.move";
       readonly task: TaskRef;
-      /** `null` makes the task a root. */
       readonly parent: TaskRef | null;
     } & TaskToken)
   | {
@@ -92,14 +73,11 @@ export interface TaskChange {
 
 export interface ChangedTask {
   readonly id: TaskId;
-  /** The batch-local key, when the task was created in this batch. */
   readonly key?: string;
 }
 
 export interface TaskChangeResult {
-  /** Every task an operation named, including parents and dependency targets. */
   readonly changed: readonly ChangedTask[];
-  /** The committed record of every task in `changed`, in the same order. */
   readonly tasks: readonly Task[];
 }
 

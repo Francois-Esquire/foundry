@@ -168,8 +168,8 @@ export class ModuleWorkflows {
       read: () => runs.get(id),
       same: (sent, next) => next.revision <= sent.revision,
       signal,
-      subscribe(changed) {
-        const subscription = runs.subscribe((changedRun) => {
+      async subscribe(changed) {
+        const subscription = await runs.subscribe((changedRun) => {
           if (changedRun.id === id) {
             changed();
           }

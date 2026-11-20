@@ -1,11 +1,3 @@
-/**
- * Invocation, evidence, absent Results, lazy rehydration, interruption, and
- * recovery. Materialized plans run through the
- * real Orchestrator over the in-package execution persistence; evidence is read
- * back from the RunJournal (never a stub map). Each acceptance row is a test,
- * and the guarded rules carry mutation anchors named in the Step record.
- */
-
 import { afterEach, describe, expect, test } from "vitest";
 
 import type {
@@ -33,8 +25,6 @@ import type { RunJournal } from "../run-journal";
 import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 
-// ─── Journal-backed evidence host (the in-package persistence, not a stub) ────
-
 function journalHost(journal: RunJournal): EvidenceHost {
   const isRecord = (v: unknown): v is Record<string, JsonValue> =>
     typeof v === "object" && v !== null && !Array.isArray(v);
@@ -51,7 +41,7 @@ function journalHost(journal: RunJournal): EvidenceHost {
           p.value.event === "invocation-bound" &&
           p.value.placement === placement
         ) {
-          bound = p.value as unknown as BoundContractRecord; // last wins
+          bound = p.value as unknown as BoundContractRecord;
         }
         if (
           p.kind === "output" &&
@@ -109,7 +99,8 @@ afterEach(async () => {
     try {
       await orch?.stop();
     } catch {
-      /* best-effort teardown */
+      // biome-ignore lint/complexity/noUselessContinue: Finish tearing down the remaining orchestrators.
+      continue;
     }
   }
 });
@@ -205,8 +196,6 @@ async function outputFrames(
 const eventsOf = (records: Record<string, JsonValue>[], event: string) =>
   records.filter((r) => r.event === event);
 
-/** The store returns `metadata` either as a JSON string or an already-parsed
- *  object depending on the backend; normalize to an object. */
 function readMetadata(metadata: unknown): unknown {
   return typeof metadata === "string" ? JSON.parse(metadata) : metadata;
 }
@@ -280,7 +269,6 @@ describe("Group A — Invocation and evidence", () => {
     );
 
     expect(status).toBe("complete");
-    // Results flowed through Connections in memory, in plan order.
     expect(seen).toEqual(["agent:otters", "text:notes", "doc:article-body"]);
 
     const records = await logRecords(persistence, runId);
@@ -288,7 +276,6 @@ describe("Group A — Invocation and evidence", () => {
       eventsOf(records, "invocation-bound").map((r) => r.placement)
     ).toEqual(["research", "write", "article"]);
 
-    // No frame carries a raw Result; only stamped Outputs appear.
     const outs = await outputFrames(persistence, runId);
     expect(outs).toEqual([
       {
@@ -299,15 +286,12 @@ describe("Group A — Invocation and evidence", () => {
       },
     ]);
 
-    // The persisted row holds status without values.
     const row = await persistence.getRun(runId);
     expect(row?.output).toBeNull();
     const meta = readMetadata(row?.metadata) as {
       workflow: { steps: Record<string, Record<string, unknown>> };
       stream: { _tag: string; value?: unknown }[];
     };
-    // Steps are keyed by the engine's dot-path (`<definitionKey>.<placement>`);
-    // every placement is present and no Step — leaf or root — carries `output`.
     const stepKeys = Object.keys(meta.workflow.steps);
     for (const key of ["research", "write", "article"]) {
       expect(stepKeys.some((k) => k === key || k.endsWith(`.${key}`))).toBe(
@@ -364,8 +348,6 @@ describe("Group A — Invocation and evidence", () => {
         step: "s",
       },
     ]);
-    // The BoundContractRecord is written before any other work, so it exists
-    // even though the Input check failed before `invoke`.
     const records = await logRecords(persistence, runId);
     const boundIndex = records.findIndex((r) => r.event === "invocation-bound");
     const failureIndex = records.findIndex(
@@ -384,7 +366,6 @@ describe("Group A — Invocation and evidence", () => {
     const resolve = () =>
       makeStep("s", {
         contract: { inputs: [], outputs: [], result: textResult },
-        // Returns a non-string Result.
         invoke: async () => 42 as unknown as string,
       });
 
@@ -417,7 +398,7 @@ describe("Group A — Invocation and evidence", () => {
       key === "p"
         ? makeStep("p", {
             contract: { inputs: [], outputs: ["account"], result: textResult },
-            invoke: async () => null, // account-only outcome
+            invoke: async () => null,
           })
         : makeStep("c", {
             contract: {
@@ -434,7 +415,6 @@ describe("Group A — Invocation and evidence", () => {
     const { runId, persistence, status } = await runPlan(plan, resolve);
     expect(status).toBe("complete");
     expect(consumerSaw).toBeNull();
-    // A `null`-returning producer is not a result failure.
     expect(
       eventsOf(await logRecords(persistence, runId), "contract-failure")
     ).toEqual([]);
@@ -517,7 +497,6 @@ describe("Group A — Invocation and evidence", () => {
           await ctx.emit({
             kind: "value",
             label: "n",
-            // A Step cannot mis-attribute — these are ignored.
             placement: "forged",
             step: "forged-step",
             value: 1,
@@ -533,8 +512,6 @@ describe("Group A — Invocation and evidence", () => {
   });
 });
 
-/** A producer whose Result is `null` (account-only) so consumers hit the
- *  rehydrate path in-process, plus one or two consumers. */
 function nullProducerPlan(consumers: string[]): LinearPlan {
   return {
     inputs: [],
@@ -565,7 +542,7 @@ function rehydratableProducer(options: {
     },
     invoke: async (_inputs, ctx) => {
       await ctx.emit({ kind: "session", sessionId: "run:producer" });
-      return null; // nothing kept in memory
+      return null;
     },
     ...(options.rehydrateImpl ? { rehydrate: options.rehydrateImpl } : {}),
   });
@@ -581,7 +558,6 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
     const producer = rehydratableProducer({
       rehydrate: "session",
       rehydrateImpl: async (ctx) => {
-        // Reads its session reference from the emitted Output.
         expect(ctx.outputs[0]?.kind).toBe("session");
         return "restored-notes";
       },
@@ -675,7 +651,6 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
   });
 
   test("bound declares rehydrate but current Step lacks rehydrate(): restored false, consumer fails at connection", async () => {
-    // Contract declares `rehydrate` yet no `rehydrate()` implementation.
     const producer = rehydratableProducer({ rehydrate: "session" });
     const { persistence, runId, status, error } = await runPlan(
       nullProducerPlan(["consumer"]),
@@ -741,8 +716,6 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** A never-resolving invoke that rejects on cancel, so orch1's blocked fiber
- *  is released at teardown instead of hanging vitest. */
 function blockUntilAborted(signal: AbortSignal): Promise<never> {
   return new Promise<never>((_resolve, reject) => {
     if (signal.aborted) {
@@ -771,7 +744,6 @@ async function waitFor(
   throw new Error(`waitFor timed out: ${label}`);
 }
 
-/** True once the persisted row marks `placement`'s Step complete. */
 async function placementComplete(
   persistence: OrchestratorStore,
   runId: string,
@@ -790,11 +762,6 @@ async function placementComplete(
   );
 }
 
-/**
- * Run `plan` under `resolve1` until `producer` completes and the run is left
- * non-terminal (a later placement blocks), then adopt the same persistence with
- * a fresh Orchestrator under `resolve2` — a faithful process restart.
- */
 async function restartAfterProducer(args: {
   plan: LinearPlan;
   producer: string;
@@ -836,7 +803,6 @@ async function restartAfterProducer(args: {
     throw new Error("expected recovered run");
   }
   await recovered.result();
-  // Release orch1's blocked placement so teardown does not wait on it.
   await dispatched.cancel("restart").catch(() => undefined);
   return {
     persistence,
@@ -846,7 +812,6 @@ async function restartAfterProducer(args: {
   };
 }
 
-/** Producer that completes on the first process, then blocks a consumer. */
 function blockingConsumerPlan(): LinearPlan {
   return {
     inputs: [],
@@ -911,7 +876,7 @@ describe("Group C — recovery", () => {
     });
 
     expect(status).toBe("failed");
-    expect(producerCalls).toBe(0); // completed placement is skipped, never re-run
+    expect(producerCalls).toBe(0);
     const failure = eventsOf(
       await logRecords(persistence, runId),
       "contract-failure"
@@ -923,9 +888,6 @@ describe("Group C — recovery", () => {
 
   test("the bound Contract governs rehydration across a swap: current Contract omits rehydrate, bound still enables it", async () => {
     let producerCalls = 0;
-    // On recovery the CURRENT Contract no longer declares `rehydrate`, yet the
-    // Step still implements `rehydrate()`. Restoration must key off the BOUND
-    // record (orch1's `rehydrate: "session"`), not the current catalog Contract.
     const resolve2 = (key: string): TrustedStep =>
       key === "p"
         ? {
@@ -970,7 +932,6 @@ describe("Group C — recovery", () => {
   });
 
   test("Step-version swap: the completed placement keeps v1's Contract; the next Invocation binds v2", async () => {
-    // Two placements of the same Step key; p0 completes under v1 and blocks p1.
     const plan: LinearPlan = {
       inputs: [],
       placements: [
@@ -993,7 +954,6 @@ describe("Group C — recovery", () => {
         invoke: async (_inputs, ctx) =>
           block ? blockUntilAborted(ctx.signal) : "produced",
       });
-    // resolve1: p0 (first call) completes, p1 (second) blocks — both v1.
     let firstCalls = 0;
     const resolve1 = (): TrustedStep => {
       firstCalls += 1;
@@ -1017,11 +977,9 @@ describe("Group C — recovery", () => {
     if (p0Bound === undefined) {
       throw new Error("expected a p0 invocation bound");
     }
-    // p0 completed under v1 — its bound Contract stays v1 across recovery.
     expect(
       (p0Bound.contract as { result?: { label?: string } }).result?.label
     ).toBe("v1");
-    // p1 re-ran on recovery and bound the current v2.
     const lastP1 = p1Bounds.at(-1);
     if (lastP1 === undefined) {
       throw new Error("expected a p1 invocation bound");
@@ -1037,14 +995,12 @@ describe("Group C — recovery", () => {
       placements: [{ inputs: {}, key: "effect", step: "s" }],
       schema: 1,
     };
-    // The Step claims its effect, then blocks (incomplete) on the first process.
     const claimingStep = (): TrustedStep =>
       makeStep("s", {
         contract: { inputs: [], outputs: ["account"], result: textResult },
         invoke: async (_inputs, ctx) => {
           const claimed = await ctx.claimEffect("agent:effect");
           if (!claimed) {
-            // Adopted Run: external work already done, none of it repeated.
             throw new InvocationInterrupted("agent:effect");
           }
           return blockUntilAborted(ctx.signal);
@@ -1064,7 +1020,6 @@ describe("Group C — recovery", () => {
       { inputs: {}, snapshotId: "snap" }
     );
     const runId = dispatched.id;
-    // Wait until the claim frame is durable.
     await waitFor(async () => {
       const frames = await persistence.listRunFrames(runId);
       return frames.some(
@@ -1106,9 +1061,6 @@ describe("Group C — recovery", () => {
   });
 });
 
-/** A one-leaf Workflow whose run-level output is a non-null value, so the
- *  transient run-`output` strip is observable (materialized plans always output
- *  `null`, which cannot exercise it). */
 class OutputWorkflow extends Workflow<null, string> {
   readonly definitionKey = "test.output-workflow";
   protected define(graph: DefinitionGraphBuilder<null, string>): void {

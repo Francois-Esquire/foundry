@@ -3,10 +3,6 @@ import type { MonitorInput } from "~/lib/monitor";
 import type { Context } from "~/lib/types";
 import { unbound } from "./unbound";
 
-/**
- * The context a detector body receives when called directly: `log` and
- * `signal` wired, every manager refusing.
- */
 export function monitorContext(
   log: Log,
   signal: AbortSignal = new AbortController().signal

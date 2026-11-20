@@ -41,14 +41,6 @@ import type {
 } from "./symbol-locality-types";
 import type { ConceptRelationshipKind } from "./types";
 
-// V13.2 internal responsibility regions. A pure function of one package's
-// local report, internal topology, and symbol locality: no file system, no
-// program, no workspace, no Git. Cycles are atomic units; two units join
-// only when an explicit rule fires on a direct edge between their
-// non-connector modules; aggregators and high-fan modules are placed last,
-// from the regions their edges reach, or left unresolved. Nothing here
-// names a better place for anything.
-
 const CONNECTOR_ROLES: InternalModuleRole[] = [
   "aggregator",
   "high-fan-in",
@@ -102,7 +94,6 @@ function regionId(modules: string[]): string {
   return `responsibility:${hash.slice(0, 12)}`;
 }
 
-/** Union-find over unit ids with deterministic representatives. */
 class Groups {
   private readonly parent = new Map<string, string>();
 
@@ -130,7 +121,6 @@ class Groups {
     if (left === right) {
       return;
     }
-    // The smaller id leads, so grouping never depends on visit order.
     if (left < right) {
       this.parent.set(right, left);
     } else {
@@ -140,12 +130,9 @@ class Groups {
 }
 
 interface PairEvidence {
-  /** Localized concept seeds carried by direct edges. */
   concepts: Set<string>;
-  /** Localized symbols carried by direct edges inside one directory below the root. */
   directorySymbols: Set<string>;
   edges: number;
-  /** Every localized symbol carried. */
   localized: Set<string>;
 }
 
@@ -204,7 +191,6 @@ export function analyzeInternalResponsibilities(
       : undefined;
   };
 
-  // Atomic units: nontrivial cycles, else single primary modules.
   const unitOf = new Map<string, string>();
   const units: ResponsibilityUnit[] = [];
   analyzeInternalResponsibilitiesCycle(topology, units, unitOf);
@@ -212,9 +198,6 @@ export function analyzeInternalResponsibilities(
   units.sort((a, b) => a.id.localeCompare(b.id));
   const unitById = new Map(units.map((unit) => [unit.id, unit]));
 
-  // Evidence between units, from direct edges between non-connector modules.
-  // A mediated symbol pairs the consumer with its declaring module, not the
-  // forwarder it was imported through.
   const pairs = new Map<string, PairEvidence>();
   const evidenceFor = (a: string, b: string): PairEvidence => {
     const key = pairKey(a, b);
@@ -286,8 +269,6 @@ export function analyzeInternalResponsibilities(
   };
   visitKey();
 
-  // Localized-symbol neighbors per module, either direction, both
-  // non-connector; used for bridge detection and affinities.
   const localizedNeighbors = new Map<
     string,
     Map<string, { edges: number; symbols: Set<string>; concept: boolean }>
@@ -324,8 +305,6 @@ export function analyzeInternalResponsibilities(
       .filter((finding) => finding !== undefined);
   visitEdge4();
 
-  // Unclaimed single modules: a bridge with localized neighbors in several
-  // groups is unresolved; the rest fall back to their shared directory.
   const visitUnit2 = () => {
     for (const unit of unclaimed) {
       const module = unit.modules[0] ?? "";
@@ -401,7 +380,6 @@ export function analyzeInternalResponsibilities(
       }
     }
   };
-  /** Placed by construction: inside a cycle unit, or a non-connector module not left unresolved. */
   const placeable = (module: string) =>
     !unresolvedModules.has(module) &&
     (unitById.get(unitOf.get(module) ?? "")?.kind === "cycle" ||
@@ -442,7 +420,6 @@ export function analyzeInternalResponsibilities(
   visitUnit2();
   visitDirectory();
 
-  // Base regions from non-connector units, then connector attachment.
   const membersByGroup = new Map<string, string[]>();
   const statusOf = new Map<string, "assigned" | "attached">();
   visitUnit3();
@@ -640,8 +617,6 @@ export function analyzeInternalResponsibilities(
   );
   const regionById = new Map(regions.map((region) => [region.id, region]));
 
-  // Relationships between responsibilities, from primary edges whose
-  // endpoints are both placed.
   const relationshipDrafts = new Map<string, RelationshipDraft>();
   analyzeInternalResponsibilitiesEdge2(
     primaryEdges,
@@ -1672,7 +1647,6 @@ export function getModuleResponsibility(
   return report.modules.find((entry) => entry.module === module);
 }
 
-/** Regions holding a module in the directory or path region. */
 export function getRegionsByPath(
   report: InternalResponsibilityReport,
   path: string
@@ -1684,7 +1658,6 @@ export function getRegionsByPath(
   );
 }
 
-/** Regions declaring or referencing the concept. */
 export function getRegionsByConcept(
   report: InternalResponsibilityReport,
   conceptId: string

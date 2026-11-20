@@ -4,14 +4,6 @@ import type {
   AgentAuthorizer,
 } from "../../authorization/authorization";
 
-/**
- * An {@link AgentAuthorizer} whose decision is a plain function of the request.
- *
- * Holds no Grants, so `claim` succeeds for any allow and there is nothing to
- * consume — tests that care about one-shot consumption use
- * `createInMemoryAgentAuthorizer` instead. What this exists for is driving the
- * compiler through each decision branch without composing a repository.
- */
 export function fakeAuthorizer(
   decide: (request: AgentAuthorizationRequest) => AgentAuthorizationDecision
 ): AgentAuthorizer {

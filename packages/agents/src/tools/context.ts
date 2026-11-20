@@ -20,8 +20,6 @@ export function defaultThread(): string {
 
 export function createInMemoryConversationStore(): ConversationStore {
   const threads = new Map<string, ModelMessage[]>();
-  // Encoded as a tuple so a hyphen inside one part cannot shift the boundary
-  // into another: ("a-b", "c", "d") and ("a", "b-c", "d") stay distinct.
   const key = (space: string, agent: string, thread: string) =>
     JSON.stringify([space, agent, thread]);
 
@@ -47,42 +45,12 @@ export interface ToolContext {
 
 export interface ToolContextOptions {
   conversations?: ConversationStore;
-  /**
-   * The authority the calling harness is running under. Unlike everything
-   * else here it never becomes a field on the context — see
-   * {@link createToolContext}.
-   */
   policy?: AgentAuthorizer;
   space?: string;
 }
 
-/**
- * Policy by context instance. The one thing a context carries that is *not*
- * part of its shape, for two reasons:
- *
- * 1. A host owns whatever it passes as tool context and may have
- *    frozen it, or branded it into a `WeakSet` so persisted or model-authored
- *    JSON can't forge a live capability. There
- *    is nowhere on such an object to put anything.
- * 2. Everything else on a context is data a host composes by hand. A tool
- *    asking "what am I allowed to do" must not be answerable that way.
- *
- * Weak, so an entry dies with the turn's context and nothing has to evict.
- */
 const policies = new WeakMap<object, AgentAuthorizer>();
 
-/**
- * The tool context for one call.
- *
- * With a `base`, returns that **same object** — identity is the contract,
- * since the host may have frozen or branded it. Only `policy` is contributed
- * in that form; the rest of a context is the host's own shape to build and
- * reshape (dynamically loaded tools and MCP servers change what belongs on
- * it), so this never rewrites it.
- *
- * Without a `base`, mints a plain context carrying only the data options
- * that are set.
- */
 export function createToolContext<T extends object>(
   options: { policy: AgentAuthorizer },
   base: T
@@ -126,12 +94,6 @@ export function getSpace(context: unknown): string | undefined {
   return (context as ToolContext).space;
 }
 
-/**
- * The policy the calling harness is running under — attached to every call by
- * `AgentHarness`. Absent when a tool runs outside a harness (a direct
- * `execute` in a test) or through a context that isn't an object. Never read
- * off a field, so no context can claim an authority it wasn't given.
- */
 export function getPolicy(context: unknown): AgentAuthorizer | undefined {
   if (typeof context !== "object" || context === null) {
     return undefined;

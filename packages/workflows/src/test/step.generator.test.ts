@@ -1,19 +1,3 @@
-/**
- * Step — async-generator body shape (pass 5b).
- *
- * `execute` may be `async function* (input, ctx) { yield x; ... return v }`.
- * Routing rules:
- *
- *   - Every `yield X` flows through `ctx.write(X)` — string → text chunk,
- *     `undefined`/`null` → no-op, anything else → JSON-checked data chunk.
- *   - The generator's `return X` becomes the step's `O` (or `Bail<unknown>`).
- *   - `throw` propagates through the driver; the existing `tapError` in
- *     `Step.#run` publishes `step.failed`. `try/finally` blocks run on
- *     abort because the driver calls `iter.return()`.
- *   - `ctx.write` AND `yield` are interchangeable — same envelope shape.
- *   - `await ctx.next()` works the same as in async-fn bodies.
- */
-
 import { describe, expect, it } from "vitest";
 
 import type { ChunkPayload } from "../channels";
@@ -21,11 +5,6 @@ import type { ChunkPayload } from "../channels";
 import { Step, StepBailError } from "../step";
 import { bail } from "../types";
 
-/**
- * Pre-subscribe and resolve once `count` chunks have been collected.
- * Race-free — reader acquired before any write fires. Same shape used
- * by step.write.test.ts.
- */
 async function takePayloads(
   step: Step,
   count: number
@@ -83,8 +62,6 @@ describe("generator body — mixed yield types route through ctx.write", () => {
       input: undefined,
       name: "gen-mixed",
     });
-    // 4 chunks expected (string, object, number, boolean) — undefined/null
-    // produce no chunk.
     const collected = takePayloads(step, 4);
     await step.run();
     const payloads = await collected;
@@ -102,7 +79,6 @@ describe("generator body — implicit return", () => {
     const step = await Step.make<unknown, unknown>({
       async *execute() {
         yield "only";
-        // no return statement
       },
       input: undefined,
       name: "gen-no-return",
@@ -175,7 +151,6 @@ describe("generator body — return Bail propagates through step.run", () => {
     expect(payloads).toEqual([{ kind: "text", text: "before-bail" }]);
     expect(captured).toBeInstanceOf(StepBailError);
     expect((captured as StepBailError).bail.error).toBe("nope");
-    // Bail projects status to "failed" (see snapshot.ts step.bailed handler).
     expect(step.status).toBe("failed");
   });
 });
@@ -212,16 +187,8 @@ describe("generator body — abort mid-yield runs finally blocks", () => {
     const step = await Step.make<void, "done">({
       async *execute() {
         try {
-          // Yield in a loop. Each iter.next() resumes the body to the
-          // next yield. The driver's pre-iter abort check fires on the
-          // iteration after step.abort() is called from outside, calling
-          // iter.return() — which runs the `finally` block below before
-          // the body has a chance to issue another yield.
           for (;;) {
             yield "tick";
-            // Macrotask gap — lets the test's setTimeout-driven abort
-            // land on the event loop. A microtask gap (Promise.resolve)
-            // would starve setTimeout and the abort never fires.
             await new Promise<void>((r) => setTimeout(r, 1));
           }
         } finally {
@@ -232,12 +199,8 @@ describe("generator body — abort mid-yield runs finally blocks", () => {
       name: "gen-abort-finally",
     });
 
-    // Pre-subscribe so we don't race the chunk pump. We don't actually
-    // care how many ticks landed — just drain a few off the stream so
-    // the run gets at least one yield through.
     const reader = step.stream.getReader();
     const drained = (async () => {
-      // Read up to a few payloads, then release.
       for (let i = 0; i < 3; i += 1) {
         const { done } = await reader.read();
         if (done) {
@@ -248,13 +211,11 @@ describe("generator body — abort mid-yield runs finally blocks", () => {
     })();
 
     const runPromise = step.run().catch((err: unknown) => err);
-    // Wait long enough for several yields to flow.
     await new Promise<void>((r) => setTimeout(r, 20));
     step.abort("test-abort");
     const result = await runPromise;
     await drained.catch(() => undefined);
     expect(flags.finallyRan).toBe(true);
-    // The runtime surfaces an Error when the driver sees signal.aborted.
     expect(result).toBeInstanceOf(Error);
   });
 });
@@ -283,7 +244,6 @@ describe("generator body — yield equivalence with ctx.write", () => {
     await writer.run();
     const yPayloads = await collectY;
     const wPayloads = await collectW;
-    // Payload-only stream: ChunkPayload is the value envelope, no timestamp.
     expect(yPayloads).toEqual(wPayloads);
     expect(yPayloads).toEqual([{ kind: "text", text: "hello" }]);
   });

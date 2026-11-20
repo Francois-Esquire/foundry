@@ -9,7 +9,6 @@ runSandboxContract({
   label: "virtual system",
 });
 
-/** Every tool call takes an options shape; none of these need one. */
 const NO_OPTIONS = {};
 
 describe("createVirtualSystem", () => {
@@ -21,7 +20,6 @@ describe("createVirtualSystem", () => {
     await expect(system.files.readFile("notes.md")).resolves.toEqual(
       new TextEncoder().encode("hello")
     );
-    // An absolute seed lands where it says, not under the workdir.
     await expect(system.files.readFile("/etc/motd")).resolves.toEqual(
       new TextEncoder().encode("banner")
     );
@@ -32,8 +30,6 @@ describe("createVirtualSystem", () => {
       files: { "src/a.ts": "const x = 1;\n// TODO fix\n", "src/b.txt": "no" },
     });
 
-    // grep, find, and wc are the simulator's own — this is what makes the
-    // toolkit's command-backed `grep` work here with no facet-level search.
     const grepped = await system.commands.exec([
       "grep",
       "-rn",

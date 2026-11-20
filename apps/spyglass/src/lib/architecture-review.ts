@@ -32,15 +32,6 @@ import type {
   ScenarioUncertaintyReason,
 } from "./internal-rewiring-types";
 
-// V13.5 package architecture review. A pure function of the V13.4 report:
-// every scenario's simulated effects become separate dimensions with a raw
-// direction and a certainty; scenarios of one family are compared pairwise;
-// dominance holds only over measured differences with no unresolved
-// dimension on either side and no required preservation given up. Whatever
-// survives is reported as it is: one credible alternative, several that
-// trade off, a preservation the evidence requires, or a comparison the
-// evidence cannot settle. Nothing is weighted, scored, or ranked.
-
 const DIMENSIONS: ReviewDimension[] = [
   "locality",
   "responsibility-boundaries",
@@ -619,7 +610,6 @@ function dominates(
   return improves;
 }
 
-/** The baseline and the preservation scenarios: nothing moves. */
 function changesNothing(scenario: InternalRewiringScenario): boolean {
   return (
     scenario.proposed.scope === "unchanged" ||
@@ -627,7 +617,6 @@ function changesNothing(scenario: InternalRewiringScenario): boolean {
   );
 }
 
-/** A scenario that changes nothing holds every requirement by definition. */
 function keptPreservations(
   scenario: InternalRewiringScenario,
   required: RewiringPreservation[]
@@ -649,8 +638,6 @@ export function reviewPackageArchitecture(
   const behaviorMassOf = (module: string) =>
     compositionByModule.get(module)?.behaviorMass ?? 0;
   const statusById = new Map<string, ScenarioReviewStatus>();
-  // A redirect follows a placement scenario of another family; it is
-  // reviewed after that family so its certainty can depend on the outcome.
   const followedBy = (scenario: InternalRewiringScenario) => {
     const fact = scenario.rationale.facts.find((f) => f.startsWith("follows "));
     if (fact === undefined) {
@@ -698,7 +685,6 @@ export function reviewPackageArchitecture(
     families
   );
 
-  // Subjects whose every candidate was ineligible: reviewed as families with nothing to compare.
   const familyKeys = new Set(families.map((f) => f.id));
   const ineligible = new Map<
     string,

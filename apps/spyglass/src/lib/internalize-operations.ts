@@ -17,7 +17,6 @@ interface ExportSite extends SourceSite {
   exportForm: "named-export" | "named-reexport" | "type-reexport";
 }
 
-/** Source operations produced by the internalize compiler, before architectural projection. */
 export type InternalizeOperation = {
   file: string;
   symbolId: string;
@@ -40,7 +39,6 @@ export type InternalizeOperation = {
     }
 );
 
-/** Describes the compiler's actual import destinations and removed exposures. Chooses no new edits. */
 export function internalizeOperations(
   source: Project,
   edited: Project,

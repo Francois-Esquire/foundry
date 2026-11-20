@@ -1,4 +1,5 @@
 import type { ArtifactResolved } from "@foundry/artifacts";
+import { KeyedTurns } from "@foundry/modules/platform/turns";
 import type { ExecutionRun, TaskContext } from "@foundry.sh/marbles/engine";
 import type { ArtifactModuleStore } from "~/main/modules/store/artifact";
 import { WORKS_TASKS } from "~/shared/execution";
@@ -64,6 +65,7 @@ export interface SourceEvidenceOptions {
 }
 
 export class SourceEvidence implements SourceSaves {
+  readonly #turns = new KeyedTurns();
   readonly #blocked = new Set<string>();
   readonly #checked = new Set<string>();
   readonly #execution: SourceEvidenceOptions["execution"];
@@ -92,51 +94,56 @@ export class SourceEvidence implements SourceSaves {
       disk: WORKS_TASKS.sourceSync,
       user: WORKS_TASKS.save,
     }[actor];
-    return this.#execution.dispatch(
-      task,
-      {
-        correlation: {
-          moduleId,
-          ...(parentRunId === undefined ? {} : { parentRunId }),
-        },
-      },
-      async (context) => {
-        let recorded = false;
-        const record = (saved: SourceCommit<T>["saved"]) => {
-          if (recorded) {
-            return;
-          }
-          recorded = true;
-          this.#record(context, {
-            actor,
-            artifactId: saved.artifactId,
-            contentId: saved.contentId,
-            kind,
+    return this.#turns.run(moduleId, () =>
+      this.#execution.dispatch(
+        task,
+        {
+          correlation: {
             moduleId,
-            ...(saved.tag === undefined ? {} : { tag: saved.tag }),
-            updatedAt: saved.updatedAt,
-          });
-        };
-        try {
-          const { saved, value } = await commit(
-            {
+            ...(parentRunId === undefined ? {} : { parentRunId }),
+          },
+        },
+        async (context) => {
+          let recorded = false;
+          let recording: Promise<void> | undefined;
+          const record = (saved: SourceCommit<T>["saved"]) => {
+            if (recorded) {
+              return;
+            }
+            recorded = true;
+            recording = this.#record(context, {
               actor,
-              at: new Date().toISOString(),
+              artifactId: saved.artifactId,
+              contentId: saved.contentId,
               kind,
-              ...(parentRunId === undefined ? {} : { parentRunId }),
-              runId: context.run.id,
-            },
-            record
-          );
-          record(saved);
-          return value;
-        } catch (error) {
-          if (!recorded) {
-            this.#checked.delete(moduleId);
+              moduleId,
+              ...(saved.tag === undefined ? {} : { tag: saved.tag }),
+              updatedAt: saved.updatedAt,
+            });
+          };
+          try {
+            const { saved, value } = await commit(
+              {
+                actor,
+                at: new Date().toISOString(),
+                kind,
+                ...(parentRunId === undefined ? {} : { parentRunId }),
+                runId: context.run.id,
+              },
+              record
+            );
+            record(saved);
+            return value;
+          } catch (error) {
+            if (!recorded) {
+              this.#checked.delete(moduleId);
+            }
+            throw error;
+          } finally {
+            await recording;
           }
-          throw error;
         }
-      }
+      )
     );
   }
 
@@ -158,8 +165,8 @@ export class SourceEvidence implements SourceSaves {
     return failures;
   }
 
-  #record(context: TaskContext, save: SourceSaveEvidence): void {
-    if (!observeResult(context, OBSERVATION.save, save)) {
+  async #record(context: TaskContext, save: SourceSaveEvidence): Promise<void> {
+    if (!(await observeResult(context, OBSERVATION.save, save))) {
       this.#blocked.add(save.moduleId);
     }
   }

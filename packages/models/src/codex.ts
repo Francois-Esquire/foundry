@@ -1,7 +1,9 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
-import { createCodexAppServer } from "ai-sdk-provider-codex-cli";
+import { recordChild } from "@foundry/lib/spawn-record";
+import type { createCodexAppServer } from "ai-sdk-provider-codex-cli";
+import { fromCodexListing } from "./catalog/codex";
 import { environmentOverlay } from "./environment";
 import { modelErrors } from "./errors";
 import type { Provider } from "./provider";
@@ -15,82 +17,146 @@ export type {
 export { createCodexDriver } from "./harness/codex";
 
 export interface CodexProviderConfig {
-  /**
-   * Whether the CLI is installed and the user has this harness switched on.
-   * The host owns detection; this package never probes the machine. Defaults
-   * false so an unconfigured registration fails closed.
-   */
   available?: boolean;
-  /**
-   * Absolute path to the `codex` binary, resolved by the host. A GUI-launched
-   * app on macOS inherits only the system PATH, so the SDK's bare `codex`
-   * fallback finds nothing in exactly the case that matters.
-   */
   binPath?: string;
 }
 
 export interface CodexProviderOptions {
   config?: CodexProviderConfig;
-  /** Catalog id to prefer per kind when the caller names none. */
   defaults?: Partial<Record<ModelKind, string>>;
-  /**
-   * The only environment the app-server may see. The SDK accepts only
-   * strings, so a name outside it arrives empty rather than absent.
-   */
   env: Readonly<Record<string, string>>;
   id?: string;
   models?: ProviderModelDefinition[];
 }
 
-/**
- * The catalog Codex serves. The CLI's list follows the user's account, so
- * this stays minimal; a host supplies a fuller catalog when it has one.
- */
-export const CODEX_DEFAULT_MODELS: ProviderModelDefinition[] = [
-  {
-    capabilities: { functionCalling: true },
-    id: "gpt-5.5",
-    kind: "text",
-    label: "GPT-5.5",
-    modelId: "gpt-5.5",
-    vendor: "openai",
-  },
-];
-
-/** How long a signalled app-server gets to exit before SIGKILL, and after it. */
 const EXIT_GRACE_MS = 2000;
 const KILL_GRACE_MS = 1000;
+const RECORD_POLL_MS = 10;
+const GPT_FAMILY =
+  /^gpt-([1-9]\d*(?:\.(?:0|[1-9]\d*))*)-(?!(?:fast|preview|alpha|beta|experimental|latest|snapshot)$)([a-z]+)$/;
 
 type AppServerClient = ReturnType<typeof createCodexAppServer>;
+type ListedModels = Awaited<
+  ReturnType<AppServerClient["listModels"]>
+>["models"];
 
-/** One vendor client, and so one app-server per working directory, for one environment. */
+function appServer(
+  create: typeof createCodexAppServer,
+  binPath: string | undefined,
+  env: Record<string, string>
+): AppServerClient {
+  return create({
+    defaultSettings: {
+      ...(binPath ? { codexPath: binPath } : {}),
+      env,
+      logger: false,
+    },
+  });
+}
+
+export async function codexModels({
+  binPath,
+  env,
+  signal,
+}: {
+  readonly binPath: string;
+  readonly env: Readonly<Record<string, string>>;
+  readonly signal?: AbortSignal;
+}): Promise<readonly ProviderModelDefinition[]> {
+  signal?.throwIfAborted();
+  if (!(env.CODEX_HOME || env.HOME)) {
+    throw new Error(
+      "Codex discovery requires HOME or CODEX_HOME in the provider environment"
+    );
+  }
+  const { createCodexAppServer: create } = await import(
+    "ai-sdk-provider-codex-cli"
+  );
+  signal?.throwIfAborted();
+  const client = appServer(create, binPath, environmentOverlay(env, ""));
+  const cancelled = Promise.withResolvers<never>();
+  const abort = () => cancelled.reject(signal?.reason);
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const { models } = await Promise.race([
+      client.listModels(),
+      cancelled.promise,
+    ]);
+    const preferred = models.find((model) => model.isDefault && model.id)?.id;
+    const rows = fromCodexListing(models).sort(
+      (a, b) => Number(b.id === preferred) - Number(a.id === preferred)
+    );
+    return [...rows, ...codexFamilies(models, rows)];
+  } catch (error) {
+    signal?.throwIfAborted();
+    throw new Error("Codex app-server could not list models", { cause: error });
+  } finally {
+    signal?.removeEventListener("abort", abort);
+    await client.close();
+  }
+}
+
+interface FamilyCandidate {
+  readonly id: string;
+  tied: boolean;
+  readonly version: readonly bigint[];
+}
+
+function compareVersions(a: readonly bigint[], b: readonly bigint[]): number {
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const left = a[index] ?? 0n;
+    const right = b[index] ?? 0n;
+    if (left !== right) {
+      return left > right ? 1 : -1;
+    }
+  }
+  return 0;
+}
+
+function codexFamilies(
+  models: ListedModels,
+  rows: readonly ProviderModelDefinition[]
+): ProviderModelDefinition[] {
+  const offered = new Map(rows.map((row) => [row.id, row]));
+  const latest = new Map<string, FamilyCandidate>();
+  for (const { hidden, id, model } of models) {
+    if (!offered.has(id) || hidden || (model !== undefined && model !== id)) {
+      continue;
+    }
+    const [, versionText, family] = GPT_FAMILY.exec(id) ?? [];
+    if (!(versionText && family) || offered.has(family)) {
+      continue;
+    }
+    const version = versionText.split(".").map(BigInt);
+    const kept = latest.get(family);
+    const order =
+      kept === undefined ? 1 : compareVersions(version, kept.version);
+    if (order > 0) {
+      latest.set(family, { id, tied: false, version });
+    } else if (order === 0 && kept && kept.id !== id) {
+      kept.tied = true;
+    }
+  }
+  return [...latest].flatMap(([id, { id: target, tied }]) => {
+    const row = offered.get(target);
+    return row && !tied ? [{ ...row, id }] : [];
+  });
+}
+
 interface AppServer {
   calls: number;
   readonly client: AppServerClient;
-  /** The vendor's per-process RPC clients, read only to wait for their processes. */
   readonly connections: Set<object>;
   readonly key: string;
   retired: boolean;
-  /** Set while stopping; cleared if the stop fails, so it can be retried. */
   stopping?: Promise<void>;
-  /** A model came back without the process handle this provider waits on. */
   unobservable: boolean;
 }
 
-/**
- * Codex as a provider: the CLI runs the turn, spoken to over its app-server
- * JSON-RPC transport. The transport is a persistent child process, which is
- * why `dispose` exists — without it a `codex app-server` outlives the app.
- *
- * Each call takes the app-server for the environment it needs now. One whose
- * environment was superseded closes once its calls finish, and going
- * offline closes them all and waits for their processes to exit.
- */
 export function codexProvider(options: CodexProviderOptions): Provider {
   const id = options.id ?? "codex";
   const config = options.config ?? {};
   let offline = false;
-  /** Every app-server until its process is known to have exited. */
   const servers = new Set<AppServer>();
   let current: AppServer | undefined;
 
@@ -125,7 +191,10 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     }
   };
 
-  const serverFor = (env: Record<string, string>): AppServer => {
+  const serverFor = (
+    create: typeof createCodexAppServer,
+    env: Record<string, string>
+  ): AppServer => {
     const key = JSON.stringify([config.binPath ?? null, sorted(env)]);
     if (current?.key === key && !current.retired) {
       return current;
@@ -135,14 +204,7 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     }
     const server: AppServer = {
       calls: 0,
-      client: createCodexAppServer({
-        defaultSettings: {
-          ...(config.binPath ? { codexPath: config.binPath } : {}),
-          env,
-          // The CLI's own logging would otherwise land on the host's stdout.
-          logger: false,
-        },
-      }),
+      client: appServer(create, config.binPath, env),
       connections: new Set(),
       key,
       retired: false,
@@ -153,24 +215,31 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     return server;
   };
 
-  const lease = (modelId: string, cwd: string | undefined) => {
+  const lease = async (modelId: string, cwd: string | undefined) => {
     if (offline) {
       throw modelErrors.PROVIDER_OFFLINE({ provider: id });
     }
-    const server = serverFor(environmentOverlay(options.env, ""));
+    const { createCodexAppServer: create } = await import(
+      "ai-sdk-provider-codex-cli"
+    );
+    if (offline) {
+      throw modelErrors.PROVIDER_OFFLINE({ provider: id });
+    }
+    const server = serverFor(create, environmentOverlay(options.env, ""));
     const model = server.client.languageModel(modelId, cwd ? { cwd } : {});
     const connection = (model as { client?: unknown }).client;
+    let released = false;
     if (
       typeof connection === "object" &&
       connection !== null &&
       "child" in connection
     ) {
       server.connections.add(connection);
+      recordAppServer(connection as { child?: ChildProcess }, () => released);
     } else {
       server.unobservable = true;
     }
     server.calls += 1;
-    let released = false;
     return {
       model,
       release: () => {
@@ -206,11 +275,14 @@ export function codexProvider(options: CodexProviderOptions): Provider {
       return config.available ?? false;
     },
     ...(options.defaults ? { defaults: options.defaults } : {}),
-    dispose: stopAll,
+    dispose: async () => {
+      offline = true;
+      await stopAll();
+    },
     id,
     languageModel: (modelId, opts) =>
       leasedModel(modelId, () => lease(modelId, opts?.workingDirectory)),
-    models: options.models ?? CODEX_DEFAULT_MODELS,
+    models: options.models ?? [],
     offline: false,
     setOffline: async (value) => {
       offline = value;
@@ -218,16 +290,36 @@ export function codexProvider(options: CodexProviderOptions): Provider {
         await stopAll();
       }
     },
-    // The CLI runs its own tool loop inside one call and takes no limit.
     turnLimit: "unsupported",
   };
+}
+
+const recordedServers = new WeakSet<ChildProcess>();
+
+function recordAppServer(
+  connection: { readonly child?: ChildProcess },
+  done: () => boolean
+): void {
+  const look = () => {
+    const { child } = connection;
+    if (child !== undefined) {
+      if (!recordedServers.has(child)) {
+        recordedServers.add(child);
+        recordChild(child);
+      }
+      return;
+    }
+    if (!done()) {
+      setTimeout(look, RECORD_POLL_MS).unref();
+    }
+  };
+  look();
 }
 
 function sorted(env: Record<string, string>): [string, string][] {
   return Object.entries(env).sort(([a], [b]) => a.localeCompare(b));
 }
 
-/** Resolves once `child` has exited, sending SIGKILL when SIGTERM was not enough. */
 async function exited(child: ChildProcess): Promise<void> {
   const gone = () => child.exitCode !== null || child.signalCode !== null;
   const exit = once(child, "exit").then(
@@ -248,17 +340,15 @@ async function exited(child: ChildProcess): Promise<void> {
   }
 }
 
-/** A stream dropped without being read to its end or cancelled still releases its lease. */
 const abandoned = new FinalizationRegistry<() => void>((release) => release());
 
-/** A model whose every call leases a delegate, released when the call or its stream ends. */
 function leasedModel(
   modelId: string,
-  lease: () => { model: LanguageModelV4; release(): void }
+  lease: () => Promise<{ model: LanguageModelV4; release(): void }>
 ): LanguageModelV4 {
   return {
     doGenerate: async (callOptions) => {
-      const { model, release } = lease();
+      const { model, release } = await lease();
       try {
         return await model.doGenerate(callOptions);
       } finally {
@@ -266,7 +356,7 @@ function leasedModel(
       }
     },
     doStream: async (callOptions) => {
-      const { model, release } = lease();
+      const { model, release } = await lease();
       try {
         const result = await model.doStream(callOptions);
         const stream = releasing(result.stream, release);

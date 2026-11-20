@@ -19,7 +19,6 @@ export type BuiltinCodingSettings = Omit<
     maxSteps: number;
   };
 
-/** The host supplies coding tools and their execution environment. No Sandbox dependency. */
 export function createBuiltinCodingHarness(
   settings: BuiltinCodingSettings,
   context: TurnContext

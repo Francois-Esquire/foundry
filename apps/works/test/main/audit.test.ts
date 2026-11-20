@@ -1,19 +1,12 @@
 import { spawnSync } from "node:child_process";
-import {
-  cp,
-  mkdtemp,
-  readdir,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { ModuleVersion } from "@foundry/modules/domain";
 import type { ExecutionRun, TaskContext } from "@foundry.sh/marbles/engine";
+import { openWorkspaceDatabase } from "@foundry.sh/marbles/engine";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProductFiles } from "~/main/artifacts/files";
 import { auditRun, ExecutionAudit } from "~/main/execution/audit";
@@ -77,21 +70,6 @@ async function temporary(prefix = "works-audit-") {
 
 function named(runs: readonly ExecutionRun[], name: string) {
   return runs.filter((run) => run.name === name);
-}
-
-async function filesUnder(directory: string): Promise<[string, string][]> {
-  const entries = await readdir(directory, {
-    recursive: true,
-    withFileTypes: true,
-  });
-  return Promise.all(
-    entries
-      .filter((entry) => entry.isFile())
-      .map(async (entry): Promise<[string, string]> => {
-        const file = path.join(entry.parentPath, entry.name);
-        return [file, await readFile(file, "utf8")];
-      })
-  );
 }
 
 async function take(
@@ -238,28 +216,32 @@ describe("engine run-store coverage", {
     const scenario = await runAuditScenario(directory);
     cleanups.push(() => scenario.close());
     const planted = [SCENARIO_PROMPT, SCENARIO_FILE_BODY, SCENARIO_SOURCE_BODY];
-    const files = await filesUnder(path.join(directory, "engine", "state"));
-    expect(files.length).toBeGreaterThan(10);
-    for (const [file, text] of files) {
+    const database = openWorkspaceDatabase({
+      state: path.join(directory, "engine", "state"),
+      workspaceId: "foundry-works",
+    });
+    cleanups.push(() => database.close());
+    const records = await database.executions.list();
+    expect(records.length).toBeGreaterThan(10);
+    for (const record of records) {
       for (const secret of planted) {
-        expect(text, file).not.toContain(secret.trim());
+        expect(JSON.stringify(record), record.id).not.toContain(secret.trim());
       }
     }
     const audit = new ExecutionAudit({ runs: scenario.execution.runs });
     const controller = new AbortController();
-    const [snapshot] = await take(audit.watch(controller.signal), 1);
+    const [snapshot] = await take(await audit.watch(controller.signal), 1);
     controller.abort();
     const payload = JSON.stringify(snapshot);
     for (const secret of planted) {
       expect(payload).not.toContain(secret.trim());
     }
     expect(payload).not.toContain('"input":{"request"');
-    const sessions = await filesUnder(
-      path.join(directory, "engine", "sessions")
+    const sessions = await database.sessions.stamps();
+    const transcripts = await Promise.all(
+      sessions.map(({ id }) => database.sessions.listMessages(id))
     );
-    expect(sessions.some(([, text]) => text.includes(SCENARIO_PROMPT))).toBe(
-      true
-    );
+    expect(JSON.stringify(transcripts)).toContain(SCENARIO_PROMPT);
   });
 
   it("keeps a failed chat turn's provider text out of the run, with its code", async () => {
@@ -642,17 +624,37 @@ describe("crash durability", () => {
     });
 
     const copy = path.join(directory, "after-crash");
-    await cp(engine, copy, { recursive: true });
     const dead = deadPid();
-    const executions = path.join(copy, "state", "executions");
-    for (const file of await readdir(executions)) {
-      const record = JSON.parse(
-        await readFile(path.join(executions, file), "utf8")
-      ) as ExecutionRun;
-      await writeFile(
-        path.join(executions, file),
-        JSON.stringify({ ...record, owner: { pid: dead } })
-      );
+    const copied = openWorkspaceDatabase({
+      state: path.join(copy, "state"),
+      workspaceId: "foundry-works",
+    });
+    try {
+      for (const run of first.runs.list()) {
+        const owner = { pid: dead, started: "exited-test-process" };
+        await copied.executions.create({
+          ...run,
+          owner,
+          status: run.observations.length ? "running" : run.status,
+        });
+        for (const observation of run.observations) {
+          await copied.executions.observe(
+            run.id,
+            observation,
+            run.timestamps.updatedAt
+          );
+        }
+        if (run.observations.length) {
+          await copied.executions.transition(run.id, {
+            from: ["running"],
+            owner,
+            status: run.status,
+            updatedAt: run.timestamps.updatedAt,
+          });
+        }
+      }
+    } finally {
+      await copied.close();
     }
 
     const second = await startWorksEngine({ directory: copy });
@@ -698,7 +700,7 @@ describe("audit watch", () => {
     });
     const audit = new ExecutionAudit({ retention, runs: execution.runs });
     const controller = new AbortController();
-    const events = audit.watch(controller.signal);
+    const events = await audit.watch(controller.signal);
     const [snapshot] = await take(events, 1);
     expect(snapshot).toMatchObject({ gaps: [], type: "snapshot" });
     expect(snapshot?.type === "snapshot" && snapshot.runs).toHaveLength(1);
@@ -732,7 +734,7 @@ describe("audit watch", () => {
     controller.abort();
     expect(await events.next()).toEqual({ done: true, value: undefined });
     await library.details(module.id);
-    const again = audit.watch();
+    const again = await audit.watch();
     const [fresh] = await take(again, 1);
     expect(reduce(fresh ? [fresh] : [], state)).toMatchObject({
       gaps: [{ scope: HOST_AUDIT_SCOPE }],

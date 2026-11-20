@@ -45,9 +45,6 @@ function isWebFetchResult(value: unknown): value is WebFetchResult {
   return typeof value === "object" && value !== null && "ok" in value;
 }
 
-/** Direct, uncompiled tool execute — exercises only this file's own URL
- *  validation and fetch, with no policy in front of it (matches how the
- *  compiler calls `execute` once a call is already authorized). */
 function build(fetchImpl: FetchLike) {
   const { tools } = createWebFetchTools({ fetchImpl });
   const [registration] = registrationsOf(tools, "builtin");

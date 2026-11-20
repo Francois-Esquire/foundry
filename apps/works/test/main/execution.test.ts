@@ -1,13 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { ModuleVersion } from "@foundry/modules/domain";
 import {
   type ExecutionRun,
-  InMemoryStateStore,
-  JsonStateStore,
+  MemoryExecutionStore,
+  openWorkspaceDatabase,
 } from "@foundry.sh/marbles/engine";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { moduleQueue, SYSTEM_QUEUE } from "~/main/execution/contract";
@@ -83,11 +83,11 @@ function runsNamed(runs: readonly ExecutionRun[], name: string) {
 
 describe("Works execution engine startup", () => {
   it("fails Works startup when the engine cannot recover its run store", async () => {
-    const store = new InMemoryStateStore();
+    const store = new MemoryExecutionStore();
     vi.spyOn(store, "list").mockImplementation(() => {
       throw new Error("run store unreadable");
     });
-    const started = startTestExecution({ store });
+    const started = startTestExecution({ executionStore: () => store });
     await expect(started).rejects.toBeInstanceOf(WorksEngineStartError);
     await expect(started).rejects.toThrow(
       "The execution engine could not start: run store unreadable"
@@ -135,28 +135,39 @@ describe("Works execution engine startup", () => {
       { ...details.source, "README.md": marker },
       binding
     );
-    const executions = path.join(directory, "state", "executions");
-    const records = await readdir(executions);
-    expect(records.length).toBeGreaterThanOrEqual(2);
-    for (const record of records) {
-      expect(
-        await readFile(path.join(executions, record), "utf8")
-      ).not.toContain(marker);
+    const persisted = openWorkspaceDatabase({
+      state: path.join(directory, "state"),
+      workspaceId: "foundry-works",
+    });
+    try {
+      const records = await persisted.executions.list();
+      expect(records.length).toBeGreaterThanOrEqual(2);
+      expect(JSON.stringify(records)).not.toContain(marker);
+    } finally {
+      await persisted.close();
     }
   });
 
   it("settles work a crashed process left behind: running is interrupted, queued fails without running", async () => {
     const directory = await temporary("works-engine-crash-");
-    const store = new JsonStateStore(path.join(directory, "state"));
+    const database = openWorkspaceDatabase({
+      state: path.join(directory, "state"),
+      workspaceId: "foundry-works",
+    });
+    const store = database.executions;
     const pid = deadPid();
-    const record = (id: string, status: string, name: string) => ({
+    const record = (
+      id: string,
+      status: ExecutionRun["status"],
+      name: string
+    ): ExecutionRun => ({
       correlation: { moduleId: "module-a" },
       id,
       ...(status === "queued" ? { input: { request: `request-${id}` } } : {}),
       kind: "task",
       name,
       observations: [],
-      owner: { pid },
+      owner: { pid, started: "exited-test-process" },
       queue: SYSTEM_QUEUE,
       revision: 2,
       sequence: Date.now() + Number(id.slice(-1)),
@@ -166,21 +177,10 @@ describe("Works execution engine startup", () => {
         updatedAt: new Date().toISOString(),
       },
     });
-    store.write(
-      "executions",
-      "rn-program-1",
-      record("rn-program-1", "running", WORKS_TASKS.program)
-    );
-    store.write(
-      "executions",
-      "rn-save-2",
-      record("rn-save-2", "queued", WORKS_TASKS.save)
-    );
-    store.write(
-      "executions",
-      "rn-other-3",
-      record("rn-other-3", "queued", "someone.else")
-    );
+    await store.create(record("rn-program-1", "running", WORKS_TASKS.program));
+    await store.create(record("rn-save-2", "queued", WORKS_TASKS.save));
+    await store.create(record("rn-other-3", "queued", "someone.else"));
+    await database.close();
     const execution = await startTestExecution({ directory });
     expect(execution.runs.get("rn-program-1")).toMatchObject({
       error: { code: "interrupted" },
@@ -213,7 +213,7 @@ describe("Works actions as system engine runs", () => {
       module,
     } = await routed();
     const seen: string[] = [];
-    const subscription = execution.runs.subscribe((run) => {
+    const subscription = await execution.runs.subscribe((run) => {
       if (run.name === WORKS_TASKS.save) {
         seen.push(run.status);
       }

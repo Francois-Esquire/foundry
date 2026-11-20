@@ -1,13 +1,6 @@
 import type { CollectionProgressEvent, ScanProgressEvent } from "../lib/scan";
 import type { SemanticsHistoryProgressEvent } from "../lib/semantics-history";
 
-// The CLI's model of a scan in flight. It folds the library's progress
-// events into one snapshot a display reads: which phase, which packages
-// are being analyzed, how many of how many, what was reused. It knows
-// nothing of terminals; `spyglass.ts` prints its lines when piped, and
-// `loader.ts` draws its snapshot in a terminal.
-
-/** A phase the scan entered, closed with its duration when the next began. */
 export interface PhaseRecord {
   readonly detail?: string;
   readonly durationMs?: number;
@@ -29,14 +22,11 @@ export interface UnitRecord {
   readonly unit: string;
 }
 
-/** Package analysis counts and active and recent units. */
 export interface UnitsProgress {
-  /** Packages whose analysis has started and not ended, in starting order. */
   readonly active: readonly ActiveUnit[];
   readonly analyzed: number;
   readonly done: number;
   readonly failed: number;
-  /** The most recently finished packages, newest first; at most `RECENT`. */
   readonly recent: readonly UnitRecord[];
   readonly reused: number;
   readonly total: number;
@@ -54,16 +44,12 @@ interface HistoryProgress {
 
 export interface ProgressSnapshot {
   readonly history?: HistoryProgress;
-  /** Which package's internals are being derived, and its position. */
   readonly internals?: { index: number; package: string; total: number };
   readonly phases: readonly PhaseRecord[];
-  /** From the invalidation plan: how many local analyses are reused and recomputed. */
   readonly plan?: { recompute: number; reuse: number };
   readonly startedAt: number;
   readonly units: UnitsProgress;
-  /** For a collection, the root whose scan is running. */
   readonly workspace?: string;
-  /** How many workspaces have started; one for a single workspace. */
   readonly workspaces: number;
 }
 
@@ -79,7 +65,6 @@ const EMPTY_UNITS: UnitsProgress = {
   total: 0,
 };
 
-/** Adds or extends a phase: a repeated name (derive reports its timing twice) updates the detail. */
 function enterPhase(
   phases: readonly PhaseRecord[],
   name: string,
@@ -173,7 +158,6 @@ function foldHistory(
   return current;
 }
 
-/** Lines printed for an event in a piped run; empty for other events. */
 function plainLines(event: ScanProgressEvent): string[] {
   if (event.kind === "phase") {
     return [`${event.phase}${event.detail ? `: ${event.detail}` : ""}`];
@@ -184,10 +168,6 @@ function plainLines(event: ScanProgressEvent): string[] {
   return [];
 }
 
-/**
- * Folds progress events, from one workspace's scan or a collection's, into
- * a snapshot. `fold` returns the plain lines that event adds for a piped run.
- */
 export class ScanProgress {
   private current: ProgressSnapshot;
   private readonly now: () => number;
@@ -210,7 +190,6 @@ export class ScanProgress {
     if (event.kind === "workspace") {
       const lines: string[] = [];
       if (event.root !== this.current.workspace) {
-        // Each workspace's scan starts its phases afresh; the counts accumulate.
         this.current = {
           ...this.current,
           internals: undefined,
@@ -291,7 +270,6 @@ export class ScanProgress {
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 
-/** `0.4s`, `12s`, `2m 05s`: the precision a person reads at that scale. */
 export function formatDuration(ms: number): string {
   if (ms < 10 * SECOND) {
     return `${(ms / SECOND).toFixed(1)}s`;
@@ -307,10 +285,6 @@ export function formatDuration(ms: number): string {
 const plural = (count: number, noun: string) =>
   `${count} ${noun}${count === 1 ? "" : "s"}`;
 
-/**
- * One line for the scrollback once the live display is gone:
- * `Scanned 16 packages in 41s: 3 analyzed, 13 reused.`
- */
 export function summaryLine(snapshot: ProgressSnapshot, now: number): string {
   const { units, workspaces } = snapshot;
   const counts = [

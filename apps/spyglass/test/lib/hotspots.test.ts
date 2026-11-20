@@ -468,9 +468,6 @@ describe("hotspot eligibility", () => {
 });
 
 describe("the frequent-change lens against the hotspots", () => {
-  // Hotspots attach their "frequent-change" signal only to files that also
-  // pass the complexity gate, so the signal names a subset of the lens's
-  // files; the lens is pinned to the commit gate itself.
   it("names every hotspot, each carrying the frequent-change signal, and the gate's files that are not complex", () => {
     const { eligibleKinds, gates } = ANALYSIS_CONFIG.hotspots;
     const source = sourceOf(

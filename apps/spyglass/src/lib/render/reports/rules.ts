@@ -6,7 +6,6 @@ import type { ReportView, SectionView } from "../views";
 import { blockerDefinitions } from "./explanations";
 import { listSection } from "./ranked-section";
 
-/** A rule as a line names it: `rules[0] require internalize packages/core`. */
 function ruleName(rules: readonly Rule[], index: number): string {
   const rule = rules[index];
   return rule === undefined
@@ -24,7 +23,6 @@ function planText(violation: RuleViolation): string {
     : `plan ${plan.status}: ${plan.blockers.join(", ")}`;
 }
 
-/** One section per broken rule, its places by path. */
 function violationSections(lens: Rules, density: RenderDensity): SectionView[] {
   const broken = [...new Set(lens.violations.map((v) => v.rule))];
   return broken.flatMap((index) => {

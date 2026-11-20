@@ -2,7 +2,6 @@ const DOT_PREFIX_PATTERN = /^\.\//;
 const TRAILING_SLASHES_PATTERN = /\/+$/;
 const HEX_BYTES_PATTERN = /^(?:[0-9a-f]{2})+$/;
 
-/** Lexical joining only; the caller supplies the filesystem's separator. */
 export function joinFilesystemPath(
   base: string,
   segment: string,
@@ -14,12 +13,10 @@ export function joinFilesystemPath(
   return `${base.endsWith(separator) ? base : `${base}${separator}`}${segment}`;
 }
 
-/** The final non-empty segment; a trailing separator does not count as one. */
 export function lastPathSegment(path: string, separator = "/"): string {
   return path.split(separator).filter(Boolean).at(-1) ?? path;
 }
 
-/** Both paths must already be canonical. This does not resolve symlinks or traversal. */
 export function isFilesystemPathWithin(
   root: string,
   candidate: string,
@@ -33,7 +30,6 @@ export function isFilesystemPathWithin(
   );
 }
 
-/** NFC unifies decomposed filesystem names with catalog spelling; this does not validate paths. */
 export function normalizeStoragePath(path: string): string {
   return path
     .replace(DOT_PREFIX_PATTERN, "")
@@ -41,7 +37,6 @@ export function normalizeStoragePath(path: string): string {
     .normalize("NFC");
 }
 
-/** Portable POSIX paths reject parent traversal rather than resolving it. */
 export function normalizePosixPath(path: string): string {
   if (path.includes("\0") || path.includes("\\")) {
     throw new TypeError("path must be a portable POSIX path");
@@ -79,7 +74,6 @@ const ENCODED_ID_LABEL_LENGTH = 60;
 
 export interface ResourceAddress {
   readonly id: string;
-  /** Decoded path relative to the addressed resource. */
   readonly path: string;
   readonly resource: string;
 }
@@ -90,7 +84,6 @@ export interface ResourceLocation {
   readonly resource: string;
 }
 
-/** Bind the scheme once at the caller; no application protocol is assumed here. */
 export function resourcePaths(scheme: string) {
   requireScheme(scheme);
   return Object.freeze({
@@ -110,11 +103,6 @@ export class ResourceUriError extends Error {
   }
 }
 
-/**
- * Constructs `<scheme>://<id>.<resource>/<path>` through the platform URL API.
- * IDs must survive hostname normalization exactly; callers never hand-build a
- * resource URI or guess how an opaque domain identity maps into an origin.
- */
 export function createResourceUrl(
   input: ResourceLocation & { readonly scheme: string }
 ): URL {
@@ -142,7 +130,6 @@ export function formatResourceUrl(
   return createResourceUrl(input).toString();
 }
 
-/** Uses URL for scheme, authority, query, fragment, and path parsing. */
 export function parseResourceUrl(
   scheme: string,
   input: string | URL
@@ -181,12 +168,6 @@ export function parseResourceUrl(
     : Object.freeze({ id, path, resource });
 }
 
-/**
- * Decode one URL pathname into the relative resource path consumers use.
- * Separators are structural: an encoded slash/backslash, dot segment, NUL, or
- * malformed escape is rejected rather than being materialized after the URL
- * parser's own normalization pass.
- */
 export function parseResourcePath(pathname: string): string | null {
   if (!pathname.startsWith("/")) {
     return null;

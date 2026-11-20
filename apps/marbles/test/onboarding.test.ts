@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   type InputField,
   inputDefaults,
@@ -12,13 +12,21 @@ import {
 } from "~/lib/inputs";
 import { createStarter } from "~/workspace/create";
 import { renderModule, type SetupDraft, STARTERS } from "~/workspace/templates";
+import { type TestHome, testHome } from "./helpers/home";
 
 const draft: SetupDraft = {
   instructions: "",
   name: "summary",
   template: "product",
 };
+let home: TestHome | undefined;
+
+afterEach(() => {
+  home = undefined;
+});
+
 function cli(config: string, ...args: string[]) {
+  home ??= testHome();
   const bin = join(dirname(config), "test-bin");
   mkdirSync(bin, { recursive: true });
   writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 1\n");
@@ -28,13 +36,12 @@ function cli(config: string, ...args: string[]) {
     [resolve("src/cli.ts"), ...args, "--dry-run", "--config", config],
     {
       encoding: "utf8",
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+      env: { ...home.env, PATH: `${bin}:${home.env.PATH}` },
       timeout: 10_000,
     }
   );
 }
 
-// Allow three CLI processes, each bounded by the helper's 10-second timeout.
 it("missing, empty, and import-only configs register no implicit definitions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "marbles-config-"));
   try {
@@ -50,7 +57,6 @@ it("missing, empty, and import-only configs register no implicit definitions", a
 }, 35_000);
 
 for (const starter of STARTERS) {
-  // Each starter is loaded and then executed in separate CLI processes.
   it(`generates a loadable ${starter.label} config with only the selected step`, async () => {
     const dir = await mkdtemp(join(tmpdir(), "marbles-starter-"));
     try {

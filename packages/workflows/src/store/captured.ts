@@ -1,3 +1,5 @@
+import { isPlainObject, ownedEvents } from "@foundry/lib/plain-json";
+
 import type {
   FrameListQuery,
   JobListQuery,
@@ -11,6 +13,7 @@ const WRITE_PROPERTIES = {
   deleteRunFrames: true,
   deleteRuns: true,
   deleteSuspensions: true,
+  events: true,
   putFrames: true,
   putJobs: true,
   putQueues: true,
@@ -48,6 +51,10 @@ export function capturedWrite(write: WorkflowStoreWrite): WorkflowStoreWrite {
     if (!Array.isArray(value)) {
       throw new TypeError(`${property} must be an array`);
     }
+    if (property === "events") {
+      captured[property] = ownedEvents(value);
+      continue;
+    }
     const items: unknown[] = [];
     for (let index = 0; index < value.length; index += 1) {
       const item: unknown = value[index];
@@ -56,7 +63,7 @@ export function capturedWrite(write: WorkflowStoreWrite): WorkflowStoreWrite {
         if (typeof item !== "string") {
           throw new TypeError(`${property}[${index}] must be text`);
         }
-      } else if (!isPlainData(item)) {
+      } else if (!isPlainObject(item)) {
         throw new TypeError(
           `${property}[${index}] must be a plain object whose own properties are all enumerable`
         );
@@ -94,16 +101,4 @@ export function capturedQuery<Q extends object>(query: Q): Q {
     captured[property] = value;
   }
   return captured as Q;
-}
-
-function isPlainData(value: unknown): boolean {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const prototype: unknown = Object.getPrototypeOf(value);
-  return (
-    (prototype === Object.prototype || prototype === null) &&
-    Object.getOwnPropertyNames(value).length === Object.keys(value).length &&
-    Object.getOwnPropertySymbols(value).length === 0
-  );
 }

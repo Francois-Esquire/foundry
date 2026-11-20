@@ -1,4 +1,3 @@
-/** Runs operations one at a time per key; a failed turn never blocks the next. */
 export class KeyedTurns<Key> {
   readonly #tails = new Map<Key, Promise<void>>();
 
@@ -18,7 +17,6 @@ export class KeyedTurns<Key> {
     return result;
   }
 
-  /** Resolves once no turn is running or queued. */
   async idle(): Promise<void> {
     while (this.#tails.size > 0) {
       await Promise.all(this.#tails.values());

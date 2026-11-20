@@ -1,8 +1,10 @@
+import { ownedWrite as withOwnedEvents } from "@foundry/lib/plain-json";
+
 import type { ArtifactRecords, Blob } from "../schema";
 import type { ArtifactStoreWrite } from "./index";
 
 export function ownedWrite(write: ArtifactStoreWrite): ArtifactStoreWrite {
-  const copy = structuredClone(write);
+  const copy = withOwnedEvents(write);
   return copy.putBlobs === undefined
     ? copy
     : { ...copy, putBlobs: copy.putBlobs.map(ownedBlob) };

@@ -15,7 +15,7 @@ import { installationIdSchema } from "@foundry/modules/domain";
 import { createModuleInstallationFiles } from "@foundry/modules/node/installation-files";
 import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { moduleDirectory, moduleFolder } from "~/main/modules/local-library";
@@ -274,7 +274,7 @@ describe("Program mounts", () => {
         instanceLabel: "private-files-test",
         mountTargetRoot: "/foundry",
         runtime,
-        store: createMemoryContainerStore(),
+        store: new MemoryContainerStore(),
       }),
       files
     );
@@ -390,7 +390,7 @@ describe("Program mounts of disposable files", () => {
         instanceLabel: "private-files-test",
         mountTargetRoot: "/foundry",
         runtime: createFakeContainerRuntime(),
-        store: createMemoryContainerStore(),
+        store: new MemoryContainerStore(),
       }),
       files
     );

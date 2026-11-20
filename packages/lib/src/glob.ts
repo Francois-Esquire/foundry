@@ -1,19 +1,8 @@
-/** Compile one glob to a regex over a POSIX path. `**` crosses separators
- * (`**` before a slash matches zero or more directories), `*`/`?` do not,
- * and `{ts,tsx}` selects one of several alternatives.
- *
- * The result is a real `RegExp` with the equivalent `source`, but matching
- * (`test`, `exec`, and the string methods built on them) runs the glob as a
- * state machine instead of through the backtracking regex engine: the work
- * is bounded by pattern length times path length, however the wildcards
- * overlap. A backtracking match of `**a**a**b` against a long path does not
- * finish in any useful time. */
 export function globToRegExp(pattern: string): RegExp {
   return new GlobRegExp(`^${globFragment(pattern)}$`, compileGlob(pattern));
 }
 
 class GlobRegExp extends RegExp {
-  // Derived regexes (`split`, `matchAll`) are plain ones over the same source.
   static override get [Symbol.species](): RegExpConstructor {
     return RegExp;
   }
@@ -30,7 +19,6 @@ class GlobRegExp extends RegExp {
     if (!runGlob(this.#machine, text)) {
       return null;
     }
-    // Anchored at both ends with no capture groups: a match is the whole text.
     return Object.assign([text], {
       groups: undefined,
       index: 0,
@@ -38,7 +26,6 @@ class GlobRegExp extends RegExp {
     }) as RegExpExecArray;
   }
 
-  // Recompiling would change `source` but not the machine `exec` runs.
   override compile(): never {
     throw new TypeError("A glob RegExp cannot be recompiled");
   }
@@ -118,19 +105,11 @@ function splitAlternatives(value: string): string[] {
   return alternatives;
 }
 
-// ── Matching ──
-// The same grammar as `globFragment`, built as a nondeterministic state
-// machine and run over every live state at once, one UTF-16 code unit at a
-// time (as the regex, which has no `u` flag, reads the path).
-
-/** One code unit, any code unit but `/`, or any code unit but a line
- *  terminator (what `.` takes without the `s` flag). */
 type Accepts = string | "segment" | "any";
 
 const LINE_TERMINATORS = new Set(["\n", "\r", "\u2028", "\u2029"]);
 
 interface GlobState {
-  /** States reachable without reading anything. */
   readonly empty: number[];
   readonly steps: { readonly accepts: Accepts; readonly to: number }[];
 }
@@ -148,7 +127,6 @@ function compileGlob(pattern: string): GlobMachine {
   };
 }
 
-/** Thompson-style construction; state 0 is the start. */
 class GlobBuilder {
   readonly states: GlobState[] = [];
 
@@ -156,7 +134,6 @@ class GlobBuilder {
     return this.states.push({ empty: [], steps: [] }) - 1;
   }
 
-  /** States from `start` through `source`; returns where it ends. */
   fragment(source: string, start: number): number {
     let at = start;
     let i = 0;
@@ -178,14 +155,12 @@ class GlobBuilder {
     return at;
   }
 
-  /** `**` + `/`, `**`, `*`, or `?` at `i`: the state after it and the next index. */
   #wildcard(
     source: string,
     i: number,
     from: number
   ): [at: number, next: number] | undefined {
     if (source.startsWith("**/", i)) {
-      // Zero or more `name/` directories.
       const at = this.#fresh(from);
       const name = this.add();
       this.#step(at, "segment", name);
@@ -230,8 +205,6 @@ class GlobBuilder {
     return to;
   }
 
-  /** A new state reached by an empty move, so a repetition never mixes with
-   *  the one before it. */
   #fresh(from: number): number {
     const to = this.add();
     this.#state(from).empty.push(to);
@@ -259,8 +232,6 @@ function runGlob(machine: GlobMachine, text: string): boolean {
     ) {
       if (!reached.has(index)) {
         reached.add(index);
-        // A loop, not a spread: a brace with very many alternatives would
-        // pass more arguments than one call takes.
         for (const target of states[index]?.empty ?? []) {
           pending.push(target);
         }

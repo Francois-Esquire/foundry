@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { Ledger } from "~/lib/ledger";
 import { RunScope, RunScopes, raceAbort } from "~/lib/run-scope";
 
-/** A root with nothing to do, for a scope to attach. */
 const idle = () =>
   Promise.resolve(
     Step.create<unknown, unknown>({
@@ -169,13 +168,11 @@ describe("Ledger", () => {
     expect(scope.pause("root.step", "hold on")).toBe(true);
     expect(before.aborted).toBe(true);
     expect(frame.paused).toEqual({ reason: "hold on" });
-    // A second pause of an already-parked step is a no-op.
     expect(scope.pause("root.step")).toBe(false);
     expect(scope.pause("root.other")).toBe(false);
     await scope.enter(frame);
     expect(frame.signal).not.toBe(before);
     expect(frame.signal.aborted).toBe(false);
-    // The run's abort still reaches the new controller.
     scope.abort(new Error("all stop"));
     expect(frame.signal.aborted).toBe(true);
     await scope.enter(frame);
@@ -192,13 +189,11 @@ describe("Ledger", () => {
     expect(child.signal.aborted).toBe(true);
     expect(child.paused).toEqual({ reason: "hold" });
     expect(other.signal.aborted).toBe(false);
-    // A sibling that had not started yet inherits the pause when it enters.
     const late = scope.frame(["flow", "b"]);
     expect(late.signal.aborted).toBe(false);
     await scope.enter(late);
     expect(late.paused).toEqual({ reason: "hold" });
     expect(late.signal.aborted).toBe(true);
-    // Re-entry consumes the pause and reissues the controller, root first.
     await scope.enter(root);
     expect(root.paused).toBeUndefined();
     expect(root.signal.aborted).toBe(false);

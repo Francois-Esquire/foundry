@@ -7,7 +7,7 @@ import {
   createContainers,
 } from "@foundry/sandbox/container/containers";
 import type { ContainerRuntime } from "@foundry/sandbox/container/types";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import type { SandboxResources } from "../settings";
 import type { SandboxCapacity, SandboxReservation } from "./capacity";
 
@@ -256,7 +256,7 @@ export class ModuleSandboxes {
           createContainers({
             instanceLabel: this.#instanceLabel,
             runtime,
-            store: createMemoryContainerStore(),
+            store: new MemoryContainerStore(),
           }),
           runtime
         );

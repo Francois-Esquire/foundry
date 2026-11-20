@@ -115,8 +115,6 @@ describe("Channels.statusFor — status mapping for new variants", () => {
           const fiber = yield* Effect.fork(
             channels.statusFor(path).pipe(Stream.take(1), Stream.runCollect)
           );
-          // Yield to the runtime so the subscriber subscribes before
-          // we publish.
           yield* Effect.sleep(5);
           channels.events.push(
             StepPausedEvent.parse({
@@ -202,7 +200,6 @@ describe("Channels.statusFor — status mapping for new variants", () => {
         Effect.gen(function* () {
           const snap = yield* Snapshot.make();
           const channels = yield* Channels.make(snap);
-          // Take 1: must be skipped (status), not resolved (filtered).
           const fiber = yield* Effect.fork(
             channels.statusFor(path).pipe(Stream.take(1), Stream.runCollect)
           );

@@ -1,183 +1,226 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
-import {
-  readProvidersFile,
-  updateProvidersFile,
-  updateProvidersFiles,
-} from "~/lib/providers/store";
-import { acquireLock } from "~/lib/state/locks";
+import { eq } from "drizzle-orm";
+import { afterEach, describe, expect, it } from "vitest";
+import type { MarblesDatabase } from "~/database/open";
+import { initializeDatabase, readDatabase } from "~/database/open";
+import { DatabaseProviderStore } from "~/database/providers";
+import { marblesProviderConfigurations } from "~/database/tables";
+import { stateDatabase } from "~/layout";
+import type { ProviderStore, ProvidersFile } from "~/lib/providers/store";
+import { MemoryProviderStore, readOnlyProviders } from "~/lib/providers/store";
 
-let dir: string;
-let path: string;
-
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "marbles-providers-"));
-  path = join(dir, "providers.json");
-});
+const dirs: string[] = [];
+const handles: MarblesDatabase[] = [];
 
 afterEach(() => {
-  rmSync(dir, { force: true, recursive: true });
+  for (const handle of handles.splice(0)) {
+    handle.close();
+  }
+  for (const dir of dirs.splice(0)) {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });
+
+function scratch(): string {
+  const dir = mkdtempSync(join(tmpdir(), "marbles-providers-"));
+  dirs.push(dir);
+  return dir;
+}
+
+async function database(state = scratch()): Promise<MarblesDatabase> {
+  const opened = await initializeDatabase(stateDatabase(state));
+  handles.push(opened);
+  return opened;
+}
 
 const entry = (id: string) => ({ enabled: true, id, plugin: "codex" });
-
-it("tells a missing file from an unreadable one", () => {
-  expect(readProvidersFile(path)).toBeUndefined();
-  writeFileSync(path, "{ not json");
-  expect(() => readProvidersFile(path)).toThrow(
-    expect.objectContaining({ code: "CONFIGURATION_UNREADABLE" })
-  );
-  writeFileSync(path, JSON.stringify({ providers: "no", version: 1 }));
-  expect(() => readProvidersFile(path)).toThrow(
-    expect.objectContaining({ code: "CONFIGURATION_UNREADABLE" })
-  );
+const file = (...ids: string[]): ProvidersFile => ({
+  providers: ids.map(entry),
+  version: 1,
 });
+const idsOf = (kept: ProvidersFile | undefined) =>
+  kept?.providers.map((each) => each.id);
 
-it("writes atomically, readable by its owner only, and re-reads before each edit", async () => {
-  await updateProvidersFile(path, dir, () => ({
-    providers: [entry("a")],
-    version: 1,
-  }));
-  expect((statSync(path).mode % 0o1000).toString(8)).toBe("600");
-  await Promise.all([
-    updateProvidersFile(path, dir, (current) => ({
-      providers: [...(current?.providers ?? []), entry("b")],
-      version: 1,
-    })),
-    updateProvidersFile(path, dir, (current) => ({
-      providers: [...(current?.providers ?? []), entry("c")],
-      version: 1,
-    })),
-  ]);
-  expect(
-    readProvidersFile(path)
-      ?.providers.map((provider) => provider.id)
-      .sort()
-  ).toEqual(["a", "b", "c"]);
+function describeProviderStore(
+  name: string,
+  open: () => Promise<ProviderStore>
+): void {
+  describe(name, () => {
+    it("keeps nothing at first, and makes no identity key until asked to", async () => {
+      const store = await open();
+      const kept = await store.read();
+      expect(kept.machine).toBeUndefined();
+      expect(kept.workspaces).toEqual([]);
+      expect(kept.workspace("ws")).toBeUndefined();
+      expect(await store.revision()).toBe(0);
+      expect(await store.identityKey(false)).toBeUndefined();
+      const key = await store.identityKey(true);
+      expect(key).toHaveLength(32);
+      expect(await store.identityKey(true)).toEqual(key);
+      expect(await store.identityKey(false)).toEqual(key);
+    });
+
+    it("writes the machine's and a workspace's in one edit, and raises the revision", async () => {
+      const store = await open();
+      const landed = await store.update("ws", () => ({
+        machine: file("a"),
+        workspace: file("b"),
+      }));
+      expect(idsOf(landed.machine)).toEqual(["a"]);
+      expect(idsOf(landed.workspace("ws"))).toEqual(["b"]);
+      const first = await store.revision();
+      expect(first).toBeGreaterThan(0);
+      await store.update("other", (current) => {
+        expect(idsOf(current.workspace("ws"))).toEqual(["b"]);
+        return { workspace: file("c") };
+      });
+      expect(await store.revision()).toBeGreaterThan(first);
+      const kept = await store.read();
+      expect(kept.workspaces.toSorted()).toEqual(["other", "ws"]);
+      expect(idsOf(kept.workspace("other"))).toEqual(["c"]);
+      expect(idsOf(kept.machine)).toEqual(["a"]);
+    });
+
+    it("writes nothing for an edit that refuses or leaves every scope as it is", async () => {
+      const store = await open();
+      await store.update(undefined, () => ({ machine: file("a") }));
+      const revision = await store.revision();
+      await expect(
+        store.update(undefined, () => {
+          throw new Error("refused");
+        })
+      ).rejects.toThrow("refused");
+      await store.update(undefined, () => ({}));
+      expect(await store.revision()).toBe(revision);
+      expect(idsOf((await store.read()).machine)).toEqual(["a"]);
+    });
+
+    it("re-reads before each edit, so overlapping edits keep each other's, also through the read-only view a dry run edits", async () => {
+      for (const store of [await open(), readOnlyProviders(await open())]) {
+        await Promise.all(
+          ["a", "b", "c"].map((id) =>
+            store.update(undefined, (current) => ({
+              machine: {
+                providers: [...(current.machine?.providers ?? []), entry(id)],
+                version: 1,
+              },
+            }))
+          )
+        );
+        expect(idsOf((await store.read()).machine)?.toSorted()).toEqual([
+          "a",
+          "b",
+          "c",
+        ]);
+      }
+    });
+
+    it("refuses a workspace scope to an edit for no workspace", async () => {
+      const store = await open();
+      await expect(
+        store.update(undefined, () => ({ workspace: file("a") }))
+      ).rejects.toMatchObject({ code: "PROVIDER_ENTRY_INVALID" });
+    });
+  });
+}
+
+describeProviderStore("the memory provider store", () =>
+  Promise.resolve(new MemoryProviderStore())
+);
+describeProviderStore("the database provider store", async () => {
+  const opened = await database();
+  return new DatabaseProviderStore({ database: opened.database });
 });
+describeProviderStore(
+  "the provider store a process without a handle uses",
+  () => Promise.resolve(DatabaseProviderStore.forState(scratch()))
+);
 
-it("writes nothing when the edit refuses, and never overwrites an unreadable file", async () => {
-  await expect(
-    updateProvidersFile(path, dir, () => {
-      throw new Error("refused");
-    })
-  ).rejects.toThrow("refused");
-  expect(readProvidersFile(path)).toBeUndefined();
-  writeFileSync(path, "{ not json");
-  await expect(
-    updateProvidersFile(path, dir, () => ({ providers: [], version: 1 }))
-  ).rejects.toMatchObject({ code: "CONFIGURATION_UNREADABLE" });
-});
+describe("provider configuration in the Marbles database", () => {
+  it("refuses a scope that does not read, saying where and why but never what it holds", async () => {
+    const opened = await database();
+    const store = new DatabaseProviderStore({ database: opened.database });
+    await store.update("ws", () => ({
+      machine: file("a"),
+      workspace: file("b"),
+    }));
+    await opened.database
+      .update(marblesProviderConfigurations)
+      .set({ configuration: '{ "apiKey": "sk-secret-value' });
+    const kept = await store.read();
+    expect(kept.revision).toBeGreaterThan(0);
+    const refusal = await Promise.resolve()
+      .then(() => kept.machine)
+      .catch((error: unknown) => error);
+    expect(refusal).toMatchObject({ code: "CONFIGURATION_UNREADABLE" });
+    expect(String(refusal)).toContain("machine");
+    expect(String(refusal)).not.toContain("sk-secret-value");
+    expect((refusal as Error).cause).toBeUndefined();
+  });
 
-it("fails busy when another holder keeps the lock", async () => {
-  const held = acquireLock(dir, "providers");
-  try {
-    await expect(
-      updateProvidersFile(path, dir, () => ({ providers: [], version: 1 }))
-    ).rejects.toMatchObject({ code: "CONFIGURATION_BUSY" });
-  } finally {
-    if ("release" in held) {
-      held.release();
-    }
-  }
-});
-
-it("never quotes a file's contents when it cannot be read", () => {
-  const secret = "skPASTEDSECRET123";
-  writeFileSync(
-    path,
-    `{ "providers": [{ "settings": { "key": ${secret} } }] }`
-  );
-  expect(() => readProvidersFile(path)).toThrow("is not valid JSON");
-  expect(() => readProvidersFile(path)).toThrow(
-    expect.objectContaining({
-      message: expect.not.stringContaining("PASTED"),
-    })
-  );
-  for (const misplaced of [
-    { providers: [], version: secret },
-    { providers: [{ enabled: secret, id: "x", plugin: "codex" }], version: 1 },
-    { providers: secret, version: 1 },
-  ]) {
-    writeFileSync(path, JSON.stringify(misplaced));
-    expect(() => readProvidersFile(path)).toThrow(
-      expect.objectContaining({
-        message: expect.not.stringContaining("PASTED"),
-      })
+  it("reads past a workspace's that does not read until that one is asked for", async () => {
+    const opened = await database();
+    const store = new DatabaseProviderStore({ database: opened.database });
+    await store.update("ws", () => ({
+      machine: file("a"),
+      workspace: file("b"),
+    }));
+    await opened.database
+      .update(marblesProviderConfigurations)
+      .set({ configuration: JSON.stringify({ providers: "no", version: 1 }) })
+      .where(eq(marblesProviderConfigurations.scope, "ws"));
+    const kept = await store.read();
+    expect(idsOf(kept.machine)).toEqual(["a"]);
+    expect(() => kept.workspace("ws")).toThrow(
+      expect.objectContaining({ code: "CONFIGURATION_UNREADABLE" })
     );
-    expect(() => readProvidersFile(path)).toThrow(
-      "cannot be read as provider configuration"
+  });
+
+  it("reports a failed write by its SQLite code alone, never with the settings it was writing", async () => {
+    const state = scratch();
+    (await database(state)).close();
+    handles.length = 0;
+    const refusal = await readDatabase(stateDatabase(state), (read) =>
+      new DatabaseProviderStore({ database: read })
+        .update(undefined, () => ({
+          machine: {
+            providers: [
+              {
+                enabled: true,
+                id: "gw",
+                plugin: "gateway",
+                settings: { apiKey: "sk-secret-value" },
+              },
+            ],
+            version: 1,
+          },
+        }))
+        .catch((error: unknown) => error)
     );
-  }
-});
+    expect(refusal).toMatchObject({ code: "CONFIGURATION_UNREADABLE" });
+    expect(String(refusal)).toContain("SQLITE_READONLY");
+    expect(String(refusal)).not.toContain("sk-secret-value");
+    expect((refusal as Error).cause).toBeUndefined();
+  });
 
-it("puts back every file already written when a later write fails", async () => {
-  const other = join(dir, "other");
-  const locked = join(dir, "readonly");
-  mkdirSync(other);
-  mkdirSync(locked);
-  writeFileSync(
-    path,
-    JSON.stringify({ providers: [entry("kept")], version: 1 })
-  );
-  const before = readFileSync(path, "utf8");
-  const fresh = join(other, "providers.json");
-  chmodSync(locked, 0o500);
-  try {
-    await expect(
-      updateProvidersFiles([
-        {
-          edit: () => ({ providers: [entry("new")], version: 1 }),
-          lockDir: dir,
-          path,
-        },
-        {
-          edit: () => ({ providers: [entry("new")], version: 1 }),
-          lockDir: other,
-          path: fresh,
-        },
-        {
-          edit: () => ({ providers: [entry("new")], version: 1 }),
-          lockDir: join(dir, "locks-3"),
-          path: join(locked, "providers.json"),
-        },
-      ])
-    ).rejects.toThrow();
-  } finally {
-    chmodSync(locked, 0o700);
-  }
-  expect(readFileSync(path, "utf8")).toBe(before);
-  expect(existsSync(fresh)).toBe(false);
-});
-
-it("releases the locks it took when taking a later one fails", async () => {
-  const blocked = join(dir, "blocked");
-  writeFileSync(blocked, "a file, so no lock directory fits under it");
-  const other = join(dir, "other.json");
-  await expect(
-    updateProvidersFiles([
-      { edit: () => ({ providers: [], version: 1 }), lockDir: dir, path },
-      {
-        edit: () => ({ providers: [], version: 1 }),
-        lockDir: blocked,
-        path: other,
-      },
-    ])
-  ).rejects.toThrow();
-  await updateProvidersFile(path, dir, () => ({
-    providers: [entry("a")],
-    version: 1,
-  }));
-  expect(readProvidersFile(path)?.providers).toEqual([entry("a")]);
+  it("keeps a dry run's edits to itself, and makes no identity key for it", async () => {
+    const opened = await database();
+    const real = new DatabaseProviderStore({ database: opened.database });
+    await real.update(undefined, () => ({ machine: file("a") }));
+    const dry = readOnlyProviders(real);
+    const before = await dry.revision();
+    await dry.update("ws", () => ({
+      machine: file("a", "b"),
+      workspace: file("c"),
+    }));
+    expect(idsOf((await dry.read()).machine)).toEqual(["a", "b"]);
+    expect(idsOf((await dry.read()).workspace("ws"))).toEqual(["c"]);
+    expect(await dry.revision()).toBeGreaterThan(before);
+    expect(idsOf((await real.read()).machine)).toEqual(["a"]);
+    expect((await real.read()).workspaces).toEqual([]);
+    expect(await dry.identityKey(true)).toBeUndefined();
+    expect(await real.identityKey(false)).toBeUndefined();
+  });
 });

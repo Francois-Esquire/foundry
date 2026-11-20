@@ -10,7 +10,6 @@ vi.mock("@ai-sdk/mcp", () => ({
   createMCPClient,
   ElicitationRequestSchema: {},
 }));
-/** The stdio seam; the mocked client never starts what it returns. */
 const spawnStdio = vi.fn((config: unknown) => ({ config }) as never);
 
 function fakeClient(toolNames: string[]) {

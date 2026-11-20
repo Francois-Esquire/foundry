@@ -2,7 +2,6 @@ import { Dialog } from "~/components/ui/dialog";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 
-/** Quitting a hosted workspace detaches: the Marbles process keeps it going. */
 function HostedNotice() {
   return (
     <>
@@ -38,13 +37,10 @@ export function QuitDialog({
   hosted = false,
   onCancel,
   onConfirm,
-  preview,
 }: {
-  /** The workspace runs in the Marbles process, not in this one. */
   readonly hosted?: boolean;
   readonly onCancel: () => void;
   readonly onConfirm: () => void;
-  readonly preview: boolean;
 }) {
   return (
     <Dialog
@@ -57,11 +53,6 @@ export function QuitDialog({
       variant="danger"
     >
       {hosted ? <HostedNotice /> : <SessionNotice />}
-      {preview && (
-        <text fg={theme.colors.mutedForeground}>
-          Preview only: closing this view does not stop any real work.
-        </text>
-      )}
     </Dialog>
   );
 }

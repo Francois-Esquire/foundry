@@ -1,5 +1,5 @@
+import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
-
 import type { ContainerRow } from "../schema";
 import type { ContainerStore, ContainerStoreWrite } from "./index";
 
@@ -8,46 +8,60 @@ type Rows = Map<string, ContainerRow>;
 const REENTRY =
   "The memory container store was called from inside its own transaction; use the view passed to the transaction's work instead";
 
-export function createMemoryContainerStore(): ContainerStore {
-  let rows: Rows = new Map();
-  const turns = new Turns(REENTRY);
+export class MemoryContainerStore implements ContainerStore {
+  #rows: Rows = new Map();
+  readonly #turns = new Turns(REENTRY);
+  readonly #identity = globalThis.crypto.randomUUID();
 
-  return {
-    commit: (write) =>
-      withOwnCopy(write, (copy) =>
-        turns.run(() => {
-          rows = applied(rows, copy);
-          return Promise.resolve();
-        })
-      ),
-    get: (id) => turns.run(() => Promise.resolve(read(rows, id))),
-    list: () => turns.run(() => Promise.resolve(readAll(rows))),
-    transaction: (work) =>
-      turns.run(async () => {
-        let staged = rows;
-        let open = true;
-        const view: ContainerStore = {
-          commit(write) {
-            if (!open) {
-              return Promise.reject(new Error("transaction is closed"));
-            }
-            return withOwnCopy(write, (copy) => {
-              staged = applied(staged, copy);
-              return Promise.resolve();
-            });
-          },
-          get: (id) => Promise.resolve(read(staged, id)),
-          list: () => Promise.resolve(readAll(staged)),
-        };
-        try {
-          const result = await work(view);
-          rows = staged;
-          return result;
-        } finally {
-          open = false;
-        }
-      }),
-  };
+  commit(write: ContainerStoreWrite): Promise<void> {
+    return withOwnCopy(write, (copy) =>
+      this.#turns.run(() => {
+        this.#rows = applied(this.#rows, copy);
+        return Promise.resolve();
+      })
+    );
+  }
+
+  get(id: string): Promise<ContainerRow | undefined> {
+    return this.#turns.run(() => Promise.resolve(read(this.#rows, id)));
+  }
+
+  identity(): Promise<string> {
+    return Promise.resolve(this.#identity);
+  }
+
+  list(): Promise<readonly ContainerRow[]> {
+    return this.#turns.run(() => Promise.resolve(readAll(this.#rows)));
+  }
+
+  transaction<T>(work: (view: ContainerStore) => Promise<T>): Promise<T> {
+    return this.#turns.run(async () => {
+      let staged = this.#rows;
+      let open = true;
+      const identity = this.#identity;
+      const view: ContainerStore = {
+        commit(write) {
+          if (!open) {
+            return Promise.reject(new Error("transaction is closed"));
+          }
+          return withOwnCopy(write, (copy) => {
+            staged = applied(staged, copy);
+            return Promise.resolve();
+          });
+        },
+        get: (id) => Promise.resolve(read(staged, id)),
+        identity: () => Promise.resolve(identity),
+        list: () => Promise.resolve(readAll(staged)),
+      };
+      try {
+        const result = await work(view);
+        this.#rows = staged;
+        return result;
+      } finally {
+        open = false;
+      }
+    });
+  }
 }
 
 function withOwnCopy(
@@ -56,7 +70,7 @@ function withOwnCopy(
 ): Promise<void> {
   let copy: ContainerStoreWrite;
   try {
-    copy = structuredClone(write);
+    copy = ownedWrite(write);
   } catch (error: unknown) {
     return Promise.reject(error);
   }

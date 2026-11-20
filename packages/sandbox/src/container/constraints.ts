@@ -40,8 +40,6 @@ const mountSchema = z
     executable: z.boolean().optional(),
     id: z.string().regex(CONTAINER_PORTABLE_ID_PATTERN),
     source: z.string().min(1).max(4096),
-    // Which guest root a target may fall under is the provider's
-    // `mountTargetRoot` option, checked at mount resolution, not here.
     target: z
       .string()
       .refine(isAbsoluteGuestPath, "must be an absolute normalized path"),
@@ -50,7 +48,6 @@ const mountSchema = z
 
 export const containerSandboxConstraintsSchema = z
   .object({
-    // Opt-in: a detached VM outlives the process. Default attached.
     detached: z.boolean().optional(),
     format: z.literal(CONTAINER_SANDBOX_CONSTRAINTS_FORMAT),
     image: z.string().min(1).max(1024).optional(),
@@ -61,7 +58,6 @@ export const containerSandboxConstraintsSchema = z
       )
       .optional(),
     mounts: z.array(mountSchema).max(8).optional(),
-    // This controls guest egress only; it never disables trusted host ingress.
     network: z
       .union([
         z.enum(["disabled", "unrestricted"]),
@@ -90,8 +86,6 @@ export const containerSandboxConstraintsSchema = z
           .strict(),
       ])
       .optional(),
-    // Profiles may name guest listener ports, but never a host interface or
-    // host port. The adapter assigns an ephemeral loopback mapping per lease.
     ports: z.array(z.number().int().min(1).max(65_535)).max(32).optional(),
     publicEnvironment: publicEnvironmentSchema.optional(),
     resources: z
@@ -135,12 +129,6 @@ export type ContainerSandboxMount = NonNullable<
   ContainerSandboxConstraints["mounts"]
 >[number];
 
-/**
- * The container config approved constraints describe, over the registry's
- * own defaults: a field the constraints set wins, `env` and `labels` merge
- * key by key, and anything the constraints leave out — pull policy, network,
- * resource fields — falls back to `defaults`.
- */
 export function containerSandboxConfigFromConstraints(
   constraints: ContainerSandboxConstraints | undefined,
   defaults: ContainerConfig = {}
@@ -175,7 +163,6 @@ function merged(
     : { ...base, ...overrides };
 }
 
-/** Only the fields that are set, so spreading never clears a default. */
 function defined<T extends object>(
   fields: T
 ): { [K in keyof T]?: Exclude<T[K], undefined> } {

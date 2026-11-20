@@ -1,11 +1,3 @@
-/**
- * What the agent types promise callers, checked by the compiler: an agent
- * declared with an object is a complete definition, before and after
- * `extend`, so code that takes an `AgentDefinition` keeps taking it. An
- * agent declared with a function is not one until a session opens, and its
- * output type is inferred from what the function returns.
- */
-
 import { Output } from "ai";
 import { afterEach, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
@@ -60,7 +52,6 @@ it("types a function agent as deferred, sync or async, through extend", () => {
   expectTypeOf(sync).toEqualTypeOf<DeferredAgent<typeof verdict>>();
   expectTypeOf(later).toEqualTypeOf<DeferredAgent<typeof verdict>>();
   expectTypeOf(plain).toEqualTypeOf<DeferredAgent<never>>();
-  // The output type is part of the type, not only a default.
   expectTypeOf(plain).not.toEqualTypeOf<DeferredAgent<typeof verdict>>();
   expectTypeOf(
     later.extend({ provider: "codex" }).extend({ model: "gpt-5.5" })
@@ -72,7 +63,6 @@ it("types a function agent as deferred, sync or async, through extend", () => {
 });
 
 it("infers session output for either kind without opening sessions", () => {
-  // The compiler checks this body; it is never called by the runtime test.
   const checkSessionTypes = (open: Agents["session"]) => {
     const deferred = agent(async () => ({
       prompt: "Judge.",

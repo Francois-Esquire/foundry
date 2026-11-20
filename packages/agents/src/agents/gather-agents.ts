@@ -6,7 +6,6 @@ import type { AgentSource, AgentSpec } from "./spec";
 
 type FileSource = Extract<AgentSource, { kind: "file" }>;
 
-/** Conventional locations agents live: `./agents`, `./.claude/agents`, `~/.claude/agents`. */
 export function defaultAgentRoots(): string[] {
   return [
     join(process.cwd(), "agents"),
@@ -22,10 +21,6 @@ function commaList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-/**
- * Parse one `.md` file's text into an {@link AgentSpec}, or `null` when it is
- * malformed (no resolvable id, or an empty body).
- */
 export function parseAgentSpec(
   text: string,
   fallbackId: string,
@@ -57,11 +52,6 @@ export function parseAgentSpec(
   };
 }
 
-/**
- * Discover file-defined agents. Unreadable roots and files are skipped; when
- * the same id appears under multiple roots the first wins. Malformed
- * definitions are logged and skipped.
- */
 export async function gatherAgents(roots: string[]): Promise<AgentSpec[]> {
   const specs: AgentSpec[] = [];
   const seen = new Set<string>();

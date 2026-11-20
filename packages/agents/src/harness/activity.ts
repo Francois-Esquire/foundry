@@ -4,7 +4,6 @@ import type { SessionStore } from "../store";
 import { redactHarnessSummary } from "./permission";
 import type { HarnessActivity, HarnessActivityEvent } from "./turn-driver";
 
-/** Reconstruct without relying on transcript ordering or duplicate delivery. */
 export function reduceHarnessActivities(
   messages: readonly SessionMessage[]
 ): HarnessActivityEvent[] {

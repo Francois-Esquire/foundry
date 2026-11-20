@@ -29,8 +29,6 @@ beforeAll(async () => {
   corpus = contents.join("\n");
 });
 
-// A prose fixture — closer to the entity/memory fields production actually
-// embeds than the code corpus. RecursiveChunker's default rules are prose-tuned.
 const PROSE = [
   "The user prefers concise answers and dislikes filler. They work primarily in TypeScript on a Bun monorepo.",
   "Mike is a senior engineer focused on agent infrastructure. He values clean, layered seams and is wary of premature abstraction.",
@@ -57,8 +55,6 @@ describe("recursiveChunk — chonkie on the real corpus", () => {
     );
     expect(reconstructs(chunks, corpus)).toBe(true);
     expect(offsetsRoundTrip(chunks, corpus)).toBe(true);
-    // Respecting boundaries leaves some chunks short of the cap, so the count
-    // is at least a blind ceil(len / size) slice.
     expect(chunks.length).toBeGreaterThanOrEqual(
       Math.ceil(corpus.length / SIZE)
     );
@@ -77,9 +73,6 @@ describe("recursiveChunk — prose splits on paragraph/sentence boundaries", () 
 });
 
 describe("recursiveChunk — coverage degrades below the realistic floor", () => {
-  // Documents the threshold: at sub-sentence sizes chonkie trims boundary
-  // whitespace during word-level splits, so coverage drops below 100%. This is
-  // the reason DEFAULT_RECURSIVE_CHUNK_SIZE sits well above it.
   it("a tiny chunkSize no longer reconstructs the source byte-for-byte", async () => {
     const chunks = await recursiveChunk(corpus, { chunkSize: 40 });
     const kept = chunks.map((c) => c.text).join("").length;

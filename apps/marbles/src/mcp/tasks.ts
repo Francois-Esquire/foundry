@@ -20,20 +20,11 @@ import type {
 } from "~/model/tasks";
 import { taskRefusal } from "~/workspace/tasks";
 
-/**
- * Runs one command on the workspace a tool call names, the attached one
- * when it names none; a refusal rejects with the package's `TaskError`.
- */
 export type TaskCommandRunner = <K extends TaskCommandKind>(
   command: TaskCommand<K>,
   workspace: string | undefined
 ) => Promise<TaskCommandResult<K>>;
 
-/**
- * Runs one command and answers with its result as structured content, which
- * the server checks against the tool's output schema. A refusal from the
- * package is a tool error carrying `{ error: { code, message } }` as text.
- */
 async function answer<K extends TaskCommandKind>(
   run: TaskCommandRunner,
   workspace: string | undefined,
@@ -66,20 +57,12 @@ const asIs = (result: object): Record<string, unknown> => ({ ...result });
 
 const idInput = z.string().min(1);
 
-/**
- * The workspace backlog as MCP tools: the same commands, input schemas, and
- * refusals as `marbles tasks`, each beside the `workspace` input every
- * Marbles tool takes. Reads change nothing; `change_tasks` takes one atomic
- * batch in the task command language.
- */
 export function registerTaskTools(
   server: McpServer,
   run: TaskCommandRunner,
   workspaceInput: z.ZodOptional<z.ZodString>
 ): void {
   const addressed = { workspace: workspaceInput };
-  // `taskChangeSchema` is typed as a plain schema, so its one field is
-  // spelled here to sit beside `workspace`; the bounds are the package's.
   const changeInput = z.strictObject({
     operations: z
       .array(taskOperationSchema)

@@ -173,9 +173,11 @@ export class ExecutionRetention {
       (scope) => policies.get(scope) ?? DEFAULT_RETENTION,
       this.#now()
     );
-    const removed = this.#runs
-      .prune([...chosen.values()].flat(), (run) => auditScope(run.correlation))
-      .map((run) => run.id);
+    const removed = (
+      await this.#runs.prune([...chosen.values()].flat(), (run) =>
+        auditScope(run.correlation)
+      )
+    ).map((run) => run.id);
     const compaction = { gaps: this.#runs.gaps(), removed };
     if (removed.length > 0) {
       for (const listener of this.#listeners) {

@@ -8,7 +8,7 @@ import type {
 import { createModuleSelectedCheckouts } from "@foundry/modules/node/selected-checkouts";
 import { createModuleSystem } from "@foundry/modules/platform/system";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import type { WorksExecution } from "~/main/execution/contract";
 import type { ModulePersistence } from "../artifact-store";
 import { moduleFolder } from "../local-library";
@@ -58,7 +58,7 @@ export async function createModuleRuntime(
         .slice(0, 16),
       mountTargetRoot: "/foundry",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     }),
     files
   );

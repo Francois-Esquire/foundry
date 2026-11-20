@@ -1,10 +1,3 @@
-// Minimal stdio MCP server used to exercise the real client, transport, and
-// tool bridge end to end. Newline-delimited JSON-RPC on stdin/stdout. Run
-// directly by node (type stripping), never imported.
-//
-// Tools: `echo` (returns its input), `grow` (adds `shout` and announces the
-// change), `ask` (elicits from the client and returns the answer), `log`
-// (emits a log notification). One resource, one prompt.
 import { createInterface } from "node:readline";
 
 interface Message {
@@ -92,7 +85,6 @@ async function callTool(params: Message["params"]): Promise<unknown> {
       process.stderr.write("first line\nsecond line\n");
       return text("written");
     case "die":
-      // Let the result flush before exiting so the call itself succeeds.
       setTimeout(() => process.exit(3), 20);
       return text("bye");
     default:
@@ -108,7 +100,7 @@ async function handle(message: Message): Promise<void> {
     return;
   }
   if (message.id === undefined) {
-    return; // notifications need no reply
+    return;
   }
   const { id, method, params } = message;
   try {

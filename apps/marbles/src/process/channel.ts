@@ -11,20 +11,8 @@ import {
   wireError,
 } from "~/process/protocol";
 
-/**
- * Requests and notifications over one connection, a Unix socket carrying
- * newline-delimited JSON. The channel matches responses to the requests it
- * sent and hands incoming requests to the handler it was given; both sides
- * can ask and both can tell. Clients and workers use it alike.
- */
-
 export interface Transport {
   close(): void;
-  /**
-   * Called once the connection is gone. `reason` is the error that ended
-   * it, when one did (the other side hung up mid-write, the socket reset);
-   * absent when either side closed it on purpose.
-   */
   onClose(handler: (reason?: Error) => void): void;
   onMessage(handler: (message: Message) => void): void;
   send(message: Message): void;
@@ -32,7 +20,6 @@ export interface Transport {
 
 export interface ChannelHandlers {
   readonly notification?: (method: string, params: unknown) => void;
-  /** Answers a request from the other side; a rejection becomes its error. */
   readonly request?: (method: string, params: unknown) => Promise<unknown>;
 }
 
@@ -50,11 +37,6 @@ class ConnectionClosedError extends Error {
 }
 
 export class Channel {
-  /**
-   * Resolves once the connection is gone, with the error that ended it
-   * when one did. A deliberate `close` on either side resolves with
-   * `undefined`.
-   */
   readonly closed: Promise<Error | undefined>;
   readonly #transport: Transport;
   readonly #pending = new Map<
@@ -62,7 +44,6 @@ export class Channel {
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
   #next = 0;
-  /** Set once the transport closes; a flag the type system cannot narrow. */
   readonly #state: { closed: boolean } = { closed: false };
 
   constructor(transport: Transport, handlers: ChannelHandlers = {}) {
@@ -164,14 +145,8 @@ export class Channel {
 
 export function socketTransport(socket: Socket): Transport {
   socket.setEncoding("utf8");
-  // A write after the other side hung up (EPIPE, ECONNRESET) is an error
-  // event; unheard, it ends the process. Node destroys the socket with it
-  // and emits `close` right after, so the error is kept as the reason the
-  // close handler gets: callers see why, not just that the connection went.
   let failure: Error | undefined;
   socket.on("error", (error: Error) => {
-    // The first failure is the cause; what follows (a reset while tearing
-    // down, say) is its consequence.
     failure ??= error;
   });
   return {

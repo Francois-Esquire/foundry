@@ -90,7 +90,6 @@ describe("incoming dependencies", () => {
   });
 
   it("retains module-level evidence", () => {
-    // parent imports shared both `import type` and by value: one edge, not type-only
     expect(consumer(shared, "@deps/parent").moduleEdges).toEqual([
       {
         fromFile: "packages/parent/src/index.ts",

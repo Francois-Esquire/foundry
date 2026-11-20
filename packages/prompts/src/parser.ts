@@ -3,13 +3,6 @@ import type { MatchContext, Notation, PromptSource, Token } from "./language";
 
 const BLANK = /\S/;
 
-/**
- * Extraction only: text in, tokens out. Knows the dialect's grammar, and
- * consults what exists only where the grammar itself depends on it: a
- * notation that matches known names alone, such as a built-in command, asks
- * the source. That source defaults to the dialect's built-ins; a tag passes
- * its layered view so a host's `command` layer extends them.
- */
 export class Parser {
   readonly dialect: Dialect;
   private readonly source: PromptSource;
@@ -19,22 +12,10 @@ export class Parser {
     this.source = source;
   }
 
-  /**
-   * Split a prompt into tokens. At each position the notations are tried in
-   * order and the first match wins; everything else is text. A notation
-   * whose `position` is `start` is only offered the first non-blank position.
-   */
   tokenize(text: string): Token[] {
     return this.scan(text, 0, firstNonBlank(text));
   }
 
-  /**
-   * Read a template statically: its literal chunks with a `hole` token
-   * where each interpolation sits. Spans are offsets into the chunks joined
-   * as written; a hole has no width. No notation spans a hole, so a sigil
-   * left dangling before one is text, and a static tool reports the hole
-   * as a dynamic reference rather than an unknown one.
-   */
   tokenizeTemplate(chunks: readonly string[]): Token[] {
     const tokens: Token[] = [];
     let offset = 0;
@@ -47,8 +28,6 @@ export class Parser {
         });
       }
       const start = index === 0 ? firstNonBlank(chunk) : -1;
-      // Pushed one at a time: a long chunk yields more tokens than a spread
-      // call can pass as arguments.
       for (const token of this.scan(chunk, offset, start)) {
         tokens.push(token);
       }

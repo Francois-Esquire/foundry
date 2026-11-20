@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  statSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -46,7 +53,7 @@ export async function initializeDatabase(
 ): Promise<MarblesDatabase> {
   const path = resolve(file);
   const busyTimeout = options.busyTimeout ?? BUSY_TIMEOUT_MS;
-  mkdirSync(dirname(path), { recursive: true });
+  ownerOnly(path);
   const connect = () =>
     createClient({
       concurrency: 1,
@@ -60,11 +67,30 @@ export async function initializeDatabase(
   try {
     const folder = options.migrations ?? MIGRATIONS;
     await migrate(client, drizzle({ client }), path, folder);
+    for (const side of [`${path}-wal`, `${path}-shm`]) {
+      if (existsSync(side)) {
+        chmodSync(side, OWNER_ONLY);
+      }
+    }
     return writer(client, path, folder);
   } catch (error) {
     client.close();
     throw error;
   }
+}
+
+const OWNER_ONLY = 0o600;
+
+function ownerOnly(path: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    closeSync(openSync(path, "wx", OWNER_ONLY));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw error;
+    }
+  }
+  chmodSync(path, OWNER_ONLY);
 }
 
 export async function openDatabase(
@@ -143,7 +169,7 @@ async function readOnce<T>(
   const before = live ? undefined : fingerprint(path);
   const client = existing(
     path,
-    live ? "mode=ro&readonly_shm=1" : "mode=ro&immutable=1",
+    live ? "mode=ro" : "mode=ro&immutable=1",
     options
   );
   let value: T | undefined;

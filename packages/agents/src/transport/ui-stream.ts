@@ -5,11 +5,9 @@ import type { SessionStream } from "../session/events";
 import type { SessionUsage } from "../session/types";
 
 export interface ProjectOptions {
-  /** Resolved model id, surfaced in the leading `start` chunk's metadata. */
   model?: string;
 }
 
-/** Project harness SessionStream to AI SDK UIMessageChunk protocol for useChat. */
 export async function* projectToUIMessageChunks(
   stream: SessionStream,
   opts: ProjectOptions = {}
@@ -18,7 +16,6 @@ export async function* projectToUIMessageChunks(
     type: "start",
     ...(opts.model ? { messageMetadata: { model: { id: opts.model } } } : {}),
   };
-  // Per-turn step boundary for pause/resume: tracks which tool results are new
   yield { type: "start-step" };
 
   const runs: OpenRuns = { reasoningId: null, textId: null };
@@ -82,7 +79,6 @@ interface OpenRuns {
   textId: string | null;
 }
 
-/** Close open text/reasoning runs before boundaries. */
 function* closeRuns(runs: OpenRuns): Generator<UIMessageChunk> {
   if (runs.textId !== null) {
     yield { id: runs.textId, type: "text-end" };
@@ -144,11 +140,6 @@ function* projectToolResult(event: {
   };
 }
 
-/**
- * Project the harness's flat {@link SessionUsage} onto the AI SDK's nested
- * {@link LanguageModelUsage} shape the UI reads. Cache and reasoning counts move
- * under `inputTokenDetails` / `outputTokenDetails`.
- */
 function toUiUsage(usage: SessionUsage): LanguageModelUsage {
   return {
     inputTokenDetails: {

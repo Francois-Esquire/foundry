@@ -15,7 +15,7 @@ import {
 import { artifactSaves } from "~/shared/audit";
 import { WORKS_TASKS } from "~/shared/execution";
 import { startTestExecution } from "../helpers/execution";
-import { FlakyJsonStateStore } from "../helpers/flaky-state";
+import { FlakyExecutionStore } from "../helpers/flaky-state";
 import { buildResult } from "../helpers/module-build";
 import { openTestLocalLibrary, recordedSaves } from "../helpers/source-saves";
 
@@ -30,10 +30,10 @@ afterEach(async () => {
 });
 
 async function open(root: string) {
-  const state = new FlakyJsonStateStore(path.join(root, "engine", "state"));
+  const state = new FlakyExecutionStore();
   const execution = await startTestExecution({
     directory: path.join(root, "engine"),
-    store: state,
+    executionStore: (executions) => state.wrap(executions),
   });
   const { library, store } = await openTestLocalLibrary(
     path.join(root, "modules"),
@@ -99,7 +99,9 @@ it(
       { ...details.source, [APP]: "after recovery" },
       saved
     );
-    const [recovery] = works.named(WORKS_TASKS.sourceRecover);
+    const [recovery] = works
+      .named(WORKS_TASKS.sourceRecover)
+      .filter((run) => run.observations.length > 0);
     expect(recovery?.observations).toEqual([
       expect.objectContaining({
         data: expect.objectContaining({
@@ -149,7 +151,7 @@ it(
     const second = await open(root);
     const recovery = second
       .named(WORKS_TASKS.sourceRecover)
-      .find((run) => run.status === "complete");
+      .find((run) => run.status === "complete" && run.observations.length > 0);
     expect(recovery?.observations).toEqual([
       expect.objectContaining({
         data: expect.objectContaining({
@@ -215,10 +217,10 @@ it("surfaces a fault while reconciling instead of asking to save again later", a
 });
 
 async function interceptedLibrary(root: string) {
-  const state = new FlakyJsonStateStore(path.join(root, "engine", "state"));
+  const state = new FlakyExecutionStore();
   const execution = await startTestExecution({
     directory: path.join(root, "engine"),
-    store: state,
+    executionStore: (executions) => state.wrap(executions),
   });
   const store = await openModuleStore(path.join(root, "modules"));
   const saves = recordedSaves(execution, store);

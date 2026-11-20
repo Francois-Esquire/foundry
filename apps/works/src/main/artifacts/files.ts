@@ -261,13 +261,13 @@ export class ProductFiles {
           });
         } catch (error) {
           if (error instanceof FileWriteDenied) {
-            observeAttempt(context, artifactId, "denied");
+            await observeAttempt(context, artifactId, "denied");
             return { denied: error };
           }
           throw error;
         }
         if (working && working.id !== from.id) {
-          observeResult(context, OBSERVATION.revise, {
+          await observeResult(context, OBSERVATION.revise, {
             artifactId,
             contentId: working.id,
             from: from.id,
@@ -338,7 +338,7 @@ export class ProductFiles {
           });
         } catch (error) {
           if (error instanceof FileWriteDenied) {
-            observeAttempt(context, null, "denied");
+            await observeAttempt(context, null, "denied");
             return { kind: "denied", reason: error.message } as const;
           }
           throw error;
@@ -348,7 +348,7 @@ export class ProductFiles {
           throw new Error("The created file has no Content");
         }
         const evidence = evidenceOf(created.id, content, origin, input.path);
-        if (!observeResult(context, OBSERVATION.create, evidence)) {
+        if (!(await observeResult(context, OBSERVATION.create, evidence))) {
           this.#evidence.block(created.id);
         }
         return createdResult(evidence, input.path, false);
@@ -434,7 +434,7 @@ export class ProductFiles {
     };
     const outcome = await this.#within(scope, () => this.#write(input));
     if (scope.refusal) {
-      observeAttempt(context, input.artifactId, "denied");
+      await observeAttempt(context, input.artifactId, "denied");
       return {
         kind: "denied",
         reason:
@@ -444,7 +444,7 @@ export class ProductFiles {
       };
     }
     if (outcome.kind !== "saved") {
-      observeAttempt(context, input.artifactId, outcome.kind);
+      await observeAttempt(context, input.artifactId, outcome.kind);
       return outcome;
     }
     if (!scope.written) {
@@ -456,7 +456,7 @@ export class ProductFiles {
       origin,
       input.path
     );
-    const recorded = observeResult(context, OBSERVATION.save, evidence);
+    const recorded = await observeResult(context, OBSERVATION.save, evidence);
     if (!recorded) {
       this.#evidence.block(input.artifactId);
     }
@@ -585,7 +585,7 @@ export class ProductFiles {
           const content = scope.written;
           if (content) {
             const evidence = evidenceOf(id, content, scope.origin, null);
-            if (!observeResult(context, OBSERVATION.save, evidence)) {
+            if (!(await observeResult(context, OBSERVATION.save, evidence))) {
               this.#evidence.block(id);
             }
           }
@@ -595,12 +595,12 @@ export class ProductFiles {
   }
 }
 
-function observeAttempt(
+async function observeAttempt(
   context: TaskContext,
   artifactId: string | null,
   outcome: SaveAttempt["outcome"]
-): void {
-  observeResult(context, OBSERVATION.attempt, {
+): Promise<void> {
+  await observeResult(context, OBSERVATION.attempt, {
     artifactId,
     kind: "file",
     outcome,

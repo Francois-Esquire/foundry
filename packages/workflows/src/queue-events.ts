@@ -4,12 +4,6 @@ import type { QueueEvent, QueueEventPayload } from "./queue-types";
 import type { Telemetry } from "./telemetry";
 import type { RunStatus, Unsubscribe } from "./types";
 
-/**
- * Queue-level event firehose + telemetry/log sink.
- *
- * Owns the cross-run listener registry and mirrors every emission to the
- * shared {@link Telemetry} instance.
- */
 export class QueueEvents {
   readonly #telemetry: Telemetry;
   readonly #id: string;
@@ -23,7 +17,6 @@ export class QueueEvents {
     this.#id = args.id;
   }
 
-  /** Subscribe to queue-wide events (cross-run firehose). */
   on(
     event: QueueEvent,
     handler: (payload: QueueEventPayload) => void
@@ -38,13 +31,6 @@ export class QueueEvents {
     return () => subscribed.delete(handler);
   }
 
-  /**
-   * Emit a per-run lifecycle event. Mirrors to telemetry counter + log.
-   * `statusOverride` covers emissions where the authoritative status is
-   * already persisted but the in-memory workflow ref has not flipped yet
-   * (e.g. `started` fires before the body drives, while `run.status` still
-   * reads `queued`).
-   */
   run(
     event: QueueEvent,
     run: DispatchedWorkflow,
@@ -65,7 +51,6 @@ export class QueueEvents {
     });
   }
 
-  /** Emit a queue-level event. The payload defaults to the queue id and an empty step. */
   queueLevel(
     event: QueueEvent,
     extras?: { error?: Error; runId?: string; step?: string }
@@ -103,7 +88,8 @@ export class QueueEvents {
       try {
         handler(payload);
       } catch {
-        /* swallow */
+        // biome-ignore lint/complexity/noUselessContinue: Keep delivering after a listener throws.
+        continue;
       }
     }
   }

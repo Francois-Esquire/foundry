@@ -7,7 +7,7 @@ import { auditRun } from "~/main/execution/audit";
 import { artifactSaves, failedSaveAttempt } from "~/shared/audit";
 import { WORKS_TASKS } from "~/shared/execution";
 import { editorHost, readAll } from "../helpers/editor-host";
-import { FlakyJsonStateStore } from "../helpers/flaky-state";
+import { FlakyExecutionStore } from "../helpers/flaky-state";
 import { COMPOSED_WORKS_TIMEOUT_MS } from "../helpers/works";
 
 interface Created {
@@ -23,11 +23,11 @@ type GatewaySave = FileSaveResult & { kind: string };
 it("reconciles fixture and human edits of one File Artifact through create, watch, conflict, reconnect, recovery, frozen reopen and revoke", {
   timeout: COMPOSED_WORKS_TIMEOUT_MS,
 }, async () => {
-  let state: FlakyJsonStateStore | undefined;
+  let state: FlakyExecutionStore | undefined;
   const host = await editorHost({
-    state: (directory) => {
-      state = new FlakyJsonStateStore(`${directory}/state`);
-      return state;
+    executionStore: (store) => {
+      state = new FlakyExecutionStore();
+      return state.wrap(store);
     },
   });
   const {
@@ -228,7 +228,7 @@ it("reconciles fixture and human edits of one File Artifact through create, watc
   const attempts = runs
     .map((run) => failedSaveAttempt(run))
     .filter((attempt) => attempt !== null);
-  expect(attempts).toEqual(["conflict"]);
+  expect(attempts).toEqual(["conflict", "no-change"]);
   const revisions = runs.filter((run) => run.name === WORKS_TASKS.fileRevise);
   expect(revisions).toHaveLength(1);
   expect(saves.map((row) => row.runId)).not.toContain(revisions[0]?.id);

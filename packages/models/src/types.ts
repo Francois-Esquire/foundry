@@ -1,4 +1,4 @@
-const MODEL_KINDS = [
+export const MODEL_KINDS = [
   "text",
   "embedding",
   "transcription",
@@ -12,7 +12,6 @@ const MODEL_KINDS = [
 
 export type ModelKind = (typeof MODEL_KINDS)[number];
 
-/** One thing a caller can ask a Model to do. Names are persisted by hosts. */
 export type OperationName =
   | "generate-text"
   | "reformat-text"
@@ -38,32 +37,21 @@ export type InputForm =
   | "feed"
   | "segmentation-prompt";
 
-/**
- * `whole`/`incremental` are Request mode; `result-per-input`/`continuous` are
- * Live mode and tell a caller which transport the session uses.
- */
 export type DeliveryForm =
   | "whole"
   | "incremental"
   | "result-per-input"
   | "continuous";
 
-/**
- * What a Model can do, for one Operation in one mode. Absence of a fact means
- * not offered: selection reads facts, never Kind.
- */
 export interface CapabilityFact {
   readonly delivery: DeliveryForm;
   readonly inputs: readonly InputForm[];
   readonly mode: InteractionMode;
   readonly operation: OperationName;
-  /** MIME types the Model can return; the first is what a caller gets. */
   readonly outputs: readonly string[];
-  /** Subset of {@link inputs} that must be present. */
   readonly required: readonly InputForm[];
 }
 
-/** Catalog list price per unit. Never fed to the token cost map. */
 export interface MediaPrice {
   readonly unit: "image" | "second" | "megapixel" | "character" | "request";
   readonly usd: number;
@@ -84,7 +72,6 @@ export interface ModelCosts {
   outputTiers?: ModelCostTier[];
 }
 
-/** Known bounds. An absent field is Unknown, not unlimited. */
 export interface ModelLimits {
   maxDurationSeconds?: number;
   maxInputBytes?: number;
@@ -101,31 +88,22 @@ export interface ModelCapabilities {
   webSearch?: boolean;
 }
 
-/**
- * One catalog row. `id` is how callers and the picker name the model; `modelId`
- * is what goes on the wire. They coincide for cloud providers and differ for
- * on-device rows, whose short ids (`text`, `embed`) are persisted by hosts.
- */
 export interface ProviderModelDefinition {
   capabilities?: ModelCapabilities;
   costs?: ModelCosts;
   description?: string;
-  /** Output vector size for embedding models. Drives default chunk sizing. */
   dimensions?: number;
   id: string;
   kind: ModelKind;
   label?: string;
   limits?: ModelLimits;
   modelId: string;
-  /** Declared Capability facts. When present they win over {@link kind}. */
   operations?: readonly CapabilityFact[];
   params?: string[];
-  /** Media list price. Absent is Unknown. */
   price?: MediaPrice;
   vendor?: string;
 }
 
-/** Bytes plus their MIME. Providers upload them; callers never host a URL. */
 export interface Media {
   readonly bytes: Uint8Array;
   readonly mime: string;
@@ -164,7 +142,6 @@ export type MediaInput =
       readonly durationSeconds?: number;
     };
 
-/** A PNG alpha mask, reusable as Reference media. */
 export interface Mask {
   readonly box?: { x: number; y: number; width: number; height: number };
   readonly id: string;
@@ -191,10 +168,6 @@ export type MediaOutput =
       readonly audio: Media;
     };
 
-/**
- * The Models-owned seam for Operations the AI SDK has no model kind for. The
- * Provider translates vendor JSON; callers never see it.
- */
 export interface MediaModel {
   run(
     input: MediaInput,

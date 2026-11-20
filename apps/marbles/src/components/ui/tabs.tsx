@@ -1,4 +1,3 @@
-// Adapted from termcn's OpenTUI Tabs.
 import type { ReactNode } from "react";
 import { Action } from "~/components/ui/action";
 
@@ -17,7 +16,7 @@ export function Tabs<T extends string>({
 }) {
   return (
     <box flexDirection="column" flexShrink={0} gap={1}>
-      <box flexDirection="row" flexWrap="wrap" gap={2}>
+      <box columnGap={2} flexDirection="row" flexWrap="wrap" rowGap={0}>
         {tabs.map((tab) => (
           <Action
             active={tab.key === activeTab}

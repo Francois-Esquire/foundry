@@ -13,7 +13,6 @@ import {
 import { upgradeModuleWorkspaceSource } from "../template/upgrade";
 import { reactModuleBase } from "./helpers/module-base";
 
-/** A Bun API application: no `build` script and no `packages/app` React source. */
 const BUN_API_PACKAGE = `${JSON.stringify(
   { name: "bun-api", scripts: { start: "bun run index.ts" } },
   null,
@@ -45,7 +44,6 @@ const project = {
 const DATABASE_INDEX_PATH = "packages/database/src/index.ts";
 const NOTES_MIGRATION_PATH = "packages/database/drizzle/0000_notes.sql";
 
-/** Verbatim composer-12 output, as it sits in existing workspaces. */
 const INLINE_SCHEMA_DATABASE_INDEX = `import { mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -198,7 +196,6 @@ describe("Module template composer", () => {
     expect(composed.files["packages/server/src/index.ts"]).toContain(
       "/_foundry/module-gateway"
     );
-    // The theme relay sits beside GraphQL, ahead of the `/_module/` catch-all.
     const server = String(composed.files["packages/server/src/index.ts"]);
     expect(server).toContain(
       "if (url.pathname === MODULE_THEME_PATH) {\n      server.timeout(request, 0);\n      return relayModuleTheme(gateway, request);\n    }"
@@ -313,7 +310,6 @@ describe("Module template composer", () => {
     expect(upgraded[documentsPath]).toBe(documents);
     expect(upgraded[clientPath]).toBe(client);
 
-    // Earlier composers imported a root output that upgrades prune.
     const legacy = upgradeModuleWorkspaceSource({
       ...composed.files,
       [clientPath]: (composed.files[clientPath] ?? "").replace(
@@ -332,14 +328,12 @@ describe("Module template composer", () => {
     });
     const database = composed.files[DATABASE_INDEX_PATH] ?? "";
     expect(database).toContain("process.env.FOUNDRY_FILES_PATH");
-    // Hosts that predate the files directory still set only this name.
     expect(database).toContain("process.env.FOUNDRY_MODULE_DATA_PATH");
     expect(database).toContain(
       'import { migrate } from "drizzle-orm/bun-sqlite/migrator";'
     );
     expect(database).toContain("migrate(db, { migrationsFolder });");
     expect(database).not.toContain("CREATE TABLE");
-    // Databases the inline schema created hold the table but no journal.
     expect(composed.files[NOTES_MIGRATION_PATH]).toContain(
       "CREATE TABLE IF NOT EXISTS `notes`"
     );
@@ -350,7 +344,6 @@ describe("Module template composer", () => {
       // biome-ignore lint/suspicious/noUnnecessaryConditions: Record keys may be absent at runtime.
       composed.files["packages/server/package.json"] ?? "{}"
     ) as { scripts?: Record<string, string> };
-    // Only `packages/*/dist/**` becomes runnable output.
     expect(server.scripts?.build).toBe(
       "bun build src/index.ts --outdir dist --target bun && rm -rf dist/drizzle && cp -R ../database/drizzle dist/drizzle"
     );
@@ -393,8 +386,6 @@ describe("Module template composer", () => {
     expect(authored[DATABASE_INDEX_PATH]).toBe(authoredIndex);
     expect(authored[NOTES_MIGRATION_PATH]).toBe(INLINE_SCHEMA_NOTES_MIGRATION);
 
-    // A migrator against an authored first migration would fail on databases
-    // that already hold the table, so both files move together or not at all.
     const authoredMigration = INLINE_SCHEMA_NOTES_MIGRATION.replace(
       "`body` text NOT NULL",
       "`body` text NOT NULL,\n  `pinned` integer"
@@ -556,8 +547,6 @@ const commands = [
       'process.env["NODE_ENV"] === "production"'
     );
 
-    // A workspace generated before the repair: bun build inlines the
-    // dot-access lookup, freezing the built Program in development mode.
     const broken = {
       ...composed.files,
       [serverPath]: (composed.files[serverPath] ?? "").replace(
@@ -601,7 +590,6 @@ const developmentAppOrigin =
 `;
     const resolved = `    const target = new URL(url.pathname + url.search, developmentAppOrigin);
 `;
-    // A workspace generated before the repair resolved the path as a URL.
     const earlier = {
       ...composed.files,
       [serverPath]: current.replace(repaired, resolved),

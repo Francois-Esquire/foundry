@@ -1,6 +1,6 @@
 import type { ArtifactCursor, ArtifactFilter } from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
-import type { Artifact, Blob, Content } from "../schema";
+import type { Artifact, ArtifactEvent, Blob, Content } from "../schema";
 
 export type { ArtifactCursor, ArtifactFilter } from "../listing";
 
@@ -30,6 +30,7 @@ export interface ArtifactStoreWrite {
   readonly deleteArtifacts?: readonly ArtifactId[];
   readonly deleteBlobs?: readonly BlobId[];
   readonly deleteContents?: readonly ContentId[];
+  readonly events?: readonly ArtifactEvent[];
   readonly putArtifacts?: readonly Artifact[];
   readonly putBlobs?: readonly Blob[];
   readonly putContents?: readonly Content[];

@@ -2,7 +2,6 @@ import type { SpyglassState } from "./spyglass-state";
 
 type LegendState = Pick<SpyglassState, "data" | "selection">;
 
-/** The legend explains what the map draws without becoming another control panel. */
 export function MapKey({ state }: { state: LegendState }) {
   const { selection } = state;
   const foundations = !!state.data.foundations?.length;

@@ -201,10 +201,10 @@ const store = new SqliteTaskStore({
   database, // a drizzle-orm/libsql database, or a transaction on one
   scope: workspaceId,
   // Optional: runs in the commit's transaction, after the store's statements.
-  // It runs for every commit; a write that changed nothing has no event.
+  // It runs for every commit; a write that changed nothing has no events.
   onCommit: async (transaction, write) => {
-    if (write.event !== undefined) {
-      await transaction.insert(changes).values({ event: write.event });
+    for (const event of write.events ?? []) {
+      await transaction.insert(changes).values({ event });
     }
   },
 });
@@ -265,12 +265,15 @@ schema: the task, the dependency edge, the snapshot, the write, and the
 event. Each record type is inferred from its schema. Nothing parses them on
 the way into or out of a store.
 
-Every write that changes something carries `event`, a `TaskEvent`, so a
-store that records changes keeps it in the same atomic write:
+Every write that changes something carries `events`, one `TaskEvent`, the
+change fact `Tasks` builds, so a host's `onCommit` records it in the same
+atomic write:
 
 ```ts
 interface TaskEvent {
-  kind: "tasks.changed";
+  type: "tasks.changed";
+  id: string; // unique to the fact
+  at: string; // ISO time the change was built; it does not order commits
   tasks: { id; before: Task | null; after: Task | null }[];
   dependencies: { added: TaskDependency[]; removed: TaskDependency[] };
 }
@@ -282,9 +285,11 @@ put or removed, once, with its record before and after the whole batch
 that now exists and did not, or the reverse. A task an operation only named,
 such as a parent or a dependency target, is not in it; an edge added and
 removed in one batch is in neither list; a batch that changes nothing has no
-event. `remove` carries the removed record and every edge it dropped.
-`MemoryTaskStore` ignores events; `SqliteTaskStore` hands each write,
-event included, to `onCommit`.
+events. `remove` carries the removed record and every edge it dropped.
+Both stores take events when `commit` is called as plain JSON, the rule
+every package store shares (`ownedEvents` in `@foundry/lib/plain-json`), and
+refuse a write whose events are not. `MemoryTaskStore` keeps none;
+`SqliteTaskStore` hands each write, events included, to `onCommit`.
 
 A store may also offer `transaction(work)`, and both stores here do: `Tasks`
 then runs each read-modify-write as `work(view)`, reading and committing

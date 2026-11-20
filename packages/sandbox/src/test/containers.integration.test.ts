@@ -6,7 +6,7 @@ import {
 import type { ContainerSandboxConstraints } from "../container/constraints";
 import { createContainers } from "../container/containers";
 import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
-import { createMemoryContainerStore } from "../store/memory";
+import { MemoryContainerStore } from "../store/memory";
 
 const SPEC: ContainerSandboxConstraints = {
   format: "foundry.sandbox.container/1",
@@ -24,7 +24,7 @@ describe("real MicroSandbox containers registry", () => {
       );
     }
     const instanceLabel = `itest-${crypto.randomUUID()}`;
-    const store = createMemoryContainerStore();
+    const store = new MemoryContainerStore();
     const containers = createContainers({ instanceLabel, runtime, store });
     const inventory = async () =>
       (
@@ -59,18 +59,16 @@ describe("real MicroSandbox containers registry", () => {
 
     await containers.shutdown();
 
-    // An orphan: a VM with our labels left by a process that died before
-    // closing it, whose row is gone. The next boot's sweep removes it.
     const crashed = createContainers({
       instanceLabel,
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const orphan = await crashed.start(SPEC);
     const nextBoot = createContainers({
       instanceLabel,
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     expect(await nextBoot.sweep()).toEqual([`${orphan.id}-1`]);
     expect(

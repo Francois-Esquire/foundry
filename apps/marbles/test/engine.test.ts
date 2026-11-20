@@ -37,7 +37,6 @@ function collector() {
   return { lines, print: (line: string) => lines.push(line) };
 }
 
-/** An engine with one raw factory registered beside the (empty) catalog. */
 function engineWith(
   register: (engine: Engine) => void,
   print: (line: string) => void = () => undefined
@@ -91,7 +90,6 @@ describe("Engine", () => {
   it("refuses work before it starts and registrations after", async () => {
     const engine = testEngine();
     await expect(engine.run("shout", "hello")).rejects.toThrow(NOT_STARTED);
-    // Stopping an engine that never started is a no-op, so cleanup is safe.
     await engine.stop();
     await engine.start();
     expect(() => engine.register("shout", new Shout().factory())).toThrow(

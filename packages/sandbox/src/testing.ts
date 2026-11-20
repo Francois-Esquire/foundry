@@ -1,9 +1,3 @@
-/**
- * In-memory {@link ContainerRuntime} for tests. Holds a flat path→bytes map per
- * instance so provider, lease, and facet behaviour can be exercised without a
- * hypervisor.
- */
-
 import { ACTIVE_CONTAINER_RESOURCE_STATUSES } from "./container/constants";
 import type {
   ContainerExecOptions,
@@ -23,37 +17,22 @@ import type {
 
 const TRAILING_SLASHES = /\/+$/;
 
-/** Decides what a command returns. Defaults to a zero-exit no-op. */
 export type FakeExecHandler = (
   command: string[],
   options: ContainerExecOptions
 ) => SandboxExecResult | Promise<SandboxExecResult>;
 
 export interface FakeContainerRuntimeOptions {
-  /** Command behaviour. Defaults to exit 0 with empty output. */
   exec?: FakeExecHandler;
-  /** Files present in every booted instance, keyed by absolute path. */
   files?: Record<string, string | Uint8Array>;
-  /**
-   * Behaviour of {@link ContainerRuntime.install}. `"succeeds"` flips
-   * `isInstalled` to true; `"fails"` rejects; `"unsupported"` omits the method
-   * entirely, as a runtime that cannot self-install would. Default `"succeeds"`.
-   */
   install?: "succeeds" | "fails" | "unsupported";
-  /** Whether {@link ContainerRuntime.isInstalled} reports the runtime present. Default `true`. */
   installed?: boolean;
-  /** Deterministic inventory behaviour for reconciliation tests. */
   inventory?: {
-    /** Page size cap applied on top of the query's own limit. */
     pageSize?: number;
-    /** 1-based `listResources` call numbers that reject. */
     failListCalls?: readonly number[];
-    /** Native names whose stop rejects. */
     failStop?: readonly string[];
-    /** Native names whose remove rejects. */
     failRemove?: readonly string[];
   };
-  /** Long-lived process behaviour. Omit to keep processes live until signalled. */
   process?: FakeExecHandler;
   spawn?: (
     command: string[],
@@ -64,11 +43,8 @@ export interface FakeContainerRuntimeOptions {
 export interface FakeContainerInstance
   extends ContainerInstance<FakeContainerInstance> {
   readonly commands: string[][];
-  /** Directories created via {@link ContainerInstance.ensureDirectory}, in order. */
   readonly directories: string[];
-  /** Live guest filesystem, so a test can assert on what was written. */
   readonly files: Map<string, Uint8Array>;
-  /** Status the inventory reports; writable so tests can script `draining` etc. */
   nativeStatus: ContainerResourceStatus;
   readonly processes: ContainerProcess[];
   removed: boolean;
@@ -79,11 +55,8 @@ export interface FakeContainerInstance
 export interface FakeContainerRuntime
   extends ContainerRuntime<FakeContainerInstance> {
   create(spec: ContainerSpec): Promise<FakeContainerInstance>;
-  /** How many times {@link ContainerRuntime.install} was called. */
   readonly installs: () => number;
-  /** Every instance booted through this runtime, in creation order. */
   readonly instances: FakeContainerInstance[];
-  /** Labels of every `listResources` call, in order. */
   readonly listed: Readonly<Record<string, string>>[];
 }
 
@@ -234,7 +207,6 @@ function createInstance(
           return () => listeners.delete(listener);
         },
         write(data: string) {
-          // Echo, so a terminal test sees something come back.
           for (const listener of listeners) {
             listener(data);
           }
@@ -293,8 +265,6 @@ function createInstance(
     startProcess(command, execOptions): Promise<ContainerProcess> {
       commands.push(command);
       let settleManual: ((result: SandboxExecResult) => void) | undefined;
-      // Async wrapper so a throwing handler models a runtime whose exec
-      // session ends without an exit event: `wait()` rejects.
       const settled =
         processHandler === undefined
           ? new Promise<SandboxExecResult>((resolve) => {

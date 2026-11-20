@@ -22,7 +22,6 @@ const GLOB_SEGMENT = /[*?{[]/;
 
 const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true });
 
-/** Text stays text; anything that is not UTF-8 stays bytes, unmangled. */
 function asSkillFile(bytes: Uint8Array): SkillFile {
   try {
     return STRICT_UTF8.decode(bytes);
@@ -113,11 +112,6 @@ async function loadRoots(roots: SkillRoots): Promise<Skill[]> {
   return found;
 }
 
-/**
- * The directories a glob names. The static prefix before the first glob
- * segment is resolved against the workspace, which is what lets `../x/*`
- * and absolute patterns work, and only the tree beneath it is walked.
- */
 async function addGlob(glob: string, roots: SkillRoots): Promise<Skill[]> {
   const segments = posix(glob).replace(DOT_SLASH, "").split("/");
   const first = segments.findIndex((segment) => GLOB_SEGMENT.test(segment));
@@ -173,7 +167,6 @@ async function applyOp(
   }
 }
 
-/** A recipe step as a cache key; a defined skill by its name and a digest of what it is. */
 function opKey(op: SkillOp): unknown {
   if (op.kind !== "skill" || !op.skill) {
     return op;

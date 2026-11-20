@@ -31,11 +31,6 @@ import { commitFixture } from "../helpers/commit-fixture";
 import { listedFiles } from "../helpers/dataset-files";
 import { recordReads, stubFetch } from "../helpers/dataset-transport";
 
-/**
- * Called after each file the scan's accessors read from disk, so a test can
- * stand in for a scan that saves over the dataset mid-read. Unset, the file
- * transport behaves as it does without the mock.
- */
 const afterFileRead = vi.hoisted(() => ({
   hook: undefined as ((output: string, path: string) => void) | undefined,
 }));
@@ -181,7 +176,6 @@ it(
     let recordWhileScanning: unknown;
     const first = await scan.workspace(root, {
       ...options,
-      // The first event comes from inside the scan, with the lock held.
       onProgress: () => {
         if (second === undefined) {
           recordWhileScanning = readJson(
@@ -199,7 +193,6 @@ it(
     expect((refused as Error).message).toBe(
       `Workspace ${root} is being scanned, exported, or applied by this process.`
     );
-    // Written as soon as the lock is held, before the dataset is saved.
     expect(recordWhileScanning).toEqual({
       id: state.id,
       root,
@@ -231,8 +224,6 @@ it("a scan refuses a lock held by another live process and writes no record", as
 it(
   "a scan that fails after saving its dataset leaves the lock released and the save recorded",
   async () => {
-    // The fixture copy is not a Git repository, so history fails after the
-    // dataset is saved.
     const options = { history: true, state: join(directory, "failed-state") };
     const state = await workspaceState(root, options.state);
     const record = join(state.directory, "workspace.json");
@@ -251,8 +242,6 @@ it(
     expect(existsSync(join(state.output, "manifest.json"))).toBe(true);
     const first = savedAt();
 
-    // The second run saves a dataset again before failing, so the record
-    // moves with it.
     await expect(scan.workspace(root, options)).rejects.toThrow();
     expect(savedAt()).toBeGreaterThan(first);
   },
@@ -275,7 +264,6 @@ it("scan saves every complete package's internals in the dataset it publishes, r
     ["@s/c", "internals/@s__c.json"],
   ]);
   expect(unlistedFiles(everything.output)).toEqual([]);
-  // Internals are reported within write; lenses and visualization follow them.
   const writePhase = everythingEvents.findIndex(
     (event) => event.kind === "phase" && event.phase === "write"
   );
@@ -336,8 +324,6 @@ it("a scan's result is JSON without its accessors", () => {
   });
 });
 
-// A web import in a lib test, so this check reuses the scan above instead
-// of running another.
 it("the viewer and the library read the saved dataset through one reader", async () => {
   stubFetch(fileTransport(everything.output));
   try {
@@ -360,8 +346,6 @@ it("scan.package returns one package's internals, as the dataset saves them", as
     readJson(datasetFile(everything.output, "internals", "@s/b"))
   );
   expect(existsSync(join(root, ".foundry"))).toBe(false);
-  // Read-only: resolving the default state directory creates nothing, and
-  // scan.package writes no record there.
   const state = await workspaceState(root);
   expect(existsSync(state.output)).toBe(false);
   expect(existsSync(join(state.directory, "workspace.json"))).toBe(false);
@@ -510,8 +494,6 @@ it.each([
   }
 );
 
-// Last, since it rewrites the workspace scan's saved manifest; it puts the
-// bytes back.
 it("a scan's accessors refuse a dataset that a later scan replaced", async () => {
   const manifest = join(workspace.output, "manifest.json");
   const saved = readFileSync(manifest);

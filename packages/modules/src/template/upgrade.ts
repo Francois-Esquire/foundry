@@ -41,7 +41,6 @@ const COMPOSER_FORMAT = /^foundry\.module-template\/([1-9]\d*)$/u;
 const DATABASE_FILE_PATH = /\.sqlite(?:-(?:wal|shm))?$/u;
 const LINE_BREAK = /\r?\n/u;
 const TRAILING_WHITESPACE = /\s*$/u;
-/** The proxy target resolved as a URL, however a formatter wrapped the call. */
 const RESOLVED_PROXY_TARGET =
   /^[ \t]*const target = new URL\(\s*url\.pathname\s*\+\s*url\.search\s*,\s*developmentAppOrigin\s*,?\s*\);[ \t]*\n/gmu;
 
@@ -59,10 +58,6 @@ type FileUpgrade = (
   files: Readonly<Record<string, string>>
 ) => string;
 
-/**
- * Applied in order to each path present. A path may appear more than once
- * when a later repair assumes an earlier one already ran.
- */
 const FILE_UPGRADES: readonly (readonly [string, FileUpgrade])[] = [
   [
     MODULE_MANIFEST_SOURCE_PATH,
@@ -91,7 +86,6 @@ const FILE_UPGRADES: readonly (readonly [string, FileUpgrade])[] = [
     (source, files) =>
       upgradePackageScripts(source, {
         ...SERVER_PACKAGE_SCRIPTS,
-        // Only a workspace with a migration journal has migrations to copy.
         ...(files["packages/database/drizzle/meta/_journal.json"] === undefined
           ? { build: BUN_BUILD_SCRIPT }
           : {}),
@@ -125,7 +119,6 @@ const FILE_UPGRADES: readonly (readonly [string, FileUpgrade])[] = [
   ],
 ];
 
-/** Seeded only when absent; an authored copy is never replaced. */
 const COMPOSER_INFRASTRUCTURE: Readonly<Record<string, string>> = {
   ".prettierignore": PRETTIER_IGNORE_SOURCE,
   "eslint.config.js": ESLINT_CONFIGURATION_SOURCE,
@@ -134,12 +127,6 @@ const COMPOSER_INFRASTRUCTURE: Readonly<Record<string, string>> = {
   "packages/server/scripts/generate-schema.ts": GENERATE_SCHEMA_SOURCE,
 };
 
-/**
- * Repairs composer-owned infrastructure for recognized Module workspaces.
- * User-authored files and workspaces without matching provenance pass through
- * untouched; current provenance remains eligible because authored changes can
- * structurally drift required orchestration after composition.
- */
 export function upgradeModuleWorkspaceSource(
   source: Readonly<Record<string, string>>,
   sdk?: ModuleSdkPack
@@ -161,9 +148,6 @@ export function upgradeModuleWorkspaceSource(
       files[filePath] = upgrade(current, files);
     }
   }
-  // Only a byte-identical composer pair is replaced: an authored database
-  // module keeps working through the legacy path variable hosts still set,
-  // and a migrator against an authored first migration would fail.
   if (
     files[DATABASE_INDEX_PATH] === INLINE_SCHEMA_DATABASE_INDEX_SOURCE &&
     files[NOTES_MIGRATION_PATH] === INLINE_SCHEMA_NOTES_MIGRATION_SOURCE

@@ -16,18 +16,14 @@ import type {
 } from "./semantics-types";
 import { SEMANTICS_DECLARED_DEPENDENCY_KINDS } from "./semantics-types";
 
-/** One workspace of a collection and its saved dataset's manifest. */
 export interface CollectionManifestWorkspace {
-  /** The workspace id. */
   id: string;
   manifest: Pick<DatasetManifest, "generatedAt" | "packages" | "workspace"> & {
     discovery: Pick<DatasetManifest["discovery"], "unitsSkipped">;
   };
-  /** The workspace root, resolved; only its last two names are read, for labels. */
   root: string;
 }
 
-/** One declared dependency of a package, with the package name it resolves to. */
 interface Declared {
   from: QualifiedId;
   kind: SemanticsDeclaredDependencyKind;
@@ -39,24 +35,6 @@ interface Declared {
 const NPM_ALIAS = "npm:";
 const WORKSPACE_PROTOCOL = "workspace:";
 
-/**
- * The collection manifest of `workspaces`, ordered by resolved root (as
- * `resolveCollection` orders them). Pure: the same manifests give the same
- * manifest, with no time of its own. The range is recorded as written, not
- * checked against the package found. A declared dependency, by the name it
- * resolves to through an `npm:` alias:
- * - stays inside its workspace when its range uses the `workspace:`
- *   protocol, or when its own workspace holds the name, as a package it
- *   analyzed or as a unit it skipped;
- * - crosses when exactly one other workspace holds the name and holds it as
- *   an analyzed package;
- * - is external, as when no workspace holds the name, when exactly one other
- *   workspace holds it only as a skipped unit, since a crossing ends at a
- *   listed package;
- * - is ambiguous, with no crossing, when two or more other workspaces hold
- *   it: `candidates` are the analyzed packages of that name, and `skippedIn`
- *   the workspaces that hold it only as a skipped unit.
- */
 export function collectionManifest(
   workspaces: readonly CollectionManifestWorkspace[]
 ): CollectionManifest {
@@ -97,7 +75,6 @@ export function collectionManifest(
   };
 }
 
-// Each by code unit, so the order is the same in every locale.
 const byString = byCodeUnit((value: string) => value);
 const byRoot = byCodeUnit(
   (workspace: CollectionManifestWorkspace) => workspace.root
@@ -108,18 +85,10 @@ const byName = byCodeUnit((entry: AmbiguousDependency) => entry.name);
 const byRange = byCodeUnit((entry: { range: string }) => entry.range);
 const byTo = byCodeUnit((entry: Crossing) => entry.to);
 
-/** `<workspace id>:<package>`; a workspace id is hex, so the first colon divides it. */
 export function qualifiedId(workspace: WorkspaceId, id: string): QualifiedId {
   return `${workspace}:${id}`;
 }
 
-/**
- * For each package name, the workspaces that hold it, in the collection's
- * order: `analyzed`, those whose manifest lists a package of that name, and
- * `held`, those as well as those whose scan skipped a unit of that name, such
- * as a JavaScript-only package, so that a dependency on it stays inside its
- * workspace.
- */
 function packageHolders(workspaces: readonly CollectionManifestWorkspace[]): {
   analyzed: Map<string, WorkspaceId[]>;
   held: Map<string, WorkspaceId[]>;
@@ -165,28 +134,15 @@ function* declared(
   }
 }
 
-/**
- * The package a dependency names: the name it is written under, or the
- * package an `npm:` alias resolves to (`npm:@k/db@^1.0.0` is `@k/db`, and
- * `npm:lodash` is `lodash`).
- */
 function dependencyName(written: string, range: string): string {
   if (!range.startsWith(NPM_ALIAS)) {
     return written;
   }
   const target = range.slice(NPM_ALIAS.length);
-  // A scope's own `@` comes first; the version's `@` follows the name.
   const version = target.indexOf("@", target.startsWith("@") ? 1 : 0);
   return version === -1 ? target : target.slice(0, version);
 }
 
-/**
- * Each workspace's entry. Its label is its `package.json` name, else its
- * directory's name; where two workspaces would share a label, each of them
- * is `parent/name` from its root, and where two would share that too, each
- * adds the first six digits of its id. Labels are for people: two roots
- * whose ids also start alike could still share one, while ids never do.
- */
 function collectionWorkspaces(
   workspaces: readonly CollectionManifestWorkspace[]
 ): CollectionWorkspace[] {
@@ -217,7 +173,6 @@ function collectionWorkspaces(
 
 const ID_PREFIX_LENGTH = 6;
 
-/** `labels`, with each label two or more share replaced by `instead(index)`. */
 function distinguish(
   labels: readonly string[],
   instead: (index: number) => string

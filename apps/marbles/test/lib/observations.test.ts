@@ -1,10 +1,4 @@
-/**
- * Model-turn and tool-call observations: recorded on the run that owns the
- * session, for a workflow step and a host task alike, with identity, timing,
- * status, a safe error code and only the usage a provider reported.
- */
-
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -35,6 +29,7 @@ import {
 } from "~/lib/observations";
 import { observedSession } from "~/lib/sandbox/wrapped-session";
 import { testEngine } from "../helpers/engine";
+import { storedExecution } from "../helpers/executions";
 
 let root: string;
 const engines: Engine[] = [];
@@ -242,12 +237,11 @@ it("records a workflow step's agent turns on its run", async () => {
       }),
     }),
   ]);
-  const file = await readFile(
-    join(root, "state", "executions", `${launched.id}.json`),
-    "utf8"
+  const stored = JSON.stringify(
+    await storedExecution(join(root, "state"), launched.id)
   );
-  expect(file).toContain("model-turn");
-  expect(file).not.toContain("private");
+  expect(stored).toContain("model-turn");
+  expect(stored).not.toContain("private");
 });
 
 it("records an agent definition's one-turn call on its workflow run", async () => {
@@ -296,7 +290,6 @@ it("records a host task's agent turns on its run, correlated to the agent sessio
   ]);
 });
 
-/** A model whose n-th stream is `streams[n]`: parts to send, or how it fails. */
 function streaming(
   ...streams: (
     | { readonly parts: LanguageModelV4StreamPart[]; readonly error?: Error }
@@ -421,7 +414,6 @@ function message(status: SessionMessage["status"]): SessionMessage {
   };
 }
 
-/** A CLI harness session whose turn is `turn`, given the turn's options. */
 function cliHarness(
   turn: (options: Parameters<HarnessSession["stream"]>[1]) => {
     readonly message: Promise<SessionMessage>;
@@ -531,7 +523,6 @@ it("records a delegated child's tool calls under its own session, and still hand
   await vi.waitFor(() => expect(latest()).toHaveLength(2));
   expect(latest().map((item) => [item.id, item.status])).toEqual([
     ["cli:1", "complete"],
-    // Left open by the turn: it ends with it.
     ["cli:2", "cancelled"],
   ]);
   expect(seen).toEqual(["read", "bash"]);
@@ -549,7 +540,6 @@ it("stops a turn a host task left streaming before the task's run settles", asyn
         kind: "agent",
         prompt: "Stream.",
       });
-      // Returned without awaiting the turn.
       left = session.stream(prompt);
       return "returned";
     },
@@ -562,7 +552,6 @@ it("stops a turn a host task left streaming before the task's run settles", asyn
   expect(run?.status).toBe("complete");
   const [turn] = run?.observations ?? [];
   expect(turn).toMatchObject({ kind: "model-turn" });
-  // It ended, and was recorded ending, before the run settled.
   expect(turn?.status).toBe("cancelled");
   expect(turn?.endedAt).toEqual(expect.any(String));
   await expect(

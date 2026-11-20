@@ -1,10 +1,3 @@
-/**
- * The viewer's load, and the stages of each map repaint, as Performance API
- * entries: DevTools shows them as user timings, and `scripts/capture.ts`
- * reads them with its `marks` step.
- */
-
-/** `readings-loaded` can occur independently of the other load marks. */
 export const loadMarks = [
   "spyglass:data-requested",
   "spyglass:data-loaded",
@@ -21,12 +14,6 @@ const recorded = new Set<LoadMark>();
 let framed = false;
 const frameWaiters: (() => void)[] = [];
 
-/**
- * Lets work wait for the first frame: everything waiting resolves, and
- * `afterFirstFrame` resolves at once from then on. Called when the first
- * frame is submitted, and by the map when it cannot open, so nothing waits
- * for a frame that never comes.
- */
 export function releaseFirstFrame(): void {
   framed = true;
   for (const resolve of frameWaiters.splice(0)) {
@@ -34,7 +21,6 @@ export function releaseFirstFrame(): void {
   }
 }
 
-/** Resolves once the first frame is submitted (or the map has failed to open), for work that must not delay it. */
 export function afterFirstFrame(): Promise<void> {
   return framed
     ? Promise.resolve()
@@ -43,10 +29,6 @@ export function afterFirstFrame(): Promise<void> {
       });
 }
 
-/**
- * Records one point in the load, once per page: a scene built again, after a
- * layout change, adds no second mark.
- */
 export function markLoad(mark: LoadMark): void {
   if (recorded.has(mark)) {
     return;
@@ -58,22 +40,10 @@ export function markLoad(mark: LoadMark): void {
   }
 }
 
-/** Viewer repaint stages are measured as `spyglass:paint:<stage>`. */
 export type PaintStage = `layer:${string}`;
 
-/**
- * What a developer session times: each repaint's stages, and
- * `render-submit`, measured as `spyglass:render-submit`: the CPU time
- * Islands took to encode and submit one frame (its `frame` event's
- * `cpuMs`), for every frame submitted. GPU time is not measured here.
- */
 export type TimedStage = PaintStage | "render-submit";
 
-/**
- * Measures kept per stage. When a stage reaches the cap its measures are
- * cleared and counting starts again, so each stage holds between 1 and 240
- * of its latest durations and a long session stays bounded.
- */
 export const stageMeasureCap = 240;
 
 const counts = new Map<string, number>();
@@ -84,10 +54,6 @@ function measureName(stage: TimedStage): string {
     : `spyglass:paint:${stage}`;
 }
 
-/**
- * In a developer session, records a stage that took `ms` and ended now as
- * the stage's measure; a reader's session records nothing.
- */
 export function recordStage(
   developer: boolean,
   stage: TimedStage,
@@ -106,10 +72,6 @@ export function recordStage(
   performance.measure(name, { end, start: end - ms });
 }
 
-/**
- * Runs `work` and, in a developer session, records its duration as the
- * stage's measure. A reader's session records nothing.
- */
 export function timeStage<T>(
   developer: boolean,
   stage: TimedStage,

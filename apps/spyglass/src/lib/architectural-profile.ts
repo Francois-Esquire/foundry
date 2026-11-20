@@ -11,11 +11,6 @@ import type {
   SurfaceReport,
 } from "./types";
 
-/**
- * The report sections the profile composes. Structural subset of
- * `SurfaceReport` so the builder runs against a full report or during
- * assembly, before the profile itself exists.
- */
 export type ProfileSource = Pick<
   SurfaceReport,
   | "anchor"
@@ -220,12 +215,6 @@ function signalsFor(
   return results;
 }
 
-/**
- * Compose the architectural profile from an existing report's sections.
- * Pure composition — no scanning, no graph traversal beyond the already-
- * computed module depths, no score. Package level only; module profiles
- * are deferred until module-local complexity aggregation exists.
- */
 export function buildArchitecturalProfile(
   report: ProfileSource,
   config: AnalysisConfig = ANALYSIS_CONFIG

@@ -1,20 +1,3 @@
-/**
- * The library entry, `@foundry.sh/spyglass`: `scan` and `serve` (with
- * `scan.collection` and `serve.collection` for several workspaces), their
- * types, dataset errors, and schema versions.
- * Every name is listed here; nothing else in `src/lib` is public, so the
- * analyses, the reader, and `serve`'s helpers (`viewerRoot`, `DEFAULT_PORT`,
- * `checkPort`) stay internal.
- *
- * Public names are the glossary's words (`apps/spyglass/CONTEXT.md`): dataset,
- * history, package, workspace. A name takes an `Spyglass` prefix only where the
- * bare word would collide with a platform name (`Server`) or say nothing in
- * a consumer's file (`Config`). Types nested inside these are not exported
- * and keep their internal names, which editors show on hover; reach them by
- * indexed access, such as `DatasetManifest["packages"][number]`.
- * `PackageReport` is the analysis's `SurfaceReport` under its glossary name.
- */
-
 export type { CollectionManifest } from "./collection-types";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point.
 export { COLLECTION_SCHEMA_VERSION } from "./collection-types";

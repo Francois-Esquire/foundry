@@ -21,19 +21,6 @@ function gitignoreScope(base: string, contents: string): IgnoreScope {
   return { base, matcher: ignore().add(contents) };
 }
 
-/**
- * Git's precedence rule: the deepest `.gitignore` that says anything definite
- * about a path decides it.
- *
- * The scope stack is ordered root-first, so walking it in order and keeping the
- * last definite verdict lets a nested `!pattern` re-include something a parent
- * excluded. Or-ing the scopes together would make every deeper negation
- * unreachable. `test()` is what distinguishes "this scope matched" from "this
- * scope was silent" — `ignores()` collapses both to false.
- *
- * Pruning an excluded directory before descending is not a gap in that rule:
- * Git cannot re-include a path inside an excluded directory either.
- */
 function isIgnored(
   scopes: readonly IgnoreScope[],
   relativePath: string,
@@ -55,7 +42,6 @@ function isIgnored(
   return verdict;
 }
 
-/** The path as the declaring directory's own `.gitignore` sees it. */
 function scopedPath(base: string, relativePath: string): string | null {
   if (base === "") {
     return relativePath;
@@ -66,31 +52,17 @@ function scopedPath(base: string, relativePath: string): string | null {
     : null;
 }
 
-/** Links are cataloged without traversal. An incomplete scan never reaches the catalog. */
 export async function walkEntries(
   filesystem: Pick<StorageReader, "readDirectory" | "readFile" | "separator">,
   root: string
 ): Promise<readonly WalkedEntry[]> {
   const collected: WalkedEntry[] = [];
   await walkDirectory(filesystem, root, "", [baselineIgnoreScope()], collected);
-  // A total comparator, so equal paths are guaranteed adjacent — which is the
-  // whole basis of the duplicate check on the next line.
   collected.sort(byCodeUnit((file: WalkedEntry) => file.relativePath));
   assertDistinctPaths(collected, filesystem.separator);
   return collected;
 }
 
-/**
- * Two source names that normalize to one path cannot both be catalogued.
- * Refusing the whole observation keeps the catalog honest rather than letting
- * whichever name sorted last silently win. Only the final component of each
- * raw name is reported — the rest of an absolute path never travels.
- *
- * This is only reachable on a filesystem that lets two names differing solely
- * by Unicode composition coexist in one directory. It is a real conflict in
- * the source, not a Workspace defect, and the only resolution is renaming one
- * of them — so the message names both spellings the source actually holds.
- */
 function assertDistinctPaths(
   walked: readonly WalkedEntry[],
   separator: string
@@ -151,7 +123,6 @@ async function walkDirectory(
 
     collected.push({ absolutePath, relativePath, type: entry.type });
     if (entry.type === "directory") {
-      // Operations are intentionally sequential to preserve observation and mutation order.
       await walkDirectory(
         filesystem,
         absolutePath,

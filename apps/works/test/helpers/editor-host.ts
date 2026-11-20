@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ModuleVersion } from "@foundry/modules/domain";
 import type { ModuleRuntimeIdentity } from "@foundry/modules/gateway/types";
-import type { StateStore } from "@foundry.sh/marbles/engine";
+import type { ExecutionStore } from "@foundry.sh/marbles/engine";
 import { onTestFinished } from "vitest";
 import { ARTIFACT_CAPABILITIES } from "~/main/artifacts/gateway/host";
 import type { WatchedEntry } from "~/main/artifacts/gateway/watch";
@@ -42,8 +42,8 @@ export const ALL = Object.values(ARTIFACT_CAPABILITIES).filter(
 );
 
 export interface EditorHostOptions {
+  readonly executionStore?: (store: ExecutionStore) => ExecutionStore;
   readonly settings?: Readonly<Record<string, number>>;
-  readonly state?: (directory: string) => StateStore;
 }
 
 export async function editorHost(options: EditorHostOptions = {}) {
@@ -60,7 +60,7 @@ export async function editorHost(options: EditorHostOptions = {}) {
   });
   const { programs, works } = await composeTestWorks(
     directory,
-    options.state ? { state: options.state } : {}
+    options.executionStore ? { executionStore: options.executionStore } : {}
   );
   cleanups.push(() => works.close());
   const { invocations, programs: supervisor } = programs;

@@ -46,15 +46,6 @@ import type {
   SymbolKind,
 } from "./types";
 
-// V13.3 primitive and convention intelligence. A pure function of one
-// package's local report, topology, locality, and responsibility regions:
-// no file system, no program, no workspace. Roles come from declaration
-// shape and explicit concept relationships; naming only supports and never
-// decides. Scope comes from which V13.2 responsibilities consume the symbol,
-// so a symbol inside an unresolved hub still gets a measured consumer scope.
-// Conventions are counts of recurring placement values; nothing here says a
-// symbol should move.
-
 const ROLES: ArchitecturalRole[] = [
   "identifier",
   "constant",
@@ -72,7 +63,6 @@ const ROLES: ArchitecturalRole[] = [
   "unknown",
 ];
 
-/** The first of a symbol's roles in this order is its primary role. */
 const ROLE_PRECEDENCE: ArchitecturalRole[] = [
   "identifier",
   "schema",
@@ -137,7 +127,6 @@ const CONVENTION_STATUSES: ConventionStatus[] = [
   "insufficient-evidence",
 ];
 
-/** Roles whose symbols are structural primitives rather than executable units. */
 const PRIMITIVE_ROLES: ArchitecturalRole[] = [
   "identifier",
   "constant",
@@ -204,7 +193,6 @@ const SCOPE_DEFINITIONS: Record<ArchitecturalScopeClass, string> = {
     "declaring module unresolved in V13.2 and no consumer placed either",
 };
 
-/** Supporting naming patterns, each read only on the declaration kinds it could describe. */
 const NAMING_HINTS: {
   pattern: RegExp;
   role: ArchitecturalRole;
@@ -352,8 +340,6 @@ export function analyzePrimitiveConventions(
   const seedKind = new Map(
     report.conceptSeeds.map((seed) => [seed.id, seed.kind])
   );
-  // The universe is the primary modules' top-level declarations, as in
-  // V13.1 and V13.2: tests, stories, and fixtures are not architecture.
   const facts: SymbolFacts[] = report.symbols
     .flatMap<SymbolFacts>((symbol) => {
       const declaration = declarationById.get(symbol.id);
@@ -392,9 +378,6 @@ export function analyzePrimitiveConventions(
   };
   const factsById = new Map(facts.map((entry) => [entry.symbol.id, entry]));
 
-  // Which seeds are implemented by some local declaration, and by whom: the
-  // consumer-side half of contract evidence. A class extending a seed
-  // implements it; an interface extending one merely derives from it.
   const implementersOf = new Map<string, string[]>();
   visitEntry2();
 
@@ -426,8 +409,6 @@ export function analyzePrimitiveConventions(
     );
   };
 
-  // Pass one: runtime declarations. Schemas chain through local callees, so
-  // that pass iterates to a fixed point.
   const roleOf = new Map<string, RoleResult>();
   const schemaSymbols = new Set<string>();
   let changed = true;
@@ -446,8 +427,6 @@ export function analyzePrimitiveConventions(
 
   analyzePrimitiveConventionsEntry2(facts, roleOf, classifyRuntime);
 
-  // Configuration values name their contract: the annotated type of a
-  // configuration constant is itself configuration.
   const configurationTypes = new Set<string>();
   analyzePrimitiveConventionsEntry3(facts, roleOf, configurationTypes);
 
@@ -472,8 +451,6 @@ export function analyzePrimitiveConventions(
     Math.ceil(policy.packageWide.responsibilityShare * placedRegions)
   );
 
-  // A responsibility's root is its shallowest directory below the package
-  // root; an attached aggregator at the root does not move it.
   const regionRoot = new Map<string, string>();
   for (const region of responsibilities.regions) {
     const below = region.path.directories.filter((d) => !aboveRegions(d));
@@ -628,8 +605,6 @@ export function analyzePrimitiveConventions(
     ambiguityByModule,
     compositions
   );
-  // A directory is dedicated to a role when every module in it that exports
-  // classified symbols is dedicated to that same role.
   const dedicatedDirectory = new Map<string, ArchitecturalRole>();
   const modulesByDirectory = new Map<string, ModuleComposition[]>();
   for (const composition of compositions.values()) {
@@ -2089,10 +2064,6 @@ function resolveClassifyRuntime(
     return { evidence, roles };
   }
   if (isFunction) {
-    // Construction alone is not a factory (a thrower constructs errors),
-    // nor is a return type alone (a getter returns an instance): the
-    // function must construct what it returns, or be named as a factory
-    // and do one of the two.
     const constructs = relationship("constructs").filter(
       (c) => seedKind.get(c.conceptId) === "class"
     );

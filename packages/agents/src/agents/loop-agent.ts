@@ -22,7 +22,6 @@ export type LoopAgentSettings = Omit<
   "model" | "onFinish"
 > & {
   model: AgentModel;
-  /** Opens one observation per `stream`/`generate` call; omit to run unobserved. */
   observe?: ObserveTurn;
   onFinish?: (result: unknown) => void;
 };
@@ -32,11 +31,6 @@ type CallSettings = Pick<
   "model" | "providerOptions" | "telemetry"
 >;
 
-/**
- * Settings one turn may override. `ToolLoopAgent` spreads a call's parameters
- * over its own settings before preparing the call, so these reach the model
- * call even though `AgentCallParameters` does not declare them.
- */
 export type TurnSettings = Pick<
   ToolLoopAgentSettings<never, ToolSet>,
   | "activeTools"
@@ -54,7 +48,6 @@ export type TurnSettings = Pick<
   | "topP"
 >;
 
-/** The keys of {@link TurnSettings}, for picking them off a wider object. */
 export const TURN_SETTINGS = [
   "activeTools",
   "frequencyPenalty",
@@ -71,8 +64,6 @@ export const TURN_SETTINGS = [
   "topP",
 ] as const satisfies readonly (keyof TurnSettings)[];
 
-/** A turn's settings plus structured output, which `output` parses the
- *  turn's final text into. */
 export type TurnCallSettings<OUTPUT extends Output.Output = never> =
   TurnSettings & { output?: OUTPUT };
 
@@ -85,25 +76,12 @@ export interface TurnContext {
   sessionId: string;
 }
 
-/** The thrown value a telemetry `onError` event carries. */
 function errorOf(event: unknown): unknown {
   return typeof event === "object" && event !== null && "error" in event
     ? event.error
     : event;
 }
 
-/**
- * The call settings that put one call under `observation`: its wrapped model,
- * and its telemetry with a settle hook appended. The wide event is settled
- * from telemetry rather than from `onFinish` or the drained stream because
- * telemetry is where the event's tool executions and duration are folded in,
- * and it fires however the caller consumes the result to its end (`stream`,
- * `toUIMessageStream`, the result promises, or `generate`). A caller that
- * cancels a stream partway is settled by {@link settleOnCancel}. The hook goes
- * last: the SDK runs integration hooks in order, and the host's own
- * (evlog's) hooks are synchronous, so the event is complete by the time it
- * settles.
- */
 function observedCall(
   observation: TurnObservation,
   model: AgentModel
@@ -122,21 +100,11 @@ function observedCall(
         : [integrations].filter((i) => i !== undefined)),
       settle,
     ],
-    // The settle rides on telemetry, so telemetry must be on.
     isEnabled: true,
   };
   return { model: observation.wrap(model), telemetry };
 }
 
-/**
- * Settle `observation` when a consumer abandons `result.stream`. Stopping a
- * `for await` early (a `break`, or a throw in its body) cancels the stream,
- * and the SDK fires no telemetry hook for a cancelled stream: `onAbort` is
- * only notified while the stream is still being read. The SDK builds
- * `textStream` and `toUIMessageStream()` from `this.stream`, so cancelling
- * those (a client disconnecting from a UI response) settles through here too.
- * Each read of `stream` still tees a fresh branch, through the SDK's own getter.
- */
 function settleOnCancel<OUTPUT extends Output.Output>(
   result: StreamTextResult<ToolSet, Record<string, unknown>, OUTPUT>,
   observation: TurnObservation
@@ -184,8 +152,6 @@ export class LoopAgent extends ToolLoopAgent<never, ToolSet> {
     this.#sessionId = context.sessionId;
   }
 
-  // The SDK types a result by the constructor's `output`; a call's own
-  // `output` overrides it at runtime, so the result is retyped by the call's.
   override async stream<OUTPUT extends Output.Output = never>(
     opts: LoopAgentStreamParameters<OUTPUT>
   ): Promise<StreamTextResult<ToolSet, Record<string, unknown>, OUTPUT>> {
@@ -194,14 +160,12 @@ export class LoopAgent extends ToolLoopAgent<never, ToolSet> {
       const result = (await super.stream({
         ...opts,
         ...(observation ? observedCall(observation, this.#model) : {}),
-        // Line smoothing would hold a one-line JSON answer back until it
-        // ends, so a structured turn streams its partials unsmoothed.
         ...(opts.output
           ? {}
           : {
               experimental_transform: smoothStream({
-                chunking: "line", // optional: defaults to 'word'
-                delayInMs: 20, // optional: defaults to 10ms
+                chunking: "line",
+                delayInMs: 20,
               }),
             }),
       })) as unknown as StreamTextResult<
@@ -238,7 +202,6 @@ export class LoopAgent extends ToolLoopAgent<never, ToolSet> {
     }
   }
 
-  /** One call's observation — every call is its own turn. */
   #open(): TurnObservation | null {
     return (
       this.#observe?.({

@@ -32,132 +32,112 @@
   font-display: swap;
 }
 
-/* ---------------------------------------------------------------------------
-   Raw typography tokens
-   Default values target MD–XXL viewports.
-   Responsive overrides for XS–SM are applied via media query below.
-   --------------------------------------------------------------------------- */
 :root {
-  /* Headings */
-  --typography-h1-size: 1.875rem; /* 30px */
-  --typography-h1-line-height: 2.25rem; /* 36px */
+  --typography-h1-size: 1.875rem;
+  --typography-h1-line-height: 2.25rem;
 
-  --typography-h2-size: 1.5625rem; /* 25px */
-  --typography-h2-line-height: 2rem; /* 32px */
+  --typography-h2-size: 1.5625rem;
+  --typography-h2-line-height: 2rem;
 
-  --typography-h3-size: 1.3125rem; /* 21px */
-  --typography-h3-line-height: 1.5rem; /* 24px */
+  --typography-h3-size: 1.3125rem;
+  --typography-h3-line-height: 1.5rem;
 
-  --typography-h4-size: 1.125rem; /* 18px */
-  --typography-h4-line-height: 1.375rem; /* 22px */
+  --typography-h4-size: 1.125rem;
+  --typography-h4-line-height: 1.375rem;
 
-  --typography-h5-size: 1rem; /* 16px */
-  --typography-h5-line-height: 1.25rem; /* 20px */
+  --typography-h5-size: 1rem;
+  --typography-h5-line-height: 1.25rem;
 
-  --typography-h6-size: 1rem; /* 16px */
-  --typography-h6-line-height: 1.25rem; /* 20px */
+  --typography-h6-size: 1rem;
+  --typography-h6-line-height: 1.25rem;
 
-  /* Body & inline */
-  --typography-body-size: 1.125rem; /* 18px */
-  --typography-body-line-height: 1.5rem; /* 24px */
+  --typography-body-size: 1.125rem;
+  --typography-body-line-height: 1.5rem;
 
-  --typography-label-size: 1.125rem; /* 18px */
-  --typography-label-line-height: 1.25rem; /* 20px */
+  --typography-label-size: 1.125rem;
+  --typography-label-line-height: 1.25rem;
 
-  --typography-caption-size: 1rem; /* 16px */
-  --typography-caption-line-height: 1.25rem; /* 20px */
+  --typography-caption-size: 1rem;
+  --typography-caption-line-height: 1.25rem;
 
-  --typography-aside-size: 1rem; /* 16px */
-  --typography-aside-line-height: 1.25rem; /* 20px */
+  --typography-aside-size: 1rem;
+  --typography-aside-line-height: 1.25rem;
 
-  --typography-link-size: 1.125rem; /* 18px */
-  --typography-link-line-height: 1.5rem; /* 24px */
+  --typography-link-size: 1.125rem;
+  --typography-link-line-height: 1.5rem;
 
-  /* Exceptions */
-  --typography-alert-size: 1.125rem; /* 18px */
-  --typography-alert-line-height: 1.5rem; /* 24px */
+  --typography-alert-size: 1.125rem;
+  --typography-alert-line-height: 1.5rem;
 
-  --typography-btn-size: 1.125rem; /* 18px */
-  --typography-btn-line-height: 1.125rem; /* 18px — reduced for fixed-height buttons */
+  --typography-btn-size: 1.125rem;
+  --typography-btn-line-height: 1.125rem;
 
-  /* Card headers — same scale as headings but weight 500 (Medium) */
-  --typography-card-h1-size: 1.875rem; /* 30px */
-  --typography-card-h1-line-height: 2.25rem; /* 36px */
+  --typography-card-h1-size: 1.875rem;
+  --typography-card-h1-line-height: 2.25rem;
 
-  --typography-card-h2-size: 1.5625rem; /* 25px */
-  --typography-card-h2-line-height: 2rem; /* 32px */
+  --typography-card-h2-size: 1.5625rem;
+  --typography-card-h2-line-height: 2rem;
 
-  --typography-card-h3-size: 1.3125rem; /* 21px */
-  --typography-card-h3-line-height: 1.5rem; /* 24px */
+  --typography-card-h3-size: 1.3125rem;
+  --typography-card-h3-line-height: 1.5rem;
 
-  --typography-card-h4-size: 1rem; /* 16px */
-  --typography-card-h4-line-height: 1.25rem; /* 20px */
+  --typography-card-h4-size: 1rem;
+  --typography-card-h4-line-height: 1.25rem;
 
-  --typography-card-h5-size: 1.125rem; /* 18px */
-  --typography-card-h5-line-height: 1.375rem; /* 22px */
+  --typography-card-h5-size: 1.125rem;
+  --typography-card-h5-line-height: 1.375rem;
 }
 
-/* Compact-window heading scale (below 768px). */
 @media (width < 48rem) {
   :root {
-    /* Headings ↓ changed */
-    --typography-h1-size: 1.375rem; /* 22px   ← was 30px */
-    --typography-h1-line-height: 1.65rem; /* 26.4px ← was 36px */
+    --typography-h1-size: 1.375rem;
+    --typography-h1-line-height: 1.65rem;
 
-    --typography-h2-size: 1.25rem; /* 20px   ← was 25px */
-    --typography-h2-line-height: 1.6rem; /* 25.6px ← was 32px */
+    --typography-h2-size: 1.25rem;
+    --typography-h2-line-height: 1.6rem;
 
-    --typography-h3-size: 1.1875rem; /* 19px   ← was 21px */
-    --typography-h3-line-height: 1.356rem; /* 21.7px ← was 24px */
+    --typography-h3-size: 1.1875rem;
+    --typography-h3-line-height: 1.356rem;
 
-    /* Headings ↓ same */
-    --typography-h4-size: 1.125rem; /* 18px */
-    --typography-h4-line-height: 1.375rem; /* 22px */
+    --typography-h4-size: 1.125rem;
+    --typography-h4-line-height: 1.375rem;
 
-    --typography-h5-size: 1rem; /* 16px */
-    --typography-h5-line-height: 1.25rem; /* 20px */
+    --typography-h5-size: 1rem;
+    --typography-h5-line-height: 1.25rem;
 
-    --typography-h6-size: 1rem; /* 16px */
-    --typography-h6-line-height: 1.25rem; /* 20px */
+    --typography-h6-size: 1rem;
+    --typography-h6-line-height: 1.25rem;
 
-    /* Body & inline ↓ same */
-    --typography-aside-size: 1rem; /* 16px */
-    --typography-aside-line-height: 1.25rem; /* 20px */
+    --typography-aside-size: 1rem;
+    --typography-aside-line-height: 1.25rem;
 
-    --typography-label-size: 1.125rem; /* 18px */
-    --typography-label-line-height: 1.25rem; /* 20px */
+    --typography-label-size: 1.125rem;
+    --typography-label-line-height: 1.25rem;
 
-    --typography-body-size: 1.125rem; /* 18px */
-    --typography-body-line-height: 1.5rem; /* 24px */
+    --typography-body-size: 1.125rem;
+    --typography-body-line-height: 1.5rem;
 
-    --typography-caption-size: 1rem; /* 16px */
-    --typography-caption-line-height: 1.25rem; /* 20px */
+    --typography-caption-size: 1rem;
+    --typography-caption-line-height: 1.25rem;
 
-    --typography-link-size: 1.125rem; /* 18px */
-    --typography-link-line-height: 1.5rem; /* 24px */
+    --typography-link-size: 1.125rem;
+    --typography-link-line-height: 1.5rem;
 
-    /* Card headers mirror the heading scale ↓ changed */
-    --typography-card-h1-size: 1.375rem; /* 22px   ← was 30px */
-    --typography-card-h1-line-height: 1.65rem; /* 26.4px ← was 36px */
+    --typography-card-h1-size: 1.375rem;
+    --typography-card-h1-line-height: 1.65rem;
 
-    --typography-card-h2-size: 1.25rem; /* 20px   ← was 25px */
-    --typography-card-h2-line-height: 1.6rem; /* 25.6px ← was 32px */
+    --typography-card-h2-size: 1.25rem;
+    --typography-card-h2-line-height: 1.6rem;
 
-    --typography-card-h3-size: 1.1875rem; /* 19px   ← was 21px */
-    --typography-card-h3-line-height: 1.356rem; /* 21.7px ← was 24px */
+    --typography-card-h3-size: 1.1875rem;
+    --typography-card-h3-line-height: 1.356rem;
   }
 }
 
-/* ---------------------------------------------------------------------------
-   Tailwind v4 theme tokens
-   Exposes --text-{name} utilities that carry both font-size and line-height.
-   --------------------------------------------------------------------------- */
 @theme inline {
-  /* Font family */
   --font-ui: "Public Sans", "Segoe UI", Arial, sans-serif;
   --font-code: "IBM Plex Mono", ui-monospace, monospace;
 
-  /* Heading sizes */
   --text-h1: var(--typography-h1-size);
   --text-h1--line-height: var(--typography-h1-line-height);
 
@@ -176,7 +156,6 @@
   --text-h6: var(--typography-h6-size);
   --text-h6--line-height: var(--typography-h6-line-height);
 
-  /* Body & inline sizes */
   --text-body: var(--typography-body-size);
   --text-body--line-height: var(--typography-body-line-height);
 
@@ -192,14 +171,12 @@
   --text-link: var(--typography-link-size);
   --text-link--line-height: var(--typography-link-line-height);
 
-  /* Exception sizes */
   --text-alert: var(--typography-alert-size);
   --text-alert--line-height: var(--typography-alert-line-height);
 
   --text-btn: var(--typography-btn-size);
   --text-btn--line-height: var(--typography-btn-line-height);
 
-  /* Card header sizes */
   --text-card-h1: var(--typography-card-h1-size);
   --text-card-h1--line-height: var(--typography-card-h1-line-height);
 
@@ -216,10 +193,6 @@
   --text-card-h5--line-height: var(--typography-card-h5-line-height);
 }
 
-/* ---------------------------------------------------------------------------
-   Base layer — semantic HTML elements
-   Applies the UI font + the correct scale to bare HTML elements.
-   --------------------------------------------------------------------------- */
 @layer base {
   h1 {
     font-family: var(--font-ui);
@@ -277,8 +250,6 @@
     color: var(--foreground);
   }
 
-  /* Links are shell chrome here (nav items, buttons, back links) and read
-     as their container. A page that wants an inline link styles it. */
   a {
     color: inherit;
     text-decoration: inherit;

@@ -67,6 +67,8 @@ export function vaultAuthoringModels(
           key: vercelConfig,
           provider: (factories.vercel ?? vercelProvider)({
             config: { apiKey: vercelKey },
+            defaults: GATEWAY_DEFAULTS,
+            models: GATEWAY_MODELS,
           }),
         };
       }

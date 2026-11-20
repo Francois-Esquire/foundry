@@ -7,10 +7,6 @@ import type { Step } from "./step";
 import type { Bail } from "./types";
 import { isBail, StepBailError } from "./types";
 
-/**
- * Minimum shared state a Composer tree requires. `channels` is shared
- * by every node in the tree; a push at any leaf is visible at the root.
- */
 export interface BaseScope {
   readonly channels: Channels;
 }
@@ -32,15 +28,6 @@ export type RaceOut<Specs extends Record<string, ParallelEntry>> = {
     : never;
 }[keyof Specs];
 
-/**
- * Tree node for building and traversing a shared-scope step tree.
- * Each node owns a forked Executable (per-frame input/name/path/context)
- * and a reference to the shared scope (channels).
- *
- * Lifecycle methods (mount, complete, fail) publish step events for
- * synthetic wrapper frames. Composition methods (#invoke, #parallel, #race,
- * #branch, #sequence) drive child steps via Effect and publish via channels.
- */
 export class Composer<S extends BaseScope = BaseScope> {
   readonly name: string;
   readonly path: readonly string[];
@@ -71,7 +58,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     });
   }
 
-  /** Allocate a child node; forks path and Executable. */
   fork(
     name: string,
     input?: unknown,
@@ -155,12 +141,11 @@ export class Composer<S extends BaseScope = BaseScope> {
         ][];
         const arms = entries.map(([k, spec]) => {
           const child = wrapper.fork(k, spec.input);
-          return child.executable.drive(child.#witness(), spec.step).pipe(
-            // `value` is untyped (drive's O is unknown for these specs), so
-            // narrowing to a RaceOut arm needs a cast — same as ParallelOut.
-            // It is sound on `winner`: `k` is a genuine `keyof Specs`.
-            Effect.map((value) => ({ value, winner: k }) as RaceOut<Specs>)
-          );
+          return child.executable
+            .drive(child.#witness(), spec.step)
+            .pipe(
+              Effect.map((value) => ({ value, winner: k }) as RaceOut<Specs>)
+            );
         });
         const [first, ...rest] = arms;
         if (!first) {
@@ -218,10 +203,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     );
   }
 
-  /**
-   * Drive a child step inline as a sub-frame of the current path.
-   * Promise twin of {@link #invoke}; throws {@link StepBailError} on Bail.
-   */
   invoke<CI, CO>(step: Step<CI, CO>, input: CI, as?: string): Promise<CO> {
     return runEffectPromise(
       this.#invoke<CI, CO>(step, input, as).pipe(
@@ -234,10 +215,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     );
   }
 
-  /**
-   * Run children concurrently under a synthetic wrapper frame.
-   * Throws on first child failure; siblings interrupted via abort substrate.
-   */
   parallel<Specs extends Record<string, ParallelEntry>>(
     specs: Specs,
     name = "parallel"
@@ -245,10 +222,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     return runEffectPromise(this.#parallel<Specs>(specs, name));
   }
 
-  /**
-   * First child to resolve wins; losers interrupted.
-   * Returns { winner, value } identifying the winning entry.
-   */
   race<Specs extends Record<string, ParallelEntry>>(
     specs: Specs,
     name = "race"
@@ -256,10 +229,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     return runEffectPromise(this.#race<Specs>(specs, name));
   }
 
-  /**
-   * Predicate decides which arm runs; the other is never invoked.
-   * Throws {@link StepBailError} if the chosen arm bails.
-   */
   branch<CO>(
     predicate: (input: unknown) => boolean | Promise<boolean>,
     ifTrue: Step<unknown, CO>,
@@ -278,10 +247,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     );
   }
 
-  /**
-   * Pipeline: each step's output feeds the next step's input.
-   * A bail short-circuits and rejects the Promise.
-   */
   sequence<O>(
     steps: readonly Step[],
     initialInput: unknown,
@@ -294,10 +259,6 @@ export class Composer<S extends BaseScope = BaseScope> {
     return { channels: this.scope.channels, composer: this };
   }
 
-  /**
-   * Synthetic-group lifecycle seam: forks wrapper, mounts, runs body,
-   * publishes terminal event. Every grouping composition routes here.
-   */
   #wrap<A>(
     name: string,
     body: (wrapper: Composer<S>) => Effect.Effect<A, Error>

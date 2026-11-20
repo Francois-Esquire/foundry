@@ -1,12 +1,32 @@
-export const THEME_NAMES = ["dark", "light"] as const;
+import termcnThemes from "./termcn-themes.json";
 
-export type ThemeName = (typeof THEME_NAMES)[number];
+type TermcnThemeName = keyof typeof termcnThemes;
+export type ThemeName = "dark" | "light" | TermcnThemeName;
 
-/** Global preferences as the dashboard shows them. */
+export const THEME_NAMES: readonly ThemeName[] = [
+  "dark",
+  "light",
+  ...(Object.keys(termcnThemes) as TermcnThemeName[]),
+];
+
+export function isTheme(value: unknown): value is ThemeName {
+  return (
+    typeof value === "string" &&
+    (value === "dark" ||
+      value === "light" ||
+      Object.hasOwn(termcnThemes, value))
+  );
+}
+
+export function themeLabel(name: ThemeName): string {
+  if (name === "dark" || name === "light") {
+    return name === "dark" ? "Dark" : "Light";
+  }
+  return termcnThemes[name].label;
+}
+
 export interface SettingsSnapshot {
-  /** Where they are kept. */
   readonly path: string;
-  /** Why the file was not used, when it could not be; defaults apply meanwhile. */
   readonly problem?: string;
   readonly theme: ThemeName;
 }

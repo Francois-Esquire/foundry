@@ -22,10 +22,6 @@ import {
   VALID_MANIFEST,
 } from "./helpers/module-fixture";
 
-/**
- * Observes the import's parent expansion without changing it, so a test can
- * tell a tree was rejected before it was expanded.
- */
 vi.mock("@foundry/core/storage", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("@foundry/core/storage")>();
@@ -215,8 +211,6 @@ describe("Module Package", () => {
       ),
     });
     expect(await modules.loadModule(source.module.id)).toEqual(source.module);
-    // Output-only: the envelope manifest is the only copy, so it is retained
-    // and the version resolves from the target alone.
     expect(await modules.loadRetainedManifest(imported.contentId)).toEqual(
       imported.manifest
     );
@@ -255,7 +249,6 @@ describe("Module Package", () => {
   ])(
     "round-trips a %s version whose source embeds it",
     async (_name, manifest) => {
-      // Differently ordered, indented source: agreement compares parsed values.
       const reordered = Object.fromEntries(Object.entries(manifest).reverse());
       const source = await fixture(
         {

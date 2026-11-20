@@ -1,11 +1,3 @@
-/**
- * Step execution — error propagation, child fan-out, mixed outcomes.
- *
- * Retry & timeout policy live in step.retry.test.ts and step.timeout.test.ts.
- * This file focuses on what happens when execute does or doesn't return cleanly,
- * and how those outcomes flow through forked child steps.
- */
-
 import { describe, expect, it } from "vitest";
 import { isStepBailError, Step, StepBailError } from "../step";
 import type { Bail } from "../types";
@@ -14,12 +6,6 @@ import { bail, isBail } from "../types";
 const CHILD_FAIL_PATTERN = /child-fail/;
 const ORIGINAL_PATTERN = /original/;
 
-/**
- * Drive a step and capture either its successful output or — when the
- * body returned `bail(...)` — the surfaced Bail value (instead of letting
- * `step.run()` throw `StepBailError`). Mirrors the pre-rewrite
- * `Effect.either(step.#run())` pattern at the JS seam.
- */
 async function runWithBail<O>(step: Step<unknown, O>): Promise<unknown> {
   try {
     return await step.run();
@@ -87,7 +73,6 @@ describe("Step execution — child fan-out via fork", () => {
 
   it("forked children can run concurrently without blocking each other", async () => {
     const order: string[] = [];
-    // "a" can only finish after "b" does, so a sequential runner deadlocks.
     let releaseA = (): void => undefined;
     const bDone = new Promise<void>((resolve) => {
       releaseA = resolve;

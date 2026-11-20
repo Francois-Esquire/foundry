@@ -101,7 +101,6 @@ describe("transformStream", () => {
     await collect(stream);
 
     const meta = (await stream.message).metadata;
-    // Harness attribution is no longer written; old records keep reading.
     expect(meta?.model).toEqual({ id: "opus-x", provider: "gateway" });
     expect(meta?.usage).toMatchObject({
       inputTokens: 10,

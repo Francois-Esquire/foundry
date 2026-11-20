@@ -37,10 +37,6 @@ const seedWithStatus = (
   },
 });
 
-/**
- * Subscribe to channel events and return counters for `step.started` and
- * `step.complete` plus a `stop()` to interrupt the underlying fiber.
- */
 function countLifecycle(step: Step): {
   readonly started: () => number;
   readonly complete: () => number;

@@ -52,7 +52,9 @@ await run.result();
 
 Registered by **name**, not by reference. That indirection is what makes
 recovery possible: after a restart, `orchestrator.recover()` finds runs that
-were mid-flight and rebuilds them from the registry.
+were mid-flight and rebuilds them from the registry. A host whose store
+others share says which of those runs this Orchestrator takes on with the
+`recovers` option; a run it refuses stays in the store as it is.
 
 ### A reusable definition
 
@@ -624,7 +626,9 @@ receives the store's own copy of the write, taken when `commit` was called:
 - every record put, whole, in the write's order, as the store wrote it;
 - every id each delete named (`deleteJobs`, `deleteRuns`,
   `deleteSuspensions`), and for `deleteRunFrames`, the Run ids whose frames
-  all went. Each delete list is present, empty when the write named none.
+  all went. Each delete list is present, empty when the write named none;
+- `events`, when the write changes a Run: the change events the coordinator
+  built for it, in order (see [Change events](#change-events)).
 
 It cannot learn whether a put filed a new record or replaced one, what a
 replaced or deleted record held, or whether a delete found anything: the
@@ -643,27 +647,94 @@ calls `onCommit` inside the one transaction. Per command, the write holds:
 | Command                                  | The write                                                                 | No commit when                                   |
 | ---------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------ |
 | `ensureQueue`                            | `putQueues`: the new Queue                                                | the Queue exists                                 |
-| `updateQueue`                            | `putQueues`: the Queue                                                    | the Queue is missing                             |
+| `updateQueue`                            | `putQueues`: the Queue                                                    | the Queue is missing, or the patch leaves it as stored |
 | `createJob`                              | `putJobs`: the new Job                                                    |                                                  |
-| `updateJob`                              | `putJobs`: the Job                                                        | it is missing, or ended and the status differs  |
+| `updateJob`                              | `putJobs`: the Job                                                        | it is missing, or ended and the status differs, or the patch leaves it as stored |
 | `claimJobRun`                            | `putJobs`: the Job, active; `putRuns`: the new Run                        |                                                  |
 | `claimJobRun`, an earlier attempt done   | `putJobs`: the Job, complete. The call then rejects with `JobAlreadySettledError` |                                          |
 | `cancelJob`                              | `putJobs`, `putRuns` (its live Run, if any), `putSuspensions` (each pending one, cancelled) |                                |
-| `deleteJob`                              | `deleteJobs`: its id                                                      |                                                  |
+| `deleteJob`                              | `deleteJobs`: its id                                                      | the Job is missing                               |
 | `createRun`                              | `putRuns`: the new Run                                                    |                                                  |
-| `updateRun`                              | `putRuns`: the Run                                                        | it is missing, or ended and the status differs  |
-| `deleteRun`                              | `deleteRuns`: its id                                                      |                                                  |
+| `updateRun`                              | `putRuns`: the Run                                                        | it is missing, or ended and the status differs, or the patch leaves it as stored |
+| `deleteRun`                              | `deleteRuns`: its id                                                      | the Run is missing                               |
 | `createSuspension`                       | `putSuspensions`: the new Suspension                                      |                                                  |
 | `parkSuspension`                         | `putRuns`: the Run, suspended; `putSuspensions`: the new Suspension      | the occurrence is parked already                 |
 | `settleSuspension`                       | `putRuns`: the Run, queued or cancelled; `putSuspensions`: the Suspension |                                                  |
-| `cancelRun`, `cancelRunSuspensions`      | `putRuns`: the Run, cancelled; `putSuspensions`: each pending one, cancelled | `cancelRunSuspensions` finds it ended otherwise |
-| `deleteSuspension`                       | `deleteSuspensions`: its id                                               |                                                  |
+| `cancelRun`, `cancelRunSuspensions`      | `putRuns`: the Run, cancelled; `putSuspensions`: each pending one, cancelled | `cancelRunSuspensions` finds it ended otherwise, or cancelled already with nothing pending and nothing patched |
+| `deleteSuspension`                       | `deleteSuspensions`: its id                                               | the Suspension is missing                        |
 | `appendRunFrame`, `claimRunEffect`       | `putFrames`: the new frame                                                | a terminal frame or the claim exists already     |
-| `deleteRunFrames`                        | `deleteRunFrames`: the Run id                                             |                                                  |
+| `deleteRunFrames`                        | `deleteRunFrames`: the Run id                                             | the Run has no frames                            |
 | `restore`                                | every record of the snapshot, put                                         |                                                  |
 
 The write names no command; a host that needs one tells the commands apart by
 the shape above.
+
+### Change events
+
+`ExecutionCoordinator` builds a change event (`RunEvent`, schema
+`RunEventSchema` in `./schema`, types exported from `.`) for each change it
+makes to a Run, and carries it in the write that makes the change, as
+`events`. A host records them in `onCommit`, on the transaction it is handed,
+so an event lands exactly when its change does: once per commit that
+succeeds, never for one refused or rolled back.
+
+The stores keep no record of events. Both take them as they stand when
+`commit` is called, as plain JSON: a part that has no JSON form reading back
+the same (a Date, a class instance, `NaN`, `-0`, a bigint, `undefined`, a
+function, a hole in an array) refuses the whole write with a `TypeError`
+naming it. `describeWorkflowStore(name, open, mode)` holds every store to
+that refusal, directly and through a transaction's view. `mode` is required:
+`{ hooked: false }` for a store with no host hook, or
+`{ hooked: true, recording }` for one with a hook, where `recording` opens
+storage whose hook records each commit's events in the commit's own
+transaction (`RecordingWorkflowStores`: `failNextCommit`, `recorded`,
+`stores`). The suite then proves the hook is handed every kept commit's
+events, in order, and none of a refused or rolled-back one.
+
+An event is plain JSON: `{ type, id, at, runId, queueId, ... }`. `id` is a
+UUID, unique, built with the write before `commit`. `at` is when the
+coordinator built the event, an ISO time: it cannot establish commit order,
+as two coordinators' clocks and commits interleave. A host orders events by
+its own sequence, such as the position of the row its `onCommit` writes. A
+handler reads the Run by `runId` for anything more, except after
+`run.removed`, which carries what identified the Run.
+
+| Event           | Emitted when                                                                                 | Also carries |
+| --------------- | -------------------------------------------------------------------------------------------- | ------------ |
+| `run.queued`    | a Run is filed: `createRun`, `claimJobRun`                                                   |              |
+| `run.started`   | a Run's status becomes `running` (`updateRun`), each time it does                            |              |
+| `run.parked`    | a Run becomes `suspended`: `parkSuspension`, or `updateRun`                                  |              |
+| `run.resumed`   | a filed Run becomes `queued` again: `settleSuspension` resolving its Suspension, or `updateRun` |              |
+| `run.completed` | a Run becomes `complete` (`updateRun`)                                                       |              |
+| `run.failed`    | a Run becomes `failed` (`updateRun`)                                                         |              |
+| `run.cancelled` | a Run becomes `cancelled`: `cancelRun`, `cancelRunSuspensions`, `cancelJob`, `settleSuspension` cancelling, `updateRun` |              |
+| `run.updated`   | a change to the Run's own fields (`RUN_FIELDS`: `error`, `extensions`, `metadata`, `output`, `tags`, `timestamps`) | `changed`: the field names, in that order; never their values |
+| `run.removed`   | a filed Run is deleted (`deleteRun`)                                                         | `step`, `tags`, and `definition` and `links` where the Run had them |
+
+`run.updated` follows the lifecycle event when one write changes both, as
+completing a Run with its output does (`run.completed`, then `run.updated`
+naming `output`). The timestamps a lifecycle change stamps are part of it and
+not an update. `metadata` there means a host's namespaces: the runtime's own
+(`workflow` and `stream`, the persisted step state, and the coordinator's
+`workflows.execution`) are step progress, as is the step tree (`snapshot`).
+A metadata patch replaces the host's namespaces, so a persist that drops one
+is an update. A patch that changes no Run-level field and no status makes no
+event: a step tree persisted, a second Suspension parked on a Run already
+suspended. A change that leaves every record as stored (a true no-op, a
+delete of nothing) writes nothing at all, so it makes no event either.
+Jobs, Queues, Suspensions and frames make no events of their own, and neither does `restore`, which files records rather than
+changing them, nor a `deleteRun` of a Run that is not filed. A write carries
+no `events` field when it has none.
+
+Events follow the statuses written. The `Queue` stores a Run it starts as
+`running` and keeps it so until it suspends or ends: the workflow's own state
+reads `queued` until its status mirror catches up, and that lag is not
+written back as the Run returning to its queue. A Run recovered while
+running goes on running, with no `run.resumed`. A Run started again after a
+Suspension keeps the `startedAt` of its first start; one recovered after a
+crash is stamped with a new `startedAt` (`run.updated` naming `timestamps`).
+A handler should not assume one event precedes another beyond the order they
+arrive in.
 
 ### Exclusion and host requirements
 

@@ -91,9 +91,6 @@ describe("toModelMessages", () => {
       ]),
     ]);
 
-    // The assistant tool-call must carry providerOptions so a re-sent request
-    // doesn't 400 on Gemini 3. Exercises the real convertToModelMessages
-    // (callProviderMetadata → providerOptions) hop end to end.
     const toolCall = partsOf(out[1]).find((p) => p.type === "tool-call");
     expect(toolCall?.providerOptions).toEqual({
       google: { thoughtSignature: "sig-abc" },
@@ -150,8 +147,6 @@ describe("toModelMessages", () => {
       msg("user", [{ text: "never mind", type: "text" }]),
     ]);
 
-    // SDK does not synthesize a cancellation result — the call just passes
-    // through as an assistant message with an unanswered tool-call.
     expect(out.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
     expect(partsOf(out[1]).some((p) => p.type === "tool-call")).toBe(true);
   });

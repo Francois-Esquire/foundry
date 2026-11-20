@@ -9,7 +9,6 @@ export const WINDOW_CHANNELS = {
 
 type WindowChannel = (typeof WINDOW_CHANNELS)[keyof typeof WINDOW_CHANNELS];
 
-/** What the preload exposes to the renderer as `window.worksWindow`. */
 export interface WorksWindowBridge {
   close(): Promise<void>;
   minimize(): Promise<void>;

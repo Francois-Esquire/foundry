@@ -2,8 +2,6 @@ import type { CSSProperties } from "react";
 
 type WindowControlVariant = "close" | "maximize" | "minimize";
 
-// macOS traffic-light colours as explicit hexes: the theme remaps the named
-// Tailwind yellows to a muted amber that reads as missing beside red and green.
 const VARIANT_STYLES: Record<
   WindowControlVariant,
   { color: string; label: string }
@@ -37,7 +35,6 @@ function WindowControlButton({
 
 export interface WindowControlsProps {
   onClose: () => void;
-  /** Optional zoom control. Omitted callers render just close and minimize. */
   onMaximize?: () => void;
   onMinimize: () => void;
 }

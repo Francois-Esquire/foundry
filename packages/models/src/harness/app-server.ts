@@ -13,7 +13,6 @@ export interface CliProcess {
   stdout: Readable;
 }
 
-/** One JSON-RPC connection. Requests are rejected when the guest exits or is canceled. */
 export class AppServerConnection {
   private readonly pending = new Map<
     number,

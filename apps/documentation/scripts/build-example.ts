@@ -5,7 +5,6 @@ import { spawn } from "bun";
 
 const docs = resolve(import.meta.dirname, "..");
 const root = await realpath(resolve(docs, "../.."));
-// The bin sits beside the library entry; the exports map names only `.`.
 const spyglass = join(
   dirname(fileURLToPath(import.meta.resolve("@foundry.sh/spyglass"))),
   "spyglass.js"
@@ -25,10 +24,6 @@ async function run(args: string[]): Promise<void> {
   }
 }
 
-/**
- * The example is generated and gitignored. One written before static viewers
- * carried their marker is not recognized as a static viewer, so it goes.
- */
 async function removeUnmarkedExample(): Promise<void> {
   const marked = await access(
     join(example, ".spyglass-static-viewer.json")

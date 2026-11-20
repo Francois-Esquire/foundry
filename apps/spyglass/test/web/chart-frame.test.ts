@@ -1,7 +1,6 @@
 import { expect, it } from "vitest";
 import { chartFrame } from "../../src/web/ui/chart-frame-layout";
 
-/** The diamond at the top left and its twin at the bottom right, each the rule's inset from its corner. */
 const corners =
   "M18 8 L28 18 L18 28 L8 18 Z M382 272 L392 282 L382 292 L372 282 Z";
 

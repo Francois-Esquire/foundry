@@ -1,8 +1,3 @@
-// What a consumer of the installed package writes, as source the package
-// test saves into its temporary consumer. Each imports `@foundry.sh/spyglass` by
-// name, so the installed `exports` map is what resolves it.
-
-/** The values the entry exports, sorted; nothing else is public. */
 export const VALUE_EXPORTS = [
   "COLLECTION_SCHEMA_VERSION",
   "DATASET_SCHEMA_VERSION",
@@ -13,11 +8,6 @@ export const VALUE_EXPORTS = [
   "serve",
 ];
 
-/**
- * Runs every library call against a workspace and prints what came back as
- * one line of JSON. Arguments: the workspace, a state root, and a state root
- * that holds no dataset.
- */
 export const LIBRARY_SCRIPT = `
 import * as spyglass from "@foundry.sh/spyglass";
 import { DatasetNotFoundError, DatasetReplacedError, scan, serve } from "@foundry.sh/spyglass";
@@ -64,10 +54,6 @@ console.log(JSON.stringify({
 }));
 `;
 
-/**
- * Typechecked, never run: every exported name used as a consumer would,
- * and the names that must stay internal refused.
- */
 export const TYPES_SOURCE = `
 import {
   COLLECTION_SCHEMA_VERSION,
@@ -178,11 +164,6 @@ export const used = [
 ];
 `;
 
-/**
- * The consumer's compiler options: Node's own module rules, no ambient
- * types, and no skipLibCheck, so the shipped declarations are checked too.
- * The DOM library supplies `URL`, as `@types/node` or Bun's types would.
- */
 export const TYPES_CONFIG = {
   compilerOptions: {
     lib: ["esnext", "dom"],
@@ -196,12 +177,6 @@ export const TYPES_CONFIG = {
   files: ["types.ts"],
 };
 
-/**
- * Imports the package under Node, scans the workspace in
- * `SPYGLASS_WORKSPACE` under the state root `SPYGLASS_STATE` (its workers start
- * with `bun` from the PATH), and prints the exports, the scan's coverage,
- * and what `serve` says there, as one line of JSON.
- */
 export const NODE_SCRIPT = `
 const spyglass = await import("@foundry.sh/spyglass");
 const scanned = await spyglass.scan(process.env.SPYGLASS_WORKSPACE, {

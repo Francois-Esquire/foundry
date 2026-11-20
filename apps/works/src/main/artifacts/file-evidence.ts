@@ -160,6 +160,20 @@ export class FileEvidence {
   }
 
   async createdBy(operation: string): Promise<FileSaveEvidence | null> {
+    // A failed observation is not cached by the engine. The committed origin
+    // still proves a create, even before its evidence can be recovered.
+    for (const id of this.#blocked) {
+      const artifact = await this.#product(id);
+      const origin = artifact?.content ? originOf(artifact.content) : null;
+      if (artifact?.content && origin?.operation === operation) {
+        return evidenceOf(
+          id,
+          artifact.content,
+          origin,
+          savedPath(artifact.content, origin)
+        );
+      }
+    }
     for (const { evidence } of this.#answers(operation)) {
       if (evidence && (await this.#product(evidence.artifactId))) {
         return evidence;

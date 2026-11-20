@@ -1,8 +1,5 @@
 import type { FileKind } from "./types";
 
-// The one place a path becomes a file kind. Churn, hotspots, concept
-// centers, module nodes, and plans all read this; none may re-derive it.
-
 const CONFIG_FILE =
   /(^|\/)(package\.json|tsconfig[^/]*\.json|turbo\.json|knip\.json|bunfig\.toml|[^/]*\.config\.[cm]?[jt]sx?|\.[^/]+)$/;
 const TEST_FILE =

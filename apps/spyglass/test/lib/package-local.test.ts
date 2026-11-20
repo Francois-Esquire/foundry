@@ -35,8 +35,6 @@ const expectedTextPattern = /derived facts belong to packages\/b/;
 const expectedTextPattern2 = /^\d{4}-\d{2}-\d{2}T/;
 const foreignPattern = /^(packages|tooling|libraries|services)\//;
 
-// Package-local reports must not depend on consumers, neighbours, Git, or time.
-
 const fixture = join(import.meta.dirname, "fixtures", "semantics");
 const now = new Date("2027-01-01T00:00:00Z");
 const tempRoots: string[] = [];
@@ -213,7 +211,6 @@ describe("package-local report", () => {
     );
     expect(foreign).toEqual([]);
     expect(strings.filter((s) => expectedTextPattern2.test(s))).toEqual([]);
-    // the import of @s/b is recorded as an address, never a resolution
     const external = report.imports.filter((i) => i.scope === "external");
     expect(external.length).toBeGreaterThan(0);
     expect(new Set(external.map((i) => i.specifier))).toEqual(

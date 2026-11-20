@@ -21,6 +21,7 @@ import {
 import type { FeedPublisher } from "~/lib/feed/publish";
 import {
   type DeferredApproval,
+  type DeferredApprovalStore,
   DeferredApprovals,
   type InteractionSession,
 } from "./deferred-approvals";
@@ -48,35 +49,28 @@ interface PendingInput {
   readonly durable: boolean;
   question: FeedQuestionPayload;
   readonly source: Source;
-  /** The choice that reopens the question for a typed answer; cleared once used. */
   writeIn?: string;
 }
 
 export interface HarnessInteractionsOptions {
+  readonly approvals?: DeferredApprovalStore;
   readonly askable: boolean;
   readonly feed: FeedPublisher;
-  readonly pendingPath?: string;
   readonly policy: AgentAuthorizer;
   readonly sessions: SessionStore;
 }
 
-/** Human input waits in the host; it never suspends or replays the workflow. */
 export class HarnessInteractions {
   readonly #options: HarnessInteractionsOptions;
   readonly #pending = new Map<string, PendingInput>();
   readonly #deferred: DeferredApprovals;
   readonly #waits = new Set<Promise<unknown>>();
   readonly #shutdown = new AbortController();
-  /**
-   * Authorities this host built over its own policy. Only their deferred
-   * approvals are kept across restarts: a custom policy's grants would not
-   * be there to resolve them. Kept here so no caller can claim it.
-   */
   readonly #durable = new WeakSet<SandboxAuthority>();
 
   constructor(options: HarnessInteractionsOptions) {
     this.#options = options;
-    this.#deferred = new DeferredApprovals(options.pendingPath);
+    this.#deferred = new DeferredApprovals(options.approvals);
   }
 
   async restore(): Promise<void> {
@@ -108,7 +102,11 @@ export class HarnessInteractions {
     for (const record of records.values()) {
       const history = histories.get(record.sessionId);
       const request = history?.requests.get(record.approvalId);
-      const response = history?.responses.get(record.approvalId);
+      const response =
+        history?.responses.get(record.approvalId) ??
+        (await this.#histories([record.sessionId]))
+          .get(record.sessionId)
+          ?.responses.get(record.approvalId);
       if (
         request?.approvalMode !== "deferred" ||
         request.agentId !== record.agentId ||
@@ -117,6 +115,10 @@ export class HarnessInteractions {
         await this.#deferred.remove(record.approvalId);
         continue;
       }
+      const answered =
+        response && (await this.#grantStored(record, response))
+          ? response
+          : undefined;
       await this.#publishDeferred(
         {
           ...record,
@@ -129,11 +131,39 @@ export class HarnessInteractions {
         record.source,
         this.#options.policy,
         true,
-        response
+        answered
       );
-      if (response) {
+      if (answered) {
         await this.#deferred.remove(record.approvalId);
       }
+    }
+  }
+
+  async #grantStored(
+    record: DeferredApproval,
+    response: ApprovalResponsePart
+  ): Promise<boolean> {
+    if (!response.approved) {
+      return true;
+    }
+    try {
+      await resolveHarnessApproval(
+        {
+          agentGeneration: record.agentGeneration,
+          agentId: record.agentId,
+          policy: this.#options.policy,
+          store: this.#options.sessions,
+        },
+        record.sessionId,
+        record.approvalId,
+        {
+          approved: true,
+          lifetime: response.scope === "always" ? "persistent" : "session",
+        }
+      );
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -166,7 +196,6 @@ export class HarnessInteractions {
     return new Map(loaded);
   }
 
-  /** Keep a session's deferred approvals across restarts, when `authority` came from this host's own policy. */
   registerSession(
     session: InteractionSession,
     authority: SandboxAuthority

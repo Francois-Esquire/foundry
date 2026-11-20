@@ -42,23 +42,12 @@ export const INSTALLATION_STATUSES = [
   "failed",
 ] as const;
 
-/**
- * One column. `disabled`: operator intent, nothing runs. `starting` /
- * `active` / `stopping`: the program. `failed`: the last start or release
- * change failed; the operator enables again to retry.
- */
 export type InstallationStatus = (typeof INSTALLATION_STATUSES)[number];
 
 export type { Installation, Module } from "./schema";
 
-/** Consecutive failed starts before boot recovery stops retrying. */
 export const MAX_START_ATTEMPTS = 3;
 
-/**
- * One version of a Module: a frozen Content of its Artifact with a SemVer tag,
- * resolved on demand. `digest` is the Content's tree digest. Nothing persists
- * a version; the Content is the record.
- */
 export interface ModuleVersion {
   readonly artifactId: ArtifactId;
   readonly contentId: ContentId;
@@ -132,7 +121,6 @@ export function defineModuleVersion(input: {
   });
 }
 
-/** The version rules that need no Content identity: tag, Manifest, and tree. */
 export function parseModuleVersionContent(input: {
   readonly tag: string;
   readonly tree: StorageTree;

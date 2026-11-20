@@ -6,12 +6,6 @@ import {
   param,
 } from "../islands/lab/params";
 
-/**
- * What the viewer lays over the map, one vocabulary across the map and the
- * UI: the DOM labels and the chart's chrome. Islands draws everything under
- * them; these say which of the viewer's own layers show, one toggle a
- * layer, on when it shows. The detail toggles' layers start off.
- */
 export const sceneLayerParams = defineParams({
   "chart-frame": param.toggle(true, { label: "Chart frame" }),
   coordinates: param.toggle(false, { label: "Coordinates" }),
@@ -38,7 +32,6 @@ export type SceneLayerId = keyof typeof sceneLayerParams;
 
 export type SceneComposition = ParamValues<typeof sceneLayerParams>;
 
-/** Detail the app bar toggles in, one button a group; each starts hidden. */
 export const detailToggles = [
   { id: "labels", label: "Labels", layers: ["labels", "sea-caption"] },
   { id: "ruler", label: "Ruler", layers: ["coordinates", "latitude-scale"] },
@@ -51,7 +44,6 @@ export const detailToggles = [
 export const defaultSceneComposition: SceneComposition =
   defaultValues(sceneLayerParams);
 
-/** Composition gates what the viewer lays over the map; data and zoom gates still apply. */
 export function isSceneLayerVisible(
   composition: SceneComposition,
   id: SceneLayerId

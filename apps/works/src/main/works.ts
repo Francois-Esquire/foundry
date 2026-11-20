@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { ContainerRuntime } from "@foundry/sandbox/container/types";
-import type { ModelManager, StateStore } from "@foundry.sh/marbles/engine";
+import type { ExecutionStore, ModelManager } from "@foundry.sh/marbles/engine";
 import type { RouterContext } from "./api/context";
 import { EditorBindings } from "./artifacts/bindings";
 import { EditorPreferences } from "./artifacts/editor-preferences";
@@ -66,12 +66,12 @@ export interface WorksOptions {
   readonly artifactRoot: string;
   readonly builds?: (sandboxes: ModuleSandboxes) => BuildRuntime;
   readonly containers?: () => Promise<ContainerRuntime>;
+  readonly executionStore?: (store: ExecutionStore) => ExecutionStore;
   readonly models: ModelManager;
   readonly moduleRoot: string;
   readonly print: (line: string) => void;
   readonly programs?: (options: ModuleRuntimeOptions) => Promise<ModuleRuntime>;
   readonly routes: AuthoringModels;
-  readonly state?: (directory: string) => StateStore;
   readonly theme: SystemTheme;
   readonly userData: string;
 }
@@ -110,8 +110,8 @@ export async function composeWorks(options: WorksOptions): Promise<Works> {
     directory: path.join(userData, "engine"),
     models: options.models,
     print,
-    ...(options.state
-      ? { store: options.state(path.join(userData, "engine")) }
+    ...(options.executionStore
+      ? { executionStore: options.executionStore }
       : {}),
     workflows: WORKS_WORKFLOWS,
   });

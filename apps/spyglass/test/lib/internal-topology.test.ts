@@ -21,10 +21,6 @@ import { analyzePackageLocal } from "../../src/lib/package-local";
 const expectedTextPattern = /runtimeMs|elapsed|durationMs/;
 const expectedTextPattern2 = /\d{4}-\d{2}-\d{2}T/;
 
-// V13.0 internal topology on synthetic packages. Each fixture is one package
-// in a throwaway workspace; the topology must be a pure function of that
-// package's own files, so the independence tests perturb everything else.
-
 const tempRoots: string[] = [];
 
 afterAll(() => {
@@ -33,7 +29,6 @@ afterAll(() => {
   }
 });
 
-/** A workspace holding `packages/p` (name `@f/p`) with the given package-relative files. */
 function workspace(
   files: Record<string, string>,
   extra: Record<string, string> = {}

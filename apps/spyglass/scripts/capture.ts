@@ -1,38 +1,3 @@
-/**
- * Manual capture tool: opens the viewer in a headless browser over the Chrome
- * DevTools Protocol, runs a few steps, saves screenshots, and reports console
- * errors. It is for checking the look by eye, not part of the test command.
- *
- *   bun scripts/capture.ts --browser "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
- *     --url http://127.0.0.1:5199/ --tag overview zoom=6 wait=1500 shot=zoomed errors
- *
- * Steps: click=<button text or aria-label>, press=<label> (no screenshot),
- * zoom=<steps>, hover=<x>,<y>, tap=<x>,<y> (a mouse click on the page),
- * key=Enter|Tab|Escape, motion=reduce|normal, wait=<ms>, shot=<name>,
- * eval=<expression>, profile=pan|zoom|pointer|sweep[@x,y], clearlog, errors,
- * marks (the load marks from `src/web/timings.ts`, the data fetched, and, with
- * `?dev` in the URL or on the dev server, each timed stage's durations),
- * compare=<a.png>,<b.png> (two screenshots in --out, decoded in the page: the
- * pixels that differ and the largest difference), probe=<shot.png>:<x0>,<y0>,<x1>,<y1>
- * (the darkest and brightest pixels along a segment, and the contrast ratio
- * between the darkest and median pixels),
- * drag=<x>,<y>,<dx>,<dy> (a mouse drag from a point by an offset, which pans
- * the chart; fractions allowed), shift=<a.png>,<b.png>:<x0>,<y0>,<w>,<h>[,<range>]
- * (how far the region of the first screenshot moved in the second, to a
- * tenth of a pixel, by the best match over sub-pixel offsets within the
- * range, 4 px by default: tells whether lettering and marks moved together), idle=<ms> (the page at rest: main-thread task and script time as a share of
- * the window, and the frames submitted in it, which only a developer session
- * counts; null otherwise). The `marks` step splits the data read into what
- * arrived before `spyglass:data-loaded` and after it. `--throttle <kbit/s>`
- * (with `--latency <ms>`, default 40) emulates a slow network.
- * Chrome runs headless with WebGPU enabled (`--enable-unsafe-webgpu
- * --enable-features=Vulkan`, which run it headless on macOS), since the map
- * is the Islands WebGPU renderer and a browser without WebGPU shows only a
- * message. The `webgpu:` line at the end says whether the page had it.
- * Profiles count the frames Islands submits only in a developer session; pass
- * --pixel-ratio 2 for Retina. Screenshots
- * land in .cache/shots/<tag>-<name>.png.
- */
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -87,7 +52,6 @@ const args = [
   "--no-first-run",
   `--user-data-dir=${profile}`,
   "--ignore-gpu-blocklist",
-  // WebGPU for the Islands renderer: what works headless on macOS.
   "--enable-unsafe-webgpu",
   "--enable-features=Vulkan",
   "about:blank",
@@ -181,13 +145,6 @@ function connect(url: string) {
 
 type Session = ReturnType<typeof connect>;
 
-/**
- * Serialized into the page: the load marks in milliseconds since navigation,
- * the requests under `data/` and their decoded bytes, and, per timed stage
- * (`paint:<stage>` and `render-submit`), the count, median, and maximum in
- * milliseconds of the durations the page still holds. Each stage's measures
- * are cleared before recording beyond `stageMeasureCap` (`src/web/timings.ts`).
- */
 function readTimings() {
   const round = (value: number) => Math.round(value * 10) / 10;
   const marks = Object.fromEntries(
@@ -212,8 +169,6 @@ function readTimings() {
       stages.set(name, durations);
     }
   }
-  // Split at the data-loaded mark: what the first layout waited for, and
-  // what was read after it.
   const [loaded] = performance.getEntriesByName("spyglass:data-loaded");
   const split = (entries: PerformanceResourceTiming[]) => ({
     bytes: entries.reduce((sum, entry) => sum + entry.decodedBodySize, 0),
@@ -245,7 +200,6 @@ function readTimings() {
   });
 }
 
-/** Main-thread busy time while nothing is touched, from the DevTools Performance domain. */
 async function measureIdle(session: Session, milliseconds: number) {
   const metrics = async () => {
     const response = (await session.send("Performance.getMetrics")) as {
@@ -255,8 +209,6 @@ async function measureIdle(session: Session, milliseconds: number) {
       (response.result?.metrics ?? []).map(({ name, value }) => [name, value])
     );
   };
-  // One observer for the window, disconnected at its end; it counts rather
-  // than reading the entries, since each stage's measures are cleared at a cap.
   await session.evaluate(
     `(() => { const idle = { frames: 0 }; idle.observer = new PerformanceObserver((list) => { for (const entry of list.getEntries()) { if (entry.name === "spyglass:render-submit") { idle.frames += 1; } } }); idle.observer.observe({ type: "measure" }); globalThis.spyglassIdle = idle; })()`
   );
@@ -264,7 +216,6 @@ async function measureIdle(session: Session, milliseconds: number) {
   const before = await metrics();
   await sleep(milliseconds);
   const after = await metrics();
-  // Only a developer session times its repaints, so only it can count frames.
   const frames = await session.evaluate(
     `(() => { const { frames, observer } = globalThis.spyglassIdle; observer.disconnect(); delete globalThis.spyglassIdle; return performance.getEntriesByType("measure").some((entry) => entry.name.startsWith("spyglass:")) ? frames : null; })()`
   );
@@ -281,11 +232,6 @@ async function measureIdle(session: Session, milliseconds: number) {
   };
 }
 
-/**
- * Samples a screenshot along a segment, in the page: the darkest pixel, the
- * median one as the ground, and their WCAG contrast, so a ladder rung can be
- * checked against what was rendered.
- */
 async function probeShot(
   session: Session,
   file: string,
@@ -319,11 +265,6 @@ async function probeShot(
   })()`);
 }
 
-/**
- * Decodes two screenshots in the page and counts the pixels that differ: any
- * channel by more than 0, and by more than 8 of 255, with the largest
- * difference and the share of the image it covers.
- */
 async function compareShots(session: Session, a: string, b: string) {
   const dataUrl = async (file: string) =>
     `data:image/png;base64,${(await readFile(resolve(values.out, file))).toString("base64")}`;
@@ -355,12 +296,6 @@ async function compareShots(session: Session, a: string, b: string) {
   })()`);
 }
 
-/**
- * Finds how far a region of one screenshot moved in another, in the page:
- * the offset, in tenths of a pixel, at which the region best matches the
- * second image, bilinearly sampled, by the least mean absolute difference
- * over the requested range (default ±4 px).
- */
 async function shiftOfRegion(
   session: Session,
   a: string,

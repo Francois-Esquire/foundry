@@ -1,7 +1,6 @@
 import { expect, it } from "vitest";
 import { shoreDistances } from "../../src/lib/visualization/distance-field";
 
-/** The transform as it was first written, over plain arrays: the reference the typed one must equal bit for bit. */
 function referenceDistances(
   land: Uint8Array,
   width: number,
@@ -60,7 +59,6 @@ function referenceLine(values: number[]): number[] {
   });
 }
 
-/** Whether two fields hold the same 32-bit values, NaN included. */
 function identical(a: Float32Array, b: Float32Array): boolean {
   if (a.length !== b.length) {
     return false;
@@ -70,7 +68,6 @@ function identical(a: Float32Array, b: Float32Array): boolean {
   return left.every((word, at) => word === right[at]);
 }
 
-/** A deterministic sparse mask from a linear congruential sequence. */
 function scattered(width: number, height: number, share: number): Uint8Array {
   let state = width * 7919 + height;
   return Uint8Array.from({ length: width * height }, () => {

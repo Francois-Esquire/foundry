@@ -12,7 +12,6 @@ const LIVE_ROWS = {
   lucy: "decart/lucy-2-5/realtime",
 } as const;
 
-/** Every Operation the architecture's coverage table routes to FAL. */
 const FAL_SERVED: readonly OperationName[] = [
   "generate-image",
   "generate-video",
@@ -34,7 +33,6 @@ function factsWith(
   );
 }
 
-/** The fact a shipped row declares for one Operation in one mode, if any. */
 function factOf(
   model: string,
   operation: OperationName,
@@ -112,7 +110,6 @@ describe("FAL catalog facts", () => {
   });
 });
 
-/** The row and MIME a defaulted request-mode `select` must land on, per Operation. */
 const REQUEST_SELECTIONS: readonly [OperationName, string, string][] = [
   ["generate-image", "fal-ai/flux/dev", "image/jpeg"],
   ["generate-video", "fal-ai/minimax/video-01", "video/mp4"],

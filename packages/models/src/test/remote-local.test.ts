@@ -17,7 +17,6 @@ const WORKER_EXITED_CRASHED_PATTERN = /worker exited: crashed/;
 const WORKER_EXITED_PATTERN = /worker exited/;
 const WORKER_EXITED_CRASHED_PATTERN_2 = /worker exited: crashed/;
 
-/** Cross-wired in-memory transports: what one side sends, the other receives. */
 function makeTransportPair() {
   const toWorker = new EventEmitter();
   const toHost = new EventEmitter();
@@ -42,10 +41,6 @@ function makeTransportPair() {
   return { host, killWorker: (reason: string) => exitHost?.(reason), worker };
 }
 
-/**
- * A structural stand-in for the worker's LocalProvider: real enough for the
- * bridge (models, transcribe, status, events), fake enough to assert on.
- */
 function makeFakeProvider() {
   const seenSignals: AbortSignal[] = [];
   const events = new EventEmitter();
@@ -202,7 +197,7 @@ describe("remote-local bridge", () => {
   });
 
   it("worker exit rejects in-flight calls and fails later ones fast", async () => {
-    const { host, killWorker } = makeTransportPair(); // no worker attached
+    const { host, killWorker } = makeTransportPair();
     const provider = new RemoteLocalProvider({ transport: host });
     const inFlight = provider.download("text");
     killWorker("crashed");
@@ -253,7 +248,7 @@ describe("as a provider instance", () => {
   });
 
   it("fails closed when the local worker is gone", async () => {
-    const { host, killWorker } = makeTransportPair(); // no worker attached
+    const { host, killWorker } = makeTransportPair();
     const provider = new RemoteLocalProvider({ transport: host });
     killWorker("crashed");
     await expect(

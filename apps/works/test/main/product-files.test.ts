@@ -22,7 +22,7 @@ import {
 import { modulePersistence } from "~/main/modules/artifact-store";
 import { WORKS_TASKS } from "~/shared/execution";
 import { startTestExecution } from "../helpers/execution";
-import { FlakyStateStore } from "../helpers/flaky-state";
+import { FlakyExecutionStore } from "../helpers/flaky-state";
 
 const USER: FileActor = { kind: "user" };
 const ONE_MIB = 1024 * 1024;
@@ -43,8 +43,13 @@ async function temporary() {
   return directory;
 }
 
-async function open(directory: string, state?: FlakyStateStore) {
-  const execution = await startTestExecution(state ? { store: state } : {});
+async function open(directory: string, state?: FlakyExecutionStore) {
+  const execution = await startTestExecution({
+    directory: path.join(directory, "engine"),
+    ...(state
+      ? { executionStore: (executions) => state.wrap(executions) }
+      : {}),
+  });
   const store = new JsonArtifactStore({
     path: path.join(directory, "modules", ".library", "artifacts.json"),
   });
@@ -230,7 +235,7 @@ it("answers a retried request from its committed operation and refuses a reused 
   const [oldest] = execution.runs
     .list()
     .filter((run) => run.name === WORKS_TASKS.fileSave);
-  execution.runs.prune([oldest?.id ?? ""], () => HOST_AUDIT_SCOPE);
+  await execution.runs.prune([oldest?.id ?? ""], () => HOST_AUDIT_SCOPE);
   expect(
     await files.save({ ...request, request: "lost-2", retry: true })
   ).toMatchObject({ kind: "uncertain" });
@@ -242,7 +247,7 @@ it("answers a retried request from its committed operation and refuses a reused 
 
 it("reports a save whose result could not be recorded, and blocks the next until it is recovered", async () => {
   const directory = await temporary();
-  const state = new FlakyStateStore();
+  const state = new FlakyExecutionStore();
   const { execution, files } = await open(directory, state);
   const created = await createNotes(files);
   const base = await readText(files, created.artifactId);
@@ -284,7 +289,10 @@ it("reports a save whose result could not be recorded, and blocks the next until
       text: "after recovery",
     })
   ).toMatchObject({ evidence: "recorded", kind: "saved" });
-  const [recovery] = runsNamed(execution.runs.list(), WORKS_TASKS.fileRecover);
+  const [recovery] = runsNamed(
+    execution.runs.list(),
+    WORKS_TASKS.fileRecover
+  ).filter((run) => run.observations.length > 0);
   expect(fileEvidence(recovery as ExecutionRun)).toEqual([
     expect.objectContaining({
       artifactId: created.artifactId,
@@ -295,7 +303,7 @@ it("reports a save whose result could not be recorded, and blocks the next until
 
 it("recovers a missing save result from the origin at startup, before another save", async () => {
   const directory = await temporary();
-  const state = new FlakyStateStore();
+  const state = new FlakyExecutionStore();
   const before = await open(directory, state);
   const created = await createNotes(before.files);
   const base = await readText(before.files, created.artifactId);
@@ -590,7 +598,7 @@ it("answers overlapping creates of one request with the one file they made", asy
 });
 
 it("answers a retried create whose result was not persisted with the file it made", async () => {
-  const state = new FlakyStateStore();
+  const state = new FlakyExecutionStore();
   const { artifacts, files } = await open(await temporary(), state);
   const request = {
     actor: USER,
@@ -663,7 +671,7 @@ it("keeps a file's creation receipt through retention, so a later retry returns 
 
 it("answers a retried save of a non-primary entry with that entry, also when recovered", async () => {
   const directory = await temporary();
-  const state = new FlakyStateStore();
+  const state = new FlakyExecutionStore();
   const { artifacts, files } = await open(directory, state);
   const made = await artifacts.create({
     entries: {

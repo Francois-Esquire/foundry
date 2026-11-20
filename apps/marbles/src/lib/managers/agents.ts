@@ -22,10 +22,11 @@ import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
 import type { Output } from "ai";
-
 import type { AutomationService } from "~/lib/automation/service";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import { DIRECT_HARNESS, harnessOf, isCliHarness } from "~/lib/cli-harnesses";
+import type { ExecutionContext } from "~/lib/execution-context";
+import { withinContext } from "~/lib/execution-context";
 import type { ExecutionObservation } from "~/lib/executions";
 import type { RecordObservation } from "~/lib/observations";
 import { composeObservers, runTurnObserver } from "~/lib/observations";
@@ -43,7 +44,7 @@ import type {
 } from "~/lib/usage";
 import { catalogPrices, costMeter, lostFact, usageFact } from "~/lib/usage";
 import type { ManagerArgs } from "../bindings";
-import { AGENT_DEFINITION, SANDBOX_HANDLE } from "../handles";
+import { AGENT_DEFINITION, AGENT_PROMPT, SANDBOX_HANDLE } from "../handles";
 import type { LiveSession } from "../run-scope";
 import { workingDirectory } from "../run-scope";
 import type {
@@ -74,62 +75,23 @@ import {
   TurnLimitUnsupportedError,
 } from "./session-options";
 
-/**
- * Sessions over `createAgentPreset`, wired by default: the provider is the
- * harness and the working directory is the workspace root. Opened through a
- * step's view, the working directory is the frame's, every turn is aborted
- * with the step, and its text lands on the step's stream; the n-th call in a
- * body returns the session it created the first time, so a replay continues
- * the same transcript. Opened on the manager there is no step: each call is
- * a new session, and it lives until the engine is disposed.
- *
- * A host can steer a turn: the turn's own controller aborts it, the
- * partial reply is committed by the harness, and the prompt runs as the next
- * turn on the same session, so the author's `await generate()` resolves
- * with the steered reply. A prompt given on resume after a pause is
- * prepended to the first turn of a recorded session in that step.
- */
-
 export interface AgentsDeps {
-  /** What agents inside sandboxes are doing, recorded per session. */
   readonly activities: HarnessActivities;
-  /** The triggers a sandboxed agent may create, offered to it as tools. */
   readonly automations: AutomationService;
-  /** The container behind a sandbox handle; a sandbox session's harness runs in it. */
   readonly containerOf: (sandbox: SandboxHandle) => Container;
-  /** The route when an agent names neither model nor provider. */
+  readonly context?: ExecutionContext;
+  readonly cwd: string;
   readonly defaultExecutor: () => TurnExecutorRef;
-  /** Simulation uses echo models and never prepares a guest or reads credentials. */
   readonly dry: boolean;
-  /**
-   * How a provider runs in a sandbox guest: its execution, `null` for a
-   * configured provider that runs none, or undefined for one no
-   * configuration describes, whose CLI is then chosen by its id.
-   */
   readonly executionOf?: (provider: string) => Execution | null | undefined;
-  /** The plugin behind a configured provider id, stamped on refs and checked on replay. */
   readonly implementationOf?: (provider: string) => string | undefined;
-  /**
-   * The identity of the instance a provider id names now, stamped on refs.
-   * With it, a session resumes only on the instance it ran on, and one
-   * whose ref predates identities resumes only if it never ran.
-   */
   readonly instanceOf?: (provider: string) => string | undefined;
-  /** Approvals and questions from sandboxed agents, routed to the host. */
   readonly interactions: HarnessInteractions;
   readonly models: ModelManager;
-  /**
-   * Record an observation on the run a session belongs to: its model turns
-   * and tool calls. Omitted, nothing is recorded.
-   */
   readonly observe?: (runId: string, observation: ExecutionObservation) => void;
-  /** Throws when no provider is configured at all, with how to configure one. */
   readonly requireProviders?: () => void;
-  /** The workspace root: where a session opened outside a step works. */
-  readonly root: string;
   readonly sessions: SessionStore;
   readonly skills: (set?: SkillSet) => Promise<Skill[]>;
-  /** Where each turn inside a run records what it consumed; nothing is recorded without it. */
   readonly usage?: {
     readonly ledger: UsageLedger;
     readonly workspaceId: string;
@@ -138,14 +100,8 @@ export interface AgentsDeps {
 }
 
 const KIND = "agents.session";
-/** A definition's own `generate` or `stream`: one turn on a fresh session. */
 const TURN_KIND = "agent.turn";
 
-/**
- * Where a one-turn call's reply is, for replay, and who took it where, for
- * usage recovery: the key joins `path` with `.`, which a step name may hold.
- * Records written before `agent` and `path` prove neither.
- */
 interface RecordedTurn {
   readonly agent?: string;
   readonly message: string;
@@ -153,10 +109,6 @@ interface RecordedTurn {
   readonly session: string;
 }
 
-/**
- * One turn on a fresh session, as an agent definition's `generate` and
- * `stream` run it. Continuity across turns stays with `agents.session`.
- */
 export interface AgentTurns {
   generate<OUTPUT extends Output.Output>(
     definition: AgentLike<Output.Output>,
@@ -169,7 +121,6 @@ export interface AgentTurns {
     options?: TurnOptions<OUTPUT>
   ): SessionStream<OUTPUT>;
 }
-/** The run id of a session opened on the manager, outside any run. */
 const DIRECT = "direct";
 
 interface Closable {
@@ -182,40 +133,25 @@ interface Source {
   readonly runId: string;
 }
 
-/**
- * What a session is opened against. Inside a step it is the frame: the call
- * is counted for replay, turns stop with the step, and the session closes
- * when the run settles. On the manager it is the engine itself.
- */
 interface SessionSite extends Omit<SessionTurnSite, "consumed"> {
-  /** Record what a turn consumed, on the route its session was opened on; absent when nothing records usage. */
   readonly consume?: (
     message: SessionMessage,
     usage: SessionUsage | undefined,
     route: SessionRef,
     reported?: ReportedCost
-  ) => void;
-  /** The working directory when neither the call nor a worktree names one: the run's root, or the workspace root. */
+  ) => Promise<void>;
   readonly cwd: string;
-  /** The run's own session; a fresh session is filed under it. */
   readonly parent?: string;
-  /** Remember the session this call opened, for the next time its body runs. */
   record(ref: SessionRef): void;
-  /** The session this call opened the first time its body ran. */
   readonly recorded?: SessionRef;
-  /** Close this with whatever the session belongs to. */
   retain(closable: Closable): void;
-  /** Aborts every turn. Read per turn: a frame reissues its signal after a pause. */
   signal(): AbortSignal;
   readonly source: Source;
-  /** A prompt given on resume after a pause; handed out once. */
   takeResume(): string | undefined;
-  /** Make the session steerable by a host. */
   track(live: LiveSession): void;
   write(value: unknown): void;
 }
 
-/** What a run's site attributes its turns to. */
 function inRun(source: Source, agentId: string): TurnSource {
   return {
     agentId,
@@ -227,12 +163,6 @@ function inRun(source: Source, agentId: string): TurnSource {
   };
 }
 
-/**
- * Records each turn an agent takes as a usage fact: in a run, or `direct`
- * outside one. A turn whose fact cannot be built or saved leaves a `lost`
- * marker, so totals say they are incomplete; it is reported, and never
- * fails the turn.
- */
 function consumer(
   deps: AgentsDeps,
   source: TurnSource
@@ -242,7 +172,7 @@ function consumer(
     return;
   }
   const price = catalogPrices(deps.models);
-  return (message, counted, route, reported) => {
+  return async (message, counted, route, reported) => {
     let fact: RecordedUsageFact;
     try {
       fact = usageFact(
@@ -268,7 +198,7 @@ function consumer(
         error instanceof Error ? error.message : String(error)
       );
     }
-    const outcome = usage.ledger.record(fact);
+    const outcome = await usage.ledger.record(fact);
     if (outcome.saved === "marker") {
       deps.warn(
         `usage for turn ${message.id} was not saved (${outcome.error}); a marker records the missing turn`
@@ -282,7 +212,6 @@ function consumer(
   };
 }
 
-/** The site a step's frame is: one claim per call, in call order. */
 function frameSite(
   deps: AgentsDeps,
   { frame, scope, write }: ManagerArgs,
@@ -316,10 +245,6 @@ function frameSite(
   };
 }
 
-/**
- * A site outside any step: the session works in `cwd`, nothing about it is
- * replayed, and it records on a run only when given `observe`.
- */
 function hostSite(site: {
   readonly consume?: SessionSite["consume"];
   readonly cwd: string;
@@ -346,7 +271,6 @@ function refOf(session: SessionRef | Session): SessionRef {
   return "ref" in session ? session.ref : session;
 }
 
-/** A session route that replay cannot honor without moving the session. */
 export class SessionRouteError extends Error {
   readonly code: "SESSION_ROUTE_CONFLICT" | "SESSION_ROUTE_UNRECOVERABLE";
   override readonly name = "SessionRouteError";
@@ -360,12 +284,6 @@ export class SessionRouteError extends Error {
   }
 }
 
-/**
- * The route a pinned session keeps. A complete ref is taken as stored. A
- * legacy one is completed only from stored evidence: the ref itself and the
- * routes its messages recorded. Never from the definition's current model,
- * and never by order.
- */
 async function pinnedRoute(
   sessions: SessionStore,
   pinned: SessionRef
@@ -376,7 +294,6 @@ async function pinnedRoute(
   const messages = (await sessions.getSession(pinned.id))
     ? await sessions.listMessages(pinned.id)
     : [];
-  // Nothing has run under this id yet: there is no route to keep.
   if (messages.length === 0) {
     return undefined;
   }
@@ -406,7 +323,6 @@ async function pinnedRoute(
   return { model, provider };
 }
 
-/** Whether anything was recorded under the session id. */
 async function hasRun(sessions: SessionStore, id: string): Promise<boolean> {
   return (
     (await sessions.getSession(id)) !== null &&
@@ -414,7 +330,6 @@ async function hasRun(sessions: SessionStore, id: string): Promise<boolean> {
   );
 }
 
-/** File a fresh session under the run's own, or on its own outside a run. */
 async function fileSession(
   store: SessionStore,
   parent: string | undefined,
@@ -431,18 +346,15 @@ async function fileSession(
   }
 }
 
-/** A declared sandbox passed as is starts itself, in the step when there is one. */
 function startedSandbox(
   sandbox: SandboxHandle | SandboxInstance
 ): Promise<SandboxHandle> | SandboxHandle {
-  // Read, not `in`: an instance is a proxy whose record has no such key.
   const start = Reflect.get(sandbox, SANDBOX_HANDLE) as
     | (() => Promise<SandboxHandle>)
     | undefined;
   return start ? start() : (sandbox as SandboxHandle);
 }
 
-/** The text route an opening resolved, held until its session's site closes. */
 function heldText(
   resolution: Resolution<"text">,
   site: SessionSite,
@@ -453,11 +365,6 @@ function heldText(
   return model;
 }
 
-/**
- * A guest CLI session reaches the network without passing through a model
- * the manager built, so each turn checks the policies first, and a policy
- * change interrupts the turn in flight.
- */
 export function policed(
   session: HarnessSession,
   resolution: Resolution<"text">,
@@ -498,7 +405,6 @@ function selectionOf(route: {
   readonly model?: string;
   readonly provider?: string;
 }): ModelSelection {
-  // A model named alone is a selection string: "codex/gpt-5.5" may name both.
   if (route.provider === undefined && route.model !== undefined) {
     return route.model;
   }
@@ -535,7 +441,6 @@ function validateSessionOptions(options: SessionOptions): void {
   }
 }
 
-/** A sandbox session's options with its authority settled, and the session registered under it. */
 async function interactionOptions(
   interactions: HarnessInteractions,
   source: Source,
@@ -656,11 +561,6 @@ function sessionInput(
   return { input: given };
 }
 
-/**
- * Connect the MCP servers a definition names, each closed with the
- * session. One that cannot connect fails the opening, and the others are
- * closed: a session never starts without a server it asked for.
- */
 async function connectServers(
   definition: AgentDefinition<Output.Output>,
   site: SessionSite
@@ -693,7 +593,6 @@ async function connectServers(
   return clients;
 }
 
-/** A new session's route: the agent's own, else the engine's default. */
 function freshRoute(
   deps: AgentsDeps,
   definition: AgentDefinition<Output.Output>
@@ -708,10 +607,6 @@ function freshRoute(
   };
 }
 
-/**
- * A pinned session's route, refused when the definition now names another
- * route or the provider id now names another implementation.
- */
 async function keptRoute(
   deps: AgentsDeps,
   definition: AgentDefinition<Output.Output>,
@@ -760,12 +655,6 @@ async function keptRoute(
   return { modelId: model, provider };
 }
 
-/**
- * Whether the definition's selection can mean the kept route, under the
- * manager's grammar: a model named alone may be a catalog id or
- * `provider/model`. A replay passes the recorded provider into the
- * definition, so a provider beside such a model is read the same way.
- */
 function namesRoute(
   definition: { readonly model?: string; readonly provider?: string },
   kept: { readonly model: string; readonly provider: string }
@@ -797,7 +686,6 @@ function describeRoute(definition: {
     : `${definition.provider}/${definition.model}`;
 }
 
-/** Where a session's turns go: the agent's own route, else the engine's default. */
 interface Route {
   readonly modelId: string | undefined;
   readonly provider: string | undefined;
@@ -820,28 +708,42 @@ function turnLimitMode(
 
 interface Opening {
   readonly definition: AgentDefinition<Output.Output>;
-  /** The resolved instance's guest execution, for a sandbox session. */
   readonly execution: Execution | null | undefined;
+  readonly executor: TurnExecutorRef;
   readonly id: string;
   readonly limit: TurnLimit | undefined;
   readonly mcp: readonly McpClient[];
   readonly options: SessionOptions;
-  /** Resolved once: the turn limit and the session both use this route. */
+  readonly prompt: string;
   readonly resolution: Resolution<"text">;
   readonly route: Route;
   readonly site: SessionSite;
   readonly skills: Skill[];
 }
 
-/**
- * The definition, the route, the session id, and the skills, then a
- * sandbox session or a local one. The definition is built, and its MCP
- * servers connected, before anything is filed, so an opening that fails
- * leaves no session behind. A fresh session is a child of the run's own
- * session, which is created in the store the first time the run needs it,
- * so a host can read every agent the run opened through `run.session`.
- */
 async function openSession<OUTPUT extends Output.Output>(
+  deps: AgentsDeps,
+  site: SessionSite,
+  agent: AgentLike<OUTPUT>,
+  options: SessionOptions
+): Promise<Session<OUTPUT>> {
+  const { context } = deps;
+  const session = await withinContext(context, () =>
+    openUnentered(deps, site, agent, options)
+  );
+  if (context === undefined) {
+    return session;
+  }
+  return {
+    ...session,
+    generate: (input, turn) =>
+      withinContext(context, () => session.generate(input, turn)),
+    stream: (input, turn) =>
+      withinContext(context, () => session.stream(input, turn)),
+  };
+}
+
+async function openUnentered<OUTPUT extends Output.Output>(
   deps: AgentsDeps,
   site: SessionSite,
   agent: AgentLike<OUTPUT>,
@@ -863,16 +765,13 @@ async function openSession<OUTPUT extends Output.Output>(
       `agent "${definition.id}" names MCP servers, which a sandbox session cannot reach yet`
     );
   }
-  // A dry run spends nothing and starts nothing, so it connects no server.
   const mcp = deps.dry
     ? []
     : await connectServers(definition as AgentDefinition<Output.Output>, site);
   try {
-    // Connecting can take a while; a step cancelled meanwhile opens nothing.
     site.signal().throwIfAborted();
     return await openBuilt(deps, site, definition, options, mcp, input);
   } catch (error) {
-    // Retained, but a direct session's site would hold them to dispose.
     await Promise.allSettled(mcp.map((client) => client.close()));
     throw error;
   }
@@ -896,15 +795,12 @@ async function openBuilt<OUTPUT extends Output.Output>(
   if (pinned === undefined) {
     await fileSession(deps.sessions, site.parent, id);
   }
-  // A ref whose session never ran keeps nothing, so it starts afresh
-  // wherever it resolves, as an unrun session does without an identity.
   const ran =
     pinned?.instance !== undefined && (await hasRun(deps.sessions, pinned.id));
   const resolution = deps.models.resolve(
     "text",
     selectionOf({ model: route.modelId, provider: route.provider })
   );
-  // Read with the resolution, before any await, so they are that instance's.
   const stamp = {
     implementation: deps.implementationOf?.(resolution.provider),
     instance: deps.instanceOf?.(resolution.provider),
@@ -915,10 +811,15 @@ async function openBuilt<OUTPUT extends Output.Output>(
       `session ${pinned.id} ran on another configuration of provider ${resolution.provider} (its scope, settings, or account environment differ, or the instance it ran on is gone); start a new session`
     );
   }
-  // Read with the resolution, before any await, so it is that instance's.
-  const execution = options.sandbox
-    ? deps.executionOf?.(resolution.provider)
-    : undefined;
+  const execution = deps.executionOf?.(resolution.provider);
+  const executor: TurnExecutorRef = {
+    harness:
+      execution === undefined
+        ? harnessOf(resolution.provider)
+        : (execution?.harness ?? DIRECT_HARNESS),
+    model: resolution.model,
+    provider: resolution.provider,
+  };
   const limit =
     options.sandbox || options.maxTurns === undefined
       ? undefined
@@ -926,10 +827,12 @@ async function openBuilt<OUTPUT extends Output.Output>(
   const opening: Opening = {
     definition,
     execution,
+    executor,
     id,
     limit,
     mcp,
     options,
+    prompt: definition[AGENT_PROMPT]?.(executor.harness) ?? definition.prompt,
     resolution,
     route,
     site,
@@ -957,21 +860,21 @@ async function openBuilt<OUTPUT extends Output.Output>(
   );
 }
 
-/** The evlog wide event of every turn, and the run's model-turn observation when it records them. */
 function turnObserver(site: SessionSite) {
   return site.observe
     ? composeObservers(observeAgentTurn, runTurnObserver(site.observe))
     : observeAgentTurn;
 }
 
-/** A harness inside the sandbox's container, with approvals, questions, and activity routed to the host. */
 async function openSandboxSession(
   deps: AgentsDeps,
   {
     definition,
     execution,
+    executor,
     id,
     options,
+    prompt,
     resolution,
     site,
     skills,
@@ -979,14 +882,6 @@ async function openSandboxSession(
   sandbox: SandboxHandle
 ): Promise<HarnessSession> {
   const { source } = site;
-  const executor: TurnExecutorRef = {
-    harness:
-      execution === undefined
-        ? harnessOf(resolution.provider)
-        : (execution?.harness ?? DIRECT_HARNESS),
-    model: resolution.model,
-    provider: resolution.provider,
-  };
   const guest = isCliHarness(executor.harness);
   if (guest) {
     resolution.hold();
@@ -1020,16 +915,16 @@ async function openSandboxSession(
         sessionOptions.authority
       ),
     ...(guest ? {} : { model: heldText(resolution, site) }),
-    instructions: [
-      definition.prompt,
-      ...skills.map((skill) => skill.instructions ?? ""),
-    ]
+    instructions: [prompt, ...skills.map((skill) => skill.instructions ?? "")]
       .filter(Boolean)
       .join("\n\n"),
     options: sessionOptions,
     sessionId: id,
     signal: site.signal(),
     store: deps.sessions,
+    ...(resolution.definition.modelId === executor.model
+      ? {}
+      : { wireModelId: resolution.definition.modelId }),
     write: site.write,
   });
   return deps.activities.attach(
@@ -1038,10 +933,6 @@ async function openSandboxSession(
   );
 }
 
-/**
- * An agent preset in this process. It works where the call says, else in
- * the worktree a callback narrowed the frame to, else the site's directory.
- */
 async function openLocalSession(
   deps: AgentsDeps,
   {
@@ -1050,6 +941,7 @@ async function openLocalSession(
     limit,
     mcp,
     options,
+    prompt,
     resolution,
     route,
     site,
@@ -1067,7 +959,7 @@ async function openLocalSession(
     id: definition.id,
     ...(mcp.length === 0 ? {} : { mcp: mcp.map((client) => client.id) }),
     ...(modelId === undefined ? {} : { model: modelId }),
-    prompt: definition.prompt,
+    prompt,
     ...(provider === undefined ? {} : { provider }),
     skills: skills.map((skill) => skill.name),
   };
@@ -1113,9 +1005,6 @@ function retainSession<OUTPUT extends Output.Output>(
       ? harness.close.bind(harness)
       : undefined;
   let live: LiveSession | undefined;
-  // A turn its caller never awaited (a `stream` left running when the step
-  // or task returned) stops, and has ended, before what it runs on closes
-  // and its owner settles. A sandboxed session's own close stops its turn.
   site.retain({
     close: async () => {
       live?.turn?.abort(new Error("the session closed"));
@@ -1158,9 +1047,7 @@ function retainSession<OUTPUT extends Output.Output>(
 
 export class AgentsManager implements Agents {
   readonly #deps: AgentsDeps;
-  /** Stops the turns of sessions opened outside a step. */
   readonly #closing = new AbortController();
-  /** What those sessions hold open; closed with the manager. */
   readonly #held = new Set<Closable>();
 
   constructor(deps: AgentsDeps) {
@@ -1175,11 +1062,6 @@ export class AgentsManager implements Agents {
     return this.#deps.sessions;
   }
 
-  /**
-   * Open a session outside any step: it works in the workspace root unless
-   * the call names a directory, each call is a new session, and it stays
-   * open until the engine is disposed. Pass `onText` to a turn to stream it.
-   */
   async session<OUTPUT extends Output.Output = never>(
     definition: AgentLike<OUTPUT>,
     options: SessionOptions = {}
@@ -1193,7 +1075,6 @@ export class AgentsManager implements Agents {
     );
   }
 
-  /** Sessions owned by a host task, with its cancellation and observations. */
   forRun(run: {
     readonly id: string;
     readonly name: string;
@@ -1209,7 +1090,7 @@ export class AgentsManager implements Agents {
             definition.id
           )
         ),
-        cwd: this.#deps.root,
+        cwd: this.#deps.cwd,
         ...this.#observing(run.id),
         retain: (closable) => run.retain(closable),
         signal: run.signal,
@@ -1218,12 +1099,6 @@ export class AgentsManager implements Agents {
     );
   }
 
-  /**
-   * One-turn calls, inside a step when `args` is given, else outside any.
-   * In a step each call claims its own place in the ledger, never an
-   * `agents.session` one, and a replay returns the reply it recorded
-   * without running the turn again.
-   */
   turns(args?: ManagerArgs): AgentTurns {
     const open = (definition: AgentLike<Output.Output>) =>
       this.#turn(definition, args);
@@ -1267,7 +1142,6 @@ export class AgentsManager implements Agents {
     };
   }
 
-  /** A one-turn call's place: claimed at once, so call order decides it. */
   #turn(definition: AgentLike<Output.Output>, args?: ManagerArgs) {
     const held = new Set<Closable>();
     const claim = args?.scope.claim(args.frame, TURN_KIND);
@@ -1297,7 +1171,6 @@ export class AgentsManager implements Agents {
       close: async () => {
         await Promise.allSettled([...held].map((closable) => closable.close()));
       },
-      /** Only a complete reply is kept; anything else runs again on replay. */
       record: (message: SessionMessage) => {
         if (claim && message.status === "complete") {
           args?.scope.ledger.set(claim.key, {
@@ -1321,14 +1194,13 @@ export class AgentsManager implements Agents {
     };
   }
 
-  /** Outside any step: the workspace root, stopped only by the manager's close. */
   #directSite(
     definition: AgentLike<Output.Output>,
     retain: (closable: Closable) => void
   ): SessionSite {
     return {
       consume: consumer(this.#deps, { agentId: definition.id }),
-      cwd: this.#deps.root,
+      cwd: this.#deps.cwd,
       record: () => undefined,
       retain,
       signal: () => this.#closing.signal,
@@ -1339,7 +1211,6 @@ export class AgentsManager implements Agents {
     };
   }
 
-  /** What a step body sees: sessions bound to its frame's signal, stream, and working directory. */
   scoped(args: ManagerArgs): Agents {
     const { observe } = this.#observing(args.scope.id);
     return this.#agents((definition) =>
@@ -1347,7 +1218,6 @@ export class AgentsManager implements Agents {
     );
   }
 
-  /** Sessions opened against the site each call gets. */
   #agents(
     siteFor: (definition: AgentLike<Output.Output>) => SessionSite
   ): Agents {
@@ -1364,7 +1234,6 @@ export class AgentsManager implements Agents {
     };
   }
 
-  /** How a session records on run `runId`, when the engine records observations. */
   #observing(runId: string): { readonly observe?: RecordObservation } {
     const { observe } = this.#deps;
     return observe === undefined
@@ -1372,11 +1241,6 @@ export class AgentsManager implements Agents {
       : { observe: (observation) => observe(runId, observation) };
   }
 
-  /**
-   * Stop what was opened outside a step, then the models: the Codex provider
-   * holds a `codex app-server` child, and without this the process never
-   * exits.
-   */
   async close(): Promise<void> {
     this.#closing.abort(new Error("the engine was disposed"));
     try {

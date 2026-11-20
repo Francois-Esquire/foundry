@@ -448,6 +448,69 @@ export const RunFrameSchema = z
   );
 export type RunFrame = z.infer<typeof RunFrameSchema>;
 
+export const RUN_EVENT_TYPES = [
+  "run.queued",
+  "run.started",
+  "run.parked",
+  "run.resumed",
+  "run.completed",
+  "run.failed",
+  "run.cancelled",
+  "run.updated",
+  "run.removed",
+] as const;
+export const RunEventTypeSchema = z.enum(RUN_EVENT_TYPES);
+export type RunEventType = z.infer<typeof RunEventTypeSchema>;
+
+export const RUN_FIELDS = [
+  "error",
+  "extensions",
+  "metadata",
+  "output",
+  "tags",
+  "timestamps",
+] as const;
+export const RunFieldSchema = z.enum(RUN_FIELDS);
+export type RunField = z.infer<typeof RunFieldSchema>;
+
+const runEventFields = {
+  at: z.iso.datetime(),
+  id: z.string().min(1),
+  queueId: z.string(),
+  runId: RunIdSchema,
+};
+
+const LIFECYCLE_EVENT_TYPES = [
+  "run.queued",
+  "run.started",
+  "run.parked",
+  "run.resumed",
+  "run.completed",
+  "run.failed",
+  "run.cancelled",
+] as const satisfies readonly RunEventType[];
+
+export const RunEventSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    ...runEventFields,
+    type: z.enum(LIFECYCLE_EVENT_TYPES),
+  }),
+  z.strictObject({
+    ...runEventFields,
+    changed: z.array(RunFieldSchema).min(1).readonly(),
+    type: z.literal("run.updated"),
+  }),
+  z.strictObject({
+    ...runEventFields,
+    definition: DefinitionReferenceSchema.exactOptional(),
+    links: RunLinksSchema.exactOptional(),
+    step: z.string(),
+    tags: recordOf(z.string()),
+    type: z.literal("run.removed"),
+  }),
+]);
+export type RunEvent = z.infer<typeof RunEventSchema>;
+
 export const ORCHESTRATOR_STORE_SNAPSHOT_VERSION = 1 as const;
 
 export const OrchestratorStoreSnapshotSchema = z.object({
