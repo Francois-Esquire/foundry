@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Reply } from "@/components/blocks/reply";
 import { ToolRow } from "@/components/blocks/tool-row";
 import { Welcome } from "@/components/blocks/welcome";
@@ -21,6 +22,14 @@ function numbered(messages: readonly Message[]) {
           : message.title,
     };
   });
+}
+
+const STILL: Clock = { frame: 0, now: 0 };
+
+function isLive(message: Message): boolean {
+  return (
+    message.streaming || message.tools.some((tool) => tool.status === "running")
+  );
 }
 
 function MessageBody({
@@ -47,6 +56,28 @@ function MessageBody({
   );
 }
 
+function MessageEntry({
+  clock,
+  message,
+  name,
+}: {
+  readonly clock: Clock;
+  readonly message: Message;
+  readonly name: string;
+}) {
+  return (
+    <ChatMessage
+      name={name}
+      sender={SENDERS[message.kind]}
+      streaming={message.streaming}
+    >
+      <MessageBody clock={clock} message={message} />
+    </ChatMessage>
+  );
+}
+
+const ConversationMessage = memo(MessageEntry);
+
 export function Conversation({
   clock,
   messages,
@@ -60,14 +91,12 @@ export function Conversation({
   return (
     <ChatThread>
       {numbered(messages).map(({ key, message, name }) => (
-        <ChatMessage
+        <ConversationMessage
+          clock={isLive(message) ? clock : STILL}
           key={key}
+          message={message}
           name={name}
-          sender={SENDERS[message.kind]}
-          streaming={message.streaming}
-        >
-          <MessageBody clock={clock} message={message} />
-        </ChatMessage>
+        />
       ))}
     </ChatThread>
   );

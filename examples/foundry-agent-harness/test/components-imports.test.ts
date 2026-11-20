@@ -29,16 +29,28 @@ const TIMERS = new Set([
   "setInterval",
   "setTimeout",
 ]);
-const PACKAGES_OUTSIDE_COMPONENTS = [
-  "@foundry.sh/marbles",
-  "@modelcontextprotocol/sdk",
-  "bun",
-  "evlog",
-];
+const COMPONENT_PACKAGES = ["react", "@opentui/core", "@opentui/react"];
+const LISTENERS = new Set(["addEventListener", "addListener", "on", "once"]);
+const MUTATORS = new Set([
+  "add",
+  "clear",
+  "delete",
+  "pop",
+  "push",
+  "reverse",
+  "set",
+  "shift",
+  "sort",
+  "splice",
+  "unshift",
+]);
+const AMBIENT = new Set(["globalThis", "process", "window"]);
 const RUNTIME = ["harness", "backlog"].map((name) => resolve(source, name));
-const VIEWS = resolve(source, "views");
 const HOOKS = resolve(source, "hooks");
 const THEME_HOOK = resolve(HOOKS, "use-theme");
+const COMPONENT_SOURCES = ["components", "model", "lib/terminal-themes"].map(
+  (name) => resolve(source, name)
+);
 
 function within(directory: string, path: string): boolean {
   const inside = relative(directory, path);
@@ -90,18 +102,13 @@ function reachesRuntime(path: string, specifier: string): boolean {
 }
 
 function componentImportBanned(path: string, specifier: string): boolean {
-  if (specifier === "<dynamic>" || reachesRuntime(path, specifier)) {
-    return true;
-  }
-  if (PACKAGES_OUTSIDE_COMPONENTS.some((name) => isPackage(specifier, name))) {
-    return true;
-  }
   const target = resolved(path, specifier);
   if (target === undefined) {
-    return false;
+    return !COMPONENT_PACKAGES.some((name) => isPackage(specifier, name));
   }
-  return (
-    within(VIEWS, target) || (within(HOOKS, target) && target !== THEME_HOOK)
+  return !(
+    target === THEME_HOOK ||
+    COMPONENT_SOURCES.some((allowed) => within(allowed, target))
   );
 }
 
@@ -130,6 +137,62 @@ function calledName(node: ts.CallExpression): string | undefined {
   if (ts.isPropertyAccessExpression(callee)) {
     return callee.name.text;
   }
+  if (
+    ts.isElementAccessExpression(callee) &&
+    ts.isStringLiteralLike(callee.argumentExpression)
+  ) {
+    return callee.argumentExpression.text;
+  }
+  return undefined;
+}
+
+function rootOf(node: ts.Expression): string | undefined {
+  let current = node;
+  while (
+    ts.isPropertyAccessExpression(current) ||
+    ts.isElementAccessExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return ts.isIdentifier(current) ? current.text : undefined;
+}
+
+function moduleBindings(file: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
+  for (const statement of file.statements) {
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) {
+          names.add(declaration.name.text);
+        }
+      }
+    }
+  }
+  return names;
+}
+
+function mutatedRoot(node: ts.Node): string | undefined {
+  if (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+    node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+  ) {
+    return rootOf(node.left);
+  }
+  if (
+    (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+    (node.operator === ts.SyntaxKind.PlusPlusToken ||
+      node.operator === ts.SyntaxKind.MinusMinusToken)
+  ) {
+    return rootOf(node.operand);
+  }
+  if (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    MUTATORS.has(node.expression.name.text)
+  ) {
+    return rootOf(node.expression.expression);
+  }
   return undefined;
 }
 
@@ -148,12 +211,23 @@ function topLevelMutable(
 
 function stateViolations(file: ts.SourceFile): string[] {
   const found: string[] = [];
+  const bindings = moduleBindings(file);
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
       const name = calledName(node);
       if (name && (STATEFUL.has(name) || TIMERS.has(name))) {
         found.push(name);
       }
+      if (name && LISTENERS.has(name) && !ts.isIdentifier(node.expression)) {
+        found.push(`listener ${name}`);
+      }
+    }
+    if (ts.isIdentifier(node) && AMBIENT.has(node.text)) {
+      found.push(`ambient ${node.text}`);
+    }
+    const mutated = mutatedRoot(node);
+    if (mutated && bindings.has(mutated)) {
+      found.push(`mutates module-level ${mutated}`);
     }
     if (ts.isImportSpecifier(node)) {
       const imported = (node.propertyName ?? node.name).text;
@@ -274,6 +348,9 @@ describe("the classifier", () => {
     ],
     ['import { initLogger } from "evlog";', "evlog"],
     ['import { sleep } from "bun";', "bun"],
+    ['import { useThread } from "@/lib/bridge";', "@/lib/bridge"],
+    ['import { main } from "@/main";', "@/main"],
+    ['import { readFile } from "node:fs/promises";', "node:fs/promises"],
     ["const harness = import(name);", "<dynamic>"],
   ])("refuses %s", (text, specifier) => {
     expect(importViolations(parse(block, text), componentImportBanned)).toEqual(
@@ -293,6 +370,15 @@ describe("the classifier", () => {
     ["setTimeout(tick, 80);", "setTimeout"],
     ['import { useState as hold } from "react";', "import useState"],
     ['import { useKeyboard } from "@opentui/react";', "import useKeyboard"],
+    ['const [a, b] = React["useState"](0);', "useState"],
+    ['source.on("data", listen);', "listener on"],
+    [
+      "const cache = { count: 0 };\ncache.count++;",
+      "mutates module-level cache",
+    ],
+    ["const seen = [];\nseen.push(1);", "mutates module-level seen"],
+    ["const cache = {};\ncache.last = 1;", "mutates module-level cache"],
+    ["process.exit(0);", "ambient process"],
     ["let frame = 0;", "module-level let frame"],
     ["var frame = 0;", "module-level var frame"],
   ])("refuses %s", (text, violation) => {
