@@ -1,32 +1,28 @@
-import { useCallback, useState } from "react";
 import { Spinner } from "@/components/blocks/spinner";
 import { Panel } from "@/components/ui/panel";
 import { useTheme } from "@/hooks/use-theme";
 
 export function GoalBar({
   busy,
-  onGoal,
+  draft,
+  frame,
+  onDraft,
+  onSubmit,
   width,
 }: {
   readonly busy: boolean;
-  readonly onGoal: (goal: string) => void;
+  readonly draft: string;
+  readonly frame: number;
+  readonly onDraft: (draft: string) => void;
+  readonly onSubmit: () => void;
   readonly width: number;
 }) {
   const theme = useTheme();
-  const [draft, setDraft] = useState("");
-  const submit = useCallback(() => {
-    const goal = draft.trim();
-    if (busy || goal === "") {
-      return;
-    }
-    setDraft("");
-    onGoal(goal);
-  }, [busy, draft, onGoal]);
   return (
     <Panel width={width}>
       <box flexDirection="row" gap={1}>
         {busy ? (
-          <Spinner />
+          <Spinner frame={frame} />
         ) : (
           <text fg={theme.colors.primary}>
             <b>›</b>
@@ -35,8 +31,8 @@ export function GoalBar({
         <input
           flexGrow={1}
           focused
-          onInput={setDraft}
-          onSubmit={submit}
+          onInput={onDraft}
+          onSubmit={onSubmit}
           placeholder={
             busy
               ? "Working. The next goal can go in when this one is done."

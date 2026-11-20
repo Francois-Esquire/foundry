@@ -73,7 +73,7 @@
       "entry": ["stories/**/*.stories.tsx"],
       "ignore": [
         "src/components/ui/**",
-        "src/hooks/**",
+        "src/hooks/use-theme.ts",
         "src/lib/terminal-themes/**"
       ]
     },

@@ -12,6 +12,7 @@ export interface ToolUse {
   error?: string;
   id: string;
   name: string;
+  startedAt: number;
   status: Status;
 }
 
@@ -61,4 +62,14 @@ export function isBusy(thread: Thread): boolean {
 
 export function finishedTodos(thread: Thread): number {
   return thread.todos.filter((todo) => todo.status === "success").length;
+}
+
+export function isAnimating(thread: Thread): boolean {
+  return (
+    isBusy(thread) ||
+    thread.todos.some((todo) => todo.status === "running") ||
+    thread.messages.some((message) =>
+      message.tools.some((tool) => tool.status === "running")
+    )
+  );
 }

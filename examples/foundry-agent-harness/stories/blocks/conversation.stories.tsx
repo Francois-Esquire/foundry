@@ -1,6 +1,6 @@
 import { defineStories, story } from "textbook-sh";
 import { Conversation } from "@/components/blocks/conversation";
-import { threads } from "../fixtures/threads";
+import { clock, threads } from "../fixtures/threads";
 import { renderFrame } from "../frame";
 
 const size = { height: 22, width: 76 };
@@ -17,7 +17,7 @@ export const Welcome = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Conversation messages={threads.idle.messages} />,
+      <Conversation clock={clock} messages={threads.idle.messages} />,
       size
     ),
 });
@@ -28,7 +28,7 @@ export const Working = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Conversation messages={threads.working.messages} />,
+      <Conversation clock={clock} messages={threads.working.messages} />,
       size
     ),
 });
@@ -39,7 +39,7 @@ export const Done = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Conversation messages={threads.done.messages} />,
+      <Conversation clock={clock} messages={threads.done.messages} />,
       size
     ),
 });
@@ -50,7 +50,7 @@ export const Failed = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Conversation messages={threads.failed.messages} />,
+      <Conversation clock={clock} messages={threads.failed.messages} />,
       size
     ),
 });

@@ -34,9 +34,13 @@ export async function unmount() {
   current = undefined;
 }
 
-export async function press(ui: Rendered, key: string) {
+export async function press(
+  ui: Rendered,
+  key: string,
+  modifiers?: { shift?: boolean }
+) {
   await act(async () => {
-    ui.mockInput.pressKey(key);
+    ui.mockInput.pressKey(key, modifiers);
   });
   await flush(ui);
 }

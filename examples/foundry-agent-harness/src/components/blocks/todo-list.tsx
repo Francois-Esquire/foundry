@@ -10,7 +10,13 @@ const ICONS: Record<Exclude<Status, "running">, string> = {
   success: "✓",
 };
 
-export function TodoList({ thread }: { readonly thread: Thread }) {
+export function TodoList({
+  frame,
+  thread,
+}: {
+  readonly frame: number;
+  readonly thread: Thread;
+}) {
   const theme = useTheme();
   const colors: Record<Status, string> = {
     error: theme.colors.error,
@@ -20,7 +26,7 @@ export function TodoList({ thread }: { readonly thread: Thread }) {
   };
   if (thread.phase === "planning") {
     return (
-      <ListRow color={theme.colors.primary} icon={<Spinner />}>
+      <ListRow color={theme.colors.primary} icon={<Spinner frame={frame} />}>
         Planning the goal into to-dos
       </ListRow>
     );
@@ -33,7 +39,13 @@ export function TodoList({ thread }: { readonly thread: Thread }) {
       {thread.todos.map((todo) => (
         <ListRow
           color={colors[todo.status]}
-          icon={todo.status === "running" ? <Spinner /> : ICONS[todo.status]}
+          icon={
+            todo.status === "running" ? (
+              <Spinner frame={frame} />
+            ) : (
+              ICONS[todo.status]
+            )
+          }
           key={todo.id}
           note={todo.added ? "added by the worker" : undefined}
         >

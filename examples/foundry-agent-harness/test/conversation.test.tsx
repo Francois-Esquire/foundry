@@ -17,6 +17,7 @@ const REPLY = [
 ].join("\n");
 
 const SIZE = { height: 14, width: 60 };
+const CLOCK = { frame: 0, now: 0 };
 
 function reply(text: string, streaming: boolean): Message {
   return { kind: "task", streaming, text, title: "Explain", tools: [] };
@@ -33,6 +34,7 @@ function Streamed() {
   }, []);
   return (
     <Conversation
+      clock={CLOCK}
       messages={[reply(REPLY.slice(0, length), length < REPLY.length)]}
     />
   );
@@ -42,7 +44,10 @@ afterEach(unmount);
 
 test("a reply that arrived in pieces ends up drawn like one that arrived whole", async () => {
   const whole = await frameWith(
-    await mount(<Conversation messages={[reply(REPLY, false)]} />, SIZE),
+    await mount(
+      <Conversation clock={CLOCK} messages={[reply(REPLY, false)]} />,
+      SIZE
+    ),
     "The second starts the harness"
   );
   const ui = await mount(<Streamed />, SIZE);

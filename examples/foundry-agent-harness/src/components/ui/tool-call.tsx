@@ -1,6 +1,3 @@
-import { useKeyboard } from "@opentui/react";
-import { useEffect, useRef, useState } from "react";
-
 import { useTheme } from "@/hooks/use-theme";
 
 export type ToolCallStatus = "pending" | "running" | "success" | "error";
@@ -12,7 +9,9 @@ export interface ToolCallProps {
   result?: unknown;
   duration?: number;
   collapsible?: boolean;
-  defaultCollapsed?: boolean;
+  collapsed?: boolean;
+  frame?: number;
+  elapsed?: number;
 }
 
 export const ToolCall = ({
@@ -22,40 +21,14 @@ export const ToolCall = ({
   result,
   duration,
   collapsible = true,
-  defaultCollapsed = true,
+  collapsed = true,
+  frame = 0,
+  elapsed,
 }: ToolCallProps) => {
   const theme = useTheme();
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
-  const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef(Date.now());
-  const [frame, setFrame] = useState(0);
 
   const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   const spinnerIcon = spinnerFrames[frame % spinnerFrames.length] ?? "⠋";
-  useEffect(() => {
-    if (status !== "running") {
-      return;
-    }
-    const id = setInterval(() => setFrame((f) => f + 1), Math.round(1000 / 12));
-    return () => clearInterval(id);
-  }, [status]);
-
-  useEffect(() => {
-    if (status !== "running") {
-      return;
-    }
-    startRef.current = Date.now();
-    const id = setInterval(() => {
-      setElapsed(Date.now() - startRef.current);
-    }, 100);
-    return () => clearInterval(id);
-  }, [status]);
-
-  useKeyboard((key) => {
-    if (collapsible && (key.name === "return" || key.name === "")) {
-      setCollapsed((c) => !c);
-    }
-  });
 
   const statusIcon = () => {
     switch (status) {
@@ -80,7 +53,9 @@ export const ToolCall = ({
   let durationText: string | null;
   if (duration === undefined) {
     durationText =
-      status === "running" ? `${(elapsed / 1000).toFixed(1)}s` : null;
+      status === "running" && elapsed !== undefined
+        ? `${(elapsed / 1000).toFixed(1)}s`
+        : null;
   } else {
     durationText = `${duration}ms`;
   }

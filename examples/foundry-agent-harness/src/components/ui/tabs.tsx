@@ -1,6 +1,4 @@
 /* @jsxImportSource @opentui/react */
-import { useKeyboard } from "@opentui/react";
-import { useState } from "react";
 import type { ReactNode } from "react";
 
 import { useTheme } from "@/hooks/use-theme";
@@ -14,9 +12,7 @@ export interface Tab {
 
 export interface TabsProps {
   tabs: Tab[];
-  defaultTab?: string;
-  activeTab?: string;
-  onTabChange?: (key: string) => void;
+  activeTab: string;
   borderColor?: string;
   borderStyle?: BorderStyle;
   separator?: string;
@@ -27,9 +23,7 @@ export interface TabsProps {
 
 export const Tabs = ({
   tabs,
-  defaultTab,
-  activeTab: controlledTab,
-  onTabChange,
+  activeTab: activeKey,
   borderColor,
   borderStyle = "single",
   separator = " │ ",
@@ -38,31 +32,7 @@ export const Tabs = ({
   paddingY = 0,
 }: TabsProps) => {
   const theme = useTheme();
-  const [internalTab, setInternalTab] = useState(
-    defaultTab ?? tabs[0]?.key ?? ""
-  );
-  const activeKey = controlledTab ?? internalTab;
-  const activeIndex = tabs.findIndex((t) => t.key === activeKey);
-
   const resolvedBorderColor = borderColor ?? theme.colors.border;
-
-  const switchTab = (nextKey: string | undefined) => {
-    if (!nextKey || nextKey === activeKey) {
-      return;
-    }
-    if (onTabChange) {
-      onTabChange(nextKey);
-    } else {
-      setInternalTab(nextKey);
-    }
-  };
-
-  useKeyboard((key) => {
-    if (key.name === "tab") {
-      const step = key.shift ? tabs.length - 1 : 1;
-      switchTab(tabs[(activeIndex + step) % tabs.length]?.key);
-    }
-  });
 
   const activeTab = tabs.find((t) => t.key === activeKey);
 

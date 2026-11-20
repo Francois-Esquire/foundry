@@ -3,6 +3,7 @@ import { ToolRow } from "@/components/blocks/tool-row";
 import { Welcome } from "@/components/blocks/welcome";
 import { ChatMessage } from "@/components/ui/chat-message";
 import { ChatThread } from "@/components/ui/chat-thread";
+import type { Clock } from "@/model/screen";
 import type { Message } from "@/model/thread";
 
 const SENDERS = { error: "error", goal: "user", task: "assistant" } as const;
@@ -22,14 +23,20 @@ function numbered(messages: readonly Message[]) {
   });
 }
 
-function MessageBody({ message }: { readonly message: Message }) {
+function MessageBody({
+  clock,
+  message,
+}: {
+  readonly clock: Clock;
+  readonly message: Message;
+}) {
   if (message.text === "" && message.tools.length === 0) {
     return null;
   }
   return (
     <box flexDirection="column">
       {message.tools.map((tool) => (
-        <ToolRow key={tool.id} tool={tool} />
+        <ToolRow clock={clock} key={tool.id} tool={tool} />
       ))}
       <Reply
         key={message.streaming ? "streaming" : "finished"}
@@ -41,8 +48,10 @@ function MessageBody({ message }: { readonly message: Message }) {
 }
 
 export function Conversation({
+  clock,
   messages,
 }: {
+  readonly clock: Clock;
   readonly messages: readonly Message[];
 }) {
   if (messages.length === 0) {
@@ -57,7 +66,7 @@ export function Conversation({
           sender={SENDERS[message.kind]}
           streaming={message.streaming}
         >
-          <MessageBody message={message} />
+          <MessageBody clock={clock} message={message} />
         </ChatMessage>
       ))}
     </ChatThread>

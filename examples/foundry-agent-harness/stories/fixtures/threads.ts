@@ -1,6 +1,9 @@
 import type { Context } from "@/model/context";
+import type { Clock } from "@/model/screen";
 import type { Message, Status, Thread, Todo } from "@/model/thread";
 import { emptyThread } from "@/model/thread";
+
+const STARTED = 1_800_000_000_000;
 
 const GOAL = "Read package.json here and explain how to run this example.";
 
@@ -44,12 +47,26 @@ const finished: Message = {
   text: REPLY,
   title: READ,
   tools: [
-    { detail: "task-notes", id: "tool-1", name: "Skill", status: "success" },
-    { detail: "package.json", id: "tool-2", name: "Read", status: "success" },
+    {
+      detail: "task-notes",
+      id: "tool-1",
+      name: "Skill",
+      startedAt: STARTED,
+      status: "success",
+    },
+    {
+      detail: "package.json",
+      id: "tool-2",
+      name: "Read",
+      startedAt: STARTED,
+      status: "success",
+    },
   ],
 };
 
 const started: Thread = { ...emptyThread, messages: [goal], title: GOAL };
+
+export const clock: Clock = { frame: 3, now: STARTED + 4200 };
 
 export const context: Context = {
   model: "claude-code/sonnet",
@@ -99,6 +116,7 @@ export const threads = {
             error: "File does not exist.",
             id: "tool-1",
             name: "Read",
+            startedAt: STARTED,
             status: "error",
           },
         ],
@@ -130,6 +148,7 @@ export const threads = {
             detail: "bun run --help",
             id: "tool-3",
             name: "Bash",
+            startedAt: STARTED,
             status: "running",
           },
         ],

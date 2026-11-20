@@ -61,7 +61,7 @@
     {
       "includes": [
         "examples/*/src/components/ui/**",
-        "examples/*/src/hooks/**",
+        "examples/*/src/hooks/use-theme.ts",
         "examples/*/src/lib/terminal-themes/**"
       ],
       "formatter": { "enabled": false },

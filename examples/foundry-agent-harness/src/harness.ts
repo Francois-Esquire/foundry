@@ -154,6 +154,7 @@ async function turn(todo: Todo): Promise<string> {
         detail: detail(input),
         id: toolCallId,
         name: name.replace("mcp__", "").replace("__", " · "),
+        startedAt: Date.now(),
         status: "running",
       });
       paint();

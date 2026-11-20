@@ -1,5 +1,3 @@
-import { useKeyboard } from "@opentui/react";
-import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { useTheme } from "@/hooks/use-theme";
@@ -12,6 +10,7 @@ export interface ChatMessageProps {
   timestamp?: Date;
   streaming?: boolean;
   collapsed?: boolean;
+  dotFrame?: number;
   children?: ReactNode;
 }
 
@@ -30,26 +29,11 @@ export const ChatMessage = ({
   name,
   timestamp,
   streaming = false,
-  collapsed: initialCollapsed = false,
+  collapsed: isCollapsed = false,
+  dotFrame = 0,
   children,
 }: ChatMessageProps) => {
   const theme = useTheme();
-  const [isCollapsed, setIsCollapsed] = useState(initialCollapsed);
-  const [dotFrame, setDotFrame] = useState(0);
-
-  useEffect(() => {
-    if (!streaming) {
-      return;
-    }
-    const id = setInterval(() => setDotFrame((f) => (f + 1) % 4), 400);
-    return () => clearInterval(id);
-  }, [streaming]);
-
-  useKeyboard((key) => {
-    if (initialCollapsed && (key.name === "return" || key.name === "")) {
-      setIsCollapsed((c) => !c);
-    }
-  });
 
   const roleColor: Record<ChatRole, string> = {
     assistant: theme.colors.success ?? "green",
@@ -67,7 +51,7 @@ export const ChatMessage = ({
 
   const color = roleColor[sender];
 
-  const dots = ["", "●", "●●", "●●●"][dotFrame] ?? "";
+  const dots = ["", "●", "●●", "●●●"][dotFrame % 4] ?? "";
 
   const childrenText = typeof children === "string" ? children : "";
   const firstLine = childrenText.split("")[0] ?? "";

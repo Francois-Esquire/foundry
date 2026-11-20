@@ -1,5 +1,6 @@
 import { defineStories, story } from "textbook-sh";
 import { ToolRow } from "@/components/blocks/tool-row";
+import { clock } from "../fixtures/threads";
 import { renderFrame } from "../frame";
 
 const size = { height: 4, width: 60 };
@@ -17,10 +18,12 @@ export const Running = story({
     renderFrame(
       renderer,
       <ToolRow
+        clock={clock}
         tool={{
           detail: "bun run --help",
           id: "1",
           name: "Bash",
+          startedAt: clock.now - 4200,
           status: "running",
         }}
       />,
@@ -35,10 +38,12 @@ export const Succeeded = story({
     renderFrame(
       renderer,
       <ToolRow
+        clock={clock}
         tool={{
           detail: "package.json",
           id: "1",
           name: "Read",
+          startedAt: clock.now - 4200,
           status: "success",
         }}
       />,
@@ -53,11 +58,13 @@ export const Failed = story({
     renderFrame(
       renderer,
       <ToolRow
+        clock={clock}
         tool={{
           detail: "missing.json",
           error: "File does not exist.",
           id: "1",
           name: "Read",
+          startedAt: clock.now - 4200,
           status: "error",
         }}
       />,
@@ -72,11 +79,13 @@ export const LongDetail = story({
     renderFrame(
       renderer,
       <ToolRow
+        clock={clock}
         tool={{
           detail:
             "examples/foundry-agent-harness/src/components/blocks/conversation.tsx",
           id: "1",
           name: "Read",
+          startedAt: clock.now - 4200,
           status: "success",
         }}
       />,

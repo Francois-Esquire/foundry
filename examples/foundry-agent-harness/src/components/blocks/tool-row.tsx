@@ -1,14 +1,27 @@
 import { ToolCall } from "@/components/ui/tool-call";
 import { useTheme } from "@/hooks/use-theme";
+import type { Clock } from "@/model/screen";
 import type { ToolUse } from "@/model/thread";
 
-export function ToolRow({ tool }: { readonly tool: ToolUse }) {
+export function ToolRow({
+  clock,
+  tool,
+}: {
+  readonly clock: Clock;
+  readonly tool: ToolUse;
+}) {
   const theme = useTheme();
   return (
     <box flexDirection="column">
       <box flexDirection="row" gap={1}>
         <box flexShrink={0}>
-          <ToolCall collapsible={false} name={tool.name} status={tool.status} />
+          <ToolCall
+            collapsible={false}
+            elapsed={Math.max(0, clock.now - tool.startedAt)}
+            frame={clock.frame}
+            name={tool.name}
+            status={tool.status}
+          />
         </box>
         <text
           fg={theme.colors.mutedForeground}

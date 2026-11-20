@@ -26,15 +26,16 @@ host with your tools, in the directory you start it from.
 | --- | --- |
 | [`src/harness.ts`](./src/harness.ts) | The harness: one thread, its context, and every Marbles call. |
 | [`src/backlog.ts`](./src/backlog.ts) | An MCP server in this process that lets the worker add a to-do. |
-| [`src/model`](./src/model) | The data the screen draws: a `Thread` and its `Context`. Types and two small readers, no Marbles. |
-| [`src/views/harness.tsx`](./src/views/harness.tsx) | The screen, in [OpenTUI](https://github.com/anomalyco/opentui) React. It draws a `Thread` and a `Context` and reports a goal. |
-| [`src/components/blocks`](./src/components/blocks) | The parts of the screen: the side panel and its four lists, the conversation, the goal bar. |
-| [`src/app.tsx`](./src/app.tsx) | Holds the current thread and hands goals to the harness. |
-| [`src/main.tsx`](./src/main.tsx) | The renderer, and the engine's disposal when it closes. |
-| [`stories`](./stories) | Textbook stories for each block and the screen, and the sample threads they share with the tests. |
-| [`test`](./test) | The screen rendered from the sample threads, and every story rendered once. |
+| [`src/model`](./src/model) | The data the screen draws: a `Thread`, its `Context`, a screen `Size`, and an animation `Clock`. Types and small readers, no Marbles. |
+| [`src/views/harness.tsx`](./src/views/harness.tsx) | `HarnessView`, the one stateful component. It takes a context and a `run`, calls the hooks, and fills the layout. |
+| [`src/hooks`](./src/hooks) | The screen's state: the thread, the goal draft, the active tab, scrolling, the measured size, and the animation clock. |
+| [`src/components/layouts/harness.tsx`](./src/components/layouts/harness.tsx) | The whole screen as a function of its props, and the geometry it is laid out with. |
+| [`src/components/blocks`](./src/components/blocks) | The parts of the screen: the side panel and its four lists, the conversation, the goal bar, the header, and the status line. |
+| [`src/main.tsx`](./src/main.tsx) | The renderer, `HarnessView`, and the engine's disposal when it closes. |
+| [`stories`](./stories) | Textbook stories for each block, the layout, and the view, and the sample threads they share with the tests. |
+| [`test`](./test) | The layout rendered from the sample threads, the view driven by keys, the hooks, the import and state rules, and every story rendered once. |
 | [`.claude/skills`](./.claude/skills) | The skills the worker gets. |
-| `src/components/ui`, `src/hooks`, `src/lib` | [TermCN](https://www.termcn.dev) components, copied in by the shadcn CLI. |
+| `src/components/ui`, `src/hooks/use-theme.ts`, `src/lib` | [TermCN](https://www.termcn.dev) components, copied in by the shadcn CLI. |
 
 | Piece | From Marbles |
 | --- | --- |
@@ -59,16 +60,41 @@ with the process. Claude Code still keeps its own session history.
 
 `harness.ts` keeps one `Thread` (its messages, to-dos, notes, and token
 counts) and one `Context` (the model, skills, and MCP servers the worker
-has). The screen takes both as props and holds no harness state, so a second
-thread is another `Thread` value and a way to choose between them.
+has). The screen gets the context and a `run` function, and `run` shows it
+each new `Thread`, so a second thread is another `Thread` value and a way to
+choose between them.
 
 ## The screen on its own
 
-Nothing under `src/model`, `src/views`, or `src/components` imports
-`harness.ts`, so the screen renders without an engine, a model, or a signed-in
-CLI. `HarnessView` takes a thread, a context, and an `onGoal` callback, and
-sizes itself to the box it is mounted in. Below 72 columns the side panel is
-dropped and the conversation takes the full width.
+Nothing under `src/model`, `src/hooks`, `src/views`, `src/components`, or
+`stories` imports `harness.ts` or `backlog.ts`, so the screen renders without
+an engine, a model, or a signed-in CLI.
+
+The screen has three layers:
+
+- Components under `src/components` (`ui`, `blocks`, `layouts`) are
+  presentational: props and callbacks in, rendering out. They read the theme
+  and may memoise a derived value, and hold no state, effects, key listeners,
+  or timers. `ui` imports no blocks or layouts, and blocks import no layouts.
+- Hooks under `src/hooks` hold the state, each with its own keys.
+- `HarnessView` in `src/views/harness.tsx` is the one component that calls
+  them. It passes their values to `HarnessLayout`.
+
+| Hook | Takes | Gives |
+| --- | --- | --- |
+| `useThread` | `run` | The current thread, and `start(goal)`, which calls `run` with a setter. |
+| `useGoalDraft` | Whether the thread is busy, and what to do with a goal | The draft, its setter, and `submit`, which trims the draft, ignores it when empty or busy, hands it over once, and clears it. |
+| `useTabCycle` | The tab keys, and whether the panel is shown | The active tab. Tab and Shift+Tab move through the keys while the panel is shown. |
+| `usePageScroll` | The page height | The scrollbox ref. PgUp and PgDn scroll it by a page. |
+| `useViewport` | Nothing | The size of the box the screen is mounted in (the terminal until it is measured), and `measure`, which the layout calls when the box resizes. |
+| `useAnimationClock` | Whether anything animates | `{ frame, now }`, ticking every 80 ms only while active. Spinners draw `frame`; a running tool's timer is `now` less its `startedAt`. |
+
+The layout sizes itself to the box it is mounted in, not the terminal.
+Below 72 columns the side panel is dropped, Tab does nothing, and the
+conversation takes the full width. `test/components-imports.test.ts` fails if
+a component uses state, effects, key listeners, timers, or module-level
+`let`, or imports the harness, a view, a stateful hook, Marbles, evlog, or
+Bun.
 
 The screen is developed with [Textbook](https://textbook.sh) stories:
 
@@ -79,18 +105,24 @@ bun run stories:web
 
 `stories` opens the story browser in the terminal; `stories:web` serves it in
 a browser. Story files mirror the source they show: `stories/blocks/` follows
-`src/components/blocks/` and `stories/views/` follows `src/views/`. Each state
-is its own story, drawn from the sample threads in
-[`stories/fixtures/threads.ts`](./stories/fixtures/threads.ts). No story
-starts an agent turn.
+`src/components/blocks/`, `stories/layouts/` follows
+`src/components/layouts/`, and `stories/views/` follows `src/views/`. Block
+and layout stories are driven by props alone, one story per state, drawn from
+the sample threads and the fixed clock in
+[`stories/fixtures/threads.ts`](./stories/fixtures/threads.ts). The view
+stories mount `HarnessView` with a `run` from
+[`stories/fixtures/run.ts`](./stories/fixtures/run.ts) that replays sample
+threads when a goal is entered. No story starts an agent turn.
 
 ```sh
 bun run test
 ```
 
-The tests render the screen from the same samples, and
-`test/stories-render.test.ts` renders every story once, so a story that
-throws, draws nothing, or leaves a key listener behind fails.
+The tests render the layout from the same samples, drive `HarnessView` with
+a fake `run` (typing, Enter, Tab, PgUp and PgDn, a narrow terminal, and its
+own box), and test the hooks. `test/stories-render.test.ts` renders every
+story once, so a story that throws, draws nothing, or leaves a key listener
+behind fails.
 
 ## TermCN components
 
@@ -103,15 +135,23 @@ bunx shadcn@latest add @termcn/opentui/panel
 
 The CLI adds the newest `@opentui/react` to `package.json`; set it back to
 the version the repository uses. The copies are yours to edit, and Biome and
-Knip leave these folders alone. Three are edited:
+Knip leave `src/components/ui`, `src/hooks/use-theme.ts`, and `src/lib` alone.
+`Panel` and `ChatThread` are used as copied. The others are edited so they
+hold no state, and their callers pass it in:
 
-- `tool-call.tsx` and `chat-message.tsx`: the row boxes say
-  `flexDirection="row"`, because an OpenTUI box stacks its children unless
-  told otherwise. `tool-call.tsx` also shows its timer in seconds, and its
-  spinner only ticks while the call is running.
-- `tabs.tsx`: the same row fix; it fills its parent; only Tab and Shift+Tab
-  switch, so the arrow keys stay with the goal field; and it no longer writes
-  a clear-screen sequence to the terminal.
+- `tabs.tsx`: controlled. `activeTab` is required; `defaultTab`,
+  `onTabChange`, its own state, and its Tab key listener are gone, and
+  `useTabCycle` handles the keys. Also the row fix (an OpenTUI box stacks its
+  children unless told `flexDirection="row"`); it fills its parent; and it no
+  longer writes a clear-screen sequence to the terminal.
+- `chat-message.tsx`: `collapsed` is a controlled prop instead of a starting
+  value, its Enter key listener is gone, and the streaming dots draw a
+  `dotFrame` prop instead of running their own timer. Also the row fix.
+- `tool-call.tsx`: `collapsed` replaces `defaultCollapsed` as a controlled
+  prop, and its Enter key listener is gone. The spinner draws a `frame` prop
+  and the timer shows an `elapsed` prop in seconds, instead of two timers of
+  its own; the timer shows only while the call is running and `elapsed` is
+  given. Also the row fix.
 
 Not every component fits yet. `text-input` and `token-usage` do not pass this
 repository's type checks, and `spinner` imports a hook written for Ink.
