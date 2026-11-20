@@ -98,20 +98,24 @@ export function Panel({
     setWidth(this.width);
     setHeight(this.height);
   }, []);
-  const bodyHeaderHeight = useRef<number | undefined>(undefined);
+  const bodyHeader = useRef<
+    { readonly height: number; readonly width: number } | undefined
+  >(undefined);
   const measurePinnedHeader = useCallback(function pinnedHeaderSize(
     this: BoxRenderable
   ) {
-    bodyHeaderHeight.current = undefined;
+    bodyHeader.current = undefined;
     setHeaderBox({ height: this.height, pinned: true, width: this.width });
   }, []);
   const measureBodyHeader = useCallback(function bodyHeaderSize(
     this: BoxRenderable
   ) {
+    const previous = bodyHeader.current;
     const changed =
-      bodyHeaderHeight.current !== undefined &&
-      bodyHeaderHeight.current !== this.height;
-    bodyHeaderHeight.current = this.height;
+      previous !== undefined &&
+      previous.width === this.width &&
+      previous.height !== this.height;
+    bodyHeader.current = { height: this.height, width: this.width };
     setHeaderBox((box) => ({
       ...box,
       pinned: false,

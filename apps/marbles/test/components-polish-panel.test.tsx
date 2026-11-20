@@ -266,3 +266,51 @@ test("a wide-character title is shortened by cells, not dropped", async () => {
   expect(top).toContain("…");
   expect(cellWidth(top)).toBe(30);
 });
+
+const wrappingHeader = Array.from({ length: 20 }, () => "word").join(" ");
+let headerRenders = 0;
+
+function CountedHeader() {
+  headerRenders += 1;
+  return <text wrapMode="word">{wrappingHeader}</text>;
+}
+
+function WrappingHeader({
+  size,
+}: {
+  readonly size: readonly [number, number];
+}) {
+  return (
+    <box flexDirection="column" height={size[1]} width={size[0]}>
+      <Panel header={<CountedHeader />} selectedId="row-20" title="Rows">
+        {rows.map((row) => (
+          <text id={row} key={row}>
+            {row}
+          </text>
+        ))}
+      </Panel>
+    </box>
+  );
+}
+
+test("a header that wraps taller beside the scrollbar settles", async () => {
+  for (const size of [
+    [18, 6],
+    [23, 9],
+    [28, 8],
+    [38, 5],
+    [43, 7],
+  ] as const) {
+    const ui = await mount(<WrappingHeader size={size} />, {
+      height: 20,
+      width: 50,
+    });
+    await settle(ui);
+    await settle(ui);
+    headerRenders = 0;
+    await settle(ui);
+    await settle(ui);
+    expect(headerRenders, size.join("x")).toBe(0);
+    expect(ui.captureCharFrame(), size.join("x")).toContain("row-20");
+  }
+}, 30_000);

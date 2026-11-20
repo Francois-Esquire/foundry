@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import { Action } from "~/components/ui/action";
+import { cellWidth } from "~/components/ui/cells";
 import { theme } from "~/components/ui/theme";
 
 const MAX_HEIGHT = 18;
@@ -43,13 +44,14 @@ function wrappedRows(text: string, width: number): number {
   let rows = 1;
   let used = 0;
   for (const word of text.split(" ")) {
-    const needed = used === 0 ? word.length : used + 1 + word.length;
+    const cells = cellWidth(word);
+    const needed = used === 0 ? cells : used + 1 + cells;
     if (needed <= width) {
       used = needed;
     } else {
       rows += used === 0 ? 0 : 1;
-      rows += Math.max(0, Math.ceil(word.length / width) - 1);
-      used = word.length % width || width;
+      rows += Math.max(0, Math.ceil(cells / width) - 1);
+      used = cells % width || width;
     }
   }
   return rows;

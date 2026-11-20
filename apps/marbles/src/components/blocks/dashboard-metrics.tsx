@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { BarChart, chartBarWidth } from "~/components/ui/bar-chart";
+import { cellWidth, cutToCells } from "~/components/ui/cells";
 import { Panel } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
@@ -52,10 +53,10 @@ const CARD_GAP = 2;
 const CARD_INSET = 2;
 
 function fit(text: string, width: number): string {
-  if (text.length <= width) {
+  if (cellWidth(text) <= width) {
     return text;
   }
-  return width > 1 ? `${text.slice(0, width - 1).trimEnd()}…` : "";
+  return width > 1 ? `${cutToCells(text, width - 1).trimEnd()}…` : "";
 }
 
 function cardWidth(width: number, across: number): number {
@@ -151,7 +152,7 @@ function WorkflowRankings({
     label: name,
     value: amount,
     valueLabel: <CostTag cost={cost} />,
-    valueWidth: cost.value.length + 2,
+    valueWidth: cellWidth(cost.value) + 2,
   }));
   const timeRows = elapsed.slice(0, limit).map(({ id, name, ms, timing }) => ({
     id,
@@ -162,7 +163,7 @@ function WorkflowRankings({
         {timing}
       </Text>
     ),
-    valueWidth: timing.length,
+    valueWidth: cellWidth(timing),
   }));
   const fits = [
     chartBarWidth(spendRows, spendWidth - PANEL_INSET),
@@ -255,7 +256,7 @@ export function DashboardMetrics({
   const card = cardWidth(width, stacked ? 2 : 4);
   const details = !stacked || height >= 22;
   const full = metricCards(metrics, true);
-  const cards = full.every(({ detail }) => detail.length <= card)
+  const cards = full.every(({ detail }) => cellWidth(detail) <= card)
     ? full
     : metricCards(metrics, false);
   const rows = stacked ? [cards.slice(0, 2), cards.slice(2)] : [cards];

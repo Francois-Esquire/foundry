@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cellWidth } from "./cells";
 import { Text } from "./text";
 import { theme } from "./theme";
 
@@ -58,7 +59,7 @@ export function chartBarWidth(
   }
   const labelWidth = Math.min(
     MAX_LABEL_WIDTH,
-    Math.max(0, ...data.map(({ label }) => label.length))
+    Math.max(0, ...data.map(({ label }) => cellWidth(label)))
   );
   return barWidth(availableWidth, valueColumn(data), labelWidth);
 }
