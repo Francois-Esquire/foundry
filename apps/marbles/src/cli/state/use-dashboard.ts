@@ -29,6 +29,7 @@ import {
   paneOf,
   reduce,
   selectedLog,
+  settle,
   visibleLists,
   visibleLogs,
 } from "./dashboard-state";
@@ -109,14 +110,15 @@ export function useDashboard({
   const [everywhere, setEverywhere] = useState(false);
   const workspaces = hosted?.workspaces ?? [];
   const snapshot = workspaceScoped(whole, everywhere);
-  const [state, setState] = useState(() => {
+  const [stored, setState] = useState(() => {
     const initial = initialState(snapshot);
     return hosted
       ? reduce(initial, { type: "view", view: "overview" }, snapshot)
       : initial;
   });
+  const state = settle(stored, snapshot);
   const send = (event: DashboardEvent) =>
-    setState((previous) => reduce(previous, event, snapshot));
+    setState((previous) => reduce(settle(previous, snapshot), event, snapshot));
   const openWorkspaces = () => {
     const id = whole.workspaceId ?? workspaces[0]?.id;
     if (id !== undefined) {
@@ -264,7 +266,9 @@ export function useDashboard({
 
   function openLog(entry: OperatingLogEntry) {
     if (entry.runId === undefined) {
-      setState((previous) => selectLog(previous, snapshot, entry));
+      setState((previous) =>
+        selectLog(settle(previous, snapshot), snapshot, entry)
+      );
       return;
     }
     send({ selection: logRun(entry, entry.runId), type: "inspect" });

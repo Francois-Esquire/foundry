@@ -8,6 +8,7 @@ import {
   launchesDirectly,
   paneOf,
   reduce,
+  settle,
   visibleLists,
 } from "~/cli/state/dashboard-state";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
@@ -205,6 +206,33 @@ describe("jumps, filters, and search", () => {
     );
     expect(cancelled.searching).toBe(false);
     expect(cancelled.queries.definition).toBe("");
+  });
+
+  it("moves the selection off a row a later snapshot hides from the search", () => {
+    const searched = play([
+      { pane: "definition", type: "focus" },
+      { open: true, type: "search" },
+      { type: "query", value: "update-documentation" },
+      { open: false, type: "search" },
+    ]);
+    expect(searched.selected).toEqual({ id: "docs", kind: "definition" });
+    const renamed: DashboardSnapshot = {
+      ...dashboardSnapshot,
+      definitions: dashboardSnapshot.definitions.map((item) =>
+        item.id === "docs" ? { ...item, name: "rewrite-handbook" } : item
+      ),
+    };
+    expect(settle(searched, dashboardSnapshot)).toBe(searched);
+    expect(settle(searched, renamed).selected).toBeUndefined();
+    const gone: DashboardSnapshot = {
+      ...dashboardSnapshot,
+      definitions: dashboardSnapshot.definitions.filter(
+        (item) => item.id !== "docs"
+      ),
+    };
+    expect(settle(searched, gone)).toBe(searched);
+    const inspecting = reduce(searched, { type: "inspect" }, dashboardSnapshot);
+    expect(settle(inspecting, renamed)).toBe(inspecting);
   });
 
   it("keeps the selection on a visible item while a search narrows the list", () => {

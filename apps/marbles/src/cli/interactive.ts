@@ -359,9 +359,10 @@ function remoteSession(
   let connection: WorkspaceConnection = client.workspace(attached);
   let lastSnapshot: DashboardSnapshot | undefined;
   const subscriptions = new Map<string, () => void>();
+  let gone: WorkspaceSummary | undefined;
 
   const current = (): WorkspaceSummary =>
-    workspaces.find((summary) => summary.id === currentId) ?? attached;
+    workspaces.find((summary) => summary.id === currentId) ?? gone ?? attached;
 
   const hosted = (): HostedWorkspace => {
     const summary = current();
@@ -446,7 +447,9 @@ function remoteSession(
   async function refreshList(): Promise<void> {
     const listed = await client.workspaces();
     if (listed.length === 0) {
-      return;
+      gone ??= { ...current(), error: NO_WORKSPACE, state: "stopped" };
+    } else {
+      gone = undefined;
     }
     workspaces = listed;
     const listedIds = new Set(listed.map(({ id }) => id));
@@ -502,6 +505,8 @@ function remoteSession(
     refreshList,
   };
 }
+
+const NO_WORKSPACE = "no workspace is attached to the Marbles process";
 
 const NO_SOURCE_WHEN_DRY =
   "No authoring folder · run marbles init without --dry-run";

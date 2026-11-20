@@ -304,6 +304,9 @@ test("details buttons wait while a prompt is open", async () => {
   expect(rolled).toEqual([]);
   expect(calls).toEqual([]);
   expect(ui.captureCharFrame()).toContain("steer docs ›");
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(calls).toEqual([["steer", "run-104", "docs", "go on"]]);
 });
 
 test("a paused step resumes with an optional prompt", async () => {

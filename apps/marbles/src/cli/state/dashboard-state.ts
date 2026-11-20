@@ -3,6 +3,7 @@ import {
   type DashboardSnapshot,
   type DefinitionSnapshot,
   flattenSteps,
+  resolveSelection,
   runSelection,
   selectionKey,
   triggerSelection,
@@ -291,6 +292,19 @@ function keepVisible(
         selected: first,
       }
     : { ...state, selected: undefined };
+}
+
+export function settle(
+  state: DashboardState,
+  snapshot: DashboardSnapshot
+): DashboardState {
+  if (state.inspecting || state.selected === undefined) {
+    return state;
+  }
+  const { kind } = resolveSelection(snapshot, state.selected);
+  return kind === "gone" || kind === "none"
+    ? state
+    : keepVisible(state, snapshot);
 }
 
 function toggled(expanded: ReadonlySet<string>, key: string): Set<string> {

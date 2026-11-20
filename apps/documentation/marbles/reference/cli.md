@@ -269,9 +269,12 @@ Letter keys act only with no Ctrl or Meta held; Shift+letter shortcuts are
 unaffected. A click on a tab, the footer, the workspace rail, the workspace
 name, or a launch or run-now button in details acts only when its key
 would. While a prompt, an answer, a search, help, the workspace picker or the
-quit dialog has the keys, those clicks do nothing; clicking marbles goes home
-whenever `h` does. A steer or resume prompt closes once its message is sent;
-if it cannot be sent, the prompt stays open with its text.
+quit dialog has the keys, those clicks do nothing and the keys stay where
+they were; clicking marbles goes home whenever `h` does. A steer or resume
+prompt closes once its message is sent; if it cannot be sent, the prompt stays
+open with its text. When a refresh hides the selected row, as when a renamed
+marble or a run's new status no longer matches the search, the selection
+moves to the first row still shown.
 
 ### Settings and local diagnostics
 
@@ -325,7 +328,9 @@ answer and as long again to exit, then it and its process group are
 killed, once its pid is proved to be the process the daemon spawned), and
 returns once the process has exited. A run
 parked on a question or a pause survives a stop and is adopted when its
-workspace is hosted again, as long as the step is still registered.
+workspace is hosted again, as long as the step is still registered. When
+`detach` removes the last workspace while a dashboard is open, the dashboard
+shows that workspace stopped and follows none until one is attached again.
 
 Source edits need no restart. The Marbles process polls a fingerprint of
 what its current engine generation loaded every second, taken before that

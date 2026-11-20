@@ -28,6 +28,7 @@ interface Captured {
   controller?: AbortController;
   extraWorkspaces: WorkspaceSummary[];
   failSnapshot: boolean;
+  noWorkspaces: boolean;
   providerReviews?: boolean[];
   rollResult?: RollResult;
   rollSchedule?: (key: string) => Promise<void>;
@@ -40,6 +41,7 @@ const captured = vi.hoisted(
   (): Captured => ({
     extraWorkspaces: [],
     failSnapshot: false,
+    noWorkspaces: false,
     subscribed: new Set(),
     updates: [],
   })
@@ -119,7 +121,9 @@ vi.mock("~/process/client", async (importOriginal) => ({
         }) as unknown as WorkspaceConnection,
       workspaces: () =>
         Promise.resolve(
-          attached ? [attached, ...captured.extraWorkspaces] : []
+          attached && !captured.noWorkspaces
+            ? [attached, ...captured.extraWorkspaces]
+            : []
         ),
     });
   },
@@ -146,6 +150,7 @@ async function useHome(providers: boolean) {
   captured.rollResult = undefined;
   captured.extraWorkspaces = [];
   captured.failSnapshot = false;
+  captured.noWorkspaces = false;
   captured.subscribed.clear();
   await mkdir(state, { recursive: true });
 }
@@ -287,4 +292,19 @@ it("stops following a workspace once it leaves the list", async () => {
     expect(captured.subscribed.has("gone")).toBe(false);
   });
   expect(captured.subscribed.has("ws")).toBe(true);
+});
+
+it("shows the workspace stopped and follows nothing once the last one is detached", async () => {
+  await open();
+  expect(captured.subscribed.has("ws")).toBe(true);
+  captured.noWorkspaces = true;
+  captured.failSnapshot = true;
+  await vi.waitFor(() => {
+    expect(captured.subscribed.size).toBe(0);
+  });
+  await vi.waitFor(() => {
+    expect(shown()?.status).toBe(
+      "workspace stopped: no workspace is attached to the Marbles process"
+    );
+  });
 });
