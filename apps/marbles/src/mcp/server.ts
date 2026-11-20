@@ -6,25 +6,13 @@ import type { WorkspaceConnection, WorkspaceSummary } from "~/model/connection";
 import { dispatchSchema } from "~/workspace/dispatch";
 import { version } from "../../package.json";
 
-/**
- * What one MCP server answers for. Tool calls address the server's own
- * workspace unless they name another by id. The server manages nothing:
- * each operation reads stored state or asks a running instance.
- */
 export interface McpServerOptions {
-  /**
-   * Run `work` against the running instance that hosts workspace `id`.
-   * Rejects, naming the command that hosts it, when none does.
-   */
   hosted<T>(
     id: string,
     work: (workspace: WorkspaceConnection) => Promise<T>
   ): Promise<T>;
-  /** The workspace a tool call addresses when it names none. */
   readonly id: string;
-  /** One task command on a workspace, with or without a running instance. */
   readonly tasks: TaskCommandRunner;
-  /** The workspaces a tool call can name. */
   workspaces(): Promise<readonly WorkspaceSummary[]>;
 }
 
@@ -45,11 +33,6 @@ const WORKSPACE_INPUT = z
 const NEEDS_HOST =
   "Needs a running Marbles process that hosts the workspace (marbles attach); this server starts none.";
 
-/**
- * One server over this workspace, and any other a running Marbles process
- * hosts: its runs, and its backlog through the same task commands as
- * `marbles tasks`.
- */
 export function createMcpServer(options: McpServerOptions): McpServer {
   const { hosted, tasks, workspaces } = options;
   const on = <T>(

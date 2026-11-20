@@ -1,20 +1,15 @@
+import type { Summary } from "../schema";
+import type { SessionStore } from "../store";
 import type { Summarizer } from "./compactor";
-import type { SessionStore } from "./store";
 import type { SessionMessage } from "./types";
 
-/** A cross-session digest. Subject = exactly one session; digest-shaped, NOT a fact-memory. */
-export interface Summary {
-  digestText: string;
-  subjectSessionId: string;
-}
+export type { Summary } from "../schema";
 
-/** Session-keyed rolling store of digests. */
 export interface SummaryStore {
   get(subjectSessionId: string): Summary | undefined;
   upsert(summary: Summary): void;
 }
 
-/** In-memory `Map<SessionId, Summary>` implementation. */
 export function createSummaryStore(): SummaryStore {
   const byId = new Map<string, Summary>();
   return {

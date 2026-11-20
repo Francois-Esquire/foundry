@@ -20,7 +20,6 @@ export function polling(intervalMs = 1000): StorageObserver {
   };
 }
 
-/** Gives successful source observations a strict, shared order. */
 export function nextWorkspaceObservation(
   previous: Date,
   requested: Date = new Date()

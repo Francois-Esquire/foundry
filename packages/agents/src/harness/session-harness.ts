@@ -27,13 +27,14 @@ import type {
   SessionStream,
   StreamHandlers,
 } from "../session/events";
-import type { SessionStore, SummarizableStore } from "../session/store";
-import { InMemorySessionStore } from "../session/store";
+import { Sessions } from "../session/sessions";
 import type {
   SessionMessage,
   SessionPart,
   SessionRole,
 } from "../session/types";
+import type { SessionStore } from "../store";
+import { InMemorySessionStore } from "../store/memory";
 import { composeTools } from "../tools/compose";
 import type { AgentHarnessSettings } from "./agent-harness";
 import { AgentHarness } from "./agent-harness";
@@ -41,55 +42,28 @@ import type { StreamSource } from "./stream-transform";
 import { transformStream } from "./stream-transform";
 
 export type SessionHarnessSettings = AgentHarnessSettings & {
-  /** Where the session's messages persist. In memory when omitted. */
   store?: SessionStore;
-  /** Agent registry for multi-agent routing. Auto-created when omitted. */
   registry?: AgentCompatibilityRegistry;
-  /** Mesh for inter-agent communication. Auto-created when omitted. */
   mesh?: Mesh;
-  /** Node id for this harness in the mesh (defaults to "primary"). */
   nodeId?: string;
-  /**
-   * Auto-compaction: before each turn, if the active context exceeds the turn
-   * model's budget, fold older history into a summary. Requires a summarize-aware
-   * store; silently skipped otherwise. Best-effort — a failure never breaks a turn.
-   */
   compaction?: CompactionSettings;
 };
 
 export interface CompactionSettings {
-  /** Tokens of recent history kept unfolded. Default: half the headroom. */
   keepTokens?: number;
-  /** The window the active context is sized to fit. Defaults to the turn
-   *  model's own `limits`. */
   model?: WindowModel;
-  /** Produces the summary text — wrap a cheap model with `createModelSummarizer`. */
   summarizer: Summarizer;
-  /** Sizing knobs (reservedOutput, safetyMarginRatio, highWaterRatio, counter). */
   window?: SessionWindowOptions;
 }
 
 const DEFAULT_COMPACTION_HIGH_WATER = 0.8;
 
-/**
- * One turn's options: the model settings it overrides, the structured
- * `output` to parse its final text into, an abort signal, and handlers. A
- * CLI harness honours `output` and ignores the model settings, which its
- * own loop owns.
- */
 export type TurnOptions<OUTPUT extends Output.Output = never> =
   TurnCallSettings<OUTPUT> &
     StreamHandlers & {
       signal?: AbortSignal;
     };
 
-/**
- * An {@link AgentHarness} run as a persisted session: each turn appends its
- * input, replays the session's history to the agent, and commits the assistant
- * reply — all on top of {@link transformStream}. The session id is fixed at
- * construction (adopted or minted), and the session is created in the store on
- * the first turn if it does not exist yet.
- */
 export class SessionHarness {
   readonly agent: LoopAgent;
   readonly model: AgentModel;
@@ -103,9 +77,9 @@ export class SessionHarness {
   readonly mesh: Mesh;
   readonly nodeId: string;
   readonly #harness: AgentHarness;
+  readonly #sessions: Sessions;
   readonly #compaction: CompactionSettings | undefined;
   #sessionReady: Promise<void> | undefined;
-  /** Construction-time providerOptions, merged under per-turn cache directives. */
   readonly #baseProviderOptions:
     | Record<string, Record<string, unknown>>
     | undefined;
@@ -121,13 +95,9 @@ export class SessionHarness {
       ...harnessSettings
     } = settings;
 
-    // Mesh tools carry `source: "mesh"` on themselves, so the compiler keeps
-    // that attribution for policy and audit even though they share one map.
     const harness = new AgentHarness(
       {
         ...harnessSettings,
-        // Persisted summaries and host notifications are trusted system history.
-        // AI SDK v7 rejects them in messages unless this is explicit.
         allowSystemInMessages: true,
         tools: composeTools(tools, mesh.tools(nodeId)),
       },
@@ -142,6 +112,7 @@ export class SessionHarness {
     this.agentGeneration = harness.agentGeneration;
     this.sessionId = harness.sessionId;
     this.store = store;
+    this.#sessions = new Sessions({ store });
     this.registry = registry;
     this.mesh = mesh;
     this.nodeId = nodeId;
@@ -153,22 +124,20 @@ export class SessionHarness {
     input: SessionInput,
     options: TurnOptions<OUTPUT> = {}
   ): SessionStream<OUTPUT> {
-    // Set once the input is in the store: a turn rejected before then (a bad
-    // approval response) must leave the session untouched, error reply included.
     let appended = false;
 
     const started = (async () => {
       const inputParts = normalizeInput(input);
       await this.#validateApprovalResponses(inputParts);
       await this.#ensureSession();
-      await this.store.appendMessage({
+      await this.#sessions.appendMessage({
         parts: inputParts,
         role: inputRole(inputParts),
         sessionId: this.sessionId,
       });
       appended = true;
       await this.#maybeCompact();
-      const history = await readContext(this.store, this.sessionId);
+      const history = await this.#sessions.activeMessages(this.sessionId);
       const messages = await toModelMessages(history, this.agent.tools);
       const providerOptions = this.#applyCacheDirectives(
         messages,
@@ -179,8 +148,6 @@ export class SessionHarness {
         abortSignal: options.signal,
         messages,
         ...turnSettings(options),
-        // A call's options are spread over the agent's settings, so an
-        // explicit `undefined` would erase the construction-time options.
         ...(providerOptions ? { providerOptions } : {}),
       });
     })();
@@ -191,21 +158,20 @@ export class SessionHarness {
       if (!appended) {
         return Promise.resolve({ ...message, sessionId });
       }
-      return this.store
-        .appendMessage({
-          metadata: message.metadata,
-          parts: message.parts,
-          role: "assistant",
-          sessionId,
-          status: message.status,
-        })
-        .catch(() => ({ ...message, sessionId }));
+      return this.#sessions.appendMessage({
+        metadata: message.metadata,
+        parts: message.parts,
+        role: "assistant",
+        sessionId,
+        status: message.status,
+      });
     };
 
     return transformStream(source, {
       commit,
       handlers: options,
       model: this.route,
+      sessionId: this.sessionId,
       ...(options.output ? { output: options.output } : {}),
       result: started.then(
         ({ result }) => result,
@@ -221,15 +187,6 @@ export class SessionHarness {
     return this.stream(input, options).message;
   }
 
-  /**
-   * Apply this turn's provider cache directives (contexts/cache). Mutates
-   * `messages` to mark the Anthropic `cacheControl` breakpoint on the last
-   * (appended-only, therefore now-stable) message, and returns the request-level
-   * options (OpenAI `promptCacheKey` / Google `cachedContent`) merged over the
-   * agent's construction-time `providerOptions` and the turn's own. No-ops when
-   * the provider/model is unknown; OpenAI/Google otherwise ride the stable
-   * prefix for free.
-   */
   #applyCacheDirectives(
     messages: ModelMessage[],
     turn: ProviderMetadata | undefined
@@ -261,15 +218,9 @@ export class SessionHarness {
       | undefined;
   }
 
-  /**
-   * Best-effort pre-turn compaction. Computes the budget from the turn model (the
-   * contexts math lives here so the session layer stays free of it), then folds
-   * older history when over the high-water mark. Never throws into the turn.
-   */
   async #maybeCompact(): Promise<void> {
     const c = this.#compaction;
-    const store = asSummarizable(this.store);
-    if (!(c && store)) {
+    if (!c) {
       return;
     }
     try {
@@ -283,22 +234,16 @@ export class SessionHarness {
         c.window?.highWaterRatio ?? DEFAULT_COMPACTION_HIGH_WATER
       );
       const keepTokens = c.keepTokens ?? Math.floor(budget.headroom * 0.5);
-      await maybeCompact(store, c.summarizer, this.sessionId, {
+      await maybeCompact(this.store, c.summarizer, this.sessionId, {
         counter,
         keepTokens,
         limit,
       });
     } catch {
-      // Compaction is best-effort: a summarizer failure must not break the turn.
+      return undefined;
     }
   }
 
-  /**
-   * Reject a malformed, duplicate, or mismatched approval response before
-   * it's appended to history — and therefore before any tool can execute
-   * from it. Uses whatever history already exists for this session (none
-   * before its first turn), never the input being validated.
-   */
   async #validateApprovalResponses(parts: SessionPart[]): Promise<void> {
     const responses = parts.filter(
       (p): p is Extract<SessionPart, { type: "tool_approval_response" }> =>
@@ -313,9 +258,6 @@ export class SessionHarness {
     }
   }
 
-  /** Create the session under its fixed id unless the store already has it —
-   *  a host may adopt an id it filed itself. Checked once per harness; a
-   *  failed check is retried on the next turn. */
   #ensureSession(): Promise<void> {
     this.#sessionReady ??= this.#createSessionIfMissing().catch(
       (error: unknown) => {
@@ -327,35 +269,12 @@ export class SessionHarness {
   }
 
   async #createSessionIfMissing(): Promise<void> {
-    if (!(await this.store.getSession(this.sessionId))) {
-      await this.store.createSession({ id: this.sessionId });
+    if (!(await this.#sessions.getSession(this.sessionId))) {
+      await this.#sessions.createSession({ id: this.sessionId });
     }
   }
 }
 
-/**
- * The messages a turn sends: the active view (summary prepended) when the store
- * supports it, else raw history. Keeps stores that aren't summarize-aware working.
- */
-function readContext(
-  store: SessionStore,
-  sessionId: string
-): Promise<SessionMessage[]> {
-  const summarizable = asSummarizable(store);
-  return summarizable
-    ? summarizable.activeMessages(sessionId)
-    : store.listMessages(sessionId);
-}
-
-function asSummarizable(store: SessionStore): SummarizableStore | undefined {
-  return "activeMessages" in store ? (store as SummarizableStore) : undefined;
-}
-
-/**
- * The model settings a turn overrides. Picked by name: the options also
- * carry stream handlers, and the SDK's own `onFinish`/`onError` must not
- * receive them.
- */
 function turnSettings<OUTPUT extends Output.Output>(
   options: TurnOptions<OUTPUT>
 ): TurnCallSettings<OUTPUT> {

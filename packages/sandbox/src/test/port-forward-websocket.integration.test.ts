@@ -4,7 +4,7 @@ import type { ContainerSandboxConstraints } from "../container/constraints";
 
 import { createContainers } from "../container/containers";
 import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
-import { createMemoryContainerStore } from "../container/store";
+import { MemoryContainerStore } from "../store/memory";
 
 const SPEC: ContainerSandboxConstraints = {
   format: "foundry.sandbox.container/1",
@@ -39,7 +39,7 @@ describe("real MicroSandbox port forward", () => {
     const containers = createContainers({
       instanceLabel: `itest-${crypto.randomUUID()}`,
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const container = await containers.start(SPEC);
     try {

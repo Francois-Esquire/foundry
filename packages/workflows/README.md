@@ -52,7 +52,9 @@ await run.result();
 
 Registered by **name**, not by reference. That indirection is what makes
 recovery possible: after a restart, `orchestrator.recover()` finds runs that
-were mid-flight and rebuilds them from the registry.
+were mid-flight and rebuilds them from the registry. A host whose store
+others share says which of those runs this Orchestrator takes on with the
+`recovers` option; a run it refuses stays in the store as it is.
 
 ### A reusable definition
 
@@ -267,7 +269,8 @@ sibling order. Per-step status lives separately in a flat map keyed by the same
 The host-facing façade. Most applications talk to this and nothing else.
 
 ```typescript
-new Orchestrator({ config, persistence?, store?, logger?, registry?, queueExtensions? });
+new Orchestrator({ config, store?, logger?, registry?, queueExtensions?,
+                   admissionParticipant?, cancellationParticipant? });
 ```
 
 `config` is a `@foundry/lib/config` registry. The orchestrator self-contributes its
@@ -310,24 +313,24 @@ Job and run are distinct: a job is the _intent_ (a definition name plus input),
 a run is one _attempt_ at it. That is what lets a job be retried without losing
 the history of what already failed.
 
-Hosts can supply admission and cancellation participants with transactional
-`ExecutionPersistence`. Participants use the supplied repository and journal;
-their effects commit with the Run decision. Factory construction cannot claim
-effects or emit outputs. Retained queued Jobs use the admission participant too.
+`store` is the execution records' domain API, an `OrchestratorStore`. It
+defaults to an `ExecutionCoordinator` over a `MemoryWorkflowStore`; see
+[Storage](#storage) for keeping the records in SQLite.
 
-Custom execution repositories must implement `insertRun(record)` as an atomic
-insert-if-absent, returning `false` on conflict without changing the winner.
-`putRun` remains an update/upsert operation and cannot substitute for admission.
-Adapters shared across processes must use storage-level conditional insertion;
-a process-local mutex does not meet this contract. Missing implementations fail
-admission before workflow behavior executes. The shared persistence conformance
-suite exercises competing inserts and preservation of the winning record.
+Hosts can supply admission and cancellation participants over a store that
+offers transactions. Each participant runs inside the store transaction of
+the change it joins, and receives the `OrchestratorStore` bound to it as
+`store`: what it does there commits with the Run decision, and a throw rolls
+both back. Factory construction cannot claim effects or emit outputs.
+Retained queued Jobs use the admission participant too.
 
 Job admission returns its handle before behavior starts on a later host turn.
-Committed handles are already indexed and counted by `drain`. Hosts composing
-outer transactions must supply `afterCommit`: dispatch and cancellation signals
-wait for that outer commit, and rollback drops them. Cancellation participants
-serialize their decision with settlement; already-settled success stays intact.
+Committed handles are already indexed and counted by `drain`. Dispatch and
+cancellation signals follow the store call that committed them, so the
+`Orchestrator` and `Queue` refuse, at construction, a store whose commits a
+host transaction may still roll back (`durability: "host"`; see
+[Storage](#storage)). Cancellation participants serialize their decision
+with settlement; already-settled success stays intact.
 
 The Run journal retains one terminal lifecycle frame. Explicit output receipts
 and named effect claims can follow it for reconciliation, presentation changes
@@ -406,7 +409,8 @@ interface ChannelChunk<S> { … }
 type ChannelMessage<S> = ChannelChunk | ChannelEvent;
 ```
 
-Events are Effect `Schema.TaggedStruct`s, so they decode as well as encode:
+Each event has a Zod schema keyed by `_tag` (`StepStartedEvent`, …), and
+`ChannelEventSchema` decodes any of them:
 
 ```
 step.started · step.complete · step.failed · step.bailed
@@ -425,9 +429,9 @@ interface StepSnapshot { … }
 interface SnapshotState { … }
 ```
 
-Every shape has a matching `Schema` export (`StepSnapshotSchema`,
-`SnapshotStateSchema`, …) — decode at the persistence boundary rather than
-casting.
+Every shape has a matching Zod schema (`StepSnapshotSchema`,
+`SnapshotStateSchema`, …), defined in `./schema` — decode at the persistence
+boundary rather than casting.
 
 ## `@foundry/workflows/step-hooks`
 
@@ -480,7 +484,401 @@ interface OrchestratorLogger / class BaseOrchestratorLogger;
 type RunLifecycleEvent;
 ```
 
-`./store` is the compatibility surface for the existing Orchestrator consumer.
+`./store` is the persistence seam alone; see [Storage](#storage).
+
+## `@foundry/workflows/schema`
+
+The single definition of every record the stores persist or return: Queue,
+Job, Run, Suspension, Run frame, and the in-memory store snapshot, plus the
+snapshot and channel-event values they embed. Each is a Zod schema with its
+type inferred from it; `./snapshot`, `./channels`, and `./types` re-export
+the same schemas and types. Effect stays the runtime.
+
+`RunRecordSchema` admits a Run the way the store always has and returns it
+unchanged, so fields it does not declare survive. `RunRecordShapeSchema` is
+the plain object schema of the declared fields, which a Run table derives
+from. `PersistedMetadataSchema` and `PersistedWorkflowSchema` describe the
+workflows namespaces of a Run's `metadata`; other namespaces stay open.
+
+## Storage
+
+| Path                               | Holds                                                         |
+| ---------------------------------- | ------------------------------------------------------------- |
+| `@foundry/workflows`               | `ExecutionCoordinator`, which holds every execution rule.      |
+| `@foundry/workflows/store`         | `WorkflowStore`, its write, list queries and page types.       |
+| `@foundry/workflows/store/memory`  | `MemoryWorkflowStore`, the default the coordinator uses.       |
+| `@foundry/workflows/store/sqlite`  | `SqliteWorkflowStore`, over a host's Drizzle database.         |
+| `@foundry/workflows/store/tables`  | Its Drizzle tables, `workflow_*`.                              |
+| `@foundry/workflows/testing/store` | `describeWorkflowStore`, the suite every store passes.         |
+
+A `WorkflowStore` keeps Queues, Jobs, Runs, Suspensions and the Run
+journal's frames, and applies one `commit(write)` atomically: deletes, then
+puts. It enforces nothing. Unique ids, lifecycle transitions, first-writer
+Queues, the atomic aggregates (a managed Job attempt, a cancellation, a
+parked or settled Suspension), a Run's frame sequence and effect claims are
+the rules of `ExecutionCoordinator`. Each change is one read-modify-write
+ending in one commit, inside the store's `transaction` when it offers one.
+So two coordinators over one store, two engines on one database say, never
+interleave. A read made of several store reads (a snapshot, the frames of
+every Run) runs in one transaction too. Without `transaction`, a coordinator
+serializes its own changes and no further.
+
+```ts
+import { ExecutionCoordinator } from "@foundry/workflows";
+import { Orchestrator } from "@foundry/workflows/orchestrator";
+import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
+
+const store = new SqliteWorkflowStore({
+  database, // a drizzle-orm/libsql database, or a transaction on one
+  scope: workspaceId,
+  // Optional: runs in the commit's transaction, after the store's statements.
+  onCommit: async (transaction, write) => {
+    await transaction.insert(changes).values({ write });
+  },
+});
+const orchestrator = new Orchestrator({
+  config,
+  store: new ExecutionCoordinator({ store }),
+});
+```
+
+`ExecutionCoordinator.snapshot()` returns every record as one checked
+`OrchestratorStoreSnapshot`. `restore(snapshot)` puts a snapshot that
+validates into a store that holds nothing, in one commit.
+`MemoryWorkflowStore.snapshot()` reads the memory store's records at once,
+synchronously, as of the last completed commit. It is not part of
+`WorkflowStore`, and its records are not checked against each other. Marbles
+writes its run files from it.
+
+### Reads
+
+List reads return records in the order they were first put, filtered by
+exact column values (a Run's `queueId` and `status`, a Suspension's `runId`
+and `status`, a Job's `status`, a frame's `runId`) and paged by an opaque
+cursor and a limit. Both stores honour them alike, and the suite proves it.
+Searching, matching tags and links, sorting by creation time and paging by
+offset happen in the coordinator, over every record the store's filter
+returns. So `listRuns({ search })` reads every Run in the scope, a Job's
+attempts are found by reading every Run, since a legacy Run keeps its Job
+link only in its metadata, and `listFrames()` reads every frame. That is
+what the memory store did before. A store-side search and a Job-link column
+are later work.
+
+A cursor stays valid however many records are deleted around it: a store
+never hands a position out twice in a scope, so a record put after the
+cursor was taken lists after it. The memory store counts positions for its
+whole life; the SQLite store keeps the count in `workflow_positions`, so it
+survives deletes, other connections and reopening. A scope that has no
+counter row yet (rows written before the table existed) gets one in its
+first commit that puts or deletes anything: it starts past every position
+any of the scope's tables holds before that commit's deletes, so neither a
+delete in the same commit nor a delete-only commit lets a position come
+back.
+
+### Tables
+
+Every table holds its record from `./schema` with one column per top-level
+field, as the record holds it. Text stays text. Epoch milliseconds and
+counters are integers. A field holding an object, an array or any JSON value
+(`definition`, `links`, `input`, `output`, `metadata`, `extensions`, `tags`,
+`snapshot`, `timestamps`, `payload`, `stepPath`, `request`, `resolution`,
+`error`, `lastError`) is JSON text, read back whole. Every table also has
+`scope`, first in every key, and `position`, the order a row was first put in
+its scope. A row put again keeps its position. No read filters or orders on
+anything inside a JSON column. `workflow_positions` holds one row per scope,
+`next`, the position the scope's next new row of any table takes. It is the
+one table no record defines: positions computed from the rows that survive
+would be handed out again after a delete, and a cursor past them would skip
+the new rows.
+
+| Table                  | Key                         | Indexes                                    |
+| ---------------------- | --------------------------- | ------------------------------------------ |
+| `workflow_queues`      | `(scope, id)`               | `(scope, position)`                        |
+| `workflow_jobs`        | `(scope, id)`               | `(scope, position)`                        |
+| `workflow_runs`        | `(scope, id)`               | `(scope, position)`                        |
+| `workflow_suspensions` | `(scope, id)`               | `(scope, position)`, `(scope, run_id, position)` |
+| `workflow_run_frames`  | `(scope, run_id, cursor)`   | `(scope, position)`, `(scope, run_id, position)` |
+| `workflow_positions`   | `(scope)`                   |                                            |
+
+A NULL is `null` where the record takes `null` (`error`, `last_error`,
+`resolution`, and a JSON value that is `null`). It is the field left out where
+the record may leave it out: a Run's `definition` and `links`, since `{}` is
+not absent. No field is both. A Run keeps fields its schema does not declare,
+as `RunRecordSchema` admits it unchanged: `workflow_runs.undeclared` holds them
+as one JSON object, NULL when there are none, and a read puts them back after
+the declared fields. An entry named `__proto__`, in a dictionary or among a
+Run's undeclared fields, is written by `JSON.stringify` and read back by
+`JSON.parse` as an own data property; the suite reads one back from each
+store.
+
+Reads take each column as SQLite returns it, parse JSON columns, and pass
+the record through the checks every write passes, its schema included. So
+anything the store writes reads back, and anything it reads back can be
+written again. A row the store would not have written is refused, with an
+error naming the scope, the record and the column or field.
+
+### `onCommit`
+
+Each `commit` is one database transaction, and a throwing `onCommit` rolls it
+back. `onCommit(transaction, write)` runs after the store's statements and
+receives the store's own copy of the write, taken when `commit` was called:
+
+- every record put, whole, in the write's order, as the store wrote it;
+- every id each delete named (`deleteJobs`, `deleteRuns`,
+  `deleteSuspensions`), and for `deleteRunFrames`, the Run ids whose frames
+  all went. Each delete list is present, empty when the write named none;
+- `events`, when the write changes a Run: the change events the coordinator
+  built for it, in order (see [Change events](#change-events)).
+
+It cannot learn whether a put filed a new record or replaced one, what a
+replaced or deleted record held, or whether a delete found anything: the
+store has written when the hook runs. A frame put is always new by the
+coordinator's rules, as it only appends at the next cursor. A Run's status
+change shows as the Run put whole. The write does not say which domain
+command made it, and a host transaction handed in as `database` commits only
+with the host.
+
+Each coordinator command that changes anything is one commit, so one
+`onCommit` per command; a command that changes nothing, or that is refused,
+commits nothing and the hook does not run. A participant's own commands
+inside a transaction each commit through the transaction's view, and each
+calls `onCommit` inside the one transaction. Per command, the write holds:
+
+| Command                                  | The write                                                                 | No commit when                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------ |
+| `ensureQueue`                            | `putQueues`: the new Queue                                                | the Queue exists                                 |
+| `updateQueue`                            | `putQueues`: the Queue                                                    | the Queue is missing, or the patch leaves it as stored |
+| `createJob`                              | `putJobs`: the new Job                                                    |                                                  |
+| `updateJob`                              | `putJobs`: the Job                                                        | it is missing, or ended and the status differs, or the patch leaves it as stored |
+| `claimJobRun`                            | `putJobs`: the Job, active; `putRuns`: the new Run                        |                                                  |
+| `claimJobRun`, an earlier attempt done   | `putJobs`: the Job, complete. The call then rejects with `JobAlreadySettledError` |                                          |
+| `cancelJob`                              | `putJobs`, `putRuns` (its live Run, if any), `putSuspensions` (each pending one, cancelled) |                                |
+| `deleteJob`                              | `deleteJobs`: its id                                                      | the Job is missing                               |
+| `createRun`                              | `putRuns`: the new Run                                                    |                                                  |
+| `updateRun`                              | `putRuns`: the Run                                                        | it is missing, or ended and the status differs, or the patch leaves it as stored |
+| `deleteRun`                              | `deleteRuns`: its id                                                      | the Run is missing                               |
+| `createSuspension`                       | `putSuspensions`: the new Suspension                                      |                                                  |
+| `parkSuspension`                         | `putRuns`: the Run, suspended; `putSuspensions`: the new Suspension      | the occurrence is parked already                 |
+| `settleSuspension`                       | `putRuns`: the Run, queued or cancelled; `putSuspensions`: the Suspension |                                                  |
+| `cancelRun`, `cancelRunSuspensions`      | `putRuns`: the Run, cancelled; `putSuspensions`: each pending one, cancelled | `cancelRunSuspensions` finds it ended otherwise, or cancelled already with nothing pending and nothing patched |
+| `deleteSuspension`                       | `deleteSuspensions`: its id                                               | the Suspension is missing                        |
+| `appendRunFrame`, `claimRunEffect`       | `putFrames`: the new frame                                                | a terminal frame or the claim exists already     |
+| `deleteRunFrames`                        | `deleteRunFrames`: the Run id                                             | the Run has no frames                            |
+| `restore`                                | every record of the snapshot, put                                         |                                                  |
+
+The write names no command; a host that needs one tells the commands apart by
+the shape above.
+
+### Change events
+
+`ExecutionCoordinator` builds a change event (`RunEvent`, schema
+`RunEventSchema` in `./schema`, types exported from `.`) for each change it
+makes to a Run, and carries it in the write that makes the change, as
+`events`. A host records them in `onCommit`, on the transaction it is handed,
+so an event lands exactly when its change does: once per commit that
+succeeds, never for one refused or rolled back.
+
+The stores keep no record of events. Both take them as they stand when
+`commit` is called, as plain JSON: a part that has no JSON form reading back
+the same (a Date, a class instance, `NaN`, `-0`, a bigint, `undefined`, a
+function, a hole in an array) refuses the whole write with a `TypeError`
+naming it. `describeWorkflowStore(name, open, mode)` holds every store to
+that refusal, directly and through a transaction's view. `mode` is required:
+`{ hooked: false }` for a store with no host hook, or
+`{ hooked: true, recording }` for one with a hook, where `recording` opens
+storage whose hook records each commit's events in the commit's own
+transaction (`RecordingWorkflowStores`: `failNextCommit`, `recorded`,
+`stores`). The suite then proves the hook is handed every kept commit's
+events, in order, and none of a refused or rolled-back one.
+
+An event is plain JSON: `{ type, id, at, runId, queueId, ... }`. `id` is a
+UUID, unique, built with the write before `commit`. `at` is when the
+coordinator built the event, an ISO time: it cannot establish commit order,
+as two coordinators' clocks and commits interleave. A host orders events by
+its own sequence, such as the position of the row its `onCommit` writes. A
+handler reads the Run by `runId` for anything more, except after
+`run.removed`, which carries what identified the Run.
+
+| Event           | Emitted when                                                                                 | Also carries |
+| --------------- | -------------------------------------------------------------------------------------------- | ------------ |
+| `run.queued`    | a Run is filed: `createRun`, `claimJobRun`                                                   |              |
+| `run.started`   | a Run's status becomes `running` (`updateRun`), each time it does                            |              |
+| `run.parked`    | a Run becomes `suspended`: `parkSuspension`, or `updateRun`                                  |              |
+| `run.resumed`   | a filed Run becomes `queued` again: `settleSuspension` resolving its Suspension, or `updateRun` |              |
+| `run.completed` | a Run becomes `complete` (`updateRun`)                                                       |              |
+| `run.failed`    | a Run becomes `failed` (`updateRun`)                                                         |              |
+| `run.cancelled` | a Run becomes `cancelled`: `cancelRun`, `cancelRunSuspensions`, `cancelJob`, `settleSuspension` cancelling, `updateRun` |              |
+| `run.updated`   | a change to the Run's own fields (`RUN_FIELDS`: `error`, `extensions`, `metadata`, `output`, `tags`, `timestamps`) | `changed`: the field names, in that order; never their values |
+| `run.removed`   | a filed Run is deleted (`deleteRun`)                                                         | `step`, `tags`, and `definition` and `links` where the Run had them |
+
+`run.updated` follows the lifecycle event when one write changes both, as
+completing a Run with its output does (`run.completed`, then `run.updated`
+naming `output`). The timestamps a lifecycle change stamps are part of it and
+not an update. `metadata` there means a host's namespaces: the runtime's own
+(`workflow` and `stream`, the persisted step state, and the coordinator's
+`workflows.execution`) are step progress, as is the step tree (`snapshot`).
+A metadata patch replaces the host's namespaces, so a persist that drops one
+is an update. A patch that changes no Run-level field and no status makes no
+event: a step tree persisted, a second Suspension parked on a Run already
+suspended. A change that leaves every record as stored (a true no-op, a
+delete of nothing) writes nothing at all, so it makes no event either.
+Jobs, Queues, Suspensions and frames make no events of their own, and neither does `restore`, which files records rather than
+changing them, nor a `deleteRun` of a Run that is not filed. A write carries
+no `events` field when it has none.
+
+Events follow the statuses written. The `Queue` stores a Run it starts as
+`running` and keeps it so until it suspends or ends: the workflow's own state
+reads `queued` until its status mirror catches up, and that lag is not
+written back as the Run returning to its queue. A Run recovered while
+running goes on running, with no `run.resumed`. A Run started again after a
+Suspension keeps the `startedAt` of its first start; one recovered after a
+crash is stamped with a new `startedAt` (`run.updated` naming `timestamps`).
+A handler should not assume one event precedes another beyond the order they
+arrive in.
+
+### Exclusion and host requirements
+
+Two coordinators over one `SqliteWorkflowStore` are kept apart. In this
+process the store's calls take turns, so one made while a transaction runs
+waits for it. Across connections, each transaction takes SQLite's write lock
+at its first statement: Drizzle's libSQL driver begins every transaction with
+`BEGIN IMMEDIATE`. A write from another process then waits for as long as its
+connection's busy timeout allows, or fails with `SQLITE_BUSY`. It never lands
+between a transaction's reads and its commit.
+
+Host requirement: the store's queue covers only its own instance. Within one
+process, the host must serialize writes per database file across every
+client and store on it, a store per scope included (Marbles does). A second
+libSQL client in the same process does not wait usefully: libSQL waits out
+its busy timeout synchronously, holding up the thread the first client needs
+to commit, so it blocks for the whole timeout and then fails with
+`SQLITE_BUSY`. On a `:memory:` database a second store's call during a
+transaction fails outright, as libSQL gives it a new, empty connection.
+Connection settings such as WAL and the busy timeout are the host's.
+
+A defect of `@libsql/client` 0.18.0, which the store cannot work around: a
+client whose `BEGIN` fails with `SQLITE_BUSY` keeps the failed statement
+open, and its next transaction fails at `COMMIT` with "SQL statements in
+progress". In rollback-journal mode the file can stay blocked even for a
+fresh client; in WAL mode a fresh client works. The store cannot reset a
+client it was handed. So a host should put the database in WAL mode, and
+replace its client after a `SQLITE_BUSY`.
+
+Each store takes one call at a time, so a call to the store itself from
+inside its own transaction's `work`, or from `onCommit`, could only wait for
+itself. It is refused at once with a `ReentrantCallError` from
+`@foundry/lib/turns` that says to use the view, or the transaction, instead.
+The same holds a level up: a participant that calls the Orchestrator's own
+`store` instead of the one it was handed is refused, not left waiting.
+`Turns` tells the two apart by asynchronous context, so it does not detect
+wait cycles: a transaction that awaits a continuation registered outside it
+while that continuation calls the outer store still deadlocks.
+
+A store states when a commit that resolved is there for good, as
+`durability`. `"commit"` (the default): at once. `"host"`: only once a
+transaction the store sits inside, which someone else owns, commits; until
+then that owner may roll it back. A `SqliteWorkflowStore` handed a Drizzle
+transaction as its `database` is `"host"` and refuses `"commit"`; over a
+plain database pass `"host"` when the host has begun a transaction of its own
+on the connection, which the store cannot see. A transaction's view is
+`"host"` on every store, and `ExecutionCoordinator.durability` is its
+store's. The coordinator and plain record work run over a `"host"` store.
+The `Orchestrator` and `Queue` refuse one at construction: they start
+workflow code, dispatch and signal cancellations once a commit resolves, and
+would act on Runs a rollback removes. Run them over a store on the database
+itself, outside the host's transaction.
+
+The package ships table definitions only. It owns no migrations and opens no
+database; the host composes the tables into its own schema. `drizzle-orm` is
+an optional peer dependency, loaded only by `./store/sqlite` and
+`./store/tables`.
+
+### Limits
+
+Storage limits of the SQLite store, not rules of the package. `commit`
+refuses, before writing anything and through a transaction's view as well, a
+write holding a value SQLite or JSON would not give back as it was. It
+rejects with a `RangeError` naming the field, such as `putRuns[0].queueId` or
+`putRuns[2].metadata.list[3]`:
+
+- Text holding U+0000 (libSQL reads it back cut at the NUL) or not
+  well-formed UTF-16 (a lone surrogate is bound as U+FFFD on Node and as
+  nothing on Bun) in a plain-text column: an id, a Run's `queueId` or `step`,
+  a status, a Queue's `name`, a Suspension's `kind`, `name`, `reason` or
+  `runId`, a frame's `runId`. JSON escapes both, so JSON columns keep them. A
+  read, list or delete by such a key finds nothing, as no row can hold one,
+  and the constructor refuses such a `scope`.
+- An integer column (`createdAt` of a Queue, a Suspension's `occurrence` and
+  `revision`, a frame's `at` and `cursor`) holding NaN, an infinity, `-0`, or
+  a number beyond `Number.MAX_SAFE_INTEGER` either way.
+- In a JSON column or an undeclared Run field: NaN, an infinity, `-0`,
+  `undefined` or a hole in an array, a `bigint`, a function, a symbol, a value
+  that contains itself, or an object that is not plain (a `Date`, a `Map`).
+- A property holding `undefined`, a required field left out, `null` in a Run's
+  `definition` or `links`, a field a Job, Queue, Suspension or frame does not
+  have, which no column would keep, and a record its schema refuses.
+
+The memory store keeps all of these as `structuredClone` copies them, with
+byte memory unshared (below). The
+coordinator writes none but the text and `-0` cases: it
+drops `undefined` entries from a Run's and a Job's `definition` and `links`,
+and normalizes a Run's JSON data. A JSON value is bound as one text value,
+under SQLite's default limit of 1,000,000,000 bytes. A commit of many records
+is batched under SQLite's limit of 32,766 bound parameters per statement,
+inside its one transaction.
+
+Claiming or cancelling a Job reads every Run in the scope, under the store's
+exclusion, to find the Job's attempts (a legacy Run names its Job only in its
+metadata). Over SQLite that holds the write lock for the read of the whole
+`workflow_runs` scope, so its cost grows with the number of Runs kept.
+
+### Ownership
+
+A store takes its own copy of a write when `commit` is called, before it
+waits for its turn. Both stores start from one capture of it: each property
+the write's type names is read once, by name, so one given as a getter on a
+prototype or as an own property that is not enumerable counts like any
+other, and nothing else on the object is read. That capture, and one read of
+every record in it, is what the store checks, writes and hands to
+`onCommit`; a getter that answers differently a second time changes
+nothing. The capture refuses, with a `TypeError` naming the property and
+before anything is written, a list that is not an array, a delete id that
+is not text, and a record that is not a plain object (made by `{}` or
+`Object.create(null)`) with every own property enumerable: a copy of
+anything else could keep less than the record shows, and differently in
+each store. List queries are captured the same way, by name, with `status`
+an array of text and `queueId` and `runId` text.
+
+The memory store then copies with `structuredClone` and moves every
+`SharedArrayBuffer` in the copy (which `structuredClone` keeps shared on
+Node), bare or behind a view, into a fresh `ArrayBuffer`, on every write and
+on every read: `get*`, `list*`, `snapshot()` and a transaction's view. Each
+shared buffer becomes one fresh buffer; each view onto it (every typed-array
+kind and `DataView`, a view onto part of it included) a view of the same
+kind, offset and length onto that buffer, so views that shared a buffer
+still share one. The walk reaches all `structuredClone` keeps: object and
+array entries, `Map` keys and values, `Set` values, and an `Error`'s own
+properties, its non-enumerable `cause` (nested) included, and an
+`AggregateError`'s `errors` on a runtime whose clone keeps them (Node's
+clones it as a plain `Error` without them). The SQLite store refuses bytes
+and Errors in a record, naming the field, so it holds none.
+
+`ExecutionCoordinator` takes every command's arguments as they stand when the
+command is called: one deep copy, bytes unshared, taken before anything
+else runs, and the only one the command reads. Every public method gets it
+in one place, so a command added later does too. An argument the copy
+refuses (a function, say) rejects the call, and so does an argument object
+the copy would read less of than it shows: one made by a class or another
+prototype, or one with an own property that is not enumerable.
+
+`ExecutionCoordinator.transaction` rolls back whenever its work throws,
+whatever it throws. A direct `claimJobRun` of a Job whose earlier attempt
+completed writes the Job as complete and then rejects with
+`JobAlreadySettledError`; inside a transaction that rejection rolls the
+write back with everything else, as any throw does. Admission does not
+claim that way: inside its transaction the settled Job is an outcome, not a
+throw, so the transaction commits the Job as complete, and the claim is
+refused once it has.
 
 ---
 
@@ -495,9 +893,11 @@ members, so a consumer holding either needs no Effect in scope.
 
 ### Entry points
 
-There is no root export. `import … from "@foundry/workflows"` does not resolve —
-all 15 entries are named subpaths, and unlike `@foundry/lib/config` there is no
-wildcard, so the surface is exactly what the map lists.
+The root export, `@foundry/workflows`, is the execution records' domain API:
+`ExecutionCoordinator`, `OrchestratorStore` and its command types, snapshot
+validation, and the decoders. It exports no store. Every other entry is a
+named subpath, and unlike `@foundry/lib/config` there is no wildcard, so the
+surface is exactly what the map lists.
 
 Types resolve from `dist/`, not `src/`. Rebuild before a consumer typechecks
 against a changed public API.

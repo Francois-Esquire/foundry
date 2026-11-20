@@ -1,13 +1,3 @@
-/**
- * `@foundry/tasks` — the backlog.
- *
- * A Task says what there is to do; `ready()` says what is next; a settled
- * status says what is done. Dependencies and a parent reference shape the
- * graph and availability is derived from it. Changes use an atomic batch
- * language shared by code, CLI, and agent tools; removal is separate.
- * Execution lives in workflows; a Job correlates to a task by id only.
- */
-
 export type { AvailabilityOptions } from "./availability";
 // biome-ignore lint/performance/noBarrelFile: This is a declared package entry point; preserve its public exports.
 export { deriveAvailability } from "./availability";
@@ -27,6 +17,16 @@ export {
   taskChangeSchema,
   taskOperationSchema,
 } from "./operations";
+export type {
+  JsonObject,
+  Task,
+  TaskDelta,
+  TaskDependency,
+  TaskEvent,
+  TaskId,
+  TaskStatus,
+} from "./schema";
+export { TASK_STATUSES, taskSchema } from "./schema";
 export {
   depthOptionsSchema,
   readyQuerySchema,
@@ -35,26 +35,17 @@ export {
   taskPageSchema,
   taskQuerySchema,
   taskRelationsSchema,
-  taskSchema,
 } from "./schemas";
-export type { TaskSnapshot, TaskStore, TaskStoreWrite } from "./store";
-export { MemoryTaskStore } from "./store";
+export type { TaskSnapshot, TaskStore, TaskStoreWrite } from "./store/index";
 export { type CreateOptions, Tasks, type TasksOptions } from "./tasks";
 export type {
   DepthOptions,
-  JsonObject,
   ReadyQuery,
   SettledStatus,
   TagQuery,
-  Task,
   TaskAvailability,
-  TaskDelta,
-  TaskDependency,
-  TaskEvent,
-  TaskId,
   TaskNode,
   TaskQuery,
   TaskRelations,
-  TaskStatus,
 } from "./types";
-export { isSettled, TASK_STATUSES, taskId } from "./types";
+export { isSettled, taskId } from "./types";

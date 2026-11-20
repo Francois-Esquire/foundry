@@ -12,8 +12,6 @@ vi.mock("@kreuzberg/tree-sitter-language-pack", () => {
     download: mockDownload,
     downloadedLanguages: mockDownloadedLanguages,
   };
-  // The wrapper normalizes both CJS named-export and `.default` shapes; mirror
-  // that here so the mock matches either access pattern.
   return { ...mod, default: mod };
 });
 
@@ -32,8 +30,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// A fake tree-sitter backend: splits the source into N equal byte ranges. Lets
-// the wrapper be tested offline — a custom backend bypasses grammar downloads.
 function fakeBackend(parts = 3): CodeChunkerBackend {
   return {
     detectLanguageFromContent: () => "fakelang",
@@ -105,8 +101,6 @@ describe("downloadCodeLanguages", () => {
     await expect(downloadCodeLanguages(["lang-flaky"])).rejects.toThrow(
       GRAMMAR_PATTERN
     );
-    // The in-flight memo was cleared, so a retry attempts the fetch again
-    // (falling back to the base mock, which succeeds).
     await expect(
       downloadCodeLanguages(["lang-flaky"])
     ).resolves.toBeUndefined();

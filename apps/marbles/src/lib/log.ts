@@ -2,11 +2,6 @@ import { inspect } from "node:util";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
-/**
- * Where a definition's `log(...)` line came from: a step body, whose run
- * records the line with its step, or a workflow's `setup`, which runs once
- * per run before any step and whose lines no run record keeps.
- */
 export type LogOrigin =
   | { readonly kind: "step" }
   | {
@@ -15,10 +10,6 @@ export type LogOrigin =
       readonly workflow: string;
     };
 
-/**
- * Log anything: strings print as-is, everything else is inspected, errors
- * with their stack. `log(...)` is info; the methods pick a level.
- */
 export interface Log {
   debug(...values: readonly unknown[]): void;
   error(...values: readonly unknown[]): void;
@@ -29,7 +20,6 @@ export interface Log {
 
 const INSPECT_DEPTH = 6;
 
-/** Space-join values; multi-line values keep their shape. */
 export function formatLogValues(values: readonly unknown[]): string {
   return values
     .map((value) =>

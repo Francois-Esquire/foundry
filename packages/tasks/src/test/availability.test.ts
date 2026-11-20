@@ -4,9 +4,9 @@ import {
   deriveAvailability,
   readyTaskIds,
 } from "../availability";
-import type { TaskSnapshot } from "../store";
-import type { Task, TaskDependency, TaskStatus } from "../types";
-import { TASK_STATUSES, taskId } from "../types";
+import type { Task, TaskDependency, TaskSnapshot, TaskStatus } from "../schema";
+import { TASK_STATUSES } from "../schema";
+import { taskId } from "../types";
 
 const AT = "2026-10-29T00:00:00.000Z";
 
@@ -91,7 +91,6 @@ describe("deriveAvailability", () => {
   });
 });
 
-/** A small deterministic generator, so a failing shape reproduces. */
 function sequence(seed: number): () => number {
   let state = seed;
   return () => {
@@ -100,7 +99,6 @@ function sequence(seed: number): () => number {
   };
 }
 
-/** Parents chosen anywhere (cycles and missing ids included), statuses mixed. */
 function shuffledSnapshot(seed: number, size: number): TaskSnapshot {
   const next = sequence(seed);
   const pick = (count: number) => Math.floor(next() * count);

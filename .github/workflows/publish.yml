@@ -182,7 +182,6 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/releases/$id" | jq -e --argjson expected "$release" '.id == $expected.id and .tag_name == $expected.tag and .prerelease == $expected.prerelease and (.draft | not) and .published_at != null'
             test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)" = "$RELEASE_SHA"
           done < <(jq -c '.[]' <<< "$RELEASES")
-      # Every release is npm's latest; 0.0.x maturity is not an npm channel.
       - name: Publish with npm trusted publishing
         run: |
           while IFS= read -r archive; do

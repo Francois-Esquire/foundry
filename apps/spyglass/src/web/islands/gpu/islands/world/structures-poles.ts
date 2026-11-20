@@ -1,38 +1,24 @@
-/**
- * Utility poles and their wires (REFERENCES.md rule 12): a concrete pole at
- * each of the plan's poles, its cross arm square to its road, a
- * transformer on some, and wires sagging from each pole to the next along
- * the same road. A pole stands on a site of its own; a wire hangs between
- * its two poles' sites, so its ends follow the ground found for them
- * (shaders/world/town-floors.wgsl) and the wire draw samples nothing else.
- */
 import type { Point } from "../../../data/chart";
 import { COLORS } from "./structures-palette";
 import { type TownPart, townPart, turned, variantOf } from "./town-parts";
 import type { Road, WorldPlan } from "./world";
 
-/** Chart units: about ten metres of pole, its cross arm near the top. */
 const POLE_HEIGHT = 2.4;
 const POLE_RADIUS = 0.034;
 const ARM_HEIGHT = 2.18;
 const ARM_HALF = 0.26;
-/** Where the wires hang from: the arm's ends and middle, and the telephone cable lower down. */
 const HIGH_WIRES: readonly [number, number][] = [
   [-ARM_HALF + 0.03, ARM_HEIGHT + 0.04],
   [ARM_HALF - 0.03, ARM_HEIGHT + 0.04],
   [0.08, POLE_HEIGHT - 0.04],
 ];
 const LOW_WIRE: readonly [number, number] = [-0.06, 1.55];
-/** The longest span strung, and a wire's sag for each unit of span squared. */
 const MAX_SPAN = 16;
 const SAG_PER_SPAN2 = 0.0016;
-/** Wire radii, chart units: the power lines, and the thicker telephone cable. */
 const WIRE_RADIUS = 0.006;
 const CABLE_RADIUS = 0.011;
-/** One pole in this many carries a transformer. */
 const TRANSFORMER_SHARE = 0.3;
 
-/** A wire between two poles' sites, its ends on the chart and above each site's ground. */
 export interface Wire {
   readonly a: Point;
   readonly b: Point;
@@ -44,14 +30,12 @@ export interface Wire {
   readonly siteB: number;
 }
 
-/** A pole placed on the chart: its parts in its own frame, turned so its local z runs along its road. */
 export interface PolePlace {
   readonly at: Point;
   readonly parts: readonly TownPart[];
   readonly turn: number;
 }
 
-/** How far along a road's centreline a point lies, and the road's heading there. */
 function along(points: readonly Point[], p: Point): { s: number; dir: Point } {
   let best = Number.POSITIVE_INFINITY;
   let bestS = 0;
@@ -128,10 +112,6 @@ const poleParts = (at: Point): TownPart[] => {
   return parts;
 };
 
-/**
- * Every pole, and the wires between neighbours on one road. `siteOf(k)`
- * is the site the k-th pole was given, so the wires can name it.
- */
 export function polesOf(plan: WorldPlan): {
   poles: PolePlace[];
   wiresOf: (siteOf: (pole: number) => number) => Wire[];
@@ -145,7 +125,6 @@ export function polesOf(plan: WorldPlan): {
     const list = byRoad.get(pole.road) ?? [];
     list.push({ k, s });
     byRoad.set(pole.road, list);
-    // Local z along the road: (−sin, cos) is the heading.
     return {
       at: pole.at,
       parts: poleParts(pole.at),
@@ -191,7 +170,6 @@ export function polesOf(plan: WorldPlan): {
   return { poles, wiresOf };
 }
 
-/** vec4f a wire (shaders/world/town.wgsl `Wire`). */
 export const WIRE_VEC4S = 3;
 const FLOATS_PER_VEC4 = 4;
 

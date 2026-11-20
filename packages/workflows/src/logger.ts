@@ -51,51 +51,53 @@ export class BaseOrchestratorLogger implements OrchestratorLogger {
     }
   }
 
+  // biome-ignore-start lint/complexity/noUselessReturn: Default lifecycle hooks do no work.
   protected dispatched(
     _event: Extract<RunLifecycleEvent, { kind: "dispatched" }>
   ): void {
-    // Concrete loggers opt into individual lifecycle events.
+    return;
   }
 
   protected started(
     _event: Extract<RunLifecycleEvent, { kind: "started" }>
   ): void {
-    // Concrete loggers opt into individual lifecycle events.
+    return;
   }
 
   protected suspended(
     _event: Extract<RunLifecycleEvent, { kind: "suspended" }>
   ): void {
-    // Concrete loggers opt into individual lifecycle events.
+    return;
   }
 
   protected resumed(
     _event: Extract<RunLifecycleEvent, { kind: "resumed" }>
   ): void {
-    // Concrete loggers opt into individual lifecycle events.
+    return;
   }
 
   protected completed(
     _event: Extract<RunLifecycleEvent, { kind: "completed" }>
   ): void {
-    // Concrete loggers opt into individual lifecycle events.
+    return;
   }
 
   protected failed(
     _event: Extract<RunLifecycleEvent, { kind: "failed" }>
   ): void {
-    // Concrete loggers opt into individual lifecycle events.
+    return;
   }
 
   protected cancelled(
     _event: Extract<RunLifecycleEvent, { kind: "cancelled" }>
   ): void {
-    // Concrete loggers opt into individual lifecycle events.
+    return;
   }
 
   protected recovered(
     _event: Extract<RunLifecycleEvent, { kind: "recovered" }>
   ): void {
-    // Concrete loggers opt into individual lifecycle events.
+    return;
   }
+  // biome-ignore-end lint/complexity/noUselessReturn: End of the default lifecycle hooks.
 }

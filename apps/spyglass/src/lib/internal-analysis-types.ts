@@ -5,7 +5,6 @@ import type { InternalPackageTopology } from "./internal-topology-types";
 import type { PrimitiveConventionReport } from "./primitive-convention-types";
 import type { SymbolLocalityReport } from "./symbol-locality-types";
 
-/** One package's internal structure, every stage through the review. */
 export interface PackageInternals {
   locality: SymbolLocalityReport;
   primitives: PrimitiveConventionReport;
@@ -15,10 +14,6 @@ export interface PackageInternals {
   topology: InternalPackageTopology;
 }
 
-/**
- * Saved internals, read back: every stage present and the topology naming
- * the package. Returns the six stages only; throws when any is missing.
- */
 export function verifyInternals(
   value: unknown,
   name: string

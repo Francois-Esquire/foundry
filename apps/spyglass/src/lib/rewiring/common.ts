@@ -207,7 +207,6 @@ export const STRUCTURAL_ROLES: ArchitecturalRole[] = [
   "adapter",
   "implementation",
 ];
-/** Roles whose symbols an existing module can plausibly host by role alone. */
 export const HOSTABLE_ROLES: ArchitecturalRole[] = [
   ...CONTRACT_FAMILY,
   "utility",
@@ -385,7 +384,6 @@ export function createPromotionScenario(
     effects: simulation.effects,
     id: scenarioId("promote-primitive", subject.symbolIds ?? [], scope),
     kind: "promote-primitive",
-    // Promotion places the group at the scope its consumers measured, so that scope survives by construction.
     preservations: [
       ...basePreservations,
       ...resolvePreservations(scope, group),

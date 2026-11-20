@@ -1,10 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { TaskError } from "../errors";
 import type { TaskOperation, TaskToken } from "../operations";
-import { MemoryTaskStore } from "../store";
+import type { TaskStore } from "../store/index";
+import { MemoryTaskStore } from "../store/memory";
+import { SqliteTaskStore } from "../store/sqlite";
 import { Tasks } from "../tasks";
+import { libsqlDatabases } from "./helpers/sqlite";
 
-/** A fixed clock; `Tasks` keeps instants strictly increasing on its own. */
 const clock = () => new Date("2026-10-29T00:00:00.000Z");
 
 async function failure(work: Promise<unknown>): Promise<TaskError> {
@@ -19,9 +21,20 @@ async function failure(work: Promise<unknown>): Promise<TaskError> {
   throw new Error("expected a TaskError");
 }
 
-describe("Tasks", () => {
+const sqlite = libsqlDatabases("memory");
+
+const stores: readonly (readonly [string, () => Promise<TaskStore>])[] = [
+  ["memory", () => Promise.resolve(new MemoryTaskStore())],
+  [
+    "SQLite",
+    async () =>
+      new SqliteTaskStore({ database: await sqlite.open(), scope: "tasks" }),
+  ],
+];
+
+describe.each(stores)("Tasks over the %s store", (storeName, open) => {
   test("one batch creates a tree, links it, and reports every record", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const result = await tasks.change({
       operations: [
         { input: { title: "Ship tasks" }, key: "epic", kind: "task.create" },
@@ -69,7 +82,7 @@ describe("Tasks", () => {
   });
 
   test("ready offers open unblocked work oldest first and tracks settlement", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const first = await tasks.create({ title: "first" });
     const second = await tasks.create(
       { title: "second" },
@@ -108,7 +121,7 @@ describe("Tasks", () => {
   });
 
   test("status moves are explicit: reopen is allowed, settled to settled is not", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const task = await tasks.create({ title: "flip" });
     await tasks.complete(task.id);
 
@@ -125,7 +138,7 @@ describe("Tasks", () => {
   });
 
   test("update sets metadata keys over the stored ones and null removes a key", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const task = await tasks.create({
       metadata: { kept: 1, nested: { a: 1, b: 2 }, removed: "x", stored: null },
       title: "metadata",
@@ -147,7 +160,7 @@ describe("Tasks", () => {
   });
 
   test("create and update refuse a __proto__ metadata key and store a copy", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const proto = JSON.parse('{"nested":{"__proto__":{"ok":1}}}');
     await expect(
       tasks.create({ metadata: proto, title: "proto" })
@@ -166,7 +179,7 @@ describe("Tasks", () => {
   });
 
   test("a stale token refuses the write", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const task = await tasks.create({ title: "token" });
     const fresh = await tasks.update(task.id, { title: "renamed" });
 
@@ -181,7 +194,7 @@ describe("Tasks", () => {
   });
 
   test("a shorthand acts on its own arguments, whatever else the token carries", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const task = await tasks.create({ title: "named" });
     const other = await tasks.create({ title: "other" });
     const token = {
@@ -206,7 +219,7 @@ describe("Tasks", () => {
   });
 
   test("a refused batch leaves the store untouched", async () => {
-    const store = new MemoryTaskStore();
+    const store = await open();
     const tasks = new Tasks({ clock, store });
     const a = await tasks.create({ title: "a" });
     const b = await tasks.create({ title: "b" }, { dependsOn: [{ id: a.id }] });
@@ -233,7 +246,7 @@ describe("Tasks", () => {
   });
 
   test("refusals carry stable codes", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const parent = await tasks.create({ title: "parent" });
     const child = await tasks.create(
       { title: "child" },
@@ -307,7 +320,7 @@ describe("Tasks", () => {
 
   test("remove is guarded by children and host references, then drops edges", async () => {
     let held = true;
-    const store = new MemoryTaskStore();
+    const store = await open();
     const tasks = new Tasks({
       clock,
       inUse: () => Promise.resolve(held),
@@ -338,7 +351,7 @@ describe("Tasks", () => {
   });
 
   test("list filters by parent and pages by offset", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const root = await tasks.create({ title: "root" });
     for (const title of ["a", "b", "c"]) {
       await tasks.create({ title }, { parent: { id: root.id } });
@@ -360,7 +373,7 @@ describe("Tasks", () => {
   });
 
   test("the parent gate holds children until the parent is started", async () => {
-    const tasks = new Tasks({ clock, parentGate: true });
+    const tasks = new Tasks({ clock, parentGate: true, store: await open() });
     const parent = await tasks.create({ title: "parent" });
     const child = await tasks.create(
       { title: "child" },
@@ -377,7 +390,7 @@ describe("Tasks", () => {
   });
 
   test("requireReady starts a task only if it is ready when the batch commits", async () => {
-    const tasks = new Tasks({ clock, parentGate: true });
+    const tasks = new Tasks({ clock, parentGate: true, store: await open() });
     const blocker = await tasks.create({ title: "blocker" });
     const work = await tasks.create({ title: "work" });
     const startWhenReady = (id: string, before: TaskOperation[] = []) =>
@@ -393,8 +406,6 @@ describe("Tasks", () => {
         ],
       });
 
-    // A dependency added after the caller last read the task leaves its
-    // token unchanged, so only the commit-time check refuses the start.
     await tasks.change({
       operations: [
         {
@@ -409,7 +420,6 @@ describe("Tasks", () => {
     expect(refused.message).toContain(`depends on open ${blocker.id}`);
     expect((await tasks.get(work.id))?.status).toBe("open");
 
-    // Earlier operations in the same batch count, in order.
     const fresh = await tasks.create({ title: "fresh" });
     expect(
       (
@@ -429,7 +439,6 @@ describe("Tasks", () => {
       dependsOn: [],
     });
 
-    // The parent gate is the instance's own.
     const child = await tasks.create(
       { title: "child" },
       { parent: { id: fresh.id } }
@@ -441,14 +450,12 @@ describe("Tasks", () => {
     await tasks.complete(blocker.id);
     const started = await startWhenReady(work.id);
     expect(started.tasks[0]?.status).toBe("active");
-    // Already active is not ready either: a second runner cannot take it.
     expect((await failure(startWhenReady(work.id))).code).toBe("not_ready");
-    // Without the flag, start is unguarded, as before.
     expect((await tasks.start(child.id)).status).toBe("active");
   });
 
   test("concurrent mutations serialize and keep ids and instants unique", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const count = 20;
     const created = await Promise.all(
       Array.from({ length: count }, (_, index) =>
@@ -462,8 +469,8 @@ describe("Tasks", () => {
     );
   });
 
-  test("the memory store hands out detached records", async () => {
-    const store = new MemoryTaskStore();
+  test("the store hands out detached records", async () => {
+    const store = await open();
     const tasks = new Tasks({ clock, store });
     const task = await tasks.create({ metadata: { tags: ["a"] }, title: "x" });
     const read = await store.get(task.id);
@@ -474,7 +481,7 @@ describe("Tasks", () => {
     expect((await tasks.get(task.id))?.metadata).toEqual({ tags: ["a"] });
   });
   test("batches return every record they name, targets after their own task", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const a = await tasks.create({ title: "a" });
     const b = await tasks.create({ title: "b" });
 
@@ -513,7 +520,7 @@ describe("Tasks", () => {
   });
 
   test("tokens stay unique across instances over one store with a fixed clock", async () => {
-    const store = new MemoryTaskStore();
+    const store = await open();
     const task = await new Tasks({ clock, store }).create({ title: "shared" });
 
     const later = new Tasks({ clock, store });
@@ -526,35 +533,40 @@ describe("Tasks", () => {
     expect(stale.code).toBe("conflict");
   });
 
-  test("ids may contain any character without edges colliding", async () => {
-    const tasks = new Tasks({ clock });
-    for (const id of ["x", "y\u0000z", "x\u0000y", "z"]) {
-      await tasks.create({ id, title: id });
+  const separators = ["\u0001", "\u001f", '"', ",", "\u{1F600}"];
+  test.each(storeName === "SQLite" ? separators : ["\u0000", ...separators])(
+    "ids may contain any character without edges colliding (%j)",
+    async (separator) => {
+      const tasks = new Tasks({ clock, store: await open() });
+      const joined = (a: string, b: string) => `${a}${separator}${b}`;
+      for (const id of ["x", joined("y", "z"), joined("x", "y"), "z"]) {
+        await tasks.create({ id, title: id });
+      }
+      await tasks.change({
+        operations: [
+          {
+            dependsOn: { id: joined("y", "z") },
+            kind: "dependency.add",
+            task: { id: "x" },
+          },
+          {
+            dependsOn: { id: "z" },
+            kind: "dependency.add",
+            task: { id: joined("x", "y") },
+          },
+        ],
+      });
+      expect(
+        (await tasks.dependencies("x")).dependsOn.map((t) => t.id)
+      ).toEqual([joined("y", "z")]);
+      expect(
+        (await tasks.dependencies(joined("x", "y"))).dependsOn.map((t) => t.id)
+      ).toEqual(["z"]);
     }
-    await tasks.change({
-      operations: [
-        {
-          dependsOn: { id: "y\u0000z" },
-          kind: "dependency.add",
-          task: { id: "x" },
-        },
-        {
-          dependsOn: { id: "z" },
-          kind: "dependency.add",
-          task: { id: "x\u0000y" },
-        },
-      ],
-    });
-    expect((await tasks.dependencies("x")).dependsOn.map((t) => t.id)).toEqual([
-      "y\u0000z",
-    ]);
-    expect(
-      (await tasks.dependencies("x\u0000y")).dependsOn.map((t) => t.id)
-    ).toEqual(["z"]);
-  });
+  );
 
   test("depth expands subtasks on get, list, and children", async () => {
-    const tasks = new Tasks({ clock });
+    const tasks = new Tasks({ clock, store: await open() });
     const root = await tasks.create({ title: "root" });
     const mid = await tasks.create(
       { title: "mid" },

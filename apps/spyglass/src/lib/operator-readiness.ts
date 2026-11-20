@@ -108,10 +108,6 @@ import type { WorkspaceCoverage } from "./workspace-types";
 
 const extractFailuresPattern = /\s+/g;
 
-// Readiness reads the plan, repository and capability registry. Baseline
-// commands can have side effects; readiness does not repair the plan.
-
-/** One run of a command: its exit code, its output, and the signal that killed it, if one did, with Node's code for why (`ETIMEDOUT`, `ENOBUFS`). */
 export interface ReadinessCommandRun {
   code?: string;
   exitCode: number;
@@ -129,15 +125,12 @@ export interface OperatorReadinessContext {
   capabilities?: MutationCapabilityRegistry;
   composition: OperatorComposition;
   facts: OperatorContext;
-  /** Consult git for working-tree state; default true. */
   git?: boolean;
   operators: readonly ArchitecturalOperator[];
   planning: OperatorPlanningContext;
-  /** Runs baseline commands; default spawns them with `CI=1`. */
   runner?: ReadinessCommandRunner;
 }
 
-/** Packages that must be analyzed before a mutation of this kind is authorized. */
 const MUTATION_COVERAGE_REQUIREMENTS: MutationCoverageRequirement[] = [
   { kind: "internalize", requiredPackages: "subject-only" },
   { kind: "move", requiredPackages: "source-target-consumers" },
@@ -261,12 +254,9 @@ class Findings {
 
 interface Assessment {
   context: OperatorReadinessContext;
-  /** Files the plan creates from nothing. */
   created: string[];
-  /** Files the plan removes. */
   deleted: string[];
   findings: Findings;
-  /** The same composition planned again now; absent when the sources moved. Compared, never returned. */
   fresh?: OperatorExecutionPlan;
   operators: Map<string, ArchitecturalOperator>;
   plan: OperatorExecutionPlan;
@@ -297,10 +287,6 @@ function deletedFiles(plan: OperatorExecutionPlan): string[] {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Source state
-
-/** Root-relative dirty files; undefined without git, or outside a repository. */
 function gitDirty(root: string, enabled: boolean): string[] | undefined {
   if (!enabled) {
     return undefined;
@@ -385,9 +371,6 @@ function resolveStatus(
   }
   return "changed";
 }
-
-// ---------------------------------------------------------------------------
-// Completeness
 
 function completeness(a: Assessment): ReadinessCompleteness {
   const { plan, context, findings } = a;
@@ -480,9 +463,6 @@ function completeness(a: Assessment): ReadinessCompleteness {
     verificationRequirements: composition.verification.length,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Structural consistency
 
 function overlapping(a: string[], b: string[]): boolean {
   return a.some((x) => b.includes(x));
@@ -706,9 +686,6 @@ function consistency(a: Assessment): ReadinessConsistency {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Constraints
-
 function operatorsOf(
   a: Assessment,
   t: PlannedTransformation
@@ -842,9 +819,6 @@ function surfaceChecks(a: Assessment): void {
   const visitR2 = () => {
     for (const r of removals) {
       const symbol = r.subject?.symbolId;
-      // Only a compatibility export at the old route, or a new export in the
-      // same barrel, keeps the old path alive; an export in the target's
-      // barrel is the new path, not the old one.
       const preservedElsewhere = compat.some(
         (c) =>
           (c.kind === "preserve-compatibility-export" || c.file === r.file) &&
@@ -1586,9 +1560,6 @@ function constraints(a: Assessment): ReadinessConstraintStatus {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Realizability
-
 function realizability(
   a: Assessment,
   sideEffectModules: string[]
@@ -1708,9 +1679,6 @@ function realizabilityT(
   return supported;
 }
 
-// ---------------------------------------------------------------------------
-// Preservation
-
 function preservation(a: Assessment): ReadinessPreservationStatus {
   const { plan, context, findings } = a;
   const violated = new Set(
@@ -1768,9 +1736,6 @@ function preservation(a: Assessment): ReadinessPreservationStatus {
     ),
   };
 }
-
-// ---------------------------------------------------------------------------
-// Verification
 
 interface ManifestScripts {
   scripts?: Record<string, string>;
@@ -1848,8 +1813,6 @@ function resolveSteps(a: Assessment): ReadinessVerificationStep[] {
         break;
       }
       case "typecheck": {
-        // The package's own script carries its own compiler options; project
-        // diagnostics inherit the planning project's and are the fallback.
         for (const pkg of step.scope) {
           const script = hasScript(a, pkg, "typecheck");
           steps.push({
@@ -1927,7 +1890,6 @@ function diagnosticKeys(a: Assessment, packages: string[]): string[] {
 const FAILURE_LINE = /(^|\s)(FAIL|×|✗)\s/;
 const TSC_LINE = /^(.+?)\(\d+,\d+\): error (TS\d+)/;
 
-/** Failure identities in a command's output: `<file>|TS####` for tsc, the failing test line for vitest. */
 function extractFailures(
   output: string,
   kind: PlannedVerificationKind,
@@ -1951,14 +1913,8 @@ function extractFailures(
   );
 }
 
-/** A command runs ten minutes at most, unless a caller says otherwise. */
 const COMMAND_TIMEOUT_MS = 600_000;
 
-/**
- * Runs a baseline command in the workspace with `CI=1`, as readiness does
- * by default; apply runs it again after a write. A command past its
- * timeout, or with more output than the buffer holds, is killed.
- */
 export function spawnRunner(
   command: ReadinessCommand,
   root: string,
@@ -2089,11 +2045,6 @@ function baselineStep(
   }
 }
 
-/**
- * One run of a command step as readiness records it: its exit code and the
- * failures it shows, `exit <code>` when it failed and showed none. Apply
- * compares a run after its write with the baseline in this form.
- */
 export function commandResult(
   ran: { exitCode: number; output: string },
   step: Pick<ReadinessVerificationStep, "command" | "kind">
@@ -2153,7 +2104,6 @@ function assertions(a: Assessment): ReadinessArchitecturalAssertion[] {
     .sort((x, y) => byId(x.verificationQuery, y.verificationQuery));
 }
 
-/** Structure always; baseline commands only when asked, since they are the expensive part. */
 function verification(
   a: Assessment,
   runBaseline: boolean
@@ -2220,9 +2170,6 @@ function verification(
     steps,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Rollback
 
 function readable(absolute: string): boolean {
   try {
@@ -2347,9 +2294,6 @@ function resolveAdd(ok: boolean, absent: boolean): { detail?: string } {
       : "the file already exists, so deleting it would not restore the prior state",
   };
 }
-
-// ---------------------------------------------------------------------------
-// Intent coverage, risks, authorization
 
 function intents(a: Assessment): ReadinessIntentCoverage[] {
   const { plan, context } = a;
@@ -2494,12 +2438,6 @@ function fingerprint(
   };
 }
 
-/**
- * Judge one execution plan against the repository as it is now. Source
- * fingerprints are checked first and short-circuit every source-reading
- * check; baseline commands run only when the structure holds up. Those
- * commands can have side effects.
- */
 export function assessOperatorPlanReadiness(
   plan: OperatorExecutionPlan,
   context: OperatorReadinessContext
@@ -2589,8 +2527,6 @@ export function assessOperatorPlanReadiness(
   const realizable = realizability(a, sideEffects);
   const preserved = preservation(a);
   const t2 = performance.now();
-  // Baseline commands are the expensive part; they run only for a plan that
-  // is otherwise clean, so a blocked plan never spends minutes in vitest.
   const verify = verification(a, findings.blockers.length === 0);
   const t3 = performance.now();
   const back = rollback(a);
@@ -2632,13 +2568,9 @@ export function assessOperatorPlanReadiness(
   };
 }
 
-/** What `authorizeMutationPlan` answers, in the order it checks. */
 export type MutationAuthorizationResult =
-  /** An operator a rule can name, which no rule permits; nothing was assessed. */
   | { kind: "refused-by-rule"; refused: RuleRefusal[] }
-  /** No mutator executes exactly this plan; nothing was assessed. */
   | { kind: "not-executable"; reason: string }
-  /** Readiness judged the plan and did not authorize it: stale, unsupported, blocked (a baseline that fails now), or not authorized. */
   | { kind: "readiness"; readiness: OperatorPlanReadiness }
   | {
       kind: "authorized";
@@ -2646,7 +2578,6 @@ export type MutationAuthorizationResult =
       record: AuthorizedMutationPlan;
     };
 
-/** The transformation kinds the saved-plan mutator performs. */
 const MUTATOR_TRANSFORMATIONS: Record<
   MutationExecution["mutator"],
   ReadonlySet<PlannedTransformation["kind"]>
@@ -2658,13 +2589,6 @@ const MUTATOR_TRANSFORMATIONS: Record<
   ]),
 };
 
-/**
- * The mutator that executes exactly this plan, or why none does: one
- * executable operator a rule can name, built from a saved plan that is
- * ready, whose every edit is compiled for that mutator. Readiness revalidates
- * the complete compiled batch against the current sources. `apply.ts` runs saved plans only, so
- * this is the one bridge from an execution plan to a write.
- */
 function executionOf(
   plan: OperatorExecutionPlan,
   context: OperatorReadinessContext
@@ -2682,8 +2606,6 @@ function executionOf(
   if (legacyOperatorId === undefined) {
     return { reason: `no mutator executes ${operator.kind} yet` };
   }
-  // A kind no rule can name was never checked against the rules, so it must
-  // not reach a mutator, whatever the catalog says.
   if (!ruleCanName(operator.kind)) {
     return { reason: `no rule can permit ${operator.kind} yet` };
   }
@@ -2725,7 +2647,6 @@ function executionOf(
   };
 }
 
-/** Readiness's five parts and the rules, under one `auth:` hash. */
 function recordFingerprint(
   readiness: MutationAuthorizationFingerprint,
   rules: string
@@ -2747,13 +2668,6 @@ function recordFingerprint(
   };
 }
 
-/**
- * The handoff to a mutator, checked cheapest first: the rules (an operator
- * no rule permits is refused), then the bridge to a mutator, and only then
- * readiness, which runs the baseline commands. The record holds ids and
- * fingerprints, never a plan copy, and its hash covers every rule, so an
- * edited or reordered rule invalidates it.
- */
 export function authorizeMutationPlan(
   plan: OperatorExecutionPlan,
   context: OperatorReadinessContext,

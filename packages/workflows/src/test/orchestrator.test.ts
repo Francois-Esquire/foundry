@@ -673,6 +673,69 @@ describe("Orchestrator.start — cold-start hydration", () => {
     await orch.stop();
   });
 
+  test("recovers takes on only the live Runs it accepts, and leaves the rest as stored, definition or not", async () => {
+    const localStore = makeInMemoryStore();
+    const asked: string[] = [];
+    const orch = new Orchestrator({
+      config: makeOrchestratorConfig(),
+      recovers: (run) => {
+        asked.push(`${run.id}:${run.lastStatus}`);
+        return run.id === "rn-taken";
+      },
+      store: localStore,
+    });
+    await orch.setup();
+    const [queue] = await localStore.listQueues();
+    if (!queue) {
+      throw new Error("expected queue");
+    }
+    for (const [id, step] of [
+      ["rn-taken", "known"],
+      ["rn-left", "known"],
+      ["rn-unregistered", "missing"],
+    ] as const) {
+      await localStore.createRun({
+        definition: { name: step },
+        id,
+        input: null,
+        queueId: queue.id,
+        step,
+      });
+    }
+    await localStore.updateRun("rn-left", { status: "running" });
+    let calls = 0;
+    orch.register("known", () =>
+      Workflow.create({
+        execute: async () => {
+          calls += 1;
+          return "known";
+        },
+        input: null,
+        name: "known",
+      })
+    );
+
+    await orch.start();
+    await (await orch.get("rn-taken"))?.result();
+
+    expect(asked.sort()).toEqual([
+      "rn-left:running",
+      "rn-taken:queued",
+      "rn-unregistered:queued",
+    ]);
+    expect(calls).toBe(1);
+    await expect(localStore.getRun("rn-left")).resolves.toMatchObject({
+      status: "running",
+    });
+    await expect(localStore.getRun("rn-unregistered")).resolves.toMatchObject({
+      status: "queued",
+    });
+    await expect(localStore.getRun("rn-taken")).resolves.toMatchObject({
+      status: "complete",
+    });
+    await orch.stop();
+  });
+
   test("a factory construction failure adopts no earlier prepared Run", async () => {
     const localStore = makeInMemoryStore();
     const orch = new Orchestrator({

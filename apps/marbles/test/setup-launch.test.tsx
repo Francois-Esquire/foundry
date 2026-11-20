@@ -1,10 +1,19 @@
+import { KeyEvent } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
-import { act } from "react";
+import { act, type ReactNode, useLayoutEffect } from "react";
 import { afterEach, expect, test } from "vitest";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { DashboardView } from "../src/cli/views/dashboard";
+import { OnboardingView } from "../src/cli/views/onboarding";
+import { WorkspaceWelcome } from "../src/cli/views/onboarding-intro";
 import { ArgumentForm } from "../src/components/blocks/argument-form";
-import { DashboardView } from "../src/views/dashboard";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
-import { OnboardingView } from "../src/views/onboarding";
+import {
+  type InputField,
+  type InputValues,
+  inputDefaults,
+  parseInputs,
+} from "../src/lib/inputs";
 import type { SetupDraft } from "../src/workspace/templates";
 
 let ui: Awaited<ReturnType<typeof testRender>>;
@@ -47,6 +56,50 @@ const empty: DashboardSnapshot = {
   workspace: "test",
 };
 const noop = () => undefined;
+
+function PressEnterOnLayout({ children }: { readonly children: ReactNode }) {
+  const { keyInput } = useRenderer();
+  useLayoutEffect(() => {
+    keyInput.emit(
+      "keypress",
+      new KeyEvent({
+        ctrl: false,
+        eventType: "press",
+        meta: false,
+        name: "return",
+        number: false,
+        option: false,
+        raw: "\r",
+        sequence: "\r",
+        shift: false,
+        source: "raw",
+      })
+    );
+  }, [keyInput]);
+  return children;
+}
+
+test("workspace welcome accepts Enter as soon as the screen is mounted", async () => {
+  let continued = false;
+  const onContinue = async () => {
+    continued = true;
+  };
+  await act(async () => {
+    ui = await testRender(
+      <PressEnterOnLayout>
+        <WorkspaceWelcome
+          onClose={noop}
+          onContinue={onContinue}
+          path="/workspace/marbles.config.ts"
+          workspace="/workspace"
+        />
+      </PressEnterOnLayout>,
+      { height: 24, width: 80 }
+    );
+  });
+  await flush();
+  expect(continued).toBe(true);
+});
 
 test("setup reviews the selected step, retains settings on back, and reports write failures", async () => {
   const drafts: SetupDraft[] = [];
@@ -191,28 +244,32 @@ test("forms validate fields, keep false and zero, and isolate input shortcuts", 
   const submit = (value: unknown) => {
     submitted = value;
   };
+  const fields: readonly InputField[] = [
+    { label: "Name", name: "name", required: true, type: "text" },
+    {
+      default: "one\ntwo",
+      label: "Notes",
+      name: "notes",
+      type: "multiline",
+    },
+    { default: 0, label: "Count", name: "count", type: "number" },
+    { default: false, label: "Enabled", name: "enabled", type: "boolean" },
+    {
+      default: "fast",
+      label: "Mode",
+      name: "mode",
+      options: [{ label: "Fast", value: "fast" }],
+      type: "select",
+    },
+  ];
+  const parse = (values: InputValues) => parseInputs(fields, values);
   ui = await testRender(
     <ArgumentForm
-      fields={[
-        { label: "Name", name: "name", required: true, type: "text" },
-        {
-          default: "one\ntwo",
-          label: "Notes",
-          name: "notes",
-          type: "multiline",
-        },
-        { default: 0, label: "Count", name: "count", type: "number" },
-        { default: false, label: "Enabled", name: "enabled", type: "boolean" },
-        {
-          default: "fast",
-          label: "Mode",
-          name: "mode",
-          options: [{ label: "Fast", value: "fast" }],
-          type: "select",
-        },
-      ]}
+      fields={fields}
+      initialValues={inputDefaults(fields)}
       onCancel={noop}
       onSubmit={submit}
+      parse={parse}
     />,
     { exitOnCtrlC: false, height: 35, kittyKeyboard: true, width: 80 }
   );

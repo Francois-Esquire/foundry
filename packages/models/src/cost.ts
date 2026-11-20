@@ -2,14 +2,6 @@ import type { ModelCosts, ModelCostTier } from "./types";
 
 const PER_MILLION = 1_000_000;
 
-/**
- * Pick the per-1M rate for a tiered price. Gateway tiers (Vercel/Qwen/Gemini
- * style) are bracketed by the *prompt size* — `selectorTokens` is the gross
- * input token count — and the matching tier's rate applies to both input and
- * output (the input and output tier arrays share the same brackets). Brackets
- * are min-inclusive, max-exclusive; the open-ended top tier omits `maxTokens`.
- * Falls back to `flat` when no tier brackets the count.
- */
 function tierRate(
   tiers: ModelCostTier[] | undefined,
   selectorTokens: number,
@@ -29,11 +21,6 @@ function tierRate(
   return flat;
 }
 
-/**
- * A turn's token counts, in the provider's reported shape. `inputTokens` is the
- * _gross_ prompt size — it already includes the cache read/write tokens, which
- * are reported separately so they can be billed at their own rates.
- */
 export interface CostUsageCounts {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
@@ -42,7 +29,6 @@ export interface CostUsageCounts {
   reasoningTokens?: number;
 }
 
-/** Per-category cost in USD. `total` is the sum. */
 export interface CostBreakdown {
   cacheRead: number;
   cacheWrite: number;
@@ -52,20 +38,6 @@ export interface CostBreakdown {
   total: number;
 }
 
-/**
- * Cost in USD from a model's catalog rates (USD per 1M tokens) and a turn's
- * token usage.
- *
- * `inputTokens` is treated as gross: the cache read/write portions are split
- * out and billed at their own rates (cache reads are cheaper, cache writes
- * dearer), and only the remainder bills at the standard input rate — so cache
- * tokens are never double-charged. Reasoning bills at the output rate. When the
- * catalog omits a cache rate it falls back to the input rate.
- *
- * Tiered models (`inputTiers`/`outputTiers`, e.g. Vercel-gateway long-context
- * pricing) select a rate by the gross prompt size and bill input *and* output
- * at that tier; models without tiers use the flat top-level rate.
- */
 export function costFromUsage(
   costs: ModelCosts,
   usage: CostUsageCounts
@@ -99,24 +71,8 @@ export function costFromUsage(
   };
 }
 
-/**
- * Where `@foundry/models` marks a Claude Code call that resumed no session:
- * `providerMetadata.foundry.claudeCodeFresh` is `true`. The Claude Code
- * provider sets it only when the model's settings name no `resume`,
- * `continue`, `sessionId` or `extraArgs` (default settings included) and no
- * earlier call ran on the same model instance, which would otherwise resume
- * the session that call captured.
- */
 export const CLAUDE_CODE_FRESH = { field: "claudeCodeFresh", key: "foundry" };
 
-/**
- * What Claude Code reported a call cost, in USD, when the call resumed no
- * session, else `undefined`. The figure is the CLI's `total_cost_usd`, which
- * `ai-sdk-provider-claude-code` carries as `costUsd`. It is a running total
- * for the CLI session, so only a call that resumed nothing has a figure of
- * its own. The CLI computes it from its own price table on any login, so it
- * is an estimate, not a bill.
- */
 export function claudeCodeCallCost(
   metadata: Readonly<Record<string, unknown>> | undefined
 ): number | undefined {

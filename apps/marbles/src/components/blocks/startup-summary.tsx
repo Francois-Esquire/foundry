@@ -1,6 +1,6 @@
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import type { StartupCounts } from "~/views/splash-model";
+import type { StartupCounts } from "~/model/splash";
 
 function countLabel(value: number, label: string): string {
   return `${value} ${label}${value === 1 ? "" : "s"}`;

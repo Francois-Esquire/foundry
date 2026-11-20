@@ -5,10 +5,8 @@ import type {
   HarnessQuestionResult,
   HarnessSession,
 } from "@foundry/agents/harness";
-import {
-  InMemorySessionStore,
-  type SessionMessage,
-} from "@foundry/agents/session";
+import type { SessionMessage } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Container } from "@foundry/sandbox/container/containers";
 import type { ToolSet } from "ai";
 import { tool as createTool } from "ai";
@@ -41,6 +39,7 @@ function settings(): SandboxSessionSettings {
     agentId: "worker",
     container: {} as Container,
     harness: "codex",
+    hostCwd: process.cwd(),
     instructions: "Parent instructions",
     modelId: "model",
     options: {
@@ -312,7 +311,6 @@ it("rebuilds host tools for the child's own session through the actual session f
   builtinSettings.length = 0;
   const parent = settings();
   parent.harness = "builtin";
-  // The built-in path needs a network model; the harness itself is stubbed.
   parent.model = {} as AgentModel;
   parent.hostToolsForSession = (sessionId) => ({
     owned: createTool({
@@ -384,7 +382,6 @@ it("records a delegated child's tool calls on the owning run, under the child's 
 
   await invoke(delegationTool(parent, open));
 
-  // The child inherits where to record.
   expect(open.mock.calls[0]?.[0].record).toBe(parent.record);
   expect(recorded.at(-1)).toEqual({
     id: "child:t1",

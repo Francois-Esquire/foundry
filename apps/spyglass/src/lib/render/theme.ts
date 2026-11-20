@@ -4,7 +4,6 @@ import type { Tone } from "./views";
 
 type Style = (text: string) => string;
 
-/** Semantic styles. Color is emphasis, never meaning; plain is all identity. */
 export interface RenderTheme {
   anchored: Style;
   blocked: Style;
@@ -25,7 +24,6 @@ export const plainTheme: RenderTheme = {
   muted: identity,
 };
 
-/** Forced on so output is deterministic; the context decides whether to use it. */
 export function colorTheme(): RenderTheme {
   const colors = pc.createColors(true);
   return {

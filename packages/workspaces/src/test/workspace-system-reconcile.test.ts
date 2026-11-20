@@ -5,13 +5,12 @@ import {
   WorkspacePersistenceError,
   WorkspaceSourceUnavailableError,
 } from "../errors";
-import { MemoryWorkspaceStore } from "../memory-store";
 import { nodeFileSystem } from "../node";
 import type { WorkspaceStore } from "../store";
+import { MemoryWorkspaceStore } from "../store/memory";
+import { fileRecord } from "../testing/records";
 import type { WorkspaceFileSystem } from "../types";
-
 import { directorySystem } from "./helpers/directory-system";
-import { fileRecord } from "./helpers/fixtures";
 import { makeRoot, systemOver } from "./helpers/temp-roots";
 
 describe("reconciliation", () => {
@@ -173,9 +172,6 @@ describe("reconciliation", () => {
     const rightWorkspace = await system.load({ path: right });
     const [leftFile] = await leftWorkspace.files();
 
-    // The right Workspace gains a File with the left's exact fingerprint while
-    // the left loses nothing. A fingerprint index that ignored ownership would
-    // hand the left's id to the right's new File.
     await writeFile(join(right, "twin.md"), "identical bytes");
 
     const view = await rightWorkspace.refresh();
@@ -219,9 +215,6 @@ describe("reconciliation", () => {
     const offline = directorySystem({ filesystem: unreachable, store });
     const workspace = await offline.open(id);
 
-    // `files` is the last successful observation, not a new one. A read that
-    // scanned would make every page load cost a walk — and would fail
-    // outright whenever the source is away.
     expect(await workspace.files()).toEqual(files);
     expect(await workspace.summary()).toEqual(
       await (await systemOver(store).open(id)).summary()
@@ -230,11 +223,6 @@ describe("reconciliation", () => {
     expect(reached).toEqual([]);
   });
 
-  /**
-   * A filesystem that holds its first root listing open after it has been
-   * read: that scan has observed the source and waits, stale, until released.
-   * Later listings pass straight through.
-   */
   function heldScan(root: string) {
     const started = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
@@ -255,11 +243,6 @@ describe("reconciliation", () => {
     };
     return {
       filesystem,
-      /**
-       * Releases once `competing` settles or has visibly stalled. A queued
-       * caller stalls behind the held scan; an unqueued one would race past
-       * it, and releasing only then is what lets a stale scan commit last.
-       */
       async releaseAfter(competing: Promise<unknown>) {
         await Promise.race([
           competing.catch(() => undefined),
@@ -301,9 +284,6 @@ describe("reconciliation", () => {
   it("queues a reopened instance behind its predecessor's observation", async () => {
     const { root, store, id } = await opened({ "README.md": "first" });
     await writeFile(join(root, "second.md"), "more");
-    // The first commit is held after its diff was computed: an observation
-    // that started meanwhile would diff against the same pre-commit rows,
-    // mint a second id for `second.md`, and collide when it commits.
     const committing = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
     let commits = 0;
@@ -323,12 +303,9 @@ describe("reconciliation", () => {
       getWorkspace: (workspaceId) => store.getWorkspace(workspaceId),
       listEntries: (workspaceId) => store.listEntries(workspaceId),
       listWorkspaces: (input) => store.listWorkspaces(input),
-      removeWorkspace: (workspaceId) => store.removeWorkspace(workspaceId),
     };
     const system = directorySystem({ store: holding });
 
-    // Closing stops an instance but does not wait for its refresh; the queue
-    // is the system's, so the reopened instance waits behind it anyway.
     const before = await system.open(id);
     const inFlight = before.refresh();
     await committing.promise;
@@ -336,7 +313,6 @@ describe("reconciliation", () => {
     const after = await system.open(id);
     expect(after).not.toBe(before);
     const reopened = after.refresh();
-    // A queued refresh stalls here; an unqueued one reaches the catalog.
     await new Promise((resolve) => setTimeout(resolve, 50));
     release.resolve(undefined);
     const [left, right] = await Promise.all([inFlight, reopened]);
@@ -398,8 +374,6 @@ describe("reconciliation", () => {
   it("keeps the prior catalog when the catalog refuses the commit", async () => {
     const { root, store, id, files } = await opened({ "README.md": "first" });
     await writeFile(join(root, "second.md"), "more");
-    // The diff is computed from the first read; by the catalog's own read a
-    // row already holds `second.md`, so the arrival collides and is refused.
     const phantom = fileRecord(id, { path: "second.md" });
     let reads = 0;
     const refusing: WorkspaceStore = {
@@ -415,7 +389,6 @@ describe("reconciliation", () => {
         return reads === 2 ? [...rows, phantom] : rows;
       },
       listWorkspaces: (input) => store.listWorkspaces(input),
-      removeWorkspace: (workspaceId) => store.removeWorkspace(workspaceId),
     };
 
     const failure = await directorySystem({ store: refusing })
@@ -427,8 +400,6 @@ describe("reconciliation", () => {
       );
 
     expect(failure).toBeInstanceOf(WorkspacePersistenceError);
-    // The catalog's reason travels as a cause for the log, never as text that
-    // could be shown.
     expect(failure?.message).toBe(`Could not reconcile Workspace ${id}`);
     expect(String((failure as { cause?: unknown } | null)?.cause)).toContain(
       "Duplicate storage path"

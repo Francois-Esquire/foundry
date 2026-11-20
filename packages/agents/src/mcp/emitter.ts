@@ -1,10 +1,5 @@
 export type McpListener<T> = (payload: T) => void;
 
-/**
- * The smallest typed emitter the MCP classes need. Listeners are called
- * synchronously and never awaited; a listener that throws does not stop the
- * others.
- */
 export class McpEmitter<Events> {
   readonly #listeners = new Map<keyof Events, Set<McpListener<never>>>();
 
@@ -32,7 +27,8 @@ export class McpEmitter<Events> {
       try {
         (listener as McpListener<Events[K]>)(payload);
       } catch {
-        // Keep delivering to the remaining listeners.
+        // biome-ignore lint/complexity/noUselessContinue: Keep delivering after a listener throws.
+        continue;
       }
     }
   }

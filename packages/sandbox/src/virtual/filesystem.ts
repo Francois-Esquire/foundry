@@ -21,9 +21,7 @@ export class ObservableFileSystem
     try {
       await operation();
     } finally {
-      // Host observers may schedule work; shell execution remains guarded.
       DefenseInDepthBox.runTrusted(() => {
-        // A failed recursive operation may still have changed part of the tree.
         for (const listener of this.listeners) {
           listener();
         }

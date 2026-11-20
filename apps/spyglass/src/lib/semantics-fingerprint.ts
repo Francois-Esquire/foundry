@@ -12,34 +12,12 @@ import type {
 } from "./semantics-types";
 import type { AnalysisProfile } from "./types";
 
-// Input fingerprints, two tiers since V12.6.
-//
-// Package-local (`packageLocalFingerprint`): the package's own TypeScript
-// sources and manifest plus the local analysis stage version. Nothing else
-// can change a local report — not the clock, not Git, not any other
-// package — so nothing else is hashed.
-//
-// Workspace (`collectWorkspaceInputs` / `packageFingerprint`): the gate for
-// the assembled report, whose derived half reads the whole workspace — one
-// TypeScript program (external usage, concept evidence), one cruise of the
-// module graph (gravity reach, change radius, every file an import can
-// reach — manifests, styles, plain JS), one declaration index (overlap), and
-// churn ranked against every tracked file's history. Every component is
-// workspace-wide; packages differ only by identity. An assembled report is
-// reusable exactly when nothing derivation can read has moved.
-
 export interface WorkspaceInputs {
-  /** `packageAnalysis` stage fingerprint: report schema and analysis policy. */
   analysis: string;
-  /** Analysis clock every package is measured under, ISO-8601. */
   clock: string;
-  /** `configFingerprint`: the exclusions and the profile. */
   config: string;
-  /** Evolution's inputs: every commit hash in the root's Git log plus every tracked path, or the reason Git is unavailable. */
   evolution: string;
-  /** Root-relative posix path → content sha1 of every workspace input file, sorted. */
   files: Map<string, string>;
-  /** Hash of `files`. */
   sources: string;
 }
 
@@ -66,13 +44,6 @@ function hashPairs(pairs: Iterable<[string, string]>): string {
   return sha1(JSON.stringify([...pairs]));
 }
 
-/**
- * The configuration and profile inputs a scan's results depend on, by
- * allow-list: the exclusions and the analysis profile. The workspace
- * declaration is not here; its files are hashed with the sources
- * (`workspaceManifests`). The history policy chooses checkpoints and changes
- * no analysis; domains and other settings only a lens reads never enter here.
- */
 export function configFingerprint(inputs: {
   exclude: readonly string[];
   profile: AnalysisProfile;
@@ -85,7 +56,6 @@ export function configFingerprint(inputs: {
   );
 }
 
-/** Manifests of every workspace package plus the root's and the pnpm declaration: names, entries, exports, owners. */
 function workspaceManifests(root: string): string[] {
   const manifests = [
     join(root, "package.json"),
@@ -102,15 +72,8 @@ function workspaceManifests(root: string): string[] {
   return manifests;
 }
 
-/**
- * The Foundry tools' own directory: Spyglass's configuration (`.foundry/spyglass/`)
- * and other tools' state. Never a workspace input, though a `*` package
- * pattern makes the cruise reach its modules; otherwise a domains-only edit
- * would invalidate every package.
- */
 const FOUNDRY_DIRECTORY = ".foundry/";
 
-/** Every module dependency-cruiser reaches from the workspace, root-relative posix. */
 async function cruisedModules(
   root: string,
   units: readonly Pick<SemanticsWorkspaceUnit, "path">[]
@@ -127,19 +90,13 @@ async function cruisedModules(
 }
 
 export interface CollectWorkspaceInputsOptions {
-  /** Only the exclusions are read, for the `config` component. */
   config: Pick<SemanticsConfig, "exclude">;
   now: Date;
   profile?: AnalysisProfile;
   root: string;
-  /** Only whether there is one, and the first one's path, are read: the cruise is workspace-wide. */
   units: readonly Pick<SemanticsWorkspaceUnit, "path">[];
 }
 
-/**
- * Everything a package analysis can read, hashed. One cruise and one Git log
- * for the whole workspace — a few seconds against minutes of analysis.
- */
 export async function collectWorkspaceInputs(
   options: CollectWorkspaceInputsOptions
 ): Promise<WorkspaceInputs> {
@@ -186,12 +143,6 @@ export async function collectWorkspaceInputs(
   };
 }
 
-/**
- * One hash over every workspace input: what a dataset records, and what
- * apply and plan compare to tell whether it is current. Any source edit, a
- * commit, a tracked file added or removed, another UTC day, an edited
- * exclusion or profile, or another analysis version moves it.
- */
 export function workspaceInputsHash(
   inputs: Pick<
     WorkspaceInputs,
@@ -232,25 +183,17 @@ export function packageFingerprint(
 
 // biome-ignore lint/style/useConsistentTypeDefinitions: Cache components require the implicit Record<string, string> index signature of a type alias.
 type PackageLocalFingerprintComponents = {
-  /** `packageLocalAnalysis` stage fingerprint: local report schema and analysis policy. */
   analysis: string;
-  /** sha1 over the sorted (path, sha1) pairs of the package's own sources and manifest. */
   sources: string;
 };
 
 export interface PackageLocalFingerprint {
   combined: string;
   components: PackageLocalFingerprintComponents;
-  /** Root-relative posix path → content sha1 of every local input, sorted. */
   files: Map<string, string>;
   packageId: string;
 }
 
-/**
- * The package-local cache key. Owned sources are enumerated by
- * `packageSourceFiles` — the same rule local analysis loads by — and hashes
- * are taken from `inputs.files` when the workspace pass already read them.
- */
 export function packageLocalFingerprint(
   root: string,
   unit: SemanticsWorkspaceUnit,
@@ -284,7 +227,6 @@ export function packageLocalFingerprint(
   };
 }
 
-/** Start of the UTC day holding `date`: the default analysis clock. */
 export function startOfUtcDay(date: Date): Date {
   return new Date(
     Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())

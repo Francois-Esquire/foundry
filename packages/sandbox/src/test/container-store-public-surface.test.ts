@@ -3,21 +3,29 @@ import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { CONTAINER_ROW_STATUSES } from "../container/constants";
-import { createMemoryContainerStore } from "../container/store";
+import { MemoryContainerStore } from "../store/memory";
+import type { ParsedImport } from "./helpers/boundary-scan";
 import { importSites, REPO_ROOT, sourceFiles } from "./helpers/boundary-scan";
 
-const MISSING_CONTAINER_ERROR = /does not exist/;
-const DUPLICATE_CONTAINER_ERROR = /already exists/;
+const CONTRACTS_ROOT = join(REPO_ROOT, "packages/sandbox/src/store");
 
-const CONTRACTS_ROOT = join(
+const RECORDS_SCHEMA = join(REPO_ROOT, "packages/sandbox/src/schema.ts");
+
+const RECORD_CONSTANTS = join(
   REPO_ROOT,
-  "packages/sandbox/src/container/store.ts"
+  "packages/sandbox/src/container/constants.ts"
 );
 
-/** Anything that would tie the contracts to a host runtime or a provider. */
+const DRIZZLE_FILES = ["sqlite.ts", "tables.ts"].map((file) =>
+  join(CONTRACTS_ROOT, file)
+);
+
 const RUNTIME_SPECIFIERS = ["ignore", "just-bash", "microsandbox", "zod"];
 
-function isRuntimeImport(fromPath: string, specifier: string): boolean {
+function isRuntimeImport(
+  fromPath: string,
+  { specifier, typeOnly }: ParsedImport
+): boolean {
   if (specifier.startsWith("node:")) {
     return true;
   }
@@ -28,12 +36,18 @@ function isRuntimeImport(fromPath: string, specifier: string): boolean {
     return false;
   }
   const target = resolve(dirname(fromPath), specifier);
+  if (typeOnly && `${target}.ts` === RECORDS_SCHEMA) {
+    return false;
+  }
+  if (`${target}.ts` === RECORD_CONSTANTS) {
+    return false;
+  }
   return relative(CONTRACTS_ROOT, target).startsWith("..");
 }
 
 describe("container store contract", () => {
   it("loads the store contract and the memory store", () => {
-    expect(createMemoryContainerStore).toBeTypeOf("function");
+    expect(MemoryContainerStore).toBeTypeOf("function");
     expect(CONTAINER_ROW_STATUSES).toEqual([
       "starting",
       "running",
@@ -41,6 +55,7 @@ describe("container store contract", () => {
       "missing",
       "stopped",
       "failed",
+      "removing",
     ]);
   });
 
@@ -48,9 +63,7 @@ describe("container store contract", () => {
     const files = sourceFiles(CONTRACTS_ROOT);
     expect(files.length).toBeGreaterThan(0);
     const violations = importSites(files)
-      .filter(({ path, import: parsed }) =>
-        isRuntimeImport(path, parsed.specifier)
-      )
+      .filter(({ path, import: parsed }) => isRuntimeImport(path, parsed))
       .map(
         ({ relativePath, import: parsed }) =>
           `${relativePath}:${parsed.line} imports ${parsed.specifier}`
@@ -58,34 +71,30 @@ describe("container store contract", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps the registry off the contracts entry", async () => {
-    const containers = await import("../container/store");
-    expect(containers).not.toHaveProperty("createContainers");
+  it("keeps Drizzle to the SQLite store and its tables", () => {
+    const violations = importSites(sourceFiles(CONTRACTS_ROOT))
+      .filter(
+        ({ path, import: parsed }) =>
+          parsed.specifier.startsWith("drizzle-orm") &&
+          !DRIZZLE_FILES.includes(path)
+      )
+      .map(({ relativePath }) => relativePath);
+    expect(violations).toEqual([]);
+    expect(
+      importSites(sourceFiles(CONTRACTS_ROOT)).filter(({ import: parsed }) =>
+        parsed.specifier.startsWith("@libsql/")
+      )
+    ).toEqual([]);
   });
 
-  it("round-trips rows through the memory store", async () => {
-    const store = createMemoryContainerStore();
-    const row = {
-      createdAt: 1,
-      id: "c1",
-      nativeId: undefined,
-      spec: "{}",
-      status: "starting" as const,
-      updatedAt: 1,
-    };
-    await store.insert(row);
-    await expect(store.insert(row)).rejects.toThrow(DUPLICATE_CONTAINER_ERROR);
-    await store.update("c1", { nativeId: "c1-1", status: "running" });
-    expect(await store.get("c1")).toEqual({
-      ...row,
-      nativeId: "c1-1",
-      status: "running",
-    });
-    expect(await store.list()).toHaveLength(1);
-    await store.remove("c1");
-    expect(await store.get("c1")).toBeUndefined();
-    await expect(store.update("c1", { status: "stopped" })).rejects.toThrow(
-      MISSING_CONTAINER_ERROR
-    );
+  it("keeps the registry and the memory store off the contracts entry", async () => {
+    const contracts = await import("../store/index");
+    expect(Object.keys(contracts)).toEqual([]);
+    const memory = await import("../store/memory");
+    expect(Object.keys(memory)).toEqual(["MemoryContainerStore"]);
+    const sqlite = await import("../store/sqlite");
+    expect(Object.keys(sqlite)).toEqual(["SqliteContainerStore"]);
+    const tables = await import("../store/tables");
+    expect(Object.keys(tables)).toEqual(["sandboxContainers"]);
   });
 });

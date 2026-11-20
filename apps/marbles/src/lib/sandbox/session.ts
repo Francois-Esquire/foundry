@@ -12,7 +12,7 @@ import {
   createHarnessPermission,
   createHarnessQuestionTool,
 } from "@foundry/agents/harness";
-import type { SessionStore } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 import type { Container } from "@foundry/sandbox/container/containers";
 import type { Tool, ToolSet } from "ai";
 import { type CliHarness, isCliHarness } from "~/lib/cli-harnesses";
@@ -44,10 +44,6 @@ const BUILTIN_SCHEDULED_PROFILE: HarnessPermissionProfile = {
   unresolved: "deny",
 };
 
-/**
- * Who decides what a sandboxed agent may do, and who hears about it. A host
- * builds one with `HarnessInteractions.authority`.
- */
 export type SandboxAuthority = Pick<
   HarnessAuthoritySettings,
   "approve" | "onApprovalRequest" | "policy"
@@ -59,23 +55,17 @@ export interface SandboxSessionOptions extends SandboxAgentOptions {
 
 export interface SandboxSessionSettings {
   agentId: string;
-  /** The container behind `options.sandbox`; the harness runs inside it. */
   container: Container;
   delegation?: DelegationScope;
-  /** The provider instance's execution: its environment and guest driver. Without one, the first-party driver for `harness` runs. */
   execution?: Execution;
-  /** A CLI harness runs its CLI in the guest; any other runs the built-in coding harness. */
   harness: string;
-  hostCwd?: string;
-  /** Host tools for one session; a delegated child gets its own. */
+  hostCwd: string;
   hostToolsForSession?: (sessionId: string) => ToolSet;
   instructions: string;
   model?: AgentModel;
   modelId: string;
-  /** Opens an observation for each built-in coding turn, wrapping its model. */
   observe?: ObserveTurn;
   onActivity?: (event: HarnessActivityEvent) => void | Promise<void>;
-  /** Track a delegated child; the delegate drives and closes the session this returns. */
   onChildSession?: (
     sessionId: string,
     session: HarnessSession
@@ -83,24 +73,18 @@ export interface SandboxSessionSettings {
   options: SandboxSessionOptions;
   parentActivityId?: string;
   provider: string;
-  /**
-   * Where the run that owns the session records: each CLI harness turn,
-   * timed and with the usage the CLI reported, and a delegated child's tool
-   * calls. A delegated child inherits it and records under its own id.
-   */
   record?: RecordObservation;
   registerChildSession?: (sessionId: string) => Promise<void>;
   sessionId: string;
   signal: AbortSignal;
   store: SessionStore;
+  wireModelId?: string;
   write: (value: unknown) => void;
 }
 
-/** What both kinds of harness are handed alike: approvals, `ask_user`, and the host's tools. */
 interface SessionShared {
   readonly approvals: Pick<SandboxAuthority, "approve" | "onApprovalRequest">;
   readonly askUser: Tool;
-  /** This session's host tools and `delegate`. */
   readonly hostTools: ToolSet;
 }
 
@@ -138,7 +122,6 @@ export async function createSandboxSession(
   return builtinSession(settings, shared);
 }
 
-/** The built-in coding harness on a network model, its tools working in the guest. */
 function builtinSession(
   settings: SandboxSessionSettings,
   { approvals, askUser, hostTools }: SessionShared
@@ -184,7 +167,6 @@ function builtinSession(
   );
 }
 
-/** A native CLI harness prepared in the guest, driven from the host. */
 async function cliSession(
   settings: SandboxSessionSettings,
   harness: CliHarness,
@@ -207,11 +189,12 @@ async function cliSession(
     harness,
     nativeId
   );
+  const modelId = settings.wireModelId ?? settings.modelId;
   const auth = await guestAuth(harness, {
     ...options,
     ...(execution ? { env: execution.env } : {}),
     ...(execution?.bin ? { bin: execution.bin } : {}),
-    modelId: settings.modelId,
+    modelId,
   });
   const guest = await prepareGuest(container, {
     auth,
@@ -222,7 +205,7 @@ async function cliSession(
   const driver = await (execution?.driver ?? FIRST_PARTY_DRIVERS[harness])({
     auth,
     guest,
-    settings,
+    settings: { ...settings, modelId },
   });
   return createDriverSession(
     {

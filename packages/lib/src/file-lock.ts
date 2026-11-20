@@ -1,18 +1,3 @@
-/**
- * Cross-process exclusion through a lock file created with `wx`: whoever
- * creates it holds the lock until it removes it. The file records the
- * holder's pid.
- *
- * One protocol, two ways in: `tryFileLock` takes the lock now or says who
- * has it, for callers that skip rather than wait; `acquireFileLock` retries
- * that same attempt until a deadline. Each step of an attempt is a
- * synchronous file operation, so within one process no two attempts
- * interleave; across processes, the steps below are what keep them apart.
- *
- * Node-bound: import it from main-process code only. Exclusion within one
- * process is the caller's job (see `KeyedQueue`); this lock is not reentrant.
- */
-
 import {
   closeSync,
   fstatSync,
@@ -23,60 +8,39 @@ import {
   writeSync,
 } from "node:fs";
 
-import { hasErrorCode } from "./atomic-file";
+import { hasErrorCode, writeFileAtomicSync } from "./atomic-file";
+import {
+  isGone,
+  type ProcessIdentity,
+  sameProcess,
+  thisProcess,
+} from "./process-identity";
 
 const DEFAULT_WAIT_MS = 5000;
 const DEFAULT_RETRY_MS = 10;
-/**
- * How long a lock file may stay empty before it counts as abandoned. Its
- * creator writes its pid right after creating it, so one still empty this
- * long was left by a process that died in between (or wrote it before a
- * power loss reached the disk).
- */
 const ABANDONED_EMPTY_MS = 30_000;
 
 export interface TryFileLockOptions {
-  /**
-   * Replace a lock whose recorded holder is no longer running, or that has
-   * recorded no holder for 30s. Leave it off where a crashed writer may have
-   * left damage a person should look at first. Breakers take turns (see
-   * `breakStaleLock`), so exactly one of them takes a stale lock over.
-   */
   readonly breakStale?: boolean;
-  /** Mode of the lock file. Defaults to 0o600. */
   readonly mode?: number;
 }
 
 export interface FileLockOptions extends TryFileLockOptions {
-  /** How often to try again while another process holds it. Defaults to 10ms. */
   readonly retryMs?: number;
-  /** How long to wait for the holder before giving up. Defaults to 5s. */
   readonly waitMs?: number;
 }
 
-/** A lock this process holds. `release` runs once (see `releaser`). */
 export interface FileLock {
   release(): void;
 }
 
-/** A lock someone else holds. */
 export interface FileLockHolder {
-  /**
-   * The file is empty: its creator has not written its pid yet. With
-   * `breakStale`, one left empty for 30s is broken.
-   */
   readonly empty?: true;
-  /**
-   * The pid the file records, or `undefined` when it records none. A file
-   * that is neither empty nor a pid (unreadable, or written by hand) is
-   * never broken.
-   */
   readonly holder: number | undefined;
+  readonly owner?: ProcessIdentity;
 }
 
-/** Thrown when the lock stays held past the wait. */
 export class FileLockTimeoutError extends Error {
-  /** The pid recorded in the lock file, when it records one. */
   readonly holder: number | undefined;
   readonly path: string;
 
@@ -92,22 +56,10 @@ export class FileLockTimeoutError extends Error {
   }
 }
 
-/** `EPERM` counts as running: the pid exists but belongs to another user. */
-export function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return hasErrorCode(error, "EPERM");
-  }
-}
-
-/** A lock file as one read finds it. */
 type LockFile =
   | { readonly kind: "missing" }
-  | { readonly kind: "holder"; readonly pid: number }
+  | { readonly kind: "holder"; readonly owner: ProcessIdentity }
   | { readonly kind: "empty"; readonly ino: number; readonly mtimeMs: number }
-  /** Unreadable, or not a pid: for a person to look at. */
   | { readonly kind: "other" };
 
 function absentOr(error: unknown): LockFile {
@@ -116,29 +68,67 @@ function absentOr(error: unknown): LockFile {
 
 function readLock(path: string): LockFile {
   let contents: string;
+  let file: ReturnType<typeof statSync>;
   try {
     contents = readFileSync(path, "utf8");
+    file = statSync(path);
   } catch (error) {
     return absentOr(error);
   }
   if (contents === "") {
-    try {
-      const { ino, mtimeMs } = statSync(path);
-      return { ino, kind: "empty", mtimeMs };
-    } catch (error) {
-      return absentOr(error);
-    }
+    return { ino: file.ino, kind: "empty", mtimeMs: file.mtimeMs };
   }
   const pid = Number(contents);
   return Number.isInteger(pid) && pid > 0
-    ? { kind: "holder", pid }
+    ? {
+        kind: "holder",
+        owner: { pid, started: ownerStart(path, pid, file) },
+      }
     : { kind: "other" };
 }
 
-/** Whether two reads found the same lock: one holder, or one untouched empty file. */
+interface OwnerNote {
+  readonly ctimeMs: number;
+  readonly ino: number;
+  readonly pid: number;
+  readonly started: string;
+}
+
+function ownerNotePath(path: string): string {
+  return `${path}.owner`;
+}
+
+function ownerStart(
+  path: string,
+  pid: number,
+  file: { readonly ctimeMs: number; readonly ino: number }
+): string | null {
+  let note: Partial<OwnerNote>;
+  try {
+    note = JSON.parse(readFileSync(ownerNotePath(path), "utf8"));
+  } catch {
+    return null;
+  }
+  return note.ino === file.ino &&
+    note.ctimeMs === file.ctimeMs &&
+    note.pid === pid &&
+    typeof note.started === "string"
+    ? note.started
+    : null;
+}
+
+function noteOwner(path: string, mode: number, file: OwnerNote): void {
+  try {
+    writeFileAtomicSync(ownerNotePath(path), JSON.stringify(file), { mode });
+  } catch {
+    // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+    return;
+  }
+}
+
 function sameLock(a: LockFile, b: LockFile): boolean {
   if (a.kind === "holder" && b.kind === "holder") {
-    return a.pid === b.pid;
+    return a.owner.pid === b.owner.pid && a.owner.started === b.owner.started;
   }
   if (a.kind === "empty" && b.kind === "empty") {
     return a.ino === b.ino && a.mtimeMs === b.mtimeMs;
@@ -149,7 +139,7 @@ function sameLock(a: LockFile, b: LockFile): boolean {
 function abandoned(lock: LockFile): boolean {
   switch (lock.kind) {
     case "holder":
-      return !processAlive(lock.pid);
+      return isGone(lock.owner);
     case "empty":
       return Date.now() - lock.mtimeMs > ABANDONED_EMPTY_MS;
     default:
@@ -160,7 +150,7 @@ function abandoned(lock: LockFile): boolean {
 function heldBy(lock: LockFile): FileLockHolder {
   switch (lock.kind) {
     case "holder":
-      return { holder: lock.pid };
+      return { holder: lock.owner.pid, owner: lock.owner };
     case "empty":
       return { empty: true, holder: undefined };
     default:
@@ -168,22 +158,24 @@ function heldBy(lock: LockFile): FileLockHolder {
   }
 }
 
-/**
- * The pid a lock file records, or `undefined` when there is no file (it was
- * released between an attempt and this read) or it records no pid.
- */
 export function lockHolder(path: string): number | undefined {
-  const lock = readLock(path);
-  return lock.kind === "holder" ? lock.pid : undefined;
+  return lockOwner(path)?.pid;
 }
 
-/**
- * Create `path` exclusively and record this process in it. `false` when it
- * already exists. A lock whose pid could not be written is removed again, so
- * it does not sit empty until it counts as abandoned. `false` too when the
- * file was broken as abandoned while this process stalled between creating
- * it and writing its pid, and another has taken the lock since.
- */
+export function lockOwner(path: string): ProcessIdentity | undefined {
+  const lock = readLock(path);
+  return lock.kind === "holder" ? lock.owner : undefined;
+}
+
+export function holdsLock(path: string): boolean {
+  const owner = lockOwner(path);
+  return owner !== undefined && sameProcess(owner, thisProcess());
+}
+
+export function lockContents(): string {
+  return String(thisProcess().pid);
+}
+
 function create(path: string, mode: number): boolean {
   let file: number;
   try {
@@ -194,11 +186,11 @@ function create(path: string, mode: number): boolean {
     }
     throw error;
   }
-  let ino: number;
+  let written: { readonly ctimeMs: number; readonly ino: number };
   try {
     try {
-      writeSync(file, String(process.pid));
-      ({ ino } = fstatSync(file));
+      writeSync(file, lockContents());
+      written = fstatSync(file);
     } finally {
       closeSync(file);
     }
@@ -207,24 +199,24 @@ function create(path: string, mode: number): boolean {
     throw error;
   }
   try {
-    return statSync(path).ino === ino;
+    if (statSync(path).ino !== written.ino) {
+      return false;
+    }
   } catch {
     return false;
   }
+  const { pid, started } = thisProcess();
+  if (started !== null) {
+    noteOwner(path, mode, {
+      ctimeMs: written.ctimeMs,
+      ino: written.ino,
+      pid,
+      started,
+    });
+  }
+  return true;
 }
 
-/**
- * Remove the lock at `path` if it is still the abandoned lock `seen`: the
- * same exited holder, or the same untouched empty file. Breakers take turns
- * through `${path}.break`, and each re-reads the lock while it has that
- * turn. Without that, two processes that both judged one lock abandoned
- * could each remove a lock, the second removing the one the first had just
- * taken, and both would hold it. `false` when another process has the turn.
- *
- * A process that dies holding `.break` leaves breaking switched off for this
- * lock: abandoned locks then stay held until someone removes the `.break`
- * file. That fails safe.
- */
 function breakStaleLock(path: string, seen: LockFile, mode: number): boolean {
   const turn = `${path}.break`;
   try {
@@ -245,11 +237,6 @@ function breakStaleLock(path: string, seen: LockFile, mode: number): boolean {
   }
 }
 
-/**
- * The release for a lock this process created. It runs once, and removes the
- * file only while it still names this process, so a late or repeated call
- * cannot remove a lock someone else has taken since.
- */
 function releaser(path: string): () => void {
   let released = false;
   return () => {
@@ -257,17 +244,13 @@ function releaser(path: string): () => void {
       return;
     }
     released = true;
-    if (lockHolder(path) === process.pid) {
+    if (holdsLock(path)) {
+      rmSync(ownerNotePath(path), { force: true });
       rmSync(path, { force: true });
     }
   };
 }
 
-/**
- * Take the lock at `path` now, or say who holds it. With `breakStale`, an
- * abandoned lock (its holder exited, or it stayed empty for 30s) is broken
- * and taken over in the same call.
- */
 export function tryFileLock(
   path: string,
   options: TryFileLockOptions = {}
@@ -277,7 +260,6 @@ export function tryFileLock(
     return { release: releaser(path) };
   }
   const seen = readLock(path);
-  // Released between the attempt and the read: free again.
   const freed = seen.kind === "missing";
   const retry =
     freed ||
@@ -285,11 +267,9 @@ export function tryFileLock(
   if (retry && create(path, mode)) {
     return { release: releaser(path) };
   }
-  // Another process took it over first, or has the turn to break it.
   return heldBy(readLock(path));
 }
 
-/** Take the lock at `path`, waiting for its holder; resolves to its release. */
 export async function acquireFileLock(
   path: string,
   options: FileLockOptions = {}
@@ -311,7 +291,6 @@ export async function acquireFileLock(
   }
 }
 
-/** Run `operation` holding the lock at `path`, releasing it however it ends. */
 export async function withFileLock<T>(
   path: string,
   operation: () => Promise<T>,

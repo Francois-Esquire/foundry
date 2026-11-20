@@ -1,10 +1,3 @@
-/**
- * Executable entry for the unbound local-inference worker. Started via
- * `fork(worker-entry, ["--cache", <dir>])` from {@link forkLocalWorker};
- * hosts a real LocalProvider and serves the bridge protocol over Node IPC.
- * Exits when the host disconnects so no orphan keeps a model in RAM.
- */
-
 import { configureCache, LocalProvider } from "../provider";
 import { processIpcTransport } from "./transport";
 import { runLocalWorker } from "./worker";

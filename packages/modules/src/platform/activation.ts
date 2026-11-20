@@ -1,5 +1,6 @@
 import { installationPrincipal } from "../access";
 import type { Installation, ModuleVersion } from "../domain";
+import { ModuleStoreConflictError } from "../errors";
 import type { ModuleCapabilityProvider } from "../gateway/types";
 import { isStrictModuleManifest, moduleSettingRequests } from "../manifest";
 import {
@@ -7,13 +8,12 @@ import {
   type ActivationPreflight,
   preflightModuleActivation,
 } from "../preflight";
+import type { ModuleCommands } from "../registry";
 import {
   type ModuleSettingsHostPolicy,
   type ModuleSettingValues,
   resolveModuleSettings,
 } from "../settings";
-import type { ModuleStore } from "../store/contract";
-import { ModuleStoreConflictError } from "../store/contract";
 import type { ModuleProgramLaunch } from "./contracts";
 
 export interface ModuleActivationInput {
@@ -26,7 +26,6 @@ export interface ModuleActivationInput {
   readonly version: ModuleVersion;
 }
 
-/** A Version that may not start here: each blocking fact says why. */
 export class ModuleActivationRefusedError extends Error {
   override readonly name = "ModuleActivationRefusedError";
   readonly facts: readonly ActivationCompatibilityFact[];
@@ -39,11 +38,10 @@ export class ModuleActivationRefusedError extends Error {
   }
 }
 
-/** Canonical activation policy, also available to hosts resolving automatic launches. */
 export async function validateModuleActivation(
   input: ModuleActivationInput,
   options: {
-    readonly store: Pick<ModuleStore, "loadGatewayContext">;
+    readonly store: Pick<ModuleCommands, "loadGatewayContext">;
     readonly providers: readonly ModuleCapabilityProvider[];
   }
 ): Promise<ActivationPreflight> {
@@ -75,10 +73,6 @@ export async function validateModuleActivation(
   return preflight;
 }
 
-/**
- * Launch choices the Module or host refuses: persistence must match the
- * Manifest, and resources must meet its minimums and the host's ceilings.
- */
 function unmetLaunchRequirements(input: {
   readonly launch: ModuleProgramLaunch;
   readonly settings: ModuleActivationInput["settings"];

@@ -11,12 +11,13 @@ prebuilt-step registration without overwriting an existing module.
 From the Foundry repository root:
 
 ```sh
-bun run marbles roll summarize-codebase --state .cache/marbles-product-smoke
+FOUNDRY_HOME="$PWD/.cache/marbles-product-smoke" bun run marbles roll summarize-codebase
 ```
 
-The step runs on the first configured provider; configure Codex or Claude
-Code in `providers.json` under the state root, or let the first interactive
-run set it up. Add `--dry-run` to check module loading without calling the
+`FOUNDRY_HOME` keeps the trial's state apart from your own. The step runs on
+the first configured provider; the first interactive run in that home offers
+the Codex or Claude Code it finds and keeps the choice in the Marbles
+database there. Add `--dry-run` to check module loading without calling the
 provider.
 
 The prompt requests read-only inspection of the root README, package manifest,
@@ -27,9 +28,8 @@ two-minute timeout, no automatic retries, and propagates step cancellation.
 Codex uses its read-only sandbox with automatic approvals disabled. Claude
 Code uses its existing permission settings.
 
-To inspect either trial's run history in the dashboard, use its state path:
+To inspect a trial's run history in the dashboard, open Marbles in its home:
 
 ```sh
-bun run marbles --state .cache/marbles-product-smoke
-bun run marbles --state .cache/marbles-product-claude-smoke
+FOUNDRY_HOME="$PWD/.cache/marbles-product-smoke" bun run marbles
 ```

@@ -1,56 +1,37 @@
-/**
- * The CLI harnesses: vendor CLIs Marbles drives, on the host or installed in
- * a sandbox guest. Everything that differs between them is decided here, so
- * a host can list them and the rest of lib reads one table. The module has
- * no runtime imports: argument parsing reads the ids without loading models.
- */
-
-/** In preference order: "first available" tries them in this order. */
 export const CLI_HARNESS_IDS = ["claude-code", "codex", "pi"] as const;
 export type CliHarness = (typeof CLI_HARNESS_IDS)[number];
 
-/** A guest's machine name, as `uname -m` prints it. */
 export type GuestArchitecture = "aarch64" | "x86_64";
 
-/** npm's name for each guest architecture, used in package names. */
 const NPM_ARCHITECTURE: Record<GuestArchitecture, "arm64" | "x64"> = {
   aarch64: "arm64",
   x86_64: "x64",
 };
 
-/** One file the guest needs, taken from the pinned runtime archive. */
 export interface GuestFile {
   readonly executable: boolean;
-  /** Its path inside the package archive. */
   readonly member: string;
-  /** Where it is installed in the guest. */
   readonly path: string;
 }
 
-/** The pinned runtime a guest CLI is installed from. */
 export interface GuestArtifact {
-  /** A pinned standalone release when npm does not ship a self-contained binary. */
   readonly archive?: { readonly sha256: string; readonly url: string };
-  /** The CLI's path in the guest. */
   readonly executable: string;
   readonly files: readonly GuestFile[];
   readonly packageName: string;
   readonly version: string;
 }
 
-/** A credential sent to the guest as an environment variable. */
 interface ApiKeyAuth {
   readonly apiKey: string;
   readonly kind: "apiKey";
 }
 
-/** A Claude subscription token, read from the host's own login. */
 interface ClaudeOauthAuth {
   readonly kind: "oauth";
   readonly token: string;
 }
 
-/** Codex subscription tokens; the host passes them over the app-server and keeps refreshing them. */
 interface ChatgptAuth {
   readonly kind: "chatgpt";
   readonly tokens: {
@@ -59,37 +40,25 @@ interface ChatgptAuth {
   };
 }
 
-/** How each CLI harness can be authenticated in a guest. */
 interface GuestAuthentication {
   readonly "claude-code": ApiKeyAuth | ClaudeOauthAuth;
   readonly codex: ApiKeyAuth | ChatgptAuth;
   readonly pi: ApiKeyAuth;
 }
 
-/** A guest session's credentials, resolved once on the host. */
 export type GuestAuth<H extends CliHarness = CliHarness> =
   GuestAuthentication[H];
 
 export interface CliHarnessDescriptor<H extends CliHarness> {
-  /** The guest files for one architecture, from the pinned package. */
   artifact(architecture: GuestArchitecture): GuestArtifact;
-  /** The guest environment for a session whose writable state is under `state`. */
   env(state: string, auth: GuestAuth<H>): Readonly<Record<string, string>>;
-  /** The route a turn takes on this harness when the agent names no model. */
   readonly executor: TurnExecutorRef & { readonly harness: H };
-  /** What `--version` prints for the CLI the host transport was tested against. */
   readonly expectedVersion: string;
-  /** The CLI's own config folder, under the session's guest state. */
   readonly stateDir: string;
 }
 
-/**
- * The Claude Code CLI ships inside the Agent SDK's platform package, whose
- * version is not the CLI's; the two are paired by the SDK release.
- */
 const CLAUDE_SDK_VERSION = "0.3.205";
 const CLAUDE_CLI_VERSION = "2.1.205";
-/** Codex's npm version is its CLI version, suffixed per platform. */
 const CODEX_VERSION = "0.144.6";
 const PI_VERSION = "1.3.0";
 const PI_CHECKSUMS: Record<GuestArchitecture, string> = {
@@ -97,7 +66,6 @@ const PI_CHECKSUMS: Record<GuestArchitecture, string> = {
   x86_64: "24f5be328b66d4da36876296989501974f43ab8434fbb57c35c523a3ea505ded",
 };
 
-/** Each CLI's config folder under a session's guest state: its `stateDir`, which `env` points the CLI at. */
 const CLAUDE_STATE_DIR = "claude";
 const CODEX_STATE_DIR = "codex";
 
@@ -110,7 +78,6 @@ const CODEX_MEMBERS = [
   "codex-package.json",
 ];
 
-/** These are paired with the installed host SDK and tested app-server protocol. */
 export const CLI_HARNESSES: {
   readonly [H in CliHarness]: CliHarnessDescriptor<H>;
 } = {
@@ -203,17 +170,14 @@ export function isCliHarness(id: string | undefined): id is CliHarness {
   return CLI_HARNESS_IDS.some((harness) => harness === id);
 }
 
-/** A turn's route and the harness that runs it. */
 export interface TurnExecutorRef {
   readonly harness: string;
   readonly model: string;
   readonly provider: string;
 }
 
-/** A provider that runs no CLI: its model drives the built-in harness. */
 export const DIRECT_HARNESS = "direct";
 
-/** The harness that runs a provider's turns: its own CLI, else the in-process one. */
 export function harnessOf(provider: string): string {
   return isCliHarness(provider) ? provider : DIRECT_HARNESS;
 }

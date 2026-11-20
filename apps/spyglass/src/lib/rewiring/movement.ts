@@ -281,12 +281,6 @@ export function createMovementAnalysis(facts: RewiringFacts) {
       )
       .slice(0, facts.policy.candidateModules);
   };
-  /**
-   * Move `group` (declared in `module`) toward `targetRegion` (undefined:
-   * a shared scope with no responsibility). Consumer edges lose the group's
-   * symbols; edges carrying nothing else disappear; each consumer gains an
-   * edge to the target unless the target is that consumer itself.
-   */
   const simulateMove = (
     group: ArchitecturalRoleFinding[],
     module: string,

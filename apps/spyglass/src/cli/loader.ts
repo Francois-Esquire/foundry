@@ -20,20 +20,12 @@ import type {
 } from "./progress";
 import { formatDuration } from "./progress";
 
-// The live display of a scan in a terminal, drawn with OpenTUI on stderr in
-// the terminal's footer rows so stdout stays the command's result and the
-// scrollback above keeps scrolling. `mountLoader` draws a snapshot onto any
-// renderer, the test renderer included; `createLoader` owns the terminal's.
-
 export interface LoaderOptions {
-  /** `false` under `NO_COLOR`: the same text without attributes. */
   readonly color: boolean;
-  /** Two rows (`open`, which heads to the browser) rather than the full panel. */
   readonly compact: boolean;
 }
 
 export interface Loader {
-  /** Tears the display down and returns the terminal; safe to call twice. */
   finish(): void;
   update(snapshot: ProgressSnapshot): void;
 }
@@ -65,7 +57,6 @@ const STYLERS: Record<Style, (text: string) => StyledTextType["chunks"]> = {
   warn: (text) => [yellow(text)],
 };
 
-/** Segments to one row's content, cut to the width; no attributes without colour. */
 function row(
   segments: readonly Segment[],
   width: number,
@@ -105,7 +96,6 @@ const currentPhase = (
   phases: readonly PhaseRecord[]
 ): PhaseRecord | undefined => phases.at(-1);
 
-/** ` 7 of 16` while packages or internals are counted; nothing otherwise. */
 function counted({ internals, phases, units }: ProgressSnapshot): string {
   if (internals !== undefined) {
     return ` ${internals.index} of ${internals.total}`;
@@ -116,7 +106,6 @@ function counted({ internals, phases, units }: ProgressSnapshot): string {
   return "";
 }
 
-/** `⠋ Scanning foundry · analyzing packages 7 of 16 · 12s` */
 function headline(
   snapshot: ProgressSnapshot,
   now: number,
@@ -140,7 +129,6 @@ function headline(
   ];
 }
 
-/** `✓ discover 0.1s  ✓ fingerprint 0.3s  ● analyze` */
 function trail(phases: readonly PhaseRecord[], now: number): Segment[] {
   const segments: Segment[] = [];
   for (const phase of phases) {
@@ -170,7 +158,6 @@ function bar(done: number, total: number): Segment[] {
   ];
 }
 
-/** The bar row: packages analyzed, or internals derived, or the phase's detail. */
 function gauge(snapshot: ProgressSnapshot): Segment[] {
   const { internals, units, plan } = snapshot;
   const phase = currentPhase(snapshot.phases);
@@ -212,7 +199,6 @@ const UNIT_MARK: Record<UnitRecord["status"], Segment> = {
   started: seg("accent", "▸"),
 };
 
-/** One row per package being analyzed, then the latest finished, newest first. */
 function packageRows(
   units: UnitsProgress,
   now: number,
@@ -295,7 +281,6 @@ export interface MountedLoader {
   draw(snapshot: ProgressSnapshot, now: number, tick: number): void;
 }
 
-/** Mounts the rows onto a renderer's root; `draw` repaints them from a snapshot. */
 export function mountLoader(
   renderer: CliRenderer,
   options: LoaderOptions
@@ -331,12 +316,6 @@ export function mountLoader(
   };
 }
 
-/**
- * The terminal's loader: a split-footer renderer on stderr that takes no
- * mouse and no exit on Ctrl-C of its own. Raw mode swallows the terminal's
- * Ctrl-C, so the key is read and SIGINT raised by hand once the display is
- * gone, and SIGTERM is caught to leave the terminal sane before re-raising.
- */
 export async function createLoader(options: LoaderOptions): Promise<Loader> {
   const renderer = await createCliRenderer({
     clearOnShutdown: false,

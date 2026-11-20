@@ -1,15 +1,14 @@
-import {
-  InMemorySessionStore,
-  normalizeMessageMetadata,
-} from "@foundry/agents/session";
+import { normalizeMessageMetadata, Sessions } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { expect, it } from "vitest";
 import { assertGuestSessionState } from "~/lib/sandbox/session-state";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
+import { durableSessions } from "../helpers/durable-sessions";
 
 it("adopts a fresh session and preserves same-instance native resume", async () => {
   const store = new InMemorySessionStore();
+  const sessions = new Sessions({ store });
   await assertGuestSessionState(store, "conversation", "codex", "guest-1");
-  await store.appendMessage({
+  await sessions.appendMessage({
     parts: [
       {
         harness: "codex",
@@ -31,13 +30,14 @@ it("adopts a fresh session and preserves same-instance native resume", async () 
 
 it("refuses a replacement guest before a persisted native thread can resume", async () => {
   const store = new InMemorySessionStore();
+  const sessions = new Sessions({ store });
   await assertGuestSessionState(
     store,
     "conversation",
     "claude-code",
     "guest-1"
   );
-  await store.appendMessage({
+  await sessions.appendMessage({
     parts: [
       {
         harness: "claude-code",
@@ -59,8 +59,9 @@ it("refuses a replacement guest before a persisted native thread can resume", as
 
 it("refuses native mappings without an environment marker", async () => {
   const store = new InMemorySessionStore();
-  await store.createSession({ id: "conversation" });
-  await store.appendMessage({
+  const sessions = new Sessions({ store });
+  await sessions.createSession({ id: "conversation" });
+  await sessions.appendMessage({
     parts: [
       {
         harness: "codex",
@@ -79,9 +80,10 @@ it("refuses native mappings without an environment marker", async () => {
 
 it("permits replacement before native history exists and keeps harness markers separate", async () => {
   const store = new InMemorySessionStore();
+  const sessions = new Sessions({ store });
   await assertGuestSessionState(store, "conversation", "codex", "guest-1");
   await assertGuestSessionState(store, "conversation", "codex", "guest-2");
-  await store.appendMessage({
+  await sessions.appendMessage({
     parts: [
       {
         harness: "codex",
@@ -115,9 +117,10 @@ it("preserves environment identity through canonical metadata normalization", ()
 it("keeps instance identity across a durable store reopen", async () => {
   const directory = await mkdtemp(join(tmpdir(), "guest-session-state-"));
   try {
-    const store = new JsonSessionStore(directory);
+    const store = durableSessions(directory);
+    const sessions = new Sessions({ store });
     await assertGuestSessionState(store, "conversation", "codex", "guest-1");
-    await store.appendMessage({
+    await sessions.appendMessage({
       parts: [
         {
           harness: "codex",
@@ -128,7 +131,7 @@ it("keeps instance identity across a durable store reopen", async () => {
       role: "system",
       sessionId: "conversation",
     });
-    const reopened = new JsonSessionStore(directory);
+    const reopened = durableSessions(directory);
     await assertGuestSessionState(reopened, "conversation", "codex", "guest-1");
     await expect(
       assertGuestSessionState(reopened, "conversation", "codex", "guest-2")

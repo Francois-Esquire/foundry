@@ -12,10 +12,6 @@ import type { ProviderModelDefinition } from "../../types";
 
 const ASSERTION_PATTERN = /^[a-z0-9.-]+\/.+$/;
 
-/**
- * Trimmed entries copied verbatim from https://models.dev/catalog.json, so the
- * fixture drifts from reality only when reality changes.
- */
 const CATALOG: ModelsDevCatalog = {
   "anthropic/claude-opus-4-7": {
     attachment: true,
@@ -31,8 +27,6 @@ const CATALOG: ModelsDevCatalog = {
     modalities: { input: ["text"], output: ["text"] },
     name: "Gemini Embedding",
   },
-  // The near-miss: models.dev has only the `-latest` id, while the gateway
-  // serves a plain `gpt-5-chat` that genuinely cannot call tools.
   "openai/gpt-5-chat-latest": {
     limit: { context: 128_000 },
     name: "GPT-5 Chat",
@@ -85,7 +79,6 @@ describe("matchModelsDevId", () => {
   });
 
   it("folds away separator conventions: gpt-5.5 and gpt-5-5 are one model", () => {
-    // OpenAI writes versions with dots, models.dev keys them with dashes.
     expect(match("gpt-5-5")).toBe("openai/gpt-5.5");
     expect(match("gpt-5.5")).toBe("openai/gpt-5.5");
   });
@@ -95,25 +88,16 @@ describe("matchModelsDevId", () => {
   });
 
   it("refuses a near miss rather than guessing", () => {
-    // This is the case that matters most. LiteLLM reports `gpt-5-chat` as
-    // non-tool-calling; `gpt-5-chat-latest` is a different model that does call
-    // tools. Matching them would put a model in the picker that fails on its
-    // first tool call.
     expect(match("gpt-5-chat")).toBeUndefined();
   });
 
   it("never resolves a Claude Code alias", () => {
-    // An alias is whatever the CLI picks today, so pinning it to a dated build
-    // reintroduces the staleness this catalog exists to remove — and the
-    // harness is a subscription seat, so per-token rates would be fiction.
     for (const alias of ["opus", "sonnet", "haiku", "fable"]) {
       expect(match(alias)).toBeUndefined();
     }
   });
 
   it("will not treat a route name as an author", () => {
-    // `vertex_ai`/`azure` name a deployment, not a maker — the vendor rung must
-    // not manufacture `vertex_ai/claude-opus-4-7`. The bare rung still matches.
     expect(match("claude-opus-4-7", "vertex_ai")).toBe(
       "anthropic/claude-opus-4-7"
     );
@@ -137,7 +121,6 @@ describe("matchModelsDevId", () => {
 
   it("strips route decorations only when the caller opts in", () => {
     const def = { id: "azure-gpt-5.5", modelId: "azure-gpt-5.5" };
-    // Deployment naming is the caller's convention, never this package's guess.
     expect(matchModelsDevId(def, index)).toBeUndefined();
     expect(matchModelsDevId(def, index, { stripPrefixes: ["azure-"] })).toBe(
       "openai/gpt-5.5"
@@ -157,17 +140,12 @@ describe("enrichFromModelsDev — what it fills", () => {
   });
 
   it("reads rates as already-per-1M, unlike the per-token wire formats", () => {
-    // fromVercelRest multiplies by 1e6; doing that here
-    // would price a turn a million times over.
     const [out] = enrich([row({ modelId: "claude-opus-4-7" })]);
     expect(out?.costs?.input).toBe(5);
   });
 
   it("maps limit.context to the context window the meter sizes itself from", () => {
     const [out] = enrich([row({ modelId: "gpt-5.5" })]);
-    // `limit.input` (922_000 upstream) is deliberately unused — maxInputTokens
-    // means the whole window here, which is what the gateway independently
-    // reports for this model too.
     expect(out?.limits).toEqual({
       maxInputTokens: 1_050_000,
       maxOutputTokens: 128_000,
@@ -184,8 +162,6 @@ describe("enrichFromModelsDev — what it fills", () => {
     if (!costs) {
       throw new Error("expected enriched costs");
     }
-    // Tied to real billing behaviour rather than just the shape: a small prompt
-    // bills at the base rate, a large one crosses into the upper bracket.
     const small = costFromUsage(costs, { inputTokens: 100_000 });
     const large = costFromUsage(costs, { inputTokens: 300_000 });
     expect(small.input / 100_000).toBeCloseTo(5 / 1_000_000, 12);
@@ -196,14 +172,10 @@ describe("enrichFromModelsDev — what it fills", () => {
     const [vision] = enrich([row({ modelId: "claude-opus-4-7" })]);
     expect(vision?.capabilities?.vision).toBe(true);
     const [textOnly] = enrich([row({ modelId: "gemini-embedding-001" })]);
-    // Absent, not `false` — we know it lists no image modality, which is not
-    // the same as the source asserting it cannot see.
     expect(textOnly?.capabilities?.vision).toBeUndefined();
   });
 
   it("never sets a kind — modalities cannot tell an embedding from a chat model", () => {
-    // gemini-embedding-001 is `{input:["text"],output:["text"]}`, byte-identical
-    // to a chat model. A wrong kind throws MODEL_KIND_MISMATCH at runtime.
     const [out] = enrich([
       row({ kind: "embedding", modelId: "gemini-embedding-001" }),
     ]);
@@ -223,9 +195,6 @@ describe("enrichFromModelsDev — what it refuses to touch", () => {
   });
 
   it("leaves base rates alone and closes the cache gate when schedules disagree", () => {
-    // A negotiated rate, a reseller markup, or a re-priced regional deployment.
-    // models.dev's cache figures are absolute, not multipliers, so they only
-    // apply alongside the base rate they were published with.
     const [out] = enrich([
       row({ costs: { input: 2.5, output: 12.5 }, modelId: "claude-opus-4-7" }),
     ]);
@@ -246,8 +215,6 @@ describe("enrichFromModelsDev — what it refuses to touch", () => {
   });
 
   it("leaves on-device models free", () => {
-    // `withLocalCosts` stamps explicit zeros so local reads as free. The gate
-    // closes against any real price, so free stays free.
     const [out] = enrich([
       row({ costs: { input: 0, output: 0 }, modelId: "claude-opus-4-7" }),
     ]);
@@ -277,10 +244,6 @@ describe("enrichFromModelsDev — what it refuses to touch", () => {
   });
 });
 
-/**
- * A trimmed `https://models.dev/catalog.json` payload: model facts under
- * `models`, and each first-party price under `providers.<author>.models`.
- */
 const PAYLOAD = {
   models: {
     "anthropic/claude-opus-5-5": {
@@ -330,7 +293,6 @@ describe("modelsDevCatalog", () => {
       tool_call: true,
     });
     for (const key of Object.keys(catalog ?? {})) {
-      // Every entry is `author/model`: the matcher's whole index depends on it.
       expect(key).toMatch(ASSERTION_PATTERN);
     }
   });
@@ -363,7 +325,6 @@ describe("modelsDevCatalog", () => {
     expect(catalog?.["a/tiered"]).toEqual({ name: "Tiered" });
     expect(catalog?.["a/cached"]).toEqual({ name: "Cached" });
     expect(catalog?.["a/negative"]).toEqual({ name: "Negative" });
-    // Unpriced, so a turn keeps its tokens and has no charge; nothing throws.
     const [tiered] = enrichFromModelsDev(
       [row({ id: "tiered", modelId: "tiered", vendor: "a" })],
       catalog ?? {}

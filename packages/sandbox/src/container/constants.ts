@@ -1,28 +1,12 @@
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "../constants";
-import type { ContainerRowStatus } from "./store";
 import type { ContainerResourceStatus } from "./types";
 
-/**
- * Default base image. Debian slim: a microVM boots its own kernel, and the
- * glibc base is what native addons in the sandbox images expect.
- */
 export const DEFAULT_CONTAINER_IMAGE = "docker.io/library/debian:trixie-slim";
 
-/** Working directory created inside the guest and used as the exec `cwd` default. */
 export const DEFAULT_CONTAINER_WORKDIR = DEFAULT_SANDBOX_WORKING_DIRECTORY;
 
-/**
- * Broad ownership label every sandbox carries. Predates the scoped labels
- * below; the one-time legacy cleanup selects by it alone.
- */
 export const CONTAINER_SANDBOX_BASE_LABEL = "com.foundry.sandbox";
 
-/**
- * Scoped management labels. Together they correlate one native resource to one
- * Registry observation: `managed-by` + `scope-id` select a runtime scope's
- * inventory, and `environment-id` — always the generated native name — is the
- * immutable identity a reconciler validates before acting.
- */
 export const CONTAINER_MANAGED_BY_LABEL = "com.foundry.environment.managed-by";
 
 export const CONTAINER_MANAGED_BY_VALUE = "foundry-sandbox";
@@ -35,37 +19,28 @@ export const CONTAINER_OWNER_KIND_LABEL = "com.foundry.environment.owner-kind";
 
 export const CONTAINER_OWNER_ID_LABEL = "com.foundry.environment.owner-id";
 
-/**
- * Registry labels. `instance` is the host's data-directory-derived label, so
- * two host instances never sweep each other; `id` is the registry row the VM
- * realizes. Sweep selects by `managed-by` + `instance` only, so VMs the
- * harness starts under the `environment.*` labels are never selected.
- */
 export const CONTAINER_INSTANCE_LABEL = "com.foundry.container.instance";
 
 export const CONTAINER_ID_LABEL = "com.foundry.container.id";
+export const CONTAINER_STORE_LABEL = "com.foundry.container.store";
 
-/** Guest memory when `resources.memoryBytes` is unset. */
 export const DEFAULT_CONTAINER_MEMORY_MIB = 1024;
 
-/** Virtual CPUs when `resources.cpus` is unset. */
 export const DEFAULT_CONTAINER_CPUS = 1;
 
-export const CONTAINER_ROW_STATUSES: readonly ContainerRowStatus[] =
-  Object.freeze([
-    "starting",
-    "running",
-    "restarting",
-    "missing",
-    "stopped",
-    "failed",
-  ]);
+export const CONTAINER_ROW_STATUSES = Object.freeze([
+  "starting",
+  "running",
+  "restarting",
+  "missing",
+  "stopped",
+  "failed",
+  "removing",
+] as const);
 
-/** Native statuses a resource must leave, via stop, before it can be removed. */
 export const ACTIVE_CONTAINER_RESOURCE_STATUSES: ReadonlySet<ContainerResourceStatus> =
   new Set(["starting", "running", "paused", "draining"]);
 
-/** Mount and service ids: lowercase, portable, bounded. */
 export const CONTAINER_PORTABLE_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 
 export const CONTAINER_SANDBOX_CONSTRAINTS_FORMAT =
@@ -74,3 +49,7 @@ export const CONTAINER_SANDBOX_CONSTRAINTS_FORMAT =
 export const INVENTORY_PAGE_LIMIT = 100;
 
 export const MAX_INVENTORY_PAGES = 1000;
+
+export function removeByHand(name: string): string {
+  return `\`msb rm -f ${name}\` (msb is node_modules/.bin/msb, in the Foundry install)`;
+}

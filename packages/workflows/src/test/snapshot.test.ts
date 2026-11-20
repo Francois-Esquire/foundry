@@ -16,13 +16,6 @@ const emptyState = (): SnapshotState => ({
   workflow: null,
 });
 
-/**
- * Compare two SnapshotStates ignoring `updatedAt`. The static
- * `Snapshot.apply` does not touch `updatedAt`; only the live
- * `applyEventEffect` injects `event.at` into the state
- * on each push. Pure-replay parity is therefore expressed
- * "modulo the freshness stamp."
- */
 function withoutUpdatedAt(
   state: SnapshotState
 ): Omit<SnapshotState, "updatedAt"> {
@@ -323,13 +316,6 @@ describe("Snapshot.setWorkflow — leaf-only seeding", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const snap = yield* Snapshot.make();
-          // Tree:
-          //   root
-          //   ├── a   (leaf)
-          //   └── b
-          //       └── b.c  (leaf)
-          // setWorkflow must seed `a` and `b.c` as pending; `b` (interior)
-          // does NOT get a pending entry.
           yield* snap.setWorkflow({
             cursor: null,
             input: undefined,
@@ -379,8 +365,6 @@ describe("Snapshot.setWorkflow — leaf-only seeding", () => {
             steps: [{ index: 0, key: "a", name: "a" }],
           });
           const state = yield* snap.current;
-          // The previously-running record is preserved; setWorkflow's
-          // leaf-seed only fills in entries that don't already exist.
           expect(state.steps.a?.status).toBe("running");
           expect(state.steps.a?.attempt).toBe(3);
         })
@@ -417,7 +401,6 @@ describe("Snapshot.apply — step.resolved", () => {
       suspensionName: "n",
       value: "answered",
     });
-    // Status is unchanged — the replay's next `step.started` flips it.
     expect(state.steps.root?.status).toBe("suspended");
     expect(state.steps.root?.suspension).toBeUndefined();
   });
@@ -431,14 +414,10 @@ describe("Pure-replay invariant", () => {
         Effect.gen(function* () {
           const snap = yield* Snapshot.make();
           const channels = yield* Channels.make(snap);
-          // Tap the events PubSub through a synchronous push wrapper —
-          // capture every event we publish before it lands on the bus.
           const push = (e: ChannelEvent): void => {
             capturedEvents.push(e);
             channels.events.push(e);
           };
-          // Drive a parent + two children through a realistic lifecycle:
-          // started, child progress, child complete, parent complete.
           push({
             _tag: "step.started",
             at: at(0),
@@ -541,9 +520,6 @@ describe("Snapshot — identity boundary", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const snap = yield* Snapshot.make();
-          // Sanity: instance is opaque (everything Effect-typed is `#`-private).
-          // The seam-level guarantee is that the *state* shape carries no
-          // identity — runId/queueId belong to the queue persistence layer.
           const state = yield* snap.current;
           expect("runId" in state).toBe(false);
           expect("queueId" in state).toBe(false);

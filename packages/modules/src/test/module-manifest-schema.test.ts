@@ -63,7 +63,6 @@ describe("Module Manifest JSON Schema", () => {
   });
 
   it("is assistance, not validation: refinements stay with the parser", () => {
-    // Schema-shaped (an editor names a View the schema cannot check), yet invalid.
     const shaped = {
       ...STRICT_MANIFEST,
       editors: [{ mimeTypes: ["text/plain"], mode: "read", view: "missing" }],

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { costFromUsage } from "../cost";
 
-// Sonnet-class rates: $3/1M in, $15/1M out, $0.30/1M cache read, $3.75/1M write.
 const RATES = { cachedInput: 0.3, cacheWrite: 3.75, input: 3, output: 15 };
 
 describe("costFromUsage", () => {
@@ -13,7 +12,6 @@ describe("costFromUsage", () => {
   });
 
   it("treats inputTokens as gross — cache reads are split out, not double-charged", () => {
-    // 4000 gross input, 3500 of it a cache read → 500 uncached.
     const c = costFromUsage(RATES, {
       cacheReadTokens: 3500,
       inputTokens: 4000,
@@ -38,7 +36,6 @@ describe("costFromUsage", () => {
       { input: 3, output: 15 },
       { cacheReadTokens: 1000, inputTokens: 1000 }
     );
-    // uncached = 0; cache read billed at the input rate (no cachedInput rate).
     expect(c.cacheRead).toBeCloseTo((1000 / 1e6) * 3);
   });
 
@@ -47,8 +44,6 @@ describe("costFromUsage", () => {
     expect(c.reasoning).toBeCloseTo(15);
   });
 
-  // Qwen-3-max-thinking shape: input/output tiers share brackets keyed by the
-  // gross prompt size. [0,32001)=$1.2/$6, [32001,128001)=$2.4/$12, [128001,∞)=$3/$15.
   const TIERED = {
     cachedInput: 0.24,
     input: 1.2,

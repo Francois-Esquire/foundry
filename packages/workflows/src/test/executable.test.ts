@@ -276,7 +276,6 @@ describe("Executable suspend / resolve", () => {
     expect(exit._tag).toBe("Failure");
     if (exit._tag === "Failure") {
       const { cause } = exit;
-      // Accept any serialized failure shape matching the signal or its details.
       const causeStr = JSON.stringify(cause, null, 2);
       expect(causeStr).toMatch(SUSPENDSIGNAL_APPROVAL_NEEDS_HUMAN_PATTERN);
     }

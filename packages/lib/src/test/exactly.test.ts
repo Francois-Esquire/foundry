@@ -15,7 +15,6 @@ it("keeps a type that agrees and collapses one that does not", () => {
   const extra: Exactly<{ id: string; owner: string }, Shape> = { id: "a" };
   // @ts-expect-error A changed member type collapses to never.
   const changed: Exactly<{ id: number }, Shape> = { id: "a" };
-  // Documented limit: an optional member on one side only still agrees.
   const optionalExtra: Exactly<{ id: string; note?: string }, Shape> = {
     id: "a",
   };

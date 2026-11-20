@@ -3,9 +3,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parseArgs, UsageError } from "~/args";
+import { parseArgs, UsageError } from "~/cli/args";
 
-/** The Foundry home the defaults follow: the test run's own, else the user's. */
 function foundryHome(): string {
   return process.env.FOUNDRY_HOME ?? join(homedir(), ".foundry");
 }
@@ -25,18 +24,51 @@ describe("parseArgs", () => {
       artifacts: join(foundryHome(), "artifacts"),
       command: "run",
       config: "./.foundry/marbles",
+      directory: process.cwd(),
       dry: false,
       inputJson: undefined,
       state: join(foundryHome(), "marbles"),
     });
   });
 
+  it("reads each resource listing for this workspace, or every workspace's with --all", () => {
+    for (const command of [
+      "runs",
+      "sessions",
+      "artifacts",
+      "sandboxes",
+      "relink",
+    ]) {
+      expect(parseArgs([command])).toMatchObject({ all: false, command });
+      expect(parseArgs([command, "--all"])).toMatchObject({
+        all: true,
+        command,
+      });
+      expect(() => parseArgs([command, "extra"])).toThrow(UsageError);
+    }
+  });
+
+  it("reads share and unshare as a kind, an id and a directory, and refuses a kind it does not know", () => {
+    expect(
+      parseArgs(["share", "artifact", "artifact#a", "../two"])
+    ).toMatchObject({
+      command: "share",
+      id: "artifact#a",
+      kind: "artifact",
+      with: "../two",
+    });
+    expect(parseArgs(["unshare", "run", "rn-1", "."])).toMatchObject({
+      command: "unshare",
+      kind: "run",
+    });
+    expect(() => parseArgs(["share", "task", "t1", "."])).toThrow(UsageError);
+    expect(() => parseArgs(["share", "run", "rn-1"])).toThrow(UsageError);
+  });
+
   it("reads positionals around flags", () => {
     const args = parseArgs([
       "roll",
       "--dry-run",
-      "--state",
-      "/s",
       "guides",
       "--config",
       "/c.ts",
@@ -46,7 +78,6 @@ describe("parseArgs", () => {
       name: "guides",
     });
     expect(args.dry).toBe(true);
-    expect(args.state).toBe("/s");
     expect(args.config).toBe("/c.ts");
   });
 
@@ -62,6 +93,15 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["roll", "ask", "--harness", "codex"])).toThrow(
       "--harness was removed"
     );
+  });
+
+  it("refuses the removed --state and --artifacts, naming FOUNDRY_HOME, and never reads their value as a positional", () => {
+    for (const flag of ["--state", "--artifacts"]) {
+      expect(() => parseArgs(["watch", "rn-test", flag, "/tmp/x"])).toThrow(
+        `${flag} was removed: Marbles keeps everything under the Foundry home; set FOUNDRY_HOME to move it`
+      );
+      expect(parseArgs([flag, "/tmp/x", "--help"]).command).toBe("help");
+    }
   });
 
   it("keeps the default when a flag has no value", () => {
@@ -102,14 +142,14 @@ it("refuses a command line that cannot run, before anything else happens", () =>
   }
   expect(parseArgs(["bogus", "--help"]).command).toBe("help");
   expect(parseArgs(["--help", "--harness", "foo"]).command).toBe("help");
-  // A default is decided where the line is read, not by the command.
   expect(parseArgs(["init"])).toMatchObject({ starter: "product" });
 });
 
 it("parses watch by run ID and refuses missing or extra arguments", () => {
-  expect(
-    parseArgs(["watch", "rn-test", "--state", "/tmp/state"])
-  ).toMatchObject({ command: "watch", runId: "rn-test", state: "/tmp/state" });
+  expect(parseArgs(["watch", "rn-test"])).toMatchObject({
+    command: "watch",
+    runId: "rn-test",
+  });
   expect(() => parseArgs(["watch"])).toThrow("watch takes one run ID");
   expect(() => parseArgs(["watch", "one", "two"])).toThrow(
     "watch takes one run ID"

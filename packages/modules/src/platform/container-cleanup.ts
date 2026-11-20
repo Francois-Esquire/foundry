@@ -11,8 +11,6 @@ export function withConfirmedModuleContainerCleanup(
     "listResources" | "stopResource" | "removeResource"
   >
 ): Containers & { stopRetained(id: string): Promise<void> } {
-  // The registry deletes its row even when native removal fails, so a retried
-  // `remove` can only confirm cleanup through the native id kept here.
   const removals = new Map<string, string>();
 
   async function removeNative(name: string): Promise<void> {
@@ -67,9 +65,6 @@ export function withConfirmedModuleContainerCleanup(
       });
       return pending;
     };
-    // The registry handle's facets are getters over the current VM, which a
-    // restart replaces. A spread would snapshot the old VM's facets; inheriting
-    // from the handle keeps them live and overrides only `close`.
     return Object.freeze(
       Object.create(handle, {
         close: { enumerable: true, value: close },

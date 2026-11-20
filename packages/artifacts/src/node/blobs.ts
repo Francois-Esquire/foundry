@@ -1,17 +1,28 @@
-const BLOB_FILENAME = /^[a-f0-9-]+(?:\.tmp)?$/;
-
 import { constants } from "node:fs";
 import { mkdir, open, readdir, realpath, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 
 import type { BlobFiles } from "../blob";
-import { hasErrorCode, writeAtomically } from "./fs";
+import { stagingArea } from "./staging";
+
+const BLOB_FILENAME = /^[a-f0-9-]+(?:\.(?:[a-f0-9-]+\.)?tmp)?$/;
 
 export function blobFiles(root: string): BlobFiles {
   const directory = resolve(root);
   async function ready(): Promise<string> {
     await mkdir(directory, { recursive: true });
     return realpath(directory);
+  }
+  async function located(): Promise<string | undefined> {
+    try {
+      return await realpath(directory);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) {
+        return;
+      }
+      throw error;
+    }
   }
   function filename(path: string): string {
     if (!BLOB_FILENAME.test(path)) {
@@ -21,7 +32,11 @@ export function blobFiles(root: string): BlobFiles {
   }
   return {
     async *list() {
-      for (const entry of await readdir(await ready(), {
+      const base = await located();
+      if (base === undefined) {
+        return;
+      }
+      for (const entry of await readdir(base, {
         withFileTypes: true,
       })) {
         if (BLOB_FILENAME.test(entry.name)) {
@@ -32,25 +47,15 @@ export function blobFiles(root: string): BlobFiles {
     async publish(bytes) {
       const base = await ready();
       const path = crypto.randomUUID();
-      await writeAtomically(
-        join(base, path),
-        join(base, `${path}.tmp`),
-        bytes,
-        {
-          readOnly: true,
-        }
-      );
-      const folder = await open(base, "r");
-      try {
-        await folder.sync();
-      } finally {
-        await folder.close();
-      }
+      await writeFileAtomic(join(base, path), bytes, {
+        fsync: true,
+        mode: 0o400,
+      });
       return path;
     },
     async *read(path, { start, end }) {
       const file = await open(
-        join(await ready(), filename(path)),
+        join((await located()) ?? directory, filename(path)),
         // biome-ignore lint/suspicious/noBitwiseOperators: Node open flags require a bitmask to reject symlinks.
         constants.O_RDONLY | constants.O_NOFOLLOW
       );
@@ -79,13 +84,18 @@ export function blobFiles(root: string): BlobFiles {
       }
     },
     async remove(path) {
+      const base = await located();
+      if (base === undefined) {
+        return;
+      }
       try {
-        await unlink(join(await ready(), filename(path)));
+        await unlink(join(base, filename(path)));
       } catch (error) {
         if (!hasErrorCode(error, "ENOENT")) {
           throw error;
         }
       }
     },
+    staging: stagingArea(ready),
   };
 }

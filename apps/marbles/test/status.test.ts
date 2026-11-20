@@ -1,64 +1,94 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-
+import { Sessions } from "@foundry/agents/session";
+import { Tasks } from "@foundry/tasks";
 import { describe, expect, it } from "vitest";
-
+import { GenerationRecords } from "~/database/generations";
+import { initializeDatabase } from "~/database/open";
+import { DatabaseRecoveryLog } from "~/database/recoveries";
+import { resourceAssociations } from "~/database/resources";
+import { DatabaseSessionStore } from "~/database/sessions";
+import { marblesMonitorStates } from "~/database/tables";
+import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
+import { startedAt } from "~/process/spawned";
 import { readStatus } from "~/status/model";
+import { seedWorkspace } from "./helpers/registry";
+import { seedRuns, seedTicks } from "./helpers/stored-runs";
+import { temporaryDirectory } from "./helpers/temporary";
 
-function run(id: string, status: string, createdAt: number, pid: number) {
-  return {
-    pid,
-    run: { id, status, step: "guides", timestamps: { createdAt } },
-  };
-}
-
-function layout() {
-  const state = mkdtempSync(join(tmpdir(), "marbles-status-"));
+async function layout() {
+  const state = temporaryDirectory("marbles-status-");
   const dir = join(state, "ws1");
-  writeJson(join(dir, "workspace.json"), {
+  await seedWorkspace(state, {
     config: "/repo/one/marbles.config.ts",
     firstSeen: "2026-09-10T00:00:00.000Z",
+    hosted: false,
     id: "ws1",
     lastSeen: "2026-09-10T01:00:00.000Z",
     root: "/repo/one",
   });
-  writeJson(join(dir, "schedules", "guides.json"), {
-    lastFinish: "2026-09-10T01:00:00.000Z",
-    lastStart: "2026-09-10T00:59:00.000Z",
-    lastStatus: "complete",
-    nextDue: "2026-09-10T01:30:00.000Z",
-  });
-  writeJson(join(dir, "sessions", "s1.json"), {});
-  writeJson(join(dir, "sessions", "s2.json"), {});
+  const database = await initializeDatabase(stateDatabase(state));
+  try {
+    const sessions = new Sessions({
+      store: new DatabaseSessionStore({
+        database: database.database,
+        scope: "ws1",
+      }),
+    });
+    await sessions.createSession({ id: "s1" });
+    await sessions.createSession({ id: "s2" });
+  } finally {
+    database.close();
+  }
+  await seedTicks(state, "ws1", [
+    {
+      key: "guides",
+      last: {
+        lastFinish: "2026-09-10T01:00:00.000Z",
+        lastStart: "2026-09-10T00:59:00.000Z",
+        lastStatus: "complete",
+        nextDue: "2026-09-10T01:30:00.000Z",
+      },
+      owner: null,
+    },
+  ]);
+  writeJson(join(dir, "sessions", "s3.json"), {});
   return { dir, state };
 }
 
 describe("readStatus", () => {
-  it("returns no workspaces for a missing or empty root", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-status-"));
-    expect(readStatus(join(state, "nope"))).toEqual({
+  it("returns no workspaces for a missing or empty root, and creates nothing", async () => {
+    const state = temporaryDirectory("marbles-status-");
+    expect(await readStatus(join(state, "nope"))).toEqual({
+      generations: [],
       process: null,
       root: join(state, "nope"),
       workspaces: [],
     });
-    expect(readStatus(state).workspaces).toEqual([]);
+    expect((await readStatus(state)).workspaces).toEqual([]);
     expect(existsSync(join(state, "nope"))).toBe(false);
+    expect(existsSync(join(state, "marbles.db"))).toBe(false);
   });
 
-  it("reads workspace, schedules, runs and sessions", () => {
-    const { state, dir } = layout();
-    for (let i = 0; i < 7; i += 1) {
-      writeJson(
-        join(dir, "runs", `rn-${String(i)}.json`),
-        run(`rn-${String(i)}`, "complete", i, process.pid)
-      );
-    }
+  it("reads workspace, schedules, runs and sessions", async () => {
+    const { state, dir } = await layout();
+    await seedRuns(
+      state,
+      "ws1",
+      Array.from({ length: 7 }, (_, i) => ({
+        createdAt: i,
+        id: `rn-${String(i)}`,
+        owner: null,
+        status: "complete" as const,
+      }))
+    );
     mkdirSync(join(state, "stray"));
+    expect(dir).toBe(join(state, "ws1"));
 
-    const [workspace, ...rest] = readStatus(state).workspaces;
+    const [workspace, ...rest] = (await readStatus(state)).workspaces;
     expect(rest).toEqual([]);
     expect(workspace).toMatchObject({
       alive: false,
@@ -88,96 +118,296 @@ describe("readStatus", () => {
     ]);
   });
 
-  it("marks the process alive only while the lock's pid is", () => {
-    const { state, dir } = layout();
-    const dead = spawnSync("true").pid;
-    mkdirSync(join(dir, "locks"));
-    writeFileSync(join(dir, "locks", "process"), String(dead));
-    writeJson(join(dir, "process.json"), {
-      host: "worker",
-      pid: dead,
-      startedAt: "x",
-    });
-    expect(readStatus(state).workspaces[0]).toMatchObject({
-      alive: false,
-      host: null,
-      pid: dead,
-    });
+  it("reads each observer's place, how far it is behind, and a failing one's error", async () => {
+    const { state } = await layout();
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      const records = new DatabaseWorkspaceRecords({
+        database: database.database,
+        scope: "ws1",
+      });
+      expect(await records.claimDelivery()).toBeUndefined();
+      const now = Date.now();
+      const steady = { name: "steady", source: "tasks" };
+      const flaky = { name: "flaky", source: "tasks" };
+      expect((await records.log.declare(steady, now)).position).toBe(2);
+      await records.log.declare(flaky, now);
+      const tasks = new Tasks({ store: records.taskStore });
+      await tasks.create({ title: "A" });
+      await tasks.create({ title: "B" });
+      await records.log.move(steady, { from: 2, handed: false, now, to: 4 });
+      await records.log.fail(flaky, {
+        error: "down",
+        now,
+        retryAt: now + 1000,
+        stuckSince: null,
+      });
+      await records.close();
+    } finally {
+      database.close();
+    }
 
-    writeFileSync(join(dir, "locks", "process"), String(process.pid));
-    writeJson(join(dir, "process.json"), {
-      host: "worker",
-      pid: process.pid,
-      startedAt: "x",
-    });
-    expect(readStatus(state).workspaces[0]).toMatchObject({
-      alive: true,
-      host: "worker",
-      pid: process.pid,
-    });
-  });
-
-  it("reports a live lock as running and ignores a dead one", () => {
-    const { state, dir } = layout();
-    mkdirSync(join(dir, "locks"));
-    writeFileSync(join(dir, "locks", "schedule:guides"), String(process.pid));
-    writeFileSync(join(dir, "locks", "schedule:fresh"), String(process.pid));
-    writeFileSync(
-      join(dir, "locks", "schedule:stale"),
-      String(spawnSync("true").pid)
-    );
-
-    writeFileSync(join(dir, "locks", "run-probe"), String(process.pid));
-    writeFileSync(
-      join(dir, "locks", "edit-automation-probe"),
-      String(process.pid)
-    );
-    const schedules = readStatus(state).workspaces[0]?.schedules;
-    expect(schedules).toEqual([
-      expect.objectContaining({ name: "fresh", running: process.pid }),
-      expect.objectContaining({ name: "guides", running: process.pid }),
+    const [workspace] = (await readStatus(state)).workspaces;
+    expect(workspace?.observers).toEqual([
+      {
+        behind: 2,
+        failures: 1,
+        lastError: "down",
+        missed: null,
+        name: "flaky",
+        position: 2,
+        retryAt: expect.any(Number),
+        source: "tasks",
+        stuckSince: null,
+      },
+      {
+        behind: 0,
+        failures: 0,
+        lastError: null,
+        missed: null,
+        name: "steady",
+        position: 4,
+        retryAt: null,
+        source: "tasks",
+        stuckSince: null,
+      },
     ]);
   });
 
-  it("flags an unsettled run whose pid is dead as orphaned", () => {
-    const { state, dir } = layout();
-    const dead = spawnSync("true").pid;
-    writeJson(join(dir, "runs", "rn-a.json"), run("rn-a", "running", 1, dead));
-    writeJson(
-      join(dir, "runs", "rn-b.json"),
-      run("rn-b", "running", 2, process.pid)
-    );
-    writeJson(join(dir, "runs", "rn-c.json"), run("rn-c", "failed", 3, dead));
+  it("marks a registered workspace alive only while the current generation that started it is", async () => {
+    const { state } = await layout();
+    await seedWorkspace(state, {
+      config: null,
+      firstSeen: "2026-09-10T00:00:00.000Z",
+      hosted: true,
+      id: "ws2",
+      lastSeen: "2026-09-10T01:00:00.000Z",
+      root: "/repo/two",
+    });
+    const hosted = async () =>
+      (await readStatus(state)).workspaces.find(
+        (workspace) => workspace.id === "ws2"
+      );
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      const generations = new GenerationRecords({
+        database: database.database,
+      });
+      const dead = await generations.begin("before");
+      await generations.spawned(dead, spawnSync("true").pid);
+      await generations.mark(dead, "current");
+      expect(await hosted()).toMatchObject({
+        alive: false,
+        host: null,
+        pid: null,
+      });
 
-    const recent = readStatus(state).workspaces[0]?.runs.recent;
+      await generations.mark(dead, "exited");
+      const live = await generations.begin("after");
+      await generations.spawned(live, process.pid);
+      await generations.identify(live, startedAt(process.pid) ?? null);
+      await generations.mark(live, "current");
+      expect(await hosted()).toMatchObject({
+        alive: false,
+        host: null,
+        pid: null,
+      });
+      await generations.hosting(live, ["ws2"]);
+      expect(await hosted()).toMatchObject({
+        alive: true,
+        host: "generation",
+        pid: process.pid,
+      });
+      expect((await readStatus(state)).generations).toEqual([
+        { alive: true, number: live, pid: process.pid, state: "current" },
+      ]);
+      expect(
+        (await readStatus(state)).workspaces.find(
+          (workspace) => workspace.id === "ws1"
+        )
+      ).toMatchObject({ alive: false, host: null });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("records a retiring generation whose process is proved gone as exited, and shows one with no recorded start as cannot tell", async () => {
+    const { state } = await layout();
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      const generations = new GenerationRecords({
+        database: database.database,
+      });
+      const dead = spawnSync("true").pid;
+      const proved = await generations.begin("proved");
+      await generations.spawned(proved, dead);
+      await generations.identify(proved, "linux:never-this-start");
+      await generations.mark(proved, "retiring");
+      const unprovedPid = spawnSync("true").pid;
+      const unproved = await generations.begin("unproved");
+      await generations.spawned(unproved, unprovedPid);
+      await generations.mark(unproved, "retiring");
+      const alive = await generations.begin("alive");
+      await generations.spawned(alive, process.pid);
+      await generations.identify(alive, startedAt(process.pid) ?? null);
+      await generations.mark(alive, "retiring");
+
+      expect(await generations.endGone()).toEqual([proved]);
+      expect((await readStatus(state)).generations).toEqual([
+        { alive: true, number: alive, pid: process.pid, state: "retiring" },
+        {
+          alive: false,
+          number: unproved,
+          pid: unprovedPid,
+          state: "cannot tell",
+        },
+      ]);
+      expect(await generations.endGone()).toEqual([]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("reports a tick under way in a live process as running, and ignores a dead one's", async () => {
+    const { state } = await layout();
+    await seedTicks(state, "ws1", [
+      { key: "fresh", owner: process.pid },
+      { key: "stale", owner: spawnSync("true").pid },
+    ]);
+    const schedules = (await readStatus(state)).workspaces[0]?.schedules;
+    expect(schedules).toEqual([
+      expect.objectContaining({ name: "fresh", running: process.pid }),
+      expect.objectContaining({ name: "guides", running: null }),
+    ]);
+  });
+
+  it("reports a trigger with a launch waiting as a monitor, as the dashboard does, history or not", async () => {
+    const { state } = await layout();
+    await seedTicks(state, "ws1", [{ key: "first", owner: null }]);
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      for (const key of ["first", "guides"]) {
+        await database.database.insert(marblesMonitorStates).values({
+          key,
+          observed: {},
+          pending: { input: null, workflow: "refresh" },
+          scope: "ws1",
+        });
+      }
+    } finally {
+      database.close();
+    }
+    const schedules = (await readStatus(state)).workspaces[0]?.schedules;
+    expect(schedules).toEqual([
+      expect.objectContaining({
+        kind: "monitor",
+        lastStatus: null,
+        name: "first",
+      }),
+      expect.objectContaining({ kind: "monitor", name: "guides" }),
+    ]);
+  });
+
+  it("flags an unsettled run whose pid is dead as orphaned", async () => {
+    const { state } = await layout();
+    const dead = spawnSync("true").pid;
+    await seedRuns(state, "ws1", [
+      { createdAt: 1, id: "rn-a", owner: dead, status: "running" },
+      { createdAt: 2, id: "rn-b", owner: process.pid, status: "running" },
+      { createdAt: 3, id: "rn-c", owner: null, status: "failed" },
+      { createdAt: 4, id: "rn-d", owner: null, status: "running" },
+    ]);
+
+    const recent = (await readStatus(state)).workspaces[0]?.runs.recent;
     expect(recent?.map((r) => [r.id, r.orphaned])).toEqual([
+      ["rn-d", true],
       ["rn-c", false],
       ["rn-b", false],
       ["rn-a", true],
     ]);
   });
 
-  it("skips corrupt files and dirs without workspace.json", () => {
-    const { state, dir } = layout();
-    writeJson(join(dir, "runs", "rn-ok.json"), run("rn-ok", "complete", 1, 1));
-    writeJson(join(dir, "runs", "rn-hollow.json"), { pid: 1 });
+  it("skips corrupt files and old run files, and dirs the registry does not record", async () => {
+    const { state, dir } = await layout();
+    await seedRuns(state, "ws1", [
+      { createdAt: 1, id: "rn-ok", owner: null, status: "complete" },
+    ]);
+    writeJson(join(dir, "runs", "rn-old.json"), { pid: 1 });
     writeFileSync(join(dir, "runs", "rn-bad.json"), "{ not json");
-    writeFileSync(join(dir, "schedules", "bad.json"), "{");
-    writeJson(join(state, "ws2", "workspace.json"), { id: 7 });
+    writeJson(join(dir, "schedules", "old.json"), { lastStatus: "failed" });
+    writeJson(join(state, "ws2", "workspace.json"), { id: "ws2", root: "/r" });
     mkdirSync(join(state, "ws3"));
-    writeFileSync(join(state, "ws3", "workspace.json"), "nope");
 
-    const { workspaces } = readStatus(state);
+    const { workspaces } = await readStatus(state);
     expect(workspaces.map((w) => w.id)).toEqual(["ws1"]);
     expect(workspaces[0]?.runs).toEqual({
       recent: [expect.objectContaining({ id: "rn-ok" })],
       total: 1,
     });
     expect(workspaces[0]?.schedules.map((s) => [s.name, s.lastStatus])).toEqual(
-      [
-        ["bad", null],
-        ["guides", "complete"],
-      ]
+      [["guides", "complete"]]
     );
+  });
+
+  it("shows a run shared with a workspace in that workspace too, marked with its owner", async () => {
+    const { state } = await layout();
+    await seedWorkspace(state, {
+      config: null,
+      firstSeen: "2026-09-10T00:00:00.000Z",
+      hosted: false,
+      id: "ws2",
+      lastSeen: "2026-09-10T00:00:00.000Z",
+      root: "/repo/two",
+    });
+    await seedRuns(state, "ws2", [
+      { createdAt: 5, id: "rn-two", owner: null, status: "complete" },
+    ]);
+    await seedRuns(state, "ws1", [
+      { createdAt: 1, id: "rn-one", owner: null, status: "complete" },
+    ]);
+    const opened = await initializeDatabase(stateDatabase(state));
+    try {
+      await resourceAssociations(opened.database, state).share(
+        { id: "rn-two", kind: "run", owner: "ws2" },
+        "ws1"
+      );
+    } finally {
+      opened.close();
+    }
+    const byId = new Map(
+      (await readStatus(state)).workspaces.map((w) => [w.id, w.runs])
+    );
+    expect(byId.get("ws1")).toEqual({
+      recent: [
+        expect.objectContaining({ id: "rn-two", sharedFrom: "ws2" }),
+        expect.objectContaining({ id: "rn-one" }),
+      ],
+      total: 2,
+    });
+    expect(byId.get("ws1")?.recent[1]).not.toHaveProperty("sharedFrom");
+    expect(byId.get("ws2")?.total).toBe(1);
+  });
+});
+
+describe("the last recovery in readStatus", () => {
+  it("is each workspace's last start's report, and none before one ran", async () => {
+    const { state } = await layout();
+    expect((await readStatus(state)).workspaces[0]?.recovery).toBeNull();
+    const report = {
+      at: "2026-09-10T02:00:00.000Z",
+      steps: [
+        { detail: "Error: busy", outcome: "failed", step: "runs" },
+      ] as const,
+    };
+    const database = await initializeDatabase(stateDatabase(state));
+    try {
+      await new DatabaseRecoveryLog({
+        database: database.database,
+        scope: "ws1",
+      }).record(report);
+    } finally {
+      database.close();
+    }
+    expect((await readStatus(state)).workspaces[0]?.recovery).toEqual(report);
   });
 });

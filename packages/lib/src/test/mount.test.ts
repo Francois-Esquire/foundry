@@ -1,11 +1,3 @@
-/**
- * Mount mechanics — child-owned config nodes bound into a parent under a
- * prefix (Model A: no copy, child owns storage + validation, parent delegates
- * and forwards). Covers the delegation surface (every whole-store method must
- * be mount-aware), event forwarding (source preserved, parent "changed",
- * detach kills the relay), and the conflict/re-mount policy.
- */
-
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { Config } from "../config/config";
@@ -19,14 +11,12 @@ const ALREADY_MOUNTED_PATTERN = /already mounted/;
 const BlockSchema = z.object({ label: z.string(), n: z.number() });
 const BLOCK_DEFAULTS = { label: "x", n: 0 };
 
-/** A child config node with its own schema (mimics a domain config). */
 function makeChild(): Config {
   const c = new Config();
   c.contribute("block", BlockSchema, BLOCK_DEFAULTS);
   return c;
 }
 
-/** A parent with one contributed (parent-owned) slice for collision tests. */
 function makeParent(): Config {
   const p = new Config();
   p.contribute("queue", z.object({ concurrency: z.number() }), {
@@ -55,7 +45,6 @@ describe("mount — read/write delegation", () => {
     parent.set("models.block.n", 9);
     expect(child.get("block.n")).toBe(9);
 
-    // Child owns validation — a bad write throws via the child's schema.
     expect(() => {
       parent.set("models.block.n", "nope");
     }).toThrow();
@@ -226,13 +215,12 @@ describe("mount — conflict / re-mount policy", () => {
 
     expect(warn).toHaveBeenCalledTimes(1);
 
-    // New child is live; old child is detached but still alive.
     const seen = vi.fn();
     parent.on("models.block.n", seen);
     newChild.set("block.n", 1);
     expect(seen).toHaveBeenCalledTimes(1);
 
-    oldChild.set("block.n", 99); // detached — must NOT fire on the parent
+    oldChild.set("block.n", 99);
     expect(seen).toHaveBeenCalledTimes(1);
     expect(oldChild.get("block.n")).toBe(99);
   });

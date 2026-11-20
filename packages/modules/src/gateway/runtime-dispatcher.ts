@@ -2,7 +2,7 @@ import { withAbort } from "@foundry/lib/abort";
 import { isGranted, resolveCapabilityDigest } from "../grants";
 import type { ModuleCapabilityRequest } from "../manifest";
 import { capabilityIdentity } from "../manifest";
-import type { ModuleGatewayContext, ModuleStore } from "../store/contract";
+import type { ModuleCommands, ModuleGatewayContext } from "../registry";
 import { ModuleGatewayContractError } from "./catalog";
 import { admitRuntimeContext } from "./runtime-context";
 import type {
@@ -20,22 +20,12 @@ import type {
 import { ModuleGatewayError } from "./types";
 
 export interface CreateModuleGatewayRuntimeDispatcherOptions {
-  /** The clock invocation records are stamped with. */
   readonly now?: () => Date;
-  /**
-   * Told of each invocation of an admitted runtime: once when it settles,
-   * and also when a stream opens. Fail-soft: it can neither delay nor fail
-   * the invocation.
-   */
   readonly observe?: (record: ModuleGatewayInvocationRecord) => void;
   readonly providers: readonly ModuleCapabilityProvider[];
-  readonly store: ModuleStore;
+  readonly store: ModuleCommands;
 }
 
-/**
- * The sole runtime admission path. It deliberately holds no approval surface:
- * a request is either already granted or it fails before an effect begins.
- */
 export function createModuleGatewayRuntimeDispatcher(
   options: CreateModuleGatewayRuntimeDispatcherOptions
 ): ModuleGatewayRuntimeDispatcher {
@@ -51,8 +41,6 @@ export function createModuleGatewayRuntimeDispatcher(
       const selection = input.capabilities.find(
         (capability) => capability.alias === request.alias
       );
-      // Registered before the Grants are read: a revoke that commits after
-      // the read still finds it and cancels it before any effect.
       const cancellation = trackInvocation({
         active,
         callerSignal: input.signal,
@@ -198,7 +186,6 @@ export function createModuleGatewayRuntimeDispatcher(
   }
 }
 
-/** The observer, made fail-soft. */
 function invocationObserver(
   observer: ((record: ModuleGatewayInvocationRecord) => void) | undefined
 ): (record: ModuleGatewayInvocationRecord) => void {
@@ -211,7 +198,6 @@ function invocationObserver(
   };
 }
 
-/** How an invocation ended, from what it threw (nothing: complete). */
 function outcome(error: unknown, endedAt: string): ModuleGatewayInvocationEnd {
   if (error === undefined) {
     return { endedAt, status: "complete" };
@@ -229,11 +215,6 @@ function outcome(error: unknown, endedAt: string): ModuleGatewayInvocationEnd {
   };
 }
 
-/**
- * A stream that reports how it ended and releases its invocation, exactly
- * once: when its reader finishes, fails or stops early, or when the
- * invocation is cancelled before anyone starts reading it.
- */
 function observedStream(
   events: AsyncIterable<unknown>,
   cancellation: TrackedInvocation,
@@ -282,13 +263,11 @@ function observedStream(
 }
 
 interface ActiveInvocation {
-  /** Absent for an undeclared alias, which no revoke names. */
   readonly capability: string | undefined;
   readonly controller: AbortController;
   readonly installationId: ModulePrincipal["installationId"];
 }
 
-/** An invocation a revoke or its caller can cancel; `cleanup` is idempotent. */
 interface TrackedInvocation {
   readonly cleanup: () => void;
   readonly signal: AbortSignal;
@@ -326,12 +305,8 @@ function trackInvocation(input: {
   };
 }
 
-/**
- * Resolves the provider's constraints, then checks Grants read afterwards, so
- * a Grant removed while the provider was deciding is never honored.
- */
 async function authorizeInvocation(input: {
-  readonly store: ModuleStore;
+  readonly store: ModuleCommands;
   readonly runtime: ModuleRuntimeIdentity;
   readonly provider: ModuleCapabilityProvider;
   readonly selection: ModuleCapabilityRequest;
@@ -398,7 +373,6 @@ async function* dispatchStream(
       }
       yield registration.event.parse(event);
     }
-    // A provider that ends because its signal aborted was cancelled, not completed.
     if (isAborted(invocation.signal)) {
       throw failure("cancelled", "Gateway request was cancelled");
     }
@@ -410,10 +384,6 @@ async function* dispatchStream(
   }
 }
 
-/**
- * A pre-loop `aborted` check narrows the flag to `false` for the rest of the
- * block, so the signal has to be re-read behind a call to see a later abort.
- */
 function isAborted(signal: AbortSignal): boolean {
   return signal.aborted;
 }

@@ -1,5 +1,3 @@
-/** microsandbox adapter: implements {@link ContainerRuntime}, absorbing SDK quirks. */
-
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, posix } from "node:path";
@@ -27,19 +25,10 @@ import type {
   ContainerSpec,
 } from "./types";
 
-/**
- * Keep the native addon out of registry imports and fake-runtime tests.
- * Import the optional SDK only when a VM is actually asked for.
- */
 async function sdk() {
   return import("microsandbox");
 }
 
-/**
- * The exec-options builder the SDK hands to `execWith`. Its class is internal
- * to the package, so the type is read off the call signature rather than
- * imported.
- */
 type ExecBuilder = Parameters<Parameters<MicroSandbox["execWith"]>[1]>[0];
 
 interface MicrosandboxMountBuilder {
@@ -84,14 +73,12 @@ interface MicrosandboxNetworkConfigurable {
   ): unknown;
 }
 
-/** Container pull policies onto the SDK's spelling. */
 const PULL_POLICY = {
   always: "always",
   missing: "if-missing",
   never: "never",
 } as const;
 
-/** Allowlisted destinations without explicit ports are HTTPS only. */
 const DEFAULT_ALLOWLIST_PORT = 443;
 
 const DENY_GUEST_EGRESS_POLICY: MicrosandboxNetworkPolicy = Object.freeze({
@@ -100,28 +87,11 @@ const DENY_GUEST_EGRESS_POLICY: MicrosandboxNetworkPolicy = Object.freeze({
   rules: Object.freeze([]),
 });
 
-/**
- * One shared install for the whole process. Every workspace session preflights
- * its own provider, so without this a cold start would kick off one ~24 MB
- * download per concurrent session, all writing the same files.
- */
 let installing: Promise<void> | undefined;
 const MAX_SERVICE_OUTPUT_BYTES = 1024 * 1024;
-/**
- * The most of each stream, stdout and stderr, `exec` keeps: the last bytes a
- * command wrote, as with a service's output. Each captured stream retains at
- * most this many bytes.
- * Generous next to build logs and tool output, which callers clip far lower.
- */
 const MAX_EXEC_OUTPUT_BYTES = 16 * 1024 * 1024;
 const REMOVE_STOP_TIMEOUT_MS = 2000;
 
-/**
- * The installed microsandbox SDK package version, for `applied.engine.version`.
- * The package does not export `./package.json`, so it is read by walking up from
- * the resolved entry rather than required directly; any failure yields
- * `undefined` and the engine is reported without a version.
- */
 export function microsandboxEngineVersion(): string | undefined {
   try {
     const require = createRequire(import.meta.url);
@@ -138,7 +108,7 @@ export function microsandboxEngineVersion(): string | undefined {
       directory = parent;
     }
   } catch {
-    // No installed SDK, or an unreadable manifest — reported without a version.
+    return undefined;
   }
   return undefined;
 }
@@ -178,9 +148,6 @@ export function createMicrosandboxRuntime(): ContainerRuntime<MicroSandbox> {
         const { install } = await sdk();
         await install();
       })().catch((error: unknown) => {
-        // Let the next attempt retry rather than caching the failure — a
-        // download that failed on a flaky network should not disable the
-        // backend for the rest of the session.
         installing = undefined;
         throw error;
       });
@@ -218,8 +185,6 @@ export function createMicrosandboxRuntime(): ContainerRuntime<MicroSandbox> {
       try {
         await Sandbox.remove(name);
       } catch (error: unknown) {
-        // Every VM is created ephemeral, so the runtime removes it itself once
-        // it stops; a remove that follows a stop is expected to find nothing.
         if (!(error instanceof SandboxNotFoundError)) {
           throw error;
         }
@@ -233,7 +198,6 @@ export function createMicrosandboxRuntime(): ContainerRuntime<MicroSandbox> {
   };
 }
 
-/** The SDK's config is an untyped record; read only a well-formed label map. */
 function labelsOf(config: Record<string, unknown>): Record<string, string> {
   const { labels } = config;
   if (labels === null || typeof labels !== "object") {
@@ -246,15 +210,6 @@ function labelsOf(config: Record<string, unknown>): Record<string, string> {
   );
 }
 
-/**
- * The guest working directory is deliberately NOT set here. `create()` stats
- * the configured workdir after boot and fails the whole sandbox if it is
- * missing — and nothing creates it for us, so an image without that exact path
- * (`node:*-slim` has `/home/node`, not `/home/user`) can never boot. Leaving it
- * unset skips that validation; the portable layer then creates the directory
- * and passes an explicit `cwd` on every exec, so nothing relies on the guest
- * default.
- */
 function applySpec(
   builder: SandboxBuilder,
   spec: ContainerSpec
@@ -264,8 +219,6 @@ function applySpec(
     .cpus(spec.cpus)
     .memory(spec.memoryMib)
     .pullPolicy(PULL_POLICY[spec.pull])
-    // Removed by the host runtime once the VM reaches a terminal status, so a
-    // crashed host leaks a stopped VM directory at worst, not a live guest.
     .ephemeral(true)
     .detached(spec.detached)
     .quietLogs();
@@ -302,9 +255,6 @@ function applySpec(
 
 function configureNetwork(builder: SandboxBuilder, spec: ContainerSpec): void {
   const configurable = builder as unknown as MicrosandboxNetworkConfigurable;
-  // A disabled guest interface also disables host forwarding in MicroSandbox.
-  // Keep the interface present for a loopback-only Program mapping, then deny
-  // all guest egress through the native policy instead.
   configurable.network((network) => {
     let configured = network;
     if (typeof spec.network === "object") {
@@ -324,7 +274,6 @@ function configureNetwork(builder: SandboxBuilder, spec: ContainerSpec): void {
   });
 }
 
-/** Deny egress except TLS to the listed hosts, which the runtime verifies upstream. */
 function allowlistNetwork(
   network: MicrosandboxNetworkBuilder,
   { destinations }: ContainerNetworkAllowlist
@@ -392,9 +341,6 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
       throw new SandboxError("invalid-contract", "exec requires a command");
     }
 
-    // Streamed rather than collected by the SDK, whose collection keeps every
-    // byte: output is bounded as it arrives. The handle is also the only way
-    // to stop a cancelled exec, since the SDK has no AbortSignal seam.
     const handle = await this.native.execStreamWith(cmd, (b) =>
       configureExec(b, args, options)
     );
@@ -415,8 +361,6 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
       );
     }
 
-    // A TTY merges stdout+stderr into the single un-framed stream a terminal
-    // wants, and makes the shell interactive (prompt, echo).
     const handle = await this.native.execStreamWith(cmd, (b) =>
       configureExec(b, args, options).tty(true).stdinPipe()
     );
@@ -426,8 +370,6 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
     const decoder = new TextDecoder();
     let closed = false;
 
-    // Pump events into the listener set until the process exits. Detached: the
-    // caller subscribes via `onData` rather than awaiting this.
     (async () => {
       for await (const event of handle) {
         if (event.kind !== "stdout" && event.kind !== "stderr") {
@@ -517,8 +459,6 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
 
   async writeFile(path: string, content: Uint8Array): Promise<void> {
     const parent = posix.dirname(path);
-    // mkdir on an existing directory is not an error worth surfacing here; the
-    // write below is what actually reports a bad path.
     if (parent !== path) {
       await this.ensureDirectory(parent).catch(() => undefined);
     }
@@ -526,7 +466,6 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
   }
 
   async ensureDirectory(path: string): Promise<void> {
-    // The SDK's mkdir creates parents already.
     await this.native.fs().mkdir(path);
   }
 
@@ -540,7 +479,6 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
         type,
       }));
     } catch {
-      // An unreadable directory lists as empty under the facet contract.
       return [];
     }
   }
@@ -559,9 +497,6 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
 
   async remove(): Promise<void> {
     const { Sandbox } = await sdk();
-    // The VM is discarded, so it gets a short flush window rather than the
-    // SDK's 10s graceful default, which outlasts callers' teardown budgets.
-    // Both steps are best effort; ephemeral VMs may already be gone after stop.
     await this.native
       .stopWithTimeout(REMOVE_STOP_TIMEOUT_MS)
       .catch(() => undefined);
@@ -569,7 +504,6 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
   }
 }
 
-/** Drain a streaming exec, keeping the last `limit` bytes of each stream. */
 async function collectBoundedProcess(
   handle: ExecHandle,
   limit: number
@@ -611,7 +545,6 @@ function configureExec(
   return builder;
 }
 
-/** Drain a streaming exec into a settled result, killing it if the signal fires. */
 async function collectWithSignal(
   handle: ExecHandle,
   signal: AbortSignal
@@ -620,8 +553,6 @@ async function collectWithSignal(
     await handle.kill().catch(() => undefined);
     throw new SandboxError("cancelled", "exec aborted");
   }
-  // Raced rather than polled, so an abort rejects immediately instead of
-  // waiting for the killed process to finish draining.
   let onAbort = (): void => undefined;
   const aborted = new Promise<never>((_resolve, reject) => {
     onAbort = () => {

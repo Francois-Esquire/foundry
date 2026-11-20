@@ -5,22 +5,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { layout } from "~/layout";
-import { daemonAlive } from "~/process/client";
 import { cliArgs } from "./helpers/cli";
-import { stopDaemon } from "./helpers/daemon";
+import { type TestHome, testHome } from "./helpers/home";
 import {
   type RawMcpSession,
   rawMcpSession,
   serverPreload,
 } from "./helpers/mcp-stdio";
-
-/**
- * `marbles mcp` is a relay and a server (`src/mcp/relay.ts`). The server
- * loads no source, so a Bun preload names both processes and misbehaves
- * on purpose in the server. Every wait is bounded, so a failure still
- * reaches the cleanup that kills them.
- */
 
 const PIDS = /PIDS=(\d+),(\d+)/;
 
@@ -53,7 +44,12 @@ function within<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
 }
 
 const resultSchema = z.object({
-  result: z.object({ isError: z.boolean().optional() }),
+  result: z.object({
+    content: z
+      .array(z.object({ text: z.string().optional(), type: z.string() }))
+      .optional(),
+    isError: z.boolean().optional(),
+  }),
 });
 
 async function call(
@@ -73,25 +69,26 @@ interface Started {
   readonly session: RawMcpSession;
 }
 
-/**
- * Start `marbles mcp` under `--dry-run`, or with `args` in its place, with
- * `body` run at the start of the server. With `piped`, its stdin is a pipe
- * `cat` writes for as long as the session's stdin is open.
- */
 async function start(
   root: string,
   body: string,
-  options: { readonly args?: readonly string[]; readonly piped?: boolean } = {}
+  options: {
+    readonly args?: readonly string[];
+    readonly home?: TestHome;
+    readonly piped?: boolean;
+  } = {}
 ): Promise<Started> {
+  const home = options.home ?? testHome();
   const env = await serverPreload(
-    root,
-    `console.error("PIDS=" + process.pid + "," + process.ppid);\n${body}`
+    home.path,
+    `console.error("PIDS=" + process.pid + "," + process.ppid);\n${body}`,
+    home.env
   );
   const marbles = [
     "--no-env-file",
     resolve("src/cli.ts"),
     "mcp",
-    ...(options.args ?? ["--state", join(root, "state"), "--dry-run"]),
+    ...(options.args ?? ["--dry-run"]),
   ];
   const session = options.piped
     ? await rawMcpSession("sh", ["-c", 'cat | "$@"', "sh", "bun", ...marbles], {
@@ -99,7 +96,6 @@ async function start(
         env,
       })
     : await rawMcpSession("bun", marbles, { cwd: root, env });
-  // Stderr is its own pipe, so it may trail the handshake's answer.
   const pids = await vi
     .waitFor(() => {
       const [, server, relay] = PIDS.exec(session.stderr()) ?? [];
@@ -122,7 +118,6 @@ it("stops the server when the relay is killed and stdin stays open", async () =>
     started = await start(root, "", { piped: true });
     const { relay, server } = started;
     process.kill(relay, "SIGKILL");
-    // Well inside the server's own shutdown deadline: nothing waited it out.
     await vi.waitFor(() => expect(alive(server)).toBe(false), {
       interval: 50,
       timeout: 2000,
@@ -145,7 +140,6 @@ it("exits once shutdown is done, though a timer is pending", async () => {
     process.kill(relay, "SIGTERM");
     const ended = await within(session.ended(), 10_000, "the exit");
     expect(ended.code).toBe(0);
-    // Before the shutdown deadline: the timer did not hold it.
     expect(Date.now() - begun).toBeLessThan(2500);
     expect(alive(server)).toBe(false);
   } finally {
@@ -156,16 +150,12 @@ it("exits once shutdown is done, though a timer is pending", async () => {
 }, 30_000);
 
 it("exits when a shutdown outlives its deadline", async () => {
-  // Short on purpose: the state root holds a Unix socket, whose path is
-  // limited to about a hundred bytes.
   const root = await mkdtemp(join(tmpdir(), "mm-"));
-  const state = join(root, "s");
+  const home = testHome();
   const source = join(root, "marbles.ts");
   const spinning = join(root, "spinning");
   let started: Started | undefined;
   try {
-    // A worker busy in a step answers no task call. Bounded, so a missed
-    // cleanup still ends it.
     await writeFile(
       source,
       `import { writeFileSync } from "node:fs";
@@ -179,22 +169,22 @@ workflow("spin").do(() => spin({}));`
     );
     const attached = spawnSync(
       "bun",
-      [...cliArgs("attach"), "--source", source, "--state", state],
-      { cwd: root, encoding: "utf8", timeout: 60_000 }
+      [...cliArgs("attach"), "--source", source],
+      { cwd: root, encoding: "utf8", env: home.env, timeout: 60_000 }
     );
     expect(attached.status, attached.stderr).toBe(0);
-    started = await start(root, "", {
-      args: ["--source", source, "--state", state],
-    });
+    started = await start(root, "", { args: ["--source", source], home });
     const { relay, server, session } = started;
     const dispatched = await call(session, "dispatch_workflow", {
       name: "spin",
     });
-    expect(dispatched.isError).not.toBe(true);
+    const text = (dispatched.content ?? [])
+      .map((part) => part.text ?? part.type)
+      .join("\n");
+    expect(dispatched.isError, text).not.toBe(true);
     await vi.waitFor(() => expect(existsSync(spinning)).toBe(true), {
       timeout: 15_000,
     });
-    // The server holds the tasks for this call until the worker answers.
     session
       .request("tools/call", {
         arguments: {
@@ -205,7 +195,6 @@ workflow("spin").do(() => spin({}));`
         name: "change_tasks",
       })
       .catch(() => undefined);
-    // Answered in order, so the task call has begun by then.
     await session.request("tools/list");
     const begun = Date.now();
     process.kill(relay, "SIGTERM");
@@ -214,19 +203,12 @@ workflow("spin").do(() => spin({}));`
     expect(ended.stderr).toContain(
       "marbles mcp: shutdown did not finish within 3000ms; exiting"
     );
-    // The server's own deadline, before the relay's.
     expect(Date.now() - begun).toBeLessThan(5000);
     expect(alive(server)).toBe(false);
   } finally {
     kill(started?.relay);
     kill(started?.server);
-    try {
-      if (daemonAlive(layout({ state }))) {
-        await stopDaemon(state);
-      }
-    } finally {
-      await rm(root, { force: true, recursive: true });
-    }
+    await rm(root, { force: true, recursive: true });
   }
 }, 90_000);
 
@@ -234,8 +216,6 @@ it("kills a server that does not stop after the relay's deadline", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-blocked-"));
   let started: Started | undefined;
   try {
-    // A SIGTERM listener that blocks the event loop, so no timer the
-    // server set can fire.
     started = await start(
       root,
       `process.on("SIGTERM", () => {
@@ -262,8 +242,6 @@ it("kills a server whose loop is blocked once stdin closes", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-spin-"));
   let started: Started | undefined;
   try {
-    // Blocks the loop when the test asks. Bounded, so a missed cleanup
-    // still ends it.
     started = await start(
       root,
       `const { writeSync } = await import("node:fs");
@@ -293,12 +271,13 @@ process.on("SIGUSR2", () => {
 
 it("lets a stored-task call finish before it exits", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-turn-"));
-  const state = join(root, "state");
+  const home = testHome();
+  const { state } = home.layout;
   try {
     const session = await rawMcpSession(
       "bun",
-      ["--no-env-file", resolve("src/cli.ts"), "mcp", "--state", state],
-      { cwd: root }
+      ["--no-env-file", resolve("src/cli.ts"), "mcp"],
+      { cwd: root, env: home.env }
     );
     session.notify("notifications/initialized");
     for (const key of ["a", "b", "c"]) {
@@ -314,7 +293,6 @@ it("lets a stored-task call finish before it exits", async () => {
     const ended = await within(session.close(), 10_000, "the exit");
     expect(ended.code).toBe(0);
     expect(ended.stderr).not.toContain("killing it");
-    // No call was cut off holding the tasks.
     for (const id of await readdir(state)) {
       expect(existsSync(join(state, id, "locks", "tasks")), id).toBe(false);
     }

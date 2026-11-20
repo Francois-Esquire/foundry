@@ -49,12 +49,6 @@ import type {
 } from "./operator-types";
 import { byId, sorted } from "./workspace-projection";
 
-// A composition reads operators, their decompositions, and the facts both
-// were built from. It merges actions that name the same work, merges and
-// infers dependencies, and reconciles preservations, effects, verification,
-// and gaps across operators. It never picks between contradictory intents
-// and never adds an action no decomposition asked for.
-
 function uniq(values: string[]): string[] {
   return sorted([...new Set(values)]);
 }
@@ -111,7 +105,6 @@ export function canonicalActionKey(
   };
 }
 
-/** `<kind>:<subject>[:<current>→<target>]`: the action id without its operator. */
 export function canonicalActionId(key: StructuralActionCanonicalKey): string {
   const placement =
     key.current === undefined && key.target === undefined
@@ -148,7 +141,6 @@ function subjectIdOf(operator: ArchitecturalOperator): string {
   }
 }
 
-/** Where consumers reach the operator's concept today: the recorded current package. */
 function homeOf(operator: ArchitecturalOperator): string | undefined {
   const fact = operator.preconditions.find(
     (p) => p.kind === "current-package"
@@ -178,7 +170,6 @@ function exposureId(action: StructuralAction): string | undefined {
     : undefined;
 }
 
-/** Concept scopes agree when equal or when either side is the whole boundary. */
 function compatible(a: string | undefined, b: string | undefined): boolean {
   return a === undefined || b === undefined || a === b;
 }
@@ -201,11 +192,6 @@ interface Intake {
   unsupported: string[];
 }
 
-/**
- * A stale operator is never redecomposed: the composition reports it. A
- * decomposition that is missing, behind its operator, or behind the facts
- * while the operator still validates is rebuilt here and listed as such.
- */
 function intake(
   operators: ArchitecturalOperator[],
   decompositions: OperatorDecomposition[],
@@ -361,11 +347,6 @@ function intakeOperatorEntries(
   return decomposition;
 }
 
-/**
- * One action from equivalent actions: preconditions, preserved invariants,
- * effects, and evidence are unions; the status is the strongest. The
- * first source (by action id) supplies the wording.
- */
 function mergeStructuralActions(
   id: string,
   sources: SourcedAction[]
@@ -536,7 +517,6 @@ function pairs(
   return out;
 }
 
-/** Cross-operator ordering that follows from what actions are, not from any workflow. */
 const INFERENCE_RULES: InferenceRule[] = [
   {
     edges: (actions) =>
@@ -785,7 +765,6 @@ function operatorConflictsJEntries(
   }
 }
 
-/** Contradictions visible in the merged actions alone. */
 export function detectActionConflicts(
   actions: ComposedStructuralAction[]
 ): OperatorCompositionConflict[] {
@@ -889,7 +868,6 @@ function stateOf(effect: OperatorExpectedEffect): EffectState {
   };
 }
 
-/** Two transitions describe the same step with a different other end: not two steps, one contradiction. */
 function sameEndpoint(a: EffectState, b: EffectState): boolean {
   return (
     (a.from === b.from && a.to !== b.to) || (a.to === b.to && a.from !== b.from)
@@ -901,7 +879,6 @@ interface Contradiction {
   preservationId: string;
 }
 
-/** Operator preservations against actions of other operators; concept-scoped where the preservation is. */
 function preservationConflicts(
   inputs: Input[],
   actions: ComposedStructuralAction[],
@@ -914,7 +891,6 @@ function preservationConflicts(
   const placement = actions.filter(isPlacement);
   const conceptOfAction = (a: ComposedStructuralAction): string | undefined =>
     a.subject.kind === "concept" ? a.subject.conceptId : undefined;
-  /** The old exposure stays through an explicit forwarding action. */
   const forwarded = (relocation: ComposedStructuralAction): boolean =>
     forwarding.some(
       (f) =>
@@ -1053,12 +1029,6 @@ function composePreservations(
     });
 }
 
-/**
- * Effects on one dimension, change, and subject relate; nothing is summed.
- * Identical effects from two operators are `duplicate`; two operators
- * describing the same step with different other ends are `conflicting`;
- * anything else (different edges, sequential steps) is `compatible`.
- */
 function composeEffects(
   inputs: Input[],
   actions: ComposedStructuralAction[],
@@ -1229,13 +1199,6 @@ function resolveStatus(
   return "compatible";
 }
 
-/**
- * Only a surface transition can be settled by another operator: an action
- * of another operator that keeps or closes the old exposure of the same
- * concept says what the rehome left open. Module choice, boundary scope,
- * conformance, coverage, and representation gaps are facts no intent
- * resolves.
- */
 function composeGaps(
   inputs: Input[],
   actions: ComposedStructuralAction[]
@@ -1318,7 +1281,6 @@ function compositionFingerprint(inputs: Input[]): {
   return { facts, hash: hash16(facts) };
 }
 
-/** Peel sources and sinks from the dependency graph. */
 function cycleMembers(
   actions: StructuralAction[],
   dependencies: StructuralActionDependency[]
@@ -1366,12 +1328,6 @@ function sortDependencies(
   );
 }
 
-/**
- * Compose the supplied operators into one structural action graph. Nothing
- * is selected: every operator given takes part. Equivalent actions merge
- * with provenance, dependencies merge and cross-operator ones are inferred
- * from fixed rules, and every contradiction is listed rather than decided.
- */
 export function composeArchitecturalOperators(
   operators: ArchitecturalOperator[],
   decompositions: OperatorDecomposition[],
@@ -1465,12 +1421,6 @@ export function composeArchitecturalOperators(
   };
 }
 
-/**
- * Check a composition record against its inputs and the current facts. The
- * composition is rebuilt from the same inputs and compared part by part:
- * a moved operator, decomposition, or fact is `stale`; a record that no
- * longer matches what its inputs compose to is `invalid`.
- */
 export function validateOperatorComposition(
   composition: OperatorComposition,
   operators: ArchitecturalOperator[],

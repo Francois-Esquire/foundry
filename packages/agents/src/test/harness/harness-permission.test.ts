@@ -14,7 +14,8 @@ import type {
   HarnessAuthoritySettings,
   HarnessPermissionRequest,
 } from "../../harness/turn-driver";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
+import { InMemorySessionStore } from "../../store/memory";
 
 function request(
   signal = new AbortController().signal
@@ -31,7 +32,8 @@ function request(
 async function setup(mode: "scheduled" | "attended" = "scheduled") {
   const authority = createInMemoryAgentAuthorizer();
   const store = new InMemorySessionStore();
-  await store.createSession({ id: "session-1" });
+  const sessions = new Sessions({ store });
+  await sessions.createSession({ id: "session-1" });
   const settings: HarnessAuthoritySettings = {
     agentGeneration: 2,
     agentId: "coder",
@@ -161,6 +163,159 @@ describe("native harness permission", () => {
       message: "Denied by capability kind policy.",
     });
     expect(settings.approve).not.toHaveBeenCalled();
+  });
+
+  it("records one answer of two given at once, the first stored, and grants only for it", async () => {
+    const { authority, settings, store } = await setup();
+    await createHarnessPermission(settings)(request());
+    const part = (await store.listMessages("session-1"))[0]?.parts[0];
+    if (part?.type !== "tool_approval_request") {
+      throw new Error("No approval");
+    }
+    const answered = await Promise.allSettled([
+      resolveHarnessApproval(settings, "session-1", part.approvalId, {
+        approved: false,
+        lifetime: "persistent",
+      }),
+      resolveHarnessApproval(settings, "session-1", part.approvalId, {
+        approved: true,
+        lifetime: "persistent",
+      }),
+    ]);
+    expect(answered.map((outcome) => outcome.status)).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    expect(answered[1]).toMatchObject({
+      reason: expect.objectContaining({
+        message: expect.stringContaining("already has a response"),
+      }),
+    });
+    const responses = (await store.listMessages("session-1"))
+      .flatMap((message) => message.parts)
+      .filter((value) => value.type === "tool_approval_response");
+    expect(responses).toMatchObject([{ approved: false }]);
+    expect(
+      await authority.authorizer.decide({
+        capability: part.capability,
+        invocationId: "later",
+        subject: agentSubject("coder", 2),
+      })
+    ).toEqual({ kind: "requires-approval" });
+  });
+
+  it("grants on a retry of the same answer when the grant failed after the answer was stored, and still refuses another answer", async () => {
+    const { authority, settings, store } = await setup();
+    await createHarnessPermission(settings)(request());
+    const part = (await store.listMessages("session-1"))[0]?.parts[0];
+    if (part?.type !== "tool_approval_request") {
+      throw new Error("No approval");
+    }
+    const { resolveApproval } = authority.authorizer;
+    let failures = 1;
+    let resolved = 0;
+    settings.policy = {
+      ...authority.authorizer,
+      resolveApproval: (auth, resolution) => {
+        resolved += 1;
+        if (failures > 0) {
+          failures -= 1;
+          return Promise.reject(new Error("grant store unavailable"));
+        }
+        return resolveApproval(auth, resolution);
+      },
+    };
+    const answer = { approved: true, lifetime: "persistent" } as const;
+    await expect(
+      resolveHarnessApproval(settings, "session-1", part.approvalId, answer)
+    ).rejects.toThrow("grant store unavailable");
+    const later = {
+      capability: part.capability,
+      invocationId: "later",
+      subject: agentSubject("coder", 2),
+    };
+    expect(await authority.authorizer.decide(later)).toEqual({
+      kind: "requires-approval",
+    });
+
+    await resolveHarnessApproval(
+      settings,
+      "session-1",
+      part.approvalId,
+      answer
+    );
+
+    expect(await authority.authorizer.decide(later)).toMatchObject({
+      kind: "allow",
+    });
+    await resolveHarnessApproval(
+      settings,
+      "session-1",
+      part.approvalId,
+      answer
+    );
+    expect(resolved).toBe(2);
+    await expect(
+      resolveHarnessApproval(settings, "session-1", part.approvalId, {
+        approved: false,
+        lifetime: "persistent",
+      })
+    ).rejects.toThrow("already has a response");
+    await expect(
+      resolveHarnessApproval(settings, "session-1", part.approvalId, {
+        approved: true,
+        lifetime: "session",
+      })
+    ).rejects.toThrow("already has a response");
+    const responses = (await store.listMessages("session-1"))
+      .flatMap((message) => message.parts)
+      .filter((value) => value.type === "tool_approval_response");
+    expect(responses).toMatchObject([{ approved: true, scope: "always" }]);
+  });
+
+  it("does not grant again on a retry of an answer whose grant was issued and later revoked", async () => {
+    const { authority, settings, store } = await setup();
+    await createHarnessPermission(settings)(request());
+    const part = (await store.listMessages("session-1"))[0]?.parts[0];
+    if (part?.type !== "tool_approval_request") {
+      throw new Error("No approval");
+    }
+    const resolveApproval = vi.spyOn(authority.authorizer, "resolveApproval");
+    const answer = { approved: true, lifetime: "persistent" } as const;
+    await resolveHarnessApproval(
+      settings,
+      "session-1",
+      part.approvalId,
+      answer
+    );
+    const subject = agentSubject("coder", 2);
+    const later = {
+      capability: part.capability,
+      invocationId: "later",
+      subject,
+    };
+    expect(await authority.authorizer.decide(later)).toMatchObject({
+      kind: "allow",
+    });
+
+    await authority.revoke(subject, part.capability);
+    await resolveHarnessApproval(
+      settings,
+      "session-1",
+      part.approvalId,
+      answer
+    );
+
+    expect(await authority.authorizer.decide(later)).toEqual({
+      kind: "requires-approval",
+    });
+    expect(resolveApproval).toHaveBeenCalledTimes(1);
+    const responses = (await store.listMessages("session-1"))
+      .flatMap((message) => message.parts)
+      .filter((value) => value.type === "tool_approval_response");
+    expect(responses).toMatchObject([
+      { approved: true, granted: true, scope: "always" },
+    ]);
   });
 
   it("refuses a deferred once approval and an approval for another generation", async () => {

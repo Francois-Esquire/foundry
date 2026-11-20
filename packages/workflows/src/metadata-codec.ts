@@ -1,98 +1,19 @@
-import { Option, Schema } from "effect";
-
 import type { ChannelEvent } from "./channels";
-import {
-  ChannelEventSchema,
-  ErrorShapeSchema,
-  SuspensionStateSchema,
-} from "./channels";
+import type { RecoverableRun } from "./execution-commands";
 import { resolveInput } from "./helpers";
+import { isPlainRecord } from "./json-value";
+import { defineOwnEntry } from "./own-entry";
+import type { PersistedMetadata, RunRecord } from "./schema";
+import { PersistedMetadataSchema } from "./schema";
 import type { StepSnapshot, WorkflowSnapshot } from "./snapshot";
-import { StepSnapshotSchema, WorkflowSnapshotSchema } from "./snapshot";
-import type { RecoverableRun, RunRecord } from "./store";
 import type { RunStatus } from "./types";
 import type { WorkflowPersistence, WorkflowState } from "./workflow";
 
-/**
- * Shared schema for the persisted run metadata blob. The writer validates it
- * with encodePersistedMetadata, and readers decode it through
- * decodeMetadataValue or workflowTraceFactsFromMetadata.
- */
-const RunStatusSchema = Schema.Literal(
-  "queued",
-  "running",
-  "complete",
-  "failed",
-  "cancelled",
-  "suspended"
-);
+function decodePersistedMetadata(value: unknown): PersistedMetadata | null {
+  const result = PersistedMetadataSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
 
-const TelemetrySchema = Schema.Struct({
-  logs: Schema.Array(
-    Schema.Struct({
-      at: Schema.String,
-      level: Schema.Literal("debug", "info", "warn", "error"),
-      message: Schema.String,
-      metadata: Schema.optional(
-        Schema.Record({ key: Schema.String, value: Schema.Unknown })
-      ),
-      path: Schema.optional(Schema.Array(Schema.String)),
-      stepId: Schema.optional(Schema.String),
-    })
-  ),
-  metrics: Schema.Struct({
-    updatedAt: Schema.String,
-    values: Schema.Record({ key: Schema.String, value: Schema.Number }),
-  }),
-});
-
-/**
- * The `metadata.workflow` blob: a {@link WorkflowState} fortified with the
- * `runId`/`step` ornaments the writer stamps. Most fields are optional because
- * the insert-time row carries only `{ input, steps, tree }` before the first
- * reactive write fills in the rest.
- */
-const PersistedWorkflowSchema = Schema.Struct({
-  attempt: Schema.optional(Schema.Number),
-  completedAt: Schema.optional(Schema.String),
-  createdAt: Schema.optional(Schema.String),
-  error: Schema.optional(ErrorShapeSchema),
-  input: Schema.optional(Schema.Unknown),
-  metadata: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown })
-  ),
-  output: Schema.optional(Schema.Unknown),
-  runId: Schema.optional(Schema.String),
-  startedAt: Schema.optional(Schema.String),
-  status: Schema.optional(RunStatusSchema),
-  step: Schema.optional(Schema.String),
-  steps: Schema.optional(
-    Schema.Record({ key: Schema.String, value: StepSnapshotSchema })
-  ),
-  suspendedAt: Schema.optional(Schema.String),
-  suspension: Schema.optional(SuspensionStateSchema),
-  tags: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.String })
-  ),
-  telemetry: Schema.optional(TelemetrySchema),
-  tree: Schema.optional(Schema.NullOr(WorkflowSnapshotSchema)),
-});
-export type PersistedWorkflow = Schema.Schema.Type<
-  typeof PersistedWorkflowSchema
->;
-
-const PersistedMetadataSchema = Schema.Struct({
-  stream: Schema.optional(Schema.Array(ChannelEventSchema)),
-  workflow: Schema.optional(Schema.NullOr(PersistedWorkflowSchema)),
-});
-type PersistedMetadata = Schema.Schema.Type<typeof PersistedMetadataSchema>;
-
-const decodeMetadataOption = Schema.decodeUnknownOption(
-  PersistedMetadataSchema
-);
-const encodePersistedMetadataSync = Schema.encodeSync(PersistedMetadataSchema);
-
-/** Generic, read-only facts projected from one persisted workflow Run. */
 export interface WorkflowTraceFacts {
   readonly steps: Readonly<Record<string, StepSnapshot>>;
   readonly stream: readonly ChannelEvent[];
@@ -115,16 +36,11 @@ function deepFreeze<T>(value: T): T {
   return Object.freeze(value);
 }
 
-/**
- * Decode generic workflow trace facts without exposing the private persisted
- * metadata shape. Invalid input fails closed; valid facts are detached from
- * the caller's Run record and frozen recursively.
- */
 export function workflowTraceFactsFromMetadata(
   value: unknown
 ): WorkflowTraceFacts {
   try {
-    const metadata = Option.getOrNull(decodeMetadataOption(value));
+    const metadata = decodePersistedMetadata(value);
     if (!metadata) {
       return emptyWorkflowTraceFacts;
     }
@@ -140,32 +56,20 @@ export function workflowTraceFactsFromMetadata(
   }
 }
 
-/** Decode an already-parsed metadata value (not a JSON string) into the typed
- * persisted shape, or `null` if absent or malformed. Used for the pass-through
- * `RecoverableRun.metadata` Record that `adopt` re-seeds from. */
 export function decodeMetadataValue(value: unknown): PersistedMetadata | null {
   if (value === null || value === undefined) {
     return null;
   }
-  return Option.getOrNull(decodeMetadataOption(value));
+  return decodePersistedMetadata(value);
 }
 
-/**
- * Under a `transient` policy, strip the evidence-carrying fields the gate
- * forbids while keeping every other field so the row still decodes: drop the
- * run-level `workflow.output` and each `steps[*].output`, and null every
- * `step.complete` stream value (the key is kept, not deleted, so
- * `PersistedMetadataSchema` still decodes). The Queue patch omits the row's own
- * `output` column; `custom` events never reach `stream[]` (the Queue's
- * `#eventLogLoop` already filters them).
- */
 function gateTransientSteps(
   steps: WorkflowState["steps"]
 ): WorkflowState["steps"] {
   const gated: Record<string, (typeof steps)[string]> = {};
   for (const [key, snapshot] of Object.entries(steps)) {
     const { output: _output, ...rest } = snapshot;
-    gated[key] = rest;
+    defineOwnEntry(gated, key, rest);
   }
   return gated;
 }
@@ -178,42 +82,86 @@ function gateTransientStream(
   );
 }
 
-/** Encode the persisted blob through the shared schema so the written shape
- * stays in lockstep with {@link decodeMetadataValue}. May throw on a non-conforming
- * snapshot; callers wrap in a best-effort effect. Under a `transient` policy
- * the run output, Step outputs, and `step.complete` stream values are gated
- * out at this one seam; the default `retained` policy encodes exactly as before. */
 export function encodePersistedMetadata(
   workflow: WorkflowState & { readonly runId: string; readonly step: string },
   stream: readonly ChannelEvent[],
   policy: WorkflowPersistence = { results: "retained" }
 ): Record<string, unknown> {
   if (policy.results === "retained") {
-    return encodePersistedMetadataSync({ stream, workflow });
+    return PersistedMetadataSchema.parse({ stream, workflow });
   }
   const { output: _output, ...rest } = workflow;
-  return encodePersistedMetadataSync({
+  return PersistedMetadataSchema.parse({
     stream: gateTransientStream(stream),
     workflow: { ...rest, steps: gateTransientSteps(workflow.steps) },
   });
 }
 
-/** Pull persisted `steps` blob in `Snapshot.seed` shape, or `null` if absent. */
 export function stepsFromMetadata(
   metadata: PersistedMetadata | null
 ): Record<string, StepSnapshot> | null {
   return metadata?.workflow?.steps ?? null;
 }
 
-/** Pull persisted append-only event log, or `[]` if absent. */
+export function cancelledWorkflowMetadata(
+  metadata: Record<string, unknown>,
+  cancelledAt: number,
+  settledMetadata?: Record<string, unknown>
+): Record<string, unknown> {
+  const { workflow } = metadata;
+  if (!isPlainRecord(workflow)) {
+    return metadata;
+  }
+  const completedAt = new Date(cancelledAt).toISOString();
+  const steps = isPlainRecord(workflow.steps) ? { ...workflow.steps } : {};
+  for (const [key, step] of Object.entries(steps)) {
+    if (
+      !isPlainRecord(step) ||
+      (step.status !== "running" &&
+        step.status !== "suspended" &&
+        step.status !== "paused")
+    ) {
+      continue;
+    }
+    const startedAt =
+      typeof step.startedAt === "string"
+        ? Date.parse(step.startedAt)
+        : Number.NaN;
+    defineOwnEntry(steps, key, {
+      ...step,
+      completedAt,
+      ...(Number.isFinite(startedAt)
+        ? { durationMs: Math.max(0, cancelledAt - startedAt) }
+        : {}),
+      status: "aborted",
+    });
+  }
+  const settledWorkflow = settledMetadata?.workflow;
+  const settledSteps = isPlainRecord(settledWorkflow) && settledWorkflow.steps;
+  for (const [key, step] of Object.entries(
+    isPlainRecord(settledSteps) ? settledSteps : {}
+  )) {
+    if (isPlainRecord(step) && step.status === "aborted") {
+      defineOwnEntry(steps, key, step);
+    }
+  }
+  return {
+    ...metadata,
+    workflow: {
+      ...workflow,
+      completedAt,
+      status: "cancelled",
+      ...(Object.keys(steps).length === 0 ? {} : { steps }),
+    },
+  };
+}
+
 export function streamFromMetadata(
   metadata: PersistedMetadata | null
 ): readonly ChannelEvent[] {
   return metadata?.stream ?? [];
 }
 
-/** Pull persisted top-level workflow fields in `Workflow.seedState` shape.
- * Falls back to the row's authoritative `status` when metadata is absent. */
 export function workflowStateFromMetadata(
   metadata: PersistedMetadata | null,
   rowStatus: RunStatus
@@ -225,9 +173,6 @@ export function workflowStateFromMetadata(
   return { ...wf, status: wf.status ?? rowStatus };
 }
 
-/** Translate a raw runs row into RecoverableRun. Used by findRecoverableRuns
- * (bulk, non-terminal) and hydrate (single id, any status). The `lastStatus`
- * field reflects the row's actual status. */
 export function rowToRecoverable(row: RunRecord): RecoverableRun {
   const decoded = decodeMetadataValue(row.metadata);
   const raw = row.metadata;

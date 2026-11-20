@@ -776,7 +776,6 @@ describe("traversal and independence", () => {
       }
     );
     const [thing] = analyzeConceptBehavioralLocality(withConversions).concepts;
-    // `store` was a V7.3 participant and is tagged once; `load` was not and joins once.
     expect(thing?.behavior.total).toBe(4);
     expect(
       thing?.behavior.byModule.find((row) => row.module === B)

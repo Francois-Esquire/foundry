@@ -1,6 +1,7 @@
 import type {
   ArtifactId,
   ArtifactOperations,
+  ArtifactResolved,
   Artifacts,
   ContentId,
   FileInputs,
@@ -12,8 +13,10 @@ import { sha256Hex } from "@foundry/lib/digest";
 import { decodeUtf8 } from "@foundry/lib/encoding";
 import { isModuleBuildOutputPath } from "./build";
 import { MODULE_MIME } from "./constants";
+import { assertOwnsArtifactCommit } from "./cross-store";
 import type { Module, ModuleId, ModuleVersion } from "./domain";
 import { defineModule, defineModuleVersion } from "./domain";
+import { ModuleStoreConflictError } from "./errors";
 import type { ModuleCapabilityCatalog } from "./gateway/types";
 import {
   assertSemverTag,
@@ -22,9 +25,8 @@ import {
   validateModuleManifestBuild,
 } from "./manifest";
 import { unsupportedModuleRequirements } from "./preflight";
+import type { ModuleRegistryUnit } from "./registry";
 import { admitModuleSource } from "./source";
-import type { ModuleStore } from "./store/contract";
-import { ModuleStoreConflictError } from "./store/contract";
 
 const SOURCE_PREFIX = "source/";
 
@@ -40,20 +42,13 @@ export interface ModuleProject {
   readonly module: Module;
 }
 
-/** A build's result, published as a Version of the source it was built from. */
 export interface ModuleBuildPublication {
-  /** What the Manifest may select: the host's capabilities. */
   readonly catalog: Pick<ModuleCapabilityCatalog, "capabilities">;
-  /** The saved source the build read; publication refuses once it moved. */
   readonly expected: ModuleSourceBinding;
-  /** Merged into the Version's Content metadata in the same write (a host's attribution). */
   readonly metadata?: Readonly<Record<string, unknown>>;
   readonly moduleId: ModuleId;
-  /** Build outputs by path, each under a package's `dist/`. */
   readonly outputs: Readonly<Record<string, Uint8Array>>;
-  /** The source the Version embeds: the saved source and its resolved `bun.lock`. */
   readonly source: Readonly<Record<string, string>>;
-  /** The Version's SemVer tag, unused by any earlier Version. */
   readonly tag: string;
 }
 
@@ -63,13 +58,7 @@ export interface ModuleProjects {
     readonly name: string;
     readonly source: Readonly<Record<string, string>>;
   }): Promise<ModuleProject>;
-  /**
-   * Freezes a build's source and outputs as a new Version, in one write
-   * fenced on the source the build read. The Manifest must select only
-   * catalog capabilities and ask for nothing a host cannot run.
-   */
   publish(input: ModuleBuildPublication): Promise<{
-    /** The saved source now: the frozen Version's Content. */
     readonly binding: ModuleSourceBinding;
     readonly version: ModuleVersion;
   }>;
@@ -77,7 +66,6 @@ export interface ModuleProjects {
     readonly moduleId: ModuleId;
     readonly source: Readonly<Record<string, string>>;
     readonly expected: ModuleSourceBinding;
-    /** Merged into the saved Content's metadata in the same write (a host's save attribution). */
     readonly metadata?: Readonly<Record<string, unknown>>;
   }): Promise<ModuleSourceBinding>;
   workspaceSource(input: { readonly moduleId: ModuleId }): Promise<{
@@ -86,7 +74,6 @@ export interface ModuleProjects {
   }>;
 }
 
-/** Whether two bindings name the same saved revision of a Module's source. */
 function sameModuleSourceBinding(
   left: ModuleSourceBinding,
   right: ModuleSourceBinding
@@ -107,14 +94,45 @@ export class ModuleProjectError extends Error {
 
 export function createModuleProjects(options: {
   readonly artifacts: Artifacts;
-  readonly store: Pick<
-    ModuleStore,
-    "loadModule" | "registerModule" | "transaction"
-  >;
+  readonly store: ModuleRegistryUnit<"loadModule" | "registerModule">;
 }): ModuleProjects {
   const { artifacts, store } = options;
 
-  /** Pass the transaction handle when called inside `artifacts.transaction`. */
+  async function registered(module: Module) {
+    const artifact = await artifacts.get(module.artifactId);
+    if (artifact === null) {
+      throw new ModuleProjectError(
+        `Module ${module.id} names Artifact ${module.artifactId}, which does not exist`
+      );
+    }
+    if (artifact.status === "archived") {
+      throw new ModuleProjectError(
+        `Module ${module.id} names Artifact ${module.artifactId}, which is archived; unarchive the Artifact or delete the Module`
+      );
+    }
+    return { artifactId: module.artifactId, idempotent: true, module };
+  }
+
+  async function reconciled(
+    id: ModuleId,
+    made: ArtifactResolved,
+    error: unknown
+  ) {
+    const read = await store.loadModule(id).then(
+      (module) => ({ module, read: true }) as const,
+      () => ({ read: false }) as const
+    );
+    if (!read.read) {
+      throw error;
+    }
+    const current = read.module;
+    if (current?.artifactId === made.id) {
+      return { artifactId: made.id, idempotent: false, module: current };
+    }
+    await artifacts.archive(made.id).catch(() => undefined);
+    throw error;
+  }
+
   async function requireArtifact(
     moduleId: ModuleId,
     reader: Pick<ArtifactOperations, "get"> = artifacts
@@ -136,27 +154,29 @@ export function createModuleProjects(options: {
     async create(input: Parameters<ModuleProjects["create"]>[0]) {
       const entries = admittedSourceFiles(input.source);
       validateManifest(input.source);
-      return artifacts.transaction((scoped) =>
-        store.transaction(async () => {
-          const existing = await store.loadModule(input.id);
+      await assertOwnsArtifactCommit(artifacts, "Module project create");
+      const step: { made?: ArtifactResolved } = {};
+      try {
+        return await store.transaction(async (registry) => {
+          const existing = await registry.loadModule(input.id);
           if (existing !== null) {
-            return {
-              artifactId: existing.artifactId,
-              idempotent: true,
-              module: existing,
-            };
+            return await registered(existing);
           }
-          const artifact = await scoped.create({
-            entries,
-            name: input.name,
-            type: MODULE_MIME,
-          });
-          const module = await store.registerModule({
+          const artifact = await artifacts.transaction((scoped) =>
+            scoped.create({ entries, name: input.name, type: MODULE_MIME })
+          );
+          step.made = artifact;
+          const module = await registry.registerModule({
             module: defineModule({ artifact, id: input.id }),
           });
           return { artifactId: artifact.id, idempotent: false, module };
-        })
-      );
+        });
+      } catch (error) {
+        if (step.made === undefined) {
+          throw error;
+        }
+        return await reconciled(input.id, step.made, error);
+      }
     },
     async publish(input: ModuleBuildPublication) {
       assertSemverTag(input.tag);
@@ -352,11 +372,6 @@ function sourceFiles(source: Readonly<Record<string, string>>): FileInputs {
   return files;
 }
 
-/**
- * {@link sourceFiles} for source entering the host: also within the host's
- * source limits, checked before anything is written. Reading back source
- * already stored only needs its paths to be valid.
- */
 function admittedSourceFiles(
   source: Readonly<Record<string, string>>
 ): FileInputs {

@@ -38,16 +38,10 @@ import type {
 } from "./operator-types";
 import { boundaryIdOf, byId, sorted } from "./workspace-projection";
 
-// A decomposition reads the operator and the workspace facts the operator
-// was built from. It partitions the operator's own effects, preservations,
-// and verification contract across structural actions; it predicts nothing
-// new, names no file, and orders nothing beyond explicit dependencies.
-
 export function preservationId(preservation: OperatorPreservation): string {
   return `${preservation.kind}:${preservation.entityIds.join(",")}`;
 }
 
-/** Operator effects in operator order; a repeated shape gets an ordinal. */
 function effectIds(effects: OperatorExpectedEffect[]): string[] {
   const seen = new Map<string, number>();
   return effects.map((effect) => {
@@ -325,7 +319,6 @@ function preservationActions(
 ): void {
   const conceptId = conceptIdOf(operator);
   preservationActionsPreservation(operator, acc, conceptId, placement);
-  // A representation constraint without a preservation still needs the boundary kept explicit.
   for (const constraint of operator.constraints) {
     if (constraint.kind !== "representation-boundary") {
       continue;
@@ -805,7 +798,6 @@ function decomposePreserveBoundary(
   });
 }
 
-/** V8.3 labels edges `a → b`; boundary ids are `a→b`. One shape here. */
 function edgeOf(effect: OperatorExpectedEffect): string | undefined {
   const value = effect.change.endsWith("-addition") ? effect.to : effect.from;
   if (typeof value !== "string" || !value.includes("→")) {
@@ -883,7 +875,6 @@ function effectTargets(
       if (redirects.length > 0) {
         return redirects;
       }
-      // The target stops importing the declaration it now owns.
       return acc
         .byKind("relocate-semantic-declaration")
         .filter(
@@ -910,7 +901,6 @@ function effectTargets(
   }
 }
 
-/** Add removal actions for rehome-behavior boundary eliminations with a matching redirect. */
 function boundaryRemovalActions(
   operator: ArchitecturalOperator,
   acc: Assembly
@@ -953,7 +943,6 @@ function boundaryRemovalActions(
   }
 }
 
-/** Which gap an operator effect leaves when no action carries it; `undefined` is a rule defect validation reports. */
 function unresolvedEffectGap(
   effect: OperatorExpectedEffect
 ): OperatorDecompositionGapKind | undefined {
@@ -1125,7 +1114,6 @@ const GROUP_ORDER: StructuralActionGroupKind[] = [
   "verification",
 ];
 
-/** Assign layers from roots; `cycle` contains actions never assigned a layer. */
 export function layers(
   actions: StructuralAction[],
   dependencies: StructuralActionDependency[]
@@ -1243,13 +1231,6 @@ function emptyDecomposition(
   };
 }
 
-/**
- * Expand one operator into its structural actions. The operator is
- * checked for decomposition support and validated: a stale operator yields no actions (refresh it), an
- * unsupported one none, a blocked one the full set it would need with its
- * change actions marked blocked. Nothing here reads source or predicts
- * beyond the operator's own effects.
- */
 export function decomposeArchitecturalOperator(
   operator: ArchitecturalOperator,
   context: OperatorContext
@@ -1361,11 +1342,6 @@ const REQUIRED_ACTIONS: Partial<
   ],
 };
 
-/**
- * Check a decomposition against its operator and the current facts. Coverage
- * is recomputed from the actions, never trusted from the record. A changed
- * operator or workspace fact is `stale`; a structural defect is `invalid`.
- */
 export function validateOperatorDecomposition(
   decomposition: OperatorDecomposition,
   operator: ArchitecturalOperator,

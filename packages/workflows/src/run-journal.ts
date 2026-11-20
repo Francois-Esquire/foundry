@@ -1,9 +1,9 @@
 import type { Page } from "@foundry/core/pagination";
-import { Schema } from "effect";
 import { InvalidRunFrameSequenceError } from "./errors";
-import type { JsonValue, RunFrame, RunFramePayload } from "./execution-records";
-import { RunFrameSchema } from "./execution-records";
-import type { PageQuery } from "./execution-repository";
+import type { PageQuery } from "./execution-commands";
+import type { JsonValue } from "./json-value";
+import type { RunFrame, RunFramePayload } from "./schema";
+import { RunFrameSchema } from "./schema";
 
 export interface AppendRunFrameInput {
   at?: number;
@@ -28,13 +28,8 @@ export interface FrameRun {
   runId: string;
 }
 
-/** Ordered, retained observation for one Run. */
 export interface RunJournal {
   appendRunFrame(input: AppendRunFrameInput): Promise<RunFrame>;
-  /**
-   * Atomically append one durable effect-claim marker per `(runId, key)`.
-   * Returns the appended frame for the winner and null for every duplicate.
-   */
   claimRunEffect(input: ClaimRunEffectInput): Promise<RunFrame | null>;
   countFrameRuns(): Promise<number>;
   countFrames(
@@ -48,7 +43,6 @@ export interface RunJournal {
 
 const RUN_EFFECT_CLAIM_EVENT = "run-effect-claimed";
 
-/** Receipts and named claims may outlive execution; live activity may not. */
 function isPostTerminalRunEvidence(payload: JsonValue): boolean {
   if (typeof payload !== "object" || payload === null || !("kind" in payload)) {
     return false;
@@ -102,16 +96,14 @@ export function isRunEffectClaim(frame: RunFrame, key: string): boolean {
   return record.event === RUN_EFFECT_CLAIM_EVENT && record.key === key;
 }
 
-/** The single canonical decoder used before persistence and after hydration. */
 export function decodeRunFrame(value: unknown): RunFrame {
-  return Schema.decodeUnknownSync(RunFrameSchema)(value);
+  return RunFrameSchema.parse(value);
 }
 
 export function decodeRunFrames(values: readonly unknown[]): RunFrame[] {
   return values.map(decodeRunFrame);
 }
 
-/** Decode and validate one persisted Run's complete retained frame sequence. */
 export function decodeRunFrameSequence(
   runId: string,
   values: readonly unknown[]

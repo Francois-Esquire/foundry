@@ -5,12 +5,9 @@ import type {
 } from "@foundry/sandbox/container/containers";
 
 import type { InstallationId } from "../domain";
+import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "../errors";
 import { approvedNetworkDestinations } from "../grants";
-import type { ModuleStore } from "../store/contract";
-import {
-  ModuleStoreConflictError,
-  ModuleStoreNotFoundError,
-} from "../store/contract";
+import type { ModuleCommands } from "../registry";
 import type {
   ModuleProgramResources,
   ModuleProgramRuntimeAdapter,
@@ -35,7 +32,7 @@ export interface CreateContainerModuleProgramRuntimeOptions {
   readonly fetch?: CreateModuleProgramRuntimeOptions["fetch"];
   readonly healthCheckTimeoutMs?: number;
   readonly store: Pick<
-    ModuleStore,
+    ModuleCommands,
     "loadGatewayContext" | "setInstallationContainerId"
   >;
   readonly transport: CreateModuleProgramRuntimeOptions["transport"];
@@ -87,8 +84,6 @@ async function openContainer(
       "Installation selection or generation changed"
     );
   }
-  // Network authority is the Installation's current Grant, read now, at
-  // start: a Grant change only takes effect when the Program restarts.
   const destinations = await approvedNetworkDestinations({
     grants: context.grants,
     manifest: input.version.manifest,
@@ -109,8 +104,6 @@ async function openContainer(
     resources: input.launch.resources,
   });
   const existing = context.installation.containerId;
-  // Reuse the linked row when it still exists; a deleted row gets a fresh
-  // container. Errors from an existing row's restart or open propagate.
   if (
     existing !== null &&
     (await options.containers.list()).some((row) => row.id === existing)

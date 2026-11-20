@@ -2,13 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { freshIterable } from "../../transport/stream";
 
-// `freshIterable` exists so subscription transports can attach their own
-// `Symbol.asyncDispose` for cleanup: a native async generator already carries
-// one, and some transports (e.g. trpc-electron) throw trying to attach a second.
-// The runtime-independent contract we can lock here: the wrapper exposes
-// `Symbol.asyncIterator` but the iterator it returns does NOT define
-// `Symbol.asyncDispose`, and it forwards the underlying generator's values.
-
 async function* nativeGen(): AsyncGenerator<number> {
   yield 1;
   yield 2;

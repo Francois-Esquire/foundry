@@ -3,6 +3,7 @@ import {
   createHarnessActivityRecorder,
   type HarnessSession,
 } from "@foundry/agents/harness";
+import { Sessions } from "@foundry/agents/session";
 import { tool } from "ai";
 import { z } from "zod";
 import type { SandboxSessionSettings } from "./session";
@@ -13,10 +14,6 @@ export interface DelegationScope {
   depth: number;
 }
 
-/**
- * A child whose tool calls go on the owning run under the child's id: its
- * events never reach the session the run opened.
- */
 function observedChild(
   session: HarnessSession,
   record: SandboxSessionSettings["record"]
@@ -26,7 +23,6 @@ function observedChild(
     : session;
 }
 
-/** Delegation inherits the parent's guest, model, policy, and bounded execution profile. */
 export function delegationTool(
   settings: SandboxSessionSettings,
   open: (settings: SandboxSessionSettings) => Promise<HarnessSession>
@@ -59,7 +55,7 @@ export function delegationTool(
       const id = randomUUID();
       let child: HarnessSession | undefined;
       try {
-        await settings.store.createSession({
+        await new Sessions({ store: settings.store }).createSession({
           id,
           parentSessionId: settings.sessionId,
           recursionDepth: scope.depth + 1,
@@ -105,7 +101,6 @@ export function delegationTool(
               await opened.interrupt();
             },
           });
-          // Held before the host sees it, so a throwing callback still closes it.
           child = stoppable;
           child = settings.onChildSession?.(id, stoppable) ?? stoppable;
           const reply = await child.generate(task, { signal });

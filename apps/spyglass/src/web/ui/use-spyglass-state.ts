@@ -5,7 +5,6 @@ import type { LateReadings } from "../layout/load-spyglass";
 import type { MapHandle, SelectionRef } from "../view/map-contract";
 import { createSpyglassState, type SpyglassState } from "./spyglass-state";
 
-/** The selection as the snapshot carries it: the island's id, and the file's when a file was named. */
 function selectionRef(place: SpyglassSelection | null): SelectionRef | null {
   if (!place) {
     return null;
@@ -15,11 +14,6 @@ function selectionRef(place: SpyglassSelection | null): SelectionRef | null {
     : { territoryId: place.territory.id };
 }
 
-/**
- * Rendering and camera state, independent of the bottom sheets. The
- * selection lives here: a click or a label's activation writes it through
- * `select`, Escape clears it, and the map draws it from the snapshot.
- */
 export function useSpyglassState(
   initial: SpyglassState,
   late?: Promise<LateReadings>
@@ -41,11 +35,6 @@ export function useSpyglassState(
     setSelection(selectionRef(place));
   }, []);
   const clearSelection = useCallback(() => setSelection(null), []);
-  /**
-   * The overview: the snapshot lets the selection go, and the camera is sent
-   * home at once, selection or none, so Escape with nothing selected still
-   * returns the reader to the whole spyglass.
-   */
   const home = useCallback(() => {
     setSelection(null);
     scene.current?.focus(null);
@@ -85,7 +74,6 @@ function withLateReadings(
   };
 }
 
-/** The late readings once they arrive; a refusal is the caller's to show (`App`). */
 function useLateReadings(late: Promise<LateReadings> | undefined) {
   const [readings, setReadings] = useState<LateReadings | null>(null);
   useEffect(() => {

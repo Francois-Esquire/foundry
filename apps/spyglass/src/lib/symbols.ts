@@ -82,12 +82,6 @@ function nameOf(node: Node): string | undefined {
   return undefined;
 }
 
-/**
- * Collect the named top-level declarations owned by the boundary.
- * A declaration is `exported` when any boundary module exposes it, directly
- * or through a re-export/barrel — re-export aliases resolve back to the
- * original declaration, so a barreled symbol is counted once.
- */
 export function collectSymbols(
   project: Project,
   boundary: Boundary

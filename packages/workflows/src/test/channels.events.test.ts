@@ -1,14 +1,14 @@
-import { Effect, Schema, Stream } from "effect";
+import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
+import { Channels } from "../channels";
 import {
   ChannelEventSchema,
-  Channels,
   StepAbortedEvent,
   StepPausedEvent,
   StepResolvedEvent,
   StepSkippedEvent,
-} from "../channels";
+} from "../schema";
 import { Snapshot } from "../snapshot";
 
 const path = ["root"] as const;
@@ -16,7 +16,7 @@ const at = "2026-05-02T00:00:00.000Z";
 
 describe("Schema round-trip — new variants decode and tag-discriminate", () => {
   it("step.paused with optional reason", () => {
-    const decoded = Schema.decodeUnknownSync(ChannelEventSchema)({
+    const decoded = ChannelEventSchema.parse({
       _tag: "step.paused",
       at,
       attempt: 1,
@@ -31,7 +31,7 @@ describe("Schema round-trip — new variants decode and tag-discriminate", () =>
   });
 
   it("step.paused without reason", () => {
-    const decoded = Schema.decodeUnknownSync(ChannelEventSchema)({
+    const decoded = ChannelEventSchema.parse({
       _tag: "step.paused",
       at,
       attempt: 1,
@@ -42,7 +42,7 @@ describe("Schema round-trip — new variants decode and tag-discriminate", () =>
   });
 
   it("step.resumed", () => {
-    const decoded = Schema.decodeUnknownSync(ChannelEventSchema)({
+    const decoded = ChannelEventSchema.parse({
       _tag: "step.resumed",
       at,
       attempt: 1,
@@ -53,7 +53,7 @@ describe("Schema round-trip — new variants decode and tag-discriminate", () =>
   });
 
   it("step.skipped with optional reason", () => {
-    const decoded = Schema.decodeUnknownSync(ChannelEventSchema)({
+    const decoded = ChannelEventSchema.parse({
       _tag: "step.skipped",
       at,
       attempt: 0,
@@ -65,7 +65,7 @@ describe("Schema round-trip — new variants decode and tag-discriminate", () =>
   });
 
   it("step.aborted with opaque reason", () => {
-    const decoded = Schema.decodeUnknownSync(ChannelEventSchema)({
+    const decoded = ChannelEventSchema.parse({
       _tag: "step.aborted",
       at,
       attempt: 1,
@@ -77,7 +77,7 @@ describe("Schema round-trip — new variants decode and tag-discriminate", () =>
   });
 
   it("step.resolved carries suspension name + value", () => {
-    const decoded = Schema.decodeUnknownSync(ChannelEventSchema)({
+    const decoded = ChannelEventSchema.parse({
       _tag: "step.resolved",
       at,
       attempt: 1,
@@ -94,7 +94,13 @@ describe("Schema round-trip — new variants decode and tag-discriminate", () =>
   });
 
   it("variant constructors auto-apply _tag (TaggedStruct.make)", () => {
-    const e = StepPausedEvent.make({ at, attempt: 1, name: "root", path });
+    const e = StepPausedEvent.parse({
+      _tag: "step.paused",
+      at,
+      attempt: 1,
+      name: "root",
+      path,
+    });
     expect(e._tag).toBe("step.paused");
   });
 });
@@ -109,11 +115,15 @@ describe("Channels.statusFor — status mapping for new variants", () => {
           const fiber = yield* Effect.fork(
             channels.statusFor(path).pipe(Stream.take(1), Stream.runCollect)
           );
-          // Yield to the runtime so the subscriber subscribes before
-          // we publish.
           yield* Effect.sleep(5);
           channels.events.push(
-            StepPausedEvent.make({ at, attempt: 1, name: "root", path })
+            StepPausedEvent.parse({
+              _tag: "step.paused",
+              at,
+              attempt: 1,
+              name: "root",
+              path,
+            })
           );
           const out = yield* fiber.await;
           expect(out._tag).toBe("Success");
@@ -136,7 +146,13 @@ describe("Channels.statusFor — status mapping for new variants", () => {
           );
           yield* Effect.sleep(5);
           channels.events.push(
-            StepSkippedEvent.make({ at, attempt: 0, name: "root", path })
+            StepSkippedEvent.parse({
+              _tag: "step.skipped",
+              at,
+              attempt: 0,
+              name: "root",
+              path,
+            })
           );
           const out = yield* fiber.await;
           expect(out._tag).toBe("Success");
@@ -159,7 +175,8 @@ describe("Channels.statusFor — status mapping for new variants", () => {
           );
           yield* Effect.sleep(5);
           channels.events.push(
-            StepAbortedEvent.make({
+            StepAbortedEvent.parse({
+              _tag: "step.aborted",
               at,
               attempt: 1,
               name: "root",
@@ -183,13 +200,13 @@ describe("Channels.statusFor — status mapping for new variants", () => {
         Effect.gen(function* () {
           const snap = yield* Snapshot.make();
           const channels = yield* Channels.make(snap);
-          // Take 1: must be skipped (status), not resolved (filtered).
           const fiber = yield* Effect.fork(
             channels.statusFor(path).pipe(Stream.take(1), Stream.runCollect)
           );
           yield* Effect.sleep(5);
           channels.events.push(
-            StepResolvedEvent.make({
+            StepResolvedEvent.parse({
+              _tag: "step.resolved",
               at,
               attempt: 1,
               name: "root",
@@ -199,7 +216,13 @@ describe("Channels.statusFor — status mapping for new variants", () => {
             })
           );
           channels.events.push(
-            StepSkippedEvent.make({ at, attempt: 0, name: "root", path })
+            StepSkippedEvent.parse({
+              _tag: "step.skipped",
+              at,
+              attempt: 0,
+              name: "root",
+              path,
+            })
           );
           const out = yield* fiber.await;
           expect(out._tag).toBe("Success");

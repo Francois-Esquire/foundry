@@ -19,9 +19,6 @@ vi.mock("@huggingface/transformers", () => ({
   pipeline: mockPipeline,
 }));
 
-// Pulled in transitively via the manager → LocalProvider import chain; its
-// real module reads exports off @huggingface/transformers that the stub
-// above doesn't provide.
 vi.mock("@browser-ai/transformers-js", () => ({
   transformersJS: {
     embeddingModel: vi.fn(),
@@ -86,7 +83,6 @@ describe("embeddings observability", () => {
     const events: AiEvent[] = [];
     drainAiEvents(events);
 
-    // The RAG shape: the outer event owns embed + retrieval + generation.
     await withAiLogger({ operation: "rag-chat" }, async (ai) => {
       const vector = await embed(source, "query", { session: ai });
       expect(vector).toEqual([1, 2, 3]);

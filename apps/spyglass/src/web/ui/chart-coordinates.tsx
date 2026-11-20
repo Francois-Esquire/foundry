@@ -9,7 +9,6 @@ const lettering = {
   letterSpacing: `${gridReferenceStyle.font.letterSpacing}em`,
 };
 
-/** The cast frame is UI-owned SVG. Both masks and outlines read the same coordinate props. */
 export function ChartCoordinates({
   width,
   height,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { DashboardSnapshot } from "~/views/dashboard-model";
+import type { DashboardSnapshot } from "~/cli/state/dashboard-model";
+import { selectionKey } from "~/cli/state/dashboard-model";
 import {
   type DashboardEvent,
   type DashboardState,
@@ -8,8 +9,8 @@ import {
   paneOf,
   reduce,
   visibleLists,
-} from "~/views/dashboard-state";
-import { dashboardSnapshot } from "../preview/snapshot";
+} from "~/cli/state/dashboard-state";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 const empty: DashboardSnapshot = {
   ...dashboardSnapshot,
@@ -34,7 +35,11 @@ describe("initialState", () => {
     const state = initialState(dashboardSnapshot);
     expect(state.selected).toEqual({ id: "run-104", kind: "run" });
     expect(paneOf(state)).toBe("run");
-    expect(state.expanded.has("run:run-104:step:update")).toBe(true);
+    expect(
+      state.expanded.has(
+        selectionKey({ id: "run-104", kind: "run", stepId: "update" })
+      )
+    ).toBe(true);
     expect(state.remembered.run).toEqual(state.selected);
   });
 
@@ -125,13 +130,17 @@ describe("moving and folding", () => {
 
   it("folds the selected branch and leaves leaves alone", () => {
     const closed = play([{ open: false, type: "fold" }]);
-    expect(closed.expanded.has("run:run-104")).toBe(false);
+    expect(
+      closed.expanded.has(selectionKey({ id: "run-104", kind: "run" }))
+    ).toBe(false);
     expect(visibleLists(closed, dashboardSnapshot).rows).toHaveLength(3);
     expect(
       play([{ open: false, type: "fold" }], dashboardSnapshot, closed)
     ).toBe(closed);
     const reopened = reduce(closed, { type: "fold" }, dashboardSnapshot);
-    expect(reopened.expanded.has("run:run-104")).toBe(true);
+    expect(
+      reopened.expanded.has(selectionKey({ id: "run-104", kind: "run" }))
+    ).toBe(true);
   });
 });
 
@@ -151,7 +160,9 @@ describe("jumps, filters, and search", () => {
       stepId: "request",
     });
     expect(paneOf(state)).toBe("run");
-    expect(state.expanded.has("run:run-103")).toBe(true);
+    expect(
+      state.expanded.has(selectionKey({ id: "run-103", kind: "run" }))
+    ).toBe(true);
     expect(state.tab).toBe("overview");
   });
 
@@ -242,7 +253,9 @@ describe("prompts, home, and launches", () => {
       selected: { id: "run-new", kind: "run" },
       tab: "overview",
     });
-    expect(state.expanded.has("run:run-new")).toBe(true);
+    expect(
+      state.expanded.has(selectionKey({ id: "run-new", kind: "run" }))
+    ).toBe(true);
   });
 
   it("launches only definitions with no arguments to ask for directly", () => {

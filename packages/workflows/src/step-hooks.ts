@@ -16,51 +16,43 @@ interface NamedStepHook<I, X extends BaseContext> {
   readonly name: string;
 }
 
-/** A Step executed before the target body with the target input. */
 export type BeforeStepHook<
   I = unknown,
   X extends BaseContext = BaseContext,
 > = NamedStepHook<I, X>;
 
-/** Read-only input delivered to a successful-body hook. */
 export type AfterSuccessStepHookInput<I = unknown, O = unknown> = Readonly<{
   input: I;
   output: O;
 }>;
 
-/** A Step executed after the target body completes successfully. */
 export type AfterSuccessStepHook<
   I = unknown,
   O = unknown,
   X extends BaseContext = BaseContext,
 > = NamedStepHook<AfterSuccessStepHookInput<I, O>, X>;
 
-/** Read-only input delivered to a terminal-body-failure hook. */
 export type AfterFailureStepHookInput<I = unknown> = Readonly<{
   input: I;
   error: Error;
 }>;
 
-/** A Step executed after the target body exhausts its retry policy. */
 export type AfterFailureStepHook<
   I = unknown,
   X extends BaseContext = BaseContext,
 > = NamedStepHook<AfterFailureStepHookInput<I>, X>;
 
-/** Read-only input delivered when the target body suspends. */
 export type AfterSuspensionStepHookInput<I = unknown> = Readonly<{
   input: I;
   suspension: SuspensionState;
   occurrence: number;
 }>;
 
-/** A Step executed after one deterministic target-body suspension occurrence. */
 export type AfterSuspensionStepHook<
   I = unknown,
   X extends BaseContext = BaseContext,
 > = NamedStepHook<AfterSuspensionStepHookInput<I>, X>;
 
-/** Opt-in hooks around one semantic target Step. */
 export interface StepHooks<
   I = unknown,
   O = unknown,
@@ -204,10 +196,6 @@ async function runHookBranch<RootI, RootO, I, X extends BaseContext>(
         name: branchName,
       });
       await branch.run(afterInput);
-      // Terminal body outcomes deliberately keep @after replayable. A failed
-      // body may need its completed hook branch recovered, and one body can
-      // suspend at later occurrences after an earlier occurrence's hook
-      // branch completed.
       if (cause) {
         throw cause;
       }
@@ -229,13 +217,6 @@ async function runHookBranch<RootI, RootO, I, X extends BaseContext>(
   }
 }
 
-/**
- * Compose opt-in before/outcome hooks around one ordinary StepSpec.
- *
- * Every phase is a real Step. The returned Step retains the target's public
- * name, input/output types, seed, and stable root id while the target body
- * executes at the reserved `@body` child path with its own execution config.
- */
 export function withStepHooks<I, O, X extends BaseContext = BaseContext>(
   target: StepSpec<I, O, X>,
   hooks: StepHooks<I, O, X>

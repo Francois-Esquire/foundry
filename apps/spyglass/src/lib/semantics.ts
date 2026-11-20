@@ -88,12 +88,7 @@ export type SemanticsDeriver = (
 
 export type SemanticsProgressEvent =
   | { kind: "phase"; phase: SemanticsPhase; detail?: string }
-  /** The invalidation plan, emitted once fingerprints are known and before any analysis. */
   | { kind: "plan"; invalidations: SemanticsInvalidation[] }
-  /**
-   * One package's local analysis: `started` when its worker begins (its
-   * `durationMs` is 0 and `done` is unchanged), then one of the other three.
-   */
   | {
       kind: "unit";
       unit: string;
@@ -286,10 +281,10 @@ type Source = "analyzed" | "reused" | "unchanged";
 interface UnitOutcome {
   error?: string;
   local?: PackageLocalReport;
-  /** How the local report was obtained; `unchanged`: analyzed, equal to the cached one. */
+
   localSource?: Source;
   report?: SurfaceReport;
-  /** How the assembled report was obtained; `unchanged`: derived, canonically equal to the cached one. */
+
   reportSource?: Source;
   unit: SemanticsWorkspaceUnit;
 }
@@ -306,7 +301,6 @@ interface UnitPlan {
   unit: SemanticsWorkspaceUnit;
 }
 
-/** The first fingerprint component that moved, in dependency order. */
 function componentCause(
   previous: Record<string, string>,
   next: Record<string, string>
@@ -325,7 +319,6 @@ function componentCause(
   return "fingerprint-unchanged";
 }
 
-/** Inputs whose hash differs from the previous build's record, sorted. */
 function changedWorkspaceInputs(
   previous: Record<string, string> | undefined,
   files: Map<string, string>
@@ -349,18 +342,12 @@ function changedWorkspaceInputs(
 
 interface SlotContext {
   cacheDir: string;
-  /** Workspace inputs whose hash moved since the previous build. */
+
   changedWorkspace: string[];
   mode: SemanticsGenerationMode;
   previousInputs: Record<string, string> | undefined;
 }
 
-/**
- * One cache slot's plan: reuse when the entry is valid under the current
- * fingerprint, otherwise recompute with the first cause that explains it.
- * `changed` names the inputs that moved — the package's own files for a
- * local slot, the workspace's for a report slot.
- */
 function planSlot<
   F extends { combined: string; components: Record<string, string> },
   T,

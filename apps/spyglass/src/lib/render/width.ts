@@ -1,6 +1,5 @@
 import stringWidth from "string-width";
 
-/** Terminal cells, ignoring ANSI escapes. Never use `.length` for layout. */
 export function displayWidth(text: string): number {
   return stringWidth(text);
 }

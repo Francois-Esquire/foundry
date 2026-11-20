@@ -134,6 +134,73 @@ describe("resolve", () => {
   });
 });
 
+describe("available", () => {
+  it("checks catalog selections of any kind without opening or leasing models", async () => {
+    const { codex, models, vercel } = codexBeforeVercel();
+    for (const selection of [
+      "gpt-5.5",
+      "codex/gpt-5.5",
+      "openai/gpt-5-mini",
+      "vercel/openai/gpt-5-mini",
+      "vercel/embed-small",
+      { model: "embed-small", provider: "vercel" },
+    ]) {
+      expect(models.available(selection)).toBe(true);
+    }
+    expect(models.available("codex/embed-small")).toBe(false);
+    expect(models.available("missing/model")).toBe(false);
+    expect(models.available("wire/gpt-5.5")).toBe(false);
+    expect(codex.calls).toEqual([]);
+    expect(vercel.calls).toEqual([]);
+    models.setProviders([]);
+    expect(codex.disposed).toBe(1);
+    expect(vercel.disposed).toBe(1);
+    expect(models.available("gpt-5.5")).toBe(false);
+    await models.dispose();
+  });
+
+  it("uses current availability and policy, preserving qualified and bare selection rules", () => {
+    const { codex, models, vercel } = codexBeforeVercel();
+    codex.available = false;
+    expect(models.available("codex/gpt-5.5")).toBe(false);
+    expect(models.available("gpt-5.5")).toBe(true);
+
+    codex.available = true;
+    const lift = models.restrict({
+      admit: (provider) => provider !== codex || "Codex is disabled",
+      id: "test",
+    });
+    expect(models.available("codex/gpt-5.5")).toBe(false);
+    expect(models.available("gpt-5.5")).toBe(true);
+    vercel.available = false;
+    expect(models.available("gpt-5.5")).toBe(false);
+    lift();
+    expect(models.available("codex/gpt-5.5")).toBe(true);
+  });
+
+  it("refuses ambiguous strings and accepts their explicit selections", () => {
+    const { models, vercel } = codexBeforeVercel();
+    const openai = fakeProvider("openai", { models: [text("gpt-5-mini")] });
+    models.setProviders([openai, vercel]);
+    expect(models.available("openai/gpt-5-mini")).toBe(false);
+    expect(models.available({ model: "gpt-5-mini", provider: "openai" })).toBe(
+      true
+    );
+    expect(models.available({ model: "openai/gpt-5-mini" })).toBe(true);
+  });
+
+  it("propagates unexpected errors from a provider or policy", () => {
+    const { models } = codexBeforeVercel();
+    models.restrict({
+      admit: () => {
+        throw new Error("broken policy");
+      },
+      id: "test",
+    });
+    expect(() => models.available("gpt-5.5")).toThrow("broken policy");
+  });
+});
+
 describe("open, leases, and disposal", () => {
   it("builds the model on the instance it resolved, with its route", () => {
     const { codex, models } = codexBeforeVercel();

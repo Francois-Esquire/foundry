@@ -22,9 +22,10 @@ import type {
 } from "../types";
 
 export interface SessionTurnSite {
-  /** Each committed turn, steered ones included, with the usage its stream reported. */
-  consumed?(message: SessionMessage, usage?: SessionUsage): void;
-  /** Where the run that owns the session records its tool calls. */
+  consumed?(
+    message: SessionMessage,
+    usage?: SessionUsage
+  ): Promise<void> | void;
   readonly observe?: RecordObservation;
   readonly recorded?: SessionRef;
   signal(): AbortSignal;
@@ -33,13 +34,25 @@ export interface SessionTurnSite {
   write(value: unknown): void;
 }
 
+function endOf(message: SessionReply<Output.Output>): SessionEvent {
+  if (message.status === "complete") {
+    return { message, type: "finish", usage: message.usage };
+  }
+  const failure = message.parts.findLast((part) => part.type === "error");
+  return {
+    error: new Error(
+      failure?.type === "error" ? failure.message : "The turn failed."
+    ),
+    type: "error",
+  };
+}
+
 function textOf(message: SessionMessage): string {
   return message.parts
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n");
 }
 
-/** A committed message as a reply: what a replayed turn returns, without the SDK result. */
 export function replyOf<OUTPUT extends Output.Output>(
   message: SessionMessage
 ): SessionReply<OUTPUT> {
@@ -55,19 +68,18 @@ export function replyOf<OUTPUT extends Output.Output>(
   };
 }
 
-/** A finished turn's reply as a stream: one finish event, no partials. */
 export function replayedStream<OUTPUT extends Output.Output>(
   reply: SessionReply<OUTPUT>
 ): SessionStream<OUTPUT> {
   return {
     async *[Symbol.asyncIterator]() {
-      yield* [{ message: reply, type: "finish", usage: reply.usage } as const];
+      yield* [endOf(reply)];
     },
     message: Promise.resolve(reply),
     outcome: Promise.resolve("complete"),
     output: Promise.resolve(reply.output),
     partialOutputStream: (async function* () {
-      // A replayed turn streams nothing.
+      yield* [];
     })(),
     result: Promise.resolve(undefined),
     text: Promise.resolve(reply.text),
@@ -75,10 +87,6 @@ export function replayedStream<OUTPUT extends Output.Output>(
   };
 }
 
-/**
- * A stream returned at once over one that is still being opened: each
- * final waits for it, and iteration starts when it is there.
- */
 export function deferredStream<OUTPUT extends Output.Output>(
   opening: Promise<SessionStream<OUTPUT>>
 ): SessionStream<OUTPUT> {
@@ -105,11 +113,6 @@ export function deferredStream<OUTPUT extends Output.Output>(
   };
 }
 
-/**
- * One turn controller for collected and streamed replies, including every
- * steering continuation. `settings` are the agent's own; a turn's options
- * override them.
- */
 export function wrapAgentSession<DEFAULT extends Output.Output = never>(
   harness: SessionHarness | HarnessSession,
   ref: SessionRef,
@@ -140,8 +143,6 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
       throw new Error("A session can run only one turn at a time.");
     }
     let nextInput = withResume(input);
-    // The producer runs even when a caller only awaits a final promise.
-    // Iteration observes all turns; final promises describe the last turn.
     let controller!: ReadableStreamDefaultController<SessionEvent>;
     const events = new ReadableStream<SessionEvent>({
       start(value) {
@@ -197,9 +198,8 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
           const current = openTurn(nextInput);
           await publishEvents(current);
           const message = await current.message;
-          // A steered or cancelled turn still consumed what it committed.
           if (live.steer !== undefined || site.signal().aborted) {
-            site.consumed?.(message);
+            await site.consumed?.(message);
           }
           check();
           if (live.steer !== undefined) {
@@ -210,8 +210,10 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
           }
           const outcome = await current.outcome;
           const usage = await current.usage;
-          site.consumed?.(message, usage);
-          controller.enqueue({ message, type: "finish", usage });
+          await site.consumed?.(message, usage);
+          if (message.status === "complete") {
+            controller.enqueue({ message, type: "finish", usage });
+          }
           controller.close();
           partialController.close();
           return { current, message, outcome, usage };

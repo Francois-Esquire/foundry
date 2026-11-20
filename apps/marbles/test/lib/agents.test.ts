@@ -1,7 +1,8 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type { HarnessSession } from "@foundry/agents/harness";
 import type { SessionEvent } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { Sessions } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { ModelManager } from "@foundry/models";
 import { airplaneMode } from "@foundry/models/airplane";
 import { NoObjectGeneratedError, Output } from "ai";
@@ -30,7 +31,6 @@ function args(): ManagerArgs & { readonly written: string[] } {
   };
 }
 
-/** Supplies the approvals, activity, and automations an engine would hand the manager. */
 const host = testEngine();
 
 function deps(warnings: string[] = []): AgentsDeps {
@@ -44,11 +44,11 @@ function deps(warnings: string[] = []): AgentsDeps {
     containerOf: (): never => {
       throw new Error("no sandbox in these tests");
     },
+    cwd: process.cwd(),
     defaultExecutor: () => CLAUDE_CODE,
     dry: false,
     interactions: host.interactions,
     models,
-    root: process.cwd(),
     sessions: new InMemorySessionStore(),
     skills: () => Promise.resolve([]),
     warn: (message: string) => {
@@ -176,7 +176,6 @@ describe("agents.session", () => {
     const stored = await d.sessions.getSession(session.ref.id);
     expect(stored?.parentSessionId).toBe(a.scope.session.id);
     expect(await d.sessions.getSession(a.scope.session.id)).not.toBeNull();
-    // Continuing a session by reference does not re-parent it.
     const other = args();
     const again = await new AgentsManager(d)
       .scoped(other)
@@ -269,13 +268,11 @@ describe("agents.session", () => {
     const agents = new AgentsManager({ ...deps(), models }).scoped(a);
     const session = await agents.session(reviewer);
     const turn = session.generate("count slowly");
-    // The turn is streaming its first word; hand the agent a new prompt.
     await new Promise((resolve) => setTimeout(resolve, 20));
     a.scope.steer(a.frame.key, "stop and summarise");
     const reply = await turn;
     expect(reply.text).toBe("reply to stop and summarise");
     expect(a.written.join("")).toContain("[steer] stop and summarise");
-    // Nothing in flight afterwards, so a second steer has nothing to catch.
     expect(() => a.scope.steer(a.frame.key, "again")).toThrow(NO_TURN_PATTERN);
   });
 
@@ -334,7 +331,6 @@ describe("agents.session", () => {
     });
     const agents = new AgentsManager({ ...deps(), models }).scoped(a);
     await agents.session(reviewer);
-    // Replay: the same call returns the recorded session; the host left a prompt.
     await a.scope.enter(a.frame);
     a.frame.resumePrompt = "focus on the tests";
     const session = await agents.session(reviewer);
@@ -553,8 +549,9 @@ describe("pinned sessions", () => {
       provider: "claude-code",
     });
 
-    const silent = await d.sessions.createSession({ id: "silent" });
-    await d.sessions.appendMessage({
+    const written = new Sessions({ store: d.sessions });
+    const silent = await written.createSession({ id: "silent" });
+    await written.appendMessage({
       parts: [{ text: "hi", type: "text" }],
       role: "user",
       sessionId: silent.id,

@@ -22,52 +22,25 @@ import { SEMANTICS_HISTORY_STRATEGIES } from "./semantics-history-types";
 import type { SemanticsConfig } from "./semantics-types";
 import { WORKER_RUNTIME, workerEntry } from "./worker-runtime";
 
-// A workspace's configuration, in two layers. `SpyglassConfig` is what one
-// configuration file in `.foundry/spyglass/` declares, or during 0.x what
-// `foundry.config.json#semantics` declares. The resolved configuration
-// (`SemanticsConfig`) is those declarations over the defaults, and is what a
-// scan runs under.
-//
-// Execution invariants. Configuration files are TypeScript or JavaScript, so
-// loading them runs the workspace's code with the user's privileges. Only
-// the scan entry points load it, once per call, from the working tree;
-// `serve` and the dataset reader never do, and history applies that one
-// configuration to every checkpoint, never a checkpoint's own. The files run
-// in a fresh Bun worker, so every load sees the current files, and the
-// configuration crosses back as JSON that is validated again here. A worker
-// that outlives its timeout is killed; processes a configuration file starts
-// itself are not.
-
-/** What one configuration file default-exports. Each key may be declared in one file only. */
 export interface SpyglassConfig {
-  /** The workspace's domains: what a lens reads, never an analysis. */
   domains?: DomainDeclaration[];
-  /** Workspace-relative unit directories to skip (`packages/fixtures`), matched exactly. */
   exclude?: string[];
-  /** The checkpoint policy of `scan --history`; unset fields keep their defaults. */
   history?: {
-    /** Upper bound on checkpoints; `HEAD` always counts. A whole number of at least 1. */
     checkpoints?: number;
-    /** Commit stride for `every-n-commits`. A whole number of at least 1. */
     every?: number;
-    /** How far back from `HEAD`: `<n>y`, `<n>m` (months), `<n>d`, or `all`. */
     range?: string;
     strategy?: (typeof SEMANTICS_HISTORY_STRATEGIES)[number];
   };
-  /** What the workspace permits or requires of its own structure: read by `check` and the codemods, never an analysis. */
   rules?: Rule[];
 }
 
-/** The configuration directory, relative to the workspace root. */
 const CONFIG_DIRECTORY = ".foundry/spyglass";
-/** Read old workspace configuration until it is moved to the new directory. */
 const LEGACY_CONFIG_DIRECTORY = ".foundry/atlas";
 const LEGACY_FILE = "foundry.config.json";
 const CONFIG_TIMEOUT_MS = 30_000;
 const MS_PER_SECOND = 1000;
 const CONFIG_WORKER = workerEntry("config-worker");
 
-/** The resolved configuration of a workspace that declares nothing. */
 export const DEFAULT_CONFIGURATION: SemanticsConfig = {
   domains: [],
   exclude: [],
@@ -130,10 +103,8 @@ const configSchema = z.strictObject({
   rules: rulesSchema.optional(),
 }) satisfies z.ZodType<SpyglassConfig, unknown>;
 
-/** `foundry.config.json#semantics` declares no domains or rules; they live in `.foundry/spyglass/` only. */
 const legacySchema = configSchema.omit({ domains: true, rules: true });
 
-/** A value as an error message shows it after "got". */
 function shown(value: unknown): string {
   if (typeof value === "function") {
     return "a function";
@@ -164,10 +135,6 @@ function settingPath(path: readonly PropertyKey[]): string {
     .join("");
 }
 
-/**
- * "; got <value>" for an issue, except one marked `wholeObject`: an issue
- * about a whole object, such as a domain, which its message names.
- */
 function shownInput(issue: z.core.$ZodIssue): string {
   if (!("input" in issue)) {
     return "";
@@ -178,7 +145,6 @@ function shownInput(issue: z.core.$ZodIssue): string {
   return `; got ${shown(issue.input)}`;
 }
 
-/** One clause per setting: the first issue at each path, with the value it got. */
 function issueClauses(
   issues: readonly z.core.$ZodIssue[],
   prefix: readonly string[]
@@ -223,7 +189,6 @@ function parsed(
   return result.data;
 }
 
-/** Validates one configuration file's default export; `file` is workspace-relative. */
 export function parseConfigFile(value: unknown, file: string): SpyglassConfig {
   if (!isPlainObject(value)) {
     throw new Error(
@@ -245,12 +210,6 @@ const CONFIG_FILE_EXTENSIONS = new Set([
 ]);
 const DECLARATION_FILE = /\.d\.(?:ts|mts|cts)$/;
 
-/**
- * The configuration files under `directory`, sorted, as Marbles walks
- * `.foundry/marbles/`: names starting with `_` or `.` and `node_modules` are
- * skipped, so `_`-prefixed files can hold helpers; declaration files are
- * skipped; symlinks are not followed.
- */
 export function configFiles(directory: string): string[] {
   const files: string[] = [];
   const visit = (current: string): void => {
@@ -278,19 +237,11 @@ export function configFiles(directory: string): string[] {
   return files.sort();
 }
 
-/** One configuration file's validated default export. */
 export interface ConfigFile {
   config: SpyglassConfig;
-  /** Workspace-relative. */
   file: string;
 }
 
-/**
- * What the configuration worker writes to its result file: `loading` names
- * the file being imported, and is replaced by every file's export or by the
- * first failure. A `loading` report that remains means that file ended the
- * process.
- */
 export type ConfigWorkerReport =
   | { files: ConfigFile[] }
   | { error: string }
@@ -298,7 +249,6 @@ export type ConfigWorkerReport =
 
 const execFileAsync = promisify(execFile);
 
-/** The worker's report, validated; undefined when it wrote none. */
 function readWorkerReport(out: string): ConfigWorkerReport | undefined {
   if (!existsSync(out)) {
     return;
@@ -329,7 +279,6 @@ function readWorkerReport(out: string): ConfigWorkerReport | undefined {
   );
 }
 
-/** One file of the worker's report, validated again on this side of the process boundary. */
 function reportedFile(entry: unknown): ConfigFile {
   if (!(isPlainObject(entry) && typeof entry.file === "string")) {
     throw new Error(
@@ -342,7 +291,6 @@ function reportedFile(entry: unknown): ConfigFile {
   };
 }
 
-/** The last line a failed process wrote to stderr, or its error message. */
 function lastLine(failure: unknown): string | undefined {
   if (failure === undefined) {
     return;
@@ -351,7 +299,6 @@ function lastLine(failure: unknown): string | undefined {
   return (stderr?.trim() || message || String(failure)).split("\n").at(-1);
 }
 
-/** Loads every configuration file in a fresh Bun worker, killed if it outlives `timeoutMs`. */
 async function loadConfigDirectory(
   root: string,
   directory: string,
@@ -403,7 +350,6 @@ async function loadConfigDirectory(
   }
 }
 
-/** One configuration from many files; a key declared in two files is an error. */
 function combined(files: readonly ConfigFile[]): SpyglassConfig {
   const declaredIn = new Map<string, string>();
   const merged: SpyglassConfig = {};
@@ -437,7 +383,6 @@ const REMOVED_LEGACY_SETTINGS: Record<string, string> = {
     "Spyglass finds packages from the workspace declaration (pnpm-workspace.yaml or package.json#workspaces)",
 };
 
-/** `foundry.config.json`, parsed; undefined when the file is absent. */
 function readLegacyFile(root: string): Record<string, unknown> | undefined {
   const file = join(root, LEGACY_FILE);
   if (!existsSync(file)) {
@@ -458,7 +403,6 @@ function readLegacyFile(root: string): Record<string, unknown> | undefined {
   return value;
 }
 
-/** Whether `foundry.config.json` has a `semantics` key; a file that does not parse has none. */
 function legacyFileDeclares(root: string): boolean {
   try {
     const legacy = readLegacyFile(root);
@@ -468,7 +412,6 @@ function legacyFileDeclares(root: string): boolean {
   }
 }
 
-/** `foundry.config.json#semantics`, validated: the 0.x fallback. */
 function legacyConfig(semantics: unknown): SpyglassConfig {
   if (!isPlainObject(semantics)) {
     throw new Error(`${LEGACY_FILE}: semantics must be an object.`);
@@ -485,11 +428,6 @@ function legacyConfig(semantics: unknown): SpyglassConfig {
   return parsed(semantics, LEGACY_FILE, ["semantics"], legacySchema);
 }
 
-/**
- * The configuration directory, when the workspace has one. A directory
- * reached through a symbolic link, at `.foundry` or at `.foundry/spyglass`, is
- * refused rather than followed.
- */
 function configDirectory(root: string): string | undefined {
   const selected = existsSync(join(root, CONFIG_DIRECTORY))
     ? CONFIG_DIRECTORY
@@ -509,17 +447,9 @@ function configDirectory(root: string): string | undefined {
 }
 
 export interface LoadConfigurationOptions {
-  /** How long the configuration files may take to load. Default 30 seconds. */
   timeoutMs?: number;
 }
 
-/**
- * The resolved configuration: the configuration directory's declarations
- * when it exists, else `foundry.config.json#semantics`, over the defaults.
- * Runs the workspace's configuration files; see the execution invariants
- * above. A failure names the file to blame when there is one, and the
- * setting when a value is wrong.
- */
 export async function loadConfiguration(
   root: string,
   options: LoadConfigurationOptions = {}

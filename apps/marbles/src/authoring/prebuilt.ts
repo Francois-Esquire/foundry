@@ -3,18 +3,8 @@ import type { AgentDefinition, Context } from "~/lib/types";
 import { step } from "./builder";
 import { agent } from "./resources";
 
-/**
- * Ready-made steps a module registers by calling a factory. Each opens a
- * read-only reviewing agent through the context, so the working directory,
- * cancellation, and streaming are already wired.
- */
-
 export interface PrebuiltOptions {
   readonly instructions?: string;
-  /**
-   * The model to run: `"gpt-5.5"`, `"codex/gpt-5.5"`, or `{ provider, model }`.
-   * Omit it to follow the configured provider order.
-   */
   readonly model?:
     | string
     | { readonly model?: string; readonly provider?: string };
@@ -28,7 +18,6 @@ const BOUNDED =
   "Inspect the root README and package.json, list top-level app/package directories, and read at most six additional documentation or source files. Return only the final answer, with file references and explicit assumptions.";
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-/** Named after its step, so its approvals follow the step, not the module's binding. */
 function reviewer(name: string, options: PrebuiltOptions): AgentDefinition {
   return agent({
     name,
@@ -60,7 +49,6 @@ async function ask(
   return { provider: session.ref.provider, text: reply.text };
 }
 
-/** Factories register only the step explicitly requested by the module. */
 export function summarizeCodebase(options: PrebuiltOptions = {}) {
   const name = options.name ?? "summarize-codebase";
   const definition = reviewer(name, options);

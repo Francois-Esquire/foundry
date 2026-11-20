@@ -11,11 +11,6 @@ import type {
   SurfaceSymbol,
 } from "./types";
 
-// Eligibility gates are hard conditions — weighted evidence never
-// compensates for a failed gate. Cautions warn without changing confidence:
-// a cycle already zeroes the one-way term and the concentration terms are
-// computed from the raw shares. All tuning lives in config.ts.
-
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
@@ -201,7 +196,6 @@ function preserveOpportunity(
     config.opportunities.preserveSharedBoundary.evidence;
   const evidenceConfidence =
     weights.multipleConsumers *
-      // consumer breadth saturates at what shape detection calls high fan-in
       clamp01((incoming.length - 1) / (config.dependency.shape.highFanIn - 1)) +
     weights.lowConcentration * (1 - primary.referenceShare) +
     weights.broadDistribution *

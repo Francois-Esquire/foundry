@@ -18,7 +18,6 @@ export interface GatewayProviderOptions {
   config: GatewayProviderConfig;
   defaults?: Partial<Record<ModelKind, string>>;
   id?: string;
-  /** What the gateway serves; {@link gatewayModels} reads it from the server. */
   models: ProviderModelDefinition[];
 }
 
@@ -38,13 +37,6 @@ function headersFor(config: GatewayProviderConfig): Record<string, string> {
   };
 }
 
-/**
- * The models the gateway's own server lists, from the standard
- * OpenAI-compatible `GET <baseURL>/models`. The list carries ids only, so
- * each is a text model whose capabilities, limits, and prices are unknown.
- * Rejects with a short reason when the server cannot be read, answers
- * with anything but a model list, or lists a model without an id.
- */
 export async function gatewayModels(
   config: GatewayProviderConfig,
   options: { readonly signal?: AbortSignal } = {}
@@ -63,7 +55,6 @@ export async function gatewayModels(
   }
   const ids = data.map((model: unknown) => {
     const id = (model as { id?: unknown } | null)?.id;
-    // One row it cannot read makes the whole list unreliable.
     if (typeof id !== "string" || id === "") {
       throw new Error("GET /models answered a model without an id");
     }
@@ -72,20 +63,15 @@ export async function gatewayModels(
   return [...new Set(ids)].map((id) => ({ id, kind: "text", modelId: id }));
 }
 
-/** An OpenAI-compatible gateway (LiteLLM and friends). */
 export function gatewayProvider(options: GatewayProviderOptions): Provider {
   const id = options.id ?? "gateway";
   const { config } = options;
 
   const url = ({ path }: { path: string }) => urlFor(config, path);
   const headers = () => headersFor(config);
-  // Without `includeUsage` a streamed chat turn asks for no usage chunk, so
-  // it reports no tokens.
   const settings = () => ({ headers, includeUsage: true, provider: id, url });
 
   return {
-    // A base URL alone is not usable: hosts resolve a localhost default even
-    // when nothing is configured, so the key is the credential signal.
     get available() {
       return Boolean(config.baseURL) && Boolean(config.apiKey);
     },

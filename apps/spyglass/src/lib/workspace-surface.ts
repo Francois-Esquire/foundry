@@ -9,19 +9,12 @@ import type { AnalysisProfile, SurfaceReport } from "./types";
 import { deriveWorkspaceSurface } from "./workspace-derive";
 import type { WorkspaceSurfaceDerivation } from "./workspace-derive-types";
 
-// V12.6 batch orchestrator: package-local analysis per target, one
-// workspace derivation, one assembly per target. This is the only path that
-// produces a SurfaceReport; `analyzeSurface` is a single-target call into
-// it, and the materializer runs the same three steps with caching between.
-
 export interface AnalyzeWorkspaceSurfacesOptions {
   config?: AnalysisConfig;
-  /** Already-analyzed local reports, by target as given; the rest are analyzed here. */
   locals?: Map<string, PackageLocalReport>;
   now?: Date;
   profile?: AnalysisProfile;
   root?: string;
-  /** Directory paths (relative to root) or workspace package names. */
   targets: string[];
   tsconfig?: string;
 }

@@ -18,7 +18,6 @@ function distanceToRect(x: number, y: number, rect: DOMRect): number {
   return dx * dx + dy * dy;
 }
 
-/** Stable content identities with live geometry, independent of overlay hit testing. */
 export function createAnchors(article: HTMLElement, host: HTMLElement) {
   const elements = new Map<string, HTMLElement>([["article", article]]);
   const occurrences = new Map<string, number>();

@@ -1,18 +1,3 @@
-/**
- * How the world planner (world-plan.ts) grows a town (REFERENCES.md
- * section 2, after Emilien et al.): the package root's street through the
- * plaza at the plateau's heart, then each folder's street grown from its
- * parent's as a least-cost walk, its lots claimed along the frontage in
- * the street's order, its branches' mouths kept free for them, and a loop
- * closed where its end comes near another road.
- *
- * A walk steps a unit at a time. At each step it weighs a fan of gentle
- * turns: how far each strays from the street's own wind (smooth noise
- * keyed by its folder's path, so it bends where nothing else makes it),
- * whether it runs too long straight, and what lies ahead (the sea's
- * margin, other roads, claimed ground, room for lots on both sides).
- * Anything it may not cross ends it.
- */
 import type { Point } from "../../../data/chart";
 import { cellAt, FREE } from "./town-land";
 import type { BuildingKind, ParcelKind } from "./world";
@@ -65,16 +50,11 @@ import {
   type Unit,
 } from "./world-plan-tree";
 
-// ------------------------------------------------------------- the sizes
-
-/** What a building takes along its street, and how it stands on its lot. */
 export interface Footprint {
   readonly depth: number;
   readonly frontage: number;
-  /** The building's half sizes: across (along the road) and deep. */
   readonly half: readonly [number, number];
   readonly parcel: ParcelKind;
-  /** How far its front stands back from the lot's front. */
   readonly setback: number;
 }
 
@@ -86,7 +66,6 @@ const HOUSE: Footprint = {
   setback: 0.6,
 };
 
-/** A building's footprint and lot from its kind and flats a floor. */
 export function footprintOf(kind: BuildingKind, flats: number): Footprint {
   switch (kind) {
     case "pair":
@@ -164,12 +143,10 @@ export function footprintOf(kind: BuildingKind, flats: number): Footprint {
   }
 }
 
-/** A ground's size along and across its street, and its stand along the back. */
 interface GroundSize {
   readonly depth: number;
   readonly frontage: number;
   readonly parcel: ParcelKind;
-  /** The stand's half sizes. */
   readonly stand: readonly [number, number];
 }
 
@@ -184,11 +161,9 @@ const GROUND_SIZES: Readonly<Record<string, GroundSize>> = {
   stadium: { depth: 12, frontage: 16, parcel: "track", stand: [6, 0.85] },
   track: { depth: 9.5, frontage: 13, parcel: "track", stand: [4, 0.6] },
 };
-/** A town with fewer buildings than this can't carry a stadium, nor this a track. */
 const STADIUM_TOWN = 120;
 const TRACK_TOWN = 60;
 
-/** A ground's size and the smaller ones it may make do with, biggest first. */
 export function groundSizesOf(
   tests: number,
   townBuildings: number
@@ -217,46 +192,31 @@ export function groundSizeOf(tests: number, townBuildings: number): GroundSize {
   return GROUND_SIZES[kind] ?? (GROUND_SIZES.pitch as GroundSize);
 }
 
-// ---------------------------------------------------------------- walking
-
 const STEP = 1;
-/** The sharpest a street turns in a step: a radius of about 8 units. */
 const MAX_TURN = 0.12;
 const TURNS = 2;
-/** How hard a street's own wind bends it, radians a unit, and over how long it changes. */
 const WIND = 0.07;
 const WIND_SPAN = 7;
-/** How slowly the side a forced bend goes to swings over. */
 const SWAY_SPAN = 18;
-/** Every stretch this long must bend at least this far off its chord (see `straightCost`). */
 const BEND_SPAN = 15;
 const BEND_DEPTH = 1;
-/** Where a stretch first starts to cost for running straight. */
 const EASE_SPAN = 10;
-/** What `straightCost` says for a step that would leave a stretch too long and straight. */
 const STRAIGHT_BLOCK = 50;
-/** The longest straight stretch a loop may leave. */
 const STRAIGHT_MAX = 18;
 const LOOK = 5;
 const FAR = [7, 10, 14, 18];
-/** How hard a street far out is turned back along the town rather than out of it. */
 const GATHER = 0.6;
-/** Gap a road keeps from other roads' edges, and from ground it may not cross. */
 const ROAD_GAP = 0.6;
 
-/** A street's walk so far, kept so it can carry on later. */
 export interface Walker {
-  /** The heading it leans toward once out of its mouth, for its first stretch. */
   readonly aim: number;
   angle: number;
   readonly seed: number;
   readonly skip: Skip;
-  /** Units still to walk before it may turn (out of its parent's lots). */
   straight: number;
   walked: number;
 }
 
-/** How long a street keeps leaning toward its aim. */
 const AIM_SPAN = 10;
 
 export function newWalker(
@@ -269,7 +229,6 @@ export function newWalker(
   return { aim, angle, seed: hashText(name), skip, straight, walked: 0 };
 }
 
-/** Whether a road may step from `from` to `to`, by the hard rules. */
 function mayStep(
   town: Town,
   road: RoadDraft,
@@ -289,12 +248,10 @@ function mayStep(
     walker.skip(other, seg) ||
     (other.id === road.id &&
       (other.cum[seg + 1] ?? 0) > (road.cum.at(-1) ?? 0) - (road.width + 2.5));
-  // Inside its mouth a street may pass close by a neighbour's mouth, never onto it.
   const gap = walker.straight > 0 ? 0.15 : ROAD_GAP;
   return roadGap(town, to, reach, skip) >= half + gap;
 }
 
-/** What lies ahead along a heading: the sea, taken ground, room for lots. */
 function aheadCost(
   town: Town,
   road: RoadDraft,
@@ -328,7 +285,6 @@ function aheadCost(
       }
     }
   }
-  // The coast further ahead, so a street bends away before it gets there.
   for (const far of FAR) {
     if (
       clearAt(land, [from[0] + du * far, from[1] + dv * far]) <
@@ -337,7 +293,6 @@ function aheadCost(
       cost += 16 / far;
     }
   }
-  // A pull to keep the town gathered: past halfway out, heading further out costs.
   const out = distance(from, town.centre) / Math.max(town.radius, 1);
   if (out > 0.5) {
     const radial = normalise(sub(from, town.centre));
@@ -346,13 +301,6 @@ function aheadCost(
   return cost;
 }
 
-/**
- * What going on to `to` costs for straightness (rule 6). A stretch of
- * chord `BEND_SPAN` must stray more than `BEND_DEPTH` from its chord: then
- * no stretch longer than about `BEND_SPAN` can stay within half a unit of
- * its own, since any such stretch holds one of chord `BEND_SPAN` that
- * strays at most twice that. Only the few points that far back are read.
- */
 function straightCost(road: RoadDraft, to: Point): number {
   const { points } = road;
   const last = points.length - 1;
@@ -376,13 +324,6 @@ function straightCost(road: RoadDraft, to: Point): number {
   return cost;
 }
 
-/**
- * Which way the road must bend now, +1 or -1, or 0 when it need not: when
- * the stretch ending here has run straight long enough, it turns the way
- * a slow sway says, which keeps one side for twenty units or so, so bends
- * build into arcs that swing from side to side rather than wiggles that
- * cancel out or circles that close on themselves.
- */
 function mustBend(road: RoadDraft, walker: Walker): number {
   const { points } = road;
   const last = points.length - 1;
@@ -400,10 +341,8 @@ function mustBend(road: RoadDraft, walker: Walker): number {
   return 0;
 }
 
-/** Sharper turns a blocked street may take, an elbow at a time. */
 const ESCAPES = [0.3, -0.3, 0.5, -0.5, 0.7, -0.7];
 
-/** The cheapest next heading among `turns` that the hard rules allow, or null when all are blocked. */
 function bestTurn(
   town: Town,
   road: RoadDraft,
@@ -428,14 +367,12 @@ function bestTurn(
     const dir = heading(angle);
     const straight = straightCost(road, add(from, scale(dir, STEP)));
     if (straight >= STRAIGHT_BLOCK) {
-      // Too long straight and no bend open: the street may not go this way at all.
       continue;
     }
     cost += straight;
     cost += aheadCost(town, road, add(from, scale(dir, STEP)), dir);
     options.push({ angle, cost });
   }
-  // Cheapest first; the hard rules are dearer to test, so only until one passes.
   options.sort((a, b) => a.cost - b.cost);
   for (const option of options) {
     const to = add(from, scale(heading(option.angle), STEP));
@@ -446,7 +383,6 @@ function bestTurn(
   return null;
 }
 
-/** Walks a road on by up to `length` units; returns how far it went. */
 export function walk(
   town: Town,
   road: RoadDraft,
@@ -477,24 +413,17 @@ export function walk(
   return gone;
 }
 
-// ------------------------------------------------------------ the frontage
-
 type Side = 1 | -1;
 
-/** Where a street's next lot on one side may begin, going one way along it. */
 interface Cursor {
-  /** +1 toward the road's end, -1 toward its start (the root's far half). */
   readonly dir: Side;
   readonly from: number;
-  /** How much of the road's end lots leave free, so it can still turn as it grows on. */
   lead: number;
-  /** How many lots it has placed. */
   lots: number;
   s: number;
   readonly side: Side;
 }
 
-/** A rectangle along a road: its frame and outline. */
 export interface Plot {
   readonly axis: Point;
   readonly face: Point;
@@ -505,7 +434,6 @@ export interface Plot {
 
 const OFFSETS = [0, 0.3, 0.7, 1.2, 1.8];
 
-/** A rectangle fronting a road between arclengths s0 and s1 on one side, if it fits. */
 export function plotAlong(
   town: Town,
   road: RoadDraft,
@@ -542,7 +470,6 @@ export function plotAlong(
 
 const CURSOR_STEP = 0.5;
 
-/** The first plot of a frontage from a cursor on, if any fits before the road ends. */
 function plotFrom(
   town: Town,
   road: RoadDraft,
@@ -565,14 +492,12 @@ function plotFrom(
   }
 }
 
-/** How far apart lots stand: close in the middle, loosening toward the edge (rule 8). */
 function gapAfter(town: Town, at: Point, name: string): number {
   const out = distance(at, town.centre) / Math.max(town.radius, 1);
   const loose = Math.max(0, Math.min(1, (out - 0.45) / 0.55));
   return loose * (0.4 + 1.4 * unitOf(name, 3));
 }
 
-/** A building stood on a plot: set back from its front, facing its road. */
 function standOn(
   town: Town,
   parcel: ParcelDraft,
@@ -599,7 +524,6 @@ function standOn(
   });
 }
 
-/** What a lot is walled with, by its kind and a hash of its first file. */
 function edgeOf(kind: BuildingKind, name: string): ParcelDraft["edge"] {
   const roll = unitOf(name, 11);
   if (kind === "house" || kind === "pair") {
@@ -614,38 +538,28 @@ function edgeOf(kind: BuildingKind, name: string): ParcelDraft["edge"] {
   return kind === "utility" || kind === "school" ? "fence" : "none";
 }
 
-/** What a street could not hold, to place elsewhere. */
 export interface Leftover {
-  /** The road it was meant for. */
   readonly road: number;
   readonly unit: Unit;
 }
 
-/** A branch's mouth kept free on its parent's frontage. */
 export interface Mouth {
-  /** The soft keep-out ahead of it, stamped on the land until it grows. */
   readonly keepOut: Point[];
   readonly node: FolderNode;
-  /** The street whose turn grows it: the one whose units it belongs to, or -1 when moved later. */
   readonly owner: number;
   readonly reserve: ParcelDraft;
   readonly road: number;
   readonly s: number;
-  /** The side it leaves from, or 0 when it carries on from the road's end. */
   readonly side: Side | 0;
 }
 
-/** Everything the island's streets share while they grow. */
 export interface Growth {
   readonly leftovers: Leftover[];
   readonly mouths: Mouth[];
-  /** The test group that gets the island's school, by key, or null. */
   readonly school: string | null;
-  /** How many buildings the town has, to size its grounds. */
   readonly townBuildings: number;
 }
 
-/** Claims a building's lot from a cursor; false when none fits. */
 function placeBuilding(
   town: Town,
   road: RoadDraft,
@@ -660,8 +574,6 @@ function placeBuilding(
   }
   commitBuilding(town, road.id, found.plot, home, name);
   cursor.s = found.s + cursor.dir * gapAfter(town, found.plot.middle, name);
-  // Every few lots a lane's width is left open, where a street that finds
-  // no other room may branch off later.
   cursor.lots += 1;
   if (cursor.lots % SPARE_EVERY === 0 && road.rank !== "path") {
     cursor.s += cursor.dir * SPARE_GAP;
@@ -702,7 +614,6 @@ export function commitBuilding(
   );
 }
 
-/** Claims a ground and its stand (and the school beside the biggest). */
 function placeGround(
   town: Town,
   road: RoadDraft,
@@ -746,7 +657,6 @@ export function commitGround(
     outline: plot.outline,
     road,
   });
-  // The stand runs along the ground's back, its seats facing the pitch and the road.
   const back = sub(
     plot.middle,
     scale(plot.face, plot.half[1] - size.stand[1] - 0.15)
@@ -762,7 +672,6 @@ export function commitGround(
   });
 }
 
-/** How much room lies ahead of a point along a direction: free buildable cells in a band. */
 function roomToward(town: Town, at: Point, dir: Point, from: number): number {
   let room = 0;
   for (let d = from; d < from + 23; d += 1.5) {
@@ -777,13 +686,11 @@ function roomToward(town: Town, at: Point, dir: Point, from: number): number {
   return room;
 }
 
-/** How much room a side of a road has ahead of `s`. */
 function roomOn(town: Town, road: RoadDraft, s: number, side: Side): number {
   const { at, tangent } = pointAt(road.points, road.cum, s);
   return roomToward(town, at, scale(leftOf(tangent), side), road.width / 2 + 1);
 }
 
-/** How far a street could run straight from a point before the coast or claimed ground. */
 function freeRun(
   town: Town,
   at: Point,
@@ -803,7 +710,6 @@ function freeRun(
   return max - from;
 }
 
-/** The heading a new street leans toward: near its slant, toward the most open land. */
 function aimFrom(
   town: Town,
   at: Point,
@@ -827,11 +733,9 @@ function aimFrom(
   return best;
 }
 
-/** How deep ahead of a mouth other streets are asked to keep off. */
 const KEEP_OUT = 12;
 const MOUTH_DEPTH = 5;
 
-/** Keeps a mouth's corridor: a reserved parcel at its start, a soft keep-out beyond. */
 function keepMouth(
   town: Town,
   road: RoadDraft,
@@ -862,7 +766,6 @@ function keepMouth(
   return { keepOut, node, owner, reserve, road: road.id, s, side };
 }
 
-/** Keeps a branch's mouth free; false when no side has room for it. */
 function placeMouth(
   town: Town,
   road: RoadDraft,
@@ -901,14 +804,8 @@ function placeMouth(
 const mouthWidth = (node: FolderNode): number =>
   ROAD_WIDTH[node.rank] + 2 * KERB + 1.2;
 
-/** Enough room to grow a street into, out of the samples `roomOn` takes. */
 const ROOMY = 18;
 
-/**
- * A new mouth for a branch that could not grow from its own: the roomiest
- * free stretch of frontage along its parent's road or, failing that, the
- * nearest road with room.
- */
 export function moveMouth(
   town: Town,
   mouth: Mouth,
@@ -919,7 +816,6 @@ export function moveMouth(
   return findMouth(town, mouth.node, origin, growth);
 }
 
-/** A mouth for a street with the most room near `origin`, along the nearest roads that have any. */
 function findMouth(
   town: Town,
   node: FolderNode,
@@ -928,7 +824,6 @@ function findMouth(
   owner = -1
 ): Mouth | null {
   const width = mouthWidth(node);
-  // A street of a few lots needs less open land ahead than a long one.
   const roomy = Math.min(ROOMY, 6 + 2 * node.units.length);
   const roads = [...town.roads]
     .filter((r) => r.points.length > 1 && r.rank !== "path")
@@ -959,7 +854,6 @@ interface MouthSpot {
   readonly side: Side | 0;
 }
 
-/** The roomiest place along one road a mouth fits: a side, or an end it carries on from. */
 function roomiestMouth(
   town: Town,
   road: RoadDraft,
@@ -975,7 +869,6 @@ function roomiestMouth(
         sideMouth(town, road, s, side, width, Math.max(roomy, sofar)) ?? best;
     }
   }
-  // A road's ends can carry on too: its far end, and the root's near one.
   for (const start of road.parent === null ? [false, true] : [false]) {
     const end = endMouth(town, road, width, start);
     if (end && end.room >= roomy && (!best || end.room > best.room)) {
@@ -985,7 +878,6 @@ function roomiestMouth(
   return best;
 }
 
-/** A mouth on one side at arclength `s`, if it fits and has at least `least` room ahead. */
 function sideMouth(
   town: Town,
   road: RoadDraft,
@@ -1002,7 +894,6 @@ function sideMouth(
   return plot ? { plot, room, s: s + width / 2, side } : null;
 }
 
-/** A mouth carrying a road on from its end, with the room ahead of it, if it fits. */
 function endMouth(
   town: Town,
   road: RoadDraft,
@@ -1021,7 +912,6 @@ function endMouth(
     at,
     scale(tangent, road.width / 2 + KERB + MOUTH_DEPTH / 2)
   );
-  // Its rectangle runs across the road's end: x along the road's normal, z back toward it.
   const outline = rectangle(middle, lateral, width / 2, MOUTH_DEPTH / 2);
   if (!parcelFits(town, outline)) {
     return null;
@@ -1045,7 +935,6 @@ function nearestTo(road: RoadDraft, p: Point): number {
   return best;
 }
 
-/** The cursor that has gone least far, ties by the unit's hash. */
 function nextCursors(cursors: readonly Cursor[], name: string): Cursor[] {
   const flip = unitOf(name, 5) < 0.5;
   return [...cursors].sort((a, b) => {
@@ -1057,7 +946,6 @@ function nextCursors(cursors: readonly Cursor[], name: string): Cursor[] {
   });
 }
 
-/** Places one unit along a road from the least advanced cursor that fits it. */
 function placeUnit(
   town: Town,
   road: RoadDraft,
@@ -1070,7 +958,6 @@ function placeUnit(
   }
   const order = nextCursors(cursors, item.name);
   if (item.kind === "ground") {
-    // A ground that fits nowhere at its size makes do a size smaller.
     for (const size of groundSizesOf(
       item.ground.files.length,
       growth.townBuildings
@@ -1093,10 +980,8 @@ function placeUnit(
   );
 }
 
-/** How far from the plaza, as a share of the town's reach, the dense core runs: where blocks may stand (rule 5). */
 export const CORE_REACH = 0.6;
 
-/** Whether the next lot along a street (its least advanced cursor) would stand in the core. */
 function inCore(
   town: Town,
   road: RoadDraft,
@@ -1110,11 +995,6 @@ function inCore(
   return distance(at, town.centre) <= town.radius * CORE_REACH;
 }
 
-/**
- * A block that would stand outside the core is built as walk-ups instead,
- * side by side: the street still builds up, just not as high. What does
- * not fit is left for later like any other unit.
- */
 function placeSplit(
   town: Town,
   road: RoadDraft,
@@ -1136,7 +1016,6 @@ function placeSplit(
         placeBuilding(town, road, cursor, home, share[0]?.id ?? item.name)
       )
     ) {
-      // No room for walk-ups side by side: what is left stays one building.
       const rest = files.slice(from);
       const kind = rest.length >= BLOCK_LEAST ? "block" : "walkup";
       const merged: Extract<Unit, { kind: "building" }> = {
@@ -1162,7 +1041,6 @@ const BLOCK_LEAST = 9;
 
 const WALKUP_MOST = 8;
 
-/** How long a street must be to hold its units on both sides. */
 function lengthFor(units: readonly Unit[], growth: Growth): number {
   let frontage = 0;
   for (const item of units) {
@@ -1179,7 +1057,6 @@ function lengthFor(units: readonly Unit[], growth: Growth): number {
   return frontage / 2 + 2;
 }
 
-/** Lays a street's units along it, walking it on when it runs out. */
 function fillStreet(
   town: Town,
   road: RoadDraft,
@@ -1202,7 +1079,6 @@ function fillStreet(
     let placed = placeUnit(town, road, cursors, item, growth);
     for (let tries = 0; !placed && walker && tries < 3; tries += 1) {
       if (walk(town, road, walker, 4) <= 0) {
-        // The street can go no further: use its end too.
         setLead(END_LEAD);
         placed = placeUnit(town, road, cursors, item, growth);
         break;
@@ -1215,12 +1091,6 @@ function fillStreet(
   }
 }
 
-/**
- * Keeps the mouths of a street's branches before any lot is laid, spread
- * along it in the street's order, each on the side with more room, so lots
- * fill in round the junctions rather than leaving none. Returns the
- * branches it kept a mouth for.
- */
 function reserveMouths(
   town: Town,
   road: RoadDraft,
@@ -1247,7 +1117,6 @@ function reserveMouths(
   return kept;
 }
 
-/** A mouth for a branch as near arclength `target` as one fits, on the roomier side first. */
 function keepMouthNear(
   town: Town,
   road: RoadDraft,
@@ -1284,11 +1153,9 @@ function keepMouthNear(
   return false;
 }
 
-/** Road kept free of lots past the last one while a street may still grow, and once it can't. */
 const LEAD = 3;
 const END_LEAD = 0.2;
 
-/** What a street could not hold: a branch looks for a mouth elsewhere, the rest wait. */
 function leave(town: Town, road: RoadDraft, item: Unit, growth: Growth) {
   if (item.kind !== "branch") {
     growth.leftovers.push({ road: road.id, unit: item });
@@ -1304,7 +1171,6 @@ function leave(town: Town, road: RoadDraft, item: Unit, growth: Growth) {
   }
 }
 
-/** Cuts a street back to just past its last lot or mouth. */
 function trimStreet(
   road: RoadDraft,
   cursors: readonly Cursor[],
@@ -1324,7 +1190,6 @@ function trimStreet(
   trimRoad(road, used + 0.6);
 }
 
-/** Cursors for a street grown from its parent: both sides, from its mouth on. */
 function streetCursors(start: number): Cursor[] {
   return [
     { dir: 1, from: start, lead: LEAD, lots: 0, s: start, side: 1 },
@@ -1332,7 +1197,6 @@ function streetCursors(start: number): Cursor[] {
   ];
 }
 
-/** Cursors for the root's street: both sides, both ways out from the plaza. */
 function rootCursors(middle: number, half: number): Cursor[] {
   return [
     {
@@ -1370,18 +1234,10 @@ function rootCursors(middle: number, half: number): Cursor[] {
   ];
 }
 
-// ------------------------------------------------------------------ loops
-
 const LOOP_REACH = 12;
 const LOOP_CONE = 0.6;
-/** How many targets a street's end tries before it stays a dead end. */
 const LOOP_TRIES = 10;
 
-/**
- * Closes a loop: when a street's end comes within reach of another road
- * ahead of it, it runs on to meet that road's centreline (Emilien's cycle
- * step).
- */
 function closeLoop(town: Town, road: RoadDraft) {
   const n = road.points.length;
   if (n < 3) {
@@ -1418,10 +1274,6 @@ interface LoopTarget {
   readonly seg: number;
 }
 
-/**
- * Points on other roads' centrelines within reach ahead of a street's end
- * and meeting them well across, nearest first.
- */
 function targetsAhead(
   town: Town,
   road: RoadDraft,
@@ -1465,7 +1317,6 @@ function targetsAhead(
   return out.map(({ target }) => target);
 }
 
-/** The straight run from a street's end to a point on another road, if it passes clear; else null. */
 function connector(
   town: Town,
   road: RoadDraft,
@@ -1500,9 +1351,6 @@ function connector(
   return points;
 }
 
-// --------------------------------------------------------------- the root
-
-/** Grows the root's street through the heart, both ways, with the plaza and the station at its middle. */
 export function growRoot(
   town: Town,
   node: FolderNode,
@@ -1514,7 +1362,6 @@ export function growRoot(
   const road = newRoad(town, town.centre, node.rank, node.path, null);
   const back = newWalker(`${node.path}#back`, angle + Math.PI, () => false, 0);
   walk(town, road, back, length / 2);
-  // Turn the first half round so the road runs through the heart.
   const reversed = [...road.points].reverse();
   town.roads.pop();
   const root = newRoad(town, reversed[0] as Point, node.rank, node.path, null);
@@ -1548,7 +1395,6 @@ function trimRoot(road: RoadDraft, cursors: readonly Cursor[], growth: Growth) {
   trimRoad(road, used + 0.6);
 }
 
-/** The station's lot: across from the plaza if it fits, else the nearest that does, either side. */
 function stationSpot(
   town: Town,
   road: RoadDraft,
@@ -1574,10 +1420,8 @@ function stationSpot(
   return null;
 }
 
-/** How many unit steps from the plaza the station looks for its lot. */
 const STATION_SEARCH = 24;
 
-/** The plaza on one side of the root's middle and the station across from it. */
 function placePlaza(
   town: Town,
   road: RoadDraft,
@@ -1614,9 +1458,6 @@ function placePlaza(
   }
 }
 
-// ------------------------------------------------------------ the branches
-
-/** Grows a branch's street from its mouth, fills it, and closes a loop if one is near. */
 export function growBranch(
   town: Town,
   mouth: Mouth,
@@ -1628,7 +1469,6 @@ export function growBranch(
   const { at, tangent } = pointAt(parent.points, parent.cum, mouth.s);
   const along = mouth.s <= 0 ? scale(tangent, -1) : tangent;
   const normal = mouth.side === 0 ? along : scale(leftOf(tangent), mouth.side);
-  // Lanes leave their parent at a slant, mostly leaning on outward, toward open land.
   const lean = mouth.side === 0 ? 0 : -0.3 + 1.2 * unitOf(mouth.node.path, 7);
   const slant = -Math.atan(lean) * mouth.side;
   const aim = aimFrom(town, at, normal, slant, parent.width / 2 + MOUTH_DEPTH);
@@ -1648,7 +1488,6 @@ export function growBranch(
   const walked = walk(town, road, walker, Math.max(length, out + 1));
   if (walked < Math.min(length, parent.width / 2 + 3)) {
     dropRoad(town, road);
-    // The mouth stays kept, empty, so no other street tries it again.
     mouth.reserve.alive = true;
     return null;
   }
@@ -1664,16 +1503,10 @@ export function growBranch(
   return road;
 }
 
-/** The most units one overflow lane is asked to hold. */
 const LANE_UNITS = 6;
 
-/** The mark on an overflow lane's folder node, so it makes no overflow of its own. */
 const MORE = "#more";
 
-/**
- * What a street could not hold gets a lane of its own, branching where
- * there is room near the street: the same folder, carried on.
- */
 function overflow(town: Town, road: RoadDraft, before: number, growth: Growth) {
   const mine = growth.leftovers.splice(before);
   if (mine.length === 0) {
@@ -1685,7 +1518,6 @@ function overflow(town: Town, road: RoadDraft, before: number, growth: Growth) {
   }
 }
 
-/** A lane's worth of leftovers as a folder node of their own street, carried on. */
 function overflowNode(
   folder: string | null,
   mine: readonly Leftover[]
@@ -1705,11 +1537,6 @@ function overflowNode(
   };
 }
 
-/**
- * The last chance for leftovers: each street's gets an overflow lane from
- * wherever there is room nearest it, grown at once. Returns what still
- * found no place.
- */
 export function rehouse(town: Town, growth: Growth): Leftover[] {
   const byRoad = new Map<number, Leftover[]>();
   for (const left of growth.leftovers.splice(0)) {
@@ -1717,7 +1544,6 @@ export function rehouse(town: Town, growth: Growth): Leftover[] {
     list.push(left);
     byRoad.set(left.road, list);
   }
-  // Short lanes, a few lots each, find room where one long one would not.
   const lanes: [number, Leftover[]][] = [];
   for (const [id, all] of byRoad) {
     for (let k = 0; k < all.length; k += LANE_UNITS) {
@@ -1738,13 +1564,11 @@ export function rehouse(town: Town, growth: Growth): Leftover[] {
     if (!grown) {
       still.push(...mine);
     }
-    // What the overflow lane itself could not hold waits for the last resort.
     still.push(...growth.leftovers.splice(0));
   }
   return still;
 }
 
-/** Takes the newest road back off (it grew too short to hold anything). */
 function dropRoad(town: Town, road: RoadDraft) {
   road.points = [road.points[0] as Point];
   road.cum = [0];
@@ -1753,7 +1577,6 @@ function dropRoad(town: Town, road: RoadDraft) {
   }
 }
 
-/** All of a folder's units below and including it, for a branch that found no room. */
 export function flatten(node: FolderNode): Unit[] {
   const out: Unit[] = [];
   for (const item of node.units) {

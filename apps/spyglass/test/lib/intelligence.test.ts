@@ -96,7 +96,6 @@ describe("surface ratios", () => {
   });
 
   it("returns null ratios for a zero-export surface", () => {
-    // doctored report (deliberate): the builder must not divide by zero
     const doctored: SurfaceReport = {
       ...satellite,
       summary: {
@@ -180,8 +179,6 @@ describe("unsupported reason aggregation", () => {
     const summary = plans.operators.find(
       (operator) => operator.id === "internalize-export"
     );
-    // readBeta and readDirect are module-only now, so they never become
-    // opportunities; only PlanDirectUsed's entrypoint import remains
     expect(summary?.unsupportedReasons).toEqual({
       "internal-entrypoint-import": 1,
     });

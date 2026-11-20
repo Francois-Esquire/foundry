@@ -1,9 +1,10 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/session";
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { ArtifactManager } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
@@ -11,29 +12,25 @@ import { directory } from "@foundry/workspaces/node";
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 import { catalog } from "~/authoring/catalog";
 import { declareCatalog, echoGit } from "~/create";
+import { Engine as DatabaseEngine } from "~/entries/engine";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
+import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { MockOptions, Reply } from "~/lib/models/echo";
 import { mockModels } from "~/lib/models/echo";
 import { Registry } from "~/lib/registry";
 
-/** A home with nothing in it, so no test reads the developer's own skills. */
 const NO_HOME = join(tmpdir(), "marbles-test-no-home");
 
 export interface TestEngineOptions extends Partial<EngineOptions> {
-  /** Executors the mock models answer for; the first is the default. */
   readonly executors?: readonly TurnExecutorRef[];
-  /** Turns to hold open until their signal fires; see `MockOptions`. */
   readonly hold?: MockOptions["hold"];
-  /** Run git for real; the default echoes every mutation. */
   readonly live?: boolean;
-  /** What a mock model answers; the prompt itself by default. */
   readonly reply?: Reply;
 }
 
-/** The instances a test engine is built from when the test names none. */
 export function testInstances(
   options: TestEngineOptions = {}
 ): Pick<
@@ -55,7 +52,7 @@ export function testInstances(
             allowedMountRoots: [root],
             instanceLabel: "marbles-test",
             runtime: createFakeContainerRuntime() as never,
-            store: createMemoryContainerStore(),
+            store: new MemoryContainerStore(),
           })
         )),
     git: gitOptions,
@@ -76,11 +73,6 @@ export function testInstances(
   };
 }
 
-/**
- * An engine over mock models, in-memory stores, a real workspace system
- * with echoed git, and a fake container runtime, with everything the
- * authoring catalog holds declared to it. Any option replaces its default.
- */
 export function testEngine(options: TestEngineOptions = {}): Engine {
   const {
     executors: _executors,
@@ -89,13 +81,23 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
     reply: _reply,
     ...given
   } = options;
-  const engine = new Engine({
+  const root = given.root ?? process.cwd();
+  const workspaceId = given.workspaceId ?? "test";
+  const engineOptions: EngineOptions = {
     home: NO_HOME,
-    root: process.cwd(),
-    workspaceId: "test",
+    root,
+    workspaceId,
     ...given,
     ...testInstances(options),
-  });
+  };
+  const { state } = engineOptions;
+  const engine =
+    state === undefined
+      ? new Engine(engineOptions)
+      : new DatabaseEngine({
+          records: new MemoryWorkspaceRecords(),
+          ...engineOptions,
+        });
   declareCatalog(engine, catalog);
   return engine;
 }
@@ -104,7 +106,6 @@ export function startEngine(options: TestEngineOptions = {}): Promise<Engine> {
   return testEngine(options).start();
 }
 
-/** What the authoring catalog declares, as an engine's registry would hold it. */
 export function declared(): Registry {
   const registry = new Registry();
   declareCatalog(registry, catalog);

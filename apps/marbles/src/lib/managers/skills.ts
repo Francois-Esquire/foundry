@@ -7,25 +7,11 @@ import { globToRegExp } from "@foundry/lib/glob";
 
 import type { SkillOp, SkillSet } from "../types";
 
-/**
- * Resolves a skill set recipe against the filesystem. `load` reads the
- * home and workspace skill folders, `add` walks a glob for directories
- * holding a `SKILL.md`, `pick` narrows by name. Resolution is cached per
- * recipe for the life of the resolver, which is one config load.
- */
-
 export interface SkillRoots {
-  /** The user's home, whose skill folders every workspace on this machine shares. */
   readonly home: string;
   readonly workspace: string;
 }
 
-/**
- * The folders `load` reads, under the home and then under the workspace.
- * A later folder wins a name an earlier one also has, so the workspace
- * wins over the home, and in each `skills` or `.foundry/skills` wins over
- * `.claude/skills`, which wins over `.agents/skills`.
- */
 const HOME_SKILL_DIRS = [".agents/skills", ".claude/skills", ".foundry/skills"];
 const WORKSPACE_SKILL_DIRS = [".agents/skills", ".claude/skills", "skills"];
 const SKILL_MANIFEST = "SKILL.md";
@@ -36,7 +22,6 @@ const GLOB_SEGMENT = /[*?{[]/;
 
 const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true });
 
-/** Text stays text; anything that is not UTF-8 stays bytes, unmangled. */
 function asSkillFile(bytes: Uint8Array): SkillFile {
   try {
     return STRICT_UTF8.decode(bytes);
@@ -107,10 +92,6 @@ async function skillsIn(dirs: readonly string[]): Promise<Skill[]> {
   return read.filter((skill): skill is Skill => skill !== null);
 }
 
-/**
- * Every skill in the `load` folders, in their order and by name within
- * each. A symlinked entry counts: skill folders are often linked in.
- */
 async function loadRoots(roots: SkillRoots): Promise<Skill[]> {
   const folders = [
     ...HOME_SKILL_DIRS.map((dir) => resolve(roots.home, dir)),
@@ -131,11 +112,6 @@ async function loadRoots(roots: SkillRoots): Promise<Skill[]> {
   return found;
 }
 
-/**
- * The directories a glob names. The static prefix before the first glob
- * segment is resolved against the workspace, which is what lets `../x/*`
- * and absolute patterns work, and only the tree beneath it is walked.
- */
 async function addGlob(glob: string, roots: SkillRoots): Promise<Skill[]> {
   const segments = posix(glob).replace(DOT_SLASH, "").split("/");
   const first = segments.findIndex((segment) => GLOB_SEGMENT.test(segment));
@@ -191,7 +167,6 @@ async function applyOp(
   }
 }
 
-/** A recipe step as a cache key; a defined skill by its name and a digest of what it is. */
 function opKey(op: SkillOp): unknown {
   if (op.kind !== "skill" || !op.skill) {
     return op;

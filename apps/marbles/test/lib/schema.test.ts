@@ -33,7 +33,6 @@ describe("validate", () => {
   });
 });
 
-/** Fields as `Registry.entries` derives them: from the schema's JSON Schema. */
 function fieldsFromSchema(schema: StandardSchemaV1) {
   const json = jsonSchemaOf(schema);
   return json && fieldsFromJsonSchema(json);

@@ -15,12 +15,6 @@ import type {
   TranscribeResult,
 } from "../types";
 
-/**
- * The on-device provider's contract, free of the transformers runtime so the
- * manager and hosts can name it without loading weights-capable code. The
- * runtime lives behind `@foundry/models/local`.
- */
-
 export interface LocalLoadedModel {
   dtype?: string;
   kind: ModelKind;
@@ -63,12 +57,6 @@ export interface LocalModelDefinition extends ProviderModelDefinition {
     | TransformersJSTranscriptionSettings;
 }
 
-/**
- * What "the local provider" means beyond serving AI SDK models: weight
- * management by **catalog id**, and segment-level transcription. Implemented
- * in-process by `LocalProvider` and, worker-backed, by `RemoteLocalProvider`;
- * hosts may compose the two.
- */
 export interface LocalProviderSurface extends Provider {
   download(id: string): Promise<void>;
   downloadedModels(): Promise<string[]>;

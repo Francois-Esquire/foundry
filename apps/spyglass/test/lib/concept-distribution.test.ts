@@ -47,7 +47,6 @@ const REPRESENTATION_OF: Record<
 };
 
 interface Use {
-  /** `name@package/file` — omit the name for module-level code. */
   at: string;
   kind: ConceptRelationshipKind;
   symbolKind?: SymbolKind;
@@ -70,7 +69,6 @@ function fileOf(shorthand: string): { package: string; file: string } {
   return { file: `packages/${pkg}/src/${file}.ts`, package: name };
 }
 
-/** Build a V7.0 family the way `analyzeConceptInventory` would roll it up. */
 function familyOf(
   name: string,
   declaredAt: string,
@@ -489,7 +487,6 @@ describe("reference distribution", () => {
       references: 3,
       share: 3 / 7,
     });
-    // core and workspaces tie at 3; the lexically first package is primary.
     expect(references.primaryPackage).toBe("@t/core");
     expect(references.primaryShare).toBe(3 / 7);
   });
@@ -644,7 +641,6 @@ describe("report and attachment", () => {
     const local = familyOf("Local", "core/a", []);
     const inventory = inventoryOf(store, local);
     const report = analyzeConceptDistribution(inventory, noHistory);
-    // Store: 3 reference packages, primary share 3/7 ≤ 0.5 → reference-distributed.
     expect(report.summary).toEqual({
       crossPackage: 1,
       families: 2,

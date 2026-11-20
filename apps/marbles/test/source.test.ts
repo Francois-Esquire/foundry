@@ -11,12 +11,23 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
-import { readTriggers } from "~/create";
+import { DatabaseAutomationStore } from "~/database/automations";
+import { initializeDatabase } from "~/database/open";
+import { stateDatabase } from "~/layout";
+import { AutomationService } from "~/lib/automation/service";
 import { workspaceState } from "~/lib/state/workspace";
 import { sourceFiles, sourceRoot } from "~/workspace/source";
+import { declared } from "./helpers/engine";
+import { type TestHome, testHome } from "./helpers/home";
+
+let home: TestHome;
+
+beforeEach(() => {
+  home = testHome();
+});
 
 afterEach(() => {
   catalog.reset();
@@ -27,6 +38,7 @@ function cli(root: string, ...args: string[]): string {
   return execFileSync("bun", [CLI, ...args], {
     cwd: root,
     encoding: "utf8",
+    env: home.env,
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 15_000,
   });
@@ -147,12 +159,16 @@ it("lists what agents created from the same triggers, and leaves the state root 
       config,
       'import { step } from "@foundry.sh/marbles"; step("target").do(() => 1);'
     );
-    const state = join(root, "state");
+    const { state } = home.layout;
     const { dir } = workspaceState(state, root);
     step("target").do(() => 1);
-    const { automations } = readTriggers(catalog, {
-      dry: false,
-      stateDir: dir,
+    const opened = await initializeDatabase(stateDatabase(state));
+    const automations = new AutomationService({
+      registry: declared(),
+      store: new DatabaseAutomationStore({
+        database: opened.database,
+        scope: workspaceState(state, root).id,
+      }),
     });
     const owner = {
       agentId: "worker",
@@ -172,7 +188,8 @@ it("lists what agents created from the same triggers, and leaves the state root 
       { at: "1h", key: "hourly", workflow: "target" },
       owner
     );
-    const listed = cli(root, "list", "--config", config, "--state", state)
+    opened.close();
+    const listed = cli(root, "list", "--config", config)
       .split("\n")
       .filter((line) => line.startsWith("["));
     expect(listed.toSorted()).toEqual(

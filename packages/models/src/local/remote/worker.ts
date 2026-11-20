@@ -5,13 +5,6 @@ import type { WorkerRequest, WorkerSideTransport } from "./protocol";
 
 import { decodeAudio } from "./protocol";
 
-/**
- * The worker side of the bridge: hosts a real {@link LocalProvider} in an
- * unbound Node process and answers protocol requests with its models. All the
- * AI SDK semantics (reasoning middleware, chat templates, tool wiring) come
- * from the real provider — this file only moves calls and stream parts across
- * the transport. Runs anywhere plain Node runs; no Electron imports.
- */
 export function runLocalWorker(
   transport: WorkerSideTransport,
   provider: LocalProviderSurface
@@ -60,7 +53,6 @@ export function runLocalWorker(
             abortSignal: controller.signal,
           } as LanguageModelV4CallOptions;
           if (req.op === "generate") {
-            // request/response carry HTTP debug info — meaningless on-device.
             const {
               request: _req,
               response: _res,

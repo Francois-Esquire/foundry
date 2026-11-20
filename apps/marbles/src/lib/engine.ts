@@ -4,37 +4,54 @@ import {
   createAgentAuthorizer,
   createInMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
-import type { SessionStore } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import { Config } from "@foundry/lib/config";
+import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
+import {
+  type ProcessIdentity,
+  sameProcess,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import type { ModelManager } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
 import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
 import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
 import type { Containers } from "@foundry/sandbox/container/containers";
+import type { ContainerStore } from "@foundry/sandbox/store";
 import type { TaskStore } from "@foundry/tasks";
+import { ExecutionCoordinator } from "@foundry/workflows";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { contributeQueueConfig } from "@foundry/workflows/config";
 import type { BaseContext } from "@foundry/workflows/executable";
 import type { Factory } from "@foundry/workflows/orchestrator";
 import { Orchestrator } from "@foundry/workflows/orchestrator";
-import type { RunRecord } from "@foundry/workflows/store";
-import { InMemoryOrchestratorStore } from "@foundry/workflows/store";
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { git } from "@foundry/workspaces/git";
-import { directory } from "@foundry/workspaces/node";
-import { nodeObserver } from "@foundry/workspaces/node/watch";
+import type { RunRecord } from "@foundry/workflows/schema";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
+import type { AutomationStore } from "~/lib/automation/store";
+import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { Bindings } from "~/lib/bindings";
 import { harnessOf } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
+import {
+  CrashRecovery,
+  type RecoveryLog,
+  type RecoveryReport,
+} from "~/lib/crash-recovery";
 import type { AnyDefinition } from "~/lib/definition";
+import { environmentSnapshot } from "~/lib/environment";
+import type { ObserveOptions } from "~/lib/events/delivery";
 import { Delivery } from "~/lib/events/delivery";
-import { WorkspaceRecords } from "~/lib/events/records";
-import type { Handler, Source } from "~/lib/events/source";
+import type { WorkspaceRecords } from "~/lib/events/records";
+import { MemoryWorkspaceRecords } from "~/lib/events/records";
+import type { Fact, Handler, Source } from "~/lib/events/source";
+import type { ExecutionContext } from "~/lib/execution-context";
+import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
+import type { ExecutionStore } from "~/lib/execution-store";
+import { MemoryExecutionStore } from "~/lib/execution-store";
 import type {
   ExecutionRun,
   ExecutionRuns,
@@ -48,10 +65,15 @@ import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
 import type { FeedRouter } from "~/lib/feed/route";
-import { feedRouter } from "~/lib/feed/route";
+import { feedRouter, movedAway, QuestionMovingError } from "~/lib/feed/route";
 import type { Dispatched } from "~/lib/held-runs";
 import { HeldRuns } from "~/lib/held-runs";
-import type { DispatchedRun, Launched, LaunchOptions } from "~/lib/launcher";
+import type {
+  DispatchedRun,
+  Launched,
+  LaunchOptions,
+  QueuedTake,
+} from "~/lib/launcher";
 import { Launcher } from "~/lib/launcher";
 import { createLog, type LogLevel, type LogOrigin } from "~/lib/log";
 import { AgentsManager } from "~/lib/managers/agents";
@@ -59,279 +81,249 @@ import { ArtifactsManager } from "~/lib/managers/artifacts";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
 import { skillResolver } from "~/lib/managers/skills";
 import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
-import { WorkspacesManager } from "~/lib/managers/workspaces";
+import { localCatalogue, WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
-import type { ReadonlyRunScopes } from "~/lib/run-scope";
-import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
-import { HarnessActivities } from "~/lib/sandbox/activities";
-import { JsonAgentGrantRepository } from "~/lib/sandbox/grants";
-import { HarnessInteractions } from "~/lib/sandbox/interactions";
-import { JsonSessionStore } from "~/lib/sessions/json-store";
-import type { Lock } from "~/lib/state/locks";
+import { RunListing } from "~/lib/run-listing";
 import {
-  loadRuns,
-  readRunRecorded,
-  removeRun,
-  TERMINAL_RUN_STATUSES,
-} from "~/lib/state/runs";
-import type { StateStore } from "~/lib/state/store";
-import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
+  adoptParkedRun,
+  adoptParkedRuns,
+  workflowStatuses,
+} from "~/lib/run-recovery";
+import type { ReadonlyRunScopes, RecordedScope } from "~/lib/run-scope";
+import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
+import type { RunStore } from "~/lib/run-store";
+import { MemoryRunStore, TERMINAL_RUN_STATUSES } from "~/lib/run-store";
+import type { ActivityStore } from "~/lib/sandbox/activities";
+import { HarnessActivities } from "~/lib/sandbox/activities";
+import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
+import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
+import { HarnessInteractions } from "~/lib/sandbox/interactions";
+import { removeRunOutput } from "~/lib/state/output";
 import type { TaskDefinition } from "~/lib/tasks";
 import { factoryFor } from "~/lib/tree";
+import type { TriggerStore } from "~/lib/trigger-store";
+import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
 import type { UsageRecords } from "~/lib/usage";
 import { UsageLedger, withRecovered } from "~/lib/usage";
-import type { ReconciledRun, SessionListing } from "~/lib/usage-evidence";
-import { UsageEvidence } from "~/lib/usage-evidence";
-
-/**
- * The engine: the one place the packages meet. It is handed the instances
- * the packages give a host (models, a session store, a workspace system,
- * containers, an artifact system), each already configured for the machine
- * it runs on, and builds everything that connects them: the managers a step
- * body sees, the feed, agent approvals and activity, the triggers agents
- * create, and a real Orchestrator over an in-memory store.
- *
- * What can run is told to it with `define`, `schedule`, `monitor` and
- * `task`. Every launch is an Execution Run (`executions`), which the
- * launcher (`lib/launcher.ts`) records when it is queued, lets in by its
- * named queue, and records as it starts, reports and settles. A workflow is
- * then dispatched here as a Run through the Orchestrator under the same id,
- * so Runs, Jobs and frames all exist and can be inspected, and followed as
- * a held run (`lib/held-runs.ts`); a task runs its body in the launcher.
- * Given a state dir, the store hydrates from `runs/*.json` at start and each
- * Run is written back when it parks and once it settles; without one,
- * nothing survives the process. A Run parked on a question is adopted by
- * the next process that can answer it: the Orchestrator re-parks it, its
- * scope gets the ledger it recorded, and its question stays open on the
- * feed.
- *
- * The workspace's tasks are kept here too, with the items their changes
- * emit, in `<state>/tasks.json` or in memory; `observe` says who receives
- * those items, and delivery runs from a successful `start` until `stop`.
- */
+import type {
+  ReconciledRun,
+  RunRecorded,
+  SessionListing,
+} from "~/lib/usage-evidence";
+import { listsSessions, UsageEvidence } from "~/lib/usage-evidence";
+import type { UsageStore } from "~/lib/usage-store";
+import { MemoryUsageStore } from "~/lib/usage-store";
 
 export interface EngineOptions {
-  /** Read by `artifacts.latest` when `artifacts` has nothing: the real store under `--dry-run`. */
-  readonly artifactReads?: ArtifactSubstrate;
-  /** Versioned outputs and the feed; one system may serve many workspaces. */
+  readonly activityStore?: ActivityStore;
+  readonly approvals?: DeferredApprovalStore;
+  readonly artifactReads?: Pick<ArtifactSubstrate, "get" | "readFile">;
   readonly artifacts: ArtifactSubstrate;
-  /**
-   * Whether someone can answer `ask` in this process (a dashboard).
-   * Otherwise a question cancels its run rather than pausing it forever, and
-   * parked runs from earlier processes are left for a process that can.
-   */
   readonly askable?: boolean;
-  /**
-   * Where sandboxes run. A function is called at the first sandbox and its
-   * result kept, for a runtime that is optional or slow to start.
-   */
+  readonly automationStore?: AutomationStore;
+  readonly changeRetention?: number;
+  readonly containerRows?: Pick<ContainerStore, "list">;
   readonly containers: Containers | (() => Promise<Containers>);
-  /**
-   * Simulation: an agent asked to run in a sandbox runs in this process on
-   * `models` instead, so no guest is prepared and no credential is read.
-   */
+  readonly cwd?: string;
   readonly dry?: boolean;
-  /**
-   * How git runs: on the root workspace, and in the `git()` layer of the
-   * workspace system the engine builds when `workspaces` is omitted. A host
-   * that brings its own system gives this what that layer was built with;
-   * the system cannot hand its git back for a path without registering and
-   * scanning it, and the root workspace stays unread until a step needs it.
-   */
+  readonly environment?: Readonly<Record<string, string>>;
+  readonly executionStore?: ExecutionStore;
   readonly git?: GitOptions;
-  /** The user's home, whose skill folders `skills.load()` reads; the OS home by default. */
+  readonly grants?: GrantDocumentStorage;
+  readonly handlerTimeout?: number;
   readonly home?: string;
-  /**
-   * Where definitions' own `log(...)` lines go, with where each came from:
-   * a step body (whose run also records the line) or a workflow's setup
-   * (which no run record keeps). To `print` when omitted. A host that lists
-   * runs' logs itself can keep them apart from its own lines.
-   */
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
-  /** Every provider agents may route to, already registered. */
   readonly models: ModelManager;
-  /** One line of engine status at a time, and body `log(...)` without `log`; dropped when omitted. */
   readonly print?: (line: string) => void;
-  /** The provider configuration that keeps `models` current, when the host has one. */
   readonly providers?: ProviderConfiguration;
-  /**
-   * Named queues and their concurrency. A queue a launch names that is not
-   * here runs one run at a time; so does the default, `marbles`, unless it
-   * is given here. Change them live with `executions.configure`.
-   */
   readonly queues?: Readonly<Record<string, QueueSettings>>;
-  /**
-   * Whether queued runs a process that has exited left behind are let in
-   * again at start, in their original order, when their definition or task
-   * is registered by then. Off by default: they stay queued and visible
-   * until a process that recovers them starts, or they are cancelled. A
-   * queued run has had no effect and keeps its input, so a workflow is
-   * replayed from it; a host whose task bodies lived only in the exited
-   * process turns this on to settle each such run explicitly, as its body
-   * decides (Works fails them as abandoned), rather than leave it queued.
-   */
+  readonly records?: WorkspaceRecords;
   readonly recoverQueued?: boolean;
-  /** The workspace root: where definitions resolve paths from. */
+  readonly recoveryLog?: RecoveryLog;
   readonly root: string;
-  /** Where agent transcripts live. */
+  readonly runs?: RunStore;
   readonly sessions: SessionStore;
-  /** Workspace state dir. Omit for in-memory: nothing survives the process. */
+  readonly spawned?: string;
   readonly state?: string;
-  /**
-   * Where triggers keep their history, monitors what they saw, and agents
-   * the triggers they create, with the locks that keep two ticks apart. By
-   * default a `JsonStateStore` over `state`, or in memory without one.
-   */
-  readonly store?: StateStore;
-  /** Identity of this workspace: part of a declared artifact's id and of every feed entry. */
+
+  readonly triggers?: TriggerStore;
+  readonly usageStore?: UsageStore;
   readonly workspaceId: string;
-  /**
-   * Directories and repositories, with the `directory` and `git` layers. By
-   * default a system over the local filesystem, watched, whose git runs as
-   * `git` says.
-   */
   readonly workspaces?: Catalogue;
-  /**
-   * Where worktrees are cut when a step names no `home`; by default
-   * `Engine.worktreesFor(state)`.
-   */
   readonly worktrees?: string;
 }
 
-/**
- * How usage recovery finds sessions in `sessions`. A store that cannot list
- * them is read only where a record names a session; that misses a session
- * whose only record was a `lost` marker held in memory by an earlier
- * process. That needs both the ledger and the sessions to outlive the
- * process, so a store kept in memory, or a ledger kept in memory, is not
- * flagged: neither outlives the markers. A store this cannot place is
- * assumed to outlive it.
- */
+function contextOf(
+  options: EngineOptions,
+  spawned: string | undefined,
+  currentModels: () => ModelManager | undefined
+): ExecutionContext {
+  return {
+    cwd: options.cwd ?? options.root,
+    environment: options.environment ?? environmentSnapshot(),
+    get models() {
+      return currentModels();
+    },
+    ...(spawned === undefined ? {} : { spawned }),
+    workspaceId: options.workspaceId,
+  };
+}
+
 function sessionListing(
   sessions: SessionStore,
-  store: StateStore
+  usage: UsageStore
 ): { readonly stamps?: SessionListing } {
-  if (sessions instanceof JsonSessionStore) {
+  if (listsSessions(sessions)) {
     return { stamps: () => sessions.stamps() };
   }
   const outlives = !(
     sessions instanceof InMemorySessionStore ||
-    store instanceof InMemoryStateStore
+    usage instanceof MemoryUsageStore
   );
   return outlives ? { stamps: "unavailable" } : {};
 }
 
-/** What a started engine holds; absent until `start` and after a failed one. */
-interface Running {
-  readonly held: HeldRuns;
-  readonly orchestrator: Orchestrator;
-  readonly router: FeedRouter;
-  readonly store: InMemoryOrchestratorStore;
+function storesOf(options: EngineOptions): {
+  readonly automations: AutomationStore;
+  readonly executions: ExecutionStore;
+  readonly runs: RunStore;
+  readonly triggers: TriggerStore;
+  readonly usage: UsageStore;
+} {
+  return {
+    automations: options.automationStore ?? new MemoryAutomationStore(),
+    executions: options.executionStore ?? new MemoryExecutionStore(),
+    runs: options.runs ?? new MemoryRunStore(),
+    triggers: options.triggers ?? new MemoryTriggerStore(),
+    usage: options.usageStore ?? new MemoryUsageStore(),
+  };
 }
 
-/**
- * The Orchestrator's own queue never holds a run back: the engine's named
- * queues have already let it in.
- */
+function recordedIn(
+  scopes: ReadonlyRunScopes,
+  runs: RunStore
+): (runId: string) => Promise<RunRecorded> {
+  return async (runId) => {
+    const scope = scopes.get(runId);
+    if (scope) {
+      return { ledger: scope.ledger.toJSON(), session: scope.session.id };
+    }
+    try {
+      return await runs.recorded(runId);
+    } catch {
+      return "unreadable";
+    }
+  };
+}
+
+const RETIRED_POLL_MS = 250;
+const RELEASE_RETRY_MS = 1000;
+const RELEASE_RETRY_MAX_MS = 30_000;
+
+interface OwedRelease {
+  readonly released?: () => void;
+  said: boolean;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+interface Running {
+  readonly held: HeldRuns;
+  readonly listing: RunListing;
+  readonly orchestrator: Orchestrator;
+  readonly router: FeedRouter;
+  readonly store: ExecutionCoordinator;
+}
+
 const ORCHESTRATOR_CONCURRENCY = Number.MAX_SAFE_INTEGER;
 
 // biome-ignore lint/performance/noBarrelFile: Preserve the existing engine error export after moving run tracking.
 export { RunEndedError } from "~/lib/held-runs";
 
 export class Engine {
-  /** What agents inside sandboxes are doing, for a host that shows it. */
   readonly activities: HarnessActivities;
   readonly agents: AgentsManager;
   readonly artifacts: ArtifactsManager;
-  /** Triggers agents create; they join the schedules a host declared. */
   readonly automations: AutomationService;
-  /** What step bodies are built from: the managers, scoped per frame. */
   readonly bindings: Bindings;
-  /** Every run's lifecycle record, and the named queues they wait in. */
+  readonly context: ExecutionContext;
   readonly executions: ExecutionRuns;
-  /** Feed entries from every workspace in the artifact system, newest first. */
   readonly feed: FeedReader;
-  /** Approvals and questions from agents, answered through the feed. */
   readonly interactions: HarnessInteractions;
   readonly models: ModelManager;
-  /** Airplane Mode for this engine's models only; off until a host turns it on. */
   readonly airplane: AirplaneMode;
-  /** Which providers exist here and in what order, when the host configured them. */
   readonly providers: ProviderConfiguration | undefined;
   readonly root: string;
   readonly sandboxes: SandboxesManager;
-  /** The scope of every run this engine holds, for hosts that steer or inspect. */
   readonly scopes: ReadonlyRunScopes;
   readonly sessions: SessionStore;
   readonly state: string | undefined;
-  /** Trigger history, monitor state, agent-created triggers, and their locks. */
-  readonly store: StateStore;
-  /** What each run's agent turns consumed, one fact per turn, in `store`. */
+  readonly triggers: TriggerStore;
   readonly usage: UsageLedger;
-  /**
-   * This workspace's tasks, for a `Tasks` to be built over. Each commit
-   * stores the change it emits in the same write. Read or written, it is
-   * owned by this process until `dispose`; another engine over the same
-   * state dir is refused it meanwhile.
-   */
   readonly taskStore: TaskStore;
   readonly workspaceId: string;
   readonly workspaces: WorkspacesManager;
-  /** Where worktrees are cut; a host lets its sandboxes mount what is inside. */
   readonly worktrees: string;
 
   readonly #askable: boolean;
-  /** Turns the usage ledger lacks, found in surviving runs and transcripts. */
   readonly #evidence: UsageEvidence;
   readonly #publisher: FeedPublisher;
   readonly #print: (line: string) => void;
   readonly #registry = new Registry();
   readonly #scopes = new RunScopes();
-  /**
-   * Raw factories registered beside the definitions, by name, applied in
-   * order at start. Each keeps its own factory's types by registering itself.
-   */
   readonly #extra = new Map<string, (orchestrator: Orchestrator) => void>();
   readonly #executions: Executions;
+  readonly #crashRecovery: CrashRecovery;
+  readonly #recoveryLog: RecoveryLog | undefined;
+  #lastRecovery: RecoveryReport | undefined;
   readonly #launcher: Launcher;
   readonly #records: WorkspaceRecords;
+  readonly #runs: RunStore;
+  readonly #usageStore: UsageStore;
+  readonly #automationStore: AutomationStore;
+  readonly #executionStore: ExecutionStore;
   readonly #delivery: Delivery;
   readonly #directNames = new WeakMap<AnyDefinition, string>();
-  /**
-   * Workflow runs pruned since start: the Orchestrator's store still holds
-   * them, but `runs()`, and so the dashboard and usage, no longer list them.
-   */
-  readonly #pruned = new Set<string>();
   #running: Running | undefined;
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
   #stopping: Promise<void> | undefined;
+  #retiring = false;
+  readonly #letGo = new Set<string>();
+  readonly #owed = new Map<string, OwedRelease>();
+  #released = false;
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
-  /** The models.dev load the usage ledger prices from: held while running and online. */
+  readonly #unwatchRecords: () => void;
   #prices: ModelsDevHold | undefined;
 
-  /**
-   * Where an engine over `state` cuts worktrees by default: inside the state
-   * dir, or under the OS temp dir without one. A dir Marbles owns, so a host
-   * may let its sandboxes mount what is inside.
-   */
   static worktreesFor(state: string | undefined): string {
     return join(state ?? join(tmpdir(), "marbles"), "worktrees");
   }
 
+  static persistence(
+    options: Pick<EngineOptions, "dry" | "spawned" | "state">
+  ): { readonly spawned?: string; readonly state?: string } {
+    if (options.dry === true) {
+      return {};
+    }
+    const { spawned, state } = options;
+    return {
+      ...(spawned === undefined ? {} : { spawned }),
+      ...(state === undefined ? {} : { state }),
+    };
+  }
+
   constructor(options: EngineOptions) {
-    const { models, root, sessions, state, workspaceId } = options;
+    const { models, root, sessions, workspaceId } = options;
+    const { spawned, state } = Engine.persistence(options);
     const print = options.print ?? (() => undefined);
     const home = options.home ?? homedir();
     const askable = options.askable ?? false;
     const { containers } = options;
     this.models = models;
-    // Started now, so list prices are there by the first turn; nothing
-    // waits for it. Airplane Mode gives it up, and leaving it holds it again.
     this.#prices = holdModelsDev();
     const airplane = airplaneMode(models);
     this.airplane = {
@@ -346,7 +338,6 @@ export class Engine {
           this.#releasePrices();
         } else if (!this.#disposing) {
           this.#prices ??= holdModelsDev();
-          // Back online, the servers are asked for their models again.
           this.#listModels();
         }
       },
@@ -359,44 +350,35 @@ export class Engine {
     this.scopes = this.#scopes;
     this.sessions = sessions;
     this.state = state;
-    this.store =
-      options.store ??
-      (state === undefined
-        ? new InMemoryStateStore()
-        : new JsonStateStore(state));
-    this.usage = new UsageLedger(this.store);
+    const { automations, executions, runs, triggers, usage } =
+      storesOf(options);
+    this.#automationStore = automations;
+    this.#executionStore = executions;
+    this.triggers = triggers;
+    this.#usageStore = usage;
+    this.usage = new UsageLedger(usage);
+    this.#runs = runs;
     this.#evidence = new UsageEvidence({
-      // A run this process holds is read from its scope, which is ahead of its file.
-      recordedOf: (runId) => {
-        const scope = this.#scopes.get(runId);
-        if (scope) {
-          return { ledger: scope.ledger.toJSON(), session: scope.session.id };
-        }
-        return state === undefined ? undefined : readRunRecorded(state, runId);
-      },
+      recordedOf: recordedIn(this.#scopes, runs),
       sessions,
-      ...sessionListing(sessions, this.store),
+      ...sessionListing(sessions, usage),
     });
     this.workspaceId = workspaceId;
+    this.context = contextOf(options, spawned, () =>
+      this.disposed ? undefined : models
+    );
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
     this.#executions = new Executions({
       ...(options.queues === undefined ? {} : { queues: options.queues }),
-      // A pruned workflow run's own file goes before its record.
-      removed: (run) => {
-        if (run.kind !== "workflow") {
-          return;
-        }
-        if (state !== undefined) {
-          removeRun(state, run.id);
-        }
-        this.#pruned.add(run.id);
-      },
-      store: this.store,
+      removed: (run) => this.#removeRun(run),
+      runs,
+      store: executions,
       warn: print,
     });
     this.executions = this.#executions;
     this.#launcher = new Launcher({
       agents: (run) => this.agents.forRun(run),
+      context: this.context,
       executions: this.#executions,
       print,
       recoverQueued: options.recoverQueued ?? false,
@@ -409,18 +391,17 @@ export class Engine {
         has: (name) => this.#registered(name),
       },
     });
-    this.#records = new WorkspaceRecords({
-      ...(state === undefined ? {} : { dir: state }),
-      emitted: () => this.#delivery.wake(),
+    this.#records = options.records ?? new MemoryWorkspaceRecords();
+    this.#delivery = new Delivery({
+      context: this.context,
+      handlerTimeout: options.handlerTimeout,
+      print,
+      records: this.#records,
+      retention: options.changeRetention,
     });
-    this.#delivery = new Delivery(this.#records, print);
+    this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
-    const catalogue =
-      options.workspaces ??
-      new WorkspaceSystem().extend(
-        directory({ observer: nodeObserver }),
-        git(options.git ?? {})
-      );
+    const catalogue = options.workspaces ?? localCatalogue(options.git ?? {});
     this.#askable = askable;
     this.#print = print;
     this.#publisher = feedPublisher(options.artifacts, {
@@ -429,24 +410,27 @@ export class Engine {
       root,
     });
     this.feed = feedReader(options.artifacts);
-    this.activities = new HarnessActivities({ feed: this.#publisher, state });
+    this.activities = new HarnessActivities({
+      feed: this.#publisher,
+      ...(options.activityStore ? { store: options.activityStore } : {}),
+    });
+    this.#recoveryLog = options.recoveryLog;
+    this.#crashRecovery = this.#recoveryOf(options, print, runs);
     this.automations = new AutomationService({
       allowHttp: configuredMonitorUrl(this.#registry),
       registry: this.#registry,
-      store: this.store,
+      store: automations,
     });
     this.interactions = new HarnessInteractions({
       askable,
       feed: this.#publisher,
-      policy: state
+      policy: options.grants
         ? createAgentAuthorizer({
-            grants: new JsonAgentGrantRepository(
-              join(state, "agent-grants.json")
-            ),
+            grants: new StoredAgentGrantRepository(options.grants),
           })
         : createInMemoryAgentAuthorizer().authorizer,
       sessions,
-      ...(state ? { pendingPath: join(state, "agent-approvals.json") } : {}),
+      ...(options.approvals ? { approvals: options.approvals } : {}),
     });
     const sandboxes = new SandboxesManager({
       containers:
@@ -460,6 +444,7 @@ export class Engine {
       activities: this.activities,
       automations: this.automations,
       containerOf: (sandbox) => sandboxes.containerOf(sandbox),
+      context: this.context,
       defaultExecutor: () => selectExecutor(models),
       dry: options.dry ?? false,
       executionOf: (provider) => options.providers?.executionOf(provider),
@@ -469,6 +454,7 @@ export class Engine {
               options.providers?.identityOf(provider),
           }
         : {}),
+      cwd: this.context.cwd,
       implementationOf: (provider) =>
         options.providers
           ?.list()
@@ -480,7 +466,6 @@ export class Engine {
       observe: (runId, observation) =>
         this.#executions.observe(runId, observation),
       requireProviders: () => options.providers?.require(),
-      root,
       sessions,
       skills: skillResolver({ home, workspace: root }),
       usage: { ledger: this.usage, workspaceId },
@@ -493,6 +478,7 @@ export class Engine {
     });
     this.workspaces = new WorkspacesManager({
       catalogue,
+      context: this.context,
       gitOptions: options.git ?? {},
       root,
       worktreeHome: this.worktrees,
@@ -500,15 +486,20 @@ export class Engine {
     this.bindings = {
       agents: (args) => this.agents.scoped(args),
       artifacts: (args) => this.artifacts.scoped(args),
+      context: this.context,
       exec: ({ frame, scope, write }) =>
         commandRunner({
           cwd: () => workingDirectory(scope.cwd),
           dry: options.dry ?? false,
+          environment: this.context.environment,
           print,
+          ...(this.context.spawned === undefined
+            ? {}
+            : { spawned: this.context.spawned }),
           signal: () => frame.signal,
           write,
         }),
-      host: { catalogue, store: this.store },
+      host: { catalogue, triggers: this.triggers },
       log: createLog((level, message) =>
         options.log
           ? options.log(level, message, { kind: "step" })
@@ -531,7 +522,17 @@ export class Engine {
     };
   }
 
-  /** Harness ids agents can route to on this machine, in preference order. */
+  async #removeRun(run: ExecutionRun): Promise<void> {
+    if (run.kind !== "workflow") {
+      return;
+    }
+    if (this.state !== undefined) {
+      removeRunOutput(this.state, run.id);
+    }
+    await this.#runs.remove(run.id);
+    this.#running?.listing.remove(run.id);
+  }
+
   get harnesses(): readonly string[] {
     return [
       ...new Set(
@@ -542,11 +543,6 @@ export class Engine {
     ];
   }
 
-  /**
-   * Add a named definition; `launch` and `run` address it by that name. One
-   * defined after `start` runs like any other, but a run parked under its
-   * name by an earlier process was already passed over.
-   */
   define(definition: AnyDefinition): void {
     if (definition.name !== undefined) {
       this.#claim(definition.name, { definitions: false, label: "define" });
@@ -557,7 +553,6 @@ export class Engine {
     }
   }
 
-  /** Once started, a definition added to the registry goes to the Orchestrator too. */
   #adopt(name: string): void {
     const definition = this.#registry.definitions.get(name);
     if (definition && this.#running) {
@@ -568,51 +563,42 @@ export class Engine {
     }
   }
 
-  /** Whether a definition has this name, launchable by hand or not. */
   has(name: string): boolean {
     return this.#registry.definitions.has(name);
   }
 
-  /** The definitions a host can offer to launch: no monitor detectors. */
   definitions(): readonly DefinitionEntry[] {
     return this.#registry.entries();
   }
 
-  /** Start a defined workflow on a cadence. */
   schedule(record: Schedule): void {
     this.#registry.schedule(record);
   }
 
-  /**
-   * Watch a source on a cadence and call the handler when it changes. The
-   * monitor appears among the schedules under its key; a locked node the
-   * handler returns is started by the tick that polled.
-   */
   monitor(record: MonitorRecord): void {
     this.#claim(record.key, { definitions: false, label: "monitor" });
     this.#registry.monitor(record);
     this.#adopt(record.key);
   }
 
-  /**
-   * Hand every item `source` emits in this workspace to `handler`, until it
-   * completes. Declared before `start`, as an authoring module's `observe`
-   * is.
-   */
-  observe<T>(source: Source<T>, handler: Handler<T>): void {
-    this.#delivery.observe(source, handler);
+  observe<T extends Fact>(
+    source: Source<T>,
+    handler: Handler<T>,
+    options: Partial<ObserveOptions> = {}
+  ): void {
+    const name = options.name ?? handler.name;
+    if (name === "") {
+      throw new TypeError(
+        "observe: give the observer a name (`{ name }`), or a named handler"
+      );
+    }
+    this.#delivery.observe(source, handler, { ...options, name });
   }
 
-  /** The monitors a host declared, by key. */
   monitors(): ReadonlyMap<string, MonitorRecord> {
     return this.#registry.monitors;
   }
 
-  /**
-   * Register a raw workflows factory beside the definitions, for a host step
-   * that should run as a Run without being launchable by name. Before
-   * `start` only: recovery needs every name before the store is built.
-   */
   register<I, O, X extends BaseContext = BaseContext>(
     name: string,
     factory: Factory<I, O, X>
@@ -626,24 +612,11 @@ export class Engine {
     );
   }
 
-  /**
-   * Add a host task: a run kind that is not a workflow, launched by name
-   * like a definition. A task registered after `start` runs like any
-   * other, but queued runs an exited process left under its name were
-   * already passed over.
-   */
   task<I, O>(definition: TaskDefinition<I, O>): void {
     this.#claim(definition.name, { definitions: true, label: "task" });
     this.#launcher.task(definition as TaskDefinition);
   }
 
-  /**
-   * One name, one runnable: refuse a name a task or a raw factory already
-   * holds, and a definition's too when `definitions` says so. A definition
-   * or a monitor claims without it: two definitions under one name are the
-   * registry's to refuse, saying where each came from. `label` names the
-   * call in the error.
-   */
   #claim(
     name: string,
     claim: { readonly definitions: boolean; readonly label: string }
@@ -657,12 +630,10 @@ export class Engine {
     }
   }
 
-  /** Whether the Orchestrator can run this name: a definition, or a raw factory. */
   #registered(name: string): boolean {
     return this.#registry.definitions.has(name) || this.#extra.has(name);
   }
 
-  /** Every named definition, then what the host registered beside them. */
   #registerAll(orchestrator: Orchestrator): void {
     for (const [name, definition] of this.#registry.definitions) {
       orchestrator.register(
@@ -675,7 +646,25 @@ export class Engine {
     }
   }
 
-  /** Build the Orchestrator, register what can run, and adopt what an earlier process parked. */
+  #recoveryOf(
+    options: EngineOptions,
+    print: (line: string) => void,
+    runs: RunStore
+  ): CrashRecovery {
+    const { containerRows } = options;
+    const { spawned } = Engine.persistence(options);
+    return new CrashRecovery({
+      activities: this.activities,
+      artifacts: options.artifacts,
+      ...(containerRows === undefined ? {} : { containerRows }),
+      containers: () => this.sandboxes.containers(),
+      executions: () => this.#executions.list(),
+      print,
+      runs,
+      ...(spawned === undefined ? {} : { spawned }),
+    });
+  }
+
   start(): Promise<this> {
     if (this.#disposing) {
       return Promise.reject(new Error("the engine was disposed"));
@@ -693,38 +682,42 @@ export class Engine {
     const askable = this.#askable;
     const feed = this.#publisher;
     const print = this.#print;
-    // Before anything runs, so a listed model can be named from the first turn.
     await this.#listModels();
     const config = new Config();
     contributeQueueConfig(config, {
       concurrency: ORCHESTRATOR_CONCURRENCY,
       defaultName: DEFAULT_QUEUE,
     });
-    // The store is built before the Orchestrator that registers definitions,
-    // and a recovered run whose definition is gone would fail the start. So
-    // only runs under a name that will be registered are recovered.
-    const loaded =
-      state === undefined
-        ? undefined
-        : loadRuns(state, print, {
-            recover: (run) => askable && this.#registered(run.step),
-            // A run cancelled after its process exited (see
-            // `Executions.cancelOrphan`) keeps its parked run file.
-            settled: (runId) => this.#executions.storedSettled(runId),
-          });
     let orchestrator: Orchestrator | undefined;
+    let adopted: ReadonlyMap<string, RecordedScope> = new Map();
     try {
-      // The run store is read before anything is adopted into it, and one
-      // that cannot be read fails the start.
-      this.#executions.load();
-      for (const [runId, extras] of loaded?.recovered ?? []) {
-        this.#scopes.recover(runId, extras);
+      await this.activities.load();
+      await this.#executions.load();
+      const store = new ExecutionCoordinator({
+        store: await this.#runs.open(
+          (runId) => this.#scopes.get(runId)?.recorded(),
+          (runId, status) => this.#executions.follows(runId, status)
+        ),
+      });
+      adopted = await adoptParkedRuns({
+        askable,
+        print,
+        registered: (name) => this.#registered(name),
+        runs: this.#runs,
+        settled: (runId) => this.#executions.storedSettled(runId),
+        store,
+      });
+      for (const [runId, scope] of adopted) {
+        this.#scopes.recover(runId, scope);
       }
-      const store = new InMemoryOrchestratorStore(
-        loaded === undefined ? {} : { snapshot: loaded.snapshot }
-      );
+      const statuses = await workflowStatuses(store, this.#executions.list());
 
-      orchestrator = new Orchestrator({ config, store });
+      orchestrator = new Orchestrator({
+        config,
+        recovers: (run) =>
+          adopted.has(run.id) && run.lastStatus === "suspended",
+        store,
+      });
       await orchestrator.setup();
       this.#registerAll(orchestrator);
       await orchestrator.start();
@@ -736,70 +729,71 @@ export class Engine {
         router,
         scopes: this.#scopes,
         state,
-        store,
       });
       const recovered: {
         createdAt: number;
         name: string;
         dispatched: Dispatched<unknown>;
-        lock?: Lock;
       }[] = [];
 
-      // Adopt what the store recovered: follow each parked run and keep its
-      // question open under this process before abandoned entries are swept.
-      for (const runId of loaded?.recovered.keys() ?? []) {
-        const lock = loaded?.locks.get(runId);
+      for (const runId of adopted.keys()) {
         const dispatched = await orchestrator.get(runId);
-        const record = store.snapshot().runs.find((run) => run.id === runId);
+        const record = await store.getRun(runId);
         if (!(dispatched && record)) {
-          // Nothing here can follow it, so nothing here should own it.
-          lock?.release();
           this.#scopes.forget(runId);
+          await this.#runs.release(runId);
           continue;
         }
         print(`[run] ${record.step} recovered ${runId}`);
         recovered.push({
           createdAt: record.timestamps.createdAt,
           dispatched,
-          lock,
           name: record.step,
         });
         await router.adopt(record.step, runId);
       }
       await this.interactions.restore();
-      // A crashed dashboard never cancelled its open questions; nothing can answer them now.
       await feed
         .cancelAbandoned()
         .catch((error: unknown) => print(`[feed] ${String(error)}`));
-      this.#running = { held, orchestrator, router, store };
-      for (const { createdAt, name, dispatched, lock } of recovered) {
-        // A run parked before Execution Runs existed gets one now, before
-        // anything it does is recorded on it.
-        this.#executions.adoptParked({ createdAt, id: dispatched.id, name });
-        this.#launcher.follow(
-          dispatched.id,
-          held.follow(name, dispatched, lock)
-        );
-        held.save(dispatched.id);
+      const listing = new RunListing(store);
+      await listing.load();
+      for (const { dispatched } of recovered) {
+        listing.add(dispatched.id);
       }
-      // Before anything is let in, so a handler never runs on an engine
-      // that failed to start.
+      this.#running = { held, listing, orchestrator, router, store };
+      for (const { createdAt, name, dispatched } of recovered) {
+        await this.#executions
+          .adoptParked({ createdAt, id: dispatched.id, name })
+          .catch((error: unknown) =>
+            print(
+              `[state] run ${dispatched.id} has no record: ${String(error)}`
+            )
+          );
+        this.#launcher.follow(dispatched.id, held.follow(name, dispatched));
+      }
       await this.#delivery.start();
-      // Started before recovery: a readmitted body runs at once and may launch.
       this.#phase = "started";
-      // Last, so a start that fails leaves an exited process's queued runs
-      // queued and never starts their bodies.
-      this.#recover(
+      await this.#recover(
         new Set(recovered.map(({ dispatched }) => dispatched.id)),
-        loaded?.statuses ?? new Map()
+        statuses
       );
+      const recovery = await this.#crashRecovery.recover(store);
+      for (const runId of recovery.closed) {
+        listing.add(runId);
+      }
+      this.#lastRecovery = recovery.report;
+      await this.#recoveryLog
+        ?.record(recovery.report)
+        .catch((error: unknown) =>
+          print(`[recovery] its report was not kept: ${String(error)}`)
+        );
       this.#delivery.wake();
     } catch (error) {
       this.#phase = "failed";
       try {
         try {
           await this.#delivery.stop();
-          // Whatever recovery let in before it failed stops with the start.
           await this.#launcher.halt(true);
           await orchestrator?.stop();
           await this.#launcher.settled();
@@ -810,31 +804,28 @@ export class Engine {
           }
         }
       } finally {
-        for (const [runId, lock] of loaded?.locks ?? []) {
-          lock.release();
+        for (const runId of adopted.keys()) {
           this.#scopes.forget(runId);
         }
         this.#running = undefined;
+        await this.#runs.release().catch(() => undefined);
       }
       throw error;
     }
     return this;
   }
 
-  /** Take over the Execution Runs of processes that have exited (see `Launcher.recover`). */
   #recover(
     adopted: ReadonlySet<string>,
-    files: ReadonlyMap<string, string>
-  ): void {
-    this.#launcher.recover({
+    statuses: ReadonlyMap<string, string>
+  ): Promise<void> {
+    return this.#launcher.recover({
       adopted,
-      // A run file written just before a crash can be ahead of its record.
       fileStatus: (run) =>
-        run.kind === "workflow" ? files.get(run.id) : undefined,
+        run.kind === "workflow" ? statuses.get(run.id) : undefined,
     });
   }
 
-  /** Dispatch a launched workflow run through the Orchestrator under its own id. */
   async #dispatch(
     run: ExecutionRun,
     input: unknown,
@@ -853,12 +844,12 @@ export class Engine {
         signal,
       });
     } catch (error) {
-      // Withdrawn, or refused, after its factory built the tree: nothing
-      // will follow the run, so what its setup opened closes here.
       await this.#scopes.settle(run.id);
       throw error;
     }
-    return this.#live().held.follow(run.name, dispatched);
+    const { held, listing } = this.#live();
+    listing.add(run.id);
+    return held.follow(run.name, dispatched);
   }
 
   #live(): Running {
@@ -876,7 +867,6 @@ export class Engine {
     return scope;
   }
 
-  /** Answer an open input entry; the run that asked resumes with it. */
   async answer(entryId: string, answer: FeedAnswer): Promise<void> {
     if (await this.interactions.answer(entryId, answer)) {
       return;
@@ -884,29 +874,10 @@ export class Engine {
     return this.#live().router.answer(entryId, answer);
   }
 
-  /**
-   * Cancel one run, wherever it is: off its queue if it is still waiting,
-   * aborted if it is a task, and through the Orchestrator otherwise. A run
-   * still being dispatched is withdrawn before the Orchestrator takes it, so
-   * its body never starts, and what its setup opened is closed; this still
-   * waits for its factory (the definition's input validation and `setup`)
-   * to resolve, since nothing hands the factory a signal. A run whose
-   * process exited and that no process adopted is recorded cancelled here.
-   * A task is settled when this returns; a run that has already settled is
-   * left as it is.
-   */
   cancel(runId: string): Promise<void> {
     return this.#launcher.cancel(runId);
   }
 
-  /**
-   * Launch a definition or task by name. The run is recorded as queued
-   * before this returns; when its queue lets it in at once, it has also
-   * started, so a bad input still rejects here. A run that has to wait is
-   * started when its turn comes, and a failure to start settles its
-   * `result` instead. A `source` already launched under the name returns
-   * that run. A string is a trigger id, as before options.
-   */
   async launch<O>(
     name: string,
     input: unknown,
@@ -927,30 +898,26 @@ export class Engine {
     );
   }
 
-  /**
-   * Park a running step: what it opened stops and the run shows as
-   * suspended. `false` when no such step is running here.
-   */
   pause(runId: string, stepId: string, reason?: string): boolean {
     return this.scopes.get(runId)?.pause(stepId, reason) ?? false;
   }
 
-  /**
-   * Resume a paused step. The body replays from the top; a prompt goes to
-   * the first turn of the agent session it had open.
-   */
   async resume(runId: string, stepId: string, prompt?: string): Promise<void> {
     const { orchestrator } = this.#live();
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring || this.#letGo.has(runId)) {
+      throw new QuestionMovingError(runId);
+    }
     const scope = this.#scopeOf(runId);
     const pending = await orchestrator.listSuspensions({
       kind: PAUSE_KIND,
       runId,
       status: "pending",
     });
-    // A pause parks a subtree, so a resume releases every pause at or
-    // under the step. The root segment of a step path is the registered
-    // name here, but compare below it too, as the feed does, in case a
-    // host renames it.
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring || this.#letGo.has(runId)) {
+      throw new QuestionMovingError(runId);
+    }
     const below = stepId.split(".").slice(1).join(".");
     const under = (path: string, wanted: string) =>
       path === wanted || (wanted !== "" && path.startsWith(`${wanted}.`));
@@ -968,15 +935,18 @@ export class Engine {
       if (frame && trimmed !== undefined) {
         frame.resumePrompt = trimmed;
       }
-      await orchestrator.resolve(suspension.id, { prompt: trimmed ?? null });
+      await orchestrator
+        .resolve(
+          suspension.id,
+          { prompt: trimmed ?? null },
+          { expectedRevision: suspension.revision }
+        )
+        .catch((error: unknown) => {
+          throw movedAway(error, runId);
+        });
     }
   }
 
-  /**
-   * Dispatch a registered definition and wait for its value. `input` is
-   * `unknown` because names, not types, address a definition — the caller
-   * states the output type it expects.
-   */
   async run<O>(
     name: string,
     input: unknown,
@@ -986,7 +956,6 @@ export class Engine {
     return launched.result;
   }
 
-  /** Run a definition directly, including an anonymous one, through the engine. */
   async execute<O>(definition: AnyDefinition, input: unknown): Promise<O> {
     if (this.disposed) {
       throw new Error("engine is stopping");
@@ -1027,18 +996,10 @@ export class Engine {
     return launched.result;
   }
 
-  /**
-   * What agent turns consumed: the ledger's facts and markers, plus a
-   * recovered `lost` leaf for each committed turn a session transcript shows
-   * and the ledger lacks, and the transcripts and run files that could not
-   * be read, as unreadable. Recovery reads transcripts and the runs' files;
-   * it writes nothing. See `UsageEvidence` for what attributes a leaf.
-   */
   async readUsage(): Promise<UsageRecords> {
     const runs = (await this.runs()).map((record): ReconciledRun => {
       const { timestamps } = record;
       const ended = timestamps.completedAt ?? timestamps.failedAt;
-      // Settled here but not yet written back: its file is not there to read.
       const unwritten =
         TERMINAL_RUN_STATUSES.has(record.status) &&
         this.#live().held.workflow(record.id) !== undefined;
@@ -1055,56 +1016,269 @@ export class Engine {
       };
     });
     const found = await this.#evidence.unrecorded(
-      this.usage.read(),
+      await this.usage.read(),
       runs,
       this.workspaceId
     );
-    // Read again: a fact saved while the transcripts were read outranks its recovered leaf.
-    return withRecovered(this.usage.read(), found);
+    return withRecovered(await this.usage.read(), found);
   }
 
-  /** Every Run this process dispatched or adopted. */
-  runs(): Promise<readonly RunRecord[]> {
-    const { held, store } = this.#live();
-    return Promise.resolve(
-      store
-        .snapshot()
-        .runs.filter((record) => !this.#pruned.has(record.id))
-        .map((record) => {
-          const current = held.workflow(record.id)?.state;
-          return current
-            ? {
-                ...record,
-                metadata: { ...record.metadata, workflow: current },
-                snapshot: current.tree ?? record.snapshot,
-              }
-            : record;
-        })
-    );
+  get lastRecovery(): RecoveryReport | undefined {
+    return this.#lastRecovery;
   }
 
-  /** The live triggers: what the host scheduled, plus what agents created. */
-  schedules(): readonly Schedule[] {
+  async runs(): Promise<readonly RunRecord[]> {
+    const { held, listing } = this.#live();
+    return (await listing.list()).map((record) => {
+      const current = held.workflow(record.id)?.state;
+      return current
+        ? {
+            ...record,
+            metadata: { ...record.metadata, workflow: current },
+            snapshot: current.tree ?? record.snapshot,
+          }
+        : record;
+    });
+  }
+
+  schedules(): Promise<readonly Schedule[]> {
     return this.automations.schedules();
   }
 
-  /** Hand a prompt to the agent turn running in a step; it becomes the next message. */
   steer(runId: string, stepId: string, prompt: string): void {
     this.#scopeOf(runId).steer(stepId, prompt);
   }
 
-  /**
-   * Settle and write what this process holds. Without `cancel`, queued runs
-   * are let in and run to their end, as before a stop. `cancel` stops work
-   * that cannot outlive the process: queued and running runs, and, without
-   * a state dir, parked ones too. With a state dir a parked run keeps its
-   * question and is adopted by the next process that can answer. A task
-   * that gave up its slot, a long-lived one, is always stopped, and is
-   * stopped before anything is waited on. A workflow still being set up is
-   * waited on: its factory is handed no signal, so a `setup` that never
-   * resolves keeps the stop, and `dispose`, from resolving. Does nothing
-   * on an engine that never started.
-   */
+  async retire(
+    successor: ProcessIdentity,
+    options: {
+      readonly onHanded?: (runId: string) => void;
+      readonly onLetGo?: (runId: string) => void;
+    } = {}
+  ): Promise<{ readonly ended: Promise<void> }> {
+    const running = this.#running;
+    if (running === undefined) {
+      return { ended: Promise.resolve() };
+    }
+    this.#retiring = true;
+    this.#launcher.beginRetiring();
+    running.router.retire();
+    await this.#delivery.stop({ grace: 0 }).catch((error: unknown) => {
+      this.#print(
+        `[engine] the delivery claim was not given up as this engine retires: ${String(error)}`
+      );
+    });
+    const handedLate = (late: string) => options.onHanded?.(late);
+    for (const runId of await this.#launcher.handOver(successor, handedLate)) {
+      this.#letGo.add(runId);
+    }
+    running.orchestrator.on("suspended", ({ runId }) => {
+      if (
+        this.#letGo.has(runId) ||
+        running.held.workflow(runId) === undefined
+      ) {
+        return;
+      }
+      this.#giveBack(running, runId, () => options.onLetGo?.(runId)).catch(
+        (error: unknown) =>
+          this.#print(
+            `[run] ${runId} let go, and not reported: ${String(error)}`
+          )
+      );
+    });
+    for (const runId of running.held.withStatus(["suspended"])) {
+      if (!this.#letGo.has(runId)) {
+        await this.#giveBack(running, runId);
+      }
+    }
+    const left = () =>
+      this.#executions
+        .list()
+        .some(
+          (run) =>
+            !(
+              this.#letGo.has(run.id) ||
+              SETTLED_EXECUTION_STATUSES.has(run.status)
+            ) && sameProcess(run.owner, thisProcess())
+        );
+    const runsEnded = new Promise<void>((resolve) => {
+      const look = () => {
+        if (left()) {
+          setTimeout(look, RETIRED_POLL_MS).unref?.();
+        } else {
+          resolve();
+        }
+      };
+      look();
+    });
+    return { ended: runsEnded };
+  }
+
+  async takeQueued(runId: string, owner: ProcessIdentity): Promise<QueuedTake> {
+    if (this.#running === undefined || this.#phase !== "started") {
+      return { taken: false, why: "this engine is not running" };
+    }
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
+    if (this.#retiring) {
+      return { taken: false, why: "this engine is retiring" };
+    }
+    return await this.#launcher.takeOrphaned(runId, owner);
+  }
+
+  async adopt(runId: string): Promise<boolean> {
+    const running = this.#running;
+    const away = () =>
+      this.#running !== running || this.#phase !== "started" || this.#retiring;
+    if (running === undefined || away()) {
+      return false;
+    }
+    const handed = await this.#launcher.takeHanded(runId);
+    if (handed !== undefined) {
+      return handed;
+    }
+    const record = await running.store.getRun(runId);
+    if (record?.status !== "suspended" || away()) {
+      return false;
+    }
+    const owed = this.#forgive(runId);
+    let scope: Awaited<ReturnType<typeof adoptParkedRun>>;
+    try {
+      scope = await adoptParkedRun(record, {
+        askable: this.#askable,
+        print: () => undefined,
+        registered: (name) => this.#registered(name),
+        runs: this.#runs,
+        settled: (id) => this.#executions.storedSettled(id),
+        store: running.store,
+      });
+    } catch (error) {
+      if (owed !== undefined) {
+        await this.#giveBack(running, runId, owed.released);
+      }
+      throw error;
+    }
+    if (scope === undefined) {
+      if (owed !== undefined) {
+        await this.#giveBack(running, runId, owed.released);
+      }
+      return false;
+    }
+    this.#scopes.recover(runId, scope);
+    this.#letGo.delete(runId);
+    let dispatched: Awaited<ReturnType<Orchestrator["adopt"]>>;
+    try {
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+      if (!(await this.#executions.takeReleased(runId))) {
+        throw new Error("its execution run is not parked");
+      }
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+      dispatched = await running.orchestrator.adopt(runId);
+      if (dispatched === null) {
+        throw new Error("it is no longer parked in the store");
+      }
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+      await running.router.adopt(record.step, runId);
+      if (away()) {
+        throw new Error("this engine began to retire");
+      }
+    } catch (error) {
+      this.#scopes.forget(runId);
+      await running.orchestrator
+        .forget(runId)
+        .catch((failure: unknown) =>
+          this.#print(
+            `[run] ${record.step} ${runId} not dropped from the queue: ${String(failure)}`
+          )
+        );
+      await this.#giveBack(running, runId);
+      if (away()) {
+        this.#print(
+          `[run] ${record.step} ${runId} given back: this engine began to retire as it took it over`
+        );
+        return false;
+      }
+      throw new Error(`run ${runId} was not taken over: ${String(error)}`, {
+        cause: error,
+      });
+    }
+    this.#print(`[run] ${record.step} taken over ${runId}`);
+    running.listing.add(runId);
+    this.#launcher.follow(runId, running.held.follow(record.step, dispatched));
+    return true;
+  }
+
+  async #giveBack(
+    running: Running,
+    runId: string,
+    released?: () => void
+  ): Promise<void> {
+    this.#letGo.add(runId);
+    running.router.letGo(runId);
+    const before = this.#forgive(runId);
+    const tell = released ?? before?.released;
+    const owed: OwedRelease = {
+      ...(tell === undefined ? {} : { released: tell }),
+      said: false,
+    };
+    this.#owed.set(runId, owed);
+    await this.#release(runId, owed, RELEASE_RETRY_MS);
+  }
+
+  #forgive(runId: string): OwedRelease | undefined {
+    const owed = this.#owed.get(runId);
+    if (owed !== undefined) {
+      clearTimeout(owed.timer);
+      this.#owed.delete(runId);
+    }
+    return owed;
+  }
+
+  async #release(
+    runId: string,
+    owed: OwedRelease,
+    delay: number
+  ): Promise<void> {
+    if (this.#owed.get(runId) !== owed) {
+      return;
+    }
+    try {
+      await this.#runs.release(runId);
+    } catch (error) {
+      if (this.#owed.get(runId) !== owed) {
+        return;
+      }
+      if (this.#released) {
+        this.#owed.delete(runId);
+        return;
+      }
+      if (!owed.said) {
+        owed.said = true;
+        this.#print(
+          `[run] ${runId} not let go: ${String(error)}; it stays claimed here, unanswered, and is tried again`
+        );
+      }
+      owed.timer = setTimeout(() => {
+        this.#release(
+          runId,
+          owed,
+          Math.min(delay * 2, RELEASE_RETRY_MAX_MS)
+        ).catch(() => undefined);
+      }, delay);
+      owed.timer.unref?.();
+      return;
+    }
+    if (this.#owed.get(runId) === owed) {
+      this.#owed.delete(runId);
+      owed.released?.();
+    }
+  }
+
   stop(options?: { readonly cancel?: boolean }): Promise<void> {
     if (this.#phase === "starting") {
       return (
@@ -1130,13 +1304,9 @@ export class Engine {
       if (cancel) {
         this.#launcher.cancelPending();
       }
-      // A running handler finishes first: it may still call into this engine.
       await this.#delivery.stop();
       await this.interactions.close();
-      // With a state dir a parked run is written and adopted by the next
-      // process that can answer, so a quit keeps it and its open question.
-      // Without one, cancel open questions because no later process can resume the run.
-      const parkedSurvive = this.state !== undefined;
+      const parkedSurvive = this.#runs.durable;
       if (!parkedSurvive) {
         await router.cancelOpen();
       }
@@ -1156,16 +1326,18 @@ export class Engine {
     } finally {
       try {
         await orchestrator.stop();
+        await this.#executions.flush();
+        await this.#executions.retrySettlements();
       } finally {
-        held.releaseAll();
+        this.#released = true;
+        for (const runId of [...this.#owed.keys()]) {
+          this.#forgive(runId);
+        }
+        await this.#runs.release();
       }
     }
   }
 
-  /**
-   * A live run's events and chunks from its start, then as they happen;
-   * `undefined` once the run is no longer held by this process.
-   */
   stream(
     runId: string,
     signal?: AbortSignal
@@ -1173,14 +1345,9 @@ export class Engine {
     return this.#running?.held.workflow(runId)?.root.subscribe(signal);
   }
 
-  /**
-   * Ask the providers that list their models for them, and reload. Never
-   * rejects: a problem is printed, and the set loaded before is kept.
-   */
   async #listModels(): Promise<void> {
     try {
-      // `configured` reads the files too, so it is inside the guard.
-      if (!this.providers?.configured) {
+      if (this.providers === undefined) {
         return;
       }
       for (const problem of await this.providers.refresh()) {
@@ -1193,24 +1360,16 @@ export class Engine {
     }
   }
 
-  /** Give up the models.dev load; one still fetching is aborted when no other engine holds it. */
   #releasePrices(): void {
     this.#prices?.release();
     this.#prices = undefined;
   }
 
-  /**
-   * Stop execution and close what this engine was handed: the workspace system,
-   * the containers if a sandbox ever opened them, and the models. The models
-   * go last and always: a provider may hold a child process. Its cancelling
-   * stop waits for a workflow's `setup` in flight, as `stop` does.
-   */
   dispose(): Promise<void> {
     this.#disposing ??= this.#dispose();
     return this.#disposing;
   }
 
-  /** Whether disposal has begun; hosts stop routing new work to this engine. */
   get disposed(): boolean {
     return this.#disposing !== undefined;
   }
@@ -1230,8 +1389,15 @@ export class Engine {
     for (const scope of this.#scopes) {
       await close(() => this.#scopes.settle(scope.id));
     }
-    // No handler or step is left to write a task: give up the records.
+    this.#unwatchRecords();
     await close(() => this.#records.close());
+    await close(() => this.#runs.close());
+    await close(() => this.triggers.close());
+    await close(() => this.#automationStore.close());
+    await close(() => this.#executions.flush());
+    await close(() => this.#executions.retrySettlements());
+    this.#executions.stopRetrying();
+    await close(() => this.#executionStore.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());
     await close(() => this.sandboxes.close());
@@ -1242,6 +1408,7 @@ export class Engine {
       await this.providers?.dispose();
     });
     await close(() => this.agents.close());
+    await close(() => this.#usageStore.close());
     if (errors.length > 0) {
       throw new AggregateError(errors, "Failed to dispose the engine");
     }

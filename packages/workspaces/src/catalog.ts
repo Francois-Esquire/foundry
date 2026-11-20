@@ -7,16 +7,11 @@ import type {
   WorkspaceChange,
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceEvent,
   WorkspaceId,
   WorkspaceRegistration,
 } from "./types";
 
-/**
- * `workspace-exists` names the Workspace already registered for this source —
- * matched on the canonical root first, then on a non-null source reference.
- * One source cannot have two competing catalogs, so both spellings of
- * "already taken" resolve to the incumbent rather than failing.
- */
 export type CommitCreateResult =
   | { readonly kind: "committed" }
   | { readonly kind: "workspace-exists"; readonly existingId: WorkspaceId };
@@ -32,23 +27,11 @@ export type RemoveWorkspaceResult =
 
 export interface CatalogChangeInput {
   readonly change: WorkspaceCatalogChange;
-  /** Set only by a complete source observation. */
   readonly lastReconciledAt?: Date;
-  /** Set only when the change touches the catalog. */
   readonly updatedAt?: Date;
   readonly workspaceId: WorkspaceId;
 }
 
-/**
- * Every rule over the Workspaces a store holds, and the one place catalog
- * changes are published.
- *
- * One Workspace per canonical root and per source reference; entries belong
- * to their Workspace; every change leaves a valid tree and lands whole or not
- * at all. Mutations run one at a time, so a rule checked against what the
- * store holds still holds when the write lands. In-process only: a second
- * catalog over the same store can still interleave.
- */
 export class WorkspaceCatalog {
   private readonly store: WorkspaceStore;
   private readonly publish: (changes: readonly WorkspaceChange[]) => void;
@@ -98,11 +81,16 @@ export class WorkspaceCatalog {
     readonly workspace: WorkspaceRegistration;
     readonly entries: readonly WorkspaceEntry[];
   }): Promise<CommitCreateResult> {
-    return this.exclusive(async () => {
+    const eventId = crypto.randomUUID();
+    return this.mutation<CommitCreateResult>(async (store) => {
       const { workspace, entries } = input;
-      const incumbent = await this.claimant(workspace);
+      const incumbent =
+        (await store.getWorkspace(workspace.id)) ??
+        (await claimant(store, workspace));
       if (incumbent) {
-        return { existingId: incumbent.id, kind: "workspace-exists" };
+        return {
+          result: { existingId: incumbent.id, kind: "workspace-exists" },
+        };
       }
       const foreign = entries.find(
         (entry) => entry.workspaceId !== workspace.id
@@ -113,66 +101,92 @@ export class WorkspaceCatalog {
         );
       }
       storageTree(entries);
-      await this.store.commit({ putEntries: entries, workspace });
-      this.publish(entries.map((entry) => ({ action: "add", entry })));
-      return { kind: "committed" };
+      await store.commit({
+        events: [
+          {
+            at: workspace.createdAt.toISOString(),
+            id: eventId,
+            type: "workspace.created",
+            workspaceId: workspace.id,
+          },
+        ],
+        putEntries: entries,
+        workspace,
+      });
+      return {
+        changes: entries.map((entry) => ({ action: "add", entry })),
+        result: { kind: "committed" },
+      };
     });
   }
 
-  /**
-   * Applies one change against the catalog as it stands, or refuses it whole.
-   * The change must describe current rows: a delete or update of a row this
-   * Workspace does not hold, or an insert over an existing id, is a conflict.
-   */
   applyChange(input: CatalogChangeInput): Promise<CommitChangeResult> {
-    return this.exclusive(async () => {
-      const workspace = await this.store.getWorkspace(input.workspaceId);
+    const eventId = crypto.randomUUID();
+    return this.mutation<CommitChangeResult>(async (store) => {
+      const workspace = await store.getWorkspace(input.workspaceId);
       if (!workspace) {
-        return { kind: "workspace-not-found" };
+        return { result: { kind: "workspace-not-found" } };
       }
-      const current = await this.store.listEntries(workspace.id);
+      const current = await store.listEntries(workspace.id);
       const next = nextCatalog(workspace.id, current, input.change);
       if (typeof next === "string") {
-        return { kind: "conflict", reason: next };
+        return { result: { kind: "conflict", reason: next } };
       }
       try {
         storageTree(next.values());
       } catch (error) {
-        return { kind: "conflict", reason: String(error) };
+        return { result: { kind: "conflict", reason: String(error) } };
       }
 
-      const { change } = input;
-      await this.store.commit({
-        deleteEntries: change.deleted.map((entry) => entry.id),
-        putEntries: [...change.updated, ...change.inserted],
-        workspace: {
-          ...workspace,
-          ...(input.updatedAt === undefined
-            ? {}
-            : { updatedAt: input.updatedAt }),
-          ...(input.lastReconciledAt === undefined
-            ? {}
-            : {
-                lastReconciledAt: nextWorkspaceObservation(
-                  workspace.lastReconciledAt,
-                  input.lastReconciledAt
-                ),
-              }),
-        },
+      const effect = effectOf(current, next, input.change);
+      const touched =
+        effect.deleted.length + effect.updated.length + effect.inserted.length >
+        0;
+      const saved: WorkspaceRegistration = {
+        ...workspace,
+        ...(input.updatedAt === undefined || !touched
+          ? {}
+          : { updatedAt: input.updatedAt }),
+        ...(input.lastReconciledAt === undefined
+          ? {}
+          : {
+              lastReconciledAt: nextWorkspaceObservation(
+                workspace.lastReconciledAt,
+                input.lastReconciledAt
+              ),
+            }),
+      };
+      const changed = touched
+        ? entriesChanged(
+            eventId,
+            workspace.id,
+            input.updatedAt ?? new Date(),
+            effect
+          )
+        : undefined;
+      await store.commit({
+        deleteEntries: effect.deleted.map((entry) => entry.id),
+        ...(changed === undefined ? {} : { events: [changed] }),
+        putEntries: [...effect.updated, ...effect.inserted],
+        workspace: saved,
       });
-      const byId = new Map(current.map((entry) => [entry.id, entry]));
-      this.publish([
-        ...change.deleted.map((entry) => ({
-          action: "delete" as const,
-          entry: byId.get(entry.id) ?? entry,
-        })),
-        ...change.updated.map((entry) => ({
-          action: "change" as const,
-          entry,
-        })),
-        ...change.inserted.map((entry) => ({ action: "add" as const, entry })),
-      ]);
-      return { kind: "committed" };
+      return {
+        changes: [
+          ...effect.deleted.map((entry) => ({
+            action: "delete" as const,
+            entry,
+          })),
+          ...effect.updated.map((entry) => ({
+            action: "change" as const,
+            entry,
+          })),
+          ...effect.inserted.map((entry) => ({
+            action: "add" as const,
+            entry,
+          })),
+        ],
+        result: { kind: "committed" },
+      };
     });
   }
 
@@ -181,46 +195,75 @@ export class WorkspaceCatalog {
     name: string,
     updatedAt: Date
   ): Promise<WorkspaceRegistration | null> {
-    return this.exclusive(async () => {
-      const workspace = await this.store.getWorkspace(workspaceId);
+    const eventId = crypto.randomUUID();
+    return this.mutation<WorkspaceRegistration | null>(async (store) => {
+      const workspace = await store.getWorkspace(workspaceId);
       if (!workspace || workspace.name === name) {
-        return workspace;
+        return { result: workspace };
       }
       const renamed = { ...workspace, name, updatedAt };
-      await this.store.commit({ workspace: renamed });
-      return renamed;
+      await store.commit({
+        events: [
+          {
+            at: updatedAt.toISOString(),
+            id: eventId,
+            type: "workspace.updated",
+            workspaceId,
+          },
+        ],
+        workspace: renamed,
+      });
+      return { result: renamed };
     });
   }
 
-  /** Forgets one Workspace and its catalog; the source is never touched. */
   remove(workspaceId: WorkspaceId): Promise<RemoveWorkspaceResult> {
-    return this.exclusive(async () => {
-      if (!(await this.store.getWorkspace(workspaceId))) {
-        return { kind: "not-found" };
+    const eventId = crypto.randomUUID();
+    return this.mutation<RemoveWorkspaceResult>(async (store) => {
+      if (!(await store.getWorkspace(workspaceId))) {
+        return { result: { kind: "not-found" } };
       }
-      const entries = await this.store.listEntries(workspaceId);
-      await this.store.removeWorkspace(workspaceId);
-      this.publish(entries.map((entry) => ({ action: "delete", entry })));
-      return { kind: "removed" };
+      const entries = await store.listEntries(workspaceId);
+      await store.commit({
+        events: [
+          {
+            at: new Date().toISOString(),
+            id: eventId,
+            type: "workspace.removed",
+            workspaceId,
+          },
+        ],
+        removeWorkspace: workspaceId,
+      });
+      return {
+        changes: entries.map((entry) => ({ action: "delete", entry })),
+        result: { kind: "removed" },
+      };
     });
   }
 
-  /**
-   * Root first, then source reference — not one pass testing both. A
-   * candidate can collide with one incumbent on its root and another on its
-   * reference, and the root's owner is the answer either way.
-   */
-  private async claimant(
-    workspace: WorkspaceRegistration
-  ): Promise<WorkspaceRegistration | null> {
-    const byPath = await this.store.findWorkspaceByPath(workspace.source.path);
-    if (byPath || workspace.source.sourceId === null) {
-      return byPath;
-    }
-    return this.store.findWorkspaceBySourceId(workspace.source.sourceId);
+  private mutation<T>(
+    work: (store: WorkspaceStore) => Promise<Mutation<T>>
+  ): Promise<T> {
+    return this.serialized(async () => {
+      const { changes, result } = await this.transaction(work);
+      if (changes) {
+        this.publish(changes);
+      }
+      return result;
+    });
   }
 
-  private exclusive<T>(task: () => Promise<T>): Promise<T> {
+  private transaction<T>(
+    work: (store: WorkspaceStore) => Promise<T>
+  ): Promise<T> {
+    const { store } = this;
+    return store.transaction === undefined
+      ? work(store)
+      : store.transaction(work);
+  }
+
+  private serialized<T>(task: () => Promise<T>): Promise<T> {
     const run = this.queue.then(task);
     this.queue = run.then(
       () => undefined,
@@ -228,6 +271,96 @@ export class WorkspaceCatalog {
     );
     return run;
   }
+}
+
+function effectOf(
+  current: readonly WorkspaceEntry[],
+  next: ReadonlyMap<WorkspaceEntryId, WorkspaceEntry>,
+  change: WorkspaceCatalogChange
+): WorkspaceCatalogChange {
+  const stored = new Map(current.map((entry) => [entry.id, entry]));
+  const deleted = new Map<WorkspaceEntryId, WorkspaceEntry>();
+  for (const { id } of change.deleted) {
+    const entry = stored.get(id);
+    if (entry !== undefined && !next.has(id)) {
+      deleted.set(id, entry);
+    }
+  }
+  const updated = new Map<WorkspaceEntryId, WorkspaceEntry>();
+  const inserted = new Map<WorkspaceEntryId, WorkspaceEntry>();
+  for (const { id } of [...change.updated, ...change.inserted]) {
+    const entry = next.get(id);
+    const before = stored.get(id);
+    if (entry === undefined || updated.has(id) || inserted.has(id)) {
+      continue;
+    }
+    if (before === undefined) {
+      inserted.set(id, entry);
+    } else if (!sameEntry(before, entry)) {
+      updated.set(id, entry);
+    }
+  }
+  return {
+    deleted: [...deleted.values()],
+    inserted: [...inserted.values()],
+    updated: [...updated.values()],
+  };
+}
+
+function sameEntry(a: WorkspaceEntry, b: WorkspaceEntry): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) {
+    return false;
+  }
+  return keys.every((key) => {
+    const left: unknown = Reflect.get(a, key);
+    const right: unknown = Reflect.get(b, key);
+    if (left instanceof Date && right instanceof Date) {
+      return left.getTime() === right.getTime();
+    }
+    return Object.hasOwn(b, key) && Object.is(left, right);
+  });
+}
+
+function entriesChanged(
+  id: string,
+  workspaceId: WorkspaceId,
+  at: Date,
+  change: WorkspaceCatalogChange
+): WorkspaceEvent | undefined {
+  const ids = (entries: readonly WorkspaceEntry[]) =>
+    entries.map((entry) => entry.id);
+  const added = ids(change.inserted);
+  const changed = ids(change.updated);
+  const removed = ids(change.deleted);
+  if (added.length + changed.length + removed.length === 0) {
+    return;
+  }
+  return {
+    added,
+    at: at.toISOString(),
+    changed,
+    id,
+    removed,
+    type: "workspace.entries.changed",
+    workspaceId,
+  };
+}
+
+interface Mutation<T> {
+  readonly changes?: readonly WorkspaceChange[];
+  readonly result: T;
+}
+
+async function claimant(
+  store: WorkspaceStore,
+  workspace: WorkspaceRegistration
+): Promise<WorkspaceRegistration | null> {
+  const byPath = await store.findWorkspaceByPath(workspace.source.path);
+  if (byPath || workspace.source.sourceId === null) {
+    return byPath;
+  }
+  return store.findWorkspaceBySourceId(workspace.source.sourceId);
 }
 
 function nextCatalog(

@@ -175,7 +175,6 @@ function facts(overrides: Partial<RecenteringFacts> = {}): RecenteringFacts {
   };
 }
 
-/** Declared in A; behavior, symbols, and references all sit in B. */
 function external(): RecenteringFacts {
   return facts({
     behavior: profile([

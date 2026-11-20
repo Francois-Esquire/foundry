@@ -15,7 +15,7 @@ import type {
   ModuleTransport,
 } from "../gateway/types";
 import { ModuleGatewayError } from "../gateway/types";
-import { InMemoryModuleStore } from "../store/memory";
+import { ModuleRegistry } from "../registry";
 import { moduleFixture } from "./helpers/module-fixture";
 
 const manifest = {
@@ -406,7 +406,7 @@ async function createFixture() {
     manifest,
     module,
   });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry();
   await store.registerModule({ module });
   const installation = createDisabledInstallation({
     id: installationIdSchema.parse("installation-1"),
@@ -458,7 +458,6 @@ async function* events(values: readonly unknown[]): AsyncIterable<unknown> {
 class FrameQueue implements AsyncIterableIterator<unknown> {
   readonly #queued: unknown[] = [];
   #waiting: ((result: IteratorResult<unknown>) => void) | undefined;
-  // Widened so lint sees the flag as mutable; `end()` sets it later.
   #ended = false as boolean;
 
   [Symbol.asyncIterator](): AsyncIterableIterator<unknown> {

@@ -7,7 +7,6 @@ export interface ClassifiedReference {
   space: "type" | "value" | "unknown";
 }
 
-/** Classify a non-import reference node by its semantic role. */
 export function classifyReference(ref: Node): ClassifiedReference {
   const heritage = classifyHeritage(ref);
   if (heritage) {

@@ -1,7 +1,6 @@
 import type { ModuleTransport } from "@foundry/modules/gateway/types";
 import { AsyncIteratorClass, EventPublisher } from "@orpc/server";
 
-/** Bounded JSON transport; the shared Gateway owns protocol validation. */
 export async function connectModuleSocket(input: {
   url: URL;
   signal?: AbortSignal;

@@ -21,33 +21,23 @@ interface CodexWorkspace {
 
 interface CodexPackage {
   analyzed: boolean;
-  /** The `file-roles` lens's modules, bound on entering the island; `undefined` when the dataset holds no internals for the package. */
   fileRoles: Pick<FileRolesPackage, "modules"> | undefined;
-  /** The internal fan-in at which the package's topology calls a module high fan-in; 0 when it has no cutoff, as without internals. */
   highFanInCutoff: number;
   id: string;
   label: string;
-  /** Dependency layer; 0 is the foundation, `null` where the graph could not place the package. */
   layer: number | null;
-  /** Its workspace-relative folder, from the manifest; empty if the manifest does not list it. */
   path: string;
-  /** The `responsibility-groups` lens's groups, drawn on entering the island; `undefined` without internals. */
   responsibilityGroups: PackageResponsibilityGroups | undefined;
-  /** Modules the package holds. */
   size: number;
 }
 
 interface CodexModule {
-  /** Import edges starting here, within and across packages. */
   dependencies: number;
-  /** Import edges ending here, within and across packages. */
   dependents: number;
   directory: string;
   fileKind: FileKind;
-  /** Whether its topology gave it the `high-fan-in` role; never without internals. */
   highFanIn: boolean;
   id: string;
-  /** Source modules of its own package importing it, as its topology saved it; 0 without internals. */
   internalFanIn: number;
   mapPosition?: { x: number; y: number };
   package: string;
@@ -55,13 +45,10 @@ interface CodexModule {
 }
 
 export interface CodexDependency {
-  /** Files of `from` that import a file of `to`, sorted. */
   consumerFiles: readonly string[];
   from: string;
   sharedConcepts: number;
-  /** Module import edges from `from` to `to`. */
   strength: number;
-  /** Files of `to` that a file of `from` imports, sorted. */
   supplierFiles: readonly string[];
   to: string;
 }
@@ -72,64 +59,31 @@ interface CodexDeclaredDependency {
   to: string;
 }
 
-/**
- * One place's use against where it lives, from the `placement` lens: a
- * symbol (`path#name`), file, folder, or package (its root path) that a
- * module of another package uses. Consumer modules are counted, never listed.
- */
 export interface CodexPlacement {
-  /** Consumer modules in each other package, the most first, then by package. */
   away: { modules: number; package: string }[];
-  /** Consumer modules in its own package, outside the place. */
   home: number;
   label: PlacementLabel;
   level: PlacementLevel;
-  /** The package it lives in. */
   package: string;
   place: string;
-  /**
-   * Its dominance share: of its consumer modules, the share the one package
-   * holding the most holds, its own package counted as one of the
-   * packages; for a departing place, `toward`'s. Unindexed consumers are
-   * left out, as the lens leaves them out of its label.
-   */
   share: number;
-  /** The package a departing place departs toward. */
   toward?: string;
-  /** Consumer modules in no package; counted, never labelled. */
   unindexed: number;
 }
 
-/**
- * The `proximity` lens as the map reads it: folders whose files fall into
- * unrelated groups (`close`), files apart from their responsibility's folder
- * and co-changing files in different folders (`apart`), and the packages it
- * covered, whose files are otherwise neither.
- */
 export interface CodexProximity {
   apart: Proximity["apart"];
   close: Proximity["close"];
   labelled: string[];
 }
 
-/** The `nesting` lens as the map reads it: one folder tree, and each package's path regions and the seams between them. */
 export type CodexNesting = Pick<Nesting, "folders" | "pathRegions" | "seams">;
 
-/**
- * The `domains` lens as the map reads it: every declared domain, and the
- * domain label of each placed place in one, keyed as placements are,
- * `level:place`.
- */
 export interface CodexDomains {
   declared: DomainMatch[];
   placements: Record<string, DomainPlacement>;
 }
 
-/**
- * The readings read after the layout, since nothing at overview draws them:
- * the `nesting` and `proximity` lenses, for Place, the hover readout and
- * island zoom.
- */
 export interface LateCodex {
   nesting: CodexNesting;
   proximity: CodexProximity;
@@ -146,16 +100,12 @@ export interface Codex {
   dependencies: CodexDependency[];
   domains: CodexDomains;
   modules: CodexModule[];
-  /** Sorted by id. */
   packages: CodexPackage[];
-  /** The `placement` lens's places, as the lens sorts them, and the packages it labelled, whose other places no other package uses. */
   placement: {
-    /** The share of a place's consumer modules at which one package holds its use. */
     dominantShare: number;
     labelled: string[];
     places: CodexPlacement[];
   };
-  /** Absent when no history was recorded; sorted by id. */
   retiredPackages?: CodexRetiredPackage[];
   workspace: CodexWorkspace;
 }

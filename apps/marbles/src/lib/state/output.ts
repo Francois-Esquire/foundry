@@ -6,11 +6,16 @@ import {
   openSync,
   readdirSync,
   readSync,
+  rmSync,
 } from "node:fs";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { setTimeout } from "node:timers/promises";
-import { processAlive } from "@foundry/lib/file-lock";
+import {
+  isGone,
+  type ProcessIdentity,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import { z } from "zod";
 import { formatLogValues } from "~/lib/log";
 
@@ -22,6 +27,7 @@ const outputRecordSchema = z.discriminatedUnion("type", [
     name: z.string(),
     pid: z.number().int().positive(),
     runId: z.string(),
+    started: z.string().nullable().optional(),
     type: z.literal("start"),
   }),
   z.object({ text: z.string(), type: z.literal("text") }),
@@ -35,7 +41,10 @@ const outputRecordSchema = z.discriminatedUnion("type", [
 
 export type OutputRecord = z.infer<typeof outputRecordSchema>;
 
-/** Append-only output for a read-only watcher in another process. */
+export function removeRunOutput(state: string, runId: string): void {
+  rmSync(outputPath(state, runId), { force: true });
+}
+
 export class RunOutput {
   readonly #path: string | undefined;
   readonly #warn: (line: string) => void;
@@ -54,7 +63,8 @@ export class RunOutput {
     this.#path = outputPath(state, runId);
     try {
       mkdirSync(join(state, "output"), { recursive: true });
-      this.#append({ name, pid: process.pid, runId, type: "start" });
+      const { pid, started } = thisProcess();
+      this.#append({ name, pid, runId, started, type: "start" });
     } catch (error) {
       this.#failure(error);
     }
@@ -122,7 +132,6 @@ function outputPath(workspaceState: string, runId: string): string {
 }
 
 function findOutput(state: string, runId: string): string {
-  // Validate even when the state root does not exist.
   outputPath(state, runId);
   const paths = existsSync(state)
     ? readdirSync(state, { withFileTypes: true })
@@ -144,7 +153,7 @@ function findOutput(state: string, runId: string): string {
 class OutputReader {
   readonly #runId: string;
   #pending = "";
-  #owner: number | undefined;
+  #owner: ProcessIdentity | undefined;
 
   constructor(runId: string) {
     this.#runId = runId;
@@ -162,7 +171,7 @@ class OutputReader {
         if (record.runId !== this.#runId) {
           throw new RunOutputError("run output belongs to a different run");
         }
-        this.#owner = record.pid;
+        this.#owner = { pid: record.pid, started: record.started ?? null };
       }
       yield record;
       end = this.#pending.indexOf("\n");
@@ -170,11 +179,10 @@ class OutputReader {
   }
 
   ownerAlive(): boolean {
-    return this.#owner === undefined || processAlive(this.#owner);
+    return this.#owner === undefined || !isGone(this.#owner);
   }
 }
 
-/** Replay the journal and follow appended records until its finalized end. */
 export async function* readRunOutput(
   state: string,
   runId: string,
@@ -208,7 +216,6 @@ export async function* readRunOutput(
           `run "${runId}" lost its owner before recording completion`
         );
       }
-      // Re-read after observing exit: the owner may have appended end after EOF.
       ownerExited = !reader.ownerAlive();
       if (!ownerExited) {
         await setTimeout(100, undefined, { signal });

@@ -1,5 +1,4 @@
 import type { Page } from "@foundry/core/pagination";
-import { Schema } from "effect";
 
 import type { SuspensionState } from "./channels";
 import {
@@ -7,14 +6,14 @@ import {
   SuspensionNotFoundError,
 } from "./errors";
 import type {
-  JsonValue,
-  OrchestratorStore,
   SuspensionCancellation,
   SuspensionQuery,
-  SuspensionRecord,
   UpdateRunInput,
-} from "./store";
-import { JsonValueSchema } from "./store";
+} from "./execution-commands";
+import type { OrchestratorStore } from "./execution-coordinator";
+import type { JsonValue } from "./json-value";
+import { isJsonValue } from "./json-value";
+import type { SuspensionRecord } from "./schema";
 
 export interface ResolveSuspensionOptions {
   readonly expectedRevision?: number;
@@ -33,7 +32,6 @@ interface SuspensionLifecycleOptions {
   ) => Promise<T>;
 }
 
-/** Store-authoritative coordination for stable Suspension occurrences. */
 export class SuspensionLifecycle {
   readonly #store: OrchestratorStore;
   readonly #publish: (record: SuspensionRecord) => Promise<void>;
@@ -103,12 +101,9 @@ export class SuspensionLifecycle {
         expectedRevision: options.expectedRevision ?? current.revision,
         outcome: { resolution, status: "resolved" },
       });
-      try {
-        await this.#publish(settlement.suspension);
-      } catch {
-        // Observation is subordinate to durable control state. The injected
-        // publisher records its own failure; replay must still be attempted.
-      }
+      await (async () => this.#publish(settlement.suspension))().catch(
+        () => undefined
+      );
       await this.#resume(settlement.suspension, resolution);
       return settlement.suspension;
     });
@@ -144,7 +139,7 @@ function assertJsonValue(
   value: unknown,
   label: string
 ): asserts value is JsonValue {
-  if (!Schema.is(JsonValueSchema)(value)) {
+  if (!isJsonValue(value)) {
     throw new Error(`${label} must be a finite, acyclic JSON value`);
   }
 }

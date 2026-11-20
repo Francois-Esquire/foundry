@@ -5,11 +5,8 @@ import { credits, type ReportedLimit, window } from "../../limit";
 import type { Reading } from "../../snapshot";
 import { dateFrom, finite, record, text, within } from "../values";
 
-/** What only OpenAI reports about a Codex login's limits. */
 export interface OpenAIDetails {
-  /** What stopped the account, such as `rate_limit_reached`. */
   readonly limitReached?: string;
-  /** Credits that reset a window early: how many, and when the next expires. */
   readonly resetCredits?: {
     readonly available: number;
     readonly nextExpiresAt?: Date;
@@ -46,7 +43,6 @@ const WEEK_MINS = 10_080;
 const MONTH_MINS = 43_200;
 const NO_METHOD = -32_601;
 
-/** A JSON-RPC client over the app server's stdio, one JSON message per line. */
 const connect = (child: CodexProcess) => {
   const pending = new Map<
     number,
@@ -74,7 +70,6 @@ const connect = (child: CodexProcess) => {
       return fail(new Error("Codex app-server wrote invalid JSON."));
     }
     if (typeof message.method === "string") {
-      // A request from the server is refused, so it never waits on this client.
       if (message.id !== undefined) {
         write({
           error: { code: NO_METHOD, message: "Unsupported" },
@@ -123,12 +118,6 @@ const connect = (child: CodexProcess) => {
   };
 };
 
-/**
- * One reading of a Codex login: a short-lived `codex app-server`, the
- * `initialize` handshake, then `account/read` and `account/rateLimits/read`.
- * No turn runs. The server is killed on every path. Throws when it does not
- * answer in time, is signed out, or reports no limits.
- */
 export const readCodexLimits = async (options: {
   readonly cwd: string;
   readonly env: Record<string, string>;
@@ -171,7 +160,6 @@ export const readCodexLimits = async (options: {
   }
 };
 
-/** An API key or Bedrock has no plan limits; a signed-out CLI has no account, so no limits. */
 const refusal = (response: unknown): Reading | undefined => {
   const { account } = record(response);
   if (account === null || account === undefined) {
@@ -204,11 +192,6 @@ const windowOf = (
     : window.custom({ ...fields, duration: mins * MINUTE });
 };
 
-/**
- * `primary` and `secondary` are positions, not spans: on Pro the primary is
- * the weekly window and the secondary is null. The reported duration names
- * the window; the fallbacks apply only when none is reported.
- */
 const windowsOf = (
   snapshot: Record<string, unknown>,
   plan: string | undefined
@@ -263,12 +246,6 @@ const resetCreditsOf = (value: unknown): OpenAIDetails["resetCredits"] => {
   };
 };
 
-/**
- * A signed-in reading from the two responses as the app server sends them.
- * The `codex` entry of `rateLimitsByLimitId` wins over the legacy
- * `rateLimits`; a snapshot for another limit id has no main windows. Throws
- * when there are no limits at all.
- */
 export const codexReading = (
   accountValue: unknown,
   rateLimitsValue: unknown

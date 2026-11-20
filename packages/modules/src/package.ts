@@ -22,6 +22,7 @@ import {
 import { canonicalizeJson } from "@foundry/lib/json";
 import { z } from "zod";
 import { MODULE_MIME } from "./constants";
+import { assertOwnsArtifactCommit } from "./cross-store";
 import type { Module, ModuleId, ModuleVersion } from "./domain";
 import {
   defineModule,
@@ -29,23 +30,16 @@ import {
   moduleIdSchema,
   parseModuleVersionContent,
 } from "./domain";
+import { ModuleStoreConflictError } from "./errors";
 import type { ModuleManifest } from "./manifest";
 import { parseModuleManifestSourceText } from "./manifest";
-import type { ModuleStore } from "./store/contract";
+import type { ModuleRegistryUnit } from "./registry";
 import { MODULE_CONTENT_MANIFEST_PATH } from "./version";
 
 const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
 const MAX_TREE_ENTRIES = 4096;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
-/**
- * Every path is ingested and later written out on its own, even when several
- * share one blob, so the claimed sizes of all paths are bounded together.
- * The separate package limit bounds the encoded input.
- */
 const MAX_EXPANDED_BYTES = MAX_PACKAGE_BYTES;
-/**
- * Bounds the work of checking each path and its parents.
- */
 const MAX_TREE_PATH_LENGTH = 1024;
 
 export class ModulePackageError extends Error {
@@ -55,11 +49,6 @@ export class ModulePackageError extends Error {
   }
 }
 
-/**
- * A module version as one portable file: the frozen Content's tree, every
- * blob it names (base64 by digest), and the manifest. Format 3 carries structural
- * entries. Format 2 file-only packages still import; format 1 requires re-export.
- */
 export interface ModulePackageEnvelope {
   readonly artifact: {
     readonly id: string;
@@ -71,10 +60,8 @@ export interface ModulePackageEnvelope {
     readonly createdAt: string;
     readonly digest: string;
     readonly tree: StorageTree;
-    /** blob digest → base64 bytes, one entry per distinct digest in `tree` */
     readonly blobs: Readonly<Record<string, string>>;
     readonly manifest: ModuleManifest;
-    /** Tamper evidence for the manifest; the tree is bound by `digest`. */
     readonly manifestDigest: string;
   };
   readonly format: "foundry.module/3";
@@ -91,7 +78,6 @@ export async function encodeModulePackage(input: {
     Content,
     "id" | "artifactId" | "state" | "tag" | "digest" | "tree" | "createdAt"
   >;
-  /** bytes for every path in the tree */
   readonly files: Readonly<Record<string, Uint8Array>>;
 }): Promise<string> {
   if (input.artifact.id !== input.version.artifactId) {
@@ -166,7 +152,6 @@ export async function encodeModulePackage(input: {
   return encoded;
 }
 
-/** Import owns the single Artifact transaction; its body uses the handle. */
 export type ModulePackageArtifacts = Pick<Artifacts, "transaction">;
 
 type ModulePackageOperations = Pick<
@@ -180,50 +165,53 @@ type ModulePackageOperations = Pick<
   | "getContent"
 >;
 
-/**
- * Import a package: the Artifact is created if absent, the version becomes a
- * frozen Content tagged with the package's SemVer, and the Module is
- * registered. An output-only package has no embedded manifest source, so its
- * envelope manifest is retained; a package whose embedded source disagrees
- * with its envelope is refused. Importing the same version twice is a no-op.
- */
 export async function importModulePackage(input: {
   readonly artifacts: ModulePackageArtifacts;
-  readonly modules: Pick<
-    ModuleStore,
-    "transaction" | "registerModule" | "retainManifest"
+  readonly modules: ModuleRegistryUnit<
+    "loadModule" | "registerModule" | "retainManifest"
   >;
   readonly encoded: string;
 }): Promise<ModuleVersion> {
   const validated = await validateModulePackageEnvelope(input.encoded);
-  return input.artifacts.transaction(async (artifacts) =>
-    input.modules.transaction(async () => {
+  const artifact = { id: validated.artifact.id, type: MODULE_MIME };
+  const module = defineModule({ artifact, id: validated.module.id });
+  await assertOwnsArtifactCommit(input.artifacts, "Module Package import");
+  return await input.modules.transaction(async (modules) => {
+    const version = await input.artifacts.transaction(async (artifacts) => {
+      if ((await artifacts.get(artifact.id)) === null) {
+        const registered = await modules.loadModule(module.id);
+        if (registered !== null) {
+          throw new ModuleStoreConflictError(
+            `Module ${module.id} already belongs to another Artifact`
+          );
+        }
+      } else {
+        await modules.registerModule({ module });
+      }
       const content = await landContent(artifacts, validated);
       if (content.digest !== validated.content.digest) {
         throw new ModulePackageError(
           "Module Package Content digest mismatch after import"
         );
       }
-      const artifact = { id: validated.artifact.id, type: MODULE_MIME };
-      const module = defineModule({ artifact, id: validated.module.id });
-      const version = defineModuleVersion({
+      return defineModuleVersion({
         artifact,
         content,
         manifest: validated.content.manifest,
         module,
       });
-      if (validated.content.embedsManifest) {
-        await input.modules.registerModule({ module });
-      } else {
-        await input.modules.retainManifest({
-          contentId: version.contentId,
-          manifest: version.manifest,
-          module,
-        });
-      }
-      return version;
-    })
-  );
+    });
+    if (validated.content.embedsManifest) {
+      await modules.registerModule({ module });
+    } else {
+      await modules.retainManifest({
+        contentId: version.contentId,
+        manifest: version.manifest,
+        module,
+      });
+    }
+    return version;
+  });
 }
 
 async function landContent(
@@ -287,7 +275,6 @@ interface ValidatedModulePackage {
     readonly tree: StorageTree;
     readonly entries: EntryInputs;
     readonly manifest: ModuleManifest;
-    /** Whether the tree carries manifest source agreeing with `manifest`. */
     readonly embedsManifest: boolean;
   };
   readonly module: { readonly id: ModuleId };
@@ -435,7 +422,6 @@ function parseEnvelope(encoded: string): ParsedModulePackageEnvelope {
   return result.data;
 }
 
-/** Every tree entry's bytes, verified against its digest, as write inputs. */
 async function decodeEntries(
   tree: StorageTree,
   blobs: Readonly<Record<string, string>>
@@ -536,11 +522,6 @@ function assertTreeBounds(tree: StorageTree): void {
   }
 }
 
-/**
- * Bounds a file-only tree before its implied directories are built. The walk
- * stops at the first parent already known, so each new directory costs one
- * path, and it ends as soon as the entry limit is passed.
- */
 function assertParentExpansionBounds(tree: StorageTree): void {
   const paths = Object.keys(tree);
   if (paths.length > MAX_TREE_ENTRIES) {

@@ -1,4 +1,3 @@
-/** Settle with `pending`, or reject with the signal's reason once it aborts. */
 export async function raceAbort<T>(
   pending: Promise<T>,
   signal: AbortSignal

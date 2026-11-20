@@ -1,12 +1,12 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/session";
+import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { ModelManager } from "@foundry/models";
 import { gatewayProvider } from "@foundry/models/gateway";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { expect, it } from "vitest";
 import { AgentsManager } from "~/lib/managers/agents";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
@@ -32,7 +32,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       allowedMountRoots: [root],
       instanceLabel: "marbles-harness-test",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const store = new InMemorySessionStore();
     const provider = harness === "builtin" ? "gateway" : harness;
@@ -47,7 +47,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
           ? [
               gatewayProvider({
                 config: { apiKey, baseURL: "https://ai-gateway.vercel.sh/v1" },
-                // The model this test names; the gateway supplies none of its own.
                 models: [
                   {
                     id: "openai/gpt-5-mini",
@@ -105,11 +104,11 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         activities: host.activities,
         automations: host.automations,
         containerOf: (handle) => sandboxes.containerOf(handle),
+        cwd: root,
         defaultExecutor: () => ({ harness, model: modelId, provider }),
         dry: false,
         interactions: host.interactions,
         models,
-        root,
         sessions: store,
         skills: async () => [],
         warn: () => undefined,

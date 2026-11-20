@@ -23,7 +23,6 @@ interface PackageOptions {
   symbols: PlacementSourcePackage["symbols"];
 }
 
-/** A package at `root`; files and directories are package-relative, symbols root-relative. */
 function pkg(
   id: string,
   root: string,
@@ -81,7 +80,6 @@ const SHAPES = pkg("@s/b", "packages/b", {
     {
       consumerModuleUsage: [
         ...usedBy("apps/a/src/index.ts"),
-        // A barrel in another package only forwards it.
         { module: "tooling/c/src/index.ts", references: 0 },
       ],
       declarationFile: "packages/b/src/shape.ts",
@@ -119,7 +117,6 @@ describe("the placement lens", () => {
         {
           counts: {
             file: { ...NONE, spread: 1, unconsumed: 1 },
-            // `src` is a technical root, so the package has no folder places.
             folder: NONE,
             package: { ...NONE, spread: 1 },
             symbol: { ...NONE, departs: 2, spread: 1 },
@@ -178,7 +175,6 @@ describe("the placement lens", () => {
           unindexed: 0,
         },
         {
-          // With the test file counted, this would be a 1:1 split.
           away: [{ modules: ["tooling/c/src/index.ts"], package: "@s/c" }],
           home: { modules: [] },
           label: "departs",
@@ -240,7 +236,6 @@ describe("the placement lens", () => {
 
   it("names the one package consuming a package as where it departs toward, beside its own report's signals", () => {
     const lib = pkg("@s/lib", "packages/lib", {
-      // Heavy use at home never counts for the package itself.
       consumed: { "packages/lib/src/a.ts#a": ["src/b.ts"] },
       files: ["src/a.ts", "src/b.ts"],
       primaryConsumer: {
@@ -307,7 +302,6 @@ describe("the placement lens", () => {
             id: "packages/b/src/shape.ts#area",
           },
           {
-            // A failed package's file and a root script: unindexed only.
             consumerModuleUsage: usedBy(
               "packages/failed/src/x.ts",
               "scripts/build.ts"
@@ -440,8 +434,6 @@ describe("the placement lens", () => {
   });
 
   it("sorts places by place, then level, then package, whatever the order of its inputs", () => {
-    // A package nested in another's folder: the folder and the package root
-    // are one place at two levels.
     const outer = pkg("@s/o", "packages/o", {
       consumed: {
         "packages/o/src/a.ts#a": ["src/b.ts", "src/c.ts"],
@@ -533,7 +525,6 @@ describe("the placement lens", () => {
           {
             consumerModules: 1,
             consumers: [
-              // A type-only import is a home consumer like any other.
               {
                 bindingOccurrences: 1,
                 importSites: 1,

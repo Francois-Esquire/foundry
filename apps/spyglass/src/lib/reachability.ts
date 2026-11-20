@@ -1,7 +1,3 @@
-// Memoized reachability over one directed adjacency, shared by change
-// coupling (file and package static paths). Each node's reachable set is
-// computed once, so answering for every pair costs one traversal per node.
-
 export function adjacency(
   edges: Iterable<[string, string]>
 ): Map<string, Set<string>> {
@@ -25,7 +21,6 @@ export class Reachability {
     this.out = out;
   }
 
-  /** True when a path exists from a to b or from b to a. */
   connected(a: string, b: string): boolean {
     return this.reachable(a).has(b) || this.reachable(b).has(a);
   }

@@ -9,10 +9,6 @@ on:
 permissions:
   contents: read
 
-# A pull request keeps only its newest run. Every commit on main keeps its own
-# run, because that run's archives are the ones a release of it attaches.
-# Manual recoveries have their own group so queued runs cannot replace each other.
-# Dispatch this workflow at a release tag to regenerate expired archives.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.event_name == 'push' && github.sha || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -21,7 +17,6 @@ env:
   HUSKY: "0"
   TURBO_TELEMETRY_DISABLED: "1"
 
-# Verify, the check branch protection requires, passes only when all of them do.
 jobs:
   validate:
     name: Validate
@@ -41,9 +36,6 @@ jobs:
         with:
           turbo-cache: validate
 
-  # Spyglass's suites scan fixture workspaces with TypeScript workers of their
-  # own, so they get runners to themselves instead of starving the others:
-  # its `test` task in three Vitest shards.
   test-spyglass:
     name: Test Spyglass (${{ matrix.shard }} of 3)
     runs-on: ubuntu-latest
@@ -103,8 +95,6 @@ jobs:
         with:
           turbo-cache: test
 
-  # The archives a release attaches are built here from source alone: this
-  # job restores no Turbo cache, so no cached output can reach them.
   release:
     name: Release archives
     runs-on: ubuntu-latest
@@ -122,7 +112,6 @@ jobs:
         run: bun run build
       - name: Test the packaged extension
         run: bun run --cwd tooling/vscode-extension test
-      # Upload the tested VSIX before any later step can touch dist/.
       - name: Keep the extension built at this commit
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -164,7 +153,6 @@ jobs:
         with:
           turbo-cache: docs
       - name: Check documentation
-        # Validate's workspace typecheck already includes documentation.
         run: bun run docs:check
       - name: Build documentation
         run: bun run docs:build
@@ -176,8 +164,6 @@ jobs:
   verify:
     name: Verify
     needs: [validate, test-spyglass, test, release, docs]
-    # Runs when a job it needs fails, so a failure fails this check
-    # instead of skipping it, which branch protection would accept.
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

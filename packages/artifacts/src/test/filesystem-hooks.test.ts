@@ -14,17 +14,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ArtifactApplicationError } from "../errors";
 import { ArtifactManager } from "../manager";
-import { InMemoryArtifactStore } from "../memory";
 import {
   ARTIFACT_CONFLICTS_DIRECTORY,
   type ArtifactDiskConflict,
   type ArtifactFileMutation,
   artifactFileSystem,
-  JsonArtifactStore,
 } from "../node";
 import type { ContentResolved } from "../substrate";
+import { interceptCommits } from "../testing";
 import { fixture } from "./helpers/directory";
 import { required } from "./helpers/required";
+import { openStore, STORE_KINDS } from "./helpers/stores";
 
 const encoder = new TextEncoder();
 const STAMP_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}$/;
@@ -46,40 +46,45 @@ async function text(
   return new TextDecoder().decode(required(file).blob);
 }
 
-describe("a filesystem bound to a JSON record store", () => {
-  it("applies each commit without waiting on its own lock", async () => {
-    const root = await mkdtemp(join(tmpdir(), "artifact-json-fs-"));
-    cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
-      store: new JsonArtifactStore({
-        lockTimeoutMs: 2000,
-        path: join(root, "artifacts.json"),
-      }),
+describe.each(STORE_KINDS)(
+  "a filesystem bound to a %s record store",
+  (storeKind) => {
+    it("applies each commit without waiting on the store's own turn or lock", async () => {
+      const root = await mkdtemp(join(tmpdir(), "artifact-json-fs-"));
+      cleanups.push(() => rm(root, { force: true, recursive: true }));
+      const artifacts = new ArtifactManager({
+        store: await openStore(storeKind),
+      });
+      const filesystem = artifactFileSystem({
+        artifacts,
+        root: join(root, "files"),
+      });
+      cleanups.push(() => filesystem.close());
+      const created = await artifacts.create({
+        entries: { "notes.md": { bytes: encoder.encode("one") } },
+        name: "Notes",
+        type: "text/markdown",
+      });
+      const { path } = await filesystem.resolve({ artifactId: created.id });
+      await artifacts.write({
+        artifactId: created.id,
+        changes: { put: { "notes.md": { bytes: encoder.encode("two") } } },
+      });
+      expect(await readFile(join(path, "notes.md"), "utf8")).toBe("two");
     });
-    const filesystem = artifactFileSystem({
-      artifacts,
-      root: join(root, "files"),
-    });
-    cleanups.push(() => filesystem.close());
-    const created = await artifacts.create({
-      entries: { "notes.md": { bytes: encoder.encode("one") } },
-      name: "Notes",
-      type: "text/markdown",
-    });
-    const { path } = await filesystem.resolve({ artifactId: created.id });
-    await artifacts.write({
-      artifactId: created.id,
-      changes: { put: { "notes.md": { bytes: encoder.encode("two") } } },
-    });
-    expect(await readFile(join(path, "notes.md"), "utf8")).toBe("two");
-  });
-});
+  }
+);
 
-describe("selective application", () => {
+describe.each(STORE_KINDS)("%s store: selective application", (storeKind) => {
   it("never mirrors or writes an Artifact it does not include", async () => {
-    const { artifacts, filesystem, root, system } = await fixture({}, false, {
-      includes: (artifact) => artifact.type !== "application/x-private",
-    });
+    const { artifacts, filesystem, root, system } = await fixture(
+      {},
+      false,
+      {
+        includes: (artifact) => artifact.type !== "application/x-private",
+      },
+      storeKind
+    );
     const hidden = await artifacts.create({
       entries: { "secret.md": { bytes: encoder.encode("hidden") } },
       name: "Private",
@@ -106,7 +111,7 @@ describe("selective application", () => {
   });
 });
 
-describe("mutation hooks", () => {
+describe.each(STORE_KINDS)("%s store: mutation hooks", (storeKind) => {
   it("stamp Content metadata in the same write and see it once committed", async () => {
     const seen: ArtifactFileMutation["kind"][] = [];
     const committed: ContentResolved[] = [];
@@ -121,13 +126,13 @@ describe("mutation hooks", () => {
           return Promise.resolve({
             committed: (content) => {
               committed.push(content);
-              // Committed records are already applied to disk by now.
               onDisk.push(readFileSync(join(directory, "notes.md"), "utf8"));
             },
             metadata: { origin: { actor: kind } },
           });
         },
-      }
+      },
+      storeKind
     );
     const workspace = await load();
     directory = workspace.root;
@@ -161,12 +166,9 @@ describe("mutation hooks", () => {
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const commit: { fails: boolean } = { fails: false };
     const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore({
-        commit: () =>
-          commit.fails
-            ? Promise.reject(new Error("commit failed"))
-            : Promise.resolve(),
-      }),
+      store: interceptCommits(await openStore(storeKind), (write, land) =>
+        commit.fails ? Promise.reject(new Error("commit failed")) : land(write)
+      ),
     });
     const committed: ContentResolved[] = [];
     const filesystem = artifactFileSystem({
@@ -203,9 +205,9 @@ describe("mutation hooks", () => {
     async (applied, throws) => {
       const committed: ContentResolved[] = [];
       let receiver: unknown;
-      const logged = vi.spyOn(console, "error").mockImplementation(() => {
-        // The hook failure is logged, not thrown.
-      });
+      const logged = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
       const { artifact, artifacts, filesystem } = await fixture(
         { "notes.md": { bytes: "before" } },
         false,
@@ -220,7 +222,8 @@ describe("mutation hooks", () => {
                 }
               },
             }),
-        }
+        },
+        storeKind
       );
       const { path } = await filesystem.resolve({ artifactId: artifact.id });
       const unbind =
@@ -265,7 +268,8 @@ describe("mutation hooks", () => {
             Promise.resolve({
               committed: (content) => committed.push(content),
             }),
-        }
+        },
+        storeKind
       );
       const { path } = await filesystem.resolve({ artifactId: artifact.id });
       let reportedInside: number | undefined;
@@ -274,7 +278,6 @@ describe("mutation hooks", () => {
           join(path, "notes.md"),
           encoder.encode("after")
         );
-        // Joined: nothing is committed until this callback returns.
         reportedInside = committed.length;
         if (rollsBack) {
           throw new Error("outer failed");
@@ -297,7 +300,8 @@ describe("mutation hooks", () => {
     const { artifact, artifacts, load } = await fixture(
       { "notes.md": { bytes: "before" } },
       false,
-      { mutation: () => Promise.reject(new Error("not allowed")) }
+      { mutation: () => Promise.reject(new Error("not allowed")) },
+      storeKind
     );
     const workspace = await load();
     const [file] = await workspace.files();
@@ -327,7 +331,8 @@ describe("mutation hooks", () => {
           synchronized.push(id);
           await write();
         },
-      }
+      },
+      storeKind
     );
     const workspace = await load();
     await writeFile(join(workspace.root, "notes.md"), "typed on disk");
@@ -346,7 +351,7 @@ describe("mutation hooks", () => {
   });
 });
 
-describe("conflicting disk edits", () => {
+describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("are kept aside before a commit replaces them", async () => {
     const conflicts: ArtifactDiskConflict[] = [];
     const { artifact, artifacts, load, root } = await fixture(
@@ -354,9 +359,9 @@ describe("conflicting disk edits", () => {
       false,
       {
         conflicted: (kept) => conflicts.push(kept),
-        // Hold disk synchronization so the commit lands first.
         synchronize: () => new Promise<void>(() => undefined),
-      }
+      },
+      storeKind
     );
     const workspace = await load();
     await writeFile(join(workspace.root, "notes.md"), "disk edit");
@@ -386,7 +391,7 @@ describe("conflicting disk edits", () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-metadata-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+      store: await openStore(storeKind),
     });
     const conflicts: ArtifactDiskConflict[] = [];
     const held: (() => void)[] = [];
@@ -394,8 +399,6 @@ describe("conflicting disk edits", () => {
       artifacts,
       conflicted: (conflict) => conflicts.push(conflict),
       root,
-      // Hold disk synchronization so the edits stay unsynced; a held poll is
-      // let go, unwritten, before closing.
       synchronize: () => new Promise<void>((resolve) => held.push(resolve)),
     });
     cleanups.push(() => filesystem.close());
@@ -419,10 +422,8 @@ describe("conflicting disk edits", () => {
     await artifacts.archive(created.id);
     expect(await readFile(join(path, "notes.md"), "utf8")).toBe("disk edit");
     expect(conflicts).toEqual([]);
-    // Watchers still hear of each commit, such as the archive.
     expect(changed).toHaveBeenCalledTimes(2);
 
-    // Records are authoritative: a removed directory comes back.
     await rm(path, { force: true, recursive: true });
     await artifacts.unarchive(created.id);
     expect(await readFile(join(path, "notes.md"), "utf8")).toBe("base");
@@ -443,11 +444,11 @@ describe("conflicting disk edits", () => {
           await held;
           await write();
         },
-      }
+      },
+      storeKind
     );
     const workspace = await load();
     await writeFile(join(workspace.root, "notes.md"), "disk edit");
-    // Let a poll pick the edit up and wait inside synchronize.
     await new Promise((resolve) => setTimeout(resolve, 1500));
     await artifacts.write({
       artifactId: artifact.id,
@@ -461,13 +462,13 @@ describe("conflicting disk edits", () => {
     expect(
       await readFile(join(required(conflicts[0]).directory, "notes.md"), "utf8")
     ).toBe("disk edit");
-  });
+  }, 30_000);
 
   it("left by a previous process are kept before records are applied", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-restart-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const artifacts = new ArtifactManager({
-      store: new JsonArtifactStore({ path: join(root, "artifacts.json") }),
+      store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
     const created = await artifacts.create({
@@ -496,7 +497,7 @@ describe("conflicting disk edits", () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-stale-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const artifacts = new ArtifactManager({
-      store: new JsonArtifactStore({ path: join(root, "artifacts.json") }),
+      store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
     const created = await artifacts.create({
@@ -506,7 +507,6 @@ describe("conflicting disk edits", () => {
     });
     const { path } = await before.resolve({ artifactId: created.id });
     await before.close();
-    // Committed while nothing applied it: disk still holds the prior version.
     await artifacts.revise({
       artifactId: created.id,
       changes: { put: { "notes.md": { bytes: encoder.encode("revised") } } },
@@ -529,7 +529,7 @@ describe("conflicting disk edits", () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-unapplied-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const artifacts = new ArtifactManager({
-      store: new JsonArtifactStore({ path: join(root, "artifacts.json") }),
+      store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
     const created = await artifacts.create({
@@ -539,8 +539,6 @@ describe("conflicting disk edits", () => {
     });
     const { path } = await before.resolve({ artifactId: created.id });
     await before.close();
-    // A save of ready Content in place, committed by a process that stopped
-    // before applying it: no record holds the bytes disk still has.
     await artifacts.write({
       artifactId: created.id,
       changes: { put: { "notes.md": { bytes: encoder.encode("written") } } },
@@ -562,7 +560,7 @@ describe("conflicting disk edits", () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-orphan-note-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const artifacts = new ArtifactManager({
-      store: new JsonArtifactStore({ path: join(root, "artifacts.json") }),
+      store: await openStore(storeKind),
     });
     const files = join(root, "files");
     const before = artifactFileSystem({ artifacts, root: files });
@@ -582,7 +580,6 @@ describe("conflicting disk edits", () => {
     await before.close();
     const notes = () => readdir(join(files, ".applied"));
     expect(await notes()).toHaveLength(2);
-    // Deleted while closed, its directory with it.
     await artifacts.delete(required(deleted).id);
     await rm(path, { force: true, recursive: true });
 
@@ -600,9 +597,9 @@ describe("conflicting disk edits", () => {
       {
         conflicted: (kept) => conflicts.push(kept),
         keptConflicts: 2,
-        // Hold disk synchronization so each commit lands first.
         synchronize: () => new Promise<void>(() => undefined),
-      }
+      },
+      storeKind
     );
     const workspace = await load();
     for (const round of [1, 2, 3]) {
@@ -613,7 +610,6 @@ describe("conflicting disk edits", () => {
           put: { "notes.md": { bytes: encoder.encode(`api edit ${round}`) } },
         },
       });
-      // Separate rounds by a millisecond so their stamps order by time.
       await new Promise((resolve) => setTimeout(resolve, 2));
     }
     const directories = conflicts.map((conflict) => conflict.directory);

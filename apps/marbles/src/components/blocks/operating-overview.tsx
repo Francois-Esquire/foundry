@@ -3,117 +3,47 @@ import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import type { UsageGroup, WorkspaceUsage } from "~/model/usage";
-import type { DashboardSelection } from "~/views/dashboard-model";
-import {
-  duration,
-  type LatestItem,
-  type OperatingStats,
-} from "~/views/operating-model";
-import { costCell, costLabel, tokensLabel } from "~/views/usage-format";
+import { Words } from "~/components/ui/words";
 
-/** Two lines over the runs: what is happening now, and what it has cost. */
-export function OperatingSummary({
-  stats,
-  usage,
-}: {
-  readonly stats: OperatingStats;
-  readonly usage?: WorkspaceUsage;
-}) {
-  const { counts } = stats;
-  const timings = [
-    stats.successRate === undefined
-      ? undefined
-      : `${Math.round(stats.successRate * 100)}% succeeded`,
-    stats.medianRunMs === undefined
-      ? undefined
-      : `median run ${duration(stats.medianRunMs)}`,
-    stats.medianQueueMs === undefined
-      ? undefined
-      : `median wait ${duration(stats.medianQueueMs)}`,
-  ].filter(Boolean);
-  const notes = [
-    ...(usage && usage.unreadable > 0
-      ? [`${usage.unreadable} usage records unreadable, totals partial`]
-      : []),
-    ...(usage && usage.recovered > 0
-      ? [`${usage.recovered} unrecorded turns found in transcripts`]
-      : []),
-    ...(usage && usage.unattributed > 0
-      ? [`${usage.unattributed} of them with no known run`]
-      : []),
-    ...(usage && usage.unsaved > 0
-      ? [`${usage.unsaved} turns not saved anywhere yet`]
-      : []),
-  ];
-  const partial = notes.map((note) => ` · ${note}`).join("");
-  return (
-    <box flexDirection="column" flexShrink={0} id="overview:summary">
-      <box flexDirection="row" gap={2} height={1}>
-        <text fg={theme.colors.info} flexShrink={0} wrapMode="none">
-          Running {counts.running}
-        </text>
-        <text fg={theme.colors.mutedForeground} flexShrink={0} wrapMode="none">
-          Queued {counts.queued}
-        </text>
-        <text
-          fg={
-            counts.waiting > 0
-              ? theme.colors.warning
-              : theme.colors.mutedForeground
-          }
-          flexShrink={0}
-          wrapMode="none"
-        >
-          Waiting {counts.waiting}
-        </text>
-        <text
-          fg={
-            counts.failed > 0
-              ? theme.colors.error
-              : theme.colors.mutedForeground
-          }
-          flexShrink={0}
-          wrapMode="none"
-        >
-          Failed {counts.failed}
-        </text>
-        <text fg={theme.colors.success} flexShrink={0} wrapMode="none">
-          Completed {counts.complete}
-        </text>
-        <text fg={theme.colors.mutedForeground} flexShrink={0} wrapMode="none">
-          Cancelled {counts.cancelled}
-        </text>
-        <text
-          fg={theme.colors.mutedForeground}
-          flexGrow={1}
-          minWidth={0}
-          wrapMode="none"
-        >
-          {timings.join(" · ")}
-        </text>
-      </box>
-      <text fg={theme.colors.mutedForeground} wrapMode="none">
-        Usage: {costLabel(usage?.total)} · {tokensLabel(usage?.total)}
-        {partial}
-      </text>
-    </box>
-  );
+export interface LatestRow<S> {
+  readonly at: number;
+  readonly id: string;
+  readonly selection?: S;
+  readonly text: string;
 }
 
-/** Newest run starts, endings, and feed entries in this workspace. */
-export function LatestBlock({
+export interface UsageLine {
+  readonly cost: string;
+  readonly tokens: string;
+}
+
+export interface UsageGroupLine extends UsageLine {
+  readonly id: string;
+}
+
+export interface UsageBreakdownView {
+  readonly byAgent: readonly UsageGroupLine[];
+  readonly byWorkflow: readonly UsageGroupLine[];
+  readonly outsideRuns?: string;
+  readonly recovered: number;
+  readonly total: UsageLine;
+  readonly unattributed: number;
+  readonly unreadable: number;
+  readonly unsaved: number;
+}
+
+export function LatestBlock<S>({
   items,
   onSelect,
 }: {
-  readonly items: readonly LatestItem[];
-  readonly onSelect: (selection: DashboardSelection) => void;
+  readonly items: readonly LatestRow<S>[];
+  readonly onSelect: (selection: S) => void;
 }) {
   return (
     <Panel id="panel:latest" title="Latest">
       {items.length === 0 && <Text>Nothing has happened yet.</Text>}
       {items.map((item) =>
-        item.runId === undefined ? (
+        item.selection === undefined ? (
           <Text key={item.id}>{item.text}</Text>
         ) : (
           <SelectableRow
@@ -121,51 +51,26 @@ export function LatestBlock({
             key={item.id}
             onSelect={onSelect}
             selected={false}
-            value={{ id: item.runId, kind: "run" } as DashboardSelection}
+            value={item.selection}
           >
             <text
               fg={theme.colors.mutedForeground}
               flexShrink={0}
               wrapMode="none"
             >
-              {new Date(item.at).toLocaleTimeString()}
+              {new Date(item.at).toLocaleTimeString(undefined, {
+                hour: "2-digit",
+                hourCycle: "h23",
+                minute: "2-digit",
+              })}
             </text>
-            <Text wrapMode="none">{item.text}</Text>
+            <Text minWidth={0} truncate wrapMode="none">
+              {item.text}
+            </Text>
           </SelectableRow>
         )
       )}
     </Panel>
-  );
-}
-
-const TOP_GROUPS = 5;
-
-function Groups({
-  title,
-  groups,
-}: {
-  readonly title: string;
-  readonly groups: readonly UsageGroup[];
-}) {
-  return (
-    <box flexDirection="column" flexShrink={0}>
-      <text fg={theme.colors.mutedForeground}>{title}</text>
-      {groups.length === 0 && <Text>None recorded.</Text>}
-      {groups.slice(0, TOP_GROUPS).map((group) => (
-        <box flexDirection="row" gap={1} height={1} key={group.id}>
-          <Text wrapMode="none">{group.id}</Text>
-          <text fg={theme.colors.mutedForeground} wrapMode="none">
-            {costCell(group.total)} · {group.total.turns}{" "}
-            {group.total.turns === 1 ? "turn" : "turns"}
-          </text>
-        </box>
-      ))}
-      {groups.length > TOP_GROUPS && (
-        <text fg={theme.colors.mutedForeground} wrapMode="none">
-          +{groups.length - TOP_GROUPS} more · u shows all
-        </text>
-      )}
-    </box>
   );
 }
 
@@ -174,7 +79,7 @@ function BreakdownRows({
   groups,
 }: {
   readonly title: string;
-  readonly groups: readonly UsageGroup[];
+  readonly groups: readonly UsageGroupLine[];
 }) {
   return (
     <box flexDirection="column" flexShrink={0}>
@@ -185,28 +90,57 @@ function BreakdownRows({
       {groups.map((group) => (
         <box flexDirection="column" flexShrink={0} key={group.id}>
           <Text>
-            {group.id}: {costLabel(group.total)}
+            {group.id}: {group.cost}
           </Text>
-          <text fg={theme.colors.mutedForeground}>
-            {"  "}
-            {tokensLabel(group.total)}
-          </text>
+          <Words fg={theme.colors.mutedForeground} indent={2}>
+            {group.tokens}
+          </Words>
         </box>
       ))}
     </box>
   );
 }
 
-/**
- * Every workflow's and agent's usage, at any width: what the Usage panel
- * shortens or, in narrow terminals, leaves out. Scrolls with the keyboard.
- */
+function usageWarnings(usage: UsageBreakdownView): readonly string[] {
+  const { recovered, unattributed, unreadable, unsaved } = usage;
+  const warnings: string[] = [];
+  if (unreadable > 0) {
+    warnings.push(
+      unreadable === 1
+        ? "1 usage record could not be read; every total is partial."
+        : `${String(unreadable)} usage records could not be read; every total is partial.`
+    );
+  }
+  if (recovered > 0) {
+    warnings.push(
+      recovered === 1
+        ? "1 turn had no saved usage; its tokens come from the session transcripts, and its cost is unknown."
+        : `${String(recovered)} turns had no saved usage; their tokens come from the session transcripts, and their cost is unknown.`
+    );
+  }
+  if (unattributed > 0) {
+    warnings.push(
+      unattributed === 1
+        ? "1 of those turns is in a session no record ties to a run or to work outside runs; every total it may belong to says so."
+        : `${String(unattributed)} of those turns are in sessions no record ties to a run or to work outside runs; every total they may belong to says so.`
+    );
+  }
+  if (unsaved > 0) {
+    warnings.push(
+      unsaved === 1
+        ? "1 turn's usage could not be saved and no transcript accounts for it yet; it is counted until Marbles stops."
+        : `${String(unsaved)} turns' usage could not be saved and no transcript accounts for them yet; they are counted until Marbles stops.`
+    );
+  }
+  return warnings;
+}
+
 export function UsageBreakdown({
   active,
   usage,
 }: {
   readonly active: boolean;
-  readonly usage?: WorkspaceUsage;
+  readonly usage?: UsageBreakdownView;
 }) {
   return (
     <Panel
@@ -218,40 +152,18 @@ export function UsageBreakdown({
       {usage ? (
         <box flexDirection="column" gap={1}>
           <box flexDirection="column" flexShrink={0}>
-            <Text>Workspace: {costLabel(usage.total)}</Text>
-            <text fg={theme.colors.mutedForeground}>
-              {"  "}
-              {tokensLabel(usage.total)}
-            </text>
-            {costLabel(usage.outsideRuns) !== "no usage recorded" && (
-              <Text>Outside runs: {costLabel(usage.outsideRuns)}</Text>
+            <Text>Workspace: {usage.total.cost}</Text>
+            <Words fg={theme.colors.mutedForeground} indent={2}>
+              {usage.total.tokens}
+            </Words>
+            {usage.outsideRuns !== undefined && (
+              <Text>Outside runs: {usage.outsideRuns}</Text>
             )}
-            {usage.unreadable > 0 && (
-              <text fg={theme.colors.warning}>
-                {usage.unreadable} usage records could not be read; every total
-                is partial.
+            {usageWarnings(usage).map((warning) => (
+              <text fg={theme.colors.warning} key={warning}>
+                {warning}
               </text>
-            )}
-            {usage.recovered > 0 && (
-              <text fg={theme.colors.warning}>
-                {usage.recovered} turns had no saved usage; their tokens come
-                from the session transcripts, and their cost is unknown.
-              </text>
-            )}
-            {usage.unattributed > 0 && (
-              <text fg={theme.colors.warning}>
-                {usage.unattributed} of those turns are in sessions no record
-                ties to a run or to work outside runs; every total they may
-                belong to says so.
-              </text>
-            )}
-            {usage.unsaved > 0 && (
-              <text fg={theme.colors.warning}>
-                {usage.unsaved} turns' usage could not be saved and no
-                transcript accounts for them yet; they are counted until Marbles
-                stops.
-              </text>
-            )}
+            ))}
           </box>
           <BreakdownRows groups={usage.byWorkflow} title="By workflow" />
           <BreakdownRows groups={usage.byAgent} title="By agent" />
@@ -263,32 +175,13 @@ export function UsageBreakdown({
   );
 }
 
-/** Agent consumption by workflow and by agent; `~` marks an estimate. */
-export function UsageBlock({ usage }: { readonly usage?: WorkspaceUsage }) {
-  return (
-    <Panel id="panel:usage" title="Usage · ~ estimate · ? unpriced">
-      {usage ? (
-        <box flexDirection="column" gap={1}>
-          <Groups groups={usage.byWorkflow} title="By workflow" />
-          <Groups groups={usage.byAgent} title="By agent" />
-        </box>
-      ) : (
-        <Text>Usage is not recorded by this host.</Text>
-      )}
-    </Panel>
-  );
-}
-
-/** Runs beside Latest and Usage when there is room, stacked when there is not. */
 export function OverviewPanels({
   runs,
   latest,
-  usage,
   wide,
 }: {
   readonly runs: ReactNode;
   readonly latest: ReactNode;
-  readonly usage: ReactNode;
   readonly wide: boolean;
 }) {
   if (!wide) {
@@ -309,12 +202,7 @@ export function OverviewPanels({
         {runs}
       </box>
       <box flexBasis={0} flexDirection="column" flexGrow={2} minWidth={0}>
-        <box flexDirection="column" flexGrow={1} minHeight={3}>
-          {latest}
-        </box>
-        <box flexDirection="column" flexGrow={1} minHeight={3}>
-          {usage}
-        </box>
+        {latest}
       </box>
     </box>
   );

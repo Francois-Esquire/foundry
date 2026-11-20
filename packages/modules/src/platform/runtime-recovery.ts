@@ -1,10 +1,7 @@
 import type { Installation, InstallationId } from "../domain";
 import { MAX_START_ATTEMPTS } from "../domain";
-import type { ModuleStore } from "../store/contract";
-import {
-  ModuleStoreConflictError,
-  ModuleStoreNotFoundError,
-} from "../store/contract";
+import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "../errors";
+import type { ModuleCommands } from "../registry";
 import type { ModuleProgramLaunch, ModuleProgramSupervisor } from "./contracts";
 import { ModuleProgramSupervisorError } from "./program-supervisor-errors";
 
@@ -17,50 +14,21 @@ export type ModuleRecoveryResult =
     };
 
 export interface ModuleRuntimeRecovery {
-  /**
-   * Settles occurrences a prior process interrupted. `starting` / `active`
-   * rows are moved back to `starting` so an enabled Module restarts; an
-   * interrupted `stopping` completes to `disabled` through the supervisor,
-   * which stops its retained container first. `disabled` and `failed` are
-   * the operator's intent and are left untouched.
-   */
   normalizeInterrupted(): Promise<void>;
-  /**
-   * Starts every `starting` Installation once, in stable ID order. A row that
-   * has already exhausted its crash-loop budget, or whose `launch` throws,
-   * settles `failed` through the supervisor without a new Program, which
-   * first stops what a previous process left running. A failed attempt
-   * settles `failed` too. Nothing is retried within one boot. The caller
-   * decides what each Program starts with, as it does for every start.
-   */
   recoverEnabled(input: {
-    /**
-     * Host policy boundary: resolve and validate the launch before returning.
-     * Recovery uses the policy-free supervisor to retain automatic attempt
-     * semantics; hosts may call validateModuleActivation here for the same
-     * Grant/settings checks as explicit activate.
-     */
     readonly launch: (
       installation: Installation
     ) => Promise<ModuleProgramLaunch>;
     readonly signal?: AbortSignal;
   }): Promise<readonly ModuleRecoveryResult[]>;
-  /** Host shutdown: release live occurrences without changing status. */
   releaseAll(reason: string): Promise<void>;
-  /**
-   * For a host that starts Programs only on demand: normalizes interrupted
-   * occurrences, which moves them to a new generation so their runtime
-   * identities are stale, then stops each one through the supervisor
-   * instead of restarting it. Each settles `disabled`.
-   */
   stopInterrupted(reason: string): Promise<void>;
 }
 
 export interface CreateModuleRuntimeRecoveryOptions {
-  /** Campaigns for unrelated Installations running at once. Default 3. */
   readonly concurrency?: number;
   readonly now?: () => Date;
-  readonly store: ModuleStore;
+  readonly store: ModuleCommands;
   readonly supervisor: Pick<
     ModuleProgramSupervisor,
     "failStart" | "shutdown" | "start" | "stop"
@@ -115,7 +83,6 @@ export function createModuleRuntimeRecovery(
     try {
       resolved = await launch(installation);
     } catch (error) {
-      // A campaign aborted by shutdown leaves the attempt unspent.
       return signal?.aborted
         ? failed(installation, error)
         : failStart(installation, error);
@@ -134,11 +101,6 @@ export function createModuleRuntimeRecovery(
     }
   }
 
-  /**
-   * Spends the attempt of a row recovery will not start. A row another
-   * writer moved on stays as it is. Incomplete cleanup is this
-   * Installation's outcome; a Store failure fails the campaign.
-   */
   async function failStart(
     installation: Installation,
     error: unknown
@@ -174,8 +136,6 @@ export function createModuleRuntimeRecovery(
 
   async function normalizeInterrupted() {
     const stopping: Installation[] = [];
-    // Every interrupted occurrence is fenced to a new generation before any
-    // cleanup can fail, so no previous process's identity stays current.
     for (const installation of await listAllInstallations()) {
       if (
         installation.status === "starting" ||
@@ -191,9 +151,6 @@ export function createModuleRuntimeRecovery(
         stopping.push(installation);
       }
     }
-    // A stop may have died before its container did: each is finished
-    // through the supervisor, which settles `disabled` only after a confirmed
-    // stop, and `failed` (still reported here) when it cannot stop.
     const failures: unknown[] = [];
     for (const installation of stopping) {
       await options.supervisor
@@ -221,8 +178,6 @@ export function createModuleRuntimeRecovery(
         (installation) => installation.status === "starting"
       );
       const results = new Map<InstallationId, ModuleRecoveryResult>();
-      // Bounded concurrency across unrelated Installations; each start still
-      // serializes through the supervisor's per-Installation queue.
       const limit = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
       let next = 0;
       await Promise.all(

@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ReentrantCallError } from "@foundry/lib/turns";
 import { Tasks } from "@foundry/tasks";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -8,13 +9,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { DatabaseBusyError } from "~/database/client";
+import { TaskStorageError } from "~/database/tasks";
 import { registerTaskTools } from "~/mcp/tasks";
 import { hostTasks } from "~/workspace/open";
 import { runTaskCommand } from "~/workspace/tasks";
 import { testEngine } from "./helpers/engine";
 
-// `~/workspace/open` loads sources through a Bun plugin; vitest runs under Node, and
-// these tests load none.
 vi.mock("bun", () => ({ plugin: vi.fn() }));
 
 const clock = () => new Date("2026-10-29T00:00:00.000Z");
@@ -28,10 +29,8 @@ afterEach(async () => {
   }
 });
 
-/** A client connected in-process to the task tools over a real backlog. */
 async function connect(tasks = new Tasks({ clock })) {
   const server = new McpServer({ name: "tasks-test", version: "1.0.0" });
-  // The workspace each call named, as the server's runner received it.
   const addressed: (string | undefined)[] = [];
   registerTaskTools(
     server,
@@ -61,7 +60,6 @@ async function call(
   );
 }
 
-/** The `{ code, message }` a refused command answers with. */
 const refusal = z.object({
   error: z.object({ code: z.string(), message: z.string() }),
 });
@@ -104,7 +102,6 @@ it("lists the task tools with input and output schemas", async () => {
   for (const tool of tools) {
     expect(tool.inputSchema.type, tool.name).toBe("object");
     expect(tool.outputSchema?.type, tool.name).toBe("object");
-    // Like every Marbles tool, each can be pointed at a hosted workspace.
     expect(tool.inputSchema.properties, tool.name).toHaveProperty("workspace");
   }
   const change = tools.find(({ name }) => name === "change_tasks");
@@ -121,8 +118,6 @@ it("lists the task tools with input and output schemas", async () => {
     "tags",
     "workspace",
   ]);
-  // The workspace a call names reaches the runner beside the command, and
-  // never the command itself.
   await call(client, "list_tasks", { workspace: "elsewhere" });
   await call(client, "change_tasks", {
     operations: [{ input: { title: "Here" }, key: "a", kind: "task.create" }],
@@ -188,7 +183,6 @@ it("commits, returns, and filters tags over a workspace's own records", async ()
   const read = await call(client, "get_task", { id: tagged?.id });
   expect(read.structuredContent).toMatchObject({ task: { tags: [] } });
   expect(await titles("list_tasks", { tags: { all: ["review"] } })).toEqual([]);
-  // What the tools answered is what the workspace holds.
   expect((await tasks.list()).total).toBe(2);
   const other = new Tasks({ store: engine.taskStore });
   expect((await other.get(tagged?.id ?? ""))?.tags).toEqual([]);
@@ -198,16 +192,12 @@ it("publishes metadata as a JSON object and refuses a __proto__ key in it", asyn
   const { client, tasks } = await connect();
   const { tools } = await client.listTools();
   const change = tools.find(({ name }) => name === "change_tasks");
-  // Typed as JSON on create and update; the `__proto__` refusal is not in
-  // the JSON Schema, so the server answers it.
   const published = JSON.stringify(change?.inputSchema);
   const typed =
     '"metadata":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{"$ref":';
   expect(published.split(typed)).toHaveLength(3);
 
   const task = await tasks.create({ metadata: { keep: 1 }, title: "proto" });
-  // A quoted `__proto__` in an object literal sets the prototype; parsed
-  // JSON defines the key.
   const metadata = JSON.parse('{"x":{"__proto__":1}}');
   const result = await call(client, "change_tasks", {
     operations: [
@@ -257,7 +247,6 @@ it("creates, reads, and changes tasks through the shared command language", asyn
     "design",
     "build",
   ]);
-  // The tools answered from the same backlog the library reads.
   expect((await tasks.get(build.id))?.metadata).toEqual({ size: "m" });
 
   const tree = await call(client, "get_task", { depth: 1, id: epic.id });
@@ -354,7 +343,6 @@ it("refuses a stale token or an invalid batch and leaves the backlog unchanged",
   expect(missing.code).toBe("not_found");
   expect(await tasks.list({ depth: 1 })).toEqual(before);
 
-  // The token from the latest read is accepted.
   const current = await call(client, "change_tasks", {
     operations: [
       {
@@ -459,4 +447,46 @@ it("pages through the backlog with a bounded limit", async () => {
   );
   expect(small.items.map(({ title }) => title)).toEqual(["Task 3", "Task 4"]);
   expect(small.nextCursor).toBe(5);
+});
+
+it("answers a storage refusal or a re-entrant call with a tool error carrying its message alone", async () => {
+  const refusals = [
+    new ReentrantCallError(
+      "SqliteTaskStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead"
+    ),
+    new TaskStorageError(
+      "this change cannot be stored in the Marbles database: SqliteTaskStore cannot store putTasks[0].title"
+    ),
+    new DatabaseBusyError("the Marbles database is busy"),
+  ];
+  for (const thrown of refusals) {
+    const server = new McpServer({ name: "tasks-test", version: "1.0.0" });
+    registerTaskTools(
+      server,
+      () => Promise.reject(thrown),
+      z.string().min(1).optional()
+    );
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "tasks-client", version: "1.0.0" });
+    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+    open.push(async () => {
+      await client.close();
+      await server.close();
+    });
+    for (const [name, args] of [
+      ["list_tasks", {}],
+      [
+        "change_tasks",
+        {
+          operations: [
+            { input: { title: "x" }, key: "x", kind: "task.create" },
+          ],
+        },
+      ],
+    ] as const) {
+      const result = await call(client, name, args);
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe(thrown.message);
+    }
+  }
 });

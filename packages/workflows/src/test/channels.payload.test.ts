@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ChannelMessage } from "../channels";
 
-import { Channels, StepCompleteEvent, StepStartedEvent } from "../channels";
+import { Channels } from "../channels";
+import { StepCompleteEvent, StepStartedEvent } from "../schema";
 import { Snapshot } from "../snapshot";
 
 const path = ["root"] as const;
@@ -17,11 +18,16 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
           const snap = yield* Snapshot.make();
           const channels = yield* Channels.make(snap);
           const reader = channels.stream.getReader();
-          // Allow the multiplexer fibers to attach before publishing.
           yield* Effect.sleep(5);
 
           channels.events.push(
-            StepStartedEvent.make({ at, attempt: 1, name: "root", path })
+            StepStartedEvent.parse({
+              _tag: "step.started",
+              at,
+              attempt: 1,
+              name: "root",
+              path,
+            })
           );
           channels.chunks.push({
             at,
@@ -30,7 +36,8 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
             stepId: "root",
           });
           channels.events.push(
-            StepCompleteEvent.make({
+            StepCompleteEvent.parse({
+              _tag: "step.complete",
               at,
               attempt: 1,
               name: "root",
@@ -56,9 +63,6 @@ describe("Channels.stream — multiplexed ChannelMessage", () => {
           reader.releaseLock();
 
           expect(collected).toHaveLength(4);
-          // The multiplexer drives events and chunks on independent fibers,
-          // so global interleaving across the two pubsubs is not guaranteed
-          // — assert per-kind ordering and tag-discriminated narrowing.
           const eventTags: string[] = [];
           const chunkPayloads: { kind: string; value: unknown }[] = [];
           for (const m of collected) {

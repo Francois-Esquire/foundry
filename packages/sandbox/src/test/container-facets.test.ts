@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ContainerSandboxConstraints } from "../container/constraints";
 import { createContainers } from "../container/containers";
-import { createMemoryContainerStore } from "../container/store";
+import { MemoryContainerStore } from "../store/memory";
 import type { FakeContainerRuntimeOptions } from "../testing";
 import { createFakeContainerRuntime } from "../testing";
 import {
@@ -35,7 +35,7 @@ function fixture(
   const containers = createContainers({
     instanceLabel: "facets",
     runtime,
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
     ...mounts,
   });
   return { containers, runtime };
@@ -174,7 +174,6 @@ describe("container managed services", () => {
     await expect(service.terminate()).resolves.toMatchObject({
       exitCode: 137,
     });
-    // Close must stay clean: the dead session is an exit, not a failure.
     await container.close();
     expect(runtime.instances[0]?.removed).toBe(true);
   });

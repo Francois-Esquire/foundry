@@ -21,18 +21,12 @@ function table(
   ];
 }
 
-/** Lines that must stay on separate lines inside one paragraph. */
 function hardBreaks(lines: string[]): string[] {
   return lines.map((line, index) =>
     index < lines.length - 1 ? `${line}\\` : line
   );
 }
 
-/**
- * Markdown uses Markdown semantics: headings, tables, bullets, task lists,
- * fenced blocks for line art. Width, color, and ASCII fallback do not apply;
- * the viewer wraps and the file is UTF-8.
- */
 export function createMarkdownRenderer(): Renderer {
   const block = (view: BlockView): string[] => blockKind(view);
 
@@ -128,7 +122,6 @@ function blockKind(view: BlockView) {
           : []),
       ];
     case "list":
-      // `*` so a list after signal evidence (`-`) starts a new list.
       return [
         ...view.items.map((item) => `* ${item}`),
         ...(view.overflow !== undefined && view.overflow > 0

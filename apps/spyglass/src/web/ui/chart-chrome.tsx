@@ -17,7 +17,6 @@ function MarginText({
   );
 }
 
-/** Viewport furniture is rendered from prepared props, outside the GPU and map-label hosts. */
 export function ChartChrome({ model }: { model: ChartChromeModel | null }) {
   if (!model) {
     return null;

@@ -1,12 +1,6 @@
 import type { AnyDefinition, LockedNode } from "./definition";
 import { isLockedNode } from "./definition";
 
-/**
- * What a trigger starts: a named definition and the input it was locked
- * with. A locked node with children is a tree, not a target; it needs a
- * workflow name to run on its own.
- */
-
 export interface Launch {
   readonly input: unknown;
   readonly workflow: string;

@@ -38,7 +38,7 @@ function makeHarness(
         })
       )
     );
-    yield* Effect.sleep(5); // let the subscriber attach
+    yield* Effect.sleep(5);
     const witness: Witness = { channels };
     return { channels, events, exe, snapshot, witness };
   });
@@ -57,10 +57,8 @@ describe("Executable.drive — lifecycle (success)", () => {
           });
           const out = yield* h.exe.drive(h.witness, step);
           expect(out).toBe("ok");
-          // Allow the events to drain.
           yield* Effect.sleep(5);
           const tags = h.events.map((e) => e._tag);
-          // drive does NOT emit step.progress=100 (that's Step.#run only).
           expect(tags).toEqual(["step.started", "step.complete"]);
           const [started] = h.events;
           const [, complete] = h.events;

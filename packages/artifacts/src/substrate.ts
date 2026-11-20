@@ -6,49 +6,16 @@ import type {
   StorageNode,
 } from "@foundry/core/storage";
 
-import type { ContentTree } from "./blob";
-import type {
-  ArtifactLifecycleStatus,
-  ArtifactMetadata,
-  ContentMetadata,
-  ContentState,
-} from "./content";
 import type { ArtifactCursor } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
+import type {
+  Artifact,
+  Content,
+  ContentMetadata,
+  ContentState,
+} from "./schema";
 
-/**
- * The Artifact substrate: a thing people point at, and the versions of what
- * it holds. Persistence is supplied to the shared Artifact system.
- *
- * Vocabulary: a Content is one version. Its bytes are the tree, the files,
- * the blobs; never "content".
- */
-
-export interface Artifact {
-  readonly archivedAt: Date | null;
-  readonly contentId: ContentId | null;
-  readonly createdAt: Date;
-  readonly id: ArtifactId;
-  readonly metadata: ArtifactMetadata;
-  readonly name: string;
-  readonly publishedAt: Date | null;
-  readonly status: ArtifactLifecycleStatus;
-  readonly type: string;
-  readonly updatedAt: Date;
-}
-
-export interface Content {
-  readonly artifactId: ArtifactId;
-  readonly createdAt: Date;
-  readonly digest: string;
-  readonly frozenAt: Date | null;
-  readonly id: ContentId;
-  readonly metadata: ContentMetadata;
-  readonly state: ContentState;
-  readonly tag: string | null;
-  readonly tree: ContentTree;
-  readonly updatedAt: Date;
-}
+export type { Artifact, Content } from "./schema";
 
 export interface ArtifactResolved extends Artifact {
   readonly content: Content | null;
@@ -63,9 +30,7 @@ export interface FileResolved extends FileRepresentation {
 }
 
 export interface FileRangeResolved extends FileRepresentation {
-  /** Pull-based; each pull yields at most one chunk's bytes, sliced to the interval. */
   readonly body: AsyncIterable<Uint8Array>;
-  /** Interval actually served, [start, end), clamped to [0, byteLength). */
   readonly range: { readonly start: number; readonly end: number };
 }
 
@@ -82,7 +47,6 @@ export type FileInput = { readonly type?: "file" } & (
     }
   | {
       readonly source: AsyncIterable<Uint8Array>;
-      /** Declared byte length (host-path fs.stat); enables early cap refusal. */
       readonly bytes?: number;
       readonly mime?: string | null;
     }
@@ -110,7 +74,6 @@ export interface WriteFence {
 }
 
 export interface CreateArtifactInput {
-  /** Absent: the artifact starts empty with a null pointer. */
   readonly entries?: EntryInputs;
   readonly freeze?: FreezeOption;
   readonly id?: ArtifactId;
@@ -123,7 +86,6 @@ export interface WriteInput extends WriteFence {
   readonly artifactId: ArtifactId;
   readonly changes: TreeChanges;
   readonly freeze?: FreezeOption;
-  /** Shallow-merged into the row's metadata; `undefined` values delete keys. */
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
@@ -148,7 +110,6 @@ export interface ListContentsInput {
 
 export type ContentSummary = Omit<Content, "tree">;
 
-/** Every Artifact read and write. A transaction handle exposes exactly these. */
 export interface ArtifactOperations {
   archive(artifactId: ArtifactId): Promise<Artifact>;
   clearFailedContent(input: {
@@ -156,12 +117,7 @@ export interface ArtifactOperations {
     readonly expectedContentId: ContentId;
   }): Promise<ArtifactResolved>;
   create(input: CreateArtifactInput): Promise<ArtifactResolved>;
-  /** Cascades to every Content. Throws ArtifactInUseError when a pin holds one. */
   delete(artifactId: ArtifactId): Promise<boolean>;
-  /**
-   * Remove a Content. The active row needs a replacement named in the same
-   * call. Frozen rows held by a pin throw ContentInUseError.
-   */
   deleteContent(input: {
     readonly contentId: ContentId;
     readonly replacementContentId?: ContentId;
@@ -170,13 +126,11 @@ export interface ArtifactOperations {
     artifactId: ArtifactId,
     by: { readonly sessionId: string; readonly messageId: string }
   ): Promise<Content | null>;
-  /** Copy usable Content into a new Artifact; a ready source freezes unpublished. */
   fork(input: {
     readonly id?: ArtifactId;
     readonly contentId: ContentId;
     readonly name?: string;
   }): Promise<ArtifactResolved>;
-  /** Make usable Content immutable and publish its draft Artifact. */
   freeze(
     contentId: ContentId,
     option?: FreezeOption & { readonly expectedUpdatedAt?: Date }
@@ -186,7 +140,6 @@ export interface ArtifactOperations {
   list(
     input?: ListArtifactsInput
   ): Promise<Page<ArtifactResolved, ArtifactCursor>>;
-  /** Flat timeline of one artifact, oldest first. */
   listContents(
     artifactId: ArtifactId,
     input?: ListContentsInput
@@ -197,11 +150,6 @@ export interface ArtifactOperations {
   ): Promise<Artifact>;
 
   readFile(contentId: ContentId, path: string): Promise<FileResolved | null>;
-  /**
-   * Read a byte interval of a stored file, clamped to [0, byteLength); `null`
-   * only when the file is absent. An out-of-bounds range clamps, never throws.
-   * Inside a transaction, consume the body before the transaction settles.
-   */
   readFileRange(
     contentId: ContentId,
     path: string,
@@ -211,11 +159,9 @@ export interface ArtifactOperations {
     contentId: ContentId,
     name: string
   ): Promise<FileResolved | null>;
-  /** `metadata.entry`, else the only file, else `index.html`, else null. */
   readRoot(contentId: ContentId): Promise<FileResolved | null>;
   readThumbnail(contentId: ContentId): Promise<FileResolved | null>;
   rename(artifactId: ArtifactId, name: string): Promise<Artifact>;
-  /** Freeze the source unpublished and select a ready successor. */
   revise(input: ReviseInput): Promise<ContentResolved>;
   select(input: {
     readonly artifactId: ArtifactId;
@@ -227,11 +173,6 @@ export interface ArtifactOperations {
     patch: Readonly<Record<string, unknown>>
   ): Promise<Content>;
 
-  /**
-   * Reclaim: delete unfrozen, unpointed, unpinned Contents older than
-   * `olderThan`, then every blob nothing references. Each operation already
-   * reclaims the blobs it released; this full scan is the backstop.
-   */
   sweep(input: { readonly olderThan: Date }): Promise<{
     readonly contents: number;
     readonly blobs: number;
@@ -239,16 +180,9 @@ export interface ArtifactOperations {
   tag(contentId: ContentId, tag: string | null): Promise<Content>;
   unarchive(artifactId: ArtifactId): Promise<Artifact>;
 
-  /**
-   * Edit ready Content in place or create the first Content. Frozen Content refuses.
-   */
   write(input: WriteInput): Promise<ContentResolved>;
 }
 
-/**
- * Why an observer is told about an Artifact: a commit changed it, or
- * `recover` reapplied its committed state (not another change).
- */
 export type ArtifactChangeCause = "commit" | "recovery";
 
 export type ArtifactObserver = (
@@ -256,19 +190,10 @@ export type ArtifactObserver = (
   cause: ArtifactChangeCause
 ) => void;
 
-/** The root Artifact manager: operations plus commit-time integration. */
 export interface Artifacts extends ArtifactOperations {
-  /** Required downstream application, awaited after each commit. */
   bind(apply: (artifactId: ArtifactId) => Promise<void>): () => void;
-  /** Reports committed changes, even when their application failed. */
   observe(changed: ArtifactObserver): () => void;
-  /** Remove abandoned backing files, then reapply every Artifact. */
   recover(): Promise<void>;
-  /**
-   * Run grouped operations through the supplied handle; they commit together.
-   * Effects register with the outermost transaction, never a nested return.
-   * All effects run after commit (even on application failure), none on rollback.
-   */
   transaction<T>(
     operation: (
       artifacts: ArtifactOperations,

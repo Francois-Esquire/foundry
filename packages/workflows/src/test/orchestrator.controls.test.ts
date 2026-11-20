@@ -6,20 +6,23 @@ import {
   RunNotFoundError,
   SuspensionAlreadySettledError,
 } from "../errors";
-import type { RunExecutionContext } from "../orchestrator";
-import { Orchestrator } from "../orchestrator";
-import { createInMemoryExecutionPersistence } from "../persistence";
 import type {
   CreateJobRunInput,
-  JobRecord,
   JobRunClaim,
+  UpdateJobInput,
+  UpdateRunInput,
+} from "../index";
+import { ExecutionCoordinator } from "../index";
+import { decodeMetadataValue, stepsFromMetadata } from "../metadata-codec";
+import type { RunExecutionContext } from "../orchestrator";
+import { Orchestrator } from "../orchestrator";
+import type {
+  JobRecord,
   RunFrame,
   RunRecord,
   SuspensionRecord,
-  UpdateJobInput,
-  UpdateRunInput,
-} from "../store";
-import { InMemoryOrchestratorStore } from "../store";
+} from "../schema";
+import { MemoryWorkflowStore } from "../store/memory";
 import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
 import { makeInMemoryStore } from "./helpers/store";
@@ -76,7 +79,7 @@ async function startedOrchestrator(store = makeInMemoryStore()) {
   return { orchestrator, store };
 }
 
-class DelayedCompletionStore extends InMemoryOrchestratorStore {
+class DelayedCompletionStore extends ExecutionCoordinator {
   readonly completionWriteStarted: Promise<void>;
   readonly #completionWriteGate: Gate;
   #announceCompletionWrite = (): void => undefined;
@@ -105,7 +108,7 @@ class DelayedCompletionStore extends InMemoryOrchestratorStore {
   }
 }
 
-class DelayedRunCancellationStore extends InMemoryOrchestratorStore {
+class DelayedRunCancellationStore extends ExecutionCoordinator {
   readonly cancellationStarted: Promise<void>;
   readonly #cancellationGate: Gate;
   #announceCancellation = (): void => undefined;
@@ -129,7 +132,7 @@ class DelayedRunCancellationStore extends InMemoryOrchestratorStore {
   }
 }
 
-class DelayedJobClaimStore extends InMemoryOrchestratorStore {
+class DelayedJobClaimStore extends ExecutionCoordinator {
   readonly claimStarted: Promise<void>;
   readonly #claimGate: Gate;
   #announceClaim = (): void => undefined;
@@ -156,7 +159,7 @@ class DelayedJobClaimStore extends InMemoryOrchestratorStore {
   }
 }
 
-class DelayedPendingProjectionStore extends InMemoryOrchestratorStore {
+class DelayedPendingProjectionStore extends ExecutionCoordinator {
   readonly pendingProjectionStarted: Promise<void>;
   readonly #projectionGate: Gate;
   #announceProjection = (): void => undefined;
@@ -365,7 +368,6 @@ describe("Orchestrator explicit controls", () => {
       DUPLICATE_PATTERN
     );
     expect(concurrentB.status).toBe("fulfilled");
-    // The duplicate never reached the factory.
     expect(factoryInputs).toEqual(["original", "other"]);
     expect(originalClaim).toBe(true);
     await orchestrator.drain();
@@ -397,17 +399,20 @@ describe("Orchestrator explicit controls", () => {
     await orchestrator.stop();
   });
 
-  test.each(["store", "persistence"])(
-    "a refused context cannot affect a shared %s run",
+  test.each(["coordinator", "workflow store"])(
+    "a refused context cannot affect a Run in a shared %s",
     async (boundary) => {
       const store = makeInMemoryStore();
-      const persistence = createInMemoryExecutionPersistence();
+      const shared = new MemoryWorkflowStore();
       const executed: string[] = [];
       const contexts = new Map<string, RunExecutionContext | undefined>();
       const open = async (tag: string) => {
         const orchestrator = new Orchestrator({
           config: makeOrchestratorConfig(),
-          ...(boundary === "store" ? { store } : { persistence }),
+          store:
+            boundary === "coordinator"
+              ? store
+              : new ExecutionCoordinator({ store: shared }),
         });
         await orchestrator.setup();
         orchestrator.register<string, string>("shared", (input, context) => {
@@ -427,7 +432,6 @@ describe("Orchestrator explicit controls", () => {
       const a = await open("a");
       const b = await open("b");
 
-      // Two Orchestrators sharing a store: the store admits one Run.
       const [fromA, fromB] = await Promise.allSettled([
         a.run("shared", "A", { runId: "rn-shared" }),
         b.run("shared", "B", { runId: "rn-shared" }),
@@ -442,9 +446,9 @@ describe("Orchestrator explicit controls", () => {
       expect(executed).toHaveLength(1);
       expect(
         (
-          await (boundary === "store"
+          await (boundary === "coordinator"
             ? store.getRun("rn-shared")
-            : persistence.repository.getRun("rn-shared"))
+            : shared.getRun("rn-shared"))
         )?.input
       ).toBe(executed[0] === "a" ? "A" : "B");
       const refused = contexts.get(fromA.status === "rejected" ? "a" : "b");
@@ -513,6 +517,7 @@ describe("Orchestrator explicit controls", () => {
     expect(executions).toBe(0);
     await expect(store.getRun(run.id)).resolves.toMatchObject({
       status: "cancelled",
+      timestamps: { failedAt: expect.any(Number), startedAt: null },
     });
     await orchestrator.stop();
   });
@@ -536,7 +541,17 @@ describe("Orchestrator explicit controls", () => {
     const suspension = await pendingSuspension(orchestrator, run.id);
 
     await expect(orchestrator.cancelRun(run.id)).resolves.toMatchObject({
+      metadata: {
+        workflow: {
+          status: "cancelled",
+          steps: { "suspended-direct": { status: "aborted" } },
+        },
+      },
       status: "cancelled",
+      timestamps: {
+        failedAt: expect.any(Number),
+        startedAt: expect.any(Number),
+      },
     });
     await expect(
       orchestrator.getSuspension(suspension.id)
@@ -771,26 +786,51 @@ describe("Orchestrator explicit controls", () => {
   test("cancel wins a deterministic race with completion at durable authority", async () => {
     const store = new DelayedCompletionStore();
     const { orchestrator } = await startedOrchestrator(store);
+    const body = gate();
     orchestrator.register("completion-race", () =>
       Workflow.create({
-        execute: async () => "body complete",
+        execute: async () => {
+          await body.promise;
+          return "body complete";
+        },
         input: null,
         name: "completion-race",
       })
     );
     await orchestrator.start();
     const run = await orchestrator.run("completion-race", null);
+    await waitFor(async () => {
+      const record = await orchestrator.getRun(run.id);
+      const steps = stepsFromMetadata(decodeMetadataValue(record?.metadata));
+      return steps?.["completion-race"]?.status === "running" ? record : null;
+    });
+    body.release();
     await store.completionWriteStarted;
 
-    const cancellation = await orchestrator.cancelRun(run.id);
-    store.releaseCompletionWrite();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const cancelledAt = Date.now() + 1000;
+      vi.setSystemTime(cancelledAt);
+      const cancellation = await orchestrator.cancelRun(run.id);
+      vi.setSystemTime(cancelledAt + 1000);
+      store.releaseCompletionWrite();
 
-    expect(cancellation.status).toBe("cancelled");
-    await expect(run.result()).resolves.toMatchObject({ status: "cancelled" });
-    await expect(store.getRun(run.id)).resolves.toMatchObject({
-      status: "cancelled",
-    });
-    await orchestrator.stop();
+      expect(cancellation.status).toBe("cancelled");
+      await expect(run.result()).resolves.toMatchObject({
+        status: "cancelled",
+      });
+      await expect(orchestrator.getRun(run.id)).resolves.toMatchObject({
+        metadata: {
+          workflow: { steps: { "completion-race": { status: "aborted" } } },
+        },
+        status: "cancelled",
+        timestamps: { failedAt: cancelledAt },
+      });
+    } finally {
+      store.releaseCompletionWrite();
+      vi.useRealTimers();
+      await orchestrator.stop();
+    }
   });
 
   test("resolution wins its barrier before Run cancellation", async () => {

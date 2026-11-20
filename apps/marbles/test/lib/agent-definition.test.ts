@@ -1,13 +1,3 @@
-/**
- * An agent declared with a function: the function returns the definition
- * as each session opens, given the route that session must keep. It runs
- * on no import and no `extend`, once per session, never on a replayed
- * turn, and what it chose (route, skills, MCP servers) is what the session
- * opens with. Usage comes from a provider defined with the usage kit, so
- * snapshots are built by `@foundry/usage` itself and nothing is asked of a
- * real login.
- */
-
 import { fileURLToPath } from "node:url";
 import { McpClient } from "@foundry/agents/mcp";
 import { defineSkill } from "@foundry/agents/skills";
@@ -18,6 +8,7 @@ import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
+import { prompts, ref } from "~/authoring/index";
 import { agent, skills } from "~/authoring/resources";
 import { dispose, setHost } from "~/authoring/runtime";
 import type { ManagerArgs } from "~/lib/bindings";
@@ -49,7 +40,6 @@ const NOT_JSON = /extend's input must be JSON/;
 const ANOTHER_INPUT = /was opened with another input/;
 const BOTH_INPUTS = /keeps both an input and noInput/;
 
-/** How much of the fixture Claude login's week is used; tests move it. */
 let claudeWeekUsed = 40;
 const readLimits = vi.fn(() =>
   Promise.resolve({
@@ -88,16 +78,11 @@ const fixtureServer: AgentMcpServer = {
   },
 };
 
-/** Claude while its week has room, Codex once it is used up. */
 async function routeFromUsage(): Promise<string> {
   const claude = await usage.query("anthropic");
   return claude.weekly?.exhausted ? "codex" : "claude-code";
 }
 
-/**
- * The agent the docs show: a route from usage unless the session already
- * has one, and the skills and MCP servers for that route.
- */
 function usageRoutedReviewer(seen: AgentRoute[] = []) {
   return agent(async (route) => {
     seen.push(route);
@@ -122,7 +107,6 @@ afterEach(async () => {
   readLimits.mockClear();
 });
 
-/** A host engine whose models answer `provider|tools|prompt`. */
 function hostEngine(): Engine {
   const engine = testEngine({
     print: () => undefined,
@@ -148,7 +132,6 @@ function args(): ManagerArgs {
   return { frame: scope.frame(["root", "review"]), scope, write: () => 0 };
 }
 
-/** A bare agents manager over mock models, for sessions in a frame. */
 function managerDeps(): AgentsDeps {
   const host = testEngine();
   engines.push(host);
@@ -158,13 +141,13 @@ function managerDeps(): AgentsDeps {
     containerOf: (): never => {
       throw new Error("no sandbox in these tests");
     },
+    cwd: process.cwd(),
     defaultExecutor: () => CLAUDE_CODE,
     dry: false,
     interactions: host.interactions,
     models: mockModels([CLAUDE_CODE, CODEX], ({ executor }) =>
       String(executor.provider)
     ),
-    root: process.cwd(),
     sessions: host.sessions,
     skills: () => Promise.resolve([]),
     warn: () => undefined,
@@ -175,10 +158,29 @@ const verdict = Output.object({
   schema: z.object({ approved: z.boolean() }),
 });
 
-/** Named by its `const`, not by a digest of its source. */
 const topLevelReviewer = agent(() => ({ prompt: "Review." }));
 
 describe("when the function runs", () => {
+  it("renders one portable prompt for the harness of the resolved model", async () => {
+    hostEngine();
+    const prompt = prompts.portable`Use ${ref.skill("inspections")} to read ${ref.file("AGENTS.md")}.`;
+    const reviewer = agent({
+      model: "claude-code/opus",
+      prompt,
+    });
+    const alternate = agent(async () => ({
+      model: "codex/gpt-5.5",
+      prompt,
+    }));
+
+    expect(parse((await reviewer.generate("Look.")).text).prompt).toContain(
+      "Use /inspections to read @AGENTS.md."
+    );
+    expect(parse((await alternate.generate("Look.")).text).prompt).toContain(
+      "Use $inspections to read @AGENTS.md."
+    );
+  });
+
   it("runs on no declaration and no extend, then once per session", async () => {
     hostEngine();
     const define = vi.fn(() => ({ prompt: "Review." }));
@@ -222,7 +224,6 @@ describe("when the function runs", () => {
   });
 });
 
-/** `agents.session` on the host engine, as a script outside a step would open one. */
 function setHostSession(reviewer: AgentLike) {
   const engine = engines.at(-1);
   if (!engine) {
@@ -522,7 +523,6 @@ describe("failures", () => {
 });
 
 describe("identity", () => {
-  /** A helper that makes one agent per team: the same source, different captures. */
   function teamReviewer(team: string) {
     return agent(() => ({ prompt: `Review for ${team}.` }));
   }
@@ -589,7 +589,6 @@ describe("replay", () => {
 });
 
 describe("input", () => {
-  /** A reviewer told who did the work; the session keeps who that was. */
   function reviewerOf(seen: unknown[] = []) {
     return agent((_route, input?: { readonly implementer: string }) => {
       seen.push(input);
@@ -651,7 +650,6 @@ describe("input", () => {
     expect(() => reviewer.extend({ input: { run: () => 0 } })).toThrow(
       NOT_JSON
     );
-    // An array with holes would not come back from JSON the same.
     expect(() => reviewer.extend({ input: { list: new Array(2) } })).toThrow(
       NOT_JSON
     );
@@ -681,7 +679,6 @@ describe("input", () => {
     expect(first.ref.input).toBeNull();
     expect(first.ref.noInput).toBeUndefined();
 
-    // Reopened without an input, the function is given the null it kept.
     const kept = JSON.parse(JSON.stringify(first.ref));
     const reopened = await new AgentsManager(deps)
       .scoped(args())
@@ -700,7 +697,6 @@ describe("input", () => {
         })
     ).rejects.toThrow(ANOTHER_INPUT);
 
-    // A session opened with none does not take null.
     const none = await new AgentsManager(deps).scoped(args()).session(nullable);
     expect(none.ref.noInput).toBe(true);
     await expect(
@@ -731,7 +727,6 @@ describe("input", () => {
         .session(reviewer.extend({ input: given }), { session: first.ref })
     ).rejects.toThrow(ANOTHER_INPUT);
 
-    // An input read back from a ref is frozen for the function too.
     const reopened = await new AgentsManager(deps)
       .scoped(args())
       .session(reviewer, { session: JSON.parse(JSON.stringify(first.ref)) });
@@ -761,7 +756,6 @@ describe("input", () => {
     expect(again.ref).toEqual(first.ref);
     expect(seen).toEqual([undefined, undefined]);
 
-    // The same in a parked run whose body now binds an input.
     const restored = new RunScope(
       a.scope.id,
       a.scope.cwd,
@@ -791,8 +785,6 @@ describe("input", () => {
     const first = await new AgentsManager(deps).scoped(a).session(ofCodex);
     expect(first.ref.input).toEqual({ implementer: "codex" });
 
-    // The run parks: its ledger is written as JSON, and a later process
-    // rebuilds the scope from it. The body runs again without the input.
     const restored = new RunScope(
       a.scope.id,
       a.scope.cwd,
@@ -869,7 +861,6 @@ describe("input", () => {
         })
     ).rejects.toThrow(ANOTHER_INPUT);
 
-    // A ref that kept no input takes the one the agent has.
     const byId = await new AgentsManager(deps)
       .scoped(args())
       .session(reviewer.extend({ input: { implementer: "claude" } }), {
@@ -897,7 +888,6 @@ describe("input", () => {
         })
     ).rejects.toThrow(ANOTHER_INPUT);
 
-    // A session opened with no input keeps that too.
     const none = await new AgentsManager(deps).scoped(args()).session(reviewer);
     const plainAgain = await new AgentsManager(deps)
       .scoped(args())
@@ -959,6 +949,30 @@ describe("input", () => {
 });
 
 describe("an MCP dispatch", () => {
+  it("keeps portable notation when dispatch adds instructions", async () => {
+    const engine = hostEngine();
+    const reviewer = agent({
+      prompt: prompts.portable`Use ${ref.skill("inspections")}.`,
+    });
+    const jobs = new BackgroundRuns(engine, catalog);
+    await engine.start();
+    try {
+      const started = await jobs.start({
+        agent: reviewer.id,
+        instructions: "Inspect only.",
+        model: "codex/gpt-5.5",
+        prompt: "Inspect",
+      });
+      await vi.waitFor(async () =>
+        expect((await jobs.get(started.runId)).status).toBe("completed")
+      );
+      const { text } = await jobs.get(started.runId);
+      expect(text).toContain("Use $inspections.\n\nInspect only.");
+    } finally {
+      await jobs.close();
+    }
+  });
+
   it("builds a declared agent for the route the dispatch asks for", async () => {
     const engine = testEngine({
       print: () => undefined,
@@ -1002,7 +1016,6 @@ describe("an MCP dispatch", () => {
     );
     const jobs = new BackgroundRuns(engine, catalog);
     await engine.start();
-    // The ref comes back over MCP as JSON, through the dispatch schema.
     const { session } = dispatchSchema.parse({
       agent: declared.id,
       prompt: "Continue",
@@ -1038,7 +1051,6 @@ describe("an MCP dispatch", () => {
       ...JSON.parse(JSON.stringify(opened.ref)),
       input: { forged: true },
     };
-    // MCP validates each field with the shape's own schema.
     expect(dispatchSchema.shape.session.safeParse(forged).success).toBe(false);
     expect(
       dispatchSchema.safeParse({

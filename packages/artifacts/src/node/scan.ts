@@ -7,7 +7,6 @@ import { sha256Hex } from "@foundry/lib/digest";
 
 import type { EntryInputs, TreeChanges } from "../substrate";
 
-/** A storage node without store-owned fields such as `blobId`. */
 export function descriptor(node: StorageNode): StorageNode {
   if (node.type !== "file") {
     return node;
@@ -20,7 +19,6 @@ export function descriptor(node: StorageNode): StorageNode {
   };
 }
 
-/** The changes that turn `baseline` into the tree found under `root`. */
 export async function diffDirectory(
   root: string,
   baseline: StorageTree
@@ -40,7 +38,6 @@ export async function diffDirectory(
           }
         : node;
   }
-  // Catalog-only nodes never appear on disk, so their absence is no removal.
   const remove = Object.entries(baseline)
     .filter(
       ([path, node]) =>
@@ -72,7 +69,6 @@ function sameNode(
   return previous?.type === node.type;
 }
 
-/** Describe every entry under `root`, hashing each regular file. */
 export async function scan(root: string): Promise<StorageTree> {
   const tree: Record<string, StorageNode> = Object.create(null);
   async function walk(directory: string, prefix: string): Promise<void> {

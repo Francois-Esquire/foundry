@@ -6,7 +6,8 @@ import type {
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { spawnRecordedCli } from "../claude-code-spawn";
 import { claudeCodeCallCost } from "../cost";
 import { ModelManager } from "../manager";
 
@@ -14,21 +15,122 @@ const VERSION_DIGIT_PATTERN = /\d/;
 
 const languageModel = vi.fn((modelId: string) => ({ modelId }));
 const createClaudeCode = vi.fn(() => ({ languageModel }));
+const startup = vi.fn();
 
-vi.mock("ai-sdk-provider-claude-code", () => ({ createClaudeCode }));
+vi.mock("ai-sdk-provider-claude-code", () => ({ createClaudeCode, startup }));
 
-const { CLAUDE_CODE_DEFAULT_MODELS, claudeCodeProvider } = await import(
-  "../claude-code"
-);
+const { CLAUDE_CODE_DEFAULT_MODELS, claudeCodeModels, claudeCodeProvider } =
+  await import("../claude-code");
 
-/** The ambient environment itself, so the overlay each model gets is empty. */
 const env = Object.fromEntries(
   Object.entries(process.env).filter(
     (entry): entry is [string, string] => entry[1] !== undefined
   )
 );
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+  startup.mockReset();
+});
+
+describe("claudeCodeModels", () => {
+  it("asks the scoped CLI for models without yielding a prompt and preserves aliases and canonical IDs", async () => {
+    let promptRead: Promise<IteratorResult<unknown>> | undefined;
+    const closeQuery = vi.fn();
+    const closeWarm = vi.fn();
+    const query = vi.fn((prompt: AsyncIterable<unknown>) => {
+      promptRead = prompt[Symbol.asyncIterator]().next();
+      return {
+        close: closeQuery,
+        supportedModels: () =>
+          Promise.resolve([
+            {
+              displayName: "Sonnet",
+              resolvedModel: "claude-sonnet-5",
+              value: "sonnet",
+            },
+            {
+              displayName: "Default",
+              resolvedModel: "claude-opus-5-5",
+              value: "default",
+            },
+            {
+              displayName: "Opus variant",
+              resolvedModel: "claude-opus-5-5",
+              value: "opus[1m]",
+            },
+            { displayName: "Canonical Sonnet", value: "claude-sonnet-5" },
+          ]),
+      };
+    });
+    startup.mockResolvedValue({ close: closeWarm, query });
+    vi.stubEnv("ANTHROPIC_API_KEY", "ambient-key");
+    const rows = await claudeCodeModels({
+      binPath: "/tools/claude",
+      env: { CLAUDE_CONFIG_DIR: "/account", HOME: "/account-home" },
+    });
+    expect(rows.map(({ id, modelId }) => [id, modelId])).toEqual([
+      ["default", "default"],
+      ["sonnet", "sonnet"],
+      ["opus[1m]", "opus[1m]"],
+      ["claude-sonnet-5", "claude-sonnet-5"],
+      ["claude-opus-5-5", "claude-opus-5-5"],
+    ]);
+    expect(rows.find(({ id }) => id === "claude-sonnet-5")?.label).toBe(
+      "Canonical Sonnet"
+    );
+    expect(rows.every((row) => row.limits === undefined)).toBe(true);
+    expect(startup.mock.calls[0]?.[0]).toMatchObject({
+      initializeTimeoutMs: 4000,
+      options: {
+        allowedTools: [],
+        env: {
+          ANTHROPIC_API_KEY: undefined,
+          CLAUDE_CONFIG_DIR: "/account",
+          HOME: "/account-home",
+        },
+        mcpServers: {},
+        pathToClaudeCodeExecutable: "/tools/claude",
+        permissionMode: "dontAsk",
+        persistSession: false,
+        settingSources: [],
+        settings: { disableAllHooks: true },
+        spawnClaudeCodeProcess: spawnRecordedCli,
+        strictMcpConfig: true,
+        tools: [],
+      },
+    });
+    expect(await promptRead).toEqual({ done: true, value: undefined });
+    expect(closeQuery).toHaveBeenCalledOnce();
+    expect(closeWarm).toHaveBeenCalledOnce();
+  });
+
+  it("closes both handles on discovery failure and keeps SDK diagnostics out of the message", async () => {
+    const closeQuery = vi.fn();
+    const closeWarm = vi.fn();
+    startup.mockResolvedValue({
+      close: closeWarm,
+      query: () => ({
+        close: closeQuery,
+        supportedModels: () =>
+          Promise.reject(new Error("private SDK diagnostic")),
+      }),
+    });
+    await expect(
+      claudeCodeModels({ binPath: "/tools/claude", env })
+    ).rejects.toMatchObject({
+      message: "Claude Code SDK could not list models",
+    });
+    expect(closeQuery).toHaveBeenCalledOnce();
+    expect(closeWarm).toHaveBeenCalledOnce();
+  });
+});
+
 describe("claudeCodeProvider", () => {
+  it("starts with no catalog when none is supplied", () => {
+    expect(claudeCodeProvider({ env }).models).toEqual([]);
+  });
+
   it("is unavailable until the host says otherwise", () => {
     expect(claudeCodeProvider({ env }).available).toBe(false);
   });
@@ -43,25 +145,29 @@ describe("claudeCodeProvider", () => {
     expect(claudeCodeProvider({ env }).turnLimit).toBe("native");
   });
 
-  it("mounts a turn-scoped working directory when it builds the model", () => {
-    claudeCodeProvider({ env }).languageModel("sonnet", {
+  it("mounts a turn-scoped working directory when it builds the model", async () => {
+    const model = claudeCodeProvider({ env }).languageModel("sonnet", {
       workingDirectory: "/repo",
     });
+    await model.supportedUrls;
     expect(languageModel).toHaveBeenLastCalledWith("sonnet", {
       cwd: "/repo",
       env: {},
+      spawnClaudeCodeProcess: spawnRecordedCli,
     });
   });
 
-  it("passes a native turn limit to Claude Code", () => {
-    claudeCodeProvider({ env }).languageModel("sonnet", {
+  it("passes a native turn limit to Claude Code", async () => {
+    const model = claudeCodeProvider({ env }).languageModel("sonnet", {
       nativeMaxTurns: 7,
       workingDirectory: "/repo",
     });
+    await model.supportedUrls;
     expect(languageModel).toHaveBeenLastCalledWith("sonnet", {
       cwd: "/repo",
       env: {},
       maxTurns: 7,
+      spawnClaudeCodeProcess: spawnRecordedCli,
     });
   });
 
@@ -93,7 +199,11 @@ it("refuses native limits for a provider that does not support them", () => {
   const manager = new ModelManager({
     providers: [
       {
-        ...claudeCodeProvider({ config: { available: true }, env }),
+        ...claudeCodeProvider({
+          config: { available: true },
+          env,
+          models: CLAUDE_CODE_DEFAULT_MODELS,
+        }),
         turnLimit: "unsupported",
       },
     ],
@@ -105,11 +215,15 @@ it("refuses native limits for a provider that does not support them", () => {
 
 it.each([1, 100])(
   "accepts the provider's native limit boundary (%s)",
-  (nativeMaxTurns) => {
-    claudeCodeProvider({ env }).languageModel("sonnet", { nativeMaxTurns });
+  async (nativeMaxTurns) => {
+    const model = claudeCodeProvider({ env }).languageModel("sonnet", {
+      nativeMaxTurns,
+    });
+    await model.supportedUrls;
     expect(languageModel).toHaveBeenLastCalledWith("sonnet", {
       env: {},
       maxTurns: nativeMaxTurns,
+      spawnClaudeCodeProcess: spawnRecordedCli,
     });
   }
 );
@@ -132,7 +246,6 @@ describe("a Claude Code call that resumed no session", () => {
     },
   } as const;
 
-  /** A vendor model with these settings, as the provider would build it. */
   function opened(settings: ClaudeCodeSettings | undefined) {
     const vendor = Object.assign(
       new MockLanguageModelV4({
@@ -169,7 +282,6 @@ describe("a Claude Code call that resumed no session", () => {
     const model = opened({ cwd: "/repo" });
     const first = await model.doGenerate(CALL);
     expect(claudeCodeCallCost(first.providerMetadata)).toBe(0.25);
-    // The instance now resumes the session the first call opened.
     const second = await model.doGenerate(CALL);
     expect(second.providerMetadata).toEqual(REPORTED);
     expect(claudeCodeCallCost(second.providerMetadata)).toBeUndefined();

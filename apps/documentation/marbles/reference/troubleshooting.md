@@ -24,10 +24,11 @@ if needed. See [Installation](/marbles/get-started/installation).
   name. Inferred names need TypeScript 6 installed in the project.
 - Fix import errors, duplicate names, and missing project dependencies
   reported during loading.
-- Wait a second after changing a module: the workspace's worker reloads on
-  its own. A dashboard header showing `failed` means the module threw while
-  loading; fix it, then open `marbles` (or run `roll`) again, which starts
-  a fresh worker.
+- Wait a second after changing a module: the Marbles process starts its
+  next engine generation on its own. A change that throws while loading
+  keeps the previous load running, and the workspace shows the error; fix
+  it, and the next edit loads. A header showing `failed` means no load of
+  the workspace runs: fix it, then open `marbles` (or run `roll`) again.
 
 [Discovery rules](/marbles/reference/project#discovery-and-ignored-files)
 also explain how imported helper modules register work.
@@ -62,8 +63,9 @@ timestamps may trigger every poll. See [monitor semantics](/marbles/foundation/t
 ## An agent or sandbox cannot start
 
 Run the configured `claude` or `codex` command directly in the same
-environment to verify installation and authentication. Check `providers.json`
-under the state root and the agent's `provider` and `model`: a model no
+environment to verify installation and authentication. Check the configured
+providers (`ProviderConfiguration.list()` in `@foundry.sh/marbles/lib`) and
+the agent's `provider` and `model`: a model no
 configured catalog lists is refused, and a session stays on the provider it
 started with.
 
@@ -101,8 +103,9 @@ also explains one-shot agent calls and artifact writes.
 ## A run did not resume
 
 Only parked runs are adopted after restart. Keep the workspace path, state
-root, and registered definitions available; the workspace's worker adopts
-when it starts, and the question waits on the Feed for a dashboard.
+root, and registered definitions available; the current engine generation
+adopts them when it starts, or as soon as a retiring one lets one go, and
+the question waits on the Feed for a dashboard.
 Runs interrupted while actively executing appear orphaned. See
 [recovery conditions](/marbles/reference/state#what-survives-a-restart).
 

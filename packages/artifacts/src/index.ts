@@ -2,6 +2,7 @@ export type {
   Blob,
   BlobFiles,
   BlobSource,
+  BlobStagingArea,
   ContentTree,
   StoredFile,
 } from "./blob";
@@ -46,14 +47,13 @@ export {
 export type { ArtifactCursor } from "./listing";
 export { artifactCursor, normalizeArtifactQuery } from "./listing";
 export { ArtifactManager, type ArtifactManagerOptions } from "./manager";
-export {
-  type ArtifactRecords,
-  InMemoryArtifactStore,
-  type InMemoryArtifactStoreOptions,
-} from "./memory";
 export type { ArtifactId, BlobId, ContentId } from "./ref";
 export { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ref";
-export type { ArtifactStore, ArtifactStoreTransaction } from "./store";
+export type {
+  ArtifactEvent,
+  ArtifactEventType,
+  ArtifactRecords,
+} from "./schema";
 export type {
   Artifact,
   ArtifactChangeCause,

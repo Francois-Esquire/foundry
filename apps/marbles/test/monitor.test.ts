@@ -1,20 +1,22 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { globToRegExp } from "@foundry/lib/glob";
 import { WorkspaceSystem } from "@foundry/workspaces";
 import { git } from "@foundry/workspaces/git";
 import { directory } from "@foundry/workspaces/node";
-import { monitor, step, workflow } from "@foundry.sh/marbles";
+import {
+  schedule as declareSchedule,
+  monitor,
+  step,
+  workflow,
+} from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
+import { defaultWorkspaceTriggers } from "~/database/managed";
+import { initializeDatabase } from "~/database/open";
+import { marblesMonitorStates } from "~/database/tables";
+import { DatabaseTriggerStore } from "~/database/triggers";
 import type { AnyDefinition } from "~/lib/definition";
 import type { EngineOptions } from "~/lib/engine";
 import { createLog } from "~/lib/log";
@@ -28,15 +30,16 @@ import type {
   MonitorHost,
   MonitorSpec,
 } from "~/lib/monitor";
-import { acknowledgeLaunch, detector, handlerResponse } from "~/lib/monitor";
+import { detector, handlerResponse } from "~/lib/monitor";
 import { tick } from "~/lib/schedule";
-import { isRecord, readJson } from "~/lib/state/json";
-import type { StateStore } from "~/lib/state/store";
-import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
+import { isRecord, NotStorableError } from "~/lib/state/json";
+import type { TriggerStore } from "~/lib/trigger-store";
+import { MemoryTriggerStore } from "~/lib/trigger-store";
 
 import { declared, startEngine, testEngine } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
 import { monitorContext } from "./helpers/monitor";
+import { temporaryDirectory } from "./helpers/temporary";
 
 const SHA_256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const SHA_256_HEX_PATTERN_2 = /^[0-9a-f]{64}$/;
@@ -53,27 +56,27 @@ afterEach(async () => {
   await Promise.all(catalogues.splice(0).map((open) => open.closeAll()));
 });
 
-/** What the last `hostIn` wired: the host a detector reads, and what an engine over it takes. */
-let hosted: MonitorHost & { readonly store: StateStore } & Pick<
+let hosted: MonitorHost & { readonly triggers: TriggerStore } & Pick<
     EngineOptions,
     "root" | "state" | "workspaces"
   >;
 
-/** A host over `root`: what a files detector needs to read the tree. */
 function hostIn(root: string, state?: string) {
   const lines: string[] = [];
   const log = createLog((_level, message) => lines.push(message));
   const catalogue = new WorkspaceSystem().extend(directory(), git());
   catalogues.push(catalogue);
   const stateOption = state === undefined ? {} : { state };
-  const store =
-    state === undefined ? new InMemoryStateStore() : new JsonStateStore(state);
-  hosted = { catalogue, root, store, workspaces: catalogue, ...stateOption };
+  const triggers =
+    state === undefined
+      ? new MemoryTriggerStore()
+      : defaultWorkspaceTriggers(state, root, "test");
+  hosted = { catalogue, root, triggers, workspaces: catalogue, ...stateOption };
   bindLaunch(
     testEngine({
       print: (line) => lines.push(line),
       root,
-      store,
+      triggers,
       workspaces: catalogue,
       ...stateOption,
     }).bindings
@@ -81,7 +84,6 @@ function hostIn(root: string, state?: string) {
   return { context: monitorContext(log), lines };
 }
 
-/** A detector body called directly, outside a run, reads the host `hostIn` wired. */
 const detectorIn = (
   key: string,
   spec: MonitorSpec,
@@ -126,7 +128,7 @@ describe("files detector", () => {
   const spec: MonitorSpec = { glob: "**/*.md", kind: "files" };
 
   it("reports everything added on the first tick, then only what moved", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
+    const root = temporaryDirectory("marbles-mon-");
     mkdirSync(join(root, "sub"));
     writeFileSync(join(root, "a.md"), "one\n");
     writeFileSync(join(root, "sub", "b.md"), "two\n");
@@ -167,16 +169,15 @@ describe("files detector", () => {
     expect(removed[0]?.checksum).toMatch(SHA_256_HEX_PATTERN);
   });
 
-  it("round-trips its state through monitors/<name>.json", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
-    const state = mkdtempSync(join(tmpdir(), "marbles-mon-state-"));
+  it("round-trips its state through the trigger store", async () => {
+    const root = temporaryDirectory("marbles-mon-");
+    const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "a.md"), "one\n");
 
     const first = recorder();
     await detectorIn("m", spec, first.handler)(hostIn(root, state).context);
-    const stored = readJson(join(state, "monitors", "m.json"));
-    const files =
-      isRecord(stored) && isRecord(stored.files) ? stored.files : {};
+    const stored = await hosted.triggers.monitorState("m");
+    const files = isRecord(stored?.observed.files) ? stored.observed.files : {};
     expect(files["a.md"]).toMatch(SHA_256_HEX_PATTERN_2);
 
     const second = recorder();
@@ -190,7 +191,7 @@ describe("files detector", () => {
   });
 
   it("ignores directories and links matching the file glob", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
+    const root = temporaryDirectory("marbles-mon-");
     try {
       mkdirSync(join(root, "empty.md"));
       writeFileSync(join(root, "a.md"), "one\n");
@@ -222,7 +223,7 @@ describe("files detector", () => {
   });
 
   it("runs as the registered step with an empty poll input", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
+    const root = temporaryDirectory("marbles-mon-");
     writeFileSync(join(root, "guide.md"), "one\n");
     const { changes, contexts, handler } = recorder();
     monitor("**/*.md").do(handler);
@@ -244,7 +245,7 @@ describe("files detector", () => {
   });
 
   it("asks the tick to start a locked node the handler returns", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
+    const root = temporaryDirectory("marbles-mon-");
     writeFileSync(join(root, "guide.md"), "one\n");
     const ship = step("ship")
       .input(z.object({ task: z.string() }))
@@ -263,8 +264,8 @@ describe("files detector", () => {
   });
 
   it("hands a launch out again every tick until the tick that started it acknowledges", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
-    const state = mkdtempSync(join(tmpdir(), "marbles-mon-state-"));
+    const root = temporaryDirectory("marbles-mon-");
+    const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "guide.md"), "one\n");
     const ship = step("ship")
       .input(z.object({ task: z.string() }))
@@ -280,22 +281,19 @@ describe("files detector", () => {
       launch: { input: { task: "guide.md" }, workflow: "ship" },
     };
     await expect(detect(context)).resolves.toEqual(expected);
-    expect(readJson(join(state, "monitors", "m.json"))).toMatchObject({
+    expect(await hosted.triggers.monitorState("m")).toMatchObject({
       pending: expected.launch,
     });
-    // Nothing changed, but the launch was never started: out it goes again,
-    // without asking the handler.
     await expect(detect(context)).resolves.toEqual(expected);
     expect(handled).toBe(1);
-    acknowledgeLaunch(hosted.store, "m");
-    const stored = readJson(join(state, "monitors", "m.json"));
-    expect(isRecord(stored) && "pending" in stored).toBe(false);
+    await hosted.triggers.clearPendingLaunch("m");
+    expect((await hosted.triggers.monitorState("m"))?.pending).toBeUndefined();
     await expect(detect(context)).resolves.toEqual({ changed: false });
   });
 
   it("a tick starts the launch once, and a target that fails is not started again", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
-    const state = mkdtempSync(join(tmpdir(), "marbles-mon-state-"));
+    const root = temporaryDirectory("marbles-mon-");
+    const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "guide.md"), "one\n");
     let attempts = 0;
     const ship = step("ship")
@@ -321,10 +319,7 @@ describe("files detector", () => {
       tick(engine, schedule, { print: () => undefined })
     ).rejects.toThrow("cannot ship guide.md");
     expect(attempts).toBe(1);
-    // Started is delivered: the file no longer holds the launch, and the
-    // next tick finds nothing changed.
-    const stored = readJson(join(state, "monitors", `${key}.json`));
-    expect(isRecord(stored) && "pending" in stored).toBe(false);
+    expect((await hosted.triggers.monitorState(key))?.pending).toBeUndefined();
     await expect(
       tick(engine, schedule, { print: () => undefined })
     ).resolves.toEqual({ value: { changed: false } });
@@ -332,9 +327,155 @@ describe("files detector", () => {
     await engine.stop();
   });
 
+  it.each([
+    ["the database", true],
+    ["memory", false],
+  ])(
+    "drops a launch a monitor left once its key ticks as a schedule, so it never goes out, kept in %s",
+    async (_where, persisted) => {
+      const root = temporaryDirectory("marbles-mon-");
+      const state = temporaryDirectory("marbles-mon-state-");
+      writeFileSync(join(root, "guide.md"), "one\n");
+      let shipped = 0;
+      step("ship").do(() => {
+        shipped += 1;
+      });
+      step("tidy").do(() => "tidied");
+      monitor("**/*.md").do(() => undefined);
+      hostIn(root, persisted ? state : undefined);
+      const [key] = [...catalog.monitors.keys()] as [string];
+      const watching = declared().schedules.get(key);
+      if (!watching) {
+        throw new Error("expected the monitor's schedule");
+      }
+      await hosted.triggers.saveMonitorState(key, {
+        observed: {},
+        pending: { input: null, workflow: "ship" },
+      });
+      const engine = await startEngine({
+        ...hosted,
+        print: () => undefined,
+      });
+      const scheduled = {
+        ...watching,
+        kind: "schedule" as const,
+        workflow: "tidy",
+      };
+      await expect(
+        tick(engine, scheduled, { print: () => undefined })
+      ).resolves.toEqual({ value: "tidied" });
+      expect(shipped).toBe(0);
+      expect(await hosted.triggers.monitorState(key)).toBeUndefined();
+      await expect(
+        tick(engine, watching, { print: () => undefined })
+      ).resolves.toEqual({ value: { changed: true } });
+      expect(shipped).toBe(0);
+      await engine.stop();
+    }
+  );
+
+  it("hands no launch an older Marbles left under a schedule's key to a monitor, dropping it, and polls", async () => {
+    const root = temporaryDirectory("marbles-mon-");
+    writeFileSync(join(root, "guide.md"), "one\n");
+    const opened = await initializeDatabase(join(root, "marbles.db"));
+    const triggers = new DatabaseTriggerStore({
+      database: opened.database,
+      scope: "one",
+    });
+    try {
+      const time = "2026-11-01T00:00:00.000Z";
+      await triggers.claimTick("m");
+      await triggers.finishTick("m", {
+        kind: "schedule",
+        lastFinish: time,
+        lastStart: time,
+        lastStatus: "complete",
+        nextDue: time,
+      });
+      await opened.database.insert(marblesMonitorStates).values({
+        key: "m",
+        observed: {},
+        pending: { input: { old: true }, workflow: "obsolete-target" },
+        scope: "one",
+      });
+      const { context } = hostIn(root);
+      const detect = detector(
+        "m",
+        spec,
+        handlerResponse("m", () => undefined),
+        {
+          host: () => ({ ...hosted, triggers }),
+        }
+      );
+      await expect(detect(context)).resolves.toEqual({ changed: true });
+      expect((await triggers.monitorState("m"))?.pending).toBeUndefined();
+    } finally {
+      await triggers.close();
+      opened.close();
+    }
+  });
+
+  it("records a declared schedule's tick as a schedule's", async () => {
+    const root = temporaryDirectory("marbles-mon-");
+    const tidy = step("tidy").do(() => "tidied");
+    declareSchedule(tidy({})).every("1h");
+    hostIn(root);
+    const [scheduled] = [...declared().schedules.values()];
+    if (!scheduled) {
+      throw new Error("expected the schedule");
+    }
+    const engine = await startEngine({ ...hosted, print: () => undefined });
+    await tick(engine, scheduled, { print: () => undefined });
+    expect((await hosted.triggers.lastTick(scheduled.key))?.kind).toBe(
+      "schedule"
+    );
+    await engine.stop();
+  });
+
+  it.each([
+    ["the database", true],
+    ["memory", false],
+  ])(
+    "keeps the launch a monitor hands over on its first tick where a schedule ticked last, and starts it once, kept in %s",
+    async (_where, persisted) => {
+      const root = temporaryDirectory("marbles-mon-");
+      const state = temporaryDirectory("marbles-mon-state-");
+      writeFileSync(join(root, "guide.md"), "one\n");
+      const ship = step("ship")
+        .input(z.object({ task: z.string() }))
+        .do(({ input }) => input.task);
+      let handled = 0;
+      const detect = detectorIn("m", spec, ({ files }) => {
+        handled += 1;
+        return ship({}, { task: files?.added[0]?.path ?? "" });
+      });
+      const { context } = hostIn(root, persisted ? state : undefined);
+      const time = "2026-11-01T00:00:00.000Z";
+      await hosted.triggers.claimTick("m");
+      await hosted.triggers.finishTick("m", {
+        kind: "schedule",
+        lastFinish: time,
+        lastStart: time,
+        lastStatus: "complete",
+        nextDue: time,
+      });
+      await hosted.triggers.claimTick("m");
+      const expected = {
+        changed: true,
+        launch: { input: { task: "guide.md" }, workflow: "ship" },
+      };
+      await expect(detect(context)).resolves.toEqual(expected);
+      await expect(detect(context)).resolves.toEqual(expected);
+      expect(handled).toBe(1);
+      await hosted.triggers.clearPendingLaunch("m");
+      await expect(detect(context)).resolves.toEqual({ changed: false });
+      expect(handled).toBe(1);
+    }
+  );
+
   it("a pending launch whose target is gone fails one tick, not every tick", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
-    const state = mkdtempSync(join(tmpdir(), "marbles-mon-state-"));
+    const root = temporaryDirectory("marbles-mon-");
+    const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "guide.md"), "one\n");
     monitor("**/*.md").do(() => undefined);
     hostIn(root, state);
@@ -343,11 +484,10 @@ describe("files detector", () => {
     if (!schedule) {
       throw new Error("expected the monitor's schedule");
     }
-    mkdirSync(join(state, "monitors"), { recursive: true });
-    writeFileSync(
-      join(state, "monitors", `${key}.json`),
-      JSON.stringify({ pending: { input: null, workflow: "gone" }, version: 1 })
-    );
+    await hosted.triggers.saveMonitorState(key, {
+      observed: {},
+      pending: { input: null, workflow: "gone" },
+    });
     const engine = await startEngine({
       ...hosted,
       print: () => undefined,
@@ -355,9 +495,7 @@ describe("files detector", () => {
     await expect(
       tick(engine, schedule, { print: () => undefined })
     ).rejects.toThrow();
-    const stored = readJson(join(state, "monitors", `${key}.json`));
-    expect(isRecord(stored) && "pending" in stored).toBe(false);
-    // The next tick polls: the first sight of the file is a change, handled quietly.
+    expect((await hosted.triggers.monitorState(key))?.pending).toBeUndefined();
     await expect(
       tick(engine, schedule, { print: () => undefined })
     ).resolves.toEqual({ value: { changed: true } });
@@ -365,8 +503,8 @@ describe("files detector", () => {
   });
 
   it("a launch whose start fails for now stays pending and goes out next tick", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
-    const state = mkdtempSync(join(tmpdir(), "marbles-mon-state-"));
+    const root = temporaryDirectory("marbles-mon-");
+    const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "guide.md"), "one\n");
     let setups = 0;
     const bodies: string[] = [];
@@ -399,7 +537,7 @@ describe("files detector", () => {
     await expect(
       tick(engine, schedule, { print: () => undefined })
     ).rejects.toThrow("not yet");
-    expect(readJson(join(state, "monitors", `${key}.json`))).toMatchObject({
+    expect(await hosted.triggers.monitorState(key)).toMatchObject({
       pending: { workflow: "flaky" },
     });
     await expect(
@@ -411,7 +549,7 @@ describe("files detector", () => {
   });
 
   it("refuses a tree with children from the handler", async () => {
-    const root = mkdtempSync(join(tmpdir(), "marbles-mon-"));
+    const root = temporaryDirectory("marbles-mon-");
     writeFileSync(join(root, "guide.md"), "one\n");
     const a = step("a").do(() => 1);
     const b = step("b")
@@ -438,6 +576,10 @@ describe("http detector", () => {
     };
     return { calls, fetch: fetchImpl };
   }
+  const httpSpec = (): MonitorSpec => ({
+    kind: "http",
+    url: "https://example.test",
+  });
   const json =
     (value: unknown, status = 200) =>
     () =>
@@ -502,6 +644,61 @@ describe("http detector", () => {
     ]);
     await expect(detect(context)).resolves.toEqual({ changed: false });
     expect(changes).toHaveLength(1);
+  });
+
+  it.each([
+    ["-0", '{"n":-0}', { n: 0 }],
+    ["a number too large to be finite", '{"n":1e400}', { n: null }],
+  ])(
+    "hands a body holding %s on in the form it is kept, once, in memory and in the database",
+    async (_name, body, seen) => {
+      for (const state of [
+        undefined,
+        temporaryDirectory("marbles-mon-state-"),
+      ]) {
+        const { fetch } = stub([
+          () => new Response(body),
+          () => new Response(body),
+        ]);
+        const { context } = hostIn("/nowhere", state);
+        const { changes, handler } = recorder();
+        const detect = detectorIn("r", httpSpec(), handler, { fetch });
+
+        await expect(detect(context)).resolves.toEqual({ changed: true });
+        await expect(detect(context)).resolves.toEqual({ changed: false });
+        expect(changes).toEqual([
+          expect.objectContaining({ current: seen, kind: "http" }),
+        ]);
+        await hosted.triggers.close();
+      }
+    }
+  );
+
+  it("keeps what the handler saw when the launch it asks for cannot be kept, and never hands it the change again", async () => {
+    const { fetch } = stub([json({ n: 1 }), json({ n: 1 })]);
+    const { context } = hostIn(
+      "/nowhere",
+      temporaryDirectory("marbles-mon-state-")
+    );
+    let handled = 0;
+    const detect = detector(
+      "r",
+      httpSpec(),
+      () => {
+        handled += 1;
+        return Promise.resolve({ input: { at: 1n }, workflow: "ship" });
+      },
+      { fetch, host: () => hosted }
+    );
+
+    await expect(detect(context)).rejects.toThrow(NotStorableError);
+    await expect(detect(context)).resolves.toEqual({ changed: false });
+    expect(handled).toBe(1);
+    expect(await hosted.triggers.monitorState("r")).toMatchObject({
+      observed: { current: { n: 1 } },
+    });
+    expect((await hosted.triggers.monitorState("r"))?.pending).toBeUndefined();
+    await hosted.triggers.close();
   });
 
   it("sees a move to an error status as a change, with its real status", async () => {
@@ -620,7 +817,6 @@ describe("monitor factory", () => {
       kind: "interval",
       ms: 300_000,
     });
-    // Detectors are internal: they never appear as launchable entries.
     expect(registry.entries()).toEqual([]);
   });
 

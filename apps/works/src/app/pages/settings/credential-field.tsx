@@ -48,11 +48,6 @@ export interface CredentialFieldProps {
   state: FieldState;
 }
 
-/**
- * One credential: a labelled input with its source badge, Save, and, when the
- * value is user-set, Clear. The input never shows a stored value; it only
- * takes a new one.
- */
 export function CredentialField({
   field,
   onClear,

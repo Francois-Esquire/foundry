@@ -6,19 +6,16 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { acquireFileLock, processAlive, tryFileLock } from "../file-lock";
+import { acquireFileLock, lockContents, tryFileLock } from "../file-lock";
+import { processAlive } from "../process-identity";
 
-/** Faults injected into the lock's own file operations. */
 const faults = vi.hoisted(() => ({
-  /** Run once, just before this path is read for the `nth` time (from 1). */
   beforeRead: undefined as
     | { readonly path: string; nth: number; readonly run: () => void }
     | undefined,
-  /** Run once, just before this path is next removed. */
   beforeRemoval: undefined as
     | { readonly path: string; readonly run: () => void }
     | undefined,
-  /** The next write to a lock file fails. */
   failWrite: false,
 }));
 
@@ -55,7 +52,6 @@ vi.mock("node:fs", async (original) => {
   };
 });
 
-/** A pid that was running a moment ago and is not now. */
 function exitedPid(): number {
   const { pid } = spawnSync(process.execPath, ["-e", ""]);
   if (pid === undefined || processAlive(pid)) {
@@ -91,10 +87,6 @@ it("removes a lock whose holder could not be recorded, so it cannot wedge", asyn
 it("does not let a breaker remove the lock another breaker took", async () => {
   const dead = exitedPid();
   await writeFile(lock, String(dead));
-  // Another process tries the same stale lock in the instant this one is
-  // about to remove it. Without turns, it removes the stale lock too and
-  // takes it, and then loses it to this breaker's removal: both would hold
-  // the lock.
   let other: ReturnType<typeof tryFileLock> | undefined;
   faults.beforeRemoval = {
     path: lock,
@@ -105,7 +97,7 @@ it("does not let a breaker remove the lock another breaker took", async () => {
 
   const attempt = tryFileLock(lock, { breakStale: true });
 
-  expect(other).toEqual({ holder: dead });
+  expect(other).toMatchObject({ holder: dead });
   expect("release" in attempt).toBe(true);
   if ("release" in attempt) {
     attempt.release();
@@ -115,7 +107,6 @@ it("does not let a breaker remove the lock another breaker took", async () => {
 
 it("takes a lock released between its attempt and the read of its holder", async () => {
   await writeFile(lock, String(process.pid));
-  // The holder lets go just as this attempt finds the file taken.
   faults.beforeRead = {
     nth: 1,
     path: lock,
@@ -127,15 +118,12 @@ it("takes a lock released between its attempt and the read of its holder", async
   const attempt = tryFileLock(lock);
 
   expect(attempt).toHaveProperty("release");
-  expect(await readFile(lock, "utf8")).toBe(String(process.pid));
+  expect(await readFile(lock, "utf8")).toBe(lockContents());
 });
 
 it("leaves a lock alone that changed hands before its breaker's turn came", async () => {
   const dead = exitedPid();
   await writeFile(lock, String(dead));
-  // The first read judges the dead holder's lock abandoned. By the second,
-  // made under the breaking turn, another process has broken it and holds
-  // it: this breaker must see that and leave the new holder's lock alone.
   const other = process.ppid;
   faults.beforeRead = {
     nth: 2,
@@ -145,6 +133,8 @@ it("leaves a lock alone that changed hands before its breaker's turn came", asyn
     },
   };
 
-  expect(tryFileLock(lock, { breakStale: true })).toEqual({ holder: other });
+  expect(tryFileLock(lock, { breakStale: true })).toMatchObject({
+    holder: other,
+  });
   expect(await readFile(lock, "utf8")).toBe(String(other));
 });

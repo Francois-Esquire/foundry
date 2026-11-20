@@ -17,7 +17,6 @@ import type {
   ProviderModelDefinition,
 } from "./types";
 
-/** What `open()` builds for each kind. */
 export interface KindModels {
   embedding: EmbeddingModelV4;
   image: ImageModelV4;
@@ -32,7 +31,6 @@ export interface KindModels {
 
 export interface OpenOptions {
   text: {
-    /** Only when the route's `turnLimit` is `"native"`. */
     readonly nativeMaxTurns?: number;
     readonly workingDirectory?: string;
   };
@@ -42,13 +40,7 @@ type OpenArgs<K extends ModelKind> = K extends keyof OpenOptions
   ? [OpenOptions[K]?]
   : [];
 
-/**
- * A catalog-checked route bound to the instance that matched it. Resolving
- * holds nothing; `open` and `hold` lease the instance until `release`, so a
- * session keeps it even after it leaves the provider set.
- */
 export interface Resolution<K extends ModelKind = ModelKind> {
-  /** Throws `PROVIDER_RESTRICTED` when a policy now refuses the instance. */
   check(): void;
   readonly definition: ProviderModelDefinition;
   hold(): void;
@@ -62,14 +54,10 @@ export interface Resolution<K extends ModelKind = ModelKind> {
   [Symbol.dispose](): void;
 }
 
-/** What a resolution needs from its manager: leases, policies, and calls in flight. */
 export interface Host {
-  /** Throws `PROVIDER_RESTRICTED` when a policy refuses the instance. */
   admit(provider: Provider): void;
   give(provider: Provider): void;
-  /** False when the instance left the set and nothing leases it. */
   take(provider: Provider): boolean;
-  /** Abort `call` if a policy change refuses the instance; returns the untracker. */
   track(provider: Provider, call: AbortController): () => void;
 }
 
@@ -206,7 +194,6 @@ function media(
   return provider.mediaModel(modelId);
 }
 
-/** The catalog's token limits in the window vocabulary an agent sizes by. */
 function windowLimits(limits: CatalogLimits): ModelLimits {
   return {
     ...(limits.maxInputTokens === undefined
@@ -218,11 +205,6 @@ function windowLimits(limits: CatalogLimits): ModelLimits {
   };
 }
 
-/**
- * The SDK model plus what the agent reads off it. Delegates rather than
- * mutating: the provider's instance stays its own, and its methods keep
- * running on it.
- */
 function agentModel(
   model: LanguageModelV4,
   facts: Pick<AgentModel, "route" | "limits">
@@ -240,7 +222,6 @@ function agentModel(
   };
 }
 
-/** Where each call that takes one carries its abort signal. */
 const SIGNALS: Readonly<Record<string, { index: number; key: string }>> = {
   doEmbed: { index: 0, key: "abortSignal" },
   doGenerate: { index: 0, key: "abortSignal" },
@@ -250,20 +231,12 @@ const SIGNALS: Readonly<Record<string, { index: number; key: string }>> = {
   run: { index: 1, key: "signal" },
 };
 
-/** Every guarded view, to the instance behind it, across all managers. */
 const instances = new WeakMap<object, Provider>();
 
-/** The instance behind a guarded view, or the argument itself. */
 export function instanceOf(provider: Provider): Provider {
   return instances.get(provider) ?? provider;
 }
 
-/**
- * A view of `target` that reads through to it, so getters and `#private`
- * fields work, and replaces each method with `wrap(name, method)`, built once
- * per name. The view is a proxy over an empty shell, never over `target`, so
- * a frozen target or a non-configurable method cannot break proxy invariants.
- */
 function view<T extends object>(
   target: T,
   wrap: (
@@ -295,12 +268,6 @@ function view<T extends object>(
   });
 }
 
-/**
- * `provider` behind the policy guard: every method on every model it builds,
- * and live access it grants, is admitted by the manager's policies first,
- * and cut if a policy refuses it while pending. `grant` takes no signal, so a
- * cut grant may still be minted upstream; its caller never receives it.
- */
 export function guarded(host: Host, provider: Provider): Provider {
   const guard = <M extends object>(model: M): M =>
     view(
@@ -328,11 +295,6 @@ export function guarded(host: Host, provider: Provider): Provider {
   return guardedProvider;
 }
 
-/**
- * One admitted call. A call that returns a promise is tracked while it runs,
- * gets a signal linked to the caller's, and is cut when a policy change
- * refuses the instance, whether or not the provider honors the signal.
- */
 function call(
   host: Host,
   provider: Provider,
@@ -344,7 +306,6 @@ function call(
   try {
     host.admit(provider);
   } catch (error) {
-    // A method known to answer with a promise refuses with a rejected one.
     if (name in SIGNALS || method.constructor.name === "AsyncFunction") {
       return Promise.reject(error);
     }
@@ -390,7 +351,6 @@ function isStreamed(
   );
 }
 
-/** Rejects with the abort reason once `signal` aborts; never resolves. */
 function refusedBy(signal: AbortSignal): Promise<never> {
   const refused = new Promise<never>((_, reject) => {
     if (signal.aborted) {
@@ -404,7 +364,6 @@ function refusedBy(signal: AbortSignal): Promise<never> {
   return refused;
 }
 
-/** The call's arguments with `signal` linked into its abort signal. */
 function withSignal(
   name: string,
   args: unknown[],
@@ -424,10 +383,6 @@ function withSignal(
   return next;
 }
 
-/**
- * `stream`, errored the moment `controller` aborts, so no chunk is delivered
- * after a refusal, buffered or not, and untracked once it settles.
- */
 function cut<T>(
   stream: ReadableStream<T>,
   controller: AbortController,

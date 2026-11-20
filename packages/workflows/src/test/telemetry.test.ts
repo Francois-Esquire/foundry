@@ -30,7 +30,6 @@ describe("Telemetry", () => {
       const t = new Telemetry();
       t.incrementMetric("a");
       const first = t.snapshot().metrics.updatedAt;
-      // Bump system time enough that toISOString() rolls forward.
       await new Promise((r) => setTimeout(r, 5));
       t.incrementMetric("a");
       const second = t.snapshot().metrics.updatedAt;

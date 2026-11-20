@@ -1,23 +1,11 @@
-import type { TaskSnapshot } from "./store";
-import type { Task, TaskAvailability, TaskId } from "./types";
+import type { Task, TaskId, TaskSnapshot } from "./schema";
+import type { TaskAvailability } from "./types";
 import { isSettled } from "./types";
 
 export interface AvailabilityOptions {
-  /**
-   * When on, an open task also waits for every open ancestor: a parent has to
-   * be started (or settled) before its children are offered. Off by default.
-   */
   readonly parentGate?: boolean;
 }
 
-/**
- * Pure readiness over one snapshot: which open tasks can be offered as new
- * work, and what holds the others back. Stores nothing and claims nothing.
- *
- * A dependency stops blocking once its target has settled either way;
- * cancelled work would otherwise strand its dependents. A dependency whose
- * target is missing from the snapshot cannot block.
- */
 export function deriveAvailability(
   snapshot: TaskSnapshot,
   options: AvailabilityOptions = {}
@@ -30,10 +18,6 @@ export function deriveAvailability(
   return result;
 }
 
-/**
- * One task's entry from {@link deriveAvailability}, or `null` when the
- * snapshot lacks it. Walks only that task's own ancestry.
- */
 export function availabilityIn(
   snapshot: TaskSnapshot,
   id: TaskId,
@@ -44,11 +28,6 @@ export function availabilityIn(
   return task === undefined ? null : availabilityOf(task, index, options);
 }
 
-/**
- * The ids {@link deriveAvailability} marks `ready`, without listing each
- * task's open ancestors: every parent chain is walked once, however many
- * tasks sit beneath it.
- */
 export function readyTaskIds(
   snapshot: TaskSnapshot,
   options: AvailabilityOptions = {}
@@ -112,7 +91,6 @@ function blockedByOf(task: Task, index: SnapshotIndex): TaskId[] {
   });
 }
 
-/** Open ancestors, nearest first. A parent cycle in the data ends the walk. */
 function openAncestors(task: Task, byId: ReadonlyMap<TaskId, Task>): TaskId[] {
   const waiting: TaskId[] = [];
   const seen = new Set<TaskId>([task.id]);
@@ -127,17 +105,11 @@ function openAncestors(task: Task, byId: ReadonlyMap<TaskId, Task>): TaskId[] {
   return waiting;
 }
 
-/**
- * Whether {@link openAncestors} would be non-empty, remembered per task so a
- * chain shared by many tasks is walked once. On a parent cycle every member's
- * ancestors are the other members, matching where that walk stops.
- */
 function openAncestry(
   byId: ReadonlyMap<TaskId, Task>
 ): (task: Task) => boolean {
   const known = new Map<TaskId, boolean>();
   return (task) => {
-    // Climb until a known task, the root, or a task already on this climb.
     const climb: Task[] = [];
     const onClimb = new Map<TaskId, number>();
     let top: Task | undefined = task;
@@ -147,7 +119,6 @@ function openAncestry(
       top = parentOf(top, byId);
     }
 
-    // Whether anything at or above `top` is open.
     let openAbove = false;
     if (top !== undefined) {
       const start = onClimb.get(top.id);

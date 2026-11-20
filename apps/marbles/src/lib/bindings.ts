@@ -1,51 +1,37 @@
 import type { Log } from "~/lib/log";
-import type { StateStore } from "~/lib/state/store";
+import type { TriggerStore } from "~/lib/trigger-store";
 
 import type { Exec } from "./command";
+import type { ExecutionContext } from "./execution-context";
 import type { AgentTurns } from "./managers/agents";
 import type { Catalogue } from "./managers/workspaces";
 import type { Frame, RunScope } from "./run-scope";
 import type { Agents, Artifacts, Sandboxes, Workspaces } from "./types";
 
-/**
- * What a step body's context is built from: the four package-backed
- * managers, scoped to one frame so each can attach to the frame's signal
- * and stream, and where output goes. The working directory is not here: it
- * is the run's root unless a worktree callback narrowed it, and
- * `workingDirectory` reads that when the work starts.
- */
 export interface ManagerArgs {
   readonly frame: Frame;
   readonly scope: RunScope;
   readonly write: (value: unknown) => void;
 }
 
-/** Host-only facilities that never reach authored code. */
 export interface HostBindings {
-  /** The workspace system; file monitors read the tree through it. */
   readonly catalogue?: Catalogue;
-  /** The engine's state store; monitors keep what they last saw in it. */
-  readonly store?: StateStore;
+  readonly triggers?: TriggerStore;
 }
 
-/** The engine's managers, as a step body reaches them. */
 export interface Bindings {
   readonly agents: (args: ManagerArgs) => Agents;
   readonly artifacts: (args: ManagerArgs) => Artifacts;
-  /** Commands a step body runs; real ones on the host when omitted. */
+  readonly context?: ExecutionContext;
   readonly exec?: (args: ManagerArgs) => Exec;
   readonly host?: HostBindings;
-  /** Host output for a step body's `log(...)`. */
   readonly log: Log;
-  /** The workspace root. */
   readonly root: string;
   readonly sandboxes: (args: ManagerArgs) => Sandboxes;
-  /** Host output for a workflow `setup`'s `log(...)`; `log` when omitted. */
   readonly setupLog?: (run: {
     readonly id: string;
     readonly workflow: string;
   }) => Log;
-  /** An agent definition's own turns: in a step with `args`, else outside one. */
   readonly turns?: (args?: ManagerArgs) => AgentTurns;
   readonly workspaces: (args: ManagerArgs) => Workspaces;
 }

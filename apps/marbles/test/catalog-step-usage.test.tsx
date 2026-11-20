@@ -2,14 +2,13 @@ import { afterEach, expect, test } from "vitest";
 import { step, workflow } from "../src/authoring/builder";
 import { catalog } from "../src/authoring/catalog";
 import { agent } from "../src/authoring/resources";
-import { DashboardView } from "../src/views/dashboard";
+import { DashboardView } from "../src/cli/views/dashboard";
 import { dashboardSnapshot } from "../src/workspace/snapshot";
 import { startEngine } from "./helpers/engine";
 import { mount, press, unmount } from "./helpers/render";
 
 const PANEL_TEXT = /[│█▀▄\s]+/g;
 
-/** The frame's words in order, so a value wrapped inside a panel still reads as one line. */
 function words(frame: string): string {
   return frame.replace(PANEL_TEXT, " ");
 }
@@ -45,7 +44,6 @@ test("a step definition that only ran inside another workflow says where its usa
     workspaceId: "test",
   });
   await engine.dispose();
-  // Its turn was recorded, under the run of `flow`: no run started from `shared`.
   expect(snapshot.runs[0]?.usage?.turns).toBe(1);
   expect(snapshot.usage?.byWorkflow.map((group) => group.id)).toEqual(["flow"]);
   const ui = await mount(

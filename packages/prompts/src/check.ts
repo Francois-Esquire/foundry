@@ -14,14 +14,11 @@ import { SpanSet } from "./spans";
 
 export interface CheckContext {
   readonly dialect: Dialect;
-  /** The same text as each other dialect reads it, in the order the host declared them. */
   readonly siblings: ReadonlyMap<Dialect, readonly Token[]>;
-  /** What exists, the dialect's built-ins included. */
   readonly sources: PromptSource;
   readonly surface: Surface;
 }
 
-/** A reference a wrong sigil is reported for: names a host lists, never harness-private ones. */
 type ForeignReference = Extract<PromptReference, { kind: "agent" | "skill" }>;
 
 const FOREIGN_KINDS: ReadonlySet<PromptReference["kind"]> = new Set([
@@ -33,7 +30,6 @@ function isForeign(reference: PromptReference): reference is ForeignReference {
   return FOREIGN_KINDS.has(reference.kind);
 }
 
-/** Findings for one prompt's tokens against what exists. */
 export function diagnose(
   tokens: readonly Token[],
   context: CheckContext
@@ -61,12 +57,6 @@ export function diagnose(
   return found;
 }
 
-/**
- * A skill or agent written in another dialect's notation, when the name is
- * one this host has. `$review` in a Claude Code prompt is almost certainly
- * `/review`; `$5` or a stray `@` never trips this, since nothing by that
- * name exists.
- */
 function foreignNotation(
   own: readonly Token[],
   context: CheckContext
@@ -109,10 +99,6 @@ function foreignNotation(
 
 type Readings = Map<PromptReference["kind"], Map<string | undefined, SpanSet>>;
 
-/**
- * Where the own dialect read each reference, by kind and then name, so a
- * sibling's reading is compared with the same reference only.
- */
 function ownReadings(own: readonly Token[]): Readings {
   const spans = new Map<
     PromptReference["kind"],
@@ -141,7 +127,6 @@ function ownReadings(own: readonly Token[]): Readings {
   return read;
 }
 
-/** The own dialect already found the same reference at this place. */
 function readsTheSame(
   read: Readings,
   span: Span,
@@ -192,7 +177,6 @@ function placement(
   return found;
 }
 
-/** Unresolved when some layer covers the kind and none has the name. */
 function resolution(
   token: ReferenceToken,
   sources: PromptSource

@@ -4,7 +4,7 @@ import type { Message, SendEvent } from "../../agents/mesh";
 import { createMesh, Edge, HUMAN, Mesh, Node } from "../../agents/mesh";
 import type { AgentEntry } from "../../agents/registry";
 import { createAgentCompatibilityRegistry } from "../../agents/registry";
-import { InMemorySessionStore } from "../../session/store";
+import { InMemorySessionStore } from "../../store/memory";
 
 function mockAgent(...deltas: string[]): AgentEntry {
   return {
@@ -551,19 +551,12 @@ describe("Mesh (agent registration and tools)", () => {
       result = await gen.next();
     }
 
-    // Deltas stream as accumulating previews; the final reply is YIELDED last.
-    // The AI SDK takes a generator tool's output from the last yielded value
-    // (not `return`), so the final message must be yielded, not just returned.
     expect(yielded[0]?.parts[0]?.text).toBe("4");
     expect(yielded[1]?.parts[0]?.text).toBe("42");
     expect(yielded.at(-1)?.parts[0]?.text).toBe("42");
   });
 
   it("tools message_agent yields a final message even with no deltas", async () => {
-    // Regression: the assistant node has no agent, so `send` streams no
-    // text-delta events. The tool must still YIELD a final UIMessage — otherwise
-    // the SDK's "output = last yielded value" is undefined and `toModelOutput`
-    // crashes on `msg.parts`.
     const mesh = new Mesh();
     mesh.registerNode(agentNode("alice"));
     mesh.register("bob", { agent: mockAgent(), role: "b" });

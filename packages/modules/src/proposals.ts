@@ -8,18 +8,8 @@ import {
   type ModuleSourceLimits,
 } from "./source";
 
-/**
- * Proposed edits to Module source, whole files at a time: each changed path
- * maps to its new text, or `null` where the file is removed. A proposal is
- * made against a snapshot of source and is applied only by whoever owns
- * that source; nothing here saves.
- */
 export type ModuleSourceChanges = Record<string, string | null>;
 
-/**
- * Each path whose `proposed` text differs from `snapshot`; `null` where it
- * was removed. Every path is an own key, `__proto__` included.
- */
 export function moduleSourceChanges(
   snapshot: Readonly<Record<string, string>>,
   proposed: Readonly<Record<string, string>>
@@ -38,7 +28,6 @@ export function moduleSourceChanges(
   return Object.fromEntries(changes);
 }
 
-/** `source` with `changes` applied: `null` removes a file. */
 export function applyModuleSourceChanges(
   source: Readonly<Record<string, string>>,
   changes: Readonly<ModuleSourceChanges>
@@ -54,11 +43,6 @@ export function applyModuleSourceChanges(
   return Object.fromEntries(next);
 }
 
-/**
- * Admits a proposal the way saved source is admitted: portable paths and
- * the source limits over the files it would produce, and a Manifest that
- * still parses when the proposal changes it. Throws on the first problem.
- */
 export function validateModuleSourceProposal(
   snapshot: Readonly<Record<string, string>>,
   changes: Readonly<ModuleSourceChanges>,

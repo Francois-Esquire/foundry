@@ -27,7 +27,7 @@ marbles roll count --input '{"extension":".ts"}'
 ```
 
 `roll` attaches the workspace to the Marbles process, starting it when none
-runs, runs `count` in the workspace's worker, prints the step's status lines
+runs, runs `count` in its current engine generation, prints the step's status lines
 and its result as JSON, and exits. The workspace stays hosted;
 `marbles stop` ends the process. See the [CLI reference](/marbles/reference/cli).
 
@@ -73,8 +73,8 @@ lists every tool, including the task tools.
 
 | | CLI | Embedded engine | MCP |
 | --- | --- | --- | --- |
-| Where the step runs | The workspace's worker in the Marbles process | Your process | The workspace's worker in the Marbles process |
+| Where the step runs | The current engine generation of the Marbles process | Your process | The current engine generation of the Marbles process |
 | Run history on disk | Yes, under the state root | Only if you pass `state` | Yes, under the state root |
-| Schedules and monitors | Run in the worker | Only if you drive them | Run in the worker |
+| Schedules and monitors | Run in the current generation | Only if you drive them | Run in the current generation |
 | Who answers questions | The dashboard's Feed | Your program, with `askable: true` | The dashboard's Feed |
 | Waits for the result | Yes | `run` yes, `launch` no | No; poll `get_run` |

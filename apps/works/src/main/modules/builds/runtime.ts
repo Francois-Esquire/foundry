@@ -4,7 +4,7 @@ import {
   type Container,
   createContainers,
 } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import type { SandboxProcessesFacet } from "@foundry/sandbox/types";
 import type { BuildRuntime } from "./controller";
 import { auditBuildWorkspace } from "./workspace";
@@ -13,12 +13,6 @@ const ROOT = "/workspace";
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const MAX_OUTPUT_FILES = 4096;
 const LOG_CHARACTERS = 32_768;
-/**
- * Command output is read as it streams and retained history is bounded.
- * UTF-8 spends at most three
- * bytes per UTF-16 unit; the fourth leaves a sequence cut at the tail's start
- * well outside the log.
- */
 const RETAINED_OUTPUT_BYTES = 4 * LOG_CHARACTERS;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -36,7 +30,7 @@ export async function createBuildRuntime(
         .digest("hex")
         .slice(0, 16),
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     }),
     runtime
   );
@@ -125,7 +119,6 @@ export async function createBuildRuntime(
         signal.throwIfAborted();
         return { outputs, source: { ...source, "bun.lock": lock } };
       } finally {
-        // Stop guest writers before the caller publishes their outputs.
         await close();
       }
     },
@@ -136,7 +129,6 @@ export async function createBuildRuntime(
   };
 }
 
-/** Runs one guest command and keeps the last 32,768 UTF-16 code units of its combined output. */
 export async function runBuildCommand(
   processes: Pick<SandboxProcessesFacet, "spawn">,
   argv: readonly string[],
@@ -172,7 +164,6 @@ async function outputTail(stream: AsyncIterable<Uint8Array>): Promise<string> {
         : received;
     chunks.push(chunk);
     retained += chunk.byteLength;
-    // Whole chunks are dropped only while the rest still fills the tail.
     while (
       chunks.length - head > 1 &&
       retained - (chunks[head]?.byteLength ?? 0) >= RETAINED_OUTPUT_BYTES

@@ -3,10 +3,10 @@ import { realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
+import { RecordedStdioTransport } from "./helpers/mcp-stdio";
 import { seedRepository } from "./helpers/repository";
 
 const execFileAsync = promisify(execFile);
@@ -25,14 +25,6 @@ const run = z.object({
   status: z.string(),
 });
 
-/**
- * The workflow as an MCP client sees it: the MCP tools over STDIO, on a
- * throwaway repository hosted under `--dry-run` by a test helper, since
- * `marbles mcp` hosts nothing. The dry run echoes agent turns, so each
- * structured reply is the smallest value its schema accepts: no findings,
- * nothing to challenge. That proves the wiring and the packet, not review
- * quality.
- */
 it("dispatches adversarial-review over STDIO MCP and reads both axes back", async () => {
   const root = await realpath(await seedRepository());
   const git = (...args: string[]) =>
@@ -48,11 +40,10 @@ it("dispatches adversarial-review over STDIO MCP and reads both axes back", asyn
   await git("add", "AGENTS.md", "change.ts", "marbles.ts");
   await git("commit", "-m", "change");
 
-  const transport = new StdioClientTransport({
+  const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("test/helpers/dry-mcp-host.ts"), source],
     command: "bun",
     cwd: root,
-    // The run's Foundry home, with its provider configuration.
     env: process.env as Record<string, string>,
     stderr: "pipe",
   });
@@ -94,8 +85,6 @@ it("dispatches adversarial-review over STDIO MCP and reads both axes back", asyn
     });
     expect(JSON.stringify(payload(config))).toContain('"adversarial-review"');
 
-    // Close the client only once runs settle: a dry server cancels work
-    // still running when its connection ends.
     const done = await settled(
       await dispatch({ spec: "Export x.", worktree: "." })
     );

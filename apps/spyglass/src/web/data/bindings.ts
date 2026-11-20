@@ -16,7 +16,6 @@ export function labelPriority(dependents: number, dependencies: number) {
   return dependents + dependencies;
 }
 
-/** Fixed chart coordinates; reveal fifths only when their spacing has room. */
 export function chartGrid(pixels: number) {
   return {
     majorStep: 90,

@@ -1,7 +1,12 @@
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  StdioClientTransport,
+  type StdioServerParameters,
+} from "@modelcontextprotocol/sdk/client/stdio.js";
 import { z } from "zod";
+import { recordSpawned, SPAWN_RECORD_ENV } from "~/process/spawned";
 
 const responseSchema = z.looseObject({
   error: z.unknown().optional(),
@@ -10,15 +15,8 @@ const responseSchema = z.looseObject({
   result: z.unknown().optional(),
 });
 
-/**
- * A JSON-RPC client over a spawned MCP server's stdio that keeps every byte
- * the server wrote, so a test can check that its stdout holds protocol
- * frames and nothing else. The SDK's client skips a line it cannot parse.
- */
 export interface RawMcpSession {
-  /** End stdin and wait for the server to exit. */
   close(): Promise<Ended>;
-  /** Wait for the server to exit, leaving stdin open. */
   ended(): Promise<Ended>;
   notify(method: string, params?: unknown): void;
   readonly pid: number;
@@ -32,11 +30,20 @@ interface Ended {
   readonly stdout: string;
 }
 
-/**
- * Start `command` and complete the MCP `initialize` handshake. Vitest's own
- * marker is dropped from the child's environment: a library that sees it
- * behaves as under test, and would hide what it writes to stdout.
- */
+export class RecordedStdioTransport extends StdioClientTransport {
+  readonly #env: Readonly<Record<string, string | undefined>>;
+
+  constructor(params: StdioServerParameters) {
+    super(params);
+    this.#env = params.env?.[SPAWN_RECORD_ENV] ? params.env : process.env;
+  }
+
+  override async start(): Promise<void> {
+    await super.start();
+    recordSpawned(this.pid ?? undefined, false, this.#env);
+  }
+}
+
 export async function rawMcpSession(
   command: string,
   args: readonly string[],
@@ -45,6 +52,7 @@ export async function rawMcpSession(
   const { VITEST: _vitest, ...inherited } = options.env ?? process.env;
   const child = spawn(command, args, {
     cwd: options.cwd,
+    detached: true,
     env: inherited,
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -52,6 +60,7 @@ export async function rawMcpSession(
   if (pid === undefined) {
     throw new Error(`could not start ${command}`);
   }
+  recordSpawned(pid, true, inherited);
   let stdout = "";
   let stderr = "";
   let buffered = "";
@@ -128,7 +137,6 @@ function safeJson(line: string): unknown {
   }
 }
 
-/** Every stdout line that is not a JSON-RPC 2.0 message. */
 export function strayLines(stdout: string): string[] {
   return stdout.split("\n").filter((line) => {
     if (line === "") {
@@ -144,20 +152,15 @@ export function strayLines(stdout: string): string[] {
   });
 }
 
-/**
- * Run `body` at the start of the `marbles mcp` server process, never in its
- * relay, by writing it as a Bun preload under `dir`. The server loads no
- * source, so this is how a test makes it print or misbehave on purpose.
- * Resolves the environment to start `marbles mcp` with.
- */
 export async function serverPreload(
   dir: string,
-  body: string
+  body: string,
+  env: NodeJS.ProcessEnv = process.env
 ): Promise<NodeJS.ProcessEnv> {
   const preload = join(dir, "server-preload.ts");
   await writeFile(
     preload,
     `if (process.env.MARBLES_MCP_SERVER !== undefined) {\n${body}\n}\n`
   );
-  return { ...process.env, BUN_OPTIONS: `--preload ${preload}` };
+  return { ...env, BUN_OPTIONS: `--preload ${preload}` };
 }

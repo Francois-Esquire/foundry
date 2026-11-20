@@ -5,10 +5,9 @@ import {
   WorkspaceNotFoundError,
   WorkspaceSourceUnsupportedError,
 } from "../errors";
-import { MemoryWorkspaceStore } from "../memory-store";
-
+import { MemoryWorkspaceStore } from "../store/memory";
+import { artifactWorkspace, seed } from "../testing/records";
 import { directorySystem } from "./helpers/directory-system";
-import { artifactWorkspace, seed } from "./helpers/fixtures";
 import { makeRoot } from "./helpers/temp-roots";
 
 describe("remove", () => {
@@ -39,10 +38,6 @@ describe("remove", () => {
   });
 });
 
-/**
- * The system owns the instance lifecycle: one live instance per id, layers
- * composed at open, hooks run by the system alone.
- */
 describe("lifecycle", () => {
   it("opens one instance per id and shares it until closed", async () => {
     const root = await makeRoot({ "README.md": "hello" });

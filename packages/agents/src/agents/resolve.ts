@@ -11,9 +11,9 @@ import type {
 import { SessionHarness } from "../harness/session-harness";
 import type { ToolEffectPort } from "../harness/types";
 import { createModelSummarizer } from "../session/compactor";
-import type { SessionStore } from "../session/store";
 import { createSkillRegistry } from "../skills/registry";
 import type { Skill } from "../skills/types";
+import type { SessionStore } from "../store";
 import { composeTools } from "../tools/compose";
 import { createTodos } from "../tools/todos";
 import type { Mesh } from "./mesh";
@@ -72,7 +72,6 @@ export interface AgentPreset {
 export interface AgentSurface {
   mcp?: (ids: string[]) => Promise<ToolSet>;
   mesh?: Mesh;
-  /** The model a spec names: a model, a provider, both, or neither. */
   model: (selection: {
     readonly model?: string;
     readonly provider?: string;
@@ -85,7 +84,6 @@ export interface AgentSurface {
   toolsContext?: Record<string, unknown>;
 }
 
-/** Bind domain defaults; invocation overrides are applied after binding. */
 export type AgentConfigurationFactory = (
   context: AgentPresetContext,
   spec: AgentSpec
@@ -180,20 +178,12 @@ async function provisionSpec(
   };
 }
 
-/**
- * The one merge of defaults, spec, and invocation. The session id is fixed here
- * — invoked, else the configured default, else fresh — because the tool context
- * carries it and the harness scopes every authorization request by it.
- */
 function configureAgent(
   spec: AgentSpec,
   defaults: AgentHarnessSettings,
   context: AgentPresetContext
 ): AgentHarnessSettings {
   const sessionId = context.sessionId || defaults.sessionId || randomUUID();
-  // `AgentSettings` leaves out the host-owned fields, but settings arrive as
-  // plain data at runtime; the host's values are reapplied after the spread
-  // so a settings object carrying one of those keys cannot replace them.
   return {
     ...defaults,
     ...spec.settings,

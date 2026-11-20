@@ -21,15 +21,8 @@ import type {
 } from "./types";
 
 export interface McpClientEvents {
-  /**
-   * A server log line (stdio servers only; remote transports do not surface
-   * notifications). Stderr arrives here too, one line per message, at level
-   * `error` with logger `stderr`.
-   */
   log: McpLogMessage;
-  /** Status, error, or instructions changed. */
   status: McpClient;
-  /** The tool list was re-read; hosts rebuild their tool set. */
   tools: McpClient;
 }
 
@@ -38,15 +31,8 @@ interface Notification {
   params?: Record<string, unknown>;
 }
 
-/** A failed client waits this long before the next `connect()` retries it. */
 const DEFAULT_RETRY_COOLDOWN_MS = 30_000;
 
-/**
- * Route server notifications (a `method` with no `id`) to `handle` before the
- * SDK sees them: the SDK client reports every notification as an error and
- * offers no handler of its own. Installed after connect, so the SDK's own
- * `onmessage` is already in place to forward everything else to.
- */
 function tapNotifications(
   transport: MCPTransport,
   handle: (notification: Notification) => void
@@ -101,12 +87,10 @@ function toPromptMessage(message: {
   };
 }
 
-/** The SDK types resource payloads loosely; the host contract is a string. */
 function asString(value: unknown): string {
   return typeof value === "string" ? value : String(value);
 }
 
-/** Connection-affecting identity of a definition — metadata and `enabled` excluded. */
 function connectionSignature(c: McpServerDefinition): string {
   const { transport } = c;
   return transport.kind === "remote"
@@ -167,13 +151,6 @@ function redactError(server: McpServerDefinition, err: unknown): string {
   return message;
 }
 
-/**
- * Server-prefix a server's raw tools and tag each with `source: "mcp"` and an
- * exact `mcp.tool` capability. No approval/policy wrapping happens here —
- * that decision belongs entirely to the harness's policy once these tools
- * reach the compiler, so the absence of a client-level approval handler can
- * never be mistaken for automatic execution.
- */
 function toTaggedTools(server: McpServerDefinition, raw: ToolSet): ToolSet {
   const out: ToolSet = {};
   for (const [name, serverTool] of Object.entries(raw)) {
@@ -189,12 +166,6 @@ function toTaggedTools(server: McpServerDefinition, raw: ToolSet): ToolSet {
   return out;
 }
 
-/**
- * One MCP server: its definition, and the live client run for it. Build one
- * from a definition and it is ready to `connect()`; an enabled definition
- * connects the moment a manager defines it. Status, tool changes, and logs
- * arrive as events, so nothing has to be wired at construction.
- */
 export class McpClient extends McpEmitter<McpClientEvents> {
   readonly #spawnStdio: NonNullable<McpClientOptions["spawnStdio"]>;
   readonly #retryCooldownMs: number;
@@ -204,15 +175,9 @@ export class McpClient extends McpEmitter<McpClientEvents> {
   #instructions: string | undefined;
   #tools: ToolSet = {};
   #client: MCPClient | undefined;
-  /** When the last connect attempt failed (epoch ms); gates the retry cooldown. */
   #failedAt: number | undefined;
-  /** Serializes connect/close/refresh so they never interleave. */
   #queue: Promise<unknown> = Promise.resolve();
 
-  /**
-   * Answers the server's elicitation requests. The capability is always
-   * advertised; while this is unset the client declines on the user's behalf.
-   */
   elicit: McpElicitationHandler | undefined;
 
   constructor(definition: McpServerDefinition, options: McpClientOptions = {}) {
@@ -242,7 +207,6 @@ export class McpClient extends McpEmitter<McpClientEvents> {
     return this.#instructions;
   }
 
-  /** Tools this client currently offers: `${id}__name`, capability-tagged. Empty unless connected. */
   tools(): ToolSet {
     return this.#tools;
   }
@@ -259,12 +223,6 @@ export class McpClient extends McpEmitter<McpClientEvents> {
     };
   }
 
-  /**
-   * Replace the definition. A connection-detail change or a fresh enable
-   * drops the live connection and reconnects immediately; a metadata-only
-   * change keeps it, and a redefinition that changes nothing leaves a
-   * failed client to its cooldown.
-   */
   update(definition: McpServerDefinition): Promise<void> {
     return this.#serialize(async () => {
       const changed =
@@ -291,11 +249,6 @@ export class McpClient extends McpEmitter<McpClientEvents> {
     return this.update({ ...this.#definition, enabled: false });
   }
 
-  /**
-   * Connect if not already. A client that failed waits out its cooldown
-   * before trying again, so a transient blip self-heals on a later call
-   * while a hard-down server is not hammered.
-   */
   connect(): Promise<void> {
     return this.#serialize(() => this.#connectIfDue());
   }
@@ -304,7 +257,6 @@ export class McpClient extends McpEmitter<McpClientEvents> {
     return this.#serialize(() => this.#close());
   }
 
-  /** Re-read the tool list (the manual path for remote servers). */
   refresh(): Promise<void> {
     return this.#serialize(async () => {
       const client = this.#connected();
@@ -405,7 +357,6 @@ export class McpClient extends McpEmitter<McpClientEvents> {
     this.#tools = {};
     this.#instructions = undefined;
     this.#failedAt = undefined;
-    // Report shutdown failures without leaving an unhandled rejection.
     try {
       if (client) {
         await client.close();
@@ -426,11 +377,6 @@ export class McpClient extends McpEmitter<McpClientEvents> {
     this.#tools = toTaggedTools(this.#definition, await client.tools());
   }
 
-  /**
-   * A subprocess that ends while we still hold its client died on its own:
-   * drop the client and record the exit so the next `connect()` retries
-   * after the cooldown. A close we asked for has already cleared the client.
-   */
   #onStdioExit(code: number | null, signal: string | null): void {
     if (!this.#client) {
       return;
@@ -478,8 +424,6 @@ export class McpClient extends McpEmitter<McpClientEvents> {
     this.#setStatus("connecting");
     try {
       const { transport } = this.#definition;
-      // Only a transport we construct can be tapped for notifications; the
-      // SDK builds remote transports internally and exposes no hook.
       let stdio: MCPTransport | undefined;
       let transportConfig: MCPClientConfig["transport"];
       if (transport.kind === "stdio") {
@@ -501,7 +445,6 @@ export class McpClient extends McpEmitter<McpClientEvents> {
         transportConfig = {
           authProvider: transport.authProvider,
           headers: transport.headers,
-          // Reject redirects: an MCP endpoint that 30x-redirects is an SSRF risk.
           redirect: "error",
           type: transport.protocol,
           url: transport.url,
@@ -511,8 +454,6 @@ export class McpClient extends McpEmitter<McpClientEvents> {
         capabilities: { elicitation: {} },
         transport: transportConfig,
       });
-      // Register the live client before `tools()` so a listing failure still
-      // closes the connection on dispose rather than leaking it.
       this.#client = client;
       if (stdio) {
         tapNotifications(stdio, (n) => {

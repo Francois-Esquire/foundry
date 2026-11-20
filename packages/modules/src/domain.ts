@@ -14,6 +14,7 @@ import {
   ModuleManifestValidationError,
   parseModuleManifest,
 } from "./manifest";
+import type { Installation, Module } from "./schema";
 
 export const installationIdSchema = z
   .string()
@@ -41,31 +42,12 @@ export const INSTALLATION_STATUSES = [
   "failed",
 ] as const;
 
-/**
- * One column. `disabled`: operator intent, nothing runs. `starting` /
- * `active` / `stopping`: the program. `failed`: the last start or release
- * change failed; the operator enables again to retry.
- */
 export type InstallationStatus = (typeof INSTALLATION_STATUSES)[number];
 
-/** Consecutive failed starts before boot recovery stops retrying. */
+export type { Installation, Module } from "./schema";
+
 export const MAX_START_ATTEMPTS = 3;
 
-/**
- * Stable control-plane identity with one immutable backing Artifact.
- * ModuleId and ArtifactId name different entities even though the Store
- * enforces a one-to-one relationship between them.
- */
-export interface Module {
-  readonly artifactId: ArtifactId;
-  readonly id: ModuleId;
-}
-
-/**
- * One version of a Module: a frozen Content of its Artifact with a SemVer tag,
- * resolved on demand. `digest` is the Content's tree digest. Nothing persists
- * a version; the Content is the record.
- */
 export interface ModuleVersion {
   readonly artifactId: ArtifactId;
   readonly contentId: ContentId;
@@ -73,20 +55,6 @@ export interface ModuleVersion {
   readonly manifest: ModuleManifest;
   readonly moduleId: ModuleId;
   readonly tag: string;
-}
-
-export interface Installation {
-  readonly containerId: string | null;
-  readonly contentId: ContentId;
-  readonly createdAt: Date;
-  /** The only concurrency token; a running program is bound to the one it saw. */
-  readonly generation: number;
-  readonly id: InstallationId;
-  readonly moduleId: ModuleId;
-  /** Failed starts since the last `active`; reset by a user enable or a version change. */
-  readonly startAttempts: number;
-  readonly status: InstallationStatus;
-  readonly updatedAt: Date;
 }
 
 export function defineModule(input: {
@@ -153,7 +121,6 @@ export function defineModuleVersion(input: {
   });
 }
 
-/** The version rules that need no Content identity: tag, Manifest, and tree. */
 export function parseModuleVersionContent(input: {
   readonly tag: string;
   readonly tree: StorageTree;

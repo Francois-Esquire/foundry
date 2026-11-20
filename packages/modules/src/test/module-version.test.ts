@@ -3,8 +3,8 @@ import {
   ArtifactManager,
   artifactIdSchema,
   contentIdSchema,
-  InMemoryArtifactStore,
 } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { describe, expect, it } from "vitest";
 
 import { MODULE_MIME } from "../constants";
@@ -13,7 +13,7 @@ import {
   ModuleManifestValidationError,
   parseModuleManifest,
 } from "../manifest";
-import { InMemoryModuleStore } from "../store/memory";
+import { ModuleRegistry } from "../registry";
 import {
   createModuleVersions,
   MODULE_CONTENT_MANIFEST_PATH,
@@ -49,11 +49,10 @@ async function fixture(entries: FileInputs = built(), tag = "1.0.0") {
     artifact,
     id: moduleIdSchema.parse("module-1"),
   });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry();
   await store.registerModule({ module });
   const versions = createModuleVersions({ artifacts, store });
   let latest: Content = artifact.content;
-  /** Freezes a successor of the latest Content under `nextTag`. */
   const release = async (
     nextTag: string | undefined,
     nextEntries: FileInputs = built()

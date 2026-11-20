@@ -1,20 +1,9 @@
-/**
- * Runtime schemas for the agent authorization vocabulary, for hosts that read
- * a {@link Capability} or {@link AgentSubject} back from storage.
- *
- * Strict on purpose: a saved value with a key this vocabulary does not define
- * is refused, not stripped, so a durable grant store fails closed on anything
- * it did not write. The types stay hand-written (they carry the documentation)
- * and each schema is checked against its type at compile time, so the two
- * cannot drift.
- */
-
 import type { Exactly } from "@foundry/lib/exactly";
 import { z } from "zod";
 
 import type { AgentSubject } from "./authorization";
 import { AGENT_SUBJECT_NAMESPACE } from "./authorization";
-import type { Capability } from "./capability";
+import type { Capability, ToolSource } from "./capability";
 
 const toolSources = z.enum([
   "declared",
@@ -58,12 +47,14 @@ const subject = z.strictObject({
   version: z.int().nonnegative().optional(),
 });
 
-/** A saved {@link Capability}. */
+export const toolSourceSchema: z.ZodType<
+  Exactly<z.infer<typeof toolSources>, ToolSource>
+> = toolSources;
+
 export const capabilitySchema: z.ZodType<
   Exactly<z.infer<typeof capability>, Capability>
 > = capability;
 
-/** A saved {@link AgentSubject}. */
 export const agentSubjectSchema: z.ZodType<
   Exactly<z.infer<typeof subject>, AgentSubject>
 > = subject;

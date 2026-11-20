@@ -58,15 +58,12 @@ it("a step named `a.b` keeps its own turns: its sibling `a`, and `a`'s dynamic c
   const byId = (id: string) => steps.filter((item) => item.id === id);
   const [a] = byId("flow.a");
   const [ab] = byId("flow.a.b");
-  // Joined as `flow.a.` the sibling looks like `a`'s child; it is not.
   expect(a?.usage?.direct.turns).toBe(1);
   expect(a?.usage?.inclusive.turns).toBe(2);
   expect(ab?.name).toBe("a.b");
   expect(ab?.usage?.direct.turns).toBe(1);
   expect(ab?.usage?.inclusive.turns).toBe(1);
-  // The step definition `shared` ran as `a`'s dynamic child.
   const dynamic = a?.children.find((item) => item.usage);
   expect(dynamic?.usage?.direct.turns).toBe(1);
-  // Each turn counts once in the run, the steps' totals never added up.
   expect(run?.usage?.turns).toBe(3);
 });

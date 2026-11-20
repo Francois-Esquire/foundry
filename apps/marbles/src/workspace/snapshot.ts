@@ -1,18 +1,14 @@
 import { realpathSync } from "node:fs";
 import { basename, isAbsolute, relative, sep } from "node:path";
-import type {
-  StepSnapshot as ObservedStep,
-  WorkflowStepNode,
-} from "@foundry/workflows/snapshot";
-import { StepSnapshotSchema } from "@foundry/workflows/snapshot";
-import type { RunRecord } from "@foundry/workflows/store";
-import { Option, Schema } from "effect";
+import type { RunRecord } from "@foundry/workflows/schema";
+import type { WorkflowStepNode } from "@foundry/workflows/snapshot";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type { ExecutionRun } from "~/lib/executions";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { MonitorSpec } from "~/lib/monitor";
 import { describeMonitor } from "~/lib/monitor";
 import type { DefinitionEntry } from "~/lib/registry";
+import { decodeTrace, observedTree } from "~/lib/run-trace";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
 import { describeTrigger, nextDue } from "~/lib/schedule";
 import type { Schedule } from "~/lib/triggers";
@@ -30,30 +26,6 @@ import type { LogEntry, SetupLogEntry } from "~/model/log";
 import { type InputAttention, isActive } from "~/model/run-status";
 import type { KnownRun, MayBelong } from "./usage";
 import { stepUsages, totalOf, workspaceUsage } from "./usage";
-
-const decodeTrace = Schema.decodeUnknownOption(
-  Schema.Struct({
-    workflow: Schema.optional(
-      Schema.Struct({
-        steps: Schema.optional(
-          Schema.Record({ key: Schema.String, value: StepSnapshotSchema })
-        ),
-        telemetry: Schema.optional(
-          Schema.Struct({
-            logs: Schema.Array(
-              Schema.Struct({
-                at: Schema.String,
-                level: Schema.Literal("debug", "info", "warn", "error"),
-                message: Schema.String,
-                path: Schema.optional(Schema.Array(Schema.String)),
-              })
-            ),
-          })
-        ),
-      })
-    ),
-  })
-);
 
 function json(value: unknown): JsonValue | undefined {
   if (value === undefined) {
@@ -74,44 +46,6 @@ function elapsed(start: number, end: number): string {
   return `${Math.max(0, (end - start) / 1000).toFixed(1)}s`;
 }
 
-/** Dynamic graph steps can appear in the trace before the structural plan includes them. */
-function observedTree(
-  planned: readonly WorkflowStepNode[],
-  steps: Readonly<Record<string, ObservedStep>>
-): WorkflowStepNode[] {
-  const nodes = new Map<
-    string,
-    WorkflowStepNode & { children: WorkflowStepNode[] }
-  >();
-  const parents = new Map<string, string>();
-  function seed(entries: readonly WorkflowStepNode[], parent?: string) {
-    for (const node of entries) {
-      nodes.set(node.key, { ...node, children: [] });
-      if (parent) {
-        parents.set(node.key, parent);
-      }
-      seed(node.children ?? [], node.key);
-    }
-  }
-  seed(planned);
-  for (const [key, step] of Object.entries(steps)) {
-    if (!nodes.has(key)) {
-      nodes.set(key, { children: [], index: nodes.size, key, name: step.name });
-      parents.set(key, step.namespace);
-    }
-  }
-  const roots: WorkflowStepNode[] = [];
-  for (const [key, node] of nodes) {
-    const parent = nodes.get(parents.get(key) ?? "");
-    if (parent) {
-      parent.children.push(node);
-    } else {
-      roots.push(node);
-    }
-  }
-  return roots;
-}
-
 function attentionOf(
   values: readonly (InputAttention | undefined)[]
 ): InputAttention | undefined {
@@ -121,12 +55,15 @@ function attentionOf(
   return values.includes("question") ? "question" : undefined;
 }
 
+export function storedRunSnapshot(record: RunRecord, now: number): RunSnapshot {
+  return runSnapshot(record, now, [], [], undefined);
+}
+
 function runSnapshot(
   record: RunRecord,
   now: number,
   feed: readonly FeedEntrySnapshot[],
   activities: readonly ActivityRecord[],
-  /** The run's facts and what else may be its; absent when usage is not recorded. */
   usage:
     | {
         readonly facts: readonly RunUsageFact[];
@@ -134,7 +71,7 @@ function runSnapshot(
       }
     | undefined
 ): RunSnapshot {
-  const trace = Option.getOrUndefined(decodeTrace(record.metadata));
+  const trace = decodeTrace(record.metadata);
   const steps = trace?.workflow?.steps ?? {};
   const waiting =
     record.status === "running"
@@ -150,8 +87,6 @@ function runSnapshot(
     entry.input?.mode === "approval" ? "approval" : "question";
   const attention = attentionOf(waiting.map(inputAttention));
   const usageAt = usage && stepUsages(usage.facts, usage.mayBelong);
-  // A node's real path is its ancestors' names and its own: its joined key
-  // cannot tell a step named `a.b` from `a`'s child `b`.
   const stepNode = (
     node: WorkflowStepNode,
     parent: readonly string[]
@@ -266,7 +201,6 @@ function runSnapshot(
   };
 }
 
-/** Where a definition was declared, relative to the workspace root when inside it. */
 function catalogOrigin(
   origin: string | undefined,
   root: string,
@@ -275,14 +209,13 @@ function catalogOrigin(
   if (origin === undefined) {
     return;
   }
-  // The root is canonical; a stack path may still run through a symlink.
   const colon = origin.lastIndexOf(":");
   const file = colon > 0 ? origin.slice(0, colon) : origin;
-  let canonical = origin;
+  let canonical: string;
   try {
     canonical = realpathSync(file) + origin.slice(file.length);
   } catch {
-    // Not on disk (a bundled prebuilt, a test path): compare it as written.
+    canonical = origin;
   }
   const local = relative(root, canonical);
   const external =
@@ -297,10 +230,6 @@ function catalogOrigin(
   };
 }
 
-/**
- * A run with no Orchestrator record or steps yet: still waiting in its queue,
- * or a workflow let in whose setup has not finished dispatching it.
- */
 function queuedSnapshot(run: ExecutionRun, now: number): RunSnapshot {
   const queuedAt = Date.parse(run.timestamps.queuedAt);
   return {
@@ -326,39 +255,32 @@ function description(
   return `${schedule.workflow} · ${describeTrigger(schedule.trigger)}`;
 }
 
+export interface OtherWorkspaces {
+  readonly runs: readonly RunSnapshot[];
+  readonly triggers: readonly TriggerSnapshot[];
+}
+
 export interface SnapshotOptions {
   readonly activities?: readonly ActivityRecord[];
   readonly automationErrors?: Readonly<Record<string, string>>;
   readonly automations?: readonly AutomationRecord[];
-  /** What can be launched by hand: the engine's `definitions()`. */
   readonly definitions: readonly DefinitionEntry[];
-  /** The host's own lines, oldest first, for the logs panel. */
   readonly diagnostics?: readonly LogEntry[];
-  /** Feed entries from every workspace, newest first. */
   readonly feed?: readonly FeedEntrySnapshot[];
   readonly lastFinish: ReadonlyMap<string, number>;
-  /** What each monitor watches, by trigger key: the engine's `monitors()`. */
   readonly monitors: ReadonlyMap<string, { readonly source: MonitorSpec }>;
   readonly now?: number;
-  /**
-   * The engine's `executions`: those queued, and workflows let in but not
-   * yet dispatched, are shown beside the Orchestrator's runs.
-   */
+  readonly others?: OtherWorkspaces;
   readonly queued?: readonly ExecutionRun[];
   readonly root: string;
-  /** The live triggers: the engine's `schedules()`. */
   readonly schedules: readonly Schedule[];
-  /** Workflow setups' lines with their runs, for the logs panel. */
   readonly setupLogs?: readonly SetupLogEntry[];
   readonly startedAt: number;
   readonly status: string;
-  /** What agent turns consumed: the engine's `readUsage()`. */
   readonly usage?: UsageRecords;
-  /** This workspace's id, matching `FeedEntrySnapshot.workspace.id`. */
   readonly workspaceId?: string;
 }
 
-/** Adapt runtime records into presentation data; components never access the registry or engine. */
 export function dashboardSnapshot(
   records: readonly RunRecord[],
   options: SnapshotOptions
@@ -376,7 +298,6 @@ export function dashboardSnapshot(
     .filter(
       (run) =>
         run.status === "queued" ||
-        // Let in, its workflow still being set up: visible and cancellable.
         (run.kind === "workflow" &&
           run.status === "running" &&
           !dispatched.has(run.id))
@@ -402,19 +323,22 @@ export function dashboardSnapshot(
         workflows: options.definitions.map((entry) => entry.name),
       })
     : undefined;
+  const own = sorted.map((record) =>
+    runSnapshot(
+      record,
+      now,
+      feed,
+      options.activities ?? [],
+      usage && {
+        facts: usage.byRun.get(record.id) ?? [],
+        mayBelong: usage.mayBelongTo(record.id),
+      }
+    )
+  );
   const runs = [
     ...queued,
-    ...sorted.map((record) =>
-      runSnapshot(
-        record,
-        now,
-        feed,
-        options.activities ?? [],
-        usage && {
-          facts: usage.byRun.get(record.id) ?? [],
-          mayBelong: usage.mayBelongTo(record.id),
-        }
-      )
+    ...[...own, ...(options.others?.runs ?? [])].sort(
+      (a, b) => (b.timing?.createdAt ?? 0) - (a.timing?.createdAt ?? 0)
     ),
   ];
   const managed = new Map(
@@ -442,6 +366,7 @@ export function dashboardSnapshot(
       options.lastFinish.get(schedule.key) ??
       schedule.registeredAt ??
       options.startedAt;
+    const nextAt = nextDue(schedule, finished);
     return {
       ...(automation
         ? {
@@ -463,7 +388,8 @@ export function dashboardSnapshot(
       id: schedule.key,
       kind: schedule.kind,
       name: schedule.label,
-      next: new Date(nextDue(schedule, finished)).toLocaleString(),
+      next: new Date(nextAt).toLocaleString(),
+      nextAt,
       status,
       targetId: automation?.workflow ?? schedule.workflow,
     };
@@ -485,6 +411,7 @@ export function dashboardSnapshot(
       targetId: automation.workflow,
     });
   }
+  triggers.push(...(options.others?.triggers ?? []));
   return {
     definitions: options.definitions.map((entry) => {
       const origin = catalogOrigin(

@@ -2,10 +2,14 @@ import type { Page } from "@foundry/core/pagination";
 import type { StorageNode } from "@foundry/core/storage";
 
 import { isStoragePath, withParentDirectories } from "@foundry/core/storage";
+import { canonicalizeJson } from "@foundry/lib/json";
 
 import type { Blob, BlobFiles, ContentTree, StoredFile } from "./blob";
-import type { BlobEffects, ByteInput } from "./blob-repository";
-import { BlobRepository, isReferenceInput } from "./blob-repository";
+import type { BlobEffects } from "./blob-repository";
+import { BlobRepository } from "./blob-repository";
+import type { ByteInput, Ownership } from "./blob-staging";
+import { BlobStaging, isReferenceInput } from "./blob-staging";
+import type { ArtifactChange, EventInput } from "./change";
 import type { ContentMetadata } from "./content";
 import {
   assertJsonMetadata,
@@ -20,7 +24,6 @@ import {
 import {
   ArtifactExistsError,
   ArtifactNotFoundError,
-  ContentInUseError,
   ContentNotFoundError,
   ContentStateError,
   DuplicateTagError,
@@ -31,7 +34,6 @@ import {
 import type { ArtifactCursor } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
 import { artifactIdSchema, contentIdSchema } from "./ref";
-import type { ArtifactStoreTransaction } from "./store";
 import type {
   Artifact,
   ArtifactOperations,
@@ -41,6 +43,7 @@ import type {
   ContentSummary,
   CreateArtifactInput,
   EntryInput,
+  EntryInputs,
   FileRangeResolved,
   FileResolved,
   FreezeOption,
@@ -52,16 +55,13 @@ import type {
   WriteInput,
 } from "./substrate";
 
-/** What one operation changed, settled by the manager after commit or rollback. */
 export interface OperationEffects extends BlobEffects {
   readonly changed: Set<ArtifactId>;
-  committed: boolean;
 }
 
 export function operationEffects(): OperationEffects {
   return {
     changed: new Set(),
-    committed: false,
     published: new Set(),
     released: new Set(),
     retired: new Set(),
@@ -74,52 +74,159 @@ export interface TransactionLimits {
   readonly maxTreeBytes: number;
 }
 
-/** A located file entry and the object holding its bytes. */
 export interface LocatedFile {
   readonly blob: Blob;
   readonly entry: StoredFile;
   readonly path: string;
 }
 
-/** The Artifact operations within one store transaction. */
+const WRITING_OPERATIONS = [
+  "archive",
+  "clearFailedContent",
+  "create",
+  "delete",
+  "deleteContent",
+  "fork",
+  "freeze",
+  "patchArtifactMetadata",
+  "rename",
+  "revise",
+  "select",
+  "setMetadata",
+  "sweep",
+  "tag",
+  "unarchive",
+  "write",
+] as const satisfies readonly (keyof ArtifactOperations)[];
+
 export class ArtifactTransaction implements ArtifactOperations {
-  readonly #store: ArtifactStoreTransaction;
+  static {
+    for (const name of WRITING_OPERATIONS) {
+      const operation: unknown = Reflect.get(
+        ArtifactTransaction.prototype,
+        name
+      );
+      if (typeof operation !== "function") {
+        throw new Error(`ArtifactTransaction has no operation ${name}`);
+      }
+      Object.defineProperty(ArtifactTransaction.prototype, name, {
+        configurable: true,
+        value(this: ArtifactTransaction, ...args: unknown[]) {
+          return this.#change.operation(() =>
+            Reflect.apply(operation, this, args)
+          );
+        },
+        writable: true,
+      });
+    }
+  }
+
+  readonly #change: ArtifactChange;
   readonly #effects: OperationEffects;
   readonly #blobs: BlobRepository;
   readonly #maxTreeBytes: number;
+  readonly #staging: BlobStaging;
 
   constructor(
-    store: ArtifactStoreTransaction,
+    change: ArtifactChange,
     effects: OperationEffects,
-    limits: TransactionLimits
+    limits: TransactionLimits,
+    staging: BlobStaging = new BlobStaging(limits)
   ) {
-    this.#store = store;
+    this.#change = change;
     this.#effects = effects;
-    this.#blobs = new BlobRepository(store, effects, limits);
+    this.#blobs = new BlobRepository(change, effects, { ...limits, staging });
     this.#maxTreeBytes = limits.maxTreeBytes;
+    this.#staging = staging;
+  }
+
+  async checkCreate(input: CreateArtifactInput): Promise<void> {
+    nonEmpty("name", input.name);
+    nonEmpty("type", input.type);
+    if (input.id !== undefined && (await this.#change.getArtifact(input.id))) {
+      throw new ArtifactExistsError(input.id);
+    }
+    assertStoragePaths({ put: input.entries ?? {} });
+    await this.#checkReferences(input.entries);
+  }
+
+  async checkWrite(input: WriteInput): Promise<ArtifactResolved> {
+    const artifact = await this.#requireArtifact(input.artifactId);
+    fence(artifact, input);
+    const active = artifact.content;
+    if (active && active.state !== "ready") {
+      throw new ContentStateError(active.id, active.state, "write");
+    }
+    assertStoragePaths(input.changes);
+    await this.#checkReferences(input.changes.put);
+    await this.#checkOwnership(artifact, input.changes.put);
+    return artifact;
+  }
+
+  async checkRevise(input: ReviseInput): Promise<{
+    readonly artifact: ArtifactResolved;
+    readonly source: Content;
+  }> {
+    const artifact = await this.#requireArtifact(input.artifactId);
+    const source = await this.#requireOwnContent(artifact, input.contentId);
+    fence(artifact, {
+      expectedContentId: input.contentId,
+      expectedUpdatedAt: input.expectedUpdatedAt,
+    });
+    if (!isUsableContent(source)) {
+      throw new ContentStateError(source.id, source.state, "revise");
+    }
+    assertStoragePaths(input.changes ?? {});
+    await this.#checkReferences(input.changes?.put);
+    return { artifact, source };
+  }
+
+  async #checkOwnership(
+    artifact: ArtifactResolved,
+    entries: EntryInputs | undefined
+  ): Promise<void> {
+    const active = artifact.content;
+    for (const [path, entry] of Object.entries(entries ?? {})) {
+      if (isStructural(entry) || isReferenceInput(entry)) {
+        continue;
+      }
+      const previous =
+        active && Object.hasOwn(active.tree, path)
+          ? active.tree[path]
+          : undefined;
+      const now: Ownership | null =
+        active && previous?.type === "file"
+          ? {
+              blobId: previous.blobId,
+              exclusive: !(await this.#change.isBlobReferenced(
+                previous.blobId,
+                { contentId: active.id, path }
+              )),
+            }
+          : null;
+      const key = `${artifact.id}\u0000${path}`;
+      if (this.#change.readOnly) {
+        this.#staging.recordOwnership(key, now);
+      } else if (!this.#staging.confirmOwnership(key, now)) {
+        throw new StaleContentError(artifact.id, {
+          contentId: artifact.contentId,
+          updatedAt: active?.updatedAt ?? null,
+        });
+      }
+    }
+  }
+
+  async #checkReferences(entries: EntryInputs | undefined): Promise<void> {
+    for (const [path, entry] of Object.entries(entries ?? {})) {
+      if (!isStructural(entry) && isReferenceInput(entry)) {
+        await this.#blobs.resolve(path, entry);
+      }
+    }
   }
 
   async create(input: CreateArtifactInput): Promise<ArtifactResolved> {
-    nonEmpty("name", input.name);
-    nonEmpty("type", input.type);
-    const id = input.id ?? artifactIdSchema.parse(crypto.randomUUID());
-    if (await this.#store.getArtifact(id)) {
-      throw new ArtifactExistsError(id);
-    }
-    const now = new Date();
-    await this.#store.putArtifact({
-      archivedAt: null,
-      contentId: null,
-      createdAt: now,
-      id,
-      metadata: {},
-      name: input.name,
-      publishedAt: null,
-      status: "draft",
-      type: input.type,
-      updatedAt: now,
-    });
-    this.#effects.changed.add(id);
+    const id = await this.#file(input);
+    this.#change.record({ artifactId: id, type: "artifact.created" });
     if (input.entries !== undefined) {
       await this.write({
         artifactId: id,
@@ -132,14 +239,14 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async get(id: ArtifactId): Promise<ArtifactResolved | null> {
-    const artifact = await this.#store.getArtifact(id);
+    const artifact = await this.#change.getArtifact(id);
     return artifact && this.#resolveArtifact(artifact);
   }
 
   async list(
     input: ListArtifactsInput = {}
   ): Promise<Page<ArtifactResolved, ArtifactCursor>> {
-    const page = await this.#store.listArtifacts(input);
+    const page = await this.#change.listArtifacts(input);
     return {
       ...page,
       items: await Promise.all(
@@ -150,30 +257,44 @@ export class ArtifactTransaction implements ArtifactOperations {
 
   rename(id: ArtifactId, name: string): Promise<Artifact> {
     nonEmpty("name", name);
-    return this.#updateArtifact(id, () => ({ name }));
+    return this.#updateArtifact(
+      id,
+      () => ({ name }),
+      () => ({ artifactId: id, name, type: "artifact.renamed" })
+    );
   }
 
   patchArtifactMetadata(
     id: ArtifactId,
     patch: Readonly<Record<string, unknown>>
   ): Promise<Artifact> {
-    return this.#updateArtifact(id, (row) => ({
-      metadata: mergeMetadata(row.metadata, patch),
-    }));
+    return this.#updateArtifact(
+      id,
+      (row) => ({ metadata: mergeMetadata(row.metadata, patch) }),
+      () => ({ artifactId: id, contentId: null, type: "artifact.updated" })
+    );
   }
 
   archive(id: ArtifactId): Promise<Artifact> {
-    return this.#updateArtifact(id, (row) => ({
-      archivedAt: row.archivedAt ?? new Date(),
-      status: "archived",
-    }));
+    return this.#updateArtifact(
+      id,
+      (row) => ({
+        archivedAt: row.archivedAt ?? new Date(),
+        status: "archived",
+      }),
+      () => ({ artifactId: id, type: "artifact.archived" })
+    );
   }
 
   unarchive(id: ArtifactId): Promise<Artifact> {
-    return this.#updateArtifact(id, (row) => ({
-      archivedAt: null,
-      status: row.publishedAt ? "published" : "draft",
-    }));
+    return this.#updateArtifact(
+      id,
+      (row) => ({
+        archivedAt: null,
+        status: row.publishedAt ? "published" : "draft",
+      }),
+      () => ({ artifactId: id, type: "artifact.unarchived" })
+    );
   }
 
   async clearFailedContent(input: {
@@ -187,34 +308,54 @@ export class ArtifactTransaction implements ArtifactOperations {
       throw new ContentStateError(content.id, content.state, "clear");
     }
     await this.#point(artifact.id, null);
+    this.#change.record({
+      artifactId: artifact.id,
+      contentId: content.id,
+      type: "artifact.cleared",
+    });
     return this.#requireArtifact(artifact.id);
   }
 
   async delete(id: ArtifactId): Promise<boolean> {
-    if (!(await this.#store.getArtifact(id))) {
+    const artifact = await this.#change.getArtifact(id);
+    if (!artifact) {
       return false;
     }
     await this.#point(id, null);
-    for (const content of await this.#store.listContents(id)) {
+    for (const content of await this.#change.listContents(id)) {
       this.#releaseTree(content.tree);
     }
-    await this.#store.deleteArtifact(id);
+    await this.#change.deleteArtifact(id);
+    this.#change.record({
+      artifactId: id,
+      artifactType: artifact.type,
+      name: artifact.name,
+      type: "artifact.removed",
+    });
     return true;
   }
 
   async write(input: WriteInput): Promise<ContentResolved> {
-    const artifact = await this.#requireArtifact(input.artifactId);
-    fence(artifact, input);
+    const artifact = await this.checkWrite(input);
     const active = artifact.content;
-    if (active && active.state !== "ready") {
-      throw new ContentStateError(active.id, active.state, "write");
-    }
+    const writes = this.#change.operationWrites();
     const tree = await this.#applyChanges(
       active?.tree ?? {},
       input.changes,
       active?.id
     );
     const metadata = mergeMetadata(active?.metadata ?? {}, input.metadata);
+    if (
+      active &&
+      this.#change.operationWrites() === writes &&
+      sameJson(active.tree, tree) &&
+      sameJson(active.metadata, metadata)
+    ) {
+      if (input.freeze) {
+        await this.freeze(active.id, input.freeze);
+      }
+      return this.#resolvedContent(active.id);
+    }
     let content: Content;
     if (active) {
       validatePointers(metadata, tree);
@@ -225,12 +366,17 @@ export class ArtifactTransaction implements ArtifactOperations {
         tree,
         updatedAt: nextTime(active),
       };
-      await this.#store.putContent(content);
+      await this.#change.putContent(content);
       this.#releaseTree(active.tree);
     } else {
       content = await this.#insert(artifact.id, tree, metadata);
     }
     await this.#point(artifact.id, content.id);
+    this.#change.record({
+      artifactId: artifact.id,
+      contentId: content.id,
+      type: "artifact.written",
+    });
     if (input.freeze) {
       await this.freeze(content.id, input.freeze);
     }
@@ -238,15 +384,7 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async revise(input: ReviseInput): Promise<ContentResolved> {
-    const artifact = await this.#requireArtifact(input.artifactId);
-    const source = await this.#requireOwnContent(artifact, input.contentId);
-    fence(artifact, {
-      expectedContentId: input.contentId,
-      expectedUpdatedAt: input.expectedUpdatedAt,
-    });
-    if (!isUsableContent(source)) {
-      throw new ContentStateError(source.id, source.state, "revise");
-    }
+    const { artifact, source } = await this.checkRevise(input);
     if (source.state === "ready") {
       await this.#markFrozen(source);
     }
@@ -256,10 +394,15 @@ export class ArtifactTransaction implements ArtifactOperations {
       mergeMetadata(successorMetadata(source), input.metadata)
     );
     await this.#point(artifact.id, content.id);
+    this.#change.record({
+      artifactId: artifact.id,
+      contentId: content.id,
+      sourceContentId: source.id,
+      type: "artifact.revised",
+    });
     return this.#resolvedContent(content.id);
   }
 
-  /** Make Content immutable and publish its draft Artifact. */
   async freeze(
     id: ContentId,
     option: FreezeOption & { readonly expectedUpdatedAt?: Date } = {}
@@ -288,10 +431,18 @@ export class ArtifactTransaction implements ArtifactOperations {
       return current;
     }
     const frozen = await this.#markFrozen(current);
-    await this.#updateArtifact(row.artifactId, (artifact) => ({
-      publishedAt: artifact.publishedAt ?? frozen.updatedAt,
-      status: artifact.status === "draft" ? "published" : artifact.status,
-    }));
+    await this.#updateArtifact(
+      row.artifactId,
+      (artifact) => ({
+        publishedAt: artifact.publishedAt ?? frozen.updatedAt,
+        status: artifact.status === "draft" ? "published" : artifact.status,
+      }),
+      () => ({
+        artifactId: row.artifactId,
+        contentId: id,
+        type: "artifact.published",
+      })
+    );
     return frozen;
   }
 
@@ -310,6 +461,11 @@ export class ArtifactTransaction implements ArtifactOperations {
     }
     if (artifact.contentId !== target.id) {
       await this.#point(artifact.id, target.id);
+      this.#change.record({
+        artifactId: artifact.id,
+        contentId: target.id,
+        type: "artifact.selected",
+      });
     }
     return this.#requireArtifact(artifact.id);
   }
@@ -327,18 +483,25 @@ export class ArtifactTransaction implements ArtifactOperations {
       source = await this.#markFrozen(source);
     }
     const original = await this.#requireArtifact(source.artifactId);
-    const artifact = await this.create({
+    const id = await this.#file({
       id: input.id,
       name: input.name ?? original.name,
       type: original.type,
     });
     const content = await this.#insert(
-      artifact.id,
+      id,
       source.tree,
       successorMetadata(source)
     );
-    await this.#point(artifact.id, content.id);
-    return this.#requireArtifact(artifact.id);
+    await this.#point(id, content.id);
+    this.#change.record({
+      artifactId: id,
+      contentId: content.id,
+      sourceArtifactId: original.id,
+      sourceContentId: source.id,
+      type: "artifact.forked",
+    });
+    return this.#requireArtifact(id);
   }
 
   async tag(id: ContentId, tag: string | null): Promise<Content> {
@@ -346,9 +509,18 @@ export class ArtifactTransaction implements ArtifactOperations {
     if (tag !== null) {
       await this.#assertTagFree(row, tag);
     }
+    if (row.tag === tag) {
+      return row;
+    }
     const content = { ...row, tag };
-    await this.#store.putContent(content);
+    await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
+    this.#change.record({
+      artifactId: row.artifactId,
+      contentId: id,
+      tag,
+      type: "artifact.tagged",
+    });
     return content;
   }
 
@@ -365,18 +537,26 @@ export class ArtifactTransaction implements ArtifactOperations {
       throw new ContentStateError(id, row.state, "setMetadata");
     }
     validatePointers(metadata, row.tree);
+    if (sameJson(row.metadata, metadata)) {
+      return row;
+    }
     const content = { ...row, metadata, updatedAt: nextTime(row) };
-    await this.#store.putContent(content);
+    await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
+    this.#change.record({
+      artifactId: row.artifactId,
+      contentId: id,
+      type: "artifact.updated",
+    });
     return content;
   }
 
   async getContent(id: ContentId): Promise<ContentResolved | null> {
-    const content = await this.#store.getContent(id);
+    const content = await this.#change.getContent(id);
     if (!content) {
       return null;
     }
-    const artifact = await this.#store.getArtifact(content.artifactId);
+    const artifact = await this.#change.getArtifact(content.artifactId);
     if (!artifact) {
       throw new ArtifactNotFoundError(content.artifactId);
     }
@@ -387,7 +567,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     id: ArtifactId,
     input: ListContentsInput = {}
   ): Promise<readonly ContentSummary[]> {
-    return (await this.#store.listContents(id, input)).map(
+    return (await this.#change.listContents(id, input)).map(
       ({ tree: _tree, ...content }) => content
     );
   }
@@ -397,7 +577,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     by: { readonly sessionId: string; readonly messageId: string }
   ): Promise<Content | null> {
     return (
-      [...(await this.#store.listContents(id))]
+      [...(await this.#change.listContents(id))]
         .reverse()
         .find(
           (row) =>
@@ -435,9 +615,14 @@ export class ArtifactTransaction implements ArtifactOperations {
       }
       await this.select({ artifactId: artifact.id, contentId: replacement.id });
     }
-    await this.#store.deleteContent(row.id);
+    await this.#change.deleteContent(row.id);
     this.#releaseTree(row.tree);
     this.#effects.changed.add(row.artifactId);
+    this.#change.record({
+      artifactId: row.artifactId,
+      contentId: row.id,
+      type: "artifact.discarded",
+    });
   }
 
   async readFile(id: ContentId, path: string): Promise<FileResolved | null> {
@@ -480,37 +665,33 @@ export class ArtifactTransaction implements ArtifactOperations {
     readonly olderThan: Date;
   }): Promise<{ readonly contents: number; readonly blobs: number }> {
     let contents = 0;
-    for (const content of await this.#store.listContents()) {
+    for (const content of await this.#change.listContents()) {
       if (
         (content.state !== "ready" && content.state !== "failed") ||
         content.updatedAt >= input.olderThan
       ) {
         continue;
       }
-      const artifact = await this.#store.getArtifact(content.artifactId);
+      const artifact = await this.#change.getArtifact(content.artifactId);
       if (artifact?.contentId === content.id) {
         continue;
       }
-      try {
-        await this.#store.deleteContent(content.id);
-      } catch (error) {
-        if (error instanceof ContentInUseError) {
-          continue;
-        }
-        throw error;
-      }
+      await this.#change.deleteContent(content.id);
       contents += 1;
       this.#effects.changed.add(content.artifactId);
+      this.#change.record({
+        artifactId: content.artifactId,
+        contentId: content.id,
+        type: "artifact.discarded",
+      });
     }
     return { blobs: await this.#blobs.reclaimAll(), contents };
   }
 
-  /** Find a file entry and verify its object still describes the same bytes. */
   async locateFile(id: ContentId, path: string): Promise<LocatedFile | null> {
     return this.#locate(await this.#requireContent(id), path);
   }
 
-  /** Delete the blobs this transaction released, if nothing references them. */
   async reclaim(): Promise<void> {
     await this.#blobs.reclaim();
   }
@@ -551,26 +732,14 @@ export class ArtifactTransaction implements ArtifactOperations {
     return { blob, entry, path };
   }
 
-  /**
-   * Apply tree changes to `base`. Within `owner` (Content edited in place), a
-   * file whose object no other reference holds is rewritten in place.
-   * Reference inputs resolve first, so every object they name counts as shared.
-   */
   async #applyChanges(
     base: ContentTree,
     changes: TreeChanges,
     owner?: ContentId
   ): Promise<ContentTree> {
+    assertStoragePaths(changes);
     const removed = changes.remove ?? [];
     const puts = Object.entries(changes.put ?? {});
-    for (const path of [...removed, ...Object.keys(changes.put ?? {})]) {
-      if (!isStoragePath(path)) {
-        throw new InvalidArtifactInputError(
-          "path",
-          `Invalid storage path: ${path}`
-        );
-      }
-    }
     const tree: Record<string, ContentTree[string]> = Object.create(null);
     if (!changes.replace) {
       for (const [path, node] of Object.entries(base)) {
@@ -611,7 +780,6 @@ export class ArtifactTransaction implements ArtifactOperations {
     return complete;
   }
 
-  /** The object at `path` when only that entry of `owner` references it. */
   async #ownedObject(
     previous: ContentTree[string] | undefined,
     owner: ContentId | undefined,
@@ -625,7 +793,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     ) {
       return;
     }
-    const shared = await this.#store.isBlobReferenced(previous.blobId, {
+    const shared = await this.#change.isBlobReferenced(previous.blobId, {
       contentId: owner,
       path,
     });
@@ -651,11 +819,10 @@ export class ArtifactTransaction implements ArtifactOperations {
       tree,
       updatedAt: now,
     };
-    await this.#store.putContent(content);
+    await this.#change.putContent(content);
     return content;
   }
 
-  /** Freeze without publishing; `freeze` adds publication. */
   async #markFrozen(row: Content): Promise<Content> {
     const now = nextTime(row);
     const content: Content = {
@@ -664,38 +831,69 @@ export class ArtifactTransaction implements ArtifactOperations {
       state: "frozen",
       updatedAt: now,
     };
-    await this.#store.putContent(content);
+    await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
+    this.#change.record({
+      artifactId: row.artifactId,
+      contentId: row.id,
+      type: "artifact.frozen",
+    });
     return content;
+  }
+
+  async #file(input: CreateArtifactInput): Promise<ArtifactId> {
+    await this.checkCreate(input);
+    const id = input.id ?? artifactIdSchema.parse(crypto.randomUUID());
+    const now = new Date();
+    await this.#change.putArtifact({
+      archivedAt: null,
+      contentId: null,
+      createdAt: now,
+      id,
+      metadata: {},
+      name: input.name,
+      publishedAt: null,
+      status: "draft",
+      type: input.type,
+      updatedAt: now,
+    });
+    this.#effects.changed.add(id);
+    return id;
   }
 
   async #updateArtifact(
     id: ArtifactId,
-    update: (artifact: Artifact) => Partial<Artifact>
+    update: (artifact: Artifact) => Partial<Artifact>,
+    event: () => EventInput | undefined = () => undefined,
+    touches = false
   ): Promise<Artifact> {
-    const previous = await this.#store.getArtifact(id);
+    const previous = await this.#change.getArtifact(id);
     if (!previous) {
       throw new ArtifactNotFoundError(id);
     }
-    const artifact = {
-      ...previous,
-      ...update(previous),
-      updatedAt: new Date(),
-    };
-    assertJsonMetadata(artifact.metadata);
-    await this.#store.putArtifact(artifact);
+    const updated = { ...previous, ...update(previous) };
+    assertJsonMetadata(updated.metadata);
+    if (!touches && sameArtifact(previous, updated)) {
+      return previous;
+    }
+    const artifact = { ...updated, updatedAt: new Date() };
+    await this.#change.putArtifact(artifact);
     this.#effects.changed.add(id);
+    const made = event();
+    if (made !== undefined) {
+      this.#change.record(made);
+    }
     return artifact;
   }
 
   async #point(id: ArtifactId, contentId: ContentId | null): Promise<void> {
-    await this.#updateArtifact(id, () => ({ contentId }));
+    await this.#updateArtifact(id, () => ({ contentId }), undefined, true);
   }
 
   async #assertTagFree(row: Content, tag: string): Promise<void> {
     nonEmpty("tag", tag);
     if (
-      (await this.#store.listContents(row.artifactId)).some(
+      (await this.#change.listContents(row.artifactId)).some(
         (other) => other.id !== row.id && other.tag === tag
       )
     ) {
@@ -730,7 +928,7 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async #requireContent(id: ContentId): Promise<Content> {
-    const content = await this.#store.getContent(id);
+    const content = await this.#change.getContent(id);
     if (!content) {
       throw new ContentNotFoundError(id);
     }
@@ -760,7 +958,6 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 }
 
-/** A ranged read of a located file, clamped to its length. */
 export function fileRange(
   located: LocatedFile,
   range: { readonly start: number; readonly end?: number },
@@ -792,6 +989,20 @@ async function collect(
     throw new Error(`Truncated file: ${path}`);
   }
   return bytes;
+}
+
+function assertStoragePaths(changes: TreeChanges): void {
+  for (const path of [
+    ...(changes.remove ?? []),
+    ...Object.keys(changes.put ?? {}),
+  ]) {
+    if (!isStoragePath(path)) {
+      throw new InvalidArtifactInputError(
+        "path",
+        `Invalid storage path: ${path}`
+      );
+    }
+  }
 }
 
 function fence(artifact: ArtifactResolved, expected: WriteFence): void {
@@ -831,6 +1042,23 @@ function storedFile(blob: Blob, mime: string | null | undefined): StoredFile {
     mime: mime ?? null,
     type: "file",
   };
+}
+
+function sameArtifact(left: Artifact, right: Artifact): boolean {
+  return (
+    left.name === right.name &&
+    left.type === right.type &&
+    left.status === right.status &&
+    left.contentId === right.contentId &&
+    left.createdAt.getTime() === right.createdAt.getTime() &&
+    left.archivedAt?.getTime() === right.archivedAt?.getTime() &&
+    left.publishedAt?.getTime() === right.publishedAt?.getTime() &&
+    sameJson(left.metadata, right.metadata)
+  );
+}
+
+function sameJson(left: Readonly<object>, right: Readonly<object>): boolean {
+  return canonicalizeJson(left) === canonicalizeJson(right);
 }
 
 function nextTime(row: Content): Date {

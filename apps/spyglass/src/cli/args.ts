@@ -8,7 +8,6 @@ import { RENDER_DENSITIES, RENDER_FORMATS } from "../lib/render/context";
 import { checkPort, DEFAULT_PORT } from "../lib/serve";
 import { overlapRefusal, resolveRoot } from "../lib/state";
 
-/** A command line that cannot run: an unknown flag, a missing argument, or a bad value. */
 export class UsageError extends Error {
   override readonly name = "UsageError";
 }
@@ -34,11 +33,9 @@ interface SharedFlags {
 
 interface CommandFlags {
   readonly density: RenderDensity;
-  /** `undefined`: the CLI picks `terminal` on a terminal and `text` otherwise. */
   readonly format: RenderFormat | undefined;
   readonly history: boolean;
   readonly "no-open": boolean;
-  /** `undefined`: `serve`'s default port. */
   readonly port: number | undefined;
   readonly write: boolean;
 }
@@ -46,7 +43,6 @@ type CommandFlag = keyof CommandFlags;
 
 type OptionName = keyof typeof OPTIONS;
 
-/** The options every command takes; any other must be in the command's own list. */
 const SHARED = ["help", "json", "quiet", "state"] as const satisfies readonly (
   | keyof SharedFlags
   | "help"
@@ -64,7 +60,6 @@ function usageErrorFrom(error: unknown): UsageError {
   return new UsageError(messageOf(error), { cause: error });
 }
 
-/** Every command; `open` is the default, which has no name of its own. */
 export type Command =
   | "apply"
   | "check"
@@ -76,17 +71,14 @@ export type Command =
   | "scan"
   | "serve";
 
-/** A command that reads one workspace's dataset: one path. */
 interface OnePath {
   readonly paths: readonly [string];
 }
 
-/** A command that reads one workspace, or several as a collection. */
 interface Paths {
   readonly paths: readonly [string, ...string[]];
 }
 
-/** A command's name in the help's flag list: `spyglass` for the default. */
 function shortName(command: Command): string {
   return command === "open" ? "spyglass" : command;
 }
@@ -97,7 +89,6 @@ function spelling(command: Command): string {
     : `spyglass ${shortName(command)}`;
 }
 
-/** The one path a single-workspace command reads; a second is refused. */
 function onePath(
   command: Command,
   words: readonly string[],
@@ -112,11 +103,6 @@ function onePath(
   return { paths: [path] };
 }
 
-/**
- * The one workspace a viewer command (the default, `serve`, `export`) shows:
- * the viewer draws one workspace's map, so a second path is refused before
- * anything is scanned or served.
- */
 function viewerPath(
   command: "export" | "open" | "serve",
   words: readonly string[],
@@ -131,21 +117,15 @@ function viewerPath(
   return { paths: [path] };
 }
 
-/** Every path, the current directory when none is given. */
 function somePaths(words: readonly string[], cwd: string): Paths {
   const [path = cwd, ...more] = words;
   return { paths: [path, ...more] };
 }
 
-/** What a command's paths name: one workspace, or a collection of several. */
 export type Workspaces =
   | { readonly root: string }
   | { readonly roots: readonly [string, ...string[]] };
 
-/**
- * One path is passed through as a workspace. For a collection, paths are
- * resolved in order; duplicate or nested roots produce a usage error.
- */
 export async function workspacesOf(
   paths: readonly [string, ...string[]]
 ): Promise<Workspaces> {
@@ -171,7 +151,6 @@ export async function workspacesOf(
   return { roots: paths };
 }
 
-/** The word a command needs before its path, as `report <package>`. */
 function needed(
   command: "apply" | "export" | "lens" | "plan" | "report",
   what: string,
@@ -187,18 +166,12 @@ function needed(
 }
 
 interface CommandSpec {
-  /** The flags it takes beyond the shared ones; the parser refuses any other. */
   readonly flags: readonly CommandFlag[];
   readonly read: (words: readonly string[], cwd: string) => OnePath | Paths;
   readonly summary: string;
   readonly usage: string;
 }
 
-/**
- * Every command: how it is written, what it does, the flags it takes, and
- * how it reads the words after its name. The parser and the help are both
- * written from this table.
- */
 const COMMANDS = {
   apply: {
     flags: ["write", "format", "density"],
@@ -275,7 +248,6 @@ const COMMANDS = {
   },
 } as const satisfies { readonly [C in Command]: CommandSpec };
 
-/** The help's order: the default command first. */
 const COMMAND_ORDER = [
   "open",
   "scan",
@@ -290,7 +262,6 @@ const COMMAND_ORDER = [
 
 type FlagsOf<C extends Command> = (typeof COMMANDS)[C]["flags"][number];
 
-/** A command line for one command: its name, its flags, and its positionals. */
 export type ArgsOf<C extends Command> = C extends Command
   ? { readonly command: C } & SharedFlags &
       Pick<CommandFlags, FlagsOf<C>> &
@@ -299,10 +270,8 @@ export type ArgsOf<C extends Command> = C extends Command
 
 type Args = ArgsOf<Command>;
 
-/** What a command line asks for: a command, or the help. */
 export type CommandLine = Args | { readonly command: "help" };
 
-/** What each flag does, for the help; a command flag's text follows the commands that take it. */
 const FLAG_HELP: Readonly<Record<OptionName, [string, string]>> = {
   density: [
     "--density <density>",
@@ -386,7 +355,6 @@ function isNamedCommand(word: string | undefined): word is Command {
   return NAMED_COMMANDS.some((command) => command === word);
 }
 
-/** Reads a command line; throws `UsageError` for one that cannot run. */
 export function parseArguments(
   argv: readonly string[],
   cwd = process.cwd()
@@ -415,8 +383,6 @@ export function parseArguments(
     );
   }
   const own = Object.fromEntries(taken.map((flag) => [flag, flags[flag]]));
-  // The table pairs the command with its flags and positionals; the type
-  // cannot follow `command` through the lookups above.
   return {
     command,
     json: values.json ?? false,
@@ -427,7 +393,6 @@ export function parseArguments(
   } as CommandLine;
 }
 
-/** What `--json` prints for a command that also renders, in its usage error. */
 const JSON_PRINTS: Partial<Record<Command, string>> = {
   apply: "the apply's result",
   check: "the check's result",
@@ -437,7 +402,6 @@ const JSON_PRINTS: Partial<Record<Command, string>> = {
 
 type Values = ReturnType<typeof readOptions>["values"];
 
-/** Unknown flags and flags missing their value are refused before anything else. */
 function readOptions(argv: readonly string[]) {
   try {
     return parseArgs({
@@ -462,7 +426,6 @@ function commandFlags(values: Values): CommandFlags {
   };
 }
 
-/** One of the allowed words; any other is a usage error that lists them. */
 function chosen<T extends string>(
   what: string,
   allowed: readonly T[],
@@ -486,7 +449,6 @@ function oneOf<T extends string>(
   return value === undefined ? undefined : chosen(flag, allowed, value);
 }
 
-/** An opportunity, by any of the words `resolveSite` reads; another shape is a usage error. */
 function siteOf(word: string): Site {
   try {
     return resolveSite(word);

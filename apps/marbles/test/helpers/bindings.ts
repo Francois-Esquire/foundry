@@ -1,4 +1,4 @@
-import type { SessionStore } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 import type { Bindings } from "~/lib/bindings";
 import type { Engine, EngineOptions } from "~/lib/engine";
 import type { Reply } from "~/lib/models/echo";
@@ -17,9 +17,7 @@ export interface MockBindingOptions
 export interface MockBindings {
   readonly bindings: Bindings;
   dispose(): Promise<void>;
-  /** The engine the bindings belong to; never started. */
   readonly engine: Engine;
-  /** Spread into `startEngine({ ... })` for an engine over the same models, sessions and workspaces. */
   readonly instances: Pick<
     EngineOptions,
     "git" | "models" | "sessions" | "workspaces"
@@ -30,11 +28,6 @@ export interface MockBindings {
 
 const AGENTS = "[agents] ";
 
-/**
- * A test engine over mock models with a scripted reply. `launch` runs
- * against its bindings at once; an engine a test starts itself takes
- * `instances`. Call `dispose` when the test is done.
- */
 export function bindMock(
   reply: Reply,
   options: MockBindingOptions = {}

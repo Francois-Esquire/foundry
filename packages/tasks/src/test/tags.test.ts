@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { taskChangeSchema } from "../operations";
-import { MemoryTaskStore } from "../store";
+import type { Task } from "../schema";
+import { MemoryTaskStore } from "../store/memory";
 import { Tasks } from "../tasks";
-import type { Task } from "../types";
 import { taskId } from "../types";
 
 const clock = () => new Date("2026-10-29T00:00:00.000Z");
@@ -98,7 +98,6 @@ describe("task tags", () => {
     expect(await ready({ tags: { all: ["review", "api"] } })).toEqual([
       both.id,
     ]);
-    // Empty lists impose nothing; tags are exact strings.
     expect(await ready({ tags: { all: [], any: [] } })).toHaveLength(4);
     expect(await ready({ tags: { any: ["Review"] } })).toEqual([]);
     const page = await tasks.ready({ limit: 1, tags: { any: ["api"] } });

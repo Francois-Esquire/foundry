@@ -1,13 +1,3 @@
-/**
- * Streaming uses a stepRef closure so chunks flow through
- * step.channels.chunks rather than a side-channel callback.
- *
- * SuspendSignal is thrown manually from execute. originPath is set to
- * [name] — correct for root-level use; if composed as a child the
- * step.suspended event won't fire (path mismatch) but suspension
- * propagates to the workflow regardless.
- */
-
 import { SuspendSignal } from "../../executable";
 import type { Step, StepSpec } from "../../step";
 import type { Duration, RetryPolicy } from "../../types";
@@ -25,13 +15,6 @@ export interface StreamingConfig<S> {
   readonly delayMs?: number;
 }
 
-/**
- * Returns a spec and a setter for the Step instance. After calling
- * Step.make(spec), assign the returned Step to setStep() so write()
- * calls flow through step.channels.chunks. Stays generic over `S` by
- * routing every chunk through `write` (non-string values become data
- * chunks; read back as `payload.data`).
- */
 export function makeStreamingSpec<S = string>(
   config: StreamingConfig<S>,
   name = "streaming"

@@ -13,14 +13,10 @@ export interface PiDriverOptions {
   cwd: string;
   env?: Readonly<Record<string, string>>;
   instructions?: string;
-  /** Pi's provider/model id, for example anthropic/claude-sonnet-4-6. */
   modelId: string;
-  /** Pi built-ins enabled by a host model call. Sandboxes use host-owned coding tools instead. */
   nativeTools?: readonly string[];
-  /** False for stateless model calls; native harness sessions persist by default. */
   persist?: boolean;
   sessionDirectory?: string;
-  /** The host owns process placement. No host-spawn fallback exists. */
   spawn(
     argv: readonly string[],
     options: {
@@ -29,7 +25,6 @@ export interface PiDriverOptions {
       signal: AbortSignal;
     }
   ): Promise<CliProcess>;
-  /** Writes non-secret extension source into the same guest as the CLI. */
   writeExtension(source: string): Promise<string>;
 }
 
@@ -44,7 +39,6 @@ const NATIVE_TOOLS = new Set([
   "ls",
 ]);
 
-/** Pi owns the agent loop; all executable tools cross the host's permission callback. */
 export function createPiDriver(options: PiDriverOptions): HarnessTurnDriver {
   let active: { rpc?: PiRpc; abort: AbortController } | undefined;
   return {

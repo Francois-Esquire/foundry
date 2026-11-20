@@ -18,18 +18,9 @@ type SelectedVersion = Pick<ModuleVersion, "contentId" | "digest" | "moduleId">;
 
 export interface CreateModuleSelectedCheckoutsOptions {
   readonly artifacts: Pick<Artifacts, "getContent" | "readFileRange">;
-  /**
-   * Where a Module's checkout lives. Staged and set-aside copies sit beside
-   * it, named after it with a leading dot, so its parent belongs to it.
-   */
   readonly checkoutPath: (moduleId: string) => string;
 }
 
-/**
- * Each Module's selected checkout: the selected Version's `outputs/`,
- * projected read-only from its frozen Content. Earlier Versions stay in
- * Artifact storage, so any of them can be projected again.
- */
 export function createModuleSelectedCheckouts(
   options: CreateModuleSelectedCheckoutsOptions
 ): ModuleSelectedCheckouts {
@@ -63,7 +54,6 @@ export function createModuleSelectedCheckouts(
       );
     }
   }
-  /** What an interrupted stage or swap left beside the checkout. */
   async function sweep(location: Location) {
     const names = await readdir(location.parent).catch(missing);
     for (const name of names ?? []) {
@@ -92,7 +82,6 @@ export function createModuleSelectedCheckouts(
     }
     return staged;
   }
-  /** `staged` becomes the checkout; returns where the previous files went. */
   async function swap(staged: string, location: Location) {
     const aside = (await exists(location.checkout)) ? location.scratch() : null;
     if (aside) {

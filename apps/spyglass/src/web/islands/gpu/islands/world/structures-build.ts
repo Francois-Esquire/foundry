@@ -1,10 +1,3 @@
-/**
- * The structures layer's build (WORLD.md layer 4): the world plan's
- * buildings, parcel edges and poles turned into parts of the kit
- * (town-parts.ts) placed on the chart, the sites whose ground the floors
- * pass finds, and the wires between the poles. Done once when the plan
- * changes, on the CPU; the frame only draws what this packs.
- */
 import type { Point } from "../../../data/chart";
 import {
   type Laid,
@@ -23,10 +16,8 @@ export interface BuiltStructures {
   readonly wires: readonly Wire[];
 }
 
-/** A pole's site: small, its ground found under its foot. */
 const POLE_SITE: readonly [number, number] = [0.05, 0.05];
 
-/** The parcel's outline in the building's frame, as its extent. */
 function roomOf(
   b: Building,
   outline: readonly Point[] | undefined
@@ -48,7 +39,6 @@ function roomOf(
   return { maxX, maxZ, minX, minZ };
 }
 
-/** Every structure in the plan, placed on the chart. */
 export function buildStructures(plan: WorldPlan): BuiltStructures {
   const parts: PlacedPart[] = [];
   const sites: Site[] = [];

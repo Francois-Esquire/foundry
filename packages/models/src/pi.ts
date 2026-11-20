@@ -1,7 +1,7 @@
 import { wrapLanguageModel } from "ai";
-import { createPi, type PiProviderSettings } from "ai-sdk-provider-pi";
+import type { PiProviderSettings } from "ai-sdk-provider-pi";
+import { deferredLanguageModel } from "./deferred-language-model";
 import type { Provider } from "./provider";
-import { vendorClient } from "./provider";
 import type { ModelKind, ProviderModelDefinition } from "./types";
 
 export type { PiDriverOptions } from "./harness/pi";
@@ -9,19 +9,16 @@ export type { PiDriverOptions } from "./harness/pi";
 export { createPiDriver } from "./harness/pi";
 
 export interface PiProviderConfig extends PiProviderSettings {
-  /** The host owns availability, as for the other CLI providers. */
   available?: boolean;
 }
 
 export interface PiProviderOptions {
   config?: PiProviderConfig;
-  /** Catalog id to prefer per kind when the caller names none. */
   defaults?: Partial<Record<ModelKind, string>>;
   id?: string;
   models?: ProviderModelDefinition[];
 }
 
-/** A model included in the community provider's pinned Pi catalog. */
 export const PI_DEFAULT_MODEL = "anthropic/claude-sonnet-4-5";
 export const PI_DEFAULT_MODELS: ProviderModelDefinition[] = [
   {
@@ -34,36 +31,43 @@ export const PI_DEFAULT_MODELS: ProviderModelDefinition[] = [
   },
 ];
 
-/** Pi's AI SDK provider for model calls; sandbox sessions use the native turn driver. */
 export function piProvider(options: PiProviderOptions = {}): Provider {
-  const vendor = vendorClient(options.config ?? {}, build);
+  let client: ReturnType<typeof build> | undefined;
+  const open = () => {
+    client ??= build(options.config ?? {});
+    return client;
+  };
   return {
     get available() {
-      return vendor.config.available ?? false;
+      return options.config?.available ?? false;
     },
     ...(options.defaults ? { defaults: options.defaults } : {}),
-    dispose: () => vendor.client.dispose(),
+    dispose: async () => {
+      const opened = await client?.catch(() => undefined);
+      await opened?.dispose();
+    },
     id: options.id ?? "pi",
     languageModel: (modelId, selection) =>
-      // AI SDK's own adapter normalizes the provider's V3 model to our V4 contract.
-      wrapLanguageModel({
-        middleware: [],
-        model: vendor.client.languageModel(
-          modelId,
-          selection?.workingDirectory
-            ? { cwd: selection.workingDirectory }
-            : undefined
-        ),
-      }),
+      deferredLanguageModel("pi", modelId, async () =>
+        wrapLanguageModel({
+          middleware: [],
+          model: (await open()).languageModel(
+            modelId,
+            selection?.workingDirectory
+              ? { cwd: selection.workingDirectory }
+              : undefined
+          ),
+        })
+      ),
     models: options.models ?? PI_DEFAULT_MODELS,
     offline: false,
-    // Pi runs its own tool loop inside one call and takes no limit.
     turnLimit: "unsupported",
   };
 }
 
-function build(config: PiProviderConfig) {
-  return createPi({
+async function build(config: PiProviderConfig) {
+  const { createPi: create } = await import("ai-sdk-provider-pi");
+  return create({
     defaultSettings: {
       logger: false,
       tools: "readOnly",

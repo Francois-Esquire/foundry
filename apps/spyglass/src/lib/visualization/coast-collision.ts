@@ -11,7 +11,6 @@ function cross(a: Point, b: Point, c: Point): number {
   return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
 }
 
-/** Each land component keeps its own convex envelope, not an island-wide circle. */
 function hull(points: Point[]): Point[] {
   const sorted = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const half = (ordered: Point[]) => {
@@ -61,7 +60,6 @@ function shapes(island: IslandGeometry): Shape[] {
   if (coasts.length) {
     return coasts.map(shape);
   }
-  // A circumscribed fallback preserves the radius when coastline data is absent.
   const radius = island.radius / Math.cos(Math.PI / 24);
   return [
     shape(
@@ -84,7 +82,6 @@ function projection(points: Point[], axis: Point): [number, number] {
   return [min, max];
 }
 
-/** Minimum separating translation for two land envelopes, including a water gap. */
 function separation(
   a: Shape,
   b: Shape,
@@ -121,7 +118,6 @@ function separation(
   return [direction[0] * minimum, direction[1] * minimum];
 }
 
-/** Shelves can overlap freely; only land components participate in collisions. */
 export function createCoastSeparation(
   islands: readonly IslandGeometry[],
   gap: number

@@ -4,14 +4,25 @@ import type { ModelRoute } from "../agents/model";
 import type { AgentAuthorizer } from "../authorization/authorization";
 import type { Capability, ToolSource } from "../authorization/capability";
 import type {
+  HarnessActivity,
+  HarnessActivityEvent,
+  HarnessToolEvent,
+} from "../schema";
+import type {
   AgentApprovalRequest,
   SessionInput,
   SessionStream,
 } from "../session/events";
-import type { SessionStore } from "../session/store";
 import type { SessionMessage } from "../session/types";
+import type { SessionStore } from "../store";
 import type { TurnOptions } from "./session-harness";
 import type { StreamPart } from "./stream-transform";
+
+export type {
+  HarnessActivity,
+  HarnessActivityEvent,
+  HarnessToolEvent,
+} from "../schema";
 
 export interface HarnessPermissionProfile {
   allowedTools: readonly string[];
@@ -58,7 +69,6 @@ export interface HarnessQuestion {
   question: string;
 }
 
-/** Questions and answers may contain secrets. Deliver only to the live host/model. */
 export interface HarnessQuestionRequest {
   activityId?: string;
   questions: HarnessQuestion[];
@@ -75,30 +85,16 @@ export type HarnessQuestionCallback = (
   request: HarnessQuestionRequest
 ) => Promise<HarnessQuestionResult>;
 
-export interface HarnessToolEvent {
-  activityId?: string;
-  agentId: string;
-  harness: string;
-  inputSummary: string;
-  outcome: "started" | "ran" | "refused" | "failed";
-  reason?: string;
-  sessionId: string;
-  toolCallId: string;
-  toolName: string;
-}
-
 export interface HarnessCapabilities {
   interruption: boolean;
   steering: boolean;
 }
 
-/** A JSON response format: the schema a CLI's final answer must match. */
 export type HarnessResponseFormat = Extract<
   Awaited<Output.Output["responseFormat"]>,
   { type: "json" }
 >;
 
-/** A CLI owns its loop and history. run receives only the newly submitted input. */
 export interface HarnessTurnDriver {
   capabilities: HarnessCapabilities;
   close?: () => Promise<void>;
@@ -116,7 +112,6 @@ export interface HarnessTurnDriver {
     onActivity: (activity: HarnessActivity) => Promise<void>;
     onToolEvent: (event: HarnessToolEvent) => Promise<void>;
     onSessionId: (nativeSessionId: string) => Promise<void>;
-    /** The turn's structured output; the CLI answers with matching JSON. */
     responseFormat?: HarnessResponseFormat;
   }): Promise<AsyncIterable<StreamPart>>;
   steer?: (input: string) => Promise<void>;
@@ -145,11 +140,8 @@ export interface HarnessSession {
 export interface HarnessAuthoritySettings {
   agentGeneration?: number;
   agentId: string;
-  /** Live attended callback. This must never suspend/replay a workflow. */
   approve?: (
     request: AgentApprovalRequest & {
-      /** input is the exact operation and may contain secrets. It is only
-       * delivered to this live host callback; persist inputSummary instead. */
       inputSummary?: string;
       sessionId: string;
       signal: AbortSignal;
@@ -176,31 +168,4 @@ export interface DriverSessionSettings extends HarnessAuthoritySettings {
   question?: HarnessQuestionCallback;
   sessionId?: string;
   tools?: ToolSet;
-}
-
-/** Full snapshots, with IDs scoped to the native process/environment generation.
- * Completion of the parent turn says nothing about these activities. */
-export interface HarnessActivity {
-  actions?: readonly "stop"[];
-  id: string;
-  kind: "subagent" | "task" | "watch" | "schedule";
-  lifetime: "session" | "sandbox";
-  nativeId?: string;
-  parentId?: string;
-  status:
-    | "running"
-    | "waiting"
-    | "complete"
-    | "failed"
-    | "cancelled"
-    | "unknown";
-  summary?: string;
-  title: string;
-}
-
-export interface HarnessActivityEvent extends HarnessActivity {
-  agentId: string;
-  harness: string;
-  revision: number;
-  sessionId: string;
 }

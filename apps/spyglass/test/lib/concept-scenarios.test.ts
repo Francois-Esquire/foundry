@@ -378,8 +378,6 @@ describe("representation boundaries and responsibility splits", () => {
         (item) => item.kind === "conversion-boundary"
       )
     ).toBe(true);
-    // The boundary and split kinds reach the same placement as consolidation
-    // (B's behavior is entirely converters), so they fold into it.
     expect(diagnostics.deduplicated).toBe(2);
     const [, consolidate] = scenarios;
     expect(packagesOf(consolidate, "domain-behavior")).toEqual([A]);

@@ -10,13 +10,16 @@ import {
   renderTranscript,
   selectMarker,
 } from "../../session/compactor";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
 import type {
   SessionMessage,
   SessionPart,
   SessionRole,
 } from "../../session/types";
+import type { SessionStore } from "../../store";
+import { InMemorySessionStore } from "../../store/memory";
 import { textGenerateResult } from "../helpers/mock-language-model";
+import { sessionStoreKinds } from "../helpers/session-stores";
 
 const text = (t: string): SessionPart[] => [{ text: t, type: "text" }];
 const labelOf = (m: SessionMessage): string =>
@@ -42,7 +45,7 @@ function fakeSummarizer(): Summarizer & { lastSeen: string[]; calls: number } {
 }
 
 async function seed(
-  store: InMemorySessionStore,
+  store: SessionStore,
   labels: string[]
 ): Promise<{ sessionId: string; ids: string[] }> {
   return seedRoles(
@@ -52,13 +55,14 @@ async function seed(
 }
 
 async function seedRoles(
-  store: InMemorySessionStore,
+  store: SessionStore,
   items: [SessionRole, string][]
 ): Promise<{ sessionId: string; ids: string[] }> {
-  const session = await store.createSession();
+  const sessions = new Sessions({ store });
+  const session = await sessions.createSession();
   const ids: string[] = [];
   for (const [role, label] of items) {
-    const m = await store.appendMessage({
+    const m = await sessions.appendMessage({
       parts: text(label),
       role,
       sessionId: session.id,
@@ -87,13 +91,14 @@ const capability = { kind: "mcp.tool", serverId: "s", tool: "danger" } as const;
 describe("renderTranscript", () => {
   test("renders a pruned transcript: roles + tools, reasoning dropped", async () => {
     const store = new InMemorySessionStore();
-    const session = await store.createSession();
-    await store.appendMessage({
+    const sessions = new Sessions({ store });
+    const session = await sessions.createSession();
+    await sessions.appendMessage({
       parts: text("hello"),
       role: "user",
       sessionId: session.id,
     });
-    await store.appendMessage({
+    await sessions.appendMessage({
       parts: [
         { text: "thinking", type: "reasoning" },
         {
@@ -106,7 +111,7 @@ describe("renderTranscript", () => {
       role: "assistant",
       sessionId: session.id,
     });
-    await store.appendMessage({
+    await sessions.appendMessage({
       parts: [{ output: { ok: true }, toolCallId: "c1", type: "tool_result" }],
       role: "tool",
       sessionId: session.id,
@@ -137,6 +142,7 @@ describe("createModelSummarizer", () => {
 describe("compact", () => {
   test("summarizes messages before the marker and persists via the store", async () => {
     const store = new InMemorySessionStore();
+    const sessions = new Sessions({ store });
     const summarizer = fakeSummarizer();
     const { sessionId, ids } = await seed(store, ["m1", "m2", "m3", "m4"]);
 
@@ -148,7 +154,7 @@ describe("compact", () => {
     expect(summarizer.lastSeen).toEqual(["m1", "m2"]);
     expect(result.summarizedIds).toEqual([ids[0], ids[1]]);
 
-    const active = await store.activeMessages(sessionId);
+    const active = await sessions.activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user", "user"]);
     expect(active.map(labelOf)).toEqual(["SUMMARY", "m3", "m4"]);
   });
@@ -164,35 +170,39 @@ describe("compact", () => {
 
   test("repeat compaction folds the prior summary into the new one", async () => {
     const store = new InMemorySessionStore();
+    const sessions = new Sessions({ store });
     const summarizer = fakeSummarizer();
     const { sessionId, ids } = await seed(store, ["m1", "m2", "m3", "m4"]);
 
-    await compact(store, summarizer, sessionId, req(ids[2])); // fold m1,m2 -> S1
+    await compact(store, summarizer, sessionId, req(ids[2]));
     expect(summarizer.lastSeen).toEqual(["m1", "m2"]);
 
-    const m5 = await store.appendMessage({
+    const m5 = await sessions.appendMessage({
       parts: text("m5"),
       role: "user",
       sessionId,
     });
-    await store.appendMessage({ parts: text("m6"), role: "user", sessionId });
+    await sessions.appendMessage({
+      parts: text("m6"),
+      role: "user",
+      sessionId,
+    });
 
-    const result = await compact(store, summarizer, sessionId, m5.id); // fold S1,m3,m4 -> S2
+    const result = await compact(store, summarizer, sessionId, m5.id);
     if (result === null) {
       throw new Error("expected compaction");
     }
 
-    // prior summary is fed back in (not filtered out), so S2 subsumes S1
     expect(summarizer.lastSeen).toEqual(["SUMMARY", "m3", "m4"]);
 
-    // only the latest summary surfaces, prepended to the recent tail
-    const active = await store.activeMessages(sessionId);
+    const active = await sessions.activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user", "user"]);
     expect(active.map(labelOf)).toEqual(["SUMMARY", "m5", "m6"]);
   });
 
   test("real summarizer over a simulated model", async () => {
     const store = new InMemorySessionStore();
+    const sessions = new Sessions({ store });
     let generateCalls = 0;
     const model = new MockLanguageModelV4({
       doGenerate: () => {
@@ -213,9 +223,44 @@ describe("compact", () => {
       throw new Error("expected compaction");
     }
     expect(generateCalls).toBe(1);
-    const active = await store.activeMessages(sessionId);
+    const active = await sessions.activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user"]);
     expect(active[0]?.parts[0]).toEqual({ text: "[recap]", type: "text" });
+  });
+});
+
+describe.each(sessionStoreKinds())("compact over %s", (_name, open) => {
+  test("skips the fold when a folded message changes while it is summarized", async () => {
+    const store = await open();
+    const sessions = new Sessions({ store });
+    const { sessionId, ids } = await seed(store, ["m1", "m2", "m3"]);
+    const editing: Summarizer = {
+      async summarize() {
+        await sessions.updateMessage(req(ids[0]), { parts: text("edited") });
+        return "SUMMARY";
+      },
+    };
+
+    expect(await compact(store, editing, sessionId, req(ids[2]))).toBeNull();
+    const active = await sessions.activeMessages(sessionId);
+    expect(active.map(labelOf)).toEqual(["edited", "m2", "m3"]);
+  });
+
+  test("folds in one transaction when nothing changed meanwhile", async () => {
+    const store = await open();
+    const sessions = new Sessions({ store });
+    const { sessionId, ids } = await seed(store, ["m1", "m2", "m3"]);
+
+    const result = await compact(
+      store,
+      fakeSummarizer(),
+      sessionId,
+      req(ids[2])
+    );
+
+    expect(result?.summarizedIds).toEqual([ids[0], ids[1]]);
+    const active = await sessions.activeMessages(sessionId);
+    expect(active.map(labelOf)).toEqual(["SUMMARY", "m3"]);
   });
 });
 
@@ -230,7 +275,6 @@ describe("selectMarker", () => {
       mk("u2", "user"),
       mk("a2", "assistant"),
     ];
-    // keep last 2 tokens → boundary lands on u2; tool pair (a1/t1) folds together
     expect(selectMarker(msgs, 2, one)).toBe("u2");
   });
 
@@ -257,8 +301,6 @@ describe("selectMarker", () => {
       mk("u3", "user"),
       mk("a3", "assistant"),
     ];
-    // keep-window would normally land the boundary at u3, folding a1's
-    // unresolved request away — it must instead stay in the active tail.
     expect(selectMarker(msgs, 2, one)).toBe("a1");
   });
 
@@ -318,7 +360,7 @@ describe("maybeCompact", () => {
     const result = await maybeCompact(store, summarizer, sessionId, {
       counter: { count: () => 10 },
       keepTokens: 15,
-      limit: 25, // 4 messages * 10 = 40 > 25
+      limit: 25,
     });
 
     if (result === null) {
@@ -326,7 +368,7 @@ describe("maybeCompact", () => {
     }
     expect(summarizer.lastSeen).toEqual(["u1", "a1"]);
 
-    const active = await store.activeMessages(sessionId);
+    const active = await new Sessions({ store }).activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user", "assistant"]);
     expect(active.map(labelOf)).toEqual(["SUMMARY", "u2", "a2"]);
   });

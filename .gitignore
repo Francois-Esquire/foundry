@@ -1,22 +1,17 @@
-# Dependencies
 node_modules
 .pnp
 .pnp.js
 
-# Build outputs
 dist
 build
 *.tsbuildinfo
 
-# Generated files
 local.db
 local.db-*
 
-# Environment variables
 .env
 .env*.local
 
-# IDEs and editors
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -28,7 +23,6 @@ local.db-*
 *~
 .DS_Store
 
-# Logs
 logs
 .evlog/
 *.log
@@ -38,19 +32,15 @@ yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 
-# Turbo
 .turbo
 .nx
 
-# Better-T-Stack
 .alchemy
 .vercel
 
-# Testing
 coverage
 .nyc_output
 
-# Misc
 /.worktrees/
 *.tgz
 .cache
@@ -61,14 +51,12 @@ temp
 .claude/*
 !.claude/settings.json
 
-# Blume generated runtime
 .blume/
 
-# Design-skill scratch (impeccable)
 .impeccable/
 
-# Claude Code write-tracking markers
 .cc-writes/
 
-# Worktrees
 .worktrees/
+
+apps/marbles/src/database/migrations/

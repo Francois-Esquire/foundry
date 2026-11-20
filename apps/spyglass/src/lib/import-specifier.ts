@@ -1,18 +1,13 @@
 import { posix } from "node:path";
 import type { SourceFile } from "ts-morph";
 
-// The specifier an importer would write to reach a module: the planner names
-// it, and the mutator writes it. One function, so the two never disagree.
-
 type SpecifierStyle = "extensionless" | "js" | "ts";
 
 const SOURCE_EXTENSION = /\.[cm]?[jt]sx?$/;
 const JS_EXTENSION = /\.[cm]?jsx?$/;
 const TS_EXTENSION = /\.[cm]?tsx?$/;
-/** Module formats whose resolution never drops the extension. */
 const EXPLICIT_FORMAT = /\.[cm][jt]s$/;
 
-/** `.ts` and `.tsx` are written `.js`, `.mts` `.mjs`, `.cts` `.cjs`; JavaScript keeps its own. */
 const JS_FOR: Record<string, string> = {
   ".cjs": ".cjs",
   ".cts": ".cjs",
@@ -38,7 +33,6 @@ function styleOf(specifier: string): SpecifierStyle {
   return "extensionless";
 }
 
-/** The importer's own relative-specifier style by majority; a tie goes extensionless, then `.js`. */
 function importerStyle(importer: SourceFile): SpecifierStyle | undefined {
   const counts: Record<SpecifierStyle, number> = {
     extensionless: 0,
@@ -63,7 +57,6 @@ function importerStyle(importer: SourceFile): SpecifierStyle | undefined {
   return order.find((style) => counts[style] === most);
 }
 
-/** An existing import or re-export of `importer` that already reaches `target`, as written. */
 function existingSpecifier(
   importer: SourceFile,
   target: SourceFile
@@ -95,13 +88,6 @@ function written(target: string, style: SpecifierStyle): string {
   return stem;
 }
 
-/**
- * The specifier `importer` should use to import from `target`: the one it
- * already uses for that module, if any; otherwise a relative path in the
- * importer's own style (extensionless, `.js`, or the source's `.ts`), else
- * in `hint`'s (a specifier written elsewhere for the same move, such as the
- * entrypoint's re-export), else extensionless. `/index` is never dropped.
- */
 export function importSpecifierFor(
   importer: SourceFile,
   target: SourceFile,

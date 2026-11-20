@@ -1,10 +1,3 @@
-/**
- * The edges of a run's life in one process: a stop racing a task that gives
- * up its slot or a dispatch waiting on one, a cancel sent from the very
- * lifecycle update that announces a run, and a dispatch withdrawn after its
- * factory has built the run's tree.
- */
-
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,7 +32,6 @@ function engineWith(options: Parameters<typeof testEngine>[0] = {}): Engine {
   return engine;
 }
 
-/** Waits for the signal, as a long-lived task does. */
 function aborted(signal: AbortSignal): Promise<void> {
   return new Promise((resolve) =>
     signal.addEventListener("abort", () => resolve(), { once: true })
@@ -64,7 +56,6 @@ it("stops a task that gives up its slot after the stop began", async () => {
   await begun;
 
   const stopping = engine.stop();
-  // The stop has scanned for released tasks; this one releases only now.
   await new Promise((resolve) => setTimeout(resolve, 20));
   release();
 
@@ -82,7 +73,6 @@ it("stops a released task before waiting on a dispatch that needs what it holds"
     run: async (_input: unknown, { release, signal }: TaskContext) => {
       release();
       await aborted(signal);
-      // Only its stop gives the resource back.
       freeHeld();
     },
   });
@@ -99,7 +89,6 @@ it("stops a released task before waiting on a dispatch that needs what it holds"
   await vi.waitFor(() =>
     expect(engine.executions.get(holder.id)?.status).toBe("running")
   );
-  // The factory waits on the holder, so its launch is not awaited.
   const needs = engine.launch<string>("needs", {});
 
   await engine.stop();
@@ -123,7 +112,7 @@ it.each(["queued", "running"] as const)(
     });
     await engine.start();
     let cancelled: Promise<void> | undefined;
-    const subscription = engine.executions.subscribe((run) => {
+    const subscription = await engine.executions.subscribe((run) => {
       if (run.name === "t" && run.status === status && !cancelled) {
         cancelled = engine.cancel(run.id);
       }
@@ -148,7 +137,7 @@ it("never dispatches a workflow a subscriber cancels on its running update", asy
   const engine = engineWith();
   await engine.start();
   let cancelled: Promise<void> | undefined;
-  const subscription = engine.executions.subscribe((run) => {
+  const subscription = await engine.executions.subscribe((run) => {
     if (run.name === "flow" && run.status === "running" && !cancelled) {
       cancelled = engine.cancel(run.id);
     }
@@ -178,11 +167,13 @@ it("closes the scope a factory built when its dispatch is withdrawn", async () =
     .do(({ input }) => input);
   engine = engineWith();
   await engine.start();
-  const subscription = engine.executions.subscribe((run: ExecutionRun) => {
-    if (run.name === "leak" && run.status === "running") {
-      ({ id } = run);
+  const subscription = await engine.executions.subscribe(
+    (run: ExecutionRun) => {
+      if (run.name === "leak" && run.status === "running") {
+        ({ id } = run);
+      }
     }
-  });
+  );
 
   const launched = await engine.launch("leak", "x");
   await expect(launched.result).rejects.toThrow(CANCELLED);

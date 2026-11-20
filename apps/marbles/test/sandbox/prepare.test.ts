@@ -1,5 +1,5 @@
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { describe, expect, it, vi } from "vitest";
 import { CLI_HARNESSES } from "~/lib/cli-harnesses";
@@ -83,7 +83,7 @@ describe("guest CLI preparation", () => {
       allowedMountRoots: [],
       instanceLabel: "prepare-test",
       runtime,
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     const container = await containers.start({
       format: "foundry.sandbox.container/1",
@@ -146,7 +146,6 @@ describe("guest environments", () => {
     expect(
       CLI_HARNESSES.codex.env("/state", { apiKey: "key", kind: "apiKey" })
     ).toEqual({ CODEX_HOME: "/state/codex", OPENAI_API_KEY: "key" });
-    // Subscription tokens reach Codex over the app-server, never the environment.
     expect(
       CLI_HARNESSES.codex.env("/state", {
         kind: "chatgpt",

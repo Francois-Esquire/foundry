@@ -4,7 +4,6 @@ import type { ModuleBuilds } from "./builds/controller";
 import type { ModuleLibrary } from "./library";
 import type { ModuleSessions } from "./runtime/controller";
 
-/** Opening a module owns its build/start lifetime; closing it stops its VM. */
 export function openModuleApp(
   library: ModuleLibrary,
   builds: ModuleBuilds,

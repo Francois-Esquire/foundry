@@ -1,29 +1,17 @@
-/**
- * `@foundry/usage/provider`: what a provider author builds with. A consumer
- * imports `@foundry/usage` instead.
- */
-
 import type { Consumption } from "./consumption";
 import type { Reading } from "./snapshot";
 import type { Account, Provider } from "./usage";
 
-/** What a provider is made of. `O` is what its caller passes; `C` routes a read. */
 interface ProviderDefinition<Id extends string, O extends object, C> {
-  /** Routing data from the caller's options (without `name`), such as an absolute config dir. */
   credential(options: O): C;
-  /** The default account's options when it looks signed in or has history; presence only, no limits. */
   detect?(): Promise<NoInfer<O> | undefined>;
-  /** Throw to report `consumptionFailed`. Absent: no consumption. */
   history?(credential: C, since: Date): Promise<Consumption | undefined>;
   readonly id: Id;
-  /** Throw to report `failed`. */
   limits(credential: C): Promise<Reading>;
 }
 
-/** The options a provider function takes: its own, and the name to add under. */
 type AccountOptions<O> = O & { readonly name?: string };
 
-/** A provider function: call it for an account to add, named after the provider by default. */
 export interface DefinedProvider<Id extends string, O extends object, C>
   extends Provider {
   defaultAccount(): Promise<Account<C> | undefined>;
@@ -35,7 +23,6 @@ export interface DefinedProvider<Id extends string, O extends object, C>
   ): Account<C>;
 }
 
-/** A provider function from its definition. */
 export const defineProvider = <Id extends string, O extends object, C>(
   definition: ProviderDefinition<Id, O, C>
 ): DefinedProvider<Id, O, C> => {

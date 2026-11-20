@@ -1,6 +1,5 @@
 import type { Point } from "./model.ts";
 
-/** Fit a stroke within the reading column without changing its saved geometry. */
 export function fitStroke(
   points: Point[],
   origin: Point,

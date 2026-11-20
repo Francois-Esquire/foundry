@@ -1,4 +1,3 @@
-/** Upright in screen space: the chart's north stays north as the camera tilts. */
 export function CompassRose() {
   return (
     <svg

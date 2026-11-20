@@ -23,7 +23,7 @@ function streamOf(events: SessionEvent[]): SessionStream {
     outcome: Promise.resolve("complete"),
     output: Promise.resolve(undefined as never),
     partialOutputStream: (async function* () {
-      // No structured output.
+      yield* [];
     })(),
     result: Promise.resolve(undefined),
     text: Promise.resolve(""),
@@ -48,8 +48,6 @@ function toReadable(
 ): ReadableStream<UIMessageChunk> {
   return new ReadableStream<UIMessageChunk>({
     async pull(controller) {
-      // Keep the IteratorResult intact so its `done` discriminant narrows
-      // `value` to UIMessageChunk (destructuring would widen it to `any`).
       const result = await gen.next();
       if (result.done) {
         controller.close();
@@ -117,7 +115,7 @@ describe("projectToUIMessageChunks", () => {
       "start-step",
       "text-start",
       "text-delta",
-      "text-end", // run closed before the tool call
+      "text-end",
       "tool-input-available",
       "tool-output-available",
       "finish-step",
@@ -161,8 +159,6 @@ describe("projectToUIMessageChunks", () => {
       streamOf([{ message: {} as SessionMessage, type: "finish", usage }])
     );
     const finish = chunks.at(-1);
-    // Cache/reasoning counts move under the nested detail objects (the current,
-    // non-deprecated fields); cache-write only exists here.
     expect(finish).toEqual({
       messageMetadata: {
         usage: {
@@ -235,7 +231,7 @@ describe("projectToUIMessageChunks", () => {
       "start-step",
       "reasoning-start",
       "reasoning-delta",
-      "reasoning-end", // closed when text begins
+      "reasoning-end",
       "text-start",
       "text-delta",
       "text-end",

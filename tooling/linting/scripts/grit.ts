@@ -1,4 +1,3 @@
-// Writes the Biome rules to `biome/`. Run after changing `src/prompts/grit.ts`.
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { gritRules } from "../src/prompts/grit";

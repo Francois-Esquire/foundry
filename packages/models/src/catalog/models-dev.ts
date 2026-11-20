@@ -1,22 +1,3 @@
-/**
- * models.dev — a community-maintained database of model facts, used to fill in
- * what a routing provider doesn't tell us.
- *
- * The problem it solves: every source we route through reports a different
- * subset. The gateway snapshot has prices but no cache rates and no modalities;
- * a CLI harness reports bare slugs and nothing else. Hand-writing the remainder
- * is what rots. models.dev keys facts by model id, independent of who serves it,
- * which is exactly the missing axis.
- *
- * **It never overrides.** A field the provider stated wins, always — this only
- * fills absences. Its prices are published vendor list prices, not your bill,
- * and it is community data: treat it as a good default, never as authority over
- * a rate the provider itself reported.
- *
- * Pure leaf, like its sibling adapters: it imports only `../types`, and takes
- * the catalog as an argument. `./models-dev-source` loads it at run time.
- */
-
 import type {
   ModelCapabilities,
   ModelCosts,
@@ -25,8 +6,6 @@ import type {
   ProviderModelDefinition,
 } from "../types";
 
-/** Rates in USD per 1M tokens — already per-million upstream, unlike the wire
- *  format `fromVercelRest` reads, which is per-token. */
 interface ModelsDevCost {
   cache_read?: number;
   cache_write?: number;
@@ -50,18 +29,11 @@ interface ModelsDevModel {
   tool_call?: boolean;
 }
 
-/** Keyed `author/model`, e.g. `anthropic/claude-opus-4-7`. */
 export type ModelsDevCatalog = Record<string, ModelsDevModel>;
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/**
- * The vendor's own list price, or nothing. Most models.dev providers are
- * aggregators re-listing a model at their own markup, so the price comes from
- * the provider whose id is the model's author. Open-weights models are
- * skipped: many hosts serve them at different prices.
- */
 function firstPartyCost(
   key: string,
   model: Record<string, unknown>,
@@ -74,7 +46,6 @@ function firstPartyCost(
   if (slash === -1) {
     return;
   }
-  // Provider maps are keyed by the bare model name, not the path-style id.
   const provider = providers[key.slice(0, slash)];
   const models = isObject(provider) ? provider.models : undefined;
   const entry = isObject(models) ? models[key.slice(slash + 1)] : undefined;
@@ -87,11 +58,6 @@ const isRate = (value: unknown): value is number =>
 const optionalRate = (value: unknown): boolean =>
   value === undefined || isRate(value);
 
-/**
- * A price whose every field has the right type, rebuilt from those fields,
- * or `undefined`. One bad field drops the whole price rather than part of
- * it: a turn with no price keeps its tokens, a half price misstates them.
- */
 function validCost(value: unknown): ModelsDevCost | undefined {
   if (
     !(
@@ -147,7 +113,6 @@ function validCost(value: unknown): ModelsDevCost | undefined {
   };
 }
 
-/** The fields a catalog row can use, each kept only when it has the right type. */
 function pruned(
   key: string,
   model: Record<string, unknown>,
@@ -179,10 +144,6 @@ function pruned(
   };
 }
 
-/**
- * The catalog in a `https://models.dev/catalog.json` payload, or `undefined`
- * when the payload has no `models` map.
- */
 export function modelsDevCatalog(
   payload: unknown
 ): ModelsDevCatalog | undefined {
@@ -200,26 +161,16 @@ export function modelsDevCatalog(
 }
 
 export interface ModelsDevIdOptions {
-  /** Route decorations to strip from the front of an id, e.g. `["azure-"]`. */
   stripPrefixes?: readonly string[];
-  /** Route decorations to strip from the end, e.g. `["-useast"]`. */
   stripSuffixes?: readonly string[];
 }
 
 export interface ModelsDevIndex {
-  /** canonical bare name → real keys (plural: a shared name is unresolvable) */
   byBare: Map<string, string[]>;
-  /** canonical full path → real key */
   byPath: Map<string, string>;
   catalog: ModelsDevCatalog;
 }
 
-/**
- * Fold away the separator conventions different sources use for the same model:
- * OpenAI writes versions with dots (`gpt-5.5`), models.dev keys them with
- * dashes (`gpt-5-5`), LiteLLM sometimes uses underscores. This assumes
- * distinct model IDs do not differ only by separators; such IDs collide.
- */
 function canon(value: string): string {
   return value
     .toLowerCase()
@@ -243,46 +194,24 @@ export function indexModelsDev(catalog: ModelsDevCatalog): ModelsDevIndex {
   return { byBare, byPath, catalog };
 }
 
-/**
- * The models.dev key for a catalog row, or undefined.
- *
- * Exact matching only. There is no edit distance, no substring search, no
- * date-suffix or `-latest` stripping — a *near* miss stays a miss, because a
- * wrong match injects wrong pricing and wrong capabilities into surfaces the
- * user reads as fact. Concretely: LiteLLM's `gpt-5-chat` is the non-tool-calling
- * endpoint, and models.dev's `gpt-5-chat-latest` is not the same model; letting
- * those match would put a model in the picker that fails on its first tool call.
- *
- * Claude Code's aliases (`opus`, `sonnet`, …) never match, and must not: an
- * alias resolves to whatever the CLI picks today, so pinning it to a dated build
- * reintroduces exactly the staleness this catalog exists to remove — and the
- * harness is a subscription seat, so per-token rates would render a number that
- * is not real. They miss for free (the index holds no such bare key); the test
- * pins it so nobody "fixes" that later.
- */
 export function matchModelsDevId(
   def: Pick<ProviderModelDefinition, "id" | "modelId" | "vendor">,
   index: ModelsDevIndex,
   options?: ModelsDevIdOptions
 ): string | undefined {
   const attempt = (modelId: string): string | undefined => {
-    // 1. Already a path — Vercel gateway ids are literally models.dev keys.
     if (modelId.includes("/")) {
       const hit = index.byPath.get(canon(modelId));
       if (hit) {
         return hit;
       }
     }
-    // 2. Vendor as author. Only fires when the vendor really names an author,
-    //    so route names (`azure`, `vertex_ai`, `bedrock`) yield nothing.
     if (def.vendor) {
       const hit = index.byPath.get(canon(`${def.vendor}/${modelId}`));
       if (hit) {
         return hit;
       }
     }
-    // 3. Bare name — only when exactly one author claims it. Two authors
-    //    sharing a name is not resolvable, and guessing is how wrong prices land.
     const bare = index.byBare.get(canon(modelId));
     if (bare?.length === 1) {
       return bare[0];
@@ -295,8 +224,6 @@ export function matchModelsDevId(
     return direct;
   }
 
-  // 4. Retry without this deployment's own route decorations. Opt-in: the
-  //    caller owns its naming convention, this package must not guess it.
   let stripped = def.modelId;
   for (const prefix of options?.stripPrefixes ?? []) {
     if (stripped.startsWith(prefix)) {
@@ -311,16 +238,11 @@ export function matchModelsDevId(
   return stripped === def.modelId ? undefined : attempt(stripped);
 }
 
-/** Tier brackets, min-inclusive and max-exclusive, with the base rate as tier 0
- *  — the shape `costFromUsage`'s `tierRate` walks. */
 function toTiers(
   base: number,
   tiers: NonNullable<ModelsDevCost["tiers"]>,
   pick: (t: NonNullable<ModelsDevCost["tiers"]>[number]) => number
 ): ModelCostTier[] {
-  // A models.dev tier reads "above this size, the rate becomes X" — so the base
-  // rate owns everything below the first threshold, and each tier owns the span
-  // from its own size up to the next one.
   const sorted = [...tiers].sort((a, b) => a.tier.size - b.tier.size);
   const brackets: ModelCostTier[] = [];
   let rate = base;
@@ -338,14 +260,6 @@ function toTiers(
   return brackets;
 }
 
-/**
- * Whether models.dev is describing the same price schedule the provider is.
- *
- * Its cache rates and tiers are absolute figures, not multipliers, so grafting
- * them onto a row whose base rate came from somewhere else would silently mix
- * two schedules. When the bases disagree — a negotiated rate, a reseller markup,
- * a re-priced regional deployment — we fill nothing rather than guess.
- */
 function sameSchedule(costs: ModelCosts, meta: ModelsDevCost): boolean {
   const close = (a: number, b: number) =>
     Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b), 1);
@@ -360,8 +274,6 @@ function mergeCosts(
     return existing;
   }
   if (!existing) {
-    // No price at all — take the vendor list price whole. `input`/`output` are
-    // a required pair, so there is no half-fill to worry about.
     return {
       input: meta.input,
       output: meta.output,
@@ -406,9 +318,6 @@ function mergeLimits(
   if (!meta) {
     return existing;
   }
-  // `limit.context` is the total window, which is what `maxInputTokens` means
-  // here — the context meter sizes itself from it. `limit.input` (a separate,
-  // smaller "max input" some models publish) is deliberately not used.
   const merged: ModelLimits = {
     ...existing,
     ...(existing?.maxInputTokens === undefined && meta.context !== undefined
@@ -425,8 +334,6 @@ function mergeCapabilities(
   existing: ModelCapabilities | undefined,
   model: ModelsDevModel
 ): ModelCapabilities | undefined {
-  // Per key, and only where the provider said nothing. An explicit `false`
-  // survives, so a community flag can never contradict a provider that spoke.
   const merged: ModelCapabilities = {
     ...existing,
     ...(existing?.functionCalling === undefined && model.tool_call === true
@@ -446,13 +353,6 @@ function mergeCapabilities(
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
-/**
- * Fill absent fields on catalog rows from models.dev. Rows with no match are
- * returned by identity — not re-spread — so a miss is provably inert.
- *
- * A matching row without costs receives the published model price when one is
- * available, so callers must account for subscription pricing.
- */
 export function enrichFromModelsDev(
   defs: ProviderModelDefinition[],
   catalog: ModelsDevCatalog,

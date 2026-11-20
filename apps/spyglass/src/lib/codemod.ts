@@ -25,13 +25,6 @@ import type { WorkspaceState } from "./state";
 import type { InternalizeSymbolPlan } from "./types";
 import { createWorkspaceProjectionContext } from "./workspace-projection";
 
-// `spyglass plan`, and what `spyglass apply` shares with it: one internalize
-// opportunity through the rules, the bridge to its mutator, and readiness.
-// Plan reads the saved dataset, takes the rules from its rules lens (no
-// configuration runs), and runs readiness's baseline commands; it writes
-// nothing in the workspace, only the authorization record in the state
-// directory, which apply (`codemod-apply.ts`) never trusts on its own.
-
 const OPPORTUNITY_PREFIX = "internalize-symbol:";
 const PLAN_PREFIX = `plan:${OPPORTUNITY_PREFIX}`;
 
@@ -40,25 +33,16 @@ function withoutPrefix(word: string, prefixes: readonly string[]): string {
   return prefix === undefined ? word : word.slice(prefix.length);
 }
 
-/** A symbol facet's file and name, split at its one `#`; undefined for any other shape. */
 function symbolParts(place: string): [file: string, name: string] | undefined {
   const hash = place.indexOf("#");
   const file = place.slice(0, hash);
   const name = place.slice(hash + 1);
-  // A second `#` is no facet; a `:` left over is another operation's id,
-  // such as `fold-package:…`.
   if (hash <= 0 || name === "" || name.includes("#") || place.includes(":")) {
     return;
   }
   return [file, name];
 }
 
-/**
- * The site a word names: an opportunity id
- * (`internalize-symbol:<path#name>`), a saved plan's id
- * (`plan:internalize-symbol:<path#name>`), or the bare `path#name`. Any other
- * shape throws; whether the site exists is the dataset's to say.
- */
 export function resolveSite(word: string): Site {
   const place = withoutPrefix(word, [PLAN_PREFIX, OPPORTUNITY_PREFIX]);
   if (symbolParts(place) === undefined) {
@@ -70,7 +54,6 @@ export function resolveSite(word: string): Site {
   return { opportunity, place, planId: `plan:${opportunity}` };
 }
 
-/** Where the authorization record for a saved plan is kept: `<state directory>/plans/<digest>.json`. */
 export function planRecordFile(
   workspace: WorkspaceState,
   planId: string
@@ -78,7 +61,6 @@ export function planRecordFile(
   return join(workspace.directory, "plans", `${hash16(planId)}.json`);
 }
 
-/** The saved plan for a site and its package's report, found through the module index; an unknown site throws. */
 async function savedPlanOf(
   reader: DatasetReader,
   site: Site
@@ -109,12 +91,10 @@ async function savedPlanOf(
 }
 
 export interface PlanSiteOptions {
-  /** Runs readiness's baseline commands; by default they are spawned. */
   runner?: ReadinessCommandRunner;
   state?: string | undefined;
 }
 
-/** The chain for one site, as plan and apply both run it: the saved plan, its package's report, and `authorizeMutationPlan`'s answer under `rules`. */
 export async function authorizeSite(
   reader: DatasetReader,
   workspace: WorkspaceState,
@@ -128,8 +108,6 @@ export async function authorizeSite(
   verdict: MutationAuthorizationResult;
 }> {
   const { report, saved } = await savedPlanOf(reader, site);
-  // Internalize edits its own package only, so only its report and its
-  // package are read.
   const facts = createOperatorContext(
     createWorkspaceProjectionContext(await reader.workspaceReport()),
     [report]
@@ -157,14 +135,6 @@ export async function authorizeSite(
   return { execution: plan, report, saved, verdict };
 }
 
-/**
- * Plans one site and asks `authorizeMutationPlan` whether its mutator may
- * run, under the rules the saved dataset's rules lens holds. A record exists
- * only while the last plan of its site authorized it: an authorized verdict
- * writes it, atomically and without the state lock, and any other verdict
- * deletes it. Apply never trusts a record: it authorizes again, fresh,
- * before it writes, and refuses unless the `auth:` hash matches.
- */
 export async function planSite(
   root: string,
   site: Site,
@@ -172,8 +142,6 @@ export async function planSite(
 ): Promise<PlanSiteResult> {
   const { reader, workspace } = await savedDataset(root, options.state);
   refuseUnfinishedApply(workspace);
-  // Fails early on a dataset that no longer describes the workspace; plan
-  // runs no configuration, so the manifest's own config part stands in.
   const currency = await datasetCurrency(
     workspace.root,
     await reader.manifest()

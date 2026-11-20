@@ -6,9 +6,11 @@ import { afterEach, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
+import { DatabaseAutomationStore } from "~/database/automations";
+import { openDatabase } from "~/database/open";
+import { stateDatabase } from "~/layout";
 import { AutomationService } from "~/lib/automation/service";
 import { tick } from "~/lib/schedule";
-import { JsonStateStore } from "~/lib/state/store";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { declared } from "../helpers/engine";
 
@@ -45,7 +47,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
                   apiKey: process.env.AI_GATEWAY_API_KEY,
                   baseURL: "https://ai-gateway.vercel.sh/v1",
                 },
-                // The model this test names; the gateway supplies none of its own.
                 models: [
                   {
                     id: "openai/gpt-5-mini",
@@ -226,18 +227,18 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
           )
         ).toBe(true);
       }
-      const [automation] = engine.automations.list();
+      const [automation] = await engine.automations.list();
       expect(automation?.workflow).toBe("automation-proof");
       expect(fired).toBe(0);
       const snapshot = dashboardSnapshot(await engine.runs(), {
         activities,
-        automations: engine.automations.list(),
+        automations: await engine.automations.list(),
         definitions: engine.definitions(),
         feed: await engine.feed(),
         lastFinish: new Map(),
         monitors: engine.monitors(),
         root,
-        schedules: engine.schedules(),
+        schedules: await engine.schedules(),
         startedAt: Date.now(),
         status: "ready",
       });
@@ -248,13 +249,22 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         snapshot.triggers.find((trigger) => trigger.id === automation?.id)
           ?.managed
       ).toBe(true);
+      const opened = await openDatabase(stateDatabase(state));
+      if (opened === undefined) {
+        throw new Error("the engine made no Marbles database");
+      }
+      const stored = () =>
+        new DatabaseAutomationStore({
+          database: opened.database,
+          scope: `activities-${harness}`,
+        });
       const restored = new AutomationService({
         registry: declared(),
-        store: new JsonStateStore(state),
+        store: stored(),
       });
-      const schedule = restored
-        .schedules()
-        .find((item) => item.key === automation?.id);
+      const schedule = (await restored.schedules()).find(
+        (item) => item.key === automation?.id
+      );
       expect(schedule).toBeDefined();
       if (!schedule) {
         throw new Error("Missing restored schedule");
@@ -262,17 +272,18 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       await tick(engine, schedule, { print: () => undefined });
       expect(fired).toBe(1);
       expect(await readFile(join(root, "scheduled.txt"), "utf8")).toBe("ran");
-      restored.setEnabled(schedule.key, false);
+      await restored.setEnabled(schedule.key, false);
       expect(
-        restored.schedules().some((item) => item.key === schedule.key)
+        (await restored.schedules()).some((item) => item.key === schedule.key)
       ).toBe(false);
-      restored.delete(schedule.key);
+      await restored.delete(schedule.key);
       expect(
-        new AutomationService({
+        await new AutomationService({
           registry: declared(),
-          store: new JsonStateStore(state),
+          store: stored(),
         }).list()
       ).toHaveLength(0);
+      opened.close();
       passed = true;
     } finally {
       await engine.stop({ cancel: true });

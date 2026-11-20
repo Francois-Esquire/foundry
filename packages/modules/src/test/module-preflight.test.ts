@@ -6,7 +6,7 @@ import { installationIdSchema, moduleIdSchema } from "../domain";
 import type { ModuleCapabilityProvider } from "../gateway/types";
 import { PORTABLE_SCHEMA_DIALECT, parseModuleManifest } from "../manifest";
 import { preflightModuleActivation } from "../preflight";
-import type { InstallationGrant } from "../store/contract";
+import type { InstallationGrant } from "../registry";
 import { STRICT_MANIFEST, VALID_MANIFEST } from "./helpers/module-fixture";
 
 const GIB = 1024 * 1024 * 1024;

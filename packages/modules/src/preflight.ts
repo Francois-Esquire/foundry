@@ -9,23 +9,19 @@ import {
   isStrictModuleManifest,
   moduleSettingRequests,
 } from "./manifest";
+import type { InstallationGrant } from "./registry";
 import type { ModuleSettingsHostPolicy, ModuleSettingValues } from "./settings";
 import { resolveModuleSettings } from "./settings";
-import type { InstallationGrant } from "./store/contract";
 
-/** What the host's sandbox runtime can enforce for a released Program. */
 export interface ModuleRuntimeSupport {
-  /** A hard limit on private files. No current runtime enforces one. */
   readonly storageBytes: boolean;
 }
 
-/** Today's runtimes: lifecycle file checks are not a disk quota. */
 export const MODULE_RUNTIME_SUPPORT: ModuleRuntimeSupport = Object.freeze({
   storageBytes: false,
 });
 
 export interface ActivationCompatibilityFact {
-  /** A blocking fact stops the start; the rest disable one feature. */
   readonly blocking: boolean;
   readonly detail: string;
   readonly kind:
@@ -44,25 +40,11 @@ export interface CapabilityAddition {
 }
 
 export interface ActivationPreflight {
-  /**
-   * Requests the Installation's Grants do not cover yet: approval work. A
-   * required one also blocks the start until it is approved.
-   */
   readonly additions: readonly CapabilityAddition[];
-  /** Whether nothing blocks the start. */
   readonly compatible: boolean;
   readonly facts: readonly ActivationCompatibilityFact[];
 }
 
-/**
- * Checks a Version before any sandbox is acquired: unsupported runtime and
- * resource requirements, settings the host cannot meet, and each requested
- * Capability against the host's providers and the Installation's Grants.
- * Grants match the digest the provider resolves from the raw requested
- * constraints, the same digest invocation admission compares. A required
- * Capability that is unavailable, denied or not yet approved blocks the
- * start; an optional one only disables that feature.
- */
 export async function preflightModuleActivation(input: {
   readonly version: Pick<ModuleVersion, "manifest">;
   readonly providers: readonly ModuleCapabilityProvider[];
@@ -135,10 +117,6 @@ export async function preflightModuleActivation(input: {
   });
 }
 
-/**
- * Runtime and resource requirements this host cannot meet for `manifest`,
- * each blocking: checked when a release is built and again before it starts.
- */
 export function unsupportedModuleRequirements(input: {
   readonly manifest: ModuleVersion["manifest"];
   readonly runtime?: ModuleRuntimeSupport;

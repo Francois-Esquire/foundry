@@ -15,7 +15,7 @@ import type {
   ModuleRuntimeIdentity,
 } from "../gateway/types";
 import { PORTABLE_SCHEMA_DIALECT } from "../manifest";
-import { InMemoryModuleStore } from "../store/memory";
+import { ModuleRegistry } from "../registry";
 import { moduleFixture } from "./helpers/module-fixture";
 
 const objectSchema = {
@@ -143,8 +143,6 @@ describe("authorized Module Gateway dispatch", () => {
       store: fixture.store,
     });
 
-    // The Grants are read before the provider resolves constraints: the
-    // revoke commits and is announced in between.
     const dispatch = dispatcher.dispatch({
       capabilities: fixture.capabilities,
       request,
@@ -458,7 +456,6 @@ describe("authorized Module Gateway dispatch", () => {
 
     expect(statuses).toEqual(["running", "cancelled"]);
     expect(caller.listeners()).toBe(0);
-    // A late read still ends cancelled, without a second record or provider work.
     const iterator = result.events[Symbol.asyncIterator]();
     await expect(iterator.next()).rejects.toMatchObject({ code: "cancelled" });
     expect(statuses).toEqual(["running", "cancelled"]);
@@ -496,10 +493,6 @@ describe("authorized Module Gateway dispatch", () => {
   });
 });
 
-/**
- * A caller signal that counts its abort listeners: the dispatcher removes its
- * listener in the same step that stops tracking the request.
- */
 function trackedSignal() {
   const controller = new AbortController();
   const listeners = new Set<unknown>();
@@ -606,7 +599,7 @@ async function createFixture(input: { readonly grant?: boolean } = {}) {
     },
     module,
   });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry();
   await store.registerModule({ module });
   const initial = createDisabledInstallation({
     id: installationIdSchema.parse("installation-1"),

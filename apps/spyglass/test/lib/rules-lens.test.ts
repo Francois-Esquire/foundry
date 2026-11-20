@@ -10,9 +10,7 @@ const rule = (subject: string, effect: Rule["effect"] = "require"): Rule => ({
   subject,
 });
 
-/** Core, with two unused exports, one in a publishable package's plan; checkout, failed; billing, clean. */
 const SOURCE: RulesSource = {
-  // A failed package's files are in no module index.
   files: [
     "packages/billing/src/invoice.ts",
     "packages/core/src/ids.ts",
@@ -121,7 +119,6 @@ describe("the rules lens", () => {
     expect(rulesLens.derive(SOURCE, { rules })).toEqual({
       missing: [{ package: "@s/checkout", rule: 1 }],
       rules,
-      // apps names no place either: its only package failed.
       unmatched: [0, 1],
       violations: [],
     });

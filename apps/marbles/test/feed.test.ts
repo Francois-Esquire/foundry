@@ -1,12 +1,12 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { step } from "@foundry.sh/marbles";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
-import { formatCount } from "~/components/ui/count-badge";
 import type { Engine } from "~/lib/engine";
 import { feedPayload, feedQuestionSchema } from "~/lib/feed/entry";
 import { feedPublisher } from "~/lib/feed/publish";
@@ -26,7 +26,6 @@ const NOTE_TOO_LONG = /under 2000/;
 const NOT_A_CHOICE = /Choose one of: yes, no/;
 const NO_LONGER_WAITING = /no longer waiting/;
 const CANCELLED = /cancelled/;
-// Smallest valid PNG: 1x1, one transparent pixel.
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
   "base64"
@@ -359,7 +358,7 @@ describe("abandoned questions", () => {
     const sweeper = feedPublisher(
       reopened.artifacts,
       { ...workspace(), name: "a" },
-      { isAlive: () => false }
+      { gone: () => true }
     );
     expect(await sweeper.cancelAbandoned()).toBe(1);
     expect(
@@ -383,19 +382,15 @@ describe("abandoned questions", () => {
       title: key,
     });
     const source = { definition: "d", path: ["d"], runId: "rn-1" };
-    await feedPublisher(artifacts, site, { pid: 111 }).publishInput(
-      question("crashed"),
-      source,
-      { status: "open" }
-    );
-    await feedPublisher(artifacts, site, { pid: 222 }).publishInput(
-      question("running"),
-      source,
-      { status: "open" }
-    );
+    await feedPublisher(artifacts, site, {
+      owner: { pid: 111, started: null },
+    }).publishInput(question("crashed"), source, { status: "open" });
+    await feedPublisher(artifacts, site, {
+      owner: { pid: 222, started: null },
+    }).publishInput(question("running"), source, { status: "open" });
 
     const sweeper = feedPublisher(artifacts, site, {
-      isAlive: (pid) => pid === 222,
+      gone: (owner) => owner.pid !== 222,
     });
     await expect(sweeper.cancelAbandoned()).resolves.toBe(1);
     await expect(sweeper.cancelAbandoned()).resolves.toBe(0);
@@ -448,14 +443,6 @@ describe("log", () => {
     expect(lines[1]?.[0]).toBe("warn");
     expect(lines[1]?.[1]).toContain("Error: careful");
     expect(formatLogValues([])).toBe("");
-  });
-});
-
-describe("tab badges", () => {
-  it("cap at 99+", () => {
-    expect(formatCount(0)).toBe("0");
-    expect(formatCount(99)).toBe("99");
-    expect(formatCount(100)).toBe("99+");
   });
 });
 

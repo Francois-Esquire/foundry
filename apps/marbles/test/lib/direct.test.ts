@@ -1,14 +1,8 @@
-/**
- * The managers on the engine itself, outside any step or run: a host calls
- * them directly, before the engine is even started. Each does what its
- * step-scoped view does, minus the frame bookkeeping.
- */
-
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { catalog } from "~/authoring/catalog";
@@ -61,7 +55,6 @@ describe("the managers on the engine", () => {
 
     expect(reply.text).toBe(`${root}: Review.\nLook.`);
     expect(streamed.join("")).toBe(reply.text);
-    // Nothing is replayed outside a step: the same call is a second session.
     expect(second.ref.id).not.toBe(first.ref.id);
     const stored = await engine.sessions.getSession(first.ref.id);
     expect(stored?.parentSessionId).toBeNull();
@@ -95,10 +88,9 @@ describe("the managers on the engine", () => {
     await expect(engine.run<string>("late", {})).resolves.toBe("late");
     await expect(engine.run("notes", {})).resolves.toEqual({ changed: true });
     expect(seen).toEqual(["notes.md"]);
-    expect(engine.schedules().map((schedule) => schedule.key)).toEqual([
+    expect((await engine.schedules()).map((schedule) => schedule.key)).toEqual([
       "notes",
     ]);
-    // A monitor's step is not something a host launches by hand.
     expect(engine.definitions().map((entry) => entry.name)).toEqual(["late"]);
     await engine.stop();
   });
@@ -125,7 +117,7 @@ describe("the managers on the engine", () => {
           return { exitCode: 0, stderr: "", stdout: "ok" };
         },
       }),
-      store: createMemoryContainerStore(),
+      store: new MemoryContainerStore(),
     });
     engine = testEngine({ containers, root });
 

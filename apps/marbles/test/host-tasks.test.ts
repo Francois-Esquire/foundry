@@ -1,11 +1,3 @@
-/**
- * The builtin `tasks` under a real host, in real processes: source loaded
- * through `openWorkspace` (a Bun plugin, so each scenario runs in its own
- * `bun` process), the engine built by `hostEngine`, and the records owned by
- * one OS process at a time. The last scenario hosts the workspace the way
- * the Marbles process does, in a worker it spawns and reloads.
- */
-
 import type { ChildProcess } from "node:child_process";
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -13,16 +5,20 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { tasks } from "@foundry/tasks/store/tables";
+import { max } from "drizzle-orm";
 import { afterEach, expect, it, vi } from "vitest";
-import { layout } from "~/layout";
-import { WorkspaceRecords } from "~/lib/events/records";
+import { readDatabase } from "~/database/open";
+import { marblesChangeLogs, marblesObservers } from "~/database/tables";
+import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { stateDatabase } from "~/layout";
 import { connect } from "~/process/client";
 import type { Daemon } from "~/process/daemon";
 import { startDaemon } from "~/process/daemon";
-import { readProcess } from "~/process/instance";
+import { recordSpawned } from "~/process/spawned";
+import { testHome } from "./helpers/home";
 
 const SRC = resolve("src");
-const IN_USE_BY = /in use by pid (\d+)/;
 
 const roots: string[] = [];
 const children: ChildProcess[] = [];
@@ -44,11 +40,6 @@ async function scratch(): Promise<string> {
   return root;
 }
 
-/**
- * A workspace whose source observes `tasks` (appending each payload's titles
- * to `seen.log`, or throwing while `MARBLES_TEST_FAIL` is set) and tries to
- * write a task while it loads.
- */
 async function workspace(root: string, name: string): Promise<string> {
   const dir = join(root, name);
   const source = join(dir, "marbles.ts");
@@ -57,7 +48,7 @@ async function workspace(root: string, name: string): Promise<string> {
     source,
     `import { appendFileSync } from "node:fs";
 import { observe, tasks } from "@foundry.sh/marbles";
-observe(tasks, (payload) => {
+observe(tasks, function seenTitles(payload) {
   if (process.env.MARBLES_TEST_FAIL) throw new Error("down");
   const titles = payload.tasks.map((change) => change.after?.title ?? "-");
   appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + "\\n");
@@ -73,7 +64,6 @@ try {
   return source;
 }
 
-/** Runs `body` in a fresh `bun` process with the host and `tasks` in scope; resolves its JSON report. */
 async function inHost(
   root: string,
   body: string,
@@ -83,12 +73,15 @@ async function inHost(
   await writeFile(
     script,
     `import { hostEngine, openWorkspace } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
+import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/workspaces.ts"))};
 import { tasks } from ${JSON.stringify(join(SRC, "authoring/tasks.ts"))};
 const report = {};
 const open = async (source, state, dry = false) => {
   const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, dry, state };
   const opened = await openWorkspace(args, { print: () => undefined });
-  const engine = await hostEngine(args, opened, { print: () => undefined });
+  // As \`hostWorkspace\` does: one handle, opened under the state root's rule.
+  const database = dry ? undefined : await openHostDatabase(state);
+  const engine = await hostEngine(args, opened, { database, print: () => undefined });
   await engine.start();
   return { engine, opened };
 };
@@ -108,14 +101,45 @@ process.exit(0);
   return JSON.parse(line);
 }
 
-function workspaceFile(state: string): string {
-  const [id] = readdirSync(state).filter((entry) =>
-    existsSync(join(state, entry, "tasks.json"))
-  );
-  if (id === undefined) {
-    throw new Error(`no tasks.json under ${state}`);
+async function stored(state: string): Promise<{
+  readonly head: number;
+  readonly observers: readonly {
+    readonly failing: boolean;
+    readonly name: string;
+    readonly position: number;
+  }[];
+  readonly titles: readonly string[];
+}> {
+  const read = await readDatabase(stateDatabase(state), async (database) => {
+    const observers = await database
+      .select({
+        failures: marblesObservers.failures,
+        name: marblesObservers.name,
+        position: marblesObservers.position,
+      })
+      .from(marblesObservers)
+      .orderBy(marblesObservers.scope, marblesObservers.name);
+    const titles = await database
+      .select({ title: tasks.title })
+      .from(tasks)
+      .orderBy(tasks.position);
+    const [head] = await database
+      .select({ position: max(marblesChangeLogs.position) })
+      .from(marblesChangeLogs);
+    return {
+      head: head?.position ?? 0,
+      observers: observers.map((row) => ({
+        failing: row.failures > 0,
+        name: row.name,
+        position: row.position,
+      })),
+      titles: titles.map((row) => row.title),
+    };
+  });
+  if (read === undefined) {
+    throw new Error(`no Marbles database under ${state}`);
   }
-  return join(state, id, "tasks.json");
+  return read;
 }
 
 it("binds tasks to the loaded workspace, recovers its pending changes in the next process, and refuses access unbound", async () => {
@@ -123,7 +147,6 @@ it("binds tasks to the loaded workspace, recovers its pending changes in the nex
   const source = await workspace(root, "first");
   const state = join(root, "state");
 
-  // The handler fails in this process, so the change stays pending.
   const first = await inHost(
     root,
     `const { engine } = await open(${JSON.stringify(source)}, ${JSON.stringify(state)});
@@ -137,17 +160,12 @@ report.afterDispose = await attempt(tasks.create({ title: "late" }));`,
   expect(first.load).toMatch("not available while its source loads");
   expect(first.listed).toEqual(["hosted"]);
   expect(first.afterDispose).toMatch("was disposed");
-  const file = workspaceFile(state);
-  const written = JSON.parse(readFileSync(file, "utf8"));
-  expect(written.tasks.map((task: { title: string }) => task.title)).toEqual([
-    "hosted",
+  const written = await stored(state);
+  expect(written.titles).toEqual(["hosted"]);
+  expect(written.observers).toEqual([
+    { failing: expect.any(Boolean), name: "seenTitles", position: 0 },
   ]);
-  expect(
-    written.items.map((item: { delivered: string[] }) => item.delivered)
-  ).toEqual([[]]);
 
-  // A new process loads the same source: the task is there, and the pending
-  // change is delivered to the same handler.
   const second = await inHost(
     root,
     `const { engine } = await open(${JSON.stringify(source)}, ${JSON.stringify(state)});
@@ -161,10 +179,10 @@ await engine.dispose();`
   expect(readFileSync(join(root, "first", "seen.log"), "utf8")).toBe(
     "hosted\n"
   );
-  const delivered = JSON.parse(readFileSync(file, "utf8"));
-  expect(
-    delivered.items.map((item: { delivered: string[] }) => item.delivered)
-  ).toEqual([[expect.any(String)]]);
+  const after = await stored(state);
+  expect(after.observers).toEqual([
+    { failing: false, name: "seenTitles", position: after.head },
+  ]);
 }, 120_000);
 
 it("rebinds to another workspace's engine in the same process", async () => {
@@ -204,64 +222,88 @@ await engine.dispose();`
     ? readdirSync(state, { recursive: true }).map(String)
     : [];
   expect(files.filter((file) => file.endsWith("tasks.json"))).toEqual([]);
+  expect(files.filter((file) => file.includes("marbles.db"))).toEqual([]);
   expect(files.filter((file) => file.includes("locks"))).toEqual([]);
 }, 120_000);
 
-it("refuses a second OS process the records, until the owner exits", async () => {
+it("loses no update when two OS processes change one workspace's tasks at once", async () => {
   const root = await scratch();
-  const dir = join(root, "state");
-  const script = join(root, "owner.ts");
+  const state = join(root, "state");
+  const rounds = 15;
+  const seeded = await inHost(
+    root,
+    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/tasks.ts"))};
+report.id = (await changeTasks(${JSON.stringify(state)}, "shared", (tasks) => tasks.create({ metadata: { count: 0 }, title: "counter" }))).id;`
+  );
+  const counter = join(root, "counter.ts");
   await writeFile(
-    script,
-    `import { WorkspaceRecords } from ${JSON.stringify(join(SRC, "lib/events/records.ts"))};
-const records = new WorkspaceRecords({ dir: ${JSON.stringify(dir)} });
-await records.taskStore.commit({ putTasks: [] });
-process.stdout.write("ready\\n");
-setInterval(() => undefined, 1000);
+    counter,
+    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/tasks.ts"))};
+const [name] = process.argv.slice(2);
+let refused = 0;
+for (let round = 0; round < ${String(rounds)}; round += 1) {
+  for (;;) {
+    try {
+      await changeTasks(${JSON.stringify(state)}, "shared", async (tasks) => {
+        const task = await tasks.get(${JSON.stringify(seeded.id)});
+        await tasks.update(task.id, { metadata: { count: task.metadata.count + 1 } }, { expectedUpdatedAt: task.updatedAt });
+        await tasks.create({ title: name + "-" + String(round) });
+      });
+      break;
+    } catch (error) {
+      if (error?.name !== "TaskError") throw error;
+      refused += 1;
+    }
+  }
+}
+process.stdout.write(JSON.stringify({ refused }) + "\\n");
 `
   );
-  const owner = spawn("bun", [script], { cwd: resolve(".") });
-  children.push(owner);
-  await new Promise<void>((ready, failed) => {
-    owner.stdout?.on("data", (chunk: Buffer) => {
-      if (chunk.toString().includes("ready")) {
-        ready();
-      }
+  const run = (name: string) =>
+    new Promise<string>((done, failed) => {
+      const child = spawn("bun", [counter, name], { cwd: resolve(".") });
+      recordSpawned(child.pid, false);
+      children.push(child);
+      let output = "";
+      let errors = "";
+      child.stdout?.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      child.stderr?.on("data", (chunk: Buffer) => {
+        errors += chunk.toString();
+      });
+      child.once("exit", (code) =>
+        code === 0 ? done(output) : failed(new Error(`${name}: ${errors}`))
+      );
     });
-    owner.once("exit", (code) => failed(new Error(`owner exited ${code}`)));
+  await Promise.all([run("a"), run("b")]);
+
+  const after = await readDatabase(stateDatabase(state), async (database) => {
+    const records = new DatabaseWorkspaceRecords({ database, scope: "shared" });
+    const { tasks: all } = await records.taskStore.snapshot();
+    return {
+      changes: (await records.log.read({ after: 0, source: "tasks" })).length,
+      count: all.find((task) => task.title === "counter")?.metadata.count,
+      tasks: all.length,
+    };
   });
-
-  const contender = new WorkspaceRecords({ dir });
-  const refusal = await contender.taskStore.snapshot().then(
-    () => "accepted",
-    (error: Error) => error.message
-  );
-  expect(refusal).toMatch(IN_USE_BY);
-  expect(IN_USE_BY.exec(refusal)?.[1]).toBe(String(owner.pid));
-
-  // The owner dies without releasing; its lock is stale and is taken over.
-  owner.kill("SIGKILL");
-  await new Promise((done) => owner.once("exit", done));
-  await expect(contender.taskStore.snapshot()).resolves.toEqual({
-    dependencies: [],
-    tasks: [],
+  expect(after).toEqual({
+    changes: 1 + 2 * 2 * rounds,
+    count: 2 * rounds,
+    tasks: 1 + 2 * rounds,
   });
-  await contender.close();
-}, 60_000);
+}, 120_000);
 
-/**
- * A source for a worker: `observe` appends each payload's titles to
- * `seen.log`, `add` creates a task, and `titles` lists them. `revision`
- * only changes the bytes, so an edit reloads the worker.
- */
-function workerSource(dir: string, revision: number): string {
+function generationSource(dir: string, revision: number): string {
   const zod = createRequire(import.meta.url).resolve("zod");
   return `import { appendFileSync } from "node:fs";
 import { observe, step, tasks } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(zod)};
-observe(tasks, (payload) => {
+// Each revision edits the handler's body: it stays the same observer.
+observe(tasks, function seenTitles(payload) {
+  const revision = ${String(revision)};
   const titles = payload.tasks.map((change) => change.after?.title ?? "-");
-  appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + "\\n");
+  appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + (revision > 0 ? "\\n" : ""));
 });
 const titles = async () => (await tasks.list()).items.map((task) => task.title);
 export const add = step("add")
@@ -275,21 +317,19 @@ export const list = step("list").do(titles);
 `;
 }
 
-it("binds tasks to the workspace a worker hosts, and hands its records to the worker a reload starts", async () => {
-  // Short on purpose: the daemon's Unix socket lives under the state root.
-  const home = await mkdtemp(join(tmpdir(), "mbt-"));
-  roots.push(home);
-  const root = join(home, "project");
+it("binds tasks to the workspace a generation hosts, and hands its records to the generation a reload starts", async () => {
+  const home = testHome({ providers: false });
+  const root = join(home.path, "project");
   await mkdir(root);
   const source = join(root, "marbles.config.ts");
-  await writeFile(source, workerSource(root, 1));
-  const machine = layout({ home });
+  await writeFile(source, generationSource(root, 1));
+  const machine = home.layout;
   daemons.push(await startDaemon({ layout: machine, print: () => undefined }));
   const client = await connect({ layout: machine, start: false });
   try {
     const summary = await client.attach(source);
     const hosted = client.workspace(summary);
-    const first = readProcess(join(machine.state, summary.id))?.pid;
+    const first = summary.pid;
 
     expect((await hosted.roll("add", { title: "hosted" })).value).toEqual([
       "hosted",
@@ -302,25 +342,22 @@ it("binds tasks to the workspace a worker hosts, and hands its records to the wo
         timeout: 30_000,
       }
     );
-    const file = join(machine.state, summary.id, "tasks.json");
     await vi.waitFor(
-      () => {
-        const written = JSON.parse(readFileSync(file, "utf8"));
-        expect(
-          written.items.map((item: { delivered: string[] }) => item.delivered)
-        ).toEqual([[expect.any(String)]]);
+      async () => {
+        const now = await stored(machine.state);
+        expect(now.observers).toEqual([
+          { failing: false, name: "seenTitles", position: now.head },
+        ]);
       },
       { interval: 100, timeout: 30_000 }
     );
 
-    // The worker that held the records exits before its replacement claims
-    // them: the fresh one reads the same tasks and redelivers nothing.
-    await writeFile(source, workerSource(root, 2));
+    await writeFile(source, generationSource(root, 2));
     await vi.waitFor(
-      () => {
-        const pid = readProcess(join(machine.state, summary.id))?.pid;
-        expect(pid).toBeDefined();
-        expect(pid).not.toBe(first);
+      async () => {
+        const [now] = await client.workspaces();
+        expect(now?.state).toBe("ready");
+        expect(now?.pid).not.toBe(first);
       },
       { interval: 250, timeout: 30_000 }
     );
@@ -342,6 +379,10 @@ it("binds tasks to the workspace a worker hosts, and hands its records to the wo
     expect(existsSync(join(machine.state, summary.id, "locks", "tasks"))).toBe(
       false
     );
+    expect((await stored(machine.state)).titles).toEqual([
+      "hosted",
+      "reloaded",
+    ]);
   } finally {
     client.close();
   }

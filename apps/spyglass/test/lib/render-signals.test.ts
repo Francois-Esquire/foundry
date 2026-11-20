@@ -11,10 +11,6 @@ import type {
   SurfaceReport,
 } from "../../src/lib/types";
 
-/**
- * Fixtures are too small to fire pressure or history signals, so this test
- * grafts hand-built signals onto a real report and checks the sentences.
- */
 let report: SurfaceReport;
 
 beforeAll(async () => {

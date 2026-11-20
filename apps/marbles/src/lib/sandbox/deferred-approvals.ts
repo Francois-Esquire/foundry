@@ -1,8 +1,3 @@
-import { mkdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { readJsonFile, writeFileAtomic } from "@foundry/lib/atomic-file";
-import { withFileLock } from "@foundry/lib/file-lock";
-import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import { z } from "zod";
 
 const recordSchema = z.object({
@@ -19,76 +14,49 @@ const recordSchema = z.object({
 export type DeferredApproval = z.infer<typeof recordSchema>;
 const sessionSchema = recordSchema.omit({ approvalId: true });
 export type InteractionSession = z.infer<typeof sessionSchema>;
-const savedSchema = z.object({
+export const deferredApprovalsSchema = z.object({
   requests: z.array(recordSchema),
   sessions: z.array(sessionSchema),
 });
-type Saved = z.infer<typeof savedSchema>;
-type Change = (saved: Saved) => Saved;
+export type SavedApprovals = z.infer<typeof deferredApprovalsSchema>;
 
-interface Backing {
-  change(update: Change): Promise<void>;
-  load(): Promise<Saved>;
+export interface DeferredApprovalStore {
+  change(update: (saved: SavedApprovals) => SavedApprovals): Promise<void>;
+  load(): Promise<SavedApprovals>;
 }
 
-function empty(): Saved {
+export function emptyApprovals(): SavedApprovals {
   return { requests: [], sessions: [] };
 }
 
-function memory(): Backing {
-  let saved = empty();
-  return {
-    change(update) {
-      saved = update(saved);
-      return Promise.resolve();
-    },
-    load: () => Promise.resolve(structuredClone(saved)),
-  };
-}
+export class MemoryDeferredApprovalStore implements DeferredApprovalStore {
+  #saved = emptyApprovals();
 
-/** Same-process writers take turns before acquiring the non-reentrant file lock. */
-const queue = new KeyedQueue();
-
-function file(location: string): Backing {
-  const path = resolve(location);
-  const load = async (): Promise<Saved> => {
-    const value = await readJsonFile(path);
-    return value === undefined ? empty() : savedSchema.parse(value);
-  };
-  return {
-    change: (update) =>
-      queue.run(path, async () => {
-        await mkdir(dirname(path), { recursive: true });
-        await withFileLock(
-          `${path}.lock`,
-          async () => {
-            const saved = update(await load());
-            await writeFileAtomic(path, JSON.stringify(saved), { mode: 0o600 });
-          },
-          { breakStale: true }
-        );
-      }),
-    load: () => queue.run(path, load),
-  };
-}
-
-/**
- * References to canonical session requests, never tool inputs. Each edit reads
- * the latest index under lock, so overlapping hosts preserve each other's work.
- */
-export class DeferredApprovals {
-  readonly #backing: Backing;
-
-  constructor(path?: string) {
-    this.#backing = path ? file(path) : memory();
+  change(update: (saved: SavedApprovals) => SavedApprovals): Promise<void> {
+    this.#saved = update(structuredClone(this.#saved));
+    return Promise.resolve();
   }
 
-  load(): Promise<Saved> {
-    return this.#backing.load();
+  load(): Promise<SavedApprovals> {
+    return Promise.resolve(structuredClone(this.#saved));
+  }
+}
+
+export class DeferredApprovals {
+  readonly #store: DeferredApprovalStore;
+
+  constructor(
+    store: DeferredApprovalStore = new MemoryDeferredApprovalStore()
+  ) {
+    this.#store = store;
+  }
+
+  load(): Promise<SavedApprovals> {
+    return this.#store.load();
   }
 
   register(session: InteractionSession): Promise<void> {
-    return this.#backing.change((saved) => ({
+    return this.#store.change((saved) => ({
       ...saved,
       sessions: [
         ...saved.sessions.filter(
@@ -100,7 +68,7 @@ export class DeferredApprovals {
   }
 
   put(record: DeferredApproval): Promise<void> {
-    return this.#backing.change((saved) => ({
+    return this.#store.change((saved) => ({
       ...saved,
       requests: [
         ...saved.requests.filter(
@@ -112,7 +80,7 @@ export class DeferredApprovals {
   }
 
   remove(id: string): Promise<void> {
-    return this.#backing.change((saved) => ({
+    return this.#store.change((saved) => ({
       ...saved,
       requests: saved.requests.filter((item) => item.approvalId !== id),
     }));

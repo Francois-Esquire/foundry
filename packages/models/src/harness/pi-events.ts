@@ -11,7 +11,6 @@ interface PiEventOptions {
   send(message: Record<string, unknown>): Promise<void>;
 }
 
-/** agent_end is intermediate: retries and compaction may still continue until agent_settled. */
 export function createPiEvents(options: PiEventOptions) {
   let turns = 0;
   let messageIndex = 0;

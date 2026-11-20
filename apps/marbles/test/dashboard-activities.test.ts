@@ -2,9 +2,9 @@ import { expect, it } from "vitest";
 import type {
   HarnessActivitySnapshot,
   RunSnapshot,
-} from "~/views/dashboard-model";
-import { selectionKey } from "~/views/dashboard-model";
-import { expandedRun, matchingRuns, runRows } from "~/views/dashboard-tree";
+} from "~/cli/state/dashboard-model";
+import { selectionKey } from "~/cli/state/dashboard-model";
+import { expandedRun, matchingRuns, runRows } from "~/cli/state/dashboard-tree";
 
 function activity(
   id: string,
@@ -88,7 +88,13 @@ it("folds an activity branch independently of its owning workflow step", () => {
       activity("child", { parentId: "parent" }),
     ],
   };
-  const rows = runRows([snapshot], new Set(["run:run", "run:run:step:write"]));
+  const rows = runRows(
+    [snapshot],
+    new Set([
+      selectionKey({ id: "run", kind: "run" }),
+      selectionKey({ id: "run", kind: "run", stepId: "write" }),
+    ])
+  );
   expect(rows.map((row) => row.name)).toEqual([
     "Run",
     "Write",

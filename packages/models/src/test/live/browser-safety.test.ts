@@ -1,8 +1,4 @@
-/**
- * @vitest-environment happy-dom
- *
- * Runs the browser entry in happy-dom.
- */
+// @vitest-environment happy-dom
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -25,12 +21,6 @@ const WEBRTC_SYMBOLS = [
   "RTCSessionDescription",
 ] as const;
 
-/**
- * Captured at module scope, BEFORE the first `import()` below evaluates the
- * entry. Sampling inside the test would read the globals after another test in
- * this file had already imported and cached the module, which makes the
- * comparison compare the post-import state with itself.
- */
 const BEFORE_IMPORT = WEBRTC_SYMBOLS.map(
   (name) => (globalThis as Record<string, unknown>)[name]
 );
@@ -49,8 +39,6 @@ function browserSources(directory: string): string[] {
 
 describe("@foundry/models/live in a browser-like environment", () => {
   it("imports with no werift module in its graph", async () => {
-    // The mock factories above throw on evaluation, so this import only
-    // succeeds while nothing under the browser entry reaches werift.
     const entry = await import("../../live/index");
     expect(typeof entry.open).toBe("function");
   });

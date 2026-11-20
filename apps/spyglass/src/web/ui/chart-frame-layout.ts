@@ -1,11 +1,9 @@
-/** Screen-space bounds of the coordinate lettering, including its clearance. */
 export interface FrameReference {
   edge: "top" | "left";
   halfWidth: number;
   position: number;
 }
 
-/** The rule's distance from every edge of the window: the same on all four sides. */
 const center = 18;
 const spread = 8;
 const endGap = 12;
@@ -31,8 +29,6 @@ function extent(
   if (end + spread < center || start - spread > limit - center) {
     return null;
   }
-  // Keep the shoulders inside the inset lining. The chart limits still drive
-  // them, but a limit beyond the viewport must not take its V off the page.
   const lastShoulder = limit - center - endGap - spread;
   const visibleStart = Math.max(
     center + endGap + spread,
@@ -61,11 +57,6 @@ function endOf(range: ReturnType<typeof extent>): number {
   return range ? range.end + spread : center;
 }
 
-/**
- * The persistent open corner diamonds, one at the top left and its twin at
- * the bottom right, connect the cast rows and the plain lining at their
- * points. The rule sits the same distance in from all four edges.
- */
 export function chartFrame(
   width: number,
   height: number,

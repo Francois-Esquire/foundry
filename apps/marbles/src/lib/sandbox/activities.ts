@@ -1,13 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import type {
   HarnessActivityEvent,
   HarnessSession,
 } from "@foundry/agents/harness";
 import { z } from "zod";
 import type { FeedPublisher } from "~/lib/feed/publish";
-import { readJson, writeJson } from "~/lib/state/json";
 import { wrapSession } from "./wrapped-session";
 
 const sourceSchema = z.object({
@@ -17,7 +14,7 @@ const sourceSchema = z.object({
 });
 export type ActivitySource = z.infer<typeof sourceSchema>;
 
-const savedSchema = z.object({
+export const activityRecordSchema = z.object({
   event: z.object({
     actions: z.array(z.literal("stop")).optional(),
     agentId: z.string(),
@@ -48,39 +45,36 @@ export interface ActivityRecord {
   readonly source: ActivitySource;
 }
 
-/** A dashboard projection. The complete activity history remains in the session store. */
+export interface ActivityStore {
+  load(): Promise<readonly ActivityRecord[]>;
+  put(key: string, record: ActivityRecord): Promise<void>;
+}
+
+const OPEN_STATUSES: ReadonlySet<string> = new Set(["running", "waiting"]);
+const CLOSED_OUT = "its process exited while it was running";
+
 export class HarnessActivities {
   readonly #records = new Map<string, ActivityRecord>();
   readonly #sessions = new Map<string, HarnessSession>();
   readonly #observed = new Map<string, Set<string>>();
-  readonly #dir: string | undefined;
+  readonly #store: ActivityStore | undefined;
   readonly #feed: FeedPublisher | undefined;
 
-  constructor(options: { state?: string; feed?: FeedPublisher } = {}) {
-    this.#dir = options.state
-      ? join(options.state, "harness-activities")
-      : undefined;
+  constructor(options: { store?: ActivityStore; feed?: FeedPublisher } = {}) {
+    this.#store = options.store;
     this.#feed = options.feed;
-    if (this.#dir && existsSync(this.#dir)) {
-      for (const file of readdirSync(this.#dir)) {
-        if (!file.endsWith(".json")) {
-          continue;
-        }
-        const parsed = savedSchema.safeParse(readJson(join(this.#dir, file)));
-        if (parsed.success) {
-          const record: ActivityRecord = parsed.data;
-          this.#records.set(this.#key(record), record);
-        }
+  }
+
+  async load(): Promise<void> {
+    for (const record of (await this.#store?.load()) ?? []) {
+      const key = this.#key(record);
+      const kept = this.#records.get(key);
+      if (kept === undefined || kept.event.revision < record.event.revision) {
+        this.#records.set(key, record);
       }
     }
   }
 
-  /**
-   * Track a live session so its activities can be stopped, and forget it
-   * when it closes. Returns the session to hold and close in its place. A
-   * `delegated` session is a child task whose session id is also its
-   * activity id in the parent, so stopping that activity interrupts it.
-   */
   attach(
     sessionId: string,
     session: HarnessSession,
@@ -125,13 +119,18 @@ export class HarnessActivities {
   ): Promise<void> {
     const record = { event, source };
     const key = this.#key(record);
-    const previous = this.#records.get(key);
-    if (previous && previous.event.revision >= event.revision) {
+    const newer = () => {
+      const kept = this.#records.get(key);
+      return kept !== undefined && kept.event.revision >= event.revision;
+    };
+    if (newer()) {
       return;
     }
-    if (this.#dir) {
-      writeJson(join(this.#dir, `${key}.json`), record);
+    await this.#store?.put(key, record);
+    if (newer()) {
+      return;
     }
+    const previous = this.#records.get(key);
     this.#records.set(key, record);
     this.#observed.get(event.sessionId)?.add(event.id);
     if (
@@ -151,11 +150,39 @@ export class HarnessActivities {
     }
   }
 
+  async closeOut(ended: (runId: string) => boolean): Promise<number> {
+    let closed = 0;
+    for (const [key, record] of this.#records) {
+      const { event, source } = record;
+      if (
+        !OPEN_STATUSES.has(event.status) ||
+        this.#observed.get(event.sessionId)?.has(event.id) ||
+        !ended(source.runId)
+      ) {
+        continue;
+      }
+      const next: ActivityRecord = {
+        event: {
+          ...event,
+          actions: [],
+          revision: event.revision + 1,
+          status: "failed",
+          summary: CLOSED_OUT,
+        },
+        source,
+      };
+      await this.#store?.put(key, next);
+      this.#records.set(key, next);
+      closed += 1;
+    }
+    return closed;
+  }
+
   list(): readonly ActivityRecord[] {
     return [...this.#records.values()].map((record) => {
       if (
         this.#observed.get(record.event.sessionId)?.has(record.event.id) ||
-        !["running", "waiting"].includes(record.event.status)
+        !OPEN_STATUSES.has(record.event.status)
       ) {
         return record;
       }

@@ -1,36 +1,18 @@
-/**
- * The vault registry: every credential Works can hold, declared once and read
- * by both processes. The main process uses the storage tier and environment
- * variable of each field; the renderer uses the labels, kinds, and docs links.
- * Adding a credential is one entry here.
- */
-
 export type VaultGroup = "provider" | "integration";
 
 export type VaultFieldKind = "secret" | "url" | "text";
 
-/** Secrets are encrypted at rest; settings are plain text. */
 type VaultTier = "secure" | "settings";
 
-/**
- * Where a field's current value comes from.
- * - store: the user set it and it is persisted on this device.
- * - env: an environment variable supplies it.
- * - default: a built-in fallback, such as a localhost gateway URL.
- * - none: unset.
- */
 export type FieldSource = "store" | "env" | "default" | "none";
 
-/** Live state of one field. Never carries the value itself. */
 export interface FieldState {
   isSet: boolean;
   source: FieldSource;
 }
 
 export interface VaultField {
-  /** Environment variable consulted when nothing is stored. */
   envVar?: string;
-  /** Built-in value used when neither the store nor the environment has one. */
   fallback?: string;
   key: string;
   kind: VaultFieldKind;
@@ -133,8 +115,6 @@ export const VAULT_OWNERS: readonly VaultOwner[] = [
   },
   {
     docsUrl: "https://stitch.withgoogle.com/docs/sdk/ai-sdk/",
-    // The Stitch SDK reads STITCH_API_KEY itself when no key is passed, so
-    // the status agrees with what the tool would actually use.
     fields: [{ ...API_KEY, envVar: "STITCH_API_KEY", placeholder: "stitch-…" }],
     group: "integration",
     id: "googleStitch",
@@ -159,9 +139,7 @@ export function vaultStoreKey(ownerId: VaultOwnerId, key: string): string {
   return `${ownerId}:${key}`;
 }
 
-/** Per-owner, per-field state, plus whether secrets can be read at all. */
 export interface VaultStatus {
-  /** Unavailable when the OS keychain cannot be used to read secrets. */
   encryption: "available" | "unavailable";
   fields: Record<VaultOwnerId, Record<string, FieldState>>;
 }

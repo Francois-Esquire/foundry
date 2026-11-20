@@ -7,11 +7,6 @@ import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import { harnessOf, isCliHarness } from "~/lib/cli-harnesses";
 import { CLI_PROVIDER_FACTS } from "~/lib/harnesses";
 
-/**
- * `--dry-run` lives inside the ModelManager: one echo provider per executor, so a
- * config that calls `models.model(...)` runs unchanged and spends nothing.
- */
-
 export type Print = (line: string) => void;
 
 type CallOptions = Parameters<LanguageModelV4["doGenerate"]>[0];
@@ -20,7 +15,6 @@ type Generated = Awaited<ReturnType<LanguageModelV4["doGenerate"]>>;
 
 const STOP: Generated["finishReason"] = { raw: undefined, unified: "stop" };
 
-/** Reported usage drives compaction, so the mock estimates rather than zeroes. */
 function usage(input: string, output: string): Generated["usage"] {
   const tokens = (text: string) => Math.ceil(text.length / 4);
   return {
@@ -45,11 +39,6 @@ interface MockCall {
 export type Reply = (call: MockCall) => string;
 
 export interface MockOptions {
-  /**
-   * When it returns true the streamed turn sends its first word and then
-   * waits for the turn's abort signal before finishing, so a test can act
-   * on a turn that is still running.
-   */
   readonly hold?: (call: MockCall) => boolean;
 }
 
@@ -98,10 +87,6 @@ function promptText(prompt: Prompt): string {
     .join("\n");
 }
 
-/**
- * One echo provider per provider id, listing what the real one lists plus
- * every model its executors name, and limiting turns the way it does.
- */
 function mockProvider(
   executors: readonly TurnExecutorRef[],
   reply: Reply,
@@ -117,8 +102,8 @@ function mockProvider(
     .map((model) => ({ id: model, kind: "text" as const, modelId: model }));
   return replying(
     {
+      ...facts,
       models: [...(facts?.models ?? []), ...named],
-      ...(facts ? { turnLimit: facts.turnLimit } : {}),
     },
     executor,
     reply,
@@ -126,7 +111,6 @@ function mockProvider(
   );
 }
 
-/** A provider with `shape`'s catalog and turn limit whose turns `reply` answers. */
 function replying(
   shape: Pick<Provider, "defaults" | "models" | "turnLimit">,
   executor: TurnExecutorRef,
@@ -184,7 +168,6 @@ function replying(
       });
     },
     models: shape.models,
-    // Mirrors the providers it stands in for, which all reach the network.
     offline: false,
     ...(shape.turnLimit ? { turnLimit: shape.turnLimit } : {}),
   };
@@ -203,11 +186,6 @@ export function mockModels(
   });
 }
 
-/**
- * Prints the turn it would take and answers with that same line. A turn
- * with structured output is answered with the smallest value its schema
- * accepts, and the line names the keys it asked for.
- */
 export function echoModels(
   executors: readonly TurnExecutorRef[],
   print: Print
@@ -215,10 +193,6 @@ export function echoModels(
   return mockModels(executors, echoReply(print));
 }
 
-/**
- * `source` as a dry run sees it: same id, catalog, defaults, and turn limit,
- * answering by echo. It owns `source`, so disposing it disposes `source`.
- */
 export function echoInstance(source: Provider, print: Print): Provider {
   return {
     ...replying(
@@ -247,10 +221,6 @@ function echoReply(print: Print): Reply {
   };
 }
 
-/**
- * The smallest value a schema accepts: required keys only, empty arrays
- * (or the fewest items allowed), the first enum member, the lowest number.
- */
 function sampleOf(definition: JSONSchema7Definition): unknown {
   if (typeof definition === "boolean") {
     return definition ? {} : null;

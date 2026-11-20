@@ -17,11 +17,6 @@ export interface ToolReport {
 
 export type ReportTool = (report: ToolReport) => Promise<void>;
 
-/**
- * Reports each outcome for a tool call to the run at most once. A native CLI can
- * surface one outcome through several channels (a hook, a permission callback,
- * a denial list), so a repeat is dropped. `reset` starts a fresh turn.
- */
 export function toolReporter(
   agentId: string,
   harness: string,
@@ -76,7 +71,6 @@ export function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
-/** Summaries describe the shape, never command strings, file contents, or credentials. */
 function inputSummary(input: unknown): string {
   return `Input fields: ${Object.keys(record(input)).sort().join(", ") || "none"}`;
 }

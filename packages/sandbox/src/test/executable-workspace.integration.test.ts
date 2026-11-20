@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createContainers } from "../container/containers";
 import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
-import { createMemoryContainerStore } from "../container/store";
+import { MemoryContainerStore } from "../store/memory";
 
 it("executes workspace tools while preserving nosuid/nodev and config noexec", async () => {
   const source = await realpath(
@@ -16,7 +16,7 @@ it("executes workspace tools while preserving nosuid/nodev and config noexec", a
     allowedMountRoots: [source],
     instanceLabel: `exec-test-${crypto.randomUUID()}`,
     runtime: createMicrosandboxRuntime(),
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
   });
   try {
     const container = await containers.start({

@@ -52,9 +52,6 @@ describe("runEffectPromise — typed-failure identity preservation", () => {
   });
 
   test("a non-Error thrown via Effect.fail is preserved as-is at the throw site", async () => {
-    // Even though the Effect.Effect<A, Error> signature is nominal, a
-    // generator-yielded fail with a non-Error payload still flows through
-    // Cause.failureOption and is rethrown verbatim.
     const payload = "string-failure";
     const effect = Effect.gen(function* () {
       return yield* Effect.fail(payload as unknown as Error);
@@ -126,12 +123,6 @@ describe("errorToShape", () => {
   });
 });
 
-/**
- * Drive a Schedule with `n` undefined inputs and return its emitted
- * delays as ms. Uses `Schedule.delays(sched)` — Effect's accessor for
- * the per-iteration backoff durations — which is the property
- * `Effect.retry(sched)` actually consumes.
- */
 async function delaysMs(
   schedule: Schedule.Schedule<unknown>,
   n: number
@@ -174,8 +165,6 @@ describe("toSchedule — per-strategy", () => {
       maxAttempts: 5,
     });
     const delays = await delaysMs(sched, 3);
-    // Schedule.linear(step) emits step, 2*step, 3*step,...; addDelay(initial)
-    // shifts each by initial. So delays = step+initial, 2*step+initial, 3*step+initial.
     expect(delays).toEqual([150, 200, 250]);
   });
 
@@ -197,12 +186,6 @@ describe("toSchedule — per-strategy", () => {
       backoff: { delay: 10, kind: "fixed" },
       maxAttempts: 3,
     });
-    // Pin the actual cap shape: a 3-attempt schedule, intersected with
-    // recurs(2), produces a finite-length delay sequence. The exact
-    // length depends on Effect's recurs/intersect semantics (it counts
-    // recursions, not yields); the invariant we care about is that the
-    // cap is finite — a regression that drops the intersect would let
-    // delays.length grow unbounded.
     const delays = await delaysMs(sched, 100);
     expect(delays.length).toBeLessThan(100);
   });
@@ -224,10 +207,6 @@ describe("toSchedule — per-strategy", () => {
         new Error("d"),
       ])
     );
-    // Attempt counter starts at 1 and
-    // increments per call. Predicate returns false at attempt=3 — the
-    // schedule halts after seeing the third call. The fourth input is
-    // never observed.
     expect(seen.map((s) => s.attempt)).toEqual([1, 2, 3]);
     expect(seen.map((s) => (s.err as Error).message)).toEqual(["a", "b", "c"]);
   });

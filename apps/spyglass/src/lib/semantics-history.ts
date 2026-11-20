@@ -88,12 +88,6 @@ import {
   WORKSPACE_SCHEMA_VERSION,
 } from "./workspace-types";
 
-// V12.3 temporal materializer. Each selected commit is checked out into a
-// detached temporary worktree, analyzed by the current analyzer under the
-// temporal profile, folded through the canonical workspace ingestion and
-// intelligence, and projected to a compact snapshot. Snapshots are truth;
-// lineage, deltas, and the manifest are derived from them and the timeline.
-
 const execFileAsync = promisify(execFile);
 
 const DEFAULT_HISTORY_OUTPUT = ".foundry/semantics-history";
@@ -121,23 +115,17 @@ export type SemanticsHistoryProgressEvent =
 
 export interface SemanticsHistoryGenerateOptions {
   analyzeLocal?: SemanticsLocalAnalyzer;
-  /** Workspace-relative or absolute checkpoint cache directory. */
   cache?: string;
   command?: string;
-  /** Package-local analyses in flight within one checkpoint. */
   concurrency?: number;
-  /** The resolved configuration, which `scan` loads from the working tree and applies to every checkpoint; never loaded here. Default: the plain defaults. */
   config?: SemanticsConfig;
   derive?: SemanticsDeriver;
-  /** Overrides for `config.history`, typically from CLI flags. */
   history?: Partial<SemanticsHistoryConfig>;
   onProgress?: (event: SemanticsHistoryProgressEvent) => void;
-  /** Workspace-relative or absolute output directory. */
   output?: string;
   root: string;
 }
 
-/** Git on the repository at `root`, started outside it (`CHILD_CWD`). */
 async function git(root: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync(
     "git",
@@ -150,9 +138,6 @@ async function git(root: string, args: string[]): Promise<string> {
   );
   return stdout;
 }
-
-// ---------------------------------------------------------------------------
-// PROJECTION
 
 interface UnitOutcome {
   error?: string;
@@ -169,7 +154,6 @@ const ROLE_ORDER: TemporalConceptRole[] = [
   "conversion",
 ];
 
-/** Path-keyed snapshot straight from the canonical workspace; lineage ids are applied later. */
 function projectSnapshot(
   commit: SemanticsHistoryCommit,
   discovery: SemanticsDiscovery,
@@ -371,7 +355,6 @@ function conceptLineageId(
   return `${lineageOf(conceptId.slice(0, hash))}${conceptId.slice(hash)}`;
 }
 
-/** Sort `items` by id; returns the sorted list and old index → new index. */
 function sortById<T extends { id: string }>(
   items: T[]
 ): { sorted: T[]; remap: number[] } {
@@ -385,11 +368,6 @@ function sortById<T extends { id: string }>(
   return { remap, sorted: order.map(({ item }) => item) };
 }
 
-/**
- * Replace every module path and path-based concept id with its lineage id,
- * then restore id order. Index references (dependencies, module concept
- * roles) follow the permutation, so the file stays self-consistent.
- */
 function rekeySnapshot(
   snapshot: TemporalWorkspaceSnapshot,
   paths: Map<string, string> | undefined
@@ -434,9 +412,6 @@ function rekeySnapshot(
   };
 }
 
-// ---------------------------------------------------------------------------
-// DELTAS
-
 function setDiff<T>(
   before: Iterable<T>,
   after: Iterable<T>
@@ -470,7 +445,6 @@ function rolesOf(
   return byConcept;
 }
 
-/** Dependency edges as `[sourceId, targetId]` pairs keyed for set comparison. */
 function edgePairs(
   snapshot: TemporalWorkspaceSnapshot
 ): Map<string, [string, string]> {
@@ -612,33 +586,22 @@ function diffSnapshots(
   };
 }
 
-// ---------------------------------------------------------------------------
-// CHECKPOINT ANALYSIS
-
 interface CheckpointContext {
   analyzeLocal: SemanticsLocalAnalyzer;
   concurrency: number;
   config: SemanticsConfig;
   derive: SemanticsDeriver;
-  /** Content-addressed package-local reports shared by every checkpoint. */
   localCache: string;
   progress: (event: SemanticsHistoryProgressEvent) => void;
   root: string;
 }
 
 interface CheckpointResult {
-  /** Package-local reports taken from the local cache rather than analyzed. */
   localsReused: number;
   snapshot: TemporalWorkspaceSnapshot;
   timing: Omit<SemanticsHistoryCheckpointTiming, "commit" | "cached">;
 }
 
-/**
- * A historical package's sources are immutable, so its local report is
- * keyed by content alone: the local fingerprint (sources, manifest, stage
- * version) names the file. Any checkpoint with the same package state
- * reuses it, and a derivation-policy change never reaches this cache.
- */
 function readHistoricalLocal(file: string): PackageLocalReport | undefined {
   if (!existsSync(file)) {
     return undefined;
@@ -659,12 +622,6 @@ function readHistoricalLocal(file: string): PackageLocalReport | undefined {
   }
 }
 
-/**
- * Detached worktree → discover → package-local analysis (cached by content)
- * → one workspace derivation (temporal profile) → ingest → intelligence →
- * project. Worktree removal is attempted on exit; the repository's own
- * checkout, branch, and index are never touched.
- */
 async function analyzeCheckpoint(
   context: CheckpointContext,
   commit: SemanticsHistoryCommit
@@ -741,9 +698,6 @@ async function analyzeCheckpoint(
     const locals = localOutcomes.flatMap((o) =>
       o.local === undefined ? [] : [o.local]
     );
-    // A tree with units but no analyzable one carries no semantic state;
-    // a tree with no units at all (the tree declared no packages yet) is a
-    // valid empty checkpoint.
     if (localOutcomes.length > 0 && locals.length === 0) {
       const first = localOutcomes.find((o) => o.error !== undefined);
       throw new Error(
@@ -795,9 +749,6 @@ async function analyzeCheckpoint(
   }
 }
 
-// ---------------------------------------------------------------------------
-// GENERATION
-
 class Writer {
   readonly files: { file: string; bytes: number }[] = [];
 
@@ -817,12 +768,6 @@ class Writer {
   }
 }
 
-/**
- * Identity of a cached checkpoint snapshot: the `historySnapshot` stage
- * closure (package analysis, workspace ingestion and intelligence, snapshot
- * schema) plus the configuration's (`configFingerprint`). Projection and dataset schemas are not
- * in the closure, so their changes leave every snapshot reusable.
- */
 export function historyFingerprint(config: SemanticsConfig): string {
   const material = JSON.stringify({
     config: configFingerprint({ exclude: config.exclude, profile: "temporal" }),
@@ -831,11 +776,6 @@ export function historyFingerprint(config: SemanticsConfig): string {
   return createHash("sha1").update(material).digest("hex").slice(0, 16);
 }
 
-/**
- * A cached snapshot is reused only when it parses, carries the current
- * snapshot schema, and names the commit it was cached under; anything else
- * is a miss and the checkpoint is analyzed again.
- */
 function readCachedSnapshot(
   file: string,
   commit: string
@@ -875,8 +815,6 @@ export async function generateSemanticsHistory(
   const progress = options.onProgress ?? (() => undefined);
   const output = resolve(root, options.output ?? DEFAULT_HISTORY_OUTPUT);
   const cacheDir = resolve(root, options.cache ?? DEFAULT_HISTORY_CACHE);
-  // Keyed by content, so it sits outside the snapshot fingerprint directory
-  // and outlives every derivation-policy change.
   const localCache = join(
     cacheDir,
     "local",

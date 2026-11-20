@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { recordChild, spawnRecordEnvironment } from "@foundry/lib/spawn-record";
 
 import { consumptionOf, listPrices } from "../../consumption";
 import { defineProvider } from "../../provider";
@@ -8,17 +9,11 @@ import { childEnv, type Env, exists, expandHome } from "../local";
 import { readCodexHistory } from "./history";
 import { readCodexLimits, type SpawnCodex } from "./limits";
 
-/**
- * A Codex login by its home, the directory `CODEX_HOME` would name (`~`
- * allowed; by default the one Codex uses here), or an OpenAI API key, such
- * as `process.env.OPENAI_API_KEY`.
- */
 export type OpenAIOptions =
   | { readonly apiKey?: undefined; readonly home?: string }
   | { readonly apiKey: string; readonly home?: undefined };
 
 export type OpenAICredential =
-  /** `home` is absolute; Codex runs with it as `CODEX_HOME`. */
   | { readonly home: string; readonly kind: "login" }
   | { readonly key: string; readonly kind: "api-key" };
 
@@ -30,11 +25,17 @@ export interface OpenAIMachine {
 }
 
 const DEFAULT_TIMEOUT_MS = 5000;
-/** Removed from a login's environment so it reads its own login, not a key. */
 const FOREIGN_AUTH = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_HOME"];
 
-const spawnCodex: SpawnCodex = (command, args, options) =>
-  nodeSpawn(command, args, { ...options, stdio: "pipe" });
+const spawnCodex: SpawnCodex = (command, args, options) => {
+  const child = nodeSpawn(command, args, {
+    ...options,
+    env: { ...options.env, ...spawnRecordEnvironment() },
+    stdio: "pipe",
+  });
+  recordChild(child);
+  return child;
+};
 
 export const createOpenAI = (machine: OpenAIMachine = {}) => {
   const env = machine.env ?? process.env;
@@ -54,8 +55,6 @@ export const createOpenAI = (machine: OpenAIMachine = {}) => {
         ? { home: codexHomeOf(options.home), kind: "login" }
         : { key: options.apiKey, kind: "api-key" };
     },
-    // Presence only: Codex writes `auth.json` when it signs in, and its
-    // history under `sessions` whatever it signs in with.
     detect: async () => {
       const codexHome = codexHomeOf();
       return (await exists(join(codexHome, "auth.json"))) ||
@@ -79,7 +78,6 @@ export const createOpenAI = (machine: OpenAIMachine = {}) => {
         };
       }
       return readCodexLimits({
-        // Not a project directory, so no project config is read.
         cwd: home,
         env: childEnv(env, FOREIGN_AUTH, { CODEX_HOME: credential.home }),
         spawn: machine.spawn ?? spawnCodex,

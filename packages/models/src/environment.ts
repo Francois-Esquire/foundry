@@ -1,10 +1,3 @@
-/**
- * What to lay over the ambient environment so a child process sees exactly
- * `target`. SDKs that spawn children start from `process.env` and accept only
- * an overlay, so every difference is spelled out, and a name missing from
- * `target` becomes `removed`: `undefined` where the SDK deletes such names,
- * `""` where it accepts only strings.
- */
 export function environmentOverlay<R extends string | undefined>(
   target: Readonly<Record<string, string>>,
   removed: R,
@@ -24,10 +17,6 @@ export function environmentOverlay<R extends string | undefined>(
   return overlay;
 }
 
-/**
- * An overlay whose entries are computed each time they are read, so an SDK
- * that spreads it when it spawns sees the ambient environment of that moment.
- */
 export function liveEnvironmentOverlay<R extends string | undefined>(
   target: Readonly<Record<string, string>>,
   removed: R

@@ -14,10 +14,6 @@ import type {
   FileChurn,
 } from "./types";
 
-// Churn: how each currently-tracked file has evolved through Git history.
-// Inventory only — commit counts, line churn, recency, author spread — with
-// no score, no threshold, and no combination with static structure.
-
 const DAY_MS = 86_400_000;
 
 interface PathStats {
@@ -42,12 +38,6 @@ function isExcluded(file: string): boolean {
   return file.split("/").some((segment) => EXCLUDED_DIRS.includes(segment));
 }
 
-/**
- * Historical path → the path that content has today. Commits walk newest →
- * oldest, so when a rename is met the old name maps onto the already-
- * resolved new name; every older change then follows it. Shared by churn
- * and change coupling so both see one file identity.
- */
 export function renameAliases(commits: CommitChange[]): Map<string, string> {
   const aliases = new Map<string, string>();
   for (const commit of commits) {
@@ -89,8 +79,6 @@ function collectPathStatsChange(
       record = emptyStats();
       stats.set(path, record);
     }
-    // Compare instants, not %cI strings: offsets vary across the log, and
-    // log order is not strictly committer-date order on non-linear history.
     if (isLater(commit.timestamp, record.lastChangedAt)) {
       record.lastChangedAt = commit.timestamp;
     }
@@ -159,10 +147,6 @@ function fileChurn(
   };
 }
 
-/**
- * Empirical percentile: the share of `sorted` strictly below `value`, so
- * the population maximum sits just under 1 and ties share one placement.
- */
 export function percentile(sorted: number[], value: number): number {
   if (sorted.length === 0) {
     return 0;
@@ -261,12 +245,6 @@ function summarize(
   };
 }
 
-/**
- * Churn for the boundary's current files from an already-collected history.
- * Pure: the only clock is `history.analyzedAt`. Window counts use committer
- * dates, the same clock Git's `--since` would; the window itself is applied
- * here so one collected history serves any window.
- */
 export function analyzeChurn(
   history: GitHistory,
   boundary: Boundary,

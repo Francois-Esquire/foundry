@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import type { Summarizer } from "../../session/compactor";
-import { InMemorySessionStore } from "../../session/store";
+import { Sessions } from "../../session/sessions";
 import { createSummaryStore, summarizeSession } from "../../session/summary";
 import type { SessionPart, SessionRole } from "../../session/types";
+import { InMemorySessionStore } from "../../store/memory";
 
 const text = (t: string): SessionPart[] => [{ text: t, type: "text" }];
 
@@ -12,9 +13,10 @@ async function seedRoles(
   sessionId: string,
   items: [SessionRole, string][]
 ): Promise<void> {
-  await store.createSession({ id: sessionId });
+  const sessions = new Sessions({ store });
+  await sessions.createSession({ id: sessionId });
   for (const [role, label] of items) {
-    await store.appendMessage({ parts: text(label), role, sessionId });
+    await sessions.appendMessage({ parts: text(label), role, sessionId });
   }
 }
 

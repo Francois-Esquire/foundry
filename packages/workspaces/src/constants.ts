@@ -1,4 +1,3 @@
-/** The built-in exclusions every directory scan applies before `.gitignore`. */
 export const BASELINE_IGNORE_PATTERNS: readonly string[] = [
   ".git/",
   ".foundry/",

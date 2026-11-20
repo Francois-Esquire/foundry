@@ -2,7 +2,6 @@ import type { RenderDensity } from "../context";
 import { LISTED_AT_DENSITY } from "../context";
 import type { BlockView, RankedItem, SectionView } from "../views";
 
-/** A titled ranked list of the first items at the density, counting the rest; none when there is nothing to list. */
 export function rankedSection(
   items: RankedItem[],
   density: RenderDensity,
@@ -22,7 +21,6 @@ export function rankedSection(
   return { blocks: [list], title };
 }
 
-/** A titled list of the first items at the density, counting the rest; none when there is nothing to list. */
 export function listSection(
   items: readonly string[],
   density: RenderDensity,

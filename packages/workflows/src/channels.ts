@@ -1,40 +1,28 @@
-import { Effect, Exit, Option, PubSub, Schema, Scope, Stream } from "effect";
+import { Effect, Exit, Option, PubSub, Scope, Stream } from "effect";
 
 import { MessageLog } from "./channel-log";
 
-import type { JsonValue } from "./execution-records";
+import type { JsonValue } from "./json-value";
+import type { ChannelEvent, ErrorShape, SuspensionState } from "./schema";
+import {
+  CustomEvent,
+  StepAbortedEvent,
+  StepBailedEvent,
+  StepCompleteEvent,
+  StepFailedEvent,
+  StepPausedEvent,
+  StepProgressEvent,
+  StepResumedEvent,
+  StepSkippedEvent,
+  StepStartedEvent,
+  StepSuspendedEvent,
+} from "./schema";
 import type { SnapshotState, StepStatus } from "./snapshot";
 import { Snapshot } from "./snapshot";
 import type { LogCallback, TelemetryLogEntry } from "./telemetry";
 
-/**
- * Streaming broadcast hub. Three interfaces: `events` (lifecycle + custom
- * events; applies to Snapshot before broadcast), `chunks` (typed output),
- * `stream` (unified ReadableStream). Each supports `publish` (Effect) and
- * `push` (sync) writes. Events update Snapshot synchronously; subscribers
- * see eventual consistency. Scope-managed.
- */
+export type { ChannelEvent, SuspensionState } from "./schema";
 
-// ── Event schemas ──
-
-/** Suspension metadata payload (carried on `step.suspended`). */
-export const SuspensionStateSchema = Schema.Struct({
-  kind: Schema.optional(Schema.String),
-  meta: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown })
-  ),
-  name: Schema.String,
-  occurrence: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.nonNegative())
-  ),
-  reason: Schema.String,
-  request: Schema.optional(Schema.Unknown),
-  stepPath: Schema.optional(Schema.Array(Schema.String)),
-  suspendedAt: Schema.String,
-});
-export type SuspensionState = Schema.Schema.Type<typeof SuspensionStateSchema>;
-
-/** Input accepted by Step suspension while legacy `meta` remains supported. */
 export interface SuspensionRequest {
   readonly kind?: string;
   readonly meta?: Record<string, unknown>;
@@ -43,111 +31,14 @@ export interface SuspensionRequest {
   readonly request?: JsonValue;
 }
 
-/** Captured error shape (carried on `step.failed`). */
-export const ErrorShapeSchema = Schema.Struct({
-  message: Schema.String,
-  name: Schema.String,
-  stack: Schema.optional(Schema.String),
-});
-type ErrorShape = Schema.Schema.Type<typeof ErrorShapeSchema>;
-
-const lifecycleCommon = {
-  at: Schema.String,
-  attempt: Schema.Number,
-  name: Schema.String,
-  path: Schema.Array(Schema.String),
-};
-
-export const StepStartedEvent = Schema.TaggedStruct(
-  "step.started",
-  lifecycleCommon
-);
-export const StepCompleteEvent = Schema.TaggedStruct("step.complete", {
-  ...lifecycleCommon,
-  value: Schema.Unknown,
-});
-export const StepFailedEvent = Schema.TaggedStruct("step.failed", {
-  ...lifecycleCommon,
-  error: ErrorShapeSchema,
-});
-export const StepBailedEvent = Schema.TaggedStruct("step.bailed", {
-  ...lifecycleCommon,
-  bail: Schema.Unknown,
-});
-export const StepSuspendedEvent = Schema.TaggedStruct("step.suspended", {
-  ...lifecycleCommon,
-  suspension: SuspensionStateSchema,
-});
-
-export const StepPausedEvent = Schema.TaggedStruct("step.paused", {
-  ...lifecycleCommon,
-  reason: Schema.optional(Schema.String),
-});
-
-export const StepResumedEvent = Schema.TaggedStruct(
-  "step.resumed",
-  lifecycleCommon
-);
-
-export const StepSkippedEvent = Schema.TaggedStruct("step.skipped", {
-  ...lifecycleCommon,
-  reason: Schema.optional(Schema.String),
-});
-
-export const StepAbortedEvent = Schema.TaggedStruct("step.aborted", {
-  ...lifecycleCommon,
-  reason: Schema.optional(Schema.Unknown),
-});
-
-export const StepProgressEvent = Schema.TaggedStruct("step.progress", {
-  ...lifecycleCommon,
-  value: Schema.Number,
-});
-
-export const StepResolvedEvent = Schema.TaggedStruct("step.resolved", {
-  ...lifecycleCommon,
-  suspensionName: Schema.String,
-  value: Schema.Unknown,
-});
-
-export const CustomEvent = Schema.TaggedStruct("custom", {
-  at: Schema.String,
-  path: Schema.Array(Schema.String),
-  payload: Schema.optional(Schema.Unknown),
-  stepId: Schema.String,
-  type: Schema.String,
-});
-
-export const ChannelEventSchema = Schema.Union(
-  StepStartedEvent,
-  StepCompleteEvent,
-  StepFailedEvent,
-  StepBailedEvent,
-  StepSuspendedEvent,
-  StepPausedEvent,
-  StepResumedEvent,
-  StepSkippedEvent,
-  StepAbortedEvent,
-  StepResolvedEvent,
-  StepProgressEvent,
-  CustomEvent
-);
-export type ChannelEvent = Schema.Schema.Type<typeof ChannelEventSchema>;
-
-// ── Other message types ──
-
-/** Chunk payload: text or data. */
 export type ChunkPayload<S = unknown> =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "data"; readonly data: S };
 
-/** A chunk from a step's output stream. */
 export interface ChannelChunk<S = unknown> {
   readonly at: string;
-  /** The writing step's path; unlike `stepId`, unique within the run. */
   readonly path: readonly string[];
   readonly payload: ChunkPayload<S>;
-  /** The writing step's name. */
   readonly stepId: string;
 }
 
@@ -155,34 +46,22 @@ export type ChannelMessage<S = unknown> =
   | { readonly _tag: "event"; readonly event: ChannelEvent }
   | { readonly _tag: "chunk"; readonly chunk: ChannelChunk<S> };
 
-// ── PubSubChannel ──
-
 export interface PubSubChannel<A> {
-  /** @internal Effect-typed write. */
+  /** @internal */
   readonly publish: (a: A) => Effect.Effect<void>;
-  /** @internal Raw PubSub. */
+  /** @internal */
   readonly pubsub: PubSub.PubSub<A>;
-  /** Sync write. */
   readonly push: (a: A) => void;
-  /** @internal Effect Stream. */
+  /** @internal */
   readonly stream: Stream.Stream<A>;
 }
-
-// ── Channels ──
 
 export class Channels<S = unknown> {
   readonly events: PubSubChannel<ChannelEvent>;
   readonly chunks: PubSubChannel<ChannelChunk<S>>;
-  /** Unified ReadableStream of events and chunks. */
   readonly stream: ReadableStream<ChannelMessage<S>>;
   readonly #log: MessageLog<ChannelMessage<S>>;
-  /** Live Snapshot this Channels projects into — single source of status. */
   readonly #snapshot: Snapshot;
-  /**
-   * Run-level log sink callback. Set once by the Workflow on the root
-   * Channels; shared with the whole tree because `fork()` returns `this`.
-   * Granular step logs (`ctx.log`) route here.
-   */
   #onLog: LogCallback | undefined;
   #onProgress: ((value: number, path: readonly string[]) => void) | undefined;
 
@@ -200,30 +79,21 @@ export class Channels<S = unknown> {
     this.#snapshot = args.snapshot;
   }
 
-  /** Install the run-level log callback (Workflow wires this on the root). */
   setLogCallback(onLog: LogCallback): void {
     this.#onLog = onLog;
   }
 
-  /** Install the run-level progress callback used by durable observation. */
   setProgressCallback(
     onProgress: (value: number, path: readonly string[]) => void
   ): void {
     this.#onProgress = onProgress;
   }
 
-  /** Route a granular log line to the run's log callback, if installed. */
   emitLog(entry: TelemetryLogEntry): void {
     this.#onLog?.(entry);
   }
 
-  /**
-   * Allocate Channels bound to a Snapshot. Events apply to Snapshot
-   * synchronously before broadcast, preserving "publish, then read"
-   * in a single fiber.
-   *
-   * @internal Effect-typed factory. Consumers receive Channels via Step/Workflow.
-   */
+  /** @internal */
   static make<Chunk = unknown>(
     snapshot: Snapshot
   ): Effect.Effect<Channels<Chunk>, never, Scope.Scope> {
@@ -237,7 +107,6 @@ export class Channels<S = unknown> {
         (h) => PubSub.shutdown(h)
       );
 
-      // events: Snapshot bridge — apply first, broadcast second.
       const events: PubSubChannel<ChannelEvent> = {
         publish: (event) =>
           Effect.gen(function* () {
@@ -259,9 +128,6 @@ export class Channels<S = unknown> {
         stream: Stream.fromPubSub(chunksPubSub),
       };
 
-      // Native multiplexer — buffers until the ReadableStream's
-      // controller exists, then enqueues directly. Scope finalizer
-      // closes the controller so consumers see EOF on scope close.
       let controller: ReadableStreamDefaultController<
         ChannelMessage<Chunk>
       > | null = null;
@@ -275,11 +141,7 @@ export class Channels<S = unknown> {
         }
         log.record(msg);
         if (controller) {
-          try {
-            controller.enqueue(msg);
-          } catch {
-            /* downstream cancelled */
-          }
+          enqueueChunk(controller, msg);
         } else {
           buffer.push(msg);
         }
@@ -307,7 +169,8 @@ export class Channels<S = unknown> {
             try {
               controller.close();
             } catch {
-              /* already closed */
+              // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+              return;
             }
           }
         })
@@ -317,18 +180,15 @@ export class Channels<S = unknown> {
         start(c) {
           controller = c;
           for (const msg of buffer) {
-            try {
-              c.enqueue(msg);
-            } catch {
-              /* downstream cancelled */
-            }
+            enqueueChunk(c, msg);
           }
           buffer.length = 0;
           if (closed) {
             try {
               c.close();
             } catch {
-              /* already closed */
+              // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+              return;
             }
           }
         },
@@ -338,24 +198,14 @@ export class Channels<S = unknown> {
     });
   }
 
-  /** Returns this (shared per Run). */
   fork(): this {
     return this;
   }
 
-  /**
-   * A fresh stream of every event and chunk in the run: history first, then
-   * live, ending when the run's scope closes. Any number may be open, unlike
-   * the single-reader {@link stream}.
-   */
   subscribe(signal?: AbortSignal): ReadableStream<ChannelMessage<S>> {
     return this.#log.subscribe(signal);
   }
 
-  // ── Event emitters ──
-  // Callers pass variable fields; the helper fills `at` at push time.
-
-  /** Common lifecycle envelope: `{ path, name, attempt, at }`. */
   #base(
     path: readonly string[],
     name: string,
@@ -364,12 +214,15 @@ export class Channels<S = unknown> {
     return { at: new Date().toISOString(), attempt, name, path };
   }
 
-  /** Push `step.started`. */
   started(path: readonly string[], name: string, attempt: number): void {
-    this.events.push(StepStartedEvent.make(this.#base(path, name, attempt)));
+    this.events.push(
+      StepStartedEvent.parse({
+        _tag: "step.started",
+        ...this.#base(path, name, attempt),
+      })
+    );
   }
 
-  /** Push `step.complete`. */
   complete(
     path: readonly string[],
     name: string,
@@ -377,11 +230,14 @@ export class Channels<S = unknown> {
     value: unknown
   ): void {
     this.events.push(
-      StepCompleteEvent.make({ ...this.#base(path, name, attempt), value })
+      StepCompleteEvent.parse({
+        _tag: "step.complete",
+        ...this.#base(path, name, attempt),
+        value,
+      })
     );
   }
 
-  /** Push `step.failed`. */
   failed(
     path: readonly string[],
     name: string,
@@ -389,11 +245,14 @@ export class Channels<S = unknown> {
     error: ErrorShape
   ): void {
     this.events.push(
-      StepFailedEvent.make({ ...this.#base(path, name, attempt), error })
+      StepFailedEvent.parse({
+        _tag: "step.failed",
+        ...this.#base(path, name, attempt),
+        error,
+      })
     );
   }
 
-  /** Push `step.bailed`. */
   bailed(
     path: readonly string[],
     name: string,
@@ -401,11 +260,14 @@ export class Channels<S = unknown> {
     bail: unknown
   ): void {
     this.events.push(
-      StepBailedEvent.make({ ...this.#base(path, name, attempt), bail })
+      StepBailedEvent.parse({
+        _tag: "step.bailed",
+        ...this.#base(path, name, attempt),
+        bail,
+      })
     );
   }
 
-  /** Push `step.suspended`. */
   suspended(
     path: readonly string[],
     name: string,
@@ -413,14 +275,14 @@ export class Channels<S = unknown> {
     suspension: SuspensionState
   ): void {
     this.events.push(
-      StepSuspendedEvent.make({
+      StepSuspendedEvent.parse({
+        _tag: "step.suspended",
         ...this.#base(path, name, attempt),
         suspension,
       })
     );
   }
 
-  /** Push `step.paused`. */
   paused(
     path: readonly string[],
     name: string,
@@ -428,19 +290,23 @@ export class Channels<S = unknown> {
     reason?: string
   ): void {
     this.events.push(
-      StepPausedEvent.make({
+      StepPausedEvent.parse({
+        _tag: "step.paused",
         ...this.#base(path, name, attempt),
         ...(reason === undefined ? {} : { reason }),
       })
     );
   }
 
-  /** Push `step.resumed`. */
   resumed(path: readonly string[], name: string, attempt: number): void {
-    this.events.push(StepResumedEvent.make(this.#base(path, name, attempt)));
+    this.events.push(
+      StepResumedEvent.parse({
+        _tag: "step.resumed",
+        ...this.#base(path, name, attempt),
+      })
+    );
   }
 
-  /** Push `step.skipped`. */
   skipped(
     path: readonly string[],
     name: string,
@@ -448,14 +314,14 @@ export class Channels<S = unknown> {
     reason?: string
   ): void {
     this.events.push(
-      StepSkippedEvent.make({
+      StepSkippedEvent.parse({
+        _tag: "step.skipped",
         ...this.#base(path, name, attempt),
         ...(reason === undefined ? {} : { reason }),
       })
     );
   }
 
-  /** Push `step.aborted`. */
   aborted(
     path: readonly string[],
     name: string,
@@ -463,14 +329,14 @@ export class Channels<S = unknown> {
     reason?: unknown
   ): void {
     this.events.push(
-      StepAbortedEvent.make({
+      StepAbortedEvent.parse({
+        _tag: "step.aborted",
         ...this.#base(path, name, attempt),
         ...(reason === undefined ? {} : { reason }),
       })
     );
   }
 
-  /** Push `step.progress`. */
   progress(
     path: readonly string[],
     name: string,
@@ -478,12 +344,15 @@ export class Channels<S = unknown> {
     value: number
   ): void {
     this.events.push(
-      StepProgressEvent.make({ ...this.#base(path, name, attempt), value })
+      StepProgressEvent.parse({
+        _tag: "step.progress",
+        ...this.#base(path, name, attempt),
+        value,
+      })
     );
     this.#onProgress?.(value, path);
   }
 
-  /** Push a `custom` event under `path`. */
   custom(
     type: string,
     stepId: string,
@@ -491,7 +360,8 @@ export class Channels<S = unknown> {
     payload?: unknown
   ): void {
     this.events.push(
-      CustomEvent.make({
+      CustomEvent.parse({
+        _tag: "custom",
         at: new Date().toISOString(),
         path,
         stepId,
@@ -501,10 +371,7 @@ export class Channels<S = unknown> {
     );
   }
 
-  /**
-   * Stream of completion values for a step `path`.
-   * @internal Lazy Effect-Stream form. Step's `outputChanges` wraps this for JS.
-   */
+  /** @internal */
   outputFor<O = unknown>(path: readonly string[]): Stream.Stream<O> {
     return this.events.stream.pipe(
       Stream.filterMap((event) => {
@@ -519,10 +386,7 @@ export class Channels<S = unknown> {
     );
   }
 
-  /**
-   * Stream of progress values (0..100) for a step `path`.
-   * @internal Lazy Effect-Stream form. Step's `progressChanges` wraps this.
-   */
+  /** @internal */
   progressFor(path: readonly string[]): Stream.Stream<number> {
     return this.events.stream.pipe(
       Stream.filterMap((event) => {
@@ -537,12 +401,7 @@ export class Channels<S = unknown> {
     );
   }
 
-  /**
-   * Pre-subscribed status stream (race-free). Synchronously acquires
-   * the subscription under Scope to avoid missing early events.
-   *
-   * @internal Eager form used by Step to mirror events into `#status`.
-   */
+  /** @internal */
   subscribeStatus(
     path: readonly string[]
   ): Effect.Effect<Stream.Stream<StepStatus>, never, Scope.Scope> {
@@ -552,11 +411,7 @@ export class Channels<S = unknown> {
     );
   }
 
-  /**
-   * Pre-subscribed completion stream (race-free).
-   *
-   * @internal Eager form used by Step to mirror events into `#output`.
-   */
+  /** @internal */
   subscribeOutput<O = unknown>(
     path: readonly string[]
   ): Effect.Effect<Stream.Stream<O>, never, Scope.Scope> {
@@ -576,23 +431,11 @@ export class Channels<S = unknown> {
     );
   }
 
-  /**
-   * Stream of status values for a step `path` (filters by tag).
-   * @internal Lazy Effect-Stream form. See {@link subscribeStatus} for eager variant.
-   */
+  /** @internal */
   statusFor(path: readonly string[]): Stream.Stream<StepStatus> {
     return this.#statusStream(this.events.stream, path);
   }
 
-  /**
-   * Derive a per-path StepStatus stream by folding events through
-   * {@link Snapshot.apply} — the single source of truth for status — and
-   * emitting only when this path's projected status actually transitions.
-   * Non-status events (progress / resolved / custom) and sibling-path
-   * events leave this path's status unchanged, so they naturally produce
-   * no emission. Seeded from the live snapshot so a status already in
-   * effect at subscription time isn't re-emitted.
-   */
   #statusStream(
     source: Stream.Stream<ChannelEvent>,
     path: readonly string[]
@@ -633,11 +476,6 @@ export class Channels<S = unknown> {
     return true;
   }
 
-  /**
-   * Plain-JS ReadableStream of chunk values for a step.
-   * Subscription is established synchronously (race-free).
-   * Pass `signal` to close the stream or cancel via the reader.
-   */
   chunksFor(
     stepId: string,
     signal?: AbortSignal,
@@ -663,7 +501,8 @@ export class Channels<S = unknown> {
         try {
           controllerRef.close();
         } catch {
-          /* already closed */
+          // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+          return;
         }
       }
     };
@@ -684,9 +523,6 @@ export class Channels<S = unknown> {
           Effect.gen(function* () {
             while (!closed) {
               const next = yield* subscription.take;
-              // `closed` may have flipped while we were blocked on `take`
-              // (signal aborted from another callback). Recheck before
-              // touching the controller.
               if (closed) {
                 return;
               }
@@ -711,4 +547,16 @@ export class Channels<S = unknown> {
 
 function samePath(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((segment, i) => segment === b[i]);
+}
+
+function enqueueChunk<T>(
+  controller: ReadableStreamDefaultController<T>,
+  message: T
+): void {
+  try {
+    controller.enqueue(message);
+  } catch {
+    // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+    return;
+  }
 }

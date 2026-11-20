@@ -29,7 +29,6 @@ const DEFAULT_TERMINATION_GRACE_MS = 5000;
 const MAX_TERMINATION_GRACE_MS = 30_000;
 const DEFAULT_READINESS_INTERVAL_MS = 50;
 
-/** What one VM's services and volumes track between calls. */
 interface ContainerState {
   readonly mounts: Map<
     string,
@@ -38,18 +37,15 @@ interface ContainerState {
   readonly services: Map<string, SandboxService>;
 }
 
-/** Everything a running container offers beyond files and commands. */
 export interface ContainerFacets extends Sandbox {
   readonly files: SandboxFilesystemFacet & Storage & StorageObserver;
   readonly ports: SandboxPortsFacet;
   readonly processes: SandboxProcessesFacet;
   readonly services: SandboxServicesFacet;
   readonly shell: SandboxShellFacet;
-  /** Present only when the registry was given mount roots. */
   readonly volumes?: SandboxVolumesFacet;
 }
 
-/** Module-internal: the registry builds each handle from this. */
 export function containerFacets(
   sandbox: ContainerSandbox,
   mounts: readonly ContainerMountSpec[],
@@ -80,7 +76,6 @@ export function containerFacets(
       replaceFile: (path: string, bytes: Uint8Array) =>
         sandbox.storage.replaceFile(path, bytes),
       separator: "/" as const,
-      // The guest SDK has no native change stream; reads still run in the VM.
       watch(_root: string, changed: () => void) {
         const timer = setInterval(changed, 1000);
         return Promise.resolve({
@@ -215,11 +210,6 @@ function createContainerServicesFacet(
           });
         },
         (): SandboxServiceExit => {
-          // A killed exec session can end without an exit event (microsandbox
-          // reports it as a runtime error). The process is gone either way, so
-          // this settles as a kill-coded exit instead of poisoning every
-          // wait/terminate/release consumer — and host shutdown — with a
-          // rejection.
           status = terminationRequested ? "terminated" : "exited";
           return Object.freeze({
             exitCode: 137,
@@ -425,9 +415,6 @@ async function raceExit(
   return Promise.race([exit, delay(timeoutMs).then(() => undefined)]);
 }
 
-/**
- * The registry and provider share mount validation and path resolution.
- */
 export async function resolveContainerMountSpecs(
   mounts: readonly ContainerSandboxMount[],
   allowedRoots: readonly string[],

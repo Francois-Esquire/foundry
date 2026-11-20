@@ -23,7 +23,6 @@ it("prints lettered columns and numbered rows from the chart corner", () => {
   expect(column?.y).toBeCloseTo(-250 + 9 / Math.cos(0.7));
   const row = printed.find((reference) => reference.text === "2");
   expect(row?.x).toBe(-241);
-  // Panning never renames a cell.
   const panned = gridReferences({ ...view, x: 90 }, data);
   expect(panned.some((reference) => reference.text === "C")).toBe(true);
 });
@@ -77,7 +76,6 @@ it("draws no latitude scale without placed layers, and stops above the legend", 
   expect(latitudeScale({ ...data, packageLayers: {} }, wide, 1, 0)).toBeNull();
   const foundation = { ...data, packageLayers: { island: 0 } };
   const low = { height: 800, pixelsPerUnit: 1, width: 600, x: 0, y: -300 };
-  // The island's row sits 100 units above the foot: within the foot margin's 96, clear of a legend taller than that.
   expect(latitudeScale(foundation, low, 1, 0)?.ticks).toHaveLength(1);
   expect(latitudeScale(foundation, low, 1, 200)).toBeNull();
 });

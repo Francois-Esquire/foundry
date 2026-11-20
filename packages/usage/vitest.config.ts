@@ -8,7 +8,6 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html", "json-summary"],
     },
-    // Live reads of this machine's accounts run under `test:integration`.
     exclude: ["src/test/integration/**"],
     globals: true,
     include: ["src/test/**/*.test.ts"],

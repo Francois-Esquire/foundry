@@ -2,32 +2,28 @@ import { z } from "zod";
 import { type AvailabilityOptions, availabilityIn } from "./availability";
 import { edgeKey } from "./edges";
 import { TaskError } from "./errors";
-import {
-  type ChangedTask,
-  type TaskChange,
-  type TaskOperation,
-  type TaskRef,
-  type TaskToken,
-  taskMetadataSchema,
-} from "./operations";
-import type { TaskSnapshot, TaskStoreWrite } from "./store";
 import type {
-  JsonObject,
-  Task,
-  TaskDelta,
-  TaskDependency,
-  TaskEvent,
-  TaskId,
-} from "./types";
+  ChangedTask,
+  TaskChange,
+  TaskOperation,
+  TaskRef,
+  TaskToken,
+} from "./operations";
+import {
+  type JsonObject,
+  type Task,
+  type TaskDelta,
+  type TaskDependency,
+  type TaskEvent,
+  type TaskId,
+  type TaskSnapshot,
+  type TaskStoreWrite,
+  taskMetadataSchema,
+} from "./schema";
 import { isSettled, taskId } from "./types";
 
 export interface AppliedChange {
-  /**
-   * Every task an operation named, in first-mention order: the one it created
-   * or acted on first, then its parent or `dependsOn` target.
-   */
   readonly changed: readonly ChangedTask[];
-  /** The record of every task in `changed`, in the same order. */
   readonly tasks: readonly Task[];
   readonly write: TaskStoreWrite;
 }
@@ -41,11 +37,6 @@ const ID_PREFIX = "tk-";
 const ID_HEX_LENGTH = 8;
 const UUID_DASHES = /-/g;
 
-/**
- * Applies one batch to a working copy of the snapshot and returns the write
- * that commits it. Nothing here touches the store, so a refusal anywhere in
- * the batch leaves it untouched.
- */
 export function applyChange(
   snapshot: TaskSnapshot,
   change: TaskChange,
@@ -72,6 +63,7 @@ class Batch {
   private readonly putEdges = new Map<string, TaskDependency>();
   private readonly deletedEdges = new Map<string, TaskDependency>();
   private readonly now: () => string;
+  private stamped: string | undefined;
   private readonly availability: AvailabilityOptions;
 
   constructor(
@@ -85,7 +77,10 @@ class Batch {
     this.edges = new Map(
       snapshot.dependencies.map((edge) => [edgeKey(edge), edge])
     );
-    this.now = now;
+    this.now = () => {
+      this.stamped = now();
+      return this.stamped;
+    };
   }
 
   apply(operation: TaskOperation): void {
@@ -126,15 +121,11 @@ class Batch {
         ...(putTasks.length > 0 ? { putTasks } : {}),
         ...(putDependencies.length > 0 ? { putDependencies } : {}),
         ...(deleteDependencies.length > 0 ? { deleteDependencies } : {}),
-        ...(event === undefined ? {} : { event }),
+        ...(event === undefined ? {} : { events: [event] }),
       },
     };
   }
 
-  /**
-   * The net change against the snapshot the batch began from: each task put,
-   * once, and only the edges that exist now and did not, or the reverse.
-   */
   private event(putTasks: readonly Task[]): TaskEvent | undefined {
     const before = new Map(this.original.tasks.map((task) => [task.id, task]));
     const existed = new Set(this.original.dependencies.map(edgeKey));
@@ -151,7 +142,7 @@ class Batch {
     const removed = [...this.deletedEdges.values()].filter((edge) =>
       existed.has(edgeKey(edge))
     );
-    return changeEvent(tasks, added, removed);
+    return changeEvent(tasks, added, removed, this.stamped ?? this.now());
   }
 
   private create(operation: Operation<"task.create">): void {
@@ -300,7 +291,6 @@ class Batch {
     this.note(dependsOn.id);
   }
 
-  /** The task an operation acts on, after its optimistic token is checked. */
   private target(ref: TaskRef, token: TaskToken): Task {
     const task = this.resolve(ref);
     if (
@@ -315,7 +305,6 @@ class Batch {
     return task;
   }
 
-  /** Refuses unless `task` is ready in the batch's working copy, as it stands now. */
   private requireReady(task: Task): void {
     const working: TaskSnapshot = {
       dependencies: [...this.edges.values()],
@@ -420,29 +409,25 @@ class Batch {
   }
 }
 
-/**
- * A `tasks.changed` event over these deltas and edges, or nothing when the
- * write changes nothing.
- */
 export function changeEvent(
   tasks: readonly TaskDelta[],
   added: readonly TaskDependency[],
-  removed: readonly TaskDependency[]
+  removed: readonly TaskDependency[],
+  at: string
 ): TaskEvent | undefined {
   if (tasks.length === 0 && added.length === 0 && removed.length === 0) {
     return;
   }
-  return { dependencies: { added, removed }, kind: "tasks.changed", tasks };
+  return {
+    at,
+    dependencies: { added, removed },
+    id: crypto.randomUUID(),
+    tasks,
+    type: "tasks.changed",
+  };
 }
 
-/**
- * `stored` with each top-level key in `patch` set over it, and each key
- * whose patch value is `null` removed. A nested value replaces the stored
- * one whole.
- */
 function mergedMetadata(stored: JsonObject, patch: JsonObject): JsonObject {
-  // `checkedMetadata` refuses a `__proto__` key; spread and `fromEntries`
-  // define own properties, so one could not reach the prototype setter here.
   return Object.fromEntries(
     Object.entries({ ...stored, ...patch }).filter(
       ([key, value]) => value !== null || !Object.hasOwn(patch, key)
@@ -450,10 +435,6 @@ function mergedMetadata(stored: JsonObject, patch: JsonObject): JsonObject {
   );
 }
 
-/**
- * Metadata as `taskChangeSchema` takes it, for callers that skip the schema:
- * a fresh copy of plain JSON, with no `__proto__` key at any depth.
- */
 function checkedMetadata(metadata: JsonObject): JsonObject {
   const checked = taskMetadataSchema.safeParse(metadata);
   if (!checked.success) {
@@ -465,7 +446,6 @@ function checkedMetadata(metadata: JsonObject): JsonObject {
   return checked.data;
 }
 
-/** Each tag once, where it first appears. Tags are exact strings. */
 function uniqueTags(tags: readonly string[]): readonly string[] {
   return [...new Set(tags)];
 }

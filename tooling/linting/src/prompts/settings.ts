@@ -9,7 +9,6 @@ import {
   type Surface,
 } from "@foundry/prompts";
 
-/** The stock dialects, by the member name a tag is read from. */
 const STOCK_DIALECTS: Readonly<Record<string, Dialect>> = {
   claude: claudeCode,
   codex,
@@ -18,22 +17,13 @@ const STOCK_DIALECTS: Readonly<Record<string, Dialect>> = {
 
 type StockDialectKey = "claude" | "codex" | "pi";
 
-/**
- * `settings.foundry.prompts`, shared by every prompts rule. In ESLint it
- * sits on a config object; in Oxlint, under `settings` in `.oxlintrc.json`.
- */
 export interface PromptsSettings {
-  /** Agent names, or directories whose `.md` files are agents, such as `.claude/agents`. */
   readonly agents?: readonly string[];
-  /** Extra member names and the stock dialect each one reads as: `{ house: "claude" }` checks `mine.house`. */
   readonly dialects?: Readonly<Record<string, StockDialectKey>>;
-  /** Skill names, or directories whose entries are skills, such as `.claude/skills`. */
   readonly skills?: readonly string[];
-  /** Where the prompts are read. Defaults to `message`. */
   readonly surface?: Surface;
 }
 
-/** What the rules work from, read once per prompt node from the settings. */
 export interface Resolved {
   readonly dialects: Readonly<Record<string, Dialect>>;
   readonly sources: PromptNames | undefined;
@@ -44,7 +34,6 @@ const SETTINGS_KEY = "foundry";
 const DOMAIN = "prompts";
 const SURFACES: ReadonlySet<string> = new Set(["message", "template"]);
 const MARKDOWN = /\.md$/;
-/** Directory listings are kept this long, so an editor sees a new skill soon without a readdir per node. */
 const LISTING_TTL_MS = 2000;
 
 const listings = new Map<string, { at: number; names: readonly string[] }>();
@@ -66,7 +55,6 @@ function stringList(value: unknown, key: string): readonly string[] {
   return value;
 }
 
-/** A list entry is a directory when it is written as a path: it has a slash or starts with a dot. */
 function isDirectory(entry: string): boolean {
   return entry.includes("/") || entry.includes("\\") || entry.startsWith(".");
 }
@@ -114,7 +102,6 @@ function names(
 }
 
 function dialectsFrom(value: unknown): Record<string, Dialect> {
-  // Null prototype, so a "__proto__" member becomes an own key, not a setter.
   const dialects: Record<string, Dialect> = Object.assign(
     Object.create(null),
     STOCK_DIALECTS
@@ -137,11 +124,6 @@ function dialectsFrom(value: unknown): Record<string, Dialect> {
   return dialects;
 }
 
-/**
- * Read the shared settings for the file being linted. Directories are
- * listed relative to `cwd`. With neither `skills` nor `agents` set, no
- * source is built for configured skill or agent name lookups.
- */
 export function resolveSettings(
   settings: Readonly<Record<string, unknown>>,
   cwd: string

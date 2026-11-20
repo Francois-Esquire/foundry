@@ -264,7 +264,6 @@ test("release preparation rejects a private workspace or library group", async (
       {}
     )
   ).resolves.toHaveProperty("tooling/vscode-extension");
-  // Library sources it builds from do not open extension releases.
   expect(
     (extensionCommits as Record<string, { sha: string }[] | undefined>)[
       "tooling/vscode-extension"

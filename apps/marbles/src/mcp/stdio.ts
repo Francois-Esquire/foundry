@@ -7,8 +7,8 @@ import {
   withRunningWorkspace,
   withTasks,
 } from "~/access/workspace";
-import type { Flags } from "~/args";
-import { listWorkspaces } from "~/lib/state/workspace";
+import type { Flags } from "~/cli/args";
+import { recordedWorkspaces } from "~/database/workspaces";
 import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
 import { createMcpServer, type McpServerOptions } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
@@ -20,17 +20,10 @@ const print = (line: string): void => {
   process.stderr.write(`${line}\n`);
 };
 
-/** What the server answers for, and how to let go of it. */
 interface Served extends McpServerOptions {
   readonly release: () => Promise<void>;
 }
 
-/**
- * Under `--dry-run` the tasks are in memory, so the session keeps one
- * engine over them: opened by the first task call, given up at release.
- * It is the same stored-task access as without `--dry-run`, held longer.
- * An open that fails is tried again by the next call.
- */
 function sessionTasks(flags: Flags, opened: OpenedWorkspace) {
   let runner: Promise<TaskRunner> | undefined;
   let session: Promise<void> = Promise.resolve();
@@ -42,7 +35,7 @@ function sessionTasks(flags: Flags, opened: OpenedWorkspace) {
           letGo = end;
         });
         let held = false;
-        session = withTasks(flags, opened, print, (run) => {
+        session = withTasks(flags, opened, (run) => {
           held = true;
           ready(run);
           return done;
@@ -63,27 +56,17 @@ function sessionTasks(flags: Flags, opened: OpenedWorkspace) {
   };
 }
 
-/**
- * Answer from stored state and the running Marbles process, joined per
- * call and never started. No source is loaded: tasks work for any recorded
- * workspace either way, and everything that runs or reads a run needs a
- * worker that hosts the workspace. Under `--dry-run` only this server's
- * own workspace is addressable, its tasks are in memory, and no Marbles
- * process is joined, so nothing that runs or reads a run is served.
- */
 function serveWorkspace(flags: Flags): Served {
   const opened = findWorkspace(flags);
   const own = opened.workspace;
   const memory = flags.dry ? sessionTasks(flags, opened) : undefined;
-  // Each stored-state call holds the tasks until it ends, so calls a client
-  // sends together take turns rather than refuse each other.
   let turn: Promise<unknown> = Promise.resolve();
   const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
     const next = turn.then(work, work);
     turn = next.catch(() => undefined);
     return next;
   };
-  const recorded = (id: string): OpenedWorkspace => {
+  const recorded = async (id: string): Promise<OpenedWorkspace> => {
     if (id === own.id) {
       return opened;
     }
@@ -92,7 +75,7 @@ function serveWorkspace(flags: Flags): Served {
         `only workspace "${own.id}" is available under --dry-run`
       );
     }
-    const found = recordedWorkspace(flags, id);
+    const found = await recordedWorkspace(flags, id);
     if (found === undefined) {
       throw new Error(
         `no workspace "${id}" is recorded under ${resolve(flags.state)}; list_workspaces names them`
@@ -125,24 +108,22 @@ function serveWorkspace(flags: Flags): Served {
       }
     },
     id: own.id,
-    // A call already holding the tasks finishes before the server exits.
     release: () => turn.then(() => memory?.release()),
-    tasks: (command, id = own.id) => {
-      const target = recorded(id);
-      return inTurn(async () =>
-        memory === undefined
-          ? withTasks(flags, target, print, (run) => run(command))
-          : (await memory.open())(command)
-      );
-    },
+    tasks: (command, id = own.id) =>
+      inTurn(async () => {
+        const target = await recorded(id);
+        return memory === undefined
+          ? withTasks(flags, target, (run) => run(command))
+          : (await memory.open())(command);
+      }),
     async workspaces() {
       if (flags.dry) {
         return [ownSummary];
       }
-      const client = await joinProcess(flags);
+      const client = await joinProcess();
       let listed: readonly WorkspaceSummary[];
       if (client === undefined) {
-        listed = listWorkspaces(resolve(flags.state)).map(
+        listed = (await recordedWorkspaces(flags.state)).map(
           ({ config, id, root }) => ({ config, id, root, state: "stopped" })
         );
       } else {
@@ -152,7 +133,6 @@ function serveWorkspace(flags: Flags): Served {
           client.close();
         }
       }
-      // This server's own workspace is always there to address.
       return listed.some((entry) => entry.id === own.id)
         ? listed
         : [ownSummary, ...listed];
@@ -160,10 +140,9 @@ function serveWorkspace(flags: Flags): Served {
   };
 }
 
-/** Serve the workspace until the client leaves. */
 async function serve(flags: Flags): Promise<void> {
   const output = protocolOutput();
-  const configPath = resolveSource(flags.config);
+  const configPath = resolveSource(flags.config, flags.directory);
   let served: Served;
   try {
     served = serveWorkspace(flags);
@@ -182,9 +161,6 @@ async function serve(flags: Flags): Promise<void> {
       await served.release();
     }
   };
-  // A terminal signals the relay and this process together, and the relay
-  // passes its copy on, so a repeat is expected and changes nothing. Work
-  // that ignores cancellation cannot hold the shutdown past its deadline.
   let closing = false;
   const shutdown = (): void => {
     if (closing) {
@@ -203,8 +179,6 @@ async function serve(flags: Flags): Promise<void> {
         process.exitCode = 1;
       })
       .finally(() => {
-        // The relay's pipe and stdin may still be open; neither holds the
-        // process once every frame is out.
         output.end(() => process.exit());
       });
   };
@@ -220,10 +194,6 @@ async function serve(flags: Flags): Promise<void> {
   onRelayGone(shutdown);
 }
 
-/**
- * A server that cannot start says why on stderr and exits non-zero; the
- * protocol stream stays empty. A failure's cause keeps its stack.
- */
 function report(error: unknown): void {
   print(
     `marbles mcp: ${error instanceof Error ? error.message : String(error)}`
@@ -237,7 +207,6 @@ function report(error: unknown): void {
   process.exitCode = 1;
 }
 
-/** `marbles mcp`: serve MCP over STDIO until the client leaves. */
 export async function serveStdio(flags: Flags): Promise<void> {
   await serve(flags).catch(report);
 }

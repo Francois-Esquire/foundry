@@ -18,7 +18,6 @@ import type {
   ObservedCenter,
 } from "./types";
 
-/** Seeds whose `implements` participants are adapters, not governing behavior. */
 const CONTRACT_KINDS = new Set<ConceptSeedKind>(["interface", "type"]);
 
 const GRAVITY_FAMILIES: MiscenteringGravityFamily[] = [
@@ -30,16 +29,13 @@ const GRAVITY_FAMILIES: MiscenteringGravityFamily[] = [
 const ROWS_PER_FAMILY = 5;
 
 export interface GoverningBehavior {
-  /** `implements` of an interface or type seed: adapters, not governing behavior. */
   adapters: number;
   construction: number;
   conversions: number;
-  /** Conversion, return, and (class seeds only) implementation behavior. */
   count: number;
   package: string;
 }
 
-/** Per-package governing behavior under the V8.1 adapter rule; packages with neither governing nor adapter behavior are omitted. */
 export function governingBehavior(
   facts: RecenteringFacts
 ): GoverningBehavior[] {
@@ -84,7 +80,6 @@ function pointsAt(
   return rows.some((row) => row.package === pkg && row.share >= minShare);
 }
 
-/** No package reaches `maxShare` and at least `minPackages` reach `minShare`. */
 function divided(
   rows: PackageShare[],
   maxShare: number,
@@ -98,14 +93,6 @@ function divided(
   );
 }
 
-/**
- * Declared home against observed center of gravity for one concept. The
- * declared home is the seed declaration; gravity composes the V8.0
- * governing-behavior share, the V7.1 representation share, and the V7.1
- * reference share. A finding needs two independent families and, for
- * external gravity and drift, behavior among them: using a concept is
- * never enough on its own.
- */
 export function assessMiscentering(
   facts: RecenteringFacts,
   config: AnalysisConfig = ANALYSIS_CONFIG
@@ -249,9 +236,6 @@ export function assessMiscentering(
     crossings,
     evolutionCenter
   ));
-  // A broadly consumed type (identifiers, shared contracts) divides its few
-  // producers across its consumers; that is breadth of use, not split
-  // ownership, so consumption-heavy concepts never read as split.
   const consumptionHeavy = facts.behavior.weak > facts.behavior.strong;
   ({ signal, supporting, magnitude } = assessMiscenteringEntries2(
     signal,
@@ -733,7 +717,6 @@ function assessMiscenteringEntries(
   return { magnitude, signal, supporting };
 }
 
-/** Mis-centering findings over the V8.0 facts, strongest evidence first. */
 export function findMiscenteredConcepts(
   target: string,
   facts: RecenteringFacts[],

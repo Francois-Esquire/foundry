@@ -24,7 +24,6 @@ import type {
 import { registrationsOf, tagTool } from "../../harness/types";
 import { fakeAuthorizer as fakePolicy } from "../helpers/authorizer";
 
-/** Minimal `ToolExecutionOptions<unknown>`-shaped call for exercising a compiled tool directly. */
 function callOptions(
   toolCallId: string,
   extra: Record<string, unknown> = {}
@@ -37,8 +36,6 @@ function callOptions(
   return { context: undefined, messages: [], toolCallId, ...extra };
 }
 
-/** Every compiled tool's `needsApproval` is always a function — cast past
- *  the AI SDK's `boolean | function` union for direct-call tests. */
 function needsApproval(
   compiled: Tool,
   input: unknown,
@@ -67,8 +64,6 @@ function fakeEffectPort(): {
   };
 }
 
-/** A single-input `{x: number}` tool registration, parameterized by `execute`
- *  so each test can plug in its own behavior. */
 function registrationFor(
   execute: (
     input: { x: number },
@@ -133,7 +128,6 @@ describe("tool-compiler — compileTool", () => {
       sessionId: "s1",
     });
 
-    // What the AI SDK checks: a synchronous async-iterable return, not a Promise.
     const result = compiled.execute?.({ x: 2 }, callOptions("c1")) as
       | AsyncIterable<unknown>
       | undefined;
@@ -221,9 +215,6 @@ describe("tool-compiler — compileTool", () => {
     const needs = await needsApproval(compiled, { x: 1 }, callOptions("c1"));
     expect(needs).toBe(true);
 
-    // Defensive path: unreachable in the real tool loop (the SDK never calls
-    // `execute` once `needsApproval` says true), but must still deny rather
-    // than run the effect if it somehow is.
     const result: unknown = await compiled.execute?.(
       { x: 1 },
       callOptions("c1")
@@ -349,8 +340,6 @@ describe("tool-compiler — compileTool", () => {
       sessionId: "s1",
     });
 
-    // The grant is revoked between the human's approval and the continuation
-    // actually reaching `execute` — the live re-check must win.
     mode = "deny";
     const result: unknown = await compiled.execute?.(
       { x: 1 },
@@ -659,8 +648,6 @@ describe("tool-compiler — plain tool map", () => {
       tool: "legacy",
     });
 
-    // The real policy from Task 01 — a blanket "allow" global default still
-    // cannot reach the unclassified `tool.call` capability.
     const policy = createInMemoryAgentAuthorizer({
       policy: { global: "allow" },
     }).authorizer;
@@ -682,10 +669,6 @@ describe("tool-compiler — plain tool map", () => {
 });
 
 describe("tool-compiler — withToolCallRegistration", () => {
-  /** A ready-made one-item `AsyncIterable`, without a generator (an `async
-   *  function*` with no internal `await` trips the lint rule that exists to
-   *  catch a genuinely missing await, which doesn't apply to a generator's
-   *  synchronous `yield`). */
   function singleChunk<T>(chunk: T): AsyncIterable<T> {
     let done = false;
     return {

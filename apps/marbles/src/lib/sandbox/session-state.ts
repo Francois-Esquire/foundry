@@ -1,11 +1,6 @@
-import type { SessionStore } from "@foundry/agents/session";
+import { Sessions } from "@foundry/agents/session";
+import type { SessionStore } from "@foundry/agents/store";
 
-/**
- * Refuse native resume when the VM containing its CLI history was replaced.
- * `containerId` is the guest's native id, which the caller has checked. The
- * session may not be in the store yet (a caller-supplied session ref is not
- * filed before it opens), so it is created here before the first note.
- */
 export async function assertGuestSessionState(
   store: SessionStore,
   sessionId: string,
@@ -30,10 +25,11 @@ export async function assertGuestSessionState(
   if (environment?.id === containerId) {
     return;
   }
-  if (!(await store.getSession(sessionId))) {
-    await store.createSession({ id: sessionId });
+  const sessions = new Sessions({ store });
+  if (!(await sessions.getSession(sessionId))) {
+    await sessions.createSession({ id: sessionId });
   }
-  await store.appendMessage({
+  await sessions.appendMessage({
     metadata: { harnessEnvironment: { harness, id: containerId } },
     parts: [],
     role: "system",

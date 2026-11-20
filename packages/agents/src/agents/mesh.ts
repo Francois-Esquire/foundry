@@ -3,7 +3,8 @@ import type { ModelMessage, ToolSet, UIMessage } from "ai";
 import { tool } from "ai";
 import { z } from "zod";
 import { tagTools } from "../harness/types";
-import type { SessionStore } from "../session/store";
+import { Sessions } from "../session/sessions";
+import type { SessionStore } from "../store";
 import { lastTextValue } from "./last-text";
 import type { AgentCompatibilityRegistry, AgentEntry } from "./registry";
 
@@ -95,12 +96,15 @@ export class Mesh {
   readonly registry?: AgentCompatibilityRegistry;
   private readonly nodes = new Map<string, Node>();
   private readonly edges = new Map<string, Edge>();
-  private readonly store?: SessionStore;
+  private readonly transcripts?: Sessions;
   private readonly sessions = new Map<string, string>();
 
   constructor(opts: MeshOptions = {}) {
     this.registry = opts.registry;
-    this.store = opts.store;
+    this.transcripts =
+      opts.store === undefined
+        ? undefined
+        : new Sessions({ store: opts.store });
   }
 
   register(id: string, { role, agent, spec = {} }: MeshAgentSpec): Node {
@@ -196,8 +200,6 @@ export class Mesh {
   }
 
   tools(self: NodeId): ToolSet {
-    // `message_agent.execute` must be a generator (so can't be an arrow), so
-    // bind the one method it needs rather than aliasing `this` into the closure.
     const send = this.send.bind(this);
     return tagTools(
       {
@@ -237,10 +239,6 @@ export class Mesh {
                 reply = event.message.content;
               }
             }
-            // Yield the final message — the AI SDK takes a generator tool's output
-            // from the *last yielded value*, not `return`. Without this yield, a
-            // reply with no text-delta events (e.g. the sub-agent ends on a tool
-            // result) yields nothing and `toModelOutput` gets an undefined output.
             const final = {
               id: `msg-${Date.now().toString(36)}`,
               parts: [{ text: reply, type: "text" as const }],
@@ -268,18 +266,18 @@ export class Mesh {
   }
 
   private async persist(edge: Edge, message: Message): Promise<void> {
-    if (!this.store) {
+    if (!this.transcripts) {
       return;
     }
     let sessionId = this.sessions.get(edge.id);
     if (!sessionId) {
-      const session = await this.store.createSession({ id: edge.id });
+      const session = await this.transcripts.createSession({ id: edge.id });
       sessionId = session.id;
       this.sessions.set(edge.id, sessionId);
     }
     const role =
       keyOf(message.from) === keyOf(edge.user) ? "user" : "assistant";
-    await this.store.appendMessage({
+    await this.transcripts.appendMessage({
       parts: [{ text: message.content, type: "text" }],
       role,
       sessionId,
@@ -296,16 +294,12 @@ export const keyOf = (id: NodeId): string =>
 
 const ESCAPED_IN_ID = /[%:]/g;
 
-/** One endpoint of an edge id. `%` and `:` are percent-encoded, so an
- *  endpoint holding `::` cannot make two different edges share an id. */
 const idPart = (id: NodeId): string =>
   keyOf(id).replace(
     ESCAPED_IN_ID,
     (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
   );
 
-/** The map key for an unordered endpoint pair. Encoded as a tuple so an id
- *  containing the separator cannot make two different pairs share a key. */
 const pairKey = (a: NodeId, b: NodeId): string =>
   JSON.stringify([keyOf(a), keyOf(b)].sort());
 

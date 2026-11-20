@@ -1,11 +1,19 @@
 import type { BoxRenderable } from "@opentui/core";
-import { type ReactNode, useCallback, useState } from "react";
+import { type ReactNode, useCallback } from "react";
 
 const MIN_PANEL_HEIGHT = 3;
-const ROW_COUNT = 2;
+const TWO_ROW_PANEL_HEIGHT = 4;
+const PANEL_COUNT = 2;
 const TOTAL_WEIGHT = 5;
-/** Triggers' share of the Catalog tab; Marbles, usually the longer list, gets the rest. */
 const TRIGGER_WEIGHT = 2;
+
+function triggerHeight(height: number): number {
+  const spare = Math.max(0, height - PANEL_COUNT * MIN_PANEL_HEIGHT);
+  const shared =
+    MIN_PANEL_HEIGHT + Math.floor((spare * TRIGGER_WEIGHT) / TOTAL_WEIGHT);
+  const twoRows = height >= PANEL_COUNT * TWO_ROW_PANEL_HEIGHT;
+  return twoRows ? Math.max(TWO_ROW_PANEL_HEIGHT, shared) : shared;
+}
 
 export function CatalogPanels({
   triggers,
@@ -14,12 +22,11 @@ export function CatalogPanels({
   readonly triggers: ReactNode;
   readonly catalog: ReactNode;
 }) {
-  const [sectionHeight, setSectionHeight] = useState(MIN_PANEL_HEIGHT);
   const measure = useCallback(function measurePanels(this: BoxRenderable) {
-    const remaining = Math.max(0, this.height - ROW_COUNT * MIN_PANEL_HEIGHT);
-    setSectionHeight(
-      MIN_PANEL_HEIGHT + Math.floor((remaining * TRIGGER_WEIGHT) / TOTAL_WEIGHT)
-    );
+    const [section] = this.getChildren();
+    if (section) {
+      section.height = triggerHeight(this.height);
+    }
   }, []);
   return (
     <box
@@ -28,7 +35,7 @@ export function CatalogPanels({
       minHeight={0}
       onSizeChange={measure}
     >
-      <box flexDirection="column" flexShrink={0} height={sectionHeight}>
+      <box flexDirection="column" flexShrink={0} height={MIN_PANEL_HEIGHT}>
         {triggers}
       </box>
       <box flexDirection="column" flexGrow={1} minHeight={MIN_PANEL_HEIGHT}>

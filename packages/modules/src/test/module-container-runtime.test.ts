@@ -7,20 +7,20 @@ import type {
   Containers,
 } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
 import { SandboxError } from "@foundry/sandbox/errors";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { SandboxService } from "@foundry/sandbox/types";
 import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, installationIdSchema, moduleIdSchema } from "../domain";
+import { ModuleStoreConflictError } from "../errors";
 import { NETWORK_GRANT } from "../grants";
 import { createModuleCheckouts } from "../node/checkouts";
 import { createModuleSystem } from "../node/system";
 import { createContainerModuleProgramRuntime } from "../platform/container-runtime";
 import { ModuleRuntimeCleanupError } from "../platform/contracts";
-import { ModuleStoreConflictError } from "../store/contract";
-import { InMemoryModuleStore } from "../store/memory";
+import { ModuleRegistry } from "../registry";
 import { createModuleVersions } from "../version";
 import {
   moduleFixture,
@@ -41,7 +41,7 @@ async function fixture(manifest: object = VALID_MANIFEST) {
     },
   });
   const module = defineModule({ artifact, id: moduleIdSchema.parse("notes") });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry();
   await store.registerModule({ module });
   const version = await createModuleVersions({ artifacts, store }).load({
     contentId: content.id,
@@ -67,7 +67,7 @@ async function fixture(manifest: object = VALID_MANIFEST) {
     instanceLabel: "module-runtime-test",
     mountTargetRoot: "/foundry",
     runtime: native,
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
   });
   const service: SandboxService = {
     id: "module-program",
@@ -473,8 +473,6 @@ describe("Module container runtime", () => {
       const runtime = createContainerModuleProgramRuntime(f.options);
       const first = await runtime.start(f.input);
       await first.stop("stopped");
-      // The message the old fallback matched on; an existing row must not
-      // fall back to `start` whatever the restart error says.
       const failure = new SandboxError(
         "invalid-contract",
         `container ${first.runtimeInstanceId} does not exist`

@@ -1,43 +1,45 @@
 import { describe, expect, test } from "vitest";
 import { RunNotFoundError, RunReplayGapError } from "../errors";
+import { ExecutionCoordinator } from "../index";
 import { Orchestrator } from "../orchestrator";
 import type { RunObservation } from "../run-observation";
 import {
   RUN_FRAME_RETENTION_POLICY,
   RunObservationJournal,
 } from "../run-observation";
-import type { RunFrame } from "../store";
-import { InMemoryOrchestratorStore } from "../store";
+import type { RunFrame } from "../schema";
 import { Workflow } from "../workflow";
 import { makeOrchestratorConfig } from "./helpers/config";
-import { makeInMemoryStore } from "./helpers/store";
+import { makeInMemoryStore, restoredStore } from "./helpers/store";
+import { FaultyWorkflowStore } from "./helpers/workflow-stores";
 
 const TERMINAL_FRAME_FAILED_PATTERN = /terminal frame failed/i;
 
-class DelayedFrameStore extends InMemoryOrchestratorStore {
+class DelayedFrameStore extends ExecutionCoordinator {
   readonly frameWriteEntered: Promise<void>;
   #announceFrameWrite: () => void = () => undefined;
   #releaseFrameWrite: () => void = () => undefined;
   readonly #frameWriteGate: Promise<void>;
 
   constructor() {
-    super();
+    const store = new FaultyWorkflowStore();
+    super({ store });
     this.frameWriteEntered = new Promise((resolve) => {
       this.#announceFrameWrite = resolve;
     });
     this.#frameWriteGate = new Promise((resolve) => {
       this.#releaseFrameWrite = resolve;
     });
+    store.before = async (write) => {
+      if (write.putFrames !== undefined) {
+        this.#announceFrameWrite();
+        await this.#frameWriteGate;
+      }
+    };
   }
 
   releaseFrameWrite(): void {
     this.#releaseFrameWrite();
-  }
-
-  protected override async writeFrame(frame: RunFrame): Promise<void> {
-    this.#announceFrameWrite();
-    await this.#frameWriteGate;
-    await super.writeFrame(frame);
   }
 }
 
@@ -81,9 +83,7 @@ describe("RunObservationJournal", () => {
     ]);
     expect([...concurrentClaims].sort()).toEqual([false, true]);
 
-    const recoveredStore = new InMemoryOrchestratorStore({
-      snapshot: store.snapshot(),
-    });
+    const recoveredStore = await restoredStore(await store.snapshot());
     const recoveredProcess = new RunObservationJournal(recoveredStore);
     await expect(
       recoveredProcess.claimEffect(runId, "model-segment-0")

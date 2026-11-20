@@ -6,12 +6,10 @@ import { listSection } from "./ranked-section";
 
 const PLAN_PREFIX = /^plan:/;
 
-/** The opportunity a saved plan's id names, as the commands take it. */
 function opportunityOf(planId: string): string {
   return planId.replace(PLAN_PREFIX, "");
 }
 
-/** A moved part as the refusal names it; the sources with their files. */
 function partText({ files, part }: MovedPart): string {
   if (part === "spyglass-version") {
     return "the Spyglass that made the record";
@@ -80,7 +78,6 @@ function refusalBlock(refusal: ApplyRefusal, planId: string): BlockView {
   }
 }
 
-/** The outcome: a preview, a refusal, a write and its scan, or a rollback. */
 function outcomeBlock(result: ApplyResult): BlockView {
   const opportunity = opportunityOf(result.planId);
   switch (result.status) {
@@ -120,7 +117,6 @@ function outcomeBlock(result: ApplyResult): BlockView {
   }
 }
 
-/** Readiness's blockers or the fresh plan's, when the refusal carries them. */
 function refusalDetails(
   refusal: ApplyRefusal | undefined,
   density: RenderDensity
@@ -144,10 +140,6 @@ function refusalDetails(
   return [];
 }
 
-/**
- * `spyglass apply`: the outcome, each statement the mutator edits, before and
- * after, and, after a write, every check it passed or failed.
- */
 export function buildApplyView(
   result: ApplyResult,
   density: RenderDensity

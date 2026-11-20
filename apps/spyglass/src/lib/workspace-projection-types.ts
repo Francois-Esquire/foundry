@@ -67,13 +67,6 @@ import type {
   WorkspaceScenarioImpact,
 } from "./workspace-types";
 
-/**
- * V9.4 workspace projections: question-specific, renderer-neutral views
- * derived from the V9.0–V9.3 intelligence already attached to a
- * `WorkspaceReport`. Every entity keeps its canonical id, every count is
- * copied (never recomputed), and nothing here infers a role, pattern, or
- * recommendation. No layout, no style, no ranking score.
- */
 export const WORKSPACE_PROJECTION_SCHEMA_VERSION = 1;
 
 type WorkspaceProjectionScope =
@@ -102,7 +95,6 @@ type ProjectionEvidenceSource =
   | "pattern"
   | "v8-review";
 
-/** A pointer into the canonical model; never a copy of the fact. */
 export interface ProjectionEvidenceRef {
   entityIds: string[];
   kind: string;
@@ -112,7 +104,6 @@ export interface ProjectionEvidenceRef {
 
 export type ProjectionDetail = "summary" | "standard" | "evidence";
 
-/** Analyzed-package coverage, restated on every top-level projection. */
 export interface ProjectionCoverage {
   certainty: WorkspaceGraphCertainty;
   missingPackages: string[];
@@ -120,7 +111,6 @@ export interface ProjectionCoverage {
   packagesKnown: number;
 }
 
-/** Headline → support → detail → evidence disclosure for one statement. */
 interface ProjectionInsight {
   detail?: string[];
   evidenceRefs: ProjectionEvidenceRef[];
@@ -135,13 +125,10 @@ export interface WorkspaceLimitationProjection {
   scope: WorkspaceProjectionScope;
 }
 
-/** The same four layers V9.3 consumed, plus indexes built once. */
 export interface WorkspaceProjectionContext {
   concepts: WorkspaceConceptIntelligence;
   graph: WorkspaceGraphAnalysis;
-  /** Serializable id tables. */
   index: WorkspaceProjectionIndex;
-  /** In-memory maps over canonical entities; never serialized. */
   lookup: WorkspaceProjectionLookup;
   patterns: WorkspaceArchitecturalPatterns;
   workspace: WorkspaceReport;
@@ -176,7 +163,6 @@ type WorkspacePatternFamily =
   | "concept"
   | "evolutionary";
 
-/** One V9.3 pattern under a family-prefixed id, so every family shares one namespace. */
 export interface WorkspacePatternIndexEntry {
   boundaries: string[];
   conceptCount: number;
@@ -186,17 +172,14 @@ export interface WorkspacePatternIndexEntry {
   id: string;
   kinds: string[];
   packages: string[];
-  /** V9.3's own id (package for roles, boundary id for boundary patterns). */
   sourceId: string;
   strength: WorkspacePatternEvidenceStrength;
 }
 
-/** Lookup tables built once per context; serialization optional. */
 export interface WorkspaceProjectionIndex {
   boundariesByPackage: Record<string, string[]>;
   conceptsByPackage: Record<string, string[]>;
   entities: WorkspaceQueryEntity[];
-  /** Finding → gravity center (V9.3 definition), when one exists. */
   gravityCenterByFinding: Record<string, string>;
   patterns: WorkspacePatternIndexEntry[];
   patternsByBoundary: Record<string, string[]>;
@@ -276,11 +259,6 @@ export type ConceptDirectionRole =
   | "usage"
   | "conversion";
 
-/**
- * Semantic direction (`from` declares, `to` holds the role) with the static
- * dependency direction kept as its own field. The two regularly disagree:
- * an implementation imports its contract.
- */
 export interface ConceptDirectionProjection {
   concepts: string[];
   count: number;
@@ -315,11 +293,8 @@ export interface WorkspaceReviewContextProjection {
 }
 
 interface WorkspacePackageReviewProjection {
-  /** Reviews of concepts declared here. */
   asDeclaringPackage?: WorkspaceReviewContextProjection;
-  /** Reviews whose gravity center is this package. */
   asGravityCenter?: WorkspaceReviewContextProjection;
-  /** Declared → gravity-center directions touching this package. */
   directions: {
     from: string;
     to: string;
@@ -395,16 +370,13 @@ export interface WorkspacePackageProjection {
   };
 }
 
-/** A share with its numerator and denominator; never the ratio alone. */
 export interface ProjectionShare {
-  /** Null when the canonical model kept only the share. */
   count: number | null;
   package: string;
   share: number | null;
   total: number;
 }
 
-/** Field-picked from the standard package projection; never recomputed. */
 export interface WorkspacePackageSummaryProjection {
   analyzed: boolean;
   boundaries: number;
@@ -422,7 +394,6 @@ export interface WorkspacePackageSummaryProjection {
   }[];
 }
 
-/** Field-picked from the standard concept projection; never recomputed. */
 export interface WorkspaceConceptSummaryProjection {
   boundaries: number;
   cautions: string[];
@@ -525,7 +496,6 @@ interface WorkspaceScenarioProjection {
   status: ScenarioStatus;
 }
 
-/** The V8.4 chain, dispositions verbatim; never an imperative. */
 export interface WorkspaceReviewProjection {
   baselineDominated: boolean;
   baselineScenarioId: string;
@@ -792,7 +762,6 @@ export interface WorkspaceDirectionEdgeProjection {
 }
 
 export interface WorkspaceReviewEdgeProjection {
-  /** Declaring package → gravity center. */
   from: string;
   id: string;
   kind: "review";
@@ -825,7 +794,6 @@ export interface WorkspaceGraphProjection {
 }
 
 export interface WorkspaceGraphFilter {
-  /** Keep only nodes touching a kept edge. */
   connectedOnly?: boolean;
   minConcepts?: number;
   packages?: string[];
@@ -913,7 +881,6 @@ export interface WorkspaceMatrixCell {
   value: number;
 }
 
-/** Sparse; a missing cell is zero. Heatmap-ready as is. */
 export interface WorkspaceMatrixProjection {
   cells: WorkspaceMatrixCell[];
   columns: ProjectionAxisEntity[];

@@ -1,21 +1,13 @@
-/**
- * Authored plan contracts and execution. `validateLinear` reports all issues
- * without I/O. The materializer keeps per-Run result and rehydration caches,
- * and reads and writes durable evidence through the injected host.
- */
-
 import { z } from "zod";
 
 import type { DefinitionGraphBuilder } from "./definitions";
 import type { BaseContext } from "./executable";
-import type { JsonValue } from "./execution-records";
+import type { JsonValue } from "./json-value";
 import type { RunExecutionContext } from "./orchestrator";
 import type { StepContext } from "./step";
 
 import { Step } from "./step";
 import { Workflow } from "./workflow";
-
-// ─── Contract vocabulary ─────────────────────────────────────────────────────
 
 export type ValueType = "text" | "artifact" | "workspace" | "harness";
 
@@ -39,8 +31,6 @@ export interface StepContract {
 }
 
 export type ResolvedInputs = Readonly<Record<string, string | null>>;
-
-// ─── Linear plan ─────────────────────────────────────────────────────────────
 
 export interface RunInput {
   readonly description?: string;
@@ -66,8 +56,6 @@ export interface LinearPlan {
   readonly placements: readonly Placement[];
   readonly schema: 1;
 }
-
-// ─── Validity ────────────────────────────────────────────────────────────────
 
 export type IssueBoundary =
   | "placement"
@@ -100,20 +88,12 @@ export type Validity =
   | { readonly executable: true; readonly issues: readonly [] }
   | { readonly executable: false; readonly issues: readonly Issue[] };
 
-/**
- * What `validateLinear` needs about one catalog Step: its Contract and its
- * availability. Structurally identical to `StepDescriptor`'s `contract` and
- * `availability` (structures.md), passed as the value of the `entries` map so
- * the validator never reaches for a Step, a catalog, or a runtime.
- */
 export interface StepEntry {
   readonly availability:
     | { readonly status: "available" }
     | { readonly status: "unavailable"; readonly reason: string };
   readonly contract: StepContract;
 }
-
-// ─── LinearPlanSchema ────────────────────────────────────────────────────────
 
 const ValueTypeSchema = z.enum(["text", "artifact", "workspace", "harness"]);
 
@@ -141,12 +121,6 @@ function hasUniqueKeys(keys: readonly string[]): boolean {
   return new Set(keys).size === keys.length;
 }
 
-/**
- * Structural gate every caller parses with. It refuses a wrong `schema`, empty
- * keys, duplicate placement or run-input keys, malformed assignments, and a
- * non-string `setting.value`. It does NOT require a placement: the empty-plan
- * case is a `validateLinear` rule (`composition/empty`), not a structural one.
- */
 export const LinearPlanSchema: z.ZodType<LinearPlan> = z
   .object({
     inputs: z.array(RunInputSchema),
@@ -159,8 +133,6 @@ export const LinearPlanSchema: z.ZodType<LinearPlan> = z
   .refine((plan) => hasUniqueKeys(plan.inputs.map((i) => i.key)), {
     message: "run-input keys must be unique",
   });
-
-// ─── validateLinear ──────────────────────────────────────────────────────────
 
 const REASON = {
   connectionTypeMismatch: "type-mismatch",
@@ -177,9 +149,6 @@ const REASON = {
   unknownRunInput: "is not a declared Run-start Input",
 } as const;
 
-/**
- * Format an issue with an optional step and placement prefix and optional key.
- */
 function composeMessage(fields: {
   step?: string;
   placement?: string;
@@ -228,24 +197,15 @@ function duplicates(keys: readonly string[]): string[] {
 }
 
 function settingSatisfies(type: ValueType, value: string): boolean {
-  // `text` is any string (including ""); the id-bearing types must be non-empty.
   return type === "text" ? true : value.length > 0;
 }
 
-/**
- * The single executability decision. Pure and deterministic: equal inputs give
- * an equal `Validity`. Evaluates every Spec 01 rule, reports all issues, and
- * addresses each to the smallest authored element. Contract-dependent rules of a
- * placement whose Step is unadmitted or unavailable are skipped; that
- * placement's plan-only Input and Connection issues are still reported.
- */
 export function validateLinear(
   plan: LinearPlan,
   entries: ReadonlyMap<string, StepEntry>
 ): Validity {
   const issues: Issue[] = [];
 
-  // composition/empty — plan-only, address-less.
   if (plan.placements.length === 0) {
     issues.push(
       makeIssue({
@@ -256,8 +216,6 @@ export function validateLinear(
     );
   }
 
-  // duplicate-key — plan-only defense (the schema also refuses). First
-  // occurrence of a placement key wins for connection resolution below.
   for (const key of duplicates(plan.placements.map((p) => p.key))) {
     issues.push(
       makeIssue({
@@ -579,12 +537,6 @@ function validateMissingRequired(
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Runtime half (Step 02): the Invocation, its evidence, and the materializer
-// ═════════════════════════════════════════════════════════════════════════════
-
-// ─── Outputs and evidence frames ─────────────────────────────────────────────
-
 export type Output =
   | { readonly kind: "account"; readonly text: string }
   | {
@@ -643,14 +595,11 @@ export interface InterruptedRecord {
   readonly step: string;
 }
 
-/** Every durable evidence record the materializer appends as a `log` frame. */
 export type EvidenceRecord =
   | BoundContractRecord
   | ContractFailureRecord
   | RehydrationRecord
   | InterruptedRecord;
-
-// ─── Invocation and rehydrate context ────────────────────────────────────────
 
 export interface InvocationContext {
   claimEffect(key: string, metadata?: JsonValue): Promise<boolean>;
@@ -662,7 +611,6 @@ export interface InvocationContext {
 }
 
 export interface RehydrateContext {
-  /** The Contract the producing Invocation bound at start, from its BoundContractRecord. */
   readonly contract: StepContract;
   readonly inputs: ResolvedInputs;
   readonly outputs: readonly StampedOutput[];
@@ -679,45 +627,30 @@ export interface TrustedStep<R = string> {
   rehydrate?(context: RehydrateContext): Promise<R | null>;
 }
 
-// ─── AuthoredRunInput and the evidence host ──────────────────────────────────
-
 export interface AuthoredRunInput {
   readonly inputs: Readonly<Record<string, string>>;
   readonly snapshotId: string;
   readonly versionId?: string;
 }
 
-/** One placement's evidence read back from the journal by the host. */
 export interface RunEvidence {
   readonly bound: BoundContractRecord | null;
   readonly outputs: readonly StampedOutput[];
 }
 
-/**
- * The seam the materializer reads and writes evidence through. Architecture
- * freezes `RunExecutionContext` to `claimEffect`/`emitOutput`, so the journal
- * read (`evidenceOf`) and the evidence-record write (`recordEvidence`) are
- * owned by the factory's host and injected here — no public runtime contract
- * changes. Step 04 supplies the real host; specs supply a journal-backed one.
- */
 export interface EvidenceHost {
   evidenceOf(runId: string, placement: string): Promise<RunEvidence>;
   recordEvidence(runId: string, record: EvidenceRecord): Promise<void>;
 }
 
-// ─── Seam errors (plain Errors with exact `name`s, read by `step.failed`) ─────
-
-/** Input/Result boundary rejection; `step.failed` reads `name`. */
 export class ContractFailure extends Error {
   override readonly name = "ContractFailure";
 }
 
-/** `resolve(placement.step)` threw or returned nothing at Invocation start. */
 export class StepUnavailable extends Error {
   override readonly name = "StepUnavailable";
 }
 
-/** A Step's effect claim returned `false` on adoption with no completion. */
 export class InvocationInterrupted extends Error {
   override readonly name = "InvocationInterrupted";
   readonly claim: string;
@@ -727,17 +660,12 @@ export class InvocationInterrupted extends Error {
   }
 }
 
-// ─── materializeLinear ───────────────────────────────────────────────────────
-
-/** Execution context the leaves receive: the Run's durable effect surface. */
 export interface AuthoredContext extends BaseContext {
   readonly execution: RunExecutionContext;
 }
 
-/** The resolver may return nothing for an unadmitted/unavailable Step. */
 type Resolve = (key: string) => TrustedStep | null | undefined;
 
-/** Add the materializer's `placement`/`step`, ignoring any a Step supplied. */
 function stamp(output: Output, placement: string, step: string): StampedOutput {
   const {
     placement: _p,
@@ -747,12 +675,6 @@ function stamp(output: Output, placement: string, step: string): StampedOutput {
   return { ...rest, placement, step };
 }
 
-/**
- * One leaf per placement. Holds only a placement key and the owner's per-Run
- * invocation body; its `definitionKey` makes it a valid graph child. Sequencing
- * and failure propagation come from the builder chain in
- * {@link MaterializedWorkflow.define}, not from this leaf.
- */
 class AuthoredLeaf extends Step<
   AuthoredRunInput,
   string | null,
@@ -784,16 +706,6 @@ class AuthoredLeaf extends Step<
   }
 }
 
-/**
- * A plan materialized into an ordinary runtime `Workflow` with
- * `persistence.results = "transient"`. One instance per Run (the factory calls
- * {@link materializeLinear} on run and on every recovery), so the in-memory
- * Result and rehydration caches are per-Run state held on the instance. Each
- * placement is an Invocation: bind the current Step's Contract, resolve and
- * verify inputs against that bound Contract, invoke, verify the Result, and
- * keep the Result in memory only — writing nothing but deliberate Outputs and
- * attributed evidence.
- */
 class MaterializedWorkflow extends Workflow<
   AuthoredRunInput,
   null,
@@ -806,9 +718,7 @@ class MaterializedWorkflow extends Workflow<
   readonly #resolve: Resolve;
   readonly #host: EvidenceHost;
   readonly #placementByKey: ReadonlyMap<string, Placement>;
-  /** Results produced in this process, keyed by placement (`null` allowed). */
   readonly #results = new Map<string, string | null>();
-  /** One rehydration attempt per source per Run; caches the restored value. */
   readonly #rehydrated = new Map<string, string | null>();
 
   constructor(plan: LinearPlan, resolve: Resolve, host: EvidenceHost) {
@@ -835,17 +745,12 @@ class MaterializedWorkflow extends Workflow<
         `workflow.authored.leaf:${placement.key}`,
         (input, ctx) => this.#invokePlacement(placement.key, input, ctx)
       );
-      // Referencing the previous placement's value forces strict linear order
-      // and failure propagation (a failed Invocation fails the Run); the value
-      // itself is ignored — Connections flow through `#results`, not the graph.
       const next = builder.step(placement.key, leaf, (values) => {
         if (previous !== undefined) {
           Reflect.get(values, previous);
         }
         return values.input;
       });
-      // The builder's `Values` grows per `.step`; the loop keeps the widened
-      // record view so the dynamic chain type-checks.
       builder = next;
     });
     builder.output(() => null);
@@ -865,7 +770,6 @@ class MaterializedWorkflow extends Workflow<
 
     const step = this.#resolveStep(placement.step, placementKey);
 
-    // Bound Contract recorded before any other work of this Invocation.
     await this.#host.recordEvidence(runId, {
       contract: step.contract,
       event: "invocation-bound",
@@ -947,7 +851,7 @@ class MaterializedWorkflow extends Workflow<
   ): Promise<string | null> {
     const assignment = placement.inputs[ic.key];
     if (assignment === undefined) {
-      return null; // unassigned optional → null
+      return null;
     }
     if (assignment.source === "setting") {
       return assignment.value;
@@ -955,13 +859,11 @@ class MaterializedWorkflow extends Workflow<
     if (assignment.source === "run") {
       return runInput.inputs[assignment.input] ?? null;
     }
-    // Connection: read the in-memory Result of the source placement.
     const source = assignment.placement;
     const inMemory = this.#results.get(source);
     if (inMemory !== null && inMemory !== undefined) {
       return inMemory;
     }
-    // Absent or `null` → the lazy rehydrate path under the bound Contract.
     return this.#rehydrate(source, runInput, runId);
   }
 
@@ -976,15 +878,12 @@ class MaterializedWorkflow extends Workflow<
 
     const evidence = await this.#host.evidenceOf(runId, source);
     const sourcePlacement = this.#placementByKey.get(source);
-    // Source never completed (no bound record) → nothing to restore; no record.
     if (evidence.bound === null || sourcePlacement === undefined) {
       this.#rehydrated.set(source, null);
       return null;
     }
 
     const boundContract = evidence.bound.contract;
-    // The bound Contract is the authority for `rehydrate`, not the current
-    // catalog Contract. Undeclared → no owner, no record, value stays null.
     if (boundContract.rehydrate === undefined) {
       this.#rehydrated.set(source, null);
       return null;
@@ -1023,12 +922,6 @@ class MaterializedWorkflow extends Workflow<
     return value;
   }
 
-  /**
-   * Re-resolve the source's inputs at rehydrate time (its resolved inputs are
-   * gone after a restart): Settings from the plan and Run-start values from the
-   * input; connection-typed inputs read the in-memory/cached map only, never
-   * recursively rehydrating.
-   */
   #resolveSourceInputs(
     sourcePlacement: Placement,
     runInput: AuthoredRunInput
@@ -1099,7 +992,6 @@ class MaterializedWorkflow extends Workflow<
     result: string | null
   ): Promise<void> {
     if (contract.result === null) {
-      // A non-null return from a `result: null` Step is a result failure.
       if (result !== null) {
         await this.#failContract(
           runId,
@@ -1112,7 +1004,7 @@ class MaterializedWorkflow extends Workflow<
       return;
     }
     if (result === null) {
-      return; // a `null` Result is a legitimate absence.
+      return;
     }
     if (
       typeof result !== "string" ||
@@ -1128,7 +1020,6 @@ class MaterializedWorkflow extends Workflow<
     }
   }
 
-  /** Append the attributed `ContractFailureRecord` and throw `ContractFailure`. */
   async #failContract(
     runId: string,
     placement: Placement,
@@ -1158,13 +1049,6 @@ class MaterializedWorkflow extends Workflow<
   }
 }
 
-/**
- * Turn an executable-at-capture plan into an ordinary runtime `Workflow` whose
- * placements are Invocations. `resolve` binds each `placement.step` to its
- * current behavior; `host` reads prior evidence (`evidenceOf`) and writes new
- * evidence (`recordEvidence`) through the journal. The Workflow's output is
- * always `null` and its `persistence.results` is `transient`.
- */
 export function materializeLinear(
   plan: LinearPlan,
   resolve: Resolve,

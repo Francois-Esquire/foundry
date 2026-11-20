@@ -134,8 +134,6 @@ describe("Module Gateway generated client", () => {
       await expect(generateWithSdk({ catalog, manifest })).resolves.toBe(
         generateModuleGatewayClient({ catalog, manifest })
       );
-      // The strict format composes into the same client: its added
-      // declarations are host concerns the workspace generator ignores.
       await expect(
         generateWithSdk({ catalog, manifest: strictManifest })
       ).resolves.toBe(generateModuleGatewayClient({ catalog, manifest }));
@@ -204,7 +202,6 @@ describe("Module Gateway generated client", () => {
   });
 });
 
-/** Runs the generator exactly as the composed Module workspace consumes it. */
 async function installSdkGenerator(
   root: string
 ): Promise<(input: object) => Promise<string>> {

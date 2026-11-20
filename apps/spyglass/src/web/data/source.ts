@@ -24,7 +24,6 @@ import type {
 import type { PreparedVisualization } from "../../lib/visualization/types";
 import type { WorkspaceDependencyEdgeProjection } from "../../lib/workspace-projection-types";
 
-/** Every source field the codex reads. Resolvers see nothing else. */
 export interface CodexSource {
   dataset: Pick<DatasetManifest, "generatedAt" | "coverage">;
   declaredDependencies: {
@@ -39,9 +38,7 @@ export interface CodexSource {
     >;
   })[];
   dependencyInventory?: DependencyInventory;
-  /** The `domains` lens: the declared domains, and the domain label of every placed place in one. */
   domains: Domains;
-  /** The `file-roles` lens: fan-in raises summits; roles are bound on entering an island. */
   fileRoles: FileRolesPackage[];
   history?: {
     packages: SemanticsHistoryEntities["packages"];
@@ -50,44 +47,30 @@ export interface CodexSource {
       "commit" | "timestamp" | "status"
     >[];
   };
-  /** The `import-traffic` lens: each package pair's endpoint files, for harbors, roads and Trading partners. */
   importTraffic: ImportTraffic["pairs"];
-  /** Needed only for older datasets without scan-time map positions. */
   layoutEdges?: { source: string; target: string }[];
-  /** The module index includes saved file positions and import counts for the first frame. */
   modules: Pick<
     SemanticsModuleIndexEntry,
     "id" | "package" | "path" | "fileKind" | "fanIn" | "fanOut" | "mapPosition"
   >[];
-  /** Each package's workspace-relative folder, from the manifest. */
   packagePaths: Pick<SemanticsManifestPackage, "id" | "path">[];
-  /** The `package-sizes` lens, sorted by id. */
   packages: (Pick<PackageSize, "id" | "analyzed" | "layer"> & {
     modules: Pick<PackageSize["modules"], "total">;
   })[];
-  /** The `placement` lens: where each place is used against where it lives, and the packages it labelled. */
   placement: {
     packages: Pick<PlacementPackage, "id">[];
     places: Placements["places"];
     policy: Placements["policy"];
   };
-  /** The `responsibility-groups` lens, drawn as districts on entering an island. */
   responsibilityGroups: ResponsibilityGroupsPackage[];
   visualization?: PreparedVisualization;
 }
 
-/**
- * The fields read after the layout (`readLateCodexSource`): nothing at
- * overview draws them, so the first layout does not wait for them.
- */
 export interface LateCodexSource {
-  /** The `nesting` lens: one folder tree, with each package's path regions and the seams between them. */
   nesting: Pick<Nesting, "folders" | "pathRegions" | "seams">;
-  /** The `proximity` lens: what sits close without being related, and what is related without sitting close. */
   proximity: Pick<Proximity, "apart" | "close" | "packages">;
 }
 
-/** The late fields, read through one dataset reader, pinned to the load's manifest. */
 export async function readLateCodexSource(
   reader: DatasetReader
 ): Promise<LateCodexSource> {
@@ -109,7 +92,6 @@ export async function readLateCodexSource(
   };
 }
 
-/** The codex's fields for the first layout, read through one dataset reader. */
 export async function readCodexSource(
   reader: DatasetReader
 ): Promise<CodexSource> {

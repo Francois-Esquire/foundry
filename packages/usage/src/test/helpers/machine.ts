@@ -27,11 +27,6 @@ export const touch = async (path: string): Promise<void> => {
   await writeFile(path, "");
 };
 
-/**
- * A stand-in `codex app-server`: answers `initialize` and the methods in
- * `results` (an `Error` answers as a JSON-RPC error; a missing method never
- * answers), and records what it was sent and whether it was killed.
- */
 export class FakeCodex extends EventEmitter {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();

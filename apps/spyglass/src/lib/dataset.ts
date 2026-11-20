@@ -65,9 +65,7 @@ export interface DatasetReader {
   workspaceReport(): Promise<WorkspaceReport>;
 }
 
-/** There is no manifest where the dataset should be. */
 export class DatasetNotFoundError extends Error {
-  /** `message` names where the dataset was looked for, when the caller knows. */
   constructor(
     message = "No dataset found. Run spyglass scan to save one.",
     options?: ErrorOptions
@@ -77,7 +75,6 @@ export class DatasetNotFoundError extends Error {
   }
 }
 
-/** The manifest is not the one the reader was pinned to. */
 export class DatasetReplacedError extends Error {
   constructor() {
     super(

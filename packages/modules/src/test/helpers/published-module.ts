@@ -1,4 +1,5 @@
-import { ArtifactManager, InMemoryArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { vi } from "vitest";
 
 import { moduleIdSchema, runtimeInstanceIdSchema } from "../../domain";
@@ -11,14 +12,11 @@ import type {
 import type { ModuleInstallationFiles } from "../../platform/files";
 import { createModuleProgramSupervisor } from "../../platform/program-supervisor";
 import { createModuleProjects } from "../../projects";
-import { createArtifactModuleStore } from "../../store/artifact";
-import type { ModuleStore } from "../../store/contract";
-import { InMemoryModuleStore } from "../../store/memory";
+import { ModuleRegistry } from "../../registry";
 import { createModuleVersions } from "../../version";
 
 export const WEATHER = "host.weather.read";
 
-/** A strict Manifest whose Program is a built server output. */
 export function builtManifest(
   capabilities: readonly object[] = [],
   extra: object = {}
@@ -33,7 +31,6 @@ export function builtManifest(
   };
 }
 
-/** A request for {@link WEATHER} limited to `cities`. */
 export function weatherRequest(
   cities: readonly string[],
   required = true
@@ -48,7 +45,6 @@ export function weatherRequest(
   };
 }
 
-/** Resolves {@link WEATHER} constraints to a digest naming the cities. */
 export const weatherProvider = {
   registration: { descriptor: { capability: WEATHER, version: 1 } },
   resolveConstraints: ({
@@ -65,26 +61,20 @@ const catalog = {
   capabilities: [{ capability: WEATHER, version: 1 }],
 } as unknown as Pick<ModuleCapabilityCatalog, "capabilities">;
 
-/**
- * One Module over in-memory Artifacts and Store, with Versions published
- * through `ModuleProjects.publish` from saved source, and a supervisor whose
- * Programs "start" at once without a VM. `store: "artifact"` keeps the
- * records in Module Artifact metadata, as a durable host does; `files`
- * replaces the recording files fake, and `stopRetainedContainer` the
- * supervisor's no-op one.
- */
 export async function publishedModule(
   options: {
     readonly files?: ModuleInstallationFiles;
     readonly stopRetainedContainer?: (containerId: string) => Promise<void>;
-    readonly store?: "artifact" | "memory";
+    readonly registry?: ModuleRegistry;
   } = {}
 ) {
   const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
-  const store: ModuleStore =
-    options.store === "artifact"
-      ? createArtifactModuleStore(artifacts)
-      : new InMemoryModuleStore();
+  const store =
+    options.registry ??
+    new ModuleRegistry({
+      artifactOfContent: async (contentId) =>
+        (await artifacts.getContent(contentId))?.artifactId ?? null,
+    });
   const projects = createModuleProjects({ artifacts, store });
   const moduleId = moduleIdSchema.parse("forecast");
   await projects.create({
@@ -93,7 +83,6 @@ export async function publishedModule(
     source: { "foundry.module.json": JSON.stringify(builtManifest()) },
   });
 
-  /** Saves `capabilities` (and `extra` fields) into the Manifest and publishes it as `tag`. */
   async function publish(
     tag: string,
     capabilities: readonly object[] = [],

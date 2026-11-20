@@ -1,10 +1,7 @@
 import type { EntryInputs, FileInputs } from "@foundry/artifacts";
 
-import {
-  ArtifactManager,
-  artifactIdSchema,
-  InMemoryArtifactStore,
-} from "@foundry/artifacts";
+import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 
 import { MODULE_MIME } from "../../constants";
 
@@ -20,7 +17,6 @@ export const VALID_MANIFEST = {
   views: {},
 } as const;
 
-/** The strict format with every declaration it adds. */
 export const STRICT_MANIFEST = {
   capabilities: [],
   compatibility: { gateway: "1", runtime: "bun@1" },

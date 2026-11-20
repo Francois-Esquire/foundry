@@ -35,11 +35,6 @@ export class WorkspacePlugin extends ManifestPlugin {
     );
   }
 
-  /**
-   * Validate release components and load their shipped-source history: apps
-   * include bundled libraries, the grammar-only extension tracks its own
-   * directory, and public libraries share the linked version group's history.
-   */
   override async preconfigure(
     strategies: Record<string, Strategy>,
     commits: Record<string, Commit[]>,
@@ -57,9 +52,6 @@ export class WorkspacePlugin extends ManifestPlugin {
           `Release component ${path} must be a public app or library workspace, or the VS Code extension`
         );
       }
-      // Bundled library changes belong to the app's own release history.
-      // The extension ships only its committed grammars, so its own
-      // directory is its whole history.
       let paths = [path];
       if (path.startsWith("packages/")) {
         paths = ["packages"];
@@ -96,7 +88,6 @@ export class WorkspacePlugin extends ManifestPlugin {
       );
       if (manifest) {
         const { updater } = manifest;
-        // Release Please infers compact formatting from the initial empty {}.
         manifest.updater = {
           updateContent: (content) =>
             `${JSON.stringify(JSON.parse(updater.updateContent(content)), null, 2)}\n`,

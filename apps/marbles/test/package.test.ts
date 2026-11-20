@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import {
-  chmodSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -25,8 +24,12 @@ import {
 } from "typescript";
 import { expect, test } from "vitest";
 
+import { fakeCodex } from "./helpers/codex";
+import { testHome } from "./helpers/home";
 import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
 import { inspectDashboard } from "./helpers/terminal";
+
+const CURRENT_GENERATION = /engine generation \d+: pid \d+ · current/;
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 function privateImports(source: string): string[] {
@@ -68,12 +71,14 @@ test("package import inspection checks declarations and dynamic imports, not con
   ).toEqual([]);
 });
 
-const CLI_SDK = /^ai-sdk-provider-(claude-code|codex-cli|pi)$/;
+const OPTIONAL_PROVIDER_SDKS = [
+  "@anthropic-ai/claude-agent-sdk",
+  "@anthropic-ai/sdk",
+  "ai-sdk-provider-claude-code",
+  "ai-sdk-provider-codex-cli",
+  "ai-sdk-provider-pi",
+];
 
-/**
- * Every bare specifier loading `entry` loads, following its static imports
- * through the package's own chunks; dynamic imports are not followed.
- */
 function staticImports(dist: string, entry: string): string[] {
   const seen = new Set<string>();
   const specifiers = new Set<string>();
@@ -107,11 +112,17 @@ function staticImports(dist: string, entry: string): string[] {
   return [...specifiers];
 }
 
-function run(command: string, args: string[], cwd: string): string {
+function run(
+  command: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
   try {
     return execFileSync(command, args, {
       cwd,
       encoding: "utf8",
+      env,
       timeout: 120_000,
     });
   } catch (error) {
@@ -159,7 +170,13 @@ test("the tarball installs and shares the library registry with the CLI", async 
       manifest.version
     );
     expect(readFileSync(join(installed, "LICENSE"), "utf8")).toContain("MIT");
+    expect(readFileSync(join(installed, "LICENSE.vendors"), "utf8")).toContain(
+      "Copyright (c) 2026 Aniket Pawar"
+    );
     expect(readdirSync(installed)).not.toContain("src");
+    expect(
+      readdirSync(join(installed, "dist", "migrations", "meta"))
+    ).toContain("_journal.json");
     for (const file of readdirSync(join(installed, "dist"))) {
       if (file.endsWith(".js") || file.endsWith(".d.ts")) {
         expect(
@@ -228,7 +245,6 @@ if (readProcess(stateDir) !== undefined) throw new Error("Release must clear the
 console.log(greeted.greeting, files > 0 && direct ? "sees files" : "sees nothing", listed);
 `
     );
-    // A prompt is written with the package's own tags: nothing else is installed.
     writeFileSync(
       join(consumer, "prompt.ts"),
       `
@@ -238,19 +254,36 @@ const review: Prompt = prompts.claude\`/code-review, then ask \${ref.agent("revi
 console.log(String(review), "|", String(prompts.codex\`Use \${ref.skill("review")}\`), "|", review instanceof Prompt);
 `
     );
-    // An embedded host (an Electron main process) takes the narrow entry:
-    // the engine and its host tasks, without the CLI harness providers.
     writeFileSync(
       join(consumer, "embedded.ts"),
       `
-import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager } from "@foundry.sh/marbles/engine";
+import { Tasks } from "@foundry.sh/marbles";
+import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, Sessions } from "@foundry.sh/marbles/engine";
+import type { SessionStore, SessionStoreWrite } from "@foundry.sh/marbles/engine";
+import { openWorkspaceRecords, type WorkspaceRecords } from "@foundry.sh/marbles/workspace";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+// A host can wrap the store it hands the engine and still write sessions.
+const inner = new InMemorySessionStore();
+const sessions: SessionStore = {
+  commit: (write: SessionStoreWrite) => inner.commit(write),
+  getMessage: (id) => inner.getMessage(id),
+  getSession: (id) => inner.getSession(id),
+  listMessages: (sessionId) => inner.listMessages(sessionId),
+  // Forwarded, so writes from two Sessions over this store still exclude each other.
+  transaction: (work) => inner.transaction(work),
+};
+const written = new Sessions({ store: sessions });
+await written.createSession({ id: "host" });
+await written.appendMessage({ parts: [{ text: "hi", type: "text" }], role: "user", sessionId: "host" });
 const engine = new Engine({
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
   models: new ModelManager(),
   queues: { system: { concurrency: Number.POSITIVE_INFINITY } },
   root: ".",
-  sessions: new InMemorySessionStore(),
+  sessions,
   workspaceId: "embedded",
 });
 engine.task<{ n: number }, number>({
@@ -266,15 +299,62 @@ const value = await engine.run<number>("host-save", { n: 1 });
 const [recorded] = engine.executions.list();
 await engine.dispose();
 console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.observations.length);
+// Given a state dir, the engine keeps its tasks across a dispose, in the
+// Marbles database it opens there; a host may hand in its own records.
+const state = mkdtempSync(join(tmpdir(), "marbles-embedded-"));
+const persisted = () => new Engine({
+  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+  containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
+  models: new ModelManager(),
+  root: ".",
+  sessions: new InMemorySessionStore(),
+  state,
+  workspaceId: "embedded",
+});
+const writer = persisted();
+const created = await new Tasks({ store: writer.taskStore }).create({ title: "Kept across a dispose" });
+await writer.dispose();
+const reader = persisted();
+const kept = await new Tasks({ store: reader.taskStore }).get(created.id);
+await reader.dispose();
+const stateRoot = mkdtempSync(join(tmpdir(), "marbles-records-"));
+const records: WorkspaceRecords = openWorkspaceRecords({ state: stateRoot, workspaceId: "own" });
+const own = new Engine({
+  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+  containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
+  models: new ModelManager(),
+  records,
+  root: ".",
+  sessions: new InMemorySessionStore(),
+  workspaceId: "own",
+});
+await new Tasks({ store: own.taskStore }).create({ title: "In the host's records" });
+await own.dispose();
+console.log("persisted", kept?.title, existsSync(join(state, "marbles.db")), existsSync(join(stateRoot, "marbles.db")));
+console.log("host sessions", (await sessions.listMessages("host")).length, typeof sessions.transaction);
 `
     );
-    // Loading the engine entry loads no CLI SDK: they sit behind dynamic imports.
-    expect(
-      staticImports(join(installed, "dist"), "engine.js").filter((specifier) =>
-        CLI_SDK.test(specifier)
-      )
-    ).toEqual([]);
-    // The statuses entry loads nothing: a renderer can read it.
+    for (const sdk of OPTIONAL_PROVIDER_SDKS) {
+      expect(manifest.dependencies).not.toHaveProperty(sdk);
+      expect(manifest.optionalDependencies).toHaveProperty(sdk);
+    }
+    for (const entry of [
+      "cli",
+      "engine",
+      "generation",
+      "index",
+      "lib",
+      "prebuilt",
+      "process",
+      "workspace",
+    ]) {
+      expect(
+        staticImports(join(installed, "dist"), `${entry}.js`).filter(
+          (specifier) => OPTIONAL_PROVIDER_SDKS.includes(specifier)
+        ),
+        `${entry} eagerly imports an optional provider SDK`
+      ).toEqual([]);
+    }
     expect(staticImports(join(installed, "dist"), "statuses.js")).toEqual([]);
     run(
       "bun",
@@ -302,9 +382,10 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
     expect(run("bun", ["host.ts"], consumer)).toContain(
       "Hello host sees files packed-workflow,host-inventory"
     );
-    expect(run("bun", ["embedded.ts"], consumer)).toContain(
-      "embedded 2 system complete 1"
-    );
+    const embedded = run("bun", ["embedded.ts"], consumer);
+    expect(embedded).toContain("embedded 2 system complete 1");
+    expect(embedded).toContain("persisted Kept across a dispose true true");
+    expect(embedded).toContain("host sessions 1 function");
     const cli = join(consumer, "node_modules/.bin/marbles");
     for (const command of [[], ["run"]]) {
       const terminal = await inspectDashboard(cli, consumer, command);
@@ -315,9 +396,6 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
     expect(run(cli, ["--help"], consumer)).toContain(
       "programmable workspace automation"
     );
-    // Bun started without --no-env-file would load this before the machine
-    // environment is recorded: the bin and bunx start cleanly, a bare `bun`
-    // on the entry is refused.
     writeFileSync(join(consumer, ".env"), "MARBLES_PACKAGE_PROBE=dotenv\n");
     expect(run("bunx", ["--bun", "marbles", "--help"], consumer)).toContain(
       "programmable workspace automation"
@@ -342,65 +420,61 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
         consumer
       )
     ).toContain("Hello tarball");
-    // Without --dry-run the packaged CLI starts the Marbles process from its
-    // own dist entries, hosts the workspace in a worker, and rolls there.
-    const state = join(consumer, "state");
+    const home = testHome();
+    const { state } = home.layout;
+    const marbles = (args: string[], env = home.env) =>
+      run(cli, args, consumer, env);
     try {
       expect(
-        run(
-          cli,
-          [
-            "roll",
-            "packed-workflow",
-            "--input",
-            '{"name":"daemon"}',
-            "--state",
-            state,
-          ],
-          consumer
-        )
+        marbles(["roll", "packed-workflow", "--input", '{"name":"daemon"}'])
       ).toContain("Hello daemon");
-      const status = run(cli, ["status", "--state", state], consumer);
+      const status = marbles(["status"]);
       expect(status).toContain("marbles process: pid");
-      expect(status).toContain("(worker)");
+      expect(status).toContain("(generation)");
+      expect(status).toMatch(CURRENT_GENERATION);
+      expect(readdirSync(state)).toContain("marbles.db");
+      expect(status).toContain(consumer);
+      expect(marbles(["tasks", "create", "Through the generation"])).toContain(
+        "Through the generation"
+      );
     } finally {
-      expect(run(cli, ["stop", "--state", state], consumer)).toContain(
-        "stopped Marbles process"
-      );
+      expect(marbles(["stop"])).toContain("stopped Marbles process");
     }
-    // The installed bin serves MCP over STDIO, stdout carries only frames,
-    // and serving starts no Marbles process.
-    const mcpState = mkdtempSync(join(tmpdir(), "mp-"));
-    try {
-      const session = await rawMcpSession(
-        cli,
-        [
-          "mcp",
-          "--source",
-          join(consumer, "marbles.config.ts"),
-          "--state",
-          mcpState,
-        ],
-        { cwd: consumer }
-      );
-      const listed = await session.request("tools/list");
-      const ended = await session.close();
-      expect(ended.code, ended.stderr).toBe(0);
-      expect(listed).toMatchObject({
-        result: {
-          tools: expect.arrayContaining([
-            expect.objectContaining({ name: "dispatch_workflow" }),
-            expect.objectContaining({ name: "list_tasks" }),
-          ]),
-        },
-      });
-      expect(strayLines(ended.stdout)).toEqual([]);
-    } finally {
-      expect(run(cli, ["stop", "--state", mcpState], consumer)).toContain(
-        "no Marbles process is running"
-      );
-      rmSync(mcpState, { force: true, recursive: true });
-    }
+    expect(marbles(["status"])).toContain(consumer);
+    const listedTasks = (env: Record<string, string>) =>
+      (
+        JSON.parse(marbles(["tasks", "list", "--json"], env)).items as {
+          title: string;
+        }[]
+      ).map((task) => task.title);
+    expect(listedTasks(home.env)).toEqual(["Through the generation"]);
+    const tasksHome = testHome();
+    expect(marbles(["tasks", "create", "Packed"], tasksHome.env)).toContain(
+      "Packed"
+    );
+    expect(readdirSync(tasksHome.layout.state)).toContain("marbles.db");
+    expect(listedTasks(tasksHome.env)).toEqual(["Packed"]);
+    const mcpHome = testHome();
+    const session = await rawMcpSession(
+      cli,
+      ["mcp", "--source", join(consumer, "marbles.config.ts")],
+      { cwd: consumer, env: mcpHome.env }
+    );
+    const listed = await session.request("tools/list");
+    const ended = await session.close();
+    expect(ended.code, ended.stderr).toBe(0);
+    expect(listed).toMatchObject({
+      result: {
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: "dispatch_workflow" }),
+          expect.objectContaining({ name: "list_tasks" }),
+        ]),
+      },
+    });
+    expect(strayLines(ended.stdout)).toEqual([]);
+    expect(marbles(["stop"], mcpHome.env)).toContain(
+      "no Marbles process is running"
+    );
     writeFileSync(join(standalone, "workspace-marker.txt"), "workspace root");
     const authoring = join(standalone, ".foundry", "marbles");
     mkdirSync(authoring, { recursive: true });
@@ -408,6 +482,7 @@ console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.obse
       join(authoring, "inventory.ts"),
       `
 import { step } from "@foundry.sh/marbles";
+
 step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.current.files()).map((file) => file.path) }));
 `
     );
@@ -439,9 +514,7 @@ step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.curre
       ).toEqual(["[step] packed-summary"]);
       const bin = join(directory, "bin");
       mkdirSync(bin);
-      const codex = join(bin, "codex");
-      writeFileSync(codex, "#!/bin/sh\nexit 1\n");
-      chmodSync(codex, 0o755);
+      fakeCodex(bin);
       const result = execFileSync(
         cli,
         ["roll", "packed-summary", "--dry-run"],
@@ -455,6 +528,21 @@ step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.curre
       expect(result).toContain("[run] packed-summary complete");
       expect(result).toContain("Summarize this codebase");
     }
+    for (const sdk of OPTIONAL_PROVIDER_SDKS) {
+      rmSync(join(consumer, "node_modules", sdk), {
+        force: true,
+        recursive: true,
+      });
+    }
+    const optionalFreeHome = testHome();
+    expect(
+      run(
+        "bun",
+        ["--no-install", cli, "list", "--dry-run"],
+        consumer,
+        optionalFreeHome.env
+      )
+    ).toContain("[step] packed-summary");
   } finally {
     rmSync(standalone, { force: true, recursive: true });
     rmSync(consumer, { force: true, recursive: true });

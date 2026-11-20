@@ -2,7 +2,6 @@ import { AsyncIteratorClass, EventPublisher } from "@orpc/server";
 import type { Vault } from "~/main/vault/vault";
 import type { VaultStatus } from "~/shared/vault";
 
-/** Current status followed by changes. Each subscriber owns its cleanup. */
 export function watchVault(
   vault: Vault,
   signal?: AbortSignal
@@ -13,7 +12,6 @@ export function watchVault(
     publisher.publish("status", status);
   });
   signal?.addEventListener("abort", unsubscribe, { once: true });
-  // Subscribe before reading the snapshot so a change cannot fall in between.
   publisher.publish("status", vault.status());
 
   return new AsyncIteratorClass(

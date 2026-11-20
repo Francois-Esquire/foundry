@@ -18,7 +18,6 @@ const bottomNavItems: NavItemConfig[] = [
   { end: true, icon: SettingsIcon, label: "Settings", to: "/settings" },
 ];
 
-/** The preload bridge, or null when rendered outside Electron. */
 function windowBridge() {
   return "worksWindow" in window ? window.worksWindow : null;
 }
@@ -40,9 +39,6 @@ async function setFullscreenFromMode(): Promise<void> {
   if (bridge === null) {
     return;
   }
-  // Set, never toggle, on the wire: read the observed mode and say what
-  // should be true, so an OS shortcut that already left fullscreen can't
-  // leave this out of step.
   const mode = await bridge.mode();
   await bridge.setFullscreen(mode !== "fullscreen");
 }

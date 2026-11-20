@@ -84,8 +84,6 @@ export function simulateSymbolMove(
     added += 1;
   }
   const node = index.moduleNode.get(module);
-  // A consumer reaching the group through a re-export loses its edge to
-  // the forwarding module, not to the declaring one.
   const removedByTarget = new Map<string, Set<string>>();
   indexRemovedEdges(removed, removedByTarget);
   const fanInAfter =

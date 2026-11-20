@@ -1,12 +1,15 @@
+import { isDeepStrictEqual } from "node:util";
+
 import type { LanguageModel, ModelMessage } from "ai";
 
 import { generateText, pruneMessages } from "ai";
 
 import type { TokenCounter } from "../contexts/types";
+import type { SessionStore } from "../store";
 import { toModelMessages } from "./converter";
 import { stringifyValue } from "./serialize";
-import type { SummarizableStore, SummarizeResult } from "./store";
-import { foldSet } from "./store";
+import type { SummarizeResult } from "./sessions";
+import { foldSet, Sessions } from "./sessions";
 import type { SessionMessage } from "./types";
 
 type ModelMessagePart = Exclude<ModelMessage["content"], string>[number];
@@ -92,12 +95,8 @@ function renderPart(part: ModelMessagePart): string {
   return undefined as never;
 }
 
-/**
- * Summarize the messages before `messageId` and fold them via the store's own
- * primitive. No-op (`null`) when there's nothing to fold.
- */
 export async function compact(
-  store: SummarizableStore,
+  store: SessionStore,
   summarizer: Summarizer,
   sessionId: string,
   messageId: string
@@ -109,35 +108,37 @@ export async function compact(
   }
 
   const text = await summarizer.summarize(fold);
-  return store.summarize({
-    messageId,
-    sessionId,
-    summary: { parts: [{ text, type: "text" }] },
-  });
+  const commit = async (
+    view: SessionStore
+  ): Promise<SummarizeResult | null> => {
+    const current = foldSet(await view.listMessages(sessionId), messageId);
+    if (!isDeepStrictEqual(current, fold)) {
+      return null;
+    }
+    return await new Sessions({ store: view }).summarize({
+      messageId,
+      sessionId,
+      summary: { parts: [{ text, type: "text" }] },
+    });
+  };
+  return store.transaction === undefined
+    ? commit(store)
+    : store.transaction(commit);
 }
 
-/** When to compact and how much to keep. */
 export interface CompactionOptions {
-  /** Counts the token cost of one message — the package's canonical counter contract. */
   counter: TokenCounter;
-  /** Tokens of recent tail to keep unfolded. */
   keepTokens: number;
-  /** Effective token ceiling: compact when the active context exceeds it. */
   limit: number;
 }
 
-/**
- * Compact the session iff its active context exceeds `limit`. Picks a marker that
- * keeps roughly `keepTokens` of recent history, then folds everything before it.
- * No-op (`null`) when under budget or there's no clean boundary to fold at.
- */
 export async function maybeCompact(
-  store: SummarizableStore,
+  store: SessionStore,
   summarizer: Summarizer,
   sessionId: string,
   opts: CompactionOptions
 ): Promise<SummarizeResult | null> {
-  const active = await store.activeMessages(sessionId);
+  const active = await new Sessions({ store }).activeMessages(sessionId);
   if (contextTokens(active, opts.counter) <= opts.limit) {
     return null;
   }
@@ -150,11 +151,6 @@ export async function maybeCompact(
   return compact(store, summarizer, sessionId, markerId);
 }
 
-/**
- * Current context size. Prefers the last reported actual usage (ground truth,
- * includes the system prompt); falls back to the heuristic counter before any
- * turn has reported usage.
- */
 function contextTokens(
   messages: SessionMessage[],
   counter: TokenCounter
@@ -172,12 +168,6 @@ function contextTokens(
   return total;
 }
 
-/**
- * The fold marker: the oldest message to keep, snapped forward to a `user`
- * message so a kept turn never starts mid tool-call/result pair. Walks back from
- * the end accumulating `keepTokens`, then finds the next turn boundary. Returns
- * `undefined` when there's nothing before it to fold.
- */
 export function selectMarker(
   messages: SessionMessage[],
   keepTokens: number,
@@ -212,14 +202,6 @@ export function selectMarker(
   return markerIndex > 0 ? messages[markerIndex]?.id : undefined;
 }
 
-/**
- * Pull the marker back to before any unresolved `tool_approval_request` it
- * would otherwise fold away. Folding turns a message's parts into summary
- * prose, which would destroy the exact `approvalId`/`toolCallId` identity a
- * later `tool_approval_response` needs to resolve against — so a request
- * with no matching response anywhere in `messages` must stay in the active
- * (unfolded) tail no matter the token budget.
- */
 function protectUnresolvedApprovals(
   messages: SessionMessage[],
   markerIndex: number

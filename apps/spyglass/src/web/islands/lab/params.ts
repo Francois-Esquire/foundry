@@ -1,15 +1,5 @@
-/**
- * Parameters: a schema each experiment declares once, from which the
- * settings type, the defaults and the sidebar controls follow, and a
- * layout that sorts its controls into titled sections. The vocabulary
- * only: the lab's live store is param-store.ts. Framework-free, so an
- * experiment folder can move anywhere that has this file.
- */
-
 interface ParamBase {
-  /** One line under the control. */
   hint?: string;
-  /** Sidebar label; defaults to the key. */
   label?: string;
 }
 
@@ -18,7 +8,6 @@ export interface NumberParam extends ParamBase {
   max: number;
   min: number;
   step: number;
-  /** Shown after the value: "°", "ms". */
   unit?: string;
   value: number;
 }
@@ -30,7 +19,6 @@ export interface SelectParam<T extends string = string> extends ParamBase {
   value: T;
 }
 
-/** A non-negative integer seed, with a button that rolls a new one. */
 export interface SeedParam extends ParamBase {
   kind: "seed";
   value: number;
@@ -63,7 +51,6 @@ type ValueOf<P extends Param> =
         ? boolean
         : number;
 
-/** The settings object a schema describes: `{ seed: number, view: "a" | "b", … }`. */
 export type ParamValues<S extends ParamSchema> = {
   [K in keyof S]: ValueOf<S[K]>;
 };
@@ -107,25 +94,14 @@ export function defaultValues<S extends ParamSchema>(
   ) as ParamValues<S>;
 }
 
-/**
- * One section of a parameters panel: a title over its params, in the order
- * listed. An array keeps its order where an object's keys are sorted, so the
- * layout, not the schema, decides what the panel shows and in what order.
- */
 export interface ParamGroup<Key extends string = string> {
-  /** One line under the title: what the section's params share. */
   hint?: string;
   keys: readonly Key[];
   title: string;
 }
 
-/** A section of this schema's panel: only its own params' names. */
 export type ParamGroupOf<S extends ParamSchema> = ParamGroup<keyof S & string>;
 
-/**
- * What is wrong with a layout: params it leaves out, lists twice, or names
- * that the schema does not hold. Empty when every param appears exactly once.
- */
 export function layoutProblems(
   params: ParamSchema,
   layout: readonly ParamGroup[]

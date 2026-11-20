@@ -1,11 +1,3 @@
-/**
- * The MCP tools over a workspace hosted in this process under `--dry-run`,
- * for tests that drive definitions through them with the dry-run echo.
- * `marbles mcp` hosts nothing, so these tests host here. Run by Bun as a
- * subprocess with the source as its argument, never imported. Protocol
- * frames go to stdout, so the source must not print there. The state root
- * is the test run's Foundry home; nothing is written to it.
- */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { layout } from "~/layout";
 import { createMcpServer } from "~/mcp/server";
@@ -19,6 +11,7 @@ const { artifacts, state } = layout();
 const host = await hostWorkspace({
   artifacts,
   askable: false,
+  directory: process.cwd(),
   dry: true,
   env: "require",
   print: (line) => process.stderr.write(`${line}\n`),

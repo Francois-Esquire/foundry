@@ -1,38 +1,29 @@
 import { spawnSync } from "node:child_process";
 import {
-  existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
-  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { lockContents } from "@foundry/lib/file-lock";
 import { Step } from "@foundry/workflows/step";
 import { describe, expect, it } from "vitest";
+import { defaultWorkspaceTriggers } from "~/database/managed";
 import type { ScheduledEngine } from "~/lib/schedule";
 import { runSchedules, tick } from "~/lib/schedule";
 import { acquireLock } from "~/lib/state/locks";
-import type { StateStore } from "~/lib/state/store";
-import { InMemoryStateStore, JsonStateStore } from "~/lib/state/store";
-import {
-  listWorkspaces,
-  recordedState,
-  workspaceState,
-} from "~/lib/state/workspace";
+import { workspaceState } from "~/lib/state/workspace";
+import type { TriggerStore } from "~/lib/trigger-store";
+import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
 import { testEngine } from "./helpers/engine";
+import { readStoredRuns } from "./helpers/stored-runs";
+import { temporaryDirectory } from "./helpers/temporary";
 
-const SKIPPED_RUNS_RN_BAD_JSON_PATTERN =
-  /^\[state\] skipped runs\/rn-bad\.json: /;
-const SKIPPED_RUNS_RN_HOLLOW_JSON_PATTERN =
-  /^\[state\] skipped runs\/rn-hollow\.json: /;
 const SHORT_HEX_ID_PATTERN = /^[0-9a-f]{12}$/;
 const BOOM_PATTERN = /boom/;
-const PLAIN_NAME = /must be a plain name/;
 
 class Shout extends Step<string, string> {
   readonly definitionKey = "test.shout";
@@ -71,53 +62,45 @@ function engineIn(state: string, print: (line: string) => void) {
   return engine.start();
 }
 
-function readJson(path: string): Record<string, unknown> {
-  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (typeof parsed !== "object" || parsed === null) {
-    throw new Error(path);
-  }
-  return { ...parsed };
-}
-
-describe("run files", () => {
-  it("writes one file per settled run and lists them across processes", async () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+describe("stored runs", () => {
+  it("keeps every settled run in the database and lists them across processes", async () => {
+    const state = temporaryDirectory("marbles-state-");
     const { lines, print } = collector();
 
     const first = await engineIn(state, print);
     await first.run<string>("shout", "one");
     await expect(first.run<never>("explode", undefined)).rejects.toThrow();
-    await first.stop();
-    expect(readdirSync(join(state, "runs"))).toHaveLength(2);
+    await first.dispose();
+    expect(await readStoredRuns(state, "test")).toHaveLength(2);
 
     const second = await engineIn(state, print);
     await second.run<string>("shout", "two");
     const runs = await second.runs();
-    await second.stop();
+    await second.dispose();
 
     expect(runs.map((run) => run.status).sort()).toEqual([
       "complete",
       "complete",
       "failed",
     ]);
-    expect(readdirSync(join(state, "runs"))).toHaveLength(3);
+    const stored = await readStoredRuns(state, "test");
+    expect(stored).toHaveLength(3);
+    expect(stored.map((run) => run.owner)).toEqual([null, null, null]);
     expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
-    const file = readJson(join(state, "runs", `${runs[0]?.id ?? ""}.json`));
-    expect(file).toMatchObject({ pid: process.pid });
   });
 
   it("survives a run that returns nothing", async () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     const { lines, print } = collector();
     const engine = await engineIn(state, print);
     await engine.run<undefined>("quiet", undefined);
-    await engine.stop();
+    await engine.dispose();
     expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
-    expect(readdirSync(join(state, "runs"))).toHaveLength(1);
+    expect(await readStoredRuns(state, "test")).toHaveLength(1);
   });
 
-  it("skips a corrupt file with a warning instead of failing to start", async () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+  it("ignores run files an earlier Marbles left in the state dir", async () => {
+    const state = temporaryDirectory("marbles-state-");
     mkdirSync(join(state, "runs"));
     writeFileSync(join(state, "runs", "rn-bad.json"), "{ not json");
     writeFileSync(join(state, "runs", "rn-hollow.json"), '{"pid": 1}');
@@ -126,68 +109,30 @@ describe("run files", () => {
     const engine = await engineIn(state, print);
     await engine.run<string>("shout", "one");
     const runs = await engine.runs();
-    await engine.stop();
+    await engine.dispose();
 
     expect(runs).toHaveLength(1);
-    expect(lines.filter((line) => line.startsWith("[state] skipped"))).toEqual([
-      expect.stringMatching(SKIPPED_RUNS_RN_BAD_JSON_PATTERN),
-      expect.stringMatching(SKIPPED_RUNS_RN_HOLLOW_JSON_PATTERN),
-    ]);
+    expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
   });
 });
 
 describe("workspace", () => {
-  it("derives one id per root and upserts workspace.json", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
-    const a = mkdtempSync(join(tmpdir(), "marbles-ws-a-"));
-    const b = mkdtempSync(join(tmpdir(), "marbles-ws-b-"));
+  it("derives one id per root, and its directory under the state root", () => {
+    const state = temporaryDirectory("marbles-state-");
+    const a = temporaryDirectory("marbles-ws-a-");
+    const b = temporaryDirectory("marbles-ws-b-");
 
     const first = workspaceState(state, a);
     expect(workspaceState(state, a).id).toBe(first.id);
     expect(workspaceState(state, b).id).not.toBe(first.id);
     expect(first.id).toMatch(SHORT_HEX_ID_PATTERN);
     expect(first.dir).toBe(join(state, first.id));
-
-    first.touch(join(a, "marbles.config.ts"));
-    const seen = readJson(join(first.dir, "workspace.json"));
-    expect(seen).toMatchObject({
-      config: join(a, "marbles.config.ts"),
-      id: first.id,
-      root: first.root,
-    });
-    expect(seen).toHaveProperty("firstSeen");
-    expect(seen).toHaveProperty("lastSeen");
-
-    first.touch(null);
-    expect(readJson(join(first.dir, "workspace.json"))).toMatchObject({
-      config: null,
-      firstSeen: seen.firstSeen,
-    });
-  });
-
-  it("finds a recorded workspace only in a real directory under the state root", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
-    const root = mkdtempSync(join(tmpdir(), "marbles-ws-"));
-    const recorded = workspaceState(state, root);
-    recorded.touch(null);
-    expect(recordedState(state, recorded.id)?.dir).toBe(recorded.dir);
-    // A symlinked entry whose target carries a matching record is not one.
-    const outside = mkdtempSync(join(tmpdir(), "marbles-outside-"));
-    writeFileSync(
-      join(outside, "workspace.json"),
-      JSON.stringify({ id: "abc", root: outside })
-    );
-    symlinkSync(outside, join(state, "abc"));
-    expect(recordedState(state, "abc")).toBeUndefined();
-    expect(listWorkspaces(state).map((record) => record.id)).toEqual([
-      recorded.id,
-    ]);
   });
 });
 
 describe("locks", () => {
   it("yields to a live holder and replaces a dead one", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     mkdirSync(join(state, "locks"));
 
     writeFileSync(join(state, "locks", "s"), String(process.pid));
@@ -200,7 +145,7 @@ describe("locks", () => {
     const lock = acquireLock(state, "s");
     expect(lock).toHaveProperty("release");
     expect(readFileSync(join(state, "locks", "s"), "utf8")).toBe(
-      String(process.pid)
+      lockContents()
     );
     if ("release" in lock) {
       lock.release();
@@ -209,7 +154,7 @@ describe("locks", () => {
   });
 
   it("waits out a lock being taken, and breaks one left empty", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     mkdirSync(join(state, "locks"));
     const path = join(state, "locks", "s");
     writeFileSync(path, "");
@@ -222,11 +167,11 @@ describe("locks", () => {
     const old = new Date(Date.now() - 60_000);
     utimesSync(path, old, old);
     expect(acquireLock(state, "s")).toHaveProperty("release");
-    expect(readFileSync(path, "utf8")).toBe(String(process.pid));
+    expect(readFileSync(path, "utf8")).toBe(lockContents());
   });
 
   it("never breaks a lock that is not a pid, and says how to clear it", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     mkdirSync(join(state, "locks"));
     const path = join(state, "locks", "s");
     writeFileSync(path, "by hand");
@@ -238,12 +183,11 @@ describe("locks", () => {
   });
 
   it("releases only a lock it still holds", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+    const state = temporaryDirectory("marbles-state-");
     const lock = acquireLock(state, "s");
     if (!("release" in lock)) {
       throw new Error("expected the lock");
     }
-    // Taken over meanwhile, as by a breaker that judged this process gone.
     writeFileSync(join(state, "locks", "s"), "999999999");
     lock.release();
     expect(readFileSync(join(state, "locks", "s"), "utf8")).toBe("999999999");
@@ -260,55 +204,89 @@ describe("schedule state", () => {
     workflow: "shout",
   };
 
-  it("records each tick and skips while another process holds the lock", async () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
+  it("records each tick and skips while another engine's tick of it is under way", async () => {
+    const state = temporaryDirectory("marbles-state-");
     const { lines, print } = collector();
     const engine = await engineIn(state, print);
 
     const result = await tick(engine, schedule, { print });
     expect(result).toEqual({ value: "HI" });
-    expect(existsSync(join(state, "locks", "schedule:s"))).toBe(false);
-    const history = readJson(join(state, "schedules", "s.json"));
-    expect(history.lastStatus).toBe("complete");
-    expect(Object.keys(history).sort()).toEqual([
-      "kind",
-      "label",
-      "lastFinish",
-      "lastStart",
-      "lastStatus",
-      "nextDue",
-      "version",
-    ]);
-    expect(history.label).toBe("shout hi");
+    const other = defaultWorkspaceTriggers(state, process.cwd(), "test");
+    expect(await other.lastTick("s")).toEqual({
+      kind: "schedule",
+      label: "shout hi",
+      lastFinish: expect.any(String),
+      lastStart: expect.any(String),
+      lastStatus: "complete",
+      nextDue: expect.any(String),
+    });
 
     await expect(
       tick(engine, { ...schedule, workflow: "explode" }, { print })
     ).rejects.toThrow(BOOM_PATTERN);
-    expect(readJson(join(state, "schedules", "s.json"))).toMatchObject({
-      lastStatus: "failed",
-    });
-    expect(existsSync(join(state, "locks", "schedule:s"))).toBe(false);
+    expect(await other.lastTick("s")).toMatchObject({ lastStatus: "failed" });
 
-    writeFileSync(join(state, "locks", "schedule:s"), String(process.pid));
-    await expect(tick(engine, schedule, { print })).resolves.toBe(undefined);
-    expect(lines).toContain(
-      `[schedule] s skipped: held by pid ${String(process.pid)}`
-    );
-    await engine.stop();
+    expect(await other.claimTick("s")).toEqual({ claimed: true });
+    await expect(tick(engine, schedule, { print })).resolves.toEqual({
+      skipped: "held by this process",
+    });
+    expect(lines).toContain("[schedule] s skipped: held by this process");
+    await other.finishTick("s");
+    await other.close();
+    await engine.dispose();
+  });
+
+  it("gives a tick's claim up when its record cannot be written, so the next tick runs", async () => {
+    const memory = new MemoryTriggerStore();
+    let refusals = 1;
+    const triggers: TriggerStore = {
+      claimTick: (key) => memory.claimTick(key),
+      clearPendingLaunch: (key) => memory.clearPendingLaunch(key),
+      close: () => memory.close(),
+      finishTick: (key, history) => {
+        if (history !== undefined && refusals > 0) {
+          refusals -= 1;
+          return Promise.reject(new Error("the database is busy"));
+        }
+        return memory.finishTick(key, history);
+      },
+      lastTick: (key) => memory.lastTick(key),
+      monitorState: (key) => memory.monitorState(key),
+      saveMonitorState: (key, state) => memory.saveMonitorState(key, state),
+    };
+    let launches = 0;
+    const engine = {
+      cancel: () => Promise.resolve(),
+      has: () => true,
+      launch: () => {
+        launches += 1;
+        return Promise.resolve({ id: "run", result: Promise.resolve("ok") });
+      },
+      schedules: () => Promise.resolve([schedule]),
+      triggers,
+    } as ScheduledEngine;
+
+    await expect(
+      tick(engine, schedule, { print: () => undefined })
+    ).rejects.toThrow("the database is busy");
+    await expect(
+      tick(engine, schedule, { print: () => undefined })
+    ).resolves.toEqual({ value: "ok" });
+    expect(launches).toBe(2);
+    expect(await memory.lastTick("s")).toMatchObject({
+      lastStatus: "complete",
+    });
   });
 
   it("seeds the loop from the recorded finish so a restart keeps cadence", async () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-state-"));
-    mkdirSync(join(state, "schedules"));
-    writeFileSync(
-      join(state, "schedules", "s.json"),
-      JSON.stringify({
-        lastFinish: new Date(95).toISOString(),
-        lastStart: new Date(90).toISOString(),
-        lastStatus: "complete",
-        nextDue: new Date(105).toISOString(),
-      })
-    );
+    const triggers = new MemoryTriggerStore();
+    await triggers.claimTick("s");
+    await triggers.finishTick("s", {
+      lastFinish: new Date(95).toISOString(),
+      lastStart: new Date(90).toISOString(),
+      lastStatus: "complete",
+      nextDue: new Date(105).toISOString(),
+    });
     const dispatched: number[] = [];
     let clock = 100;
     const controller = new AbortController();
@@ -320,8 +298,8 @@ describe("schedule state", () => {
         controller.abort();
         return Promise.resolve({ id: "run", result: Promise.resolve() });
       },
-      schedules: () => [schedule],
-      store: new JsonStateStore(state),
+      schedules: () => Promise.resolve([schedule]),
+      triggers,
     } as ScheduledEngine;
 
     await runSchedules(engine, {
@@ -333,118 +311,10 @@ describe("schedule state", () => {
         return Promise.resolve();
       },
     });
-    // Without the seed the first tick would wait until 110.
     expect(dispatched).toEqual([105]);
-    expect(readJson(join(state, "schedules", "s.json"))).toMatchObject({
+    expect(await triggers.lastTick("s")).toMatchObject({
       lastFinish: new Date(105).toISOString(),
       nextDue: new Date(115).toISOString(),
     });
-  });
-});
-
-describe.each([
-  [
-    "JsonStateStore",
-    () => new JsonStateStore(mkdtempSync(join(tmpdir(), "marbles-store-"))),
-    `pid ${String(process.pid)}`,
-  ],
-  ["InMemoryStateStore", () => new InMemoryStateStore(), "this process"],
-] as const)("%s", (_name, open: () => StateStore, holder: string) => {
-  it("reads, lists and removes documents by collection and key", () => {
-    const store = open();
-    expect(store.read("monitors", "m")).toBeUndefined();
-    expect(store.list("monitors")).toEqual([]);
-    store.write("monitors", "m", { seen: [1] });
-    store.write("monitors", "a", { seen: [] });
-    store.write("schedules", "m", { other: true });
-    expect(store.read("monitors", "m")).toEqual({ seen: [1] });
-    expect(
-      store.list("monitors").map(({ key, value }) => [key, value])
-    ).toEqual([
-      ["a", { seen: [] }],
-      ["m", { seen: [1] }],
-    ]);
-    expect(store.list("monitors")[0]?.modified).toBeGreaterThan(0);
-    store.remove("monitors", "m");
-    store.remove("monitors", "never");
-    expect(store.read("monitors", "m")).toBeUndefined();
-    expect(store.read("schedules", "m")).toEqual({ other: true });
-  });
-
-  it("hands out copies, never its own documents", () => {
-    const store = open();
-    const written = { files: { "a.md": "1" } };
-    store.write("monitors", "m", written);
-    written.files["a.md"] = "2";
-    const read = store.read("monitors", "m") as typeof written;
-    read.files["a.md"] = "3";
-    expect(store.read("monitors", "m")).toEqual({ files: { "a.md": "1" } });
-  });
-
-  it("moves a collection's revision on every write and removal, and only then", () => {
-    const store = open();
-    const empty = store.revision("automations");
-    expect(store.revision("automations")).toBe(empty);
-    store.write("automations", "x", { n: 1 });
-    const one = store.revision("automations");
-    expect(one).not.toBe(empty);
-    store.write("monitors", "x", { n: 1 });
-    expect(store.revision("automations")).toBe(one);
-    store.write("automations", "x", { n: 1 });
-    const rewritten = store.revision("automations");
-    expect(rewritten).not.toBe(one);
-    store.remove("automations", "x");
-    expect(store.revision("automations")).not.toBe(rewritten);
-  });
-
-  it("holds a lock for one holder until it is released, and says who holds it", () => {
-    const store = open();
-    const lock = store.lock("s");
-    if ("holder" in lock) {
-      throw new Error("expected the lock");
-    }
-    expect(store.lock("s")).toEqual({ holder });
-    const other = store.lock("t");
-    expect(other).toHaveProperty("release");
-    lock.release();
-    const again = store.lock("s");
-    expect(again).toHaveProperty("release");
-    for (const held of [again, other]) {
-      if ("release" in held) {
-        held.release();
-      }
-    }
-  });
-
-  it("refuses a key or lock name that is not one plain name", () => {
-    const store = open();
-    for (const name of ["", ".", "..", "a/b", "../escape", "a\\b", "nul\0"]) {
-      expect(() => store.write("monitors", name, {})).toThrow(PLAIN_NAME);
-      expect(() => store.read("monitors", name)).toThrow(PLAIN_NAME);
-      expect(() => store.remove("monitors", name)).toThrow(PLAIN_NAME);
-      expect(() => store.lock(name)).toThrow(PLAIN_NAME);
-    }
-    expect(store.list("monitors")).toEqual([]);
-    store.write("monitors", "automation-1.v2", {});
-    expect(store.read("monitors", "automation-1.v2")).toEqual({});
-  });
-});
-
-describe("JsonStateStore", () => {
-  it("keeps the layout status reads, and lists an unreadable document with its error", () => {
-    const state = mkdtempSync(join(tmpdir(), "marbles-store-"));
-    const store = new JsonStateStore(state);
-    store.write("schedules", "s", { lastFinish: "x", version: 1 });
-    expect(readJson(join(state, "schedules", "s.json"))).toEqual({
-      lastFinish: "x",
-      version: 1,
-    });
-    writeFileSync(join(state, "schedules", "broken.json"), "{ nope");
-    writeFileSync(join(state, "schedules", "notes.txt"), "ignored");
-    const [broken, kept] = store.list("schedules");
-    expect(broken?.key).toBe("broken");
-    expect(broken?.error).toContain("SyntaxError");
-    expect(store.read("schedules", "broken")).toBeUndefined();
-    expect(kept).toMatchObject({ key: "s", value: { lastFinish: "x" } });
   });
 });

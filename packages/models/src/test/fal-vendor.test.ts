@@ -1,20 +1,3 @@
-/**
- * Caller-owned instrument. Nothing here runs without a key, and nothing here
- * is a gate: each test names the specification.md "Evidence limits" row it
- * would close, and its absence of a run is the deferral, not a pass.
- *
- *   FAL_KEY=… bun run --cwd=packages/models test:integration -- fal-vendor
- *
- * Two tests need media the repository does not carry. Supply them and they run;
- * omit them and they skip:
- *
- *   FAL_KEY=… FAL_VENDOR_VIDEO=/abs/path/clip.mp4 \
- *     bun run --cwd=packages/models test:integration -- fal-vendor
- *
- * The four live rows (Klein, LCM, Lucy 2.5, H3 Max Director) are not exercised
- * here; transport checks are in `live/fal-vendor.test.ts`. Token minting,
- * which those rows depend on, is tested here.
- */
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
@@ -26,7 +9,6 @@ import type { CapabilityFact, OperationName } from "../types";
 const { FAL_KEY } = process.env;
 const VIDEO_PATH = process.env.FAL_VENDOR_VIDEO;
 
-/** A 1x1 PNG, inlined so the instrument depends on no file outside the repo. */
 const ONE_PIXEL_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64"
@@ -155,8 +137,6 @@ describe.skipIf(!FAL_KEY)("FAL vendor obligations", () => {
       if (output?.operation !== "segment-video") {
         throw new Error("expected a segment-video output");
       }
-      // The pinned endpoint contract declares only a segmented video, so an
-      // empty track list here confirms the gap rather than failing the run.
       expect(output.preview?.bytes.byteLength).toBeGreaterThan(0);
     });
   });

@@ -1,14 +1,3 @@
-/**
- * Foundry's prepared visualization (`map.json`, schema 1), its package
- * dependency graph (`dependency-graph.json`) and, when given, the islands'
- * insides from the same Spyglass dataset (foundry-internals.ts) as a
- * `Chart`.
- *
- * Inputs arrive as `unknown`. The adapter cleans or skips invalid data,
- * recording notes, and rejects unsupported map schema versions. Foundry's
- * coordinates already have their origin at the centre of `width` by `height`, so they are kept as
- * they are, made absolute by adding each island's place to its rings.
- */
 import {
   CHART_VERSION,
   type Chart,
@@ -40,7 +29,6 @@ import {
 } from "./foundry-read";
 import { type Bounds, chartBounds, cleanRing, orientPolygon } from "./geometry";
 
-/** A Foundry map this adapter cannot read. */
 class ChartError extends Error {
   constructor(message: string) {
     super(message);
@@ -48,15 +36,12 @@ class ChartError extends Error {
   }
 }
 
-/** The `schemaVersion` this adapter reads. */
 const FOUNDRY_SCHEMA_VERSION = 1;
-/** The geometry policy the adapter was written against; others are read the same, with a note. */
 const FOUNDRY_POLICY_VERSION = 6;
 
 const DEFAULT_ROUTE_KIND = "dependency";
 const DEFAULT_ROUTE_STRENGTH = 1;
 
-/** A ring from Foundry's points about `at`, absolute, or null if unusable. */
 function readRing(
   value: unknown,
   at: Point,
@@ -80,7 +65,6 @@ function readRing(
   return cleanRing(points);
 }
 
-/** A Foundry polygon (outer ring, then holes) as a chart polygon, oriented. */
 function readPolygon(
   value: unknown,
   at: Point,
@@ -126,7 +110,6 @@ interface NodeFacts {
   readonly layer: number | null;
 }
 
-/** The graph's nodes by id; edges are read with the routes. */
 function readNodes(graph: Fields | null): ReadonlyMap<string, NodeFacts> {
   const nodes = new Map<string, NodeFacts>();
   for (const item of listOf(graph?.nodes)) {
@@ -140,7 +123,6 @@ function readNodes(graph: Fields | null): ReadonlyMap<string, NodeFacts> {
   return nodes;
 }
 
-/** The farthest coast point from the island's place: its size when the source gives none. */
 function reach(at: Point, coast: readonly Polygon[]): number {
   let far = 0;
   for (const { outer } of coast) {
@@ -223,7 +205,6 @@ const edgeStrength: StrengthOf = (edge) =>
 
 const routeStrength: StrengthOf = (route) => route.weight;
 
-/** A route's ends, kind and strength, or null without both ends. */
 function readRoute(value: unknown, strengthOf: StrengthOf): Route | null {
   if (!(isFields(value) && isText(value.from) && isText(value.to))) {
     return null;
@@ -240,7 +221,6 @@ function readRoute(value: unknown, strengthOf: StrengthOf): Route | null {
   };
 }
 
-/** Every list's routes between islands on the chart, each `from`, `to`, `kind` once. */
 function readRoutes(
   lists: readonly (readonly [string, readonly unknown[], StrengthOf])[],
   islands: ReadonlySet<string>,
@@ -273,7 +253,6 @@ function readRoutes(
   return routes;
 }
 
-/** Members on the chart, once each; `exclude` is never its own member. */
 function readMembers(
   value: unknown,
   where: string,
@@ -346,7 +325,6 @@ function readLobes(
   return lobes;
 }
 
-/** The centre of the lobes, for a foundation that gives no place of its own. */
 function lobeCentre(lobes: readonly Lobe[]): Point | null {
   if (lobes.length === 0) {
     return null;
@@ -360,7 +338,6 @@ function lobeCentre(lobes: readonly Lobe[]): Point | null {
   return [x / lobes.length, y / lobes.length];
 }
 
-/** How much the workspace leans on it: the source's figure, or its member count. */
 function readProminence(
   value: unknown,
   members: readonly Member[],
@@ -430,7 +407,6 @@ function uniqueById<T extends { readonly id: string }>(
   return kept;
 }
 
-/** The ids of `value` that `known` holds, once each; the rest noted. */
 function knownIds(
   value: unknown,
   known: ReadonlySet<string>,
@@ -505,10 +481,6 @@ function readSupplier(
   };
 }
 
-/**
- * The extent from the source, grown to hold every coast if it does not; or,
- * without one, the smallest centred extent that does.
- */
 function readExtent(
   map: Fields,
   land: Bounds,
@@ -557,10 +529,6 @@ function noteUncarried(map: Fields, notes: Notes) {
   }
 }
 
-/**
- * Foundry's `map.json` and, optionally, its dependency graph as a chart.
- * Throws `ChartError` when `map` is not schema 1.
- */
 export function chartFromFoundry(
   map: unknown,
   graph?: unknown,

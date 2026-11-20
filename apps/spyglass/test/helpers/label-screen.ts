@@ -1,12 +1,6 @@
 import type { LabelScreen } from "../../src/web/layout/label-candidates";
 import type { InkView } from "../../src/web/view/chart-view";
 
-/**
- * The canvas a flat view covers, as the labels are placed on it: a camera
- * without perspective centred on the view's point, its north–south
- * foreshortened by the view's tilt (none without one), so the chart's
- * rectangle under the view is exactly the canvas.
- */
 export function flatScreen(view: InkView): LabelScreen {
   const pixels = view.pixelsPerUnit;
   const squash = Math.cos(view.tilt ?? 0);
@@ -23,13 +17,6 @@ export function flatScreen(view: InkView): LabelScreen {
   };
 }
 
-/**
- * A perspective camera as Islands' is: looking north at the chart's origin
- * from `distance` units away, `pitch` radians above the horizon, with a
- * vertical field of view of `fieldOfView`, over a canvas of the given size.
- * Its scale at the origin, `pixelsPerUnit`, is the one Islands reports at
- * its target; `at` projects a chart point (y south) on the sea.
- */
 export function perspectiveCamera(options: {
   distance: number;
   fieldOfView: number;
@@ -39,7 +26,6 @@ export function perspectiveCamera(options: {
 }) {
   const { distance, fieldOfView, height, pitch, width } = options;
   const focal = height / 2 / Math.tan(fieldOfView / 2);
-  // The eye, south of the origin and above it; world y is up, z south.
   const eye = { y: distance * Math.sin(pitch), z: distance * Math.cos(pitch) };
   const project = (x: number, y: number) => {
     const up = -eye.y;

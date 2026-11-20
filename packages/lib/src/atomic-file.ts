@@ -1,10 +1,3 @@
-/**
- * Whole-file writes that a concurrent reader never sees half done, and the
- * reads that pair with them.
- *
- * Node-bound: import it from main-process code only.
- */
-
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -19,49 +12,27 @@ import {
 import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-/** True when `error` is a Node system error carrying this `code` (ENOENT, EEXIST, ...). */
 export function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
-/** True when `error` says a path, or a directory on it, does not exist (ENOENT or ENOTDIR). */
 export function isMissingPath(error: unknown): boolean {
   return hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ENOTDIR");
 }
 
 export interface AtomicWriteOptions {
-  /** Create missing parent directories first. Implied by `directoryMode`. */
   readonly createDirectory?: boolean;
-  /** Mode for parent directories this call creates; existing ones keep theirs. */
   readonly directoryMode?: number;
-  /**
-   * Flush the bytes to disk before the rename, so a crash cannot leave an
-   * empty file in place, and flush the directory after it, so the rename
-   * itself survives one.
-   */
   readonly fsync?: boolean;
-  /**
-   * The file's mode, exactly: the temporary is created with it and then set
-   * through its handle, so the umask cannot narrow it. Defaults to 0o666 less
-   * the umask, like `writeFile`.
-   */
   readonly mode?: number;
 }
 
-/** What `writeFile` creates a file with before the umask applies. */
 const DEFAULT_FILE_MODE = 0o666;
 
-/** A fresh name beside `path` for the temporary a write renames over it. */
 function temporaryBeside(path: string): string {
   return `${path}.${randomUUID()}.tmp`;
 }
 
-/**
- * Write `contents` to a fresh temporary beside `path`, then rename it over
- * `path`. The temporary is created exclusively. A failure before rename leaves
- * the previous file untouched; a directory sync failure can occur after the
- * replacement. Cleanup of the temporary is attempted in either case.
- */
 export async function writeFileAtomic(
   path: string,
   contents: string | Uint8Array,
@@ -82,10 +53,6 @@ export async function writeFileAtomic(
   const temporary = temporaryBeside(path);
   try {
     if (fsync || mode !== undefined) {
-      // Created with the requested mode, so the bytes are never readable more
-      // widely than asked; then set exactly through the handle, since the
-      // umask may have narrowed the creation mode. Set after the write, which
-      // clears the set-user-ID and set-group-ID bits.
       const file = await open(temporary, "wx", mode ?? DEFAULT_FILE_MODE);
       try {
         await file.writeFile(contents);
@@ -111,20 +78,11 @@ export async function writeFileAtomic(
 }
 
 export interface AtomicWriteSyncOptions {
-  /** Create missing parent directories first. */
   readonly createDirectory?: boolean;
-  /** Flush the bytes before the rename and the directory after it, as `writeFileAtomic` does. */
   readonly fsync?: boolean;
-  /** The file's mode, exactly: the temporary is created with it and then set through its descriptor, so the umask cannot narrow it. */
   readonly mode?: number;
 }
 
-/**
- * `writeFileAtomic` for synchronous callers. It supports `createDirectory`,
- * `fsync`, and `mode`, but no `directoryMode`. The temporary is created
- * exclusively beside `path` and renamed over it. Cleanup is attempted on
- * failure; a directory sync failure can occur after replacement.
- */
 export function writeFileAtomicSync(
   path: string,
   contents: string | Uint8Array,
@@ -135,10 +93,6 @@ export function writeFileAtomicSync(
   }
   const temporary = temporaryBeside(path);
   try {
-    // Created with the requested mode, so the bytes are never readable more
-    // widely than asked; then set exactly through the descriptor, since the
-    // umask may have narrowed the creation mode. Set again after the write,
-    // which clears the set-user-ID and set-group-ID bits.
     const descriptor = openSync(
       temporary,
       "wx",
@@ -176,16 +130,8 @@ function syncFileSync(path: string): void {
   }
 }
 
-/**
- * Platforms and filesystems that cannot open or flush a directory (Windows,
- * some network and FUSE mounts, a directory without read permission) say so
- * with these. They are swallowed: the rename has already landed, so the
- * write succeeded and only its durability across a crash is weaker. Any other
- * error is reported, though the file has by then been replaced.
- */
 const UNSYNCABLE_DIRECTORY = ["EACCES", "EINVAL", "EISDIR", "ENOTSUP", "EPERM"];
 
-/** Flushes a directory's entries to disk, so a rename or a new entry in it survives a crash; see `UNSYNCABLE_DIRECTORY`. */
 export function syncDirectorySync(path: string): void {
   try {
     syncFileSync(path);
@@ -196,7 +142,7 @@ export function syncDirectorySync(path: string): void {
   }
 }
 
-async function syncDirectory(path: string): Promise<void> {
+export async function syncDirectory(path: string): Promise<void> {
   try {
     const directory = await open(path, "r");
     try {
@@ -211,11 +157,6 @@ async function syncDirectory(path: string): Promise<void> {
   }
 }
 
-/**
- * The parsed JSON at `path`, or `undefined` when the file does not exist.
- * Strict otherwise: an unreadable file or invalid JSON throws, because the
- * callers of this variant must not mistake damage for absence.
- */
 export async function readJsonFile(path: string): Promise<unknown> {
   let contents: string;
   try {

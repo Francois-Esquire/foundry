@@ -1,184 +1,667 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash } from "node:crypto";
+import type { LoggedChange, MoveOutcome, ObserverKey } from "~/lib/events/log";
+import { CHANGE_BATCH } from "~/lib/events/log";
 import type { WorkspaceRecords } from "~/lib/events/records";
-import { RecordsHeldError } from "~/lib/events/records";
-import type { Handler, Source } from "~/lib/events/source";
+import type { Fact, Handler, Source } from "~/lib/events/source";
+import { sourceKey } from "~/lib/events/source";
+import type { ExecutionContext } from "~/lib/execution-context";
+import { inContext } from "~/lib/execution-context";
 import { current } from "~/lib/run-scope";
 
-/**
- * Hands each stored item to every observer of its source that has not
- * completed it, and records each completion by the observer's hash.
- *
- * An observer is known by a hash of its handler's text, as
- * `Function.prototype.toString` gives it, and its place among observers of
- * that source with the same text, in registration order. The hash survives a
- * restart of unchanged source; it is not identity:
- *
- * - Captured values are not part of it: `observe(tasks, notify("a"))` and
- *   `observe(tasks, notify("b"))` differ only by that place, so swapping the
- *   two registrations swaps which has delivered what.
- * - An edit to a handler's code makes it a new observer, and every observer
- *   receives every item it has not completed. Items are never removed, so a
- *   new or edited observer receives the workspace's whole history. Under Bun
- *   the text is the transpiled code, without types or comments, so editing
- *   only those may keep the hash, and a Bun that transpiles differently
- *   changes them all.
- *
- * One pass at a time; within it, items oldest first and each observer in
- * registration order, one handler at a time, outside any write. A handler
- * that throws leaves its hash absent and is tried again on the next pass,
- * which the next emitted item or the next start begins. A handler that
- * completed but whose hash could not be saved runs again: delivery is at
- * least once, never exactly once.
- *
- * Each observer sees items in the order they were stored: it is handed an
- * item only once every earlier item of its source is recorded as completed
- * by it. A handler that throws, or whose completion could not be saved, is
- * handed nothing more in that pass, so the item it did not complete is the
- * first it gets next time, before any later one. Other observers go on. The
- * cost is the usual one of ordered delivery: an item a handler keeps failing
- * on holds back that handler's later items until it completes it.
- *
- * A pass never runs inside a run. A write inside a step body wakes delivery
- * as its turn ends, and a pass started there would otherwise inherit that
- * step's frame: a definition a handler calls would join the writer's run
- * as a dynamic child instead of starting a run of its own. So a pass runs
- * in the async context this delivery was built in, not the waker's (which
- * also keeps a host's per-call output capture out of it), and with no run
- * frame even when it was built inside a step body, as an `Engine` can be.
- * A handler's calls therefore run like any call outside a step; calls made
- * inside a step body still join that step's run.
- */
+export const DELIVERY_POLL_MS = 1000;
 
-interface Observer {
-  readonly handler: Handler<unknown>;
-  readonly hash: string;
-  readonly source: symbol;
+const CHANGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+const COMPACTION_EVERY_MS = 10 * 60 * 1000;
+
+const HANDLER_TIMEOUT_MS = 5 * 60 * 1000;
+
+const STOP_GRACE_MS = 10 * 1000;
+
+const LONGEST_RETRY_MS = 5 * 60 * 1000;
+const FIRST_RETRY_MS = 1000;
+
+export function retryDelay(failures: number): number {
+  return Math.min(
+    FIRST_RETRY_MS * 2 ** Math.max(0, failures - 1),
+    LONGEST_RETRY_MS
+  );
 }
 
-const HASH_LENGTH = 32;
+export interface DeliveryClock {
+  after(ms: number): { readonly done: Promise<void>; cancel(): void };
+  every(ms: number, tick: () => void): { cancel(): void };
+  now(): number;
+}
+
+const WALL_CLOCK: DeliveryClock = {
+  after(ms) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms);
+      timer.unref?.();
+    });
+    return { cancel: () => clearTimeout(timer), done };
+  },
+  every(ms, tick) {
+    const timer = setInterval(tick, ms);
+    timer.unref?.();
+    return { cancel: () => clearInterval(timer) };
+  },
+  now: () => Date.now(),
+};
+
+export interface ObserveOptions {
+  readonly name: string;
+  readonly timeout?: number | undefined;
+  readonly types?: readonly string[];
+}
+
+interface Observer {
+  call: { readonly since: number; readonly settled: Promise<void> } | undefined;
+  failures: number;
+  readonly handler: Handler<unknown>;
+  readonly key: ObserverKey;
+  lane: Promise<void> | undefined;
+  position: number;
+  retryAt: number | null;
+  readonly timeout: number;
+  readonly types: readonly string[] | undefined;
+}
+
+export interface DeliveryOptions {
+  readonly clock?: DeliveryClock;
+  readonly compactionStep?: number | undefined;
+  readonly context?: ExecutionContext;
+  readonly handlerTimeout?: number | undefined;
+  readonly print: (line: string) => void;
+  readonly records: WorkspaceRecords;
+  readonly retention?: number | undefined;
+  readonly stopGrace?: number | undefined;
+}
+
+type Outcome =
+  | { readonly kind: "completed" }
+  | { readonly error: unknown; readonly kind: "threw" }
+  | { readonly kind: "timed out" }
+  | { readonly kind: "abandoned" };
 
 export class Delivery {
   readonly #observers: Observer[] = [];
+  readonly #context: ExecutionContext | undefined;
   readonly #records: WorkspaceRecords;
   readonly #print: (line: string) => void;
-  #phase: "new" | "running" | "stopped" = "new";
+  readonly #clock: DeliveryClock;
+  readonly #retention: number;
+  readonly #compactionStep: number | undefined;
+  readonly #handlerTimeout: number;
+  readonly #stopGrace: number;
+  #claimed = false;
+  #claiming: Promise<void> | undefined;
+  #phase:
+    | "new"
+    | "starting"
+    | "waiting"
+    | "running"
+    | "compacting"
+    | "stopped" = "new";
   #pass: Promise<void> | undefined;
-  #wakes = 0;
-  /** Runs a pass in the context this delivery was built in; see above. */
+  #again = false;
+  readonly #abandon = new Set<() => void>();
+  readonly #stopped: { gaveUp: boolean } = { gaveUp: false };
+  #timer: { cancel(): void } | undefined;
+  #compactTimer: { cancel(): void } | undefined;
+  #compacting: Promise<void> | undefined;
+  #compactionProblem: string | undefined;
+  #problem: string | undefined;
   readonly #built = AsyncLocalStorage.snapshot();
 
-  constructor(records: WorkspaceRecords, print: (line: string) => void) {
-    this.#records = records;
-    this.#print = print;
+  constructor(options: DeliveryOptions) {
+    this.#records = options.records;
+    this.#print = options.print;
+    this.#context = options.context;
+    this.#clock = options.clock ?? WALL_CLOCK;
+    this.#retention = options.retention ?? CHANGE_RETENTION_MS;
+    this.#compactionStep = options.compactionStep;
+    this.#handlerTimeout = options.handlerTimeout ?? HANDLER_TIMEOUT_MS;
+    this.#stopGrace = options.stopGrace ?? STOP_GRACE_MS;
   }
 
-  /** Follow `source` with `handler`, from the next start or the next pass. */
-  observe<T>(source: Source<T>, handler: Handler<T>): void {
-    const text = handler.toString();
-    const place = this.#observers.filter(
-      (observer) =>
-        observer.source === source && observer.handler.toString() === text
-    ).length;
+  observe<T extends Fact>(
+    source: Source<T>,
+    handler: Handler<T>,
+    options: ObserveOptions
+  ): void {
+    const key = sourceKey(source);
+    if (key === undefined) {
+      throw new TypeError("observe: the source is not something Marbles emits");
+    }
+    const name = options.name.trim();
+    if (name === "") {
+      throw new TypeError("observe: an observer's name cannot be blank");
+    }
+    if (
+      options.timeout !== undefined &&
+      !(Number.isFinite(options.timeout) && options.timeout > 0)
+    ) {
+      throw new TypeError(
+        "observe: an observer's timeout is a number of ms above 0"
+      );
+    }
+    if (
+      this.#observers.some(
+        (observer) => observer.key.source === key && observer.key.name === name
+      )
+    ) {
+      throw new Error(
+        `observe: an observer of ${key} named "${name}" is already declared in this workspace; give each its own name`
+      );
+    }
     this.#observers.push({
-      // A source emits only its own payload type.
+      call: undefined,
+      failures: 0,
       handler: handler as Handler<unknown>,
-      hash: createHash("sha256")
-        .update(`${text}\0${String(place)}`)
-        .digest("hex")
-        .slice(0, HASH_LENGTH),
-      source,
+      key: { name, source: key },
+      lane: undefined,
+      position: 0,
+      retryAt: null,
+      timeout: options.timeout ?? this.#handlerTimeout,
+      types: options.types === undefined ? undefined : [...options.types],
     });
   }
 
-  /**
-   * Own the records, so a problem with them surfaces here. Without observers
-   * nothing is read. Records another process owns are left to it; records
-   * that cannot be read fail the start.
-   */
   async start(): Promise<void> {
-    if (this.#phase !== "new" || this.#observers.length === 0) {
+    if (this.#phase !== "new") {
+      return;
+    }
+    if (this.#observers.length === 0) {
+      this.#phase = "compacting";
+      this.#compactEvery();
+      return;
+    }
+    this.#phase = "starting";
+    await this.#declare();
+    this.#compactEvery();
+    const holder = await this.#claim();
+    if (this.#phase !== "starting") {
+      await this.#release();
+      return;
+    }
+    if (holder !== undefined) {
+      this.#print(
+        `[observe] not delivering here: the changes of this workspace are delivered by ${holder}; delivering here once it stops`
+      );
+      this.#phase = "waiting";
+      this.#tickEvery();
       return;
     }
     try {
-      await this.#records.open();
+      await this.#takeOver();
     } catch (error) {
-      if (!(error instanceof RecordsHeldError)) {
-        throw error;
-      }
-      this.#print(`[observe] not delivering here: ${error.message}`);
+      await this.#release();
+      throw error;
+    }
+    if (this.#phase !== "starting") {
+      await this.#release();
       return;
     }
     this.#phase = "running";
+    this.#tickEvery();
+    this.wake();
   }
 
-  /** Begin a pass, or another after the one in progress. */
   wake(): void {
     if (this.#phase !== "running") {
       return;
     }
-    this.#wakes += 1;
     if (this.#pass !== undefined) {
+      this.#again = true;
       return;
     }
-    this.#pass = this.#built(() => current.exit(() => this.#run())).finally(
-      () => {
-        this.#pass = undefined;
-      }
+    this.#again = false;
+    this.#pass = this.#built(() =>
+      current.exit(() => {
+        const context = this.#context;
+        return context === undefined
+          ? this.#run()
+          : inContext(context, () => this.#run());
+      })
     );
   }
 
-  /** Start no handler again; wait for the one running. */
-  async stop(): Promise<void> {
-    this.#phase = "stopped";
-    await this.#pass;
-  }
-
-  async #run(): Promise<void> {
-    let seen: number;
-    do {
-      seen = this.#wakes;
-      try {
-        await this.#deliverPending();
-      } catch (error) {
-        this.#print(`[observe] ${String(error)}`);
+  async idle(): Promise<void> {
+    for (;;) {
+      const running = [
+        this.#pass,
+        this.#compacting,
+        ...this.#observers.map((observer) => observer.lane),
+      ].filter((work) => work !== undefined);
+      if (running.length === 0) {
+        return;
       }
-    } while (seen !== this.#wakes && this.#phase === "running");
+      await Promise.allSettled(running);
+    }
   }
 
-  async #deliverPending(): Promise<void> {
-    const held = new Set<Observer>();
-    for (const item of await this.#records.pending()) {
-      for (const observer of this.#observers) {
-        if (this.#phase !== "running") {
-          return;
-        }
-        if (
-          held.has(observer) ||
-          observer.source !== item.source ||
-          item.delivered.includes(observer.hash)
-        ) {
-          continue;
-        }
-        try {
-          // Each handler gets its own copy: one cannot change what another sees.
-          await observer.handler(structuredClone(item.payload));
-        } catch (error) {
-          held.add(observer);
-          this.#print(
-            `[observe] handler ${observer.hash.slice(0, 8)} failed on ${item.id}: ${error instanceof Error ? error.message : String(error)}`
-          );
-          continue;
-        }
-        try {
-          await this.#records.deliver(item.id, observer.hash);
-        } catch (error) {
-          held.add(observer);
-          this.#print(
-            `[observe] handler ${observer.hash.slice(0, 8)} completed ${item.id}, but that was not saved and it may run again: ${String(error)}`
-          );
-        }
+  async stop(options: { readonly grace?: number } = {}): Promise<void> {
+    this.#phase = "stopped";
+    this.#timer?.cancel();
+    this.#timer = undefined;
+    this.#compactTimer?.cancel();
+    this.#compactTimer = undefined;
+    try {
+      await this.#pass;
+      await this.#claiming;
+      await this.#compacting;
+      await this.#lanesWithin(options.grace ?? this.#stopGrace);
+    } finally {
+      this.#stopped.gaveUp = true;
+      for (const abandon of this.#abandon) {
+        abandon();
+      }
+      await this.#release();
+    }
+  }
+
+  async #lanesWithin(grace: number): Promise<void> {
+    const lanes = this.#observers
+      .map((observer) => observer.lane)
+      .filter((lane) => lane !== undefined);
+    if (lanes.length === 0 || grace <= 0) {
+      return;
+    }
+    const waiting = this.#clock.after(grace);
+    await Promise.race([Promise.allSettled(lanes), waiting.done]);
+    waiting.cancel();
+  }
+
+  async #declare(): Promise<void> {
+    for (const observer of this.#observers) {
+      await this.#declareOne(observer);
+    }
+  }
+
+  async #declareOne(observer: Observer): Promise<void> {
+    const state = await this.#records.log.declare(
+      observer.key,
+      this.#clock.now()
+    );
+    observer.position = state.position;
+    observer.failures = state.failures;
+    observer.retryAt = state.retryAt;
+  }
+
+  async #takeOver(): Promise<void> {
+    for (const observer of this.#observers) {
+      if (!(await this.#records.log.unstick(observer.key))) {
+        this.#dropped(observer, "clearing what a gone deliverer left stuck");
       }
     }
   }
+
+  #dropped(observer: Observer, what: string): void {
+    this.#print(
+      `[observe] ${describe(observer.key)}: not ${what}: this engine no longer delivers this workspace's changes`
+    );
+  }
+
+  async #claim(): Promise<string | undefined> {
+    const holder = await this.#records.claimDelivery();
+    if (holder === undefined) {
+      this.#claimed = true;
+    }
+    return holder;
+  }
+
+  async #release(): Promise<void> {
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; a claim sets it.
+    if (this.#claimed) {
+      await this.#records.releaseDelivery();
+      this.#claimed = false;
+    }
+  }
+
+  #tickEvery(): void {
+    this.#timer = this.#clock.every(DELIVERY_POLL_MS, () => {
+      this.#tick();
+    });
+  }
+
+  #tick(): void {
+    if (this.#phase === "running") {
+      this.wake();
+      return;
+    }
+    if (this.#phase !== "waiting" || this.#claiming !== undefined) {
+      return;
+    }
+    this.#claiming = this.#claimWaiting().finally(() => {
+      this.#claiming = undefined;
+    });
+  }
+
+  async #claimWaiting(): Promise<void> {
+    let holder: string | undefined;
+    try {
+      holder = await this.#claim();
+      if (holder !== undefined) {
+        return;
+      }
+      await this.#declare();
+      await this.#takeOver();
+    } catch (error) {
+      this.#report(error);
+      return;
+    }
+    if (this.#phase !== "waiting") {
+      return;
+    }
+    this.#print("[observe] delivering here: the engine that delivered let go");
+    this.#phase = "running";
+    this.wake();
+  }
+
+  #takeAgain(): boolean {
+    const again = this.#again;
+    this.#again = false;
+    return again;
+  }
+
+  #report(error: unknown): void {
+    const line = `[observe] ${String(error)}`;
+    if (line !== this.#problem) {
+      this.#problem = line;
+      this.#print(line);
+    }
+  }
+
+  async #run(): Promise<void> {
+    try {
+      do {
+        try {
+          await this.#startDue();
+          this.#problem = undefined;
+        } catch (error) {
+          this.#report(error);
+        }
+      } while (this.#takeAgain() && this.#phase === "running");
+    } finally {
+      this.#pass = undefined;
+    }
+  }
+
+  async #startDue(): Promise<void> {
+    const head = await this.#records.log.head();
+    const now = this.#clock.now();
+    for (const observer of this.#observers) {
+      if (this.#phase !== "running") {
+        return;
+      }
+      if (
+        observer.lane !== undefined ||
+        observer.call !== undefined ||
+        observer.position >= head ||
+        (observer.retryAt !== null && observer.retryAt > now)
+      ) {
+        continue;
+      }
+      observer.lane = this.#lane(observer, head);
+    }
+  }
+
+  async #lane(observer: Observer, head: number): Promise<void> {
+    let caughtUp = false;
+    try {
+      caughtUp = await this.#catchUp(observer, head);
+    } catch (error) {
+      this.#report(error);
+    } finally {
+      observer.lane = undefined;
+    }
+    if (caughtUp) {
+      this.wake();
+    }
+  }
+
+  #compactEvery(): void {
+    const interval = Math.min(
+      COMPACTION_EVERY_MS,
+      Math.max(1, Math.floor(this.#retention / 2))
+    );
+    this.#compactTimer = this.#clock.every(interval, () => {
+      this.#compactSoon();
+    });
+    this.#compactSoon();
+  }
+
+  #compactSoon(): void {
+    if (this.#compacting !== undefined || this.#phase === "stopped") {
+      return;
+    }
+    this.#compacting = this.#built(() =>
+      current.exit(() => this.#compact())
+    ).finally(() => {
+      this.#compacting = undefined;
+    });
+  }
+
+  async #compact(): Promise<void> {
+    try {
+      for (;;) {
+        const now = this.#clock.now();
+        const bound = now - this.#retention;
+        const step = await this.#records.log.compact({
+          before: bound,
+          ...(this.#compactionStep === undefined
+            ? {}
+            : { limit: this.#compactionStep }),
+          now,
+          registered: this.#observers.map((observer) => observer.key),
+          seenSince: bound,
+        });
+        if (step.done || this.#phase === "stopped") {
+          this.#compactionProblem = undefined;
+          return;
+        }
+        await new Promise<void>((resume) => setImmediate(resume));
+      }
+    } catch (error) {
+      const line = `[observe] compaction: ${String(error)}`;
+      if (line !== this.#compactionProblem) {
+        this.#compactionProblem = line;
+        this.#print(line);
+      }
+    }
+  }
+
+  async #catchUp(observer: Observer, head: number): Promise<boolean> {
+    for (;;) {
+      const batch = await this.#records.log.read({
+        after: observer.position,
+        limit: CHANGE_BATCH,
+        source: observer.key.source,
+        ...(observer.types === undefined ? {} : { types: observer.types }),
+      });
+      for (const change of batch) {
+        if (change.position > head) {
+          return (
+            observer.position >= head || (await this.#moveTo(observer, head))
+          );
+        }
+        if (this.#phase !== "running") {
+          return false;
+        }
+        if (!(await this.#hand(observer, change))) {
+          return false;
+        }
+      }
+      if (batch.length < CHANGE_BATCH) {
+        break;
+      }
+    }
+    return observer.position >= head || (await this.#moveTo(observer, head));
+  }
+
+  async #hand(observer: Observer, change: LoggedChange): Promise<boolean> {
+    const outcome = await this.#call(observer, change);
+    switch (outcome.kind) {
+      case "abandoned":
+        return false;
+      case "threw":
+        await this.#failed(
+          observer,
+          change,
+          describeError(outcome.error),
+          null
+        );
+        return false;
+      case "timed out":
+        await this.#failed(
+          observer,
+          change,
+          `the handler did not finish within ${seconds(observer.timeout)}`,
+          observer.call?.since ?? null
+        );
+        return false;
+      default:
+        return await this.#moveTo(observer, change.position, change);
+    }
+  }
+
+  async #call(observer: Observer, change: LoggedChange): Promise<Outcome> {
+    const fact = structuredClone(change.fact);
+    const settled: Promise<Outcome> = Promise.resolve()
+      .then(() => observer.handler(fact))
+      .then(
+        () => ({ kind: "completed" }),
+        (error: unknown) => ({ error, kind: "threw" })
+      );
+    observer.call = {
+      settled: settled.then(() => undefined),
+      since: this.#clock.now(),
+    };
+    const limit = this.#clock.after(observer.timeout);
+    const abandoned = Promise.withResolvers<Outcome>();
+    const abandon = () => abandoned.resolve({ kind: "abandoned" });
+    this.#abandon.add(abandon);
+    if (this.#stopped.gaveUp) {
+      abandon();
+    }
+    const outcome = await Promise.race([
+      settled,
+      limit.done.then((): Outcome => ({ kind: "timed out" })),
+      abandoned.promise,
+    ]);
+    this.#abandon.delete(abandon);
+    limit.cancel();
+    if (outcome.kind === "timed out") {
+      settled.then(() => this.#unstuck(observer));
+      return outcome;
+    }
+    observer.call = undefined;
+    return this.#stopped.gaveUp ? { kind: "abandoned" } : outcome;
+  }
+
+  async #unstuck(observer: Observer): Promise<void> {
+    observer.call = undefined;
+    if (this.#stopped.gaveUp) {
+      return;
+    }
+    try {
+      if (!(await this.#records.log.unstick(observer.key))) {
+        this.#dropped(observer, "clearing its stuck mark");
+        return;
+      }
+    } catch (error) {
+      this.#report(error);
+    }
+    this.wake();
+  }
+
+  async #moveTo(
+    observer: Observer,
+    to: number,
+    completed?: LoggedChange
+  ): Promise<boolean> {
+    if (this.#stopped.gaveUp) {
+      return false;
+    }
+    let moved: MoveOutcome;
+    try {
+      moved = await this.#records.log.move(observer.key, {
+        from: observer.position,
+        handed: completed !== undefined,
+        now: this.#clock.now(),
+        to,
+      });
+    } catch (error) {
+      if (completed !== undefined) {
+        this.#print(
+          `[observe] ${describe(observer.key)} completed ${completed.fact.type} ${String(completed.position)}, but that was not saved and it may run again: ${String(error)}`
+        );
+      }
+      return false;
+    }
+    if (moved.kind === "unclaimed") {
+      this.#dropped(observer, "moving its place");
+      return false;
+    }
+    if (moved.kind === "elsewhere") {
+      await this.#declareOne(observer);
+      return false;
+    }
+    if (moved.missed !== null) {
+      this.#print(
+        `[observe] ${describe(observer.key)} missed changes ${String(moved.missed.from)} to ${String(moved.missed.through)}: they were removed before it received them; it goes on after them`
+      );
+    }
+    observer.position = to;
+    observer.failures = 0;
+    observer.retryAt = null;
+    return true;
+  }
+
+  async #failed(
+    observer: Observer,
+    change: LoggedChange,
+    message: string,
+    stuckSince: number | null
+  ): Promise<void> {
+    if (this.#stopped.gaveUp) {
+      return;
+    }
+    const failures = observer.failures + 1;
+    const delay = retryDelay(failures);
+    const now = this.#clock.now();
+    observer.failures = failures;
+    observer.retryAt = now + delay;
+    this.#print(
+      `[observe] ${describe(observer.key)} failed on ${change.fact.type} ${String(change.position)} (failure ${String(failures)}; trying again in ${seconds(delay)}${stuckSince === null ? "" : ", once this call settles"}): ${message}`
+    );
+    try {
+      const written = await this.#records.log.fail(observer.key, {
+        error: message,
+        now,
+        retryAt: observer.retryAt,
+        stuckSince,
+      });
+      if (!written) {
+        this.#dropped(observer, "recording its failure");
+      }
+    } catch (saving) {
+      this.#report(saving);
+    }
+  }
+}
+
+function describe(key: ObserverKey): string {
+  return `${key.name} (${key.source})`;
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function seconds(ms: number): string {
+  return `${String(Math.round(ms / 1000))}s`;
 }

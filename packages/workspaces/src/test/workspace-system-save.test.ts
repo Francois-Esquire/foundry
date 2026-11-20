@@ -15,22 +15,21 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
 import { WorkspaceFileNotFoundError, WorkspaceNotFoundError } from "../errors";
-import { MemoryWorkspaceStore } from "../memory-store";
 import { nodeFileSystem } from "../node";
 import type { WorkspaceStore } from "../store";
+import { MemoryWorkspaceStore } from "../store/memory";
+import {
+  fileRecord,
+  hostWorkspace,
+  newWorkspaceEntryId,
+} from "../testing/records";
 import type {
   SaveFileResult,
   WorkspaceFileSystem,
   WorkspaceId,
 } from "../types";
 import { sha256Hex } from "./helpers/digest";
-
 import { directorySystem } from "./helpers/directory-system";
-import {
-  fileRecord,
-  hostWorkspace,
-  newWorkspaceEntryId,
-} from "./helpers/fixtures";
 
 const roots: string[] = [];
 
@@ -270,7 +269,6 @@ describe("save", () => {
   });
 });
 
-// A failed save leaves the original bytes unchanged.
 describe("save refusals", () => {
   it("reports a removed File as stale with the draft unwritten", async () => {
     const { filesystem, writes } = countingWrites();
@@ -401,8 +399,6 @@ describe("save refusals", () => {
   });
 
   it("returns failed with unchanged bytes when the conflict-check read fails", async () => {
-    // The add scans through the real filesystem; only the saving system's
-    // read is denied, so the failure lands at the final conflict check.
     const { root, store, id, files } = await opened({ "a.txt": "original" });
     const denied = directorySystem({
       filesystem: {
@@ -493,13 +489,11 @@ describe("catalog observation after write", () => {
         inner.findWorkspaceBySourceId(sourceId),
       getEntry: (workspaceId, entryId) => inner.getEntry(workspaceId, entryId),
       getWorkspace: (workspaceId) => inner.getWorkspace(workspaceId),
-      // The row disappears between the save's read and its catalog update.
       listEntries: (workspaceId) =>
         fault === "missing-row"
           ? Promise.resolve([])
           : inner.listEntries(workspaceId),
       listWorkspaces: (input) => inner.listWorkspaces(input),
-      removeWorkspace: (workspaceId) => inner.removeWorkspace(workspaceId),
     };
     return {
       arm: (next: "commit" | "missing-row") => {
@@ -579,9 +573,6 @@ describe("catalog observation after write", () => {
     const slowScan: WorkspaceFileSystem = {
       ...nodeFileSystem,
       readFile: async (path) => {
-        // Hold the first scan's read open: it has observed the pre-save
-        // directory and now waits, exactly the interleaving that would
-        // restore pre-write facts if the save could slip past it.
         if (!held) {
           held = true;
           await gate;
@@ -593,7 +584,6 @@ describe("catalog observation after write", () => {
     const registered = await setup.load({ path: root });
     const file = one(await registered.files());
 
-    // Two instances of one id over one system: they must share the chain.
     const system = directorySystem({ filesystem: slowScan, store });
     const observation = (await system.open(registered.id)).refresh();
     const save = (await system.open(registered.id)).save({

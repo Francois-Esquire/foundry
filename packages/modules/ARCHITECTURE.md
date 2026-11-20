@@ -3,8 +3,9 @@
 `@foundry/modules` owns Module-domain values and host contracts. It depends on
 `@foundry/artifacts` for versioned files. Its Template role composes workspaces from a
 structural `ModuleBase` it defines itself. Its platform role owns runtime
-orchestration. It includes one durable Store adapter over Artifact metadata;
-storage engines and sandbox backends remain outside the package.
+orchestration. It keeps Module records through `ModuleRegistry` over a `ModuleStore`,
+with an in-memory and a SQLite store; database connections, migrations and sandbox
+backends remain outside the package.
 
 Start with the [glossary](GLOSSARY.md) for exact terms and the [README](README.md) for
 consumer use.
@@ -27,11 +28,11 @@ Module ──backed by──> Module Artifact
 Capability authority <────admitted by──── Module Gateway ────> Provider
 ```
 
-Module and Artifact identity stay separate even though each Store enforces a one-to-one
+Module and Artifact identity stay separate even though the registry enforces a one-to-one
 relationship. A Module can exist before its first version. A version is not stored: it
 is a frozen, SemVer-tagged Content, resolved and re-validated by `createModuleVersions`
 each time it is needed. Its Manifest is the Content's own `source/foundry.module.json`,
-unless the Store retains one for a Content that cannot supply it.
+unless the registry retains one for a Content that cannot supply it.
 
 An Installation selects one Content and keeps one status, a failed-start counter,
 generation, and nullable container ID. Linking a container checks the generation
@@ -45,7 +46,7 @@ the host starts a Program. The Gateway refuses it after either changes.
                               │
                    contracts implemented by
                               v
-              host adapters (Store, transport, providers)
+              host adapters (store, transport, providers)
 ```
 
 ### `@foundry/modules`
@@ -55,7 +56,9 @@ The package owns:
 - Module, version, Installation, Manifest, and Grant values;
 - version resolution from pinned Content, including retained-manifest precedence;
 - domain validation and activation preflight;
-- the `ModuleStore` contract and deterministic in-memory reference adapter;
+- `ModuleRegistry`, which holds every rule of the Module records, and the
+  `ModuleStore` seam it commits through, with in-memory and SQLite stores and the
+  SQLite table definitions;
 - Module Package encoding, validation, and import;
 - Gateway protocol, sessions, admission, provider contracts, and client generation;
 - Module workspace composition from a `ModuleBase` and composer-owned workspace
@@ -69,11 +72,11 @@ The package owns:
   activation ordering (select, preflight, start, stop);
 - Node filesystem behavior that needs no host: digest-named and selected program
   checkouts and Installation files; and
-- the Store conformance suite and boundary tests.
+- the store conformance suite and boundary tests.
 
 The package publishes one wildcard export: `@foundry/modules/<path>` resolves to
 `src/<path>.ts`, and there are no barrel entry points. Top-level modules hold the
-domain, Store, version, package, preflight, project, management, and source-capture
+domain, registry, store seam, version, package, preflight, project, management, and source-capture
 APIs; `gateway/`, `node/`, `platform/`, `template/`, and `testing/` hold the roles.
 Only `node/` may import `node:fs/promises`, `node:path`, `node:crypto`, and
 `node:events`. SDK source is internal; Template composition injects its emitted form
@@ -99,17 +102,19 @@ tree, and optional agent `instructions`. The Template role clones the base into
 and repairs composer-owned files in recognized older workspaces. Which bases a host
 offers, and how it describes them, is outside this package.
 
-### Store adapters
+### Registry and stores
 
-`InMemoryModuleStore` is the reference `ModuleStore`. A durable adapter persists
-Modules, retained manifests, Installations, and Grants. It checks inside its write
-transaction that a selected Content belongs to the Module's Artifact and rejects
-corrupt retained Manifests. `describeModuleStoreConformance` holds every adapter to
-the same behavior. `createArtifactModuleStore` is the durable adapter here. It
-stores those records as metadata on each Module Artifact, so an Installation change
-leaves Content and its source bindings untouched, and it commits each change as one
-`ArtifactManager` transaction. Both adapters apply the pure transition rules in
-`store/installation-rules`.
+`ModuleRegistry` holds every rule of the Module records: Module and Artifact
+identity, retained-manifest ownership, Installation creation, generations,
+transitions, Grant sets, and Module retirement. Each command is one read-modify-write
+ending in one `commit`, inside the store's `transaction` when the store has one, so
+two registries over one database never interleave. A `ModuleStore` keeps Modules,
+retained manifests and Installations with their Grants, applies one write
+atomically, and enforces nothing. `MemoryModuleStore` is the default;
+`SqliteModuleStore` keeps the same records in the host's SQLite database, in the
+tables from `store/tables`, partitioned by an opaque `scope`. `describeModuleStore`
+from `testing/store` holds every store to the same behavior, and the registry's rules
+run over each store in the package tests.
 
 ### Host
 
@@ -139,12 +144,13 @@ Source capture uses Core filesystem types; `node/source` supplies disk reads.
 
 | Role     | Main responsibility                                                                                                   |
 | -------- | --------------------------------------------------------------------------------------------------------------------- |
-| Root     | Domain, Store, preflight, packages, project/source management, Installations, and declared Views                      |
+| Root     | Domain, registry, preflight, packages, project/source management, Installations, and declared Views                   |
+| Storage  | Keep Module records in memory or SQLite behind one atomic `commit`                                                    |
 | Gateway  | Frame sessions, publish catalogs, admit runtime calls, dispatch providers, and normalize failures                     |
 | Platform | Compose injected infrastructure, acquire containers, serialize lifecycles, confirm cleanup, and recover installations |
 | Node     | Fill digest-named read-only program checkouts; own Installation files, legacy move, and backup                        |
 | Template | Compose a Module workspace from a `ModuleBase`, or upgrade one, without owning the base                               |
-| Testing  | Verify adapter behavior against the `ModuleStore` contract                                                            |
+| Testing  | Verify a store's behavior against the `ModuleStore` contract                                                          |
 
 Boundary tests hold production imports to the allowlist and prohibit retired runtime
 vocabulary.
@@ -238,13 +244,13 @@ stopping        -> settle disabled, generation unchanged
 select version  -> generation + 1, start attempts reset
 ```
 
-The Store uses optimistic concurrency. Each transition, Grant change, version
+The registry uses optimistic concurrency. Each transition, Grant change, version
 selection, or deletion presents `expectedGeneration`. A stale generation fails with
 `ModuleStoreConflictError`. Beginning a user-requested start may reset failed attempts;
 automatic recovery does not. Active settlement and version selection also reset the
 counter.
 
-The Store does not enforce an allowed-state transition matrix. The platform supervisor
+The registry does not enforce an allowed-state transition matrix. The platform supervisor
 owns ordering and the `MAX_START_ATTEMPTS` recovery policy. Its per-installation queue
 also covers version selection and deletion. The composed Module system confirms
 retained native resources are stopped before file migration, backup, or restoration.
@@ -279,7 +285,7 @@ lifetime request ceiling, and use heartbeats to detect dead transports. Errors c
 protocol as public failure codes; provider details remain host-side.
 
 The package does not persist Invocation evidence. Any durable audit record belongs to a
-separate owner until the public Store contract and current implementation say otherwise.
+separate owner until the public store contract and current implementation say otherwise.
 The runtime dispatcher's optional `observe` hook (`observeInvocation` on
 `createModuleSystem`) reports each admitted invocation's start and outcome, fail-soft,
 so that owner can record it.
@@ -308,8 +314,10 @@ identity, and Module identity carry the version's meaning across stores. The pre
 ## Changing the package
 
 1. Update the term in [GLOSSARY.md](GLOSSARY.md) if identity or meaning changes.
-2. Change root domain or Store contracts before their adapters.
-3. Update `describeModuleStoreConformance` for behavior every adapter must share.
+2. Change a rule in `ModuleRegistry`, never in a store; change the `ModuleStore` seam
+   before its stores.
+3. Update `describeModuleStore` for behavior every store must share, and the registry
+   rules in `src/test/helpers/registry-conformance.ts` for every rule.
 4. Change Gateway types before host implementations and the generated client when
    protocol behavior moves.
 5. Regenerate SDK output with `bun run --cwd=packages/modules emit-sdk` only when its
@@ -323,10 +331,11 @@ import concrete host or sandbox adapters into the package.
 
 ## Proof
 
-Package tests in `src/test/` exercise the domain, Manifest, Store, preflight, package
+Package tests in `src/test/` exercise the domain, Manifest, registry, stores, preflight, package
 transport, Gateway, generated clients, Template composition, and boundary rules. One
 generated-workspace integration test runs separately through `test:integration`.
-A durable Store adapter runs `describeModuleStoreConformance` in its own suite.
+The store suite and the registry rules run over the memory store and over SQLite on
+`:memory:` and on a file.
 
 Injected-container tests cover spec refresh, selection fences, failed linking and
 retryable cleanup, mount validation, and startup failure. Project tests cover

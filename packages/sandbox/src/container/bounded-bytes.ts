@@ -1,11 +1,5 @@
-/**
- * The last `limit` bytes appended. Chunks are kept as they came and joined
- * once in {@link BoundedBytes.text}, so an append costs its own length rather
- * than a copy of everything retained so far.
- */
 export class BoundedBytes {
   readonly #chunks: Uint8Array[] = [];
-  /** Index of the oldest retained chunk; earlier slots are already dropped. */
   #head = 0;
   #size = 0;
   readonly #limit: number;
@@ -25,8 +19,6 @@ export class BoundedBytes {
       this.#size = this.#limit;
       return;
     }
-    // Copied: the caller may reuse its buffer for the next chunk. Not
-    // `slice`, which on a Node `Buffer` returns a view of the same memory.
     this.#chunks.push(new Uint8Array(chunk));
     this.#size += chunk.byteLength;
     while (this.#size > this.#limit) {
@@ -43,8 +35,6 @@ export class BoundedBytes {
         this.#size -= excess;
       }
     }
-    // Compact once the dropped prefix is the larger part, so the array stays
-    // proportional to what is retained.
     if (this.#head > this.#chunks.length / 2) {
       this.#chunks.splice(0, this.#head);
       this.#head = 0;

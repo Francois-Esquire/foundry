@@ -2,13 +2,12 @@ import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { lockContents } from "@foundry/lib/file-lock";
 
 import { describe, expect, it } from "vitest";
 
@@ -18,12 +17,12 @@ import {
   ProcessHeldError,
   readProcess,
 } from "~/process/instance";
+import { temporaryDirectory } from "./helpers/temporary";
 
 function stateDir() {
-  return mkdtempSync(join(tmpdir(), "marbles-process-"));
+  return temporaryDirectory("marbles-process-");
 }
 
-/** A pid obtained from an exited process; the OS may reuse it. */
 function deadPid(): number {
   return spawnSync("true").pid;
 }
@@ -37,7 +36,7 @@ describe("claimProcess", () => {
     });
     expect(claim.pid).toBe(process.pid);
     expect(readFileSync(join(dir, "locks", "process"), "utf8")).toBe(
-      String(process.pid)
+      lockContents()
     );
     expect(readProcess(dir)).toEqual({
       alive: true,

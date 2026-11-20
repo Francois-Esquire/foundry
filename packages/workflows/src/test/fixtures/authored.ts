@@ -1,11 +1,3 @@
-/**
- * Contract primacy is made real, not just asserted: the agent's `prompt` Input
- * is labelled "Prompt" while the `topic` Run-start Input it binds is labelled
- * "Topic", and the document's `content` Input is labelled "Document" while the
- * `text` Result it connects to is labelled "Draft". Types match, labels differ,
- * and the plan stays executable — validation reads types, never labels.
- */
-
 import type { LinearPlan, StepContract, StepEntry } from "../../authored";
 
 const agentContract: StepContract = {
@@ -120,7 +112,6 @@ export const labelPrimacyEntries: ReadonlyMap<string, StepEntry> = new Map([
   ],
 ]);
 
-/** agent → text → document with a `topic` Run-start Input. Executable. */
 export const articlePlan: LinearPlan = {
   inputs: [{ key: "topic", label: "Topic", required: true, type: "text" }],
   placements: [
@@ -149,7 +140,6 @@ export const articlePlan: LinearPlan = {
   schema: 1,
 };
 
-/** The article plan with `write`'s `instructions` renamed to `prompt`. */
 export const articlePlanWithRenamedInput: LinearPlan = {
   inputs: [{ key: "topic", label: "Topic", required: true, type: "text" }],
   placements: [
@@ -178,7 +168,6 @@ export const articlePlanWithRenamedInput: LinearPlan = {
   schema: 1,
 };
 
-/** A declared-but-unused Run-start Input yields no issue. Executable. */
 export const declaredUnusedPlan: LinearPlan = {
   inputs: [
     { key: "topic", label: "Topic", required: true, type: "text" },
@@ -197,7 +186,6 @@ export const declaredUnusedPlan: LinearPlan = {
   schema: 1,
 };
 
-/** Missing required Input, wrong-type Setting, and an unknown Input key. */
 export const threeDefectsPlan: LinearPlan = {
   inputs: [],
   placements: [
@@ -213,7 +201,6 @@ export const threeDefectsPlan: LinearPlan = {
   schema: 1,
 };
 
-/** An unavailable `image` Step alongside a valid `text` placement. */
 export const unavailablePlan: LinearPlan = {
   inputs: [],
   placements: [
@@ -234,7 +221,6 @@ export const unavailablePlan: LinearPlan = {
   schema: 1,
 };
 
-/** A connection that points forward (to a later placement). */
 export const forwardPlan: LinearPlan = {
   inputs: [],
   placements: [
@@ -255,7 +241,6 @@ export const forwardPlan: LinearPlan = {
   schema: 1,
 };
 
-/** A connection that points at its own placement. */
 export const selfConnectionPlan: LinearPlan = {
   inputs: [],
   placements: [
@@ -271,7 +256,6 @@ export const selfConnectionPlan: LinearPlan = {
   schema: 1,
 };
 
-/** A connection to a `result: null` (account-only) Step. */
 export const nullResultPlan: LinearPlan = {
   inputs: [],
   placements: [
@@ -292,10 +276,6 @@ export const nullResultPlan: LinearPlan = {
   schema: 1,
 };
 
-/**
- * A connection whose source Result label equals the consuming Input label while
- * their types differ. `type-mismatch` must fire despite the matching labels.
- */
 export const labelPrimacyPlan: LinearPlan = {
   inputs: [],
   placements: [
@@ -309,7 +289,6 @@ export const labelPrimacyPlan: LinearPlan = {
   schema: 1,
 };
 
-/** A required text Input bound to an artifact Run-start Input. */
 export const runTypeMismatchPlan: LinearPlan = {
   inputs: [{ key: "pic", label: "Pic", required: true, type: "artifact" }],
   placements: [
@@ -325,7 +304,6 @@ export const runTypeMismatchPlan: LinearPlan = {
   schema: 1,
 };
 
-/** A required Input bound to an optional Run-start Input of the same type. */
 export const runMissingRequiredPlan: LinearPlan = {
   inputs: [{ key: "topic", label: "Topic", required: false, type: "text" }],
   placements: [
@@ -341,24 +319,18 @@ export const runMissingRequiredPlan: LinearPlan = {
   schema: 1,
 };
 
-/** A placement whose Step key is absent from the catalog entries. */
 export const notAdmittedPlan: LinearPlan = {
   inputs: [],
   placements: [{ inputs: {}, key: "solo", step: "ghost" }],
   schema: 1,
 };
 
-/** An empty plan — no placements. */
 export const emptyPlan: LinearPlan = {
   inputs: [],
   placements: [],
   schema: 1,
 };
 
-/**
- * Two placements sharing a key. Reaches `validateLinear` only when a caller
- * bypasses `LinearPlanSchema`; kept to pin the defense rule and its address.
- */
 export const duplicatePlacementPlan: LinearPlan = {
   inputs: [],
   placements: [
@@ -376,7 +348,6 @@ export const duplicatePlacementPlan: LinearPlan = {
   schema: 1,
 };
 
-/** A connection whose `placement` names a key absent from the plan. */
 export const unknownPlacementPlan: LinearPlan = {
   inputs: [],
   placements: [
@@ -392,11 +363,6 @@ export const unknownPlacementPlan: LinearPlan = {
   schema: 1,
 };
 
-/**
- * Two Run-start Inputs sharing a key. Reaches `validateLinear` only when a caller
- * bypasses `LinearPlanSchema`; pins the run-input `duplicate-key` defense rule.
- * Both are required so the bound `prompt` raises no other issue.
- */
 export const duplicateRunInputPlan: LinearPlan = {
   inputs: [
     { key: "topic", label: "Topic", required: true, type: "text" },
@@ -415,7 +381,6 @@ export const duplicateRunInputPlan: LinearPlan = {
   schema: 1,
 };
 
-/** A required `text` Input assigned an empty setting — allowed; empty text is valid. */
 export const emptyTextSettingPlan: LinearPlan = {
   inputs: [],
   placements: [

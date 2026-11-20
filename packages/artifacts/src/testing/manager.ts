@@ -1,10 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
 
 import type {
+  ArtifactOperations,
   ArtifactResolved,
-  ArtifactStore,
   Content,
   ContentId,
+  StoredFile,
 } from "../index";
 import {
   ArtifactManager,
@@ -15,7 +16,9 @@ import {
   InvalidArtifactInputError,
   StaleContentError,
 } from "../index";
-import { readStore } from "./store";
+import type { ArtifactStore } from "../store";
+import { interceptCommits } from "./index";
+import { isTransactional } from "./transactional";
 
 const text = (value: string, mime = "text/html") => ({ bytes: value, mime });
 function contentOf(artifact: ArtifactResolved): Content {
@@ -24,12 +27,94 @@ function contentOf(artifact: ArtifactResolved): Content {
   }
   return artifact.content;
 }
+function file(content: Content): StoredFile {
+  const entry = content.tree["file.txt"];
+  if (entry?.type !== "file") {
+    throw new Error("Expected stored file");
+  }
+  return entry;
+}
+
+type StoreRead = Exclude<keyof ArtifactStore, "commit" | "transaction">;
+
+function pausable(store: ArtifactStore) {
+  let armed:
+    | {
+        readonly read: StoreRead;
+        readonly reached: () => void;
+        readonly held: Promise<void>;
+      }
+    | undefined;
+  async function gate<T>(read: StoreRead, value: Promise<T>): Promise<T> {
+    const result = await value;
+    const pause = armed;
+    if (pause?.read === read) {
+      armed = undefined;
+      pause.reached();
+      await pause.held;
+    }
+    return result;
+  }
+  function wrap(target: ArtifactStore): ArtifactStore {
+    return {
+      commit: (write) => target.commit(write),
+      ...(target.durability === undefined
+        ? {}
+        : { durability: target.durability }),
+      findBlobs: (digest) => gate("findBlobs", target.findBlobs(digest)),
+      findReferences: (id) => gate("findReferences", target.findReferences(id)),
+      getArtifact: (id) => gate("getArtifact", target.getArtifact(id)),
+      getBlob: (id) => gate("getBlob", target.getBlob(id)),
+      getContent: (id) => gate("getContent", target.getContent(id)),
+      listArtifacts: (query) =>
+        gate("listArtifacts", target.listArtifacts(query)),
+      listBlobs: () => gate("listBlobs", target.listBlobs()),
+      listContents: (artifactId) =>
+        gate("listContents", target.listContents(artifactId)),
+      ...(isTransactional(target)
+        ? {
+            transaction: (work) =>
+              target.transaction((view) => work(wrap(view))),
+          }
+        : {}),
+    };
+  }
+  return {
+    pause(read: StoreRead) {
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let reached!: () => void;
+      const arrived = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      armed = { held, reached, read };
+      return { reached: arrived, release };
+    },
+    store: wrap(store),
+  };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const hung = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Still pending after ${ms} ms`)),
+      ms
+    );
+  });
+  return Promise.race([promise, hung]).finally(() => clearTimeout(timer));
+}
+
 export function describeArtifactManager(
   name: string,
-  createStore: () => ArtifactStore
+  createStore: () => ArtifactStore | Promise<ArtifactStore>
 ): void {
-  function harness() {
-    const store = createStore();
+  async function harness() {
+    const store = await createStore();
     const mutations: string[] = [];
     const artifacts = new ArtifactManager({ store });
     artifacts.observe((id) => mutations.push(id));
@@ -37,9 +122,8 @@ export function describeArtifactManager(
   }
   describe(`${name} Artifact manager`, () => {
     test("stores structural entries without blobs and removes directories recursively", async () => {
-      const { artifacts, store } = harness();
-      const before = (await readStore(store, (scoped) => scoped.listBlobs()))
-        .length;
+      const { artifacts, store } = await harness();
+      const before = (await store.listBlobs()).length;
       const artifact = await artifacts.create({
         entries: {
           device: { type: "device" },
@@ -62,9 +146,7 @@ export function describeArtifactManager(
         src: { type: "directory" },
         "src/file.txt": { bytes: 18, type: "file" },
       });
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(before + 1);
+      expect((await store.listBlobs()).length).toBe(before + 1);
       for (const path of ["empty", "src", "link", "socket", "pipe", "device"]) {
         expect(await artifacts.readFile(content.id, path)).toBeNull();
       }
@@ -86,12 +168,10 @@ export function describeArtifactManager(
       expect(written.tree).not.toHaveProperty("src");
       expect(written.tree).not.toHaveProperty("src/file.txt");
       expect(written.tree.empty).toEqual({ type: "directory" });
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(before);
+      expect((await store.listBlobs()).length).toBe(before);
     });
     test("explicit revision preserves predecessors without publication and rolls back invalid contributions", async () => {
-      const { artifacts, store, mutations } = harness();
+      const { artifacts, store, mutations } = await harness();
       const artifact = await artifacts.create({
         entries: { "index.html": text("before") },
         metadata: {
@@ -103,8 +183,7 @@ export function describeArtifactManager(
         type: "text/html",
       });
       const source = contentOf(artifact);
-      const count = (await readStore(store, (scoped) => scoped.listBlobs()))
-        .length;
+      const count = (await store.listBlobs()).length;
       const notifications = mutations.length;
       await expect(
         artifacts.revise({
@@ -115,9 +194,7 @@ export function describeArtifactManager(
         })
       ).rejects.toBeInstanceOf(FilePointerError);
       expect(await artifacts.get(artifact.id)).toEqual(artifact);
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(count);
+      expect((await store.listBlobs()).length).toBe(count);
       expect(mutations).toHaveLength(notifications);
       const successor = await artifacts.revise({
         artifactId: artifact.id,
@@ -168,7 +245,7 @@ export function describeArtifactManager(
       });
     });
     test("same-millisecond edits, metadata and freeze advance the Content fence", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       vi.useFakeTimers({ toFake: ["Date"] });
       try {
         vi.setSystemTime(new Date("2026-09-06T12:00:00Z"));
@@ -213,9 +290,8 @@ export function describeArtifactManager(
       }
     });
     test("create with files, autosave in place, publish, edit after freeze", async () => {
-      const { store, artifacts, mutations } = harness();
-      const before = (await readStore(store, (scoped) => scoped.listBlobs()))
-        .length;
+      const { store, artifacts, mutations } = await harness();
+      const before = (await store.listBlobs()).length;
 
       const created = await artifacts.create({
         entries: {
@@ -232,9 +308,7 @@ export function describeArtifactManager(
         "index.html",
         "style.css",
       ]);
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(before + 2);
+      expect((await store.listBlobs()).length).toBe(before + 2);
       const firstId = first.id;
 
       const saved = await artifacts.write({
@@ -244,9 +318,7 @@ export function describeArtifactManager(
       });
       expect(saved.id).toBe(firstId);
       expect(saved.digest).not.toBe(first.digest);
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(before + 2);
+      expect((await store.listBlobs()).length).toBe(before + 2);
       await new Promise((resolve) => setTimeout(resolve, 2));
 
       const published = await artifacts.write({
@@ -270,9 +342,7 @@ export function describeArtifactManager(
       expect(edited.metadata.from).toBe(firstId);
       expect(edited.artifact.contentId).toBe(edited.id);
       expect(edited.tree["index.html"]).toEqual(published.tree["index.html"]);
-      expect(
-        (await readStore(store, (scoped) => scoped.listBlobs())).length
-      ).toBe(before + 3);
+      expect((await store.listBlobs()).length).toBe(before + 3);
 
       const timeline = await artifacts.listContents(created.id);
       expect(timeline.map((c) => c.state)).toEqual(["frozen", "ready"]);
@@ -281,7 +351,7 @@ export function describeArtifactManager(
       ).toBeGreaterThan(0);
     });
     test("fences, select, fork, tags", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const a = await artifacts.create({
         entries: { "doc.md": text("# one", "text/markdown") },
         freeze: { tag: "v1" },
@@ -344,7 +414,7 @@ export function describeArtifactManager(
       ).rejects.toBeInstanceOf(InvalidArtifactInputError);
     });
     test("resolves files and roots, validates pointers, reads by session", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const a = await artifacts.create({
         entries: {
           "outputs/index.html": text("<p>root</p>"),
@@ -407,7 +477,7 @@ export function describeArtifactManager(
       );
     });
     test("archive, list, rename, delete", async () => {
-      const { artifacts } = harness();
+      const { artifacts } = await harness();
       const type = `test/${crypto.randomUUID()}`;
       const a = await artifacts.create({
         entries: { f: text("a") },
@@ -455,6 +525,388 @@ export function describeArtifactManager(
       await expect(artifacts.rename(a.id, "x")).rejects.toBeInstanceOf(
         ArtifactNotFoundError
       );
+    });
+
+    test("preserves shared blobs through fork edits and only reclaims the final reference", async () => {
+      const { artifacts, store } = await harness();
+      const original = await artifacts.create({
+        entries: { "file.txt": { bytes: crypto.randomUUID() } },
+        name: "Original",
+        type: "text/plain",
+      });
+      const originalBlob = file(contentOf(original)).blobId;
+      const fork = await artifacts.fork({
+        contentId: contentOf(original).id,
+      });
+      expect(file(contentOf(fork)).blobId).toBe(originalBlob);
+      const edited = await artifacts.write({
+        artifactId: fork.id,
+        changes: { put: { "file.txt": { bytes: crypto.randomUUID() } } },
+      });
+      const replacement = file(edited).blobId;
+      expect(replacement).not.toBe(originalBlob);
+      await artifacts.delete(original.id);
+      expect(await store.getBlob(originalBlob)).toBeNull();
+      expect(await store.getBlob(replacement)).not.toBeNull();
+      await artifacts.delete(fork.id);
+      expect(await store.getBlob(replacement)).toBeNull();
+    });
+
+    test("reuses an exclusive ready blob and enforces concurrent write fences", async () => {
+      const { artifacts } = await harness();
+      const original = await artifacts.create({
+        entries: { "file.txt": { bytes: crypto.randomUUID() } },
+        name: "Exclusive",
+        type: "text/plain",
+      });
+      const before = contentOf(original);
+      const write = (bytes: string) =>
+        artifacts.write({
+          artifactId: original.id,
+          changes: { put: { "file.txt": { bytes } } },
+          expectedContentId: original.contentId,
+          expectedUpdatedAt: before.updatedAt,
+        });
+      const [first, second] = await Promise.allSettled([
+        write(crypto.randomUUID()),
+        write(crypto.randomUUID()),
+      ]);
+      if (first.status !== "fulfilled" || second.status !== "rejected") {
+        throw new Error("Expected one winner");
+      }
+      expect(first.value.id).toBe(before.id);
+      expect(file(first.value).blobId).toBe(file(before).blobId);
+      expect(second.reason).toBeInstanceOf(StaleContentError);
+    });
+
+    test("enforces write fences between two managers over one store", async () => {
+      const store = await createStore();
+      const one = new ArtifactManager({ store });
+      const other = new ArtifactManager({ store });
+      const original = await one.create({
+        entries: { "file.txt": { bytes: "start" } },
+        name: "Shared",
+        type: "text/plain",
+      });
+      const write = (artifacts: ArtifactManager, bytes: string) =>
+        artifacts.write({
+          artifactId: original.id,
+          changes: { put: { "file.txt": { bytes } } },
+          expectedUpdatedAt: contentOf(original).updatedAt,
+        });
+      const results = await Promise.allSettled([
+        write(one, "one"),
+        write(other, "other"),
+      ]);
+      expect(results.map((result) => result.status).sort()).toEqual([
+        "fulfilled",
+        "rejected",
+      ]);
+    });
+
+    test("rolls back records and notifications and expires scoped handles", async () => {
+      const { artifacts, mutations } = await harness();
+      let scoped: ArtifactOperations | undefined;
+      let id: ArtifactResolved["id"] | undefined;
+      await expect(
+        artifacts.transaction(async (transaction) => {
+          scoped = transaction;
+          ({ id } = await transaction.create({
+            entries: { "file.txt": { bytes: "abort" } },
+            name: "Abort",
+            type: "text/plain",
+          }));
+          throw new Error("rollback");
+        })
+      ).rejects.toThrow("rollback");
+      if (!(id && scoped)) {
+        throw new Error("Expected transaction to execute");
+      }
+      expect(await artifacts.get(id)).toBeNull();
+      expect(mutations).toEqual([]);
+      await expect(scoped.list()).rejects.toThrow("settled");
+    });
+
+    test("runs every after-commit callback even when one fails", async () => {
+      const { artifacts } = await harness();
+      const applied: string[] = [];
+      await expect(
+        artifacts.transaction(async (transaction, effects) => {
+          await transaction.create({ name: "Effects", type: "text/plain" });
+          effects.afterCommit(() => {
+            applied.push("first");
+            return Promise.reject(new Error("application failed"));
+          });
+          effects.afterCommit(() => {
+            applied.push("second");
+            return Promise.resolve();
+          });
+        })
+      ).rejects.toThrow("application failed");
+      expect(applied).toEqual(["first", "second"]);
+      expect((await artifacts.list()).total).toBe(1);
+    });
+
+    test("runs after-commit work once the change is released, so it can write again", async () => {
+      const { artifacts } = await harness();
+      const order: string[] = [];
+      await artifacts.transaction(async (transaction, effects) => {
+        await transaction.create({ name: "Outer", type: "text/plain" });
+        effects.afterCommit(async () => {
+          await artifacts.create({ name: "Nested", type: "text/plain" });
+          order.push("nested write");
+        });
+        order.push("outer write");
+      });
+      expect(order).toEqual(["outer write", "nested write"]);
+      expect((await artifacts.list()).total).toBe(2);
+    }, 2000);
+
+    test("runs a call made by work a transaction scheduled, while that transaction commits, once it settles", async () => {
+      const reached = Promise.withResolvers<undefined>();
+      const held = Promise.withResolvers<undefined>();
+      let holding = true;
+      const store = interceptCommits(
+        await createStore(),
+        async (write, commit) => {
+          if (holding) {
+            holding = false;
+            reached.resolve(undefined);
+            await held.promise;
+          }
+          await commit(write);
+        }
+      );
+      const artifacts = new ArtifactManager({ store });
+      const trigger = Promise.withResolvers<undefined>();
+      let later: Promise<ArtifactResolved> | undefined;
+      const outer = artifacts.transaction(async (transaction) => {
+        await transaction.create({ name: "Outer", type: "text/plain" });
+        trigger.promise.then(() => {
+          later = artifacts.create({ name: "Later", type: "text/plain" });
+        });
+      });
+      await reached.promise;
+      trigger.resolve(undefined);
+      await settle();
+      held.resolve(undefined);
+      await outer;
+
+      expect((await within(later ?? Promise.reject(), 1000)).name).toBe(
+        "Later"
+      );
+      expect((await artifacts.list()).total).toBe(2);
+    });
+
+    test("discards after-commit work when the change rolls back", async () => {
+      const { artifacts } = await harness();
+      let ran = false;
+      await expect(
+        artifacts.transaction((_transaction, effects) => {
+          effects.afterCommit(() => {
+            ran = true;
+            return Promise.resolve();
+          });
+          return Promise.reject(new Error("rolled back"));
+        })
+      ).rejects.toThrow("rolled back");
+      expect(ran).toBe(false);
+    });
+
+    async function sharedStore() {
+      const shared = pausable(await createStore());
+      const reader = new ArtifactManager({ store: shared.store });
+      const writer = new ArtifactManager({ store: shared.store });
+      const created = await writer.create({
+        entries: { "file.txt": text("kept", "text/plain") },
+        name: "Shared",
+        type: "text/plain",
+      });
+      return { created, reader, shared, writer };
+    }
+
+    test("gets one state while another manager deletes the Artifact", async () => {
+      const { created, reader, shared, writer } = await sharedStore();
+      const paused = shared.pause("getArtifact");
+      const read = reader.get(created.id);
+      await paused.reached;
+      const deleted = writer.delete(created.id);
+      await settle();
+      paused.release();
+      expect((await read)?.content?.id).toBe(created.contentId);
+      expect(await deleted).toBe(true);
+      expect(await reader.get(created.id)).toBeNull();
+    });
+
+    test("lists one state while another manager deletes a listed Artifact", async () => {
+      const { created, reader, shared, writer } = await sharedStore();
+      const paused = shared.pause("listArtifacts");
+      const read = reader.list();
+      await paused.reached;
+      const deleted = writer.delete(created.id);
+      await settle();
+      paused.release();
+      const page = await read;
+      expect(page.items.map((item) => item.content?.id)).toEqual([
+        created.contentId,
+      ]);
+      expect(await deleted).toBe(true);
+      expect((await reader.list()).items).toEqual([]);
+    });
+
+    test("refuses at once a call on another manager from inside a transaction, even with that manager's own call waiting", async ({
+      skip,
+    }) => {
+      const store = await createStore();
+      if (!isTransactional(store)) {
+        return skip();
+      }
+      const first = new ArtifactManager({ store });
+      const second = new ArtifactManager({ store });
+      const entered = Promise.withResolvers<undefined>();
+      const proceed = Promise.withResolvers<undefined>();
+      const outer = first.transaction(async () => {
+        entered.resolve(undefined);
+        await proceed.promise;
+        return await second.list();
+      });
+      await entered.promise;
+      const waiting = second.create({ name: "Waiting", type: "text/plain" });
+      await settle();
+      proceed.resolve(undefined);
+
+      await expect(within(outer, 1000)).rejects.toThrow(
+        "inside its own transaction"
+      );
+      expect((await within(waiting, 1000)).name).toBe("Waiting");
+      expect((await first.list()).total).toBe(1);
+    });
+
+    async function* streamOf(label: string): AsyncIterable<Uint8Array> {
+      await Promise.resolve();
+      yield new TextEncoder().encode(label);
+    }
+
+    for (const [kind, call] of [
+      [
+        "a write with bytes",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) =>
+          artifacts.write({
+            artifactId: created.id,
+            changes: { put: { "file.txt": { bytes: label } } },
+          }),
+      ],
+      [
+        "a stream write",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) =>
+          artifacts.write({
+            artifactId: created.id,
+            changes: { put: { "file.txt": { source: streamOf(label) } } },
+          }),
+      ],
+      [
+        "a Content-named change",
+        (
+          artifacts: ArtifactManager,
+          created: ArtifactResolved,
+          label: string
+        ) => artifacts.setMetadata(contentOf(created).id, { label }),
+      ],
+    ] as const) {
+      test(`refuses at once ${kind} to an Artifact another manager's own call to it waits on, from inside a transaction`, async ({
+        skip,
+      }) => {
+        const store = await createStore();
+        if (!isTransactional(store)) {
+          return skip();
+        }
+        const first = new ArtifactManager({ store });
+        const second = new ArtifactManager({ store });
+        const created = await second.create({
+          entries: { "file.txt": { bytes: "start" } },
+          name: "Shared",
+          type: "text/plain",
+        });
+        const entered = Promise.withResolvers<undefined>();
+        const proceed = Promise.withResolvers<undefined>();
+        const outer = first.transaction(async () => {
+          entered.resolve(undefined);
+          await proceed.promise;
+          return await call(second, created, "inner");
+        });
+        await entered.promise;
+        const waiting = call(second, created, "outer");
+        await settle();
+        proceed.resolve(undefined);
+
+        await expect(within(outer, 1000)).rejects.toThrow(
+          "inside its own transaction"
+        );
+        await within(waiting, 1000);
+      });
+    }
+
+    async function patchConcurrently(
+      shared: ReturnType<typeof pausable>,
+      created: ArtifactResolved,
+      patchers: readonly [ArtifactManager, ArtifactManager]
+    ) {
+      const contentId = contentOf(created).id;
+      const paused = shared.pause("getContent");
+      const firstPatch = patchers[0].setMetadata(contentId, { first: 1 });
+      await paused.reached;
+      const secondPatch = patchers[1].setMetadata(contentId, { second: 2 });
+      await settle();
+      paused.release();
+      await Promise.all([firstPatch, secondPatch]);
+      return (await patchers[0].getContent(contentId))?.metadata;
+    }
+
+    test("keeps concurrent read-modify-writes on one manager from interleaving", async () => {
+      const { created, shared, writer } = await sharedStore();
+
+      expect(
+        await patchConcurrently(shared, created, [writer, writer])
+      ).toMatchObject({ first: 1, second: 2 });
+    });
+
+    test("keeps concurrent read-modify-writes on two managers over one store from interleaving", async ({
+      skip,
+    }) => {
+      const { created, reader, shared, writer } = await sharedStore();
+      if (!isTransactional(shared.store)) {
+        return skip();
+      }
+
+      expect(
+        await patchConcurrently(shared, created, [reader, writer])
+      ).toMatchObject({ first: 1, second: 2 });
+    });
+
+    test("reads a file from one state while another manager rewrites it", async () => {
+      const { created, reader, shared, writer } = await sharedStore();
+      const contentId = contentOf(created).id;
+      const paused = shared.pause("getContent");
+      const read = reader.readFile(contentId, "file.txt");
+      await paused.reached;
+      const written = writer.write({
+        artifactId: created.id,
+        changes: { put: { "file.txt": text("replaced", "text/plain") } },
+      });
+      await settle();
+      paused.release();
+      expect(new TextDecoder().decode((await read)?.blob)).toBe("kept");
+      await written;
+      const after = await reader.readFile(contentId, "file.txt");
+      expect(new TextDecoder().decode(after?.blob)).toBe("replaced");
     });
   });
 }

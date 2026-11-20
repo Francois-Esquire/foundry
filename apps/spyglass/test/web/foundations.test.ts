@@ -318,7 +318,6 @@ describe("internal workspace foundations", () => {
       "workspace:lib",
     ]);
     const lib = internal.find(({ supplierId }) => supplierId === "lib");
-    // `c` reaches `lib` at runtime only through `b`; its devDependency is not structure.
     expect(lib?.members).toEqual([
       { direct: true, distance: 1, territoryId: "a", weight: 1 },
       { direct: true, distance: 1, territoryId: "b", weight: 1 },
@@ -332,7 +331,6 @@ describe("internal workspace foundations", () => {
       "c",
       "lib",
     ]);
-    // Third-party foundations never include a workspace, and vice versa.
     expect(
       deriveFoundations(data, ["a", "b", "c", "core", "lib"]).map(
         ({ name }) => name

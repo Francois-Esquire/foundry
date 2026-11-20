@@ -25,6 +25,7 @@ import {
   MODULE_NODE_ALLOWED_PACKAGE_IMPORTS,
   MODULE_NOUNS,
   MODULE_PLATFORM_ALLOWED_PACKAGE_IMPORTS,
+  MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS,
 } from "../boundary";
 
 const MODULES_SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -82,11 +83,6 @@ function sourceFiles(root: string): string[] {
   return files.sort();
 }
 
-/**
- * Production source under the import boundary. `sdk/emit.ts` is the build-time
- * SDK compiler script: no runtime module imports it, so its compiler and
- * filesystem imports stay off the runtime graph.
- */
 function targetSourceFiles(): string[] {
   return TARGET_ROOTS.flatMap(sourceFiles).filter((path) => {
     const relativePath = relative(MODULES_SRC, path);
@@ -95,7 +91,6 @@ function targetSourceFiles(): string[] {
         relativePath.startsWith("test/") || relativePath.startsWith("testing/")
       ) &&
       relativePath !== "boundary.ts" &&
-      // Build-time emitters, run only by package scripts.
       relativePath !== "sdk/emit.ts" &&
       relativePath !== "manifest-schema-emit.ts"
     );
@@ -123,14 +118,9 @@ function importSpecifiers(source: string): string[] {
 
 interface ModuleImport {
   readonly specifier: string;
-  /** Erased at compile time: `import type`, or every named binding `type`-qualified. */
   readonly typeOnly: boolean;
 }
 
-/**
- * Every static import, re-export, and literal dynamic import in `path`, read
- * from its syntax tree so specifiers inside emitted source strings don't count.
- */
 function moduleImports(path: string): ModuleImport[] {
   const source = createSourceFile(
     path,
@@ -225,6 +215,7 @@ describe("Modules boundary", () => {
       "@foundry/lib/network",
       "@foundry/lib/ordering",
       "@foundry/lib/pagination",
+      "@foundry/lib/turns",
       "node:async_hooks",
       "typescript",
       "zod",
@@ -238,7 +229,6 @@ describe("Modules boundary", () => {
     expect(
       isModuleAllowedImport("../domain", join(MODULES_SRC, "gateway/types.ts"))
     ).toBe(true);
-    // A relative specifier resolves against its importer; with none, it can't.
     expect(isModuleAllowedImport("./domain")).toBe(false);
     expect(
       isModuleAllowedImport("../legacy/module", join(MODULES_SRC, "domain.ts"))
@@ -270,12 +260,39 @@ describe("Modules boundary", () => {
       "@foundry/sandbox",
       "@foundry/sandbox/container",
       "@foundry/sandbox/container/microsandbox-runtime",
-      "@foundry/sandbox/container/store",
+      "@foundry/sandbox/store/memory",
       "@foundry/sandbox/testing",
       "@foundry/sandbox/types",
     ]) {
       expect(isModuleAllowedImport(specifier, platformFile)).toBe(false);
     }
+  });
+
+  it("admits Drizzle only in the SQLite store and its tables", () => {
+    expect(MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS).toEqual([
+      "drizzle-orm",
+      "drizzle-orm/sqlite-core",
+    ]);
+    for (const specifier of MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS) {
+      expect(isModuleAllowedImport(specifier)).toBe(false);
+      expect(
+        isModuleAllowedImport(specifier, join(MODULES_SRC, "registry.ts"))
+      ).toBe(false);
+      expect(
+        isModuleAllowedImport(specifier, join(MODULES_SRC, "store/memory.ts"))
+      ).toBe(false);
+      for (const source of ["store/sqlite.ts", "store/tables.ts"]) {
+        expect(
+          isModuleAllowedImport(specifier, join(MODULES_SRC, source))
+        ).toBe(true);
+      }
+    }
+    expect(
+      isModuleAllowedImport(
+        "@libsql/client",
+        join(MODULES_SRC, "store/sqlite.ts")
+      )
+    ).toBe(false);
   });
 
   it("admits every production import through the boundary allowlist", () => {
@@ -320,8 +337,6 @@ describe("Modules boundary", () => {
         )
       ).toBe(true);
     }
-    // The SDK and Template carry guest source as text; their `node:` imports
-    // belong to the generated Module, not to this package's runtime.
     const violations = targetSourceFiles()
       .filter((path) => !GUEST_SOURCE_DIRECTORY.test(path))
       .flatMap((path) =>
@@ -386,7 +401,6 @@ describe("Modules boundary", () => {
 
   it("loads the microsandbox package only in its VM adapter", () => {
     const adapter = "packages/sandbox/src/container/microsandbox-runtime.ts";
-    // Type-only imports are erased at compile time, so they never load it.
     const violations = productionSourceFiles(
       join(REPO_ROOT, "packages")
     ).flatMap((path) =>

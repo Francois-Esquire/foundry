@@ -1,9 +1,6 @@
 import type { FileInputs } from "@foundry/artifacts";
-import {
-  ArtifactManager,
-  digestTree,
-  InMemoryArtifactStore,
-} from "@foundry/artifacts";
+import { ArtifactManager, digestTree } from "@foundry/artifacts";
+import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { StorageNode, StorageTree } from "@foundry/core/storage";
 import { storageTree, withParentDirectories } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
@@ -12,9 +9,12 @@ import { canonicalizeJson } from "@foundry/lib/json";
 import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, defineModuleVersion, moduleIdSchema } from "../domain";
+import { ModuleCrossStoreError } from "../errors";
 import { encodeModulePackage, importModulePackage } from "../package";
-import { InMemoryModuleStore } from "../store/memory";
+import { ModuleRegistry } from "../registry";
 import { createModuleVersions, MODULE_CONTENT_MANIFEST_PATH } from "../version";
+import { failingArtifacts } from "./helpers/failing-artifacts";
+import { faultyRegistry } from "./helpers/faulty-registry";
 import {
   moduleFixture,
   PROGRAM_FILES,
@@ -22,10 +22,6 @@ import {
   VALID_MANIFEST,
 } from "./helpers/module-fixture";
 
-/**
- * Observes the import's parent expansion without changing it, so a test can
- * tell a tree was rejected before it was expanded.
- */
 vi.mock("@foundry/core/storage", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("@foundry/core/storage")>();
@@ -76,14 +72,17 @@ function importPackage(artifacts: ArtifactManager, text: string) {
   return importModulePackage({
     artifacts,
     encoded: text,
-    modules: new InMemoryModuleStore(),
+    modules: new ModuleRegistry(),
   });
 }
 
-class RejectingModuleStore extends InMemoryModuleStore {
-  override retainManifest(): Promise<never> {
-    return Promise.reject(new Error("injected Module persistence failure"));
-  }
+function rejectingModules(registry: ModuleRegistry, refusing: { on: boolean }) {
+  return faultyRegistry(registry, (commands) => ({
+    retainManifest: (input) =>
+      refusing.on
+        ? Promise.reject(new Error("injected Module persistence failure"))
+        : commands.retainManifest(input),
+  }));
 }
 
 interface Envelope {
@@ -140,7 +139,7 @@ describe("Module Package", () => {
     const artifacts = new ArtifactManager({
       store: new InMemoryArtifactStore(),
     });
-    const modules = new InMemoryModuleStore();
+    const modules = new ModuleRegistry();
 
     await expect(
       importModulePackage({
@@ -180,7 +179,7 @@ describe("Module Package", () => {
   it("round-trips one version as a frozen, tagged Content on the target", async () => {
     const source = await fixture();
     const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
-    const modules = new InMemoryModuleStore();
+    const modules = new ModuleRegistry();
 
     const imported = await importModulePackage({
       artifacts: target,
@@ -212,8 +211,6 @@ describe("Module Package", () => {
       ),
     });
     expect(await modules.loadModule(source.module.id)).toEqual(source.module);
-    // Output-only: the envelope manifest is the only copy, so it is retained
-    // and the version resolves from the target alone.
     expect(await modules.loadRetainedManifest(imported.contentId)).toEqual(
       imported.manifest
     );
@@ -228,7 +225,7 @@ describe("Module Package", () => {
   it("retains nothing when the Content embeds the manifest it was packaged with", async () => {
     const source = await fixture(withEmbeddedManifest(VALID_MANIFEST));
     const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
-    const modules = new InMemoryModuleStore();
+    const modules = new ModuleRegistry();
 
     const imported = await importModulePackage({
       artifacts: target,
@@ -252,7 +249,6 @@ describe("Module Package", () => {
   ])(
     "round-trips a %s version whose source embeds it",
     async (_name, manifest) => {
-      // Differently ordered, indented source: agreement compares parsed values.
       const reordered = Object.fromEntries(Object.entries(manifest).reverse());
       const source = await fixture(
         {
@@ -267,7 +263,7 @@ describe("Module Package", () => {
       const target = new ArtifactManager({
         store: new InMemoryArtifactStore(),
       });
-      const modules = new InMemoryModuleStore();
+      const modules = new ModuleRegistry();
 
       const imported = await importModulePackage({
         artifacts: target,
@@ -289,7 +285,7 @@ describe("Module Package", () => {
   it("retains a strict output-only manifest and resolves it", async () => {
     const source = await fixture(undefined, STRICT_MANIFEST);
     const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
-    const modules = new InMemoryModuleStore();
+    const modules = new ModuleRegistry();
 
     const imported = await importModulePackage({
       artifacts: target,
@@ -305,7 +301,7 @@ describe("Module Package", () => {
   it("rejects a package whose embedded manifest source disagrees, before persisting", async () => {
     const source = await fixture();
     const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
-    const modules = new InMemoryModuleStore();
+    const modules = new ModuleRegistry();
 
     await expect(
       importModulePackage({
@@ -611,18 +607,170 @@ describe("Module Package", () => {
     ).rejects.toThrow("Unsupported Module Package format");
   });
 
-  it("rolls back the Artifact when Module persistence fails inside the transaction", async () => {
-    const source = await fixture();
+  describe("refuses, leaving the target Artifact exactly as it was", () => {
+    async function sharedArtifactPackage(moduleId: string) {
+      const source = await moduleFixture({
+        artifactId: "shared-artifact",
+        files: {
+          ...PROGRAM_FILES,
+          "outputs/program/server.js": {
+            bytes: "export const foreign = true;",
+            mime: "text/javascript",
+          },
+        },
+        tag: "2.0.0",
+      });
+      const module = defineModule({
+        artifact: source.artifact,
+        id: moduleIdSchema.parse(moduleId),
+      });
+      return encodeModulePackage({
+        artifact: source.artifact,
+        content: source.content,
+        files: source.bytes,
+        module,
+        version: defineModuleVersion({
+          artifact: source.artifact,
+          content: source.content,
+          manifest: VALID_MANIFEST,
+          module,
+        }),
+      });
+    }
+
+    async function state(artifacts: ArtifactManager, id: string) {
+      const artifactId = id as Parameters<ArtifactManager["get"]>[0];
+      return {
+        artifact: await artifacts.get(artifactId),
+        contents: await artifacts.listContents(artifactId),
+      };
+    }
+
+    it("an Artifact another Module owns", async () => {
+      const target = await moduleFixture({ artifactId: "shared-artifact" });
+      const registry = new ModuleRegistry();
+      const owner = defineModule({
+        artifact: target.artifact,
+        id: moduleIdSchema.parse("owner"),
+      });
+      await registry.registerModule({ module: owner });
+      const before = await state(target.system, "shared-artifact");
+
+      await expect(
+        importModulePackage({
+          artifacts: target.system,
+          encoded: await sharedArtifactPackage("foreign"),
+          modules: registry,
+        })
+      ).rejects.toThrow(
+        "Artifact shared-artifact already belongs to Module owner"
+      );
+
+      expect(await state(target.system, "shared-artifact")).toEqual(before);
+      expect(
+        await registry.loadModule(moduleIdSchema.parse("foreign"))
+      ).toBeNull();
+      expect(await registry.loadModule(owner.id)).toEqual(owner);
+    });
+
+    it("a Module id registered on another Artifact", async () => {
+      const target = new ArtifactManager({
+        store: new InMemoryArtifactStore(),
+      });
+      const registry = new ModuleRegistry();
+      const elsewhere = await moduleFixture();
+      await registry.registerModule({
+        module: defineModule({
+          artifact: elsewhere.artifact,
+          id: moduleIdSchema.parse("owner"),
+        }),
+      });
+
+      await expect(
+        importModulePackage({
+          artifacts: target,
+          encoded: await sharedArtifactPackage("owner"),
+          modules: registry,
+        })
+      ).rejects.toThrow("Module owner already belongs to another Artifact");
+      expect(await state(target, "shared-artifact")).toEqual({
+        artifact: null,
+        contents: [],
+      });
+    });
+
+    it("a call inside a caller's Artifact transaction", async () => {
+      const target = await moduleFixture({ artifactId: "shared-artifact" });
+      const registry = new ModuleRegistry();
+      const before = await state(target.system, "shared-artifact");
+      const encodedPackage = await sharedArtifactPackage("joined");
+
+      await expect(
+        target.system.transaction(() =>
+          importModulePackage({
+            artifacts: target.system,
+            encoded: encodedPackage,
+            modules: registry,
+          })
+        )
+      ).rejects.toBeInstanceOf(ModuleCrossStoreError);
+      expect(await state(target.system, "shared-artifact")).toEqual(before);
+      expect(
+        await registry.loadModule(moduleIdSchema.parse("joined"))
+      ).toBeNull();
+    });
+  });
+
+  it("keeps the landed Content when registering fails, and a retry completes the import", async () => {
+    const source = await fixture(undefined, STRICT_MANIFEST);
     const artifacts = new ArtifactManager({
       store: new InMemoryArtifactStore(),
     });
+    const registry = new ModuleRegistry();
+    const refusing = { on: true };
+    const modules = rejectingModules(registry, refusing);
+    const text = await encoded(source);
+    await expect(
+      importModulePackage({ artifacts, encoded: text, modules })
+    ).rejects.toThrow("injected Module persistence failure");
+    expect(await artifacts.get(source.artifact.id)).not.toBeNull();
+    expect(await registry.loadModule(source.module.id)).toBeNull();
+
+    refusing.on = false;
+    const imported = await importModulePackage({
+      artifacts,
+      encoded: text,
+      modules,
+    });
+    expect(await registry.loadModule(source.module.id)).toEqual(source.module);
+    expect(await registry.loadRetainedManifest(imported.contentId)).toEqual(
+      imported.manifest
+    );
+  });
+
+  it("registers nothing when the Artifact write fails, and a retry completes the import", async () => {
+    const source = await fixture();
+    const failing = failingArtifacts();
+    const registry = new ModuleRegistry();
+    const text = await encoded(source);
     await expect(
       importModulePackage({
-        artifacts,
-        encoded: await encoded(source),
-        modules: new RejectingModuleStore(),
+        artifacts: failing.artifacts,
+        encoded: text,
+        modules: registry,
       })
-    ).rejects.toThrow("injected Module persistence failure");
-    expect(await artifacts.get(source.artifact.id)).toBeNull();
+    ).rejects.toThrow("simulated Artifact commit failure");
+    expect(await registry.loadModule(source.module.id)).toBeNull();
+
+    failing.fail = false;
+    const imported = await importModulePackage({
+      artifacts: failing.artifacts,
+      encoded: text,
+      modules: registry,
+    });
+    expect(await registry.loadModule(source.module.id)).toEqual(source.module);
+    expect(
+      await failing.artifacts.getContent(imported.contentId)
+    ).not.toBeNull();
   });
 });

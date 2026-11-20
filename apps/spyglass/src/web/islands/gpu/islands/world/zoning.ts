@@ -1,26 +1,12 @@
-/**
- * The world plan (world.ts) as the zoning map draws it
- * (shaders/maps/zoning.wgsl, WORLD.md layer 2): its zones as polygons
- * that grow trees, shrubs and open ground; rings along the outlines that
- * grow a hedge or a field's edge of trees; and what it reserves, its
- * parcels and buildings as polygons and its roads as capsule segments.
- * Packed once when the plan is set; the map is baked from it on the GPU.
- */
 import type { Point } from "../../../data/chart";
 import type { ParcelKind, WorldPlan, ZoneKind } from "./world";
 
-/** What a zone grows, each 0 to 1: the zoning map's g, b and a. */
 export interface Growth {
-  /** Open ground: how far the town has left the land wild. */
   readonly open: number;
   readonly shrubs: number;
   readonly trees: number;
 }
 
-/**
- * Each zone kind's growth. A field's crops are its surface's, so it grows
- * no trees on itself; its edge does (`FIELD_EDGE`).
- */
 export const ZONE_GROWTH: Readonly<Record<ZoneKind, Growth>> = {
   core: { open: 0, shrubs: 0, trees: 0 },
   field: { open: 1, shrubs: 0.05, trees: 0 },
@@ -31,10 +17,6 @@ export const ZONE_GROWTH: Readonly<Record<ZoneKind, Growth>> = {
   shore: { open: 0.8, shrubs: 0.25, trees: 0.05 },
 };
 
-/**
- * Zone kinds in draw order: the wild land first, the town's own last, so
- * where zones overlap the later kind's growth wins.
- */
 export const ZONE_ORDER: readonly ZoneKind[] = [
   "meadow",
   "shore",
@@ -45,27 +27,18 @@ export const ZONE_ORDER: readonly ZoneKind[] = [
   "core",
 ];
 
-/**
- * Parcels that leave their ground to grow: a garden is planted, not
- * paved, so it is drawn as a garden zone. Every other parcel is reserved.
- */
 const GROWING_PARCELS: ReadonlySet<ParcelKind> = new Set<ParcelKind>([
   "garden",
 ]);
 
-/** A ring along an outline: where it runs and what it grows. */
 interface Ring {
-  /** Chart units either side of its middle it fades out over. */
   readonly half: number;
-  /** Chart units outside the outline its middle runs; inside when negative. */
   readonly offset: number;
   readonly shrubs: number;
   readonly trees: number;
 }
 
-/** A hedge just outside a parcel's outline, where the reserve eases off. */
 export const HEDGE: Ring = { half: 0.5, offset: 0.6, shrubs: 1, trees: 0 };
-/** A line of trees along a field's edge, just inside it. */
 export const FIELD_EDGE: Ring = {
   half: 1,
   offset: -0.75,
@@ -73,33 +46,24 @@ export const FIELD_EDGE: Ring = {
   trees: 0.4,
 };
 
-/** Floats a polygon (zoning.wgsl `polygons`) and a road segment (`segments`). */
 const POLYGON_FLOATS = 12;
 const SEGMENT_FLOATS = 8;
 
-/** Instances of one draw: the first in its buffer and how many. */
 interface Run {
   readonly count: number;
   readonly first: number;
 }
 
 export interface PackedZoning {
-  /** Every outline's points, x and y, one after another. */
   readonly points: Float32Array<ArrayBuffer>;
-  /** Three vec4f a polygon: zones by kind, then rings, then reserves. */
   readonly polygons: Float32Array<ArrayBuffer>;
-  /** Each reserved polygon: parcels, then buildings' footprints. */
   readonly reserves: Run;
-  /** Each ring along an outline. */
   readonly rings: Run;
   readonly segmentCount: number;
-  /** Two vec4f a road segment: its ends; its half width. */
   readonly segments: Float32Array<ArrayBuffer>;
-  /** Each zone kind's polygons, in `ZONE_ORDER`. */
   readonly zones: Readonly<Record<ZoneKind, Run>>;
 }
 
-/** A building's footprint, from its middle, turn and half sizes (world.ts). */
 function footprintOf(
   at: Point,
   turn: number,
@@ -126,7 +90,6 @@ interface Shape {
   readonly ring: readonly [number, number];
 }
 
-/** The polygons' and points' arrays, filled in order. */
 function packPolygons(shapes: readonly Shape[]) {
   const pointCount = shapes.reduce((n, s) => n + s.outline.length, 0);
   const points = new Float32Array(Math.max(pointCount, 1) * 2);
@@ -160,7 +123,6 @@ function packPolygons(shapes: readonly Shape[]) {
   return { points, polygons };
 }
 
-/** Every road's centreline as segments: its two ends and half its width. */
 function packSegments(plan: WorldPlan) {
   const rows: number[][] = [];
   for (const road of plan.roads) {
@@ -181,7 +143,6 @@ function packSegments(plan: WorldPlan) {
 
 const polygonal = (outline: readonly Point[]) => outline.length >= 3;
 
-/** The plan's zones, rings and reserves as the zoning draws read them. */
 export function packZoning(plan: WorldPlan): PackedZoning {
   const shapes: Shape[] = [];
   const zones = {} as Record<ZoneKind, Run>;

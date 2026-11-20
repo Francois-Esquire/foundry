@@ -302,7 +302,6 @@ describe("history and anchors", () => {
       anchored.conceptOwnership.concepts.find(
         (item) => item.concept.name === name
       );
-    // Representations and behavior both center on b: the anchor is questioned.
     const signal = find("Signal");
     expect(signal?.tensions.at(-1)).toEqual({
       kind: "anchor-vs-observed-center",
@@ -315,13 +314,11 @@ describe("history and anchors", () => {
       kind: "anchored-seed",
     });
     expect(signal?.alignment).toBe("divergent");
-    // One diverging dimension questions the seed, not the anchor.
     const shape = find("Shape");
     expect(shape?.alignment).toBe("divergent");
     expect(shape?.tensions.map((tension) => tension.kind)).not.toContain(
       "anchor-vs-observed-center"
     );
-    // References elsewhere alone never question the anchor.
     const label = find("Label");
     expect(label?.tensions.map((tension) => tension.kind)).toEqual([
       "usage-vs-semantic-center",

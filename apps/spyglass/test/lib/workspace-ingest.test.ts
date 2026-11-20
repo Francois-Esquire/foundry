@@ -4,10 +4,6 @@ import { ingestWorkspaceReports } from "../../src/lib/workspace-ingest";
 
 const pathPattern = /^@\w+\//;
 
-// Synthetic package reports carrying only the sections workspace ingestion
-// reads. The builder fills every required section with an empty-but-valid
-// shape, so each test states just the facts it is about.
-
 interface Edge {
   distinct?: number;
   edges: [string, string][];
@@ -62,7 +58,6 @@ interface Options {
   incoming?: Edge[];
   outgoing?: Edge[];
   overlaps?: Overlap[];
-  /** Package the re-centering concept is declared in; defaults to the report's own. */
   owner?: string;
   path?: string;
   policyVersion?: number;
@@ -509,8 +504,6 @@ function report(name: string, options: Options = {}): SurfaceReport {
     symbols: [],
     target: { boundaryType: "package", name, path },
   };
-  // Test-only: the sections above are exactly what ingestion reads; the
-  // remaining SurfaceReport detail is irrelevant to workspace facts.
   return value as unknown as SurfaceReport;
 }
 

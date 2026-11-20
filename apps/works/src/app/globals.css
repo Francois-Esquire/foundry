@@ -39,9 +39,6 @@
   html {
     font-family: var(--font-ui);
 
-    /* Fluid UI scale. The root font-size is the single lever for the whole app:
-       every rem-derived size rides this one curve. Flat at the 16px base up to
-       a 1100px-wide window, a linear ramp to 20px by 1728px, capped there. */
     font-size: clamp(16px, calc(16px + 4 * (100vw - 1100px) / 628), 20px);
     color-scheme: light;
   }

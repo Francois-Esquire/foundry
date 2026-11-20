@@ -1,4 +1,3 @@
-/** Base class for typed errors at the workflows public seam. */
 export abstract class WorkflowDomainError extends Error {
   abstract readonly code: string;
 }
@@ -57,21 +56,6 @@ export class RunReplayGapError extends WorkflowDomainError {
     this.earliestAvailable = earliestAvailable;
     this.latestAvailable = latestAvailable;
     this.name = "RunReplayGapError";
-  }
-}
-
-export class ExecutionConflictRetriesExhaustedError extends WorkflowDomainError {
-  readonly code = "EXECUTION_CONFLICT_RETRIES_EXHAUSTED";
-  readonly operation: string;
-  readonly attempts: number;
-
-  constructor(operation: string, attempts: number) {
-    super(
-      `Execution operation ${operation} exhausted ${attempts} optimistic commit attempts`
-    );
-    this.operation = operation;
-    this.attempts = attempts;
-    this.name = "ExecutionConflictRetriesExhaustedError";
   }
 }
 

@@ -1,16 +1,3 @@
-/**
- * The world's surfaces (WORLD.md layer 3): the roads as ribbons and the
- * parcels as pads, packed on the CPU when the plan is set
- * (world-surfaces-build.ts) and drawn into the film in two draws, the pads
- * and then the roads (shaders/world/surfaces.wgsl). Each vertex's ground is
- * found once on the GPU when the plan or the height map changes
- * (`settle`, the shader's `cs_drape`); the frame reads it and does no CPU
- * work in proportion to the plan.
- *
- * Both draws blend their anti-aliased edges over what is already in the
- * film, so they go after the terrain and before anything that stands on
- * them (the town's bodies, its blended shadows, the foliage).
- */
 import {
   type Compute,
   compute,
@@ -33,11 +20,9 @@ interface SurfaceCounts {
 }
 
 export interface Surfaces extends WorldLayer {
-  /** What the last plan packed into, for readouts and tests. */
   readonly counts: SurfaceCounts;
 }
 
-/** Threads a workgroup of the drape (shaders/world/surfaces.wgsl `cs_drape`). */
 const DRAPE_GROUP = 64;
 const FLOAT_BYTES = 4;
 
@@ -64,7 +49,6 @@ export function createSurfaces(
     });
   const padDrape = drapeOf("pads");
   const roadDrape = drapeOf("roads");
-  // Reallocated only when a plan's size changes, as the town's are.
   const buffers: Record<string, StorageBuffer> = {};
   const fit = (
     name: string,
@@ -108,7 +92,6 @@ export function createSurfaces(
       roads.dispose();
       padDrape.dispose();
       roadDrape.dispose();
-      // The buffers belong to the gpu: its dispose frees them.
     },
     draw(pass, sky, grid) {
       if (!(packed && light && settledOn)) {

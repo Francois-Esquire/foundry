@@ -1,7 +1,6 @@
 import type { SpyglassData, Territory } from "../../src/web/data/types";
 import { singleFrame } from "./frames";
 
-/** An island of two files, 60 units apart, with no coast: the ink and label tests' island. */
 export const island: Territory = {
   analyzed: true,
   coast: [],
@@ -30,7 +29,6 @@ export const island: Territory = {
   y: 0,
 };
 
-/** The island and an empty neighbour 200 units east, on a 500-unit chart with one route between them. */
 export const twoIslands: SpyglassData = {
   coverage: "test",
   fileEdges: [],

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { ArtifactManager, type ArtifactStore } from "@foundry/artifacts";
+import { ArtifactManager } from "@foundry/artifacts";
+import type { ArtifactStore } from "@foundry/artifacts/store";
 import {
   type InstallationId,
   installationIdSchema,
@@ -13,15 +14,14 @@ import {
   ModuleActivationRefusedError,
 } from "@foundry/modules/platform/installations";
 import { createModuleSystem } from "@foundry/modules/platform/system";
-import { InMemoryModuleStore } from "@foundry/modules/store/memory";
+import { ModuleRegistry } from "@foundry/modules/registry";
 import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMemoryContainerStore } from "@foundry/sandbox/container/store";
+import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { moduleDirectory } from "../local-library";
 import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
 import { WORKS_MODULE_SETTINGS, worksModuleLaunch } from "./launch";
 import { connectModuleSocket } from "./websocket";
 
-/** Execution is temporary; Module source, releases, and app data stay local. */
 export async function createModuleRuntime(
   userData: string,
   artifactStore: ArtifactStore
@@ -30,7 +30,10 @@ export async function createModuleRuntime(
     "@foundry/sandbox/container/microsandbox-runtime"
   );
   const artifacts = new ArtifactManager({ store: artifactStore });
-  const store = new InMemoryModuleStore();
+  const store = new ModuleRegistry({
+    artifactOfContent: async (contentId) =>
+      (await artifacts.getContent(contentId))?.artifactId ?? null,
+  });
   const root = path.join(userData, ".runtime");
   const checkoutsRoot = path.join(root, "checkouts");
   const filesRoot = path.join(userData, ".data");
@@ -40,7 +43,7 @@ export async function createModuleRuntime(
     instanceLabel: createHash("sha256").update(root).digest("hex").slice(0, 16),
     mountTargetRoot: "/foundry",
     runtime,
-    store: createMemoryContainerStore(),
+    store: new MemoryContainerStore(),
   });
   const dataDirectories = new Map<InstallationId, InstallationId>();
   const running = new Map<string, Promise<void>>();
@@ -63,7 +66,6 @@ export async function createModuleRuntime(
     containers,
     files: {
       backup: (id) => files.backup(dataId(id)),
-      // Preserve persistent app data while removing any abandoned temporary files.
       delete: (id) => files.release(dataId(id)),
       discardBackup: (id) => files.discardBackup(dataId(id)),
       prepare: async (input) => ({
@@ -80,8 +82,6 @@ export async function createModuleRuntime(
     store,
     transport: { connect: connectModuleSocket },
   });
-  // Works provides no Capabilities: a release that requires one is refused
-  // at preflight instead of starting without it.
   const installations = createModuleInstallations({
     programs: system.programs,
     providers: [],

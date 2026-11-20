@@ -1,9 +1,3 @@
-/**
- * `agent.extend`: the same agent on another route or with other settings.
- * It keeps the id, so approvals and triggers filed under it carry over, and
- * the route is no part of an id, so nothing about a route can conflict.
- */
-
 import { Output } from "ai";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";

@@ -1,6 +1,6 @@
 import type { Page } from "@foundry/core/pagination";
 import type { Config } from "@foundry/lib/config";
-import { Effect, Exit, Option, Schema, Scope } from "effect";
+import { Effect, Exit, Scope } from "effect";
 import { contributeQueueConfig } from "./config";
 import type { DispatchedWorkflow } from "./dispatched-workflow";
 import {
@@ -11,47 +11,50 @@ import {
   RunNotFoundError,
 } from "./errors";
 import type { BaseContext } from "./executable";
+import type {
+  DirectRunLinks,
+  JobQuery,
+  RecoverableRun,
+  RunQuery,
+  SuspensionQuery,
+} from "./execution-commands";
+import type { OrchestratorStore } from "./execution-coordinator";
+import {
+  ExecutionCoordinator,
+  requireDurableStore,
+} from "./execution-coordinator";
 import { ExecutionParticipants } from "./execution-participants";
+import type { Extensions } from "./extensions";
+import { createExtensions } from "./extensions";
 import { runEffectPromise } from "./helpers";
 import type { CreateJobOptions } from "./job-lifecycle";
 import { JobLifecycle } from "./job-lifecycle";
+import type { JsonValue } from "./json-value";
+import { isJsonValue } from "./json-value";
 import type { OrchestratorLogger } from "./logger";
 import { BaseOrchestratorLogger } from "./logger";
-import type { ExecutionPersistence } from "./persistence";
-import { orchestratorStoreFromPersistence } from "./persistence-compatibility";
 import { Queue } from "./queue";
 import type {
   DispatchOptions,
   QueueEvent,
   QueueEventPayload,
 } from "./queue-types";
+import { recordOf } from "./record-fields";
 import type { ObserveRunOptions, RunObservation } from "./run-observation";
 import { RunObservationJournal } from "./run-observation";
-import type { StepSnapshot } from "./snapshot";
-import { StepSnapshotSchema } from "./snapshot";
-import type { Step } from "./step";
 import type {
   DefinitionReference,
-  DirectRunLinks,
-  Extensions,
   JobLinks,
-  JobQuery,
   JobRecord,
-  JsonValue,
-  OrchestratorStore,
   QueueRecord,
   RunFramePayload,
   RunLinks,
-  RunQuery,
   RunRecord,
-  SuspensionQuery,
   SuspensionRecord,
-} from "./store";
-import {
-  createExtensions,
-  InMemoryOrchestratorStore,
-  JsonValueSchema,
-} from "./store";
+} from "./schema";
+import { StepSnapshotSchema } from "./schema";
+import type { StepSnapshot } from "./snapshot";
+import type { Step } from "./step";
 import type { ResolveSuspensionOptions } from "./suspension-lifecycle";
 import { SuspensionLifecycle } from "./suspension-lifecycle";
 import type { TelemetryLogEntry } from "./telemetry";
@@ -77,33 +80,22 @@ async function collectPageItems<T>(
   }
 }
 
-/**
- * Anything dispatchable by name. Workflows go to the queue as-is;
- * Steps get auto-wrapped into a one-shot Workflow on resolve.
- */
 export type Runnable<
   I = unknown,
   O = unknown,
   X extends BaseContext = BaseContext,
 > = Step<I, O, X> | Workflow<I, O, X>;
 
-export type { DirectRunLinks } from "./store";
+export type { DirectRunLinks } from "./execution-commands";
 
-/** Stable identity and correlation supplied before registered work is built. */
 export interface RunExecutionContext {
-  /**
-   * Durably reserve a named side effect before executing it. The first claim
-   * returns true; duplicate or recovered claims for this Run return false.
-   */
   readonly claimEffect: (key: string, metadata?: JsonValue) => Promise<boolean>;
   readonly definition: DefinitionReference;
-  /** Publish durable domain output after execution has begun. */
   readonly emitOutput: (value: JsonValue) => Promise<void>;
   readonly links: RunLinks;
   readonly runId: string;
 }
 
-/** Narrow read-only Queue state intended for operational diagnostics. */
 export interface QueueDiagnostic {
   readonly createdAt: number;
   readonly id: string;
@@ -112,11 +104,6 @@ export interface QueueDiagnostic {
   readonly status: QueueRecord["status"];
 }
 
-/**
- * Builds a Runnable from raw input. Factories are ordinary TypeScript:
- * either synchronous or Promise-returning. Effect remains an internal
- * implementation detail of the orchestrator.
- */
 export type Factory<
   I = unknown,
   O = unknown,
@@ -126,11 +113,6 @@ export type Factory<
   context?: RunExecutionContext
 ) => Runnable<I, O, X> | Promise<Runnable<I, O, X>>;
 
-/**
- * Normalise a Factory's return value into an Effect that yields the
- * Runnable. Promise-returning factories are wrapped with `Effect.promise`;
- * synchronous returns are wrapped with `Effect.succeed`.
- */
 function factoryToEffect<I, O, X extends BaseContext = BaseContext>(
   factory: Factory<I, O, X>,
   input: I,
@@ -143,21 +125,7 @@ function factoryToEffect<I, O, X extends BaseContext = BaseContext>(
   return Effect.succeed(result);
 }
 
-/**
- * Validating decoder for the persisted `runs.metadata.workflow.steps`
- * blob. Reuses the canonical {@link StepSnapshotSchema} so recovery
- * seeding can't drift from the live snapshot shape. Returns `None` on
- * any structural mismatch (or absent blob) so the caller falls back to
- * running the workflow from the top.
- */
-const decodeSeedSteps = Schema.decodeUnknownOption(
-  Schema.Record({ key: Schema.String, value: StepSnapshotSchema })
-);
-
-// ── Registry: name → factory ──
-// Name is the persistence anchor. `runs.step` stores it; cold restart
-// calls `registry.resolve(name)` to rebuild. Steps and Workflows share
-// one namespace — duplicate registrations throw.
+const SeedStepsSchema = recordOf(StepSnapshotSchema);
 
 export class Registry {
   readonly #factories = new Map<string, Factory>();
@@ -169,10 +137,6 @@ export class Registry {
     if (this.#factories.has(name)) {
       throw new Error(`already registered: "${name}"`);
     }
-    // Erase the context type for storage. `Factory` is invariant in `X`
-    // (its returned `Runnable` embeds `execute`), so this is a deliberate
-    // `unknown` round-trip — the registry namespace is context-agnostic;
-    // resolution re-applies whatever `X` the caller asks for.
     this.#factories.set(name, factory as unknown as Factory);
   }
 
@@ -199,59 +163,24 @@ export interface OrchestratorOptions {
   readonly admissionParticipant?: (input: {
     readonly job: JobRecord;
     readonly run: RunRecord;
-    readonly persistence: ExecutionPersistence;
+    readonly store: OrchestratorStore;
   }) => Promise<JsonValue>;
   readonly cancellationParticipant?: (input: {
     readonly run: RunRecord;
-    readonly persistence: ExecutionPersistence;
+    readonly store: OrchestratorStore;
   }) => Promise<RunRecord | null>;
-  /**
-   * Shared config registry. The orchestrator self-contributes its
-   * `queue` slice (idempotent) at construction and reads
-   * `queue.concurrency` and `queue.defaultName` from it. Composers
-   * wanting non-default values call `contributeQueueConfig(config,
-   * { ... })` on the registry before constructing the orchestrator.
-   */
   readonly config: Config;
-  /** Optional lifecycle logger. */
   readonly logger?: OrchestratorLogger;
-  /** Preferred composed persistence capability. */
-  readonly persistence?: ExecutionPersistence;
-  /** Host-owned JSON-safe annotations persisted with the default queue. */
   readonly queueExtensions?: Extensions;
-  /** Pre-populated registry, or omit to start empty. */
+  readonly recovers?: (run: RecoverableRun) => boolean;
   readonly registry?: Registry;
-  /** Persistence boundary. Defaults to the in-memory reference store. */
   readonly store?: OrchestratorStore;
 }
 
 export interface RunOptions {
-  /** Host-owned JSON-safe annotations persisted with this run. */
   readonly extensions?: Extensions;
-  /** Cross-domain correlation and provenance for this direct Run. */
   readonly links?: DirectRunLinks;
-  /**
-   * Caller-supplied Run identity (`rn-*`), for a host that records the Run
-   * before dispatching it. Generated when omitted. An id this Orchestrator
-   * or its store already holds, or that another `run()` here is taking, is
-   * refused before its factory is invoked. Two Orchestrators sharing a store
-   * can both get as far as their factories; the store admits one Run and
-   * the other `run()` rejects without executing. Its factory's context
-   * cannot claim effects or emit output under the id, before dispatch or
-   * once refused.
-   */
   readonly runId?: string;
-  /**
-   * Withdraws the Run while it is still being dispatched. It is checked
-   * before the factory is invoked and again once it resolves: an abort
-   * before the Queue takes the Run, including one while the factory is
-   * still resolving, means nothing is dispatched or stored and `run()`
-   * rejects. The factory itself is not handed the signal, so `run()` waits
-   * for a factory that is resolving to finish, and one that never resolves
-   * holds it, and whatever awaits it, open. Once `run()` has dispatched the
-   * Run the signal does nothing further: cancel a dispatched Run with
-   * {@link Orchestrator.cancelRun} or `DispatchedWorkflow.cancel()`.
-   */
   readonly signal?: AbortSignal;
 }
 
@@ -271,10 +200,9 @@ export class Orchestrator {
   readonly #journal: RunObservationJournal;
   readonly #jobs: JobLifecycle;
   readonly #suspensions: SuspensionLifecycle;
-  readonly #persistence: ExecutionPersistence | undefined;
   readonly #participants: ExecutionParticipants;
+  readonly #recovers: (run: RecoverableRun) => boolean;
 
-  // Initialized by setup(); accessed via #requireQueue.
   #queue: Queue | null = null;
   #lifecycle: OrchestratorLifecycle = "created";
   #setupPromise: Promise<void> | null = null;
@@ -282,29 +210,22 @@ export class Orchestrator {
   #stopPromise: Promise<void> | null = null;
   #recoveredRunIds: readonly string[] = [];
   readonly #frameTails = new Map<string, Promise<void>>();
-  /** Caller-supplied Run ids a direct `run()` is taking, from its first check to its dispatch. */
   readonly #reserving = new Set<string>();
   readonly #queueObservationUnsubscribes: Unsubscribe[] = [];
-  // Keeps recovered workflows' subscriber mirrors alive past construction.
   readonly #scope: Scope.CloseableScope;
 
   constructor(opts: OrchestratorOptions) {
     contributeQueueConfig(opts.config);
     this.registry = opts.registry ?? new Registry();
     this.config = opts.config;
-    this.#persistence = opts.persistence;
-    if (opts.persistence && opts.store) {
-      throw new Error("Provide either persistence or store, not both");
-    }
-    this.store = opts.persistence
-      ? orchestratorStoreFromPersistence(opts.persistence)
-      : (opts.store ?? new InMemoryOrchestratorStore());
+    this.store = opts.store ?? new ExecutionCoordinator();
+    requireDurableStore(this.store, "Orchestrator");
     this.#participants = new ExecutionParticipants(
-      opts.persistence,
       this.store,
       opts.admissionParticipant,
       opts.cancellationParticipant
     );
+    this.#recovers = opts.recovers ?? (() => true);
     this.#logger = opts.logger ?? new BaseOrchestratorLogger();
     this.#queueExtensions = createExtensions(opts.queueExtensions);
     this.#journal = new RunObservationJournal(this.store);
@@ -340,9 +261,6 @@ export class Orchestrator {
     this.#scope = Effect.runSync(Scope.make());
   }
 
-  /**
-   * Throws if setup() has not been called yet. Centralizes the invariant.
-   */
   #requireQueue(): Queue {
     if (this.#queue === null) {
       throw new Error(
@@ -402,29 +320,18 @@ export class Orchestrator {
     return this.registry.names();
   }
 
-  /**
-   * @internal Effect-typed implementation. Resolves the factory, builds
-   * the instance under the caller's Scope, auto-wraps Step → Workflow,
-   * dispatches on queue, threading `name` into `runs.step` for recovery.
-   */
+  /** @internal */
   #run<I, O>(
     name: string,
     input: I,
     options?: RunOptions
   ): Effect.Effect<DispatchedWorkflow<I, O>, never, Scope.Scope> {
-    // Resolution erases the registered context type back to `BaseContext`
-    // (the registry namespace is context-agnostic — see `Registry.resolve`).
-    // The executor doesn't need the typed bag, so everything downstream
-    // runs as `BaseContext` and no further cast is required here.
     const queue = this.#requireStartedQueue();
     const factory = this.registry.resolve<I, O>(name);
     const runId = options?.runId ?? generateId("rn");
     const definition = Object.freeze({ name });
     const links = Object.freeze({ ...(options?.links ?? {}) });
     const persistedLinks = Object.keys(links).length === 0 ? undefined : links;
-    // Claims and output wait for the Run's own record: a Run the store
-    // refuses (its id taken by another Orchestrator sharing it) never
-    // touches the journal of the Run that holds the id.
     const construction = this.#runContext(runId, definition, links, () =>
       queue.awaitPersistence(runId)
     );
@@ -441,8 +348,6 @@ export class Orchestrator {
         construction.context
       );
       const workflow = yield* Orchestrator.#asWorkflow(instance, input);
-      // The last check before the synchronous dispatch: no await follows it,
-      // so an abort seen here can never race a Run the Queue already holds.
       yield* Orchestrator.#unlessWithdrawn(runId, options?.signal);
       this.#wireWorkflowObservation(workflow, runId);
       const dispatched = queue.dispatch(workflow, {
@@ -471,12 +376,6 @@ export class Orchestrator {
     );
   }
 
-  /**
-   * Take a caller-supplied Run id for one `run()`, or refuse it: another
-   * `run()` here is taking it, or the Queue or the store already holds it.
-   * Taken before anything is awaited, so two calls for one id cannot both
-   * pass.
-   */
   #reserve(queue: Queue, runId: string): Effect.Effect<void> {
     return Effect.suspend(() => {
       if (this.#reserving.has(runId)) {
@@ -505,11 +404,6 @@ export class Orchestrator {
     });
   }
 
-  /**
-   * Run a registered runnable by name. Promises-based wrapper around
-   * {@link #run}, threaded through the orchestrator-owned scope so
-   * forked subscribers outlive this call.
-   */
   run<I, O>(
     name: string,
     input: I,
@@ -520,8 +414,6 @@ export class Orchestrator {
         new Error(`A Run id starts with "rn-": ${options.runId}`)
       );
     }
-    // Unwrapped, so a factory's own error (a rejected input) reaches the
-    // caller as itself rather than as a FiberFailure.
     return runEffectPromise(
       this.#run<I, O>(name, input, options).pipe(Scope.extend(this.#scope))
     );
@@ -548,17 +440,14 @@ export class Orchestrator {
     return this.#jobs.list(query);
   }
 
-  /** Durable Run lookup for host-facing execution facades. */
   getRun(runId: string): Promise<RunRecord | null> {
     return this.store.getRun(runId);
   }
 
-  /** Durable Run listing for host-facing execution facades. */
   listRuns(query: RunQuery = {}): Promise<Page<RunRecord, number>> {
     return this.store.listRuns(query);
   }
 
-  /** Compatibility-safe projection; never exposes Queue mutation or storage. */
   async listQueueDiagnostics(): Promise<readonly QueueDiagnostic[]> {
     const queues = await this.store.listQueues();
     return Object.freeze(
@@ -582,18 +471,7 @@ export class Orchestrator {
     const settled = await this.#participants.cancel(runId);
     if (settled) {
       if (settled.status === "cancelled") {
-        const afterCommit = this.#persistence?.afterCommit;
-        if (afterCommit) {
-          await afterCommit(() =>
-            queue
-              .applyAuthoritativeCancellation(runId)
-              .catch((error: unknown) => {
-                console.error("Run cancellation projection failed:", error);
-              })
-          );
-        } else {
-          await queue.applyAuthoritativeCancellation(runId);
-        }
+        await queue.applyAuthoritativeCancellation(runId);
       }
       return settled;
     }
@@ -604,7 +482,7 @@ export class Orchestrator {
 
   coordinateSettlement<T>(
     runId: string,
-    operation: (run: RunRecord, persistence: ExecutionPersistence) => Promise<T>
+    operation: (run: RunRecord, store: OrchestratorStore) => Promise<T>
   ): Promise<T> {
     return this.#participants.settle(runId, operation);
   }
@@ -664,29 +542,18 @@ export class Orchestrator {
       },
     };
     const claim = await this.#participants.claim(job.id, claimInput);
-    // Admission was preflighted before the atomic claim. If a shutdown race
-    // still rejects here, retain the queued row for normal cold recovery.
-    return queue.dispatchPersisted(
-      prepared.workflow,
-      {
-        definition: claim.run.definition,
-        extensions: claim.run.extensions,
-        id: claim.run.id,
-        input: claim.run.input,
-        lastStatus: claim.run.status,
-        links: claim.run.links,
-        metadata: claim.run.metadata,
-        step: claim.run.step,
-      },
-      this.#persistence?.afterCommit
-    );
+    return queue.dispatchPersisted(prepared.workflow, {
+      definition: claim.run.definition,
+      extensions: claim.run.extensions,
+      id: claim.run.id,
+      input: claim.run.input,
+      lastStatus: claim.run.status,
+      links: claim.run.links,
+      metadata: claim.run.metadata,
+      step: claim.run.step,
+    });
   }
 
-  /**
-   * Resolve the default queue row by name (getOrCreate semantics) and
-   * construct the running Queue. Concurrent and repeated calls share one
-   * setup attempt and one Queue instance.
-   */
   setup(): Promise<void> {
     if (this.#lifecycle === "stopped") {
       return Promise.reject(new Error("Orchestrator is shut down"));
@@ -744,19 +611,10 @@ export class Orchestrator {
     return attempt;
   }
 
-  /**
-   * Recover durable non-terminal Runs exactly once, then begin accepting work.
-   * A failed recovery leaves the Orchestrator setup but non-serving so callers
-   * may register the missing definition and retry start().
-   */
   async start(): Promise<void> {
     await this.#startLifecycle();
   }
 
-  /**
-   * Graceful stop: pause, drain in-flight runs, interrupt the driver, and
-   * close the orchestrator-owned scope. No-op if setup() was never called.
-   */
   stop(opts?: { graceMs?: number }): Promise<void> {
     if (this.#stopPromise) {
       return this.#stopPromise;
@@ -774,11 +632,6 @@ export class Orchestrator {
     return this.#stopPromise;
   }
 
-  /**
-   * Compatibility alias for the pre-live startup gate. Before startup this
-   * performs the same recovery-and-start transition as start(); once live it
-   * rejects so recovery cannot be re-entered independently.
-   */
   async recover(): Promise<readonly string[]> {
     if (this.#lifecycle === "started") {
       throw new Error(
@@ -822,7 +675,7 @@ export class Orchestrator {
   }
 
   async #recoverColdStart(queue: Queue): Promise<readonly string[]> {
-    const rows = await queue.findRecoverableRuns();
+    const rows = (await queue.findRecoverableRuns()).filter(this.#recovers);
     this.#throwIfStopped();
     for (const row of rows) {
       const definition = row.definition?.name ?? row.step;
@@ -836,77 +689,100 @@ export class Orchestrator {
       readonly workflow: Workflow;
     }[] = [];
     for (const row of rows) {
-      const definition = row.definition ?? { name: row.step };
-      const factory = this.registry.resolve(definition.name);
-      const construction = this.#runContext(
-        row.id,
-        definition,
-        row.links ?? {}
-      );
-      let suspensionRecords = await collectPageItems((page) =>
-        this.#suspensions.list({ runId: row.id, ...page })
-      );
-      if (row.lastStatus === "suspended" && row.suspension) {
-        await this.#suspensions.park(row.id, row.step, row.suspension);
-        suspensionRecords = await collectPageItems((page) =>
-          this.#suspensions.list({ runId: row.id, ...page })
-        );
-      } else if (
-        row.lastStatus === "suspended" &&
-        !suspensionRecords.some((record) => record.status === "pending")
-      ) {
-        throw new Error(`Suspended Run ${row.id} has no suspension authority`);
-      }
-      const workflow = await runEffectPromise(
-        Effect.gen(this, function* () {
-          const instance = yield* factoryToEffect(
-            factory,
-            row.input,
-            construction.context
-          );
-          const runWorkflow = yield* Orchestrator.#asWorkflow(
-            instance,
-            row.input
-          );
-          const seedSteps = Orchestrator.#snapshotStepsFromMetadata(
-            row.metadata
-          );
-          if (seedSteps !== null) {
-            yield* runWorkflow.root.snapshot.seed(seedSteps);
-          }
-          for (const suspension of suspensionRecords) {
-            if (suspension.status === "resolved") {
-              yield* Effect.promise(() =>
-                runWorkflow.resolveOccurrence(
-                  suspension.stepPath,
-                  suspension.name,
-                  suspension.occurrence,
-                  suspension.resolution
-                )
-              );
-            }
-          }
-          this.#wireWorkflowObservation(runWorkflow, row.id);
-          return runWorkflow;
-        }).pipe(Scope.extend(this.#scope))
-      );
-      construction.finish();
-      this.#throwIfStopped();
-      await this.#participants.recover(row.id, row.links?.jobId);
-      prepared.push({ row, workflow });
+      prepared.push({ row, workflow: await this.#rebuild(row) });
     }
     this.#throwIfStopped();
     return prepared.map(({ row, workflow }) => {
-      const adopt = () => {
-        queue.adopt(workflow, row);
-      };
-      if (this.#persistence?.afterCommit) {
-        this.#persistence.afterCommit(adopt);
-      } else {
-        adopt();
-      }
+      queue.adopt(workflow, row);
       return row.id;
     });
+  }
+
+  async adopt(runId: string): Promise<DispatchedWorkflow | null> {
+    if (this.#lifecycle !== "started") {
+      throw new Error(
+        "An Orchestrator takes on a Run after start only once it has started"
+      );
+    }
+    const queue = this.#requireQueue();
+    const row = (await queue.findRecoverableRuns()).find(
+      (candidate) => candidate.id === runId
+    );
+    if (row === undefined || row.lastStatus !== "suspended") {
+      if (row !== undefined) {
+        throw new Error(
+          `Run ${runId} is ${row.lastStatus}, not suspended; only a parked Run is taken on after start`
+        );
+      }
+      return null;
+    }
+    const definition = row.definition?.name ?? row.step;
+    if (!this.registry.has(definition)) {
+      throw new RecoverableDefinitionMissingError(row.id, definition);
+    }
+    await this.store.claimSuspensions(runId);
+    const workflow = await this.#rebuild(row);
+    this.#throwIfStopped();
+    return queue.adopt(workflow, row);
+  }
+
+  async forget(runId: string): Promise<boolean> {
+    return await this.#requireQueue().forget(runId);
+  }
+
+  async #rebuild(row: RecoverableRun): Promise<Workflow> {
+    const definition = row.definition ?? { name: row.step };
+    const factory = this.registry.resolve(definition.name);
+    const construction = this.#runContext(row.id, definition, row.links ?? {});
+    let suspensionRecords = await collectPageItems((page) =>
+      this.#suspensions.list({ runId: row.id, ...page })
+    );
+    if (row.lastStatus === "suspended" && row.suspension) {
+      await this.#suspensions.park(row.id, row.step, row.suspension);
+      suspensionRecords = await collectPageItems((page) =>
+        this.#suspensions.list({ runId: row.id, ...page })
+      );
+    } else if (
+      row.lastStatus === "suspended" &&
+      !suspensionRecords.some((record) => record.status === "pending")
+    ) {
+      throw new Error(`Suspended Run ${row.id} has no suspension authority`);
+    }
+    const workflow = await runEffectPromise(
+      Effect.gen(this, function* () {
+        const instance = yield* factoryToEffect(
+          factory,
+          row.input,
+          construction.context
+        );
+        const runWorkflow = yield* Orchestrator.#asWorkflow(
+          instance,
+          row.input
+        );
+        const seedSteps = Orchestrator.#snapshotStepsFromMetadata(row.metadata);
+        if (seedSteps !== null) {
+          yield* runWorkflow.root.snapshot.seed(seedSteps);
+        }
+        for (const suspension of suspensionRecords) {
+          if (suspension.status === "resolved") {
+            yield* Effect.promise(() =>
+              runWorkflow.resolveOccurrence(
+                suspension.stepPath,
+                suspension.name,
+                suspension.occurrence,
+                suspension.resolution
+              )
+            );
+          }
+        }
+        this.#wireWorkflowObservation(runWorkflow, row.id);
+        return runWorkflow;
+      }).pipe(Scope.extend(this.#scope))
+    );
+    construction.finish();
+    this.#throwIfStopped();
+    await this.#participants.recover(row.id, row.links?.jobId);
+    return workflow;
   }
 
   #throwIfStopped(): void {
@@ -946,12 +822,6 @@ export class Orchestrator {
     return this.#journal.observe(runId, options);
   }
 
-  /**
-   * Delete every queued (not-yet-started) run row from the orchestrator's
-   * queue. Mirrors the library's `clearQueue` semantics — only rows in
-   * status `queued` are dropped; running/suspended/terminal rows are left
-   * untouched. Idempotent: a second call on an empty queue is a no-op.
-   */
   async clearQueue(): Promise<void> {
     const queue = this.#requireQueue();
     for (;;) {
@@ -970,9 +840,6 @@ export class Orchestrator {
     }
   }
 
-  /**
-   * Subscribe to queue-wide events. Returns an unsubscribe handle.
-   */
   on(
     event: QueueEvent,
     handler: (payload: QueueEventPayload) => void
@@ -1041,12 +908,6 @@ export class Orchestrator {
     publication.catch((error: unknown) => this.#journal.fail(runId, error));
   }
 
-  /**
-   * The context a factory is handed. It cannot claim effects or emit output
-   * while the factory is constructing, nor ever once the Run it was built
-   * for is refused; `persisted`, when given, is awaited before each claim
-   * or output, so none lands before the Run's own record.
-   */
   #runContext(
     runId: string,
     definition: DefinitionReference,
@@ -1140,10 +1001,6 @@ export class Orchestrator {
     return result;
   }
 
-  /**
-   * Stop a direct Run whose caller withdrew it before dispatch. Dies, as a
-   * factory rejection does, so `run()` rejects with this message.
-   */
   static #unlessWithdrawn(
     runId: string,
     signal: AbortSignal | undefined
@@ -1159,11 +1016,6 @@ export class Orchestrator {
     );
   }
 
-  /**
-   * Auto-wrap a Step into a one-shot Workflow. Built via
-   * {@link Workflow.attach} so all paths in the Step's tree
-   * participate in skip-on-complete.
-   */
   static #asWorkflow<I, O, X extends BaseContext = BaseContext>(
     instance: Runnable<I, O, X>,
     input: I
@@ -1174,12 +1026,6 @@ export class Orchestrator {
     return Effect.sync(() => Workflow.attach<I, O, X>(instance, input));
   }
 
-  /**
-   * Translate the persisted `runs.metadata.workflow.steps` blob into
-   * the `Record<string, StepSnapshot>` shape `Snapshot.seed` accepts.
-   * Returns null when the blob is absent or malformed — recovery then
-   * runs the workflow from the top.
-   */
   static #snapshotStepsFromMetadata(
     metadata: Record<string, unknown> | undefined
   ): Record<string, StepSnapshot> | null {
@@ -1188,7 +1034,8 @@ export class Orchestrator {
       return null;
     }
     const { steps } = wf as { steps?: unknown };
-    return Option.getOrNull(decodeSeedSteps(steps));
+    const decoded = SeedStepsSchema.safeParse(steps);
+    return decoded.success ? decoded.data : null;
   }
 }
 
@@ -1198,7 +1045,7 @@ export type { ObserveRunOptions, RunObservation } from "./run-observation";
 export type { ResolveSuspensionOptions } from "./suspension-lifecycle";
 
 function logEntryToJsonValue(entry: TelemetryLogEntry): JsonValue {
-  if (Schema.is(JsonValueSchema)(entry)) {
+  if (isJsonValue(entry)) {
     return entry;
   }
   return {

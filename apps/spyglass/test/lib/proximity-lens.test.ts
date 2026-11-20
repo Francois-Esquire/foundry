@@ -22,7 +22,6 @@ import { analyzePackageLocal } from "../../src/lib/package-local";
 
 type Module = ProximitySourcePackage["responsibilities"]["modules"][number];
 
-/** A module in `region`, or unresolved without one; ids are package-relative. */
 function placed(module: string, region?: string, agrees?: boolean): Module {
   return {
     directory: folderOf(module),
@@ -103,7 +102,6 @@ const A = pkg(
     placed("src/x/c.ts", "R3", true),
     placed("src/x/d.ts", "R4", true),
     placed("src/x/u.ts"),
-    // R1's dominant folder is src/x, so this file sits apart from it.
     placed("src/y/e.ts", "R1", false),
     placed("src/z/f.ts", "R5", true),
     placed("src/z/g.ts", "R6", true),
@@ -216,7 +214,6 @@ describe("the proximity lens", () => {
         unresolved: 1,
       },
     ]);
-    // R5, R6, and R7 are related through R6, so src/z is one group.
     expect(lens.packages).toEqual([{ id: "@w/a", unresolved: 1 }]);
   });
 
@@ -229,9 +226,7 @@ describe("the proximity lens", () => {
           [
             placed("src/x/a.ts", "R1", true),
             placed("src/x/b.ts", "R2", true),
-            // Both relate to R3, which has no file in src/x.
             placed("src/w/c.ts", "R3", true),
-            // R4's files are in src/w, so this one is apart.
             placed("src/x/k.ts", "R4", false),
             placed("src/w/l.ts", "R4", true),
           ],
@@ -443,7 +438,6 @@ describe("the proximity lens", () => {
               {
                 ...coChange("packages/a/src/a.ts", "packages/b/src/b.ts"),
                 leftPackage: "@s/a",
-                // Seen by one package only: kept all the same.
                 verified: false,
               },
             ],

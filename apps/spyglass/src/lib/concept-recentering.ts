@@ -46,15 +46,10 @@ export type RecenteringCandidateSource = Pick<
   | "dependencyGravity"
 >;
 
-/** A boundary two behavior packages share, with the concept's modules on each side. */
 export interface RecenteringBoundaryUse {
-  /** Concept modules among the boundary's imported modules. */
   conceptImportedModules: string[];
-  /** Import sites naming each concept imported module. */
   conceptImportedSitesByModule: { module: string; importSites: number }[];
-  /** Concept modules among the boundary's importing modules. */
   conceptImportingModules: string[];
-  /** Import sites each concept importing module contributes to the boundary. */
   conceptImportSitesByModule: { module: string; importSites: number }[];
   destinationModules: number;
   foreignPackage: string;
@@ -64,7 +59,6 @@ export interface RecenteringBoundaryUse {
   to: string;
 }
 
-/** One source module's V8.0 behavior kinds, so a later version can tell what would move with a responsibility. */
 export interface RecenteringBehaviorModule {
   conversion: number;
   implementation: number;
@@ -82,20 +76,15 @@ export interface RecenteringSourceCoupling {
   rightPackage: string;
 }
 
-/** Everything the gates read; the measurements come from `analyzeRecenteringCandidates`. */
 export interface RecenteringFacts {
   alignment: ConceptOwnershipAnalysis["alignment"];
   behavior: RecenteringBehaviorProfile;
-  /** V7.4 package edges between source behavior packages; `from` imports `to`. */
   behaviorEdges: { from: string; to: string }[];
-  /** V8.3 reads these to simulate what a responsibility move would carry. */
   behaviorModules: RecenteringBehaviorModule[];
   boundaries: RecenteringBoundaryUse[];
   concept: ConceptIdentity;
-  /** Incoming boundaries from packages that import the seed module but hold no source behavior, so no V7.4 edge covers them. */
   consumerBoundaries: RecenteringBoundaryUse[];
   contractWithoutImplementations: boolean;
-  /** Source behavior package pairs with no static path either way. */
   disconnectedPairs: { left: string; right: string }[];
   distribution: ConceptBehavioralLocality["distribution"];
   distributionShapes: ConceptDistributionShape[];
@@ -108,31 +97,19 @@ export interface RecenteringFacts {
   ownershipTensions: ConceptOwnershipTension[];
   placement: CurrentArchitecturalPlacement;
   referenceShares: { package: string; share: number }[];
-  /** V8.2: every V7.2 overlap partner, graded by the strongest evidence behind the pair. */
   relatedFamilies: RelatedFamily[];
-  /** V7.1 representation and reference shares by package. */
   representationShares: { package: string; share: number }[];
-  /** V8.1 reads these beside the V8.0 facts above. */
   seed: {
     kind: ConceptSeedKind;
     module: string;
     packagePublic: boolean;
     externallyUsed: boolean;
   };
-  /** Import sites into the seed's declaring module, by consuming package. */
   seedImportSites: { package: string; importSites: number }[];
-  /** The seed module's share of the target's incoming boundary edges. */
   seedIncomingEdgeShare?: number;
-  /** Every strong source-source V6.2 pair between behavior modules, same-package pairs included. */
   sourceCouplings: RecenteringSourceCoupling[];
 }
 
-/**
- * Strongest V7.2 relation to a partner: explicit converters, then shape
- * near-equivalence or projection, then property overlap, then name only.
- * Only the first three are strong enough to make the partner's package a
- * supporting-family center.
- */
 type RelatedFamilyRelation =
   | "conversion"
   | "near-equivalent"
@@ -143,7 +120,6 @@ type RelatedFamilyRelation =
 interface RelatedFamily {
   bidirectional: boolean;
   concept: ConceptIdentity;
-  /** Packages declaring converters between the two, from V7.3. */
   converterPackages: string[];
   relation: RelatedFamilyRelation;
 }
@@ -175,7 +151,6 @@ interface Tension {
   value: number | string | boolean | string[];
 }
 
-/** Tensions, dimensions, shapes, status, cautions from measured facts. Counts and shares only. */
 export function assessRecentering(
   facts: RecenteringFacts,
   config: AnalysisConfig = ANALYSIS_CONFIG
@@ -203,9 +178,6 @@ export function assessRecentering(
     behavior.topTwoStrongModuleShare >= policy.scatter.maxTopTwoModuleShare;
   const weakShare = share(behavior.weak, behavior.source) ?? 0;
   const broadlyUsed = weakShare > policy.scatter.maxWeakShare;
-  // Spread that a boundary or scatter tension can rest on: distributed
-  // strong behavior that is neither two modules plus satellites nor
-  // mostly parameter consumption.
   const genuinelySpread = distributed && !concentrated && !broadlyUsed;
   assessRecenteringEntries7(
     genuinelySpread,
@@ -263,9 +235,6 @@ export function assessRecentering(
     return undefined;
   }
 
-  // Shapes are the strong structural conditions, each a corroborated
-  // combination of tensions; a candidate needs one shape and tensions from
-  // several dimensions. History and usage alone never form a shape.
   const has = (kind: RecenteringTension) =>
     tensions.some((item) => item.kind === kind);
   const pointsAt = (kind: RecenteringTension, pkg: string | undefined) =>
@@ -1178,11 +1147,6 @@ function assessRecenteringTension(
   }
 }
 
-/**
- * Behavior evidence kind per participant, read from the family's evidence
- * inside the participant's own line range. V7.3 attribution is untouched;
- * this only says what each attributed symbol does with the concept.
- */
 export function classifyParticipants(
   family: ConceptFamily,
   participants: ConceptBehaviorParticipant[],
@@ -1349,11 +1313,6 @@ function intersect(modules: Iterable<string>, within: Set<string>): string[] {
   return [...modules].filter((module) => within.has(module)).sort();
 }
 
-/**
- * Re-centering candidates among V7.0 families. Purely compositional over
- * V7.1–V7.4, boundary interactions, gravity, and the configured anchors:
- * no scan, no history parse, no destination.
- */
 export function analyzeRecenteringCandidates(
   source: RecenteringCandidateSource,
   config: AnalysisConfig = ANALYSIS_CONFIG

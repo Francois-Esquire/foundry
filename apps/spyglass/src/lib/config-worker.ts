@@ -4,14 +4,6 @@ import { pathToFileURL } from "node:url";
 import type { ConfigFile, ConfigWorkerReport } from "./spyglass-config";
 import { configFiles, parseConfigFile } from "./spyglass-config";
 
-// Loads a workspace's configuration files in a process of their own, so each
-// load imports them fresh, and reports their validated default exports as
-// JSON, which the loader validates again. Always run by Bun, which imports
-// TypeScript as it is. Before each import the report names the file, so a
-// file that ends the process is still named.
-//
-//   bun src/lib/config-worker.ts <workspace root> <report file> <configuration directory>
-
 const [root, out, directory] = process.argv.slice(2);
 if (root === undefined || out === undefined || directory === undefined) {
   throw new Error("config-worker needs <root> <out> <directory>");
@@ -77,5 +69,4 @@ async function load(
 }
 
 report(await load(root, directory));
-// A configuration file may leave timers or handles open; the report is written.
 process.exit(0);
