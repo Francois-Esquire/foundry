@@ -9,5 +9,5 @@
     "jsx": "react-jsx",
     "jsxImportSource": "@opentui/react"
   },
-  "include": ["src/**/*", "test/**/*", "vitest.config.ts"]
+  "include": ["src/**/*", "stories/**/*", "test/**/*", "vitest.config.ts"]
 }

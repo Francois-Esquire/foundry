@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "vitest";
 import type { Thread } from "../src/model/thread";
 import { HarnessView } from "../src/views/harness";
+import { context, threads } from "../stories/fixtures/threads";
 import { frameWith, mount, press, type, unmount } from "./helpers/render";
-import { context, threads } from "./helpers/threads";
 
 const SHORTENED_HEADER = /Foundry Agent Harness · .*… · claude-code\/sonnet$/;
 

@@ -70,6 +70,7 @@
       "entry": ["src/local/remote/worker-entry.ts"]
     },
     "examples/*": {
+      "entry": ["stories/**/*.stories.tsx"],
       "ignore": [
         "src/components/ui/**",
         "src/hooks/**",

@@ -1,6 +1,6 @@
-import type { Context } from "../../src/model/context";
-import type { Message, Status, Thread, Todo } from "../../src/model/thread";
-import { emptyThread } from "../../src/model/thread";
+import type { Context } from "@/model/context";
+import type { Message, Status, Thread, Todo } from "@/model/thread";
+import { emptyThread } from "@/model/thread";
 
 const GOAL = "Read package.json here and explain how to run this example.";
 

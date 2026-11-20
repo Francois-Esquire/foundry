@@ -31,7 +31,8 @@ host with your tools, in the directory you start it from.
 | [`src/components/blocks`](./src/components/blocks) | The parts of the screen: the side panel and its four lists, the conversation, the goal bar. |
 | [`src/app.tsx`](./src/app.tsx) | Holds the current thread and hands goals to the harness. |
 | [`src/main.tsx`](./src/main.tsx) | The renderer, and the engine's disposal when it closes. |
-| [`test`](./test) | The screen rendered from sample threads, with no agent turns. |
+| [`stories`](./stories) | Textbook stories for each block and the screen, and the sample threads they share with the tests. |
+| [`test`](./test) | The screen rendered from the sample threads, and every story rendered once. |
 | [`.claude/skills`](./.claude/skills) | The skills the worker gets. |
 | `src/components/ui`, `src/hooks`, `src/lib` | [TermCN](https://www.termcn.dev) components, copied in by the shadcn CLI. |
 
@@ -66,29 +67,30 @@ thread is another `Thread` value and a way to choose between them.
 Nothing under `src/model`, `src/views`, or `src/components` imports
 `harness.ts`, so the screen renders without an engine, a model, or a signed-in
 CLI. `HarnessView` takes a thread, a context, and an `onGoal` callback, and
-sizes itself to the box it is mounted in. The tests use that: they render it
-from the sample threads in [`test/helpers/threads.ts`](./test/helpers/threads.ts).
+sizes itself to the box it is mounted in. Below 72 columns the side panel is
+dropped and the conversation takes the full width.
+
+The screen is developed with [Textbook](https://textbook.sh) stories:
+
+```sh
+bun run stories
+bun run stories:web
+```
+
+`stories` opens the story browser in the terminal; `stories:web` serves it in
+a browser. Story files mirror the source they show: `stories/blocks/` follows
+`src/components/blocks/` and `stories/views/` follows `src/views/`. Each state
+is its own story, drawn from the sample threads in
+[`stories/fixtures/threads.ts`](./stories/fixtures/threads.ts). No story
+starts an agent turn.
 
 ```sh
 bun run test
 ```
 
-A component workshop can mount the same view and the same samples. Below 72
-columns the side panel is dropped and the conversation takes the full width.
-
-The Skills and MCP tabs list what the worker really has:
-
-- **Skills** are the folders in `.claude/skills` of the directory you start
-  the harness in. The worker gets these and no others.
-- **MCP** is the `backlog` server from `backlog.ts`. Its `add_todo` tool
-  appends a task to the same backlog the loop reads, so a to-do the worker
-  adds shows up in the list and gets worked. Connectors on your Claude
-  account load too and are not listed.
-
-Both reach the worker through the Claude Code provider's own settings
-(`skills`, `settingSources`, `mcpServers`). `agent({ skills, mcp })` does not
-reach a Claude Code host session yet: Marbles offers them as AI SDK tools,
-which the Claude Code CLI does not take.
+The tests render the screen from the same samples, and
+`test/stories-render.test.ts` renders every story once, so a story that
+throws, draws nothing, or leaves a key listener behind fails.
 
 ## TermCN components
 
