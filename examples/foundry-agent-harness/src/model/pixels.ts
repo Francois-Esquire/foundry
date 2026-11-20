@@ -1,3 +1,5 @@
+import { encodeCell } from "@/model/sextants";
+
 export type Canvas = string[][];
 
 export interface Label {
@@ -30,6 +32,8 @@ interface Cell {
 }
 
 const UPPER_HALF = "▀";
+
+export type Detail = "coarse" | "fine";
 
 export function createCanvas(
   width: number,
@@ -120,6 +124,21 @@ function cellsOf(canvas: Canvas, row: number): Cell[] {
   });
 }
 
+function fineCells(canvas: Canvas, row: number): Cell[] {
+  const lines = [0, 1, 2].map((line) => canvas[row * 3 + line] ?? []);
+  return Array.from(
+    { length: Math.floor((lines[0]?.length ?? 0) / 2) },
+    (_, x) => {
+      const { bg, char, fg } = encodeCell(pixelsAt(lines, x));
+      return { bg, bold: false, char, fg };
+    }
+  );
+}
+
+function pixelsAt(lines: readonly string[][], x: number): string[] {
+  return lines.flatMap((line) => [line[x * 2] ?? "", line[x * 2 + 1] ?? ""]);
+}
+
 function write(cells: Cell[], label: Label) {
   for (const [offset, char] of [...label.text].entries()) {
     const x = label.x + offset;
@@ -163,12 +182,13 @@ function runsOf(cells: readonly Cell[]): Run[] {
   return runs;
 }
 
-export function rasterize(
-  canvas: Canvas,
-  labels: readonly Label[] = []
+function rowsOf(
+  count: number,
+  cellsAt: (row: number) => Cell[],
+  labels: readonly Label[]
 ): ArtRow[] {
-  return Array.from({ length: Math.floor(canvas.length / 2) }, (_, row) => {
-    const cells = cellsOf(canvas, row);
+  return Array.from({ length: count }, (_, row) => {
+    const cells = cellsAt(row);
     for (const label of labels) {
       if (label.y === row) {
         write(cells, label);
@@ -176,4 +196,47 @@ export function rasterize(
     }
     return { key: `y${row}`, runs: runsOf(cells) };
   });
+}
+
+export function rasterize(
+  canvas: Canvas,
+  labels: readonly Label[] = []
+): ArtRow[] {
+  return rowsOf(
+    Math.floor(canvas.length / 2),
+    (row) => cellsOf(canvas, row),
+    labels
+  );
+}
+
+export function createFineCanvas(
+  width: number,
+  rows: number,
+  color: string
+): Canvas {
+  return Array.from({ length: rows * 3 }, () =>
+    Array.from({ length: width * 2 }, () => color)
+  );
+}
+
+export function rasterizeFine(
+  canvas: Canvas,
+  labels: readonly Label[] = []
+): ArtRow[] {
+  return rowsOf(
+    Math.floor(canvas.length / 3),
+    (row) => fineCells(canvas, row),
+    labels
+  );
+}
+
+export function clashes(canvas: Canvas): number {
+  let count = 0;
+  for (const row of span(0, Math.floor(canvas.length / 3))) {
+    const lines = [0, 1, 2].map((line) => canvas[row * 3 + line] ?? []);
+    for (const x of span(0, Math.floor((lines[0]?.length ?? 0) / 2))) {
+      count += encodeCell(pixelsAt(lines, x)).clash ? 1 : 0;
+    }
+  }
+  return count;
 }

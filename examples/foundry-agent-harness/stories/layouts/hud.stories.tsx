@@ -8,6 +8,7 @@ import { StepStrip } from "@/components/blocks/step-strip";
 import { HudLayout, type HudSection } from "@/components/layouts/hud";
 import { hudGeometry } from "@/model/hud-art";
 import { hud, tones } from "@/model/palette";
+import type { Detail } from "@/model/pixels";
 import type { Size } from "@/model/screen";
 import type { Step } from "@/model/steps";
 import { ignore, renderFrame } from "../frame";
@@ -40,20 +41,28 @@ function Region({ children }: { readonly children: string }) {
   );
 }
 
-function Vitals({ gap }: { readonly gap: number }) {
+function Vitals({
+  detail,
+  gap,
+}: {
+  readonly detail: Detail;
+  readonly gap: number;
+}) {
   return (
     <box flexDirection="column" gap={gap}>
       <StatTile
-        detail="of 200k"
+        detail={detail}
         label="CONTEXT"
         level={0.71}
+        note="of 200k"
         tone="amber"
         width={RAIL}
       />
       <StatTile
-        detail="holding"
+        detail={detail}
         label="STAMINA"
         level={0.64}
+        note="holding"
         tone="red"
         width={RAIL}
       />
@@ -208,7 +217,7 @@ function Hints({ width }: { readonly width: number }) {
 
 function plan(size: Size) {
   if (hudGeometry(size, []).dense) {
-    return { gap: 0, portrait: 8, vitals: 6 };
+    return { gap: 1, portrait: 7, vitals: 7 };
   }
   return { gap: 1, portrait: size.height >= TALL ? 11 : 9, vitals: 7 };
 }
@@ -241,18 +250,25 @@ function regions(size: Size): HudSection[] {
   ];
 }
 
-function sketch(size: Size): HudSection[] {
+function sketch(size: Size, detail: Detail): HudSection[] {
   const { gap, portrait: rows, vitals } = plan(size);
   const slots = hudGeometry(size, regions(size)).parts.at(-1)?.body.height;
   return [
     {
       bleed: true,
-      content: <PortraitBay caption="holding steady" rows={rows} width={24} />,
+      content: (
+        <PortraitBay
+          caption="holding steady"
+          detail={detail}
+          rows={rows}
+          width={24}
+        />
+      ),
       key: "portrait",
       rows,
     },
     {
-      content: <Vitals gap={gap} />,
+      content: <Vitals detail={detail} gap={gap} />,
       key: "vitals",
       meta: "160k tok",
       rows: plan(size).vitals,
@@ -275,17 +291,23 @@ function sketch(size: Size): HudSection[] {
   ];
 }
 
-function screen(size: Size, sections: HudSection[], main: ReactNode) {
+function screen(
+  size: Size,
+  sections: HudSection[],
+  main: ReactNode,
+  detail: Detail = "fine"
+) {
   const { hints, steps } = hudGeometry(size, sections);
   return (
     <HudLayout
+      detail={detail}
       goal={<Goal />}
       hints={<Hints width={hints.width} />}
       main={main}
       onResize={ignore}
       sections={sections}
       size={size}
-      steps={<StepStrip steps={STEPS} width={steps.width} />}
+      steps={<StepStrip detail={detail} steps={STEPS} width={steps.width} />}
     />
   );
 }
@@ -309,7 +331,11 @@ export const Sketch = story({
   description: "The regions filled with stand-in content, to judge the look.",
   name: "Sketch",
   render: (renderer) =>
-    renderFrame(renderer, screen(wide, sketch(wide), <Talk />), padless(wide)),
+    renderFrame(
+      renderer,
+      screen(wide, sketch(wide, "fine"), <Talk />),
+      padless(wide)
+    ),
 });
 
 export const Compact = story({
@@ -318,7 +344,7 @@ export const Compact = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      screen(compact, sketch(compact), <Talk />),
+      screen(compact, sketch(compact, "fine"), <Talk />),
       padless(compact)
     ),
 });
@@ -329,7 +355,19 @@ export const Small = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      screen(small, sketch(small), <Talk />),
+      screen(small, sketch(small, "fine"), <Talk />),
       padless(small)
+    ),
+});
+
+export const Coarse = story({
+  description:
+    "The sketch in the half-block tier, for terminals without sextant glyphs.",
+  name: "Coarse",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      screen(wide, sketch(wide, "coarse"), <Talk />, "coarse"),
+      padless(wide)
     ),
 });

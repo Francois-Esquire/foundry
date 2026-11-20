@@ -56,3 +56,14 @@ export const None = story({
       width: 42,
     }),
 });
+
+export const Coarse = story({
+  description: "The half-block tier.",
+  name: "Coarse",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <StepStrip detail="coarse" steps={steps} width={100} />,
+      { height: 5, width: 102 }
+    ),
+});

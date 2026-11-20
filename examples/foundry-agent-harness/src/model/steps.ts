@@ -21,10 +21,10 @@ export interface StepChip {
   readonly text: string;
 }
 
-const LINK = 2;
+export const STEP_LINK = 2;
 const VENT = "▎▎▎▎▎▎▎";
 const MARKS = { active: "▶ ", done: "✓ ", pending: "" } as const;
-const FACES = {
+export const STEP_FACES = {
   active: {
     face: tones.amber.lit,
     ink: hud.brass[0],
@@ -56,7 +56,7 @@ function chip(step: Step, index: number, full: boolean): StepChip {
 function span(chips: readonly StepChip[]): number {
   return (
     chips.reduce((sum, item) => sum + item.text.length, 0) +
-    Math.max(chips.length - 1, 0) * LINK
+    Math.max(chips.length - 1, 0) * STEP_LINK
   );
 }
 
@@ -80,11 +80,19 @@ export function stepStripArt(steps: readonly Step[], width: number): ArtRow[] {
   const labels: Label[] = etch(canvas, { width, x: 0, y: 0 }, "▔", hud.iron[6]);
   let x = 1;
   for (const [index, item] of fitSteps(steps, width - 2).entries()) {
-    const look = FACES[item.state];
+    const look = STEP_FACES[item.state];
     const size = item.text.length;
     if (index > 0) {
-      fill(canvas, { height: 1, width: LINK, x: x - LINK, y: 2 }, hud.iron[0]);
-      fill(canvas, { height: 1, width: LINK, x: x - LINK, y: 3 }, hud.iron[5]);
+      fill(
+        canvas,
+        { height: 1, width: STEP_LINK, x: x - STEP_LINK, y: 2 },
+        hud.iron[0]
+      );
+      fill(
+        canvas,
+        { height: 1, width: STEP_LINK, x: x - STEP_LINK, y: 3 },
+        hud.iron[5]
+      );
     }
     labels.push(
       {
@@ -110,7 +118,7 @@ export function stepStripArt(steps: readonly Step[], width: number): ArtRow[] {
         y: 1,
       }
     );
-    x += size + LINK;
+    x += size + STEP_LINK;
   }
   const ventX = width - VENT.length - 2;
   if (ventX > x) {
