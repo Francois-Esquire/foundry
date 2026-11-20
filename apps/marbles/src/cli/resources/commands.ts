@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { resourceLines } from "~/cli/resources/text";
 import type { LinksReport } from "~/database/links";
 import { rebuildLinks } from "~/database/links";
 import { writeDatabase } from "~/database/open";
@@ -15,7 +16,6 @@ import type { ResourceKind, ResourceRef } from "~/lib/resources";
 import { ResourceAssociationError, refuseUnshareable } from "~/lib/resources";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
-import { resourceLines } from "~/resources/text";
 
 export interface ResourceCommandContext {
   readonly artifacts: string;

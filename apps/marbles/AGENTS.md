@@ -399,11 +399,11 @@ Five buckets, each importing only what sits below it:
   dashboard command and its renderer; `views/`, the screens; `state/`,
   their models, reducers and hooks; `hooks/`, the shared React hooks;
   `settings.ts`, the settings file; `watch.ts`, `marbles
-  watch`; and the output of `marbles status` and the task commands,
-  `status/` and `tasks/`), `src/components/`,
-  `src/mcp/`, `src/status/`, `src/resources/` (the resource listings, sharing, and
+  watch`; the output of `marbles status` and the task commands,
+  `status/` and `tasks/`; and `resources/`, the resource listings, sharing, and
   `relink`, which rebuilds each workspace's links under `<root>/.marbles/`
-  from the database; they are never read back). The dashboard is a client of the process.
+  from the database; they are never read back), `src/components/`,
+  `src/mcp/`, `src/status/`. The dashboard is a client of the process.
   `src/mcp/stdio.ts` is the `marbles mcp` server, which `cli.ts` loads
   only when that command runs. `src/mcp/relay.ts` runs it in a child
   process whose stdout is the relay's stderr. Protocol frames go out on

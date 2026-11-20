@@ -14,6 +14,12 @@ import {
 import { dispose as disposeDefaultRuntime } from "~/authoring/runtime";
 import type { Args, ArgsOf, Command, Flags } from "~/cli/args";
 import { parseArgs, UsageError } from "~/cli/args";
+import type { ResourceCommandContext } from "~/cli/resources/commands";
+import {
+  changeAssociation,
+  listResources,
+  relink,
+} from "~/cli/resources/commands";
 import { loadSettings, saveSettings, settingsPath } from "~/cli/settings";
 import { statusText } from "~/cli/status/text";
 import { taskCommandText } from "~/cli/tasks/text";
@@ -47,8 +53,6 @@ import {
 import { startDaemon } from "~/process/daemon";
 import { ProcessHeldError } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
-import type { ResourceCommandContext } from "~/resources/commands";
-import { changeAssociation, listResources, relink } from "~/resources/commands";
 import { readStatus } from "~/status/model";
 import { createStarter } from "~/workspace/create";
 import { EnvironmentError } from "~/workspace/env";

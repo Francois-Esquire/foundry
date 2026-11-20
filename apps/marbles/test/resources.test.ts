@@ -9,6 +9,7 @@ import { ExecutionCoordinator } from "@foundry/workflows";
 import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { inArray } from "drizzle-orm";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { resourceLines } from "~/cli/resources/text";
 import type { StoreDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import {
@@ -28,7 +29,6 @@ import {
   ResourceAssociationError,
   ResourceAssociations,
 } from "~/lib/resources";
-import { resourceLines } from "~/resources/text";
 import { seedWorkspace } from "./helpers/registry";
 import { seedRuns } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";

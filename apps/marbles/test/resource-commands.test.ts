@@ -11,14 +11,18 @@ import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
+import type { ResourceCommandContext } from "~/cli/resources/commands";
+import {
+  changeAssociation,
+  listResources,
+  relink,
+} from "~/cli/resources/commands";
 import { LinksPlacementError, linkName } from "~/database/links";
 import { initializeDatabase } from "~/database/open";
 import { artifactBlobs } from "~/database/stores";
 import { resourceLinks, stateDatabase, workspaceLinks } from "~/layout";
 import { ResourceAssociationError } from "~/lib/resources";
 import { workspaceState } from "~/lib/state/workspace";
-import type { ResourceCommandContext } from "~/resources/commands";
-import { changeAssociation, listResources, relink } from "~/resources/commands";
 import { touchWorkspace } from "./helpers/registry";
 import { seedRuns } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
