@@ -1,18 +1,34 @@
+import { RGBA } from "@opentui/core";
 import { act, useEffect, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import { previewScenarios } from "../preview/scenarios";
-import { dashboardSnapshot } from "../preview/snapshot";
-import { DashboardView } from "../src/views/dashboard";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
-import { selectionKey } from "../src/views/dashboard-model";
-import { click, flush, mount, press, unmount } from "./helpers/render";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { selectionKey } from "../src/cli/state/dashboard-model";
+import { DashboardView } from "../src/cli/views/dashboard";
+import { theme } from "../src/components/ui/theme";
+import { previewScenarios } from "../stories/fixtures/scenarios";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
+import {
+  click,
+  flush,
+  frameWith,
+  mount,
+  press,
+  unmount,
+} from "./helpers/render";
 
+const UTILITY_LABEL = /Settings|Logs|Diagnostics/;
 const WRITE_STEP = /Step\s+: write/;
 const FAILED_RUN = /Run\s+: run-103/;
 const NEXT_TIME = /Next\s+: Today at 17:00/;
 const TARGET_NAME = /Target\s+: summarize-day/;
 const ACTIVE_RUN = /Run\s+: run-104/;
 const REQUEST_STEP = /Step\s+: request/;
+const WORKSPACE_PICKER_BORDER = /╭─Workspaces/g;
+const REVIEW_SPEND = /review-changes +█{10} +\[~\$0\.1180\]/;
+const DOCS_SPEND = /update-documentation +█{4}░{6} +\[~\$0\.0421\+\?\]/;
+const COMPACT_SPEND = /update-documentation +\[~\$0\.0421\+\?\]/;
+const REVIEW_TIME = /review-changes +41\.0s/;
+const STEP_TIME = /check-api +3\.0s/;
 
 let closed = false;
 function close() {
@@ -29,20 +45,83 @@ function render(snapshot = dashboardSnapshot, width = 120, height = 40) {
 
 afterEach(unmount);
 
+test("opens a workspace picker from the header and switches directly to the selected floor", async () => {
+  const chosen: string[] = [];
+  const choose = (id?: string) => {
+    if (id) {
+      chosen.push(id);
+    }
+  };
+  const ui = await mount(
+    <DashboardView
+      hosted={{
+        state: "ready",
+        workspaces: [
+          {
+            config: null,
+            id: "foundry",
+            root: "/Users/someone/code/alpha/foundry",
+            state: "ready",
+          },
+          {
+            config: null,
+            id: "spyglass",
+            root: "/Users/someone/code/beta/foundry",
+            state: "reloading",
+          },
+        ],
+      }}
+      onClose={close}
+      onSwitchWorkspace={choose}
+      snapshot={{ ...dashboardSnapshot, mode: "live", workspaceId: "foundry" }}
+    />
+  );
+  expect(ui.captureCharFrame()).not.toContain(" live ");
+  const [header] = ui.captureCharFrame().split("\n");
+  expect(header).toContain("Dashboard");
+  expect(header).not.toMatch(UTILITY_LABEL);
+  await press(ui, "S");
+  await act(async () => ui.mockInput.pressKey("w", { shift: true }));
+  await flush(ui);
+  await press(ui, "ESCAPE");
+  expect(
+    ui.renderer.root.findDescendantById("panel:workspace-rail")
+  ).toBeDefined();
+  const rail = ui.captureCharFrame();
+  expect(rail).toContain("alpha/foundry");
+  expect(rail).toContain("beta/foundry");
+  expect(rail).toContain("current ready");
+  await click(ui, "nav:workspaces");
+  const picker = ui.captureCharFrame();
+  expect(picker).toContain("beta/foundry reloading");
+  expect(picker).toContain("Needs attention");
+  expect(picker).toContain("Tracked spend");
+  expect(picker.match(WORKSPACE_PICKER_BORDER)).toHaveLength(1);
+  await press(ui, "?");
+  expect(ui.captureCharFrame()).toContain("Keyboard help");
+  await press(ui, "ESCAPE");
+  await press(ui, "q");
+  expect(ui.captureCharFrame()).toContain("Quit");
+  await press(ui, "ESCAPE");
+  await press(ui, "ARROW_DOWN");
+  await press(ui, "RETURN");
+  expect(chosen).toEqual(["spyglass"]);
+});
+
 test("composes an operating overview with runs, and a separate typed catalog", async () => {
   const ui = await render();
   const frame = ui.captureCharFrame();
   for (const label of [
-    "preview",
-    "Overview  3",
-    "Catalog  7",
+    "Dashboard",
+    "Catalog",
     "3 Runs",
     "[step]",
     "Write changes",
     "run-104",
-    "Running 1",
-    "Failed 1",
-    "Completed 1",
+    "1 running",
+    "1 failed",
+    "Success rate",
+    "50%",
     "Latest",
     "check-api failed",
   ]) {
@@ -58,6 +137,65 @@ test("composes an operating overview with runs, and a separate typed catalog", a
   expect(catalog).toContain("[workflow]");
   expect(catalog).toContain(".foundry/marbles/docs.ts:12");
   expect(catalog).not.toContain("3 Runs");
+});
+
+test("shows each workspace usage caveat on Dashboard", async () => {
+  const { usage } = dashboardSnapshot;
+  if (!usage) {
+    throw new Error("Missing usage fixture");
+  }
+  const ui = await render({
+    ...dashboardSnapshot,
+    usage: {
+      ...usage,
+      recovered: 2,
+      unattributed: 1,
+      unreadable: 1,
+      unsaved: 1,
+    },
+  });
+  const frame = ui.captureCharFrame();
+  expect(frame).toContain("1 unreadable usage record, totals partial");
+  expect(frame).toContain("turns recovered from transcripts");
+  expect(frame).toContain("1 unattributed turn");
+  expect(frame).toContain("1 unsaved turn");
+});
+
+test("ranks tracked spend and elapsed time above the run tree", async () => {
+  const { usage } = dashboardSnapshot;
+  if (!usage) {
+    throw new Error("Missing usage fixture");
+  }
+  const ui = await render(
+    {
+      ...dashboardSnapshot,
+      usage: { ...usage, byWorkflow: usage.byWorkflow.toReversed() },
+    },
+    120,
+    30
+  );
+  const frame = ui.captureCharFrame();
+  const spend = frame.indexOf("Workflow spend");
+  const elapsed = frame.indexOf("Workflow time");
+  expect(spend).toBeGreaterThanOrEqual(0);
+  expect(elapsed).toBeGreaterThanOrEqual(0);
+  expect(frame.indexOf("3 Runs")).toBeGreaterThan(spend);
+  expect(frame.indexOf("3 Runs")).toBeGreaterThan(elapsed);
+  expect(frame).toMatch(REVIEW_SPEND);
+  expect(frame).toMatch(DOCS_SPEND);
+  expect(frame.indexOf("~$0.1180")).toBeLessThan(frame.indexOf("~$0.0421"));
+  expect(frame).toContain("running 24s [~$0.0421+?] · run-104");
+  expect(frame).toContain("Write changes running 18s [~$0.0302]");
+  expect(frame).toContain("failed  3s · run-103");
+  expect(frame).toMatch(REVIEW_TIME);
+  expect(frame).toContain("Median run");
+  expect(frame).toContain("Median wait");
+  expect(frame).not.toMatch(STEP_TIME);
+  await act(async () => ui.renderer.resize(80, 24));
+  await flush(ui);
+  const compact = ui.captureCharFrame();
+  expect(compact).toMatch(COMPACT_SPEND);
+  expect(compact).toContain("Write changes running 18s [~$0.0302]");
 });
 
 test("keyboard selection inspects nested steps and a failed run", async () => {
@@ -99,6 +237,184 @@ test("clicking a catalog row shows its target and next scheduled time", async ()
   expect(ui.captureCharFrame()).toMatch(TARGET_NAME);
 });
 
+test("v toggles trigger configuration and changes only the log level in Diagnostics", async () => {
+  const ui = await render();
+  await click(ui, "view:catalog");
+  await click(ui, "trigger:daily");
+  expect(ui.captureCharFrame()).toContain("v Show configuration");
+  await press(ui, "v");
+  expect(ui.captureCharFrame()).toContain('"time": "17:00"');
+  await press(ui, "d");
+  expect(ui.captureCharFrame()).toContain("level debug+");
+  await press(ui, "v");
+  expect(ui.captureCharFrame()).toContain("level info+");
+  await press(ui, "ESCAPE");
+  expect(ui.captureCharFrame()).toContain('"time": "17:00"');
+  await press(ui, "v");
+  expect(ui.captureCharFrame()).not.toContain('"time": "17:00"');
+});
+
+test("keeps the schedule list beside its inspector and rolls the selected schedule", async () => {
+  const rolled: string[] = [];
+  const pending = Promise.withResolvers<void>();
+  const launched: string[] = [];
+  const roll = (id: string) => {
+    rolled.push(id);
+    return pending.promise;
+  };
+  async function launch(id: string) {
+    launched.push(id);
+    return "new-run";
+  }
+  const ui = await mount(
+    <DashboardView
+      onClose={close}
+      onLaunch={launch}
+      onRollSchedule={roll}
+      snapshot={{
+        ...dashboardSnapshot,
+        definitions: dashboardSnapshot.definitions.map((item) => ({
+          ...item,
+          input: { fields: [], required: false },
+        })),
+      }}
+    />,
+    { height: 40, width: 120 }
+  );
+  await click(ui, "view:catalog");
+  await click(ui, "trigger:daily");
+  const frame = ui.captureCharFrame();
+  expect(frame).toContain("1 Triggers");
+  expect(frame).toContain("Schedule / daily-summary");
+  expect(frame).toContain("[monitor] update-docs");
+  expect(frame).toContain("[workflow] update-documentation");
+  expect(frame).not.toContain(".foundry/marbles/docs.ts:12");
+  expect(
+    frame
+      .split("\n")
+      .find((line) => line.includes("╰") && line.includes("r run now"))
+  ).toBeDefined();
+  await press(ui, "r");
+  expect(rolled).toEqual(["daily"]);
+  await press(ui, "ESCAPE");
+  expect(ui.captureCharFrame()).not.toContain("Schedule / daily-summary");
+  await press(ui, "2");
+  await press(ui, "l");
+  expect(launched).toHaveLength(1);
+  pending.resolve();
+});
+
+test.each(["keyboard", "click"] as const)(
+  "Run now through %s is available only for an enabled managed schedule",
+  async (interaction) => {
+    const rolled: string[] = [];
+    async function roll(id: string) {
+      rolled.push(id);
+    }
+    for (const status of ["waiting", "paused"] as const) {
+      const ui = await mount(
+        <DashboardView
+          onClose={close}
+          onRollSchedule={roll}
+          snapshot={{
+            ...dashboardSnapshot,
+            triggers: [
+              {
+                description: "Scheduled agent work",
+                id: "managed-trigger",
+                kind: "schedule",
+                managed: true,
+                name: "Daily checks",
+                status,
+                targetId: "summarize-day",
+              },
+            ],
+          }}
+        />
+      );
+      await click(ui, "view:catalog");
+      await click(ui, "trigger:managed-trigger");
+      const runNow = ui.renderer.root.findDescendantById("schedule:run");
+      const footerOffersRun = ui.captureCharFrame().includes("r run now");
+      if (interaction === "keyboard") {
+        await press(ui, "r");
+      } else if (runNow) {
+        await click(ui, "schedule:run");
+      }
+      expect(rolled.splice(0)).toEqual(
+        status === "waiting" ? ["managed-trigger"] : []
+      );
+      expect(footerOffersRun).toBe(status === "waiting");
+      expect(Boolean(runNow)).toBe(status === "waiting");
+    }
+  }
+);
+
+test.each(["keyboard", "click"] as const)(
+  "Diagnostics via %s scopes to the inspected run and Escape restores the inspector",
+  async (interaction) => {
+    const ui = await render();
+    await press(ui, "L");
+    await press(ui, "v");
+    await press(ui, "o");
+    await press(ui, "ESCAPE");
+    await press(ui, "RETURN");
+    if (interaction === "keyboard") {
+      await press(ui, "d");
+    } else {
+      await click(ui, "view:logs");
+    }
+    const frame = ui.captureCharFrame();
+    expect(frame).toContain("Run run-104 · x clear");
+    expect(frame).toContain("level info+ · source run");
+    expect(frame).not.toContain("[agents] no list price");
+    expect(
+      ui.renderer.root.findDescendantById("panel:details")
+    ).toBeUndefined();
+    expect(frame.split("\n").filter((line) => line.includes("╮"))).toHaveLength(
+      1
+    );
+    await press(ui, "d");
+    expect(ui.captureCharFrame()).toContain("Run run-104 · x clear");
+    await press(ui, "ESCAPE");
+    expect(ui.captureCharFrame()).toContain("Run / update-documentation");
+    expect(ui.captureCharFrame()).not.toContain("Logs · runs and Marbles");
+    await press(ui, "L");
+    expect(ui.captureCharFrame()).not.toContain("Run run-104 · x clear");
+    expect(ui.captureCharFrame()).toContain("level info+ · source run");
+  }
+);
+
+test("Settings reserves a column beside Feed and gives the full frame back on Escape", async () => {
+  const ui = await render();
+  await click(ui, "view:feed");
+  await frameWith(ui, "The docs workflow rewrote");
+  await press(ui, "S");
+  const { root } = ui.renderer;
+  const settings = root.findDescendantById("panel:settings");
+  const feed = root.findDescendantById("panel:feed");
+  const entry = root.findDescendantById("panel:entry");
+  if (!(settings && feed && entry)) {
+    throw new Error("Missing Settings or Feed entry");
+  }
+  expect(entry.x + entry.width).toBeLessThan(settings.x);
+  expect(entry.width).toBe(feed.width);
+  await press(ui, "ESCAPE");
+  expect(await frameWith(ui, "The docs workflow rewrote")).toContain(
+    "Merge the docs update?"
+  );
+});
+
+test("Settings uses the body at narrow widths and Escape restores the run list", async () => {
+  const ui = await render(dashboardSnapshot, 70, 24);
+  await press(ui, "S");
+  expect(ui.captureCharFrame()).toContain("Theme:");
+  expect(ui.captureCharFrame()).not.toContain("3 Runs");
+  expect(ui.captureCharFrame()).not.toContain("Write changes");
+  await press(ui, "ESCAPE");
+  expect(ui.captureCharFrame()).toContain("Write changes");
+});
+
 test("narrow terminals switch between the run tree and details", async () => {
   const ui = await render(dashboardSnapshot, 70, 24);
   expect(ui.captureCharFrame()).toContain("Write changes");
@@ -134,7 +450,7 @@ test("empty snapshots remain navigable and explain the waiting state", async () 
   expect(ui.captureCharFrame()).toContain(
     "Launch a step or workflow from Marbles."
   );
-  expect(ui.captureCharFrame()).toContain("Usage: no usage recorded");
+  expect(ui.captureCharFrame()).toContain("No usage recorded");
   await press(ui, "m");
   expect(ui.captureCharFrame()).toContain("No workflows or steps.");
   await press(ui, "RETURN");
@@ -238,7 +554,7 @@ test("keyboard help lists the command table by section", async () => {
     "Anywhere",
     "Run controls",
     "Steer the agent running in the step",
-    "Cycle the workspace filter",
+    "Cycle the Feed workspace filter",
     "Move focus / submit arguments",
   ]) {
     expect(frame).toContain(text);
@@ -344,22 +660,19 @@ test("Catalog stacks Triggers over a larger Marbles list at both widths", async 
     await act(async () => ui.renderer.resize(width, 16));
     await flush(ui);
     expect(catalog.height).toBeGreaterThanOrEqual(triggers.height);
-    expect(catalog.y + catalog.height).toBeLessThanOrEqual(14);
+    expect(catalog.y + catalog.height).toBeLessThanOrEqual(15);
   }
 });
 
-test("Overview puts Latest and Usage beside Runs when wide, and Latest below when narrow", async () => {
+test("Dashboard puts Latest beside Runs when wide, and below when narrow", async () => {
   const wide = await render(dashboardSnapshot, 120, 30);
   const runs = wide.renderer.root.findDescendantById("panel:run");
   const latest = wide.renderer.root.findDescendantById("panel:latest");
-  const usage = wide.renderer.root.findDescendantById("panel:usage");
-  if (!(runs && latest && usage)) {
+  if (!(runs && latest)) {
     throw new Error("Missing overview panel");
   }
   expect(latest.x).toBeGreaterThan(runs.x + runs.width - 1);
-  expect(usage.y).toBeGreaterThan(latest.y);
-  expect(wide.captureCharFrame()).toContain("review ~$0.1180 · 4 turns");
-  expect(wide.captureCharFrame()).toContain("doc-writer ~$0.0421+? · 3 turns");
+  expect(latest.y).toBe(runs.y);
   const narrow = await render(dashboardSnapshot, 70, 24);
   const narrowRuns = narrow.renderer.root.findDescendantById("panel:run");
   const narrowLatest = narrow.renderer.root.findDescendantById("panel:latest");
@@ -367,9 +680,6 @@ test("Overview puts Latest and Usage beside Runs when wide, and Latest below whe
     throw new Error("Missing overview panel");
   }
   expect(narrowLatest.y).toBeGreaterThan(narrowRuns.y);
-  expect(
-    narrow.renderer.root.findDescendantById("panel:usage")
-  ).toBeUndefined();
 });
 
 test("Tab focuses Triggers, Marbles, and Runs, switching between Catalog and Overview", async () => {
@@ -377,7 +687,11 @@ test("Tab focuses Triggers, Marbles, and Runs, switching between Catalog and Ove
   for (const name of ["trigger", "definition", "run", "trigger"]) {
     await press(ui, "TAB");
     const frame = ui.captureCharFrame();
-    expect(frame).toContain(`${name} ·`);
+    const active = ui.renderer.root.findDescendantById(`panel:${name}`);
+    expect(active).toHaveProperty(
+      "borderColor",
+      RGBA.fromHex(theme.border.focusColor)
+    );
     if (name === "run") {
       expect(frame).toContain("3 Runs");
       expect(frame).not.toContain("1 Triggers");

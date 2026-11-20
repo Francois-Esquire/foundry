@@ -1,7 +1,7 @@
 import type { RunRecord } from "@foundry/workflows/schema";
 import { expect, it } from "vitest";
+import { runRows } from "~/cli/state/dashboard-tree";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { runRows } from "~/views/dashboard-tree";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 
 const record: RunRecord = {

@@ -177,9 +177,14 @@ describe("codexModels", () => {
   it("closes an in-flight listing on abort and ignores its late result", async () => {
     close.mockClear();
     const pending = Promise.withResolvers<{ models: { id: string }[] }>();
-    listModels.mockReturnValueOnce(pending.promise);
+    const started = Promise.withResolvers<void>();
+    listModels.mockImplementationOnce(() => {
+      started.resolve();
+      return pending.promise;
+    });
     const controller = new AbortController();
     const listing = codexModels({ binPath, env, signal: controller.signal });
+    await started.promise;
     controller.abort(new Error("listing cancelled"));
     await expect(listing).rejects.toThrow("listing cancelled");
     pending.resolve({ models: [{ id: "late" }] });
@@ -241,16 +246,16 @@ describe("codexProvider", () => {
   it("closes the old transport after the environment changes, once its call ends", async () => {
     createCodexAppServer.mockClear();
     close.mockClear();
-    let finish: (value: { content: [] }) => void = () => undefined;
-    doGenerate.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        })
-    );
+    const started = Promise.withResolvers<void>();
+    const pending = Promise.withResolvers<{ content: [] }>();
+    doGenerate.mockImplementationOnce(() => {
+      started.resolve();
+      return pending.promise;
+    });
     const provider = codexProvider({ env });
     const model = provider.languageModel("gpt-5.5");
     const running = model.doGenerate(CALL);
+    await started.promise;
 
     process.env.MARBLES_CODEX_DRIFT = "late";
     try {
@@ -261,7 +266,7 @@ describe("codexProvider", () => {
     expect(createCodexAppServer).toHaveBeenCalledTimes(2);
     expect(close).not.toHaveBeenCalled();
 
-    finish({ content: [] });
+    pending.resolve({ content: [] });
     await running;
     await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   });

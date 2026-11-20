@@ -227,7 +227,9 @@ describe("schedule state", () => {
     expect(await other.lastTick("s")).toMatchObject({ lastStatus: "failed" });
 
     expect(await other.claimTick("s")).toEqual({ claimed: true });
-    await expect(tick(engine, schedule, { print })).resolves.toBe(undefined);
+    await expect(tick(engine, schedule, { print })).resolves.toEqual({
+      skipped: "held by this process",
+    });
     expect(lines).toContain("[schedule] s skipped: held by this process");
     await other.finishTick("s");
     await other.close();

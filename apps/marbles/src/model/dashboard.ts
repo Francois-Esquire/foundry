@@ -17,10 +17,19 @@ export interface TriggerSnapshot {
   readonly managed?: boolean;
   readonly name: string;
   readonly next?: string;
+  readonly nextAt?: number;
   readonly owner?: string;
   readonly status: "waiting" | "watching" | "running" | "failed" | "paused";
   readonly targetId: string;
   readonly workspace?: OwnerWorkspace;
+}
+
+export function canRunSchedule(trigger: TriggerSnapshot): boolean {
+  return (
+    trigger.kind === "schedule" &&
+    trigger.status !== "paused" &&
+    trigger.workspace === undefined
+  );
 }
 
 export interface OwnerWorkspace {

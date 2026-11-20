@@ -1,32 +1,24 @@
 import { Action } from "~/components/ui/action";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import type { HostedWorkspace } from "~/views/use-dashboard";
+import type { WorkspaceState } from "~/model/connection";
 
-function hostLabel(preview: boolean, hosted?: HostedWorkspace): string {
-  if (preview) {
-    return "preview";
-  }
-  if (!hosted) {
-    return "live";
-  }
-  const position =
-    hosted.count > 1 ? `${hosted.position}/${hosted.count} · ` : "";
-  return `${position}${hosted.state}`;
+function hostLabel(state?: WorkspaceState): string {
+  return state !== undefined && state !== "ready" ? state : "";
 }
 
 export function WorkspaceHeader({
   workspace,
-  preview,
-  hosted,
+  state,
   onHome,
+  onWorkspaces,
 }: {
   readonly workspace: string;
-  readonly preview: boolean;
-  readonly hosted?: HostedWorkspace;
+  readonly state?: WorkspaceState;
   readonly onHome: () => void;
+  readonly onWorkspaces?: () => void;
 }) {
-  const failed = hosted?.state === "failed";
+  const failed = state === "failed";
   return (
     <box flexDirection="row" flexShrink={0} gap={1} height={1}>
       <Action
@@ -36,12 +28,29 @@ export function WorkspaceHeader({
         onAction={onHome}
         value="home"
       />
-      <text fg={theme.colors.mutedForeground}>/</text>
-      <Text flexGrow={1} wrapMode="none">
-        <strong>{workspace}</strong>
-      </Text>
-      <text fg={failed ? theme.colors.error : theme.colors.mutedForeground}>
-        {hostLabel(preview, hosted)}
+      <text fg={theme.colors.mutedForeground} flexShrink={0}>
+        /
+      </text>
+      {onWorkspaces ? (
+        <Action
+          id="nav:workspaces"
+          label={`${workspace} ▾`}
+          onAction={onWorkspaces}
+          truncate
+          value="workspaces"
+        />
+      ) : (
+        <Text minWidth={0} truncate wrapMode="none">
+          <strong>{workspace}</strong>
+        </Text>
+      )}
+      <box flexGrow={1} />
+      <text
+        fg={failed ? theme.colors.error : theme.colors.mutedForeground}
+        flexShrink={0}
+        wrapMode="none"
+      >
+        {hostLabel(state)}
       </text>
     </box>
   );

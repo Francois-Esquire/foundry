@@ -1,10 +1,8 @@
-import type { ThemeName } from "~/model/settings";
-
-interface Palette {
+export interface Palette {
   readonly border: {
     readonly color: string;
     readonly focusColor: string;
-    readonly style: "rounded";
+    readonly style: "rounded" | "heavy";
   };
   readonly colors: {
     readonly accent: string;
@@ -22,7 +20,7 @@ interface Palette {
   };
 }
 
-const PALETTES: Readonly<Record<ThemeName, Palette>> = {
+export const BUILT_IN_PALETTES: Readonly<Record<"dark" | "light", Palette>> = {
   dark: {
     border: { color: "#665c54", focusColor: "#fabd2f", style: "rounded" },
     colors: {
@@ -65,11 +63,11 @@ export const theme: {
   readonly border: Mutable<Palette["border"]>;
   readonly colors: Mutable<Palette["colors"]>;
 } = {
-  border: { ...PALETTES.dark.border },
-  colors: { ...PALETTES.dark.colors },
+  border: { ...BUILT_IN_PALETTES.dark.border },
+  colors: { ...BUILT_IN_PALETTES.dark.colors },
 };
 
-export function applyTheme(name: ThemeName): void {
-  Object.assign(theme.border, PALETTES[name].border);
-  Object.assign(theme.colors, PALETTES[name].colors);
+export function applyPalette(palette: Palette): void {
+  Object.assign(theme.border, palette.border);
+  Object.assign(theme.colors, palette.colors);
 }

@@ -6,7 +6,7 @@ import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
-import { COMMANDS, dryRunRefusal } from "~/command-line";
+import { COMMANDS, dryRunRefusal } from "~/cli/command-line";
 import { initializeDatabase } from "~/database/open";
 import { resourceAssociations } from "~/database/resources";
 import { artifactBlobs } from "~/database/stores";
@@ -47,6 +47,7 @@ function cases(artifact: string): Readonly<Record<string, Case>> {
     runs: { args: ["runs", "--all"], exits: 0 },
     sandboxes: { args: ["sandboxes", "--all"], exits: 0 },
     sessions: { args: ["sessions", "--all"], exits: 0 },
+    settings: { args: ["settings", "get", "theme"], exits: 0 },
     share: { args: ["share", "artifact", artifact, "../two"] },
     status: { args: ["status"], exits: 0 },
     stop: { args: ["stop"] },

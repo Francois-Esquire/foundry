@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "vitest";
 import { step, workflow } from "../src/authoring/builder";
 import { catalog } from "../src/authoring/catalog";
 import { agent } from "../src/authoring/resources";
-import { DashboardView } from "../src/views/dashboard";
+import { DashboardView } from "../src/cli/views/dashboard";
 import { dashboardSnapshot } from "../src/workspace/snapshot";
 import { startEngine } from "./helpers/engine";
 import { mount, press, unmount } from "./helpers/render";

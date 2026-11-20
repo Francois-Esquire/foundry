@@ -7,7 +7,6 @@ import { step } from "@foundry.sh/marbles";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
-import { formatCount } from "~/components/ui/count-badge";
 import type { Engine } from "~/lib/engine";
 import { feedPayload, feedQuestionSchema } from "~/lib/feed/entry";
 import { feedPublisher } from "~/lib/feed/publish";
@@ -444,14 +443,6 @@ describe("log", () => {
     expect(lines[1]?.[0]).toBe("warn");
     expect(lines[1]?.[1]).toContain("Error: careful");
     expect(formatLogValues([])).toBe("");
-  });
-});
-
-describe("tab badges", () => {
-  it("cap at 99+", () => {
-    expect(formatCount(0)).toBe("0");
-    expect(formatCount(99)).toBe("99");
-    expect(formatCount(100)).toBe("99+");
   });
 });
 

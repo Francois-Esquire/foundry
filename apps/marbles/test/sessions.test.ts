@@ -5,10 +5,10 @@ import { agent, step } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
+import { resourceLines } from "~/cli/resources/text";
 import { ResourceView } from "~/database/resources";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { CLAUDE_CODE } from "~/lib/harnesses";
-import { resourceLines } from "~/resources/text";
 
 import type { MockBindings } from "./helpers/bindings";
 import { bindMock } from "./helpers/bindings";

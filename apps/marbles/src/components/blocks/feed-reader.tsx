@@ -1,15 +1,61 @@
 import { SyntaxStyle } from "@opentui/core";
-import { useCallback, useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { FeedMetaLine } from "~/components/blocks/feed-meta";
 import { Action } from "~/components/ui/action";
+import { InputRow } from "~/components/ui/input-row";
 import { Panel } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
-import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
-import type { FeedEntrySnapshot, FeedMediaSnapshot } from "~/lib/feed/read";
-import { feedKey } from "~/views/feed-model";
-import type { AnswerState } from "~/views/use-feed";
+import type { FeedMediaSnapshot } from "~/lib/feed/read";
 import { EmptyState } from "./empty-state";
+import type { FeedItem } from "./feed-list";
+
+export interface AnswerChoice {
+  readonly id: string;
+  readonly label: string;
+  readonly value: string;
+}
+
+export interface AnswerDelivery {
+  readonly error?: string;
+  readonly sending: boolean;
+}
+
+export type AnswerView =
+  | {
+      readonly answer: string;
+      readonly kind: "answered";
+      readonly note?: string;
+    }
+  | { readonly kind: "cancelled" }
+  | (AnswerDelivery & {
+      readonly choices: readonly AnswerChoice[];
+      readonly kind: "choice";
+      readonly onChoose: (choice: string) => void;
+      readonly shortcut: string;
+    })
+  | (AnswerDelivery & {
+      readonly choices: readonly AnswerChoice[];
+      readonly kind: "unavailable";
+    })
+  | (AnswerDelivery & { readonly kind: "free-text" })
+  | (AnswerDelivery & {
+      readonly draft: string;
+      readonly hint: string;
+      readonly kind: "typing";
+      readonly onInput: (value: string) => void;
+      readonly onSubmit: () => void;
+      readonly prompt: string;
+    });
+
+type OpenAnswer = Exclude<
+  AnswerView,
+  { readonly kind: "answered" | "cancelled" }
+>;
+
+export interface ReaderItem extends FeedItem {
+  readonly answer?: AnswerView;
+}
 
 const IMAGE_HEIGHT = 14;
 const IMAGE_WIDTH = 56;
@@ -43,7 +89,7 @@ function markdownStyle(): SyntaxStyle {
 
 function MediaItem({ media }: { readonly media: FeedMediaSnapshot }) {
   return (
-    <box flexDirection="column" flexShrink={0} paddingTop={1}>
+    <box flexDirection="column" flexShrink={0}>
       <text fg={theme.colors.mutedForeground} wrapMode="none">
         {MEDIA_ICON[media.kind]} {media.path}
       </text>
@@ -60,93 +106,92 @@ function MediaItem({ media }: { readonly media: FeedMediaSnapshot }) {
   );
 }
 
+const ignore = () => undefined;
+
 function Choices({
   choices,
   onChoose,
   enabled,
 }: {
-  readonly choices: readonly string[];
+  readonly choices: readonly AnswerChoice[];
   readonly onChoose: (choice: string) => void;
   readonly enabled: boolean;
 }) {
   return (
     <box flexDirection="row" flexShrink={0} flexWrap="wrap" gap={3}>
-      {choices.map((choice, index) => (
+      {choices.map((choice) => (
         <Action
           active={enabled}
-          id={`answer:${index + 1}`}
-          key={choice}
-          label={`${index + 1} ${choice}`}
+          id={choice.id}
+          key={choice.value}
+          label={choice.label}
           onAction={onChoose}
-          value={choice}
+          value={choice.value}
         />
       ))}
     </box>
   );
 }
 
-function AnswerSection({
-  entry,
-  answer,
-}: {
-  readonly entry: FeedEntrySnapshot;
-  readonly answer: AnswerState;
-}) {
-  const choose = useCallback(
-    (choice: string) => {
-      answer.choose(choice);
-    },
-    [answer.choose]
-  );
-  const { input } = entry;
-  if (!input) {
-    return null;
-  }
-  if (input.status === "answered") {
-    return (
-      <text fg={theme.colors.success} flexShrink={0} paddingTop={1}>
-        ✓ Answered: <strong>{input.answer ?? ""}</strong>
-        {input.note ? ` — ${input.note}` : ""}
-      </text>
-    );
-  }
-  if (input.status === "cancelled") {
-    return (
-      <text fg={theme.colors.mutedForeground} flexShrink={0} paddingTop={1}>
-        No longer waiting: the run stopped before an answer.
-      </text>
-    );
-  }
-  const elsewhere = answer.question ? undefined : (
+function AnswerElsewhere() {
+  return (
     <text fg={theme.colors.mutedForeground}>
       Answer from the dashboard that started this run.
     </text>
   );
-  let control = elsewhere;
-  if (answer.typing) {
-    control = (
-      <box flexDirection="row" height={1}>
-        <Text>{answer.choosing ? `${answer.choosing} · note › ` : "› "}</Text>
-        <TextInput
-          flexGrow={1}
-          focused
-          onInput={answer.setDraft}
-          onSubmit={answer.submitDraft}
-          value={answer.draft}
-        />
-      </box>
+}
+
+function AnswerControl({ answer }: { readonly answer: OpenAnswer }) {
+  switch (answer.kind) {
+    case "typing":
+      return (
+        <>
+          <InputRow
+            focused
+            labels={[answer.prompt]}
+            onInput={answer.onInput}
+            onSubmit={answer.onSubmit}
+            value={answer.draft}
+          />
+          <text fg={theme.colors.mutedForeground}>{answer.hint}</text>
+        </>
+      );
+    case "choice":
+      return (
+        <Choices choices={answer.choices} enabled onChoose={answer.onChoose} />
+      );
+    case "unavailable":
+      return (
+        <>
+          {answer.choices.length > 0 && (
+            <Choices
+              choices={answer.choices}
+              enabled={false}
+              onChoose={ignore}
+            />
+          )}
+          <AnswerElsewhere />
+        </>
+      );
+    default:
+      return <text fg={theme.colors.mutedForeground}>a to type an answer</text>;
+  }
+}
+
+function AnswerSection({ answer }: { readonly answer: AnswerView }) {
+  if (answer.kind === "answered") {
+    return (
+      <text fg={theme.colors.success} flexShrink={0} marginTop={1}>
+        ✓ Answered: <strong>{answer.answer}</strong>
+        {answer.note ? ` — ${answer.note}` : ""}
+      </text>
     );
-  } else if (input.choices.length > 0) {
-    control = (
-      <Choices
-        choices={input.choices}
-        enabled={answer.question !== undefined}
-        onChoose={choose}
-      />
-    );
-  } else if (answer.question) {
-    control = (
-      <text fg={theme.colors.mutedForeground}>a to type an answer</text>
+  }
+  if (answer.kind === "cancelled") {
+    return (
+      <text fg={theme.colors.mutedForeground} flexShrink={0} marginTop={1}>
+        No longer waiting: the run stopped before an answer.
+      </text>
     );
   }
   return (
@@ -154,21 +199,14 @@ function AnswerSection({
       border
       borderColor={theme.colors.warning}
       borderStyle="rounded"
+      bottomTitle={answer.kind === "choice" ? answer.shortcut : undefined}
       flexDirection="column"
       flexShrink={0}
       marginTop={1}
       paddingX={1}
       title="Needs your input"
     >
-      {control}
-      {input.choices.length > 0 && elsewhere}
-      {answer.typing && (
-        <text fg={theme.colors.mutedForeground}>
-          {answer.choosing
-            ? "note optional · Enter send · Esc cancel"
-            : "Enter send · Esc cancel"}
-        </text>
-      )}
+      <AnswerControl answer={answer} />
       {answer.sending && <text fg={theme.colors.info}>Sending…</text>}
       {answer.error && <text fg={theme.colors.error}>{answer.error}</text>}
     </box>
@@ -176,17 +214,15 @@ function AnswerSection({
 }
 
 export function FeedReader({
-  entry,
+  selected,
   active,
-  answer,
 }: {
-  readonly entry?: FeedEntrySnapshot;
+  readonly selected?: ReaderItem;
   readonly active: boolean;
-  readonly answer: AnswerState;
 }) {
   const style = useMemo(markdownStyle, []);
   useEffect(() => () => style.destroy(), [style]);
-  if (!entry) {
+  if (!selected) {
     return (
       <Panel active={active} title="Entry">
         <EmptyState
@@ -196,11 +232,12 @@ export function FeedReader({
       </Panel>
     );
   }
+  const { entry } = selected;
   return (
     <Panel
       active={active}
       id="panel:entry"
-      resetKey={feedKey(entry)}
+      resetKey={selected.key}
       scrollable={active}
       title={
         active ? "Entry · ↑↓ scroll · Esc entries" : "Entry · Enter to read"
@@ -209,7 +246,7 @@ export function FeedReader({
       <box flexDirection="row" flexShrink={0}>
         <FeedMetaLine
           details={[entry.workspace.name, entry.posted, entry.run, entry.step]}
-          entry={entry}
+          meta={selected.meta}
         />
       </box>
       <markdown
@@ -219,7 +256,7 @@ export function FeedReader({
         paddingTop={1}
         syntaxStyle={style}
       />
-      <AnswerSection answer={answer} entry={entry} />
+      {selected.answer && <AnswerSection answer={selected.answer} />}
       {entry.media.length > 0 && (
         <box flexDirection="column" flexShrink={0} paddingTop={1}>
           <Text>

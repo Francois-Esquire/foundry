@@ -71,7 +71,13 @@ test("package import inspection checks declarations and dynamic imports, not con
   ).toEqual([]);
 });
 
-const CLI_SDK = /^ai-sdk-provider-(claude-code|codex-cli|pi)$/;
+const OPTIONAL_PROVIDER_SDKS = [
+  "@anthropic-ai/claude-agent-sdk",
+  "@anthropic-ai/sdk",
+  "ai-sdk-provider-claude-code",
+  "ai-sdk-provider-codex-cli",
+  "ai-sdk-provider-pi",
+];
 
 function staticImports(dist: string, entry: string): string[] {
   const seen = new Set<string>();
@@ -164,6 +170,9 @@ test("the tarball installs and shares the library registry with the CLI", async 
       manifest.version
     );
     expect(readFileSync(join(installed, "LICENSE"), "utf8")).toContain("MIT");
+    expect(readFileSync(join(installed, "LICENSE.vendors"), "utf8")).toContain(
+      "Copyright (c) 2026 Aniket Pawar"
+    );
     expect(readdirSync(installed)).not.toContain("src");
     expect(
       readdirSync(join(installed, "dist", "migrations", "meta"))
@@ -325,11 +334,27 @@ console.log("persisted", kept?.title, existsSync(join(state, "marbles.db")), exi
 console.log("host sessions", (await sessions.listMessages("host")).length, typeof sessions.transaction);
 `
     );
-    expect(
-      staticImports(join(installed, "dist"), "engine.js").filter((specifier) =>
-        CLI_SDK.test(specifier)
-      )
-    ).toEqual([]);
+    for (const sdk of OPTIONAL_PROVIDER_SDKS) {
+      expect(manifest.dependencies).not.toHaveProperty(sdk);
+      expect(manifest.optionalDependencies).toHaveProperty(sdk);
+    }
+    for (const entry of [
+      "cli",
+      "engine",
+      "generation",
+      "index",
+      "lib",
+      "prebuilt",
+      "process",
+      "workspace",
+    ]) {
+      expect(
+        staticImports(join(installed, "dist"), `${entry}.js`).filter(
+          (specifier) => OPTIONAL_PROVIDER_SDKS.includes(specifier)
+        ),
+        `${entry} eagerly imports an optional provider SDK`
+      ).toEqual([]);
+    }
     expect(staticImports(join(installed, "dist"), "statuses.js")).toEqual([]);
     run(
       "bun",
@@ -503,6 +528,21 @@ step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.curre
       expect(result).toContain("[run] packed-summary complete");
       expect(result).toContain("Summarize this codebase");
     }
+    for (const sdk of OPTIONAL_PROVIDER_SDKS) {
+      rmSync(join(consumer, "node_modules", sdk), {
+        force: true,
+        recursive: true,
+      });
+    }
+    const optionalFreeHome = testHome();
+    expect(
+      run(
+        "bun",
+        ["--no-install", cli, "list", "--dry-run"],
+        consumer,
+        optionalFreeHome.env
+      )
+    ).toContain("[step] packed-summary");
   } finally {
     rmSync(standalone, { force: true, recursive: true });
     rmSync(consumer, { force: true, recursive: true });

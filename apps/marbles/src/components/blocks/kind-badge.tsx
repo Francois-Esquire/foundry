@@ -1,5 +1,6 @@
+import { Tag } from "~/components/ui/tag";
 import { theme } from "~/components/ui/theme";
-import type { ItemKind } from "~/views/dashboard-model";
+import type { ItemKind } from "~/model/dashboard";
 
 export function KindBadge({ kind }: { readonly kind: ItemKind }) {
   const colors: Readonly<Record<ItemKind, string>> = {
@@ -8,5 +9,5 @@ export function KindBadge({ kind }: { readonly kind: ItemKind }) {
     step: theme.colors.secondary,
     workflow: theme.colors.primary,
   };
-  return <text fg={colors[kind]}>{`[${kind}]`}</text>;
+  return <Tag color={colors[kind]}>{kind}</Tag>;
 }

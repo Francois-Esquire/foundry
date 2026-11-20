@@ -116,15 +116,16 @@ export async function tick(
   engine: ScheduledEngine,
   schedule: Schedule,
   options: TickOptions
-): Promise<{ readonly value: unknown } | undefined> {
+): Promise<
+  { readonly value: unknown } | { readonly skipped: string } | undefined
+> {
   const { triggers } = engine;
   const now = options.now ?? Date.now;
   const claim = await triggers.claimTick(schedule.key);
   if (!claim.claimed) {
-    options.print(
-      `[schedule] ${schedule.key} skipped: held by ${claim.holder}`
-    );
-    return undefined;
+    const skipped = `held by ${claim.holder}`;
+    options.print(`[schedule] ${schedule.key} skipped: ${skipped}`);
+    return { skipped };
   }
 
   const start = now();

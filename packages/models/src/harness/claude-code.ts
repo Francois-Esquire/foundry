@@ -1,11 +1,9 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import type { HarnessTurnDriver } from "@foundry/agents/harness";
-import {
-  type ClaudeCodeQueryController,
-  type ClaudeCodeSettings,
-  createAiSdkMcpServer,
-  createClaudeCode,
-  type MessageInjector,
+import type {
+  ClaudeCodeQueryController,
+  ClaudeCodeSettings,
+  MessageInjector,
 } from "ai-sdk-provider-claude-code";
 import {
   claudeActivityHooks,
@@ -40,11 +38,6 @@ export function createClaudeCodeDriver(
   let injector: MessageInjector | undefined;
   let active: AbortController | undefined;
   let activities: NativeActivities | undefined;
-  const modelFactory =
-    options.createModel ??
-    ((modelId, settings) =>
-      createClaudeCode().languageModel(modelId, settings));
-
   return {
     capabilities: { interruption: true, steering: true },
     async close() {
@@ -83,44 +76,50 @@ export function createClaudeCodeDriver(
         controller = undefined;
         injector = undefined;
       };
-      const settings: ClaudeCodeSettings = {
-        ...options.settings,
-        allowedTools: [...run.profile.allowedTools],
-        canUseTool: tools.canUseTool,
-        continue: false,
-        cwd: options.cwd,
-        disallowedTools: [...run.profile.disallowedTools],
-        hooks: { ...tools.hooks, ...claudeActivityHooks(runActivities) },
-        logger: false,
-        maxTurns: run.profile.maxSteps,
-        onQueryControllerCreated: (value) => {
-          controller = value;
-        },
-        onSdkMessage: claudeMessages(run, runActivities, tools.report),
-        onStreamStart: (value) => {
-          injector = value;
-        },
-        permissionMode:
-          run.profile.unresolved === "ask" && run.profile.mode === "attended"
-            ? "default"
-            : "dontAsk",
-        resume: run.nativeSessionId,
-        sdkOptions: undefined,
-        sessionId: undefined,
-        sessionStore: undefined,
-        settingSources: [],
-        spawnClaudeCodeProcess: options.spawnClaudeCodeProcess,
-        streamingInput: "always",
-        ...(run.tools
-          ? {
-              mcpServers: {
-                foundry: createAiSdkMcpServer("foundry", run.tools),
-              },
-            }
-          : {}),
-      };
       try {
-        const model = modelFactory(options.modelId, settings);
+        const { createAiSdkMcpServer, createClaudeCode } = await import(
+          "ai-sdk-provider-claude-code"
+        );
+        abort.signal.throwIfAborted();
+        const settings: ClaudeCodeSettings = {
+          ...options.settings,
+          allowedTools: [...run.profile.allowedTools],
+          canUseTool: tools.canUseTool,
+          continue: false,
+          cwd: options.cwd,
+          disallowedTools: [...run.profile.disallowedTools],
+          hooks: { ...tools.hooks, ...claudeActivityHooks(runActivities) },
+          logger: false,
+          maxTurns: run.profile.maxSteps,
+          onQueryControllerCreated: (value) => {
+            controller = value;
+          },
+          onSdkMessage: claudeMessages(run, runActivities, tools.report),
+          onStreamStart: (value) => {
+            injector = value;
+          },
+          permissionMode:
+            run.profile.unresolved === "ask" && run.profile.mode === "attended"
+              ? "default"
+              : "dontAsk",
+          resume: run.nativeSessionId,
+          sdkOptions: undefined,
+          sessionId: undefined,
+          sessionStore: undefined,
+          settingSources: [],
+          spawnClaudeCodeProcess: options.spawnClaudeCodeProcess,
+          streamingInput: "always",
+          ...(run.tools
+            ? {
+                mcpServers: {
+                  foundry: createAiSdkMcpServer("foundry", run.tools),
+                },
+              }
+            : {}),
+        };
+        const model = options.createModel
+          ? options.createModel(options.modelId, settings)
+          : createClaudeCode().languageModel(options.modelId, settings);
         const result = await model.doStream({
           abortSignal: abort.signal,
           ...(run.responseFormat ? { responseFormat: run.responseFormat } : {}),

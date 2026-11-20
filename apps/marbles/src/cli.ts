@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { fileURLToPath } from "node:url";
-import { main } from "~/command-line";
+import { main } from "~/cli/command-line";
 import { envFilesLoaded } from "~/process/runtime";
 
 const refusal = envFilesLoaded();

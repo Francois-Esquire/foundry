@@ -1,26 +1,29 @@
 import { Action } from "~/components/ui/action";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
+import { Words } from "~/components/ui/words";
 
 export function EmptyState({
   title,
   description,
   onReset,
+  resetLabel = "Clear filters",
 }: {
   readonly title: string;
   readonly description: string;
   readonly onReset?: () => void;
+  readonly resetLabel?: string;
 }) {
   return (
-    <box flexDirection="column" paddingX={1}>
+    <box flexDirection="column" flexShrink={0} paddingX={1}>
       <Text>
         <strong>◇ {title}</strong>
       </Text>
-      <text fg={theme.colors.mutedForeground}>{description}</text>
+      <Words fg={theme.colors.mutedForeground}>{description}</Words>
       {onReset && (
         <Action
           id="empty:reset"
-          label="x Clear filters"
+          label={`x ${resetLabel}`}
           onAction={onReset}
           value="reset"
         />
