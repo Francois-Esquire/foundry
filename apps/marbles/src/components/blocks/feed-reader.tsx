@@ -2,9 +2,9 @@ import { SyntaxStyle } from "@opentui/core";
 import { useEffect, useMemo } from "react";
 import { FeedMetaLine } from "~/components/blocks/feed-meta";
 import { Action } from "~/components/ui/action";
+import { InputRow } from "~/components/ui/input-row";
 import { Panel } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
-import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
 import type { FeedMediaSnapshot } from "~/lib/feed/read";
 import { EmptyState } from "./empty-state";
@@ -89,7 +89,7 @@ function markdownStyle(): SyntaxStyle {
 
 function MediaItem({ media }: { readonly media: FeedMediaSnapshot }) {
   return (
-    <box flexDirection="column" flexShrink={0} paddingTop={1}>
+    <box flexDirection="column" flexShrink={0}>
       <text fg={theme.colors.mutedForeground} wrapMode="none">
         {MEDIA_ICON[media.kind]} {media.path}
       </text>
@@ -146,16 +146,13 @@ function AnswerControl({ answer }: { readonly answer: OpenAnswer }) {
     case "typing":
       return (
         <>
-          <box flexDirection="row" height={1}>
-            <Text>{answer.prompt}</Text>
-            <TextInput
-              flexGrow={1}
-              focused
-              onInput={answer.onInput}
-              onSubmit={answer.onSubmit}
-              value={answer.draft}
-            />
-          </box>
+          <InputRow
+            focused
+            labels={[answer.prompt]}
+            onInput={answer.onInput}
+            onSubmit={answer.onSubmit}
+            value={answer.draft}
+          />
           <text fg={theme.colors.mutedForeground}>{answer.hint}</text>
         </>
       );

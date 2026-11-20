@@ -240,3 +240,53 @@ export const LongTitle = story({
       { height: 8, width: 40 }
     ),
 });
+
+export const NarrowBorderHint = story({
+  description:
+    "A border hint longer than the panel is shortened with an ellipsis instead of disappearing.",
+  name: "Narrow border hint",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <Panel active borderHint=" Enter open · Esc back " title="Marbles">
+        <WorkflowRows />
+      </Panel>,
+      { height: 10, width: 20 }
+    ),
+});
+
+export const NarrowScrollable = story({
+  description:
+    "A narrow scrolling panel keeps a column between its rows and the scrollbar.",
+  name: "Narrow scrollable",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <Panel active scrollable title="Steps">
+        <StepRows />
+      </Panel>,
+      { height: 10, width: 12 }
+    ),
+});
+
+const notes = [
+  "Workspace usage is estimated from every recorded turn.",
+  "Partial totals say how many turns were not priced, and turns recovered from session transcripts count their tokens but not their cost.",
+  "Usage outside runs is listed on its own line.",
+];
+
+export const ScrollableText = story({
+  description:
+    "Wrapped text in a scrolling panel stops a column short of the scrollbar.",
+  name: "Scrollable text",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <Panel active scrollable title="Usage">
+        {notes.map((note) => (
+          <Text key={note}>{note}</Text>
+        ))}
+      </Panel>,
+      { height: 10, width: 44 }
+    ),
+});

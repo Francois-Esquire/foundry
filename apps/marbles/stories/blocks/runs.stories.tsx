@@ -288,6 +288,35 @@ export const DeepSteps = story({
   },
 });
 
+export const DeepStepsNarrow = story({
+  description:
+    "In a narrow panel the indent stops growing once a deeper row would leave its name fewer than ten cells; deeper rows share that indent and every status stays whole.",
+  name: "Deep steps, narrow",
+  render: (renderer) => {
+    const { runs } = scenarioSnapshot("deep");
+    return renderFrame(
+      renderer,
+      <BrowseRuns initial={runs.flatMap(expandedRun)} runs={runs} />,
+      { height: 20, width: 42 }
+    );
+  },
+});
+
+export const WaitingForInputNarrow = story({
+  description:
+    "When the full badge would leave the name fewer than ten cells, the badge shortens to what the run waits for.",
+  name: "Waiting for input, narrow",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <StaticRuns
+        runs={[waitingRun, ...sampleRuns]}
+        selected={{ id: "run-105", kind: "run" }}
+      />,
+      { height: 10, width: 38 }
+    ),
+});
+
 export const Narrow = story({
   description:
     "In a narrow panel each row stays on one line: the run id, cost and time drop in that order, then the name truncates.",

@@ -110,7 +110,7 @@ export function RunInspector<S>({
   }));
   return (
     <box flexDirection="column" gap={1}>
-      <box flexDirection="row" flexWrap="wrap" gap={1}>
+      <box columnGap={1} flexDirection="row" flexWrap="wrap" rowGap={0}>
         {breadcrumbs.map((crumb) => (
           <Action
             id={crumb.id}

@@ -15,9 +15,11 @@ function badgeForeground(background: string): string {
 
 export function Badge({
   children,
+  padded = true,
   variant,
 }: {
   readonly children: string;
+  readonly padded?: boolean;
   readonly variant: "error" | "warning";
 }) {
   const { colors } = theme;
@@ -29,7 +31,7 @@ export function Badge({
       flexShrink={0}
       wrapMode="none"
     >
-      <strong>{` ${children} `}</strong>
+      <strong>{padded ? ` ${children} ` : children}</strong>
     </text>
   );
 }

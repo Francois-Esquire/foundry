@@ -91,7 +91,7 @@ export const Narrow = story({
   name: "Narrow, long error",
   render: (renderer) =>
     renderFrame(renderer, <RunOverview run={longError} />, {
-      height: 24,
+      height: 28,
       width: 36,
     }),
 });

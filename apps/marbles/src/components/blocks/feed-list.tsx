@@ -95,11 +95,11 @@ export function FeedList({
         <EmptyState
           description={
             filtered
-              ? "Nothing from this workspace yet. x shows all workspaces."
+              ? "Nothing from this workspace yet."
               : "Steps publish results and milestones here with feed.post()."
           }
           title={filtered ? "No entries here." : "No entries yet."}
-          {...(filtered ? { onReset } : {})}
+          {...(filtered ? { onReset, resetLabel: "Show all workspaces" } : {})}
         />
       )}
       {rows.map((row) => (

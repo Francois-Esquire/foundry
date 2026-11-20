@@ -128,3 +128,11 @@ export const Narrow = story({
       { height: 24, width: 26 }
     ),
 });
+
+export const Short = story({
+  description:
+    "Too short to pin the header: it scrolls with the theme list, which keeps the chosen theme in view inside the border.",
+  name: "Short",
+  render: (renderer) =>
+    renderFrame(renderer, <ChooseTheme />, { height: 12, width: 46 }),
+});

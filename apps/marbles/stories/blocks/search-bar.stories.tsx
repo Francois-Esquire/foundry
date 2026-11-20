@@ -196,3 +196,59 @@ export const FilterAndSearch = story({
       size
     ),
 });
+
+export const EditingNarrow = story({
+  description:
+    "Editing in a narrow column: the hint gives way so the label and the query keep their room.",
+  name: "Editing, narrow",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <SearchBar
+        editing
+        focused
+        onInput={ignore}
+        onSubmit={ignore}
+        query="docs"
+        scope="marbles"
+      />,
+      { height: 5, width: 44 }
+    ),
+});
+
+export const LongQuery = story({
+  description: "A long query that still fits beside the label and the hint.",
+  name: "Long query",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <SearchBar
+        editing
+        focused
+        onInput={ignore}
+        onSubmit={ignore}
+        query="update documentation nightly digest"
+        scope="marbles"
+      />,
+      size
+    ),
+});
+
+export const LongQueryNarrow = story({
+  description:
+    "A long query in a narrow column scrolls inside the input; the label stays whole and apart from it.",
+  name: "Long query, narrow",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <SearchBar
+        editing
+        focused
+        onInput={ignore}
+        onSubmit={ignore}
+        query="update documentation nightly digest"
+        scope="marbles"
+      />,
+      { height: 5, width: 44 }
+    ),
+});

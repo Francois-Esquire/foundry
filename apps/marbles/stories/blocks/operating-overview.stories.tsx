@@ -159,6 +159,17 @@ export const UsageSingle = story({
     }),
 });
 
+export const UsageNarrow = story({
+  description:
+    "A narrow panel; each token line wraps at spaces and keeps its indent.",
+  name: "Usage narrow",
+  render: (renderer) =>
+    renderFrame(renderer, <UsageBreakdown active usage={usage} />, {
+      height: 26,
+      width: 40,
+    }),
+});
+
 export const UsageEmptyGroups = story({
   description: "A total with no workflow or agent breakdown recorded.",
   name: "Usage empty groups",

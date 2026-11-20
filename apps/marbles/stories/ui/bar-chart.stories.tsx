@@ -83,6 +83,25 @@ export const Tight = story({
     ),
 });
 
+export const Capped = story({
+  description:
+    "A bar cap shorter than the room, as when two charts side by side share the shorter bar length.",
+  name: "Capped",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <box flexDirection="column">
+        <BarChart
+          availableWidth={44}
+          color={theme.colors.accent}
+          data={chartRows(workflows)}
+          maxBarWidth={5}
+        />
+      </box>,
+      { height: 6, width: 46 }
+    ),
+});
+
 export const Narrow = story({
   description:
     "Too narrow for bars: only labels and values, long labels truncated.",

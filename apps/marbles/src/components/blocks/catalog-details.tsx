@@ -66,7 +66,7 @@ export function CatalogDetails<S, F>({
 }) {
   const { runs } = details;
   return (
-    <box flexDirection="column" gap={1}>
+    <box flexDirection="column" flexShrink={0} gap={1}>
       <Text>{details.description}</Text>
       <KeyValue items={details.facts} />
       {configuration && (

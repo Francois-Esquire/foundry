@@ -14,6 +14,14 @@ const TONE_COLORS = {
   success: "success",
 } as const;
 
+function Separator() {
+  return (
+    <text fg={theme.colors.mutedForeground} flexShrink={0} wrapMode="none">
+      {" ·"}
+    </text>
+  );
+}
+
 export function FeedMetaLine({
   meta,
   details,
@@ -32,25 +40,30 @@ export function FeedMetaLine({
       flexWrap="wrap"
       minWidth={0}
     >
-      {meta.tone === "attention" ? (
-        <Badge variant="warning">{meta.label}</Badge>
-      ) : (
-        <text
-          fg={theme.colors[TONE_COLORS[meta.tone]]}
-          flexShrink={0}
-          wrapMode="none"
-        >
-          {meta.label}
-        </text>
-      )}
-      {shown.map((detail) => (
+      <box flexDirection="row" flexShrink={0}>
+        {meta.tone === "attention" ? (
+          <Badge padded={false} variant="warning">
+            {meta.label}
+          </Badge>
+        ) : (
+          <text
+            fg={theme.colors[TONE_COLORS[meta.tone]]}
+            flexShrink={0}
+            wrapMode="none"
+          >
+            {meta.label}
+          </text>
+        )}
+        {shown.length > 0 && <Separator />}
+      </box>
+      {shown.map((detail, index) => (
         <text
           fg={theme.colors.mutedForeground}
           flexShrink={0}
           key={detail}
           wrapMode="none"
         >
-          {`· ${detail}`}
+          {index < shown.length - 1 ? `${detail} ·` : detail}
         </text>
       ))}
     </box>

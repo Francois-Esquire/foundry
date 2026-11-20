@@ -1,6 +1,8 @@
+import { InputRow } from "~/components/ui/input-row";
 import { Text } from "~/components/ui/text";
-import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
+
+const EDIT_HINT = "Enter apply · Esc clear";
 
 export function RunFilterNotice({ label }: { readonly label: string }) {
   return <text fg={theme.colors.info}>Run filter: {label} · x all runs</text>;
@@ -23,17 +25,14 @@ export function SearchBar({
 }) {
   if (editing) {
     return (
-      <box flexDirection="row" height={1}>
-        <Text>Search {scope}: </Text>
-        <TextInput
-          flexGrow={1}
-          focused={focused}
-          onInput={onInput}
-          onSubmit={onSubmit}
-          value={query}
-        />
-        <Text>Enter apply · Esc clear</Text>
-      </box>
+      <InputRow
+        focused={focused}
+        hint={EDIT_HINT}
+        labels={[`Search ${scope}:`]}
+        onInput={onInput}
+        onSubmit={onSubmit}
+        value={query}
+      />
     );
   }
   return query ? (

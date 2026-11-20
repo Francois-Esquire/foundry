@@ -41,9 +41,17 @@ function timingFacts(run: RunOverviewView) {
     return [{ key: "Started", value: run.started }];
   }
   return [
-    { key: "Queued", value: at(run.timing.createdAt, "") },
-    { key: "Started", value: at(run.timing.startedAt, "Not started") },
-    { key: "Ended", value: at(run.timing.endedAt, "Not ended") },
+    { key: "Queued", value: at(run.timing.createdAt, ""), wholeWords: true },
+    {
+      key: "Started",
+      value: at(run.timing.startedAt, "Not started"),
+      wholeWords: true,
+    },
+    {
+      key: "Ended",
+      value: at(run.timing.endedAt, "Not ended"),
+      wholeWords: true,
+    },
   ];
 }
 

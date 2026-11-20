@@ -3,6 +3,7 @@ import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
+import { Words } from "~/components/ui/words";
 
 export interface LatestRow<S> {
   readonly at: number;
@@ -91,10 +92,9 @@ function BreakdownRows({
           <Text>
             {group.id}: {group.cost}
           </Text>
-          <text fg={theme.colors.mutedForeground}>
-            {"  "}
+          <Words fg={theme.colors.mutedForeground} indent={2}>
             {group.tokens}
-          </text>
+          </Words>
         </box>
       ))}
     </box>
@@ -153,10 +153,9 @@ export function UsageBreakdown({
         <box flexDirection="column" gap={1}>
           <box flexDirection="column" flexShrink={0}>
             <Text>Workspace: {usage.total.cost}</Text>
-            <text fg={theme.colors.mutedForeground}>
-              {"  "}
+            <Words fg={theme.colors.mutedForeground} indent={2}>
               {usage.total.tokens}
-            </text>
+            </Words>
             {usage.outsideRuns !== undefined && (
               <Text>Outside runs: {usage.outsideRuns}</Text>
             )}

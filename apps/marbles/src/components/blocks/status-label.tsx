@@ -4,6 +4,7 @@ import type { StatusTone } from "~/model/run-status";
 
 export interface StatusView {
   readonly label: string;
+  readonly short?: string;
   readonly tone: StatusTone;
 }
 
@@ -17,5 +18,9 @@ export function StatusLabel({ status }: { readonly status: StatusView }) {
     neutral: theme.colors.mutedForeground,
     success: theme.colors.success,
   };
-  return <text fg={colors[tone]}>{label}</text>;
+  return (
+    <text fg={colors[tone]} flexShrink={0} wrapMode="none">
+      {label}
+    </text>
+  );
 }

@@ -49,10 +49,30 @@ export function Log({
           {entry.timestamp} [{entry.level}] {entry.message}
         </text>
       ))}
-      <text fg={theme.colors.mutedForeground}>
-        {start + 1}–{Math.min(start + height, entries.length)}/{entries.length}{" "}
-        · {follow ? "Following" : "Paused"} · f follow · ↑↓ scroll
-      </text>
+      <box
+        columnGap={1}
+        flexDirection="row"
+        flexShrink={0}
+        flexWrap="wrap"
+        height={1}
+        overflow="hidden"
+      >
+        {[
+          `${start + 1}–${Math.min(start + height, entries.length)}/${entries.length}`,
+          `· ${follow ? "Following" : "Paused"}`,
+          "· f follow",
+          "· ↑↓ scroll",
+        ].map((part) => (
+          <text
+            fg={theme.colors.mutedForeground}
+            flexShrink={0}
+            key={part}
+            wrapMode="none"
+          >
+            {part}
+          </text>
+        ))}
+      </box>
     </box>
   );
 }

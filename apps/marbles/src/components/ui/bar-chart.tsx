@@ -48,25 +48,42 @@ function barWidth(
   return room - width >= Math.min(labelWidth, MIN_LABEL_WIDTH) ? width : 0;
 }
 
-export function BarChart({
-  data,
-  color,
-  availableWidth,
-}: {
-  readonly data: readonly BarChartItem[];
-  readonly color: string;
-  readonly availableWidth: number;
-}) {
+export function chartBarWidth(
+  data: readonly BarChartItem[],
+  availableWidth: number
+): number | undefined {
   const max = Math.max(0, ...data.map((item) => item.value));
-  const width = Math.max(0, ...data.map((item) => item.valueWidth));
+  if (data.length < 2 || max <= 0 || !Number.isFinite(max)) {
+    return;
+  }
   const labelWidth = Math.min(
     MAX_LABEL_WIDTH,
     Math.max(0, ...data.map(({ label }) => label.length))
   );
-  const bars =
-    data.length > 1 && max > 0 && Number.isFinite(max)
-      ? barWidth(availableWidth, width, labelWidth)
-      : 0;
+  return barWidth(availableWidth, valueColumn(data), labelWidth);
+}
+
+function valueColumn(data: readonly BarChartItem[]): number {
+  return Math.max(0, ...data.map((item) => item.valueWidth));
+}
+
+export function BarChart({
+  data,
+  color,
+  availableWidth,
+  maxBarWidth,
+}: {
+  readonly data: readonly BarChartItem[];
+  readonly color: string;
+  readonly availableWidth: number;
+  readonly maxBarWidth?: number;
+}) {
+  const max = Math.max(0, ...data.map((item) => item.value));
+  const width = valueColumn(data);
+  const bars = Math.min(
+    chartBarWidth(data, availableWidth) ?? 0,
+    maxBarWidth ?? BAR_WIDTH
+  );
 
   return data.map(({ id, label, value, valueLabel }) => (
     <box flexDirection="row" gap={2} height={1} key={id}>

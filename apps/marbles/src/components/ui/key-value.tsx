@@ -4,11 +4,13 @@ import type { ReactNode } from "react";
 import { useMemo } from "react";
 
 import { theme } from "~/components/ui/theme";
+import { Words } from "~/components/ui/words";
 
 interface KeyValueItem {
   color?: string;
   key: string;
   value: ReactNode;
+  wholeWords?: boolean;
 }
 
 export interface KeyValueProps {
@@ -52,7 +54,11 @@ export const KeyValue = ({
             <text fg={resolvedKeyColor} flexShrink={0}>
               {separator}
             </text>
-            <text fg={item.color ?? resolvedValueColor}>{item.value}</text>
+            {item.wholeWords && typeof item.value === "string" ? (
+              <Words fg={item.color ?? resolvedValueColor}>{item.value}</Words>
+            ) : (
+              <text fg={item.color ?? resolvedValueColor}>{item.value}</text>
+            )}
           </box>
         );
       })}

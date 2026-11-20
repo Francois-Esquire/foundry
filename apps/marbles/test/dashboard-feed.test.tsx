@@ -33,7 +33,7 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
   expect(frame).not.toContain("! Codebase summary");
   for (const label of [
     "Feed · All workspaces",
-    "needs input  · foundry · 14:33",
+    "needs input · foundry · 14:33",
     "Codebase summary",
     "Docs updated",
     "Workspace set up: foundry",

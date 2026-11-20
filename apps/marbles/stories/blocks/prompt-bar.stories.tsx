@@ -157,3 +157,22 @@ export const VeryNarrow = story({
       { height: 5, width: 40 }
     ),
 });
+
+export const ResumeShortStep = story({
+  description:
+    "Resuming a step with a short ID leaves room for the note, the draft and the hint, from the first frame.",
+  name: "Resume, short step",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <PromptBar
+        draft="Skip the changelog"
+        focused
+        kind="resume"
+        onInput={ignore}
+        onSubmit={ignore}
+        stepId="write"
+      />,
+      size
+    ),
+});

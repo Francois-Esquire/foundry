@@ -154,7 +154,7 @@ export const Wide = story({
 
 export const Medium = story({
   description:
-    "Under 106 columns and 30 rows: card details shorten, each ranking shows its top two, and a ranking short of room draws a shorter bar.",
+    "Under 30 rows each ranking shows its top two; cards too narrow for their full details show the short form, and both rankings draw the bar length the tighter one fits.",
   name: "Medium",
   render: (renderer) =>
     renderFrame(
@@ -166,7 +166,7 @@ export const Medium = story({
 
 export const Stacked = story({
   description:
-    "Under 68 columns and at least 22 rows the cards stack two by two; under 64 columns the rankings are hidden too.",
+    "Under 68 columns the cards stack two by two and the rankings are hidden.",
   name: "Stacked",
   render: (renderer) =>
     renderFrame(
@@ -178,13 +178,61 @@ export const Stacked = story({
 
 export const Short = story({
   description:
-    "Fewer than 22 rows: one compact row of cards and notes, no rankings.",
+    "Fewer than 22 rows: one row of cards with short details, the notes, and no rankings.",
   name: "Short",
   render: (renderer) =>
     renderFrame(
       renderer,
       <Metrics height={12} width={100} />,
       metricsStory(100, 12)
+    ),
+});
+
+export const ShortNarrow = story({
+  description:
+    "Fewer than 22 rows and under 68 columns: the cards stack two by two without their detail lines, so every label reads whole and the block grows by one row, not three.",
+  name: "Short narrow",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <Metrics height={12} width={48} />,
+      metricsStory(48, 12)
+    ),
+});
+
+export const StackEdge = story({
+  description:
+    "One column short of four across: the cards stay stacked and the rankings stay hidden rather than cut their captions.",
+  name: "Stack edge",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <Metrics height={24} snapshot={busy} width={67} />,
+      metricsStory(67, 24)
+    ),
+});
+
+export const ShortDetails = story({
+  description:
+    "Just short of room for the full card details: every card shows its short detail instead of a cut one.",
+  name: "Short details",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <Metrics height={24} snapshot={busy} width={106} />,
+      metricsStory(106, 24)
+    ),
+});
+
+export const Cramped = story({
+  description:
+    "Cards narrower than their labels: a label too long ends with an ellipsis.",
+  name: "Cramped",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <Metrics height={24} width={30} />,
+      metricsStory(30, 24)
     ),
 });
 

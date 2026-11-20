@@ -23,6 +23,8 @@ import type { CatalogSelection, RunRow } from "./dashboard-tree";
 import type { LatestItem, OperatingLogEntry } from "./operating-model";
 import { costView } from "./usage-format";
 
+const SHORT_ATTENTION = { approval: "approval", question: "input" } as const;
+
 export function describeFilter(
   snapshot: DashboardSnapshot,
   filter?: CatalogSelection
@@ -115,7 +117,10 @@ export function runListRows(
       ...(row.depth === 0 ? { runId: row.selection.id } : {}),
       selected: key === selectedKey,
       selection: row.selection,
-      status: statusDisplay(row),
+      status: {
+        ...statusDisplay(row),
+        ...(row.attention ? { short: SHORT_ATTENTION[row.attention] } : {}),
+      },
       step: isStepRow(row),
     };
   });

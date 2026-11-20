@@ -52,7 +52,7 @@ export const Tall = story({
 
 export const Short = story({
   description:
-    "A short frame: both panels shrink toward their three-row minimum and scroll.",
+    "A short frame: triggers get two fifths of the four spare rows, rounded down, and scroll the selected trigger into view.",
   name: "Short",
   render: (renderer) =>
     renderFrame(renderer, <Panels />, {
@@ -64,7 +64,7 @@ export const Short = story({
 
 export const VeryShort = story({
   description:
-    "A frame so short the selected trigger sits below the first rows; the triggers panel scrolls it into view.",
+    "A frame so short the selected trigger sits below the first rows; the triggers panel keeps two rows and scrolls it into view.",
   name: "Very short",
   render: (renderer) =>
     renderFrame(renderer, <Panels />, {

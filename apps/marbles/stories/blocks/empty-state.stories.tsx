@@ -46,7 +46,8 @@ export const Filtered = story({
   description:
     "A search that matches nothing; clicking Clear filters counts the resets.",
   name: "Filtered",
-  render: (renderer) => renderFrame(renderer, <Resettable />, size),
+  render: (renderer) =>
+    renderFrame(renderer, <Resettable />, { height: 7, width: 60 }),
 });
 
 export const LongText = story({
@@ -60,5 +61,19 @@ export const LongText = story({
         title="No workflows or steps in this workspace yet."
       />,
       { height: 10, width: 30 }
+    ),
+});
+
+export const NarrowPath = story({
+  description: "A path in the hint moves to the next line whole.",
+  name: "Narrow path",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <EmptyState
+        description="Add schedule() or monitor() in .foundry/marbles when you want automatic runs."
+        title="No schedules or monitors."
+      />,
+      { height: 7, width: 46 }
     ),
 });

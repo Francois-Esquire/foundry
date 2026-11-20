@@ -77,7 +77,7 @@ export default defineStories({
 
 export const Default = story({
   description:
-    "The default variant with the OK and Cancel labels and no hint line.",
+    "The default variant with the OK and Cancel labels and no hint line, only as tall as its one-line body.",
   name: "Default",
   render: (renderer) =>
     renderFrame(
@@ -169,5 +169,53 @@ export const ShortFrame = story({
         </Dialog>
       </>,
       { height: 10, padded: false, width: 60 }
+    ),
+});
+
+export const TinyFrame = story({
+  description:
+    "In a frame with no room for the hint as well, the hint is left out whole and the buttons stay.",
+  name: "Tiny frame",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <>
+        <Backdrop />
+        <Dialog
+          cancelLabel="Keep open"
+          confirmLabel="Quit"
+          hint="Tab choose · Enter select · Esc back · Ctrl+C quit"
+          onCancel={ignore}
+          onConfirm={ignore}
+          title="Quit Marbles?"
+          variant="danger"
+        >
+          <Text>Quitting stops schedules and monitoring for this session.</Text>
+          <text fg={theme.colors.warning}>Running steps are cancelled.</text>
+        </Dialog>
+      </>,
+      { height: 7, padded: false, width: 60 }
+    ),
+});
+
+export const SmallestFrame = story({
+  description:
+    "In a four-row frame the spacing and the body give way, leaving the title and the buttons.",
+  name: "Smallest frame",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <Dialog
+        cancelLabel="Keep open"
+        confirmLabel="Quit"
+        hint="Tab choose · Enter select · Esc back · Ctrl+C quit"
+        onCancel={ignore}
+        onConfirm={ignore}
+        title="Quit Marbles?"
+        variant="danger"
+      >
+        <Text>Quitting stops schedules and monitoring for this session.</Text>
+      </Dialog>,
+      { height: 4, padded: false, width: 60 }
     ),
 });

@@ -119,3 +119,24 @@ export const ErrorTone = story({
       size
     ),
 });
+
+export const BesideLongName = story({
+  description:
+    "Beside a name too long for the row, the name truncates and the status keeps its full width.",
+  name: "Beside a long name",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <box flexDirection="column" width={24}>
+        {statuses.map((status) => (
+          <box flexDirection="row" gap={1} key={status}>
+            <Text flexShrink={1} minWidth={0} truncate wrapMode="none">
+              summarize-repository-changes
+            </Text>
+            <StatusLabel status={statusDisplay({ status })} />
+          </box>
+        ))}
+      </box>,
+      { height: 12, width: 28 }
+    ),
+});

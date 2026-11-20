@@ -127,3 +127,18 @@ export const Short = story({
       { height: 12, padded: false, width: 64 }
     ),
 });
+
+export const VeryShort = story({
+  description:
+    "In a terminal too short for the wrapped hint, the hint is left out whole; the title, notice, and buttons stay.",
+  name: "Very short",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <>
+        <Backdrop />
+        <QuitDialog onCancel={ignore} onConfirm={ignore} />
+      </>,
+      { height: 8, padded: false, width: 48 }
+    ),
+});
