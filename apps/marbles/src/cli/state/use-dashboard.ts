@@ -7,8 +7,10 @@ import type { SettingsChange, ThemeName } from "~/model/settings";
 import { settingsView } from "../theme";
 import {
   type CommandContext,
+  capturesKeys,
   commandFor,
   footer,
+  goesHome,
   openDiagnostics,
 } from "./dashboard-commands";
 import {
@@ -172,12 +174,12 @@ export function useDashboard({
     if (prompt.kind === "steer" && !text) {
       return;
     }
-    send({ type: "prompt" });
-    control.run(() =>
-      prompt.kind === "steer"
+    control.run(async () => {
+      await (prompt.kind === "steer"
         ? actions.steer(prompt.runId, prompt.stepId, text)
-        : actions.resume(prompt.runId, prompt.stepId, text || undefined)
-    );
+        : actions.resume(prompt.runId, prompt.stepId, text || undefined));
+      send({ draft, prompt, type: "prompt-sent" });
+    });
   }
 
   const allLogs = useMemo(() => operatingLogs(snapshot), [snapshot]);
@@ -353,6 +355,15 @@ export function useDashboard({
     }
   }
 
+  const free = !(quit.quitting || capturesKeys(context));
+  const unlessModal =
+    <A extends unknown[]>(action: (...args: A) => void) =>
+    (...args: A) => {
+      if (free) {
+        action(...args);
+      }
+    };
+
   const drawer: DrawerModel | undefined = utility
     ? { content: drawerContent, dock: drawerDock(state) }
     : undefined;
@@ -362,18 +373,22 @@ export function useDashboard({
     drawer,
     footer: footer(context),
     form,
-    goHome: () => send({ type: "home" }),
+    goHome: () => {
+      if (!quit.quitting && goesHome(context)) {
+        send({ type: "home" });
+      }
+    },
     leaveForm: () => send({ type: "launch-form" }),
     main,
-    openDiagnostics: () => openDiagnostics({ ...context, send }),
-    openSettings: () => send({ type: "view", view: "settings" }),
-    openWorkspaces,
+    openDiagnostics: unlessModal(() => openDiagnostics({ ...context, send })),
+    openSettings: unlessModal(() => send({ type: "view", view: "settings" })),
+    openWorkspaces: unlessModal(openWorkspaces),
     quit,
     rail:
       workspaceRail && workspaces.length > 0
         ? {
             current: snapshot.workspaceId,
-            onSelect: chooseWorkspace,
+            onSelect: unlessModal(chooseWorkspace),
             selected: snapshot.workspaceId ?? "",
             workspaces: workspaceRows(workspaces),
           }
@@ -383,7 +398,9 @@ export function useDashboard({
       ? browseSearch(snapshot, state, searchBar)
       : undefined,
     setDraft,
-    setView: (view: DashboardViewKey) => send({ type: "view", view }),
+    setView: unlessModal((view: DashboardViewKey) =>
+      send({ type: "view", view })
+    ),
     showRun: (id: string) => send({ id, type: "show-run" }),
     snapshot,
     starting,

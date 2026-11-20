@@ -206,6 +206,27 @@ describe("jumps, filters, and search", () => {
     expect(cancelled.searching).toBe(false);
     expect(cancelled.queries.definition).toBe("");
   });
+
+  it("keeps the selection on a visible item while a search narrows the list", () => {
+    const narrowed = play([
+      { pane: "definition", type: "focus" },
+      { open: true, type: "search" },
+      { type: "query", value: "review" },
+    ]);
+    expect(narrowed.selected).toEqual({ id: "review", kind: "definition" });
+    const nothing = reduce(
+      narrowed,
+      { type: "query", value: "no such marble" },
+      dashboardSnapshot
+    );
+    expect(nothing.selected).toBeUndefined();
+    const cancelled = reduce(
+      nothing,
+      { type: "cancel-search" },
+      dashboardSnapshot
+    );
+    expect(cancelled.selected).toEqual({ id: "docs", kind: "definition" });
+  });
 });
 
 describe("prompts, home, and launches", () => {

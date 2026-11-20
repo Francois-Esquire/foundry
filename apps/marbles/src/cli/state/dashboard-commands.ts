@@ -29,6 +29,8 @@ import type { AnswerState, FeedState } from "./use-feed";
 import { ownedElsewhere } from "./workspace-scope";
 
 export interface KeyPress {
+  readonly ctrl?: boolean;
+  readonly meta?: boolean;
   readonly name: string;
   readonly sequence: string;
   readonly shift: boolean;
@@ -130,6 +132,7 @@ function isBinding(command: Command): command is Binding {
 }
 
 const CHOICE_KEY = /^[1-9]$/;
+const LETTER = /^[a-z]$/i;
 
 function answering(context: CommandContext): boolean {
   return (
@@ -151,6 +154,10 @@ export function capturesKeys(context: CommandContext): boolean {
     context.state.searching ||
     context.state.picker !== undefined
   );
+}
+
+export function goesHome(context: CommandContext): boolean {
+  return !(writing(context) || context.state.searching || onPicker(context));
 }
 
 function onDashboard(context: CommandContext): boolean {
@@ -427,8 +434,7 @@ const COMMANDS: readonly Command[] = [
     keys: ["h"],
     run: (dashboard) => dashboard.send({ type: "home" }),
     section: "Anywhere",
-    when: (context) =>
-      !(writing(context) || context.state.searching || onPicker(context)),
+    when: goesHome,
   },
 
   {
@@ -888,7 +894,11 @@ const COMMANDS: readonly Command[] = [
     run: (dashboard) => {
       const { actions, resolved } = dashboard;
       const stop = actions?.stopActivity;
-      if (stop && resolved.kind === "activity") {
+      if (
+        stop &&
+        resolved.kind === "activity" &&
+        !ownedElsewhere(resolved.run)
+      ) {
         const { activity } = resolved;
         dashboard.act(() => stop(activity.sessionId, activity.id));
       }
@@ -898,6 +908,7 @@ const COMMANDS: readonly Command[] = [
       onDashboard(context) &&
       context.actions?.stopActivity !== undefined &&
       context.resolved.kind === "activity" &&
+      !ownedElsewhere(context.resolved.run) &&
       canStopActivity(context.resolved.activity),
   },
   {
@@ -1099,6 +1110,9 @@ const COMMANDS: readonly Command[] = [
 ];
 
 function takes(command: Binding, key: KeyPress): boolean {
+  if ((key.ctrl || key.meta) && LETTER.test(key.name)) {
+    return false;
+  }
   const { keys } = command;
   if (typeof keys === "function") {
     return keys(key);

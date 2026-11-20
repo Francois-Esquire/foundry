@@ -252,7 +252,7 @@ the workspace and posts a setup milestone to the Feed. Use
 | `p` / `k` on a trigger an agent created | Pause or resume the trigger; delete it |
 | `u` on Dashboard | Show every workflow's and agent's usage; Esc or `u` closes it |
 | `a` / `e`, `b` | Jump to the active step or failure; return from step details to the run |
-| `/` | Search the focused marble or run list |
+| `/` | Search the focused marble or run list. The selection stays on a row the search shows: the first match when the selected row is filtered out |
 | `f` in a run's logs | Toggle following new log lines |
 | ↑ / ↓, Enter in Logs | Select a line (stops following); open the run and step it came from |
 | `f` / `v` / `o` / `/` / `x` in Logs | Follow new lines; raise the minimum level; cycle all, run, or Marbles lines; search; clear the filters |
@@ -260,10 +260,16 @@ the workspace and posts a setup milestone to the Feed. Use
 | `w` | Open the workspace picker. ↑ and ↓ select a workspace, and Enter switches to it |
 | `g` on Dashboard or Catalog | Show every workspace's runs and triggers, or this workspace's again (its own and those shared with it); offered once another workspace has any. Another workspace's runs and triggers are read only here: no control acts on them |
 | Shift+W / `x` in the Feed | Cycle the workspace filter (all workspaces, this workspace and what is shared with it, then any other that has posted); show every workspace. Another workspace's questions are answered where they were posted |
-| 1 through 9 / `a` in the Feed | Answer an open question by choice, or type a free-text answer. An approval takes an optional note after the choice |
+| 1 through 9 / `a` in the Feed | Answer an open question by choice, or type a free-text answer. An approval takes an optional note after the choice. The answer stays with the question it was started for: newer entries do not move the selection, and choosing another entry drops the draft |
 | `h` | Return to the Dashboard or Catalog list with focus |
 | `?` | Keyboard help |
 | `q` / Ctrl+C | Confirm quit; Ctrl+C again quits. Quitting detaches: triggers keep running in the Marbles process |
+
+Letter keys act only with no Ctrl or Meta held; Shift+letter shortcuts are
+unaffected. While a prompt, an answer, a search, help, the workspace picker or
+the quit dialog has the keys, clicks on the header, tabs and footer do
+nothing, as their keys would. A steer or resume prompt closes once its
+message is sent; if it cannot be sent, the prompt stays open with its text.
 
 ### Settings and local diagnostics
 

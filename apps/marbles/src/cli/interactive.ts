@@ -449,6 +449,13 @@ function remoteSession(
       return;
     }
     workspaces = listed;
+    const listedIds = new Set(listed.map(({ id }) => id));
+    for (const [id, unsubscribe] of subscriptions) {
+      if (!listedIds.has(id)) {
+        unsubscribe();
+        subscriptions.delete(id);
+      }
+    }
     for (const summary of listed) {
       follow(summary);
     }

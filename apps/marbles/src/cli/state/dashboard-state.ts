@@ -115,6 +115,11 @@ export type DashboardEvent =
   | { readonly type: "help"; readonly open: boolean }
   | { readonly type: "home" }
   | { readonly type: "prompt"; readonly prompt?: RunPrompt }
+  | {
+      readonly type: "prompt-sent";
+      readonly draft: string;
+      readonly prompt: RunPrompt;
+    }
   | { readonly type: "draft"; readonly value: string }
   | { readonly type: "show-run"; readonly id: string }
   | { readonly type: "launch-form"; readonly id?: string }
@@ -268,6 +273,24 @@ function select(
     selected: selection,
     view: viewOfPane(selection.kind),
   };
+}
+
+function keepVisible(
+  state: DashboardState,
+  snapshot: DashboardSnapshot
+): DashboardState {
+  const available = entries(state, snapshot, state.focus);
+  if (available.some((item) => same(item, state.selected))) {
+    return state;
+  }
+  const [first] = available;
+  return first
+    ? {
+        ...state,
+        remembered: { ...state.remembered, [first.kind]: first },
+        selected: first,
+      }
+    : { ...state, selected: undefined };
 }
 
 function toggled(expanded: ReadonlySet<string>, key: string): Set<string> {
@@ -521,10 +544,13 @@ export function reduce(
       }
       return state.inspecting
         ? state
-        : {
-            ...state,
-            queries: { ...state.queries, [state.focus]: event.value },
-          };
+        : keepVisible(
+            {
+              ...state,
+              queries: { ...state.queries, [state.focus]: event.value },
+            },
+            snapshot
+          );
     case "cancel-search":
       if (state.drawer === "logs") {
         return {
@@ -533,13 +559,17 @@ export function reduce(
           searching: false,
         };
       }
-      return {
-        ...state,
-        queries: state.inspecting
-          ? state.queries
-          : { ...state.queries, [state.focus]: "" },
-        searching: false,
-      };
+      if (state.inspecting) {
+        return { ...state, searching: false };
+      }
+      return keepVisible(
+        {
+          ...state,
+          queries: { ...state.queries, [state.focus]: "" },
+          searching: false,
+        },
+        snapshot
+      );
     case "help":
       return { ...state, help: event.open };
     case "home":
@@ -556,6 +586,10 @@ export function reduce(
       };
     case "prompt":
       return { ...state, draft: "", prompt: event.prompt };
+    case "prompt-sent":
+      return state.prompt === event.prompt && state.draft === event.draft
+        ? { ...state, draft: "", prompt: undefined }
+        : state;
     case "draft":
       return { ...state, draft: event.value };
     case "show-run":
