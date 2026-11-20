@@ -276,6 +276,7 @@ function recordsFor(
     grants: own.grants,
     own,
     records: own.records,
+    recoveryLog: own.recoveryLog,
     runs: own.runs,
     sessions: own.sessions,
     triggers: own.triggers,
