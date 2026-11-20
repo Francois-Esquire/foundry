@@ -24,8 +24,8 @@ hoisting can select an incompatible version in a fresh standalone install.
 `@modelcontextprotocol/sdk` is a runtime dependency: `marbles mcp` serves
 MCP over STDIO with it, and it also satisfies a required Claude Agent SDK
 peer.
-The `evlog` exception covers imports in the bundled models and workflows code.
-The `@ai-sdk/mcp` exception covers the bundled agents MCP client, which
+The `evlog` dependency covers imports in the bundled models and workflows code.
+The `@ai-sdk/mcp` dependency covers the bundled agents MCP client, which
 connects the MCP servers an agent's definition names; its version follows
 `packages/agents`.
 The bundled Usage package loads `@anthropic-ai/claude-agent-sdk` when reading

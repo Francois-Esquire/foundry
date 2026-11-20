@@ -24,18 +24,10 @@
     },
     "apps/marbles": {
       "ignoreDependencies": [
-        "@ai-sdk/mcp",
         "@ai-sdk/openai-compatible",
         "@ai-sdk/provider-utils",
-        "@anthropic-ai/sdk",
         "@fal-ai/client",
-        "@foundry/core",
         "@noble/hashes",
-        "ai-sdk-provider-codex-cli",
-        "ai-sdk-provider-claude-code",
-        "ai-sdk-provider-pi",
-        "effect",
-        "evlog",
         "ignore",
         "simple-git"
       ],
