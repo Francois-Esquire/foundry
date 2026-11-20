@@ -4,6 +4,7 @@ import { useAsyncAction } from "~/cli/hooks/use-async-action";
 import { useQuitGuard } from "~/cli/hooks/use-quit-guard";
 import type { WorkspaceState, WorkspaceSummary } from "~/model/connection";
 import type { SettingsChange, ThemeName } from "~/model/settings";
+import { settingsView } from "../theme";
 import {
   type CommandContext,
   commandFor,
@@ -15,6 +16,7 @@ import {
   type DashboardSnapshot,
   resolveSelection,
 } from "./dashboard-model";
+import { workspaceDetails, workspaceRows } from "./dashboard-rows";
 import {
   type DashboardEvent,
   type DashboardState,
@@ -30,12 +32,27 @@ import {
 } from "./dashboard-state";
 import type { CatalogSelection } from "./dashboard-tree";
 import {
+  browseSearch,
+  browsing,
+  catalogModel,
+  type DrawerContent,
+  type DrawerModel,
+  drawerDock,
+  logsDrawer,
+  type MainModel,
+  mainContent,
+  overviewModel,
+} from "./dashboard-views";
+import { feedModel } from "./feed-model";
+import type { InspectorModel } from "./inspector";
+import {
   filterLogs,
   logRun,
   type OperatingLogEntry,
   operatingLogs,
 } from "./operating-model";
 import type { Launcher, RunActions } from "./run-actions";
+import { usageBreakdown } from "./usage-format";
 import { type AnswerHandler, useFeed } from "./use-feed";
 import { showsOthers, workspaceScoped } from "./workspace-scope";
 
@@ -212,64 +229,166 @@ export function useDashboard({
     );
   });
 
+  const lists = visibleLists(state, snapshot);
+  const pane = paneOf(state);
+  const inspect = (selection: DashboardSelection) =>
+    send({ selection, type: "inspect" });
+  const clearFilters = () => send({ type: "clear-filters" });
+  const setDraft = (value: string) => send({ type: "draft", value });
+  const setQuery = (value: string) => send({ type: "query", value });
+  const finishSearch = () => send({ open: false, type: "search" });
+  const inputActive =
+    state.picker !== undefined ||
+    state.searching ||
+    state.help ||
+    quit.quitting ||
+    state.prompt !== undefined;
+  const utility = state.drawer !== undefined || state.picker !== undefined;
+  const searchBar = {
+    editing: state.searching,
+    focused: !quit.quitting,
+    onInput: setQuery,
+    onSubmit: finishSearch,
+  };
+
+  function openLog(entry: OperatingLogEntry) {
+    if (entry.runId === undefined) {
+      setState((previous) => selectLog(previous, snapshot, entry));
+      return;
+    }
+    send({ selection: logRun(entry, entry.runId), type: "inspect" });
+  }
+
+  function changeTheme(theme: ThemeName) {
+    if (onSettings && !quit.quitting && theme !== snapshot.settings?.theme) {
+      control.run(() => onSettings({ theme }));
+    }
+  }
+
+  function drawerContent(): DrawerContent {
+    if (state.picker !== undefined) {
+      return {
+        kind: "workspaces",
+        workspaces: {
+          current: snapshot.workspaceId,
+          details: workspaceDetails(workspaces, state.picker),
+          onSelect: chooseWorkspace,
+          selected: state.picker,
+          workspaces: workspaceRows(workspaces),
+        },
+      };
+    }
+    if (state.drawer === "settings") {
+      return {
+        kind: "settings",
+        settings: {
+          onRail: workspaces.length ? onWorkspaceRail : undefined,
+          onTheme: onSettings ? changeTheme : undefined,
+          rail: workspaceRail ?? false,
+          settings: snapshot.settings && settingsView(snapshot.settings),
+        },
+      };
+    }
+    return logsDrawer(
+      state,
+      { entries: logs, selected: log, total: allLogs.length },
+      { active: !inputActive, onSelect: openLog, search: searchBar }
+    );
+  }
+
+  function inspector(active: boolean): InspectorModel {
+    return {
+      active,
+      configurationShown: state.configuration,
+      onFilter: (filter: CatalogSelection) => send({ filter, type: "filter" }),
+      onInspect: inspect,
+      onLaunch: onLaunch ? launch : undefined,
+      onRollSchedule: onRollSchedule ? rollSchedule : undefined,
+      onTab: (tab: InspectorTab) => send({ tab, type: "tab" }),
+      onToggleConfiguration: () => send({ type: "configuration" }),
+      resolved,
+      selection: state.selected,
+      snapshot,
+      stream: actions?.stream,
+      tab: state.tab,
+    };
+  }
+
+  function main({ wide }: { readonly wide: boolean }): MainModel {
+    const covered = inputActive || utility;
+    const activePane = covered ? undefined : pane;
+    const handlers = { onInspect: inspect, onReset: clearFilters };
+    switch (mainContent(state, wide)) {
+      case "feed":
+        return { feed: feedModel(feed, covered), kind: "feed" };
+      case "details":
+        return {
+          inspector: inspector(activePane === "details"),
+          kind: "details",
+        };
+      case "usage":
+        return {
+          active: !covered,
+          kind: "usage",
+          usage: snapshot.usage && usageBreakdown(snapshot.usage),
+        };
+      case "catalog":
+        return {
+          catalog: catalogModel(snapshot, state, lists, activePane, handlers),
+          details:
+            pane === "details"
+              ? inspector(activePane === "details")
+              : undefined,
+          kind: "catalog",
+        };
+      default:
+        return {
+          kind: "overview",
+          overview: overviewModel(snapshot, state, lists.rows, activePane, {
+            ...handlers,
+            onToggle: (selection: DashboardSelection) =>
+              send({ selection, type: "toggle" }),
+          }),
+        };
+    }
+  }
+
+  const drawer: DrawerModel | undefined = utility
+    ? { content: drawerContent, dock: drawerDock(state) }
+    : undefined;
+
   return {
-    ...visibleLists(state, snapshot),
-    changeTab: (tab: InspectorTab) => send({ tab, type: "tab" }),
-    changeTheme: (theme: ThemeName) => {
-      if (onSettings && !quit.quitting && theme !== snapshot.settings?.theme) {
-        control.run(() => onSettings({ theme }));
-      }
-    },
-    chooseWorkspace,
-    clearFilters: () => send({ type: "clear-filters" }),
     control,
-    feed,
-    filterRuns: (filter: CatalogSelection) => send({ filter, type: "filter" }),
-    finishSearch: () => send({ open: false, type: "search" }),
+    drawer,
     footer: footer(context),
     form,
     goHome: () => send({ type: "home" }),
-    inputActive:
-      state.picker !== undefined ||
-      state.searching ||
-      state.help ||
-      quit.quitting ||
-      state.prompt !== undefined,
-    inspect: (selection: DashboardSelection) =>
-      send({ selection, type: "inspect" }),
-    launch,
     leaveForm: () => send({ type: "launch-form" }),
-    log,
-    logs,
-    logTotal: allLogs.length,
+    main,
     openDiagnostics: () => openDiagnostics({ ...context, send }),
-    openLog: (entry: OperatingLogEntry) => {
-      if (entry.runId === undefined) {
-        setState((previous) => selectLog(previous, snapshot, entry));
-        return;
-      }
-      send({ selection: logRun(entry, entry.runId), type: "inspect" });
-    },
     openSettings: () => send({ type: "view", view: "settings" }),
     openWorkspaces,
-    pane: paneOf(state),
     quit,
-    resolved,
-    rollSchedule,
+    rail:
+      workspaceRail && workspaces.length > 0
+        ? {
+            current: snapshot.workspaceId,
+            onSelect: chooseWorkspace,
+            selected: snapshot.workspaceId ?? "",
+            workspaces: workspaceRows(workspaces),
+          }
+        : undefined,
     schedule,
-    setDraft: (value: string) => send({ type: "draft", value }),
-    setQuery: (value: string) => send({ type: "query", value }),
+    search: browsing(state)
+      ? browseSearch(snapshot, state, searchBar)
+      : undefined,
+    setDraft,
     setView: (view: DashboardViewKey) => send({ type: "view", view }),
     showRun: (id: string) => send({ id, type: "show-run" }),
     snapshot,
     starting,
     state,
     submitPrompt,
-    toggle: (selection: DashboardSelection) =>
-      send({ selection, type: "toggle" }),
-    toggleConfiguration: () => send({ type: "configuration" }),
     workspaces,
   };
 }
-
-export type Dashboard = ReturnType<typeof useDashboard>;

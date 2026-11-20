@@ -453,15 +453,17 @@ The dashboard's keys, footer, and keyboard help come from one command table
 (`cli/state/dashboard-state.ts`). `src/components/` is presentational: props
 and callbacks in, rendering out. It imports React, `@opentui/*`, other
 components, and types from `model/` (from `lib/` only where `model/` has none),
-and nothing from `cli/`; `test/components-boundary.test.ts` holds it there.
+and nothing from `cli/`; `test/components-imports.test.ts` holds it there.
 Lookups, filtering, selection, statistics, eligibility, and usage formatting
 live in `cli/state/` and `cli/views/`, which hand components ready rows:
-`dashboard-rows.ts`, `dashboard-metrics.ts`, `inspector.ts` (with
-`views/inspector.tsx`), and `cli/hooks/use-run-stream.ts`; `cli/theme.ts`
+`dashboard-rows.ts`, `dashboard-metrics.ts`, `dashboard-views.ts`,
+`feed-answer.ts`, `inspector.ts` (with `views/inspector.tsx`), and
+`cli/hooks/use-run-stream.ts`, building only what is mounted; `cli/theme.ts`
 resolves theme names to palettes. `src/components/ui/` holds primitives;
 `src/components/blocks/` holds the domain components; `src/components/layouts/`
-holds the chrome: each layout arranges `ReactNode` slots and owns its
+holds the chrome: each layout arranges a few `ReactNode` regions and owns its
 breakpoints, and a view that sizes content by the arrangement calls the pure
-function beside it (`dashboardMain`). `ui/` imports neither blocks nor layouts,
-and blocks import no layouts; the boundary test holds that too. A view in
-`cli/views/` selects what fills each slot and wires callbacks.
+function beside it (`dashboardMain`; the metrics block's
+`showsWorkflowRankings` likewise). `ui/` imports neither blocks nor layouts,
+and blocks import no layouts; the import test holds that too. A view in
+`cli/views/` places the models `cli/state/` builds into those regions.

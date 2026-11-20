@@ -1,5 +1,12 @@
 import { expect, it } from "vitest";
-import { feedItem, feedKey, feedRows } from "~/cli/state/feed-model";
+import {
+  ALL_WORKSPACES,
+  feedItem,
+  feedKey,
+  feedModel,
+  feedRows,
+} from "~/cli/state/feed-model";
+import type { FeedState } from "~/cli/state/use-feed";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 it("keys feed rows by workspace and id and marks the selected one", () => {
@@ -18,4 +25,89 @@ it("pairs an entry with its key", () => {
     throw new Error("fixture has no feed entries");
   }
   expect(feedItem(entry)).toEqual({ entry, key: feedKey(entry) });
+});
+
+function feedState(overrides: Partial<FeedState> = {}): FeedState {
+  const { feed } = dashboardSnapshot;
+  return {
+    answer: {
+      cancel: () => undefined,
+      choices: [],
+      choose: () => undefined,
+      choosing: undefined,
+      draft: "",
+      error: undefined,
+      question: undefined,
+      sending: false,
+      setDraft: () => undefined,
+      start: () => undefined,
+      submitDraft: () => undefined,
+      typing: false,
+    },
+    browse: () => undefined,
+    cycleScope: () => undefined,
+    focus: "list",
+    move: () => undefined,
+    read: () => undefined,
+    resetScope: () => undefined,
+    scope: { id: ALL_WORKSPACES, label: "All workspaces" },
+    scopeCount: 1,
+    select: () => undefined,
+    selected: feed[0],
+    total: feed.length,
+    visible: feed,
+    ...overrides,
+  };
+}
+
+it("lists the feed and reads the selected entry with its answer", () => {
+  const state = feedState();
+  const [entry] = dashboardSnapshot.feed;
+  if (!entry) {
+    throw new Error("fixture has no feed entries");
+  }
+  const model = feedModel(state, false);
+  expect(model.list).toMatchObject({
+    active: true,
+    filtered: false,
+    onReset: state.resetScope,
+    onSelect: state.select,
+    scopeLabel: "All workspaces",
+    selectedKey: feedKey(entry),
+  });
+  expect(model.list.rows).toHaveLength(dashboardSnapshot.feed.length);
+  expect(model.reader).toEqual({
+    active: false,
+    selected: {
+      ...feedItem(entry),
+      answer: {
+        choices: [
+          { id: "answer:1", label: "1 merge", value: "merge" },
+          { id: "answer:2", label: "2 hold", value: "hold" },
+        ],
+        kind: "unavailable",
+        sending: false,
+      },
+    },
+  });
+});
+
+it("focuses neither panel under input and filters by a workspace scope", () => {
+  const model = feedModel(
+    feedState({
+      focus: "reader",
+      scope: { id: "ws-foundry", label: "foundry" },
+      selected: undefined,
+    }),
+    true
+  );
+  expect(model.list).toMatchObject({
+    active: false,
+    filtered: true,
+    selectedKey: undefined,
+  });
+  expect(model.reader).toEqual({ active: false, selected: undefined });
+  expect(feedModel(feedState({ focus: "reader" }), false).reader.active).toBe(
+    true
+  );
 });

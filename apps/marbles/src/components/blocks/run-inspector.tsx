@@ -26,14 +26,25 @@ type InspectorOverview =
   | { readonly kind: "run"; readonly run: RunOverviewView }
   | { readonly kind: "step"; readonly step: StepOverviewView };
 
-export interface RunInspectorView<S> {
-  readonly breadcrumbs: readonly Breadcrumb<S>[];
-  readonly error?: string;
-  readonly input?: JsonValue;
-  readonly logs: readonly LogEntry[];
-  readonly output?: JsonValue;
-  readonly overview: InspectorOverview;
-}
+export type RunTabView =
+  | { readonly kind: "overview"; readonly overview: InspectorOverview }
+  | { readonly input?: JsonValue; readonly kind: "input" }
+  | {
+      readonly error?: string;
+      readonly kind: "output";
+      readonly output?: JsonValue;
+    }
+  | { readonly kind: "logs"; readonly logs: readonly LogEntry[] }
+  | { readonly kind: "stream" };
+
+const TABS: readonly { readonly key: InspectorTab; readonly label: string }[] =
+  [
+    { key: "overview", label: "Overview" },
+    { key: "input", label: "Input" },
+    { key: "output", label: "Output" },
+    { key: "logs", label: "Logs" },
+    { key: "stream", label: "Stream" },
+  ];
 
 function Overview({ overview }: { readonly overview: InspectorOverview }) {
   return overview.kind === "step" ? (
@@ -43,69 +54,64 @@ function Overview({ overview }: { readonly overview: InspectorOverview }) {
   );
 }
 
+function tabContent(
+  body: RunTabView,
+  focused: boolean,
+  stream: ReactNode
+): ReactNode {
+  switch (body.kind) {
+    case "overview":
+      return <Overview overview={body.overview} />;
+    case "input":
+      return (
+        <ValueViewer
+          empty="No input recorded."
+          focused={focused}
+          value={body.input}
+        />
+      );
+    case "output":
+      return (
+        <box flexDirection="column">
+          {body.error && <Text>Error: {body.error}</Text>}
+          <ValueViewer
+            empty="No output recorded."
+            focused={focused}
+            value={body.output}
+          />
+        </box>
+      );
+    case "logs":
+      return <Log entries={body.logs} focused={focused} />;
+    default:
+      return stream;
+  }
+}
+
 export function RunInspector<S>({
-  inspector,
+  breadcrumbs,
+  body,
   focused,
-  tab,
   onTab,
   onInspect,
   stream,
 }: {
-  readonly inspector: RunInspectorView<S>;
+  readonly breadcrumbs: readonly Breadcrumb<S>[];
+  readonly body: RunTabView;
   readonly focused: boolean;
-  readonly tab: InspectorTab;
   readonly onTab: (tab: InspectorTab) => void;
   readonly onInspect: (selection: S) => void;
   readonly stream: ReactNode;
 }) {
-  const tabs = [
-    {
-      content: <Overview overview={inspector.overview} />,
-      key: "overview",
-      label: "Overview",
-    },
-    {
-      content: (
-        <ValueViewer
-          empty="No input recorded."
-          focused={focused && tab === "input"}
-          value={inspector.input}
-        />
-      ),
-      key: "input",
-      label: "Input",
-    },
-    {
-      content: (
-        <box flexDirection="column">
-          {inspector.error && <Text>Error: {inspector.error}</Text>}
-          <ValueViewer
-            empty="No output recorded."
-            focused={focused && tab === "output"}
-            value={inspector.output}
-          />
-        </box>
-      ),
-      key: "output",
-      label: "Output",
-    },
-    {
-      content: (
-        <Log entries={inspector.logs} focused={focused && tab === "logs"} />
-      ),
-      key: "logs",
-      label: "Logs",
-    },
-    {
-      content: tab === "stream" ? stream : null,
-      key: "stream",
-      label: "Stream",
-    },
-  ] as const;
+  const content = tabContent(body, focused, stream);
+  const tabs = TABS.map((tab) => ({
+    ...tab,
+    content: tab.key === body.kind ? content : null,
+  }));
   return (
     <box flexDirection="column" gap={1}>
       <box flexDirection="row" flexWrap="wrap" gap={1}>
-        {inspector.breadcrumbs.map((crumb) => (
+        {breadcrumbs.map((crumb) => (
           <Action
             id={crumb.id}
             key={crumb.key}
@@ -115,7 +121,7 @@ export function RunInspector<S>({
           />
         ))}
       </box>
-      <Tabs activeTab={tab} onTabChange={onTab} tabs={tabs} />
+      <Tabs activeTab={body.kind} onTabChange={onTab} tabs={tabs} />
     </box>
   );
 }

@@ -47,18 +47,20 @@ schedules, connect to models, or read persisted state.
 
 - `src/components/ui/`: adapted termcn Tabs, Key Value, JSON, Log, Dialog, themed text, and the theme singleton, plus panels, selectable rows, actions, the text input, and form focus. Nothing in `ui/` imports blocks or layouts.
 - `src/components/blocks/`: kind badges, status labels, catalogs, run tree, run inspector, catalog details, activity details, overview, values, logs, help, quit confirmation, workspace header, search and prompt bars, work status, the dashboard footer, and setup intro details and actions. Blocks import no layouts.
-- `src/components/layouts/`: chrome with `ReactNode` slots. `dashboard.tsx` arranges header, tabs, search, help, notices, main, workspace rail, docked or overlaid drawer, prompt, status, footer, toolbar, and overlay, and `dashboardMain` gives the main region's width; `catalog.tsx` puts details beside the catalog; `feed.tsx` places the list and reader side by side or stacked; `setup-flow.tsx` is the centred framed screen; `splash.tsx` is the sparkle field behind a centred card.
-- Components are presentational: props and callbacks in, rendering out. They import React, OpenTUI, other components, and `model/` types (feed and input types from `lib/`), never `cli/`; `test/components-boundary.test.ts` enforces it and the layering above. Blocks that select take the selection type as a type parameter.
-- `src/cli/views/dashboard.tsx`: fills the dashboard layout's slots and the host toolbar slot; `dashboard-main.tsx` picks the feed, details, usage, catalog (`dashboard-catalog.tsx`), or overview (`dashboard-overview.tsx`); `dashboard-drawer.tsx` picks the workspaces, settings, or logs drawer and its dock.
+- `src/components/layouts/`: chrome with `ReactNode` slots. `dashboard.tsx` arranges four regions: the header row, what sits above the body, the body (main, workspace rail, and docked or overlaid drawer), and what sits below it; `dashboardMain` gives the main region's width; `catalog.tsx` puts details beside the catalog; `feed.tsx` places the list and reader side by side or stacked; `setup-flow.tsx` is the centred framed screen; `splash.tsx` is the sparkle field behind a centred card.
+- Components are presentational: props and callbacks in, rendering out. They import React, OpenTUI, other components, and `model/` types (feed and input types from `lib/`), never `cli/`; `test/components-imports.test.ts` enforces it and the layering above. Blocks that select take the selection type as a type parameter.
+- `src/cli/views/dashboard.tsx`: fills the dashboard layout's regions, leaves out the body and the host toolbar while help is open; `dashboard-main.tsx` renders the main model as the feed, details, usage, catalog (`dashboard-catalog.tsx`), or overview (`dashboard-overview.tsx`); `dashboard-drawer.tsx` renders the workspaces, settings, or logs drawer.
 - `src/cli/views/inspector.tsx`: the details panel; picks the inspector block for the resolved selection.
 - `src/cli/views/splash.tsx`: fills the splash layout with the loading/ready card.
 - `src/cli/state/splash-model.ts`: startup state and snapshot counts.
 - `src/cli/state/dashboard-state.ts`: dashboard state (focus, selection, expansion, queries, run filter, launch form) as a pure reducer.
 - `src/cli/state/dashboard-commands.ts`: the one command table behind key handling, the footer, and keyboard help.
-- `src/cli/state/use-dashboard.ts`: wires the reducer and the command table to the renderer.
-- `src/cli/state/dashboard-rows.ts`: display rows for the catalog, run tree, latest, logs, and workspace lists.
+- `src/cli/state/use-dashboard.ts`: wires the reducer and the command table to the renderer, and builds the model of the mounted main content, drawer, rail, and search.
+- `src/cli/state/dashboard-views.ts`: which main content shows, the drawer's dock, and the overview, catalog, search, and logs models.
+- `src/cli/state/feed-model.ts` and `src/cli/state/feed-answer.ts`: feed rows, the feed's model, and the answer section's state.
+- `src/cli/state/dashboard-rows.ts`: display rows for the catalog, run tree, latest, logs, and workspace lists, and the selected workspace's details.
 - `src/cli/state/dashboard-metrics.ts`: run counts, success rate, spend, notes, and workflow rankings.
-- `src/cli/state/inspector.ts`: the inspector subject for a resolved selection: titles, facts, breadcrumbs, run logs, and eligible actions.
+- `src/cli/state/inspector.ts`: the inspector subject for a resolved selection (titles, facts, breadcrumbs, and eligible actions), the mounted run tab's content, and the expanded trigger configuration.
 - `src/cli/state/run-stream.ts` and `src/cli/hooks/use-run-stream.ts`: read, filter, and buffer a run's live stream.
 - `src/cli/theme.ts`: theme names to palettes, and the settings panel's theme choices.
 - `src/model/run-status.ts`: run status labels and tones, and the settled, active, and paused checks.

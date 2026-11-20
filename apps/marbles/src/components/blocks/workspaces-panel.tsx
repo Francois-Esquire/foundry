@@ -9,15 +9,31 @@ export interface WorkspaceRow extends WorkspaceSummary {
   readonly qualified: boolean;
 }
 
+export interface WorkspaceDetails {
+  readonly error?: string;
+  readonly root: string;
+}
+
+function Details({ details }: { readonly details: WorkspaceDetails }) {
+  return (
+    <box flexDirection="column" marginTop={1}>
+      <Text>{details.root}</Text>
+      {details.error && <text fg={theme.colors.error}>{details.error}</text>}
+    </box>
+  );
+}
+
 export function WorkspacesPanel({
   compact,
   current,
+  details,
   onSelect,
   selected,
   workspaces,
 }: {
   readonly compact?: boolean;
   readonly current?: string;
+  readonly details?: WorkspaceDetails;
   readonly onSelect: (id: string) => void;
   readonly selected: string;
   readonly workspaces: readonly WorkspaceRow[];
@@ -66,15 +82,7 @@ export function WorkspacesPanel({
           </box>
         </SelectableRow>
       ))}
-      {!compact &&
-        workspaces
-          .filter((item) => item.id === selected)
-          .map((item) => (
-            <box flexDirection="column" key={item.id} marginTop={1}>
-              <Text>{item.root}</Text>
-              {item.error && <text fg={theme.colors.error}>{item.error}</text>}
-            </box>
-          ))}
+      {details && <Details details={details} />}
     </Panel>
   );
 }

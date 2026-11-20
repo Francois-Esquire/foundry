@@ -48,8 +48,15 @@ export function dashboardMain(regions: DashboardRegions) {
   return { wide: mainWidth >= WIDE, width: mainWidth };
 }
 
-function filled(slot: ReactNode): boolean {
-  return slot !== undefined && slot !== null && slot !== false;
+interface DashboardDrawer {
+  readonly content: ReactNode;
+  readonly dock?: DrawerDock;
+}
+
+export interface DashboardPanels {
+  readonly drawer?: DashboardDrawer;
+  readonly main: ReactNode;
+  readonly rail?: ReactNode;
 }
 
 function Drawer({
@@ -74,35 +81,31 @@ function Drawer({
 
 function DashboardBody({
   width,
-  main,
-  rail,
-  drawer,
-  drawerDock,
+  panels,
 }: {
   readonly width: number;
-  readonly main: ReactNode;
-  readonly rail?: ReactNode;
-  readonly drawer?: ReactNode;
-  readonly drawerDock?: DrawerDock;
+  readonly panels: DashboardPanels;
 }) {
-  const drawn = filled(drawer);
+  const { drawer, main, rail } = panels;
   const arrangement = arrange({
-    drawer: drawn,
-    drawerDock,
-    rail: filled(rail),
+    drawer: drawer !== undefined,
+    drawerDock: drawer?.dock,
+    rail: rail !== undefined,
     width,
   });
   const { docked } = arrangement;
-  if (drawn && !docked) {
+  if (drawer && !docked) {
     return (
       <box flexDirection="row" flexGrow={1} minHeight={0}>
-        <Drawer docked={false}>{drawer}</Drawer>
+        <Drawer docked={false}>{drawer.content}</Drawer>
       </box>
     );
   }
   return (
     <box flexDirection="row" flexGrow={1} gap={docked ? 1 : 0} minHeight={0}>
-      {docked && drawerDock === "left" && <Drawer docked>{drawer}</Drawer>}
+      {docked && drawer?.dock === "left" && (
+        <Drawer docked>{drawer.content}</Drawer>
+      )}
       {arrangement.rail && (
         <box
           flexDirection="column"
@@ -122,7 +125,9 @@ function DashboardBody({
       >
         {main}
       </box>
-      {docked && drawerDock === "right" && <Drawer docked>{drawer}</Drawer>}
+      {docked && drawer?.dock === "right" && (
+        <Drawer docked>{drawer.content}</Drawer>
+      )}
     </box>
   );
 }
@@ -130,39 +135,16 @@ function DashboardBody({
 export function DashboardLayout({
   width,
   header,
-  tabs,
-  search,
-  help,
-  notices,
-  main,
-  rail,
-  drawer,
-  drawerDock,
-  prompt,
-  status,
-  footer,
-  trailingStatus,
-  toolbar,
-  overlay,
+  above,
+  panels,
+  below,
 }: {
   readonly width: number;
   readonly header: ReactNode;
-  readonly tabs: ReactNode;
-  readonly search?: ReactNode;
-  readonly help?: ReactNode;
-  readonly notices?: ReactNode;
-  readonly main: ReactNode;
-  readonly rail?: ReactNode;
-  readonly drawer?: ReactNode;
-  readonly drawerDock?: DrawerDock;
-  readonly prompt?: ReactNode;
-  readonly status?: ReactNode;
-  readonly footer: ReactNode;
-  readonly trailingStatus?: ReactNode;
-  readonly toolbar?: ReactNode;
-  readonly overlay?: ReactNode;
+  readonly above: ReactNode;
+  readonly panels?: DashboardPanels;
+  readonly below: ReactNode;
 }) {
-  const helping = filled(help);
   return (
     <box
       backgroundColor={theme.colors.background}
@@ -178,26 +160,10 @@ export function DashboardLayout({
         justifyContent="space-between"
       >
         {header}
-        {tabs}
       </box>
-      {search}
-      {help}
-      {notices}
-      {!helping && (
-        <DashboardBody
-          drawer={drawer}
-          drawerDock={drawerDock}
-          main={main}
-          rail={rail}
-          width={width}
-        />
-      )}
-      {prompt}
-      {status}
-      {footer}
-      {trailingStatus}
-      {!helping && toolbar}
-      {overlay}
+      {above}
+      {panels && <DashboardBody panels={panels} width={width} />}
+      {below}
     </box>
   );
 }

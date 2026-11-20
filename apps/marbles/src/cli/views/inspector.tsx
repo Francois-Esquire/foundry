@@ -6,18 +6,14 @@ import { RunStream } from "~/components/blocks/run-stream";
 import { Panel } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
 import { useRunStream } from "../hooks/use-run-stream";
+import { selectionKey } from "../state/dashboard-model";
 import {
-  type DashboardSelection,
-  type DashboardSnapshot,
-  type ResolvedSelection,
-  selectionKey,
-} from "../state/dashboard-model";
-import type { InspectorTab } from "../state/dashboard-state";
-import type { CatalogSelection } from "../state/dashboard-tree";
-import {
+  catalogConfiguration,
+  type InspectorModel,
   type InspectorSubject,
   inspectorSubject,
   type RunStreamTarget,
+  runTab,
 } from "../state/inspector";
 import type { RunActions } from "../state/run-actions";
 import { STREAM_TAIL_LINES } from "../state/run-stream";
@@ -37,26 +33,10 @@ function LiveRunStream({
   return <RunStream stream={stream} tail={STREAM_TAIL_LINES} />;
 }
 
-interface InspectorProps {
-  readonly active: boolean;
-  readonly configuration: boolean;
-  readonly onFilter: (selection: CatalogSelection) => void;
-  readonly onInspect: (selection: DashboardSelection) => void;
-  readonly onLaunch?: (id: string) => void;
-  readonly onRollSchedule?: (key: string) => void;
-  readonly onTab: (tab: InspectorTab) => void;
-  readonly onToggleConfiguration: () => void;
-  readonly resolved: ResolvedSelection;
-  readonly selection?: DashboardSelection;
-  readonly snapshot: DashboardSnapshot;
-  readonly stream?: RunActions["stream"];
-  readonly tab: InspectorTab;
-}
-
 function subjectContent(
   subject: InspectorSubject,
   subjectKey: string | undefined,
-  props: InspectorProps
+  props: InspectorModel
 ): ReactNode {
   switch (subject.kind) {
     case "message":
@@ -71,21 +51,24 @@ function subjectContent(
     case "run":
       return (
         <RunInspector
+          body={runTab(props.snapshot, subject.run, subject.path, props.tab)}
+          breadcrumbs={subject.breadcrumbs}
           focused={props.active}
-          inspector={subject.inspector}
           key={subjectKey}
           onInspect={props.onInspect}
           onTab={props.onTab}
           stream={
             <LiveRunStream source={props.stream} target={subject.stream} />
           }
-          tab={props.tab}
         />
       );
     default:
       return (
         <CatalogDetails
-          configuration={props.configuration}
+          configuration={catalogConfiguration(
+            subject.configuration,
+            props.configurationShown
+          )}
           details={subject.details}
           key={subjectKey}
           onFilter={props.onFilter}
@@ -98,7 +81,7 @@ function subjectContent(
   }
 }
 
-export function Inspector(props: InspectorProps) {
+export function Inspector(props: InspectorModel) {
   const { snapshot, resolved, selection, active, tab } = props;
   const subject = inspectorSubject(snapshot, resolved);
   const key = selection && selectionKey(selection);

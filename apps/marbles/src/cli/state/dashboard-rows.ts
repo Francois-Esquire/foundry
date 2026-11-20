@@ -3,7 +3,10 @@ import type { DefinitionRow, TriggerRow } from "~/components/blocks/catalog";
 import type { LogLine } from "~/components/blocks/logs-panel";
 import type { LatestRow } from "~/components/blocks/operating-overview";
 import type { RunListRow } from "~/components/blocks/runs";
-import type { WorkspaceRow } from "~/components/blocks/workspaces-panel";
+import type {
+  WorkspaceDetails,
+  WorkspaceRow,
+} from "~/components/blocks/workspaces-panel";
 import type { WorkspaceSummary } from "~/model/connection";
 import { statusDisplay } from "~/model/run-status";
 import {
@@ -183,4 +186,17 @@ export function workspaceRows(
       qualified: label !== basename(workspace.root),
     };
   });
+}
+
+export function workspaceDetails(
+  workspaces: readonly WorkspaceSummary[],
+  selected: string
+): WorkspaceDetails | undefined {
+  const workspace = workspaces.find((item) => item.id === selected);
+  return (
+    workspace && {
+      root: workspace.root,
+      ...(workspace.error ? { error: workspace.error } : {}),
+    }
+  );
 }

@@ -1,4 +1,7 @@
-import type { DashboardMetricsView } from "~/components/blocks/dashboard-metrics";
+import type {
+  DashboardMetricsView,
+  WorkflowRankingsView,
+} from "~/components/blocks/dashboard-metrics";
 import type { WorkspaceUsage } from "~/model/usage";
 import type { DashboardSnapshot } from "./dashboard-model";
 import {
@@ -59,9 +62,9 @@ function metricNotes(
   ];
 }
 
-function rankings(
+export function workflowRankingsView(
   snapshot: DashboardSnapshot
-): DashboardMetricsView["rankings"] {
+): WorkflowRankingsView {
   const { elapsed, spend } = workflowRankings(snapshot);
   return {
     elapsed: elapsed.map(({ id, name, ms, runs }) => ({
@@ -86,7 +89,6 @@ export function dashboardMetrics(
   return {
     counts: stats.counts,
     notes: metricNotes(stats, snapshot.usage),
-    rankings: rankings(snapshot),
     spend: trackedSpend(snapshot.usage),
     successRate: successRate(stats),
   };

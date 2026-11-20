@@ -12,8 +12,11 @@ interface CatalogRunRow<S> {
   readonly status: StatusView;
 }
 
+export type ConfigurationView =
+  | { readonly expanded: false }
+  | { readonly expanded: true; readonly text: string };
+
 export interface CatalogDetailsView<S, F> {
-  readonly configuration?: string;
   readonly description: string;
   readonly facts: readonly Fact[];
   readonly filter: F;
@@ -22,22 +25,24 @@ export interface CatalogDetailsView<S, F> {
 }
 
 function Configuration({
-  text,
-  shown,
+  configuration,
   onToggle,
 }: {
-  readonly text: string;
-  readonly shown: boolean;
+  readonly configuration: ConfigurationView;
   readonly onToggle: () => void;
 }) {
   return (
     <>
       <Action
-        label={shown ? "v Hide configuration" : "v Show configuration"}
+        label={
+          configuration.expanded
+            ? "v Hide configuration"
+            : "v Show configuration"
+        }
         onAction={onToggle}
         value="configuration"
       />
-      {shown && <Text>{text}</Text>}
+      {configuration.expanded && <Text>{configuration.text}</Text>}
     </>
   );
 }
@@ -52,7 +57,7 @@ export function CatalogDetails<S, F>({
   onRollSchedule,
 }: {
   readonly details: CatalogDetailsView<S, F>;
-  readonly configuration: boolean;
+  readonly configuration?: ConfigurationView;
   readonly onToggleConfiguration: () => void;
   readonly onInspect: (selection: S) => void;
   readonly onFilter: (filter: F) => void;
@@ -64,11 +69,10 @@ export function CatalogDetails<S, F>({
     <box flexDirection="column" gap={1}>
       <Text>{details.description}</Text>
       <KeyValue items={details.facts} />
-      {details.configuration !== undefined && (
+      {configuration && (
         <Configuration
+          configuration={configuration}
           onToggle={onToggleConfiguration}
-          shown={configuration}
-          text={details.configuration}
         />
       )}
       {onRollSchedule && (

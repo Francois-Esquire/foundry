@@ -11,6 +11,7 @@ import {
   logLocation,
   runListRows,
   triggerRows,
+  workspaceDetails,
   workspaceRows,
 } from "~/cli/state/dashboard-rows";
 import { runRows } from "~/cli/state/dashboard-tree";
@@ -204,5 +205,32 @@ describe("workspaceRows", () => {
       ["two/app", true],
       ["site", false],
     ]);
+  });
+});
+
+describe("workspaceDetails", () => {
+  const workspaces: WorkspaceSummary[] = [
+    { config: null, id: "alpha", root: "/code/alpha", state: "ready" },
+    {
+      config: null,
+      error: "config failed",
+      id: "beta",
+      root: "/code/beta",
+      state: "failed",
+    },
+  ];
+
+  it("gives the selected workspace's root and error", () => {
+    expect(workspaceDetails(workspaces, "alpha")).toEqual({
+      root: "/code/alpha",
+    });
+    expect(workspaceDetails(workspaces, "beta")).toEqual({
+      error: "config failed",
+      root: "/code/beta",
+    });
+  });
+
+  it("has nothing for a workspace that is not listed", () => {
+    expect(workspaceDetails(workspaces, "gamma")).toBeUndefined();
   });
 });

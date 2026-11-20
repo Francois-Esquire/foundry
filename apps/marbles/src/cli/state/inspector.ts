@@ -1,14 +1,15 @@
 import type { ActivityView, Fact } from "~/components/blocks/activity-details";
-import type { CatalogDetailsView } from "~/components/blocks/catalog-details";
 import type {
-  Breadcrumb,
-  RunInspectorView,
-} from "~/components/blocks/run-inspector";
+  CatalogDetailsView,
+  ConfigurationView,
+} from "~/components/blocks/catalog-details";
+import type { Breadcrumb, RunTabView } from "~/components/blocks/run-inspector";
 import type {
   RunOverviewView,
   StepOverviewView,
 } from "~/components/blocks/run-overview";
 import { canRunSchedule } from "~/model/dashboard";
+import type { JsonValue } from "~/model/json";
 import type { LogEntry } from "~/model/log";
 import { statusDisplay } from "~/model/run-status";
 import {
@@ -25,10 +26,28 @@ import {
   type TriggerSnapshot,
   triggerSelection,
 } from "./dashboard-model";
+import type { InspectorTab } from "./dashboard-state";
 import { type CatalogSelection, scopedRuns } from "./dashboard-tree";
+import type { RunActions } from "./run-actions";
 import { costLabel, tokensLabel } from "./usage-format";
 
 type Gone = Extract<ResolvedSelection, { kind: "gone" }>;
+
+export interface InspectorModel {
+  readonly active: boolean;
+  readonly configurationShown: boolean;
+  readonly onFilter: (selection: CatalogSelection) => void;
+  readonly onInspect: (selection: DashboardSelection) => void;
+  readonly onLaunch?: (id: string) => void;
+  readonly onRollSchedule?: (key: string) => void;
+  readonly onTab: (tab: InspectorTab) => void;
+  readonly onToggleConfiguration: () => void;
+  readonly resolved: ResolvedSelection;
+  readonly selection?: DashboardSelection;
+  readonly snapshot: DashboardSnapshot;
+  readonly stream?: RunActions["stream"];
+  readonly tab: InspectorTab;
+}
 
 export interface RunStreamTarget {
   readonly local: boolean;
@@ -48,12 +67,15 @@ export type InspectorSubject =
       readonly title: string;
     }
   | {
-      readonly inspector: RunInspectorView<DashboardSelection>;
+      readonly breadcrumbs: readonly Breadcrumb<DashboardSelection>[];
       readonly kind: "run";
+      readonly path: readonly StepSnapshot[];
+      readonly run: RunSnapshot;
       readonly stream: RunStreamTarget;
       readonly title: string;
     }
   | {
+      readonly configuration?: JsonValue;
       readonly details: CatalogDetailsView<
         DashboardSelection,
         CatalogSelection
@@ -152,7 +174,7 @@ function stepOverview(run: RunSnapshot, step: StepSnapshot): StepOverviewView {
   };
 }
 
-export function runLogs(
+function runLogs(
   run: RunSnapshot,
   step: StepSnapshot | undefined
 ): readonly LogEntry[] {
@@ -182,28 +204,62 @@ function crumb(
   };
 }
 
-function runInspector(
-  snapshot: DashboardSnapshot,
+function runBreadcrumbs(
   run: RunSnapshot,
   path: readonly StepSnapshot[]
-): RunInspectorView<DashboardSelection> {
+): Breadcrumb<DashboardSelection>[] {
+  return [
+    crumb(run.id, runSelection(run), "breadcrumb:run"),
+    ...path.map((item) =>
+      crumb(`› ${item.name}`, runSelection(run, { stepId: item.id }))
+    ),
+  ];
+}
+
+export function runTab(
+  snapshot: DashboardSnapshot,
+  run: RunSnapshot,
+  path: readonly StepSnapshot[],
+  tab: InspectorTab
+): RunTabView {
   const step = path.at(-1);
   const subject = step ?? run;
-  return {
-    breadcrumbs: [
-      crumb(run.id, runSelection(run), "breadcrumb:run"),
-      ...path.map((item) =>
-        crumb(`› ${item.name}`, runSelection(run, { stepId: item.id }))
-      ),
-    ],
-    ...(subject.error === undefined ? {} : { error: subject.error }),
-    ...(subject.input === undefined ? {} : { input: subject.input }),
-    logs: runLogs(run, step),
-    ...(subject.result === undefined ? {} : { output: subject.result }),
-    overview: step
-      ? { kind: "step", step: stepOverview(run, step) }
-      : { kind: "run", run: runOverview(snapshot, run) },
-  };
+  switch (tab) {
+    case "overview":
+      return {
+        kind: "overview",
+        overview: step
+          ? { kind: "step", step: stepOverview(run, step) }
+          : { kind: "run", run: runOverview(snapshot, run) },
+      };
+    case "input":
+      return {
+        kind: "input",
+        ...(subject.input === undefined ? {} : { input: subject.input }),
+      };
+    case "output":
+      return {
+        kind: "output",
+        ...(subject.error === undefined ? {} : { error: subject.error }),
+        ...(subject.result === undefined ? {} : { output: subject.result }),
+      };
+    case "logs":
+      return { kind: "logs", logs: runLogs(run, step) };
+    default:
+      return { kind: "stream" };
+  }
+}
+
+export function catalogConfiguration(
+  configuration: JsonValue | undefined,
+  expanded: boolean
+): ConfigurationView | undefined {
+  if (configuration === undefined) {
+    return undefined;
+  }
+  return expanded
+    ? { expanded, text: JSON.stringify(configuration, null, 2) }
+    : { expanded };
 }
 
 function triggerFacts(
@@ -259,11 +315,9 @@ function catalogDetails(
   snapshot: DashboardSnapshot,
   item: TriggerSnapshot | DefinitionSnapshot,
   filter: CatalogSelection,
-  facts: readonly Fact[],
-  configuration?: string
+  facts: readonly Fact[]
 ): CatalogDetailsView<DashboardSelection, CatalogSelection> {
   return {
-    ...(configuration === undefined ? {} : { configuration }),
     description: item.description,
     facts,
     filter,
@@ -290,14 +344,12 @@ function triggerSubject(
 ): InspectorSubject {
   const { configuration } = trigger;
   return {
+    ...(configuration === undefined ? {} : { configuration }),
     details: catalogDetails(
       snapshot,
       trigger,
       triggerSelection(trigger),
-      triggerFacts(snapshot, trigger),
-      configuration === undefined
-        ? undefined
-        : JSON.stringify(configuration, null, 2)
+      triggerFacts(snapshot, trigger)
     ),
     kind: "catalog",
     launchable: false,
@@ -325,14 +377,15 @@ function definitionSubject(
 }
 
 function runSubject(
-  snapshot: DashboardSnapshot,
   run: RunSnapshot,
   path: readonly StepSnapshot[]
 ): InspectorSubject {
   const step = path.at(-1);
   return {
-    inspector: runInspector(snapshot, run, path),
+    breadcrumbs: runBreadcrumbs(run, path),
     kind: "run",
+    path,
+    run,
     stream: {
       local: run.workspace === undefined,
       runId: run.id,
@@ -366,7 +419,7 @@ export function inspectorSubject(
         title: "Activity",
       };
     case "run":
-      return runSubject(snapshot, resolved.run, resolved.path);
+      return runSubject(resolved.run, resolved.path);
     case "trigger":
       return triggerSubject(snapshot, resolved.trigger);
     default:

@@ -5,7 +5,11 @@ import {
   runSelection,
   selectionKey,
 } from "~/cli/state/dashboard-model";
-import { inspectorSubject, runLogs } from "~/cli/state/inspector";
+import {
+  catalogConfiguration,
+  inspectorSubject,
+  runTab,
+} from "~/cli/state/inspector";
 import type { HarnessActivitySnapshot } from "~/model/dashboard";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
@@ -64,7 +68,7 @@ describe("inspectorSubject", () => {
     }
     expect(subject.title).toBe("Run / update-documentation");
     expect(subject.stream).toEqual({ local: true, runId: "run-104" });
-    expect(subject.inspector.breadcrumbs).toEqual([
+    expect(subject.breadcrumbs).toEqual([
       {
         id: "breadcrumb:run",
         key: selectionKey(runSelection(run)),
@@ -72,9 +76,14 @@ describe("inspectorSubject", () => {
         selection: runSelection(run),
       },
     ]);
-    expect(subject.inspector.overview).toMatchObject({
-      kind: "run",
-      run: { currentStep: "Write changes", trigger: "update-docs" },
+    expect(
+      runTab(dashboardSnapshot, subject.run, subject.path, "overview")
+    ).toMatchObject({
+      kind: "overview",
+      overview: {
+        kind: "run",
+        run: { currentStep: "Write changes", trigger: "update-docs" },
+      },
     });
   });
 
@@ -86,12 +95,14 @@ describe("inspectorSubject", () => {
     }
     expect(subject.title).toBe("Step / Write changes");
     expect(subject.stream.stepId).toBe("write");
-    expect(subject.inspector.breadcrumbs.map(({ label }) => label)).toEqual([
+    expect(subject.breadcrumbs.map(({ label }) => label)).toEqual([
       "run-104",
       "› Update documentation",
       "› Write changes",
     ]);
-    expect(subject.inspector.overview.kind).toBe("step");
+    expect(
+      runTab(dashboardSnapshot, subject.run, subject.path, "overview")
+    ).toMatchObject({ overview: { kind: "step" } });
   });
 
   it("describes a schedule that can run now, with its runs", () => {
@@ -108,7 +119,13 @@ describe("inspectorSubject", () => {
       key: "Target",
       value: "summarize-day",
     });
-    expect(subject.details.configuration).toContain('"time": "17:00"');
+    expect(catalogConfiguration(subject.configuration, true)).toMatchObject({
+      expanded: true,
+      text: expect.stringContaining('"time": "17:00"'),
+    });
+    expect(catalogConfiguration(subject.configuration, false)).toEqual({
+      expanded: false,
+    });
     expect(subject.details.filter).toEqual({ id: "daily", kind: "trigger" });
   });
 
@@ -118,7 +135,8 @@ describe("inspectorSubject", () => {
       throw new Error(`expected a catalog item, got ${subject.kind}`);
     }
     expect(subject).toMatchObject({ launchable: true, runNow: false });
-    expect(subject.details.configuration).toBeUndefined();
+    expect(subject.configuration).toBeUndefined();
+    expect(catalogConfiguration(subject.configuration, true)).toBeUndefined();
     expect(subject.details.runs.map(({ runId }) => runId)).toContain("run-104");
     expect(
       subject.details.facts.find(({ key }) => key === "Source")?.value
@@ -189,14 +207,58 @@ describe("inspectorSubject across workspaces and activities", () => {
   });
 });
 
-describe("runLogs", () => {
-  it("keeps a step's own lines and its children's", () => {
+describe("runTab", () => {
+  it("keeps a step's own log lines and its children's", () => {
     const run = firstRun();
     const update = run.steps.find((step) => step.id === "update");
-    expect(runLogs(run, undefined)).toHaveLength(run.logs?.length ?? 0);
-    expect(runLogs(run, update).map(({ stepId }) => stepId)).toEqual([
-      "read",
-      "write",
-    ]);
+    if (!update) {
+      throw new Error("fixture has no update step");
+    }
+    expect(runTab(dashboardSnapshot, run, [], "logs")).toEqual({
+      kind: "logs",
+      logs: run.logs ?? [],
+    });
+    const logs = runTab(dashboardSnapshot, run, [update], "logs");
+    if (logs.kind !== "logs") {
+      throw new Error(`expected logs, got ${logs.kind}`);
+    }
+    expect(logs.logs.map(({ stepId }) => stepId)).toEqual(["read", "write"]);
+  });
+
+  it("shows the subject's input, output and error, and the stream", () => {
+    const run = {
+      ...firstRun(),
+      error: "boom",
+      input: { topic: "docs" },
+      result: "done",
+    };
+    expect(runTab(dashboardSnapshot, run, [], "input")).toEqual({
+      input: { topic: "docs" },
+      kind: "input",
+    });
+    expect(runTab(dashboardSnapshot, run, [], "output")).toEqual({
+      error: "boom",
+      kind: "output",
+      output: "done",
+    });
+    expect(runTab(dashboardSnapshot, run, [], "stream")).toEqual({
+      kind: "stream",
+    });
+    const [step] = run.steps;
+    if (!step) {
+      throw new Error("fixture has no steps");
+    }
+    const bare = {
+      ...step,
+      error: undefined,
+      input: undefined,
+      result: undefined,
+    };
+    expect(runTab(dashboardSnapshot, run, [bare], "input")).toEqual({
+      kind: "input",
+    });
+    expect(runTab(dashboardSnapshot, run, [bare], "output")).toEqual({
+      kind: "output",
+    });
   });
 });

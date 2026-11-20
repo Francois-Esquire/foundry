@@ -1,5 +1,8 @@
 import type { FeedItem, FeedRow } from "~/components/blocks/feed-list";
+import type { ReaderItem } from "~/components/blocks/feed-reader";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { answerView } from "./feed-answer";
+import type { FeedState } from "./use-feed";
 
 export const ALL_WORKSPACES = "all";
 
@@ -62,4 +65,42 @@ export function scopedFeed(
     : entries.filter((entry) =>
         (entry.workspaces ?? [entry.workspace.id]).includes(scope)
       );
+}
+
+export interface FeedModel {
+  readonly list: {
+    readonly active: boolean;
+    readonly filtered: boolean;
+    readonly onReset: () => void;
+    readonly onSelect: (entry: FeedEntrySnapshot) => void;
+    readonly rows: readonly FeedRow[];
+    readonly scopeLabel: string;
+    readonly selectedKey?: string;
+  };
+  readonly reader: {
+    readonly active: boolean;
+    readonly selected?: ReaderItem;
+  };
+}
+
+export function feedModel(feed: FeedState, inputActive: boolean): FeedModel {
+  const { selected } = feed;
+  return {
+    list: {
+      active: !inputActive && feed.focus === "list",
+      filtered: feed.scope.id !== ALL_WORKSPACES,
+      onReset: feed.resetScope,
+      onSelect: feed.select,
+      rows: feedRows(feed.visible, selected),
+      scopeLabel: feed.scope.label,
+      selectedKey: selected && feedKey(selected),
+    },
+    reader: {
+      active: !inputActive && feed.focus === "reader",
+      selected: selected && {
+        ...feedItem(selected),
+        answer: answerView(selected.input, feed.answer),
+      },
+    },
+  };
 }

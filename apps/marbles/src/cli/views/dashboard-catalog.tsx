@@ -1,56 +1,42 @@
 import { DefinitionsBlock, TriggersBlock } from "~/components/blocks/catalog";
 import { CatalogPanels } from "~/components/blocks/catalog-panels";
-import { selectionKey } from "../state/dashboard-model";
-import { definitionRows, triggerRows } from "../state/dashboard-rows";
-import type { Pane } from "../state/dashboard-state";
-import type { Dashboard } from "../state/use-dashboard";
+import type { CatalogModel } from "../state/dashboard-views";
 
 const COMPACT_DEFINITIONS_BELOW = 75;
 
 export function DashboardCatalog({
-  dashboard,
-  activePane,
+  catalog,
   besideDetails,
   width,
 }: {
-  readonly dashboard: Pick<
-    Dashboard,
-    | "clearFilters"
-    | "definitions"
-    | "inspect"
-    | "snapshot"
-    | "state"
-    | "triggers"
-  >;
-  readonly activePane?: Pane;
+  readonly catalog: CatalogModel;
   readonly besideDetails: boolean;
   readonly width: number;
 }) {
-  const { snapshot, state } = dashboard;
-  const selectedId = state.selected && selectionKey(state.selected);
+  const { definitions, triggers } = catalog;
   return (
     <CatalogPanels
       catalog={
         <DefinitionsBlock
-          active={activePane === "definition"}
+          active={definitions.active}
           compact={besideDetails || width < COMPACT_DEFINITIONS_BELOW}
-          items={definitionRows(dashboard.definitions, state.selected)}
-          onReset={dashboard.clearFilters}
-          onSelect={dashboard.inspect}
-          searching={state.queries.definition.length > 0}
-          selectedId={selectedId}
-          workspace={snapshot.workspace}
+          items={definitions.items}
+          onReset={catalog.onReset}
+          onSelect={catalog.onInspect}
+          searching={definitions.searching}
+          selectedId={catalog.selectedId}
+          workspace={catalog.workspace}
         />
       }
       triggers={
         <TriggersBlock
-          active={activePane === "trigger"}
+          active={triggers.active}
           compact={besideDetails}
-          items={triggerRows(dashboard.triggers, state.selected)}
-          onReset={dashboard.clearFilters}
-          onSelect={dashboard.inspect}
-          searching={state.queries.trigger.length > 0}
-          selectedId={selectedId}
+          items={triggers.items}
+          onReset={catalog.onReset}
+          onSelect={catalog.onInspect}
+          searching={triggers.searching}
+          selectedId={catalog.selectedId}
         />
       }
     />

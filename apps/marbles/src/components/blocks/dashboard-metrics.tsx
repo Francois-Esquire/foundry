@@ -28,13 +28,14 @@ interface ElapsedRanking {
   readonly timing: string;
 }
 
+export interface WorkflowRankingsView {
+  readonly elapsed: readonly ElapsedRanking[];
+  readonly spend: readonly SpendRanking[];
+}
+
 export interface DashboardMetricsView {
   readonly counts: RunCounts;
   readonly notes: readonly string[];
-  readonly rankings: {
-    readonly elapsed: readonly ElapsedRanking[];
-    readonly spend: readonly SpendRanking[];
-  };
   readonly spend: { readonly detail: string; readonly value: string };
   readonly successRate: string;
 }
@@ -111,7 +112,7 @@ function WorkflowRankings({
   limit,
   width,
 }: {
-  readonly rankings: DashboardMetricsView["rankings"];
+  readonly rankings: WorkflowRankingsView;
   readonly limit: number;
   readonly width: number;
 }) {
@@ -196,12 +197,18 @@ function metricCards(
   ];
 }
 
+export function showsWorkflowRankings(width: number, height: number): boolean {
+  return width >= 64 && height >= 22;
+}
+
 export function DashboardMetrics({
   metrics,
+  rankings,
   width,
   height,
 }: {
   readonly metrics: DashboardMetricsView;
+  readonly rankings?: WorkflowRankingsView;
   readonly width: number;
   readonly height: number;
 }) {
@@ -229,12 +236,8 @@ export function DashboardMetrics({
           {notes.join(" · ")}
         </text>
       )}
-      {width >= 64 && height >= 22 && (
-        <WorkflowRankings
-          limit={limit}
-          rankings={metrics.rankings}
-          width={width}
-        />
+      {rankings && (
+        <WorkflowRankings limit={limit} rankings={rankings} width={width} />
       )}
     </box>
   );

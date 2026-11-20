@@ -1,5 +1,8 @@
 import { expect, it } from "vitest";
-import { dashboardMetrics } from "~/cli/state/dashboard-metrics";
+import {
+  dashboardMetrics,
+  workflowRankingsView,
+} from "~/cli/state/dashboard-metrics";
 import type { DashboardSnapshot } from "~/cli/state/dashboard-model";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
@@ -10,11 +13,12 @@ it("counts runs, rates success, and ranks workflows by spend and time", () => {
   expect(metrics.counts).toMatchObject({ failed: 1, running: 1 });
   expect(metrics.successRate).toMatch(PERCENT);
   expect(metrics.spend).toEqual({ detail: "7 turns", value: "~$0.1601+?" });
-  expect(metrics.rankings.spend.map(({ id, cost }) => [id, cost])).toEqual([
+  const rankings = workflowRankingsView(dashboardSnapshot);
+  expect(rankings.spend.map(({ id, cost }) => [id, cost])).toEqual([
     ["review", { priced: true, value: "~$0.1180" }],
     ["docs", { priced: true, value: "~$0.0421+?" }],
   ]);
-  expect(metrics.rankings.elapsed[0]).toMatchObject({
+  expect(rankings.elapsed[0]).toMatchObject({
     id: "review",
     timing: "41.0s · 1 run",
   });
@@ -26,9 +30,11 @@ it("reports missing usage and partial totals in its notes", () => {
   if (!usage) {
     throw new Error("fixture has no usage");
   }
+  expect(workflowRankingsView({ ...empty, usage: undefined })).toMatchObject({
+    elapsed: [],
+  });
   expect(dashboardMetrics({ ...empty, usage: undefined })).toMatchObject({
     notes: [],
-    rankings: { elapsed: [] },
     spend: { detail: "No usage recorded", value: "—" },
     successRate: "—",
   });
