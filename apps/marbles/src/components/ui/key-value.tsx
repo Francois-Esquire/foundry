@@ -4,11 +4,13 @@ import type { ReactNode } from "react";
 import { useMemo } from "react";
 
 import { theme } from "~/components/ui/theme";
+import { Words } from "~/components/ui/words";
 
 interface KeyValueItem {
   color?: string;
   key: string;
   value: ReactNode;
+  wholeWords?: boolean;
 }
 
 export interface KeyValueProps {
@@ -41,18 +43,22 @@ export const KeyValue = ({
   const resolvedValueColor = valueColor ?? theme.colors.foreground;
 
   return (
-    <box flexDirection="column">
+    <box flexDirection="column" flexShrink={0}>
       {items.map((item) => {
         const paddedKey = item.key.padEnd(resolvedKeyWidth, " ");
         return (
-          <box flexDirection="row" gap={1} key={item.key}>
+          <box flexDirection="row" flexShrink={0} gap={1} key={item.key}>
             <text fg={resolvedKeyColor} flexShrink={0}>
               {paddedKey}
             </text>
             <text fg={resolvedKeyColor} flexShrink={0}>
               {separator}
             </text>
-            <text fg={item.color ?? resolvedValueColor}>{item.value}</text>
+            {item.wholeWords && typeof item.value === "string" ? (
+              <Words fg={item.color ?? resolvedValueColor}>{item.value}</Words>
+            ) : (
+              <text fg={item.color ?? resolvedValueColor}>{item.value}</text>
+            )}
           </box>
         );
       })}

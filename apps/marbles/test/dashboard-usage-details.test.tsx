@@ -7,10 +7,10 @@ import { afterEach, expect, test } from "vitest";
 import { step } from "../src/authoring/builder";
 import { catalog } from "../src/authoring/catalog";
 import { agent } from "../src/authoring/resources";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { DashboardView } from "../src/cli/views/dashboard";
 import type { SessionRef } from "../src/lib/types";
 import { MemoryUsageStore } from "../src/lib/usage-store";
-import { DashboardView } from "../src/views/dashboard";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
 import { dashboardSnapshot } from "../src/workspace/snapshot";
 import { durableSessions, transcriptOf } from "./helpers/durable-sessions";
 import { startEngine } from "./helpers/engine";
@@ -131,7 +131,7 @@ test("run, step and workflow details at 80 columns say a total may be incomplete
   await press(ui, "ESCAPE");
   await press(ui, "3");
   await press(ui, "u");
-  expect(ui.captureCharFrame()).toContain("1 usage records could not be read");
+  expect(ui.captureCharFrame()).toContain("1 usage record could not be read");
 });
 
 test("a workflow with no valid facts shows unowned unreadable usage in its Catalog details instead of 'no usage recorded'", async () => {

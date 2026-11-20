@@ -2,42 +2,51 @@ import { Action } from "~/components/ui/action";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
-import { terminalTheme, theme } from "~/components/ui/theme";
-import {
-  type SettingsSnapshot,
-  THEME_NAMES,
-  type ThemeName,
-  themeLabel,
-} from "~/model/settings";
+import { theme } from "~/components/ui/theme";
+import type { SettingsSnapshot, ThemeName } from "~/model/settings";
+
+export interface ThemeChoice {
+  readonly label: string;
+  readonly name: ThemeName;
+  readonly swatches: {
+    readonly accent: string;
+    readonly background: string;
+    readonly primary: string;
+  };
+}
+
+export interface SettingsView extends SettingsSnapshot {
+  readonly label: string;
+  readonly themes: readonly ThemeChoice[];
+}
 
 function ThemeChoices({
   current,
+  themes,
   onTheme,
 }: {
   readonly current: ThemeName;
+  readonly themes: readonly ThemeChoice[];
   readonly onTheme: (name: ThemeName) => void;
 }) {
-  return THEME_NAMES.map((name) => {
-    const { colors } = terminalTheme(name);
-    return (
-      <SelectableRow
-        id={`theme:${name}`}
-        key={name}
-        onSelect={onTheme}
-        selected={current === name}
-        value={name}
-      >
-        <Text flexGrow={1} minWidth={0} truncate wrapMode="none">
-          {themeLabel(name)}
-        </Text>
-        <text flexShrink={0} wrapMode="none">
-          <span bg={colors.background}>{"  "}</span>
-          <span bg={colors.primary}>{"  "}</span>
-          <span bg={colors.accent}>{"  "}</span>
-        </text>
-      </SelectableRow>
-    );
-  });
+  return themes.map(({ label, name, swatches }) => (
+    <SelectableRow
+      id={`theme:${name}`}
+      key={name}
+      onSelect={onTheme}
+      selected={current === name}
+      value={name}
+    >
+      <Text flexGrow={1} minWidth={0} truncate wrapMode="none">
+        {label}
+      </Text>
+      <text flexShrink={0} wrapMode="none">
+        <span bg={swatches.background}>{"  "}</span>
+        <span bg={swatches.primary}>{"  "}</span>
+        <span bg={swatches.accent}>{"  "}</span>
+      </text>
+    </SelectableRow>
+  ));
 }
 
 export function SettingsBlock({
@@ -46,7 +55,7 @@ export function SettingsBlock({
   onRail,
   rail,
 }: {
-  readonly settings?: SettingsSnapshot;
+  readonly settings?: SettingsView;
   readonly onTheme?: (name: ThemeName) => void;
   readonly onRail?: (show: boolean) => void;
   readonly rail?: boolean;
@@ -55,14 +64,12 @@ export function SettingsBlock({
     <box flexDirection="column" gap={1} paddingBottom={1}>
       {settings ? (
         <>
-          <box flexDirection="row" gap={1}>
-            <Text>
-              Theme: <strong>{themeLabel(settings.theme)}</strong>
-            </Text>
+          <Text>
+            Theme: <strong>{settings.label}</strong>
             {!onTheme && (
-              <text fg={theme.colors.mutedForeground}>read-only here</text>
+              <span fg={theme.colors.mutedForeground}> read-only here</span>
             )}
-          </box>
+          </Text>
           {settings.problem && (
             <box flexDirection="column">
               <text fg={theme.colors.warning} wrapMode="word">
@@ -74,11 +81,10 @@ export function SettingsBlock({
             </box>
           )}
           <Text>Applies to all workspaces</Text>
-          <box flexDirection="row" gap={1}>
-            <Text>Preview</Text>
-            <text fg={theme.colors.primary}>dreaming</text>
-            <text fg={theme.colors.success}>complete</text>
-          </box>
+          <Text>
+            Preview <span fg={theme.colors.primary}>dreaming</span>{" "}
+            <span fg={theme.colors.success}>complete</span>
+          </Text>
         </>
       ) : (
         <Text>This host has no settings to change.</Text>
@@ -86,7 +92,7 @@ export function SettingsBlock({
       {onRail && (
         <box flexDirection="column">
           <Text>Workspace navigation · this terminal</Text>
-          <box flexDirection="row" gap={2}>
+          <box columnGap={2} flexDirection="row" flexWrap="wrap">
             <Action
               active={!rail}
               label="Picker"
@@ -114,7 +120,11 @@ export function SettingsBlock({
       title="Settings"
     >
       {settings && onTheme && (
-        <ThemeChoices current={settings.theme} onTheme={onTheme} />
+        <ThemeChoices
+          current={settings.theme}
+          onTheme={onTheme}
+          themes={settings.themes}
+        />
       )}
     </Panel>
   );

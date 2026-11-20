@@ -13,6 +13,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
+import { costLabel, tokensLabel } from "~/cli/state/usage-format";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase, openDatabase } from "~/database/open";
 import { DatabaseSessionStore } from "~/database/sessions";
@@ -35,7 +36,6 @@ import {
 } from "~/lib/usage-evidence";
 import type { UsageStore } from "~/lib/usage-store";
 import { MemoryUsageStore } from "~/lib/usage-store";
-import { costLabel, tokensLabel } from "~/views/usage-format";
 import { registerSetupStep, SETUP_STEP } from "~/workspace/setup-step";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { DEFAULT_DRAFT } from "~/workspace/templates";

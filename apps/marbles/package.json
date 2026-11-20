@@ -62,7 +62,6 @@
     "dev": "bun run --no-env-file --watch src/cli.ts",
     "mcp": "bun run --no-env-file src/cli.ts mcp",
     "prepack": "bun run build",
-    "preview:ui": "bun run --no-env-file preview/dashboard.tsx",
     "start": "bun run --no-env-file src/cli.ts",
     "stories": "bun run --no-env-file textbook --pattern 'stories/**/*.stories.tsx'",
     "stories:web": "cd ../.. && bun run --no-env-file textbook web --cwd apps/marbles --pattern 'stories/**/*.stories.tsx'",

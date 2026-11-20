@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { dashboardSnapshot } from "../preview/snapshot";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
 import {
   resolveSelection,
   runSelection,
   selectionKey,
   triggerSelection,
-} from "../src/views/dashboard-model";
-import { scopedRuns } from "../src/views/dashboard-tree";
-import { showsOthers, workspaceScoped } from "../src/views/workspace-scope";
+} from "../src/cli/state/dashboard-model";
+import { scopedRuns } from "../src/cli/state/dashboard-tree";
+import { showsOthers, workspaceScoped } from "../src/cli/state/workspace-scope";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 const [first, second] = dashboardSnapshot.runs;
 const [trigger] = dashboardSnapshot.triggers;

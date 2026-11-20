@@ -1,40 +1,34 @@
 import { Badge } from "~/components/ui/badge";
 import { theme } from "~/components/ui/theme";
-import type { FeedEntrySnapshot } from "~/lib/feed/read";
 
-type KindEntry = Pick<FeedEntrySnapshot, "kind" | "input">;
+type FeedMetaTone = "attention" | "info" | "settled" | "success";
 
-export function isPending(entry: KindEntry): boolean {
-  return entry.input?.status === "open";
+export interface FeedMeta {
+  readonly label: string;
+  readonly tone: FeedMetaTone;
 }
 
-function kindStyle(entry: KindEntry): {
-  readonly label: string;
-  readonly color: string;
-} {
-  if (entry.kind === "result") {
-    return { color: theme.colors.success, label: "result" };
-  }
-  if (entry.kind === "milestone") {
-    return { color: theme.colors.info, label: "milestone" };
-  }
-  if (isPending(entry)) {
-    return { color: theme.colors.warning, label: "needs input" };
-  }
-  return {
-    color: theme.colors.secondary,
-    label: entry.input?.status === "cancelled" ? "cancelled" : "answered",
-  };
+const TONE_COLORS = {
+  info: "info",
+  settled: "secondary",
+  success: "success",
+} as const;
+
+function Separator() {
+  return (
+    <text fg={theme.colors.mutedForeground} flexShrink={0} wrapMode="none">
+      {" ·"}
+    </text>
+  );
 }
 
 export function FeedMetaLine({
-  entry,
+  meta,
   details,
 }: {
-  readonly entry: KindEntry;
+  readonly meta: FeedMeta;
   readonly details: readonly (string | undefined)[];
 }) {
-  const { color, label } = kindStyle(entry);
   const shown = details.filter(
     (detail): detail is string => detail !== undefined && detail !== ""
   );
@@ -46,21 +40,30 @@ export function FeedMetaLine({
       flexWrap="wrap"
       minWidth={0}
     >
-      {isPending(entry) ? (
-        <Badge variant="warning">{label}</Badge>
-      ) : (
-        <text fg={color} flexShrink={0} wrapMode="none">
-          {label}
-        </text>
-      )}
-      {shown.map((detail) => (
+      <box flexDirection="row" flexShrink={0}>
+        {meta.tone === "attention" ? (
+          <Badge padded={false} variant="warning">
+            {meta.label}
+          </Badge>
+        ) : (
+          <text
+            fg={theme.colors[TONE_COLORS[meta.tone]]}
+            flexShrink={0}
+            wrapMode="none"
+          >
+            {meta.label}
+          </text>
+        )}
+        {shown.length > 0 && <Separator />}
+      </box>
+      {shown.map((detail, index) => (
         <text
           fg={theme.colors.mutedForeground}
           flexShrink={0}
           key={detail}
           wrapMode="none"
         >
-          {`· ${detail}`}
+          {index < shown.length - 1 ? `${detail} ·` : detail}
         </text>
       ))}
     </box>

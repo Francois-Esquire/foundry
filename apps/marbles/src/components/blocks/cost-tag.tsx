@@ -1,14 +1,18 @@
 import { Tag } from "~/components/ui/tag";
 import { theme } from "~/components/ui/theme";
-import { UNPRICED_COST_CELL } from "~/views/usage-format";
 
-export function CostTag({ value }: { readonly value: string }) {
-  if (value !== UNPRICED_COST_CELL) {
-    return <Tag color={theme.colors.accent}>{value}</Tag>;
+export interface CostView {
+  readonly priced: boolean;
+  readonly value: string;
+}
+
+export function CostTag({ cost }: { readonly cost: CostView }) {
+  if (cost.priced) {
+    return <Tag color={theme.colors.accent}>{cost.value}</Tag>;
   }
   return (
     <text fg={theme.colors.mutedForeground} flexShrink={0} wrapMode="none">
-      {value}
+      {cost.value}
     </text>
   );
 }

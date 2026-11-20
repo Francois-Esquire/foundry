@@ -1,13 +1,21 @@
+import type { ChannelMessage } from "@foundry/workflows/channels";
 import { RGBA } from "@opentui/core";
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
-import { dashboardSnapshot } from "../preview/snapshot";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { selectionKey } from "../src/cli/state/dashboard-model";
+import type { RunActions } from "../src/cli/state/run-actions";
+import { DashboardView } from "../src/cli/views/dashboard";
 import { theme } from "../src/components/ui/theme";
-import { DashboardView } from "../src/views/dashboard";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
-import { selectionKey } from "../src/views/dashboard-model";
-import type { RunActions } from "../src/views/run-actions";
-import { click, flush, mount, press, unmount } from "./helpers/render";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
+import {
+  click,
+  flush,
+  frameWith,
+  mount,
+  press,
+  unmount,
+} from "./helpers/render";
 
 const SELECTED_FAILURE = /› ▸ check-api +failed\b/;
 const WRITE_STEP = /Step\s+: write/;
@@ -327,3 +335,56 @@ test.each(["running", "paused"] as const)(
     ]);
   }
 );
+
+function textChunk(path: readonly string[], text: string): ChannelMessage {
+  return {
+    _tag: "chunk",
+    chunk: {
+      at: "2026-09-22T14:32:09.000Z",
+      path,
+      payload: { kind: "text", text },
+      stepId: path.join("."),
+    },
+  };
+}
+
+function streamingActions() {
+  const opened: string[] = [];
+  const pushes: ((message: ChannelMessage) => void)[] = [];
+  let aborted = 0;
+  const stream: RunActions["stream"] = (runId, signal) => {
+    opened.push(runId);
+    signal?.addEventListener("abort", () => {
+      aborted += 1;
+    });
+    return new ReadableStream<ChannelMessage>({
+      start(controller) {
+        pushes.push((message) => controller.enqueue(message));
+      },
+    });
+  };
+  return {
+    aborted: () => aborted,
+    actions: { ...recordingActions().actions, stream },
+    opened,
+    push: (message: ChannelMessage) => pushes.at(-1)?.(message),
+  };
+}
+
+test("the stream tab opens the run's live stream only while it is shown", async () => {
+  const live = streamingActions();
+  const ui = await render(dashboardSnapshot, live.actions);
+  await click(ui, selectionKey({ id: "run-104", kind: "run" }));
+  await click(ui, "tab:overview");
+  expect(live.opened).toEqual([]);
+  await click(ui, "tab:stream");
+  expect(live.opened).toEqual(["run-104"]);
+  const waiting = await frameWith(ui, "Waiting for output");
+  expect(waiting).toContain("Waiting for output");
+  expect(waiting).toContain("Live · last 12 lines");
+  await act(async () => live.push(textChunk(["update"], "drafting docs")));
+  expect(await frameWith(ui, "drafting docs")).toContain("drafting docs");
+  await click(ui, "tab:overview");
+  expect(live.aborted()).toBe(1);
+  expect(ui.captureCharFrame()).not.toContain("drafting docs");
+});

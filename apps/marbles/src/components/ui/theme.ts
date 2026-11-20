@@ -1,7 +1,4 @@
-import type { ThemeName } from "~/model/settings";
-import termcnThemes from "~/model/termcn-themes.json";
-
-interface Palette {
+export interface Palette {
   readonly border: {
     readonly color: string;
     readonly focusColor: string;
@@ -23,7 +20,7 @@ interface Palette {
   };
 }
 
-const PALETTES: Readonly<Record<"dark" | "light", Palette>> = {
+export const BUILT_IN_PALETTES: Readonly<Record<"dark" | "light", Palette>> = {
   dark: {
     border: { color: "#665c54", focusColor: "#fabd2f", style: "rounded" },
     colors: {
@@ -60,40 +57,17 @@ const PALETTES: Readonly<Record<"dark" | "light", Palette>> = {
   },
 };
 
-export function terminalTheme(name: ThemeName) {
-  if (name === "dark" || name === "light") {
-    const palette = PALETTES[name];
-    return {
-      border: palette.border,
-      colors: { ...termcnThemes.default.colors, ...palette.colors },
-    };
-  }
-  const { colors, border } = termcnThemes[name];
-  const style: Palette["border"]["style"] =
-    border.style === "heavy" ? "heavy" : "rounded";
-  return {
-    border: { ...border, style },
-    colors,
-  };
-}
-
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 export const theme: {
   readonly border: Mutable<Palette["border"]>;
   readonly colors: Mutable<Palette["colors"]>;
 } = {
-  border: { ...PALETTES.dark.border },
-  colors: { ...PALETTES.dark.colors },
+  border: { ...BUILT_IN_PALETTES.dark.border },
+  colors: { ...BUILT_IN_PALETTES.dark.colors },
 };
 
-export function applyTheme(name: ThemeName): void {
-  const palette = terminalTheme(name);
+export function applyPalette(palette: Palette): void {
   Object.assign(theme.border, palette.border);
-  Object.assign(theme.colors, palette.colors, {
-    secondary:
-      name === "dark" || name === "light"
-        ? palette.colors.secondary
-        : palette.colors.accent,
-  });
+  Object.assign(theme.colors, palette.colors);
 }

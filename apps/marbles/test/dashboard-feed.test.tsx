@@ -1,9 +1,9 @@
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
-import { dashboardSnapshot } from "../preview/snapshot";
+import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { DashboardView } from "../src/cli/views/dashboard";
 import type { FeedAnswer } from "../src/lib/feed/entry";
-import { DashboardView } from "../src/views/dashboard";
-import type { DashboardSnapshot } from "../src/views/dashboard-model";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { flush, frameWith, mount, unmount } from "./helpers/render";
 
 let closed = false;
@@ -33,7 +33,7 @@ test("switches tabs with Shift+D / Shift+F and filters the feed by workspace", a
   expect(frame).not.toContain("! Codebase summary");
   for (const label of [
     "Feed · All workspaces",
-    "needs input  · foundry · 14:33",
+    "needs input · foundry · 14:33",
     "Codebase summary",
     "Docs updated",
     "Workspace set up: foundry",

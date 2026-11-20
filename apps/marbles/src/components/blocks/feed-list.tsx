@@ -1,29 +1,37 @@
-import { FeedMetaLine, isPending } from "~/components/blocks/feed-meta";
+import { type FeedMeta, FeedMetaLine } from "~/components/blocks/feed-meta";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import { feedKey } from "~/views/feed-model";
 import { EmptyState } from "./empty-state";
 
-function FeedRow({
-  entry,
-  selected,
+export interface FeedItem {
+  readonly entry: FeedEntrySnapshot;
+  readonly key: string;
+  readonly meta: FeedMeta;
+}
+
+export interface FeedRow extends FeedItem {
+  readonly pending: boolean;
+  readonly selected: boolean;
+}
+
+function FeedListRow({
+  row,
   showWorkspace,
   onSelect,
 }: {
-  readonly entry: FeedEntrySnapshot;
-  readonly selected: boolean;
+  readonly row: FeedRow;
   readonly showWorkspace: boolean;
   readonly onSelect: (entry: FeedEntrySnapshot) => void;
 }) {
-  const pending = isPending(entry);
+  const { entry } = row;
   return (
     <SelectableRow
-      id={`feed:${feedKey(entry)}`}
+      id={`feed:${row.key}`}
       onSelect={onSelect}
-      selected={selected}
+      selected={row.selected}
       value={entry}
     >
       <box
@@ -35,7 +43,7 @@ function FeedRow({
       >
         <box flexDirection="row">
           <text fg={theme.colors.warning} flexShrink={0} width={2}>
-            <strong>{pending ? "!" : " "}</strong>
+            <strong>{row.pending ? "!" : " "}</strong>
           </text>
           <Text flexGrow={1} flexShrink={1} minWidth={0} wrapMode="word">
             <strong>{entry.title}</strong>
@@ -50,7 +58,7 @@ function FeedRow({
                 ? `${entry.media.length} media`
                 : undefined,
             ]}
-            entry={entry}
+            meta={row.meta}
           />
         </box>
       </box>
@@ -59,16 +67,16 @@ function FeedRow({
 }
 
 export function FeedList({
-  entries,
-  selected,
+  rows,
+  selectedKey,
   active,
   scopeLabel,
   filtered,
   onSelect,
   onReset,
 }: {
-  readonly entries: readonly FeedEntrySnapshot[];
-  readonly selected?: FeedEntrySnapshot;
+  readonly rows: readonly FeedRow[];
+  readonly selectedKey?: string;
   readonly active: boolean;
   readonly scopeLabel: string;
   readonly filtered: boolean;
@@ -78,30 +86,27 @@ export function FeedList({
   return (
     <Panel
       active={active}
-      borderHint={entries.length > 0 ? " ↑↓ select · Enter read " : undefined}
+      borderHint={rows.length > 0 ? " ↑↓ select · Enter read " : undefined}
       id="panel:feed"
-      selectedId={selected && `feed:${feedKey(selected)}`}
+      selectedId={selectedKey === undefined ? undefined : `feed:${selectedKey}`}
       title={`Feed · ${scopeLabel}`}
     >
-      {entries.length === 0 && (
+      {rows.length === 0 && (
         <EmptyState
           description={
             filtered
-              ? "Nothing from this workspace yet. x shows all workspaces."
+              ? "Nothing from this workspace yet."
               : "Steps publish results and milestones here with feed.post()."
           }
           title={filtered ? "No entries here." : "No entries yet."}
-          {...(filtered ? { onReset } : {})}
+          {...(filtered ? { onReset, resetLabel: "Show all workspaces" } : {})}
         />
       )}
-      {entries.map((entry) => (
-        <FeedRow
-          entry={entry}
-          key={feedKey(entry)}
+      {rows.map((row) => (
+        <FeedListRow
+          key={row.key}
           onSelect={onSelect}
-          selected={
-            selected !== undefined && feedKey(entry) === feedKey(selected)
-          }
+          row={row}
           showWorkspace={!filtered}
         />
       ))}

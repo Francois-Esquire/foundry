@@ -1,11 +1,11 @@
 import { sleep } from "bun";
 import { act, useEffect, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import { dashboardSnapshot } from "../preview/snapshot";
-import { PreviewStartup } from "../preview/startup";
+import { summarizeConfig } from "../src/cli/state/splash-model";
+import { DashboardView } from "../src/cli/views/dashboard";
+import { SplashView } from "../src/cli/views/splash";
 import type { SplashState } from "../src/model/splash";
-import { SplashView } from "../src/views/splash";
-import { summarizeConfig } from "../src/views/splash-model";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { click, ctrlC, flush, mount, press, unmount } from "./helpers/render";
 
 let closed = false;
@@ -32,7 +32,6 @@ function ControlledSplash() {
     <SplashView
       onClose={close}
       onEnter={enterSplash}
-      preview
       state={state}
       workspace="foundry"
     />
@@ -47,7 +46,6 @@ function ready(
     <SplashView
       onClose={close}
       onEnter={enterSplash}
-      preview
       state={{ counts, hasConfig: true, status: "ready" }}
       workspace={workspace}
     />
@@ -184,20 +182,12 @@ test("splash quit confirmation blocks entry and supports a second Ctrl+C", async
   expect(closed).toBe(true);
 });
 
-test("preview loads its config, waits for entry, and opens the dashboard once", async () => {
-  const ui = await mount(<PreviewStartup onClose={close} />, {
-    height: 24,
-    width: 70,
-  });
-  expect(ui.captureCharFrame()).toContain("Loading marbles");
-  await press(ui, "RETURN");
-  await act(async () => {
-    await sleep(1000);
-  });
-  await flush(ui);
-  expect(ui.captureCharFrame()).toContain("Marbles loaded");
+test("the dashboard entered from the splash opens on the overview of its snapshot", async () => {
+  const ui = await mount(
+    <DashboardView onClose={close} snapshot={dashboardSnapshot} />,
+    { height: 24, width: 70 }
+  );
   expect(ui.captureCharFrame()).not.toContain("1 Triggers");
-  await press(ui, "RETURN");
   expect(ui.captureCharFrame()).toContain("3 Runs");
   expect(ui.captureCharFrame()).toContain("Active runs");
   expect(ui.captureCharFrame()).toContain("1 running");
@@ -205,6 +195,4 @@ test("preview loads its config, waits for entry, and opens the dashboard once", 
   await press(ui, "m");
   expect(ui.captureCharFrame()).toContain("1 Triggers");
   expect(ui.captureCharFrame()).toContain("2 Marbles");
-  await click(ui, "nav:home");
-  expect(ui.captureCharFrame()).not.toContain("Marbles loaded");
 });

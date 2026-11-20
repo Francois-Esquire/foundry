@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parseArgs, UsageError } from "~/args";
+import { parseArgs, UsageError } from "~/cli/args";
 
 function foundryHome(): string {
   return process.env.FOUNDRY_HOME ?? join(homedir(), ".foundry");

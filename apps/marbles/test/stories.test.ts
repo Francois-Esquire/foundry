@@ -7,7 +7,7 @@ test("mounting and restarting the splash story preserves the workshop", async ()
     import assert from "node:assert/strict";
     import { BoxRenderable } from "@opentui/core";
     import { createTestRenderer } from "@opentui/core/testing";
-    import { Ready } from "./stories/splash.stories";
+    import { Ready } from "./stories/views/splash.stories";
 
     const ui = await createTestRenderer({ height: 24, width: 80 });
     const { renderer } = ui;

@@ -7,19 +7,19 @@ import {
   type Dashboard,
   helpSections,
   type KeyPress,
-} from "~/views/dashboard-commands";
+} from "~/cli/state/dashboard-commands";
 import {
   type DashboardSnapshot,
   resolveSelection,
-} from "~/views/dashboard-model";
+} from "~/cli/state/dashboard-model";
 import {
   type DashboardEvent,
   type DashboardState,
   initialState,
   reduce,
-} from "~/views/dashboard-state";
-import type { RunActions } from "~/views/run-actions";
-import { dashboardSnapshot } from "../preview/snapshot";
+} from "~/cli/state/dashboard-state";
+import type { RunActions } from "~/cli/state/run-actions";
+import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 function footer(commandContext: CommandContext) {
   const { hints, lasting } = commandFooter(commandContext);

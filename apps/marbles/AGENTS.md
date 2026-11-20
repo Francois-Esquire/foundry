@@ -321,7 +321,7 @@ Five buckets, each importing only what sits below it:
   Marbles process is one of these: it loads every registered workspace up
   to engines not yet started (`stageRegistered`) and starts them when it
   takes over. It imports `lib/`,
-  `authoring/`, `database/`, `layout.ts` and `model/`; never views, `args`, or
+  `authoring/`, `database/`, `layout.ts` and `model/`; never `cli/` or
   `process/`.
 - `src/process/` is the Marbles process: one daemon per machine
   (`daemon.ts`) that claims `locks/process` at the state root, listens on
@@ -392,13 +392,18 @@ Five buckets, each importing only what sits below it:
   `model/`, and nothing from the app.
 - The app sits on top and may import anything: `src/cli.ts` (the entry,
   which runs `main` whenever it loads, imported by `bin/marbles` too),
-  `src/command-line.ts` (every command's handler, and what `--dry-run`
-  means for it, beside `main`), `src/args.ts`
-  (which parses a command line completely, before anything loads),
-  `src/dashboard/`, `src/views/`, `src/components/`, `src/mcp/`,
-  `src/status/`, `src/resources/` (the resource listings, sharing, and
+  `src/cli/` (what only the CLI and its terminal UI use:
+  `command-line.ts`, every command's handler, and what `--dry-run` means
+  for it, beside `main`; `args.ts`, which parses a command line
+  completely, before anything loads; `interactive.ts` and `app.tsx`, the
+  dashboard command and its renderer; `views/`, the screens; `state/`,
+  their models, reducers and hooks; `hooks/`, the shared React hooks;
+  `settings.ts`, the settings file; `watch.ts`, `marbles
+  watch`; the output of `marbles status` and the task commands,
+  `status/` and `tasks/`; and `resources/`, the resource listings, sharing, and
   `relink`, which rebuilds each workspace's links under `<root>/.marbles/`
-  from the database; they are never read back). The dashboard is a client of the process.
+  from the database; they are never read back), `src/components/`,
+  `src/mcp/`, `src/status/`. The dashboard is a client of the process.
   `src/mcp/stdio.ts` is the `marbles mcp` server, which `cli.ts` loads
   only when that command runs. `src/mcp/relay.ts` runs it in a child
   process whose stdout is the relay's stderr. Protocol frames go out on
@@ -444,7 +449,23 @@ and directories are excluded from discovery but can be imported, and the
 source watcher digests them too. The workspace root stays above `.foundry`.
 
 The dashboard's keys, footer, and keyboard help come from one command table
-(`views/dashboard-commands.ts`), and its state changes in a pure reducer
-(`views/dashboard-state.ts`). `src/components/ui/` holds primitives that
-import nothing from views, lib, or blocks; `src/components/blocks/` holds the
-domain components.
+(`cli/state/dashboard-commands.ts`), and its state changes in a pure reducer
+(`cli/state/dashboard-state.ts`). `src/components/` is presentational: props
+and callbacks in, rendering out. It imports React, `@opentui/*`, other
+components, and types from `model/` (from `lib/` only where `model/` has none),
+and nothing from `cli/`; `test/components-imports.test.ts` holds it there.
+Lookups, filtering, selection, statistics, eligibility, and usage formatting
+live in `cli/state/` and `cli/views/`, which hand components ready rows:
+`dashboard-rows.ts`, `dashboard-metrics.ts`, `dashboard-views.ts`,
+`feed-model.ts` and `feed-answer.ts` (each feed row's pending mark and
+metadata label and tone), `inspector.ts` (with `views/inspector.tsx`), and
+`cli/hooks/use-run-stream.ts`, building only what is mounted; `cli/theme.ts`
+resolves theme names to palettes. `src/components/ui/` holds primitives;
+`src/components/blocks/` holds the domain components; `src/components/layouts/`
+holds the chrome: each layout arranges a few `ReactNode` regions and owns its
+breakpoints, and a view that sizes content by the arrangement calls the pure
+function beside it (`dashboardMain`, which also says whether main is shown,
+so the view builds no model for a covered main; the metrics block's
+`showsWorkflowRankings` likewise). `ui/` imports neither blocks nor layouts,
+and blocks import no layouts; the import test holds that too. A view in
+`cli/views/` places the models `cli/state/` builds into those regions.
