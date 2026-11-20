@@ -10,7 +10,8 @@ import {
   saveSettings,
   settingsPath,
 } from "~/cli/settings";
-import { applyTheme, theme } from "~/components/ui/theme";
+import { applyTheme, settingsView, terminalTheme } from "~/cli/theme";
+import { theme } from "~/components/ui/theme";
 import { THEME_NAMES } from "~/model/settings";
 
 let state: string;
@@ -123,4 +124,24 @@ it("applies a theme in place, and the default palette is unchanged", () => {
   expect(theme.colors.background).toBe("#fbf1c7");
   applyTheme("dark");
   expect(theme.colors.background).toBe("#282828");
+});
+
+it("lists every theme with its label and swatches for the settings panel", () => {
+  const view = settingsView({ path: "settings.json", theme: "light" });
+  expect(view).toMatchObject({
+    label: "Light",
+    path: "settings.json",
+    theme: "light",
+  });
+  expect(view.themes.map(({ name }) => name)).toEqual(THEME_NAMES);
+  const { colors } = terminalTheme("light");
+  expect(view.themes[1]).toEqual({
+    label: "Light",
+    name: "light",
+    swatches: {
+      accent: colors.accent,
+      background: colors.background,
+      primary: colors.primary,
+    },
+  });
 });

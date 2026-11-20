@@ -1,4 +1,3 @@
-import { feedKey } from "~/cli/state/feed-model";
 import { FeedMetaLine, isPending } from "~/components/blocks/feed-meta";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
@@ -7,23 +6,31 @@ import { theme } from "~/components/ui/theme";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { EmptyState } from "./empty-state";
 
-function FeedRow({
-  entry,
-  selected,
+export interface FeedItem {
+  readonly entry: FeedEntrySnapshot;
+  readonly key: string;
+}
+
+export interface FeedRow extends FeedItem {
+  readonly selected: boolean;
+}
+
+function FeedListRow({
+  row,
   showWorkspace,
   onSelect,
 }: {
-  readonly entry: FeedEntrySnapshot;
-  readonly selected: boolean;
+  readonly row: FeedRow;
   readonly showWorkspace: boolean;
   readonly onSelect: (entry: FeedEntrySnapshot) => void;
 }) {
+  const { entry } = row;
   const pending = isPending(entry);
   return (
     <SelectableRow
-      id={`feed:${feedKey(entry)}`}
+      id={`feed:${row.key}`}
       onSelect={onSelect}
-      selected={selected}
+      selected={row.selected}
       value={entry}
     >
       <box
@@ -59,16 +66,16 @@ function FeedRow({
 }
 
 export function FeedList({
-  entries,
-  selected,
+  rows,
+  selectedKey,
   active,
   scopeLabel,
   filtered,
   onSelect,
   onReset,
 }: {
-  readonly entries: readonly FeedEntrySnapshot[];
-  readonly selected?: FeedEntrySnapshot;
+  readonly rows: readonly FeedRow[];
+  readonly selectedKey?: string;
   readonly active: boolean;
   readonly scopeLabel: string;
   readonly filtered: boolean;
@@ -78,12 +85,12 @@ export function FeedList({
   return (
     <Panel
       active={active}
-      borderHint={entries.length > 0 ? " ↑↓ select · Enter read " : undefined}
+      borderHint={rows.length > 0 ? " ↑↓ select · Enter read " : undefined}
       id="panel:feed"
-      selectedId={selected && `feed:${feedKey(selected)}`}
+      selectedId={selectedKey === undefined ? undefined : `feed:${selectedKey}`}
       title={`Feed · ${scopeLabel}`}
     >
-      {entries.length === 0 && (
+      {rows.length === 0 && (
         <EmptyState
           description={
             filtered
@@ -94,14 +101,11 @@ export function FeedList({
           {...(filtered ? { onReset } : {})}
         />
       )}
-      {entries.map((entry) => (
-        <FeedRow
-          entry={entry}
-          key={feedKey(entry)}
+      {rows.map((row) => (
+        <FeedListRow
+          key={row.key}
           onSelect={onSelect}
-          selected={
-            selected !== undefined && feedKey(entry) === feedKey(selected)
-          }
+          row={row}
           showWorkspace={!filtered}
         />
       ))}

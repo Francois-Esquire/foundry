@@ -1,52 +1,41 @@
-import type {
-  DashboardSelection,
-  HarnessActivitySnapshot,
-  RunSnapshot,
-} from "~/cli/state/dashboard-model";
 import { Action } from "~/components/ui/action";
 import { KeyValue } from "~/components/ui/key-value";
 import { Text } from "~/components/ui/text";
-import { statusDisplay } from "~/model/run-status";
 
-export function ActivityDetails({
+export interface Fact {
+  readonly key: string;
+  readonly value: string;
+}
+
+export interface ActivityView<S> {
+  readonly breadcrumb: { readonly label: string; readonly selection: S };
+  readonly facts: readonly Fact[];
+  readonly summary?: string;
+  readonly title: string;
+  readonly waiting: boolean;
+}
+
+export function ActivityDetails<S>({
   activity,
-  run,
   onInspect,
 }: {
-  readonly activity: HarnessActivitySnapshot;
-  readonly run: RunSnapshot;
-  readonly onInspect: (selection: DashboardSelection) => void;
+  readonly activity: ActivityView<S>;
+  readonly onInspect: (selection: S) => void;
 }) {
   return (
     <box flexDirection="column" gap={1}>
       <Action
         id="breadcrumb:run"
-        label={run.id}
+        label={activity.breadcrumb.label}
         onAction={onInspect}
-        value={{ id: run.id, kind: "run" }}
+        value={activity.breadcrumb.selection}
       />
       <Text>
         <strong>{activity.title}</strong>
       </Text>
-      <KeyValue
-        items={[
-          { key: "Kind", value: activity.kind },
-          { key: "Status", value: statusDisplay(activity).label },
-          { key: "Harness", value: activity.harness },
-          { key: "Agent", value: activity.agentId },
-          { key: "Lifetime", value: activity.lifetime },
-          { key: "Session", value: activity.sessionId },
-          { key: "Activity", value: activity.id },
-          ...(activity.nativeId
-            ? [{ key: "Native ID", value: activity.nativeId }]
-            : []),
-          ...(activity.parentId
-            ? [{ key: "Parent", value: activity.parentId }]
-            : []),
-        ]}
-      />
+      <KeyValue items={activity.facts} />
       {activity.summary && <Text>{activity.summary}</Text>}
-      {activity.attention && <Text>Open the Feed to respond.</Text>}
+      {activity.waiting && <Text>Open the Feed to respond.</Text>}
     </box>
   );
 }

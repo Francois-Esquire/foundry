@@ -1,3 +1,4 @@
+import type { FeedItem, FeedRow } from "~/components/blocks/feed-list";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 
 export const ALL_WORKSPACES = "all";
@@ -6,6 +7,21 @@ export function feedKey(
   entry: Pick<FeedEntrySnapshot, "id" | "workspace">
 ): string {
   return JSON.stringify([entry.workspace.id, entry.id]);
+}
+
+export function feedItem(entry: FeedEntrySnapshot): FeedItem {
+  return { entry, key: feedKey(entry) };
+}
+
+export function feedRows(
+  entries: readonly FeedEntrySnapshot[],
+  selected?: FeedEntrySnapshot
+): FeedRow[] {
+  const selectedKey = selected && feedKey(selected);
+  return entries.map((entry) => {
+    const item = feedItem(entry);
+    return { ...item, selected: item.key === selectedKey };
+  });
 }
 
 export interface FeedScope {

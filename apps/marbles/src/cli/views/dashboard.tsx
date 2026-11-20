@@ -3,7 +3,6 @@ import { type ReactNode, useState } from "react";
 import { DefinitionsBlock, TriggersBlock } from "~/components/blocks/catalog";
 import { CatalogPanels } from "~/components/blocks/catalog-panels";
 import { DashboardMetrics } from "~/components/blocks/dashboard-metrics";
-import { DetailsBlock } from "~/components/blocks/details";
 import { KeyboardHelp } from "~/components/blocks/keyboard-help";
 import { LogsBlock } from "~/components/blocks/logs-panel";
 import {
@@ -14,7 +13,7 @@ import {
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { RunsBlock } from "~/components/blocks/runs";
 import { SettingsBlock } from "~/components/blocks/settings-panel";
-import { ViewTabs } from "~/components/blocks/view-tabs";
+import { type ViewTabItem, ViewTabs } from "~/components/blocks/view-tabs";
 import { WorkspaceHeader } from "~/components/blocks/workspace-header";
 import { WorkspacesPanel } from "~/components/blocks/workspaces-panel";
 import { Action } from "~/components/ui/action";
@@ -22,13 +21,31 @@ import { PanelShortcuts } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
 import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
+import { helpSections } from "../state/dashboard-commands";
+import { dashboardMetrics } from "../state/dashboard-metrics";
 import type { DashboardSnapshot } from "../state/dashboard-model";
-import { isSelected, triggerSelection } from "../state/dashboard-model";
+import {
+  isSelected,
+  selectionKey,
+  triggerSelection,
+} from "../state/dashboard-model";
+import {
+  definitionRows,
+  latestRows,
+  logLines,
+  runListRows,
+  triggerRows,
+  workspaceRows,
+} from "../state/dashboard-rows";
+import type { DashboardViewKey } from "../state/dashboard-state";
 import type { CatalogSelection } from "../state/dashboard-tree";
 import { latestActivity, nextSchedule } from "../state/operating-model";
 import type { RunActions, RunPrompt } from "../state/run-actions";
+import { usageBreakdown } from "../state/usage-format";
 import { type DashboardOptions, useDashboard } from "../state/use-dashboard";
+import { settingsView } from "../theme";
 import { FeedView } from "./feed";
+import { Inspector } from "./inspector";
 import { LaunchView } from "./launch";
 
 function describeFilter(
@@ -50,6 +67,11 @@ const UTILITY_WIDTH = 46;
 const UTILITY_REMAINDER = 68;
 const RAIL_WIDTH = 27;
 const LATEST_ITEMS = 12;
+const VIEW_TABS: readonly ViewTabItem<DashboardViewKey>[] = [
+  { label: "Dashboard", view: "overview" },
+  { label: "Catalog", view: "catalog" },
+  { label: "Feed", view: "feed" },
+];
 
 function DashboardSearch({
   filterLabel,
@@ -169,7 +191,7 @@ function BrowserContent({
   const activePane = ui.inputActive ? undefined : ui.pane;
   const details =
     ui.pane === "details" ? (
-      <DetailsBlock
+      <Inspector
         active={activePane === "details"}
         configuration={state.configuration}
         onFilter={ui.filterRuns}
@@ -189,8 +211,14 @@ function BrowserContent({
     return details;
   }
   if (state.breakdown) {
-    return <UsageBreakdown active={!ui.inputActive} usage={snapshot.usage} />;
+    return (
+      <UsageBreakdown
+        active={!ui.inputActive}
+        usage={snapshot.usage && usageBreakdown(snapshot.usage)}
+      />
+    );
   }
+  const selectedId = state.selected && selectionKey(state.selected);
   if (state.view === "catalog") {
     const catalog = (
       <CatalogPanels
@@ -198,11 +226,11 @@ function BrowserContent({
           <DefinitionsBlock
             active={activePane === "definition"}
             compact={Boolean(details) || width < 75}
-            items={ui.definitions}
+            items={definitionRows(ui.definitions, state.selected)}
             onReset={ui.clearFilters}
             onSelect={ui.inspect}
             searching={state.queries.definition.length > 0}
-            selected={state.selected}
+            selectedId={selectedId}
             workspace={snapshot.workspace}
           />
         }
@@ -210,11 +238,11 @@ function BrowserContent({
           <TriggersBlock
             active={activePane === "trigger"}
             compact={Boolean(details)}
-            items={ui.triggers}
+            items={triggerRows(ui.triggers, state.selected)}
             onReset={ui.clearFilters}
             onSelect={ui.inspect}
             searching={state.queries.trigger.length > 0}
-            selected={state.selected}
+            selectedId={selectedId}
           />
         }
       />
@@ -235,7 +263,11 @@ function BrowserContent({
   const next = nextSchedule(snapshot.triggers);
   return (
     <>
-      <DashboardMetrics height={height} snapshot={snapshot} width={width} />
+      <DashboardMetrics
+        height={height}
+        metrics={dashboardMetrics(snapshot)}
+        width={width}
+      />
       {next && (
         <box flexShrink={0} paddingLeft={1}>
           <Action
@@ -248,7 +280,7 @@ function BrowserContent({
       <OverviewPanels
         latest={
           <LatestBlock
-            items={latestActivity(snapshot, LATEST_ITEMS)}
+            items={latestRows(latestActivity(snapshot, LATEST_ITEMS))}
             onSelect={ui.inspect}
           />
         }
@@ -260,8 +292,8 @@ function BrowserContent({
             onReset={ui.clearFilters}
             onSelect={ui.inspect}
             onToggle={ui.toggle}
-            rows={ui.rows}
-            selected={state.selected}
+            rows={runListRows(ui.rows, state.selected)}
+            selectedId={selectedId}
             triggerCount={snapshot.triggers.length}
           />
         }
@@ -294,7 +326,7 @@ function DashboardDrawer({
         current={snapshot.workspaceId}
         onSelect={ui.chooseWorkspace}
         selected={picker}
-        workspaces={ui.workspaces}
+        workspaces={workspaceRows(ui.workspaces)}
       />
     );
   } else if (right) {
@@ -303,7 +335,7 @@ function DashboardDrawer({
         onRail={ui.workspaces.length ? onRail : undefined}
         onTheme={editable ? ui.changeTheme : undefined}
         rail={rail}
-        settings={snapshot.settings}
+        settings={snapshot.settings && settingsView(snapshot.settings)}
       />
     );
   } else {
@@ -321,9 +353,9 @@ function DashboardDrawer({
         <LogsBlock
           active={!ui.inputActive}
           filters={state.logs}
-          lines={ui.logs}
+          lines={logLines(ui.logs)}
           onSelect={ui.openLog}
-          selected={ui.log}
+          selectedId={ui.log?.id}
           total={ui.logTotal}
         />
       </>
@@ -439,7 +471,7 @@ function DashboardBody({
             current={snapshot.workspaceId}
             onSelect={ui.chooseWorkspace}
             selected={snapshot.workspaceId ?? ""}
-            workspaces={ui.workspaces}
+            workspaces={workspaceRows(ui.workspaces)}
           />
         </box>
       )}
@@ -559,12 +591,12 @@ export function DashboardView({
         justifyContent="space-between"
       >
         <WorkspaceHeader
-          hosted={hosted}
           onHome={ui.goHome}
           onWorkspaces={ui.workspaces.length ? ui.openWorkspaces : undefined}
+          state={hosted?.state}
           workspace={snapshot.workspace}
         />
-        <ViewTabs onChange={ui.setView} view={state.view} />
+        <ViewTabs onChange={ui.setView} tabs={VIEW_TABS} view={state.view} />
       </box>
       {browsing && (
         <DashboardSearch
@@ -577,7 +609,9 @@ export function DashboardView({
           searching={state.searching}
         />
       )}
-      {state.help && <KeyboardHelp active={!ui.quit.quitting} />}
+      {state.help && (
+        <KeyboardHelp active={!ui.quit.quitting} sections={helpSections()} />
+      )}
       {(snapshot.notices ?? []).map((notice) => (
         <Text key={notice}>{notice}</Text>
       ))}

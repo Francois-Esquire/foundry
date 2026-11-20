@@ -45,14 +45,21 @@ schedules, connect to models, or read persisted state.
 
 ## Composition
 
-- `src/components/ui/`: adapted termcn Tabs, Key Value, JSON, Log, Dialog, themed text, and theme, plus panels, selectable rows, actions, and the text input. Nothing in `ui/` imports views or lib.
-- `src/components/blocks/`: kind badges, status labels, catalogs, run tree, inspector, overview, values, logs, help, quit confirmation, workspace header.
+- `src/components/ui/`: adapted termcn Tabs, Key Value, JSON, Log, Dialog, themed text, and the theme singleton, plus panels, selectable rows, actions, and the text input. Nothing in `ui/` imports blocks.
+- `src/components/blocks/`: kind badges, status labels, catalogs, run tree, run inspector, catalog details, activity details, overview, values, logs, help, quit confirmation, workspace header.
+- Components are presentational: props and callbacks in, rendering out. They import React, OpenTUI, other components, and `model/` types (feed and input types from `lib/`), never `cli/`; `test/components-boundary.test.ts` enforces it. Blocks that select take the selection type as a type parameter.
 - `src/cli/views/dashboard.tsx`: layout and host toolbar slot.
+- `src/cli/views/inspector.tsx`: the details panel; picks the inspector block for the resolved selection.
 - `src/cli/views/splash.tsx`: centered loading/ready screen.
 - `src/cli/state/splash-model.ts`: startup state and snapshot counts.
 - `src/cli/state/dashboard-state.ts`: dashboard state (focus, selection, expansion, queries, run filter, launch form) as a pure reducer.
 - `src/cli/state/dashboard-commands.ts`: the one command table behind key handling, the footer, and keyboard help.
 - `src/cli/state/use-dashboard.ts`: wires the reducer and the command table to the renderer.
+- `src/cli/state/dashboard-rows.ts`: display rows for the catalog, run tree, latest, logs, and workspace lists.
+- `src/cli/state/dashboard-metrics.ts`: run counts, success rate, spend, notes, and workflow rankings.
+- `src/cli/state/inspector.ts`: the inspector subject for a resolved selection: titles, facts, breadcrumbs, run logs, and eligible actions.
+- `src/cli/state/run-stream.ts` and `src/cli/hooks/use-run-stream.ts`: read, filter, and buffer a run's live stream.
+- `src/cli/theme.ts`: theme names to palettes, and the settings panel's theme choices.
 - `src/model/run-status.ts`: run status labels and tones, and the settled, active, and paused checks.
 - `src/cli/state/dashboard-tree.ts`: run filtering and visible tree rows.
 - `src/cli/state/dashboard-model.ts`: read-only presentation data and selection resolution.

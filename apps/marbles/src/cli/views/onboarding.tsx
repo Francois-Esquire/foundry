@@ -10,7 +10,12 @@ import { Select } from "~/components/ui/select";
 import { SetupFlow } from "~/components/ui/setup-flow";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import type { InputField, InputValues } from "~/lib/inputs";
+import {
+  type InputField,
+  type InputValues,
+  inputProblem,
+  parseInputs,
+} from "~/lib/inputs";
 import {
   DEFAULT_DRAFT,
   renderModule,
@@ -23,6 +28,8 @@ const SETTINGS: readonly InputField[] = [
   { label: "Step name", name: "name", required: true, type: "text" },
   { label: "Additional instructions", name: "instructions", type: "multiline" },
 ];
+const SETTINGS_PROBLEM = inputProblem(SETTINGS);
+const parseSettings = (values: InputValues) => parseInputs(SETTINGS, values);
 const CHOICES = STARTERS.map((item) => ({
   label: `${item.label} · ${item.description}`,
   value: item.id,
@@ -213,6 +220,8 @@ export function OnboardingView({
             key={draft.template}
             onCancel={back}
             onSubmit={review}
+            parse={parseSettings}
+            problem={SETTINGS_PROBLEM}
             submitLabel="Review module"
           />
         )}

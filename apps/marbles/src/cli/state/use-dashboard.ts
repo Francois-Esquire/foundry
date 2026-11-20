@@ -1,4 +1,3 @@
-import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useMemo, useState } from "react";
 import { useAsyncAction } from "~/cli/hooks/use-async-action";
@@ -7,7 +6,6 @@ import type { WorkspaceState, WorkspaceSummary } from "~/model/connection";
 import type { SettingsChange, ThemeName } from "~/model/settings";
 import {
   type CommandContext,
-  capturesKeys,
   commandFor,
   footer,
   openDiagnostics,
@@ -55,7 +53,6 @@ export interface DashboardOptions {
   readonly onLaunch?: Launcher;
   readonly onRollSchedule?: (key: string) => Promise<void>;
   readonly onSettings?: (changes: SettingsChange) => Promise<void>;
-  readonly onShortcut?: (key: KeyEvent) => void;
   readonly onSwitchWorkspace?: (id: string) => void;
   readonly onWorkspaceRail?: (show: boolean) => void;
   readonly snapshot: DashboardSnapshot;
@@ -85,7 +82,6 @@ export function useDashboard({
   onLaunch,
   onRollSchedule,
   onSettings,
-  onShortcut,
   onSwitchWorkspace,
   onWorkspaceRail,
   workspaceRail,
@@ -199,9 +195,6 @@ export function useDashboard({
       return;
     }
     const command = commandFor(key, context);
-    if (!capturesKeys(context)) {
-      onShortcut?.(key);
-    }
     command?.run(
       {
         ...context,

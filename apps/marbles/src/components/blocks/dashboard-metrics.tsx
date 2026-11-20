@@ -1,20 +1,43 @@
 import type { ReactNode } from "react";
-import type { DashboardSnapshot } from "~/cli/state/dashboard-model";
-import {
-  duration,
-  operatingStats,
-  workflowRankings,
-} from "~/cli/state/operating-model";
-import {
-  costCell,
-  unattributedTurns,
-  unreadableUsageRecords,
-} from "~/cli/state/usage-format";
 import { BarChart } from "~/components/ui/bar-chart";
 import { Panel } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import { CostTag } from "./cost-tag";
+import { CostTag, type CostView } from "./cost-tag";
+
+interface RunCounts {
+  readonly cancelled: number;
+  readonly complete: number;
+  readonly failed: number;
+  readonly queued: number;
+  readonly running: number;
+  readonly waiting: number;
+}
+
+interface SpendRanking {
+  readonly amount: number;
+  readonly cost: CostView;
+  readonly id: string;
+  readonly name: string;
+}
+
+interface ElapsedRanking {
+  readonly id: string;
+  readonly ms: number;
+  readonly name: string;
+  readonly timing: string;
+}
+
+export interface DashboardMetricsView {
+  readonly counts: RunCounts;
+  readonly notes: readonly string[];
+  readonly rankings: {
+    readonly elapsed: readonly ElapsedRanking[];
+    readonly spend: readonly SpendRanking[];
+  };
+  readonly spend: { readonly detail: string; readonly value: string };
+  readonly successRate: string;
+}
 
 interface MetricValue {
   readonly color?: string;
@@ -84,15 +107,15 @@ function Ranking({
 }
 
 function WorkflowRankings({
-  snapshot,
+  rankings,
   limit,
   width,
 }: {
-  readonly snapshot: DashboardSnapshot;
+  readonly rankings: DashboardMetricsView["rankings"];
   readonly limit: number;
   readonly width: number;
 }) {
-  const { elapsed, spend } = workflowRankings(snapshot);
+  const { elapsed, spend } = rankings;
   const chartWidth = Math.floor((width - 1) / 2) - 4;
   return (
     <box flexDirection="row" flexShrink={0} gap={1} height={limit + 3}>
@@ -101,16 +124,13 @@ function WorkflowRankings({
         color={theme.colors.accent}
         empty="No priced workflow usage"
         limit={limit}
-        rows={spend.map(({ id, name, amount, cost }) => {
-          const price = costCell(cost);
-          return {
-            id,
-            label: name,
-            value: amount,
-            valueLabel: <CostTag value={price} />,
-            valueWidth: price.length + 2,
-          };
-        })}
+        rows={spend.map(({ id, name, amount, cost }) => ({
+          id,
+          label: name,
+          value: amount,
+          valueLabel: <CostTag cost={cost} />,
+          valueWidth: cost.value.length + 2,
+        }))}
         title="Workflow spend"
         width={chartWidth}
       />
@@ -119,20 +139,17 @@ function WorkflowRankings({
         color={theme.colors.info}
         empty="No finished workflow runs"
         limit={limit}
-        rows={elapsed.map(({ id, name, ms, runs }) => {
-          const timing = `${duration(ms)} · ${runs} ${runs === 1 ? "run" : "runs"}`;
-          return {
-            id,
-            label: name,
-            value: ms,
-            valueLabel: (
-              <Text fg={theme.colors.info} flexShrink={0} wrapMode="none">
-                {timing}
-              </Text>
-            ),
-            valueWidth: timing.length,
-          };
-        })}
+        rows={elapsed.map(({ id, name, ms, timing }) => ({
+          id,
+          label: name,
+          value: ms,
+          valueLabel: (
+            <Text fg={theme.colors.info} flexShrink={0} wrapMode="none">
+              {timing}
+            </Text>
+          ),
+          valueWidth: timing.length,
+        }))}
         title="Workflow time"
         width={chartWidth}
       />
@@ -140,14 +157,10 @@ function WorkflowRankings({
   );
 }
 
-function metrics(
-  snapshot: DashboardSnapshot,
-  { counts, successRate }: ReturnType<typeof operatingStats>,
+function metricCards(
+  { counts, spend, successRate }: DashboardMetricsView,
   compact: boolean
 ): readonly MetricValue[] {
-  const { total } = snapshot.usage ?? {};
-  const spend = costCell(total);
-  const emptySpend = spend ? "Usage incomplete" : "No usage recorded";
   return [
     {
       color: theme.colors.info,
@@ -172,57 +185,31 @@ function metrics(
         ? `${counts.complete} completed`
         : `${counts.complete} completed · ${counts.cancelled} cancelled`,
       label: "Success rate",
-      value:
-        successRate === undefined ? "—" : `${Math.round(successRate * 100)}%`,
+      value: successRate,
     },
     {
       color: theme.colors.accent,
-      detail:
-        total && total.turns > 0
-          ? `${total.turns} ${total.turns === 1 ? "turn" : "turns"}`
-          : emptySpend,
+      detail: spend.detail,
       label: "Tracked spend",
-      value: spend || "—",
+      value: spend.value,
     },
   ];
 }
 
 export function DashboardMetrics({
-  snapshot,
+  metrics,
   width,
   height,
 }: {
-  readonly snapshot: DashboardSnapshot;
+  readonly metrics: DashboardMetricsView;
   readonly width: number;
   readonly height: number;
 }) {
   const stacked = width < 68 && height >= 22;
-  const stats = operatingStats(snapshot.runs);
-  const cards = metrics(snapshot, stats, !stacked && width < 106);
+  const cards = metricCards(metrics, !stacked && width < 106);
   const rows = stacked ? [cards.slice(0, 2), cards.slice(2)] : [cards];
   const limit = height >= 30 ? 3 : 2;
-  const { medianRunMs, medianQueueMs } = stats;
-  const { usage } = snapshot;
-  const notes = [
-    ...(medianRunMs === undefined
-      ? []
-      : [`Median run ${duration(medianRunMs)}`]),
-    ...(medianQueueMs === undefined
-      ? []
-      : [`Median wait ${duration(medianQueueMs)}`]),
-    ...(usage?.unreadable
-      ? [`${unreadableUsageRecords(usage.unreadable)}, totals partial`]
-      : []),
-    ...(usage?.recovered
-      ? [`${usage.recovered} turns recovered from transcripts`]
-      : []),
-    ...(usage?.unattributed
-      ? [`${unattributedTurns(usage.unattributed)}`]
-      : []),
-    ...(usage?.unsaved
-      ? [`${usage.unsaved} unsaved turn${usage.unsaved === 1 ? "" : "s"}`]
-      : []),
-  ];
+  const { notes } = metrics;
   return (
     <box
       flexDirection="column"
@@ -243,7 +230,11 @@ export function DashboardMetrics({
         </text>
       )}
       {width >= 64 && height >= 22 && (
-        <WorkflowRankings limit={limit} snapshot={snapshot} width={width} />
+        <WorkflowRankings
+          limit={limit}
+          rankings={metrics.rankings}
+          width={width}
+        />
       )}
     </box>
   );

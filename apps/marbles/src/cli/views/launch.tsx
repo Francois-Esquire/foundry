@@ -7,9 +7,41 @@ import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { Action } from "~/components/ui/action";
 import { SetupFlow } from "~/components/ui/setup-flow";
 import { Text } from "~/components/ui/text";
-import { type InputValues, inputProblem } from "~/lib/inputs";
+import {
+  type InputField,
+  type InputValues,
+  inputDefaults,
+  inputProblem,
+  parseInputs,
+} from "~/lib/inputs";
 import type { DefinitionSnapshot } from "../state/dashboard-model";
 import type { Launcher } from "../state/run-actions";
+
+function LaunchForm({
+  fields,
+  ...form
+}: {
+  readonly fields: readonly InputField[];
+  readonly active: boolean;
+  readonly busy: boolean;
+  readonly error?: string;
+  readonly onCancel: () => void;
+  readonly onSubmit: (input: InputValues) => void;
+}) {
+  const parse = useCallback(
+    (values: InputValues) => parseInputs(fields, values),
+    [fields]
+  );
+  return (
+    <ArgumentForm
+      {...form}
+      fields={fields}
+      initialValues={inputDefaults(fields)}
+      parse={parse}
+      problem={inputProblem(fields)}
+    />
+  );
+}
 
 export function LaunchView({
   definition,
@@ -72,7 +104,7 @@ export function LaunchView({
           />
         </box>
       ) : (
-        <ArgumentForm
+        <LaunchForm
           active={!quit.quitting}
           busy={launch.busy}
           error={launch.error}

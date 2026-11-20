@@ -1,6 +1,12 @@
 import { expect, it } from "vitest";
-import { costCell, costLabel } from "~/cli/state/usage-format";
-import type { Money, UsageTotal } from "~/model/usage";
+import {
+  costCell,
+  costLabel,
+  costView,
+  tokensLabel,
+  usageBreakdown,
+} from "~/cli/state/usage-format";
+import type { Money, UsageTotal, WorkspaceUsage } from "~/model/usage";
 
 function priced(money: Money, basis: "estimated" | "reported"): UsageTotal {
   return {
@@ -52,5 +58,43 @@ it("keeps a cost that rounds to a shown digit, a true zero, and the two-place fo
   );
   expect(costLabel(priced({ amount: 3, currency: "EUR" }, "estimated"))).toBe(
     "3.00 EUR est."
+  );
+});
+
+it("marks only priced cells as priced", () => {
+  expect(costView("$1.00")).toEqual({ priced: true, value: "$1.00" });
+  expect(costView("cost ?")).toEqual({ priced: false, value: "cost ?" });
+});
+
+it("labels a workspace breakdown and leaves out empty work outside runs", () => {
+  const spent = priced({ amount: 1, currency: "USD" }, "reported");
+  const idle: UsageTotal = {
+    ...spent,
+    reported: [],
+    tokens: { ...spent.tokens, input: 0, output: 0, total: 0 },
+    turns: 0,
+  };
+  const usage: WorkspaceUsage = {
+    byAgent: [{ id: "writer", total: spent }],
+    byWorkflow: [],
+    outsideRuns: idle,
+    recovered: 1,
+    total: spent,
+    unattributed: 2,
+    unreadable: 3,
+    unsaved: 4,
+  };
+  const line = { cost: costLabel(spent), tokens: tokensLabel(spent) };
+  expect(usageBreakdown(usage)).toEqual({
+    byAgent: [{ id: "writer", ...line }],
+    byWorkflow: [],
+    recovered: 1,
+    total: line,
+    unattributed: 2,
+    unreadable: 3,
+    unsaved: 4,
+  });
+  expect(usageBreakdown({ ...usage, outsideRuns: spent }).outsideRuns).toBe(
+    costLabel(spent)
   );
 });

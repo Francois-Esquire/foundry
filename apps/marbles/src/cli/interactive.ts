@@ -3,7 +3,7 @@ import { openDashboard } from "~/cli/app";
 import type { Flags } from "~/cli/args";
 import { loadSettings, saveSettings, settingsPath } from "~/cli/settings";
 import type { HostedWorkspace } from "~/cli/state/use-dashboard";
-import { applyTheme } from "~/components/ui/theme";
+import { applyTheme } from "~/cli/theme";
 import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import type { WorkspaceConnection, WorkspaceSummary } from "~/model/connection";

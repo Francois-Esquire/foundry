@@ -8,6 +8,12 @@ import { DashboardView } from "../src/cli/views/dashboard";
 import { OnboardingView } from "../src/cli/views/onboarding";
 import { WorkspaceWelcome } from "../src/cli/views/onboarding-intro";
 import { ArgumentForm } from "../src/components/blocks/argument-form";
+import {
+  type InputField,
+  type InputValues,
+  inputDefaults,
+  parseInputs,
+} from "../src/lib/inputs";
 import type { SetupDraft } from "../src/workspace/templates";
 
 let ui: Awaited<ReturnType<typeof testRender>>;
@@ -238,28 +244,32 @@ test("forms validate fields, keep false and zero, and isolate input shortcuts", 
   const submit = (value: unknown) => {
     submitted = value;
   };
+  const fields: readonly InputField[] = [
+    { label: "Name", name: "name", required: true, type: "text" },
+    {
+      default: "one\ntwo",
+      label: "Notes",
+      name: "notes",
+      type: "multiline",
+    },
+    { default: 0, label: "Count", name: "count", type: "number" },
+    { default: false, label: "Enabled", name: "enabled", type: "boolean" },
+    {
+      default: "fast",
+      label: "Mode",
+      name: "mode",
+      options: [{ label: "Fast", value: "fast" }],
+      type: "select",
+    },
+  ];
+  const parse = (values: InputValues) => parseInputs(fields, values);
   ui = await testRender(
     <ArgumentForm
-      fields={[
-        { label: "Name", name: "name", required: true, type: "text" },
-        {
-          default: "one\ntwo",
-          label: "Notes",
-          name: "notes",
-          type: "multiline",
-        },
-        { default: 0, label: "Count", name: "count", type: "number" },
-        { default: false, label: "Enabled", name: "enabled", type: "boolean" },
-        {
-          default: "fast",
-          label: "Mode",
-          name: "mode",
-          options: [{ label: "Fast", value: "fast" }],
-          type: "select",
-        },
-      ]}
+      fields={fields}
+      initialValues={inputDefaults(fields)}
       onCancel={noop}
       onSubmit={submit}
+      parse={parse}
     />,
     { exitOnCtrlC: false, height: 35, kittyKeyboard: true, width: 80 }
   );

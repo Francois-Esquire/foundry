@@ -450,6 +450,14 @@ source watcher digests them too. The workspace root stays above `.foundry`.
 
 The dashboard's keys, footer, and keyboard help come from one command table
 (`cli/state/dashboard-commands.ts`), and its state changes in a pure reducer
-(`cli/state/dashboard-state.ts`). `src/components/ui/` holds primitives that
-import nothing from `cli/`, lib, or blocks; `src/components/blocks/` holds the
-domain components.
+(`cli/state/dashboard-state.ts`). `src/components/` is presentational: props
+and callbacks in, rendering out. It imports React, `@opentui/*`, other
+components, and types from `model/` (from `lib/` only where `model/` has none),
+and nothing from `cli/`; `test/components-boundary.test.ts` holds it there.
+Lookups, filtering, selection, statistics, eligibility, and usage formatting
+live in `cli/state/` and `cli/views/`, which hand components ready rows:
+`dashboard-rows.ts`, `dashboard-metrics.ts`, `inspector.ts` (with
+`views/inspector.tsx`), and `cli/hooks/use-run-stream.ts`; `cli/theme.ts`
+resolves theme names to palettes. `src/components/ui/` holds primitives that
+import nothing from blocks; `src/components/blocks/` holds the domain
+components.

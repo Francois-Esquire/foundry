@@ -1,9 +1,24 @@
-import type { LogsState } from "~/cli/state/dashboard-state";
-import type { OperatingLogEntry } from "~/cli/state/operating-model";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
+import type { LogEntry } from "~/model/log";
+
+export interface LogLine<T> {
+  readonly entry: T;
+  readonly id: string;
+  readonly level: LogEntry["level"];
+  readonly location: string;
+  readonly message: string;
+  readonly timestamp: string;
+}
+
+interface LogFilterSummary {
+  readonly follow: boolean;
+  readonly level: string;
+  readonly query: string;
+  readonly source: string;
+}
 
 function shown(timestamp: string): string {
   const parsed = Date.parse(timestamp);
@@ -12,30 +27,20 @@ function shown(timestamp: string): string {
     : timestamp;
 }
 
-function where(entry: OperatingLogEntry): string {
-  if (entry.source === "host") {
-    return "marbles";
-  }
-  if (entry.setup) {
-    return `${entry.runId ?? ""} setup`;
-  }
-  return entry.stepId ? `${entry.runId} ${entry.stepId}` : (entry.runId ?? "");
-}
-
-export function LogsBlock({
+export function LogsBlock<T>({
   active,
   lines,
   total,
   filters,
-  selected,
+  selectedId,
   onSelect,
 }: {
   readonly active: boolean;
-  readonly lines: readonly OperatingLogEntry[];
+  readonly lines: readonly LogLine<T>[];
   readonly total: number;
-  readonly filters: LogsState;
-  readonly selected?: OperatingLogEntry;
-  readonly onSelect: (entry: OperatingLogEntry) => void;
+  readonly filters: LogFilterSummary;
+  readonly selectedId?: string;
+  readonly onSelect: (entry: T) => void;
 }) {
   const colors = {
     debug: theme.colors.mutedForeground,
@@ -56,7 +61,7 @@ export function LogsBlock({
       <Panel
         active={active}
         id="panel:logs"
-        selectedId={selected && `log:${selected.id}`}
+        selectedId={selectedId === undefined ? undefined : `log:${selectedId}`}
         title="Logs · runs and Marbles"
       >
         {lines.length === 0 && (
@@ -66,32 +71,32 @@ export function LogsBlock({
               : "No lines match these filters."}
           </Text>
         )}
-        {lines.map((entry) => (
+        {lines.map((line) => (
           <SelectableRow
-            id={`log:${entry.id}`}
-            key={entry.id}
+            id={`log:${line.id}`}
+            key={line.id}
             onSelect={onSelect}
-            selected={selected?.id === entry.id}
-            value={entry}
+            selected={selectedId === line.id}
+            value={line.entry}
           >
             <text
               fg={theme.colors.mutedForeground}
               flexShrink={0}
               wrapMode="none"
             >
-              {shown(entry.timestamp)}
+              {shown(line.timestamp)}
             </text>
-            <text fg={colors[entry.level]} flexShrink={0} wrapMode="none">
-              [{entry.level}]
+            <text fg={colors[line.level]} flexShrink={0} wrapMode="none">
+              [{line.level}]
             </text>
             <text
               fg={theme.colors.mutedForeground}
               flexShrink={0}
               wrapMode="none"
             >
-              {where(entry)}
+              {line.location}
             </text>
-            <Text>{entry.message}</Text>
+            <Text>{line.message}</Text>
           </SelectableRow>
         ))}
       </Panel>

@@ -6,13 +6,12 @@ import { Select } from "~/components/ui/select";
 import { useFormFocus } from "~/components/ui/setup-flow";
 import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
-import {
-  type InputField,
-  type InputValues,
-  inputDefaults,
-  inputProblem,
-  parseInputs,
-} from "~/lib/inputs";
+import type { InputField, InputValues } from "~/lib/inputs";
+
+export interface ParsedInputs {
+  readonly errors: Record<string, string>;
+  readonly input: InputValues;
+}
 
 function Field({
   field,
@@ -85,6 +84,8 @@ function Field({
 export function ArgumentForm({
   fields,
   initialValues,
+  problem,
+  parse,
   onSubmit,
   onCancel,
   submitLabel = "Launch",
@@ -93,7 +94,9 @@ export function ArgumentForm({
   active = true,
 }: {
   readonly fields: readonly InputField[];
-  readonly initialValues?: InputValues;
+  readonly initialValues: InputValues;
+  readonly problem?: string;
+  readonly parse: (values: InputValues) => ParsedInputs;
   readonly onSubmit: (input: InputValues) => void;
   readonly onCancel: () => void;
   readonly submitLabel?: string;
@@ -101,9 +104,7 @@ export function ArgumentForm({
   readonly error?: string;
   readonly active?: boolean;
 }) {
-  const [values, setValues] = useState(
-    () => initialValues ?? inputDefaults(fields)
-  );
+  const [values, setValues] = useState(initialValues);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [focus, setFocus] = useState(0);
   useFormFocus(
@@ -111,17 +112,16 @@ export function ArgumentForm({
       ? `field:${fields[focus]?.name}`
       : `form:${focus === fields.length ? "submit" : "cancel"}`
   );
-  const problem = inputProblem(fields);
   const submit = useCallback(() => {
     if (busy || !active || problem) {
       return;
     }
-    const parsed = parseInputs(fields, values);
+    const parsed = parse(values);
     setErrors(parsed.errors);
     if (Object.keys(parsed.errors).length === 0) {
       onSubmit(parsed.input);
     }
-  }, [active, busy, fields, onSubmit, problem, values]);
+  }, [active, busy, parse, onSubmit, problem, values]);
   const cancel = useCallback(() => {
     if (!busy && active) {
       onCancel();

@@ -1,4 +1,3 @@
-import type { KeyEvent } from "@opentui/core";
 import { afterEach, expect, test } from "vitest";
 import { selectionKey } from "../src/cli/state/dashboard-model";
 import { DashboardView } from "../src/cli/views/dashboard";
@@ -109,27 +108,4 @@ test("quit controls remain visible in a narrow short terminal", async () => {
   expect(frame).toContain("Ctrl+C quit");
   await click(ui, "dialog:cancel");
   expect(ui.captureCharFrame()).not.toContain("Quit Marbles?");
-});
-
-test("host shortcuts are blocked while the quit dialog is open", async () => {
-  const shortcuts: string[] = [];
-  const shortcut = (key: KeyEvent) => {
-    shortcuts.push(key.sequence);
-  };
-  const ui = await mount(
-    <DashboardView
-      onClose={close}
-      onShortcut={shortcut}
-      snapshot={dashboardSnapshot}
-    />
-  );
-  const before = ui.captureCharFrame();
-  await press(ui, "q");
-  await press(ui, "]");
-  await press(ui, "n");
-  await press(ui, "ESCAPE");
-  expect(ui.captureCharFrame()).toBe(before);
-  expect(shortcuts).toEqual(["q"]);
-  await press(ui, "]");
-  expect(shortcuts).toEqual(["q", "]"]);
 });

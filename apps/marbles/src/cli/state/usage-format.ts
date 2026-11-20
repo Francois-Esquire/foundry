@@ -1,5 +1,17 @@
-import type { Money, UsageTotal } from "~/model/usage";
+import type { CostView } from "~/components/blocks/cost-tag";
+import type {
+  UsageBreakdownView,
+  UsageGroupLine,
+  UsageLine,
+} from "~/components/blocks/operating-overview";
+import type {
+  Money,
+  UsageGroup,
+  UsageTotal,
+  WorkspaceUsage,
+} from "~/model/usage";
 
+const NO_USAGE = "no usage recorded";
 const SMALL = 1;
 const THOUSAND = 1000;
 const MILLION = 1_000_000;
@@ -87,7 +99,7 @@ function pricedLabel(total: UsageTotal): string {
 
 export function costLabel(total: UsageTotal | undefined): string {
   if (!total || isEmpty(total)) {
-    return "no usage recorded";
+    return NO_USAGE;
   }
   if (total.turns === 0) {
     return `unknown · ${elsewhere(total)} may belong here`;
@@ -107,7 +119,7 @@ function count(value: number): string {
 
 export function tokensLabel(total: UsageTotal | undefined): string {
   if (!total || isEmpty(total)) {
-    return "no usage recorded";
+    return NO_USAGE;
   }
   if (total.turns === 0) {
     return `tokens unknown · ${elsewhere(total)} may belong here`;
@@ -127,7 +139,7 @@ export function tokensLabel(total: UsageTotal | undefined): string {
   return `${count(tokens.total)} tokens (${count(tokens.input)} in · ${count(tokens.output)} out) · ${turns}${suffix}`;
 }
 
-export const UNPRICED_COST_CELL = "cost ?";
+const UNPRICED_COST_CELL = "cost ?";
 
 export function costCell(total: UsageTotal | undefined): string {
   if (!total || isEmpty(total)) {
@@ -143,4 +155,30 @@ export function costCell(total: UsageTotal | undefined): string {
   const incomplete =
     total.unpriced > 0 || total.missing > 0 || hasElsewhere(total);
   return `${parts.join("+")}${incomplete ? "+?" : ""}`;
+}
+
+export function costView(value: string): CostView {
+  return { priced: value !== UNPRICED_COST_CELL, value };
+}
+
+function usageLine(total: UsageTotal): UsageLine {
+  return { cost: costLabel(total), tokens: tokensLabel(total) };
+}
+
+function groupLine({ id, total }: UsageGroup): UsageGroupLine {
+  return { id, ...usageLine(total) };
+}
+
+export function usageBreakdown(usage: WorkspaceUsage): UsageBreakdownView {
+  const outsideRuns = costLabel(usage.outsideRuns);
+  return {
+    byAgent: usage.byAgent.map(groupLine),
+    byWorkflow: usage.byWorkflow.map(groupLine),
+    ...(outsideRuns === NO_USAGE ? {} : { outsideRuns }),
+    recovered: usage.recovered,
+    total: usageLine(usage.total),
+    unattributed: usage.unattributed,
+    unreadable: usage.unreadable,
+    unsaved: usage.unsaved,
+  };
 }

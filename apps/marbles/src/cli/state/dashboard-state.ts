@@ -48,7 +48,7 @@ type UtilityView = Extract<DashboardViewKey, "logs" | "settings">;
 type PrimaryView = Exclude<DashboardViewKey, UtilityView>;
 export type BrowserView = Extract<DashboardViewKey, "overview" | "catalog">;
 
-export interface LogsState extends LogFilter {
+interface LogsState extends LogFilter {
   readonly follow: boolean;
   readonly selected?: string;
 }

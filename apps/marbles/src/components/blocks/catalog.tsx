@@ -1,44 +1,55 @@
-import {
-  type DashboardSelection,
-  type DefinitionSnapshot,
-  isSelected,
-  selectionKey,
-  type TriggerSnapshot,
-  triggerSelection,
-} from "~/cli/state/dashboard-model";
 import { KindBadge } from "~/components/blocks/kind-badge";
-import { StatusLabel } from "~/components/blocks/status-label";
+import { StatusLabel, type StatusView } from "~/components/blocks/status-label";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
+import type { ItemKind } from "~/model/dashboard";
 import { EmptyState } from "./empty-state";
 
-interface CatalogProps {
+interface CatalogRow<S> {
+  readonly id: string;
+  readonly key: string;
+  readonly kind: ItemKind;
+  readonly name: string;
+  readonly selected: boolean;
+  readonly selection: S;
+}
+
+export interface TriggerRow<S> extends CatalogRow<S> {
+  readonly detail: string;
+  readonly status: StatusView;
+}
+
+export interface DefinitionRow<S> extends CatalogRow<S> {
+  readonly origin?: string;
+}
+
+interface CatalogProps<S> {
   readonly active: boolean;
   readonly compact?: boolean;
   readonly onReset?: () => void;
-  readonly onSelect: (selection: DashboardSelection) => void;
+  readonly onSelect: (selection: S) => void;
   readonly searching?: boolean;
-  readonly selected?: DashboardSelection;
+  readonly selectedId?: string;
 }
 
-export function TriggersBlock({
+export function TriggersBlock<S>({
   items,
-  selected,
+  selectedId,
   active,
   onSelect,
   searching,
   onReset,
   compact,
-}: CatalogProps & {
-  readonly items: readonly TriggerSnapshot[];
+}: CatalogProps<S> & {
+  readonly items: readonly TriggerRow<S>[];
 }) {
   return (
     <Panel
       active={active}
       id="panel:trigger"
-      selectedId={selected && selectionKey(selected)}
+      selectedId={selectedId}
       title="1 Triggers"
     >
       {items.length === 0 && (
@@ -56,11 +67,11 @@ export function TriggersBlock({
       )}
       {items.map((item) => (
         <SelectableRow
-          id={rowId(item)}
-          key={selectionKey(triggerSelection(item))}
+          id={item.id}
+          key={item.key}
           onSelect={onSelect}
-          selected={selected?.kind === "trigger" && isSelected(item, selected)}
-          value={triggerSelection(item)}
+          selected={item.selected}
+          value={item.selection}
         >
           <box flexDirection="row" flexGrow={1} gap={1} height={1} minWidth={0}>
             <KindBadge kind={item.kind} />
@@ -73,7 +84,7 @@ export function TriggersBlock({
               {item.name}
             </Text>
             <box flexShrink={0}>
-              <StatusLabel item={item} />
+              <StatusLabel status={item.status} />
             </box>
             {!compact && (
               <text
@@ -83,7 +94,7 @@ export function TriggersBlock({
                 truncate
                 wrapMode="none"
               >
-                {item.next ? `Next: ${item.next}` : item.description}
+                {item.detail}
               </text>
             )}
           </box>
@@ -93,24 +104,24 @@ export function TriggersBlock({
   );
 }
 
-export function DefinitionsBlock({
+export function DefinitionsBlock<S>({
   items,
-  selected,
+  selectedId,
   active,
   onSelect,
   searching,
   onReset,
   workspace,
   compact,
-}: CatalogProps & {
-  readonly items: readonly DefinitionSnapshot[];
+}: CatalogProps<S> & {
+  readonly items: readonly DefinitionRow<S>[];
   readonly workspace: string;
 }) {
   return (
     <Panel
       active={active}
       id="panel:definition"
-      selectedId={selected && selectionKey(selected)}
+      selectedId={selectedId}
       title={
         compact ? "2 Marbles" : `2 Marbles · workflows & steps in ${workspace}`
       }
@@ -132,34 +143,28 @@ export function DefinitionsBlock({
       )}
       {items.map((item) => (
         <SelectableRow
-          id={`definition:${item.id}`}
-          key={item.id}
+          id={item.id}
+          key={item.key}
           onSelect={onSelect}
-          selected={selected?.kind === "definition" && selected.id === item.id}
-          value={{ id: item.id, kind: "definition" }}
+          selected={item.selected}
+          value={item.selection}
         >
           <KindBadge kind={item.kind} />
           <Text minWidth={0} truncate wrapMode="none">
             {item.name}
           </Text>
-          {!compact && item.origin && (
+          {!compact && item.origin !== undefined && (
             <text
               fg={theme.colors.mutedForeground}
               minWidth={0}
               truncate
               wrapMode="none"
             >
-              {item.origin.external ? "outside workspace" : item.origin.source}
+              {item.origin}
             </text>
           )}
         </SelectableRow>
       ))}
     </Panel>
   );
-}
-
-function rowId(item: TriggerSnapshot): string {
-  return item.workspace === undefined
-    ? `trigger:${item.id}`
-    : `trigger:${selectionKey(triggerSelection(item))}`;
 }

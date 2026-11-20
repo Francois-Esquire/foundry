@@ -1,17 +1,21 @@
 import { useCallback } from "react";
-import type { DashboardViewKey } from "~/cli/state/dashboard-state";
 import { theme } from "~/components/ui/theme";
 
-function ViewTab({
+export interface ViewTabItem<V extends string> {
+  readonly label: string;
+  readonly view: V;
+}
+
+function ViewTab<V extends string>({
   view,
   label,
   active,
   onChange,
 }: {
-  readonly view: DashboardViewKey;
+  readonly view: V;
   readonly label: string;
   readonly active: boolean;
-  readonly onChange: (view: DashboardViewKey) => void;
+  readonly onChange: (view: V) => void;
 }) {
   const press = useCallback(() => onChange(view), [onChange, view]);
   return (
@@ -30,18 +34,15 @@ function ViewTab({
   );
 }
 
-export function ViewTabs({
+export function ViewTabs<V extends string>({
+  tabs,
   view,
   onChange,
 }: {
-  readonly view: DashboardViewKey;
-  readonly onChange: (view: DashboardViewKey) => void;
+  readonly tabs: readonly ViewTabItem<V>[];
+  readonly view: V;
+  readonly onChange: (view: V) => void;
 }) {
-  const tabs = [
-    { label: "Dashboard", view: "overview" },
-    { label: "Catalog", view: "catalog" },
-    { label: "Feed", view: "feed" },
-  ] as const;
   return (
     <box flexDirection="row" flexShrink={0} gap={3} height={1}>
       {tabs.map((tab) => (

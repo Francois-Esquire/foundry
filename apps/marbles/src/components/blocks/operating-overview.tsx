@@ -1,26 +1,48 @@
 import type { ReactNode } from "react";
-import type { DashboardSelection } from "~/cli/state/dashboard-model";
-import { runSelection } from "~/cli/state/dashboard-model";
-import type { LatestItem } from "~/cli/state/operating-model";
-import { costLabel, tokensLabel } from "~/cli/state/usage-format";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
-import type { UsageGroup, WorkspaceUsage } from "~/model/usage";
 
-export function LatestBlock({
+export interface LatestRow<S> {
+  readonly at: number;
+  readonly id: string;
+  readonly selection?: S;
+  readonly text: string;
+}
+
+export interface UsageLine {
+  readonly cost: string;
+  readonly tokens: string;
+}
+
+export interface UsageGroupLine extends UsageLine {
+  readonly id: string;
+}
+
+export interface UsageBreakdownView {
+  readonly byAgent: readonly UsageGroupLine[];
+  readonly byWorkflow: readonly UsageGroupLine[];
+  readonly outsideRuns?: string;
+  readonly recovered: number;
+  readonly total: UsageLine;
+  readonly unattributed: number;
+  readonly unreadable: number;
+  readonly unsaved: number;
+}
+
+export function LatestBlock<S>({
   items,
   onSelect,
 }: {
-  readonly items: readonly LatestItem[];
-  readonly onSelect: (selection: DashboardSelection) => void;
+  readonly items: readonly LatestRow<S>[];
+  readonly onSelect: (selection: S) => void;
 }) {
   return (
     <Panel id="panel:latest" title="Latest">
       {items.length === 0 && <Text>Nothing has happened yet.</Text>}
       {items.map((item) =>
-        item.run === undefined ? (
+        item.selection === undefined ? (
           <Text key={item.id}>{item.text}</Text>
         ) : (
           <SelectableRow
@@ -28,7 +50,7 @@ export function LatestBlock({
             key={item.id}
             onSelect={onSelect}
             selected={false}
-            value={runSelection(item.run)}
+            value={item.selection}
           >
             <text
               fg={theme.colors.mutedForeground}
@@ -56,7 +78,7 @@ function BreakdownRows({
   groups,
 }: {
   readonly title: string;
-  readonly groups: readonly UsageGroup[];
+  readonly groups: readonly UsageGroupLine[];
 }) {
   return (
     <box flexDirection="column" flexShrink={0}>
@@ -67,11 +89,11 @@ function BreakdownRows({
       {groups.map((group) => (
         <box flexDirection="column" flexShrink={0} key={group.id}>
           <Text>
-            {group.id}: {costLabel(group.total)}
+            {group.id}: {group.cost}
           </Text>
           <text fg={theme.colors.mutedForeground}>
             {"  "}
-            {tokensLabel(group.total)}
+            {group.tokens}
           </text>
         </box>
       ))}
@@ -84,7 +106,7 @@ export function UsageBreakdown({
   usage,
 }: {
   readonly active: boolean;
-  readonly usage?: WorkspaceUsage;
+  readonly usage?: UsageBreakdownView;
 }) {
   return (
     <Panel
@@ -96,13 +118,13 @@ export function UsageBreakdown({
       {usage ? (
         <box flexDirection="column" gap={1}>
           <box flexDirection="column" flexShrink={0}>
-            <Text>Workspace: {costLabel(usage.total)}</Text>
+            <Text>Workspace: {usage.total.cost}</Text>
             <text fg={theme.colors.mutedForeground}>
               {"  "}
-              {tokensLabel(usage.total)}
+              {usage.total.tokens}
             </text>
-            {costLabel(usage.outsideRuns) !== "no usage recorded" && (
-              <Text>Outside runs: {costLabel(usage.outsideRuns)}</Text>
+            {usage.outsideRuns !== undefined && (
+              <Text>Outside runs: {usage.outsideRuns}</Text>
             )}
             {usage.unreadable > 0 && (
               <text fg={theme.colors.warning}>

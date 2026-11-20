@@ -1,6 +1,11 @@
 import { FeedList } from "~/components/blocks/feed-list";
 import { FeedReader } from "~/components/blocks/feed-reader";
-import { ALL_WORKSPACES } from "../state/feed-model";
+import {
+  ALL_WORKSPACES,
+  feedItem,
+  feedKey,
+  feedRows,
+} from "../state/feed-model";
 import type { FeedState } from "../state/use-feed";
 
 const LIST_SHARE = 0.38;
@@ -25,19 +30,19 @@ export function FeedView({
   const list = (
     <FeedList
       active={!inputActive && feed.focus === "list"}
-      entries={feed.visible}
       filtered={feed.scope.id !== ALL_WORKSPACES}
       onReset={feed.resetScope}
       onSelect={feed.select}
+      rows={feedRows(feed.visible, feed.selected)}
       scopeLabel={feed.scope.label}
-      selected={feed.selected}
+      selectedKey={feed.selected && feedKey(feed.selected)}
     />
   );
   const reader = (
     <FeedReader
       active={!inputActive && feed.focus === "reader"}
       answer={feed.answer}
-      entry={feed.selected}
+      selected={feed.selected && feedItem(feed.selected)}
     />
   );
   return (

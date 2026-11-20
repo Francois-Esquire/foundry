@@ -1,20 +1,30 @@
-import {
-  type DashboardSelection,
-  selectionKey,
-} from "~/cli/state/dashboard-model";
-import type { RunRow } from "~/cli/state/dashboard-tree";
 import { KindBadge } from "~/components/blocks/kind-badge";
-import { StatusLabel } from "~/components/blocks/status-label";
+import { StatusLabel, type StatusView } from "~/components/blocks/status-label";
 import { Action } from "~/components/ui/action";
 import { Panel } from "~/components/ui/panel";
 import { SelectableRow } from "~/components/ui/selectable-row";
 import { Text } from "~/components/ui/text";
-import { CostTag } from "./cost-tag";
+import { CostTag, type CostView } from "./cost-tag";
 import { EmptyState } from "./empty-state";
 
-export function RunsBlock({
+export interface RunListRow<S> {
+  readonly branch: boolean;
+  readonly cost?: CostView;
+  readonly depth: number;
+  readonly elapsed: string;
+  readonly expanded: boolean;
+  readonly key: string;
+  readonly name: string;
+  readonly runId?: string;
+  readonly selected: boolean;
+  readonly selection: S;
+  readonly status: StatusView;
+  readonly step: boolean;
+}
+
+export function RunsBlock<S>({
   rows,
-  selected,
+  selectedId,
   active,
   onSelect,
   onToggle,
@@ -23,11 +33,11 @@ export function RunsBlock({
   triggerCount = 0,
   onReset,
 }: {
-  readonly rows: readonly RunRow[];
-  readonly selected?: DashboardSelection;
+  readonly rows: readonly RunListRow<S>[];
+  readonly selectedId?: string;
   readonly active: boolean;
-  readonly onSelect: (selection: DashboardSelection) => void;
-  readonly onToggle: (selection: DashboardSelection) => void;
+  readonly onSelect: (selection: S) => void;
+  readonly onToggle: (selection: S) => void;
   readonly filterLabel?: string;
   readonly filtered: boolean;
   readonly triggerCount?: number;
@@ -40,7 +50,7 @@ export function RunsBlock({
     <Panel
       active={active}
       id="panel:run"
-      selectedId={selected && selectionKey(selected)}
+      selectedId={selectedId}
       title={filterLabel ? `3 Runs · ${filterLabel}` : "3 Runs"}
     >
       {rows.length === 0 && (
@@ -59,18 +69,15 @@ export function RunsBlock({
       {rows.map((row) => (
         <SelectableRow
           depth={row.depth}
-          id={selectionKey(row.selection)}
-          key={selectionKey(row.selection)}
+          id={row.key}
+          key={row.key}
           onSelect={onSelect}
-          selected={
-            selected !== undefined &&
-            selectionKey(selected) === selectionKey(row.selection)
-          }
+          selected={row.selected}
           value={row.selection}
         >
           {row.branch ? (
             <Action
-              id={`expand:${selectionKey(row.selection)}`}
+              id={`expand:${row.key}`}
               label={row.expanded ? "▾" : "▸"}
               onAction={onToggle}
               value={row.selection}
@@ -78,14 +85,12 @@ export function RunsBlock({
           ) : (
             <Text>·</Text>
           )}
-          {row.depth > 0 &&
-            row.selection.kind === "run" &&
-            row.selection.activityId === undefined && <KindBadge kind="step" />}
+          {row.step && <KindBadge kind="step" />}
           <Text>{row.name}</Text>
-          <StatusLabel item={row} />
+          <StatusLabel status={row.status} />
           <Text>{row.elapsed}</Text>
-          {row.cost && <CostTag value={row.cost} />}
-          {row.depth === 0 && <Text>· {row.selection.id}</Text>}
+          {row.cost && <CostTag cost={row.cost} />}
+          {row.runId !== undefined && <Text>· {row.runId}</Text>}
         </SelectableRow>
       ))}
     </Panel>

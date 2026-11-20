@@ -11,7 +11,6 @@ export type {
   DashboardSnapshot,
   DefinitionSnapshot,
   HarnessActivitySnapshot,
-  ItemKind,
   RunSnapshot,
   StepSnapshot,
   TriggerSnapshot,

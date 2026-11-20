@@ -1,7 +1,5 @@
 import { SyntaxStyle } from "@opentui/core";
 import { useCallback, useEffect, useMemo } from "react";
-import { feedKey } from "~/cli/state/feed-model";
-import type { AnswerState } from "~/cli/state/use-feed";
 import { FeedMetaLine } from "~/components/blocks/feed-meta";
 import { Action } from "~/components/ui/action";
 import { Panel } from "~/components/ui/panel";
@@ -10,6 +8,19 @@ import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
 import type { FeedEntrySnapshot, FeedMediaSnapshot } from "~/lib/feed/read";
 import { EmptyState } from "./empty-state";
+import type { FeedItem } from "./feed-list";
+
+export interface AnswerControls {
+  readonly choose: (choice: string) => void;
+  readonly choosing?: string;
+  readonly draft: string;
+  readonly error?: string;
+  readonly question?: FeedEntrySnapshot;
+  readonly sending: boolean;
+  readonly setDraft: (value: string) => void;
+  readonly submitDraft: () => void;
+  readonly typing: boolean;
+}
 
 const IMAGE_HEIGHT = 14;
 const IMAGE_WIDTH = 56;
@@ -94,7 +105,7 @@ function AnswerSection({
   answer,
 }: {
   readonly entry: FeedEntrySnapshot;
-  readonly answer: AnswerState;
+  readonly answer: AnswerControls;
 }) {
   const choose = useCallback(
     (choice: string) => {
@@ -185,17 +196,17 @@ function AnswerSection({
 }
 
 export function FeedReader({
-  entry,
+  selected,
   active,
   answer,
 }: {
-  readonly entry?: FeedEntrySnapshot;
+  readonly selected?: FeedItem;
   readonly active: boolean;
-  readonly answer: AnswerState;
+  readonly answer: AnswerControls;
 }) {
   const style = useMemo(markdownStyle, []);
   useEffect(() => () => style.destroy(), [style]);
-  if (!entry) {
+  if (!selected) {
     return (
       <Panel active={active} title="Entry">
         <EmptyState
@@ -205,11 +216,12 @@ export function FeedReader({
       </Panel>
     );
   }
+  const { entry } = selected;
   return (
     <Panel
       active={active}
       id="panel:entry"
-      resetKey={feedKey(entry)}
+      resetKey={selected.key}
       scrollable={active}
       title={
         active ? "Entry · ↑↓ scroll · Esc entries" : "Entry · Enter to read"

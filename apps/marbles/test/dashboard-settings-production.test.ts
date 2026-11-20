@@ -11,7 +11,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { parseArgs } from "~/cli/args";
 import { runInteractive } from "~/cli/interactive";
-import { applyTheme, theme } from "~/components/ui/theme";
+import { applyTheme } from "~/cli/theme";
+import { theme } from "~/components/ui/theme";
 import type {
   RollResult,
   WorkspaceConnection,
