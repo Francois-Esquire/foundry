@@ -3,8 +3,8 @@ import type { HarnessTurnDriver } from "@foundry/agents/harness";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { beforeEach, expect, it, vi } from "vitest";
+import { codex as codexPlugin } from "~/lib/providers/codex";
 import type { Execution } from "~/lib/providers/plugins";
-import { codexPlugin } from "~/lib/providers/plugins";
 import { createSandboxSession } from "~/lib/sandbox/session";
 import type { SandboxHandle } from "~/lib/types";
 

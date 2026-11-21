@@ -67,3 +67,19 @@ export function prebuiltOfLoad(
     ])
   );
 }
+
+export function providersOfLoad(
+  providers: Readonly<Record<string, unknown>>,
+  load: number
+): Record<string, unknown> {
+  const { defineProvider } = providers;
+  return typeof defineProvider === "function"
+    ? {
+        ...providers,
+        defineProvider: bind(
+          defineProvider as (...args: never[]) => unknown,
+          load
+        ),
+      }
+    : { ...providers };
+}

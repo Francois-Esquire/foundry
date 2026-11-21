@@ -158,6 +158,7 @@ first available provider that lists it, or `{ model?, provider? }` with
 `provider` one of `codex`, `claude-code`, or `pi`; omitted means the first
 installed CLI), and `timeoutMs` for the turn, two minutes by default, with
 no retries.
+Using Pi needs `defineProvider(pi)` in the workspace's source.
 
 | Factory | Input | Result |
 | --- | --- | --- |

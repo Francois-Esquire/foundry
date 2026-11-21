@@ -61,6 +61,7 @@ the engine's copy of the classes.
 | --- | --- |
 | `@foundry.sh/marbles` | Author automations: builders, resource factories, triggers, helpers, and their types. |
 | `@foundry.sh/marbles/prebuilt` | Register a ready-made step with your chosen options. |
+| `@foundry.sh/marbles/providers` | Make a provider available to the workspace with `defineProvider`; each provider has its own entry, such as `@foundry.sh/marbles/providers/pi`. |
 | `@foundry.sh/marbles/lib` | Embed an engine in another application with explicit dependencies. |
 | `@foundry.sh/marbles/workspace` | Host one workspace in your own process, without the CLI. |
 | `@foundry.sh/marbles/process` | Start or join the Marbles process and talk to the workspaces it hosts. |

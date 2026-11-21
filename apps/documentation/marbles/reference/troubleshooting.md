@@ -67,7 +67,11 @@ environment to verify installation and authentication. Check the configured
 providers (`ProviderConfiguration.list()` in `@foundry.sh/marbles/lib`) and
 the agent's `provider` and `model`: a model no
 configured catalog lists is refused, and a session stays on the provider it
-started with.
+started with. A `[providers]` line saying a provider "is unavailable:
+this workspace does not define it" means the configuration names Pi, Vercel
+AI Gateway, a gateway or a provider of your own that the workspace's source
+does not pass to [`defineProvider`](/marbles/reference/api#providers); the
+line names the import and the call to add.
 
 For sandbox sessions, check the optional runtime installation, supported
 host setup, image, mounts, network policy, and credentials. Host `cwd`
