@@ -136,6 +136,7 @@ export class Launcher {
   #halting: Halting;
   #retiring = false;
   readonly #launching = new Set<Promise<void>>();
+  readonly #handingOver = new Set<ReturnType<typeof setTimeout>>();
 
   constructor(options: LauncherOptions) {
     this.#options = options;
@@ -300,11 +301,12 @@ export class Launcher {
     said: Set<string>,
     delay: number
   ): void {
+    if (this.#handedAll()) {
+      return;
+    }
     const timer = setTimeout(async () => {
-      if (
-        this.#halting === "cancel" ||
-        (this.#halting === "stop" && this.executions.waiting().length === 0)
-      ) {
+      this.#handingOver.delete(timer);
+      if (this.#handedAll()) {
         return;
       }
       const told = (id: string) => {
@@ -335,6 +337,24 @@ export class Launcher {
       );
     }, delay);
     timer.unref?.();
+    this.#handingOver.add(timer);
+  }
+
+  #handedAll(): boolean {
+    return (
+      this.#halting === "cancel" ||
+      (this.#halting === "stop" && this.executions.waiting().length === 0)
+    );
+  }
+
+  #stopHandingOver(): void {
+    if (!this.#handedAll()) {
+      return;
+    }
+    for (const timer of this.#handingOver) {
+      clearTimeout(timer);
+    }
+    this.#handingOver.clear();
   }
 
   async #takeUpQueued(): Promise<void> {
@@ -484,6 +504,7 @@ export class Launcher {
       )
     );
     this.#abortHalted();
+    this.#stopHandingOver();
   }
 
   #abortHalted(): void {
@@ -503,6 +524,7 @@ export class Launcher {
         live.kind === "task" ? live.done : undefined
       )
     );
+    this.#stopHandingOver();
   }
 
   #owe(id: string, recordErrorMessage: boolean): Owed {
