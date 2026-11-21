@@ -38,11 +38,8 @@ export function guardedClient(
     try {
       await check(transaction);
     } catch (error) {
-      try {
-        await transaction.rollback();
-      } finally {
-        transaction.close();
-      }
+      await transaction.rollback().catch(() => undefined);
+      transaction.close();
       throw error;
     }
     return transaction;
@@ -57,7 +54,7 @@ export function guardedClient(
       return value;
     } catch (error) {
       if (!transaction.closed) {
-        await transaction.rollback();
+        await transaction.rollback().catch(() => undefined);
       }
       throw error;
     } finally {

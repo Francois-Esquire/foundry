@@ -7,6 +7,7 @@ import {
   isRequest,
   isResponse,
   lineSplitter,
+  MAX_LINE_BYTES,
   RemoteError,
   wireError,
 } from "~/process/protocol";
@@ -91,15 +92,18 @@ export class Channel {
     params: unknown,
     handlers: ChannelHandlers
   ): void {
-    const respond = (outcome: Promise<unknown>) =>
-      outcome.then(
-        (result) => {
-          this.#send(result === undefined ? { id } : { id, result });
-        },
-        (error: unknown) => {
-          this.#send({ error: wireError(error), id });
-        }
-      );
+    const respond = (outcome: Promise<unknown>) => {
+      outcome
+        .then(
+          (result) => {
+            this.#reply(id, result === undefined ? { id } : { id, result });
+          },
+          (error: unknown) => {
+            this.#reply(id, { error: wireError(error), id });
+          }
+        )
+        .catch(() => undefined);
+    };
     if (!handlers.request) {
       respond(Promise.reject(new Error(`no handler for "${method}"`)));
       return;
@@ -111,6 +115,19 @@ export class Channel {
       reply = Promise.reject(error);
     }
     respond(reply);
+  }
+
+  #reply(id: number, message: Message): void {
+    try {
+      this.#send(message);
+    } catch (error) {
+      this.#send({
+        error: {
+          message: `the reply could not be encoded: ${wireError(error).message}`,
+        },
+        id,
+      });
+    }
   }
 
   #send(message: Message): void {
@@ -158,12 +175,20 @@ export function socketTransport(socket: Socket): Transport {
       socket.once("close", () => handler(failure));
     },
     onMessage(handler) {
-      const split = lineSplitter((line) => {
-        const message = decode(line);
-        if (message) {
-          handler(message);
+      const split = lineSplitter(
+        (line) => {
+          const message = decode(line);
+          if (message) {
+            handler(message);
+          }
+        },
+        () => {
+          failure ??= new Error(
+            `the peer sent a line over ${String(MAX_LINE_BYTES)} bytes`
+          );
+          socket.destroy();
         }
-      });
+      );
       socket.on("data", (chunk: string) => split(chunk));
     },
     send(message) {

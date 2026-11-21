@@ -556,7 +556,6 @@ export type ArgsOf<C extends Command> = Flags & Parsed<C>;
 export type Args = { readonly [C in Command]: ArgsOf<C> }[Command];
 
 const VALUE_FLAGS = {
-  "--config": "config",
   "--input": "inputJson",
   "--source": "config",
 } as const;
@@ -567,46 +566,114 @@ function isValueFlag(arg: string): arg is ValueFlag {
   return Object.hasOwn(VALUE_FLAGS, arg);
 }
 
-function parseFlags(argv: readonly string[]): {
+function isFlag(word: string): boolean {
+  return word.startsWith("--") || word === "-h";
+}
+
+interface CommandFlags {
+  readonly options: ReadonlySet<string>;
+  readonly switches: ReadonlySet<string>;
+}
+
+const LISTING_FLAGS: CommandFlags = {
+  options: new Set(),
+  switches: new Set(["--all"]),
+};
+
+const COMMAND_FLAGS: Partial<Record<Command, CommandFlags>> = {
+  artifacts: LISTING_FLAGS,
+  relink: LISTING_FLAGS,
+  runs: LISTING_FLAGS,
+  sandboxes: LISTING_FLAGS,
+  sessions: LISTING_FLAGS,
+  tasks: { options: TASK_OPTIONS, switches: TASK_SWITCHES },
+};
+
+function flagsOf(command: string | undefined): CommandFlags | undefined {
+  return command !== undefined && isCommand(command)
+    ? COMMAND_FLAGS[command]
+    : undefined;
+}
+
+function scopeOf(
+  command: string | undefined,
+  positional: readonly string[]
+): string {
+  if (command === undefined) {
+    return "";
+  }
+  const [action] = positional;
+  return command === "tasks" && action !== undefined
+    ? `tasks ${action}: `
+    : `${command}: `;
+}
+
+function flagValue(flag: ValueFlag, value: string | undefined): string {
+  if (value === undefined) {
+    throw new UsageError(`${flag} takes a value`);
+  }
+  if (isFlag(value)) {
+    throw new UsageError(`${flag} takes a value, not the flag ${value}`);
+  }
+  return value;
+}
+
+interface Scanned {
+  readonly command: string | undefined;
   readonly flags: Flags;
+  readonly help: boolean;
   readonly positional: readonly string[];
-} {
+}
+
+function parseFlags(argv: readonly string[]): Scanned {
+  let command: string | undefined;
   const positional: string[] = [];
-  let harness = false;
-  let removed: string | undefined;
   const values: Partial<Record<(typeof VALUE_FLAGS)[ValueFlag], string>> = {};
   let dry = false;
+  let help = false;
   let recheckProviders = false;
 
-  const argumentsIterator = argv.values();
-  for (const arg of argumentsIterator) {
-    switch (arg) {
-      case "--dry-run":
-      case "--dry":
-        dry = true;
-        break;
-      case "--recheck-providers":
-        recheckProviders = true;
-        break;
-      case "--harness":
-        harness = true;
-        argumentsIterator.next();
-        break;
-      case "--state":
-      case "--artifacts":
-        removed ??= arg;
-        argumentsIterator.next();
-        break;
-      default:
-        if (isValueFlag(arg)) {
-          const { value } = argumentsIterator.next();
-          if (value !== undefined) {
-            values[VALUE_FLAGS[arg]] = value;
-          }
-        } else {
-          positional.push(arg);
-        }
+  const words = argv.values();
+  for (const word of words) {
+    if (!isFlag(word)) {
+      if (command === undefined) {
+        command = word;
+      } else {
+        positional.push(word);
+      }
+      continue;
     }
+    if (word === "--dry-run") {
+      dry = true;
+      continue;
+    }
+    if (word === "--help" || word === "-h") {
+      help = true;
+      continue;
+    }
+    if (word === "--recheck-providers") {
+      recheckProviders = true;
+      continue;
+    }
+    if (isValueFlag(word)) {
+      values[VALUE_FLAGS[word]] = flagValue(word, words.next().value);
+      continue;
+    }
+    const scope = scopeOf(command, positional);
+    const own = flagsOf(command);
+    if (own?.switches.has(word)) {
+      positional.push(word);
+      continue;
+    }
+    if (own?.options.has(word)) {
+      const { value } = words.next();
+      if (value === undefined) {
+        throw new UsageError(`${scope}${word} takes a value`);
+      }
+      positional.push(word, value);
+      continue;
+    }
+    throw new UsageError(`${scope}unknown option ${word}`);
   }
 
   const { artifacts, state } = layout();
@@ -619,32 +686,20 @@ function parseFlags(argv: readonly string[]): {
     ...(recheckProviders ? { recheckProviders: true } : {}),
     state,
   };
-  const help = argv.includes("--help") || argv.includes("-h");
-  if (harness && !help) {
-    throw new UsageError(
-      "--harness was removed: Marbles uses the providers you configured, in their order"
-    );
-  }
-  if (removed !== undefined && !help) {
-    throw new UsageError(
-      `${removed} was removed: Marbles keeps everything under the Foundry home; set FOUNDRY_HOME to move it`
-    );
-  }
-  return { flags, positional };
+  return { command, flags, help, positional };
 }
 
 export function parseArgs(argv: readonly string[]): Args {
-  const { flags, positional } = parseFlags(argv);
-  if (argv.includes("--help") || argv.includes("-h")) {
+  const { command = "run", flags, help, positional } = parseFlags(argv);
+  if (help) {
     return { ...flags, ...GRAMMAR.help([], flags) };
   }
-  const [command = "run", ...positionals] = positional;
   if (!isCommand(command)) {
     throw new UsageError(`unknown command "${command}"`);
   }
   if (flags.recheckProviders && (command !== "run" || flags.dry)) {
     throw new UsageError("--recheck-providers requires a live dashboard");
   }
-  const parsed = GRAMMAR[command](positionals, flags);
+  const parsed = GRAMMAR[command](positional, flags);
   return { ...flags, ...parsed };
 }

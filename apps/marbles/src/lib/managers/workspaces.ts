@@ -78,7 +78,8 @@ function wrapGit<G extends Git>(
       target.withWorktree(withHome(options), (worktree) => {
         const wrapped = wrap(worktree);
         const store = current.getStore();
-        return store
+        return store &&
+          (context === undefined || store.bindings.context === context)
           ? current.run({ ...store, cwd: worktree.root }, () => body(wrapped))
           : withinContext(context, () => body(wrapped));
       }),

@@ -1,4 +1,4 @@
-import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
+import type { TerminalRunStatus } from "~/lib/run-store";
 
 export type RunStatus =
   | "queued"
@@ -16,9 +16,14 @@ export type StatusTone = "neutral" | "info" | "success" | "warning" | "error";
 
 const ACTIVE: ReadonlySet<string> = new Set(["queued", "running", "suspended"]);
 const PAUSED: ReadonlySet<string> = new Set(["suspended", "paused"]);
+const TERMINAL: Readonly<Record<TerminalRunStatus, true>> = {
+  cancelled: true,
+  complete: true,
+  failed: true,
+};
 
 export function isTerminal(status: string): boolean {
-  return TERMINAL_RUN_STATUSES.has(status);
+  return Object.hasOwn(TERMINAL, status);
 }
 
 export function isActive(status: string): boolean {

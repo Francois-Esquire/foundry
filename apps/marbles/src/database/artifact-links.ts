@@ -9,7 +9,7 @@ import type { StoreDatabase } from "~/database/open";
 import type { ArtifactFile } from "~/database/resources";
 import { ALL_WORKSPACES, ResourceView } from "~/database/resources";
 import { WorkspaceRegistry } from "~/database/workspaces";
-import type { ResourceRef } from "~/lib/resources";
+import type { ResourceAssociation, ResourceRef } from "~/lib/resources";
 import { sameResource } from "~/lib/resources";
 
 export interface KeptLinksOptions {
@@ -242,14 +242,25 @@ async function relinkTouched(
   const records = await new WorkspaceRegistry({ database, state }).list();
   const view = new ResourceView({ database, scope: ALL_WORKSPACES, state });
   const shares = new DatabaseAssociationStore({ database });
+  let listedAhead: Promise<readonly ResourceAssociation[]> | undefined;
+  const sharesAhead = () => {
+    listedAhead ??= shares.list("artifact").catch((error: unknown) => {
+      listedAhead = undefined;
+      throw error;
+    });
+    return listedAhead;
+  };
   for (const id of ids) {
     const ref: ResourceRef = { id, kind: "artifact", owner };
     for (const record of records) {
+      let ahead = true;
       const files = async (): Promise<readonly ArtifactFile[]> => {
         live();
+        const first = ahead;
+        ahead = false;
         const shown =
           record.id === owner ||
-          (await shares.list("artifact")).some(
+          (await (first ? sharesAhead() : shares.list("artifact"))).some(
             (share) =>
               sameResource(share.ref, ref) && share.workspace === record.id
           );

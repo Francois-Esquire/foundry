@@ -189,7 +189,7 @@ it("lists what agents created from the same triggers, and leaves the state root 
       owner
     );
     opened.close();
-    const listed = cli(root, "list", "--config", config)
+    const listed = cli(root, "list", "--source", config)
       .split("\n")
       .filter((line) => line.startsWith("["));
     expect(listed.toSorted()).toEqual(

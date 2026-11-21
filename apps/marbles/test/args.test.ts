@@ -12,8 +12,8 @@ function foundryHome(): string {
 describe("parseArgs", () => {
   it("treats no command and explicit run identically, while help stays explicit", () => {
     expect(parseArgs([])).toEqual(parseArgs(["run"]));
-    expect(parseArgs(["--dry-run", "--config", "/tmp/config.ts"])).toEqual(
-      parseArgs(["run", "--dry-run", "--config", "/tmp/config.ts"])
+    expect(parseArgs(["--dry-run", "--source", "/tmp/config.ts"])).toEqual(
+      parseArgs(["run", "--dry-run", "--source", "/tmp/config.ts"])
     );
     for (const flag of ["--help", "-h", "help"]) {
       expect(parseArgs([flag]).command).toBe("help");
@@ -70,7 +70,7 @@ describe("parseArgs", () => {
       "roll",
       "--dry-run",
       "guides",
-      "--config",
+      "--source",
       "/c.ts",
     ]);
     expect(args).toMatchObject({
@@ -81,37 +81,66 @@ describe("parseArgs", () => {
     expect(args.config).toBe("/c.ts");
   });
 
-  it("still reads the older --dry spelling as a flag, never as a positional", () => {
-    const args = parseArgs(["roll", "ask", "--dry"]);
-    expect(args).toMatchObject({ command: "roll", dry: true, name: "ask" });
-  });
-
-  it("keeps --input raw, and refuses the removed --harness", () => {
+  it("keeps --input raw, including a negative number", () => {
     expect(parseArgs(["roll", "ask", "--input", '{"q":1}']).inputJson).toBe(
       '{"q":1}'
     );
-    expect(() => parseArgs(["roll", "ask", "--harness", "codex"])).toThrow(
-      "--harness was removed"
+    expect(parseArgs(["roll", "ask", "--input", "-1"]).inputJson).toBe("-1");
+  });
+
+  it("refuses an unknown flag by name, the removed ones included, even beside --help", () => {
+    for (const flag of [
+      "--dry",
+      "--config",
+      "--harness",
+      "--state",
+      "--artifacts",
+      "--bogus",
+    ]) {
+      expect(() => parseArgs([flag, "x"])).toThrow(`unknown option ${flag}`);
+      expect(() => parseArgs(["watch", "rn-test", flag, "x"])).toThrow(
+        `watch: unknown option ${flag}`
+      );
+      expect(() => parseArgs(["--help", flag, "x"])).toThrow(UsageError);
+      expect(() => parseArgs(["runs", flag])).toThrow(
+        `runs: unknown option ${flag}`
+      );
+    }
+    expect(() => parseArgs(["list", "--all"])).toThrow(
+      "list: unknown option --all"
     );
   });
 
-  it("refuses the removed --state and --artifacts, naming FOUNDRY_HOME, and never reads their value as a positional", () => {
-    for (const flag of ["--state", "--artifacts"]) {
-      expect(() => parseArgs(["watch", "rn-test", flag, "/tmp/x"])).toThrow(
-        `${flag} was removed: Marbles keeps everything under the Foundry home; set FOUNDRY_HOME to move it`
+  it("refuses a value flag with no value", () => {
+    for (const argv of [
+      ["run", "--source"],
+      ["list", "--source"],
+      ["roll", "ask", "--input"],
+      ["tasks", "change", "--input"],
+    ]) {
+      expect(() => parseArgs(argv), argv.join(" ")).toThrow(
+        `${argv.at(-1)} takes a value`
       );
-      expect(parseArgs([flag, "/tmp/x", "--help"]).command).toBe("help");
     }
   });
 
-  it("keeps the default when a flag has no value", () => {
-    const args = parseArgs(["list", "--config"]);
-    expect(args.config).toBe("./.foundry/marbles");
+  it("refuses a flag where --source or --input takes its value, so a dry run never runs live", () => {
+    for (const command of ["run", "attach"]) {
+      expect(() => parseArgs([command, "--source", "--dry-run"])).toThrow(
+        "--source takes a value, not the flag --dry-run"
+      );
+    }
+    expect(() => parseArgs(["--source", "--help"])).toThrow(
+      "--source takes a value, not the flag --help"
+    );
+    expect(() => parseArgs(["roll", "ask", "--input", "-h"])).toThrow(
+      "--input takes a value, not the flag -h"
+    );
   });
 });
 
-it("accepts --source with the same last-value precedence as --config", () => {
-  expect(parseArgs(["--config", "old.ts", "--source", "new"]).config).toBe(
+it("takes the last of repeated --source values", () => {
+  expect(parseArgs(["--source", "old.ts", "--source", "new"]).config).toBe(
     "new"
   );
 });
@@ -131,17 +160,13 @@ it("refuses a command line that cannot run, before anything else happens", () =>
     [["list", "extra"], "list takes no arguments"],
     [["attach", "extra"], "attach takes no arguments"],
     [["detach", "extra"], "detach takes no arguments"],
-    [
-      ["--harness", "foo"],
-      "--harness was removed: Marbles uses the providers you configured, in their order",
-    ],
+    [["--harness", "foo"], "unknown option --harness"],
   ];
   for (const [argv, message] of refusals) {
     expect(() => parseArgs(argv)).toThrow(UsageError);
     expect(() => parseArgs(argv)).toThrow(message);
   }
   expect(parseArgs(["bogus", "--help"]).command).toBe("help");
-  expect(parseArgs(["--help", "--harness", "foo"]).command).toBe("help");
   expect(parseArgs(["init"])).toMatchObject({ starter: "product" });
 });
 
@@ -162,9 +187,7 @@ it("parses the mcp command, which takes flags only", () => {
   ).toMatchObject({ command: "mcp", config: "/tmp/source.ts", dry: true });
   expect(() => parseArgs(["mcp", "list"])).toThrow("mcp takes no arguments");
   expect(() => parseArgs(["mcp", "--harness", "codex"])).toThrow(
-    "--harness was removed"
+    "mcp: unknown option --harness"
   );
-  expect(parseArgs(["mcp", "--help", "--harness", "missing"]).command).toBe(
-    "help"
-  );
+  expect(parseArgs(["mcp", "--help"]).command).toBe("help");
 });

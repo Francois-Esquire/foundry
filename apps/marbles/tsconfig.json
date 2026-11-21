@@ -6,7 +6,8 @@
     "paths": {
       "~/*": ["./src/*"],
       "@foundry.sh/marbles": ["./src/authoring/index.ts"],
-      "@foundry.sh/marbles/lib": ["./src/lib/index.ts"],
+      "@foundry.sh/marbles/engine": ["./src/entries/engine.ts"],
+      "@foundry.sh/marbles/lib": ["./src/entries/lib.ts"],
       "@foundry.sh/marbles/prebuilt": ["./src/authoring/prebuilt.ts"],
       "@foundry.sh/marbles/process": ["./src/process/index.ts"],
       "@foundry.sh/marbles/providers": ["./src/authoring/providers.ts"],
@@ -19,6 +20,7 @@
       ],
       "@foundry.sh/marbles/providers/pi": ["./src/lib/providers/pi.ts"],
       "@foundry.sh/marbles/providers/vercel": ["./src/lib/providers/vercel.ts"],
+      "@foundry.sh/marbles/statuses": ["./src/lib/execution-statuses.ts"],
       "@foundry.sh/marbles/workspace": ["./src/workspace/index.ts"]
     },
     "jsx": "react-jsx",

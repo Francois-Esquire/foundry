@@ -47,8 +47,12 @@ vi.mock("@fal-ai/client", () => ({
   },
 }));
 
-const { connectFalSocket } = await import("../../live/fal-socket");
-const { connectFalWebRtc } = await import("../../live/fal-webrtc");
+const { connectFalSocket, falSocketTransport } = await import(
+  "../../live/fal-socket"
+);
+const { connectFalWebRtc, falWebRtcTransport } = await import(
+  "../../live/fal-webrtc"
+);
 
 function handlers(): TransportHandlers & { closes: string[] } {
   const closes: string[] = [];
@@ -108,8 +112,20 @@ describe("the socket transport", () => {
     expect(state.connects[0]?.handler).not.toHaveProperty("tokenProvider");
   });
 
-  it("connects through the client a credential access carries", async () => {
+  it("builds its client from the key a credential access carries", async () => {
+    await connectFalSocket(
+      target(),
+      { credentials: "fal-key", kind: "credential" },
+      OPENING,
+      handlers()
+    );
+    expect(state.configs).toEqual([{ credentials: "fal-key" }]);
+    expect(state.connects.map(({ app }) => app)).toEqual([target().modelId]);
+  });
+
+  it("connects through the client its factory makes", async () => {
     const apps: string[] = [];
+    const configs: unknown[] = [];
     const client = {
       realtime: {
         connect: (app: string) => {
@@ -118,12 +134,16 @@ describe("the socket transport", () => {
         },
       },
     } as unknown as FalEndpointClient;
-    await connectFalSocket(
+    await falSocketTransport((config) => {
+      configs.push(config);
+      return client;
+    })(
       target(),
-      { client, kind: "credential" },
+      { credentials: "fal-key", kind: "credential" },
       OPENING,
       handlers()
     );
+    expect(configs).toEqual([{ credentials: "fal-key" }]);
     expect(apps).toEqual([target().modelId]);
     expect(state.configs).toEqual([]);
   });
@@ -231,6 +251,36 @@ describe("the socket transport", () => {
 });
 
 describe("the WebRTC transport's extension selection", () => {
+  it("opens through the client its factory makes", async () => {
+    const configs: unknown[] = [];
+    const opened: string[] = [];
+    const client = {
+      realtime: {
+        open: (extension: { id: string }) => {
+          opened.push(extension.id);
+          return {
+            close: () => Promise.resolve(),
+            ready: Promise.resolve({}),
+            send: () => undefined,
+          };
+        },
+      },
+    } as unknown as FalEndpointClient;
+    await falWebRtcTransport((config) => {
+      configs.push(config);
+      return client;
+    })(
+      { ...target({ delivery: "continuous" }), modelId: "vendor/continuous" },
+      { credentials: "fal-key", kind: "credential" },
+      OPENING,
+      handlers()
+    );
+    expect(configs).toEqual([{ credentials: "fal-key" }]);
+    expect(opened).toHaveLength(1);
+    expect(state.configs).toEqual([]);
+    expect(state.opens).toEqual([]);
+  });
+
   it("selects lucy for an endpoint the lucy extension's own supports() claims", async () => {
     await connectFalWebRtc(
       {

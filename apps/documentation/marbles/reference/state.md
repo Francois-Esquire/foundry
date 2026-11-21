@@ -311,7 +311,9 @@ never the resource. A sandbox container cannot be shared. `status`, the
 resource listings (`runs`, `sessions`, `artifacts`, `sandboxes`, `modules`)
 and the dashboard read a workspace's view: what it owns and what is shared
 with it, or with `--all` (the dashboard's `g`, the Feed's "All
-workspaces") every workspace's. On the dashboard this workspace's runs and
+workspaces") every workspace's. Neither shows another workspace's
+resources while that workspace's state directory under the state root is
+a link. On the dashboard this workspace's runs and
 triggers are live, from its engine; another workspace's are read from the
 database at most every two seconds, its triggers from their last tick
 (`marbles_schedule_ticks`) and pending monitor launch

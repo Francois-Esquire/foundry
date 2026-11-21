@@ -61,6 +61,7 @@ const internalPaths = Object.fromEntries([
 export default defineConfig({
   clean: true,
   dts: {
+    banner: '/// <reference types="node" />',
     compilerOptions: { ignoreDeprecations: "6.0", paths: internalPaths },
     resolve: true,
   },

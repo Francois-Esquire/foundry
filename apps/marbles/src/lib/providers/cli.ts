@@ -13,7 +13,7 @@ export function cli(
   settings: Bin,
   env: Readonly<Record<string, string>>
 ) {
-  return settings.binPath ?? which(name, env.PATH);
+  return settings.binPath ?? which(name, env.PATH || "");
 }
 
 export function guestOf(

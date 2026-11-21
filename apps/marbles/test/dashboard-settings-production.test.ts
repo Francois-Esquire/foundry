@@ -143,7 +143,7 @@ afterEach(async () => {
 
 async function open() {
   const args = parseArgs([
-    "--config",
+    "--source",
     join(dir, "workspace", ".foundry", "marbles"),
   ]);
   running = runInteractive(args);

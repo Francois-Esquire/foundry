@@ -46,7 +46,7 @@ export const pi: ProviderPlugin<Bin> = {
       }),
     };
   },
-  detect: ({ env }) => (which("pi", env.PATH) === null ? null : {}),
+  detect: ({ env }) => (which("pi", env.PATH || "") === null ? null : {}),
   id: "pi",
   label: "Pi",
   settings: BIN,

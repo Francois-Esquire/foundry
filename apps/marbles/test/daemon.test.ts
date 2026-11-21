@@ -1,9 +1,11 @@
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -18,6 +20,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import { readDatabase } from "~/database/open";
+import { marblesGenerations } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { type Layout, layout, stateDatabase } from "~/layout";
@@ -26,7 +29,7 @@ import type {
   WorkspaceState,
   WorkspaceSummary,
 } from "~/model/connection";
-import { Channel } from "~/process/channel";
+import { Channel, socketTransport } from "~/process/channel";
 import {
   connect,
   NoProcessError,
@@ -35,11 +38,16 @@ import {
 } from "~/process/client";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { ProcessHeldError, readProcess } from "~/process/instance";
-import { GENERATION_METHODS, RemoteError } from "~/process/protocol";
+import {
+  DAEMON_METHODS,
+  GENERATION_METHODS,
+  RemoteError,
+} from "~/process/protocol";
 import { testHome } from "./helpers/home";
 import { readWorkspace, touchWorkspace } from "./helpers/registry";
 
 const zodPath = createRequire(import.meta.url).resolve("zod");
+const TOKEN_ARGUMENT = /--token (\S+)/;
 
 const looking = vi.hoisted(() => ({
   fake: undefined as typeof lookProcesses | undefined,
@@ -194,9 +202,7 @@ describe("the Marbles process", () => {
     await daemonFor(machine);
     const client = await connect({ layout: machine, start: false });
     await expect(client.attach(source)).rejects.toThrow("boom at load");
-    const [failed] = await client.workspaces();
-    expect(failed).toMatchObject({ state: "failed" });
-    expect(failed?.error).toContain("boom at load");
+    expect(await client.workspaces()).toEqual([]);
 
     writeFileSync(source, greeter("greet"));
     const summary = await client.attach(source);
@@ -882,4 +888,76 @@ export const hold = step("hold").do(async () => {
       ProcessHeldError
     );
   });
+
+  it("keeps its state root private, creating it so and tightening one that is not", async () => {
+    const { machine } = fixture();
+    // biome-ignore lint/suspicious/noBitwiseOperators: the permission bits of a mode.
+    const mode = (path: string) => statSync(path).mode & 0o777;
+    const daemon = await daemonFor(machine);
+    expect(mode(machine.state)).toBe(0o700);
+    await daemon.close();
+    chmodSync(machine.state, 0o755);
+    await daemonFor(machine);
+    expect(mode(machine.state)).toBe(0o700);
+    expect(mode(machine.socket)).toBe(0o600);
+  });
+
+  it("refuses a second registration for a generation that registered already", async () => {
+    const { machine, source } = fixture();
+    writeFileSync(source, greeter("greet"));
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const summary = await client.attach(source);
+    const args = execFileSync("ps", [
+      "-o",
+      "args=",
+      "-p",
+      String(summary.pid),
+    ]).toString();
+    const token = TOKEN_ARGUMENT.exec(args)?.[1];
+    expect(token).toBeDefined();
+    const socket = connectSocket(machine.socket);
+    await new Promise<void>((resolve) => socket.once("connect", resolve));
+    const intruder = new Channel(socketTransport(socket));
+    await expect(
+      intruder.request(DAEMON_METHODS.register, { token })
+    ).rejects.toThrow("has registered already");
+    const rolled = await client
+      .workspace(summary)
+      .roll("greet", { name: "Ada" });
+    expect(rolled.value).toEqual({ greeting: "Hello Ada" });
+    intruder.close();
+    client.close();
+  }, 60_000);
+
+  it("records a generation's start as soon as it is spawned, before it loads", async () => {
+    const { home, machine, source } = fixture();
+    const loading = join(home, "loading");
+    const loaded = join(home, "loaded");
+    writeFileSync(
+      source,
+      `import { existsSync, writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(loading)}, "");
+while (!existsSync(${JSON.stringify(loaded)})) await new Promise((resolve) => setTimeout(resolve, 20));
+${greeter("greet")}`
+    );
+    await daemonFor(machine);
+    const client = await connect({ layout: machine, start: false });
+    const attaching = client.attach(source);
+    await vi.waitFor(() => expect(existsSync(loading)).toBe(true), {
+      interval: 20,
+      timeout: 60_000,
+    });
+    const rows = await readDatabase(stateDatabase(machine.state), (database) =>
+      database.select().from(marblesGenerations)
+    );
+    expect(rows).toHaveLength(1);
+    const [row] = rows ?? [];
+    expect(row?.state).toBe("loading");
+    expect(row?.started).not.toBeNull();
+    expect(row?.started).toBe(startedAt(row?.pid ?? 0));
+    writeFileSync(loaded, "");
+    expect((await attaching).state).toBe("ready");
+    client.close();
+  }, 90_000);
 });

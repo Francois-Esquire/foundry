@@ -140,15 +140,13 @@ dashboard, where the question can be answered as it comes.
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--source <path>` | `./.foundry/marbles` | Authoring folder or single module. Missing sources offer setup in the dashboard; other commands use an empty catalog. A workspace root is hosted from one source: attaching another under a hosted root is refused until that workspace is detached. |
-| `--config <path>` | Same as `--source` | Compatibility alias. A legacy `marbles.config.ts` is used when the default folder is absent. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`, or the batch for `tasks change`. Overrides a schedule's recorded input. |
 | `--dry-run` | Off | Host the workspace in this process, echo agent turns, git mutations, and sandbox commands instead of running them, and write no state: reading the Marbles database may create or update its SQLite side files (`marbles.db-shm`, `marbles.db-wal`), and nothing else is written. Never touches the Marbles process. `mcp` hosts nothing under it. See [safety and limits](/marbles/reference/safety). |
 | `--recheck-providers` | Off | Show provider discovery again when opening the live dashboard in a terminal. Keeps any existing provider configuration. |
 
 `FOUNDRY_HOME` moves the whole home (default `~/.foundry`): the state root,
 the Marbles database, the artifact store, and the process socket under it.
-Nothing moves on its own; the `--state` and `--artifacts` flags were
-removed, and a command line with either is refused. Each home has its own
+Nothing moves on its own, and no flag moves it. Each home has its own
 Marbles process. Workers inherit the environment of the Marbles process,
 not of the command that attached them.
 
@@ -156,7 +154,14 @@ Agents can select any retained harness through `provider`. Without one,
 Claude Code takes precedence over Codex. Dry execution echoes allowed
 harnesses even when neither CLI is installed.
 
-`--dry` is an alias for `--dry-run`. A later occurrence of a value flag wins.
+A later occurrence of a value flag wins. A flag Marbles does not know is
+refused, naming it, and so is a value flag with no value. `--source` and
+`--input` also refuse a value that is itself a flag, so
+`marbles run --source --dry-run` fails instead of running live. The value of
+a task option is taken as written: `tasks create "Fix" --description "--help"`
+creates a task whose description is `--help`. `--dry-run`, `--help`, `-h`, and
+`--recheck-providers` are read only where a flag can stand, never as another
+flag's value.
 
 ## The dashboard
 

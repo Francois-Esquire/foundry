@@ -182,6 +182,11 @@ async function serve(flags: Flags): Promise<void> {
         output.end(() => process.exit());
       });
   };
+  output.on("error", (error: Error) => {
+    print(`marbles mcp: the protocol output failed: ${error.message}`);
+    shutdown();
+  });
+  process.on("SIGHUP", shutdown);
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
   process.stdin.once("end", shutdown);
