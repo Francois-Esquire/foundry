@@ -191,10 +191,10 @@ describe("a command live in a hosted step", () => {
         target: after.id,
         text: "Grace",
       });
+      await gone(first);
       expect(await finished(workspace, runId)).toBe(
         `name? hello Grace from ${String(first)}\n`
       );
-      await gone(first);
       fixture.client.close();
     },
     TIMEOUT
