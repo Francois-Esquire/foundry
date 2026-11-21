@@ -1,5 +1,9 @@
-export const PORTRAIT_COLUMNS = 32;
-export const PORTRAIT_ROWS = 16;
+export const PORTRAIT_SIZES = {
+  large: { columns: 32, rows: 16 },
+  small: { columns: 16, rows: 8 },
+} as const;
+
+export type PortraitSize = keyof typeof PORTRAIT_SIZES;
 
 export const HEALTH = [
   "fresh",

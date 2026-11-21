@@ -3,7 +3,7 @@ import { Gauge } from "@/components/blocks/gauge";
 import { Plate } from "@/components/blocks/plate";
 import type { Avatar } from "@/model/avatars";
 import { hud } from "@/model/palette";
-import { HEALTH, type Health, PORTRAIT_COLUMNS } from "@/model/sprite";
+import { HEALTH, type Health, PORTRAIT_SIZES } from "@/model/sprite";
 
 const KEYS = [
   ["←/→", "Avatar"],
@@ -34,7 +34,11 @@ export function AvatarBooth({
     >
       <box flexDirection="row" flexShrink={0} gap={1}>
         {avatars.map((avatar, index) => (
-          <box flexShrink={0} key={avatar.name} width={PORTRAIT_COLUMNS + 4}>
+          <box
+            flexShrink={0}
+            key={avatar.name}
+            width={PORTRAIT_SIZES.large.columns + 4}
+          >
             <Plate
               meta={index === selected ? "selected" : undefined}
               title={avatar.name.toUpperCase()}
@@ -50,7 +54,7 @@ export function AvatarBooth({
           <b>{health.toUpperCase()}</b>
         </text>
         <Gauge
-          cells={PORTRAIT_COLUMNS}
+          cells={PORTRAIT_SIZES.large.columns}
           level={remaining}
           tone={remaining > 0.5 ? hud.ok : hud.red}
         />

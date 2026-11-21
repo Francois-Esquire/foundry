@@ -1,17 +1,11 @@
 import { useKeyboard } from "@opentui/react";
 import { useState } from "react";
-import { useWound } from "@/hooks/use-wound";
 import { HEALTH } from "@/model/sprite";
 
-function step(index: number, by: number, count: number): number {
-  return Math.min(Math.max(index + by, 0), count - 1);
-}
-
-export function useAvatarBooth(avatars: number, frame: number) {
+export function useAvatarBooth(avatars: number) {
   const [selected, setSelected] = useState(0);
   const [severity, setSeverity] = useState(0);
-  const health = HEALTH[severity] ?? "fresh";
-  const { hit, hurtAt } = useWound(health, frame);
+  const [hits, setHits] = useState(0);
   useKeyboard((key) => {
     if (key.name === "left" || key.name === "right") {
       const by = key.name === "left" ? avatars - 1 : 1;
@@ -19,11 +13,13 @@ export function useAvatarBooth(avatars: number, frame: number) {
     }
     if (key.name === "up" || key.name === "down") {
       const by = key.name === "up" ? -1 : 1;
-      setSeverity((current) => step(current, by, HEALTH.length));
+      setSeverity((current) =>
+        Math.min(Math.max(current + by, 0), HEALTH.length - 1)
+      );
     }
     if (key.name === "space") {
-      hit();
+      setHits((current) => current + 1);
     }
   });
-  return { health, hurtAt, selected };
+  return { health: HEALTH[severity] ?? "fresh", hits, selected };
 }

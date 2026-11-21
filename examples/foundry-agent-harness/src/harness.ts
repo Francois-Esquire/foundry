@@ -17,12 +17,14 @@ import { file, Glob } from "bun";
 import { initLogger } from "evlog";
 import { z } from "zod";
 import { backlog, serveBacklog } from "@/backlog";
-import type { Context } from "@/model/context";
+import type { Context, Weapon } from "@/model/context";
 import type { Message, Run, Thread, Todo } from "@/model/thread";
 import { emptyThread } from "@/model/thread";
 
 const LIMIT = 8;
-const MODEL = "sonnet";
+const MODELS = ["sonnet", "opus", "haiku"] as const;
+const PROVIDER = "claude-code";
+const WINDOW = 200_000;
 const SLUG = /[^a-z0-9]+/g;
 const root = process.cwd();
 
@@ -45,7 +47,9 @@ const skills = await Promise.all(
 );
 
 export const context: Context = {
-  model: `claude-code/${MODEL}`,
+  limit: WINDOW,
+  models: MODELS,
+  provider: PROVIDER,
   servers: [backlog],
   skills,
 };
@@ -88,35 +92,51 @@ const worker = agent({
 
 const notes = artifact({ name: "Agent harness notes", type: "text/markdown" });
 
-const engine = new Engine({
-  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
-  askable: false,
-  containers: () => Promise.reject(new Error("no sandbox runtime here")),
-  models: new ModelManager({
-    providers: [
-      claudeCodeProvider({
-        config: {
-          available: true,
-          defaultSettings: {
-            allowedTools: backlog.tools.map(
-              (tool) => `mcp__${backlog.name}__${tool.name}`
-            ),
-            mcpServers: { [backlog.name]: { type: "http", url: served.url } },
-            settingSources: ["project"],
-            skills: skills.map((skill) => skill.name),
+function arm({ effort, model }: Weapon) {
+  const engine = new Engine({
+    artifacts,
+    askable: false,
+    containers: () => Promise.reject(new Error("no sandbox runtime here")),
+    models: new ModelManager({
+      providers: [
+        claudeCodeProvider({
+          config: {
+            available: true,
+            defaultSettings: {
+              allowedTools: backlog.tools.map(
+                (tool) => `mcp__${backlog.name}__${tool.name}`
+              ),
+              effort,
+              mcpServers: {
+                [backlog.name]: { type: "http", url: served.url },
+              },
+              settingSources: ["project"],
+              skills: skills.map((skill) => skill.name),
+            },
           },
-        },
-        env: process.env as Record<string, string>,
-        models: [{ id: MODEL, kind: "text", modelId: MODEL }],
-      }),
-    ],
-  }),
-  root,
-  sessions: new InMemorySessionStore(),
-  workspaceId: "foundry-agent-harness",
-});
+          env: process.env as Record<string, string>,
+          models: [{ id: model, kind: "text", modelId: model }],
+        }),
+      ],
+    }),
+    root,
+    sessions: new InMemorySessionStore(),
+    workspaceId: "foundry-agent-harness",
+  });
+  return { engine, working: engine.agents.session(worker) };
+}
 
-const working = engine.agents.session(worker);
+type Armed = ReturnType<typeof arm>;
+
+const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
+const armed = new Map<string, Armed>();
+
+function armedWith(weapon: Weapon): Armed {
+  const key = `${weapon.model}/${weapon.effort}`;
+  const kept = armed.get(key) ?? arm(weapon);
+  armed.set(key, kept);
+  return kept;
+}
 
 function detail(input: unknown): string {
   const values = Object.values(
@@ -131,7 +151,7 @@ function failure(output: unknown): string {
   return (text ?? "").trim().split("\n")[0] ?? "";
 }
 
-async function turn(todo: Todo): Promise<string> {
+async function turn(todo: Todo, { working }: Armed): Promise<string> {
   const message: Message = {
     kind: "task",
     streaming: true,
@@ -172,13 +192,16 @@ async function turn(todo: Todo): Promise<string> {
   message.streaming = false;
   thread.input += reply.usage.inputTokens;
   thread.output += reply.usage.outputTokens;
+  thread.context =
+    Math.round(reply.usage.inputTokens / (message.tools.length + 1)) +
+    reply.usage.outputTokens;
   await tasks.complete(todo.id);
   todo.status = "success";
   paint();
   return reply.text;
 }
 
-async function work(): Promise<void> {
+async function work(using: Armed): Promise<void> {
   const kept: { path: string; text: string; title: string }[] = [];
   for (;;) {
     const [next] = (await tasks.ready({ limit: 1 })).items;
@@ -189,14 +212,14 @@ async function work(): Promise<void> {
     const slug = todo.title.toLowerCase().replace(SLUG, "-").slice(0, 40);
     kept.push({
       path: `${kept.length + 1}-${slug}.md`,
-      text: `# ${todo.title}\n\n${await turn(todo)}\n`,
+      text: `# ${todo.title}\n\n${await turn(todo, using)}\n`,
       title: todo.title,
     });
   }
   if (kept.length === 0) {
     return;
   }
-  const version = await engine.artifacts.write(
+  const version = await using.engine.artifacts.write(
     notes,
     Object.fromEntries(kept.map((note) => [note.path, note.text]))
   );
@@ -207,7 +230,7 @@ async function work(): Promise<void> {
   };
 }
 
-async function plan(goal: string): Promise<void> {
+async function plan(goal: string, { engine }: Armed): Promise<void> {
   const planning = await engine.agents.session(planner);
   const reply = await planning.generate(goal);
   thread.input += reply.usage.inputTokens;
@@ -238,7 +261,7 @@ async function abandon(): Promise<void> {
   }
 }
 
-export const run: Run = async (goal, shown) => {
+export const run: Run = async (goal, shown, weapon) => {
   show = shown;
   thread.title = thread.messages.length === 0 ? goal : thread.title;
   thread.messages.push({
@@ -251,10 +274,11 @@ export const run: Run = async (goal, shown) => {
   thread.phase = "planning";
   paint();
   try {
-    await plan(goal);
+    const using = armedWith(weapon);
+    await plan(goal, using);
     thread.phase = "working";
     paint();
-    await work();
+    await work(using);
   } catch (error) {
     await abandon();
     thread.messages.push({
@@ -271,5 +295,5 @@ export const run: Run = async (goal, shown) => {
 
 export async function close(): Promise<void> {
   await served.stop();
-  await engine.dispose();
+  await Promise.all([...armed.values()].map(({ engine }) => engine.dispose()));
 }

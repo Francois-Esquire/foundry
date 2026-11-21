@@ -1,18 +1,25 @@
 import type { NativeImage } from "@opentui/core";
 import { hud } from "@/model/palette";
-import { PORTRAIT_COLUMNS, PORTRAIT_ROWS } from "@/model/sprite";
+import { PORTRAIT_SIZES, type PortraitSize } from "@/model/sprite";
 
-export function Portrait({ image }: { readonly image: NativeImage | null }) {
+export function Portrait({
+  image,
+  size = "large",
+}: {
+  readonly image: NativeImage | null;
+  readonly size?: PortraitSize;
+}) {
+  const { columns, rows } = PORTRAIT_SIZES[size];
   return (
     <box
       alignItems="center"
       flexShrink={0}
-      height={PORTRAIT_ROWS}
+      height={rows}
       justifyContent="center"
-      width={PORTRAIT_COLUMNS}
+      width={columns}
     >
       {image ? (
-        <image height={PORTRAIT_ROWS} source={image} width={PORTRAIT_COLUMNS} />
+        <image height={rows} source={image} width={columns} />
       ) : (
         <text fg={hud.faint}>· · ·</text>
       )}
