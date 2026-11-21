@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.0.5](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.4...marbles-v0.0.5) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **marbles:** a workspace's .env.schema is no longer read; its variables must be in the environment of the Marbles process.
+
+### Features
+
+* **marbles:** interact with live work through its owning step ([#114](https://github.com/Francois-Esquire/foundry/issues/114)) ([de2b350](https://github.com/Francois-Esquire/foundry/commit/de2b3504c6a183347d9ed4c1dc52388cfc3128f2))
+* **marbles:** remove Varlock environment loading ([#128](https://github.com/Francois-Esquire/foundry/issues/128)) ([3dcedc2](https://github.com/Francois-Esquire/foundry/commit/3dcedc2a534bc85e287fdc613269a3e8752cf4f2))
+
+
+### Bug Fixes
+
+* **marbles:** an orphaned generation lets go of its parked runs instead of cancelling them ([#130](https://github.com/Francois-Esquire/foundry/issues/130)) ([01fc06b](https://github.com/Francois-Esquire/foundry/commit/01fc06b3225cc637c6862abafe614fcf1e6b5a39))
+* **marbles:** contain dispatch_agent cwd and shut the MCP server down in order ([#119](https://github.com/Francois-Esquire/foundry/issues/119)) ([80975c3](https://github.com/Francois-Esquire/foundry/commit/80975c34c2be6ce8e78758f5781c0cc6a2dbf948))
+* **marbles:** escalate engine stops, wait for staging on close, and guard a generation's retire ([#127](https://github.com/Francois-Esquire/foundry/issues/127)) ([8433f57](https://github.com/Francois-Esquire/foundry/commit/8433f5710c02ff34a2072693063263a3057fa7e1))
+* **marbles:** follow a watched run across a handover ([#120](https://github.com/Francois-Esquire/foundry/issues/120)) ([3009883](https://github.com/Francois-Esquire/foundry/commit/3009883e1a71ee512e0200a688b23626c9863fb2))
+* **marbles:** harden database reads, the client, shares and artifact links ([#124](https://github.com/Francois-Esquire/foundry/issues/124)) ([36f8699](https://github.com/Francois-Esquire/foundry/commit/36f86996d5fd841119bccb8259f5c2da69199e50))
+* **marbles:** harden the daemon's workspace state, IPC and permissions ([#122](https://github.com/Francois-Esquire/foundry/issues/122)) ([32732ee](https://github.com/Francois-Esquire/foundry/commit/32732ee06d7e2b85acd9df1fd58933a463b81110))
+* **marbles:** hold dashboard input, selection and mouse to the modal state ([#123](https://github.com/Francois-Esquire/foundry/issues/123)) ([ac91080](https://github.com/Francois-Esquire/foundry/commit/ac910809006505578d25a497de8feb90a8a3a1f6))
+* **marbles:** keep fal and optional SDK types out of the published declarations ([#126](https://github.com/Francois-Esquire/foundry/issues/126)) ([f121620](https://github.com/Francois-Esquire/foundry/commit/f121620ece1f5b7ece24f4c96de2f44b4baf30e0))
+* **marbles:** load workspace source as plain Bun would and bound Varlock ([#125](https://github.com/Francois-Esquire/foundry/issues/125)) ([a03652e](https://github.com/Francois-Esquire/foundry/commit/a03652e91b0196034a2987a2ec074f2137affd7c))
+* **marbles:** parse command-line flags strictly ([#118](https://github.com/Francois-Esquire/foundry/issues/118)) ([98e1497](https://github.com/Francois-Esquire/foundry/commit/98e14973cbe755585940f980f6879894c33a661a))
+* **marbles:** show the process and generations in status ([#115](https://github.com/Francois-Esquire/foundry/issues/115)) ([c10ec4c](https://github.com/Francois-Esquire/foundry/commit/c10ec4cf642ead96958fac4572d84af17a7c9638))
+* **marbles:** tighten engine library edges found in review ([#121](https://github.com/Francois-Esquire/foundry/issues/121)) ([32c42f3](https://github.com/Francois-Esquire/foundry/commit/32c42f365d6eff2f2da46fef426264eb3721d302))
+
 ## [0.0.4](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.3...marbles-v0.0.4) (2026-11-20)
 
 
