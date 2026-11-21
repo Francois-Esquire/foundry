@@ -1,9 +1,7 @@
 import {
   chmodSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -18,52 +16,11 @@ const INSTALL_PATTERN =
   /needs Varlock to load; install it with `bun add -d varlock`/;
 const STOPPED_PATTERN =
   /^\[env\] .* Varlock ran longer than 0\.2s and was stopped$/;
-const STOPPED_TWO_SECONDS = /Varlock ran longer than 2s and was stopped$/;
 const NOT_JSON_PATTERN =
   /^\[env\] .* Varlock printed something other than a JSON object$/;
 
 let root: string;
 const saved = { ...process.env };
-const strays: number[] = [];
-
-function killed(pid: number): boolean {
-  try {
-    process.kill(pid, "SIGKILL");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function goneWithin(pid: number, ms: number): Promise<boolean> {
-  const deadline = Date.now() + ms;
-  while (alive(pid)) {
-    if (Date.now() >= deadline) {
-      return false;
-    }
-    await new Promise((done) => setTimeout(done, 50));
-  }
-  return true;
-}
-
-function childOf(dir: string): number {
-  const path = join(dir, "child.pid");
-  expect(existsSync(path)).toBe(true);
-  const pid = Number(readFileSync(path, "utf8").trim());
-  strays.push(pid);
-  return pid;
-}
-
-const CHILD = 'sleep 30 &\necho $! > "$PWD/child.pid"\n';
 
 function fakeVarlock(dir: string): void {
   const bin = join(dir, "node_modules", ".bin");
@@ -96,9 +53,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const pid of strays.splice(0)) {
-    killed(pid);
-  }
   for (const name of Object.keys(process.env)) {
     if (!(name in saved)) {
       delete process.env[name];
@@ -211,24 +165,6 @@ printf '{"MARBLES_TEST_TOKEN":"from a file"}'
     ).toEqual({});
     expect(Date.now() - started).toBeLessThan(10_000);
     expect(lines).toEqual([expect.stringMatching(STOPPED_PATTERN)]);
-  });
-
-  it("stops what a Varlock that does not exit started, once it reports the stop", async () => {
-    writeFileSync(join(root, ".env.schema"), "MARBLES_TEST_TOKEN=\n");
-    fakeScript(root, `${CHILD}sleep 30\n`);
-    expect(() =>
-      loadEnvironment(root, "require", () => undefined, 2000)
-    ).toThrow(STOPPED_TWO_SECONDS);
-    expect(await goneWithin(childOf(root), 5000)).toBe(true);
-  }, 15_000);
-
-  it("leaves what a Varlock that exits started alone", () => {
-    writeFileSync(join(root, ".env.schema"), "MARBLES_TEST_TOKEN=\n");
-    fakeScript(root, `${CHILD}printf '{"MARBLES_TEST_TOKEN":"kept"}'\n`);
-    expect(
-      loadEnvironment(root, "require", () => undefined, 2000).workspace
-    ).toEqual({ MARBLES_TEST_TOKEN: "kept" });
-    expect(alive(childOf(root))).toBe(true);
   });
 
   it("fails work about to run, and only warns otherwise, when Varlock prints something other than a JSON object", () => {

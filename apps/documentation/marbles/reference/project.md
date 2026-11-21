@@ -124,9 +124,10 @@ Marbles process starts with.
 A value that does not resolve is a warning in the engine generation and in `list`:
 what is missing is printed and loading continues; work that needs the value
 can still fail. `roll --dry-run` stops instead. Varlock gets 60 seconds to
-resolve the schema: one that runs longer is stopped with the commands it
-started, and that, like output that is not a JSON object, counts as a schema
-that does not resolve. `help`, `init`, `mcp`,
+resolve the schema: one that runs longer is stopped, and that, like output
+that is not a JSON object, counts as a schema that does not resolve. Marbles
+stops Varlock itself, not the commands a resolver started, which can keep
+running. `help`, `init`, `mcp`,
 `status`, `sessions`, `tasks`, `watch`, `daemon`, and `stop` do not load
 the schema.
 

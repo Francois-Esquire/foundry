@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -9,8 +10,6 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
-import { groupMembers } from "@foundry/lib/process-identity";
-import { spawnSync } from "bun";
 import { environmentSnapshot } from "~/lib/environment";
 
 export interface WorkspaceEnvironment {
@@ -38,61 +37,6 @@ function varlockAt(root: string): string | undefined {
     .find((candidate) => existsSync(candidate));
 }
 
-function stopGroup(pgid: number): boolean {
-  const members = groupMembers(pgid);
-  if (
-    members === undefined ||
-    members.has(pgid) ||
-    ![...members.values()].some((seen) => seen.exited !== true)
-  ) {
-    return false;
-  }
-  try {
-    process.kill(-pgid, "SIGKILL");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function spawned(
-  varlock: string,
-  root: string,
-  timeout: number,
-  out: number
-): {
-  readonly status: number | null;
-  readonly stderr: string;
-  readonly timedOut: boolean;
-} {
-  let result: ReturnType<typeof spawnSync>;
-  try {
-    result = spawnSync([varlock, "load", "--format", "json", "--path", root], {
-      cwd: root,
-      detached: true,
-      env: process.env,
-      killSignal: "SIGKILL",
-      stdio: ["ignore", out, "pipe"],
-      timeout,
-    });
-  } catch (error) {
-    return {
-      status: null,
-      stderr: error instanceof Error ? error.message : String(error),
-      timedOut: false,
-    };
-  }
-  const timedOut = result.exitedDueToTimeout === true;
-  if (timedOut) {
-    stopGroup(result.pid);
-  }
-  return {
-    status: result.exitCode,
-    stderr: result.stderr?.toString() ?? "",
-    timedOut,
-  };
-}
-
 function run(
   varlock: string,
   root: string,
@@ -107,13 +51,31 @@ function run(
   try {
     const path = join(dir, "stdout");
     const out = openSync(path, "w", 0o600);
-    let result: ReturnType<typeof spawned>;
+    let result: ReturnType<typeof spawnSync>;
     try {
-      result = spawned(varlock, root, timeout, out);
+      result = spawnSync(
+        varlock,
+        ["load", "--format", "json", "--path", root],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: process.env,
+          killSignal: "SIGKILL",
+          stdio: ["ignore", out, "pipe"],
+          timeout,
+        }
+      );
     } finally {
       closeSync(out);
     }
-    return { ...result, stdout: readFileSync(path, "utf8") };
+    return {
+      status: result.status,
+      stderr: String(result.stderr ?? ""),
+      stdout: readFileSync(path, "utf8"),
+      timedOut:
+        (result.error as NodeJS.ErrnoException | undefined)?.code ===
+        "ETIMEDOUT",
+    };
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
