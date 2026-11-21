@@ -60,6 +60,13 @@ function guestRead(
   const target = args.at(-1) ?? "";
   const answer = (found: boolean, stdout = "") =>
     found ? { exitCode: 0, stdout } : { exitCode: 1, stdout: "" };
+  if (program === "sh" && args[2] === "collect-source") {
+    const bytes = files?.get(target);
+    return answer(
+      bytes !== undefined,
+      Buffer.from(bytes?.slice(0, Number(args[3])) ?? []).toString("base64")
+    );
+  }
   switch (program) {
     case "base64": {
       const bytes = files?.get(target);

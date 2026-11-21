@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import {
+  ArtifactApplicationError,
   type ArtifactId,
   type ArtifactOperations,
   type ArtifactResolved,
@@ -337,6 +338,11 @@ export class ProductFiles {
             });
           });
         } catch (error) {
+          if (error instanceof ArtifactApplicationError) {
+            for (const id of error.artifactIds) {
+              this.#evidence.block(id);
+            }
+          }
           if (error instanceof FileWriteDenied) {
             await observeAttempt(context, null, "denied");
             return { kind: "denied", reason: error.message } as const;
@@ -581,12 +587,15 @@ export class ProductFiles {
               path: null,
             }),
           };
-          await this.#within(scope, write);
-          const content = scope.written;
-          if (content) {
-            const evidence = evidenceOf(id, content, scope.origin, null);
-            if (!(await observeResult(context, OBSERVATION.save, evidence))) {
-              this.#evidence.block(id);
+          try {
+            await this.#within(scope, write);
+          } finally {
+            const content = scope.written;
+            if (content) {
+              const evidence = evidenceOf(id, content, scope.origin, null);
+              if (!(await observeResult(context, OBSERVATION.save, evidence))) {
+                this.#evidence.block(id);
+              }
             }
           }
         }

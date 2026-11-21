@@ -98,3 +98,39 @@ it("ends the authoring user's processes before root seeds or collects the worksp
   loan.release();
   await sandboxes.shutdown();
 });
+
+it("bounds guest file transfers by the remaining total byte budget", async () => {
+  const { executions, files, loan, sandboxes } = await sandbox();
+  files()?.set("/workspace/a.txt", new TextEncoder().encode("abc"));
+  files()?.set("/workspace/b.txt", new TextEncoder().encode("def"));
+  const limits = {
+    maxBytes: 5,
+    maxFileCodeUnits: 10,
+    maxFiles: 2,
+    maxPathCharacters: 20,
+  };
+  await expect(
+    collectWorkspace(loan.container, {}, new AbortController().signal, limits)
+  ).rejects.toThrow("source byte limit");
+  const reads = executions.filter(({ command }) =>
+    command.includes("collect-source")
+  );
+  expect(reads.map(({ command }) => command.at(-2))).toEqual(["6", "3"]);
+  loan.release();
+  await sandboxes.shutdown();
+});
+
+it("enforces the effective per-file code-unit limit during collection", async () => {
+  const { files, loan, sandboxes } = await sandbox();
+  files()?.set("/workspace/a.txt", new TextEncoder().encode("abcd"));
+  await expect(
+    collectWorkspace(loan.container, {}, new AbortController().signal, {
+      maxBytes: 100,
+      maxFileCodeUnits: 3,
+      maxFiles: 2,
+      maxPathCharacters: 20,
+    })
+  ).rejects.toThrow("UTF-16 code units");
+  loan.release();
+  await sandboxes.shutdown();
+});

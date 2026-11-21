@@ -11,6 +11,10 @@ import {
 } from "@foundry/modules/manifest";
 import { importModulePackage } from "@foundry/modules/package";
 import { createModuleProjects } from "@foundry/modules/projects";
+import {
+  admitModuleSource,
+  type ModuleSourceLimits,
+} from "@foundry/modules/source";
 import { createModuleVersions } from "@foundry/modules/version";
 import type {
   SourceOrigin,
@@ -139,6 +143,7 @@ export function createModuleLibrary(
 
 export interface ModuleRecordsOptions {
   readonly catalog?: ModuleCapabilityCatalog;
+  readonly sourceLimits?: (id: string) => Promise<ModuleSourceLimits>;
 }
 
 export function createModuleRecords(
@@ -274,6 +279,7 @@ export function createModuleRecords(
       });
     },
     async writeRelease(id, expected, release, origin) {
+      admitModuleSource(release.source, await options.sourceLimits?.(id));
       const published = await projects.publish({
         ...release,
         catalog,
@@ -287,6 +293,7 @@ export function createModuleRecords(
       };
     },
     async writeSource(id, source, expected, origin) {
+      admitModuleSource(source, await options.sourceLimits?.(id));
       parseModuleManifestSourceText(source["foundry.module.json"] ?? "");
       const binding = await projects.saveWorkspaceSource({
         expected: parseBinding(expected),

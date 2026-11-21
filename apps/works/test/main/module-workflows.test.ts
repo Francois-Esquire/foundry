@@ -519,3 +519,42 @@ describe("Module execution providers", () => {
     });
   });
 });
+
+it("does not repeat a completed request after retention removes its run", async () => {
+  const { app, drain, execution, ticker, watch } = await setup();
+  const target = await app();
+  const first = await ticker(target, "pruned", { count: 1, intervalMs: 1 });
+  await drain(await watch(target, first.execution));
+  await execution.runs.prune(
+    [first.execution],
+    () => `module:${target.module.id}`
+  );
+  expect(execution.runs.get(first.execution)).toBeUndefined();
+  expect(await ticker(target, "pruned", { count: 1, intervalMs: 1 })).toEqual({
+    execution: first.execution,
+    retried: true,
+    status: "complete",
+  });
+  expect(
+    execution.runs.list().filter((run) => run.correlation.request === "pruned")
+  ).toHaveLength(0);
+});
+
+it("keeps the answer to a retained execution after more than 200 workflows complete", {
+  timeout: 30_000,
+}, async () => {
+  const { app, drain, ticker, watch } = await setup();
+  const target = await app();
+  const first = await ticker(target, "answer-0", { count: 1, intervalMs: 1 });
+  await drain(await watch(target, first.execution));
+  for (let index = 1; index <= 200; index += 1) {
+    const next = await ticker(target, `answer-${index}`, {
+      count: 1,
+      intervalMs: 1,
+    });
+    await drain(await watch(target, next.execution));
+  }
+  expect(
+    (await drain(await watch(target, first.execution))).at(-1)
+  ).toMatchObject({ output: { ticks: 1 }, status: "complete" });
+});

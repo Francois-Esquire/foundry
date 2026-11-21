@@ -138,7 +138,10 @@ async function composeOver(
   const { moduleRoot, print, userData } = options;
   const store = await openModuleStore(moduleRoot, { legacyUserData: userData });
   const persistence = modulePersistence(store);
-  const records = createModuleRecords(store);
+  const records = createModuleRecords(store, {
+    sourceLimits: async (id) =>
+      (await moduleSettings.authoringLimits(id)).source,
+  });
   const moduleSettings = new ModuleSettings({
     directory: path.join(userData, "module-settings"),
     execution,
@@ -230,7 +233,7 @@ async function composeOver(
     settings: moduleSettings,
     stopped: async (installationId) => {
       bindings.stopped(installationId);
-      await workflows.cancelInstallation(installationId);
+      await workflows.stoppedInstallation(installationId);
     },
   });
   const sessions = new ModuleSessions({

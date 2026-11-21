@@ -18,7 +18,12 @@ import {
   workflowIdentity,
 } from "./workflows";
 
-const RETAINED_OUTPUTS = 200;
+interface StartReceipt {
+  readonly execution: string;
+  readonly input: string;
+  readonly runtimeInstanceId: string;
+  status: ExecutionStatus;
+}
 
 export interface WorkflowStart {
   readonly input: unknown;
@@ -64,6 +69,7 @@ export class ModuleWorkflows {
   readonly #execution: ModuleWorkflowsOptions["execution"];
   readonly #models: WorkflowModels;
   readonly #outputs = new Map<string, unknown>();
+  readonly #receipts = new Map<string, Map<string, StartReceipt>>();
   readonly #registry: WorkflowRegistry;
   readonly #turns = new KeyedTurns<string>();
 
@@ -107,20 +113,40 @@ export class ModuleWorkflows {
             run.correlation.installationId === installationId &&
             run.correlation.request === start.request
         );
-      if (earlier) {
-        if (earlier.correlation.runtimeInstanceId !== runtimeInstanceId) {
+      const receipts =
+        this.#receipts.get(installationId) ?? new Map<string, StartReceipt>();
+      this.#receipts.set(installationId, receipts);
+      const receipt =
+        receipts.get(start.request) ??
+        (earlier
+          ? {
+              execution: earlier.id,
+              input: earlier.correlation.input ?? "",
+              runtimeInstanceId: earlier.correlation.runtimeInstanceId ?? "",
+              status: earlier.status,
+            }
+          : undefined);
+      if (receipt) {
+        receipts.set(start.request, receipt);
+        if (receipt.runtimeInstanceId !== runtimeInstanceId) {
           throw new ModuleGatewayError(
             "unauthorized",
             "This request was started by an earlier run of this app"
           );
         }
-        if (earlier.correlation.input !== digest) {
+        if (receipt.input !== digest) {
           throw new ModuleGatewayError(
             "invalid-input",
             "This request was already used to start other work"
           );
         }
-        return { execution: earlier.id, retried: true, status: earlier.status };
+        return {
+          execution: receipt.execution,
+          retried: true,
+          status:
+            this.#execution.runs.get(receipt.execution)?.status ??
+            receipt.status,
+        };
       }
       await authorize();
       const { id, result } = await this.#execution.launch(
@@ -147,7 +173,21 @@ export class ModuleWorkflows {
           return output;
         }
       );
-      result.catch(() => undefined);
+      const retained: StartReceipt = {
+        execution: id,
+        input: digest,
+        runtimeInstanceId,
+        status: "queued",
+      };
+      receipts.set(start.request, retained);
+      result.then(
+        () => {
+          retained.status = "complete";
+        },
+        () => {
+          retained.status = this.#execution.runs.get(id)?.status ?? "failed";
+        }
+      );
       return {
         execution: id,
         retried: false,
@@ -204,6 +244,11 @@ export class ModuleWorkflows {
     );
   }
 
+  async stoppedInstallation(installationId: string): Promise<void> {
+    await this.cancelInstallation(installationId);
+    this.#receipts.delete(installationId);
+  }
+
   shutdown(): Promise<void> {
     return this.#cancelOpen(() => true);
   }
@@ -238,10 +283,9 @@ export class ModuleWorkflows {
   #remember(id: string, output: unknown) {
     this.#outputs.set(id, output);
     for (const key of this.#outputs.keys()) {
-      if (this.#outputs.size <= RETAINED_OUTPUTS) {
-        break;
+      if (!this.#execution.runs.get(key)) {
+        this.#outputs.delete(key);
       }
-      this.#outputs.delete(key);
     }
   }
 

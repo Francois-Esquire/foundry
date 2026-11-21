@@ -382,6 +382,23 @@ describe("leaving an editor View", () => {
     await view.sessions.shutdown();
   });
 
+  it("keeps a clean bound frame on the explicit reopen path after its runtime restarts", async () => {
+    const view = await openEditor();
+    const { message, port } = view.connect();
+    port.postMessage(report(message, false));
+    await delivered();
+    const oldSource = view.iframe.src;
+    await act(async () => {
+      await view.sessions.restart(view.editor.id);
+    });
+    await screen.findByText(RUNTIME_CHANGED);
+    expect(view.iframe.src).toBe(oldSource);
+    expect(view.sessions.endpoint(new URL(oldSource).hostname)).toBeUndefined();
+    view.leaveHome();
+    await waitFor(() => expect(view.locations.at(-1)).toBe("/"));
+    await view.sessions.shutdown();
+  });
+
   it("keeps a dirty frame through runtime restart without retaining its endpoint", async () => {
     const view = await openEditor();
     const { message, port } = view.connect();

@@ -1,5 +1,8 @@
 import { isDerivedBuildPath } from "@foundry/modules/build";
-import { MODULE_SOURCE_LIMITS } from "@foundry/modules/source";
+import {
+  MODULE_SOURCE_LIMITS,
+  type ModuleSourceLimits,
+} from "@foundry/modules/source";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { MODULE_SANDBOX_ROOT } from "../sandboxes/coordinator";
 import { endAuthoringProcesses, giveWorkspaceToAuthor } from "./guest";
@@ -42,7 +45,8 @@ export async function seedWorkspace(
 export async function collectWorkspace(
   container: GuestFiles,
   snapshot: Readonly<Record<string, string>>,
-  signal: AbortSignal
+  signal: AbortSignal,
+  effective: ModuleSourceLimits = MODULE_SOURCE_LIMITS
 ): Promise<Record<string, string>> {
   await endAuthoringProcesses(container);
   const authored = Object.keys(snapshot);
@@ -51,19 +55,58 @@ export async function collectWorkspace(
     !(directory
       ? authored.some((file) => file.startsWith(`${path}/`))
       : Object.hasOwn(snapshot, path));
+  const limits = Object.fromEntries(
+    Object.entries(MODULE_SOURCE_LIMITS).map(([key, ceiling]) => [
+      key,
+      Math.min(effective[key as keyof ModuleSourceLimits], ceiling),
+    ])
+  ) as ModuleSourceLimits;
   const files: Record<string, string> = {};
   let count = 0;
+  let totalBytes = 0;
   const read = async (path: string) => {
     count += 1;
-    if (count > MODULE_SOURCE_LIMITS.maxFiles) {
+    if (count > limits.maxFiles) {
+      throw new Error(`The workspace has more than ${limits.maxFiles} files`);
+    }
+    if (path.length > limits.maxPathCharacters) {
       throw new Error(
-        `The workspace has more than ${MODULE_SOURCE_LIMITS.maxFiles} files`
+        `A source path is longer than ${limits.maxPathCharacters} characters`
       );
     }
-    try {
-      files[path] = decoder.decode(
-        await container.files.readFile(`${MODULE_SANDBOX_ROOT}/${path}`)
+    const maximum = Math.min(
+      limits.maxBytes - totalBytes,
+      limits.maxFileCodeUnits * 3
+    );
+    const result = await container.commands.exec(
+      [
+        "sh",
+        "-c",
+        `file=$(mktemp) || exit; trap 'rm -f -- "$file"' EXIT; head -c "$1" -- "$2" > "$file" && base64 -- "$file"`,
+        "collect-source",
+        String(maximum + 1),
+        `${MODULE_SANDBOX_ROOT}/${path}`,
+      ],
+      { signal }
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(`The workspace file could not be read: ${path}`);
+    }
+    const bytes = new Uint8Array(Buffer.from(result.stdout, "base64"));
+    if (bytes.byteLength > maximum) {
+      throw new Error(
+        `The workspace file exceeds its remaining source byte limit: ${path}`
       );
+    }
+    totalBytes += bytes.byteLength;
+    try {
+      const text = decoder.decode(bytes);
+      if (text.length > limits.maxFileCodeUnits) {
+        throw new Error(
+          `${path} is longer than ${limits.maxFileCodeUnits} UTF-16 code units`
+        );
+      }
+      files[path] = text;
     } catch (error) {
       if (error instanceof TypeError) {
         throw new Error(`The agent left a file that is not text: ${path}`, {

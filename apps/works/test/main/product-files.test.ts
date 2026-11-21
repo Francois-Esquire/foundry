@@ -726,3 +726,29 @@ it("answers a retried save of a non-primary entry with that entry, also when rec
   });
   expect(next).toMatchObject({ evidence: "recorded", kind: "saved" });
 });
+
+it("answers a create retry with its committed Artifact after filesystem application fails", async () => {
+  const { artifacts, files } = await open(await temporary());
+  const unbind = artifacts.bind(() =>
+    Promise.reject(new Error("disk projection failed"))
+  );
+  const input = {
+    actor: USER,
+    bytes: new TextEncoder().encode("one"),
+    mime: "text/markdown",
+    name: "One",
+    path: "notes.md",
+    request: "projection-failure",
+  };
+  await expect(files.create(input)).rejects.toThrow("filesystem application");
+  unbind();
+  const committed = await artifacts.list();
+  expect(committed.items).toHaveLength(1);
+  const retried = await files.create(input);
+  expect(retried).toMatchObject({
+    artifactId: committed.items[0]?.id,
+    kind: "created",
+    retried: true,
+  });
+  expect((await artifacts.list()).items).toHaveLength(1);
+});

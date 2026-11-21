@@ -35,7 +35,8 @@ function readyApp(
 function nextDisplayedApp(
   current: ModuleSession | undefined,
   displayed: ModuleSession | undefined,
-  guarded: boolean
+  guarded: boolean,
+  binding: string | null
 ): ModuleSession | undefined {
   if (!current) {
     return undefined;
@@ -43,7 +44,7 @@ function nextDisplayedApp(
   if (!displayed) {
     return current;
   }
-  if (!guarded && current.origin !== displayed.origin) {
+  if (!guarded && binding === null && current.origin !== displayed.origin) {
     return current;
   }
   return undefined;
@@ -97,7 +98,12 @@ function ModuleAppSession() {
     view: view?.id ?? "",
   });
   const guarded = guardsEditorFrame(editorState);
-  const replacement = nextDisplayedApp(currentApp, displayedApp, guarded);
+  const replacement = nextDisplayedApp(
+    currentApp,
+    displayedApp,
+    guarded,
+    binding
+  );
   if (replacement) {
     setDisplayedApp(replacement);
   }

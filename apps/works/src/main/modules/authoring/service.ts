@@ -405,7 +405,7 @@ export class ModuleAuthoring {
       signal.throwIfAborted();
       const changes = moduleSourceChanges(
         source,
-        await collectWorkspace(loan.container, source, signal)
+        await collectWorkspace(loan.container, source, signal, limits.source)
       );
       const paths = Object.keys(changes).sort();
       if (paths.length === 0) {
