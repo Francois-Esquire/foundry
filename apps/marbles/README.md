@@ -133,8 +133,7 @@ the Marbles process that hosts the workspace
 answers, or the server opens the stored tasks for the call. `list_config`, the dispatch
 tools, `get_run`, and `cancel_run` need the Marbles process to host the workspace,
 and return an error that names `marbles attach` without one. Its engine
-generation loads the workspace's Varlock environment and source modules,
-and an edit brings up the next generation.
+generation loads the workspace's source modules, and an edit brings up the next generation.
 
 The server offers `list_workspaces`, `list_config`, `dispatch_workflow`,
 `dispatch_agent`, `get_run`, and `cancel_run`, plus the task tools

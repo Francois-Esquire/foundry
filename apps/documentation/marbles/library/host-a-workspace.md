@@ -74,11 +74,9 @@ over a bare engine. `describe`, `snapshot`, `dispatchWorkflow`,
 tools and the dashboard call. `close` stops the engine, cancelling live
 runs, and disposes what it opened.
 
-Each host loads its workspace's source into a catalog of its own, and its
-`.env.schema` into the environment the workspace's runs carry, leaving
-`process.env` as it was; two hosts in one process never see each other's
-definitions, triggers, agents, tasks or values, and two workspaces may use
-the same names. What a workspace's modules do later, from a timer, a
+Each host loads its workspace's source into a catalog of its own; two
+hosts in one process never see each other's definitions, triggers, agents
+or tasks, and two workspaces may use the same names. What a workspace's modules do later, from a timer, a
 promise or a listener, still belongs to that workspace, and is refused once
 its host has closed. Every module a workspace's source imports by path,
 under its root or not, is loaded for that workspace alone; a package,
@@ -102,9 +100,8 @@ parked run by a claim on its row in the Marbles database instead, and one
 of them hosting the workspace while your program does is not refused by
 the lock. A live
 holder throws `ProcessHeldError`, naming who has it; a lock left by an
-exited process is taken over. Pass `dry: true` to persist nothing, and
-`env: "require"` to refuse a `.env.schema` that does not resolve (the
-default warns). `watchSource(configPath, { onChange, signal })` polls the
+exited process is taken over. Pass `dry: true` to persist nothing.
+`watchSource(configPath, { onChange, signal })` polls the
 authoring folder, helpers included, every second and reports a change; a
 host restarts itself on one, since loaded modules cannot be unloaded.
 `createStarter` writes a starter module for a workspace without one.

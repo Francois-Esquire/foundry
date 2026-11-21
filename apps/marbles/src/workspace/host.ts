@@ -44,7 +44,6 @@ export interface HostWorkspaceOptions {
   readonly database?: MarblesDatabase;
   readonly directory?: string;
   readonly dry?: boolean;
-  readonly env?: "require" | "warn";
   readonly onClose?: (closing: Promise<void>) => void;
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   readonly prepare?: (engine: Engine) => void;
@@ -145,7 +144,6 @@ export async function stageWorkspace(
   };
   const loaded = await openWorkspace(hostOptions, {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    env: options.env,
     onMissing: options.onMissing,
     print,
     ...(options.read === undefined ? {} : { read: options.read }),

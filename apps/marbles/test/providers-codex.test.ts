@@ -17,6 +17,7 @@ import { selectExecutor } from "~/lib/executor";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
 import { codexPlugin, registered } from "~/lib/providers/plugins";
 import { fakeCodex } from "./helpers/codex";
+import { homedCli } from "./helpers/homed-cli";
 
 it("loads the configured Codex accounts independently and honors model defaults", async () => {
   const root = mkdtempSync(join(tmpdir(), "codex-list-"));
@@ -40,17 +41,19 @@ it("loads the configured Codex accounts independently and honors model defaults"
     workspace: {
       order: ["codex", "work"],
       providers: [
-        { ...provider, defaults: { text: "workspace-preferred" }, id: "work" },
+        {
+          ...provider,
+          defaults: { text: "workspace-preferred" },
+          id: "work",
+          settings: { binPath: homedCli(binPath, "CODEX_HOME", workspaceHome) },
+        },
       ],
       version: 1,
     },
   }));
   const models = new ModelManager();
   const config = new ProviderConfiguration({
-    environment: {
-      machine: { CODEX_HOME: machineHome, PATH: "" },
-      workspace: { CODEX_HOME: workspaceHome },
-    },
+    environment: { CODEX_HOME: machineHome, PATH: "" },
     models,
     plugins: [registered(codexPlugin)],
     store,

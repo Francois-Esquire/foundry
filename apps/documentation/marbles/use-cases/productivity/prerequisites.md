@@ -89,7 +89,7 @@ a source unreadable when nobody is present.
 Use reading permissions for collection. The example's prompt is not a
 permission system. Keep credentials in the CLI or connector's credential
 store, not in the briefing profile, source code, or report. If a connector
-requires environment variables, load them through
-[Varlock](/marbles/reference/project#environment).
+requires environment variables, set them in the environment the Marbles
+process starts with; see [environment](/marbles/reference/project#environment).
 
 Next: [Build the morning report](/marbles/use-cases/productivity/morning-report).

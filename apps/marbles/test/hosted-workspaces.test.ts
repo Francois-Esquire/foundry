@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -33,16 +33,7 @@ async function workspace(
   tail = ""
 ): Promise<{ readonly dir: string; readonly source: string }> {
   const dir = join(root, name);
-  const bin = join(dir, "node_modules", ".bin");
-  await mkdir(bin, { recursive: true });
-  await mkdir(join(dir, "sub"));
-  await writeFile(join(dir, ".env.schema"), "MARBLES_TEST_VALUE=\n");
-  const varlock = join(bin, "varlock");
-  await writeFile(
-    varlock,
-    `#!/bin/sh\nprintf '{"MARBLES_TEST_VALUE":"${name}"}'\n`
-  );
-  chmodSync(varlock, 0o755);
+  await mkdir(join(dir, "sub"), { recursive: true });
   const source = join(dir, "marbles.ts");
   await writeFile(source, sourceText(name, tail));
   return { dir, source };
@@ -53,7 +44,7 @@ function sourceText(name: string, tail = ""): string {
 export const helper = agent({ name: "helper", prompt: "Help ${name}." });
 export const build = step("build").do(async ({ exec }) => {
   await tasks.create({ title: "built ${name}" });
-  const { stdout } = await exec(["sh", "-c", 'pwd -P; printf %s "$MARBLES_TEST_VALUE"']);
+  const { stdout } = await exec(["sh", "-c", "pwd -P; printf %s ${name}"]);
   return stdout;
 });
 schedule(build).every("1d");
@@ -106,7 +97,6 @@ const report = {};
 const environment = { ...process.env };
 const hosted = await HostedWorkspaces.open({
   artifacts: ${JSON.stringify(join(root, "artifacts"))},
-  env: "require",
   state: ${JSON.stringify(join(root, "state"))},
 });
 const titles = async (id) =>
@@ -131,17 +121,16 @@ process.stdout.write(JSON.stringify(report) + "\\n");
 process.exit(0);
 `
   );
-  const { MARBLES_TEST_VALUE: _, ...env } = process.env;
   const output = execFileSync("bun", ["--no-env-file", script], {
     cwd: root,
     encoding: "utf8",
-    env,
+    env: process.env,
     timeout: 90_000,
   });
   return JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
 }
 
-it("hosts two workspaces with the same local names in one process, each run in its own directory and environment", async () => {
+it("hosts two workspaces with the same local names in one process, each run in its own directory, leaving the process environment alone", async () => {
   const root = await scratch();
   const a = await workspace(root, "alpha");
   const b = await workspace(root, "beta");
@@ -286,6 +275,7 @@ export const reviewer = agent({ prompt: "Review alpha." });
     join(a.dir, "twice.ts"),
     'import { step } from "@foundry.sh/marbles";\nexport const twice = step("build").do(() => "again");\n'
   );
+  await mkdir(join(a.dir, "node_modules"));
   await symlink(
     resolve("../../node_modules/typescript"),
     join(a.dir, "node_modules", "typescript")
@@ -609,7 +599,6 @@ import { HostedWorkspaces } from ${JSON.stringify(join(SRC, "workspace/hosted.ts
 const report = {};
 const hosted = await HostedWorkspaces.open({
   artifacts: ${JSON.stringify(join(root, "artifacts"))},
-  env: "require",
   spawned: ${JSON.stringify(spawned)},
   state: ${JSON.stringify(state)},
 });
@@ -639,12 +628,11 @@ process.stdout.write(JSON.stringify(report) + "\\n");
 process.exit(0);
 `
   );
-  const { MARBLES_TEST_VALUE: _, ...env } = home.env;
   const report = JSON.parse(
     execFileSync("bun", ["--no-env-file", script], {
       cwd: root,
       encoding: "utf8",
-      env: { ...env, [SPAWN_RECOVERY_ENV]: spawned },
+      env: { ...home.env, [SPAWN_RECOVERY_ENV]: spawned },
       timeout: 90_000,
     })
       .trim()

@@ -64,6 +64,5 @@ needs only Marbles; later examples state their additional dependencies.
 | Typed input | A Standard Schema library. These docs use `zod`. |
 | Git worktrees | Git and a repository with at least one commit. |
 | Sandbox execution | The optional `microsandbox` SDK and its native runtime; see [sandboxes](/marbles/foundation/workspaces-and-sandboxes#sandboxes). |
-| Environment validation | Varlock and a project `.env.schema`; see [environment](/marbles/reference/project#environment). |
 
 Continue with [Your first automation](/marbles/get-started/quickstart).

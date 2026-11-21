@@ -164,7 +164,7 @@ export type Hosted =
 
 export function hostHere(
   args: HostOptions,
-  options: Pick<HostWorkspaceOptions, "env" | "print">
+  options: Pick<HostWorkspaceOptions, "print">
 ): Promise<WorkspaceHost> {
   return hostWorkspace({
     ...options,

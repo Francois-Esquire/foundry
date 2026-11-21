@@ -58,7 +58,6 @@ export interface HostedWorkspacesOptions {
   readonly artifacts: string;
   readonly askable?: boolean;
   readonly dry?: boolean;
-  readonly env?: "require" | "warn";
   readonly prepare?: (engine: Engine) => void;
   readonly print?: (root: string, line: string) => void;
   readonly read?: (root: string, file: string) => void;
@@ -180,7 +179,6 @@ export class HostedWorkspaces {
           : { askable: this.#options.askable }),
         ...(registration.cwd === undefined ? {} : { cwd: registration.cwd }),
         ...(this.#database === undefined ? {} : { database: this.#database }),
-        ...(this.#options.env === undefined ? {} : { env: this.#options.env }),
         directory: root,
         dry: args.dry,
         onClose: (closing) => {

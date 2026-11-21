@@ -265,7 +265,7 @@ Five buckets, each importing only what sits below it:
   everything else it holds, since its agents may write a session after its
   records close.
 - `src/workspace/` hosts one workspace in the process it runs in: source
-  discovery (`source.ts`), the Varlock environment (`env.ts`), module
+  discovery (`source.ts`), module
   loading and the engine builder (`open.ts`), the schedule loop
   (`loop.ts`), the dashboard snapshot (`snapshot.ts`) with its feed of
   every workspace (`feed.ts`) and its usage
@@ -282,8 +282,7 @@ Five buckets, each importing only what sits below it:
   passes the directory it runs in (`directory`), and a workspace's
   registration says where its work starts (`cwd`). Each workspace loads
   into a `Catalog` of its own (`loadSource`, through `loadInto` in
-  `authoring/runtime.ts`; loads may overlap), and its Varlock values into
-  the engine's execution context, never `process.env`. Each load imports
+  `authoring/runtime.ts`; loads may overlap). Each load imports
   copies of its own of every module and data file its source imports by
   path (`copies.ts`: anything but packages and Marbles' own code; it
   rewrites only import specifiers, found with `oxc-parser`, and a file
