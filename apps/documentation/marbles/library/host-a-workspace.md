@@ -16,7 +16,7 @@ want neither discovery nor a daemon.
 ## Host one workspace
 
 `@foundry.sh/marbles/workspace` hosts a workspace the way the CLI does,
-without the CLI: `hostWorkspace` finds the source, loads the environment,
+without the CLI: `hostWorkspace` finds the source, snapshots the process environment,
 imports the modules, builds and starts the engine, and returns a
 `WorkspaceHost`: the `WorkspaceConnection` the dashboard, the CLI, and the
 MCP server are written against, plus the engine itself. `layout` decides
