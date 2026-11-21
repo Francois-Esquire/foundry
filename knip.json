@@ -73,6 +73,9 @@
         "!.foundry/marbles/**/_*",
         "!.foundry/marbles/**/_*/**"
       ]
+    },
+    "modules/sheets": {
+      "entry": ["src/program.ts", "src/view.tsx"]
     }
   }
 }

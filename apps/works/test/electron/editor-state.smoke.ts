@@ -122,7 +122,7 @@ async function smoke(userData: string) {
       async () =>
         !!frame() &&
         (await frame()?.executeJavaScript(
-          "document.body.dataset.connected === 'true'"
+          "document.body?.dataset.connected === 'true'"
         )) === true,
       "Editor handshake missing"
     );
@@ -164,10 +164,10 @@ async function smoke(userData: string) {
         !!current &&
         current.url.endsWith("/other") &&
         (await current.executeJavaScript(
-          "document.body.dataset.connected === 'true' && document.body.dataset.document"
+          "document.body?.dataset.connected === 'true' && document.body.dataset.document"
         )) !== firstDocument &&
         (await current.executeJavaScript(
-          "document.body.dataset.connected === 'true'"
+          "document.body?.dataset.connected === 'true'"
         )) === true
       );
     }, "View Leave did not load a new connected document");
@@ -258,7 +258,7 @@ async function smoke(userData: string) {
       async () =>
         !!frame() &&
         (await frame()?.executeJavaScript(
-          "document.body.dataset.connected === 'true'"
+          "document.body?.dataset.connected === 'true'"
         )) === true,
       "Editor reopen missing"
     );
@@ -280,7 +280,7 @@ async function smoke(userData: string) {
       async () =>
         !!frame() &&
         (await frame()?.executeJavaScript(
-          "document.body.dataset.connected === 'true'"
+          "document.body?.dataset.connected === 'true'"
         )) === true,
       "Final editor missing"
     );

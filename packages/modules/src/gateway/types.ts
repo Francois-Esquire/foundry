@@ -177,6 +177,7 @@ export class ModuleGatewayError extends Error {
 }
 
 export interface ModuleGatewayClose {
+  readonly abandoned?: readonly string[];
   readonly code: ModuleGatewayCloseCode;
   readonly reason: string;
 }
@@ -302,6 +303,7 @@ export interface ModuleGatewayRuntimeDispatcher {
     readonly capabilities: readonly ModuleCapabilityRequest[];
     readonly request: ModuleGatewayInvocationFrame;
     readonly signal: AbortSignal;
+    readonly trackWork?: (work: Promise<unknown>) => void;
   }): Promise<ModuleGatewayDispatchResult>;
   revoke(input: {
     readonly installationId: InstallationId;

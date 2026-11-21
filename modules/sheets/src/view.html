@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Sheets</title>
+    <style>
+    :root {
+      font-family: system-ui, sans-serif;
+      color-scheme: light dark;
+    }
+    body {
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      height: 100vh;
+      padding: 16px;
+      margin: 0;
+    }
+    #root,
+    #root-content {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      height: 100%;
+    }
+    button,
+    input {
+      font: inherit;
+    }
+    header,
+    .bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    header {
+      gap: 12px;
+      align-items: baseline;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1rem;
+    }
+    #status {
+      margin: 0;
+      font-size: 0.875rem;
+      color: GrayText;
+    }
+    #cell-name {
+      min-width: 4rem;
+      font:
+        0.875rem ui-monospace,
+        monospace;
+    }
+    #contents {
+      flex: 1;
+      padding: 4px 8px;
+      font:
+        0.875rem ui-monospace,
+        monospace;
+    }
+    #sheets button[aria-pressed="true"] {
+      font-weight: 600;
+    }
+    .scroll {
+      flex: 1;
+      overflow: auto;
+      border: 1px solid GrayText;
+    }
+    table {
+      font-size: 0.8125rem;
+      border-collapse: collapse;
+    }
+    th {
+      position: sticky;
+      padding: 2px 6px;
+      font-weight: 400;
+      color: GrayText;
+      background: Canvas;
+    }
+    thead th {
+      top: 0;
+    }
+    tbody th {
+      left: 0;
+      text-align: right;
+    }
+    td {
+      min-width: 6rem;
+      max-width: 12rem;
+      height: 1.5rem;
+      padding: 0 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: cell;
+      border: 1px solid color-mix(in srgb, GrayText 35%, transparent);
+    }
+    td button {
+      display: block;
+      width: 100%;
+      height: 100%;
+      padding: 0;
+      color: inherit;
+      text-align: inherit;
+      background: transparent;
+      border: 0;
+    }
+    td[data-kind="number"] {
+      text-align: right;
+    }
+    td[data-kind="error"] {
+      color: #c62828;
+    }
+    td button[aria-current="true"] {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
+    }
+    .notice {
+      padding: 8px 12px;
+      border: 1px solid GrayText;
+      border-radius: 6px;
+    }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="/view.js" type="module"></script>
+  </body>
+</html>

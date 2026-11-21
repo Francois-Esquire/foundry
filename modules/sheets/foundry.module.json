@@ -1,0 +1,56 @@
+{
+  "format": "foundry.module-manifest/1",
+  "capabilities": [
+    {
+      "alias": "binding",
+      "capability": "works.editors.binding",
+      "reason": "Opens the workbook you chose",
+      "required": true,
+      "version": 1
+    },
+    {
+      "alias": "read",
+      "capability": "works.artifacts.read",
+      "reason": "Reads the workbook it opened",
+      "required": true,
+      "version": 1
+    },
+    {
+      "alias": "save",
+      "capability": "works.artifacts.save",
+      "reason": "Saves your edits to that workbook",
+      "required": true,
+      "version": 1
+    },
+    {
+      "alias": "watch",
+      "capability": "works.artifacts.watch",
+      "reason": "Shows when the workbook is saved elsewhere",
+      "required": true,
+      "version": 1
+    },
+    {
+      "alias": "create",
+      "capability": "works.artifacts.create",
+      "constraints": {
+        "maxBytes": 1000000,
+        "mimeTypes": ["application/vnd.foundry.workbook+json"]
+      },
+      "reason": "Creates new workbooks",
+      "version": 1
+    }
+  ],
+  "compatibility": { "gateway": "1", "runtime": "bun@1" },
+  "editors": [
+    {
+      "mimeTypes": ["application/vnd.foundry.workbook+json"],
+      "mode": "write",
+      "view": "editor"
+    }
+  ],
+  "persistence": { "files": "none" },
+  "program": { "entry": "outputs/program.js" },
+  "views": {
+    "editor": { "path": "/", "title": "Sheets" }
+  }
+}
