@@ -167,6 +167,35 @@ describe("links made from the database", () => {
     expect(await readlink(join(dir, "shortcut"))).toBe(outside);
   });
 
+  it("keep a link whose target only spells a path under the artifacts and leads out of them", async () => {
+    const { artifacts, root } = await arranged();
+    const dir = resourceLinks(root, "artifact");
+    const escaping = `${join(artifacts, "workspaces")}/../../outside`;
+    mkdirSync(join(dir, "notes"), { recursive: true });
+    symlinkSync(escaping, join(dir, "shortcut"));
+    symlinkSync(escaping, join(dir, "notes", "file.txt"));
+    const report = await relinkArtifact({
+      artifacts,
+      files: FILE,
+      ref: ref(HERE, "notes"),
+      root,
+      workspace: HERE,
+    });
+    expect(report?.kept).toEqual([".marbles/artifacts/notes/file.txt"]);
+    expect(await readlink(join(dir, "notes", "file.txt"))).toBe(escaping);
+    const rebuilt = await rebuildLinks({
+      artifacts,
+      root,
+      view: viewOf([]),
+      workspace: HERE,
+    });
+    expect(rebuilt.kept).toEqual([
+      ".marbles/artifacts/notes/file.txt",
+      ".marbles/artifacts/shortcut",
+    ]);
+    expect(await readlink(join(dir, "shortcut"))).toBe(escaping);
+  });
+
   it("converge when many rebuilds and updates run at once", async () => {
     const { artifacts, linkOf, root } = await arranged();
     const shown = [{ files: NESTED, ref: ref(HERE, "notes") }];

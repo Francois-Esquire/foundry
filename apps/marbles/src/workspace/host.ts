@@ -61,7 +61,11 @@ export interface WorkspaceHost extends WorkspaceConnection {
   readonly configPath: string;
   readonly engine: Engine;
   readonly files: readonly string[];
-  run(signal: AbortSignal, cancel?: AbortSignal): Promise<void>;
+  run(
+    signal: AbortSignal,
+    cancel?: AbortSignal,
+    letGo?: AbortSignal
+  ): Promise<void>;
   setStatus(line: string): void;
   readonly status: string;
   readonly workspace: Workspace;
@@ -499,9 +503,10 @@ function hosted(
       return { lines, value };
     },
     root: workspace.root,
-    run: (signal, cancel) =>
+    run: (signal, cancel, letGo) =>
       runSchedulesUntilStopped(engine, {
         ...(cancel === undefined ? {} : { cancel }),
+        ...(letGo === undefined ? {} : { letGo }),
         print,
         signal,
       }),

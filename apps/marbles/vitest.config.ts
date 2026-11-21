@@ -4,21 +4,40 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@foundry.sh/marbles": resolve(
-        import.meta.dirname,
-        "src/authoring/index.ts"
-      ),
-      "@foundry.sh/marbles/lib": resolve(
-        import.meta.dirname,
-        "src/lib/index.ts"
-      ),
-      "@foundry.sh/marbles/prebuilt": resolve(
-        import.meta.dirname,
-        "src/authoring/prebuilt.ts"
-      ),
-      "~": resolve(import.meta.dirname, "src"),
-    },
+    alias: [
+      {
+        find: /^@foundry\.sh\/marbles$/,
+        replacement: resolve(import.meta.dirname, "src/authoring/index.ts"),
+      },
+      {
+        find: "@foundry.sh/marbles/engine",
+        replacement: resolve(import.meta.dirname, "src/entries/engine.ts"),
+      },
+      {
+        find: "@foundry.sh/marbles/lib",
+        replacement: resolve(import.meta.dirname, "src/entries/lib.ts"),
+      },
+      {
+        find: "@foundry.sh/marbles/prebuilt",
+        replacement: resolve(import.meta.dirname, "src/authoring/prebuilt.ts"),
+      },
+      {
+        find: "@foundry.sh/marbles/process",
+        replacement: resolve(import.meta.dirname, "src/process/index.ts"),
+      },
+      {
+        find: "@foundry.sh/marbles/statuses",
+        replacement: resolve(
+          import.meta.dirname,
+          "src/lib/execution-statuses.ts"
+        ),
+      },
+      {
+        find: "@foundry.sh/marbles/workspace",
+        replacement: resolve(import.meta.dirname, "src/workspace/index.ts"),
+      },
+      { find: "~", replacement: resolve(import.meta.dirname, "src") },
+    ],
   },
   test: {
     exclude: ["test/**/*.integration.test.ts", "test/package.test.ts"],

@@ -190,6 +190,7 @@ function loadResult(load: WorkspaceLoad): WorkspaceLoadResult {
 interface Ticking {
   readonly cancel: AbortController;
   readonly done: Promise<void>;
+  readonly letGo: AbortController;
   readonly stop: AbortController;
 }
 
@@ -198,8 +199,10 @@ async function main(): Promise<void> {
   let hosted: HostedWorkspaces | undefined;
   let staged: StagedWorkspaces | undefined;
   const ticking = new Map<string, Ticking>();
+  const loops = new Set<Ticking>();
   let retiring: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
+  let orphaning = false;
   const finished = Promise.withResolvers<void>();
 
   const workspaces = (): HostedWorkspaces => {
@@ -218,20 +221,24 @@ async function main(): Promise<void> {
   const tick = (host: WorkspaceHost): void => {
     const stop = new AbortController();
     const cancel = new AbortController();
+    const letGo = new AbortController();
     const done = (async () => {
       host.setStatus(
         (await host.engine.schedules()).length === 0
           ? "Ready · no triggers configured"
           : "Watching triggers"
       );
-      await host.run(stop.signal, cancel.signal);
+      await host.run(stop.signal, cancel.signal, letGo.signal);
     })().catch((error: unknown) =>
       notify(GENERATION_NOTIFICATIONS.line, {
         line: `[schedule] ${String(error)}`,
         root: host.root,
       })
     );
-    ticking.set(host.id, { cancel, done, stop });
+    const loop = { cancel, done, letGo, stop };
+    ticking.set(host.id, loop);
+    loops.add(loop);
+    done.finally(() => loops.delete(loop)).catch(() => undefined);
   };
 
   const untick = async (id: string, cancel: boolean): Promise<void> => {
@@ -377,23 +384,27 @@ async function main(): Promise<void> {
       const loop = ticking.get(each.id);
       loop?.stop.abort();
     }
-    const retired = await Promise.all(
-      hosts.map((each) =>
-        each.engine.retire(successor, {
-          onHanded(runId) {
-            notify(GENERATION_NOTIFICATIONS.handed, { id: each.id, runId });
-          },
-          onLetGo(runId) {
-            notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
-          },
-        })
-      )
+    const handing = hosts.map((each) =>
+      each.engine.retire(successor, {
+        onHanded(runId) {
+          notify(GENERATION_NOTIFICATIONS.handed, { id: each.id, runId });
+        },
+        onLetGo(runId) {
+          notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
+        },
+      })
     );
     retiring = (async () => {
-      await Promise.all(retired.map(({ ended }) => ended));
+      const retired = await Promise.allSettled(handing);
+      await Promise.all(
+        retired.map((each) =>
+          each.status === "fulfilled" ? each.value.ended : undefined
+        )
+      );
       await leave(false);
     })();
     retiring.then(finished.resolve, finished.reject);
+    await Promise.all(handing);
   };
 
   const adopt = async (raw: unknown): Promise<boolean> => {
@@ -419,7 +430,32 @@ async function main(): Promise<void> {
   };
 
   const stop = (): Promise<void> => {
+    if (orphaning) {
+      for (const loop of loops) {
+        loop.cancel.abort();
+      }
+    }
     stopping ??= retiring ?? leave(true);
+    stopping.then(finished.resolve, finished.reject);
+    return stopping;
+  };
+
+  const orphaned = async (): Promise<void> => {
+    for (const loop of loops) {
+      loop.stop.abort();
+    }
+    await Promise.allSettled(
+      (hosted?.list() ?? []).map((each) => each.engine.stop())
+    );
+    for (const loop of loops) {
+      loop.letGo.abort();
+    }
+    await leave(false);
+  };
+
+  const orphan = (): Promise<void> => {
+    orphaning ||= retiring === undefined && stopping === undefined;
+    stopping ??= retiring ?? orphaned();
     stopping.then(finished.resolve, finished.reject);
     return stopping;
   };
@@ -467,7 +503,7 @@ async function main(): Promise<void> {
     },
   });
   await channel.request(DAEMON_METHODS.register, { token: args.token });
-  channel.closed.then(() => stop()).catch(() => undefined);
+  channel.closed.then(() => orphan()).catch(() => undefined);
   process.once("SIGTERM", () => {
     stop().catch(() => undefined);
   });

@@ -107,7 +107,7 @@ function activityView(
   activity: HarnessActivitySnapshot
 ): ActivityView<DashboardSelection> {
   return {
-    breadcrumb: { label: run.id, selection: { id: run.id, kind: "run" } },
+    breadcrumb: { label: run.id, selection: runSelection(run) },
     facts: [
       { key: "Kind", value: activity.kind },
       { key: "Status", value: statusDisplay(activity).label },

@@ -1,7 +1,7 @@
-import { spawn } from "node:child_process";
-import { mkdirSync, openSync } from "node:fs";
+import { type ChildProcess, spawn } from "node:child_process";
+import { closeSync, mkdirSync, openSync } from "node:fs";
 import { connect as connectSocket, type Socket } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TaskError } from "@foundry/tasks";
 
@@ -19,7 +19,7 @@ import type {
 import type { DashboardSnapshot } from "~/model/dashboard";
 import type { TaskOutcome } from "~/model/tasks";
 import { Channel, socketTransport } from "~/process/channel";
-import { readProcess } from "~/process/instance";
+import { readProcess, STATE_MODE } from "~/process/instance";
 import {
   CLIENT_NOTIFICATIONS,
   DAEMON_METHODS,
@@ -199,17 +199,23 @@ export function daemonAlive(layout: Layout): boolean {
 
 function startDetachedDaemon(options: ConnectOptions): void {
   const { layout } = options;
-  mkdirSync(layout.state, { recursive: true });
+  mkdirSync(dirname(layout.state), { recursive: true });
+  mkdirSync(layout.state, { mode: STATE_MODE, recursive: true });
   const log = openSync(join(layout.state, LOG_FILE), "a");
-  const child = spawn(
-    runtime(),
-    [...RUNTIME_FLAGS, options.cliEntry ?? cliEntry(), "daemon"],
-    {
-      detached: true,
-      env: { ...process.env, FOUNDRY_HOME: layout.home },
-      stdio: ["ignore", log, log],
-    }
-  );
+  let child: ChildProcess;
+  try {
+    child = spawn(
+      runtime(),
+      [...RUNTIME_FLAGS, options.cliEntry ?? cliEntry(), "daemon"],
+      {
+        detached: true,
+        env: { ...process.env, FOUNDRY_HOME: layout.home },
+        stdio: ["ignore", log, log],
+      }
+    );
+  } finally {
+    closeSync(log);
+  }
   child.unref();
   recordSpawned(child.pid, true, {
     ...process.env,

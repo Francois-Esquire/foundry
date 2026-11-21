@@ -169,3 +169,13 @@ it("focuses neither panel under input and filters by a workspace scope", () => {
     true
   );
 });
+
+it("focuses the answer being typed only while nothing covers the Feed", () => {
+  const typing = feedState({
+    answer: { ...feedState().answer, question, typing: true },
+  });
+  const answerOf = (covered: boolean) =>
+    feedModel(typing, covered).reader.selected?.answer;
+  expect(answerOf(false)).toMatchObject({ focused: true, kind: "typing" });
+  expect(answerOf(true)).toMatchObject({ focused: false, kind: "typing" });
+});

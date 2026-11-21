@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 
 import { holdsLock } from "@foundry/lib/file-lock";
@@ -50,7 +51,7 @@ import {
   withRead,
 } from "~/process/fingerprint";
 import type { ProcessInstance } from "~/process/instance";
-import { claimProcess } from "~/process/instance";
+import { claimProcess, STATE_MODE } from "~/process/instance";
 import {
   attachParamsSchema,
   CLIENT_NOTIFICATIONS,
@@ -65,6 +66,7 @@ import {
   lineParamsSchema,
   liveRunsSchema,
   loadResultSchema,
+  MAX_LINE_BYTES,
   PROTOCOL,
   queuedTakeSchema,
   readParamsSchema,
@@ -201,16 +203,47 @@ function timeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
   return Promise.race([work, limit]).finally(() => clearTimeout(timer));
 }
 
-function lines(onLine: (line: string) => void): (chunk: Buffer) => void {
+const TRUNCATED = `[line truncated at ${String(MAX_LINE_BYTES)} bytes]`;
+
+export function lines(onLine: (line: string) => void): (chunk: Buffer) => void {
+  const decoder = new StringDecoder("utf8");
   let buffer = "";
-  return (chunk) => {
-    buffer += chunk.toString();
-    let newline = buffer.indexOf("\n");
-    while (newline !== -1) {
-      onLine(buffer.slice(0, newline));
-      buffer = buffer.slice(newline + 1);
-      newline = buffer.indexOf("\n");
+  let size = 0;
+  let cut = false;
+  const take = (piece: string): void => {
+    if (cut || piece === "") {
+      return;
     }
+    const bytes = Buffer.byteLength(piece);
+    if (size + bytes <= MAX_LINE_BYTES) {
+      buffer += piece;
+      size += bytes;
+      return;
+    }
+    const head = new StringDecoder("utf8").write(
+      Buffer.from(piece).subarray(0, MAX_LINE_BYTES - size)
+    );
+    onLine(`${buffer}${head} ${TRUNCATED}`);
+    buffer = "";
+    size = 0;
+    cut = true;
+  };
+  return (chunk) => {
+    const text = decoder.write(chunk);
+    let start = 0;
+    let newline = text.indexOf("\n");
+    while (newline !== -1) {
+      take(text.slice(start, newline));
+      if (!cut) {
+        onLine(buffer);
+      }
+      buffer = "";
+      size = 0;
+      cut = false;
+      start = newline + 1;
+      newline = text.indexOf("\n", start);
+    }
+    take(text.slice(start));
   };
 }
 
@@ -256,7 +289,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const { layout } = options;
   const print = options.print ?? (() => undefined);
   const script = options.generationEntry ?? generationEntry();
-  mkdirSync(layout.state, { recursive: true });
+  mkdirSync(dirname(layout.state), { recursive: true });
+  mkdirSync(layout.state, { mode: STATE_MODE, recursive: true });
+  chmodSync(layout.state, STATE_MODE);
   const claim: ProcessInstance = claimProcess(layout.state, {
     artifacts: layout.artifacts,
     host: "daemon",
@@ -409,6 +444,19 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         );
       }),
     ]);
+  }
+
+  function within<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+    let handle: unknown;
+    const limit = new Promise<never>((_, reject) => {
+      handle = clock.setTimeout(
+        () => reject(new Error(`${what} timed out`)),
+        ms
+      );
+    });
+    return Promise.race([work, limit]).finally(() =>
+      clock.clearTimeout(handle)
+    );
   }
 
   function spawnGeneration(
@@ -574,6 +622,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (generation === undefined) {
       throw new Error("no engine generation was spawned with this token");
     }
+    if (generation.channel !== undefined) {
+      throw new Error(
+        `engine generation ${String(generation.number)} has registered already`
+      );
+    }
     generation.channel = channel;
     generation.registered.resolve(channel);
     return generation;
@@ -631,6 +684,27 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     of: 0,
   };
   const waiting = new Map<string, Set<() => void>>();
+  const adopting = new Map<string, Promise<unknown>>();
+  const taking = new Map<string, Promise<unknown>>();
+
+  function outstanding(
+    table: Map<string, Promise<unknown>>,
+    key: string,
+    asked: Promise<unknown>,
+    settled: (value: unknown) => void
+  ): Promise<unknown> {
+    table.set(key, asked);
+    const clear = (): void => {
+      if (table.get(key) === asked) {
+        table.delete(key);
+      }
+    };
+    asked.then((value) => {
+      clear();
+      settled(value);
+    }, clear);
+    return asked;
+  }
 
   function changed(id?: string): void {
     for (const [key, wakers] of waiting) {
@@ -645,12 +719,19 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
 
   function nextChange(id: string, ms: number): Promise<void> {
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, ms);
       const wakers = waiting.get(id) ?? new Set();
-      wakers.add(() => {
+      const wake = (): void => {
         clearTimeout(timer);
         resolve();
-      });
+      };
+      const timer = setTimeout(() => {
+        wakers.delete(wake);
+        if (wakers.size === 0 && waiting.get(id) === wakers) {
+          waiting.delete(id);
+        }
+        resolve();
+      }, ms);
+      wakers.add(wake);
       waiting.set(id, wakers);
     });
   }
@@ -660,6 +741,9 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const pending = offering.get(key);
     if (pending !== undefined) {
       return pending;
+    }
+    if (adopting.has(key)) {
+      return Promise.resolve();
     }
     const previous = handovers.get(id) ?? Promise.resolve();
     const next = previous.then(async () => {
@@ -673,9 +757,24 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         ) {
           return;
         }
+        if (adopting.has(key)) {
+          return;
+        }
         try {
+          const asked = outstanding(
+            adopting,
+            key,
+            ask(target, GENERATION_METHODS.adopt, { id, runId }),
+            (adopted) => {
+              if (adopted === true) {
+                declined.delete(key);
+                held(target, key);
+                changed(id);
+              }
+            }
+          );
           if (
-            (await ask(target, GENERATION_METHODS.adopt, { id, runId })) ===
+            (await within(asked, HELD_WAIT_MS, `adopting run ${runId}`)) ===
             true
           ) {
             declined.delete(key);
@@ -786,13 +885,24 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   ): Promise<void> {
     const key = `${id}\0${runId}`;
     const at = orphansDeclined.get(key);
-    if (at !== undefined && Date.now() - at < REOFFER_MS) {
+    if (taking.has(key) || (at !== undefined && Date.now() - at < REOFFER_MS)) {
       return;
     }
     let why: string;
     try {
+      const asked = outstanding(
+        taking,
+        key,
+        ask(target, GENERATION_METHODS.takeQueued, { id, owner, runId }),
+        (value) => {
+          if (queuedTakeSchema.safeParse(value).data?.taken === true) {
+            orphansDeclined.delete(key);
+            orphansReported.delete(key);
+          }
+        }
+      );
       const take = queuedTakeSchema.parse(
-        await ask(target, GENERATION_METHODS.takeQueued, { id, owner, runId })
+        await within(asked, HELD_WAIT_MS, `taking queued run ${runId}`)
       );
       if (take.taken) {
         orphansDeclined.delete(key);
@@ -997,8 +1107,12 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     refuseWhileStopping();
     const candidate = spawnGeneration(number, fingerprint);
     print(`[marbles] engine generation ${String(number)} starting: ${reason}`);
-    if (candidate.child.pid !== undefined) {
-      await records.spawned(number, candidate.child.pid);
+    if (candidate.spawnedAs !== undefined) {
+      await records.spawned(
+        number,
+        candidate.spawnedAs.pid,
+        candidate.spawnedAs.started
+      );
     }
     let loaded: LoadResult;
     try {
@@ -1028,7 +1142,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       if (replacing) {
         current = undefined;
       }
-      await refuse(candidate, undefined, error);
+      await refuse(candidate, undefined, error, { hostLost: true });
       if (replacing) {
         replaceCurrent("the engine generation did not start");
       }
@@ -1125,7 +1239,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       )
     );
     candidate.identity = loaded.identity;
-    await records.identify(candidate.number, loaded.identity.started);
+    await records.identify(
+      candidate.number,
+      loaded.identity.started ?? candidate.spawnedAs?.started ?? null
+    );
     const failed = loaded.loads.filter((load) => load.error !== undefined);
     const running =
       previous !== undefined &&
@@ -1228,7 +1345,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   async function refuse(
     candidate: Generation,
     previous: Generation | undefined,
-    error: unknown
+    error: unknown,
+    { hostLost = false }: { readonly hostLost?: boolean } = {}
   ): Promise<void> {
     const why = message(error);
     print(
@@ -1241,7 +1359,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     for (const workspace of hosted.values()) {
       const own =
         failures === undefined ? why : failures.get(workspace.summary.id);
-      tellRefused(workspace, previous, own, why);
+      tellRefused(workspace, previous, own, why, hostLost);
     }
     await stopGeneration(candidate);
     await records.mark(candidate.number, "failed", why).catch(() => undefined);
@@ -1251,7 +1369,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     workspace: Hosted,
     previous: Generation | undefined,
     own: string | undefined,
-    why: string
+    why: string,
+    hostLost: boolean
   ): void {
     const { id, state } = workspace.summary;
     if (previous?.hosts.has(id)) {
@@ -1262,7 +1381,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       const said = `a change did not load, so the previous load still runs: ${own}`;
       setState(workspace, "ready", { error: said });
       forwardLine(id, said);
-    } else if (state === "starting" || state === "reloading") {
+    } else if (
+      hostLost
+        ? state !== "stopped"
+        : state === "starting" || state === "reloading"
+    ) {
       setState(workspace, "failed", { error: own ?? why });
     }
   }
@@ -1532,9 +1655,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     hosted.set(workspace.id, entry);
     publish(entry);
     const unregister = async (): Promise<void> => {
-      if (before?.hosted !== true) {
-        await registry.unhost(workspace.id);
+      if (before?.hosted === true) {
+        return;
       }
+      if (hosted.get(workspace.id) === entry) {
+        hosted.delete(workspace.id);
+      }
+      await registry.unhost(workspace.id);
     };
     const target = current;
     if (target === undefined) {
@@ -1581,8 +1708,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         workspace.id,
         undefined
       );
-      await unregister();
       setState(entry, "failed", { error: message(error) });
+      await unregister();
       throw error;
     }
     target.hosts.add(workspace.id);

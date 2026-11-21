@@ -2,13 +2,20 @@ import { createFalClient } from "@fal-ai/client";
 import type { FalEndpointClient } from "../fal/client";
 import type { LiveAccess } from "./types";
 
-export function falClientFor(access: LiveAccess): FalEndpointClient {
+export type FalClientFactory = (
+  config: Parameters<typeof createFalClient>[0]
+) => FalEndpointClient;
+
+export function falClientFor(
+  access: LiveAccess,
+  create: FalClientFactory = createFalClient
+): FalEndpointClient {
   if (access.kind === "credential") {
-    return access.client;
+    return create({ credentials: access.credentials });
   }
-  return createFalClient(
+  return create(
     access.kind === "proxy"
       ? { credentials: "", proxyUrl: { url: access.url, when: "always" } }
       : { credentials: "" }
-  ) satisfies FalEndpointClient;
+  );
 }

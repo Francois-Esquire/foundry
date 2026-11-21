@@ -157,7 +157,7 @@ for exit codes and interruption behavior.
 | `agent` | Optional declared agent ID from `list_config`. Omit it for an ad hoc agent. |
 | `instructions` | Instructions for an ad hoc agent, or instructions appended to a declared agent's prompt. Without either, an ad hoc agent uses a short task-completion prompt. |
 | `model`, `provider` | Override the agent's configured model route. Otherwise use its route or the engine default. |
-| `cwd` | Working directory, resolved relative to the loaded workspace root. |
+| `cwd` | Working directory, resolved relative to the loaded workspace root. After following links it must be a directory inside the workspace root or inside one of the workspace's worktrees that Marbles created; any other path is refused. |
 | `maxTurns` | Positive integer limiting model/tool steps. The agent can finish earlier. Network models and local Claude Code support it; Claude Code accepts at most 100. Local Codex and Pi reject this option because their current adapters cannot enforce it. Omit it to use their own loop defaults. |
 | `timeoutMs` | Positive integer execution timeout in milliseconds, at most 2,147,483,647. Expiry requests cancellation and reports a failed run. |
 | `compaction` | Optional boolean forwarded to session context-compaction settings. Omit it to use the session defaults. |
@@ -197,8 +197,8 @@ Code inside workflow bodies must honor the context's `signal` to stop its
 external work. Cancellation cannot undo completed side effects.
 
 A dispatched run belongs to its workspace's engine. Closing stdin, ending the
-`marbles mcp` process, or SIGINT or
-SIGTERM ends the server and nothing else. Shutdown takes a few seconds at
+`marbles mcp` process, SIGHUP, SIGINT or
+SIGTERM, or a failed write of a response ends the server and nothing else. Shutdown takes a few seconds at
 most; a task call that does not finish in time is cut off. The Marbles process keeps hosting the workspace, its triggers
 keep running, and runs already dispatched run to completion. Several MCP
 clients can run at once against one process. `get_run` and `cancel_run`

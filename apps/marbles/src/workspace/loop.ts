@@ -3,6 +3,7 @@ import { runSchedules } from "~/lib/schedule";
 
 export interface RunLoopOptions {
   readonly cancel?: AbortSignal;
+  readonly letGo?: AbortSignal;
   readonly print?: (line: string) => void;
   readonly signal?: AbortSignal;
 }
@@ -11,6 +12,7 @@ export async function runSchedulesUntilStopped(
   engine: Engine,
   {
     cancel,
+    letGo,
     print = (line) => {
       process.stdout.write(`${line}\n`);
     },
@@ -31,6 +33,7 @@ export async function runSchedulesUntilStopped(
   try {
     await runSchedules(engine, {
       ...(cancel === undefined ? {} : { cancel }),
+      ...(letGo === undefined ? {} : { letGo }),
       print,
       signal: controller.signal,
     });

@@ -10,13 +10,9 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, normalize, resolve, sep } from "node:path";
 import { hasErrorCode } from "@foundry/lib/atomic-file";
-import {
-  FileLockTimeoutError,
-  tryFileLock,
-  withFileLock,
-} from "@foundry/lib/file-lock";
+import { FileLockTimeoutError, tryFileLock } from "@foundry/lib/file-lock";
 import type { ArtifactFile, ResourceView } from "~/database/resources";
 import { artifactBlobs } from "~/database/stores";
 import { workspaceLinks } from "~/layout";
@@ -112,6 +108,7 @@ export async function relinkArtifact(
   options: RelinkArtifactOptions
 ): Promise<LinksReport | undefined> {
   const { artifacts, files, ref, root, signal, workspace } = options;
+  signal?.throwIfAborted();
   const tree = new LinkTree(root, artifacts);
   if (!(await tree.open(false))) {
     return;
@@ -120,6 +117,7 @@ export async function relinkArtifact(
     typeof files === "function" ? files : () => Promise.resolve(files);
   const place = artifactPlace(ref, workspace);
   const ahead = linksOf(place, artifacts, ref, await read());
+  signal?.throwIfAborted();
   const prepared = await tree.prepare(ahead.links);
   try {
     return await tree.locked(
@@ -279,15 +277,10 @@ class LinkTree {
 
   async locked<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const path = join(this.#top, LOCK_FILE);
-    if (signal === undefined) {
-      return withFileLock(path, work, {
-        breakStale: true,
-        waitMs: LOCK_WAIT_MS,
-      });
-    }
     const deadline = performance.now() + LOCK_WAIT_MS;
     for (;;) {
-      signal.throwIfAborted();
+      signal?.throwIfAborted();
+      await this.#topChecked();
       const attempt = tryFileLock(path, { breakStale: true });
       if ("release" in attempt) {
         try {
@@ -300,6 +293,20 @@ class LinkTree {
         throw new FileLockTimeoutError(path, attempt.holder);
       }
       await pause(LOCK_RETRY_MS, signal);
+    }
+  }
+
+  async #topChecked(): Promise<void> {
+    try {
+      await this.#checked(this.#top);
+    } catch (error) {
+      if (error instanceof Refused) {
+        throw new LinksPlacementError(
+          `${error.message} is not a directory Marbles made; move it away to link the workspace's artifacts`,
+          { cause: error }
+        );
+      }
+      throw error;
     }
   }
 
@@ -316,10 +323,14 @@ class LinkTree {
 
   async discard(prepared: Prepared): Promise<void> {
     for (const { path } of prepared.values()) {
-      await this.#checked(dirname(path))
-        .then(() => removeLink(path))
-        .catch(() => undefined);
+      await this.#removeChecked(path);
     }
+  }
+
+  async #removeChecked(path: string): Promise<void> {
+    await this.#checked(dirname(path))
+      .then(() => removeLink(path))
+      .catch(() => undefined);
   }
 
   async reconcile(
@@ -344,6 +355,7 @@ class LinkTree {
     for (const [key, link] of wanted.links) {
       await this.#link(link, prepared.get(key), report);
     }
+    await this.discard(prepared);
     if (wanted.links.size === 0) {
       await this.#removeEmptyScope(scope);
     }
@@ -427,7 +439,7 @@ class LinkTree {
     if (target === undefined || keep.has(path)) {
       return;
     }
-    if (!target.startsWith(this.#ours)) {
+    if (!this.#owned(target)) {
       report.kept.add(this.#shown(at));
     } else if (wanted.get(at.join("/"))?.target !== target) {
       await this.#checked(dir);
@@ -508,10 +520,18 @@ class LinkTree {
       dirname(prepared.path) === parent &&
       (await readlinkOrUndefined(prepared.path)) === link.target;
     const temporary = usable ? prepared.path : await this.#temporary(link);
-    const placed =
-      temporary === undefined
-        ? await this.#replace(parent, path, link.target, current === "stale")
-        : await this.#renamed(parent, temporary, path);
+    let placed: boolean;
+    try {
+      placed =
+        temporary === undefined
+          ? await this.#replace(parent, path, link.target, current === "stale")
+          : await this.#renamed(parent, temporary, path);
+    } catch (error) {
+      if (!usable && temporary !== undefined) {
+        await this.#removeChecked(temporary);
+      }
+      throw error;
+    }
     if (placed) {
       report.linked += 1;
       return "done";
@@ -571,7 +591,11 @@ class LinkTree {
     if (current === undefined) {
       return "missing";
     }
-    return current.startsWith(this.#ours) ? "stale" : "kept";
+    return this.#owned(current) ? "stale" : "kept";
+  }
+
+  #owned(target: string): boolean {
+    return normalize(target).startsWith(this.#ours);
   }
 
   async #temporary(link: WantedLink): Promise<string | undefined> {
@@ -662,15 +686,15 @@ function byCodeUnit(a: string, b: string): number {
   return a < b ? -1 : 1;
 }
 
-function pause(ms: number, signal: AbortSignal): Promise<void> {
+function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
   return new Promise((done) => {
     const timer = setTimeout(finish, ms);
     function finish(): void {
       clearTimeout(timer);
-      signal.removeEventListener("abort", finish);
+      signal?.removeEventListener("abort", finish);
       done();
     }
-    signal.addEventListener("abort", finish, { once: true });
+    signal?.addEventListener("abort", finish, { once: true });
   });
 }
 

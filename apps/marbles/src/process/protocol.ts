@@ -60,19 +60,48 @@ export function decode(line: string): Message | undefined {
   }
 }
 
-export function lineSplitter(onLine: (line: string) => void) {
+export const MAX_LINE_BYTES = 1024 * 1024;
+
+export function lineSplitter(
+  onLine: (line: string) => void,
+  onOverflow: () => void
+) {
   let buffer = "";
+  let size = 0;
+  let over = false;
+  const overflow = (): void => {
+    over = true;
+    buffer = "";
+    onOverflow();
+  };
   return (chunk: string): void => {
-    buffer += chunk;
-    let newline = buffer.indexOf("\n");
+    if (over) {
+      return;
+    }
+    let start = 0;
+    let newline = chunk.indexOf("\n");
     while (newline !== -1) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
+      const piece = chunk.slice(start, newline);
+      if (size + Buffer.byteLength(piece) > MAX_LINE_BYTES) {
+        overflow();
+        return;
+      }
+      const line = (buffer + piece).trim();
+      buffer = "";
+      size = 0;
       if (line.length > 0) {
         onLine(line);
       }
-      newline = buffer.indexOf("\n");
+      start = newline + 1;
+      newline = chunk.indexOf("\n", start);
     }
+    const rest = chunk.slice(start);
+    size += Buffer.byteLength(rest);
+    if (size > MAX_LINE_BYTES) {
+      overflow();
+      return;
+    }
+    buffer += rest;
   };
 }
 

@@ -114,7 +114,12 @@ export function serialClient(
     get protocol() {
       return current.protocol;
     },
-    reconnect: () => current.reconnect(),
+    reconnect: () =>
+      inTurn(async (live) => {
+        await live.reconnect();
+        unset = settings.length > 0;
+        await prepared();
+      }),
     sync: () => inTurn((live) => live.sync()),
     async transaction(mode?: TransactionMode): Promise<Transaction> {
       const release = await turn();
@@ -230,7 +235,9 @@ function heldUntilSettled(
           if (failure === undefined) {
             release();
           } else {
-            recover(failure).finally(release);
+            recover(failure)
+              .catch(() => undefined)
+              .finally(release);
           }
         }
       }

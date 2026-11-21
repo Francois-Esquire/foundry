@@ -3,6 +3,7 @@ import {
   type DashboardSnapshot,
   type DefinitionSnapshot,
   flattenSteps,
+  resolveSelection,
   runSelection,
   selectionKey,
   triggerSelection,
@@ -116,6 +117,11 @@ export type DashboardEvent =
   | { readonly type: "home" }
   | { readonly type: "prompt"; readonly prompt?: RunPrompt }
   | { readonly type: "prompt-target"; readonly by: number }
+  | {
+      readonly type: "prompt-sent";
+      readonly draft: string;
+      readonly prompt: RunPrompt;
+    }
   | { readonly type: "draft"; readonly value: string }
   | { readonly type: "show-run"; readonly id: string }
   | { readonly type: "launch-form"; readonly id?: string }
@@ -269,6 +275,37 @@ function select(
     selected: selection,
     view: viewOfPane(selection.kind),
   };
+}
+
+function keepVisible(
+  state: DashboardState,
+  snapshot: DashboardSnapshot
+): DashboardState {
+  const available = entries(state, snapshot, state.focus);
+  if (available.some((item) => same(item, state.selected))) {
+    return state;
+  }
+  const [first] = available;
+  return first
+    ? {
+        ...state,
+        remembered: { ...state.remembered, [first.kind]: first },
+        selected: first,
+      }
+    : { ...state, selected: undefined };
+}
+
+export function settle(
+  state: DashboardState,
+  snapshot: DashboardSnapshot
+): DashboardState {
+  if (state.inspecting || state.selected === undefined) {
+    return state;
+  }
+  const { kind } = resolveSelection(snapshot, state.selected);
+  return kind === "gone" || kind === "none"
+    ? state
+    : keepVisible(state, snapshot);
 }
 
 function toggled(expanded: ReadonlySet<string>, key: string): Set<string> {
@@ -522,10 +559,13 @@ export function reduce(
       }
       return state.inspecting
         ? state
-        : {
-            ...state,
-            queries: { ...state.queries, [state.focus]: event.value },
-          };
+        : keepVisible(
+            {
+              ...state,
+              queries: { ...state.queries, [state.focus]: event.value },
+            },
+            snapshot
+          );
     case "cancel-search":
       if (state.drawer === "logs") {
         return {
@@ -534,13 +574,17 @@ export function reduce(
           searching: false,
         };
       }
-      return {
-        ...state,
-        queries: state.inspecting
-          ? state.queries
-          : { ...state.queries, [state.focus]: "" },
-        searching: false,
-      };
+      if (state.inspecting) {
+        return { ...state, searching: false };
+      }
+      return keepVisible(
+        {
+          ...state,
+          queries: { ...state.queries, [state.focus]: "" },
+          searching: false,
+        },
+        snapshot
+      );
     case "help":
       return { ...state, help: event.open };
     case "home":
@@ -568,6 +612,10 @@ export function reduce(
                 state.prompt.targets.length,
             },
           }
+        : state;
+    case "prompt-sent":
+      return state.prompt === event.prompt && state.draft === event.draft
+        ? { ...state, draft: "", prompt: undefined }
         : state;
     case "draft":
       return { ...state, draft: event.value };

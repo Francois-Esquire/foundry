@@ -200,6 +200,7 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
           partialController.enqueue(partial);
         }
       })();
+      publishPartials.catch(() => undefined);
       for await (const event of current) {
         tools?.event(event);
         if (
