@@ -50,7 +50,9 @@ vi.mock("@fal-ai/client", () => ({
 const { connectFalSocket, falSocketTransport } = await import(
   "../../live/fal-socket"
 );
-const { connectFalWebRtc } = await import("../../live/fal-webrtc");
+const { connectFalWebRtc, falWebRtcTransport } = await import(
+  "../../live/fal-webrtc"
+);
 
 function handlers(): TransportHandlers & { closes: string[] } {
   const closes: string[] = [];
@@ -249,6 +251,36 @@ describe("the socket transport", () => {
 });
 
 describe("the WebRTC transport's extension selection", () => {
+  it("opens through the client its factory makes", async () => {
+    const configs: unknown[] = [];
+    const opened: string[] = [];
+    const client = {
+      realtime: {
+        open: (extension: { id: string }) => {
+          opened.push(extension.id);
+          return {
+            close: () => Promise.resolve(),
+            ready: Promise.resolve({}),
+            send: () => undefined,
+          };
+        },
+      },
+    } as unknown as FalEndpointClient;
+    await falWebRtcTransport((config) => {
+      configs.push(config);
+      return client;
+    })(
+      { ...target({ delivery: "continuous" }), modelId: "vendor/continuous" },
+      { credentials: "fal-key", kind: "credential" },
+      OPENING,
+      handlers()
+    );
+    expect(configs).toEqual([{ credentials: "fal-key" }]);
+    expect(opened).toHaveLength(1);
+    expect(state.configs).toEqual([]);
+    expect(state.opens).toEqual([]);
+  });
+
   it("selects lucy for an endpoint the lucy extension's own supports() claims", async () => {
     await connectFalWebRtc(
       {
