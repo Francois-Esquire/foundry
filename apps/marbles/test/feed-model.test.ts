@@ -105,6 +105,7 @@ function feedState(overrides: Partial<FeedState> = {}): FeedState {
     cycleScope: () => undefined,
     focus: "list",
     move: () => undefined,
+    open: () => undefined,
     read: () => undefined,
     resetScope: () => undefined,
     scope: { id: ALL_WORKSPACES, label: "All workspaces" },
@@ -167,4 +168,14 @@ it("focuses neither panel under input and filters by a workspace scope", () => {
   expect(feedModel(feedState({ focus: "reader" }), false).reader.active).toBe(
     true
   );
+});
+
+it("focuses the answer being typed only while nothing covers the Feed", () => {
+  const typing = feedState({
+    answer: { ...feedState().answer, question, typing: true },
+  });
+  const answerOf = (covered: boolean) =>
+    feedModel(typing, covered).reader.selected?.answer;
+  expect(answerOf(false)).toMatchObject({ focused: true, kind: "typing" });
+  expect(answerOf(true)).toMatchObject({ focused: false, kind: "typing" });
 });

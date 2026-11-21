@@ -14,9 +14,13 @@ import {
   forEachChild,
   isCallExpression,
   isExportDeclaration,
+  isExternalModuleReference,
+  isIdentifier,
   isImportDeclaration,
+  isImportEqualsDeclaration,
   isImportTypeNode,
   isLiteralTypeNode,
+  isModuleDeclaration,
   isStringLiteral,
   type Node,
   ScriptTarget,
@@ -32,32 +36,89 @@ import { inspectDashboard } from "./helpers/terminal";
 const CURRENT_GENERATION = /engine generation \d+: pid \d+ · current/;
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
-function privateImports(source: string): string[] {
+const SCOPE_MARK = /^@/;
+const REQUIRE_CALLS = new Set(["require", "__require"]);
+function loadsModule(callee: Node): boolean {
+  return (
+    callee.kind === SyntaxKind.ImportKeyword ||
+    (isIdentifier(callee) && REQUIRE_CALLS.has(callee.text))
+  );
+}
+
+function specifierOf(node: Node): Node | undefined {
+  if (isImportDeclaration(node) || isExportDeclaration(node)) {
+    return node.moduleSpecifier;
+  }
+  if (
+    isImportEqualsDeclaration(node) &&
+    isExternalModuleReference(node.moduleReference)
+  ) {
+    return node.moduleReference.expression;
+  }
+  if (isImportTypeNode(node) && isLiteralTypeNode(node.argument)) {
+    return node.argument.literal;
+  }
+  if (isModuleDeclaration(node)) {
+    return node.name;
+  }
+  return isCallExpression(node) && loadsModule(node.expression)
+    ? node.arguments[0]
+    : undefined;
+}
+
+function moduleSpecifiers(source: string): string[] {
   const imports: string[] = [];
   function inspect(node: Node) {
-    let specifier: Node | undefined;
-    if (isImportDeclaration(node) || isExportDeclaration(node)) {
-      specifier = node.moduleSpecifier;
-    } else if (isImportTypeNode(node) && isLiteralTypeNode(node.argument)) {
-      specifier = node.argument.literal;
-    } else if (
-      isCallExpression(node) &&
-      node.expression.kind === SyntaxKind.ImportKeyword
-    ) {
-      [specifier] = node.arguments;
-    }
-    if (
-      specifier &&
-      isStringLiteral(specifier) &&
-      (specifier.text.startsWith("@foundry/") ||
-        specifier.text.startsWith("~/"))
-    ) {
+    const specifier = specifierOf(node);
+    if (specifier && isStringLiteral(specifier)) {
       imports.push(specifier.text);
     }
     forEachChild(node, inspect);
   }
-  inspect(createSourceFile("package.ts", source, ScriptTarget.Latest, true));
-  return imports;
+  const file = createSourceFile(
+    "package.ts",
+    source,
+    ScriptTarget.Latest,
+    true
+  );
+  inspect(file);
+  return [
+    ...file.typeReferenceDirectives.map(({ fileName }) => fileName),
+    ...imports,
+  ];
+}
+
+function privateImports(source: string): string[] {
+  return moduleSpecifiers(source).filter(
+    (specifier) =>
+      specifier.startsWith("@foundry/") || specifier.startsWith("~/")
+  );
+}
+
+function importedPackages(source: string): string[] {
+  return moduleSpecifiers(source).flatMap((specifier) => {
+    if (specifier.startsWith(".") || specifier.startsWith("node:")) {
+      return [];
+    }
+    const [scope = "", name = ""] = specifier.split("/");
+    return [scope.startsWith("@") ? `${scope}/${name}` : scope];
+  });
+}
+
+function undeclaredPackages(
+  names: readonly string[],
+  dependencies: Readonly<Record<string, string>>
+): string[] {
+  return names.filter(
+    (name) =>
+      !(
+        Object.hasOwn(dependencies, name) ||
+        Object.hasOwn(
+          dependencies,
+          `@types/${name.replace(SCOPE_MARK, "").replace("/", "__")}`
+        )
+      )
+  );
 }
 
 test("package import inspection checks declarations and dynamic imports, not config source strings", () => {
@@ -69,6 +130,39 @@ test("package import inspection checks declarations and dynamic imports, not con
   expect(
     privateImports('const config = `import { step } from "@foundry/private";`;')
   ).toEqual([]);
+});
+
+test("package import inspection names the package of every bare declaration import", () => {
+  expect(
+    importedPackages(
+      "import { A } from '@fal-ai/client'; import 'drizzle-orm/sqlite-core'; import { B } from './chunk.js'; import { EventEmitter } from 'node:events'; type C = import(\"ai-sdk-provider-pi\").C;"
+    )
+  ).toEqual(["@fal-ai/client", "drizzle-orm", "ai-sdk-provider-pi"]);
+  expect(
+    importedPackages('/// <reference types="optional-package" />\nexport {};')
+  ).toEqual(["optional-package"]);
+  expect(
+    importedPackages(
+      'import SDK = require("@optional/package/sub");\nexport = SDK;'
+    )
+  ).toEqual(["@optional/package"]);
+  expect(
+    importedPackages(
+      'export {};\ndeclare module "ai-sdk-provider-pi" { interface PiSettings { extra?: boolean } }\ndeclare namespace Local { const kept: string }'
+    )
+  ).toEqual(["ai-sdk-provider-pi"]);
+  expect(
+    moduleSpecifiers(
+      'const a = require("@fal-ai/client"); const b = __require("@fal-ai/client/realtime"); const c = other("not-a-module");'
+    )
+  ).toEqual(["@fal-ai/client", "@fal-ai/client/realtime"]);
+  expect(
+    undeclaredPackages(["node", "@scope/typed", "zod", "optional-package"], {
+      "@types/node": "^26.4.1",
+      "@types/scope__typed": "1.0.0",
+      zod: "^4.4.3",
+    })
+  ).toEqual(["optional-package"]);
 });
 
 const OPTIONAL_PROVIDER_SDKS = [
@@ -177,10 +271,35 @@ test("the tarball installs and shares the library registry with the CLI", async 
     expect(
       readdirSync(join(installed, "dist", "migrations", "meta"))
     ).toContain("_journal.json");
+    expect(
+      Object.entries(manifest).filter(
+        ([, value]) =>
+          typeof value === "object" &&
+          value !== null &&
+          Object.hasOwn(value, "@fal-ai/client")
+      ),
+      "the manifest lists @fal-ai/client"
+    ).toEqual([]);
     for (const file of readdirSync(join(installed, "dist"))) {
       if (file.endsWith(".js") || file.endsWith(".d.ts")) {
+        const source = readFileSync(join(installed, "dist", file), "utf8");
+        expect(privateImports(source)).toEqual([]);
         expect(
-          privateImports(readFileSync(join(installed, "dist", file), "utf8"))
+          moduleSpecifiers(source).filter((specifier) =>
+            specifier.startsWith("@fal-ai/")
+          ),
+          `${file} imports fal`
+        ).toEqual([]);
+      }
+      if (file.endsWith(".d.ts")) {
+        expect(
+          undeclaredPackages(
+            importedPackages(
+              readFileSync(join(installed, "dist", file), "utf8")
+            ),
+            manifest.dependencies
+          ),
+          `${file} imports a package that is not a dependency`
         ).toEqual([]);
       }
     }

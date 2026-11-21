@@ -31,8 +31,8 @@ const actions: RunActions = {
   deleteTrigger: done,
   pause: done,
   resume: done,
+  send: done,
   setTriggerEnabled: done,
-  steer: done,
   stopActivity: done,
 };
 
@@ -472,9 +472,12 @@ export const RunFilter = story({
 });
 
 export const Steer = story({
-  description: "s on a running step opens the steer prompt.",
+  description: "s opens the prompt for live agent work in the selected run.",
   name: "Steer prompt",
-  render: dashboard({ actions }, { keys: ["s"], shows: "steer docs ›" }),
+  render: dashboard(
+    { actions },
+    { keys: ["s"], shows: "steer write · #work-w" }
+  ),
 });
 
 export const ActionFailed = story({

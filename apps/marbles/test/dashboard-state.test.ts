@@ -8,6 +8,7 @@ import {
   launchesDirectly,
   paneOf,
   reduce,
+  settle,
   visibleLists,
 } from "~/cli/state/dashboard-state";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
@@ -206,11 +207,63 @@ describe("jumps, filters, and search", () => {
     expect(cancelled.searching).toBe(false);
     expect(cancelled.queries.definition).toBe("");
   });
+
+  it("moves the selection off a row a later snapshot hides from the search", () => {
+    const searched = play([
+      { pane: "definition", type: "focus" },
+      { open: true, type: "search" },
+      { type: "query", value: "update-documentation" },
+      { open: false, type: "search" },
+    ]);
+    expect(searched.selected).toEqual({ id: "docs", kind: "definition" });
+    const renamed: DashboardSnapshot = {
+      ...dashboardSnapshot,
+      definitions: dashboardSnapshot.definitions.map((item) =>
+        item.id === "docs" ? { ...item, name: "rewrite-handbook" } : item
+      ),
+    };
+    expect(settle(searched, dashboardSnapshot)).toBe(searched);
+    expect(settle(searched, renamed).selected).toBeUndefined();
+    const gone: DashboardSnapshot = {
+      ...dashboardSnapshot,
+      definitions: dashboardSnapshot.definitions.filter(
+        (item) => item.id !== "docs"
+      ),
+    };
+    expect(settle(searched, gone)).toBe(searched);
+    const inspecting = reduce(searched, { type: "inspect" }, dashboardSnapshot);
+    expect(settle(inspecting, renamed)).toBe(inspecting);
+  });
+
+  it("keeps the selection on a visible item while a search narrows the list", () => {
+    const narrowed = play([
+      { pane: "definition", type: "focus" },
+      { open: true, type: "search" },
+      { type: "query", value: "review" },
+    ]);
+    expect(narrowed.selected).toEqual({ id: "review", kind: "definition" });
+    const nothing = reduce(
+      narrowed,
+      { type: "query", value: "no such marble" },
+      dashboardSnapshot
+    );
+    expect(nothing.selected).toBeUndefined();
+    const cancelled = reduce(
+      nothing,
+      { type: "cancel-search" },
+      dashboardSnapshot
+    );
+    expect(cancelled.selected).toEqual({ id: "docs", kind: "definition" });
+  });
 });
 
 describe("prompts, home, and launches", () => {
   it("opens a prompt with an empty draft and closes it again", () => {
-    const prompt = { kind: "steer", runId: "run-104", stepId: "docs" } as const;
+    const prompt = {
+      kind: "resume",
+      runId: "run-104",
+      stepId: "docs",
+    } as const;
     const typed = play([
       { prompt, type: "prompt" },
       { type: "draft", value: "summarise" },
@@ -220,6 +273,48 @@ describe("prompts, home, and launches", () => {
     const closed = reduce(typed, { type: "prompt" }, dashboardSnapshot);
     expect(closed.prompt).toBeUndefined();
     expect(closed.draft).toBe("");
+  });
+
+  it("moves a send prompt between its targets and wraps around", () => {
+    const targets = [
+      { command: "a", id: "a", input: "stdin", kind: "command", stepId: "x" },
+      { command: "b", id: "b", input: "stdin", kind: "command", stepId: "x" },
+    ] as const;
+    const prompt = {
+      chosen: 0,
+      kind: "send",
+      runId: "run-104",
+      targets,
+    } as const;
+    const forward = play([
+      { prompt, type: "prompt" },
+      { by: 1, type: "prompt-target" },
+    ]);
+    expect(forward.prompt).toMatchObject({ chosen: 1 });
+    const wrapped = reduce(
+      forward,
+      { by: 1, type: "prompt-target" },
+      dashboardSnapshot
+    );
+    expect(wrapped.prompt).toMatchObject({ chosen: 0 });
+    const back = reduce(
+      wrapped,
+      { by: -1, type: "prompt-target" },
+      dashboardSnapshot
+    );
+    expect(back.prompt).toMatchObject({ chosen: 1 });
+    const resume = play([
+      {
+        prompt: { kind: "resume", runId: "run-104", stepId: "docs" },
+        type: "prompt",
+      },
+      { by: 1, type: "prompt-target" },
+    ]);
+    expect(resume.prompt).toEqual({
+      kind: "resume",
+      runId: "run-104",
+      stepId: "docs",
+    });
   });
 
   it("goes home from help, search, details, and the feed without losing the selection", () => {

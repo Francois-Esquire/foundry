@@ -7,6 +7,7 @@ export class RunListing {
   readonly #store: Pick<OrchestratorStore, "getRun" | "listRuns">;
   readonly #settled = new Map<string, RunRecord>();
   readonly #live = new Set<string>();
+  readonly #elsewhere = new Set<string>();
 
   constructor(store: Pick<OrchestratorStore, "getRun" | "listRuns">) {
     this.#store = store;
@@ -18,11 +19,14 @@ export class RunListing {
       const page = await this.#store.listRuns({
         limit: 200,
         order: "oldest",
-        status: [...TERMINAL_RUN_STATUSES] as RunRecord["status"][],
         ...(cursor === undefined ? {} : { cursor }),
       });
       for (const run of page.items) {
-        this.#settled.set(run.id, run);
+        if (TERMINAL_RUN_STATUSES.has(run.status)) {
+          this.#settled.set(run.id, run);
+        } else {
+          this.#elsewhere.add(run.id);
+        }
       }
       cursor = page.nextCursor;
     } while (cursor !== undefined);
@@ -30,6 +34,7 @@ export class RunListing {
 
   add(runId: string): void {
     if (!this.#settled.has(runId)) {
+      this.#elsewhere.delete(runId);
       this.#live.add(runId);
     }
   }
@@ -37,18 +42,19 @@ export class RunListing {
   remove(runId: string): void {
     this.#settled.delete(runId);
     this.#live.delete(runId);
+    this.#elsewhere.delete(runId);
   }
 
   async list(): Promise<readonly RunRecord[]> {
     const read: RunRecord[] = [];
-    for (const runId of [...this.#live]) {
+    for (const runId of [...this.#live, ...this.#elsewhere]) {
       const run = await this.#store.getRun(runId);
       if (run === null) {
         continue;
       }
       if (!TERMINAL_RUN_STATUSES.has(run.status)) {
         read.push(run);
-      } else if (this.#live.delete(runId)) {
+      } else if (this.#live.delete(runId) || this.#elsewhere.delete(runId)) {
         this.#settled.set(runId, run);
       }
     }

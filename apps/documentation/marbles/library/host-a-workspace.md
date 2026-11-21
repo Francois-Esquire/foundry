@@ -209,7 +209,8 @@ try {
 }
 ```
 
-`startDaemon` claims `locks/process` at the state root, writes
+`startDaemon` creates the state root mode 0700, or tightens an existing one
+to that, claims `locks/process` there, writes
 `process.json` beside it, listens on `layout.socket`, hosts every workspace
 recorded as `hosted` whose source still exists, and returns once it
 answers. `close` drains every engine generation (30 seconds to answer and

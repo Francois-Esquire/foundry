@@ -45,7 +45,6 @@ import type {
 import { catalogPrices, costMeter, lostFact, usageFact } from "~/lib/usage";
 import type { ManagerArgs } from "../bindings";
 import { AGENT_DEFINITION, AGENT_PROMPT, SANDBOX_HANDLE } from "../handles";
-import type { LiveSession } from "../run-scope";
 import { workingDirectory } from "../run-scope";
 import type {
   AgentDefinition,
@@ -63,6 +62,7 @@ import type {
 } from "../types";
 import {
   deferredStream,
+  type LiveSession,
   replayedStream,
   replyOf,
   type SessionTurnSite,
@@ -133,7 +133,7 @@ interface Source {
   readonly runId: string;
 }
 
-interface SessionSite extends Omit<SessionTurnSite, "consumed"> {
+interface SessionSite extends Omit<SessionTurnSite, "consumed" | "track"> {
   readonly consume?: (
     message: SessionMessage,
     usage: SessionUsage | undefined,
@@ -148,7 +148,6 @@ interface SessionSite extends Omit<SessionTurnSite, "consumed"> {
   signal(): AbortSignal;
   readonly source: Source;
   takeResume(): string | undefined;
-  track(live: LiveSession): void;
   write(value: unknown): void;
 }
 
@@ -226,6 +225,7 @@ function frameSite(
     runId: scope.id,
   };
   return {
+    agent: agentId,
     consume: consumer(deps, inRun(source, agentId)),
     cwd: scope.cwd,
     ...(observe === undefined ? {} : { observe }),
@@ -240,7 +240,7 @@ function frameSite(
       frame.resumePrompt = undefined;
       return prompt;
     },
-    track: (live) => frame.sessions.push(live),
+    work: frame.work,
     write,
   };
 }
@@ -262,7 +262,6 @@ function hostSite(site: {
     signal: () => site.signal,
     source: site.source,
     takeResume: () => undefined,
-    track: () => undefined,
     write: () => undefined,
   };
 }
@@ -1038,7 +1037,6 @@ function retainSession<OUTPUT extends Output.Output>(
         : {}),
       track: (tracked) => {
         live = tracked;
-        site.track(tracked);
       },
     },
     settings
@@ -1154,6 +1152,7 @@ export class AgentsManager implements Agents {
     const site: SessionSite =
       args && source
         ? {
+            agent: definition.id,
             consume: consumer(this.#deps, inRun(source, definition.id)),
             ...this.#observing(args.scope.id),
             cwd: args.scope.cwd,
@@ -1163,7 +1162,7 @@ export class AgentsManager implements Agents {
             signal: () => args.frame.signal,
             source,
             takeResume: () => undefined,
-            track: (live) => args.frame.sessions.push(live),
+            work: args.frame.work,
             write: args.write,
           }
         : this.#directSite(definition, (closable) => held.add(closable));
@@ -1206,7 +1205,6 @@ export class AgentsManager implements Agents {
       signal: () => this.#closing.signal,
       source: { definition: definition.id, path: [], runId: DIRECT },
       takeResume: () => undefined,
-      track: () => undefined,
       write: () => undefined,
     };
   }

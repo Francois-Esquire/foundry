@@ -11,12 +11,14 @@ import type { DefinitionEntry } from "~/lib/registry";
 import { decodeTrace, observedTree } from "~/lib/run-trace";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
 import { describeTrigger, nextDue } from "~/lib/schedule";
+import type { LiveWork } from "~/lib/step-work";
 import type { Schedule } from "~/lib/triggers";
 import type { RunUsageFact, UsageRecords } from "~/lib/usage";
 import type {
   CatalogOrigin,
   DashboardSnapshot,
   HarnessActivitySnapshot,
+  LiveWorkSnapshot,
   RunSnapshot,
   StepSnapshot,
   TriggerSnapshot,
@@ -56,23 +58,54 @@ function attentionOf(
 }
 
 export function storedRunSnapshot(record: RunRecord, now: number): RunSnapshot {
-  return runSnapshot(record, now, [], [], undefined);
+  return runSnapshot(record, now, { activities: [], feed: [], work: [] });
+}
+
+interface RunSurroundings {
+  readonly activities: readonly ActivityRecord[];
+  readonly feed: readonly FeedEntrySnapshot[];
+  readonly questionOwners?: ReadonlyMap<string, string>;
+  readonly usage?: {
+    readonly facts: readonly RunUsageFact[];
+    readonly mayBelong: MayBelong;
+  };
+  readonly work: readonly LiveWork[];
+}
+
+function liveWorkOn(
+  work: readonly LiveWork[],
+  waiting: readonly FeedEntrySnapshot[],
+  inputAttention: (entry: FeedEntrySnapshot) => InputAttention,
+  owners: ReadonlyMap<string, string> = new Map()
+): (stepId: string) => readonly LiveWorkSnapshot[] {
+  const askedBy = (entry: FeedEntrySnapshot): string | undefined => {
+    const session = entry.input?.sessionId;
+    return session === undefined ? undefined : (owners.get(session) ?? session);
+  };
+  return (stepId) =>
+    work
+      .filter((item) => item.stepId === stepId)
+      .map((item) => {
+        const attention =
+          item.kind === "agent"
+            ? attentionOf(
+                waiting
+                  .filter((entry) => askedBy(entry) === item.sessionId)
+                  .map(inputAttention)
+              )
+            : undefined;
+        return attention ? { ...item, attention } : item;
+      });
 }
 
 function runSnapshot(
   record: RunRecord,
   now: number,
-  feed: readonly FeedEntrySnapshot[],
-  activities: readonly ActivityRecord[],
-  usage:
-    | {
-        readonly facts: readonly RunUsageFact[];
-        readonly mayBelong: MayBelong;
-      }
-    | undefined
+  { activities, feed, questionOwners, usage, work }: RunSurroundings
 ): RunSnapshot {
   const trace = decodeTrace(record.metadata);
   const steps = trace?.workflow?.steps ?? {};
+  const active = isActive(record.status);
   const waiting =
     record.status === "running"
       ? feed.filter(
@@ -87,6 +120,32 @@ function runSnapshot(
     entry.input?.mode === "approval" ? "approval" : "question";
   const attention = attentionOf(waiting.map(inputAttention));
   const usageAt = usage && stepUsages(usage.facts, usage.mayBelong);
+  const workOn = liveWorkOn(
+    active ? work : [],
+    waiting,
+    inputAttention,
+    questionOwners
+  );
+  const interactionOn = (
+    stepId: string
+  ): Pick<StepSnapshot, "awaiting" | "work"> => {
+    const live = workOn(stepId);
+    const awaiting = active
+      ? feed
+          .filter(
+            (entry) =>
+              entry.run === record.id &&
+              entry.step === stepId &&
+              entry.kind === "input" &&
+              entry.input?.status === "open"
+          )
+          .map((entry) => entry.id)
+      : [];
+    return {
+      ...(awaiting.length > 0 ? { awaiting } : {}),
+      ...(live.length > 0 ? { work: live } : {}),
+    };
+  };
   const stepNode = (
     node: WorkflowStepNode,
     parent: readonly string[]
@@ -116,6 +175,7 @@ function runSnapshot(
         : undefined;
     return {
       ...(stepAttention ? { attention: stepAttention } : {}),
+      ...interactionOn(node.key),
       children,
       elapsed: step?.startedAt
         ? elapsed(
@@ -268,9 +328,11 @@ export interface SnapshotOptions {
   readonly diagnostics?: readonly LogEntry[];
   readonly feed?: readonly FeedEntrySnapshot[];
   readonly lastFinish: ReadonlyMap<string, number>;
+  readonly live?: ReadonlyMap<string, readonly LiveWork[]>;
   readonly monitors: ReadonlyMap<string, { readonly source: MonitorSpec }>;
   readonly now?: number;
   readonly others?: OtherWorkspaces;
+  readonly questionOwners?: ReadonlyMap<string, string>;
   readonly queued?: readonly ExecutionRun[];
   readonly root: string;
   readonly schedules: readonly Schedule[];
@@ -324,16 +386,22 @@ export function dashboardSnapshot(
       })
     : undefined;
   const own = sorted.map((record) =>
-    runSnapshot(
-      record,
-      now,
+    runSnapshot(record, now, {
+      activities: options.activities ?? [],
       feed,
-      options.activities ?? [],
-      usage && {
-        facts: usage.byRun.get(record.id) ?? [],
-        mayBelong: usage.mayBelongTo(record.id),
-      }
-    )
+      ...(options.questionOwners === undefined
+        ? {}
+        : { questionOwners: options.questionOwners }),
+      ...(usage
+        ? {
+            usage: {
+              facts: usage.byRun.get(record.id) ?? [],
+              mayBelong: usage.mayBelongTo(record.id),
+            },
+          }
+        : {}),
+      work: options.live?.get(record.id) ?? [],
+    })
   );
   const runs = [
     ...queued,

@@ -21,7 +21,7 @@ export function Log({
     if (!focused) {
       return;
     }
-    if (key.name === "f") {
+    if (key.name === "f" && !(key.ctrl || key.meta)) {
       setOffset(start);
       setFollow((value) => !value);
     }

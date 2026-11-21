@@ -37,9 +37,8 @@ Work top-down through the file in this order. Each section depends on the
 one before it, so writing them in order keeps types flowing forward.
 
 1. **Find or create an automation module.** Use `.foundry/marbles/` under the
-   project root. `--source` selects a folder or single module; `--config` is
-   a compatibility alias. The default folder uses the project above
-   `.foundry` as its workspace. A custom folder uses itself; a standalone
+   project root. `--source` selects a folder or single module. The default
+   folder uses the project above `.foundry` as its workspace. A custom folder uses itself; a standalone
    module uses its containing directory. Leading-underscore files and
    directories are excluded from discovery but remain importable. Keep
    helpers and tests there. The CLI supplies its own authoring package;

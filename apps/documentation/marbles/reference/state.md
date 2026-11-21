@@ -262,7 +262,16 @@ The writer appends newline-delimited JSON. A watcher reads complete records,
 keeps an incomplete final line until more bytes arrive, and follows new
 output without modifying state. Completed output remains readable after the
 owner exits. If the owner disappears before recording an ending, the watcher
-reports that interruption; it does not restart or adopt the run.
+reads the run's Execution Run from the Marbles database before it calls the
+run lost. A run recorded as parked or queued is waiting to be adopted, and
+one recorded as running under a live owner has been taken over; the watcher
+keeps following either one, through the new owner's start record, to its
+ending. A run recorded as completed, failed or cancelled ends the watch with
+that status, once the watcher has read whatever the journal holds by then.
+Otherwise, or without a database, the watcher reports that the run lost its
+owner. A journal that has no readable start record two seconds after the
+watcher opened it is reported as such. The watcher never restarts or adopts
+the run.
 
 These journals are output history, not replay checkpoints or a persistent
 job queue. A host pruning a settled Execution Run removes its workflow run
@@ -311,7 +320,9 @@ never the resource. A sandbox container cannot be shared. `status`, the
 resource listings (`runs`, `sessions`, `artifacts`, `sandboxes`, `modules`)
 and the dashboard read a workspace's view: what it owns and what is shared
 with it, or with `--all` (the dashboard's `g`, the Feed's "All
-workspaces") every workspace's. On the dashboard this workspace's runs and
+workspaces") every workspace's. Neither shows another workspace's
+resources while that workspace's state directory under the state root is
+a link. On the dashboard this workspace's runs and
 triggers are live, from its engine; another workspace's are read from the
 database at most every two seconds, its triggers from their last tick
 (`marbles_schedule_ticks`) and pending monitor launch

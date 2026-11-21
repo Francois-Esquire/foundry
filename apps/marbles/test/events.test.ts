@@ -194,6 +194,29 @@ describe("observing tasks", () => {
     await records.close();
   });
 
+  it("installs no timer when stopped while it declares its observers", async () => {
+    const records = new MemoryWorkspaceRecords();
+    const clock = new ManualClock();
+    const delivery = new Delivery({ clock, print: () => undefined, records });
+    delivery.observe(TASKS, () => undefined, { name: "steady" });
+    const declare = records.log.declare.bind(records.log);
+    const held = Promise.withResolvers<void>();
+    const spy = vi
+      .spyOn(records.log, "declare")
+      .mockImplementation(async (...args) => {
+        await held.promise;
+        return declare(...args);
+      });
+    const starting = delivery.start();
+    await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+    await delivery.stop();
+    held.resolve();
+    await starting;
+    expect(clock.ticking).toBe(0);
+    spy.mockRestore();
+    await records.close();
+  });
+
   it("tries a failing observer again once its backoff is over, on the fact it failed on, before any newer one", async () => {
     const records = new MemoryWorkspaceRecords();
     const clock = new ManualClock();

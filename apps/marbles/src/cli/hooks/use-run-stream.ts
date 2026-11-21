@@ -33,7 +33,9 @@ export function useRunStream(
           }
         }
       } finally {
-        setLive(false);
+        if (!controller.signal.aborted) {
+          setLive(false);
+        }
       }
     };
     read().catch(() => undefined);

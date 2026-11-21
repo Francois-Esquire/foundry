@@ -23,6 +23,7 @@ export class EnvironmentError extends Error {
 
 const SCHEMA = ".env.schema";
 const INSTALL = "bun add -d varlock";
+const VARLOCK_TIMEOUT_MS = 60_000;
 
 function varlockAt(root: string): string | undefined {
   const local = join(root, "node_modules", ".bin", "varlock");
@@ -38,11 +39,13 @@ function varlockAt(root: string): string | undefined {
 
 function run(
   varlock: string,
-  root: string
+  root: string,
+  timeout: number
 ): {
   readonly status: number | null;
   readonly stderr: string;
   readonly stdout: string;
+  readonly timedOut: boolean;
 } {
   const dir = mkdtempSync(join(tmpdir(), "marbles-varlock-"));
   try {
@@ -57,7 +60,9 @@ function run(
           cwd: root,
           encoding: "utf8",
           env: process.env,
+          killSignal: "SIGKILL",
           stdio: ["ignore", out, "pipe"],
+          timeout,
         }
       );
     } finally {
@@ -67,14 +72,30 @@ function run(
       status: result.status,
       stderr: String(result.stderr ?? ""),
       stdout: readFileSync(path, "utf8"),
+      timedOut:
+        (result.error as NodeJS.ErrnoException | undefined)?.code ===
+        "ETIMEDOUT",
     };
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
 }
 
+function parsed(stdout: string): Record<string, unknown> | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(stdout);
+  } catch {
+    return;
+  }
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function load(
-  root: string
+  root: string,
+  timeout: number
 ): { readonly problem: string } | { readonly values: Record<string, string> } {
   const schema = join(root, SCHEMA);
   if (!existsSync(schema)) {
@@ -86,15 +107,24 @@ function load(
       problem: `${schema} needs Varlock to load; install it with \`${INSTALL}\` in ${root}`,
     };
   }
-  const { status, stderr, stdout } = run(varlock, root);
+  const { status, stderr, stdout, timedOut } = run(varlock, root, timeout);
+  if (timedOut) {
+    return {
+      problem: `${schema} does not resolve: Varlock ran longer than ${String(timeout / 1000)}s and was stopped`,
+    };
+  }
   if (status !== 0) {
     const said = stripVTControlCharacters(`${stdout}${stderr}`).trim();
     return { problem: `${schema} does not resolve:\n${said}` };
   }
+  const resolvedValues = parsed(stdout);
+  if (resolvedValues === undefined) {
+    return {
+      problem: `${schema} does not resolve: Varlock printed something other than a JSON object`,
+    };
+  }
   const values: Record<string, string> = {};
-  for (const [name, value] of Object.entries(
-    JSON.parse(stdout) as Record<string, unknown>
-  )) {
+  for (const [name, value] of Object.entries(resolvedValues)) {
     if (value !== undefined && value !== null) {
       values[name] = String(value);
     }
@@ -105,10 +135,11 @@ function load(
 export function loadEnvironment(
   root: string,
   mode: "require" | "warn",
-  print: (line: string) => void
+  print: (line: string) => void,
+  timeout: number = VARLOCK_TIMEOUT_MS
 ): WorkspaceEnvironment {
   const machine = environmentSnapshot();
-  const loaded = load(root);
+  const loaded = load(root, timeout);
   if ("problem" in loaded) {
     if (mode === "require") {
       throw new EnvironmentError(loaded.problem);

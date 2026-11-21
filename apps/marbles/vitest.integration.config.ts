@@ -4,11 +4,11 @@ import base from "./vitest.config";
 export default defineConfig({
   ...base,
   test: {
+    ...base.test,
+    exclude: [],
     fileParallelism: false,
-    globalSetup: base.test?.globalSetup,
     hookTimeout: 240_000,
     include: ["test/**/*.integration.test.ts"],
-    setupFiles: base.test?.setupFiles,
     testTimeout: 240_000,
   },
 });

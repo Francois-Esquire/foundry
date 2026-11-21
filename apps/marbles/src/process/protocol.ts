@@ -1,6 +1,9 @@
+import { RunRecordSchema } from "@foundry/workflows/schema";
 import { z } from "zod";
 
+import type { LiveWork } from "~/lib/step-work";
 import type { WorkspaceState } from "~/model/connection";
+import type { LiveRun } from "~/model/dashboard";
 
 export const PROTOCOL = 1;
 
@@ -57,19 +60,48 @@ export function decode(line: string): Message | undefined {
   }
 }
 
-export function lineSplitter(onLine: (line: string) => void) {
+export const MAX_LINE_BYTES = 1024 * 1024;
+
+export function lineSplitter(
+  onLine: (line: string) => void,
+  onOverflow: () => void
+) {
   let buffer = "";
+  let size = 0;
+  let over = false;
+  const overflow = (): void => {
+    over = true;
+    buffer = "";
+    onOverflow();
+  };
   return (chunk: string): void => {
-    buffer += chunk;
-    let newline = buffer.indexOf("\n");
+    if (over) {
+      return;
+    }
+    let start = 0;
+    let newline = chunk.indexOf("\n");
     while (newline !== -1) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
+      const piece = chunk.slice(start, newline);
+      if (size + Buffer.byteLength(piece) > MAX_LINE_BYTES) {
+        overflow();
+        return;
+      }
+      const line = (buffer + piece).trim();
+      buffer = "";
+      size = 0;
       if (line.length > 0) {
         onLine(line);
       }
-      newline = buffer.indexOf("\n");
+      start = newline + 1;
+      newline = chunk.indexOf("\n", start);
     }
+    const rest = chunk.slice(start);
+    size += Buffer.byteLength(rest);
+    if (size > MAX_LINE_BYTES) {
+      overflow();
+      return;
+    }
+    buffer += rest;
   };
 }
 
@@ -160,6 +192,7 @@ export const WORKSPACE_METHODS = {
   pause: "pause",
   resume: "resume",
   roll: "roll",
+  send: "send",
   setTriggerEnabled: "setTriggerEnabled",
   snapshot: "snapshot",
   steer: "steer",
@@ -183,6 +216,7 @@ export const GENERATION_NOTIFICATIONS = {
 export const GENERATION_METHODS = {
   adopt: "adopt",
   host: "host",
+  liveWork: "liveWork",
   load: "load",
   retire: "retire",
   start: "start",
@@ -192,6 +226,31 @@ export const GENERATION_METHODS = {
 } as const;
 
 export const GENERATION_STOP_TIMEOUT_MS = 30_000;
+
+const liveWorkSchema: z.ZodType<LiveWork> = z.discriminatedUnion("kind", [
+  z.object({
+    agent: z.string().optional(),
+    id: z.string(),
+    input: z.literal("steer"),
+    kind: z.literal("agent"),
+    model: z.string().optional(),
+    provider: z.string().optional(),
+    sessionId: z.string(),
+    stepId: z.string(),
+  }),
+  z.object({
+    command: z.string(),
+    id: z.string(),
+    input: z.enum(["stdin", "none"]),
+    kind: z.literal("command"),
+    pid: z.number().int().optional(),
+    stepId: z.string(),
+  }),
+]);
+
+export const liveRunsSchema: z.ZodType<LiveRun[]> = z.array(
+  z.object({ record: RunRecordSchema, work: z.array(liveWorkSchema) })
+);
 
 const identitySchema = z.object({
   pid: z.number().int(),

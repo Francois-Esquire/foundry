@@ -5,6 +5,7 @@ import type { InputValues } from "~/lib/inputs";
 import type { MonitorSpec } from "~/lib/monitor";
 import type { DefinitionEntry } from "~/lib/registry";
 import type { TerminalStatus } from "~/lib/state/output";
+import type { StepInput } from "~/lib/step-work";
 import type { Schedule, Trigger } from "~/lib/triggers";
 import type { SessionRef } from "~/lib/types";
 import type { DashboardSnapshot } from "~/model/dashboard";
@@ -35,6 +36,7 @@ export interface RunControls {
   deleteTrigger(id: string): Promise<void>;
   pause(runId: string, stepId: string): Promise<void>;
   resume(runId: string, stepId: string, prompt?: string): Promise<void>;
+  send(runId: string, stepId: string, input: StepInput): Promise<void>;
   setTriggerEnabled(id: string, enabled: boolean): Promise<void>;
   steer(runId: string, stepId: string, prompt: string): Promise<void>;
   stopActivity(sessionId: string, id: string): Promise<void>;

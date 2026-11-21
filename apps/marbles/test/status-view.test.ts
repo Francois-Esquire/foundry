@@ -209,3 +209,57 @@ describe("the observers", () => {
     expect(text).toContain("  missed 1 to 1: removed before it received them");
   });
 });
+
+function withProcess(alive: boolean): StatusReport {
+  return {
+    ...report(),
+    generations: [
+      {
+        alive: true,
+        number: 3,
+        pid: 4242,
+        state: alive ? "current" : "retiring",
+      },
+      { alive: false, number: 2, pid: 4141, state: "exited" },
+      { alive: false, number: 1, pid: 4040, state: "cannot tell" },
+    ],
+    process: {
+      alive,
+      artifacts: null,
+      config: null,
+      host: null,
+      pid: 4100,
+      socket: "/s.sock",
+      startedAt: null,
+      version: "0.0.4",
+    },
+  };
+}
+
+describe("the Marbles process and its generations", () => {
+  test("are shown in the interactive view as in the text", async () => {
+    const output = await frame(withProcess(true));
+    expect(output).toContain("marbles process: pid 4100 · v0.0.4 · /s.sock");
+    expect(output).toContain("engine generation 3: pid 4242 · current");
+    expect(output).toContain("engine generation 1: pid 4040 · cannot tell");
+    expect(output).not.toContain("engine generation 2");
+    const empty = await frame(
+      { ...withProcess(false), workspaces: [] },
+      undefined,
+      60
+    );
+    expect(empty).toContain("marbles process: not running");
+    expect(empty).toContain("engine generation 3: pid 4242 · retiring");
+    expect(empty).toContain("no workspaces under /state");
+  });
+
+  test("lists the generations still alive or unproved when the process is not running", () => {
+    const text = statusText(withProcess(false));
+    expect(text.split("\n").slice(0, 3)).toEqual([
+      "marbles process: not running",
+      "  engine generation 3: pid 4242 · retiring",
+      "  engine generation 1: pid 4040 · cannot tell",
+    ]);
+    expect(text).not.toContain("engine generation 2");
+  });
+});

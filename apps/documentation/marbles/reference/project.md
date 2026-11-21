@@ -83,9 +83,8 @@ directory is itself the workspace; a single module uses its containing
 directory. Selecting `.foundry/marbles` or a module inside it uses
 the project root even when invoked from another working directory.
 
-`--config` remains an alias for `--source`. When the default folder is absent,
-an existing `./marbles.config.ts` still loads for compatibility. The folder
-takes precedence when both exist. With no source, the working directory is
+When the default folder is absent, an existing `./marbles.config.ts` still
+loads for compatibility. The folder takes precedence when both exist. With no source, the working directory is
 the workspace. `help` and `init` do not import authoring modules.
 
 ## Environment
@@ -123,7 +122,11 @@ Marbles process starts with.
 
 A value that does not resolve is a warning in the engine generation and in `list`:
 what is missing is printed and loading continues; work that needs the value
-can still fail. `roll --dry-run` stops instead. `help`, `init`, `mcp`,
+can still fail. `roll --dry-run` stops instead. Varlock gets 60 seconds to
+resolve the schema: one that runs longer is stopped, and that, like output
+that is not a JSON object, counts as a schema that does not resolve. Marbles
+stops Varlock itself, not the commands a resolver started, which can keep
+running. `help`, `init`, `mcp`,
 `status`, `sessions`, `tasks`, `watch`, `daemon`, and `stop` do not load
 the schema.
 
@@ -158,7 +161,10 @@ The CLI supplies `@foundry.sh/marbles` and `@foundry.sh/marbles/prebuilt` to the
 authoring module itself, through a Bun loader plugin, so the modules and the CLI
 share one registry. Any other library the module imports, such as `zod`, must
 resolve relative to the importing file in the usual way. Install it in that
-project.
+project. An import that does not resolve from the importing file is left as
+written, as Bun leaves it, so a type-only import of a declaration file loads;
+one computed at run time, `import(name)`, rejects with the resolution error and
+is never resolved from where Marbles itself is installed.
 
 For CLI installation and editor types, see [Installation](/marbles/get-started/installation).
 A plain script importing the package can use instance methods and `.run()`;

@@ -1,5 +1,11 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import {
+  fstatSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -24,6 +30,20 @@ afterEach(async () => {
   }
   vi.unstubAllEnvs();
 });
+
+function descriptorsOn(path: string): number[] {
+  const { dev, ino } = statSync(path);
+  return readdirSync("/dev/fd")
+    .map(Number)
+    .filter((fd) => {
+      try {
+        const seen = fstatSync(fd);
+        return seen.dev === dev && seen.ino === ino;
+      } catch {
+        return false;
+      }
+    });
+}
 
 function machine(): Layout {
   const home = testHome({ providers: false });
@@ -203,4 +223,24 @@ describe("connecting to the Marbles process", () => {
     client.close();
     await stopProcess({ layout: at });
   }, 60_000);
+
+  it("keeps no descriptor to the daemon log once it has spawned the daemon", async () => {
+    const at = machine();
+    await expect(
+      connect({
+        cliEntry: join(at.home, "no-such-entry.ts"),
+        layout: at,
+        timeoutMs: 500,
+      })
+    ).rejects.toThrow();
+    expect(descriptorsOn(join(at.state, "daemon.log"))).toEqual([]);
+  });
+
+  it("keeps no descriptor to the daemon log when spawning the daemon throws", async () => {
+    const at = machine();
+    await expect(
+      connect({ cliEntry: "bad\0entry", layout: at, timeoutMs: 500 })
+    ).rejects.toThrow();
+    expect(descriptorsOn(join(at.state, "daemon.log"))).toEqual([]);
+  });
 });

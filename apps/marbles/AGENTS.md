@@ -230,7 +230,9 @@ Five buckets, each importing only what sits below it:
   `ResourceAssociations` in `lib/resources.ts` states; `resources.ts`
   (`ResourceView`) is what a workspace shows of the resources every
   package store keeps, its own and those shared with it, or every
-  workspace's, each read through its owner's package store. `status`, the
+  workspace's, each read through its owner's package store, leaving out
+  what another workspace whose `<state>/<id>` is a link owns, as the
+  registry does. `status`, the
   resource listings and the dashboard's Feed read through it, and the
   dashboard's lists of other workspaces' runs and triggers
   (`workspace/others.ts`, with `storedTicks` in `triggers.ts`). Every writer handle goes through `guard.ts`, which
@@ -286,8 +288,10 @@ Five buckets, each importing only what sits below it:
   the engine's execution context, never `process.env`. Each load imports
   copies of its own of every module and data file its source imports by
   path (`copies.ts`: anything but packages and Marbles' own code; it
-  rewrites only import specifiers, found with `oxc-parser`, and a file
-  that does not parse, or is CommonJS, fails the load), and those
+  rewrites only import specifiers, found with `oxc-parser`, leaves one that
+  does not resolve as written, rejects a computed `import()` that does not
+  resolve from the importing file, and a file that does not parse, or is
+  CommonJS, fails the load), and those
   copies import a library bound to the load (`authoring/bound.ts`): every
   word that declares or routes runs in the load's scope (`inLoad`), and
   builders and instances keep whom they answer to (`captureScope`: the
@@ -357,8 +361,12 @@ Five buckets, each importing only what sits below it:
   load has its fingerprint refused. A generation whose daemon is gone (a
   crash) is out of any daemon's reach: it ticks and delivers no more, lets
   in its queued runs and finishes them with its running ones on the code
-  it loaded, then exits. The next daemon records it retiring while its
-  process is alive, and leaves its runs to it, since their owner is alive;
+  it loaded, then lets go of its parked runs, which stay suspended, and
+  exits; a schedule records no outcome for a firing whose run it let go,
+  and the sweep offers that run to the current generation. The next daemon
+  records it retiring while its
+  process is alive, and leaves its running and queued runs to it, since
+  their owner is alive;
   the sweep records it exited once its pid and start prove it gone, and a
   record without a start, which proves nothing, shows in `marbles status`
   as "cannot tell". A queued run whose owner is proved gone is taken by
@@ -376,8 +384,9 @@ Five buckets, each importing only what sits below it:
   start them.
   Commands about a run go to the generation whose process owns it, answers
   and activity stops to the one holding them, the rest to the current
-  one (the table beside `RUN_METHODS` in `daemon.ts`); every signal to a
-  generation first proves its pid and start. The rest is the wire protocol (`protocol.ts`,
+  one. Snapshots gather the live runs and step work of retiring generations
+  before the current host builds the view (the tables beside `RUN_METHODS`
+  in `daemon.ts`); every signal to a generation first proves its pid and start. The rest is the wire protocol (`protocol.ts`,
   `channel.ts`); the client (`client.ts`), which joins the running daemon
   or starts one; and the claim (`instance.ts`). Apart from the generation
   it imports only `lib/`, `database/`, `layout.ts`, `model/` and the pure

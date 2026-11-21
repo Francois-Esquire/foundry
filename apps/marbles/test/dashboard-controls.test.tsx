@@ -19,6 +19,7 @@ import {
 
 const SELECTED_FAILURE = /› ▸ check-api +failed\b/;
 const WRITE_STEP = /Step\s+: write/;
+const WORKSPACE_PICKER_BORDER = /╭─Workspaces/g;
 
 function close() {
   // Quitting is covered in dashboard-quit.test.tsx.
@@ -38,7 +39,7 @@ function recordingActions() {
     cancel: record("cancel"),
     pause: record("pause"),
     resume: record("resume"),
-    steer: record("steer"),
+    send: record("send"),
   };
   return { actions, calls };
 }
@@ -48,6 +49,9 @@ function render(snapshot: DashboardSnapshot, actions?: RunActions) {
     <DashboardView actions={actions} onClose={close} snapshot={snapshot} />
   );
 }
+
+const STEER_WRITE =
+  "steer write · #work-w agent claude-code/claude-sonnet-5-5 · session session- ›";
 
 test.each(["approval", "question"] as const)(
   "shows live %s attention in run and step details while keeping pause, steer and cancel enabled",
@@ -91,17 +95,17 @@ test.each(["approval", "question"] as const)(
     expect(calls).toEqual([["pause", "run-104", "write"]]);
     await act(async () => ui.mockInput.pressKey("s"));
     await flush(ui);
-    expect(ui.captureCharFrame()).toContain("steer write ›");
+    expect(ui.captureCharFrame()).toContain(STEER_WRITE);
     await act(async () =>
       ui.mockInput.typeText("summarize the pending action")
     );
     await act(async () => ui.mockInput.pressEnter());
     await flush(ui);
     expect(calls.at(-1)).toEqual([
-      "steer",
+      "send",
       "run-104",
       "write",
-      "summarize the pending action",
+      { target: "work-write", text: "summarize the pending action" },
     ]);
     await act(async () => ui.mockInput.pressKey("k"));
     await flush(ui);
@@ -137,27 +141,113 @@ test("run keys pause, steer, and cancel the selected step", async () => {
 
   await act(async () => ui.mockInput.pressKey("s"));
   await flush(ui);
-  expect(ui.captureCharFrame()).toContain("steer docs ›");
+  expect(ui.captureCharFrame()).toContain(STEER_WRITE);
   await act(async () => ui.mockInput.typeText("stop and summarise"));
   await flush(ui);
   expect(ui.captureCharFrame()).not.toContain("Quit Marbles?");
   await act(async () => ui.mockInput.pressEnter());
   await flush(ui);
   expect(calls.at(-1)).toEqual([
-    "steer",
+    "send",
     "run-104",
-    "docs",
-    "stop and summarise",
+    "write",
+    { target: "work-write", text: "stop and summarise" },
   ]);
 
   await act(async () => ui.mockInput.pressKey("s"));
   await act(async () => ui.mockInput.typeText("nothing"));
   await act(async () => ui.mockInput.pressEscape());
   await flush(ui);
-  expect(ui.captureCharFrame()).not.toContain("steer docs ›");
+  expect(ui.captureCharFrame()).not.toContain(STEER_WRITE);
   await act(async () => ui.mockInput.pressKey("k"));
   await flush(ui);
   expect(calls.at(-1)).toEqual(["cancel", "run-104"]);
+});
+
+test("a command live in a step takes a typed line, apart from steering its agent", async () => {
+  const { actions, calls } = recordingActions();
+  const command = {
+    command: "npm test",
+    id: "work-test",
+    input: "stdin",
+    kind: "command",
+    stepId: "write",
+  } as const;
+  const both: DashboardSnapshot = {
+    ...dashboardSnapshot,
+    runs: dashboardSnapshot.runs.map((run) =>
+      run.id === "run-104"
+        ? {
+            ...run,
+            steps: run.steps.map((step) => ({
+              ...step,
+              children: step.children.map((child) =>
+                child.id === "write"
+                  ? { ...child, work: [...(child.work ?? []), command] }
+                  : child
+              ),
+            })),
+          }
+        : run
+    ),
+  };
+  const ui = await render(both, actions);
+  expect(ui.captureCharFrame()).toContain("s interact");
+  await act(async () => ui.mockInput.pressKey("s"));
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain(STEER_WRITE);
+  await act(async () => ui.mockInput.pressTab());
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain("input write · #work-t $ npm test ›");
+  await act(async () => ui.mockInput.typeText("y"));
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(calls.at(-1)).toEqual([
+    "send",
+    "run-104",
+    "write",
+    { target: "work-test", text: "y" },
+  ]);
+});
+
+test("a step names its live agent, the input it waits for, and opens that question in the Feed", async () => {
+  const waiting: DashboardSnapshot = {
+    ...dashboardSnapshot,
+    runs: dashboardSnapshot.runs.map((run) =>
+      run.id === "run-104"
+        ? {
+            ...run,
+            steps: run.steps.map((step) => ({
+              ...step,
+              children: step.children.map((child) =>
+                child.id === "write"
+                  ? {
+                      ...child,
+                      attention: "question" as const,
+                      awaiting: ["feed-merge"],
+                      work: (child.work ?? []).map((work) => ({
+                        ...work,
+                        attention: "question" as const,
+                      })),
+                    }
+                  : child
+              ),
+            })),
+          }
+        : run
+    ),
+  };
+  const ui = await render(waiting, recordingActions().actions);
+  await press(ui, "RETURN");
+  const frame = ui.captureCharFrame();
+  expect(frame).toContain("Live now");
+  expect(frame).toContain(
+    "#work-w agent claude-code/claude-sonnet-5-5 · session session-"
+  );
+  expect(frame).toContain("Waiting for answer · i answer");
+  await press(ui, "i");
+  expect(ui.captureCharFrame()).toContain("Merge the docs update?");
+  expect(ui.captureCharFrame()).toContain("reader");
 });
 
 test("a settled run offers no controls and its keys do nothing", async () => {
@@ -186,6 +276,135 @@ test("a run control failure shows its message without an Error prefix", async ()
   await press(ui, "p");
   expect(ui.captureCharFrame()).toContain("Step is not running here");
   expect(ui.captureCharFrame()).not.toContain("Error: Step");
+});
+
+test("a steer keeps its prompt and draft until it has been sent", async () => {
+  const { actions, calls } = recordingActions();
+  let release: () => void = () => undefined;
+  actions.pause = (runId, stepId) => {
+    calls.push(["pause", runId, stepId]);
+    return new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  };
+  actions.send = (runId, stepId, input) => {
+    calls.push(["send", runId, stepId, input]);
+    return Promise.reject(new Error("Step is not listening"));
+  };
+  const ui = await render(dashboardSnapshot, actions);
+  await press(ui, "p");
+  await press(ui, "s");
+  await act(async () => ui.mockInput.typeText("keep this"));
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(calls).toEqual([["pause", "run-104", "docs"]]);
+  expect(ui.captureCharFrame()).toContain(STEER_WRITE);
+  expect(ui.captureCharFrame()).toContain("keep this");
+  await act(async () => release());
+  await flush(ui);
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(calls.at(-1)).toEqual([
+    "send",
+    "run-104",
+    "write",
+    { target: "work-write", text: "keep this" },
+  ]);
+  const frame = ui.captureCharFrame();
+  expect(frame).toContain("Step is not listening");
+  expect(frame).toContain(STEER_WRITE);
+  expect(frame).toContain("keep this");
+});
+
+test("header, tab, and footer clicks wait while a prompt is open", async () => {
+  const { actions, calls } = recordingActions();
+  const chosen: string[] = [];
+  const choose = (id: string) => {
+    chosen.push(id);
+  };
+  const ui = await mount(
+    <DashboardView
+      actions={actions}
+      hosted={{
+        state: "ready",
+        workspaces: [
+          {
+            config: null,
+            id: "foundry",
+            root: "/Users/someone/code/alpha/foundry",
+            state: "ready",
+          },
+          {
+            config: null,
+            id: "spyglass",
+            root: "/Users/someone/code/beta/foundry",
+            state: "ready",
+          },
+        ],
+      }}
+      onClose={close}
+      onSwitchWorkspace={choose}
+      snapshot={{ ...dashboardSnapshot, mode: "live", workspaceId: "foundry" }}
+    />
+  );
+  await press(ui, "s");
+  await act(async () => ui.mockInput.typeText("go on"));
+  await flush(ui);
+  const before = ui.captureCharFrame();
+  for (const id of [
+    "nav:workspaces",
+    "view:settings",
+    "view:logs",
+    "view:catalog",
+    "view:feed",
+  ]) {
+    await click(ui, id);
+    expect(ui.captureCharFrame()).toBe(before);
+  }
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(chosen).toEqual([]);
+  expect(calls).toEqual([
+    ["send", "run-104", "write", { target: "work-write", text: "go on" }],
+  ]);
+  expect(ui.captureCharFrame().match(WORKSPACE_PICKER_BORDER)).toBeNull();
+});
+
+test("details buttons wait while a prompt is open", async () => {
+  const { actions, calls } = recordingActions();
+  const rolled: string[] = [];
+  const roll = (id: string) => {
+    rolled.push(id);
+    return Promise.resolve();
+  };
+  const ui = await mount(
+    <DashboardView
+      actions={actions}
+      onClose={close}
+      onRollSchedule={roll}
+      snapshot={dashboardSnapshot}
+    />
+  );
+  await press(ui, "s");
+  await act(async () => ui.mockInput.typeText("go on"));
+  await flush(ui);
+  const lines = ui.captureCharFrame().split("\n");
+  const row = lines.findIndex((line) => line.includes("Up next"));
+  const column = lines[row]?.indexOf("Up next") ?? -1;
+  await act(async () => {
+    await ui.mockMouse.click(column + 1, row);
+  });
+  await flush(ui);
+  expect(ui.renderer.root.findDescendantById("schedule:run")).toBeDefined();
+  await click(ui, "schedule:run");
+  expect(rolled).toEqual([]);
+  expect(calls).toEqual([]);
+  expect(ui.captureCharFrame()).toContain(STEER_WRITE);
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(calls).toEqual([
+    ["send", "run-104", "write", { target: "work-write", text: "go on" }],
+  ]);
 });
 
 test("a paused step resumes with an optional prompt", async () => {

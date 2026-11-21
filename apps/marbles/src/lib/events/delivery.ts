@@ -181,7 +181,9 @@ export class Delivery {
     }
     this.#phase = "starting";
     await this.#declare();
-    this.#compactEvery();
+    if (this.#phase === "starting") {
+      this.#compactEvery();
+    }
     const holder = await this.#claim();
     if (this.#phase !== "starting") {
       await this.#release();
