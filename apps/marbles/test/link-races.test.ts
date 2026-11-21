@@ -459,6 +459,7 @@ describe("a relink that ends early", () => {
       expect(await temporaryLinks(root)).toHaveLength(1)
     );
     let reads = 0;
+    let afterAbort: string[] = [];
     const other = relinkArtifact({
       artifacts,
       files: async () => {
@@ -466,6 +467,7 @@ describe("a relink that ends early", () => {
         if (reads === 1) {
           controller.abort(new Error("stopped"));
           await stopped;
+          afterAbort = await entries(resourceLinks(root, "artifact"));
           held.release();
         }
         return [{ blob: "blob", path: "g" }];
@@ -476,6 +478,7 @@ describe("a relink that ends early", () => {
     });
     await expect(other).resolves.toMatchObject({ linked: 1, refused: [] });
     expect(reads).toBe(2);
+    expect(afterAbort).toEqual(["note", join("note", "nested")]);
     expect(
       await real.readlink(join(resourceLinks(root, "artifact"), "memo", "g"))
     ).toBe(join(artifacts, "workspaces", "one", "blobs", "blob"));
