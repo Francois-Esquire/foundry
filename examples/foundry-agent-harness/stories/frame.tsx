@@ -1,6 +1,7 @@
 import type { CliRenderer } from "@opentui/core";
 import type { ReactNode } from "react";
-import { defaultTheme } from "@/lib/terminal-themes/default";
+import { ThemeContext } from "@/hooks/use-theme";
+import { amberTheme } from "@/model/theme";
 import { renderReactStory } from "./render-react-story";
 
 interface FrameSize {
@@ -9,6 +10,8 @@ interface FrameSize {
   readonly width: number;
 }
 
+const THEME = { setTheme: () => undefined, theme: amberTheme };
+
 function Frame({
   children,
   height,
@@ -16,16 +19,18 @@ function Frame({
   width,
 }: FrameSize & { readonly children: ReactNode }) {
   return (
-    <box
-      backgroundColor={defaultTheme.colors.background}
-      flexDirection="column"
-      flexShrink={0}
-      height={height}
-      padding={padded ? 1 : 0}
-      width={width}
-    >
-      {children}
-    </box>
+    <ThemeContext.Provider value={THEME}>
+      <box
+        backgroundColor={amberTheme.colors.background}
+        flexDirection="column"
+        flexShrink={0}
+        height={height}
+        padding={padded ? 1 : 0}
+        width={width}
+      >
+        {children}
+      </box>
+    </ThemeContext.Provider>
   );
 }
 

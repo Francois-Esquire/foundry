@@ -69,7 +69,9 @@ const started: Thread = { ...emptyThread, messages: [goal], title: GOAL };
 export const clock: Clock = { frame: 3, now: STARTED + 4200 };
 
 export const context: Context = {
-  model: "claude-code/sonnet",
+  limit: 200_000,
+  models: ["sonnet", "opus", "haiku"],
+  provider: "claude-code",
   servers: [
     {
       description: "The harness's own to-do list, served from this process.",
@@ -93,6 +95,7 @@ export const context: Context = {
 export const threads = {
   done: {
     ...started,
+    context: 104_000,
     input: 18_400,
     messages: [goal, finished],
     notes: {
@@ -105,6 +108,7 @@ export const threads = {
   },
   failed: {
     ...started,
+    context: 150_000,
     messages: [
       goal,
       {
@@ -135,6 +139,7 @@ export const threads = {
   planning: { ...started, phase: "planning" },
   working: {
     ...started,
+    context: 62_000,
     messages: [
       goal,
       finished,

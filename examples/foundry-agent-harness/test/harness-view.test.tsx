@@ -28,8 +28,9 @@ test("a new view shows the welcome and an empty panel", async () => {
   const frame = (await mount(view(threads.idle).node)).captureCharFrame();
 
   expect(frame).toContain("Give the harness a goal. It will:");
-  expect(frame).toContain("To-dos 0/0");
-  expect(frame).toContain("New thread · claude-code/sonnet");
+  expect(frame).toContain("No to-dos yet.");
+  expect(frame).toContain("0/0 · New thread");
+  expect(frame).toContain("GUN  SONNET");
 });
 
 test("Enter hands over a trimmed goal once and clears the field", async () => {
@@ -43,6 +44,7 @@ test("Enter hands over a trimmed goal once and clears the field", async () => {
   await press(ui, "RETURN");
 
   expect(fake.goals).toEqual(["list the files"]);
+  expect(fake.weapons).toEqual([{ effort: "medium", model: "sonnet" }]);
   expect(ui.captureCharFrame()).toContain("Give the harness a goal");
   expect(ui.captureCharFrame()).toContain("18.4k in · 912 out");
 });
@@ -58,34 +60,56 @@ test("Enter does nothing while a goal is running", async () => {
   expect(ui.captureCharFrame()).toContain("another goal");
 });
 
-test("Tab and Shift+Tab move through the panel's tabs", async () => {
-  const { ui } = await asked(threads.done);
+test("Tab and the arrows pick the gun, the ammo and the avatar for the next goal", async () => {
+  const { fake, node } = view(threads.done);
+  const ui = await mount(node, { height: 44, width: 120 });
 
+  await press(ui, "ARROW_DOWN");
+  expect(ui.captureCharFrame()).toContain("GUN  OPUS");
   await press(ui, "TAB");
-  expect(ui.captureCharFrame()).toContain("version 3f9a1c2e · 1 kept");
+  await press(ui, "ARROW_UP");
+  expect(ui.captureCharFrame()).toContain("▶ AMMO ▮▮▮");
   await press(ui, "TAB");
-  expect(ui.captureCharFrame()).toContain("◆ task-notes");
+  expect(ui.captureCharFrame()).toContain("▶ 01 task-notes");
   await press(ui, "TAB");
-  expect(ui.captureCharFrame()).toContain("› add_todo");
-  await press(ui, "TAB");
-  expect(ui.captureCharFrame()).toContain("✓ Write the run instructions");
+  await press(ui, "ARROW_DOWN");
+  expect(ui.captureCharFrame()).toContain("WELDER");
   await press(ui, "TAB", { shift: true });
-  expect(ui.captureCharFrame()).toContain("› add_todo");
+  expect(ui.captureCharFrame()).toContain("▶ 01 task-notes");
+
+  await type(ui, "explain this example");
+  await press(ui, "RETURN");
+  expect(fake.goals).toEqual(["explain this example"]);
+  expect(fake.weapons).toEqual([{ effort: "high", model: "opus" }]);
+});
+
+test("the arrows leave the goal being typed alone", async () => {
+  const { node } = view(threads.idle);
+  const ui = await mount(node);
+
+  await type(ui, "list the files");
+  await press(ui, "ARROW_DOWN");
+  await press(ui, "TAB");
+
+  expect(ui.captureCharFrame()).toContain("› list the files");
+  expect(ui.captureCharFrame()).toContain("GUN  OPUS");
 });
 
 test("PgUp and PgDn scroll the conversation", async () => {
   const { ui } = await asked(threads.done, { height: 16, width: 120 });
-  const top = "│ You ";
+  const top = "You";
   const bottom = await frameWith(ui, "bun run start");
 
   expect(bottom).not.toContain(top);
-  await press(ui, PAGE_UP);
-  await press(ui, PAGE_UP);
+  for (let page = 0; page < 8; page += 1) {
+    await press(ui, PAGE_UP);
+  }
   const scrolled = await frameWith(ui, top);
   expect(scrolled).toContain(top);
   expect(scrolled).not.toContain("bun run start");
-  await press(ui, PAGE_DOWN);
-  await press(ui, PAGE_DOWN);
+  for (let page = 0; page < 8; page += 1) {
+    await press(ui, PAGE_DOWN);
+  }
   const back = await frameWith(ui, "bun run start");
   expect(back).toContain("bun run start");
   expect(back).not.toContain(top);
@@ -96,8 +120,8 @@ test("a narrow terminal drops the panel and ignores Tab", async () => {
   const before = await frameWith(ui, "bun run start");
   await press(ui, "TAB");
 
-  expect(before).not.toContain("To-dos");
-  expect(before).not.toContain("Tab panel");
+  expect(before).not.toContain("VITALS");
+  expect(before).not.toContain("Tab");
   expect(before.trimEnd().split("\n")).toHaveLength(24);
   expect(ui.captureCharFrame()).toBe(before);
 });
@@ -115,5 +139,5 @@ test("the view lays out against its own box inside a larger terminal", async () 
 
   expect(lines.slice(24).join("").trim()).toBe("");
   expect(Math.max(...lines.map((line) => line.trimEnd().length))).toBe(100);
-  expect(lines.join("\n")).toContain("To-dos 3/3");
+  expect(lines.join("\n")).toContain("3/3 · ");
 });

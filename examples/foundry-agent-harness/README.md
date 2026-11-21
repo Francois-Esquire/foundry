@@ -11,10 +11,29 @@ cd examples/foundry-agent-harness
 bun run start
 ```
 
-Run the build from the repository root. Type a goal and press Enter. Tab
-moves through the side panel, PgUp and PgDn scroll the conversation, and
-Ctrl+C quits. A second goal continues the same conversation and adds to the
-list.
+Run the build from the repository root. Type a goal and press Enter. PgUp
+and PgDn scroll the conversation, and Ctrl+C quits. A second goal continues
+the same conversation and adds to the list.
+
+The screen is laid out like a game HUD. A status rail on the left shows an
+avatar whose face follows the worker's context window, the vitals, the
+weapon, the loadout, and the arsenal of tools used so far. Tab moves the
+focus down the rail, and Up and Down change what it is on:
+
+| Stop | Up and Down |
+| --- | --- |
+| Avatar | Pick the Smith, the Welder, or the Automaton. |
+| Gun | Pick the model: `sonnet`, `opus`, or `haiku`. |
+| Ammo | Load or drop a round of effort: low, medium, or high. |
+| Loadout | Read what each skill and MCP server is for. |
+
+The gun and ammo apply to the next goal. Each pairing gets its own engine
+and worker session, so switching starts that pairing's conversation fresh.
+
+The avatar is a real image where the terminal can draw one (the Kitty
+graphics protocol or Sixel, as in Ghostty, Kitty, and WezTerm) and coloured
+blocks elsewhere. Its health is an estimate: the last turn's input tokens
+divided by its model steps, plus its output, against a 200,000-token window.
 
 The harness needs an installed and signed-in Claude Code CLI, and each goal
 spends a few real turns. The worker is your own Claude Code: it runs on the
@@ -26,15 +45,16 @@ host with your tools, in the directory you start it from.
 | --- | --- |
 | [`src/harness.ts`](./src/harness.ts) | The harness: one thread, its context, and every Marbles call. |
 | [`src/backlog.ts`](./src/backlog.ts) | An MCP server in this process that lets the worker add a to-do. |
-| [`src/model`](./src/model) | The data the screen draws: a `Thread`, its `Context`, a screen `Size`, and an animation `Clock`. Types and small readers, no Marbles. |
-| [`src/views/harness.tsx`](./src/views/harness.tsx) | `HarnessView`, the one stateful component. It takes a context and a `run`, calls the hooks, and fills the layout. |
-| [`src/hooks`](./src/hooks) | The screen's state: the thread, the goal draft, the active tab, scrolling, the measured size, and the animation clock. |
-| [`src/components/layouts/harness.tsx`](./src/components/layouts/harness.tsx) | The whole screen as a function of its props, and the geometry it is laid out with. |
-| [`src/components/blocks`](./src/components/blocks) | The parts of the screen: the side panel and its four lists, the conversation, the goal bar, the header, and the status line. |
+| [`src/model`](./src/model) | The data the screen draws: a `Thread`, its `Context`, the rail's state, the avatars and how a portrait is painted, a screen `Size`, and an animation `Clock`. Types and pure functions, no Marbles. |
+| [`src/views/harness.tsx`](./src/views/harness.tsx) | `HarnessView`, the stateful screen. It takes a context and a `run`, calls the hooks, and fills the layout. `LivePortrait` beside it animates the avatar on its own clock. |
+| [`src/hooks`](./src/hooks) | The screen's state: the thread, the goal draft, the rail, the portrait's picture and wounds, scrolling, the measured size, and the animation clock. |
+| [`src/components/layouts/hud.tsx`](./src/components/layouts/hud.tsx) | The whole screen as a function of its props, and the geometry it is laid out with. |
+| [`src/components/blocks`](./src/components/blocks) | The parts of the screen: the rail's cards, the portrait, the steps, the conversation, the goal bar, and the hint bar. |
 | [`src/main.tsx`](./src/main.tsx) | The renderer, `HarnessView`, and the engine's disposal when it closes. |
 | [`stories`](./stories) | Textbook stories for each block, the layout, and the view, and the sample threads they share with the tests. |
 | [`test`](./test) | The layout rendered from the sample threads, the view driven by keys, the hooks, the import and state rules, and every story rendered once. |
 | [`.claude/skills`](./.claude/skills) | The skills the worker gets. |
+| [`art`](./art), [`scripts/sprites.ts`](./scripts/sprites.ts) | The avatars' source strips, and `bun run sprites`, which turns them into the atlases under `src/assets/avatars`. |
 | `src/components/ui`, `src/hooks/use-theme.ts`, `src/lib` | [TermCN](https://www.termcn.dev) components, copied in by the shadcn CLI. |
 
 | Piece | From Marbles |
@@ -48,9 +68,9 @@ host with your tools, in the directory you start it from.
 
 | On screen | Built from |
 | --- | --- |
-| Side panel | TermCN `Tabs`: To-dos, Notes, Skills, and MCP. |
-| Conversation | TermCN `Panel`, `ChatThread`, and `ChatMessage` inside an OpenTUI `scrollbox`; tool calls are TermCN `ToolCall` rows and replies are OpenTUI `markdown`. |
-| Goal | OpenTUI `input` inside a TermCN `Panel`. |
+| Status rail | OpenTUI `box` cards and an OpenTUI `image` for the avatar. |
+| Conversation | TermCN `ChatThread` and `ChatMessage` inside an OpenTUI `scrollbox`; tool calls are TermCN `ToolCall` rows and replies are OpenTUI `markdown`. |
+| Goal | OpenTUI `input`. |
 
 Marbles writes nothing to disk here. The engine keeps sessions and artifacts
 in memory, a script without a host keeps `tasks` in memory, and all three end
@@ -59,8 +79,8 @@ with the process. Claude Code still keeps its own session history.
 ## Threads and their context
 
 `harness.ts` keeps one `Thread` (its messages, to-dos, notes, and token
-counts) and one `Context` (the model, skills, and MCP servers the worker
-has). The screen gets the context and a `run` function, and `run` shows it
+counts) and one `Context` (the models, skills, and MCP servers the worker
+can have). The screen gets the context and a `run` function, and `run` shows it
 each new `Thread`, so a second thread is another `Thread` value and a way to
 choose between them.
 
@@ -77,21 +97,25 @@ The screen has three layers:
   and may memoise a derived value, and hold no state, effects, key listeners,
   or timers. `ui` imports no blocks or layouts, and blocks import no layouts.
 - Hooks under `src/hooks` hold the state, each with its own keys.
-- `HarnessView` in `src/views/harness.tsx` is the one component that calls
-  them. It passes their values to `HarnessLayout`.
+- `HarnessView` in `src/views/harness.tsx` calls them and passes their
+  values to `HudLayout`. `LivePortrait` holds the avatar's clock, so the
+  conversation does not redraw on every animation frame.
 
 | Hook | Takes | Gives |
 | --- | --- | --- |
-| `useThread` | `run` | The current thread, and `start(goal)`, which calls `run` with a setter. |
+| `useThread` | `run` | The current thread, and `start(goal, weapon)`, which calls `run` with a setter and the chosen model and effort. |
 | `useGoalDraft` | Whether the thread is busy, and what to do with a goal | The draft, its setter, and `submit`, which trims the draft, ignores it when empty or busy, hands it over once, and clears it. |
-| `useTabCycle` | The tab keys, and whether the panel is shown | The active tab. Tab and Shift+Tab move through the keys while the panel is shown. |
+| `useRail` | The context, the number of avatars, and the stops the rail shows | The focused stop and the chosen avatar, model, effort, and loadout slot. Tab and Shift+Tab move the focus; Up and Down change what it is on. |
+| `usePortrait` | An avatar, its health, a seed, the frame, and when it was hit | The avatar's picture for that moment, repainted only when it changes. |
+| `useWound` | The health and the frame | The frame a hit landed, set whenever health worsens, and `hit`. |
 | `usePageScroll` | The page height | The scrollbox ref. PgUp and PgDn scroll it by a page. |
 | `useViewport` | Nothing | The size of the box the screen is mounted in (the terminal until it is measured), and `measure`, which the layout calls when the box resizes. |
 | `useAnimationClock` | Whether anything animates | `{ frame, now }`, ticking every 80 ms only while active. Spinners draw `frame`; a running tool's timer is `now` less its `startedAt`. |
 
 The layout sizes itself to the box it is mounted in, not the terminal.
-Below 72 columns the side panel is dropped, Tab does nothing, and the
-conversation takes the full width. `test/components-imports.test.ts` fails if
+Below 77 columns the rail is dropped, Tab does nothing, and the
+conversation takes the full width. Under 42 rows the portrait halves and the
+rail gives up the arsenal, then the loadout. `test/components-imports.test.ts` fails if
 a component uses state, effects, key listeners, timers, or module-level
 `let`, or imports the harness, a view, a stateful hook, Marbles, evlog, or
 Bun.
