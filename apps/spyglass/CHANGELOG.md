@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.0.4](https://github.com/Francois-Esquire/foundry/compare/spyglass-v0.0.3...spyglass-v0.0.4) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **marbles:** stateProviders is no longer exported from @foundry.sh/marbles/lib; call DatabaseProviderStore.forState(state).
+* **marbles:** stateProviders is no longer exported from @foundry.sh/marbles/lib; call DatabaseProviderStore.forState(state).
+* **marbles:** ProviderConfigurationOptions.state is replaced by `store`; the configuration is read by `read()` or `refresh()`, which a starting engine runs, not at construction. CONFIGURATION_PARTIAL is gone, since no write can land in part.
+* **marbles:** ProviderConfigurationOptions.state is replaced by `store`; the configuration is read by `read()` or `refresh()`, which a starting engine runs, not at construction. CONFIGURATION_PARTIAL is gone, since no write can land in part.
+
+### Features
+
+* **artifacts:** stage blob bytes before the store transaction ([#82](https://github.com/Francois-Esquire/foundry/issues/82)) ([26be7aa](https://github.com/Francois-Esquire/foundry/commit/26be7aadabe54954fc062ce0c17b08f9d8791758))
+* **marbles:** host every workspace in one engine generation and switch generations on change ([#98](https://github.com/Francois-Esquire/foundry/issues/98)) ([b90c18d](https://github.com/Francois-Esquire/foundry/commit/b90c18d5abe8623c8b74ec44a3f056c56198ea26))
+* **marbles:** keep all remaining state in the Marbles database and derive every path from the Foundry home ([#95](https://github.com/Francois-Esquire/foundry/issues/95)) ([308794a](https://github.com/Francois-Esquire/foundry/commit/308794ab382536a3c0a8b9e2c827552230f16fa9))
+* **marbles:** observe every source over one change log ([#99](https://github.com/Francois-Esquire/foundry/issues/99)) ([6aa0360](https://github.com/Francois-Esquire/foundry/commit/6aa03604afc65c5f41ebf96c0e59c9028762a7b7))
+* **marbles:** recover the database, containers and child processes at engine start ([#97](https://github.com/Francois-Esquire/foundry/issues/97)) ([3e0bdee](https://github.com/Francois-Esquire/foundry/commit/3e0bdeef08481fdd7e852a67bd287516a833b42e))
+* **modules:** centralize the reusable Module library ([#53](https://github.com/Francois-Esquire/foundry/issues/53)) ([3e5548c](https://github.com/Francois-Esquire/foundry/commit/3e5548c300f576caaf01fcdc34b08389cf01a498))
+* **tasks:** SQLite store, tables and conformance suite beside the in-memory store ([#77](https://github.com/Francois-Esquire/foundry/issues/77)) ([d812871](https://github.com/Francois-Esquire/foundry/commit/d812871dfedb0b65d9a9d99016e5ff383141f442))
+
 ## [0.0.3](https://github.com/Francois-Esquire/foundry/compare/spyglass-v0.0.2...spyglass-v0.0.3) (2026-11-09)
 
 
