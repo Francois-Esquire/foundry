@@ -157,6 +157,9 @@ Schedules and monitors are listed but are not polled by this server.
   appended to a declared agent's prompt.
 - `model` and `provider`: overrides for the agent's route.
 - `cwd`: working directory, resolved relative to the loaded workspace root.
+  After following links it must be a directory inside the workspace root or
+  inside one of the workspace's worktrees that Marbles created; any other
+  path is refused.
 - `maxTurns`: maximum model/tool steps for this task, rather than a target
   number of replies. The agent can finish earlier. Network models and local
   Claude Code support this limit. Claude Code accepts at most 100. Local
@@ -229,8 +232,8 @@ Diagnostics and the workspace's status lines go to stderr; stdout carries MCP
 messages only. The server runs in a child process whose stdout is stderr,
 so whatever it and the processes it starts print to stdout goes to stderr
 too. The server exits when stdin closes, when the
-`marbles mcp` process that started it exits, or when it receives SIGINT or
-SIGTERM. Shutdown takes a few seconds at most. A task call that does not
+`marbles mcp` process that started it exits, when it receives SIGHUP, SIGINT
+or SIGTERM, or when writing a response to that process fails. Shutdown takes a few seconds at most. A task call that does not
 finish in time is cut off, and the server is killed if it still runs. A
 Marbles process that hosts the workspace keeps hosting it, and several MCP
 clients can use one process at once. Set `FOUNDRY_HOME` to use a separate

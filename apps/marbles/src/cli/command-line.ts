@@ -96,7 +96,6 @@ const USAGE = `marbles — programmable workspace automation
   detach                     stop hosting this workspace; it is not started again at boot
 
   --source <path>    authoring folder or module (default: ./.foundry/marbles)
-  --config <path>    compatibility alias for --source
   --dry-run          echo every model turn and git mutation instead of running them
   --recheck-providers  reopen provider setup for the interactive dashboard
 

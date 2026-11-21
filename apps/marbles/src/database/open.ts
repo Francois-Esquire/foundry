@@ -167,28 +167,24 @@ async function readOnce<T>(
     );
   }
   const before = live ? undefined : fingerprint(path);
-  const client = existing(
-    path,
-    live ? "mode=ro" : "mode=ro&immutable=1",
-    options
-  );
+  const changed = () => before !== undefined && before !== fingerprint(path);
+  let client: Client | undefined;
   let value: T | undefined;
   try {
+    client = existing(path, live ? "mode=ro" : "mode=ro&immutable=1", options);
     const database = drizzle({ client });
     value = (await usable(database, path, options))
       ? await work(database)
       : undefined;
   } catch (error) {
-    if (live && !existsSync(`${path}-shm`)) {
+    if ((live && !existsSync(`${path}-shm`)) || changed()) {
       return { done: false };
     }
     throw error;
   } finally {
-    client.close();
+    client?.close();
   }
-  return before === undefined || before === fingerprint(path)
-    ? { done: true, value }
-    : { done: false };
+  return changed() ? { done: false } : { done: true, value };
 }
 
 function writer(client: Client, path: string, folder: string): MarblesDatabase {
