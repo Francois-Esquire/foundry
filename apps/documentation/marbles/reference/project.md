@@ -91,11 +91,13 @@ the workspace. `help` and `init` do not import authoring modules.
 ## Environment
 
 A workspace's environment is the environment of the Marbles process. Every
-run of the workspace carries it, and the commands its steps run (`exec`),
-its CLI harnesses and its sandboxes inherit it. A generation starts from
-the environment of the Marbles process, not of the command that attached
-it. To give a workspace a variable, set it in the environment the Marbles
-process starts with.
+run of the workspace carries it, and the commands its steps run (`exec`)
+and its host CLI harnesses inherit it. Sandboxed CLI harnesses receive a
+separate guest environment with `HOME`, `LANG`, `PATH`, and harness-specific
+variables; they do not inherit the Marbles process environment. A generation
+starts from the environment of the Marbles process, not of the command that
+attached it. To give a workspace a variable, set it in the environment the
+Marbles process starts with.
 
 ## Names and the catalog
 

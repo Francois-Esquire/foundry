@@ -228,6 +228,11 @@ Set the file key in the schedule before starting the dashboard. Replace
 the token in the environment the Marbles process starts with; see
 [environment](/marbles/reference/project#environment).
 
+If a Marbles process is already running, run `marbles stop` after exporting
+the token below, before running `marbles list` or opening the dashboard.
+The next process starts with the updated environment; attaching to an
+existing process does not update its variables.
+
 ```sh
 export FIGMA_TOKEN=figd_…
 marbles list
