@@ -194,7 +194,7 @@ describe("readStatus", () => {
         database: database.database,
       });
       const dead = await generations.begin("before");
-      await generations.spawned(dead, spawnSync("true").pid);
+      await generations.spawned(dead, spawnSync("true").pid, null);
       await generations.mark(dead, "current");
       expect(await hosted()).toMatchObject({
         alive: false,
@@ -204,7 +204,7 @@ describe("readStatus", () => {
 
       await generations.mark(dead, "exited");
       const live = await generations.begin("after");
-      await generations.spawned(live, process.pid);
+      await generations.spawned(live, process.pid, null);
       await generations.identify(live, startedAt(process.pid) ?? null);
       await generations.mark(live, "current");
       expect(await hosted()).toMatchObject({
@@ -240,15 +240,15 @@ describe("readStatus", () => {
       });
       const dead = spawnSync("true").pid;
       const proved = await generations.begin("proved");
-      await generations.spawned(proved, dead);
+      await generations.spawned(proved, dead, null);
       await generations.identify(proved, "linux:never-this-start");
       await generations.mark(proved, "retiring");
       const unprovedPid = spawnSync("true").pid;
       const unproved = await generations.begin("unproved");
-      await generations.spawned(unproved, unprovedPid);
+      await generations.spawned(unproved, unprovedPid, null);
       await generations.mark(unproved, "retiring");
       const alive = await generations.begin("alive");
-      await generations.spawned(alive, process.pid);
+      await generations.spawned(alive, process.pid, null);
       await generations.identify(alive, startedAt(process.pid) ?? null);
       await generations.mark(alive, "retiring");
 

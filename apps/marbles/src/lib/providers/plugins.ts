@@ -78,7 +78,7 @@ function cli(
   settings: Bin,
   env: Readonly<Record<string, string>>
 ) {
-  return settings.binPath ?? which(name, env.PATH);
+  return settings.binPath ?? which(name, env.PATH || "");
 }
 
 function guestOf(
@@ -232,7 +232,7 @@ export const piPlugin: ProviderPlugin<Bin> = {
       }),
     };
   },
-  detect: ({ env }) => (which("pi", env.PATH) === null ? null : {}),
+  detect: ({ env }) => (which("pi", env.PATH || "") === null ? null : {}),
   id: "pi",
   label: "Pi",
   settings: BIN,

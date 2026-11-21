@@ -377,23 +377,27 @@ async function main(): Promise<void> {
       const loop = ticking.get(each.id);
       loop?.stop.abort();
     }
-    const retired = await Promise.all(
-      hosts.map((each) =>
-        each.engine.retire(successor, {
-          onHanded(runId) {
-            notify(GENERATION_NOTIFICATIONS.handed, { id: each.id, runId });
-          },
-          onLetGo(runId) {
-            notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
-          },
-        })
-      )
+    const handing = hosts.map((each) =>
+      each.engine.retire(successor, {
+        onHanded(runId) {
+          notify(GENERATION_NOTIFICATIONS.handed, { id: each.id, runId });
+        },
+        onLetGo(runId) {
+          notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
+        },
+      })
     );
     retiring = (async () => {
-      await Promise.all(retired.map(({ ended }) => ended));
+      const retired = await Promise.allSettled(handing);
+      await Promise.all(
+        retired.map((each) =>
+          each.status === "fulfilled" ? each.value.ended : undefined
+        )
+      );
       await leave(false);
     })();
     retiring.then(finished.resolve, finished.reject);
+    await Promise.all(handing);
   };
 
   const adopt = async (raw: unknown): Promise<boolean> => {

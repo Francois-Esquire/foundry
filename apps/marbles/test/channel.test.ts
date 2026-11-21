@@ -3,8 +3,9 @@ import { connect, createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
-import { Channel, socketTransport } from "~/process/channel";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Channel, socketTransport, type Transport } from "~/process/channel";
+import { encode, MAX_LINE_BYTES, type Message } from "~/process/protocol";
 
 const cleanup: (() => void)[] = [];
 
@@ -86,5 +87,93 @@ describe("the socket transport", () => {
     channel.close();
     await expect(pending).rejects.toThrow("the connection closed");
     expect(await channel.closed).toBeUndefined();
+  });
+});
+
+function memoryTransport(): Transport & {
+  readonly sent: Message[];
+  deliver(message: Message): void;
+} {
+  let onMessage: (message: Message) => void = () => undefined;
+  const sent: Message[] = [];
+  return {
+    close() {
+      onMessage = () => undefined;
+    },
+    deliver(message) {
+      onMessage(message);
+    },
+    onClose: () => undefined,
+    onMessage(handler) {
+      onMessage = handler;
+    },
+    send(message) {
+      encode(message);
+      sent.push(message);
+    },
+    sent,
+  };
+}
+
+describe("the channel", () => {
+  it("answers with an error a request whose result cannot be encoded", async () => {
+    const transport = memoryTransport();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const channel = new Channel(transport, {
+        request: () => Promise.resolve({ big: 1n }),
+      });
+      expect(channel.open).toBe(true);
+      transport.deliver({ id: 7, method: "describe" });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(transport.sent).toHaveLength(1);
+      expect(transport.sent[0]).toMatchObject({
+        error: {
+          message: expect.stringContaining("the reply could not be encoded"),
+        },
+        id: 7,
+      });
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+});
+
+describe("the socket transport's line limit", () => {
+  it("disconnects a peer that sends a line over the limit", async () => {
+    const { client, server } = await socketPair();
+    const seen: string[] = [];
+    const channel = new Channel(socketTransport(server), {
+      notification: (method) => seen.push(method),
+    });
+    client.write(`${JSON.stringify({ method: "first" })}\n`);
+    client.write("x".repeat(MAX_LINE_BYTES / 2));
+    client.write("x".repeat(MAX_LINE_BYTES / 2 + 1));
+    const reason = await channel.closed;
+    expect(reason?.message).toContain(String(MAX_LINE_BYTES));
+    expect(channel.open).toBe(false);
+    expect(seen).toEqual(["first"]);
+  });
+
+  it("keeps a peer whose line is exactly at the limit, split across chunks", async () => {
+    const { client, server } = await socketPair();
+    const seen: unknown[] = [];
+    const channel = new Channel(socketTransport(server), {
+      notification: (_method, params) => seen.push(params),
+    });
+    const filler = "é".repeat(
+      (MAX_LINE_BYTES - JSON.stringify({ method: "big", params: "" }).length) /
+        2
+    );
+    const line = JSON.stringify({ method: "big", params: filler });
+    expect(Buffer.byteLength(line)).toBe(MAX_LINE_BYTES);
+    const bytes = Buffer.from(`${line}\n`);
+    client.write(bytes.subarray(0, 1001));
+    client.write(bytes.subarray(1001));
+    await vi.waitFor(() => expect(seen).toEqual([filler]));
+    expect(channel.open).toBe(true);
   });
 });

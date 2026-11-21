@@ -1,5 +1,4 @@
 import { createFal } from "@ai-sdk/fal";
-import { createFalClient } from "@fal-ai/client";
 import { modelErrors } from "../errors";
 import type { LiveAccess } from "../live/types";
 import type { Provider } from "../provider";
@@ -24,10 +23,7 @@ export interface FalProviderOptions {
 }
 
 export function falCredentialAccess(apiKey: string): LiveAccess {
-  return {
-    client: createFalClient({ credentials: apiKey }),
-    kind: "credential",
-  };
+  return { credentials: apiKey, kind: "credential" };
 }
 
 export function falProvider(options: FalProviderOptions = {}): Provider {

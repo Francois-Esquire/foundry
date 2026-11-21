@@ -27,7 +27,6 @@
         "@ai-sdk/mcp",
         "@ai-sdk/openai-compatible",
         "@ai-sdk/provider-utils",
-        "@fal-ai/client",
         "@noble/hashes",
         "effect",
         "evlog",
