@@ -156,6 +156,9 @@ Schedules and monitors are listed but are not polled by this server.
   appended to a declared agent's prompt.
 - `model` and `provider`: overrides for the agent's route.
 - `cwd`: working directory, resolved relative to the loaded workspace root.
+  After following links it must be a directory inside the workspace root or
+  inside one of the workspace's worktrees that Marbles created; any other
+  path is refused.
 - `maxTurns`: maximum model/tool steps for this task, rather than a target
   number of replies. The agent can finish earlier. Network models and local
   Claude Code support this limit. Claude Code accepts at most 100. Local
@@ -221,15 +224,22 @@ runs, has no saved journal to watch. Output files have no retention policy yet.
 
 The watcher exits with code 0 on completion, 1 on failure or cancellation,
 and 130 when interrupted. Interrupting the watcher does not cancel the run.
-If the owner disappears without recording an ending, the watcher reports
-that interruption rather than waiting indefinitely.
+If the owner disappears without recording an ending, the watcher reads the
+run's Execution Run from the Marbles database before it gives up. A run
+that is parked or queued, or running under a live owner, is still being
+handed over, and the watcher keeps following it to its new owner's ending.
+A run recorded as completed, failed or cancelled ends the watch with that
+status. Otherwise, or without a database, the watcher reports that the run
+lost its owner rather than waiting indefinitely. A journal with no
+readable start record two seconds after the watcher opened it is reported
+as such.
 
 Diagnostics and the workspace's status lines go to stderr; stdout carries MCP
 messages only. The server runs in a child process whose stdout is stderr,
 so whatever it and the processes it starts print to stdout goes to stderr
 too. The server exits when stdin closes, when the
-`marbles mcp` process that started it exits, or when it receives SIGINT or
-SIGTERM. Shutdown takes a few seconds at most. A task call that does not
+`marbles mcp` process that started it exits, when it receives SIGHUP, SIGINT
+or SIGTERM, or when writing a response to that process fails. Shutdown takes a few seconds at most. A task call that does not
 finish in time is cut off, and the server is killed if it still runs. A
 Marbles process that hosts the workspace keeps hosting it, and several MCP
 clients can use one process at once. Set `FOUNDRY_HOME` to use a separate
@@ -281,10 +291,10 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
 
 ```text
 <home>/
-  marbles/                    the state root
+  marbles/                    the state root, readable by its owner only
     marbles.db                the Marbles database, readable by its owner only, with its
     marbles.db-wal, -shm      SQLite side files while a process has it open
-    marbles.sock              the Marbles process's socket
+    marbles.sock              the Marbles process's socket, its owner's only
     locks/process             the Marbles process's claim on the state root
     process.json              who holds that claim, for `marbles status`
     daemon.log                what a Marbles process started in the background prints
@@ -309,7 +319,8 @@ workspace catalogue, agent grants, deferred approvals, harness activities,
 who delivers its task changes, and the machine's and each workspace's
 provider configuration with the identity key. Provider settings can hold
 secrets, which is why the database is its owner's only. The Marbles process
-claims `locks/process` at the state root and listens on `marbles.sock`
+creates the state root mode 0700 and tightens an existing one to that when
+it starts, claims `locks/process` at the state root and listens on `marbles.sock`
 beside it, so a second Marbles process for the same home is refused with
 the holder's pid. `marbles daemon` runs the process in the
 foreground for a service manager, and `marbles status` shows it and which

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAsyncAction } from "~/cli/hooks/use-async-action";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
@@ -11,25 +11,47 @@ export type AnswerHandler = (
   answer: FeedAnswer
 ) => Promise<void>;
 
-function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
-  const [typing, setTyping] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [choosing, setChoosing] = useState<string>();
+interface Answering {
+  readonly choosing?: string;
+  readonly draft: string;
+  readonly key: string;
+}
+
+function useAnswer(
+  entry: FeedEntrySnapshot | undefined,
+  onAnswer: AnswerHandler | undefined,
+  pin: (entry: FeedEntrySnapshot) => void
+) {
+  const [answering, setAnswering] = useState<Answering>();
   const [target, setTarget] = useState<string>();
   const delivery = useAsyncAction();
   const question =
     onAnswer && entry && inputState(entry.input) === "pending"
       ? entry
       : undefined;
+  const questionKey = question && feedKey(question);
+  const current = answering?.key === questionKey ? answering : undefined;
   const choices = question?.input?.choices ?? [];
   const approval = question?.input?.mode === "approval";
 
-  const cancel = useCallback(() => {
-    setTyping(false);
-    setChoosing(undefined);
-    setDraft("");
-  }, []);
-  const start = useCallback(() => setTyping(true), []);
+  useEffect(() => {
+    if (answering !== undefined && answering.key !== questionKey) {
+      setAnswering(undefined);
+    }
+  }, [answering, questionKey]);
+
+  const cancel = useCallback(() => setAnswering(undefined), []);
+  const start = useCallback(() => {
+    if (question) {
+      pin(question);
+      setAnswering({ draft: "", key: feedKey(question) });
+    }
+  }, [question, pin]);
+  const setDraft = useCallback(
+    (draft: string) =>
+      setAnswering((previous) => previous && { ...previous, draft }),
+    []
+  );
 
   const submit = useCallback(
     (answer: FeedAnswer) => {
@@ -44,50 +66,54 @@ function useAnswer(entry?: FeedEntrySnapshot, onAnswer?: AnswerHandler) {
       delivery.run(async () => {
         setTarget(key);
         await onAnswer(id, answer);
-        cancel();
+        setAnswering((previous) =>
+          previous?.key === key ? undefined : previous
+        );
       });
     },
-    [question, onAnswer, delivery.run, cancel]
+    [question, onAnswer, delivery.run]
   );
 
   const choose = useCallback(
     (choice: string) => {
-      if (approval) {
-        setChoosing(choice);
-        setTyping(true);
+      if (approval && question) {
+        pin(question);
+        setAnswering({ choosing: choice, draft: "", key: feedKey(question) });
         return;
       }
       submit(choice);
     },
-    [approval, submit]
+    [approval, question, pin, submit]
   );
 
   const submitDraft = useCallback(() => {
-    const note = draft.trim();
+    if (current === undefined) {
+      return;
+    }
+    const note = current.draft.trim();
     const answer: FeedAnswer =
-      choosing === undefined
-        ? draft
-        : { choice: choosing, ...(note ? { note } : {}) };
+      current.choosing === undefined
+        ? current.draft
+        : { choice: current.choosing, ...(note ? { note } : {}) };
     submit(answer);
-  }, [submit, draft, choosing]);
+  }, [submit, current]);
 
   return {
     cancel,
     choices,
     choose,
-    choosing: typing ? choosing : undefined,
-    draft,
+    choosing: current?.choosing,
+    draft: current?.draft ?? "",
     error:
       entry !== undefined && target === feedKey(entry)
         ? delivery.error
         : undefined,
     question,
-    sending:
-      delivery.busy && question !== undefined && target === feedKey(question),
+    sending: delivery.busy && question !== undefined && target === questionKey,
     setDraft,
     start,
     submitDraft,
-    typing: typing && question !== undefined,
+    typing: current !== undefined,
   };
 }
 
@@ -138,6 +164,22 @@ export function useFeed(
     }
   }
 
+  function open(entryId: string) {
+    const entry = entries.find(
+      (item) =>
+        item.id === entryId &&
+        (workspaceId === undefined || item.workspace.id === workspaceId)
+    );
+    if (!entry) {
+      return;
+    }
+    if (!visible.includes(entry)) {
+      setScope(ALL_WORKSPACES);
+    }
+    setSelectedKey(feedKey(entry));
+    setFocus("reader");
+  }
+
   function read() {
     if (selected) {
       setFocus("reader");
@@ -148,7 +190,11 @@ export function useFeed(
     workspaceId === undefined || selected?.workspace.id === workspaceId
       ? selected
       : undefined;
-  const answer = useAnswer(answerable, onAnswer);
+  const pin = useCallback(
+    (entry: FeedEntrySnapshot) => setSelectedKey(feedKey(entry)),
+    []
+  );
+  const answer = useAnswer(answerable, onAnswer, pin);
 
   return {
     answer,
@@ -156,6 +202,7 @@ export function useFeed(
     cycleScope,
     focus,
     move,
+    open,
     read,
     resetScope,
     scope: activeScope,

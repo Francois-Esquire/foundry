@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { realpath, stat } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
 import type { RunRecord } from "@foundry/workflows/schema";
 import type { RunStatus } from "@foundry/workflows/types";
@@ -139,6 +140,11 @@ function storedDetails(
   return record;
 }
 
+function inside(parent: string, path: string): boolean {
+  const rest = relative(parent, path);
+  return rest !== ".." && !rest.startsWith(`..${sep}`) && !isAbsolute(rest);
+}
+
 export class BackgroundRuns {
   readonly #engine: Engine;
   readonly #catalog: Catalog;
@@ -203,7 +209,7 @@ export class BackgroundRuns {
   async #reopen(input: AgentInput): Promise<Session<Output.Output>> {
     const session = await this.#engine.agents.session(
       await this.#agent(input, input.agentId),
-      this.#sessionOptions({ ...input, session: input.session })
+      await this.#sessionOptions({ ...input, session: input.session })
     );
     if (this.#sessions.has(session.ref.id)) {
       throw new Error("this session already has an active agent dispatch");
@@ -255,14 +261,59 @@ export class BackgroundRuns {
         });
   }
 
-  #sessionOptions(options: DispatchOptions): SessionOptions {
+  async #inWorktree(path: string): Promise<boolean> {
+    const home = await realpath(this.#engine.worktrees).catch(() => undefined);
+    if (home === undefined || !inside(home, path)) {
+      return false;
+    }
+    let listed: readonly { readonly root: string }[];
+    try {
+      listed = await this.#engine.workspaces.current.git.worktrees();
+    } catch {
+      return false;
+    }
+    for (const worktree of listed) {
+      const top = await realpath(worktree.root).catch(() => undefined);
+      if (top !== undefined && inside(home, top) && inside(top, path)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async #workingDirectory(cwd: string): Promise<string> {
+    const { root } = this.#engine.bindings;
+    const asked = resolve(root, cwd);
+    const refuse = (reason: string): Error =>
+      new Error(
+        `cwd "${asked}" ${reason}; dispatch_agent starts only in a directory inside the workspace root ${root} or one of its Marbles worktrees`
+      );
+    const real = await realpath(asked).catch(() => undefined);
+    if (real === undefined) {
+      throw refuse("does not exist");
+    }
+    if (!(await stat(real)).isDirectory()) {
+      throw refuse("is not a directory");
+    }
+    const top = await realpath(root).catch(() => resolve(root));
+    if (inside(top, real) || (await this.#inWorktree(real))) {
+      return real;
+    }
+    throw refuse(
+      real === asked
+        ? "is outside the workspace root"
+        : `resolves to ${real}, outside the workspace root`
+    );
+  }
+
+  async #sessionOptions(options: DispatchOptions): Promise<SessionOptions> {
     return {
       ...(options.compaction === undefined
         ? {}
         : { compaction: options.compaction }),
       ...(options.cwd === undefined
         ? {}
-        : { cwd: resolve(this.#engine.bindings.root, options.cwd) }),
+        : { cwd: await this.#workingDirectory(options.cwd) }),
       ...(options.maxTurns === undefined ? {} : { maxTurns: options.maxTurns }),
       ...(options.session === undefined ? {} : { session: options.session }),
     };
@@ -294,7 +345,7 @@ export class BackgroundRuns {
     const agent = await this.#agent(options);
     const session = await this.#engine.agents.session(
       agent,
-      this.#sessionOptions(options)
+      await this.#sessionOptions(options)
     );
     this.#closing.signal.throwIfAborted();
     if (this.#sessions.has(session.ref.id)) {

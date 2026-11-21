@@ -239,17 +239,19 @@ export function catalogModel(
   activePane: Pane | undefined,
   handlers: SelectionHandlers
 ): CatalogModel {
+  const definitions = definitionRows(lists.definitions, state.selected);
+  const triggers = triggerRows(lists.triggers, state.selected);
   return {
     ...handlers,
     definitions: {
       active: activePane === "definition",
-      items: definitionRows(lists.definitions, state.selected),
+      items: definitions,
       searching: state.queries.definition.length > 0,
     },
-    selectedId: state.selected && selectionKey(state.selected),
+    selectedId: [...triggers, ...definitions].find((row) => row.selected)?.id,
     triggers: {
       active: activePane === "trigger",
-      items: triggerRows(lists.triggers, state.selected),
+      items: triggers,
       searching: state.queries.trigger.length > 0,
     },
     workspace: snapshot.workspace,

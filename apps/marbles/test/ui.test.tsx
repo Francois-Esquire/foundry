@@ -97,6 +97,15 @@ function UpdatingLogs() {
   return <Log entries={entries} focused />;
 }
 
+test("Ctrl+F and Meta+F leave log following alone", async () => {
+  const ui = await mount(<UpdatingLogs />, { height: 15, width: 80 });
+  await act(async () => ui.mockInput.pressKey("f", { ctrl: true }));
+  await act(async () => ui.mockInput.pressKey("f", { meta: true }));
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain("Message 0");
+  expect(ui.captureCharFrame()).not.toContain("Message 11");
+});
+
 test("following logs advances to new entries and pausing retains the visible position", async () => {
   const ui = await mount(<UpdatingLogs />, { height: 15, width: 80 });
   expect(ui.captureCharFrame()).toContain("Message 0");

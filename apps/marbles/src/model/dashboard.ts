@@ -1,5 +1,7 @@
+import type { RunRecord } from "@foundry/workflows/schema";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { DefinitionOptions } from "~/lib/inputs";
+import type { LiveWork } from "~/lib/step-work";
 import type { JsonValue } from "~/model/json";
 import type { LogEntry, SetupLogEntry } from "~/model/log";
 import type { InputAttention, RunStatus } from "~/model/run-status";
@@ -51,8 +53,18 @@ export interface DefinitionSnapshot extends DefinitionOptions {
   readonly origin?: CatalogOrigin;
 }
 
+export type LiveWorkSnapshot = LiveWork & {
+  readonly attention?: InputAttention;
+};
+
+export interface LiveRun {
+  readonly record: RunRecord;
+  readonly work: readonly LiveWork[];
+}
+
 export interface StepSnapshot {
   readonly attention?: InputAttention;
+  readonly awaiting?: readonly string[];
   readonly children: readonly StepSnapshot[];
   readonly elapsed?: string;
   readonly error?: string;
@@ -62,6 +74,7 @@ export interface StepSnapshot {
   readonly result?: JsonValue;
   readonly status: RunStatus;
   readonly usage?: StepUsage;
+  readonly work?: readonly LiveWorkSnapshot[];
 }
 
 export interface HarnessActivitySnapshot {

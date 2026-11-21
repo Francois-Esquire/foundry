@@ -122,7 +122,7 @@ export function feedModel(feed: FeedState, inputActive: boolean): FeedModel {
       active: !inputActive && feed.focus === "reader",
       selected: selected && {
         ...feedItem(selected),
-        answer: answerView(selected.input, feed.answer),
+        answer: answerView(selected.input, feed.answer, !inputActive),
       },
     },
   };

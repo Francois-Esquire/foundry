@@ -1,6 +1,13 @@
 {
   "extends": ["//"],
   "tasks": {
+    "build": {
+      "outputs": [
+        "dist/**",
+        ".cache/tsbuildinfo.json",
+        "src/database/migrations/**"
+      ]
+    },
     "test": {
       "dependsOn": ["build"],
       "outputs": [],

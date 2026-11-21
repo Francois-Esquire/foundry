@@ -6,7 +6,7 @@ import type { MarblesDatabase } from "~/database/open";
 import { openHostDatabase, WorkspaceRegistry } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
 import type { RollResult } from "~/model/connection";
-import type { StagedWorkspace, WorkspaceHost } from "~/workspace/host";
+import type { GenerationHost, StagedWorkspace } from "~/workspace/host";
 import { stageWorkspace } from "~/workspace/host";
 import { findWorkspace } from "~/workspace/open";
 import { DEFAULT_SOURCE } from "~/workspace/source";
@@ -79,8 +79,8 @@ interface Found {
 
 export class HostedWorkspaces {
   readonly #database: MarblesDatabase | undefined;
-  readonly #hosts = new Map<string, WorkspaceHost>();
-  readonly #pending = new Map<string, Promise<WorkspaceHost>>();
+  readonly #hosts = new Map<string, GenerationHost>();
+  readonly #pending = new Map<string, Promise<GenerationHost>>();
   readonly #unregistering = new Map<string, Promise<boolean>>();
   readonly #options: HostedWorkspacesOptions;
   readonly #inFlight = new Set<Promise<unknown>>();
@@ -105,7 +105,7 @@ export class HostedWorkspaces {
     return new HostedWorkspaces(options, database);
   }
 
-  register(registration: WorkspaceRegistration): Promise<WorkspaceHost> {
+  register(registration: WorkspaceRegistration): Promise<GenerationHost> {
     let found: Found;
     try {
       found = this.#find(registration);
@@ -161,7 +161,7 @@ export class HostedWorkspaces {
     registration: WorkspaceRegistration,
     { args, found, root }: Found
   ): Promise<StagedWorkspace> {
-    let host: WorkspaceHost | undefined;
+    let host: GenerationHost | undefined;
     try {
       if (this.#database !== undefined) {
         await new WorkspaceRegistry({
@@ -210,14 +210,14 @@ export class HostedWorkspaces {
     }
   }
 
-  async #start(staged: StagedWorkspace, root: string): Promise<WorkspaceHost> {
+  async #start(staged: StagedWorkspace, root: string): Promise<GenerationHost> {
     if (this.#phase === "closed") {
       await staged.abandon();
       throw new WorkspaceLoadError(root, {
         cause: new Error("these hosted workspaces closed while it loaded"),
       });
     }
-    let host: WorkspaceHost;
+    let host: GenerationHost;
     try {
       host = await staged.start();
     } catch (error) {
@@ -233,7 +233,11 @@ export class HostedWorkspaces {
     return host;
   }
 
-  async stageRegistered(): Promise<StagedWorkspaces> {
+  stageRegistered(): Promise<StagedWorkspaces> {
+    return this.#track(this.#stageRegistered());
+  }
+
+  async #stageRegistered(): Promise<StagedWorkspaces> {
     const staged: {
       readonly root: string;
       readonly staged: StagedWorkspace;
@@ -258,6 +262,10 @@ export class HostedWorkspaces {
         loads.push({ error, loaded: false, root: error.root });
       }
     }
+    if (this.#closed()) {
+      await Promise.allSettled(staged.map((each) => each.staged.abandon()));
+      throw new Error("these hosted workspaces closed while they loaded");
+    }
     let used = false;
     const once = (): void => {
       if (used) {
@@ -268,32 +276,40 @@ export class HostedWorkspaces {
       used = true;
     };
     return {
-      abandon: async () => {
-        once();
-        await Promise.allSettled(staged.map((each) => each.staged.abandon()));
-      },
+      abandon: () =>
+        this.#track(
+          (async () => {
+            once();
+            await Promise.allSettled(
+              staged.map((each) => each.staged.abandon())
+            );
+          })()
+        ),
       loads,
-      start: async () => {
-        once();
-        const started: WorkspaceLoad[] = [];
-        for (const each of staged) {
-          try {
-            const host = await this.#start(each.staged, each.root);
-            started.push({
-              files: host.files,
-              id: host.id,
-              loaded: true,
-              root: host.root,
-            });
-          } catch (error) {
-            if (!(error instanceof WorkspaceLoadError)) {
-              throw error;
+      start: () =>
+        this.#track(
+          (async () => {
+            once();
+            const started: WorkspaceLoad[] = [];
+            for (const each of staged) {
+              try {
+                const host = await this.#start(each.staged, each.root);
+                started.push({
+                  files: host.files,
+                  id: host.id,
+                  loaded: true,
+                  root: host.root,
+                });
+              } catch (error) {
+                if (!(error instanceof WorkspaceLoadError)) {
+                  throw error;
+                }
+                started.push({ error, loaded: false, root: error.root });
+              }
             }
-            started.push({ error, loaded: false, root: error.root });
-          }
-        }
-        return started;
-      },
+            return started;
+          })()
+        ),
     };
   }
 
@@ -389,7 +405,7 @@ export class HostedWorkspaces {
     return work;
   }
 
-  get(id: string): WorkspaceHost {
+  get(id: string): GenerationHost {
     const host = this.#hosts.get(id);
     if (host === undefined) {
       throw new Error(`no workspace "${id}" is hosted here`);
@@ -397,7 +413,7 @@ export class HostedWorkspaces {
     return host;
   }
 
-  list(): readonly WorkspaceHost[] {
+  list(): readonly GenerationHost[] {
     return [...this.#hosts.values()];
   }
 

@@ -353,6 +353,67 @@ describe("edits", () => {
     expect(ids(reloaded.models)).toEqual(["codex"]);
   });
 
+  describe("lists a provider an edit brings into the order", () => {
+    const LISTING = [
+      ...PLUGINS,
+      registered(
+        plugin("listed", {
+          list: () =>
+            Promise.resolve([
+              { id: "listed-model", kind: "text", modelId: "listed-model" },
+            ]),
+        })
+      ),
+    ];
+    const stateOf = (config: ProviderConfiguration, id: string) =>
+      config.list().find((entry) => entry.id === id)?.state;
+    const machineWithListed = () =>
+      store.put(MACHINE_SCOPE, {
+        providers: [
+          { enabled: true, id: "codex", plugin: "codex" },
+          { enabled: true, id: "listed", plugin: "listed" },
+        ],
+      });
+
+    it("after setOrder", async () => {
+      machineWithListed();
+      store.put("ws1", { order: ["codex"], providers: [] });
+      const { config } = configuration(undefined, { plugins: LISTING });
+      await config.refresh();
+      expect(stateOf(config, "listed")).toBe("excluded");
+      await config.setOrder(undefined);
+      expect(stateOf(config, "listed")).toBe("ready");
+      await config.dispose();
+    });
+
+    it("after move", async () => {
+      machineWithListed();
+      store.put("ws1", { order: ["codex"], providers: [] });
+      const { config } = configuration(undefined, { plugins: LISTING });
+      await config.refresh();
+      await config.move("listed", 0, "workspace");
+      expect(stateOf(config, "listed")).toBe("ready");
+      await config.dispose();
+    });
+
+    it("after remove leaves one enabled entry of an id", async () => {
+      store.put(MACHINE_SCOPE, {
+        providers: [{ enabled: true, id: "listed", plugin: "listed" }],
+      });
+      store.put("ws1", {
+        providers: [{ enabled: true, id: "listed", plugin: "listed" }],
+      });
+      const { config } = configuration(undefined, { plugins: LISTING });
+      await config.refresh();
+      expect(stateOf(config, "listed")).toBe("unloadable");
+      await config.remove("listed");
+      expect(config.list()).toMatchObject([
+        { id: "listed", scope: "machine", state: "ready" },
+      ]);
+      await config.dispose();
+    });
+  });
+
   it("refuses an id taken at the other scope, a bound plugin at machine scope, and a literal secret", async () => {
     store.put("ws2", {
       providers: [{ enabled: true, id: "shared", plugin: "codex" }],

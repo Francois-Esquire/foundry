@@ -8,7 +8,7 @@ import {
 } from "@opentui/core";
 import { theme } from "~/components/ui/theme";
 import type { StatusReport } from "../../status/model";
-import { workspaceLines } from "./text";
+import { processLines, workspaceLines } from "./text";
 
 export interface StatusProps {
   readonly here?: string;
@@ -37,6 +37,13 @@ export function createStatusView(
     new TextRenderable(context, {
       content: "↑/↓ scroll · q or Ctrl+C close",
       fg: theme.colors.mutedForeground,
+    })
+  );
+  view.add(
+    new TextRenderable(context, {
+      content: processLines(report).join("\n"),
+      fg: theme.colors.foreground,
+      wrapMode: "word",
     })
   );
   if (report.workspaces.length === 0) {

@@ -16,6 +16,7 @@ import {
   type ProcessIdentity,
   thisProcess,
 } from "@foundry/lib/process-identity";
+import type { ChannelChunk, ChannelMessage } from "@foundry/workflows/channels";
 import { z } from "zod";
 import { formatLogValues } from "~/lib/log";
 
@@ -30,7 +31,17 @@ const outputRecordSchema = z.discriminatedUnion("type", [
     started: z.string().nullable().optional(),
     type: z.literal("start"),
   }),
-  z.object({ text: z.string(), type: z.literal("text") }),
+  z.object({
+    chunk: z
+      .object({
+        at: z.string(),
+        path: z.array(z.string()),
+        stepId: z.string(),
+      })
+      .optional(),
+    text: z.string(),
+    type: z.literal("text"),
+  }),
   z.object({
     error: z.string().optional(),
     output: z.string().optional(),
@@ -40,6 +51,20 @@ const outputRecordSchema = z.discriminatedUnion("type", [
 ]);
 
 export type OutputRecord = z.infer<typeof outputRecordSchema>;
+export type EndRecord = Extract<OutputRecord, { readonly type: "end" }>;
+
+export type RunHolding =
+  | { readonly kind: "held" }
+  | { readonly kind: "lost" }
+  | { readonly kind: "settled"; readonly end: EndRecord };
+
+export type RunHolder = (workspace: string) => Promise<RunHolding>;
+
+const POLL_MS = 100;
+const HANDOVER_POLL_MS = 1000;
+const START_RECORD_WAIT_MS = 2000;
+
+export type ChunkOrigin = Omit<ChannelChunk, "payload">;
 
 export function removeRunOutput(state: string, runId: string): void {
   rmSync(outputPath(state, runId), { force: true });
@@ -70,8 +95,20 @@ export class RunOutput {
     }
   }
 
-  text(text: string): void {
-    this.#append({ text, type: "text" });
+  text(text: string, chunk?: ChunkOrigin): void {
+    this.#append({
+      ...(chunk === undefined
+        ? {}
+        : {
+            chunk: {
+              at: chunk.at,
+              path: [...chunk.path],
+              stepId: chunk.stepId,
+            },
+          }),
+      text,
+      type: "text",
+    });
   }
 
   finish(status: TerminalStatus, output?: unknown, error?: string): void {
@@ -131,23 +168,29 @@ function outputPath(workspaceState: string, runId: string): string {
   return join(workspaceState, "output", `${runId}.jsonl`);
 }
 
-function findOutput(state: string, runId: string): string {
+function findOutput(
+  state: string,
+  runId: string
+): { readonly path: string; readonly workspace: string } {
   outputPath(state, runId);
   const paths = existsSync(state)
     ? readdirSync(state, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
-        .map((entry) => outputPath(join(state, entry.name), runId))
-        .filter(existsSync)
+        .map((entry) => ({
+          path: outputPath(join(state, entry.name), runId),
+          workspace: entry.name,
+        }))
+        .filter(({ path }) => existsSync(path))
     : [];
-  const [path] = paths;
-  if (paths.length !== 1 || path === undefined) {
+  const [found] = paths;
+  if (paths.length !== 1 || found === undefined) {
     throw new RunOutputError(
       paths.length === 0
         ? `no saved output for run "${runId}" under ${state}`
         : `run "${runId}" has output in more than one workspace`
     );
   }
-  return path;
+  return found;
 }
 
 class OutputReader {
@@ -178,24 +221,83 @@ class OutputReader {
     }
   }
 
-  ownerAlive(): boolean {
-    return this.#owner === undefined || !isGone(this.#owner);
+  get owner(): ProcessIdentity | undefined {
+    return this.#owner;
   }
+}
+
+interface Following {
+  exited: ProcessIdentity | undefined;
+  readonly holder: RunHolder | undefined;
+  readonly opened: number;
+  readonly reader: OutputReader;
+  readonly runId: string;
+  stored: EndRecord | undefined;
+  readonly workspace: string;
+}
+
+type Idle = { readonly end: EndRecord } | { readonly wait: number };
+
+async function idle(following: Following): Promise<Idle> {
+  const { reader, runId, stored } = following;
+  if (stored !== undefined) {
+    return { end: stored };
+  }
+  const { owner } = reader;
+  if (owner === undefined) {
+    if (performance.now() - following.opened >= START_RECORD_WAIT_MS) {
+      throw new RunOutputError(
+        `run "${runId}" has no readable start record in its output`
+      );
+    }
+    return { wait: POLL_MS };
+  }
+  if (following.exited === owner) {
+    const holding = (await following.holder?.(following.workspace)) ?? {
+      kind: "lost",
+    };
+    if (holding.kind === "settled") {
+      following.stored = holding.end;
+      return { wait: 0 };
+    }
+    if (holding.kind === "lost") {
+      throw new RunOutputError(
+        `run "${runId}" lost its owner before recording completion`
+      );
+    }
+    following.exited = undefined;
+    return { wait: HANDOVER_POLL_MS };
+  }
+  if (isGone(owner)) {
+    following.exited = owner;
+    return { wait: 0 };
+  }
+  return { wait: POLL_MS };
 }
 
 export async function* readRunOutput(
   state: string,
   runId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  holder?: RunHolder
 ): AsyncGenerator<OutputRecord> {
   let fd: number | undefined;
   try {
-    fd = openSync(findOutput(state, runId), "r");
+    const { path, workspace } = findOutput(state, runId);
+    fd = openSync(path, "r");
     const decoder = new StringDecoder("utf8");
     const buffer = Buffer.alloc(65_536);
     let position = 0;
     const reader = new OutputReader(runId);
-    let ownerExited = false;
+    const following: Following = {
+      exited: undefined,
+      holder,
+      opened: performance.now(),
+      reader,
+      runId,
+      stored: undefined,
+      workspace,
+    };
     for (;;) {
       signal?.throwIfAborted();
       const count = readSync(fd, buffer, 0, buffer.length, position);
@@ -211,14 +313,13 @@ export async function* readRunOutput(
       if (count !== 0) {
         continue;
       }
-      if (ownerExited) {
-        throw new RunOutputError(
-          `run "${runId}" lost its owner before recording completion`
-        );
+      const next = await idle(following);
+      if ("end" in next) {
+        yield next.end;
+        return;
       }
-      ownerExited = !reader.ownerAlive();
-      if (!ownerExited) {
-        await setTimeout(100, undefined, { signal });
+      if (next.wait > 0) {
+        await setTimeout(next.wait, undefined, { signal });
       }
     }
   } catch (error) {
@@ -234,4 +335,71 @@ export async function* readRunOutput(
       closeSync(fd);
     }
   }
+}
+
+async function nextChunk(
+  records: AsyncGenerator<OutputRecord>
+): Promise<ChannelMessage | undefined> {
+  for (;;) {
+    const next = await records.next();
+    if (next.done) {
+      return;
+    }
+    const record = next.value;
+    if (record.type === "text" && record.chunk !== undefined) {
+      return {
+        _tag: "chunk",
+        chunk: {
+          ...record.chunk,
+          payload: { kind: "text", text: record.text },
+        },
+      };
+    }
+  }
+}
+
+export function runOutputStream(
+  state: string,
+  runId: string,
+  signal?: AbortSignal
+): ReadableStream<ChannelMessage> {
+  const reading = new AbortController();
+  const records = readRunOutput(
+    state,
+    runId,
+    signal ? AbortSignal.any([signal, reading.signal]) : reading.signal
+  );
+  let cancelled = false;
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    signal?.removeEventListener("abort", abort);
+    reading.abort();
+    closing ??= records.return(undefined).then(() => undefined);
+    return closing;
+  };
+  const abort = (): void => {
+    close().catch(() => undefined);
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) {
+    abort();
+  }
+  return new ReadableStream<ChannelMessage>({
+    cancel() {
+      cancelled = true;
+      return close();
+    },
+    async pull(controller) {
+      const message = await nextChunk(records).catch(() => undefined);
+      if (cancelled) {
+        return;
+      }
+      if (message === undefined) {
+        signal?.removeEventListener("abort", abort);
+        controller.close();
+        return;
+      }
+      controller.enqueue(message);
+    },
+  });
 }

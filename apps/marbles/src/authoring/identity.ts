@@ -3,11 +3,13 @@ import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type TS from "typescript";
+import { copyOf } from "~/authoring/load-tag";
 
 export interface CallSite {
   readonly column: number;
   readonly file: string;
   readonly line: number;
+  readonly load?: number;
 }
 
 export function originOf(site: CallSite): string {
@@ -53,7 +55,13 @@ export function callSite(): CallSite | undefined {
     if (file.startsWith(LIB_DIR) || file.startsWith("node:")) {
       continue;
     }
-    return { column: Number(column), file, line: Number(line) };
+    const load = copyOf(fileName)?.load;
+    return {
+      column: Number(column),
+      file,
+      line: Number(line),
+      ...(load === undefined ? {} : { load }),
+    };
   }
   return undefined;
 }
@@ -94,10 +102,26 @@ interface Binding {
   readonly start: number;
 }
 
-const bindings = new Map<string, readonly Binding[] | null>();
+type ByLoad<T> = Map<number | undefined, Map<string, T>>;
 
-function bindingsOf(file: string): readonly Binding[] | null {
-  const cached = bindings.get(file);
+function ofLoad<T>(
+  caches: ByLoad<T>,
+  load: number | undefined
+): Map<string, T> {
+  let cache = caches.get(load);
+  if (cache === undefined) {
+    cache = new Map();
+    caches.set(load, cache);
+  }
+  return cache;
+}
+
+const bindings: ByLoad<readonly Binding[] | null> = new Map();
+
+function bindingsOf(site: CallSite): readonly Binding[] | null {
+  const { file } = site;
+  const cache = ofLoad(bindings, site.load);
+  const cached = cache.get(file);
   if (cached !== undefined) {
     return cached;
   }
@@ -116,7 +140,7 @@ function bindingsOf(file: string): readonly Binding[] | null {
       found = null;
     }
   }
-  bindings.set(file, found);
+  cache.set(file, found);
   return found;
 }
 
@@ -202,10 +226,12 @@ function offsetOf(text: string, line: number, column: number): number {
   return offset + column;
 }
 
-const texts = new Map<string, string>();
+const texts: ByLoad<string> = new Map();
 
-function textOf(file: string): string {
-  const cached = texts.get(file);
+function textOf(site: CallSite): string {
+  const { file } = site;
+  const cache = ofLoad(texts, site.load);
+  const cached = cache.get(file);
   if (cached !== undefined) {
     return cached;
   }
@@ -215,17 +241,17 @@ function textOf(file: string): string {
   } catch {
     text = "";
   }
-  texts.set(file, text);
+  cache.set(file, text);
   return text;
 }
 
 export function bindingAt(site: CallSite): string | undefined {
-  const found = bindingsOf(site.file);
+  const found = bindingsOf(site);
   const ts = parserFor(site.file);
   if (!(found && ts)) {
     return undefined;
   }
-  const offset = offsetOf(textOf(site.file), site.line, site.column);
+  const offset = offsetOf(textOf(site), site.line, site.column);
   const match = found.find(
     (binding) => offset + 1 >= binding.start && offset - 1 < binding.end
   );
@@ -238,6 +264,11 @@ export function bindingAt(site: CallSite): string | undefined {
 
 export function canInfer(file: string): boolean {
   return parserFor(file) !== null;
+}
+
+export function forgetLoad(load: number): void {
+  bindings.delete(load);
+  texts.delete(load);
 }
 
 export function resetIdentity(): void {

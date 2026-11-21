@@ -27,8 +27,9 @@ export type { ClaudeCodeDriverOptions } from "./harness/claude-code";
 // biome-ignore lint/performance/noBarrelFile: Existing provider subpath also exposes its native turn driver.
 export { createClaudeCodeDriver } from "./harness/claude-code";
 
-export interface ClaudeCodeProviderConfig extends ClaudeCodeProviderSettings {
+export interface ClaudeCodeProviderConfig {
   available?: boolean;
+  defaultSettings?: object;
 }
 
 export interface ClaudeCodeProviderOptions {
@@ -142,7 +143,7 @@ export function claudeCodeProvider(
   let client: Promise<ReturnType<typeof createClaudeCode>> | undefined;
   const open = () => {
     client ??= import("ai-sdk-provider-claude-code").then((sdk) =>
-      sdk.createClaudeCode(config)
+      sdk.createClaudeCode(config as ClaudeCodeProviderSettings)
     );
     return client;
   };
@@ -268,7 +269,7 @@ function markFreshCalls(model: LanguageModelV4): LanguageModelV4 {
 function withoutEnvironment(
   config: ClaudeCodeProviderConfig
 ): ClaudeCodeProviderConfig {
-  const settings = config.defaultSettings;
+  const settings = config.defaultSettings as ClaudeCodeSettings | undefined;
   if (
     settings?.env !== undefined ||
     settings?.spawnClaudeCodeProcess !== undefined ||

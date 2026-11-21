@@ -138,15 +138,13 @@ dashboard, where the question can be answered as it comes.
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--source <path>` | `./.foundry/marbles` | Authoring folder or single module. Missing sources offer setup in the dashboard; other commands use an empty catalog. A workspace root is hosted from one source: attaching another under a hosted root is refused until that workspace is detached. |
-| `--config <path>` | Same as `--source` | Compatibility alias. A legacy `marbles.config.ts` is used when the default folder is absent. |
 | `--input <json>` | A schedule's input, or none | Input for `roll`, or the batch for `tasks change`. Overrides a schedule's recorded input. |
 | `--dry-run` | Off | Host the workspace in this process, echo agent turns, git mutations, and sandbox commands instead of running them, and write no state: reading the Marbles database may create or update its SQLite side files (`marbles.db-shm`, `marbles.db-wal`), and nothing else is written. Never touches the Marbles process. `mcp` hosts nothing under it. See [safety and limits](/marbles/reference/safety). |
 | `--recheck-providers` | Off | Show provider discovery again when opening the live dashboard in a terminal. Keeps any existing provider configuration. |
 
 `FOUNDRY_HOME` moves the whole home (default `~/.foundry`): the state root,
 the Marbles database, the artifact store, and the process socket under it.
-Nothing moves on its own; the `--state` and `--artifacts` flags were
-removed, and a command line with either is refused. Each home has its own
+Nothing moves on its own, and no flag moves it. Each home has its own
 Marbles process. Workers inherit the environment of the Marbles process,
 not of the command that attached them.
 
@@ -154,7 +152,14 @@ Agents can select any retained harness through `provider`. Without one,
 Claude Code takes precedence over Codex. Dry execution echoes allowed
 harnesses even when neither CLI is installed.
 
-`--dry` is an alias for `--dry-run`. A later occurrence of a value flag wins.
+A later occurrence of a value flag wins. A flag Marbles does not know is
+refused, naming it, and so is a value flag with no value. `--source` and
+`--input` also refuse a value that is itself a flag, so
+`marbles run --source --dry-run` fails instead of running live. The value of
+a task option is taken as written: `tasks create "Fix" --description "--help"`
+creates a task whose description is `--help`. `--dry-run`, `--help`, `-h`, and
+`--recheck-providers` are read only where a flag can stand, never as another
+flag's value.
 
 ## The dashboard
 
@@ -246,11 +251,12 @@ the workspace and posts a setup milestone to the Feed. Use
 | ← / →, Space | Collapse or expand run branches; change inspector tab |
 | `l` in Marbles | Launch the selected step or workflow; a schema opens a form (Tab moves, Ctrl+Enter submits, Esc cancels) |
 | `f` in Marbles | Filter runs to this schedule, monitor, workflow, or step; `x` clears |
-| `s` / `p` / `k` on a run | Steer the running agent, pause or resume the step, cancel the run. Each shows only when the run's status allows it: steer and pause while running, resume while paused, cancel until the run settles |
+| `s` / `p` / `k` on a run | Steer the agent turn or type a line into the command live in the selected step (Tab picks among several), pause or resume the step, cancel the run. Each shows only when it applies: `s` while something in the step takes input, pause while running, resume while paused, cancel until the run settles |
+| `i` on a run | Open the Feed on the question or approval the selected step waits for |
 | `p` / `k` on a trigger an agent created | Pause or resume the trigger; delete it |
 | `u` on Dashboard | Show every workflow's and agent's usage; Esc or `u` closes it |
 | `a` / `e`, `b` | Jump to the active step or failure; return from step details to the run |
-| `/` | Search the focused marble or run list |
+| `/` | Search the focused marble or run list. The selection stays on a row the search shows: the first match when the selected row is filtered out |
 | `f` in a run's logs | Toggle following new log lines |
 | ↑ / ↓, Enter in Logs | Select a line (stops following); open the run and step it came from |
 | `f` / `v` / `o` / `/` / `x` in Logs | Follow new lines; raise the minimum level; cycle all, run, or Marbles lines; search; clear the filters |
@@ -258,10 +264,21 @@ the workspace and posts a setup milestone to the Feed. Use
 | `w` | Open the workspace picker. ↑ and ↓ select a workspace, and Enter switches to it |
 | `g` on Dashboard or Catalog | Show every workspace's runs and triggers, or this workspace's again (its own and those shared with it); offered once another workspace has any. Another workspace's runs and triggers are read only here: no control acts on them |
 | Shift+W / `x` in the Feed | Cycle the workspace filter (all workspaces, this workspace and what is shared with it, then any other that has posted); show every workspace. Another workspace's questions are answered where they were posted |
-| 1 through 9 / `a` in the Feed | Answer an open question by choice, or type a free-text answer. An approval takes an optional note after the choice |
+| 1 through 9 / `a` in the Feed | Answer an open question by choice, or type a free-text answer. An approval takes an optional note after the choice. The answer stays with the question it was started for: newer entries do not move the selection, and choosing another entry drops the draft |
 | `h` | Return to the Dashboard or Catalog list with focus |
 | `?` | Keyboard help |
 | `q` / Ctrl+C | Confirm quit; Ctrl+C again quits. Quitting detaches: triggers keep running in the Marbles process |
+
+Letter keys act only with no Ctrl or Meta held; Shift+letter shortcuts are
+unaffected. A click on a tab, the footer, the workspace rail, the workspace
+name, or a launch or run-now button in details acts only when its key
+would. While a prompt, an answer, a search, help, the workspace picker or the
+quit dialog has the keys, those clicks do nothing and the keys stay where
+they were; clicking marbles goes home whenever `h` does. A steer or resume
+prompt closes once its message is sent; if it cannot be sent, the prompt stays
+open with its text. When a refresh hides the selected row, as when a renamed
+marble or a run's new status no longer matches the search, the selection
+moves to the first row still shown.
 
 ### Settings and local diagnostics
 
@@ -298,11 +315,31 @@ Pause parks the selected step and everything under it. Resume, with or
 without a prompt, replays the parked bodies from the top; a prompt leads the
 first turn of the agent session each step had open. Steer hands a prompt to
 the agent turn running in the step; the turn stops, the prompt becomes the
-next message, and the step's `generate` resolves with the steered reply. A
-live run's stream does not cross the process socket, so the run inspector's
-Stream tab is empty for a hosted workspace; `marbles watch <runId>` follows
-the run's output instead. Under `--dry-run` the run is in this process and
-the tab shows its stream, with `[steer]` and `[resume]` markers inline.
+next message, and the step's `generate` resolves with the steered reply.
+
+Each agent turn and each `exec` command a step starts shows in the run
+inspector under "Live now", with the step that owns it, until it ends.
+Nothing in the workflow names it. Each row starts with the `#` identifier it
+got when it started, then the agent, its model and session, or the command
+and its process id; the prompt `s` opens names the same identifier. `s`
+addresses that one, so a prompt never reaches a later turn, a retried
+attempt, or another step. A step holding more than one asks which with Tab.
+After a reload the run stays on the engine generation that started it, and
+its live work is still listed and takes input there. Steering an
+agent stops its turn and sends the prompt as the next message. A command on
+the host takes a line on its standard input: it is a pipe, not a terminal, so
+a program that reads from the terminal itself, or waits for end of input,
+cannot be answered this way. Marbles cannot tell whether a command is waiting
+to read. Typed lines are not written to the run's output, only a
+`[stdin] sent a line` marker. A command in a sandbox shows as output only.
+Questions and approvals an agent asks show as waiting on its row, a
+question from a child session it delegated to on the row of the turn that
+delegated it; `i` opens them in the Feed. Leaving the Stream tab or the
+dashboard does not stop anything. For a hosted workspace the Stream tab
+follows the run's saved output, as `marbles watch <runId>` does, filtered to
+the selected step; under `--dry-run` the run is in this process and the tab
+shows its stream directly. Either way `[steer]` and `[resume]` markers show
+inline.
 
 ### Quit, stop, and source edits
 
@@ -315,7 +352,9 @@ answer and as long again to exit, then it and its process group are
 killed, once its pid is proved to be the process the daemon spawned), and
 returns once the process has exited. A run
 parked on a question or a pause survives a stop and is adopted when its
-workspace is hosted again, as long as the step is still registered.
+workspace is hosted again, as long as the step is still registered. When
+`detach` removes the last workspace while a dashboard is open, the dashboard
+shows that workspace stopped and follows none until one is attached again.
 
 Source edits need no restart. The Marbles process polls a fingerprint of
 what its current engine generation loaded every second, taken before that
@@ -367,11 +406,14 @@ you keep open. Either way it claims `locks/process` at the
 [state root](/marbles/reference/state), and a second one is refused with the
 holder's pid. A client that finds a process of another Marbles version stops
 it and starts one of its own. `status` reads files only: a terminal opens a
-view that `q` closes; piped output is plain text, starting with
-`marbles process: pid N · vX · <socket>` or `marbles process: not running`,
-an `engine generation N: pid P · current` line for each live generation
-(`retiring` for one finishing its runs), then each workspace with
-`hosted: yes|no` and `process: pid N (generation)` or `not running`.
+view in the saved theme that `q` closes; piped output is plain text. Both
+start with `marbles process: pid N · vX · <socket>` or
+`marbles process: not running`, then an
+`engine generation N: pid P · current` line for each live generation
+(`retiring` for one finishing its runs, `cannot tell` for one whose process
+cannot be proved alive or gone), whether or not the Marbles process is
+running, then each workspace with `hosted: yes|no` and
+`process: pid N (generation)` or `not running`.
 
 Pi is configured like any other provider: setup offers it when its CLI is
 installed. Provider configuration lives in the Marbles database; there is

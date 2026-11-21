@@ -529,51 +529,56 @@ export class ProviderConfiguration {
   }
 
   async remove(id: string): Promise<void> {
-    await this.#write(() => {
-      const scope = this.#scopeOf(id);
-      const file = this.#scope(scope).read() ?? empty();
-      const order = file.order?.filter((each) => each !== id);
-      return {
-        [scope]: {
-          ...file,
-          providers: file.providers.filter((entry) => entry.id !== id),
-          ...(order ? { order } : {}),
-        },
-      };
-    });
-    this.load();
+    await this.#commit(() =>
+      this.#write(() => {
+        const scope = this.#scopeOf(id);
+        const file = this.#scope(scope).read() ?? empty();
+        const order = file.order?.filter((each) => each !== id);
+        return {
+          [scope]: {
+            ...file,
+            providers: file.providers.filter((entry) => entry.id !== id),
+            ...(order ? { order } : {}),
+          },
+        };
+      })
+    );
   }
 
   async move(id: string, index: number, scope: ProviderScope): Promise<void> {
     if (scope === "machine") {
-      await this.#machine.update((current) => {
-        const file = current ?? empty();
-        const entry = file.providers.find((each) => each.id === id);
-        if (!entry) {
-          throw invalid(`"${id}" is not configured at machine scope`);
-        }
-        const rest = file.providers.filter((each) => each.id !== id);
-        return { ...file, providers: insert(rest, entry, index) };
-      });
+      await this.#commit(() =>
+        this.#machine.update((current) => {
+          const file = current ?? empty();
+          const entry = file.providers.find((each) => each.id === id);
+          if (!entry) {
+            throw invalid(`"${id}" is not configured at machine scope`);
+          }
+          const rest = file.providers.filter((each) => each.id !== id);
+          return { ...file, providers: insert(rest, entry, index) };
+        })
+      );
     } else {
       const current = this.list()
         .filter((entry) => entry.position !== undefined)
         .map((entry) => entry.id);
-      await this.#workspaceStore().update((file) => {
-        const base = file?.order ?? current;
-        const rest = base.filter((each) => each !== id);
-        return { ...(file ?? empty()), order: insert(rest, id, index) };
-      });
+      await this.#commit(() =>
+        this.#workspaceStore().update((file) => {
+          const base = file?.order ?? current;
+          const rest = base.filter((each) => each !== id);
+          return { ...(file ?? empty()), order: insert(rest, id, index) };
+        })
+      );
     }
-    this.load();
   }
 
   async setOrder(ids: readonly string[] | undefined): Promise<void> {
-    await this.#workspaceStore().update((file) => {
-      const { order: _, ...rest } = file ?? empty();
-      return ids === undefined ? rest : { ...rest, order: [...ids] };
-    });
-    this.load();
+    await this.#commit(() =>
+      this.#workspaceStore().update((file) => {
+        const { order: _, ...rest } = file ?? empty();
+        return ids === undefined ? rest : { ...rest, order: [...ids] };
+      })
+    );
   }
 
   async replace(entries: readonly ScopedRecord[]): Promise<void> {

@@ -95,6 +95,7 @@ export function RunInspector<S>({
   onTab,
   onInspect,
   stream,
+  work,
 }: {
   readonly breadcrumbs: readonly Breadcrumb<S>[];
   readonly body: RunTabView;
@@ -102,6 +103,7 @@ export function RunInspector<S>({
   readonly onTab: (tab: InspectorTab) => void;
   readonly onInspect: (selection: S) => void;
   readonly stream: ReactNode;
+  readonly work?: ReactNode;
 }) {
   const content = tabContent(body, focused, stream);
   const tabs = TABS.map((tab) => ({
@@ -121,6 +123,7 @@ export function RunInspector<S>({
           />
         ))}
       </box>
+      {work}
       <Tabs activeTab={body.kind} onTabChange={onTab} tabs={tabs} />
     </box>
   );

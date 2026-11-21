@@ -177,6 +177,27 @@ describe("catalogModel", () => {
       dashboardSnapshot.definitions.length
     );
   });
+
+  it("names the selected row by the id it is rendered with", () => {
+    for (const pane of ["trigger", "definition"] as const) {
+      const state = stateAfter(
+        { type: "view", view: "catalog" },
+        { pane, type: "focus" },
+        { by: 1, type: "move" }
+      );
+      const model = catalogModel(
+        dashboardSnapshot,
+        state,
+        visibleLists(state, dashboardSnapshot),
+        pane,
+        { onInspect, onReset }
+      );
+      const rows = [...model.triggers.items, ...model.definitions.items];
+      const selected = rows.filter((row) => row.selected);
+      expect(selected).toHaveLength(1);
+      expect(model.selectedId).toBe(selected[0]?.id);
+    }
+  });
 });
 
 describe("logsDrawer", () => {

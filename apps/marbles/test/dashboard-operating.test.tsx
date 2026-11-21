@@ -1,4 +1,5 @@
 import { RGBA } from "@opentui/core";
+import { sleep } from "bun";
 import { act, useCallback, useState } from "react";
 import { afterEach, expect, test } from "vitest";
 import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
@@ -7,7 +8,14 @@ import { DashboardView } from "../src/cli/views/dashboard";
 import { theme } from "../src/components/ui/theme";
 import type { SettingsChange } from "../src/model/settings";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
-import { click, flush, mount, press, unmount } from "./helpers/render";
+import {
+  click,
+  flush,
+  frameWith,
+  mount,
+  press,
+  unmount,
+} from "./helpers/render";
 
 const ACTIVE_STEP = /Step\s+: write/;
 const RUN_COST = /Cost\s+: \$0\.0421 est\. · partial: 1 of 3 turns unpriced/;
@@ -227,6 +235,38 @@ test("Settings scrolls to the chosen termCN theme and applies its palette", asyn
   await click(ui, "theme:dracula");
   expect(ui.captureCharFrame()).toContain("Theme: Dracula");
   expect(theme.colors.background).toBe("#282A36");
+});
+
+test("a theme change recolours the Feed entry beside the docked Settings", async () => {
+  const ui = await mount(<SettingsHost />, { height: 40, width: 160 });
+  await press(ui, "F");
+  await press(ui, "S");
+  await frameWith(ui, "The docs workflow rewrote");
+  const bodyColour = async (hex: string) => {
+    const expected = RGBA.fromHex(hex).toInts().join();
+    const deadline = Date.now() + 3000;
+    for (;;) {
+      await flush(ui);
+      const found = ui
+        .captureSpans()
+        .lines.flatMap((line) => line.spans)
+        .find((span) => span.text.includes("The docs workflow rewrote"))
+        ?.fg.toInts()
+        .join();
+      if (found === expected || Date.now() > deadline) {
+        return found;
+      }
+      await sleep(25);
+    }
+  };
+  expect(await bodyColour("#ebdbb2")).toBe(
+    RGBA.fromHex("#ebdbb2").toInts().join()
+  );
+  await press(ui, "ARROW_RIGHT");
+  expect(ui.captureCharFrame()).toContain("Theme: Light");
+  expect(await bodyColour("#3c3836")).toBe(
+    RGBA.fromHex("#3c3836").toInts().join()
+  );
 });
 
 function FailingSettingsHost() {

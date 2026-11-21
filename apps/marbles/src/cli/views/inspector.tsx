@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ActivityDetails } from "~/components/blocks/activity-details";
 import { CatalogDetails } from "~/components/blocks/catalog-details";
+import { LiveWork } from "~/components/blocks/live-work";
 import { RunInspector } from "~/components/blocks/run-inspector";
 import { RunStream } from "~/components/blocks/run-stream";
 import { Panel } from "~/components/ui/panel";
@@ -60,6 +61,7 @@ function subjectContent(
           stream={
             <LiveRunStream source={props.stream} target={subject.stream} />
           }
+          work={<LiveWork work={subject.work} />}
         />
       );
     default:

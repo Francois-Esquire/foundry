@@ -11,26 +11,31 @@ function promptLabels(kind: PromptKind, stepId: string): readonly string[] {
     : [`resume ${stepId} · prompt optional ›`, short];
 }
 
+type PromptLabels =
+  | { readonly labels: readonly string[] }
+  | { readonly kind: PromptKind; readonly stepId: string };
+
 export function PromptBar({
-  kind,
-  stepId,
   draft,
   focused,
   onInput,
   onSubmit,
+  ...label
 }: {
-  readonly kind: PromptKind;
-  readonly stepId: string;
   readonly draft: string;
   readonly focused: boolean;
   readonly onInput: (value: string) => void;
   readonly onSubmit: () => void;
-}) {
+} & PromptLabels) {
   return (
     <InputRow
       focused={focused}
       hint={HINT}
-      labels={promptLabels(kind, stepId)}
+      labels={
+        "labels" in label
+          ? label.labels
+          : promptLabels(label.kind, label.stepId)
+      }
       onInput={onInput}
       onSubmit={onSubmit}
       value={draft}
