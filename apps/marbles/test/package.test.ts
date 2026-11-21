@@ -15,10 +15,12 @@ import {
   isCallExpression,
   isExportDeclaration,
   isExternalModuleReference,
+  isIdentifier,
   isImportDeclaration,
   isImportEqualsDeclaration,
   isImportTypeNode,
   isLiteralTypeNode,
+  isModuleDeclaration,
   isStringLiteral,
   type Node,
   ScriptTarget,
@@ -35,25 +37,39 @@ const CURRENT_GENERATION = /engine generation \d+: pid \d+ · current/;
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 const SCOPE_MARK = /^@/;
+const REQUIRE_CALLS = new Set(["require", "__require"]);
+function loadsModule(callee: Node): boolean {
+  return (
+    callee.kind === SyntaxKind.ImportKeyword ||
+    (isIdentifier(callee) && REQUIRE_CALLS.has(callee.text))
+  );
+}
+
+function specifierOf(node: Node): Node | undefined {
+  if (isImportDeclaration(node) || isExportDeclaration(node)) {
+    return node.moduleSpecifier;
+  }
+  if (
+    isImportEqualsDeclaration(node) &&
+    isExternalModuleReference(node.moduleReference)
+  ) {
+    return node.moduleReference.expression;
+  }
+  if (isImportTypeNode(node) && isLiteralTypeNode(node.argument)) {
+    return node.argument.literal;
+  }
+  if (isModuleDeclaration(node)) {
+    return node.name;
+  }
+  return isCallExpression(node) && loadsModule(node.expression)
+    ? node.arguments[0]
+    : undefined;
+}
+
 function moduleSpecifiers(source: string): string[] {
   const imports: string[] = [];
   function inspect(node: Node) {
-    let specifier: Node | undefined;
-    if (isImportDeclaration(node) || isExportDeclaration(node)) {
-      specifier = node.moduleSpecifier;
-    } else if (
-      isImportEqualsDeclaration(node) &&
-      isExternalModuleReference(node.moduleReference)
-    ) {
-      specifier = node.moduleReference.expression;
-    } else if (isImportTypeNode(node) && isLiteralTypeNode(node.argument)) {
-      specifier = node.argument.literal;
-    } else if (
-      isCallExpression(node) &&
-      node.expression.kind === SyntaxKind.ImportKeyword
-    ) {
-      [specifier] = node.arguments;
-    }
+    const specifier = specifierOf(node);
     if (specifier && isStringLiteral(specifier)) {
       imports.push(specifier.text);
     }
@@ -130,6 +146,16 @@ test("package import inspection names the package of every bare declaration impo
       'import SDK = require("@optional/package/sub");\nexport = SDK;'
     )
   ).toEqual(["@optional/package"]);
+  expect(
+    importedPackages(
+      'export {};\ndeclare module "ai-sdk-provider-pi" { interface PiSettings { extra?: boolean } }\ndeclare namespace Local { const kept: string }'
+    )
+  ).toEqual(["ai-sdk-provider-pi"]);
+  expect(
+    moduleSpecifiers(
+      'const a = require("@fal-ai/client"); const b = __require("@fal-ai/client/realtime"); const c = other("not-a-module");'
+    )
+  ).toEqual(["@fal-ai/client", "@fal-ai/client/realtime"]);
   expect(
     undeclaredPackages(["node", "@scope/typed", "zod", "optional-package"], {
       "@types/node": "^26.4.1",
