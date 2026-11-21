@@ -89,46 +89,14 @@ the workspace. `help` and `init` do not import authoring modules.
 
 ## Environment
 
-Declare tokens and settings in a [Varlock](https://varlock.dev) `.env.schema`
-at the workspace root. For example, on macOS this schema resolves a token
-from the Keychain:
-
-```sh
-# .env.schema
-# @defaultRequired=true
-# ---
-# @sensitive
-FIGMA_TOKEN=exec(`security find-generic-password -s figma -w`)
-```
-
-The Marbles process's engine generation, and `list`, load the schema
-before importing authoring modules, using the workspace's own `varlock` or
-one on `PATH`. Resolved values become the workspace's environment: every
-run of the workspace carries it, and the commands its steps run (`exec`),
-its CLI harnesses and its sandboxes inherit it, beneath values already set
-in the Marbles process, which win. A generation starts from the environment
-of the Marbles process, not of the command that attached it. Marbles resolves
-secrets each time a workspace loads, so after every source reload, and does
-not persist the loaded values. Without a schema, the workspace's
-environment is the Marbles process's.
-
-Marbles does not write the values to `process.env`, which every workspace
-hosted in one process shares. Code that reads `process.env` itself, in a
-module as it loads or in a step body, sees the Marbles process's
-environment, not the workspace's values; so does a provider whose SDK runs
-in the Marbles process and reads `process.env` for its keys, such as Pi's.
-Pass a value to a command through `exec`, or set it in the environment the
+A workspace's environment is the environment of the Marbles process. Every
+run of the workspace carries it, and the commands its steps run (`exec`)
+and its host CLI harnesses inherit it. Sandboxed CLI harnesses receive a
+separate guest environment with `HOME`, `LANG`, `PATH`, and harness-specific
+variables; they do not inherit the Marbles process environment. A generation
+starts from the environment of the Marbles process, not of the command that
+attached it. To give a workspace a variable, set it in the environment the
 Marbles process starts with.
-
-A value that does not resolve is a warning in the engine generation and in `list`:
-what is missing is printed and loading continues; work that needs the value
-can still fail. `roll --dry-run` stops instead. Varlock gets 60 seconds to
-resolve the schema: one that runs longer is stopped, and that, like output
-that is not a JSON object, counts as a schema that does not resolve. Marbles
-stops Varlock itself, not the commands a resolver started, which can keep
-running. `help`, `init`, `mcp`,
-`status`, `sessions`, `tasks`, `watch`, `daemon`, and `stop` do not load
-the schema.
 
 ## Names and the catalog
 

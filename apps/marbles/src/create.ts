@@ -50,7 +50,7 @@ import { AutomationService } from "~/lib/automation/service";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
-import { environmentSnapshot, executionEnvironment } from "~/lib/environment";
+import { environmentSnapshot } from "~/lib/environment";
 import { sourceKey } from "~/lib/events/source";
 import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
@@ -71,10 +71,7 @@ export interface CreateEngineOptions {
   readonly database?: StoreDatabase;
   readonly databaseFile?: string;
   readonly dry: boolean;
-  readonly environment?: {
-    readonly machine: Readonly<Record<string, string>>;
-    readonly workspace: Readonly<Record<string, string>>;
-  };
+  readonly environment?: Readonly<Record<string, string>>;
   readonly home?: string;
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
   readonly plugins?: readonly RegisteredPlugin[];
@@ -195,10 +192,7 @@ function modelsFor(options: CreateEngineOptions): {
       ? options.providers.map(echo)
       : options.providers;
   const providers = new ProviderConfiguration({
-    environment: options.environment ?? {
-      machine: environmentSnapshot(),
-      workspace: {},
-    },
+    environment: options.environment ?? environmentSnapshot(),
     ...(options.dry ? { echo } : {}),
     ...(fixed ? { fixed } : {}),
     models,
@@ -408,7 +402,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(options.environment === undefined
       ? {}
-      : { environment: executionEnvironment(options.environment) }),
+      : { environment: options.environment }),
     root,
     ...(spawned === undefined ? {} : { spawned }),
     state,
