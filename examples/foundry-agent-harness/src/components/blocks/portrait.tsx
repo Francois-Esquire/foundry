@@ -1,17 +1,21 @@
-import { halfBlocks, type PortraitMoment, portrait } from "@/model/portrait";
+import type { NativeImage } from "@opentui/core";
+import { hud } from "@/model/palette";
+import { PORTRAIT_COLUMNS, PORTRAIT_ROWS } from "@/model/sprite";
 
-export function Portrait(moment: PortraitMoment) {
+export function Portrait({ image }: { readonly image: NativeImage | null }) {
   return (
-    <box flexDirection="column" flexShrink={0}>
-      {halfBlocks(portrait(moment)).map((line, row) => (
-        <text key={`row-${row}`} wrapMode="none">
-          {line.map((run, index) => (
-            <span bg={run.bottom} fg={run.top} key={`run-${index}`}>
-              {"▀".repeat(run.cells)}
-            </span>
-          ))}
-        </text>
-      ))}
+    <box
+      alignItems="center"
+      flexShrink={0}
+      height={PORTRAIT_ROWS}
+      justifyContent="center"
+      width={PORTRAIT_COLUMNS}
+    >
+      {image ? (
+        <image height={PORTRAIT_ROWS} source={image} width={PORTRAIT_COLUMNS} />
+      ) : (
+        <text fg={hud.faint}>· · ·</text>
+      )}
     </box>
   );
 }

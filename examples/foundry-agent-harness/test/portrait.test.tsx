@@ -1,21 +1,19 @@
 import { act, useState } from "react";
 import { afterEach, describe, expect, test } from "vitest";
+import { Portrait } from "../src/components/blocks/portrait";
+import { portraitImage, usePortrait } from "../src/hooks/use-portrait";
 import { useWound } from "../src/hooks/use-wound";
 import { type Avatar, avatars } from "../src/model/avatars";
-import { HURT_TICKS, halfBlocks, portrait } from "../src/model/portrait";
 import {
-  HEALTH,
-  type Health,
-  healthAt,
-  POSES,
-  SPRITE_SIZE,
-} from "../src/model/sprite";
+  HURT_TICKS,
+  type PortraitMoment,
+  paintPortrait,
+  portraitScene,
+} from "../src/model/portrait";
+import { HEALTH, type Health, healthAt } from "../src/model/sprite";
 import { frameWith, mount, unmount } from "./helpers/render";
 
-const DIGITS = "0123456789abcdefghijklmnopqrstuv";
-const COLOUR = /^#[0-9a-f]{6}$/;
 const HIT_AT = 40;
-
 const everyAvatar: readonly Avatar[] = avatars;
 
 let wound: ReturnType<typeof useWound> | undefined;
@@ -31,6 +29,25 @@ function WoundProbe() {
   return <text>{`hurt at ${wound.hurtAt}`}</text>;
 }
 
+function PortraitProbe(moment: PortraitMoment) {
+  const image = usePortrait(moment);
+  return (
+    <box flexDirection="column">
+      <text>{image ? `loaded ${image.width}` : "loading"}</text>
+      <Portrait image={image} />
+    </box>
+  );
+}
+
+async function pixelsOf(moment: PortraitMoment): Promise<number[]> {
+  const image = await portraitImage(moment);
+  try {
+    return [...image.raw("rgba8").data];
+  } finally {
+    image.dispose();
+  }
+}
+
 afterEach(async () => {
   wound = undefined;
   move = undefined;
@@ -38,85 +55,75 @@ afterEach(async () => {
 });
 
 describe.each(everyAvatar)("$name", (avatar) => {
-  test("has a full palette and a square sprite for every health", () => {
-    expect(avatar.sheet.palette).toHaveLength(DIGITS.length);
+  const at = (frame: number, hurtAt: number | null, health: Health = "hurt") =>
+    portraitScene({ avatar, frame, health, hurtAt, seed: 3 });
+
+  test("only strikes poses its sheet has", () => {
+    for (const pose of avatar.hurt.flat()) {
+      expect(avatar.sheet.poses).toContain(pose);
+    }
     for (const health of HEALTH) {
-      const rows = avatar.sheet.states[health];
-      expect(rows).toHaveLength(SPRITE_SIZE);
-      for (const row of rows) {
-        expect(row).toMatch(new RegExp(`^[${DIGITS}]{${SPRITE_SIZE}}$`));
+      for (let frame = 0; frame < 400; frame += 1) {
+        for (const pose of at(frame, HIT_AT, health).poses) {
+          expect(avatar.sheet.poses).toContain(pose);
+          expect(avatar.sheet.still[pose] ?? []).not.toContain(health);
+        }
       }
     }
   });
 
-  test("has a patch for every health in every pose it uses", () => {
-    const used = [...avatar.hurt.flat(), avatar.flicker ?? "blink", "blink"];
-    for (const pose of POSES) {
-      const patches = avatar.sheet.poses[pose];
-      expect(patches !== undefined || !used.includes(pose)).toBe(true);
-      for (const health of HEALTH) {
-        const patch = patches?.[health] ?? "";
-        expect(patch.length % 3).toBe(0);
-        expect(patch).toMatch(new RegExp(`^[${DIGITS}]*$`));
-      }
-    }
-  });
-
-  test("draws every pixel in a real colour, the same way each time", () => {
-    for (const health of HEALTH) {
-      for (let frame = 0; frame < 120; frame += 1) {
-        const moment = { avatar, frame, health, hurtAt: HIT_AT, seed: 7 };
-        const pixels = portrait(moment);
-        expect(pixels).toHaveLength(SPRITE_SIZE);
-        expect(pixels.flat()).toHaveLength(SPRITE_SIZE * SPRITE_SIZE);
-        expect(pixels.flat().every((colour) => COLOUR.test(colour))).toBe(true);
-        expect(portrait(moment)).toEqual(pixels);
-      }
-    }
-  });
-
-  test("moves while idle and differs by seed", () => {
-    const frames = (seed: number) =>
+  test("moves while idle, the same way each time, and differs by seed", () => {
+    const scenes = (seed: number) =>
       Array.from({ length: 200 }, (_, frame) =>
-        portrait({ avatar, frame, health: "fresh", hurtAt: null, seed }).join()
+        JSON.stringify(
+          portraitScene({ avatar, frame, health: "fresh", hurtAt: null, seed })
+        )
       );
-    expect(new Set(frames(1)).size).toBeGreaterThan(2);
-    expect(frames(1)).not.toEqual(frames(2));
+    expect(new Set(scenes(1)).size).toBeGreaterThan(2);
+    expect(scenes(1)).toEqual(scenes(1));
+    expect(scenes(1)).not.toEqual(scenes(2));
   });
 
   test("reacts to a hit for the hurt window and then recovers", () => {
-    const at = (frame: number, hurtAt: number | null) =>
-      portrait({ avatar, frame, health: "hurt", hurtAt, seed: 3 });
     for (let since = 0; since < HURT_TICKS; since += 1) {
       expect(at(HIT_AT + since, HIT_AT)).not.toEqual(at(HIT_AT + since, null));
     }
+    expect(at(HIT_AT, HIT_AT).flash).toBe(true);
+    expect(at(HIT_AT, HIT_AT).shake).not.toBe(0);
     expect(at(HIT_AT - 1, HIT_AT)).toEqual(at(HIT_AT - 1, null));
     expect(at(HIT_AT + HURT_TICKS, HIT_AT)).toEqual(
       at(HIT_AT + HURT_TICKS, null)
     );
   });
+
+  test("paints a full opaque picture that a hit changes", async () => {
+    const { cell } = avatar.sheet;
+    const moment = {
+      avatar,
+      frame: HIT_AT + 3,
+      health: "hurt",
+      seed: 3,
+    } as const;
+    const calm = await pixelsOf({ ...moment, hurtAt: null });
+    const struck = await pixelsOf({ ...moment, hurtAt: HIT_AT });
+    expect(calm).toHaveLength(cell * cell * 4);
+    expect(calm.filter((_, index) => index % 4 === 3)).toEqual(
+      new Array(cell * cell).fill(255)
+    );
+    expect(struck).not.toEqual(calm);
+  });
 });
 
-test("half blocks cover every pixel in runs of equal cells", () => {
+test("a pose the sheet lacks leaves the picture alone", () => {
   const [avatar] = avatars;
-  const pixels = portrait({
-    avatar,
-    frame: 0,
-    health: "critical",
-    hurtAt: null,
-    seed: 1,
-  });
-  const lines = halfBlocks(pixels);
-  expect(lines).toHaveLength(SPRITE_SIZE / 2);
-  lines.forEach((line, row) => {
-    expect(line.flatMap((run) => new Array(run.cells).fill(run.top))).toEqual(
-      pixels[row * 2]
-    );
-    expect(
-      line.flatMap((run) => new Array(run.cells).fill(run.bottom))
-    ).toEqual(pixels[row * 2 + 1]);
-  });
-  expect(lines.flat().length).toBeLessThan((SPRITE_SIZE * SPRITE_SIZE) / 2);
+  const { cell } = avatar.sheet;
+  const atlas = new Uint8Array(
+    HEALTH.length * cell * (avatar.sheet.poses.length + 1) * cell * 4
+  ).fill(200);
+  const scene = { dots: [], flash: false, health: "fresh", shake: 0 } as const;
+  expect(
+    paintPortrait(avatar.sheet, atlas, { ...scene, poses: ["glow"] })
+  ).toEqual(paintPortrait(avatar.sheet, atlas, { ...scene, poses: [] }));
 });
 
 test("health falls as the context fills", () => {
@@ -129,6 +136,22 @@ test("health falls as the context fills", () => {
     "critical",
     "critical",
   ]);
+});
+
+test("a portrait loads its picture and draws it", async () => {
+  const [avatar] = avatars;
+  const ui = await mount(
+    <PortraitProbe
+      avatar={avatar}
+      frame={0}
+      health="fresh"
+      hurtAt={null}
+      seed={1}
+    />
+  );
+  const frame = await frameWith(ui, "loaded 256");
+  expect(frame).toContain("loaded 256");
+  expect(frame).not.toContain("· · ·");
 });
 
 test("a wound opens when health worsens, not when it recovers", async () => {

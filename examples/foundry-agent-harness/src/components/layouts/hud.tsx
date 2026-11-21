@@ -3,9 +3,9 @@ import { type ReactNode, useCallback } from "react";
 import { Plate } from "@/components/blocks/plate";
 import { hud } from "@/model/palette";
 import type { Size } from "@/model/screen";
-import { SPRITE_SIZE } from "@/model/sprite";
+import { PORTRAIT_COLUMNS } from "@/model/sprite";
 
-const RAIL_WIDTH = SPRITE_SIZE + 4;
+const RAIL_WIDTH = PORTRAIT_COLUMNS + 4;
 
 export interface HudSection {
   readonly content: ReactNode;

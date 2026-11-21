@@ -1,13 +1,17 @@
 import type { Avatar, Wound } from "@/model/avatars";
-import { HEALTH, type Health, type Pose, SPRITE_SIZE } from "@/model/sprite";
+import {
+  HEALTH,
+  type Health,
+  type Pose,
+  type SpriteSheet,
+} from "@/model/sprite";
 
-const DIGITS = "0123456789abcdefghijklmnopqrstuv";
-const BACKDROP = 0;
-const RED = 28;
-const DARK_RED = 29;
-const WHITE = 30;
-const YELLOW = 31;
-const CENTRE = SPRITE_SIZE / 2;
+const GRID = 32;
+const CENTRE = GRID / 2;
+const RED: Rgb = [214, 36, 28];
+const DARK_RED: Rgb = [122, 16, 20];
+const WHITE: Rgb = [255, 244, 200];
+const YELLOW: Rgb = [255, 196, 60];
 
 const IDLE_TICKS = 22;
 const BLINK_TICKS = 2;
@@ -23,7 +27,10 @@ const FLICKER = 0.95;
 
 export const HURT_TICKS = 10;
 const SHAKE_TICKS = 4;
-const FLASH: readonly [number, number, number] = [110, 90, 70];
+const SHAKE = 0.75;
+const FLASH: Rgb = [70, 58, 44];
+const SHADOW = 24;
+const DOT = 0.6;
 
 const AMBIENT_TICKS = 9;
 const AMBIENT_FROM = 3;
@@ -31,6 +38,8 @@ const AMBIENT_ODDS = [0.3, 0.55];
 const DRIP_TICKS = 8;
 const DRIP_FADE = 5;
 const SPARK_TICKS = 3;
+
+type Rgb = readonly [number, number, number];
 
 export interface PortraitMoment {
   readonly avatar: Avatar;
@@ -40,25 +49,28 @@ export interface PortraitMoment {
   readonly seed: number;
 }
 
-export interface HalfBlocks {
-  readonly bottom: string;
-  readonly cells: number;
-  readonly top: string;
+interface Dot {
+  readonly clings: boolean;
+  readonly colour: Rgb;
+  readonly x: number;
+  readonly y: number;
 }
 
-type Dot = readonly [x: number, y: number, colour: number];
+export interface PortraitScene {
+  readonly dots: readonly Dot[];
+  readonly flash: boolean;
+  readonly health: Health;
+  readonly poses: readonly Pose[];
+  readonly shake: number;
+}
 
 function chance(a: number, b: number, salt: number): number {
   const wave = Math.sin(a * 127.1 + b * 311.7 + salt * 74.7) * 43_758.5453;
   return wave - Math.floor(wave);
 }
 
-function patchOf(avatar: Avatar, pose: Pose, health: Health): string {
-  return avatar.sheet.poses[pose]?.[health] ?? "";
-}
-
 function glance(avatar: Avatar, health: Health, pose: Pose, at: number) {
-  if (patchOf(avatar, pose, health) === "") {
+  if (avatar.sheet.still[pose]?.includes(health)) {
     return at < BLINK_TICKS ? "blink" : null;
   }
   return at < GLANCE_TICKS ? pose : null;
@@ -113,18 +125,20 @@ function splatter(
     const travelY = Math.sin(angle) * speed * since;
     if (wound.style === "sparks") {
       const row = wound.rows[Math.floor(pick * wound.rows.length)] ?? CENTRE;
-      dots.push([
-        Math.round(x + travelX),
-        Math.round(row + travelY),
-        since < 2 ? WHITE : YELLOW,
-      ]);
+      dots.push({
+        clings: false,
+        colour: since < 2 ? WHITE : YELLOW,
+        x: Math.round(x + travelX),
+        y: Math.round(row + travelY),
+      });
     } else {
       const y = wound.top + pick * (wound.bottom - wound.top);
-      dots.push([
-        Math.round(x + travelX),
-        Math.round(y + travelY + 0.12 * since * since),
-        since < 3 ? RED : DARK_RED,
-      ]);
+      dots.push({
+        clings: false,
+        colour: since < 3 ? RED : DARK_RED,
+        x: Math.round(x + travelX),
+        y: Math.round(y + travelY + 0.12 * since * since),
+      });
     }
   }
   return dots;
@@ -151,106 +165,124 @@ function ambient(
     const x = 20 + Math.floor(chance(seed, slot, 9) * 8);
     const y = 10 + Math.floor(chance(seed, slot, 10) * 12);
     return [
-      [x + at, y - at, at === 0 ? WHITE : YELLOW],
-      [x - at, y + at, YELLOW],
+      { clings: true, colour: at === 0 ? WHITE : YELLOW, x: x + at, y: y - at },
+      { clings: true, colour: YELLOW, x: x - at, y: y + at },
     ];
   }
   if (at >= DRIP_TICKS) {
     return [];
   }
   const x = 11 + Math.floor(chance(seed, slot, 9) * 10);
-  return [[x, 22 + at, at < DRIP_FADE ? RED : DARK_RED]];
+  return [
+    {
+      clings: true,
+      colour: at < DRIP_FADE ? RED : DARK_RED,
+      x,
+      y: 22 + at,
+    },
+  ];
 }
 
-function stamp(grid: number[][], patch: string) {
-  for (let at = 0; at < patch.length; at += 3) {
-    const row = grid[DIGITS.indexOf(patch.charAt(at + 1))];
-    if (row) {
-      row[DIGITS.indexOf(patch.charAt(at))] = DIGITS.indexOf(
-        patch.charAt(at + 2)
-      );
-    }
-  }
-}
-
-function dot(grid: number[][], [x, y, colour]: Dot, onFigure: boolean) {
-  const row = grid[y];
-  const under = row?.[x];
-  if (row && under !== undefined && !(onFigure && under === BACKDROP)) {
-    row[x] = colour;
-  }
-}
-
-function brighten(colour: string): string {
-  const channels = FLASH.map((boost, index) =>
-    Math.min(
-      255,
-      Number.parseInt(colour.slice(1 + index * 2, 3 + index * 2), 16) + boost
-    )
-  );
-  return `#${channels.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
-}
-
-export function portrait(moment: PortraitMoment): string[][] {
+export function portraitScene(moment: PortraitMoment): PortraitScene {
   const { avatar, frame, health, hurtAt, seed } = moment;
-  const { palette, states } = avatar.sheet;
   const severity = HEALTH.indexOf(health);
   const since = hurtAt === null ? -1 : frame - hurtAt;
   const hurting = since >= 0 && since < HURT_TICKS;
-  const grid = states[health].map((row) =>
-    Array.from(row, (character) => DIGITS.indexOf(character))
-  );
   const idle = idlePose(moment);
   const poses = hurting
     ? (avatar.hurt[since % avatar.hurt.length] ?? [])
     : [idle].filter((pose) => pose !== null);
-  for (const pose of poses) {
-    stamp(grid, patchOf(avatar, pose, health));
-  }
-  for (const drop of ambient(avatar.wound, seed, frame, severity)) {
-    dot(grid, drop, true);
-  }
-  if (hurting) {
-    for (const drop of splatter(
-      avatar.wound,
-      seed + (hurtAt ?? 0),
-      since,
-      severity
-    )) {
-      dot(grid, drop, false);
-    }
-  }
+  const spray = hurting
+    ? splatter(avatar.wound, seed + (hurtAt ?? 0), since, severity)
+    : [];
   const shift = since % 2 === 0 ? -1 : 1;
-  const shake = hurting && since < SHAKE_TICKS ? shift : 0;
-  const flash = hurting && since === 0;
-  const backdrop = palette[BACKDROP] ?? "#000000";
-  return grid.map((row) =>
-    row.map((_, x) => {
-      const index = row[x - shake] ?? BACKDROP;
-      const colour = palette[index] ?? backdrop;
-      return flash && index !== BACKDROP ? brighten(colour) : colour;
-    })
+  return {
+    dots: [...ambient(avatar.wound, seed, frame, severity), ...spray],
+    flash: hurting && since === 0,
+    health,
+    poses,
+    shake: hurting && since < SHAKE_TICKS ? shift : 0,
+  };
+}
+
+function isFigure(pixels: Uint8Array, at: number): boolean {
+  return (
+    (pixels[at] ?? 0) + (pixels[at + 1] ?? 0) + (pixels[at + 2] ?? 0) > SHADOW
   );
 }
 
-export function halfBlocks(
-  pixels: readonly (readonly string[])[]
-): HalfBlocks[][] {
-  const lines: HalfBlocks[][] = [];
-  for (let y = 0; y < pixels.length; y += 2) {
-    const upper = pixels[y] ?? [];
-    const lower = pixels[y + 1] ?? upper;
-    const line: HalfBlocks[] = [];
-    upper.forEach((top, x) => {
-      const bottom = lower[x] ?? top;
-      const last = line.at(-1);
-      if (last && last.top === top && last.bottom === bottom) {
-        line[line.length - 1] = { ...last, cells: last.cells + 1 };
-      } else {
-        line.push({ bottom, cells: 1, top });
-      }
-    });
-    lines.push(line);
+function drawDot(pixels: Uint8Array, cell: number, dot: Dot) {
+  const unit = cell / GRID;
+  const size = Math.max(1, Math.round(unit * DOT));
+  const left = Math.round(dot.x * unit + (unit - size) / 2);
+  const top = Math.round(dot.y * unit + (unit - size) / 2);
+  const inside =
+    left >= 0 && top >= 0 && left + size <= cell && top + size <= cell;
+  if (!inside || (dot.clings && !isFigure(pixels, (top * cell + left) * 4))) {
+    return;
   }
-  return lines;
+  for (let y = top; y < top + size; y += 1) {
+    for (let x = left; x < left + size; x += 1) {
+      pixels.set(dot.colour, (y * cell + x) * 4);
+    }
+  }
+}
+
+function shifted(pixels: Uint8Array, cell: number, by: number): Uint8Array {
+  const moved = new Uint8Array(pixels.length);
+  for (let at = 3; at < moved.length; at += 4) {
+    moved[at] = 255;
+  }
+  for (let y = 0; y < cell; y += 1) {
+    const row = pixels.subarray(y * cell * 4, (y + 1) * cell * 4);
+    const from = Math.max(0, -by) * 4;
+    const to = Math.max(0, by) * 4;
+    moved.set(row.subarray(from, row.length - to), y * cell * 4 + to);
+  }
+  return moved;
+}
+
+export function paintPortrait(
+  sheet: SpriteSheet,
+  atlas: Uint8Array,
+  scene: PortraitScene
+): Uint8Array {
+  const { cell } = sheet;
+  const stride = HEALTH.length * cell * 4;
+  const column = HEALTH.indexOf(scene.health) * cell * 4;
+  const pixels = new Uint8Array(cell * cell * 4);
+  for (let y = 0; y < cell; y += 1) {
+    const from = y * stride + column;
+    pixels.set(atlas.subarray(from, from + cell * 4), y * cell * 4);
+  }
+  for (const pose of scene.poses) {
+    const top = (sheet.poses.indexOf(pose) + 1) * cell;
+    if (top === 0) {
+      continue;
+    }
+    for (let at = 0; at < pixels.length; at += 4) {
+      const y = Math.floor(at / (cell * 4));
+      const from = (top + y) * stride + column + (at % (cell * 4));
+      if (atlas[from + 3] === 255) {
+        pixels.set(atlas.subarray(from, from + 3), at);
+      }
+    }
+  }
+  for (const dot of scene.dots) {
+    drawDot(pixels, cell, dot);
+  }
+  if (scene.flash) {
+    for (let at = 0; at < pixels.length; at += 4) {
+      if (isFigure(pixels, at)) {
+        FLASH.forEach((boost, channel) => {
+          pixels[at + channel] = Math.min(
+            255,
+            (pixels[at + channel] ?? 0) + boost
+          );
+        });
+      }
+    }
+  }
+  const by = Math.round((scene.shake * SHAKE * cell) / GRID);
+  return by === 0 ? pixels : shifted(pixels, cell, by);
 }

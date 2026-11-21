@@ -1,8 +1,10 @@
+import type { NativeImage } from "@opentui/core";
 import type { ReactNode } from "react";
 import { defineStories, story } from "textbook-sh";
 import { Gauge } from "@/components/blocks/gauge";
 import { Portrait } from "@/components/blocks/portrait";
 import { HudLayout, type HudSection } from "@/components/layouts/hud";
+import { portraitImage } from "@/hooks/use-portrait";
 import { avatars } from "@/model/avatars";
 import { BRACKETED, hud } from "@/model/palette";
 import type { Size } from "@/model/screen";
@@ -24,16 +26,10 @@ function Region({ children }: { readonly children: string }) {
 
 const [smith] = avatars;
 
-function Bay() {
+function Bay({ image }: { readonly image: NativeImage }) {
   return (
     <box flexDirection="column">
-      <Portrait
-        avatar={smith}
-        frame={0}
-        health="scuffed"
-        hurtAt={null}
-        seed={1}
-      />
+      <Portrait image={image} />
       <box
         backgroundColor={hud.tint}
         flexDirection="row"
@@ -295,9 +291,16 @@ function regions(): HudSection[] {
   ];
 }
 
-function sketch(): HudSection[] {
+async function sketch(): Promise<HudSection[]> {
+  const image = await portraitImage({
+    avatar: smith,
+    frame: 0,
+    health: "scuffed",
+    hurtAt: null,
+    seed: 1,
+  });
   return [
-    { content: <Bay />, key: "portrait" },
+    { content: <Bay image={image} />, key: "portrait" },
     {
       content: <Vitals />,
       icon: "♥",
@@ -358,17 +361,21 @@ export const Regions = story({
 export const Sketch = story({
   description: "The regions filled with stand-in content, to judge the look.",
   name: "Sketch",
-  render: (renderer) =>
-    renderFrame(renderer, screen(sketch(), <Talk />, <Steps />), padless(wide)),
+  render: async (renderer) =>
+    renderFrame(
+      renderer,
+      screen(await sketch(), <Talk />, <Steps />),
+      padless(wide)
+    ),
 });
 
 export const Compact = story({
   description: "The same sketch at 96 by 30.",
   name: "Compact",
-  render: (renderer) =>
+  render: async (renderer) =>
     renderFrame(
       renderer,
-      screen(sketch(), <Talk />, <Steps />),
+      screen(await sketch(), <Talk />, <Steps />),
       padless(compact)
     ),
 });

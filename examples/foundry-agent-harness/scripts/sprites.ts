@@ -1,21 +1,17 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { inflateSync } from "node:zlib";
+import { crc32, deflateSync, inflateSync } from "node:zlib";
 import { spawn } from "bun";
-import { HEALTH, POSES, type Pose, SPRITE_SIZE } from "../src/model/sprite";
+import { HEALTH, POSES, type Pose } from "../src/model/sprite";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const ART = resolve(ROOT, "art");
 const OUT = resolve(ROOT, "src/model/sprites");
-const DIGITS = "0123456789abcdefghijklmnopqrstuv";
-const SAMPLED_COLOURS = 28;
-const EFFECT_COLOURS: readonly Rgb[] = [
-  [214, 36, 28],
-  [122, 16, 20],
-  [255, 244, 200],
-  [255, 196, 60],
-];
-const PATCH_THRESHOLD = 45;
+const ASSETS = resolve(ROOT, "src/assets/avatars");
+const CELL = 256;
+const GRID = 32;
+const COARSE_THRESHOLD = 45;
+const FINE_THRESHOLD = 18;
 const WHITE = 235;
 const INSET = 14;
 const HEADROOM = 0.45;
@@ -245,12 +241,12 @@ function crop(image: Image, panel: Panel, dx = 0, dy = 0): Image {
   return { data, height: side, width: side };
 }
 
-function average(image: Image, x: number, y: number): Rgb {
+function average(image: Image, x: number, y: number, size: number): Rgb {
   const side = image.width;
-  const top = Math.floor((y * side) / SPRITE_SIZE);
-  const bottom = Math.max(top + 1, Math.floor(((y + 1) * side) / SPRITE_SIZE));
-  const left = Math.floor((x * side) / SPRITE_SIZE);
-  const right = Math.max(left + 1, Math.floor(((x + 1) * side) / SPRITE_SIZE));
+  const top = Math.floor((y * side) / size);
+  const bottom = Math.max(top + 1, Math.floor(((y + 1) * side) / size));
+  const left = Math.floor((x * side) / size);
+  const right = Math.max(left + 1, Math.floor(((x + 1) * side) / size));
   let red = 0;
   let green = 0;
   let blue = 0;
@@ -268,12 +264,6 @@ function average(image: Image, x: number, y: number): Rgb {
     Math.round(green / count),
     Math.round(blue / count),
   ];
-}
-
-function shrink(image: Image): Rgb[] {
-  return Array.from({ length: SPRITE_SIZE * SPRITE_SIZE }, (_, pixel) =>
-    average(image, pixel % SPRITE_SIZE, Math.floor(pixel / SPRITE_SIZE))
-  );
 }
 
 function distance(a: Rgb, b: Rgb): number {
@@ -295,92 +285,6 @@ function mismatch(a: Image, b: Image): number {
   return total;
 }
 
-function widest(box: readonly Rgb[]): { axis: 0 | 1 | 2; score: number } {
-  let best: { axis: 0 | 1 | 2; score: number } = { axis: 0, score: -1 };
-  for (const axis of [0, 1, 2] as const) {
-    let low = 255;
-    let high = 0;
-    for (const colour of box) {
-      low = Math.min(low, colour[axis]);
-      high = Math.max(high, colour[axis]);
-    }
-    const score = (high - low) * Math.sqrt(box.length);
-    if (score > best.score) {
-      best = { axis, score };
-    }
-  }
-  return best;
-}
-
-function medianCut(colours: readonly Rgb[], count: number): Rgb[][] {
-  const boxes: Rgb[][] = [[...colours]];
-  while (boxes.length < count) {
-    let pick = 0;
-    let split = widest(boxes[0] ?? []);
-    boxes.forEach((box, index) => {
-      const candidate = widest(box);
-      if (candidate.score > split.score) {
-        pick = index;
-        split = candidate;
-      }
-    });
-    const { axis } = split;
-    const sorted = (boxes[pick] ?? [])
-      .slice()
-      .sort((a, b) => a[axis] - b[axis]);
-    if (sorted.length < 2) {
-      break;
-    }
-    const half = Math.floor(sorted.length / 2);
-    boxes.splice(pick, 1, sorted.slice(0, half), sorted.slice(half));
-  }
-  return boxes;
-}
-
-function mean(box: readonly Rgb[]): Rgb {
-  const sum = box.reduce<Rgb>(
-    (total, colour) => [
-      total[0] + colour[0],
-      total[1] + colour[1],
-      total[2] + colour[2],
-    ],
-    [0, 0, 0]
-  );
-  return [
-    Math.round(sum[0] / box.length),
-    Math.round(sum[1] / box.length),
-    Math.round(sum[2] / box.length),
-  ];
-}
-
-function paletteOf(sprites: readonly Rgb[][]): Rgb[] {
-  const sampled = medianCut(sprites.flat(), SAMPLED_COLOURS)
-    .map(mean)
-    .sort((a, b) => a[0] + a[1] + a[2] - (b[0] + b[1] + b[2]));
-  return [...sampled, ...EFFECT_COLOURS];
-}
-
-function nearest(palette: readonly Rgb[], colour: Rgb): number {
-  let best = 0;
-  let closest = Number.POSITIVE_INFINITY;
-  palette.forEach((candidate, index) => {
-    const gap = distance(colour, candidate);
-    if (gap < closest) {
-      closest = gap;
-      best = index;
-    }
-  });
-  return best;
-}
-
-function digit(value: number): string {
-  return DIGITS[value] ?? "0";
-}
-
-function hex(colour: Rgb): string {
-  return `#${colour.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
-}
-
 function align(base: Image, pose: Image, panel: Panel): Image {
   let best = crop(pose, panel);
   let lowest = mismatch(base, best);
@@ -397,75 +301,139 @@ function align(base: Image, pose: Image, panel: Panel): Image {
   return best;
 }
 
-function patch(
-  palette: readonly Rgb[],
-  base: readonly Rgb[],
-  pose: readonly Rgb[]
-): string {
-  let encoded = "";
-  pose.forEach((colour, pixel) => {
-    const original = base[pixel] ?? colour;
-    if (distance(colour, original) <= PATCH_THRESHOLD) {
-      return;
+function scale(image: Image, size: number): Image {
+  const data = new Uint8Array(size * size * 3);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      data.set(average(image, x, y, size), (y * size + x) * 3);
     }
-    const index = nearest(palette, colour);
-    if (index !== nearest(palette, original)) {
-      encoded +=
-        digit(pixel % SPRITE_SIZE) +
-        digit(Math.floor(pixel / SPRITE_SIZE)) +
-        digit(index);
-    }
-  });
-  return encoded;
+  }
+  return { data, height: size, width: size };
 }
 
-function byHealth<Value>(values: readonly Value[]): Record<string, Value> {
-  const keyed: Record<string, Value> = {};
-  values.forEach((value, index) => {
-    keyed[HEALTH[index] ?? String(index)] = value;
-  });
-  return keyed;
+function rgbAt(image: Image, pixel: number): Rgb {
+  return [
+    image.data[pixel * 3] ?? 0,
+    image.data[pixel * 3 + 1] ?? 0,
+    image.data[pixel * 3 + 2] ?? 0,
+  ];
+}
+
+function changedCells(base: Image, pose: Image): Set<number> {
+  const coarseBase = scale(base, GRID);
+  const coarsePose = scale(pose, GRID);
+  const cells = new Set<number>();
+  for (let cell = 0; cell < GRID * GRID; cell += 1) {
+    if (
+      distance(rgbAt(coarseBase, cell), rgbAt(coarsePose, cell)) >
+      COARSE_THRESHOLD
+    ) {
+      cells.add(cell);
+    }
+  }
+  return cells;
+}
+
+function nearChange(cells: ReadonlySet<number>, x: number, y: number) {
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      const column = x + dx;
+      const row = y + dy;
+      const inside = column >= 0 && column < GRID && row >= 0 && row < GRID;
+      if (inside && cells.has(row * GRID + column)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function paste(
+  atlas: Uint8Array,
+  width: number,
+  column: number,
+  row: number,
+  image: Image,
+  keep: (pixel: number) => boolean
+) {
+  for (let pixel = 0; pixel < CELL * CELL; pixel += 1) {
+    if (!keep(pixel)) {
+      continue;
+    }
+    const x = column * CELL + (pixel % CELL);
+    const y = row * CELL + Math.floor(pixel / CELL);
+    atlas.set([...rgbAt(image, pixel), 255], (y * width + x) * 4);
+  }
+}
+
+function chunk(type: string, body: Uint8Array): Buffer {
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(body.length, 0);
+  head.write(type, 4, "latin1");
+  const tail = Buffer.alloc(4);
+  tail.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), body])), 0);
+  return Buffer.concat([head, body, tail]);
+}
+
+function encode(rgba: Uint8Array, width: number, height: number): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 6, 0, 0, 0], 8);
+  const stride = width * 4;
+  const rows = Buffer.alloc(height * (stride + 1));
+  for (let y = 0; y < height; y += 1) {
+    rows.set(rgba.subarray(y * stride, (y + 1) * stride), y * (stride + 1) + 1);
+  }
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(rows, { level: 9 })),
+    chunk("IEND", new Uint8Array(0)),
+  ]);
 }
 
 async function build(name: string, art: readonly string[]): Promise<string> {
-  const base = await load(`${name}.png`);
-  const frames = panels(name, base);
-  const crops = frames.map((panel) => crop(base, panel));
-  const sprites = crops.map(shrink);
-  const palette = paletteOf(sprites);
-  const states = sprites.map((sprite) =>
-    Array.from({ length: SPRITE_SIZE }, (_, y) =>
-      sprite
-        .slice(y * SPRITE_SIZE, (y + 1) * SPRITE_SIZE)
-        .map((colour) => digit(nearest(palette, colour)))
-        .join("")
-    )
-  );
-  const poses: Partial<Record<Pose, Record<string, string>>> = {};
-  for (const pose of POSES) {
-    const file = `${name}-${pose}.png`;
-    if (!art.includes(file)) {
-      continue;
-    }
-    const image = await load(file);
-    const patches = frames.map((panel, index) => {
-      const original = crops[index] ?? crop(base, panel);
-      return patch(
-        palette,
-        sprites[index] ?? [],
-        shrink(align(original, image, panel))
+  const source = await load(`${name}.png`);
+  const frames = panels(name, source);
+  const crops = frames.map((panel) => crop(source, panel));
+  const bases = crops.map((image) => scale(image, CELL));
+  const poses = POSES.filter((pose) => art.includes(`${name}-${pose}.png`));
+  const width = HEALTH.length * CELL;
+  const atlas = new Uint8Array(width * (poses.length + 1) * CELL * 4);
+  bases.forEach((base, column) => {
+    paste(atlas, width, column, 0, base, () => true);
+  });
+  const still: Partial<Record<Pose, string[]>> = {};
+  for (const [index, pose] of poses.entries()) {
+    const image = await load(`${name}-${pose}.png`);
+    const counts = frames.map((panel, column) => {
+      const base = bases[column] ?? scale(crop(source, panel), CELL);
+      const posed = scale(
+        align(crops[column] ?? crop(source, panel), image, panel),
+        CELL
       );
+      const cells = changedCells(base, posed);
+      paste(atlas, width, column, index + 1, posed, (pixel) => {
+        const x = Math.floor(((pixel % CELL) * GRID) / CELL);
+        const y = Math.floor((Math.floor(pixel / CELL) * GRID) / CELL);
+        return (
+          nearChange(cells, x, y) &&
+          distance(rgbAt(base, pixel), rgbAt(posed, pixel)) > FINE_THRESHOLD
+        );
+      });
+      if (cells.size === 0) {
+        still[pose] = [...(still[pose] ?? []), HEALTH[column] ?? ""];
+      }
+      return cells.size;
     });
-    poses[pose] = byHealth(patches);
-    process.stdout.write(
-      `${name} ${pose}: ${patches.map((encoded) => encoded.length / 3).join(" ")} pixels\n`
-    );
+    process.stdout.write(`${name} ${pose}: ${counts.join(" ")} cells\n`);
   }
-  const sheet = {
-    palette: palette.map(hex),
-    poses,
-    states: byHealth(states),
-  };
+  await writeFile(
+    resolve(ASSETS, `${name}.png`),
+    encode(atlas, width, (poses.length + 1) * CELL)
+  );
+  const sheet = { cell: CELL, file: `${name}.png`, poses, still };
   const path = resolve(OUT, `${name}.ts`);
   await writeFile(
     path,
@@ -482,6 +450,7 @@ async function build(name: string, art: readonly string[]): Promise<string> {
 const files = await readdir(ART);
 const names = files.flatMap((file) => BASE.exec(file)?.[1] ?? []);
 await mkdir(OUT, { recursive: true });
+await mkdir(ASSETS, { recursive: true });
 const written: string[] = [];
 for (const name of names) {
   written.push(await build(name, files));

@@ -1,4 +1,5 @@
-export const SPRITE_SIZE = 32;
+export const PORTRAIT_COLUMNS = 32;
+export const PORTRAIT_ROWS = 16;
 
 export const HEALTH = [
   "fresh",
@@ -15,9 +16,10 @@ export const POSES = ["blink", "left", "right", "wince", "glow"] as const;
 export type Pose = (typeof POSES)[number];
 
 export interface SpriteSheet {
-  readonly palette: readonly string[];
-  readonly poses: Partial<Record<Pose, Record<Health, string>>>;
-  readonly states: Record<Health, readonly string[]>;
+  readonly cell: number;
+  readonly file: string;
+  readonly poses: readonly Pose[];
+  readonly still: Partial<Record<Pose, readonly Health[]>>;
 }
 
 const REMAINING = [0.8, 0.6, 0.4, 0.2];
