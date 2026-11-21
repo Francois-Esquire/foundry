@@ -1,8 +1,15 @@
 import path from "node:path";
-import { BrowserWindow, nativeTheme, screen, shell } from "electron";
+import { BrowserWindow, dialog, nativeTheme, screen, shell } from "electron";
+import type { ThemeAppearance } from "~/shared/theme";
 import type { WindowMode } from "~/shared/window-bridge";
+import { QuitWindows } from "./quit";
+import { systemTheme } from "./system/theme";
 
 const SHELL_SCALE = 0.75;
+
+export function themeBackground(appearance: ThemeAppearance): string {
+  return appearance === "dark" ? "#0a0a0a" : "#ffffff";
+}
 
 function shellSize(): { height: number; width: number } {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
@@ -12,10 +19,15 @@ function shellSize(): { height: number; width: number } {
   };
 }
 
+export const quitWindows = new QuitWindows<BrowserWindow>();
+
 export function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
     ...shellSize(),
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0a0a0a" : "#ffffff",
+    backgroundColor: themeBackground(
+      systemTheme.snapshot()?.effective ??
+        (nativeTheme.shouldUseDarkColors ? "dark" : "light")
+    ),
     center: true,
     frame: false,
     show: true,
@@ -27,11 +39,29 @@ export function createMainWindow(): BrowserWindow {
     },
   });
 
+  // Never spawn child windows; real links open in the OS browser.
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("http://") || url.startsWith("https://")) {
       shell.openExternal(url).catch(() => undefined);
     }
     return { action: "deny" };
+  });
+
+  window.webContents.on("will-prevent-unload", (event) => {
+    const choice = dialog.showMessageBoxSync(window, {
+      buttons: ["Keep editing", "Close anyway"],
+      cancelId: 0,
+      defaultId: 0,
+      detail:
+        "A Module's source draft stays on this device until you save it. Changes still open in an editor are lost if you close now.",
+      message: "Works has unsaved changes.",
+      type: "warning",
+    });
+    if (choice === 1) {
+      event.preventDefault();
+    } else {
+      quitWindows.kept(window);
+    }
   });
 
   const devServerUrl = process.env.ELECTRON_RENDERER_URL;
@@ -46,6 +76,11 @@ export function createMainWindow(): BrowserWindow {
   return window;
 }
 
+/**
+ * Electron reports four independent predicates; a window has one mode.
+ * Fullscreen wins because it is what the user sees, and minimized beats
+ * maximized for the same reason.
+ */
 export function windowMode(window: BrowserWindow): WindowMode {
   if (window.isFullScreen()) {
     return "fullscreen";

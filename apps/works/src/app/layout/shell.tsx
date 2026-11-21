@@ -1,4 +1,5 @@
 import {
+  FilesIcon,
   LayoutDashboardIcon,
   PanelsTopLeftIcon,
   SettingsIcon,
@@ -11,10 +12,11 @@ import { NavItem, type NavItemConfig } from "~/app/layout/nav-item";
 
 const topNavItems: NavItemConfig[] = [
   { end: true, icon: LayoutDashboardIcon, label: "Home", to: "/" },
-  { icon: PanelsTopLeftIcon, label: "Manage modules", to: "/modules" },
+  { icon: FilesIcon, label: "Artifacts", to: "/artifacts" },
 ];
 
 const bottomNavItems: NavItemConfig[] = [
+  { icon: PanelsTopLeftIcon, label: "Modules", to: "/modules" },
   { end: true, icon: SettingsIcon, label: "Settings", to: "/settings" },
 ];
 

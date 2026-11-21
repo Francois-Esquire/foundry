@@ -25,6 +25,7 @@ export interface ModuleRelease {
 
 export interface ModuleSession {
   origin: string;
+  restarting?: true;
   views: ModuleView[];
 }
 
@@ -32,6 +33,17 @@ export interface ModuleSourceRevision {
   artifactId: string;
   contentId: string;
   updatedAt: string;
+}
+
+export function sameRevision(
+  left: ModuleSourceRevision,
+  right: ModuleSourceRevision
+): boolean {
+  return (
+    left.artifactId === right.artifactId &&
+    left.contentId === right.contentId &&
+    left.updatedAt === right.updatedAt
+  );
 }
 
 export type ModuleBuildEvent =
@@ -55,5 +67,6 @@ export type ModuleBuildEvent =
 export type ModuleAppEvent =
   | { phase: "building"; step: string }
   | { phase: "starting" }
+  | { phase: "restarting" }
   | { phase: "failed"; message: string }
   | { phase: "ready"; app: ModuleSession };

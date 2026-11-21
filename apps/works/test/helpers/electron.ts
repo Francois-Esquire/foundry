@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import type { BrowserWindow } from "electron";
+import { app, BrowserWindow } from "electron";
 
 export async function waitFor(
   predicate: () => boolean | Promise<boolean>,
@@ -59,4 +59,29 @@ export async function captureThemes(
   } finally {
     window.webContents.debugger.detach();
   }
+}
+
+export function runElectronSmoke(
+  name: string,
+  smoke: (userData: string, args: readonly string[]) => Promise<void>
+): void {
+  const [userData, ...args] = process.argv.slice(2);
+  if (!userData) {
+    throw new Error(`Electron ${name} needs an isolated user data directory`);
+  }
+  app.setPath("userData", userData);
+  app.on("window-all-closed", () => undefined);
+  app
+    .whenReady()
+    .then(() => smoke(userData, args))
+    .then(
+      () => app.quit(),
+      (error: unknown) => {
+        process.stderr.write(`Electron ${name} failed: ${String(error)}\n`);
+        for (const window of BrowserWindow.getAllWindows()) {
+          window.destroy();
+        }
+        app.exit(1);
+      }
+    );
 }

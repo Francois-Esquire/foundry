@@ -1,20 +1,14 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { app } from "electron";
 import { registerRpcTransport } from "~/main/api/transport";
-import { openModuleLibrary } from "~/main/modules/library";
 import { openAppVault } from "~/main/vault/safe-storage";
 import { createMainWindow } from "~/main/window";
 import { registerWindowIpc } from "~/main/window-ipc";
-import { captureThemes, waitFor } from "../helpers/electron";
+import { captureThemes, runElectronSmoke, waitFor } from "../helpers/electron";
+import { smokeWorks } from "../helpers/smoke-works";
 
-app.on("window-all-closed", () => undefined);
-
-async function smoke(): Promise<void> {
-  const [userData] = process.argv.slice(2);
-  assert.ok(userData, "An isolated profile path is required");
-  app.setPath("userData", userData);
-  await app.whenReady();
+/** Real renderer/preload/main transport, isolated from the user's vault. */
+async function smoke(userData: string): Promise<void> {
   const vault = await openAppVault(userData);
   const subscribe = vault.onChange.bind(vault);
   let subscriptions = 0;
@@ -33,7 +27,8 @@ async function smoke(): Promise<void> {
     };
   };
 
-  registerRpcTransport({ modules: openModuleLibrary(userData), vault });
+  const works = await smokeWorks(userData);
+  registerRpcTransport({ ...works.rpc, vault });
   registerWindowIpc();
   const window = createMainWindow();
   try {
@@ -97,12 +92,8 @@ async function smoke(): Promise<void> {
     if (!window.isDestroyed()) {
       window.destroy();
     }
+    await works.close();
   }
 }
 
-smoke()
-  .then(() => app.quit())
-  .catch((error: unknown) => {
-    process.stderr.write(`Electron vault stream failed: ${String(error)}\n`);
-    app.exit(1);
-  });
+runElectronSmoke("vault stream", smoke);

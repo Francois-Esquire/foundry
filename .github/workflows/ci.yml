@@ -86,10 +86,10 @@ jobs:
         env:
           TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
           TURBO_SCM_HEAD: ${{ github.sha }}
-        run: bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always
+        run: bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=1 --continue=always -- --maxWorkers=2
       - name: Test all packages on main and manual runs
         if: github.event_name != 'pull_request'
-        run: bun run test --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always
+        run: bun run test --filter=!@foundry.sh/spyglass --concurrency=1 --continue=always -- --maxWorkers=2
       - uses: ./.github/actions/save-turbo-cache
         if: always()
         with:
