@@ -114,9 +114,12 @@ Five buckets, each importing only what sits below it:
   `process.cwd()` or `process.env` for it.
   `lib/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
-  plugins (`lib/providers/plugins.ts`) build instances from configuration
-  (`lib/providers/configuration.ts`), and the sandbox reads their execution
-  facets.
+  plugins (the `ProviderPlugin` shape in `lib/providers/plugins.ts`, one
+  module per provider beside it, none importing another) build instances
+  from configuration (`lib/providers/configuration.ts`), and the sandbox
+  reads their execution facets. A workspace's plugins are the defaults and
+  what its source passes to `defineProvider`, collected in its catalog;
+  `createEngine` merges them.
 - `src/database/` is the Marbles database: one SQLite file at the state
   root, `<state>/marbles.db`, that every process on the machine opens at
   once. `open.ts` has one way in per role: `initializeDatabase`, for
@@ -443,9 +446,14 @@ instances are built from; do not add loose functions to it. Public entries:
 `@foundry.sh/marbles` (`authoring/index.ts`), `@foundry.sh/marbles/prebuilt`,
 `@foundry.sh/marbles/lib` (`entries/lib.ts`: `lib/index.ts` with the
 published `Engine`),
-`@foundry.sh/marbles/engine` (`entries/engine.ts`: `lib/embedded.ts` with
-the published `Engine`),
+`@foundry.sh/marbles/engine` (`entries/embedded.ts`: `lib/embedded.ts` with
+the published `Engine` from `entries/engine.ts`, which the CLI imports alone so
+it does not load the provider factories `lib/embedded.ts` re-exports),
 `@foundry.sh/marbles/statuses` (`lib/execution-statuses.ts`),
+`@foundry.sh/marbles/providers` (`authoring/providers.ts`: `defineProvider`
+and the provider types), one entry per provider,
+`@foundry.sh/marbles/providers/<id>` (`lib/providers/<id>.ts`, one provider
+value each; Claude Code and Codex are the defaults, `lib/providers/defaults.ts`),
 `@foundry.sh/marbles/workspace`
 (`workspace/index.ts`: host one workspace programmatically), and
 `@foundry.sh/marbles/process` (`process/index.ts`: start or join the

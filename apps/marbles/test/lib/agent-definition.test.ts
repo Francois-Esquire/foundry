@@ -16,7 +16,7 @@ import type { Engine } from "~/lib/engine";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";
 import { AgentsManager, buildDefinition } from "~/lib/managers/agents";
-import { mockModels } from "~/lib/models/echo";
+import { mockModels } from "~/lib/models/mock";
 import { RunScope } from "~/lib/run-scope";
 import type {
   AgentLike,

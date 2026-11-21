@@ -26,7 +26,7 @@ output with the challenger's reason.
 | `includeWorkingTree` | `true` | Also review staged, unstaged, and untracked changes. When `false`, instruction files are found at HEAD, and agents are asked to read files with `git show HEAD:<path>`; the prompt asks, it cannot enforce. |
 | `spec`, `specFile` | empty | The originating issue or spec. `specFile` must be inside the checkout. |
 | `maxFindings` | `8` | Per axis, 1 to 20. |
-| `reviewerProvider`, `challengerProvider` | engine default | `claude-code`, `codex`, or `pi`. Different harnesses give the challenge an independent model. |
+| `reviewerProvider`, `challengerProvider` | engine default | `claude-code`, `codex`, or `pi`. Different harnesses give the challenge an independent model. `pi` needs `defineProvider(pi)` in the workspace's source. |
 | `timeoutMs` | `600000` | Limit for each reviewer or challenger turn. |
 
 ## Output and failures
@@ -71,7 +71,17 @@ bun run marbles -- roll adversarial-review --dry-run --input '{"spec":"Describe 
 answered with the smallest valid reply, so the result has no findings.
 
 For a real review, an installed and logged-in Claude Code, Codex, or Pi CLI
-performs the turns:
+performs the turns. Pi is available only to a workspace whose source opts in;
+this repository's `.foundry/marbles/adversarial-review.ts` does:
+
+```ts
+import { defineProvider } from "@foundry.sh/marbles/providers";
+import { pi } from "@foundry.sh/marbles/providers/pi";
+
+defineProvider(pi);
+```
+
+Then run:
 
 ```sh
 bun run marbles -- roll adversarial-review --input '{"base":"main","specFile":"docs/issue.md","reviewerProvider":"claude-code","challengerProvider":"codex"}'

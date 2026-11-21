@@ -16,9 +16,9 @@ import { ProviderInstances } from "~/lib/providers/instances";
 import type {
   Execution,
   ProviderInstance,
+  ProviderPlugin,
   ProviderScope,
   ProviderWorkspace,
-  RegisteredPlugin,
 } from "~/lib/providers/plugins";
 import type {
   ProviderConfigurations,
@@ -74,7 +74,7 @@ export interface ProviderConfigurationOptions {
   readonly environment: Readonly<Record<string, string>>;
   readonly fixed?: readonly Provider[];
   readonly models: ModelManager;
-  readonly plugins: readonly RegisteredPlugin[];
+  readonly plugins: readonly ProviderPlugin[];
   readonly readOnly?: boolean;
   readonly store?: ProviderStore;
   readonly workspace?: ProviderWorkspace;
@@ -114,7 +114,7 @@ export class ProviderConfiguration {
   readonly #owed: string[] = [];
   readonly #accounted = new WeakSet<object>();
   #editing: ProviderConfigurations | undefined;
-  readonly #plugins: ReadonlyMap<string, RegisteredPlugin>;
+  readonly #plugins: ReadonlyMap<string, ProviderPlugin>;
   #built: readonly Built[] = [];
   #instances = new Map<string, ProviderInstance>();
   #identities = new Map<string, { digest?: string; material: unknown }>();
@@ -367,13 +367,43 @@ export class ProviderConfiguration {
         return [];
       }
       const problems = await this.#listAll();
-      if (!this.#lists.signal.aborted) {
-        this.load();
+      if (this.#lists.signal.aborted) {
+        return problems;
       }
-      return problems;
+      this.load();
+      return [...problems, ...this.#undefinedProviders()];
     } catch (error) {
       throw this.#invalidContent("configuration", error, this.#revision);
     }
+  }
+
+  undefinedProvider(id: string): string | undefined {
+    const entry = this.#built.find(
+      (built) =>
+        built.entry.id === id &&
+        built.entry.enabled &&
+        !this.#plugins.has(built.entry.plugin)
+    )?.entry;
+    return entry === undefined ? undefined : undefinedProvider(entry.plugin);
+  }
+
+  #undefinedProviders(): readonly string[] {
+    const id = this.#options.workspace?.id;
+    const view = this.#view();
+    const order = effectiveOrder(
+      view.machine,
+      id === undefined ? undefined : view.workspace(id)
+    );
+    const named = new Set(
+      this.#built.flatMap(({ entry }) =>
+        entry.enabled &&
+        order.includes(entry.id) &&
+        !this.#plugins.has(entry.plugin)
+          ? [entry.plugin]
+          : []
+      )
+    );
+    return [...named].map(undefinedProvider);
   }
 
   setOffline(offline: boolean): void {
@@ -829,7 +859,7 @@ export class ProviderConfiguration {
     }
     const plugin = this.#plugins.get(entry.plugin);
     if (!plugin) {
-      return `no plugin "${entry.plugin}" is registered`;
+      return undefinedProvider(entry.plugin);
     }
     if (plugin.binding === "workspace" && scope === "machine") {
       return `"${entry.plugin}" must be configured for a workspace`;
@@ -847,7 +877,7 @@ export class ProviderConfiguration {
         return `"${key}" must name an environment variable, not hold a value`;
       }
     }
-    let catalog: ReturnType<RegisteredPlugin["catalog"]>;
+    let catalog: ReturnType<ProviderPlugin["catalog"]>;
     try {
       const listed = this.#listingOf(plugin, parsed.data);
       if (plugin.list && !listed?.models) {
@@ -947,7 +977,7 @@ export class ProviderConfiguration {
     report: (state: ProviderEntry["state"], problem?: string) => Built,
     drafts: Drafts
   ): Built {
-    const plugin = this.#plugins.get(entry.plugin) as RegisteredPlugin;
+    const plugin = this.#plugins.get(entry.plugin) as ProviderPlugin;
     const settings = plugin.settings.parse(entry.settings ?? {});
     const env = this.#options.environment;
     const patterns = accountPatterns(plugin, settings);
@@ -1001,7 +1031,7 @@ export class ProviderConfiguration {
   }
 
   #instantiate(
-    plugin: RegisteredPlugin,
+    plugin: ProviderPlugin,
     entry: ProviderEntryRecord,
     built: {
       readonly env: Readonly<Record<string, string>>;
@@ -1032,7 +1062,7 @@ export class ProviderConfiguration {
   }
 
   #create(
-    plugin: RegisteredPlugin,
+    plugin: ProviderPlugin,
     entry: ProviderEntryRecord,
     {
       env,
@@ -1077,7 +1107,7 @@ export class ProviderConfiguration {
       .slice(0, 32);
   }
 
-  #listingOf(plugin: RegisteredPlugin, settings: unknown): Listing | undefined {
+  #listingOf(plugin: ProviderPlugin, settings: unknown): Listing | undefined {
     return plugin.list
       ? this.#listings.get(
           listingKey(plugin, settings, this.#options.environment)
@@ -1133,7 +1163,7 @@ export class ProviderConfiguration {
 
   async #list(
     id: string,
-    plugin: RegisteredPlugin,
+    plugin: ProviderPlugin,
     settings: unknown,
     env: Readonly<Record<string, string>>
   ): Promise<string | undefined> {
@@ -1214,6 +1244,23 @@ function reason(error: unknown): string {
   return messageOf(error);
 }
 
+const OPT_IN: Readonly<Record<string, string>> = {
+  "claude-code": "claudeCode",
+  codex: "codex",
+  gateway: "gateway",
+  pi: "pi",
+  vercel: "vercel",
+};
+
+function undefinedProvider(plugin: string): string {
+  const name = OPT_IN[plugin];
+  const fix =
+    name === undefined
+      ? 'pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", in the workspace\'s source'
+      : `add to the workspace's source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { ${name} } from "@foundry.sh/marbles/providers/${plugin}"; defineProvider(${name});`;
+  return `provider "${plugin}" is unavailable: this workspace does not define it; to use it, ${fix}`;
+}
+
 function effectiveOrder(
   machine: ProvidersFile | undefined,
   workspace: ProvidersFile | undefined
@@ -1240,7 +1287,7 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 function listingKey(
-  plugin: RegisteredPlugin,
+  plugin: ProviderPlugin,
   settings: unknown,
   env: Readonly<Record<string, string>>
 ): string {

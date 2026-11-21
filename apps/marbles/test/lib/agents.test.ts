@@ -12,7 +12,7 @@ import type { ManagerArgs } from "~/lib/bindings";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";
 import { AgentsManager, policed } from "~/lib/managers/agents";
-import { echoModels, mockModels } from "~/lib/models/echo";
+import { echoModels, mockModels } from "~/lib/models/mock";
 import { RunScope } from "~/lib/run-scope";
 import type { AgentDefinition, SandboxHandle } from "~/lib/types";
 import { testEngine } from "../helpers/engine";

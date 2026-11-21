@@ -10,6 +10,16 @@
       "@foundry.sh/marbles/lib": ["./src/entries/lib.ts"],
       "@foundry.sh/marbles/prebuilt": ["./src/authoring/prebuilt.ts"],
       "@foundry.sh/marbles/process": ["./src/process/index.ts"],
+      "@foundry.sh/marbles/providers": ["./src/authoring/providers.ts"],
+      "@foundry.sh/marbles/providers/claude-code": [
+        "./src/lib/providers/claude-code.ts"
+      ],
+      "@foundry.sh/marbles/providers/codex": ["./src/lib/providers/codex.ts"],
+      "@foundry.sh/marbles/providers/gateway": [
+        "./src/lib/providers/gateway.ts"
+      ],
+      "@foundry.sh/marbles/providers/pi": ["./src/lib/providers/pi.ts"],
+      "@foundry.sh/marbles/providers/vercel": ["./src/lib/providers/vercel.ts"],
       "@foundry.sh/marbles/statuses": ["./src/lib/execution-statuses.ts"],
       "@foundry.sh/marbles/workspace": ["./src/workspace/index.ts"]
     },

@@ -431,6 +431,19 @@ export function declaringCatalog(): Catalog {
   return catalog;
 }
 
+export function providingCatalog(id: string): Catalog {
+  const own = owner();
+  if (own !== undefined && "load" in own) {
+    return own.load.catalog;
+  }
+  if (own !== undefined || fallbacks.size > 0) {
+    throw new Error(
+      `defineProvider(${id}): call it at the top level of a workspace's source, while that source loads; a workspace's providers are fixed once its engine is built`
+    );
+  }
+  return declaringCatalog();
+}
+
 function activeHost(): InstanceRuntime | undefined {
   return answering()?.runtime;
 }
