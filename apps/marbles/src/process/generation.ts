@@ -191,7 +191,6 @@ async function main(): Promise<void> {
   let hosted: HostedWorkspaces | undefined;
   let staged: StagedWorkspaces | undefined;
   const ticking = new Map<string, Ticking>();
-  const halting = new Set<Ticking>();
   let retiring: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
   const finished = Promise.withResolvers<void>();
@@ -234,13 +233,11 @@ async function main(): Promise<void> {
       return;
     }
     ticking.delete(id);
-    halting.add(loop);
     loop.stop.abort();
     if (cancel) {
       loop.cancel.abort();
     }
     await loop.done;
-    halting.delete(loop);
   };
 
   const postSetup = (host: WorkspaceHost, draft: SetupDraftParams): void => {
@@ -352,16 +349,10 @@ async function main(): Promise<void> {
   };
 
   const leave = async (cancel: boolean): Promise<void> => {
-    const unticked = Promise.all(
-      [...ticking.keys()].map((id) => untick(id, cancel))
-    );
-    if (cancel) {
-      await unticked;
-    }
+    await Promise.all([...ticking.keys()].map((id) => untick(id, cancel)));
     await Promise.allSettled(
       (hosted?.list() ?? []).map((each) => each.engine.stop())
     );
-    await unticked;
     await Promise.allSettled(unhosting.values());
     await staged?.abandon().catch(() => undefined);
     await hosted?.close();
@@ -418,13 +409,8 @@ async function main(): Promise<void> {
     return await workspaces().get(id).engine.takeQueued(runId, owner);
   };
 
-  const stop = (cancel: boolean): Promise<void> => {
-    if (cancel) {
-      for (const loop of halting) {
-        loop.cancel.abort();
-      }
-    }
-    stopping ??= retiring ?? leave(cancel);
+  const stop = (): Promise<void> => {
+    stopping ??= retiring ?? leave(true);
     stopping.then(finished.resolve, finished.reject);
     return stopping;
   };
@@ -434,7 +420,7 @@ async function main(): Promise<void> {
     request(method, raw) {
       switch (method) {
         case GENERATION_METHODS.stop:
-          return stop(true);
+          return stop();
         case GENERATION_METHODS.load:
           return load();
         case GENERATION_METHODS.start:
@@ -470,12 +456,12 @@ async function main(): Promise<void> {
     },
   });
   await channel.request(DAEMON_METHODS.register, { token: args.token });
-  channel.closed.then(() => stop(false)).catch(() => undefined);
+  channel.closed.then(() => stop()).catch(() => undefined);
   process.once("SIGTERM", () => {
-    stop(true).catch(() => undefined);
+    stop().catch(() => undefined);
   });
   process.once("SIGINT", () => {
-    stop(true).catch(() => undefined);
+    stop().catch(() => undefined);
   });
   try {
     await finished.promise;
