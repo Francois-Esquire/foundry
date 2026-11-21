@@ -48,8 +48,8 @@ export class GenerationRecords {
     });
   }
 
-  spawned(number: number, pid: number): Promise<void> {
-    return this.#set(number, { pid });
+  spawned(number: number, pid: number, started: string | null): Promise<void> {
+    return this.#set(number, { pid, started });
   }
 
   identify(number: number, started: string | null): Promise<void> {

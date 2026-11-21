@@ -851,6 +851,212 @@ describe("engine generations", () => {
     }
   }, 150_000);
 
+  it("shows its workspaces failed at once when the candidate that took over from their generation does not start", async () => {
+    const clock = handClock();
+    const lines: string[] = [];
+    const marker = join(testHome({ providers: false }).path, "throw-start");
+    process.env.MARBLES_TEST_THROW_START = marker;
+    try {
+      const fixture = await setUp({
+        daemon: {
+          clock,
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-throwing-start.ts"
+          ),
+          print: (line) => lines.push(line),
+        },
+      });
+      const first = fixture.summary.pid ?? 0;
+      writeFileSync(marker, "");
+      await expect(fixture.client.reload(fixture.summary.id)).rejects.toThrow(
+        "the test throws in this start"
+      );
+      const [failed] = await fixture.client.workspaces();
+      expect(failed?.state, lines.join("\n")).toBe("failed");
+      expect(failed?.error).toContain("the test throws in this start");
+      await gone(first);
+
+      rmSync(marker);
+      clock.advance(1000);
+      await fixture.daemon.idle();
+      const [started] = await fixture.client.workspaces();
+      expect(started?.state, lines.join("\n")).toBe("ready");
+      expect(started?.pid).not.toBe(first);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_THROW_START;
+    }
+  }, 150_000);
+
+  it("leaves nothing of a first attach that failed while another workspace is hosted, so a retry starts clean and switches go on", async () => {
+    const fixture = await setUp();
+    const first = fixture.summary.pid ?? 0;
+    const { client, machine } = fixture;
+    const broken = join(machine.home, "broken");
+    mkdirSync(broken);
+    const brokenSource = join(broken, "marbles.config.ts");
+    writeFileSync(brokenSource, 'throw new Error("never loads");\n');
+    const brokenId = machine.workspace(broken).id;
+
+    await expect(client.attach(brokenSource)).rejects.toThrow("never loads");
+    expect((await client.workspaces()).map((each) => each.id)).toEqual([
+      fixture.summary.id,
+    ]);
+    expect(await stored(fixture, brokenId)).not.toBe(true);
+
+    await expect(client.attach(brokenSource)).rejects.toThrow("never loads");
+    expect((await client.workspaces()).map((each) => each.id)).toEqual([
+      fixture.summary.id,
+    ]);
+    expect(await stored(fixture, brokenId)).not.toBe(true);
+
+    const second = await switchFrom(fixture, first, 1);
+    expect(second).not.toBe(first);
+
+    const other = join(broken, "other.ts");
+    writeFileSync(
+      other,
+      'import { step } from "@foundry.sh/marbles";\nexport const fine = step("fine").do(() => "fine");\n'
+    );
+    const attached = await client.attach(other);
+    expect(attached).toMatchObject({ config: other, state: "ready" });
+    expect(await stored(fixture, brokenId)).toBe(true);
+    client.close();
+  }, 150_000);
+
+  it("offers no run again while its adoption is outstanding past the deadline, lets the workspace's next hand-over through, and adopts it once when the late adoption lands", async () => {
+    const clock = handClock();
+    const lines: string[] = [];
+    const scratch = testHome({ providers: false }).path;
+    const stall = join(scratch, "stall-adopt");
+    const release = join(scratch, "release-adopt");
+    process.env.MARBLES_TEST_STALL_ADOPT = stall;
+    process.env.MARBLES_TEST_RELEASE_ADOPT = release;
+    try {
+      const files = generationFiles(testHome({ providers: false }));
+      const parking = (name: string) =>
+        `export const ${name} = step(${JSON.stringify(name)}).do(async ({ ask }) => {
+  note(${JSON.stringify(name)});
+  while (!existsSync(${JSON.stringify(join(files.gates, name))})) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  note(${JSON.stringify(`asking-${name}`)});
+  const answer = await ask.question({ title: ${JSON.stringify(`${name}?`)}, choices: ["yes", "no"] });
+  note(${JSON.stringify(`answered-${name}`)});
+  return answer;
+});`;
+      const fixture = await startSwitchingWorkspace(
+        files,
+        [
+          'import { appendFileSync, existsSync } from "node:fs";',
+          'import { step } from "@foundry.sh/marbles";',
+          `const note = (what) => appendFileSync(${JSON.stringify(files.log)}, what + " " + process.pid + "\\n");`,
+          parking("parkOne"),
+          parking("parkTwo"),
+          "",
+        ].join("\n"),
+        {
+          clock,
+          generationEntry: join(
+            import.meta.dirname,
+            "helpers",
+            "generation-stalling-adopt.ts"
+          ),
+          print: (line) => lines.push(line),
+        },
+        (started) => daemons.push(started)
+      );
+      const asked = (runId: string) =>
+        lines.filter((line) => line.endsWith(`adopt asked ${runId}`)).length;
+      const { id } = fixture.summary;
+      const first = fixture.summary.pid ?? 0;
+      const workspace = fixture.client.workspace(fixture.summary);
+      await workspace.actions.launch("parkOne", {});
+      await whenLogged(fixture, `parkOne ${String(first)}`);
+      await fixture.client.reload(id);
+      const second = await readyOn(fixture, (pid) => pid !== first);
+      await workspace.actions.launch("parkTwo", {});
+      await whenLogged(fixture, `parkTwo ${String(second)}`);
+      await fixture.client.reload(id);
+      const third = await readyOn(
+        fixture,
+        (pid) => pid !== first && pid !== second
+      );
+
+      writeFileSync(stall, "");
+      open("parkOne", fixture);
+      const stalled = await vi.waitFor(
+        () => {
+          const line = lines.find((each) => each.includes("adopt stalls "));
+          expect(line, lines.join("\n")).toBeDefined();
+          return line?.split("adopt stalls ")[1] ?? "";
+        },
+        { interval: 50, timeout: 30_000 }
+      );
+      open("parkTwo", fixture);
+      await whenLogged(fixture, `asking-parkTwo ${String(second)}`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      clock.advance(30_000);
+      await vi.waitFor(
+        () =>
+          expect(
+            lines.some((line) =>
+              line.includes(`adopting run ${stalled} timed out`)
+            ),
+            lines.join("\n")
+          ).toBe(true),
+        { interval: 50, timeout: 10_000 }
+      );
+      await vi.waitFor(
+        () =>
+          expect(
+            lines.some((line) => line.includes("[run] parkTwo taken over")),
+            lines.join("\n")
+          ).toBe(true),
+        { interval: 50, timeout: 30_000 }
+      );
+      const two = await openEntry(workspace, "parkTwo?");
+      await workspace.actions.answer(two, "yes");
+      await whenLogged(fixture, `answered-parkTwo ${String(third)}`);
+
+      const now = Date.now.bind(Date);
+      const later = vi
+        .spyOn(Date, "now")
+        .mockImplementation(() => now() + 60_000);
+      try {
+        await fixture.daemon.sweepNow();
+      } finally {
+        later.mockRestore();
+      }
+      expect(asked(stalled), lines.join("\n")).toBe(1);
+
+      writeFileSync(release, "");
+      await vi.waitFor(
+        () =>
+          expect(
+            lines.some((line) =>
+              line.includes(`[run] parkOne taken over ${stalled}`)
+            ),
+            lines.join("\n")
+          ).toBe(true),
+        { interval: 50, timeout: 30_000 }
+      );
+      const one = await openEntry(workspace, "parkOne?");
+      await workspace.actions.answer(one, "yes");
+      await whenLogged(fixture, `answered-parkOne ${String(third)}`);
+      expect(asked(stalled), lines.join("\n")).toBe(1);
+      expect(
+        logged(fixture).filter((line) => line.startsWith("answered-parkOne "))
+      ).toEqual([`answered-parkOne ${String(third)}`]);
+      fixture.client.close();
+    } finally {
+      delete process.env.MARBLES_TEST_STALL_ADOPT;
+      delete process.env.MARBLES_TEST_RELEASE_ADOPT;
+    }
+  }, 240_000);
+
   it("runs a queued run on the current generation that its retired one handed over only after the current one started", async () => {
     const marker = join(testHome({ providers: false }).path, "fail-handover");
     process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
