@@ -52,7 +52,9 @@ export function viewerDataset({
   dataset?: DatasetRef;
   signal?: AbortSignal;
 } = {}): DatasetReader {
-  return datasetReader(fetchTransport(dataset?.root ?? "", signal), {
+  const transport =
+    dataset?.transport ?? fetchTransport(dataset?.root ?? "", signal);
+  return datasetReader(transport, {
     ...options,
     ...(dataset && { pin: dataset.generatedAt }),
   });

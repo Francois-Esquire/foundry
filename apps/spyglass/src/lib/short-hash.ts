@@ -1,8 +1,5 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256";
 
 export function hash16(value: unknown): string {
-  return createHash("sha256")
-    .update(JSON.stringify(value))
-    .digest("hex")
-    .slice(0, 16);
+  return sha256Hex(JSON.stringify(value)).slice(0, 16);
 }

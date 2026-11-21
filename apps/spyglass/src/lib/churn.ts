@@ -1,5 +1,5 @@
-import type { Boundary } from "./boundary";
-import { EXCLUDED_DIRS } from "./boundary";
+import type { Boundary } from "./boundary-model";
+import { EXCLUDED_DIRS } from "./boundary-model";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
 import { classifyFile } from "./file-kind";

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "./sha256";
 import type {
   ChurnHistoryInfo,
   ConceptAssignability,
@@ -140,10 +140,7 @@ function sorted<T extends string>(values: Iterable<T>): T[] {
 }
 
 function hash(facts: unknown): string {
-  return createHash("sha256")
-    .update(JSON.stringify(facts))
-    .digest("hex")
-    .slice(0, 16);
+  return sha256Hex(JSON.stringify(facts)).slice(0, 16);
 }
 
 function packageIdOf(report: SurfaceReport): string {
@@ -489,6 +486,7 @@ function mergePackage(t: Tables, report: SurfaceReport): string {
       unusedExternalExports: report.summary.unusedExternalExports,
     },
   };
+
   t.packages.observe(id, id, own, (existing, incoming) =>
     incoming.analyzed ? incoming : existing
   );
@@ -757,6 +755,7 @@ function mergeConceptObservation(
   incoming: Omit<WorkspaceConcept, "provenance" | "overlaps">
 ): Omit<WorkspaceConcept, "provenance" | "overlaps"> {
   const observations = [...existing.observations, ...incoming.observations];
+
   const lead = existing.analysis === "seed-report" ? existing : incoming;
   const { observations: _drop, ...facts } = lead;
   return { ...facts, observations };
@@ -1019,6 +1018,7 @@ function mergeEvolution(
           ],
           sameWindow ? "unresolved" : "target-scoped"
         );
+
         const lead =
           incoming.package === by[1] && existing.package !== by[0]
             ? incoming
@@ -1438,6 +1438,7 @@ export function ingestWorkspaceReports(
     .sortedValues()
     .map(({ id, entry }) => ({
       ...entry.value,
+
       observations: [
         ...new Map(
           entry.value.observations.map((o) => [`${o.source}\0${o.role}`, o])
@@ -1495,6 +1496,7 @@ export function ingestWorkspaceReports(
     canonical[kind] = tableFor[kind].entries.size;
     density[kind] = densityOf(tableFor[kind]);
   }
+
   naive.package = packages.length;
 
   const conflicts = [...ledger.conflicts].sort(

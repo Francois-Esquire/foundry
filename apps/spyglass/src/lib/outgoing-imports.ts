@@ -1,23 +1,29 @@
-import { isAbsolute, relative as pathRelative } from "node:path";
 import type { Node, Project, SourceFile } from "ts-morph";
+import { isAbsolute, relative as pathRelative } from "#path";
 
-import type { Boundary } from "./boundary";
+import type { Boundary, SourceOwner } from "./boundary-model";
 
-import { boundaryContains, ownerBoundary, toPosix } from "./boundary";
+import { boundaryContains, toPosix } from "./boundary-model";
 
 export interface OutgoingImportSite {
   declarationModule: string;
+
   package: string;
+
   sourceModule: string;
+
   symbolKey: string;
   symbolName: string;
+
   typeDeclaration: boolean;
+
   typeOnly: boolean;
 }
 
 export function collectOutgoingImports(
   project: Project,
-  boundary: Boundary
+  boundary: Boundary,
+  ownerOf: SourceOwner
 ): OutgoingImportSite[] {
   const sites: OutgoingImportSite[] = [];
   const relative = (absolute: string) =>
@@ -54,7 +60,7 @@ export function collectOutgoingImports(
     const symbolName = target?.getName() ?? name;
     sites.push({
       declarationModule,
-      package: ownerBoundary(boundary.root, imported.getFilePath()),
+      package: ownerOf(imported.getFilePath()),
       sourceModule: relative(file.getFilePath()),
       symbolKey: `${declarationModule}#${symbolName}`,
       symbolName,

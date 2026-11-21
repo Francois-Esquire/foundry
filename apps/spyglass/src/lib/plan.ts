@@ -1,8 +1,8 @@
-import { relative, resolve } from "node:path";
 import type { ExportDeclaration, Node, Project, SourceFile } from "ts-morph";
+import { relative, resolve } from "#path";
 
-import type { Boundary } from "./boundary";
-import { boundaryContains, boundaryEntrypoints, toPosix } from "./boundary";
+import type { Boundary, BoundaryEntrypoint } from "./boundary-model";
+import { boundaryContains, toPosix } from "./boundary-model";
 import { classifyFile } from "./file-kind";
 import type {
   InternalizeSymbolPlan,
@@ -25,23 +25,31 @@ type InternalImporterForm = "import" | "default" | "reexport";
 interface InternalImporter {
   file: string;
   form: InternalImporterForm;
+
   test: boolean;
 }
 
 export interface EntrypointContext {
   entrypoint: string;
+
   exposedNames: Map<Node, string[]>;
   file: SourceFile;
   fileRel: string;
+
   internalImporters: Map<string, InternalImporter[]>;
+
   internallyImportedNames: Set<string>;
+
   namespaceImported: boolean;
+
   starReexporters: string[];
 }
 
 export interface ResolvedRoute {
   context: EntrypointContext;
+
   declaration?: ExportDeclaration;
+
   direct: boolean;
   route: PublicExposureRoute;
 }
@@ -56,7 +64,8 @@ function normalizeStatement(declaration: ExportDeclaration): string {
 
 export function buildEntrypointContexts(
   project: Project,
-  boundary: Boundary
+  boundary: Boundary,
+  declared: readonly BoundaryEntrypoint[]
 ): { contexts: EntrypointContext[]; unresolved: string[] } {
   const contexts: EntrypointContext[] = [];
   const unresolved: string[] = [];
@@ -68,7 +77,7 @@ export function buildEntrypointContexts(
         !file.isDeclarationFile()
     );
 
-  const entries = boundaryEntrypoints(boundary).map((entry) => ({
+  const entries = declared.map((entry) => ({
     entry,
     file: project.getSourceFile(resolve(boundary.root, entry.file)),
   }));
@@ -519,6 +528,7 @@ function planForSymbolEntries(
 ): { unsupported: boolean; hasDirect: boolean } {
   let hasDirect = initialHasDirect;
   let unsupported = initialUnsupported;
+
   const declarationKeepsExport =
     declarationExportsName && !resolved.some((entry) => entry.direct);
   for (const entry of resolved) {
@@ -637,6 +647,7 @@ const ENTRYPOINT_IMPORT_CHANGE = (route: PublicExposureRoute) =>
 
 interface DeclarationExport {
   declarationExportsName: boolean;
+
   declarationKeepsExport: boolean;
 }
 
@@ -762,7 +773,8 @@ export function buildInternalizationPlans(
   boundary: Boundary,
   symbols: SurfaceSymbol[],
   opportunities: ReductionOpportunity[],
-  nodesById: Map<string, Node>
+  nodesById: Map<string, Node>,
+  declared: readonly BoundaryEntrypoint[]
 ): InternalizeSymbolPlan[] {
   const internalize = opportunities.filter(
     (opportunity) => opportunity.operation === "internalize-symbol"
@@ -772,7 +784,11 @@ export function buildInternalizationPlans(
   }
 
   const symbolsById = new Map(symbols.map((symbol) => [symbol.id, symbol]));
-  const { contexts, unresolved } = buildEntrypointContexts(project, boundary);
+  const { contexts, unresolved } = buildEntrypointContexts(
+    project,
+    boundary,
+    declared
+  );
 
   const packageBlockers: PlanBlocker[] = [];
   const wildcard =

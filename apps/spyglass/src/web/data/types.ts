@@ -1,4 +1,5 @@
 import type { Crossing } from "../../lib/collection-types";
+import type { DatasetTransport } from "../../lib/dataset";
 import type {
   FileRole,
   FileRolesPackage,
@@ -20,10 +21,14 @@ import type {
 
 export interface SpyglassFile {
   directory: string;
+
   fileRole?: FileRole;
+
   highFanIn: boolean;
   id: string;
+
   incoming: number;
+
   internalFanIn: number;
   kind: string;
   outgoing: number;
@@ -37,14 +42,18 @@ type Polygon = [number, number][][];
 export interface Territory {
   analyzed: boolean;
   coast: Polygon[];
+
   fileRoles: Pick<FileRolesPackage, "modules"> | undefined;
   files: SpyglassFile[];
+
   folder: string;
+
   highFanInCutoff: number;
   hills: Polygon[];
   id: string;
   label: string;
   radius: number;
+
   responsibilityGroups: PackageResponsibilityGroups | undefined;
   shallows: Polygon[];
   x: number;
@@ -55,8 +64,10 @@ interface SpyglassRoute {
   consumerFiles: readonly string[];
   from: string;
   sharedConcepts: number;
+
   supplierFiles: readonly string[];
   to: string;
+
   weight: number;
 }
 
@@ -65,16 +76,20 @@ type SpyglassFoundation = DependencyFoundation;
 export interface DatasetRef {
   generatedAt: string;
   root: string;
+  transport?: DatasetTransport;
 }
 
 export interface FrameReadings {
   domains: CodexDomains;
+
   nesting: CodexNesting;
+
   placement: {
     dominantShare: number;
     labelled: readonly string[];
     places: Record<string, CodexPlacement>;
   };
+
   proximity: CodexProximity;
 }
 
@@ -84,11 +99,13 @@ export interface SpyglassFrame {
   label: string;
   readings: FrameReadings;
   territories: readonly string[];
+
   visualization: PreparedVisualization;
 }
 
 export interface SpyglassData {
   coverage: string;
+
   crossings?: readonly Crossing[];
   declaredDependencies?: {
     from: string;
@@ -103,10 +120,14 @@ export interface SpyglassData {
   fileEdges: { source: string; target: string }[];
   foundationGroups?: FoundationGroup[];
   foundations?: SpyglassFoundation[];
+
   frames: SpyglassFrame[];
   height: number;
+
   internalFoundations?: InternalFoundation[];
+
   ownDependencies?: OwnDependency[];
+
   packageLayers: Record<string, number | null>;
   routes: SpyglassRoute[];
   territories: Territory[];

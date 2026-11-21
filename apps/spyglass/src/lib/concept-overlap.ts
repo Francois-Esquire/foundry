@@ -1,8 +1,8 @@
-import { relative } from "node:path";
 import type { Project, SourceFile, Type } from "ts-morph";
 import { Node, SyntaxKind, ts } from "ts-morph";
-import type { Boundary } from "./boundary";
-import { ownerBoundary, toPosix } from "./boundary";
+import { relative } from "#path";
+import type { Boundary, SourceOwner } from "./boundary-model";
+import { toPosix } from "./boundary-model";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
 import type { CollectedSymbol } from "./symbols";
@@ -38,6 +38,7 @@ export interface ConceptOverlapSource {
   changeCoupling: ChangeCouplingReport;
   conceptInventory: ConceptInventoryReport;
   project: Project;
+
   symbols: CollectedSymbol[];
 }
 
@@ -116,6 +117,7 @@ export function assessOverlap(
   }
 
   const { structure } = facts;
+
   const meaningfulShared =
     structure === undefined
       ? 0
@@ -188,6 +190,7 @@ export function assessOverlap(
   }
 
   const shapes: ConceptOverlapShape[] = [];
+
   const { nearEquivalent, projectionLike } = collectNearEquivalent(
     meaningfulShared,
     policy,
@@ -255,6 +258,7 @@ function collectNearEquivalent(
   if (nearEquivalent) {
     shapes.push("near-equivalent");
   }
+
   const smaller =
     structure === undefined
       ? 0
@@ -364,7 +368,9 @@ interface Declaration {
   identity: ConceptIdentity;
   keyTokens: string[];
   node: Node;
+
   seedOf: string[];
+
   syntaxProperties: string[];
 }
 
@@ -452,6 +458,7 @@ export interface ConceptOverlapIndex {
   nameIndex: Map<string, Declaration[]>;
   propertyIndex: Map<string, Declaration[]>;
   root: string;
+
   shapeOf: (declaration: Declaration) => ConceptShape | undefined;
   typeOf: (declaration: Declaration) => Type;
 }
@@ -460,7 +467,8 @@ export function buildConceptOverlapIndex(
   project: Project,
   root: string,
   seedTargets: Map<ts.Node, string[]>,
-  config: AnalysisConfig = ANALYSIS_CONFIG
+  config: AnalysisConfig,
+  ownerOf: SourceOwner
 ): ConceptOverlapIndex {
   const policy = config.conceptOverlap;
   const generic = new Set(policy.name.genericTokens);
@@ -488,6 +496,7 @@ export function buildConceptOverlapIndex(
   buildConceptOverlapIndexFile(
     files,
     root,
+    ownerOf,
     generic,
     seedTargets,
     declarations,
@@ -606,6 +615,7 @@ export function buildConceptOverlapIndex(
       objectLike(typeOf(declaration))
     ) {
       const type = typeOf(declaration);
+
       const properties = type
         .getProperties()
         .map((property) => {
@@ -680,6 +690,7 @@ function buildConceptOverlapIndexCls(
 function buildConceptOverlapIndexFile(
   files: SourceFile[],
   root: string,
+  ownerOf: SourceOwner,
   generic: Set<string>,
   seedTargets: Map<ts.Node, string[]>,
   declarations: Declaration[],
@@ -692,7 +703,7 @@ function buildConceptOverlapIndexFile(
   for (const file of files) {
     const filePath = file.getFilePath();
     const relFile = toPosix(relative(root, filePath));
-    const owner = ownerBoundary(root, filePath);
+    const owner = ownerOf(filePath);
     const nodes: Node[] = [
       ...file.getInterfaces(),
       ...file.getTypeAliases(),
@@ -957,6 +968,7 @@ export function analyzeConceptOverlapFromIndex(
   const compare = (left: Declaration, right: Declaration): OverlapFacts => {
     const leftShape = shapeOf(left);
     const rightShape = shapeOf(right);
+
     const conversions =
       dataLike(leftShape) && dataLike(rightShape)
         ? [

@@ -28,6 +28,8 @@ export function collectionDataset(workspace: string): string {
   return `${workspace}/`;
 }
 
+export const DATASET_ANALYSIS_FILE = "analysis/metadata.json";
+
 export const HISTORY_DIRECTORY = "history";
 
 export const HISTORY_FILES = {

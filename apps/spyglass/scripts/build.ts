@@ -9,14 +9,17 @@ process.env.NODE_ENV = "production";
 
 const root = resolve(import.meta.dirname, "..");
 const dist = resolve(root, "dist");
+
 const outdir = resolve(dist, "lib");
 const LIBRARY_ENTRY = "src/lib/index.ts";
+
 const ENTRIES = [
   "src/cli/spyglass.ts",
   LIBRARY_ENTRY,
   "src/lib/semantics-worker.ts",
   "src/lib/config-worker.ts",
 ];
+
 const external = Object.keys(dependencies);
 const WORKSPACE_PACKAGES = /^@foundry\//;
 
@@ -41,6 +44,7 @@ async function declare(): Promise<void> {
       compilerOptions: {
         ignoreDeprecations: "6.0",
         incremental: false,
+
         paths: { "@foundry/lib/*": ["../../packages/lib/src/*"] },
       },
       only: true,
@@ -54,7 +58,9 @@ async function declare(): Promise<void> {
   });
 }
 
-rmSync(dist, { force: true, recursive: true });
+for (const packed of ["lib", "web"]) {
+  rmSync(resolve(dist, packed), { force: true, recursive: true });
+}
 await bundle();
 await declare();
 await build({ configFile: resolve(root, "vite.config.ts") });

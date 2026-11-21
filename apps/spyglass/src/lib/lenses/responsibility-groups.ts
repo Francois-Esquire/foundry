@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
 import type {
   ResponsibilityRegion,
   ResponsibilityRelationship,
 } from "../internal-responsibility-types";
 import type { InternalModuleNode } from "../internal-topology-types";
+import { sha256Hex } from "../sha256";
 import { byId } from "../workspace-projection";
 import type { Lens } from "./lens-types";
 import { readPackageInternals, rootRelative } from "./package-internals";
@@ -46,9 +46,7 @@ export function responsibilityAffinity(
 type Merged = Map<number, { members: number[]; strength: number }>;
 
 function groupId(responsibilities: readonly string[]): string {
-  const hash = createHash("sha256")
-    .update(responsibilities.join("\n"))
-    .digest("hex");
+  const hash = sha256Hex(responsibilities.join("\n"));
   return `responsibility-group:${hash.slice(0, 12)}`;
 }
 

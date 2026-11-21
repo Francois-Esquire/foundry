@@ -1,0 +1,17 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["@foundry.sh/spyglass#build:analysis"]
+    },
+
+    "typecheck": {
+      "dependsOn": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/spyglass/src/**",
+        "$TURBO_ROOT$/apps/spyglass/scripts/no-node-builtins.ts"
+      ]
+    }
+  }
+}

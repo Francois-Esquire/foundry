@@ -1,8 +1,8 @@
-import { relative } from "node:path";
 import type { ParameterDeclaration, ParameteredNode, Project } from "ts-morph";
 import { Node, SyntaxKind } from "ts-morph";
-import type { Boundary } from "./boundary";
-import { boundaryContains, toPosix } from "./boundary";
+import { relative } from "#path";
+import type { Boundary } from "./boundary-model";
+import { boundaryContains, toPosix } from "./boundary-model";
 import type { AnalysisConfig } from "./config";
 import { ANALYSIS_CONFIG } from "./config";
 import type {
