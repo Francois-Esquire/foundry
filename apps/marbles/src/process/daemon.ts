@@ -1859,10 +1859,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     }
   }
 
-  async function liveElsewhere(id: string): Promise<readonly LiveRun[]> {
+  async function liveElsewhere(
+    id: string,
+    target: Generation
+  ): Promise<readonly LiveRun[]> {
     const parts = await Promise.all(
       hostsOf(id)
-        .filter((generation) => generation !== current)
+        .filter((generation) => generation !== target)
         .map((generation) => liveOf(id, generation))
     );
     return parts.flat();
@@ -1893,10 +1896,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       return await askEach(id, method, params);
     }
     if (GATHERING_METHODS.has(name)) {
-      return await askCurrent(workspace, method, {
+      return await askCurrent(workspace, method, params, async (target) => ({
         ...params,
-        live: await liveElsewhere(id),
-      });
+        live: await liveElsewhere(id, target),
+      }));
     }
     return await askCurrent(workspace, method, params);
   }
@@ -1923,17 +1926,46 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return target;
   }
 
+  async function prepareCurrent(
+    workspace: Hosted,
+    params: unknown,
+    prepare: ((target: Generation) => Promise<unknown>) | undefined,
+    deadline: number
+  ): Promise<{ target: Generation; prepared: unknown }> {
+    for (;;) {
+      const target = await startedCurrent(workspace);
+      const prepared = prepare === undefined ? params : await prepare(target);
+      if (current === target) {
+        return { prepared, target };
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `workspace ${workspace.summary.id} kept switching while reading its live work`
+        );
+      }
+    }
+  }
+
   async function askCurrent(
     workspace: Hosted,
     method: string,
-    params: unknown
+    params: unknown,
+    prepare?: (target: Generation) => Promise<unknown>
   ): Promise<unknown> {
     const { id } = workspace.summary;
     const deadline = Date.now() + HELD_WAIT_MS;
     for (;;) {
-      const target = await startedCurrent(workspace);
+      const { target, prepared } = await prepareCurrent(
+        workspace,
+        params,
+        prepare,
+        deadline
+      );
+      if (current !== target) {
+        continue;
+      }
       try {
-        return await ask(target, method, params);
+        return await ask(target, method, prepared);
       } catch (error) {
         const left = deadline - Date.now();
         if (!isMoving(error) || left <= 0) {

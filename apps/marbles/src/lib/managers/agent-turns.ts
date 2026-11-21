@@ -228,6 +228,7 @@ export function wrapAgentSession<DEFAULT extends Output.Output = never>(
             site.write(`\n[steer] ${nextInput}\n`);
             continue;
           }
+          ended?.();
           const outcome = await current.outcome;
           const usage = await current.usage;
           await site.consumed?.(message, usage);

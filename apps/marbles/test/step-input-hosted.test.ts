@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { LiveWork } from "~/lib/step-work";
 import type { WorkspaceConnection } from "~/model/connection";
 import type { StepSnapshot } from "~/model/dashboard";
+import { Channel } from "~/process/channel";
+import { GENERATION_METHODS } from "~/process/protocol";
 import {
   generationFiles,
   gone,
@@ -198,3 +200,48 @@ describe("a command live in a hosted step", () => {
     TIMEOUT
   );
 });
+
+it(
+  "regathers retiring work if the destination changes while gathering",
+  async () => {
+    const fixture = await hosted();
+    const { workspace } = fixture;
+    const first = fixture.summary.pid ?? 0;
+    const firstRun = await workspace.actions.launch("greet", {});
+    await liveCommand(workspace, firstRun);
+    const second = await switchFrom(fixture, first, 1, moduleText(1));
+    const secondRun = await workspace.actions.launch("greet", {});
+    const secondWork = await liveCommand(workspace, secondRun);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const { request } = Channel.prototype;
+    let held = false;
+    const spy = vi
+      .spyOn(Channel.prototype, "request")
+      .mockImplementation(async function (this: Channel, method, params) {
+        const result = await request.call(this, method, params);
+        if (method === GENERATION_METHODS.liveWork && !held) {
+          held = true;
+          entered.resolve();
+          await release.promise;
+        }
+        return result;
+      });
+    try {
+      const snapshot = workspace.snapshot();
+      await entered.promise;
+      await switchFrom(fixture, second, 2, moduleText(2));
+      release.resolve();
+      const run = (await snapshot).runs.find((each) => each.id === secondRun);
+      const work = stepsOf(run?.steps ?? []).flatMap((step) => step.work ?? []);
+      expect(work).toContainEqual(secondWork);
+    } finally {
+      release.resolve();
+      spy.mockRestore();
+      await workspace.actions.runs.cancel(firstRun);
+      await workspace.actions.runs.cancel(secondRun);
+      fixture.client.close();
+    }
+  },
+  TIMEOUT
+);

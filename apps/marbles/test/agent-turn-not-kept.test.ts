@@ -13,6 +13,8 @@ import {
   wrapAgentSession,
 } from "../src/lib/managers/agent-turns";
 
+import { StepWork } from "../src/lib/step-work";
+
 const usage = {
   inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 0, total: 0 },
   outputTokens: { reasoning: 0, text: 0, total: 0 },
@@ -135,4 +137,42 @@ describe("a replayed turn", () => {
       { error: new Error("stream boom"), type: "error" },
     ]);
   });
+});
+
+it("refuses steering while a finished turn records its usage", async () => {
+  const harness = new SessionHarness(
+    { instructions: "x", model: model(), store: new InMemorySessionStore() },
+    { sessionId: "s" }
+  );
+  const work = new StepWork("review");
+  const entered = Promise.withResolvers<void>();
+  const recorded = Promise.withResolvers<void>();
+  const session = wrapAgentSession(
+    harness,
+    { id: "s" },
+    {
+      consumed: async () => {
+        entered.resolve();
+        await recorded.promise;
+      },
+      signal: () => signal,
+      takeResume: () => undefined,
+      track: () => undefined,
+      work,
+      write: () => undefined,
+    }
+  );
+  const turn = session.stream("go");
+  const [target] = work.list();
+  expect(target).toBeDefined();
+  try {
+    await entered.promise;
+    expect(() =>
+      work.send({ target: target?.id ?? "", text: "too late" })
+    ).toThrow("no longer live");
+    expect(work.list()).toEqual([]);
+  } finally {
+    recorded.resolve();
+    await turn.message;
+  }
 });
