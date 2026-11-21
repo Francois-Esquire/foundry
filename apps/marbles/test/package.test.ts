@@ -219,7 +219,6 @@ test("the tarball installs and shares the library registry with the CLI", async 
       JSON.stringify({
         dependencies: {
           "@foundry.sh/marbles": `file:${archive}`,
-          "@types/node": "^26.4.1",
           zod: "^4.4.3",
         },
         name: "marbles-package-consumer",
@@ -457,8 +456,6 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
         "--noEmit",
         "--strict",
         "--skipLibCheck",
-        "--types",
-        "node",
         "--target",
         "esnext",
         "--module",

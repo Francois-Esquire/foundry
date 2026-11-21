@@ -83,6 +83,7 @@
     "@opentui/react": "0.5.11",
     "@parcel/watcher": "^2.5.1",
     "@standard-schema/spec": "1.1.0",
+    "@types/node": "^26.4.1",
     "ai": "7.0.58",
     "croner": "^9.1.0",
     "drizzle-orm": "^0.45.4",
