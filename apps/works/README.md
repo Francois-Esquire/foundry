@@ -151,6 +151,7 @@ bun run --cwd=apps/works test
 bun run --cwd=apps/works test:electron  # opt-in native transport, restart, and preview tests
 bun run --cwd=apps/works test:module-runtime # also starts a real Microsandbox Module
 bun run --cwd=apps/works test:module-build # real creation, Pierre edits, builds, and persisted app data
+bun run --cwd=apps/works test:real-app # built-app Documents create/open/save journey
 bun run --cwd=apps/works typecheck
 bun run check apps/works
 ```
@@ -167,7 +168,7 @@ persisted module and source. A third test renders a local HTTP fixture through
 the real protocol and iframe, checks relative assets and scripts, verifies the
 preload bridge is absent, and checks Stop and navigation cleanup.
 `test:module-runtime` repeats rendering with a real Bun Module in Microsandbox
-and adds the network Grant and theme smokes; it
+and adds network Grant, theme, Documents editor, and workflow smokes; it
 requires the installed runtime and its Bun image (which may be pulled).
 These tests need a desktop session and remain separate
 from `test`. The runner removes inherited Electron Node-mode and dev-server

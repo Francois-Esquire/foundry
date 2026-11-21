@@ -56,7 +56,8 @@ through ESLint, Oxlint, and Biome, and the [VS Code extension](tooling/vscode-ex
 highlights those references in the editor.
 
 [`packages/modules`](packages/modules) holds the Module framework and SDK.
-The Documents Module is developed independently on the `feat/documents` branch.
+[Documents](modules/documents) provides a Markdown editor and workflow Views,
+packaged independently from the Works host.
 [Sheets](modules/sheets) edits workbooks with formulas; its temporary HyperFormula
 implementation is bundled under GPL-3.0-only (see the Sheets README).
 
