@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -163,3 +164,20 @@ it("survives the last writer closing between its open and its first read", async
     "b",
   ]);
 }, 60_000);
+
+it("reads again when an immutable read fails because the file changed under it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "marbles-race-"));
+  const file = join(dir, "marbles.db");
+  await (await holder(dir, file, "a")).close();
+  expect(existsSync(`${file}-shm`)).toBe(false);
+  let failed = 0;
+  race.before = () => {
+    const changed = new Date(statSync(file).mtimeMs + 5000);
+    utimesSync(file, changed, changed);
+    failed += 1;
+    return Promise.reject(new Error("the file changed under the read"));
+  };
+
+  expect(await readDatabase(file, ids)).toEqual(["a"]);
+  expect(failed).toBe(1);
+});
