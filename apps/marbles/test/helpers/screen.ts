@@ -17,6 +17,7 @@ interface Line {
 
 export interface TerminalScreen {
   close(): void;
+  emitted(value: string): boolean;
   mark(): number;
   raw(): string;
   settled(): Promise<void>;
@@ -81,8 +82,8 @@ export function terminalScreen(cols: number, rows: number): TerminalScreen {
     scrollback: SCROLLBACK,
   });
   const decoder = new TextDecoder();
-  const painted = Array.from({ length: rows * cols }, () => "");
-  const stamps = Array.from({ length: rows * cols }, () => 0);
+  const marks = new Map<number, readonly string[]>();
+  const pending = new Set<number>();
   const history = new Set<string>();
   let raw = "";
   let received = 0;
@@ -94,18 +95,21 @@ export function terminalScreen(cols: number, rows: number): TerminalScreen {
     return readLines(buffer, buffer.viewportY, buffer.viewportY + rows, cols);
   };
 
-  const capture = (chunk: number) => {
+  const painted = () => {
     const buffer = emulator.buffer.active;
+    const cells: string[] = [];
     for (let y = 0; y < rows; y += 1) {
       const line = buffer.getLine(buffer.viewportY + y);
       for (let x = 0; x < cols; x += 1) {
-        const chars = line?.getCell(x)?.getChars() ?? "";
-        const at = y * cols + x;
-        if (chars !== painted[at]) {
-          painted[at] = chars;
-          stamps[at] = chunk;
-        }
+        cells.push(line?.getCell(x)?.getChars() ?? "");
       }
+    }
+    return cells;
+  };
+
+  const capture = (chunk: number) => {
+    if (pending.delete(chunk)) {
+      marks.set(chunk, painted());
     }
     for (const line of viewport()) {
       history.add(line.text.trimEnd());
@@ -113,39 +117,55 @@ export function terminalScreen(cols: number, rows: number): TerminalScreen {
     parsed = chunk;
   };
 
+  const shown = (value: string) => {
+    for (const line of history) {
+      if (line.includes(value)) {
+        return true;
+      }
+    }
+    const { alternate, normal } = emulator.buffer;
+    return [normal, alternate].some((buffer) =>
+      readLines(buffer, 0, buffer.length, cols).some((line) =>
+        line.text.includes(value)
+      )
+    );
+  };
+
   return {
     close() {
       emulator.dispose();
     },
-    mark: () => received,
+    emitted: (value) => stripANSI(raw).includes(value) || shown(value),
+    mark() {
+      if (received > 0 && !marks.has(received)) {
+        if (parsed === received) {
+          marks.set(received, painted());
+        } else {
+          pending.add(received);
+        }
+      }
+      return received;
+    },
     raw: () => raw,
     async settled() {
       while (parsed < received) {
         await drained;
       }
     },
-    shown(value) {
-      if (stripANSI(raw).includes(value)) {
-        return true;
-      }
-      for (const line of history) {
-        if (line.includes(value)) {
-          return true;
-        }
-      }
-      const { alternate, normal } = emulator.buffer;
-      return [normal, alternate].some((buffer) =>
-        readLines(buffer, 0, buffer.length, cols).some((line) =>
-          line.text.includes(value)
-        )
-      );
-    },
+    shown,
     shows(value, from = 0) {
+      const before = marks.get(from);
+      if (from > 0 && before === undefined) {
+        return false;
+      }
+      const now = before === undefined ? [] : painted();
       return viewport().some((line) =>
-        occurrences(line.text, value).some((index) =>
-          line.cells
-            .slice(index, index + value.length)
-            .some(({ x, y }) => (stamps[y * cols + x] ?? 0) > from)
+        occurrences(line.text, value).some(
+          (index) =>
+            before === undefined ||
+            line.cells
+              .slice(index, index + value.length)
+              .some(({ x, y }) => now[y * cols + x] !== before[y * cols + x])
         )
       );
     },
@@ -177,6 +197,7 @@ export interface TerminalOptions {
 export interface OpenTerminal {
   readonly child: Subprocess;
   dispose(): Promise<void>;
+  emitted(value: string): Promise<boolean>;
   mark(): number;
   readonly screen: TerminalScreen;
   see(value: string, from?: number, ms?: number): Promise<void>;
@@ -210,6 +231,10 @@ export function openTerminal(
       await child.exited;
       child.terminal?.close();
       screen.close();
+    },
+    async emitted(value) {
+      await screen.settled();
+      return screen.emitted(value);
     },
     mark: () => screen.mark(),
     screen,

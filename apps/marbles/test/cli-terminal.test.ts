@@ -206,7 +206,7 @@ test("first-run provider setup precedes workspace setup, preserves dry runs, and
     await live.see("Set up model providers");
     await live.see("Codex");
     await live.see(dir);
-    expect(await live.shown("Choose a starter")).toBe(false);
+    expect(await live.emitted("Choose a starter")).toBe(false);
     await live.send("\x1b");
     await live.see("Choose a starter", 0, STARTUP_MS);
     expect(await machine()).toBeUndefined();
@@ -224,7 +224,7 @@ test("first-run provider setup precedes workspace setup, preserves dry runs, and
     await broken.child.exited;
     expect(broken.child.exitCode).toBe(1);
     expect(await broken.shown("marbles: ")).toBe(true);
-    expect(await broken.shown("    at ")).toBe(false);
+    expect(await broken.emitted("    at ")).toBe(false);
   } finally {
     await broken.dispose();
     rmSync(dir, { force: true, recursive: true });
@@ -263,7 +263,7 @@ test("a corrupt settings file lets an unconfigured terminal continue and reopen"
     const reopened = openTestCli(home, config, [], dir, false);
     try {
       await reopened.see("Press Enter to enter", 0, STARTUP_MS);
-      expect(await reopened.shown("Set up model providers")).toBe(false);
+      expect(await reopened.emitted("Set up model providers")).toBe(false);
       expect(readFileSync(settings, "utf8")).toBe("{not json");
     } finally {
       await reopened.dispose();
@@ -284,7 +284,7 @@ test("an initialized machine welcomes a new workspace and can recheck providers 
   try {
     await first.see("Open this workspace", 0, STARTUP_MS);
     await first.see(config);
-    expect(await first.shown("Set up model providers")).toBe(false);
+    expect(await first.emitted("Set up model providers")).toBe(false);
     await first.send("\r");
     await first.see("Press Enter to enter", 0, STARTUP_MS);
   } finally {
@@ -296,7 +296,7 @@ test("an initialized machine welcomes a new workspace and can recheck providers 
     await next.see("already configured");
     await next.send("\r");
     await next.see("Press Enter to enter", 0, STARTUP_MS);
-    expect(await next.shown("Open this workspace")).toBe(false);
+    expect(await next.emitted("Open this workspace")).toBe(false);
     expect((await store.read()).machine).toEqual(before);
   } finally {
     await next.dispose();
@@ -317,7 +317,7 @@ test("a dry run with no authoring folder offers no starter, writes nothing, and 
     await terminal.see("Press Enter to enter");
     await terminal.send("\r");
     await terminal.see("marbles init without --dry-run");
-    expect(await terminal.shown("Set up your workspace")).toBe(false);
+    expect(await terminal.emitted("Set up your workspace")).toBe(false);
     await terminal.send("q");
     await terminal.see("Quit Marbles?");
     await terminal.send("\x03");
