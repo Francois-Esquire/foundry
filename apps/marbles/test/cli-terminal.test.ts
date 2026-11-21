@@ -65,7 +65,7 @@ for (const command of [[], ["run"]]) {
         resolve("src/cli.ts"),
         ...command,
         "--dry-run",
-        "--config",
+        "--source",
         config,
       ],
       { cols: 120, rows: 40 }
@@ -112,7 +112,7 @@ test("piped startup runs immediately and SIGTERM drains work with plain output",
   `
   );
   const child = spawn(
-    [process.execPath, resolve("src/cli.ts"), "--dry-run", "--config", config],
+    [process.execPath, resolve("src/cli.ts"), "--dry-run", "--source", config],
     { env: home.env, stderr: "pipe", stdout: "pipe" }
   );
   home.track(child.pid, false);
@@ -141,7 +141,7 @@ test("a config error restores the terminal and exits instead of leaving the spla
   writeFileSync(config, 'throw new Error("test config could not load");');
   const terminal = openTerminal(
     home,
-    [process.execPath, resolve("src/cli.ts"), "--dry-run", "--config", config],
+    [process.execPath, resolve("src/cli.ts"), "--dry-run", "--source", config],
     { cols: 100, rows: 30 }
   );
   const { child } = terminal;
@@ -174,7 +174,7 @@ function openTestCli(
   }
   return openTerminal(
     home,
-    [process.execPath, resolve("src/cli.ts"), ...flags, "--config", config],
+    [process.execPath, resolve("src/cli.ts"), ...flags, "--source", config],
     {
       cols: 100,
       cwd,
@@ -486,7 +486,7 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
         process.execPath,
         resolve("src/cli.ts"),
         "run",
-        "--config",
+        "--source",
         join(other, "marbles.config.ts"),
       ],
       { env: home.env, stderr: "pipe", stdout: "pipe" }
@@ -549,7 +549,7 @@ writeFileSync(${JSON.stringify(imported)}, "imported");`
           process.execPath,
           resolve("src/cli.ts"),
           ...command,
-          "--config",
+          "--source",
           config,
         ],
         { env: home.env, stderr: "pipe", stdout: "pipe" }
@@ -586,7 +586,7 @@ schedule(greet({}, { name: "Ada" })).every("1h");`
         "roll",
         ...args,
         "--dry-run",
-        "--config",
+        "--source",
         config,
       ],
       { env: home.env, stderr: "pipe", stdout: "pipe" }

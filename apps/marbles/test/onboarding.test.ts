@@ -33,7 +33,7 @@ function cli(config: string, ...args: string[]) {
   chmodSync(join(bin, "codex"), 0o755);
   return execFileSync(
     "bun",
-    [resolve("src/cli.ts"), ...args, "--dry-run", "--config", config],
+    [resolve("src/cli.ts"), ...args, "--dry-run", "--source", config],
     {
       encoding: "utf8",
       env: { ...home.env, PATH: `${bin}:${home.env.PATH}` },
