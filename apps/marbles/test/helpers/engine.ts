@@ -19,7 +19,7 @@ import { Engine } from "~/lib/engine";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { MockOptions, Reply } from "~/lib/models/echo";
-import { mockModels } from "~/lib/models/echo";
+import { mockModels } from "~/lib/models/mock";
 import { Registry } from "~/lib/registry";
 
 const NO_HOME = join(tmpdir(), "marbles-test-no-home");

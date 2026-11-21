@@ -62,16 +62,15 @@ export class Catalog {
   provide(provider: ProviderPlugin, origin: string | undefined): void {
     const { id } = provider;
     const standing = DEFAULT_PROVIDERS.find((each) => each.id === id);
-    if (standing !== undefined && standing !== provider) {
+    if (standing === provider) {
+      return;
+    }
+    if (standing !== undefined) {
       throw new Error(
         `provider "${id}" is one Marbles provides by default; define your own under another id${quoteOrigin(origin)}`
       );
     }
-    const taken = this.providers.get(id);
-    if (taken === provider) {
-      return;
-    }
-    if (taken !== undefined) {
+    if (this.providers.has(id)) {
       throw new Error(
         `provider "${id}" already defined${quoteOrigin(this.#providerOrigins.get(id))}; second definition${quoteOrigin(origin)}`
       );

@@ -855,11 +855,11 @@ imports it. `defineProvider(provider)` makes the provider available to the
 workspace whose source is loading, the way `step()` registers a step with
 it, and returns the provider it was given. Another workspace in the same
 process does not get it, and a reload reads the source as it is now: remove
-the call, and the provider is gone. Defining the same provider twice keeps
-it once, and passing `claudeCode` or `codex` changes nothing. A different
-provider under an id the source already defined fails the load with both
-places named, as a second step under a taken name does; one under
-`claude-code` or `codex` fails it too. Call it at the top level of the source: once the workspace's engine is
+the call, and the provider is gone. A second definition under an id the
+source already defined, the same provider or another, fails the load with
+both places named, as a second step under a taken name does. Passing
+`claudeCode` or `codex` changes nothing, however often; another provider
+under `claude-code` or `codex` fails the load. Call it at the top level of the source: once the workspace's engine is
 built its providers are fixed, and a call in a step is refused. In a script
 no host loads, a call reaches the engine Marbles builds for that script, if
 it comes before the first definition runs.
@@ -874,6 +874,12 @@ configuration changes, a line such as:
 ```text
 [providers] provider "vercel" is unavailable: this workspace does not define it; to use it, add to the workspace's source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { vercel } from "@foundry.sh/marbles/providers/vercel"; defineProvider(vercel);
 ```
+
+Under `--dry-run` the command prints it. A workspace the Marbles process
+hosts writes it to `daemon.log` in the state root, and `marbles run` shows
+the lines printed while it is attached. A run whose agent asks for that
+provider, by its id or in a model such as `"vercel/vendor/chat"`, fails with
+the same text after `cannot use "vercel":`.
 
 `ProviderConfiguration.list()` gives the entry that message as its
 `problem`, with the state `unloadable`.

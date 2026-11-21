@@ -15,7 +15,7 @@ import { CLAUDE_CODE_DEFAULT_MODELS } from "@foundry/models/claude-code";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CLAUDE_CODE, CODEX, PI, selectExecutor } from "~/lib/harnesses";
-import { mockModels } from "~/lib/models/echo";
+import { mockModels } from "~/lib/models/mock";
 import { which } from "~/lib/which";
 
 const NO_PROVIDER = /No configured model provider is available/;

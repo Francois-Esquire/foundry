@@ -380,6 +380,16 @@ export class ProviderConfiguration {
     }
   }
 
+  undefinedProvider(id: string): string | undefined {
+    const entry = this.#built.find(
+      (built) =>
+        built.entry.id === id &&
+        built.entry.enabled &&
+        !this.#plugins.has(built.entry.plugin)
+    )?.entry;
+    return entry === undefined ? undefined : undefinedProvider(entry.plugin);
+  }
+
   #undefinedProviders(): readonly string[] {
     const id = this.#options.workspace?.id;
     const view = this.#view();

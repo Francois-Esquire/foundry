@@ -92,6 +92,7 @@ export interface AgentsDeps {
   readonly requireProviders?: () => void;
   readonly sessions: SessionStore;
   readonly skills: (set?: SkillSet) => Promise<Skill[]>;
+  readonly undefinedProvider?: (id: string) => string | undefined;
   readonly usage?: {
     readonly ledger: UsageLedger;
     readonly workspaceId: string;
@@ -412,6 +413,24 @@ function selectionOf(route: {
     ...(route.model === undefined ? {} : { model: route.model }),
     ...(route.provider === undefined ? {} : { provider: route.provider }),
   };
+}
+
+function resolveRoute(deps: AgentsDeps, route: Route): Resolution<"text"> {
+  try {
+    return deps.models.resolve(
+      "text",
+      selectionOf({ model: route.modelId, provider: route.provider })
+    );
+  } catch (error) {
+    const asked = route.provider ?? route.modelId;
+    const [id] = (asked ?? "").split("/");
+    const problem =
+      id === undefined || id === "" ? undefined : deps.undefinedProvider?.(id);
+    if (problem === undefined) {
+      throw error;
+    }
+    throw new Error(`cannot use "${asked}": ${problem}`, { cause: error });
+  }
 }
 
 function validateSessionOptions(options: SessionOptions): void {
@@ -797,10 +816,7 @@ async function openBuilt<OUTPUT extends Output.Output>(
   }
   const ran =
     pinned?.instance !== undefined && (await hasRun(deps.sessions, pinned.id));
-  const resolution = deps.models.resolve(
-    "text",
-    selectionOf({ model: route.modelId, provider: route.provider })
-  );
+  const resolution = resolveRoute(deps, route);
   const stamp = {
     implementation: deps.implementationOf?.(resolution.provider),
     instance: deps.instanceOf?.(resolution.provider),

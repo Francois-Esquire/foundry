@@ -92,6 +92,7 @@ const PROVIDER_ENTRIES = [
 
 const OPT_IN_MODELS: Record<string, string> = {
   "providers/gateway": "function gatewayModels(",
+  "providers/pi": "function piProvider(",
   "providers/vercel": "function vercelModels(",
 };
 
@@ -453,8 +454,8 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
         .join("\n");
     for (const [provider, marker] of Object.entries(OPT_IN_MODELS)) {
       expect(graphText(provider)).toContain(marker);
-      for (const entry of entries.filter(
-        (each) => !MODEL_FACTORY_ENTRIES.has(each)
+      for (const entry of [...entries, ...PROVIDER_ENTRIES].filter(
+        (each) => each !== provider && !MODEL_FACTORY_ENTRIES.has(each)
       )) {
         expect(
           graphText(entry).includes(marker),
