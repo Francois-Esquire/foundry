@@ -86,7 +86,6 @@ export function FeedList({
   return (
     <Panel
       active={active}
-      borderHint={rows.length > 0 ? " ↑↓ select · Enter read " : undefined}
       id="panel:feed"
       selectedId={selectedKey === undefined ? undefined : `feed:${selectedKey}`}
       title={`Feed · ${scopeLabel}`}

@@ -2,6 +2,7 @@ import type { ChannelEvent } from "@foundry/workflows/channels";
 import type { BaseContext } from "@foundry/workflows/executable";
 import type { Workflow } from "@foundry/workflows/workflow";
 import { formatLogValues } from "~/lib/log";
+import type { ChunkOrigin } from "~/lib/state/output";
 
 export async function observeSteps<I, O, X extends BaseContext>(
   name: string,
@@ -15,7 +16,7 @@ export async function observeSteps<I, O, X extends BaseContext>(
     readonly print: (line: string) => void;
     readonly onEvent?: (event: ChannelEvent) => void;
     readonly signal?: AbortSignal;
-    readonly write?: (text: string) => void;
+    readonly write?: (text: string, chunk?: ChunkOrigin) => void;
   }
 ): Promise<void> {
   const rootDepth = workflow.root.path.length;
@@ -37,11 +38,12 @@ export async function observeSteps<I, O, X extends BaseContext>(
         return;
       }
       if (value._tag !== "event") {
-        const { payload } = value.chunk;
+        const { payload, ...chunk } = value.chunk;
         write?.(
           payload.kind === "text"
             ? payload.text
-            : `${formatLogValues([payload.data])}\n`
+            : `${formatLogValues([payload.data])}\n`,
+          chunk
         );
         continue;
       }

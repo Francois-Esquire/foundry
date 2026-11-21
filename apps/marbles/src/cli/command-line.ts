@@ -55,7 +55,6 @@ import { ProcessHeldError } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
 import { readStatus } from "~/status/model";
 import { createStarter } from "~/workspace/create";
-import { EnvironmentError } from "~/workspace/env";
 import { LaunchInputError } from "~/workspace/host";
 import type { OpenedWorkspace } from "~/workspace/open";
 import { findWorkspace, hostTriggers, openWorkspace } from "~/workspace/open";
@@ -96,7 +95,6 @@ const USAGE = `marbles — programmable workspace automation
   detach                     stop hosting this workspace; it is not started again at boot
 
   --source <path>    authoring folder or module (default: ./.foundry/marbles)
-  --config <path>    compatibility alias for --source
   --dry-run          echo every model turn and git mutation instead of running them
   --recheck-providers  reopen provider setup for the interactive dashboard
 
@@ -178,7 +176,11 @@ async function showStatus(
 ): Promise<void> {
   const report = await readStatus(resolve(args.state));
   if (process.stdout.isTTY && process.stdin.isTTY) {
-    const { showStatus: renderStatus } = await import("~/cli/status/view");
+    const [{ showStatus: renderStatus }, { applyTheme }] = await Promise.all([
+      import("~/cli/status/view"),
+      import("~/cli/theme"),
+    ]);
+    applyTheme(loadSettings(settingsPath(args.state)).settings.theme);
     await renderStatus({ here: workspace.id, report });
     return;
   }
@@ -582,18 +584,14 @@ async function printErrors(
   }
 }
 
-function envMode(args: { readonly command: Command }): "require" | "warn" {
-  return args.command === "roll" ? "require" : "warn";
-}
-
 async function withLocalHost(
   args: Flags & { readonly command: Command },
   run: (hosted: Hosted) => Promise<void>
 ): Promise<void> {
-  const host = await hostHere(args, { env: envMode(args), print });
+  const host = await hostHere(args, { print });
   const { engine } = host;
   try {
-    printErrors(engine.automations);
+    await printErrors(engine.automations);
     print(
       `[providers] ${engine.models.providers.map((provider) => provider.id).join(", ") || "none configured"}`
     );
@@ -618,7 +616,7 @@ async function dispatch<C extends Command>(
       await handler.run(args, findWorkspace(args));
       return;
     case "triggers": {
-      const opened = await openWorkspace(args, { env: envMode(args), print });
+      const opened = await openWorkspace(args, { print });
       const triggers = hostTriggers(args, opened);
       await printErrors(triggers.automations);
       await handler.run(args, opened, triggers);
@@ -700,7 +698,6 @@ function actionable(error: unknown): error is Error {
     error instanceof UsageError ||
     error instanceof ConfigurationError ||
     error instanceof DatabaseBusyError ||
-    error instanceof EnvironmentError ||
     error instanceof IncompatibleDatabaseError ||
     error instanceof LaunchInputError ||
     error instanceof LinksPlacementError ||

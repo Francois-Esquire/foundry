@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -33,16 +33,7 @@ async function workspace(
   tail = ""
 ): Promise<{ readonly dir: string; readonly source: string }> {
   const dir = join(root, name);
-  const bin = join(dir, "node_modules", ".bin");
-  await mkdir(bin, { recursive: true });
-  await mkdir(join(dir, "sub"));
-  await writeFile(join(dir, ".env.schema"), "MARBLES_TEST_VALUE=\n");
-  const varlock = join(bin, "varlock");
-  await writeFile(
-    varlock,
-    `#!/bin/sh\nprintf '{"MARBLES_TEST_VALUE":"${name}"}'\n`
-  );
-  chmodSync(varlock, 0o755);
+  await mkdir(join(dir, "sub"), { recursive: true });
   const source = join(dir, "marbles.ts");
   await writeFile(source, sourceText(name, tail));
   return { dir, source };
@@ -53,7 +44,7 @@ function sourceText(name: string, tail = ""): string {
 export const helper = agent({ name: "helper", prompt: "Help ${name}." });
 export const build = step("build").do(async ({ exec }) => {
   await tasks.create({ title: "built ${name}" });
-  const { stdout } = await exec(["sh", "-c", 'pwd -P; printf %s "$MARBLES_TEST_VALUE"']);
+  const { stdout } = await exec(["sh", "-c", "pwd -P; printf %s ${name}"]);
   return stdout;
 });
 schedule(build).every("1d");
@@ -91,6 +82,43 @@ mock.module(workspacesModule, () => ({
 }));
 `;
 
+const HELD_STAGING = `import { mock } from "bun:test";
+const hostModule = ${JSON.stringify(join(SRC, "workspace/host.ts"))};
+const realHost = { ...(await import(hostModule)) };
+globalThis.held = { stage: undefined, start: undefined };
+const hold = async (which) => {
+  const gate = globalThis.held[which];
+  if (gate !== undefined) {
+    gate.entered.resolve();
+    await gate.released.promise;
+  }
+};
+mock.module(hostModule, () => ({
+  ...realHost,
+  stageWorkspace: async (...args) => {
+    await hold("stage");
+    const staged = await realHost.stageWorkspace(...args);
+    return {
+      ...staged,
+      start: async () => {
+        await hold("start");
+        return await staged.start();
+      },
+    };
+  },
+}));
+`;
+
+function laterHosts(root: string): string {
+  return `const { HostedWorkspaces: Later } = await import(${JSON.stringify(join(SRC, "workspace/hosted.ts"))});
+  const later = await Later.open({
+    artifacts: ${JSON.stringify(join(root, "artifacts"))},
+    env: "require",
+    state: ${JSON.stringify(join(root, "state"))},
+  });
+  const gate = () => ({ entered: Promise.withResolvers(), released: Promise.withResolvers() });`;
+}
+
 async function inProcess(
   root: string,
   body: string,
@@ -106,7 +134,6 @@ const report = {};
 const environment = { ...process.env };
 const hosted = await HostedWorkspaces.open({
   artifacts: ${JSON.stringify(join(root, "artifacts"))},
-  env: "require",
   state: ${JSON.stringify(join(root, "state"))},
 });
 const titles = async (id) =>
@@ -131,17 +158,16 @@ process.stdout.write(JSON.stringify(report) + "\\n");
 process.exit(0);
 `
   );
-  const { MARBLES_TEST_VALUE: _, ...env } = process.env;
   const output = execFileSync("bun", ["--no-env-file", script], {
     cwd: root,
     encoding: "utf8",
-    env,
+    env: process.env,
     timeout: 90_000,
   });
   return JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
 }
 
-it("hosts two workspaces with the same local names in one process, each run in its own directory and environment", async () => {
+it("hosts two workspaces with the same local names in one process, each run in its own directory, leaving the process environment alone", async () => {
   const root = await scratch();
   const a = await workspace(root, "alpha");
   const b = await workspace(root, "beta");
@@ -286,6 +312,7 @@ export const reviewer = agent({ prompt: "Review alpha." });
     join(a.dir, "twice.ts"),
     'import { step } from "@foundry.sh/marbles";\nexport const twice = step("build").do(() => "again");\n'
   );
+  await mkdir(join(a.dir, "node_modules"));
   await symlink(
     resolve("../../node_modules/typescript"),
     join(a.dir, "node_modules", "typescript")
@@ -609,7 +636,6 @@ import { HostedWorkspaces } from ${JSON.stringify(join(SRC, "workspace/hosted.ts
 const report = {};
 const hosted = await HostedWorkspaces.open({
   artifacts: ${JSON.stringify(join(root, "artifacts"))},
-  env: "require",
   spawned: ${JSON.stringify(spawned)},
   state: ${JSON.stringify(state)},
 });
@@ -639,12 +665,11 @@ process.stdout.write(JSON.stringify(report) + "\\n");
 process.exit(0);
 `
   );
-  const { MARBLES_TEST_VALUE: _, ...env } = home.env;
   const report = JSON.parse(
     execFileSync("bun", ["--no-env-file", script], {
       cwd: root,
       encoding: "utf8",
-      env: { ...env, [SPAWN_RECOVERY_ENV]: spawned },
+      env: { ...home.env, [SPAWN_RECOVERY_ENV]: spawned },
       timeout: 90_000,
     })
       .trim()
@@ -1054,4 +1079,67 @@ it("hosts a workspace again while its last host is still closing, its new engine
   );
   expect(report.fresh).toBe(true);
   expect(report.tasks).toEqual(["ping", "pong alpha"]);
+}, 120_000);
+
+it("waits for a staging of the registered workspaces before it closes the database, and abandons what it staged", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  await hosted.close();
+  ${laterHosts(root)}
+  globalThis.held.stage = gate();
+  const staging = later.stageRegistered().then(
+    (staged) => staged.loads.map((load) => load.loaded),
+    (error) => error.message
+  );
+  await globalThis.held.stage.entered.promise;
+  let closed = false;
+  const closing = later.close().then(() => { closed = true; });
+  await new Promise((settle) => setTimeout(settle, 200));
+  report.closedWhileStaging = closed;
+  globalThis.held.stage.released.resolve();
+  report.staging = await staging;
+  await closing;`,
+    HELD_STAGING
+  );
+  expect(report).toMatchObject({
+    closedWhileStaging: false,
+    staging: "these hosted workspaces closed while they loaded",
+  });
+}, 120_000);
+
+it("waits for a start of staged workspaces before it closes the database, and closes the host it started", async () => {
+  const root = await scratch();
+  const a = await workspace(root, "alpha");
+  const report = await inProcess(
+    root,
+    `await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
+  await hosted.close();
+  ${laterHosts(root)}
+  const staged = await later.stageRegistered();
+  globalThis.held.start = gate();
+  const starting = staged.start().then(
+    (loads) => loads.map((load) => (load.loaded ? "loaded" : load.error.message)),
+    (error) => error.message
+  );
+  await globalThis.held.start.entered.promise;
+  let closed = false;
+  const closing = later.close().then(() => { closed = true; });
+  await new Promise((settle) => setTimeout(settle, 200));
+  report.closedWhileStarting = closed;
+  globalThis.held.start.released.resolve();
+  report.starting = await starting;
+  await closing;
+  report.hosts = later.list().length;`,
+    HELD_STAGING
+  );
+  expect(report).toMatchObject({
+    closedWhileStarting: false,
+    hosts: 0,
+    starting: [
+      expect.stringContaining("these hosted workspaces closed while it loaded"),
+    ],
+  });
 }, 120_000);

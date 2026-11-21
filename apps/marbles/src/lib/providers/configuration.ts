@@ -71,16 +71,13 @@ export type Proposal = ScopedRecord & { readonly taken?: string };
 
 export interface ProviderConfigurationOptions {
   readonly echo?: (instance: Provider) => Provider;
-  readonly environment: {
-    readonly machine: Readonly<Record<string, string>>;
-    readonly workspace: Readonly<Record<string, string>>;
-  };
+  readonly environment: Readonly<Record<string, string>>;
   readonly fixed?: readonly Provider[];
   readonly models: ModelManager;
   readonly plugins: readonly RegisteredPlugin[];
   readonly readOnly?: boolean;
   readonly store?: ProviderStore;
-  readonly workspace?: Omit<ProviderWorkspace, "env">;
+  readonly workspace?: ProviderWorkspace;
 }
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
@@ -461,7 +458,7 @@ export class ProviderConfiguration {
   }
 
   propose(): readonly Proposal[] {
-    const env = this.#options.environment.machine;
+    const env = this.#options.environment;
     return [...this.#plugins.values()].flatMap((plugin) => {
       const settings = plugin.detect?.({ env });
       if (settings === undefined || settings === null) {
@@ -532,51 +529,56 @@ export class ProviderConfiguration {
   }
 
   async remove(id: string): Promise<void> {
-    await this.#write(() => {
-      const scope = this.#scopeOf(id);
-      const file = this.#scope(scope).read() ?? empty();
-      const order = file.order?.filter((each) => each !== id);
-      return {
-        [scope]: {
-          ...file,
-          providers: file.providers.filter((entry) => entry.id !== id),
-          ...(order ? { order } : {}),
-        },
-      };
-    });
-    this.load();
+    await this.#commit(() =>
+      this.#write(() => {
+        const scope = this.#scopeOf(id);
+        const file = this.#scope(scope).read() ?? empty();
+        const order = file.order?.filter((each) => each !== id);
+        return {
+          [scope]: {
+            ...file,
+            providers: file.providers.filter((entry) => entry.id !== id),
+            ...(order ? { order } : {}),
+          },
+        };
+      })
+    );
   }
 
   async move(id: string, index: number, scope: ProviderScope): Promise<void> {
     if (scope === "machine") {
-      await this.#machine.update((current) => {
-        const file = current ?? empty();
-        const entry = file.providers.find((each) => each.id === id);
-        if (!entry) {
-          throw invalid(`"${id}" is not configured at machine scope`);
-        }
-        const rest = file.providers.filter((each) => each.id !== id);
-        return { ...file, providers: insert(rest, entry, index) };
-      });
+      await this.#commit(() =>
+        this.#machine.update((current) => {
+          const file = current ?? empty();
+          const entry = file.providers.find((each) => each.id === id);
+          if (!entry) {
+            throw invalid(`"${id}" is not configured at machine scope`);
+          }
+          const rest = file.providers.filter((each) => each.id !== id);
+          return { ...file, providers: insert(rest, entry, index) };
+        })
+      );
     } else {
       const current = this.list()
         .filter((entry) => entry.position !== undefined)
         .map((entry) => entry.id);
-      await this.#workspaceStore().update((file) => {
-        const base = file?.order ?? current;
-        const rest = base.filter((each) => each !== id);
-        return { ...(file ?? empty()), order: insert(rest, id, index) };
-      });
+      await this.#commit(() =>
+        this.#workspaceStore().update((file) => {
+          const base = file?.order ?? current;
+          const rest = base.filter((each) => each !== id);
+          return { ...(file ?? empty()), order: insert(rest, id, index) };
+        })
+      );
     }
-    this.load();
   }
 
   async setOrder(ids: readonly string[] | undefined): Promise<void> {
-    await this.#workspaceStore().update((file) => {
-      const { order: _, ...rest } = file ?? empty();
-      return ids === undefined ? rest : { ...rest, order: [...ids] };
-    });
-    this.load();
+    await this.#commit(() =>
+      this.#workspaceStore().update((file) => {
+        const { order: _, ...rest } = file ?? empty();
+        return ids === undefined ? rest : { ...rest, order: [...ids] };
+      })
+    );
   }
 
   async replace(entries: readonly ScopedRecord[]): Promise<void> {
@@ -847,7 +849,7 @@ export class ProviderConfiguration {
     }
     let catalog: ReturnType<RegisteredPlugin["catalog"]>;
     try {
-      const listed = this.#listingOf(plugin, parsed.data, scope);
+      const listed = this.#listingOf(plugin, parsed.data);
       if (plugin.list && !listed?.models) {
         return undefined;
       }
@@ -947,15 +949,13 @@ export class ProviderConfiguration {
   ): Built {
     const plugin = this.#plugins.get(entry.plugin) as RegisteredPlugin;
     const settings = plugin.settings.parse(entry.settings ?? {});
-    const env = this.#envFor(scope);
+    const env = this.#options.environment;
     const patterns = accountPatterns(plugin, settings);
-    const ambient = plugin.ambient
-      ? ambientProblem(this.#options.environment.machine, patterns, env)
-      : undefined;
+    const ambient = plugin.ambient ? ambientProblem(patterns, env) : undefined;
     if (ambient) {
       return report("unavailable", ambient);
     }
-    const listed = this.#listingOf(plugin, settings, scope);
+    const listed = this.#listingOf(plugin, settings);
     if (plugin.list && !listed?.models) {
       return report(
         "unavailable",
@@ -1056,12 +1056,7 @@ export class ProviderConfiguration {
       scope,
       settings,
       ...(scope === "workspace" && this.#options.workspace
-        ? {
-            workspace: {
-              ...this.#options.workspace,
-              env: this.#options.environment.workspace,
-            },
-          }
+        ? { workspace: this.#options.workspace }
         : {}),
     });
   }
@@ -1082,13 +1077,11 @@ export class ProviderConfiguration {
       .slice(0, 32);
   }
 
-  #listingOf(
-    plugin: RegisteredPlugin,
-    settings: unknown,
-    scope: ProviderScope
-  ): Listing | undefined {
+  #listingOf(plugin: RegisteredPlugin, settings: unknown): Listing | undefined {
     return plugin.list
-      ? this.#listings.get(listingKey(plugin, settings, this.#envFor(scope)))
+      ? this.#listings.get(
+          listingKey(plugin, settings, this.#options.environment)
+        )
       : undefined;
   }
 
@@ -1115,8 +1108,7 @@ export class ProviderConfiguration {
     const eligible = (id: string) =>
       order.includes(id) &&
       enabled.filter((entry) => entry.id === id).length === 1;
-    const scopes: ProviderScope[] = ["workspace", "machine"];
-    const asked = files.flatMap((file, index) =>
+    const asked = files.flatMap((file) =>
       (file?.providers ?? []).flatMap((entry) => {
         const plugin = this.#plugins.get(entry.plugin);
         const parsed = plugin?.settings.safeParse(entry.settings ?? {});
@@ -1130,8 +1122,9 @@ export class ProviderConfiguration {
         ) {
           return [];
         }
-        const scope = scopes[index] as ProviderScope;
-        return [this.#list(entry.id, plugin, parsed.data, this.#envFor(scope))];
+        return [
+          this.#list(entry.id, plugin, parsed.data, this.#options.environment),
+        ];
       })
     );
     const problems = await Promise.all(asked);
@@ -1174,11 +1167,6 @@ export class ProviderConfiguration {
     }
     this.#listings.set(key, listing);
     return `"${id}" has no models; ${listing.problem}`;
-  }
-
-  #envFor(scope: ProviderScope): Readonly<Record<string, string>> {
-    const { machine, workspace } = this.#options.environment;
-    return scope === "machine" ? machine : { ...machine, ...workspace };
   }
 
   #redacted(entry: ProviderEntryRecord): Record<string, unknown> {

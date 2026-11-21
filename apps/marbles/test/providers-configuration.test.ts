@@ -183,10 +183,7 @@ async function loaded(config: ProviderConfiguration): Promise<void> {
 }
 
 function configuration(
-  environment: {
-    machine: Record<string, string>;
-    workspace: Record<string, string>;
-  } = { machine: { PATH: "/bin" }, workspace: {} },
+  environment: Record<string, string> = { PATH: "/bin" },
   options: Partial<ProviderConfigurationOptions> = {}
 ) {
   const models = new ModelManager();
@@ -316,52 +313,17 @@ describe("the effective set", () => {
 });
 
 describe("environments by scope", () => {
-  it("gives machine entries the machine environment and workspace entries the workspace's values on top", async () => {
+  it("gives machine and workspace entries the same environment", async () => {
     store.put(MACHINE_SCOPE, {
       providers: [{ enabled: true, id: "codex", plugin: "codex" }],
     });
     store.put("ws1", {
       providers: [{ enabled: true, id: "vercel", plugin: "vercel" }],
     });
-    const { config } = configuration({
-      machine: { PATH: "/bin", TOKEN: "machine" },
-      workspace: { TOKEN: "workspace", WORKSPACE_ONLY: "w" },
-    });
+    const { config } = configuration({ PATH: "/bin", TOKEN: "host" });
     await loaded(config);
-    expect(seen.get("codex")?.env).toEqual({ PATH: "/bin", TOKEN: "machine" });
-    expect(seen.get("vercel")?.env).toEqual({
-      PATH: "/bin",
-      TOKEN: "workspace",
-      WORKSPACE_ONLY: "w",
-    });
-  });
-
-  it("serves a machine-scope instance that reads the process environment, which the workspace's values never enter", async () => {
-    store.put(MACHINE_SCOPE, {
-      providers: [{ enabled: true, id: "pi", plugin: "pi" }],
-    });
-    const { config, models } = configuration({
-      machine: { PATH: "/bin" },
-      workspace: { ANTHROPIC_API_KEY: "secret-value" },
-    });
-    await loaded(config);
-    expect(ids(models)).toEqual(["pi"]);
-  });
-
-  it("leaves a workspace-scope instance that reads the process environment unavailable when the workspace adds to it", async () => {
-    store.put("ws1", {
-      providers: [{ enabled: true, id: "pi", plugin: "pi" }],
-    });
-    const { config, models } = configuration({
-      machine: { PATH: "/bin" },
-      workspace: { ANTHROPIC_API_KEY: "secret-value" },
-    });
-    await loaded(config);
-    expect(ids(models)).toEqual([]);
-    const [entry] = config.list();
-    expect(entry?.state).toBe("unavailable");
-    expect(entry?.problem).toContain("ANTHROPIC_API_KEY");
-    expect(entry?.problem).not.toContain("secret-value");
+    expect(seen.get("codex")?.env).toEqual({ PATH: "/bin", TOKEN: "host" });
+    expect(seen.get("vercel")?.env).toEqual({ PATH: "/bin", TOKEN: "host" });
   });
 });
 
@@ -389,6 +351,67 @@ describe("edits", () => {
     const reloaded = configuration();
     await loaded(reloaded.config);
     expect(ids(reloaded.models)).toEqual(["codex"]);
+  });
+
+  describe("lists a provider an edit brings into the order", () => {
+    const LISTING = [
+      ...PLUGINS,
+      registered(
+        plugin("listed", {
+          list: () =>
+            Promise.resolve([
+              { id: "listed-model", kind: "text", modelId: "listed-model" },
+            ]),
+        })
+      ),
+    ];
+    const stateOf = (config: ProviderConfiguration, id: string) =>
+      config.list().find((entry) => entry.id === id)?.state;
+    const machineWithListed = () =>
+      store.put(MACHINE_SCOPE, {
+        providers: [
+          { enabled: true, id: "codex", plugin: "codex" },
+          { enabled: true, id: "listed", plugin: "listed" },
+        ],
+      });
+
+    it("after setOrder", async () => {
+      machineWithListed();
+      store.put("ws1", { order: ["codex"], providers: [] });
+      const { config } = configuration(undefined, { plugins: LISTING });
+      await config.refresh();
+      expect(stateOf(config, "listed")).toBe("excluded");
+      await config.setOrder(undefined);
+      expect(stateOf(config, "listed")).toBe("ready");
+      await config.dispose();
+    });
+
+    it("after move", async () => {
+      machineWithListed();
+      store.put("ws1", { order: ["codex"], providers: [] });
+      const { config } = configuration(undefined, { plugins: LISTING });
+      await config.refresh();
+      await config.move("listed", 0, "workspace");
+      expect(stateOf(config, "listed")).toBe("ready");
+      await config.dispose();
+    });
+
+    it("after remove leaves one enabled entry of an id", async () => {
+      store.put(MACHINE_SCOPE, {
+        providers: [{ enabled: true, id: "listed", plugin: "listed" }],
+      });
+      store.put("ws1", {
+        providers: [{ enabled: true, id: "listed", plugin: "listed" }],
+      });
+      const { config } = configuration(undefined, { plugins: LISTING });
+      await config.refresh();
+      expect(stateOf(config, "listed")).toBe("unloadable");
+      await config.remove("listed");
+      expect(config.list()).toMatchObject([
+        { id: "listed", scope: "machine", state: "ready" },
+      ]);
+      await config.dispose();
+    });
   });
 
   it("refuses an id taken at the other scope, a bound plugin at machine scope, and a literal secret", async () => {
@@ -897,7 +920,7 @@ it("never repeats a value a plugin's settings schema quotes", async () => {
     ],
   });
   const config = new ProviderConfiguration({
-    environment: { machine: {}, workspace: {} },
+    environment: {},
     models: new ModelManager(),
     plugins: [strict],
     store,
@@ -937,7 +960,7 @@ it("disables an entry that cannot load, and refuses to enable it again", async (
 it("keeps a read-only engine's edits in memory and writes nothing", async () => {
   const models = new ModelManager();
   const config = new ProviderConfiguration({
-    environment: { machine: { PATH: "/bin" }, workspace: {} },
+    environment: { PATH: "/bin" },
     models,
     plugins: PLUGINS,
     readOnly: true,
@@ -1124,15 +1147,15 @@ describe("instance identity", () => {
   ];
   const identity = async (
     pluginId: string,
-    machine: Record<string, string>,
+    environment: Record<string, string>,
     kept = store
   ) => {
-    const env = { HOME: "/home/me", ...machine };
+    const env = { HOME: "/home/me", ...environment };
     if (pluginId === "pi") {
       matchProcessEnv(piPlugin.accountEnv ?? [], env);
     }
     const config = new ProviderConfiguration({
-      environment: { machine: env, workspace: {} },
+      environment: env,
       models: new ModelManager(),
       plugins: FIRST_PARTY,
       store: kept,
@@ -1243,7 +1266,7 @@ describe("instance identity", () => {
         providers: [{ enabled: true, id: "d", plugin: "defaulted", settings }],
       });
       const config = new ProviderConfiguration({
-        environment: { machine: {}, workspace: {} },
+        environment: {},
         models: new ModelManager(),
         plugins: [defaulted],
         store,
@@ -1266,7 +1289,7 @@ it("refuses an entry with a host-supplied provider's id, and keeps its state whe
   } as unknown as Provider;
   const models = new ModelManager();
   const config = new ProviderConfiguration({
-    environment: { machine: {}, workspace: {} },
+    environment: {},
     fixed: [host],
     models,
     plugins: PLUGINS,
@@ -1297,7 +1320,7 @@ it("tells a configured instance with no execution from a host-supplied one", asy
   await loaded(config);
   expect(config.executionOf("codex")).toBeNull();
   const fixed = new ProviderConfiguration({
-    environment: { machine: {}, workspace: {} },
+    environment: {},
     fixed: [],
     models: new ModelManager(),
     plugins: PLUGINS,
@@ -1553,10 +1576,7 @@ describe("an instance that reads the process environment", () => {
   it("is unavailable when the host's environment names another account than the process holds", async () => {
     vi.stubEnv(ACCOUNT, "value-in-process");
     const { config, models } = configuration(
-      {
-        machine: { ...environmentSnapshot(), [ACCOUNT]: "value-of-host" },
-        workspace: {},
-      },
+      { ...environmentSnapshot(), [ACCOUNT]: "value-of-host" },
       { plugins: AMBIENT }
     );
     await loaded(config);
@@ -1570,10 +1590,9 @@ describe("an instance that reads the process environment", () => {
 
   it("refuses calls while the process account differs from the one it was configured with", async () => {
     vi.stubEnv(ACCOUNT, "first");
-    const { config, models } = configuration(
-      { machine: environmentSnapshot(), workspace: {} },
-      { plugins: AMBIENT }
-    );
+    const { config, models } = configuration(environmentSnapshot(), {
+      plugins: AMBIENT,
+    });
     await loaded(config);
     const model = models.resolve("text", "pi/pi-model").open();
     await expect(model.doGenerate(CALL)).resolves.toBe("ran");

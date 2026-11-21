@@ -19,7 +19,7 @@ installation. Their documentation explains the operations behind Marbles.
 Install the published package:
 
 ```sh
-bun add --global @foundry.sh/marbles@0.0.3
+bun add --global @foundry.sh/marbles@0.0.4
 marbles --help
 ```
 
@@ -42,7 +42,7 @@ completion and TypeScript checking, install the same package in your project,
 with TypeScript 6:
 
 ```sh
-bun add --dev @foundry.sh/marbles@0.0.3 typescript@^6
+bun add --dev @foundry.sh/marbles@0.0.4 typescript@^6
 ```
 
 Marbles names a definition built without a name after the `const` it is
@@ -64,6 +64,5 @@ needs only Marbles; later examples state their additional dependencies.
 | Typed input | A Standard Schema library. These docs use `zod`. |
 | Git worktrees | Git and a repository with at least one commit. |
 | Sandbox execution | The optional `microsandbox` SDK and its native runtime; see [sandboxes](/marbles/foundation/workspaces-and-sandboxes#sandboxes). |
-| Environment validation | Varlock and a project `.env.schema`; see [environment](/marbles/reference/project#environment). |
 
 Continue with [Your first automation](/marbles/get-started/quickstart).

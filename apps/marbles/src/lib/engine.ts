@@ -101,6 +101,7 @@ import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
 import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { removeRunOutput } from "~/lib/state/output";
+import type { StepInput } from "~/lib/step-work";
 import type { TaskDefinition } from "~/lib/tasks";
 import { factoryFor } from "~/lib/tree";
 import type { TriggerStore } from "~/lib/trigger-store";
@@ -290,6 +291,7 @@ export class Engine {
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
   #stopping: Promise<void> | undefined;
+  #cancelStopping: (() => Promise<void>) | undefined;
   #retiring = false;
   readonly #letGo = new Set<string>();
   readonly #owed = new Map<string, OwedRelease>();
@@ -497,6 +499,7 @@ export class Engine {
             ? {}
             : { spawned: this.context.spawned }),
           signal: () => frame.signal,
+          work: frame.work,
           write,
         }),
       host: { catalogue, triggers: this.triggers },
@@ -1049,6 +1052,10 @@ export class Engine {
     this.#scopeOf(runId).steer(stepId, prompt);
   }
 
+  send(runId: string, stepId: string, input: StepInput): void {
+    this.#scopeOf(runId).send(stepId, input);
+  }
+
   async retire(
     successor: ProcessIdentity,
     options: {
@@ -1292,38 +1299,63 @@ export class Engine {
       return Promise.resolve();
     }
     this.#phase = "stopping";
-    this.#stopping ??= this.#stop(this.#running, options?.cancel ?? false);
-    return this.#stopping;
+    const cancel = options?.cancel ?? false;
+    const stopping = this.#stopping;
+    if (stopping === undefined) {
+      this.#stopping = this.#stop(this.#running, cancel);
+      return this.#stopping;
+    }
+    if (!cancel || this.#cancelStopping === undefined) {
+      return stopping;
+    }
+    return this.#cancelStopping().then(() => stopping);
   }
 
   async #stop(
     { held, orchestrator, router }: Running,
     cancel: boolean
   ): Promise<void> {
+    let cancelling = cancel;
+    let halted = false;
+    let ended = false;
+    const cancelHeld = async (): Promise<void> => {
+      const doomed = this.#runs.durable
+        ? ["queued", "running"]
+        : ["queued", "running", "suspended"];
+      await Promise.all(
+        held.withStatus(doomed).map((runId) => orchestrator.cancelRun(runId))
+      );
+    };
+    this.#cancelStopping = async () => {
+      if (cancelling || ended) {
+        return;
+      }
+      cancelling = true;
+      this.#launcher.cancelPending();
+      if (halted) {
+        await cancelHeld();
+      }
+    };
     try {
       if (cancel) {
         this.#launcher.cancelPending();
       }
       await this.#delivery.stop();
       await this.interactions.close();
-      const parkedSurvive = this.#runs.durable;
-      if (!parkedSurvive) {
+      if (!this.#runs.durable) {
         await router.cancelOpen();
       }
       await this.#launcher.halt(cancel);
-      if (cancel) {
-        const doomed = parkedSurvive
-          ? ["queued", "running"]
-          : ["queued", "running", "suspended"];
-        await Promise.all(
-          held.withStatus(doomed).map((runId) => orchestrator.cancelRun(runId))
-        );
+      halted = true;
+      if (cancelling) {
+        await cancelHeld();
       }
       await this.#executions.drained();
       await orchestrator.drain();
       await this.#launcher.settled();
       await held.settle();
     } finally {
+      ended = true;
       try {
         await orchestrator.stop();
         await this.#executions.flush();

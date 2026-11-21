@@ -22,7 +22,6 @@ export type ProviderScope = "machine" | "workspace";
 
 export interface ProviderWorkspace {
   readonly dir: string;
-  readonly env: Readonly<Record<string, string>>;
   readonly id: string;
   readonly root: string;
 }
@@ -78,7 +77,7 @@ function cli(
   settings: Bin,
   env: Readonly<Record<string, string>>
 ) {
-  return settings.binPath ?? which(name, env.PATH);
+  return settings.binPath ?? which(name, env.PATH || "");
 }
 
 function guestOf(
@@ -232,7 +231,7 @@ export const piPlugin: ProviderPlugin<Bin> = {
       }),
     };
   },
-  detect: ({ env }) => (which("pi", env.PATH) === null ? null : {}),
+  detect: ({ env }) => (which("pi", env.PATH || "") === null ? null : {}),
   id: "pi",
   label: "Pi",
   settings: BIN,

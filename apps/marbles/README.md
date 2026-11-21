@@ -4,8 +4,8 @@ Marbles is a standalone CLI for automations you write in TypeScript. Run
 local commands, connect steps into workflows, react to changes, and add
 coding agents where a task needs judgment.
 
-Marbles is **alpha**. The first planned release is `0.0.1`; any `0.0.x`
-release may introduce breaking changes. `0.1.0` will mark the first supported
+Marbles is **alpha**, starting at `0.0.1`; the current release is `0.0.4`.
+Any `0.0.x` release may introduce breaking changes. `0.1.0` will mark the first supported
 API baseline. Every published version is npm's `latest`.
 
 [Workflows](../../packages/workflows/README.md) records step results and
@@ -17,23 +17,23 @@ versioned outputs. Marbles bundles these libraries.
 
 ## Install
 
-Requires Bun 1.3.14 or newer. The package is not yet on npm; install a
-packaged archive supplied by a maintainer:
+Requires Bun 1.3.14 or newer. Install the published package:
 
 ```sh
-bun add --global /absolute/path/to/foundry.sh-marbles-0.0.1.tgz
+bun add --global @foundry.sh/marbles@0.0.4
 marbles --help
 ```
 
-In your project, install the same archive with TypeScript 6 for editor types
+In your project, install the same package with TypeScript 6 for editor types
 and for names taken from a definition's `const`:
 
 ```sh
-bun add --dev /absolute/path/to/foundry.sh-marbles-0.0.1.tgz typescript@^6
+bun add --dev @foundry.sh/marbles@0.0.4 typescript@^6
 ```
 
 The [installation guide](https://francois-esquire.github.io/foundry/marbles/get-started/installation/)
-covers editor types and optional capabilities. Contributors can
+covers editor types and optional capabilities. Features added after a
+release may need an archive built from a checkout; contributors can
 [build an archive](https://francois-esquire.github.io/foundry/marbles/contributing/#build-a-distributable-package).
 
 ## Write one automation
@@ -133,8 +133,7 @@ the Marbles process that hosts the workspace
 answers, or the server opens the stored tasks for the call. `list_config`, the dispatch
 tools, `get_run`, and `cancel_run` need the Marbles process to host the workspace,
 and return an error that names `marbles attach` without one. Its engine
-generation loads the workspace's Varlock environment and source modules,
-and an edit brings up the next generation.
+generation loads the workspace's source modules, and an edit brings up the next generation.
 
 The server offers `list_workspaces`, `list_config`, `dispatch_workflow`,
 `dispatch_agent`, `get_run`, and `cancel_run`, plus the task tools
@@ -157,6 +156,9 @@ Schedules and monitors are listed but are not polled by this server.
   appended to a declared agent's prompt.
 - `model` and `provider`: overrides for the agent's route.
 - `cwd`: working directory, resolved relative to the loaded workspace root.
+  After following links it must be a directory inside the workspace root or
+  inside one of the workspace's worktrees that Marbles created; any other
+  path is refused.
 - `maxTurns`: maximum model/tool steps for this task, rather than a target
   number of replies. The agent can finish earlier. Network models and local
   Claude Code support this limit. Claude Code accepts at most 100. Local
@@ -186,10 +188,10 @@ an `error`. Status follows the engine: `queued`, `running`, `suspended`,
 `completed`, `failed`, or `cancelled`. `cancel_run` takes the same run ID and requests cancellation.
 Dispatched runs belong to the engine generation that started them, so
 closing the MCP connection ends only the server and leaves them running.
-`get_run` looks a run up in that generation's memory: any server for the
-same workspace sees it, and once that generation has exited, after a
-source reload or `marbles stop`, it is forgotten, though its saved output
-stays watchable.
+`get_run` reads the run's stored records, so any server for the same
+workspace finds it, and a later generation still finds it after a source
+reload or `marbles stop`, once a Marbles process hosts the workspace
+again. Its saved output stays watchable.
 
 ### Watch a run
 
@@ -222,15 +224,22 @@ runs, has no saved journal to watch. Output files have no retention policy yet.
 
 The watcher exits with code 0 on completion, 1 on failure or cancellation,
 and 130 when interrupted. Interrupting the watcher does not cancel the run.
-If the owner disappears without recording an ending, the watcher reports
-that interruption rather than waiting indefinitely.
+If the owner disappears without recording an ending, the watcher reads the
+run's Execution Run from the Marbles database before it gives up. A run
+that is parked or queued, or running under a live owner, is still being
+handed over, and the watcher keeps following it to its new owner's ending.
+A run recorded as completed, failed or cancelled ends the watch with that
+status. Otherwise, or without a database, the watcher reports that the run
+lost its owner rather than waiting indefinitely. A journal with no
+readable start record two seconds after the watcher opened it is reported
+as such.
 
 Diagnostics and the workspace's status lines go to stderr; stdout carries MCP
 messages only. The server runs in a child process whose stdout is stderr,
 so whatever it and the processes it starts print to stdout goes to stderr
 too. The server exits when stdin closes, when the
-`marbles mcp` process that started it exits, or when it receives SIGINT or
-SIGTERM. Shutdown takes a few seconds at most. A task call that does not
+`marbles mcp` process that started it exits, when it receives SIGHUP, SIGINT
+or SIGTERM, or when writing a response to that process fails. Shutdown takes a few seconds at most. A task call that does not
 finish in time is cut off, and the server is killed if it still runs. A
 Marbles process that hosts the workspace keeps hosting it, and several MCP
 clients can use one process at once. Set `FOUNDRY_HOME` to use a separate
@@ -282,10 +291,10 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
 
 ```text
 <home>/
-  marbles/                    the state root
+  marbles/                    the state root, readable by its owner only
     marbles.db                the Marbles database, readable by its owner only, with its
     marbles.db-wal, -shm      SQLite side files while a process has it open
-    marbles.sock              the Marbles process's socket
+    marbles.sock              the Marbles process's socket, its owner's only
     locks/process             the Marbles process's claim on the state root
     process.json              who holds that claim, for `marbles status`
     daemon.log                what a Marbles process started in the background prints
@@ -310,7 +319,8 @@ workspace catalogue, agent grants, deferred approvals, harness activities,
 who delivers its task changes, and the machine's and each workspace's
 provider configuration with the identity key. Provider settings can hold
 secrets, which is why the database is its owner's only. The Marbles process
-claims `locks/process` at the state root and listens on `marbles.sock`
+creates the state root mode 0700 and tightens an existing one to that when
+it starts, claims `locks/process` at the state root and listens on `marbles.sock`
 beside it, so a second Marbles process for the same home is refused with
 the holder's pid. `marbles daemon` runs the process in the
 foreground for a service manager, and `marbles status` shows it and which
@@ -318,9 +328,10 @@ workspaces it hosts. `--dry-run` hosts the workspace in the calling process
 instead, substitutes Marbles-owned operations, and avoids state writes;
 ordinary TypeScript and monitor I/O still execute. Each command decides
 what the flag means for it: `run`, `roll`, `list`, `tasks` and `mcp` have
-a dry mode, the listings, `status`, `watch` and `help` only read, and
-`attach`, `daemon`, `detach`, `init`, `relink`, `share`, `stop` and
-`unshare` refuse it before anything is opened or written. Where there is
+a dry mode, the listings, `settings themes`, `settings get`, `status`,
+`watch` and `help` only read, and `attach`, `daemon`, `detach`, `init`,
+`relink`, `settings set`, `share`, `stop` and `unshare` refuse it before
+anything is opened or written. Where there is
 no source, a dry run offers no starter: `marbles init`, without the flag,
 creates one. A dry run writes nothing under the Foundry home but SQLite's
 shared-memory index of a database that is already there
@@ -331,13 +342,13 @@ directory.
 
 ### Resources and workspaces
 
-Runs, sessions, artifacts, sandbox containers and modules are kept in the
+Runs, sessions, artifacts and sandbox containers are kept in the
 Marbles database, each belonging to the workspace it was created in.
 `marbles share <kind> <id> <dir>` shows one of this workspace's resources in
 the workspace at `<dir>` as well (a sandbox container stays with the
 workspace that started it), and `marbles unshare` stops it; neither changes
-the resource. `marbles runs`, `sessions`, `artifacts`, `sandboxes` and
-`modules` list what this workspace shows, its own and what is shared with
+the resource. `marbles runs`, `sessions`, `artifacts` and `sandboxes`
+list what this workspace shows, its own and what is shared with
 it, and `--all` lists every workspace's; a run's steps are listed under it.
 `marbles status` reads the same way. The dashboard's run and trigger lists
 show this workspace's own (live) and those shared with it, and `g` shows

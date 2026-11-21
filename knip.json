@@ -31,13 +31,7 @@
         "@ai-sdk/mcp",
         "@ai-sdk/openai-compatible",
         "@ai-sdk/provider-utils",
-        "@anthropic-ai/sdk",
-        "@fal-ai/client",
-        "@foundry/core",
         "@noble/hashes",
-        "ai-sdk-provider-codex-cli",
-        "ai-sdk-provider-claude-code",
-        "ai-sdk-provider-pi",
         "effect",
         "evlog",
         "ignore",
@@ -72,6 +66,14 @@
     },
     "packages/models": {
       "entry": ["src/local/remote/worker-entry.ts"]
+    },
+    "examples/*": {
+      "entry": ["stories/**/*.stories.tsx"],
+      "ignore": [
+        "src/components/ui/**",
+        "src/hooks/use-theme.ts",
+        "src/lib/terminal-themes/**"
+      ]
     },
     "tooling/*": {},
     "tooling/vscode-extension": {

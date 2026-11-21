@@ -18,19 +18,19 @@ it("refreshes scoped Vercel catalogs and resolves the listed models and defaults
   const workspace = "https://workspace.example/v1";
   const configuration = new ProviderConfiguration({
     environment: {
-      machine: { VERCEL_KEY: "machine-test-key" },
-      workspace: { VERCEL_KEY: "workspace-test-key" },
+      VERCEL_KEY: "machine-test-key",
+      WORK_KEY: "workspace-test-key",
     },
     models,
     plugins: [registered(vercelPlugin)],
     store,
     workspace: { dir: root, id: "ws", root },
   });
-  const entry = (id: string, baseURL: string) => ({
+  const entry = (id: string, baseURL: string, apiKey = "VERCEL_KEY") => ({
     enabled: true,
     id,
     plugin: "vercel",
-    settings: { apiKey: "VERCEL_KEY", baseURL },
+    settings: { apiKey, baseURL },
   });
   let machineRows = [
     { id: "vendor/first", type: "language" },
@@ -64,7 +64,7 @@ it("refreshes scoped Vercel catalogs and resolves the listed models and defaults
         order: ["vercel", "work"],
         providers: [
           {
-            ...entry("work", workspace),
+            ...entry("work", workspace, "WORK_KEY"),
             defaults: { text: "vendor/workspace-preferred" },
           },
         ],

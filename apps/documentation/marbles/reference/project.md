@@ -83,49 +83,20 @@ directory is itself the workspace; a single module uses its containing
 directory. Selecting `.foundry/marbles` or a module inside it uses
 the project root even when invoked from another working directory.
 
-`--config` remains an alias for `--source`. When the default folder is absent,
-an existing `./marbles.config.ts` still loads for compatibility. The folder
-takes precedence when both exist. With no source, the working directory is
+When the default folder is absent, an existing `./marbles.config.ts` still
+loads for compatibility. The folder takes precedence when both exist. With no source, the working directory is
 the workspace. `help` and `init` do not import authoring modules.
 
 ## Environment
 
-Declare tokens and settings in a [Varlock](https://varlock.dev) `.env.schema`
-at the workspace root. For example, on macOS this schema resolves a token
-from the Keychain:
-
-```sh
-# .env.schema
-# @defaultRequired=true
-# ---
-# @sensitive
-FIGMA_TOKEN=exec(`security find-generic-password -s figma -w`)
-```
-
-The Marbles process's engine generation, and `list`, load the schema
-before importing authoring modules, using the workspace's own `varlock` or
-one on `PATH`. Resolved values become the workspace's environment: every
-run of the workspace carries it, and the commands its steps run (`exec`),
-its CLI harnesses and its sandboxes inherit it, beneath values already set
-in the Marbles process, which win. A generation starts from the environment
-of the Marbles process, not of the command that attached it. Marbles resolves
-secrets each time a workspace loads, so after every source reload, and does
-not persist the loaded values. Without a schema, the workspace's
-environment is the Marbles process's.
-
-Marbles does not write the values to `process.env`, which every workspace
-hosted in one process shares. Code that reads `process.env` itself, in a
-module as it loads or in a step body, sees the Marbles process's
-environment, not the workspace's values; so does a provider whose SDK runs
-in the Marbles process and reads `process.env` for its keys, such as Pi's.
-Pass a value to a command through `exec`, or set it in the environment the
+A workspace's environment is the environment of the Marbles process. Every
+run of the workspace carries it, and the commands its steps run (`exec`)
+and its host CLI harnesses inherit it. Sandboxed CLI harnesses receive a
+separate guest environment with `HOME`, `LANG`, `PATH`, and harness-specific
+variables; they do not inherit the Marbles process environment. A generation
+starts from the environment of the Marbles process, not of the command that
+attached it. To give a workspace a variable, set it in the environment the
 Marbles process starts with.
-
-A value that does not resolve is a warning in the engine generation and in `list`:
-what is missing is printed and loading continues; work that needs the value
-can still fail. `roll --dry-run` stops instead. `help`, `init`, `mcp`,
-`status`, `sessions`, `tasks`, `watch`, `daemon`, and `stop` do not load
-the schema.
 
 ## Names and the catalog
 
@@ -158,7 +129,10 @@ The CLI supplies `@foundry.sh/marbles` and `@foundry.sh/marbles/prebuilt` to the
 authoring module itself, through a Bun loader plugin, so the modules and the CLI
 share one registry. Any other library the module imports, such as `zod`, must
 resolve relative to the importing file in the usual way. Install it in that
-project.
+project. An import that does not resolve from the importing file is left as
+written, as Bun leaves it, so a type-only import of a declaration file loads;
+one computed at run time, `import(name)`, rejects with the resolution error and
+is never resolved from where Marbles itself is installed.
 
 For CLI installation and editor types, see [Installation](/marbles/get-started/installation).
 A plain script importing the package can use instance methods and `.run()`;
@@ -178,9 +152,12 @@ summarizeCodebase({ name: "summarize-codebase" });
 
 Each factory opens a read-only reviewing agent through the context, so the
 working directory, cancellation, and streaming are already wired. Options are
-`name`, extra `instructions` appended to the read-only prompt, `provider`
-(`codex`, `claude-code`, or `pi`; omitted means the first installed CLI), and
-`timeoutMs` for the turn, two minutes by default, with no retries.
+`name`, extra `instructions` appended to the read-only prompt, `model`
+(a model id, where `"provider/model"` picks that provider and a bare id the
+first available provider that lists it, or `{ model?, provider? }` with
+`provider` one of `codex`, `claude-code`, or `pi`; omitted means the first
+installed CLI), and `timeoutMs` for the turn, two minutes by default, with
+no retries.
 
 | Factory | Input | Result |
 | --- | --- | --- |

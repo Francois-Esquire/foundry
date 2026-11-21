@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { Sessions } from "@foundry/agents/session";
 import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
@@ -269,6 +269,51 @@ describe("the resource views", () => {
         associations.sharedWith({ id: "rn-1", kind: "run", owner: "ws1" })
       )
     ).toEqual([]);
+  });
+
+  it("remove a run's shares when the run store removes the run", async () => {
+    const { state } = await machine();
+    const run: ResourceRef = { id: "rn-1", kind: "run", owner: "ws1" };
+    await withAssociations(state, (associations) =>
+      associations.share(run, "ws2")
+    );
+    const opened = await initializeDatabase(stateDatabase(state));
+    try {
+      await new DatabaseRunStore({
+        database: opened.database,
+        scope: "ws1",
+      }).remove("rn-1");
+    } finally {
+      opened.close();
+    }
+    expect(
+      await withAssociations(state, (associations) =>
+        associations.sharedWith(run)
+      )
+    ).toEqual([]);
+  });
+
+  it("show nothing a workspace whose state directory is a link owns, in another workspace it was shared with", async () => {
+    const { artifact, state } = await machine();
+    const run: ResourceRef = { id: "rn-1", kind: "run", owner: "ws1" };
+    await withAssociations(state, async (associations) => {
+      await associations.share(artifact, "ws2");
+      await associations.share(run, "ws2");
+    });
+    const elsewhere = temporaryDirectory("marbles-resources-elsewhere-");
+    rmSync(join(state, "ws1"), { force: true, recursive: true });
+    symlinkSync(elsewhere, join(state, "ws1"));
+    expect(
+      await readResourceView(state, { workspace: "ws2" }, async (view) => ({
+        artifacts: (await view.artifacts()).map((shown) => shown.value.name),
+        found: await view.find("artifact", artifact.id),
+        has: await view.has(artifact),
+        shared: (await view.sharedRuns()).map((shown) => shown.ref.id),
+      }))
+    ).toEqual({ artifacts: ["plan"], found: [], has: false, shared: [] });
+    expect(
+      (await names(state, ALL_WORKSPACES))?.map((shown) => shown.name)
+    ).toEqual(["plan"]);
   });
 
   it("share a resource deleted during the share either not at all or with the delete taking the share, never leaving it for a new one of the same id", async () => {

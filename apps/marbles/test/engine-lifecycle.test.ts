@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
 import { expect, it, vi } from "vitest";
 import type { Context } from "~/lib/types";
 import { testEngine, testInstances } from "./helpers/engine";
@@ -217,3 +218,39 @@ it("disposal reports every cleanup error after trying the remaining resources", 
   });
   expect(agents).toHaveBeenCalledOnce();
 });
+
+it.each(["stop", "dispose"] as const)(
+  "a cancelling %s escalates a graceful stop that a retired engine's queued run, never handed over, holds open",
+  async (via) => {
+    const engine = testEngine({ queues: { default: { concurrency: 1 } } });
+    const gate = deferred();
+    engine.define({ fn: () => gate.promise, kind: "step", name: "blocking" });
+    engine.define({ fn: () => "done", kind: "step", name: "waiting" });
+    await engine.start();
+    const blocking = await engine.launch("blocking", {});
+    const waiting = await engine.launch("waiting", {});
+    const waited = waiting.result.then(
+      () => "completed",
+      () => "cancelled"
+    );
+    await engine.retire(thisProcess());
+    gate.resolve();
+    await blocking.result;
+
+    let stopped = false;
+    const stopping = engine.stop().then(() => {
+      stopped = true;
+    });
+    await new Promise((settle) => setTimeout(settle, 300));
+    expect(stopped).toBe(false);
+
+    await (via === "stop" ? engine.stop({ cancel: true }) : engine.dispose());
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(await waited).toBe("cancelled");
+    if (via === "stop") {
+      await engine.dispose();
+    }
+  },
+  20_000
+);

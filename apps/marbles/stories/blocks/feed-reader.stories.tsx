@@ -71,6 +71,7 @@ function AnsweringReader() {
   } else if (note === undefined) {
     answer = {
       draft,
+      focused: true,
       hint: "note optional · Enter send · Esc cancel",
       kind: "typing",
       onInput: setDraft,
@@ -221,6 +222,7 @@ export const Typing = story({
       <Reader
         item={reader(freeTextEntry, {
           draft: "Marbles 0.4 · Lantern",
+          focused: true,
           hint: "Enter send · Esc cancel",
           kind: "typing",
           onInput: ignore,

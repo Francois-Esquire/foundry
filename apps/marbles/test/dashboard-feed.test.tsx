@@ -1,10 +1,18 @@
-import { act } from "react";
+import { act, useState } from "react";
 import { afterEach, expect, test } from "vitest";
 import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import { feedKey } from "../src/cli/state/feed-model";
 import { DashboardView } from "../src/cli/views/dashboard";
 import type { FeedAnswer } from "../src/lib/feed/entry";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
-import { flush, frameWith, mount, unmount } from "./helpers/render";
+import {
+  click,
+  ctrlC,
+  flush,
+  frameWith,
+  mount,
+  unmount,
+} from "./helpers/render";
 
 let closed = false;
 function close() {
@@ -224,4 +232,137 @@ test("types a free-text answer without triggering dashboard keys", async () => {
   expect(answers).toEqual(["quite a lot"]);
   expect(ui.captureCharFrame()).not.toContain("Quit Marbles?");
   expect(closed).toBe(false);
+});
+
+type FeedEntry = DashboardSnapshot["feed"][number];
+
+function openQuestion(
+  id: string,
+  title: string,
+  input: FeedEntry["input"] = { choices: [], status: "open" }
+): FeedEntry {
+  return { ...dashboardSnapshot.feed[0], id, input, title } as FeedEntry;
+}
+
+let post: ((entry: FeedEntry) => void) | undefined;
+
+function FeedHost({
+  feed,
+  onAnswer,
+}: {
+  readonly feed: readonly FeedEntry[];
+  readonly onAnswer: (id: string, value: FeedAnswer) => Promise<void>;
+}) {
+  const [snapshot, setSnapshot] = useState<DashboardSnapshot>({
+    ...dashboardSnapshot,
+    feed: [...feed],
+  });
+  post = (entry) =>
+    setSnapshot((previous) => ({
+      ...previous,
+      feed: [entry, ...previous.feed],
+    }));
+  return (
+    <DashboardView onAnswer={onAnswer} onClose={close} snapshot={snapshot} />
+  );
+}
+
+function recordAnswers() {
+  const answers: [string, FeedAnswer][] = [];
+  const onAnswer = (id: string, value: FeedAnswer) => {
+    answers.push([id, value]);
+    return Promise.resolve();
+  };
+  return { answers, onAnswer };
+}
+
+test("a draft stays with its question when a newer question arrives", async () => {
+  const { answers, onAnswer } = recordAnswers();
+  const first = openQuestion("feed-first", "First question?");
+  const ui = await mount(<FeedHost feed={[first]} onAnswer={onAnswer} />);
+  await act(async () => ui.mockInput.pressKey("F"));
+  await act(async () => ui.mockInput.pressKey("a"));
+  await act(async () => ui.mockInput.typeText("for the first"));
+  await flush(ui);
+  await act(async () => post?.(openQuestion("feed-later", "Later question?")));
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain("Later question?");
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(answers).toEqual([["feed-first", "for the first"]]);
+});
+
+test("an approval choice stays with its question when a newer question arrives", async () => {
+  const { answers, onAnswer } = recordAnswers();
+  const approval = {
+    choices: ["approve", "reject"],
+    mode: "approval" as const,
+    status: "open" as const,
+  };
+  const first = openQuestion("feed-first", "Release v2?", approval);
+  const ui = await mount(<FeedHost feed={[first]} onAnswer={onAnswer} />);
+  await act(async () => ui.mockInput.pressKey("F"));
+  await act(async () => ui.mockInput.pressKey("1"));
+  await flush(ui);
+  await act(async () =>
+    post?.(openQuestion("feed-later", "Release v3?", approval))
+  );
+  await flush(ui);
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(answers).toEqual([["feed-first", { choice: "approve" }]]);
+});
+
+test("choosing another entry while typing drops the draft instead of sending it there", async () => {
+  const { answers, onAnswer } = recordAnswers();
+  const first = openQuestion("feed-first", "First question?");
+  const second = openQuestion("feed-second", "Second question?");
+  const ui = await mount(
+    <FeedHost feed={[first, second]} onAnswer={onAnswer} />
+  );
+  await act(async () => ui.mockInput.pressKey("F"));
+  await act(async () => ui.mockInput.pressKey("a"));
+  await act(async () => ui.mockInput.typeText("for the first"));
+  await flush(ui);
+  await click(ui, `feed:${feedKey(second)}`);
+  const frame = ui.captureCharFrame();
+  expect(frame).not.toContain("for the first");
+  expect(frame).not.toContain("Enter send · Esc cancel");
+  await act(async () => ui.mockInput.pressKey("a"));
+  await act(async () => ui.mockInput.typeText("fresh"));
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(answers).toEqual([["feed-second", "fresh"]]);
+});
+
+test("the answer keeps its keys after Keep open on the quit dialog", async () => {
+  const { answers, onAnswer } = recordAnswers();
+  const question = openQuestion("feed-note", "Anything to add?");
+  const ui = await mount(<FeedHost feed={[question]} onAnswer={onAnswer} />);
+  await act(async () => ui.mockInput.pressKey("F"));
+  await act(async () => ui.mockInput.pressKey("a"));
+  await act(async () => ui.mockInput.typeText("quite"));
+  await flush(ui);
+  await ctrlC(ui);
+  expect(ui.captureCharFrame()).toContain("Quit Marbles?");
+  await click(ui, "dialog:cancel");
+  await act(async () => ui.mockInput.typeText(" a lot"));
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(answers).toEqual([["feed-note", "quite a lot"]]);
+  expect(closed).toBe(false);
+});
+
+test("the Feed list shows the command table's hints, answer included", async () => {
+  const { onAnswer } = recordAnswers();
+  const question = openQuestion("feed-note", "Anything to add?");
+  const ui = await mount(<FeedHost feed={[question]} onAnswer={onAnswer} />, {
+    height: 40,
+    width: 160,
+  });
+  await act(async () => ui.mockInput.pressKey("F"));
+  await flush(ui);
+  expect(ui.captureCharFrame()).toContain(
+    "entries · Enter read · ↑↓ select · a answer"
+  );
 });

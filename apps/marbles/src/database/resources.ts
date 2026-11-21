@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { SessionRecord } from "@foundry/agents/schema";
 import type { MessageTally } from "@foundry/agents/store/sqlite";
 import type { Artifact, ArtifactId } from "@foundry/artifacts";
@@ -28,6 +29,7 @@ import type {
   ResourceRef,
 } from "~/lib/resources";
 import { ResourceAssociations, sameResource } from "~/lib/resources";
+import { insideState } from "~/lib/state/workspace";
 
 export type ViewScope = { readonly workspace: string } | typeof ALL_WORKSPACES;
 
@@ -68,12 +70,14 @@ export class ResourceView {
   readonly #associations: DatabaseAssociationStore;
   readonly #database: StoreDatabase;
   readonly #registry: WorkspaceRegistry;
+  readonly #state: string;
 
   constructor(options: ResourceViewOptions) {
     this.scope = options.scope;
     this.#database = options.database;
     this.#associations = new DatabaseAssociationStore(options);
     this.#registry = new WorkspaceRegistry(options);
+    this.#state = resolve(options.state);
   }
 
   async runs(limit?: number): Promise<readonly Shown<RunResource>[]> {
@@ -91,7 +95,7 @@ export class ResourceView {
     const here = this.scope.workspace;
     const reader = this.#runs();
     const refs = (await this.#associations.sharedWith("run", here)).filter(
-      (ref) => ref.owner !== here
+      (ref) => ref.owner !== here && this.#counts(ref.owner)
     );
     const found = await this.#fetch("run", reader, refs);
     const all = await this.#associations.list("run");
@@ -169,7 +173,17 @@ export class ResourceView {
   }
 
   async has(ref: ResourceRef): Promise<boolean> {
-    return (await this.#reader(ref.kind).get(ref.owner, [ref.id])).length > 0;
+    return (
+      this.#counts(ref.owner) &&
+      (await this.#reader(ref.kind).get(ref.owner, [ref.id])).length > 0
+    );
+  }
+
+  #counts(owner: string): boolean {
+    return (
+      (this.scope !== ALL_WORKSPACES && owner === this.scope.workspace) ||
+      insideState(this.#state, owner)
+    );
   }
 
   async #show<T>(
@@ -205,7 +219,10 @@ export class ResourceView {
     }
     const here = this.scope.workspace;
     const shared = associations
-      .filter(({ ref, workspace }) => workspace === here && ref.owner !== here)
+      .filter(
+        ({ ref, workspace }) =>
+          workspace === here && ref.owner !== here && this.#counts(ref.owner)
+      )
       .map(({ ref }) => ref);
     return [
       ...(await owned(here)),

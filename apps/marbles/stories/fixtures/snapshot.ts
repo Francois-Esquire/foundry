@@ -268,6 +268,17 @@ export const dashboardSnapshot: DashboardSnapshot = {
               name: "Write changes",
               status: "running",
               usage: { direct: writeUsage, inclusive: writeUsage },
+              work: [
+                {
+                  id: "work-write",
+                  input: "steer",
+                  kind: "agent",
+                  model: "claude-sonnet-5-5",
+                  provider: "claude-code",
+                  sessionId: "session-write",
+                  stepId: "write",
+                },
+              ],
             },
           ],
           elapsed: "22s",

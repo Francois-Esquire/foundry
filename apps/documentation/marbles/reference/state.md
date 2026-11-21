@@ -47,6 +47,9 @@ workspace this machine has run, and says which of them the process hosts.
                           `marbles daemon` prints to its own terminal instead
   settings.json           global dashboard preferences (the theme), shared by
                           every workspace; the one file meant to be edited by hand
+  spawned/<pid>.json      what its workspaces started and is still running, with
+                          the process that started it, so a start after a crash
+                          stops what an engine that is gone left behind
   <workspace-id>/         one directory per workspace, below
 ```
 
@@ -90,7 +93,7 @@ Output journals are append-only. Lock files are created in place
 read. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
 A workspace is recorded in the database when it is attached to the Marbles
-process (`run`, `roll`, the dashboard, or the MCP server), which sets
+process (`run`, `roll`, `attach`, or the dashboard), which sets
 `hosted: true`, and by a program that hosts it itself; `list`, `status`,
 `sessions`, `watch`, a task read, and anything under `--dry-run` leave an
 empty state root empty. Only a process holding `locks/process` at the state
@@ -262,7 +265,16 @@ The writer appends newline-delimited JSON. A watcher reads complete records,
 keeps an incomplete final line until more bytes arrive, and follows new
 output without modifying state. Completed output remains readable after the
 owner exits. If the owner disappears before recording an ending, the watcher
-reports that interruption; it does not restart or adopt the run.
+reads the run's Execution Run from the Marbles database before it calls the
+run lost. A run recorded as parked or queued is waiting to be adopted, and
+one recorded as running under a live owner has been taken over; the watcher
+keeps following either one, through the new owner's start record, to its
+ending. A run recorded as completed, failed or cancelled ends the watch with
+that status, once the watcher has read whatever the journal holds by then.
+Otherwise, or without a database, the watcher reports that the run lost its
+owner. A journal that has no readable start record two seconds after the
+watcher opened it is reported as such. The watcher never restarts or adopts
+the run.
 
 These journals are output history, not replay checkpoints or a persistent
 job queue. A host pruning a settled Execution Run removes its workflow run
@@ -302,16 +314,18 @@ no database (a script no host loaded) keeps its artifacts in memory.
 
 ### Resources and workspaces
 
-Runs, sessions, artifacts, sandbox containers and modules are resources:
+Runs, sessions, artifacts and sandbox containers are resources:
 each is kept once, by its kind's store, under the workspace that created it
 (its owner), which it belongs to for good. `marbles share` shows a run,
-session, artifact or module in another registered workspace as well, a row
+session or artifact in another registered workspace as well, a row
 of `marbles_resource_workspaces`; `marbles unshare` removes the row and
 never the resource. A sandbox container cannot be shared. `status`, the
-resource listings (`runs`, `sessions`, `artifacts`, `sandboxes`, `modules`)
+resource listings (`runs`, `sessions`, `artifacts`, `sandboxes`)
 and the dashboard read a workspace's view: what it owns and what is shared
 with it, or with `--all` (the dashboard's `g`, the Feed's "All
-workspaces") every workspace's. On the dashboard this workspace's runs and
+workspaces") every workspace's. Neither shows another workspace's
+resources while that workspace's state directory under the state root is
+a link. On the dashboard this workspace's runs and
 triggers are live, from its engine; another workspace's are read from the
 database at most every two seconds, its triggers from their last tick
 (`marbles_schedule_ticks`) and pending monitor launch

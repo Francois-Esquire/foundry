@@ -7,8 +7,10 @@ import type { SettingsChange, ThemeName } from "~/model/settings";
 import { settingsView } from "../theme";
 import {
   type CommandContext,
+  capturesKeys,
   commandFor,
   footer,
+  goesHome,
   openDiagnostics,
 } from "./dashboard-commands";
 import {
@@ -27,6 +29,7 @@ import {
   paneOf,
   reduce,
   selectedLog,
+  settle,
   visibleLists,
   visibleLogs,
 } from "./dashboard-state";
@@ -51,7 +54,7 @@ import {
   type OperatingLogEntry,
   operatingLogs,
 } from "./operating-model";
-import type { Launcher, RunActions } from "./run-actions";
+import { type Launcher, promptTarget, type RunActions } from "./run-actions";
 import { usageBreakdown } from "./usage-format";
 import { type AnswerHandler, useFeed } from "./use-feed";
 import { showsOthers, workspaceScoped } from "./workspace-scope";
@@ -107,14 +110,15 @@ export function useDashboard({
   const [everywhere, setEverywhere] = useState(false);
   const workspaces = hosted?.workspaces ?? [];
   const snapshot = workspaceScoped(whole, everywhere);
-  const [state, setState] = useState(() => {
+  const [stored, setState] = useState(() => {
     const initial = initialState(snapshot);
     return hosted
       ? reduce(initial, { type: "view", view: "overview" }, snapshot)
       : initial;
   });
+  const state = settle(stored, snapshot);
   const send = (event: DashboardEvent) =>
-    setState((previous) => reduce(previous, event, snapshot));
+    setState((previous) => reduce(settle(previous, snapshot), event, snapshot));
   const openWorkspaces = () => {
     const id = whole.workspaceId ?? workspaces[0]?.id;
     if (id !== undefined) {
@@ -169,15 +173,24 @@ export function useDashboard({
       return;
     }
     const text = draft.trim();
-    if (prompt.kind === "steer" && !text) {
+    if (prompt.kind === "resume") {
+      control.run(async () => {
+        await actions.resume(prompt.runId, prompt.stepId, text || undefined);
+        send({ draft, prompt, type: "prompt-sent" });
+      });
       return;
     }
-    send({ type: "prompt" });
-    control.run(() =>
-      prompt.kind === "steer"
-        ? actions.steer(prompt.runId, prompt.stepId, text)
-        : actions.resume(prompt.runId, prompt.stepId, text || undefined)
-    );
+    const target = promptTarget(prompt);
+    if (!target || (target.input === "steer" && !text)) {
+      return;
+    }
+    control.run(async () => {
+      await actions.send(prompt.runId, target.stepId, {
+        target: target.id,
+        text: target.input === "stdin" ? draft : text,
+      });
+      send({ draft, prompt, type: "prompt-sent" });
+    });
   }
 
   const allLogs = useMemo(() => operatingLogs(snapshot), [snapshot]);
@@ -207,6 +220,15 @@ export function useDashboard({
       others: showsOthers(whole),
     },
   };
+  const free = !(quit.quitting || capturesKeys(context));
+  const unlessModal =
+    <A extends unknown[]>(action: (...args: A) => void) =>
+    (...args: A) => {
+      if (free) {
+        action(...args);
+      }
+    };
+
   useKeyboard((key) => {
     if (form !== undefined || quit.handleKey(key)) {
       return;
@@ -253,7 +275,9 @@ export function useDashboard({
 
   function openLog(entry: OperatingLogEntry) {
     if (entry.runId === undefined) {
-      setState((previous) => selectLog(previous, snapshot, entry));
+      setState((previous) =>
+        selectLog(settle(previous, snapshot), snapshot, entry)
+      );
       return;
     }
     send({ selection: logRun(entry, entry.runId), type: "inspect" });
@@ -302,8 +326,8 @@ export function useDashboard({
       configurationShown: state.configuration,
       onFilter: (filter: CatalogSelection) => send({ filter, type: "filter" }),
       onInspect: inspect,
-      onLaunch: onLaunch ? launch : undefined,
-      onRollSchedule: onRollSchedule ? rollSchedule : undefined,
+      onLaunch: onLaunch ? unlessModal(launch) : undefined,
+      onRollSchedule: onRollSchedule ? unlessModal(rollSchedule) : undefined,
       onTab: (tab: InspectorTab) => send({ tab, type: "tab" }),
       onToggleConfiguration: () => send({ type: "configuration" }),
       resolved,
@@ -362,18 +386,22 @@ export function useDashboard({
     drawer,
     footer: footer(context),
     form,
-    goHome: () => send({ type: "home" }),
+    goHome: () => {
+      if (!quit.quitting && goesHome(context)) {
+        send({ type: "home" });
+      }
+    },
     leaveForm: () => send({ type: "launch-form" }),
     main,
-    openDiagnostics: () => openDiagnostics({ ...context, send }),
-    openSettings: () => send({ type: "view", view: "settings" }),
-    openWorkspaces,
+    openDiagnostics: unlessModal(() => openDiagnostics({ ...context, send })),
+    openSettings: unlessModal(() => send({ type: "view", view: "settings" })),
+    openWorkspaces: unlessModal(openWorkspaces),
     quit,
     rail:
       workspaceRail && workspaces.length > 0
         ? {
             current: snapshot.workspaceId,
-            onSelect: chooseWorkspace,
+            onSelect: unlessModal(chooseWorkspace),
             selected: snapshot.workspaceId ?? "",
             workspaces: workspaceRows(workspaces),
           }
@@ -383,7 +411,9 @@ export function useDashboard({
       ? browseSearch(snapshot, state, searchBar)
       : undefined,
     setDraft,
-    setView: (view: DashboardViewKey) => send({ type: "view", view }),
+    setView: unlessModal((view: DashboardViewKey) =>
+      send({ type: "view", view })
+    ),
     showRun: (id: string) => send({ id, type: "show-run" }),
     snapshot,
     starting,

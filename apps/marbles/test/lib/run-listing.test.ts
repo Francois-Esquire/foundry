@@ -121,3 +121,23 @@ it("lists a Run once when another listing finds it settled after this one read i
   release();
   expect((await first).map((run) => run.id)).toEqual(["rn-a", "rn-b"]);
 });
+
+it("learns a retained run completed by another generation after loading, without listing it live", async () => {
+  const { put, store } = await arranged();
+  await put("rn-elsewhere", "running", 1);
+  const listing = new RunListing(store);
+  await listing.load();
+  const getRun = vi.spyOn(store, "getRun");
+  expect(await listing.list()).toEqual([]);
+  await store.updateRun("rn-elsewhere", {
+    output: "finished elsewhere",
+    status: "complete",
+  });
+  const completed = await listing.list();
+  expect(completed).toMatchObject([
+    { id: "rn-elsewhere", output: "finished elsewhere", status: "complete" },
+  ]);
+  getRun.mockClear();
+  expect(await listing.list()).toEqual(completed);
+  expect(getRun).not.toHaveBeenCalled();
+});

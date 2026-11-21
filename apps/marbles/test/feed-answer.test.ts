@@ -101,6 +101,7 @@ describe("answerView", () => {
     ).toEqual({
       draft: "hi",
       error: "failed",
+      focused: true,
       hint: "Enter send · Esc cancel",
       kind: "typing",
       onInput: setDraft,

@@ -220,16 +220,17 @@ const engine = new Engine({
 });
 ```
 
-Delivery to observers is claimed by a lock in the engine's own `state`
-directory, not in the records' database. An engine without `state`
-claims nothing. Two engines that share a workspace's records without
-sharing one `state` directory both deliver, so an observer can run twice
-for one change. A claim held in the database itself is planned, with the
-outbox that replaces this delivery path.
+Delivery to observers is claimed through the records. The database's
+records claim it in a transaction on the workspace's row of
+`marbles_delivery_claims`, so of the engines that share a workspace's
+records only one delivers; the others wait, and take the claim once its
+holder releases it or its process is gone. Records kept in memory grant
+every claim.
 
 `WorkspaceRecords` is the type a host implements to keep the tasks
-elsewhere: `taskStore`, the changes it records (`pending`, `latest`,
-`deliver`), `watch`, and `close`.
+elsewhere: `taskStore`, the change log its stores record into (`log`),
+`watch`, `close`, and the delivery claim (`claimDelivery` and
+`releaseDelivery`).
 
 ## Package instances
 
@@ -255,7 +256,7 @@ the workspace entry's job, below.
 ## Host one workspace
 
 `@foundry.sh/marbles/workspace` hosts a workspace the way the CLI does,
-without the CLI: `hostWorkspace` finds the source, loads the environment,
+without the CLI: `hostWorkspace` finds the source, snapshots the process environment,
 imports the modules, builds and starts the engine, and returns a
 `WorkspaceHost`: the `WorkspaceConnection` the dashboard, the CLI, and the
 MCP server are written against, plus the engine itself. `layout` decides
@@ -310,11 +311,9 @@ over a bare engine. `describe`, `snapshot`, `dispatchWorkflow`,
 tools and the dashboard call. `close` stops the engine, cancelling live
 runs, and disposes what it opened.
 
-Each host loads its workspace's source into a catalog of its own, and its
-`.env.schema` into the environment the workspace's runs carry, leaving
-`process.env` as it was; two hosts in one process never see each other's
-definitions, triggers, agents, tasks or values, and two workspaces may use
-the same names. What a workspace's modules do later, from a timer, a
+Each host loads its workspace's source into a catalog of its own; two
+hosts in one process never see each other's definitions, triggers, agents
+or tasks, and two workspaces may use the same names. What a workspace's modules do later, from a timer, a
 promise or a listener, still belongs to that workspace, and is refused once
 its host has closed. Every module a workspace's source imports by path,
 under its root or not, is loaded for that workspace alone; a package,
@@ -338,9 +337,8 @@ parked run by a claim on its row in the Marbles database instead, and one
 of them hosting the workspace while your program does is not refused by
 the lock. A live
 holder throws `ProcessHeldError`, naming who has it; a lock left by an
-exited process is taken over. Pass `dry: true` to persist nothing, and
-`env: "require"` to refuse a `.env.schema` that does not resolve (the
-default warns). `watchSource(configPath, { onChange, signal })` polls the
+exited process is taken over. Pass `dry: true` to persist nothing.
+`watchSource(configPath, { onChange, signal })` polls the
 authoring folder, helpers included, every second and reports a change; a
 host restarts itself on one, since loaded modules cannot be unloaded.
 `createStarter` writes a starter module for a workspace without one.
