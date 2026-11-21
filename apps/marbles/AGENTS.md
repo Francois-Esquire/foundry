@@ -288,8 +288,10 @@ Five buckets, each importing only what sits below it:
   the engine's execution context, never `process.env`. Each load imports
   copies of its own of every module and data file its source imports by
   path (`copies.ts`: anything but packages and Marbles' own code; it
-  rewrites only import specifiers, found with `oxc-parser`, and a file
-  that does not parse, or is CommonJS, fails the load), and those
+  rewrites only import specifiers, found with `oxc-parser`, leaves one that
+  does not resolve as written, rejects a computed `import()` that does not
+  resolve from the importing file, and a file that does not parse, or is
+  CommonJS, fails the load), and those
   copies import a library bound to the load (`authoring/bound.ts`): every
   word that declares or routes runs in the load's scope (`inLoad`), and
   builders and instances keep whom they answer to (`captureScope`: the

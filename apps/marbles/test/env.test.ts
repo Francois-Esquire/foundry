@@ -14,6 +14,10 @@ import { EnvironmentError, loadEnvironment } from "~/workspace/env";
 const REQUIRED_PATTERN = /MARBLES_TEST_TOKEN is required/;
 const INSTALL_PATTERN =
   /needs Varlock to load; install it with `bun add -d varlock`/;
+const STOPPED_PATTERN =
+  /^\[env\] .* Varlock ran longer than 0\.2s and was stopped$/;
+const NOT_JSON_PATTERN =
+  /^\[env\] .* Varlock printed something other than a JSON object$/;
 
 let root: string;
 const saved = { ...process.env };
@@ -33,6 +37,14 @@ else
 fi
 `
   );
+  chmodSync(script, 0o755);
+}
+
+function fakeScript(dir: string, body: string): void {
+  const bin = join(dir, "node_modules", ".bin");
+  mkdirSync(bin, { recursive: true });
+  const script = join(bin, "varlock");
+  writeFileSync(script, `#!/bin/sh\n${body}`);
   chmodSync(script, 0o755);
 }
 
@@ -138,6 +150,34 @@ printf '{"MARBLES_TEST_TOKEN":"from a file"}'
     loadEnvironment(root, "warn", (line) => lines.push(line));
     expect(lines[0]).toMatch(REQUIRED_PATTERN);
     expect(lines[0]?.startsWith("[env] ")).toBe(true);
+  });
+
+  it("stops a Varlock that does not exit, failing work about to run and only warning otherwise", () => {
+    writeFileSync(join(root, ".env.schema"), "MARBLES_TEST_TOKEN=\n");
+    fakeScript(root, "trap '' TERM\nexec sleep 30\n");
+    const started = Date.now();
+    expect(() =>
+      loadEnvironment(root, "require", () => undefined, 200)
+    ).toThrow(EnvironmentError);
+    const lines: string[] = [];
+    expect(
+      loadEnvironment(root, "warn", (line) => lines.push(line), 200).workspace
+    ).toEqual({});
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(lines).toEqual([expect.stringMatching(STOPPED_PATTERN)]);
+  });
+
+  it("fails work about to run, and only warns otherwise, when Varlock prints something other than a JSON object", () => {
+    writeFileSync(join(root, ".env.schema"), "MARBLES_TEST_TOKEN=\n");
+    for (const printed of ["not json", "[1]", "null"]) {
+      fakeScript(root, `printf '%s' '${printed}'\n`);
+      expect(() => loadEnvironment(root, "require", () => undefined)).toThrow(
+        EnvironmentError
+      );
+      const lines: string[] = [];
+      loadEnvironment(root, "warn", (line) => lines.push(line));
+      expect(lines).toEqual([expect.stringMatching(NOT_JSON_PATTERN)]);
+    }
   });
 
   it("names the install command when Varlock is not there", () => {

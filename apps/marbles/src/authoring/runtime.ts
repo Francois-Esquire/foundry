@@ -3,6 +3,7 @@ import type { ModelManager } from "@foundry/models";
 import type { TaskStore } from "@foundry/tasks";
 import type { Catalog } from "~/authoring/catalog";
 import { catalog } from "~/authoring/catalog";
+import { forgetLoad } from "~/authoring/identity";
 import { newLoad } from "~/authoring/load-tag";
 import { initializeUsage } from "~/authoring/usage";
 import type { Engine } from "~/lib/engine";
@@ -79,6 +80,7 @@ function sweep(): void {
     if (load.abandoned || load.binding?.released === true) {
       loads.delete(number);
       retired.set(number, load.workspaceId);
+      forgetLoad(number);
     }
   }
   for (const id of [...hostings.keys()]) {
@@ -225,7 +227,11 @@ export function abandonHost(workspaceId: string, given: Catalog): void {
       load.abandoned = true;
     }
   }
-  if (hostings.get(workspaceId)?.binding === undefined) {
+  const hosting = hostings.get(workspaceId);
+  if (
+    hosting === undefined ||
+    (hosting.catalog === given && hosting.binding === undefined)
+  ) {
     hostings.delete(workspaceId);
     released.add(workspaceId);
   }
