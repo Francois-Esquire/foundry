@@ -117,14 +117,10 @@
     "vitest": "^4.1.9"
   },
   "peerDependencies": {
-    "@fal-ai/client": "1.11.0-alpha.2",
     "microsandbox": "0.6.18",
     "typescript": "^6.0.0"
   },
   "peerDependenciesMeta": {
-    "@fal-ai/client": {
-      "optional": true
-    },
     "microsandbox": {
       "optional": true
     },

@@ -246,10 +246,24 @@ test("the tarball installs and shares the library registry with the CLI", async 
     expect(
       readdirSync(join(installed, "dist", "migrations", "meta"))
     ).toContain("_journal.json");
+    expect(
+      Object.entries(manifest).filter(
+        ([, value]) =>
+          typeof value === "object" &&
+          value !== null &&
+          Object.hasOwn(value, "@fal-ai/client")
+      ),
+      "the manifest lists @fal-ai/client"
+    ).toEqual([]);
     for (const file of readdirSync(join(installed, "dist"))) {
       if (file.endsWith(".js") || file.endsWith(".d.ts")) {
+        const source = readFileSync(join(installed, "dist", file), "utf8");
+        expect(privateImports(source)).toEqual([]);
         expect(
-          privateImports(readFileSync(join(installed, "dist", file), "utf8"))
+          moduleSpecifiers(source).filter((specifier) =>
+            specifier.startsWith("@fal-ai/")
+          ),
+          `${file} imports fal`
         ).toEqual([]);
       }
       if (file.endsWith(".d.ts")) {

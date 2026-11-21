@@ -32,7 +32,7 @@
     },
     "apps/marbles": {
       "name": "@foundry.sh/marbles",
-      "version": "0.0.3",
+      "version": "0.0.4",
       "bin": {
         "marbles": "./bin/marbles",
       },
@@ -89,12 +89,10 @@
         "ai-sdk-provider-pi": "0.1.0",
       },
       "peerDependencies": {
-        "@fal-ai/client": "1.11.0-alpha.2",
         "microsandbox": "0.6.18",
         "typescript": "^6.0.0",
       },
       "optionalPeers": [
-        "@fal-ai/client",
         "microsandbox",
         "typescript",
       ],
