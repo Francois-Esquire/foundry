@@ -359,8 +359,12 @@ Five buckets, each importing only what sits below it:
   load has its fingerprint refused. A generation whose daemon is gone (a
   crash) is out of any daemon's reach: it ticks and delivers no more, lets
   in its queued runs and finishes them with its running ones on the code
-  it loaded, then exits. The next daemon records it retiring while its
-  process is alive, and leaves its runs to it, since their owner is alive;
+  it loaded, then lets go of its parked runs, which stay suspended, and
+  exits; a schedule records no outcome for a firing whose run it let go,
+  and the sweep offers that run to the current generation. The next daemon
+  records it retiring while its
+  process is alive, and leaves its running and queued runs to it, since
+  their owner is alive;
   the sweep records it exited once its pid and start prove it gone, and a
   record without a start, which proves nothing, shows in `marbles status`
   as "cannot tell". A queued run whose owner is proved gone is taken by

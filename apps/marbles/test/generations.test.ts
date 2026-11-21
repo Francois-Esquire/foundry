@@ -9,11 +9,15 @@ import {
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { processAlive } from "@foundry/lib/process-identity";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GenerationRecords, readLiveGenerations } from "~/database/generations";
 import { readDatabase } from "~/database/open";
-import { marblesExecutions, marblesGenerations } from "~/database/tables";
+import {
+  marblesExecutions,
+  marblesGenerations,
+  marblesScheduleTicks,
+} from "~/database/tables";
 import { recordedWorkspaces, WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import { connect, type MarblesClient } from "~/process/client";
@@ -37,6 +41,7 @@ import {
   whenLogged,
 } from "./helpers/generation-switch";
 import { testHome } from "./helpers/home";
+import { outputLines } from "./helpers/output-lines";
 
 const daemons: Daemon[] = [];
 
@@ -49,7 +54,14 @@ const zodPath = createRequire(import.meta.url).resolve("zod");
 function moduleText(
   fixture: Pick<Fixture, "gates" | "log">,
   revision: number,
-  { broken = false, strict = false, ticking = false } = {}
+  {
+    asking = false,
+    broken = false,
+    holding = false,
+    parking = false,
+    strict = false,
+    ticking = false,
+  } = {}
 ): string {
   const holds = [1, 2]
     .map(
@@ -84,6 +96,38 @@ function moduleText(
   appendFileSync(${JSON.stringify(fixture.log)}, "tock " + process.pid + " " + Date.now() + "\\n");
 });
 schedule(tick).every("1s");`
+      : "",
+    asking
+      ? `export const scheduledAsk = step("scheduled-ask").do(async ({ ask }) => {
+  note("scheduled-ask");
+  const answer = await ask.question({ title: "Scheduled?", choices: ["yes", "no"] });
+  note("scheduled-answered");
+  return answer;
+});
+schedule(scheduledAsk).every("1s");`
+      : "",
+    holding
+      ? `export const scheduledHold = step("scheduled-hold").do(async () => {
+  note("scheduled-hold");
+  while (!existsSync(${JSON.stringify(join(fixture.gates, "scheduled-hold"))})) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  note("scheduled-held");
+  return process.pid;
+});
+schedule(scheduledHold).every("1s");`
+      : "",
+    parking
+      ? `export const scheduledLate = step("scheduled-late").do(async ({ ask }) => {
+  note("scheduled-late");
+  while (!existsSync(${JSON.stringify(join(fixture.gates, "scheduled-late"))})) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const answer = await ask.question({ title: "Scheduled late?", choices: ["yes", "no"] });
+  note("scheduled-late-answered");
+  return answer;
+});
+schedule(scheduledLate).every("1s");`
       : "",
     'export const crash = step("crash").do(() => process.exit(1));',
     `export const late = step("late").do(async ({ ask }) => {
@@ -177,20 +221,17 @@ async function stored(
   )?.hosted;
 }
 
-async function crashableDaemon() {
+async function crashableDaemon(options: Parameters<typeof moduleText>[2] = {}) {
   const home = testHome({ providers: false });
   const fixture = generationFiles(home);
-  writeFileSync(fixture.source, moduleText(fixture, 0));
-  const lines: string[] = [];
+  writeFileSync(fixture.source, moduleText(fixture, 0, options));
   const child = spawn(
     process.execPath,
     [join(import.meta.dirname, "helpers", "daemon-process.ts")],
     { env: home.env, stdio: ["ignore", "pipe", "inherit"] }
   );
   home.track(child.pid, false);
-  child.stdout.on("data", (chunk: Buffer) => {
-    lines.push(...chunk.toString().split("\n").filter(Boolean));
-  });
+  const lines = outputLines(child.stdout);
   await vi.waitFor(
     () => expect(lines.some((line) => line.startsWith("ready "))).toBe(true),
     { interval: 50, timeout: 60_000 }
@@ -264,17 +305,83 @@ async function openEntry(
 async function executions(
   fixture: Pick<Fixture, "machine">,
   scope: string
-): Promise<readonly { readonly name: string; readonly status: string }[]> {
+): Promise<
+  readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly status: string;
+  }[]
+> {
   return (
     (await readDatabase(stateDatabase(fixture.machine.state), (database) =>
       database
         .select({
+          id: marblesExecutions.id,
           name: marblesExecutions.name,
           status: marblesExecutions.status,
         })
         .from(marblesExecutions)
         .where(eq(marblesExecutions.scope, scope))
     )) ?? []
+  );
+}
+
+async function scheduleTick(
+  fixture: Pick<Fixture, "machine">,
+  scope: string,
+  key: string
+) {
+  const rows =
+    (await readDatabase(stateDatabase(fixture.machine.state), (database) =>
+      database
+        .select({
+          lastStatus: marblesScheduleTicks.lastStatus,
+          ownerPid: marblesScheduleTicks.ownerPid,
+        })
+        .from(marblesScheduleTicks)
+        .where(
+          and(
+            eq(marblesScheduleTicks.scope, scope),
+            eq(marblesScheduleTicks.key, key)
+          )
+        )
+    )) ?? [];
+  return rows[0];
+}
+
+async function parkedRun(
+  fixture: Pick<Fixture, "machine">,
+  scope: string,
+  name: string
+): Promise<string> {
+  return await vi.waitFor(
+    async () => {
+      const rows = (await executions(fixture, scope)).filter(
+        (row) => row.name === name
+      );
+      expect(rows.map((row) => row.status)).toEqual(["suspended"]);
+      return rows[0]?.id ?? "";
+    },
+    { interval: 100, timeout: 30_000 }
+  );
+}
+
+async function answerRun(
+  daemon: Daemon,
+  workspace: ReturnType<MarblesClient["workspace"]>,
+  runId: string
+): Promise<void> {
+  await vi.waitFor(
+    async () => {
+      await daemon.sweepNow();
+      const { feed } = await workspace.snapshot();
+      const entry = feed.find(
+        (each) => each.input?.status === "open" && each.run === runId
+      );
+      expect(entry).toBeDefined();
+      await workspace.actions.answer(entry?.id ?? "", "yes");
+    },
+    { interval: 500, timeout: 60_000 }
   );
 }
 
@@ -1714,6 +1821,217 @@ describe("engine generations", () => {
     ).not.toContain(first);
     expect((await next.workspace(summary).roll("where")).value).toBe(second);
     next.close();
+  }, 180_000);
+
+  it("when the daemon crashes, the orphaned generation lets go of a scheduled run parked on a question and exits, and the next daemon's generation answers it", async () => {
+    const { child, fixture } = await crashableDaemon({ asking: true });
+    const client = await connect({ layout: fixture.machine, start: false });
+    const summary = await client.attach(fixture.source);
+    const first = summary.pid ?? 0;
+    await whenLogged(fixture, `scheduled-ask ${String(first)}`);
+    const parked = await parkedRun(fixture, summary.id, "scheduled-ask");
+    await crash(child);
+    client.close();
+    await gone(first, 60_000);
+    expect(
+      (await executions(fixture, summary.id))
+        .filter((row) => row.name === "scheduled-ask")
+        .map((row) => row.status)
+    ).toEqual(["suspended"]);
+
+    const restarted = await startDaemon({
+      layout: fixture.machine,
+      print: () => undefined,
+    });
+    daemons.push(restarted);
+    const next = await connect({ layout: fixture.machine, start: false });
+    const second = await readyOn(
+      { client: next },
+      (pid) => pid !== first && pid > 0
+    );
+    await answerRun(restarted, next.workspace(summary), parked);
+    await vi.waitFor(
+      async () =>
+        expect(
+          (await executions(fixture, summary.id)).find(
+            (row) => row.id === parked
+          )?.status
+        ).toBe("complete"),
+      { interval: 200, timeout: 60_000 }
+    );
+    expect(logged(fixture)).toContain(`scheduled-answered ${String(second)}`);
+    next.close();
+  }, 180_000);
+
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    it(`when the daemon crashes, ${signal} sent to the orphaned generation while it drains cancels the scheduled run it is running, as a stop does`, async () => {
+      const { child, fixture } = await crashableDaemon({ holding: true });
+      const client = await connect({ layout: fixture.machine, start: false });
+      const summary = await client.attach(fixture.source);
+      const first = summary.pid ?? 0;
+      await whenLogged(fixture, `scheduled-hold ${String(first)}`);
+      await crash(child);
+      client.close();
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      expect(processAlive(first)).toBe(true);
+      process.kill(first, signal);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      open("scheduled-hold", fixture);
+      await gone(first, 60_000);
+      expect(
+        (await executions(fixture, summary.id))
+          .filter((row) => row.name === "scheduled-hold")
+          .map((row) => row.status)
+      ).toEqual(["cancelled"]);
+      expect(await scheduleTick(fixture, summary.id, "scheduled-hold")).toEqual(
+        { lastStatus: "failed", ownerPid: null }
+      );
+    }, 180_000);
+  }
+
+  it("when the daemon crashes, the orphaned generation finishes the scheduled run it is running, records it, fires no more and exits", async () => {
+    const { child, fixture } = await crashableDaemon({ holding: true });
+    const client = await connect({ layout: fixture.machine, start: false });
+    const summary = await client.attach(fixture.source);
+    const first = summary.pid ?? 0;
+    await whenLogged(fixture, `scheduled-hold ${String(first)}`);
+    await crash(child);
+    client.close();
+    expect(processAlive(first)).toBe(true);
+    open("scheduled-hold", fixture);
+    await gone(first, 60_000);
+    expect(
+      logged(fixture).filter((line) => line.startsWith("scheduled-hold"))
+    ).toEqual([`scheduled-hold ${String(first)}`]);
+    expect(logged(fixture)).toContain(`scheduled-held ${String(first)}`);
+    expect(
+      (await executions(fixture, summary.id))
+        .filter((row) => row.name === "scheduled-hold")
+        .map((row) => row.status)
+    ).toEqual(["complete"]);
+    expect(await scheduleTick(fixture, summary.id, "scheduled-hold")).toEqual({
+      lastStatus: "complete",
+      ownerPid: null,
+    });
+  }, 180_000);
+
+  it("when the daemon crashes, a scheduled run that parks while the orphaned generation drains stays parked, and the next daemon's generation answers it", async () => {
+    const { child, fixture } = await crashableDaemon({ parking: true });
+    const client = await connect({ layout: fixture.machine, start: false });
+    const summary = await client.attach(fixture.source);
+    const first = summary.pid ?? 0;
+    await whenLogged(fixture, `scheduled-late ${String(first)}`);
+    await crash(child);
+    client.close();
+    expect(processAlive(first)).toBe(true);
+    open("scheduled-late", fixture);
+    await gone(first, 60_000);
+    const parked = await parkedRun(fixture, summary.id, "scheduled-late");
+    expect(await scheduleTick(fixture, summary.id, "scheduled-late")).toEqual({
+      lastStatus: null,
+      ownerPid: null,
+    });
+
+    const restarted = await startDaemon({
+      layout: fixture.machine,
+      print: () => undefined,
+    });
+    daemons.push(restarted);
+    const next = await connect({ layout: fixture.machine, start: false });
+    const second = await readyOn(
+      { client: next },
+      (pid) => pid !== first && pid > 0
+    );
+    await answerRun(restarted, next.workspace(summary), parked);
+    await vi.waitFor(
+      async () =>
+        expect(
+          (await executions(fixture, summary.id)).find(
+            (row) => row.id === parked
+          )?.status
+        ).toBe("complete"),
+      { interval: 200, timeout: 60_000 }
+    );
+    expect(logged(fixture)).toContain(
+      `scheduled-late-answered ${String(second)}`
+    );
+    next.close();
+  }, 180_000);
+
+  it("when the daemon crashes, the schedule whose parked run the orphan let go fires again under the next daemon while that run waits, as when its generation dies, and its answer writes no history", async () => {
+    const { child, fixture } = await crashableDaemon({ asking: true });
+    const client = await connect({ layout: fixture.machine, start: false });
+    const summary = await client.attach(fixture.source);
+    const first = summary.pid ?? 0;
+    const parked = await parkedRun(fixture, summary.id, "scheduled-ask");
+    await crash(child);
+    client.close();
+    await gone(first, 60_000);
+    expect(await scheduleTick(fixture, summary.id, "scheduled-ask")).toEqual({
+      lastStatus: null,
+      ownerPid: null,
+    });
+
+    const restarted = await startDaemon({
+      layout: fixture.machine,
+      print: () => undefined,
+    });
+    daemons.push(restarted);
+    const next = await connect({ layout: fixture.machine, start: false });
+    const second = await readyOn(
+      { client: next },
+      (pid) => pid !== first && pid > 0
+    );
+    await whenLogged(fixture, `scheduled-ask ${String(second)}`);
+    await vi.waitFor(
+      async () =>
+        expect(
+          (await executions(fixture, summary.id))
+            .filter((row) => row.name === "scheduled-ask")
+            .map((row) => row.status)
+        ).toEqual(["suspended", "suspended"]),
+      { interval: 100, timeout: 30_000 }
+    );
+    await answerRun(restarted, next.workspace(summary), parked);
+    await vi.waitFor(
+      async () =>
+        expect(
+          (await executions(fixture, summary.id)).find(
+            (row) => row.id === parked
+          )?.status
+        ).toBe("complete"),
+      { interval: 200, timeout: 60_000 }
+    );
+    expect(logged(fixture)).toContain(`scheduled-answered ${String(second)}`);
+    expect(await scheduleTick(fixture, summary.id, "scheduled-ask")).toEqual({
+      lastStatus: null,
+      ownerPid: second,
+    });
+    next.close();
+  }, 180_000);
+
+  it("cancels a scheduled run parked on a question when the daemon stops", async () => {
+    const fixture = generationFiles(testHome({ providers: false }));
+    const { client, summary } = await startSwitchingWorkspace(
+      fixture,
+      moduleText(fixture, 0, { asking: true }),
+      {},
+      (started) => daemons.push(started)
+    );
+    const first = summary.pid ?? 0;
+    await parkedRun(fixture, summary.id, "scheduled-ask");
+    client.close();
+    await daemons.pop()?.close();
+    expect(processAlive(first)).toBe(false);
+    expect(
+      (await executions(fixture, summary.id))
+        .filter((row) => row.name === "scheduled-ask")
+        .map((row) => row.status)
+    ).toEqual(["cancelled"]);
+    expect(await scheduleTick(fixture, summary.id, "scheduled-ask")).toEqual({
+      lastStatus: "failed",
+      ownerPid: null,
+    });
   }, 180_000);
 
   it("when the daemon crashes between a detach's steps, the next leaves the workspace detached and the generation finishing its run", async () => {
