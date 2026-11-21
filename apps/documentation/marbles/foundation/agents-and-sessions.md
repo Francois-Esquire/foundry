@@ -96,9 +96,12 @@ when you want several turns to share a conversation.
 in a provider's catalog. A model named alone goes to the first configured
 provider that lists it. A name that no catalog lists fails rather than
 reaching a provider. `"codex/gpt-5.6-sol"` is an example that names both.
+A workspace has Claude Code and Codex; Pi, Vercel AI Gateway and an
+OpenAI-compatible gateway are available only to a workspace whose source
+defines them with [`defineProvider`](/marbles/reference/api#providers).
 Providers are configured once per machine, and per workspace where needed,
 in the Marbles database under the state root. The first interactive run
-offers providers it detects on `PATH`. Dry runs keep provider edits in
+offers Claude Code and Codex when it finds them on `PATH`. Dry runs keep provider edits in
 memory. A session stays on the provider, model, and configured instance
 it started with. It fails rather than
 resume after the entry moves to another scope or changes its settings or
@@ -110,8 +113,8 @@ Claude Code reads `CLAUDE_CODE_OAUTH_TOKEN` from the instance's environment,
 else the login for its `CLAUDE_CONFIG_DIR` (else `~/.claude`); Pi runs the
 configured `pi auth`.
 
-Marbles loads Claude Code, Codex, and Vercel AI Gateway catalogs at engine
-startup and when provider configuration refreshes. Claude Code and Codex
+Marbles loads Claude Code, Codex, and, in a workspace that defines it,
+Vercel AI Gateway catalogs at engine startup and when provider configuration refreshes. Claude Code and Codex
 list models with the configured CLI and account environment. Vercel uses
 the configured base URL and credential. A configured default must appear
 in the list. Without one, Claude Code uses its offered `default` alias,

@@ -39,6 +39,30 @@
       "types": "./dist/process.d.ts",
       "default": "./dist/process.js"
     },
+    "./providers": {
+      "types": "./dist/providers.d.ts",
+      "default": "./dist/providers.js"
+    },
+    "./providers/claude-code": {
+      "types": "./dist/providers/claude-code.d.ts",
+      "default": "./dist/providers/claude-code.js"
+    },
+    "./providers/codex": {
+      "types": "./dist/providers/codex.d.ts",
+      "default": "./dist/providers/codex.js"
+    },
+    "./providers/gateway": {
+      "types": "./dist/providers/gateway.d.ts",
+      "default": "./dist/providers/gateway.js"
+    },
+    "./providers/pi": {
+      "types": "./dist/providers/pi.d.ts",
+      "default": "./dist/providers/pi.js"
+    },
+    "./providers/vercel": {
+      "types": "./dist/providers/vercel.d.ts",
+      "default": "./dist/providers/vercel.js"
+    },
     "./workspace": {
       "types": "./dist/workspace.d.ts",
       "default": "./dist/workspace.js"

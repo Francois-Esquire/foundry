@@ -470,6 +470,7 @@ export class Engine {
       requireProviders: () => options.providers?.require(),
       sessions,
       skills: skillResolver({ home, workspace: root }),
+      undefinedProvider: (id) => options.providers?.undefinedProvider(id),
       usage: { ledger: this.usage, workspaceId },
       warn: (message) => print(`[agents] ${message}`),
     });

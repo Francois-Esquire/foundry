@@ -2,8 +2,8 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { streamText } from "ai";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { gateway as gatewayPlugin } from "~/lib/providers/gateway";
 import type { ProviderSetup } from "~/lib/providers/plugins";
-import { gatewayPlugin } from "~/lib/providers/plugins";
 
 type Settings = Parameters<typeof gatewayPlugin.create>[0]["settings"];
 

@@ -30,6 +30,3 @@ export class Engine extends LibEngine {
     );
   }
 }
-
-// biome-ignore lint/performance/noBarrelFile: This is the public package entry point for embedded hosts.
-export * from "~/lib/embedded";

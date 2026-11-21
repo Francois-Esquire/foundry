@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { echoInstance } from "~/lib/models/echo";
-import { claudeCodePlugin } from "~/lib/providers/plugins";
+import { claudeCode as claudeCodePlugin } from "~/lib/providers/claude-code";
 
 const { create } = claudeCodePlugin;
 claudeCodePlugin.create = (setup) => {

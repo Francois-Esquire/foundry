@@ -1,11 +1,9 @@
 import type { JSONSchema7, JSONSchema7Definition } from "@ai-sdk/provider";
 import type { LanguageModelV4, Provider } from "@foundry/models";
-import { ModelManager } from "@foundry/models";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
-import { harnessOf, isCliHarness } from "~/lib/cli-harnesses";
-import { CLI_PROVIDER_FACTS } from "~/lib/harnesses";
+import { harnessOf } from "~/lib/cli-harnesses";
 
 export type Print = (line: string) => void;
 
@@ -87,31 +85,7 @@ function promptText(prompt: Prompt): string {
     .join("\n");
 }
 
-function mockProvider(
-  executors: readonly TurnExecutorRef[],
-  reply: Reply,
-  mockOptions: MockOptions
-): Provider {
-  const [executor] = executors as [TurnExecutorRef];
-  const facts = isCliHarness(executor.provider)
-    ? CLI_PROVIDER_FACTS[executor.provider]
-    : undefined;
-  const named = executors
-    .map(({ model }) => model)
-    .filter((model) => !facts?.models.some((row) => row.id === model))
-    .map((model) => ({ id: model, kind: "text" as const, modelId: model }));
-  return replying(
-    {
-      ...facts,
-      models: [...(facts?.models ?? []), ...named],
-    },
-    executor,
-    reply,
-    mockOptions
-  );
-}
-
-function replying(
+export function replying(
   shape: Pick<Provider, "defaults" | "models" | "turnLimit">,
   executor: TurnExecutorRef,
   reply: Reply,
@@ -173,26 +147,6 @@ function replying(
   };
 }
 
-export function mockModels(
-  executors: readonly TurnExecutorRef[],
-  reply: Reply,
-  options: MockOptions = {}
-): ModelManager {
-  const byProvider = Map.groupBy(executors, ({ provider }) => provider);
-  return new ModelManager({
-    providers: [...byProvider.values()].map((group) =>
-      mockProvider(group, reply, options)
-    ),
-  });
-}
-
-export function echoModels(
-  executors: readonly TurnExecutorRef[],
-  print: Print
-): ModelManager {
-  return mockModels(executors, echoReply(print));
-}
-
 export function echoInstance(source: Provider, print: Print): Provider {
   return {
     ...replying(
@@ -207,7 +161,7 @@ export function echoInstance(source: Provider, print: Print): Provider {
   };
 }
 
-function echoReply(print: Print): Reply {
+export function echoReply(print: Print): Reply {
   return ({ executor, prompt, cwd, schema }) => {
     const where = cwd ? ` in ${cwd}` : "";
     const text = `[${executor.provider}/${executor.model}]${where} ${prompt}`;
