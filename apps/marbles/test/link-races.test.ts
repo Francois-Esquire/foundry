@@ -396,6 +396,12 @@ describe("a relink that ends early", () => {
     return found.map(String).sort();
   }
 
+  async function temporaryLinks(root: string): Promise<string[]> {
+    return (await entries(resourceLinks(root, "artifact"))).filter((entry) =>
+      entry.endsWith(".link")
+    );
+  }
+
   it("touches nothing on disk when it is aborted before it begins", async () => {
     const { artifacts, root } = await arranged();
     await real.rm(join(root, ".marbles", "artifacts"), { recursive: true });
@@ -414,7 +420,7 @@ describe("a relink that ends early", () => {
     expect(await real.readdir(join(root, ".marbles"))).toEqual([]);
   });
 
-  it("leaves no directory behind when it is aborted waiting for the lock", async () => {
+  it("leaves no temporary link behind when it is aborted waiting for the lock", async () => {
     const { artifacts, root } = await arranged();
     const held = await heldLock(root);
     const controller = new AbortController();
@@ -426,15 +432,60 @@ describe("a relink that ends early", () => {
       signal: controller.signal,
       workspace: "one",
     });
-    await new Promise((settle) => setTimeout(settle, 100));
-    expect(await entries(resourceLinks(root, "artifact"))).not.toEqual([]);
+    await vi.waitFor(async () =>
+      expect(await temporaryLinks(root)).toHaveLength(1)
+    );
     controller.abort(new Error("stopped"));
     await expect(relinking).rejects.toThrow("stopped");
     held.release();
-    expect(await entries(resourceLinks(root, "artifact"))).toEqual([]);
+    expect(await temporaryLinks(root)).toEqual([]);
   });
 
-  it("leaves no directory behind when the files read under the lock are gone", async () => {
+  it("keeps another relink's links and the artifacts directory when one is aborted after it prepared", async () => {
+    const { artifacts, root } = await arranged();
+    await real.rm(resourceLinks(root, "artifact"), { recursive: true });
+    const held = await heldLock(root);
+    const controller = new AbortController();
+    const aborted = relinkArtifact({
+      artifacts,
+      files: [{ blob: "blob", path: "nested/f" }],
+      ref: note,
+      root,
+      signal: controller.signal,
+      workspace: "one",
+    });
+    const stopped = expect(aborted).rejects.toThrow("stopped");
+    await vi.waitFor(async () =>
+      expect(await temporaryLinks(root)).toHaveLength(1)
+    );
+    let reads = 0;
+    const other = relinkArtifact({
+      artifacts,
+      files: async () => {
+        reads += 1;
+        if (reads === 1) {
+          controller.abort(new Error("stopped"));
+          await stopped;
+          held.release();
+        }
+        return [{ blob: "blob", path: "g" }];
+      },
+      ref: { ...note, id: "memo" },
+      root,
+      workspace: "one",
+    });
+    await expect(other).resolves.toMatchObject({ linked: 1, refused: [] });
+    expect(reads).toBe(2);
+    expect(
+      await real.readlink(join(resourceLinks(root, "artifact"), "memo", "g"))
+    ).toBe(join(artifacts, "workspaces", "one", "blobs", "blob"));
+    expect(await temporaryLinks(root)).toEqual([]);
+    expect(await entries(resourceLinks(root, "artifact"))).not.toContain(
+      join("note", "nested", "f")
+    );
+  });
+
+  it("leaves no temporary or stale link behind when the files read under the lock are gone", async () => {
     const { artifacts, root } = await arranged();
     const shared = { ...note, owner: "two" };
     await relinkArtifact({
@@ -463,7 +514,10 @@ describe("a relink that ends early", () => {
       workspace: "one",
     });
     expect(reads).toBe(2);
-    expect(await entries(resourceLinks(root, "artifact"))).toEqual([]);
+    expect(await temporaryLinks(root)).toEqual([]);
+    expect(await entries(resourceLinks(root, "artifact"))).not.toContain(
+      join("@two", "note", "f")
+    );
   });
 
   it("removes the link it made for a rename that failed", async () => {
@@ -492,11 +546,7 @@ describe("a relink that ends early", () => {
     } finally {
       rename.mockRestore();
     }
-    expect(
-      (await entries(resourceLinks(root, "artifact"))).filter((entry) =>
-        entry.endsWith(".link")
-      )
-    ).toEqual([]);
+    expect(await temporaryLinks(root)).toEqual([]);
   });
 
   it("takes no lock through a .marbles that became a link after it was opened", async () => {
@@ -532,41 +582,6 @@ describe("a relink that ends early", () => {
     expect(strayLock).toBe(false);
     expect(reads).toBe(1);
     expect(await real.readdir(outside)).toEqual([]);
-  });
-
-  it("removes the artifacts directory it made itself when a relink links nothing", async () => {
-    const { artifacts, root } = await arranged();
-    await real.rm(join(root, ".marbles", "artifacts"), { recursive: true });
-    await expect(
-      relinkArtifact({
-        artifacts,
-        files: [],
-        ref: note,
-        root,
-        workspace: "one",
-      })
-    ).resolves.toMatchObject({ linked: 0 });
-    expect(await real.readdir(join(root, ".marbles"))).toEqual([".gitignore"]);
-  });
-
-  it("removes the artifacts directory it made itself when it is aborted reading the files", async () => {
-    const { artifacts, root } = await arranged();
-    await real.rm(join(root, ".marbles", "artifacts"), { recursive: true });
-    const controller = new AbortController();
-    await expect(
-      relinkArtifact({
-        artifacts,
-        files: () => {
-          controller.abort(new Error("stopped"));
-          return Promise.resolve([{ blob: "blob", path: "nested/f" }]);
-        },
-        ref: note,
-        root,
-        signal: controller.signal,
-        workspace: "one",
-      })
-    ).rejects.toThrow("stopped");
-    expect(await real.readdir(join(root, ".marbles"))).toEqual([".gitignore"]);
   });
 
   it("keeps an artifacts directory that was there before, when a relink links nothing", async () => {

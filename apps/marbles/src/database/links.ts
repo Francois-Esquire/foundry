@@ -82,7 +82,7 @@ export async function rebuildLinks(
     let wanted = await wantedLinks(view, workspace, artifacts);
     let report = emptyReport();
     for (let round = 0; round < REBUILD_ROUNDS; round += 1) {
-      report = await tree.reconcile([], wanted, nothingPrepared());
+      report = await tree.reconcile([], wanted, new Map());
       const again = await wantedLinks(view, workspace, artifacts);
       if (sameLinks(again.links, wanted.links)) {
         break;
@@ -110,17 +110,16 @@ export async function relinkArtifact(
   const { artifacts, files, ref, root, signal, workspace } = options;
   signal?.throwIfAborted();
   const tree = new LinkTree(root, artifacts);
-  const prepared = nothingPrepared();
+  if (!(await tree.open(false))) {
+    return;
+  }
+  const read =
+    typeof files === "function" ? files : () => Promise.resolve(files);
+  const place = artifactPlace(ref, workspace);
+  const ahead = linksOf(place, artifacts, ref, await read());
+  signal?.throwIfAborted();
+  const prepared = await tree.prepare(ahead.links);
   try {
-    if (!(await tree.open(false, prepared.made))) {
-      return;
-    }
-    const read =
-      typeof files === "function" ? files : () => Promise.resolve(files);
-    const place = artifactPlace(ref, workspace);
-    const ahead = linksOf(place, artifacts, ref, await read());
-    signal?.throwIfAborted();
-    await tree.prepare(ahead.links, prepared);
     return await tree.locked(
       async () =>
         tree.reconcile(
@@ -230,17 +229,7 @@ interface Tally {
   unlinkable: number;
 }
 
-interface Prepared {
-  readonly links: Map<
-    string,
-    { readonly path: string; readonly target: string }
-  >;
-  readonly made: string[];
-}
-
-function nothingPrepared(): Prepared {
-  return { links: new Map(), made: [] };
-}
+type Prepared = Map<string, { readonly path: string; readonly target: string }>;
 
 class LinkTree {
   readonly #root: string;
@@ -256,7 +245,7 @@ class LinkTree {
     this.#ours = `${join(resolve(artifacts), "workspaces")}${sep}`;
   }
 
-  async open(create: boolean, made?: string[]): Promise<boolean> {
+  async open(create: boolean): Promise<boolean> {
     const top = await lstatOrUndefined(this.#top);
     if (top === undefined && !create) {
       return false;
@@ -272,7 +261,7 @@ class LinkTree {
         throw new Refused(this.#top);
       }
       this.#realTop = realTop;
-      await this.#directory(this.#dir, made);
+      await this.#directory(this.#dir);
       await ignoredByGit(this.#top);
     } catch (error) {
       if (error instanceof Refused) {
@@ -321,35 +310,26 @@ class LinkTree {
     }
   }
 
-  async prepare(
-    links: ReadonlyMap<string, WantedLink>,
-    prepared: Prepared
-  ): Promise<void> {
+  async prepare(links: ReadonlyMap<string, WantedLink>): Promise<Prepared> {
+    const prepared: Prepared = new Map();
     for (const [key, link] of links) {
-      const path = await this.#temporary(link, prepared.made).catch(
-        () => undefined
-      );
+      const path = await this.#temporary(link).catch(() => undefined);
       if (path !== undefined) {
-        prepared.links.set(key, { path, target: link.target });
+        prepared.set(key, { path, target: link.target });
       }
     }
+    return prepared;
   }
 
   async discard(prepared: Prepared): Promise<void> {
-    for (const { path } of prepared.links.values()) {
-      await this.#removeChecked(path, removeLink);
-    }
-    for (const dir of prepared.made.toReversed()) {
-      await this.#removeChecked(dir, removeEmpty);
+    for (const { path } of prepared.values()) {
+      await this.#removeChecked(path);
     }
   }
 
-  async #removeChecked(
-    path: string,
-    remove: (path: string) => Promise<void>
-  ): Promise<void> {
+  async #removeChecked(path: string): Promise<void> {
     await this.#checked(dirname(path))
-      .then(() => remove(path))
+      .then(() => removeLink(path))
       .catch(() => undefined);
   }
 
@@ -373,7 +353,7 @@ class LinkTree {
       await this.#prune(scoped, [...scope], wanted.links, prepared, report);
     }
     for (const [key, link] of wanted.links) {
-      await this.#link(link, prepared.links.get(key), report);
+      await this.#link(link, prepared.get(key), report);
     }
     await this.discard(prepared);
     if (wanted.links.size === 0) {
@@ -426,7 +406,7 @@ class LinkTree {
     prepared: Prepared,
     report: Tally
   ): Promise<void> {
-    const keep = new Set([...prepared.links.values()].map(({ path }) => path));
+    const keep = new Set([...prepared.values()].map(({ path }) => path));
     try {
       for (const entry of await entriesOf(dir)) {
         const path = join(dir, entry.name);
@@ -548,7 +528,7 @@ class LinkTree {
           : await this.#renamed(parent, temporary, path);
     } catch (error) {
       if (!usable && temporary !== undefined) {
-        await this.#removeChecked(temporary, removeLink);
+        await this.#removeChecked(temporary);
       }
       throw error;
     }
@@ -618,15 +598,12 @@ class LinkTree {
     return normalize(target).startsWith(this.#ours);
   }
 
-  async #temporary(
-    link: WantedLink,
-    made?: string[]
-  ): Promise<string | undefined> {
+  async #temporary(link: WantedLink): Promise<string | undefined> {
     const name = `.${link.segments.at(-1) ?? ""}.${randomUUID().slice(0, 8)}.link`;
     if (Buffer.byteLength(name) > NAME_BYTES) {
       return;
     }
-    const parent = await this.#directories(link.segments.slice(0, -1), made);
+    const parent = await this.#directories(link.segments.slice(0, -1));
     const path = join(parent, name);
     await this.#checked(parent);
     await symlink(link.target, path);
@@ -634,26 +611,22 @@ class LinkTree {
     return path;
   }
 
-  async #directories(
-    segments: readonly string[],
-    made?: string[]
-  ): Promise<string> {
+  async #directories(segments: readonly string[]): Promise<string> {
     let path = this.#dir;
-    await this.#directory(path, made);
+    await this.#checked(path);
     for (const segment of segments) {
       path = join(path, segment);
-      await this.#directory(path, made);
+      await this.#directory(path);
     }
     return path;
   }
 
-  async #directory(path: string, made?: string[]): Promise<void> {
+  async #directory(path: string): Promise<void> {
     if ((await lstatOrUndefined(path)) === undefined) {
       const parent = dirname(path);
       await this.#checked(parent);
       if (await makeDirectory(path)) {
         await this.#madeIn(parent, path, removeEmpty);
-        made?.push(path);
       }
     }
     await this.#checked(path);
