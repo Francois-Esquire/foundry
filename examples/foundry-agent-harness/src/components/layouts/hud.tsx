@@ -3,12 +3,14 @@ import { type ReactNode, useCallback } from "react";
 import { Plate } from "@/components/blocks/plate";
 import { hud } from "@/model/palette";
 import type { Size } from "@/model/screen";
+import { SPRITE_SIZE } from "@/model/sprite";
 
-const RAIL_WIDTH = 30;
+const RAIL_WIDTH = SPRITE_SIZE + 4;
 
 export interface HudSection {
   readonly content: ReactNode;
   readonly grow?: boolean;
+  readonly icon?: string;
   readonly key: string;
   readonly meta?: string;
   readonly title?: string;
@@ -48,6 +50,7 @@ export function HudLayout({
           {sections.map((section) => (
             <Plate
               grow={section.grow}
+              icon={section.icon}
               key={section.key}
               meta={section.meta}
               title={section.title}
@@ -57,9 +60,7 @@ export function HudLayout({
           ))}
         </box>
         <box flexDirection="column" flexGrow={1} flexShrink={1}>
-          <box flexShrink={0} height={1} paddingX={1}>
-            {steps}
-          </box>
+          <Plate>{steps}</Plate>
           <Plate grow>{main}</Plate>
           <Plate tone={hud.amber}>{goal}</Plate>
         </box>

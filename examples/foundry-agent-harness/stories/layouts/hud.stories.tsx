@@ -1,14 +1,15 @@
 import type { ReactNode } from "react";
 import { defineStories, story } from "textbook-sh";
 import { Gauge } from "@/components/blocks/gauge";
+import { Portrait } from "@/components/blocks/portrait";
 import { HudLayout, type HudSection } from "@/components/layouts/hud";
-import { hud } from "@/model/palette";
+import { avatars } from "@/model/avatars";
+import { BRACKETED, hud } from "@/model/palette";
 import type { Size } from "@/model/screen";
 import { ignore, renderFrame } from "../frame";
 
-const wide = { height: 34, width: 120 };
+const wide = { height: 44, width: 120 };
 const compact = { height: 30, width: 96 };
-const PORTRAIT_ROWS = 10;
 
 export default defineStories({
   component: "HudLayout",
@@ -21,17 +22,25 @@ function Region({ children }: { readonly children: string }) {
   return <text fg={hud.dim}>{children}</text>;
 }
 
-function Portrait() {
+const [smith] = avatars;
+
+function Bay() {
   return (
-    <box alignItems="center" flexDirection="column">
-      {Array.from({ length: PORTRAIT_ROWS }, (_, row) => (
-        <text fg={hud.trough} key={`portrait-${row}`}>
-          {row === PORTRAIT_ROWS / 2
-            ? "▒▒▒▒▒▒ portrait ▒▒▒▒▒▒"
-            : "▒".repeat(22)}
-        </text>
-      ))}
-      <text fg={hud.amber}>holding steady</text>
+    <box flexDirection="column">
+      <Portrait
+        avatar={smith}
+        frame={0}
+        health="scuffed"
+        hurtAt={null}
+        seed={1}
+      />
+      <box
+        backgroundColor={hud.tint}
+        flexDirection="row"
+        justifyContent="center"
+      >
+        <text fg={hud.bright}>❝ holding steady ❞</text>
+      </box>
     </box>
   );
 }
@@ -52,16 +61,18 @@ function Vital({
       <box flexDirection="row">
         <text fg={hud.text}>{label}</text>
         <box flexGrow={1} />
-        <text fg={hud.dim}>{value}</text>
+        <text fg={tone}>
+          <b>{value}</b>
+        </text>
       </box>
-      <Gauge cells={26} level={level} tone={tone} />
+      <Gauge cells={30} level={level} tone={tone} />
     </box>
   );
 }
 
 function Vitals() {
   return (
-    <box flexDirection="column" gap={1}>
+    <box flexDirection="column">
       <Vital
         label="Context"
         level={0.71}
@@ -77,14 +88,15 @@ function Arsenal() {
   return (
     <box flexDirection="column">
       {[
-        ["Bash", "6"],
-        ["Read", "4"],
-        ["Skill", "1"],
-      ].map(([name, count]) => (
+        ["Bash", "6", 6],
+        ["Read", "4", 4],
+        ["Skill", "1", 1],
+      ].map(([name, count, pips]) => (
         <box flexDirection="row" gap={1} key={name}>
           <text fg={hud.ok}>●</text>
           <text fg={hud.text}>{name}</text>
           <box flexGrow={1} />
+          <text fg={hud.bronze}>{"▮".repeat(Number(pips))}</text>
           <text fg={hud.dim}>{`×${count}`}</text>
         </box>
       ))}
@@ -92,23 +104,43 @@ function Arsenal() {
   );
 }
 
+function Slot({
+  index,
+  kind,
+  name,
+  selected = false,
+}: {
+  readonly index: string;
+  readonly kind?: string;
+  readonly name?: string;
+  readonly selected?: boolean;
+}) {
+  return (
+    <box
+      backgroundColor={selected ? hud.tint : undefined}
+      flexDirection="row"
+      gap={1}
+    >
+      <text fg={selected ? hud.amber : hud.faint}>{selected ? "▶" : " "}</text>
+      <text fg={hud.bronze}>{index}</text>
+      {name ? (
+        <text fg={selected ? hud.bright : hud.text}>{name}</text>
+      ) : (
+        <text fg={hud.faint}>{"╌".repeat(14)}</text>
+      )}
+      <box flexGrow={1} />
+      <text fg={hud.dim}>{kind ?? ""}</text>
+    </box>
+  );
+}
+
 function Loadout() {
   return (
     <box flexDirection="column">
-      <box flexDirection="row" gap={1}>
-        <text fg={hud.amber}>▸</text>
-        <text fg={hud.amber}>
-          <b>task-notes</b>
-        </text>
-        <box flexGrow={1} />
-        <text fg={hud.dim}>skill</text>
-      </box>
-      <box flexDirection="row" gap={1}>
-        <text fg={hud.dim}> </text>
-        <text fg={hud.text}>backlog</text>
-        <box flexGrow={1} />
-        <text fg={hud.dim}>mcp</text>
-      </box>
+      <Slot index="01" kind="skill" name="task-notes" selected />
+      <Slot index="02" kind="mcp" name="backlog" />
+      <Slot index="03" />
+      <Slot index="04" />
     </box>
   );
 }
@@ -116,15 +148,21 @@ function Loadout() {
 function Steps() {
   return (
     <text wrapMode="none">
-      <span fg={hud.ok}>✓ 1 Locate package.json</span>
-      <span fg={hud.bronze}>{"  ›  "}</span>
-      <span fg={hud.ok}>✓ 2 Identify scripts</span>
-      <span fg={hud.bronze}>{"  ›  "}</span>
-      <span fg={hud.amber}>
-        <b>▶ 3 Check setup</b>
+      <span bg={hud.okDeep} fg={hud.ok}>
+        {" ✓ 1 Locate package.json "}
       </span>
-      <span fg={hud.bronze}>{"  ›  "}</span>
-      <span fg={hud.dim}>4 Summarize</span>
+      <span fg={hud.okDim}>{"━━"}</span>
+      <span bg={hud.okDeep} fg={hud.ok}>
+        {" ✓ 2 Identify scripts "}
+      </span>
+      <span fg={hud.amber}>{"━━"}</span>
+      <span bg={hud.amber} fg={hud.ink}>
+        <b>{" ▶ 3 Check setup "}</b>
+      </span>
+      <span fg={hud.faint}>{"╌╌"}</span>
+      <span bg={hud.tint} fg={hud.dim}>
+        {" 4 Summarize "}
+      </span>
     </text>
   );
 }
@@ -132,17 +170,19 @@ function Steps() {
 function Card({
   children,
   label,
+  note,
   tone,
 }: {
   readonly children: string;
   readonly label: string;
+  readonly note?: string;
   readonly tone: string;
 }) {
   return (
     <box
       border
       borderColor={tone}
-      borderStyle="rounded"
+      customBorderChars={BRACKETED}
       flexDirection="row"
       gap={2}
       paddingX={1}
@@ -151,25 +191,39 @@ function Card({
         <b>{label}</b>
       </text>
       <text fg={hud.text}>{children}</text>
+      <box flexGrow={1} />
+      {note ? <text fg={hud.dim}>{note}</text> : null}
     </box>
+  );
+}
+
+function Speaker({
+  name,
+  note,
+}: {
+  readonly name: string;
+  readonly note?: string;
+}) {
+  return (
+    <text wrapMode="none">
+      <span bg={hud.tint} fg={hud.amber}>
+        <b>{` ${name} `}</b>
+      </span>
+      {note ? <span fg={hud.dim}>{`  ${note}`}</span> : null}
+    </text>
   );
 }
 
 function Talk() {
   return (
     <box flexDirection="column">
-      <text fg={hud.amber}>
-        <b>YOU</b>
-      </text>
+      <Speaker name="YOU" />
       <text fg={hud.text}>
         Read package.json here and explain how to run this example.
       </text>
       <text> </text>
-      <text fg={hud.amber}>
-        <b>AGENT</b>
-        <span fg={hud.dim}> · Locate package.json</span>
-      </text>
-      <Card label="TOOL" tone={hud.bronze}>
+      <Speaker name="AGENT" note="1 · Locate package.json" />
+      <Card label="TOOL" note="0.4s" tone={hud.bronze}>
         Read package.json
       </Card>
       <Card label="RESULT" tone={hud.okDim}>
@@ -177,12 +231,9 @@ function Talk() {
       </Card>
       <text fg={hud.text}>This example starts with bun run start.</text>
       <text> </text>
-      <text fg={hud.amber}>
-        <b>AGENT</b>
-        <span fg={hud.dim}> · Check setup</span>
-      </text>
-      <Card label="TOOL" tone={hud.amber}>
-        Bash bun run --help · 1.2s
+      <Speaker name="AGENT" note="3 · Check setup" />
+      <Card label="TOOL" note="1.2s" tone={hud.amber}>
+        Bash bun run --help
       </Card>
     </box>
   );
@@ -190,9 +241,16 @@ function Talk() {
 
 function Goal() {
   return (
-    <text fg={hud.dim}>
-      <span fg={hud.amber}>{">_ "}</span>Message the agent…
-    </text>
+    <box flexDirection="row" gap={1}>
+      <text fg={hud.amber}>
+        <b>{">_"}</b>
+      </text>
+      <text fg={hud.dim}>Message the agent…</text>
+      <box flexGrow={1} />
+      <text bg={hud.tint} fg={hud.amber}>
+        {" ↵ "}
+      </text>
+    </box>
   );
 }
 
@@ -207,7 +265,7 @@ function Hints() {
         ["^C", "Quit"],
       ].map(([key, action]) => (
         <span key={key}>
-          <span fg={hud.amber}>{`[${key}]`}</span>
+          <span bg={hud.tint} fg={hud.amber}>{` ${key} `}</span>
           {` ${action}   `}
         </span>
       ))}
@@ -239,15 +297,17 @@ function regions(): HudSection[] {
 
 function sketch(): HudSection[] {
   return [
-    { content: <Portrait />, key: "portrait" },
+    { content: <Bay />, key: "portrait" },
     {
       content: <Vitals />,
+      icon: "♥",
       key: "vitals",
-      meta: "159k in · 1.3k out",
+      meta: "160k tok",
       title: "VITALS",
     },
     {
       content: <Arsenal />,
+      icon: "⚒",
       key: "arsenal",
       meta: "11 calls",
       title: "ARSENAL",
@@ -255,8 +315,9 @@ function sketch(): HudSection[] {
     {
       content: <Loadout />,
       grow: true,
+      icon: "◧",
       key: "loadout",
-      meta: "2",
+      meta: "2 / 4",
       title: "LOADOUT",
     },
   ];
