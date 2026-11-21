@@ -220,16 +220,17 @@ const engine = new Engine({
 });
 ```
 
-Delivery to observers is claimed by a lock in the engine's own `state`
-directory, not in the records' database. An engine without `state`
-claims nothing. Two engines that share a workspace's records without
-sharing one `state` directory both deliver, so an observer can run twice
-for one change. A claim held in the database itself is planned, with the
-outbox that replaces this delivery path.
+Delivery to observers is claimed through the records. The database's
+records claim it in a transaction on the workspace's row of
+`marbles_delivery_claims`, so of the engines that share a workspace's
+records only one delivers; the others wait, and take the claim once its
+holder releases it or its process is gone. Records kept in memory grant
+every claim.
 
 `WorkspaceRecords` is the type a host implements to keep the tasks
-elsewhere: `taskStore`, the changes it records (`pending`, `latest`,
-`deliver`), `watch`, and `close`.
+elsewhere: `taskStore`, the change log its stores record into (`log`),
+`watch`, `close`, and the delivery claim (`claimDelivery` and
+`releaseDelivery`).
 
 ## Package instances
 

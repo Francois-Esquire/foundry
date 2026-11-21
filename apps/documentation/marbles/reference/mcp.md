@@ -138,7 +138,7 @@ marbles watch <runId>
 From the source checkout, without a build:
 
 ```sh
-bun apps/marbles/src/cli.ts watch <runId>
+bun --no-env-file apps/marbles/src/cli.ts watch <runId>
 ```
 
 The watcher replays earlier output, follows new output, prints the result
