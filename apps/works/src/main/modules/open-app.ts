@@ -1,5 +1,5 @@
 import { AsyncIteratorClass } from "@orpc/server";
-import type { ModuleAppEvent } from "~/shared/modules";
+import type { ModuleAppEvent, ModuleDetails } from "~/shared/modules";
 import type { ModuleBuilds } from "./builds/controller";
 import type { ModuleLibrary } from "./library";
 import type { ModuleSessions } from "./runtime/controller";
@@ -9,7 +9,8 @@ export function openModuleApp(
   builds: ModuleBuilds,
   sessions: ModuleSessions,
   id: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  release?: string
 ) {
   const cancel = new AbortController();
   const lifetime = AbortSignal.any([
@@ -22,14 +23,16 @@ export function openModuleApp(
       if (!details) {
         throw new Error("Module not found");
       }
-      let contentId = details.releases[0]?.contentId;
+      let contentId = releaseToStart(details, release);
       if (!contentId) {
         contentId = yield* buildFirstRelease(library, builds, id, lifetime);
       }
       lifetime.throwIfAborted();
       yield { phase: "starting" };
       for await (const app of sessions.watch(id, contentId, lifetime)) {
-        yield { app, phase: "ready" };
+        yield app.restarting
+          ? { phase: "restarting" }
+          : { app, phase: "ready" };
       }
     } catch (error) {
       if (!lifetime.aborted) {
@@ -49,6 +52,21 @@ export function openModuleApp(
       await iterator.return(undefined);
     }
   );
+}
+
+function releaseToStart(
+  details: Pick<ModuleDetails, "releases">,
+  release: string | undefined
+): string | undefined {
+  if (release === undefined) {
+    return details.releases[0]?.contentId;
+  }
+  if (!details.releases.some((version) => version.contentId === release)) {
+    throw new Error(
+      "That editor's release is no longer available. Open the file again."
+    );
+  }
+  return release;
 }
 
 async function* buildFirstRelease(

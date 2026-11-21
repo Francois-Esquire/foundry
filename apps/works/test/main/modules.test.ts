@@ -7,9 +7,10 @@ import { interceptCommits } from "@foundry/artifacts/testing";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { defineModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
 import { encodeModulePackage } from "@foundry/modules/package";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { createModuleLibrary, openModuleLibrary } from "~/main/modules/library";
 import { fakeClient, openFakeVault } from "../helpers/fake-api";
+import { unrecordedSaves } from "../helpers/source-saves";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -29,7 +30,7 @@ describe("Module library", () => {
     const store = interceptCommits(new InMemoryArtifactStore(), () =>
       Promise.reject(new Error("Disk full"))
     );
-    const library = createModuleLibrary(store);
+    const library = createModuleLibrary(store, { saves: unrecordedSaves });
     await expect(library.create("Unsaved")).rejects.toThrow("Disk full");
     expect(await library.list()).toEqual([]);
   });
@@ -85,9 +86,11 @@ describe("Module library", () => {
     });
   });
 
-  it("rejects malformed persisted Module identity", async () => {
+  it("leaves a Module with a malformed persisted identity out, and says so", async () => {
+    const reported = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    onTestFinished(() => reported.mockRestore());
     const store = new InMemoryArtifactStore();
-    const library = createModuleLibrary(store);
+    const library = createModuleLibrary(store, { saves: unrecordedSaves });
     const module = await library.create("Corrupt registration");
     const manager = new ArtifactManager({ store });
     const [artifact] = (await manager.list()).items;
@@ -96,7 +99,10 @@ describe("Module library", () => {
     }
     expect(artifact.id).toBe(module.artifactId);
     await manager.patchArtifactMetadata(artifact.id, { moduleId: 42 });
-    await expect(library.list()).rejects.toThrow();
+    await expect(library.list()).resolves.toEqual([]);
+    expect(reported).toHaveBeenCalledWith(
+      `Module records skipped: Module Artifact ${artifact.id} has an invalid Module id\n`
+    );
   });
 
   it("persists Module identity and authored bytes across a fresh host", async () => {
@@ -133,7 +139,9 @@ describe("Module library", () => {
   });
 
   it("rejects invalid imports and blank names through the router", async () => {
-    const library = createModuleLibrary(new InMemoryArtifactStore());
+    const library = createModuleLibrary(new InMemoryArtifactStore(), {
+      saves: unrecordedSaves,
+    });
     const client = fakeClient(await openFakeVault(), library);
     await expect(
       client.modules.importPackage({ encoded: "{}" })

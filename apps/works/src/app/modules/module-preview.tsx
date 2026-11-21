@@ -39,6 +39,13 @@ function ModulePreviewSession({
       <p className="p-6 text-muted-foreground text-sm">Starting preview…</p>
     );
   }
+  if (preview.data.restarting) {
+    return (
+      <p className="p-6 text-muted-foreground text-sm" role="status">
+        Restarting the preview with its updated access…
+      </p>
+    );
+  }
   return (
     <>
       {preview.data.views.length > 1 && (

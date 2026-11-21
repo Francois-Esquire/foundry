@@ -1,50 +1,48 @@
 import { join } from "node:path";
-import {
-  artifactIdSchema,
-  contentIdSchema,
-  type FileInputs,
-} from "@foundry/artifacts";
+import { artifactIdSchema, contentIdSchema } from "@foundry/artifacts";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
 import type { ArtifactStore } from "@foundry/artifacts/store";
+import { type ModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
+import type { ModuleCapabilityCatalog } from "@foundry/modules/gateway/types";
 import {
-  defineModuleVersion,
-  type ModuleVersion,
-  moduleIdSchema,
-} from "@foundry/modules/domain";
-import { ModuleStoreConflictError } from "@foundry/modules/errors";
-import {
-  assertSemverTag,
-  isPortableRelativePath,
+  MODULE_MANIFEST_SOURCE_PATH,
+  type ModuleManifest,
   parseModuleManifestSourceText,
-  validateModuleManifestBuild,
 } from "@foundry/modules/manifest";
 import { importModulePackage } from "@foundry/modules/package";
 import { createModuleProjects } from "@foundry/modules/projects";
+import {
+  admitModuleSource,
+  type ModuleSourceLimits,
+} from "@foundry/modules/source";
 import { createModuleVersions } from "@foundry/modules/version";
+import type {
+  SourceOrigin,
+  SourceSaves,
+} from "~/main/execution/source-evidence";
 import type {
   ModuleDetails,
   ModuleSourceRevision,
   ModuleSummary,
 } from "~/shared/modules";
-import { createModulePersistence } from "./artifact-store";
+import { modulePersistence } from "./artifact-store";
+import { worksCapabilityCatalog } from "./capabilities";
 import { moduleStarter } from "./starter";
 
-const OUTPUT_PATH = /^packages\/[^/]+\/dist\/.+/u;
+const MANIFEST_PATH = `source/${MODULE_MANIFEST_SOURCE_PATH}`;
+const utf8 = new TextDecoder("utf-8", { fatal: true });
 
 export interface ModuleLibrary {
   create(name: string): Promise<ModuleSummary>;
   details(id: string): Promise<ModuleDetails | null>;
   importPackage(encoded: string): Promise<ModuleSummary>;
   list(): Promise<ModuleSummary[]>;
+  manifest(id: string): Promise<ModuleManifest | null>;
   publish(
     id: string,
     expected: ModuleSourceRevision,
-    input: {
-      source: Record<string, string>;
-      outputs: Record<string, Uint8Array>;
-      tag: string;
-    }
-  ): Promise<{ version: ModuleVersion; binding: ModuleSourceRevision }>;
+    release: BuiltRelease
+  ): Promise<PublishedRelease>;
   release(id: string, contentId: string): Promise<ModuleVersion | null>;
   saveSource(
     id: string,
@@ -53,14 +51,108 @@ export interface ModuleLibrary {
   ): Promise<ModuleSourceRevision>;
 }
 
-export function openModuleLibrary(userData: string): ModuleLibrary {
-  return createModuleLibrary(
+interface BuiltRelease {
+  readonly builtBy: string;
+  readonly outputs: Record<string, Uint8Array>;
+  readonly source: Record<string, string>;
+  readonly tag: string;
+}
+
+interface PublishedRelease {
+  readonly binding: ModuleSourceRevision;
+  readonly version: ModuleVersion;
+}
+
+export interface ModuleRecords
+  extends Omit<ModuleLibrary, "publish" | "saveSource"> {
+  writeRelease(
+    id: string,
+    expected: ModuleSourceRevision,
+    release: Omit<BuiltRelease, "builtBy">,
+    origin: SourceOrigin
+  ): Promise<PublishedRelease>;
+  writeSource(
+    id: string,
+    source: Record<string, string>,
+    expected: ModuleSourceRevision,
+    origin: SourceOrigin
+  ): Promise<ModuleSourceRevision>;
+}
+
+export type SavePlacement = <T>(
+  moduleId: string,
+  commit: () => Promise<T>
+) => Promise<T>;
+
+export function savingLibrary(
+  records: ModuleRecords,
+  saves: SourceSaves,
+  place: SavePlacement
+): ModuleLibrary {
+  const { writeRelease, writeSource, ...reads } = records;
+  return {
+    ...reads,
+    publish: (id, expected, { builtBy, ...release }) =>
+      saves.run(
+        { actor: "build", builtBy, kind: "release", moduleId: id },
+        (origin, committed) =>
+          place(id, async () => {
+            await saves.admit(id);
+            const published = await writeRelease(id, expected, release, origin);
+            const { artifactId, contentId, tag } = published.version;
+            const saved = {
+              artifactId,
+              contentId,
+              tag,
+              updatedAt: published.binding.updatedAt,
+            };
+            committed(saved);
+            return { saved, value: published };
+          })
+      ),
+    saveSource: (id, source, expected) =>
+      saves.run(
+        { actor: "user", kind: "source", moduleId: id },
+        (origin, committed) =>
+          place(id, async () => {
+            await saves.admit(id);
+            const binding = await writeSource(id, source, expected, origin);
+            committed(binding);
+            return { saved: binding, value: binding };
+          })
+      ),
+  };
+}
+
+export function openModuleLibrary(userData: string): ModuleRecords {
+  return createModuleRecords(
     new JsonArtifactStore({ path: join(userData, "modules", "artifacts.json") })
   );
 }
 
-export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
-  const { artifacts, modules, registered } = createModulePersistence(store);
+export function createModuleLibrary(
+  store: ArtifactStore,
+  options: ModuleRecordsOptions & { readonly saves: SourceSaves }
+): ModuleLibrary {
+  return savingLibrary(
+    createModuleRecords(store, options),
+    options.saves,
+    (_moduleId, commit) => commit()
+  );
+}
+
+export interface ModuleRecordsOptions {
+  readonly catalog?: ModuleCapabilityCatalog;
+  readonly sourceLimits?: (id: string) => Promise<ModuleSourceLimits>;
+}
+
+export function createModuleRecords(
+  store: ArtifactStore,
+  options: ModuleRecordsOptions = {}
+): ModuleRecords {
+  const catalog = options.catalog ?? worksCapabilityCatalog();
+  const { artifacts, modules } = modulePersistence(store);
+  const registered = () => modules.moduleArtifacts();
   const projects = createModuleProjects({ artifacts, store: modules });
   const versions = createModuleVersions({ artifacts, store: modules });
   function summary(
@@ -70,7 +162,9 @@ export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
       artifactId: artifact.id,
       id: moduleIdSchema.parse(artifact.metadata.moduleId),
       name: artifact.name,
-      updatedAt: artifact.updatedAt.toISOString(),
+      updatedAt: (
+        artifact.content?.updatedAt ?? artifact.updatedAt
+      ).toISOString(),
     };
   }
   async function requireSummary(id: string): Promise<ModuleSummary> {
@@ -161,80 +255,22 @@ export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
     async list() {
       return (await registered()).map(summary);
     },
-    async publish(id, expected, input) {
-      assertSemverTag(input.tag);
-      const moduleId = moduleIdSchema.parse(id);
-      const files: Record<string, FileInputs[string]> = {};
-      for (const [path, bytes] of Object.entries(input.outputs)) {
-        if (!(isPortableRelativePath(path) && OUTPUT_PATH.test(path))) {
-          throw new Error("Build output is outside a package dist directory");
-        }
-        files[`outputs/${path}`] = { bytes };
+    async manifest(id) {
+      const module = await modules.loadModule(moduleIdSchema.parse(id));
+      if (!module) {
+        throw new Error("Module not found");
       }
-      for (const [path, text] of Object.entries(input.source)) {
-        files[`source/${path}`] = { bytes: text };
+      const content = (await artifacts.get(module.artifactId))?.content;
+      if (
+        !(content && "tree" in content) ||
+        content.tree[MANIFEST_PATH]?.type !== "file"
+      ) {
+        return null;
       }
-      const manifest = validateModuleManifestBuild({
-        capabilities: [],
-        manifest: parseModuleManifestSourceText(
-          input.source["foundry.module.json"] ?? ""
-        ),
-        paths: Object.keys(files),
-      });
-      return artifacts.transaction(async (scoped) => {
-        const module = await modules.loadModule(moduleId);
-        if (!module) {
-          throw new Error("Module not found");
-        }
-        const artifact = await scoped.get(module.artifactId);
-        const content = artifact?.content;
-        if (
-          !content ||
-          module.artifactId !== expected.artifactId ||
-          content.id !== expected.contentId ||
-          content.updatedAt.getTime() !== Date.parse(expected.updatedAt)
-        ) {
-          throw new ModuleStoreConflictError(
-            "Module source changed during the build; save and build again"
-          );
-        }
-        const existing = await scoped.listContents(module.artifactId, {
-          state: "frozen",
-          tagged: true,
-        });
-        if (existing.some((version) => version.tag === input.tag)) {
-          throw new ModuleStoreConflictError(
-            "This release version already exists; choose a new version"
-          );
-        }
-        if (content.state === "frozen") {
-          await scoped.revise({
-            artifactId: module.artifactId,
-            contentId: content.id,
-            expectedUpdatedAt: content.updatedAt,
-          });
-        }
-        const current = await scoped.get(module.artifactId);
-        const landed = await scoped.write({
-          artifactId: module.artifactId,
-          changes: { put: files, replace: true },
-          expectedContentId: current?.contentId,
-          freeze: { tag: input.tag },
-        });
-        return {
-          binding: serializeBinding({
-            artifactId: module.artifactId,
-            contentId: landed.id,
-            updatedAt: landed.updatedAt,
-          }),
-          version: defineModuleVersion({
-            artifact: landed.artifact,
-            content: landed,
-            manifest,
-            module,
-          }),
-        };
-      });
+      const file = await artifacts.readFile(content.id, MANIFEST_PATH);
+      return file === null
+        ? null
+        : parseModuleManifestSourceText(utf8.decode(file.blob));
     },
     release(id, contentId) {
       return versions.load({
@@ -242,10 +278,26 @@ export function createModuleLibrary(store: ArtifactStore): ModuleLibrary {
         moduleId: moduleIdSchema.parse(id),
       });
     },
-    async saveSource(id, source, expected) {
+    async writeRelease(id, expected, release, origin) {
+      admitModuleSource(release.source, await options.sourceLimits?.(id));
+      const published = await projects.publish({
+        ...release,
+        catalog,
+        expected: parseBinding(expected),
+        metadata: { origin },
+        moduleId: moduleIdSchema.parse(id),
+      });
+      return {
+        binding: serializeBinding(published.binding),
+        version: published.version,
+      };
+    },
+    async writeSource(id, source, expected, origin) {
+      admitModuleSource(source, await options.sourceLimits?.(id));
       parseModuleManifestSourceText(source["foundry.module.json"] ?? "");
       const binding = await projects.saveWorkspaceSource({
         expected: parseBinding(expected),
+        metadata: { origin },
         moduleId: moduleIdSchema.parse(id),
         source,
       });

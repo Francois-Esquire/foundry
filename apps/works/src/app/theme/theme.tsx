@@ -7,25 +7,31 @@ import {
   useMemo,
   useState,
 } from "react";
+import { worksApi } from "~/app/api/client";
+import { useReducedStream } from "~/app/lib/use-reduced-stream";
+import {
+  isThemeMode,
+  type ThemeAppearance,
+  type ThemeMode,
+  type ThemeSnapshot,
+} from "~/shared/theme";
 
-export type ThemeMode = "auto" | "dark" | "light";
-export type ResolvedTheme = Exclude<ThemeMode, "auto">;
+export type { ThemeMode } from "~/shared/theme";
+export type ResolvedTheme = ThemeAppearance;
 
 export const THEME_MODE_STORAGE_KEY = "theme-mode";
 
-const THEME_MODES: readonly ThemeMode[] = ["auto", "dark", "light"];
-
-function isThemeMode(value: unknown): value is ThemeMode {
-  return THEME_MODES.some((mode) => mode === value);
+function readStoredPreference(): ThemeMode | null {
+  try {
+    const stored = window.localStorage.getItem(THEME_MODE_STORAGE_KEY);
+    return isThemeMode(stored) ? stored : null;
+  } catch {
+    return null;
+  }
 }
 
 function readStoredMode(): ThemeMode {
-  try {
-    const stored = window.localStorage.getItem(THEME_MODE_STORAGE_KEY);
-    return isThemeMode(stored) ? stored : "auto";
-  } catch {
-    return "auto";
-  }
+  return readStoredPreference() ?? "auto";
 }
 
 function storeMode(mode: ThemeMode): void {
@@ -61,6 +67,41 @@ export function applyStoredTheme(): void {
   applyThemeClass(readStoredMode());
 }
 
+async function openMainTheme(signal: AbortSignal) {
+  const { theme } = worksApi();
+  await theme.adopt.call({ mode: readStoredPreference() }, { signal });
+  return await theme.watch.call(undefined, { signal });
+}
+
+function followSnapshot(
+  _previous: ThemeSnapshot | null,
+  snapshot: ThemeSnapshot
+): ThemeSnapshot {
+  storeMode(snapshot.mode);
+  return snapshot;
+}
+
+interface Choice {
+  readonly after: number;
+  readonly mode: ThemeMode;
+  readonly refused: boolean;
+}
+
+function shownMode(
+  choice: Choice | null,
+  snapshot: ThemeSnapshot | null,
+  stored: ThemeMode
+): ThemeMode {
+  const waiting =
+    choice !== null &&
+    !choice.refused &&
+    choice.after >= (snapshot?.revision ?? -1);
+  if (choice && waiting) {
+    return choice.mode;
+  }
+  return snapshot?.mode ?? choice?.mode ?? stored;
+}
+
 export interface ThemeContextValue {
   resolvedTheme: ResolvedTheme;
   setTheme: (mode: ThemeMode) => void;
@@ -70,7 +111,14 @@ export interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: PropsWithChildren) {
-  const [themeMode, setThemeMode] = useState<ThemeMode>(readStoredMode);
+  const [stored] = useState<ThemeMode>(readStoredMode);
+  const [choice, setChoice] = useState<Choice | null>(null);
+  const { state: snapshot } = useReducedStream({
+    initial: null,
+    open: openMainTheme,
+    reduce: followSnapshot,
+  });
+  const themeMode = shownMode(choice, snapshot, stored);
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
     resolveTheme(themeMode)
   );
@@ -90,10 +138,21 @@ export function ThemeProvider({ children }: PropsWithChildren) {
     };
   }, [themeMode]);
 
-  const setTheme = useCallback((mode: ThemeMode) => {
-    storeMode(mode);
-    setThemeMode(mode);
-  }, []);
+  const revision = snapshot?.revision ?? -1;
+  const setTheme = useCallback(
+    (mode: ThemeMode) => {
+      const chosen: Choice = { after: revision, mode, refused: false };
+      setChoice(chosen);
+      worksApi()
+        .theme.set.call({ mode })
+        .catch(() => {
+          setChoice((current) =>
+            current === chosen ? { ...chosen, refused: true } : current
+          );
+        });
+    },
+    [revision]
+  );
 
   const value = useMemo(
     () => ({ resolvedTheme, setTheme, themeMode }),

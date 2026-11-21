@@ -6,7 +6,7 @@ import { ModuleStoreConflictError } from "@foundry/modules/errors";
 import type { ModuleManifest } from "@foundry/modules/manifest";
 import { createModuleProjects } from "@foundry/modules/projects";
 import { describe, expect, it } from "vitest";
-import { createModulePersistence } from "~/main/modules/artifact-store";
+import { modulePersistence } from "~/main/modules/artifact-store";
 
 const source = {
   "foundry.module.json": JSON.stringify({
@@ -20,7 +20,7 @@ const source = {
 
 describe("Module persistence over Artifact metadata", () => {
   it("lets exactly one of two concurrent creates of one id register it", async () => {
-    const persistence = createModulePersistence(new InMemoryArtifactStore());
+    const persistence = modulePersistence(new InMemoryArtifactStore());
     const projects = createModuleProjects({
       artifacts: persistence.artifacts,
       store: persistence.modules,
@@ -37,14 +37,14 @@ describe("Module persistence over Artifact metadata", () => {
       true,
     ]);
     expect(created[0]?.artifactId).toBe(created[1]?.artifactId);
-    const registered = await persistence.registered();
+    const registered = await persistence.modules.moduleArtifacts();
     expect(registered.map((artifact) => artifact.metadata.moduleId)).toEqual([
       id,
     ]);
   });
 
   it("lets exactly one of two concurrent registrations of one id on two Artifacts land", async () => {
-    const persistence = createModulePersistence(new InMemoryArtifactStore());
+    const persistence = modulePersistence(new InMemoryArtifactStore());
     const [a, b] = await Promise.all(
       ["a", "b"].map((name) =>
         persistence.artifacts.create({ name, type: MODULE_MIME })
@@ -67,11 +67,11 @@ describe("Module persistence over Artifact metadata", () => {
     expect((results[1] as PromiseRejectedResult).reason).toBeInstanceOf(
       ModuleStoreConflictError
     );
-    expect(await persistence.registered()).toHaveLength(1);
+    expect(await persistence.modules.moduleArtifacts()).toHaveLength(1);
   });
 
   it("lets exactly one of two concurrent, different retained manifests for one Content land", async () => {
-    const persistence = createModulePersistence(new InMemoryArtifactStore());
+    const persistence = modulePersistence(new InMemoryArtifactStore());
     const artifact = await persistence.artifacts.create({
       name: "a",
       type: MODULE_MIME,

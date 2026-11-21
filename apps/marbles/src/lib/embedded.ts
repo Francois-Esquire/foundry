@@ -1,5 +1,6 @@
-export type { SessionEvent } from "@foundry/agents/session";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for embedded hosts.
+export { isPolicyDeniedOutput } from "@foundry/agents/harness";
+export type { SessionEvent } from "@foundry/agents/session";
 export { Sessions } from "@foundry/agents/session";
 export type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 export { InMemorySessionStore } from "@foundry/agents/store/memory";

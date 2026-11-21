@@ -4,23 +4,25 @@ import { waitFor } from "./electron";
 export const sourceText =
   "document.querySelector('[data-module-source] diffs-container')?.shadowRoot?.querySelector('[contenteditable=true]')?.textContent ?? ''";
 
+const RAIL_MODULES = "nav[aria-label=Main] a[aria-label=Modules]";
+
 export async function openLibrary(window: BrowserWindow) {
   await waitFor(
     () =>
       window.webContents.executeJavaScript(
-        "!!document.querySelector('a[href=\"#/modules\"]')"
+        `!!document.querySelector(${JSON.stringify(RAIL_MODULES)})`
       ),
-    "Library link missing"
+    "Modules destination missing from the rail"
   );
   await window.webContents.executeJavaScript(
-    "document.querySelector('a[href=\"#/modules\"]').click()"
+    `document.querySelector(${JSON.stringify(RAIL_MODULES)}).click()`
   );
   await waitFor(
     () =>
       window.webContents.executeJavaScript(
-        "!!document.querySelector('#module-name')"
+        "!!document.querySelector('[role=tabpanel] #module-name')"
       ),
-    "Library did not open"
+    "Modules Catalog did not open"
   );
 }
 
@@ -28,8 +30,13 @@ export async function selectManagementView(
   window: BrowserWindow,
   name: string
 ) {
+  const tab = `Array.from(document.querySelectorAll('[role=tab]')).find(tab => tab.textContent.startsWith(${JSON.stringify(name)}))`;
+  await waitFor(
+    () => window.webContents.executeJavaScript(`!!${tab}`),
+    `Management view ${name} did not appear`
+  );
   await window.webContents.executeJavaScript(
-    `Array.from(document.querySelectorAll('[role=tab]')).find(tab => tab.textContent.startsWith(${JSON.stringify(name)})).focus()`
+    `${tab}.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))`
   );
   await waitFor(
     () =>
