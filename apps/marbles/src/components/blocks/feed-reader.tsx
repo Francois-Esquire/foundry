@@ -5,7 +5,7 @@ import { Action } from "~/components/ui/action";
 import { InputRow } from "~/components/ui/input-row";
 import { Panel } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
-import { theme } from "~/components/ui/theme";
+import { type Palette, theme } from "~/components/ui/theme";
 import type { FeedMediaSnapshot } from "~/lib/feed/read";
 import { EmptyState } from "./empty-state";
 import type { FeedItem } from "./feed-list";
@@ -41,6 +41,7 @@ export type AnswerView =
   | (AnswerDelivery & { readonly kind: "free-text" })
   | (AnswerDelivery & {
       readonly draft: string;
+      readonly focused: boolean;
       readonly hint: string;
       readonly kind: "typing";
       readonly onInput: (value: string) => void;
@@ -61,8 +62,7 @@ const IMAGE_HEIGHT = 14;
 const IMAGE_WIDTH = 56;
 const MEDIA_ICON = { audio: "♪", file: "□", image: "▣", video: "▶" } as const;
 
-function markdownStyle(): SyntaxStyle {
-  const { colors } = theme;
+function markdownStyle(colors: Palette["colors"]): SyntaxStyle {
   return SyntaxStyle.fromStyles({
     comment: { fg: colors.mutedForeground, italic: true },
     conceal: { fg: colors.mutedForeground },
@@ -147,7 +147,7 @@ function AnswerControl({ answer }: { readonly answer: OpenAnswer }) {
       return (
         <>
           <InputRow
-            focused
+            focused={answer.focused}
             labels={[answer.prompt]}
             onInput={answer.onInput}
             onSubmit={answer.onSubmit}
@@ -220,7 +220,11 @@ export function FeedReader({
   readonly selected?: ReaderItem;
   readonly active: boolean;
 }) {
-  const style = useMemo(markdownStyle, []);
+  const palette = JSON.stringify(theme.colors);
+  const style = useMemo(
+    () => markdownStyle(JSON.parse(palette) as Palette["colors"]),
+    [palette]
+  );
   useEffect(() => () => style.destroy(), [style]);
   if (!selected) {
     return (

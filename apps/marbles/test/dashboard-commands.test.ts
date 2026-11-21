@@ -400,6 +400,23 @@ describe("key dispatch", () => {
     ]);
   });
 
+  it("leaves plain-letter bindings alone while Ctrl or Meta is held", () => {
+    const run = context();
+    expect(run.press(key("k", { ctrl: true }))).toBeUndefined();
+    expect(run.press(key("k", { meta: true }))).toBeUndefined();
+    expect(run.press(key("k"))).toEqual([["act", expect.any(Function)]]);
+    const catalog = context({
+      events: [{ pane: "definition", type: "focus" }],
+    });
+    expect(
+      catalog.press(key("f", { ctrl: true, sequence: "F", shift: true }))
+    ).toBeUndefined();
+    expect(catalog.press(key("f", { meta: true }))).toBeUndefined();
+    expect(catalog.press(key("f", { sequence: "F", shift: true }))).toEqual([
+      ["send", { type: "view", view: "feed" }],
+    ]);
+  });
+
   it("launches a definition only when the host can", () => {
     const events = [{ pane: "definition", type: "focus" }] as const;
     expect(context({ events }).press(key("l"))).toEqual([["launch", "docs"]]);

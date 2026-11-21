@@ -19,6 +19,7 @@ import {
 
 const SELECTED_FAILURE = /› ▸ check-api +failed\b/;
 const WRITE_STEP = /Step\s+: write/;
+const WORKSPACE_PICKER_BORDER = /╭─Workspaces/g;
 
 function close() {
   // Quitting is covered in dashboard-quit.test.tsx.
@@ -186,6 +187,126 @@ test("a run control failure shows its message without an Error prefix", async ()
   await press(ui, "p");
   expect(ui.captureCharFrame()).toContain("Step is not running here");
   expect(ui.captureCharFrame()).not.toContain("Error: Step");
+});
+
+test("a steer keeps its prompt and draft until it has been sent", async () => {
+  const { actions, calls } = recordingActions();
+  let release: () => void = () => undefined;
+  actions.pause = (runId, stepId) => {
+    calls.push(["pause", runId, stepId]);
+    return new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  };
+  actions.steer = (runId, stepId, text) => {
+    calls.push(["steer", runId, stepId, text]);
+    return Promise.reject(new Error("Step is not listening"));
+  };
+  const ui = await render(dashboardSnapshot, actions);
+  await press(ui, "p");
+  await press(ui, "s");
+  await act(async () => ui.mockInput.typeText("keep this"));
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(calls).toEqual([["pause", "run-104", "docs"]]);
+  expect(ui.captureCharFrame()).toContain("steer docs ›");
+  expect(ui.captureCharFrame()).toContain("keep this");
+  await act(async () => release());
+  await flush(ui);
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(calls.at(-1)).toEqual(["steer", "run-104", "docs", "keep this"]);
+  const frame = ui.captureCharFrame();
+  expect(frame).toContain("Step is not listening");
+  expect(frame).toContain("steer docs ›");
+  expect(frame).toContain("keep this");
+});
+
+test("header, tab, and footer clicks wait while a prompt is open", async () => {
+  const { actions, calls } = recordingActions();
+  const chosen: string[] = [];
+  const choose = (id: string) => {
+    chosen.push(id);
+  };
+  const ui = await mount(
+    <DashboardView
+      actions={actions}
+      hosted={{
+        state: "ready",
+        workspaces: [
+          {
+            config: null,
+            id: "foundry",
+            root: "/Users/someone/code/alpha/foundry",
+            state: "ready",
+          },
+          {
+            config: null,
+            id: "spyglass",
+            root: "/Users/someone/code/beta/foundry",
+            state: "ready",
+          },
+        ],
+      }}
+      onClose={close}
+      onSwitchWorkspace={choose}
+      snapshot={{ ...dashboardSnapshot, mode: "live", workspaceId: "foundry" }}
+    />
+  );
+  await press(ui, "s");
+  await act(async () => ui.mockInput.typeText("go on"));
+  await flush(ui);
+  const before = ui.captureCharFrame();
+  for (const id of [
+    "nav:workspaces",
+    "view:settings",
+    "view:logs",
+    "view:catalog",
+    "view:feed",
+  ]) {
+    await click(ui, id);
+    expect(ui.captureCharFrame()).toBe(before);
+  }
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(chosen).toEqual([]);
+  expect(calls).toEqual([["steer", "run-104", "docs", "go on"]]);
+  expect(ui.captureCharFrame().match(WORKSPACE_PICKER_BORDER)).toBeNull();
+});
+
+test("details buttons wait while a prompt is open", async () => {
+  const { actions, calls } = recordingActions();
+  const rolled: string[] = [];
+  const roll = (id: string) => {
+    rolled.push(id);
+    return Promise.resolve();
+  };
+  const ui = await mount(
+    <DashboardView
+      actions={actions}
+      onClose={close}
+      onRollSchedule={roll}
+      snapshot={dashboardSnapshot}
+    />
+  );
+  await press(ui, "s");
+  await act(async () => ui.mockInput.typeText("go on"));
+  await flush(ui);
+  const lines = ui.captureCharFrame().split("\n");
+  const row = lines.findIndex((line) => line.includes("Up next"));
+  const column = lines[row]?.indexOf("Up next") ?? -1;
+  await act(async () => {
+    await ui.mockMouse.click(column + 1, row);
+  });
+  await flush(ui);
+  expect(ui.renderer.root.findDescendantById("schedule:run")).toBeDefined();
+  await click(ui, "schedule:run");
+  expect(rolled).toEqual([]);
+  expect(calls).toEqual([]);
+  expect(ui.captureCharFrame()).toContain("steer docs ›");
+  await act(async () => ui.mockInput.pressEnter());
+  await flush(ui);
+  expect(calls).toEqual([["steer", "run-104", "docs", "go on"]]);
 });
 
 test("a paused step resumes with an optional prompt", async () => {

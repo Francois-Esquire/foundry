@@ -23,6 +23,7 @@ export function Action<T>({
   const press = useCallback(
     (event: MouseEvent) => {
       event.stopPropagation();
+      event.preventDefault();
       onAction(value);
     },
     [onAction, value]
