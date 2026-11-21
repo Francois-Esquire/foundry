@@ -82,20 +82,17 @@ async function write(
   );
 }
 
-async function engine(machine: Record<string, string> = {}) {
-  const built = build(machine);
+async function engine(environment: Record<string, string> = {}) {
+  const built = build(environment);
   await built.providers?.refresh();
   return built;
 }
 
-function build(machine: Record<string, string>) {
+function build(environment: Record<string, string>) {
   return createEngine({
     catalog,
     dry: false,
-    environment: {
-      machine: { ACCOUNT_HOME: "/accounts/personal", ...machine },
-      workspace: { ACCOUNT_HOME: "/accounts/work" },
-    },
+    environment: { ACCOUNT_HOME: "/accounts/personal", ...environment },
     plugins: [cli],
     print: () => undefined,
     root: process.cwd(),
@@ -192,8 +189,8 @@ it("keeps a session across edits that leave its account alone, and refuses one t
   } finally {
     await e.dispose();
   }
-  for (const machine of accounts) {
-    e = await engine(machine);
+  for (const account of accounts) {
+    e = await engine(account);
     try {
       await expect(
         e.agents.session(reviewer, { session: ref })

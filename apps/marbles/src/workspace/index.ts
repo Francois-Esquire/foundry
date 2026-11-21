@@ -19,7 +19,6 @@ export type {
 } from "~/model/connection";
 export type { DashboardSnapshot } from "~/model/dashboard";
 export { createStarter } from "~/workspace/create";
-export { EnvironmentError } from "~/workspace/env";
 export {
   type HostWorkspaceOptions,
   hostWorkspace,

@@ -110,9 +110,7 @@ attaches it, so its schedules and monitors keep ticking in the Marbles
 process after the command exits; `marbles stop` ends that. A tick claims
 its trigger's row in the Marbles database, so a `roll` of a key whose own
 tick is under way at that moment prints `skipped: held by <holder>`. Under
-`--dry-run` the roll runs in this process, persists nothing, and stops when
-a `.env.schema` value does not resolve; the engine generation warns and
-continues instead.
+`--dry-run` the roll runs in this process and persists nothing.
 
 ### Input errors and questions
 
@@ -289,7 +287,8 @@ Settings are global: `settings.json` at the state root
 file or key uses the default theme, `dark`. A value Marbles does not know, or
 a file it cannot read, falls back to the default and is named in the Settings
 panel; Marbles does not overwrite a file it cannot read. Saving keeps keys it
-does not know. Under `--dry-run` theme changes are read-only.
+does not know. Under `--dry-run` the Settings panel is read-only, and
+`marbles settings set` is refused with a usage error.
 
 Settings includes a scrollable picker for the bundled
 [termCN OpenTUI themes](https://www.termcn.dev/docs/theming/opentui) and
@@ -422,9 +421,8 @@ installed. Provider configuration lives in the Marbles database; there is
 no file to edit and no command for it yet, so an entry setup does not offer
 is added through the library, `ProviderConfiguration.add` over
 `DatabaseProviderStore.forState` (`@foundry.sh/marbles/lib`), for example
-`{ "id": "pi", "plugin": "pi", "enabled": true }`. Pi reads the process environment itself, so it does not
-serve a workspace whose `.env.schema` adds variables until it is configured
-for that workspace. Host model
+`{ "id": "pi", "plugin": "pi", "enabled": true }`. Pi reads the process
+environment itself. Host model
 calls use `ai-sdk-provider-pi` 0.1.0, which embeds Pi 0.52.12,
 with read-only tools by default. Configure its credentials through Pi's auth
 storage or provider API-key environment variables.

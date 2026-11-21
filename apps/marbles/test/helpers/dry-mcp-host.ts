@@ -13,7 +13,6 @@ const host = await hostWorkspace({
   askable: false,
   directory: process.cwd(),
   dry: true,
-  env: "require",
   print: (line) => process.stderr.write(`${line}\n`),
   source,
   state,

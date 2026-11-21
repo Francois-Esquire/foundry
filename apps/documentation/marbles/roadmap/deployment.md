@@ -83,15 +83,15 @@ What blocks them:
   concurrency assume one long-lived instance owns active runs.
 - Construction is node-bound. The engine wires the node file observer, git,
   and home and temp directories unconditionally. The workspace bucket is
-  host-side on purpose: the Bun plugin loader, Varlock spawn, and source
-  watching load authoring files from disk.
+  host-side on purpose: the Bun plugin loader and source watching load
+  authoring files from disk.
 - Lock liveness is pid-only. Locks record a pid and check it with a zero
   signal. In a container pids restart low, so a stale lock on a volume can
   look alive.
 - Credentials are host-login shaped. Codex reads `auth.json` under the
   instance's `CODEX_HOME` (default `~/.codex`),
   Claude reads the macOS keychain with `CLAUDE_CODE_OAUTH_TOKEN` as the one
-  environment route, and Varlock must be on the image.
+  environment route.
 - Sandboxes need a hypervisor. The microVM backend needs nested
   virtualization, which container hosts do not give, and the in-memory
   backend cannot run a real CLI, so agent steps that use a sandbox fail on
@@ -151,8 +151,8 @@ and treat a pid whose start time does not match as stale.
 
 An environment route for every harness: Claude through the existing token
 variable, Codex through access token and account id variables, Pi through
-its own auth. Document the image contract: which variables, and Varlock on
-the image.
+its own auth. Document the image contract: which variables the image
+needs.
 
 ### Sandboxes: a backend per host
 
@@ -177,7 +177,7 @@ choosing a third-party backend decides where those tokens may go.
 
 ### Packaging
 
-A Dockerfile that builds the app, installs the harness CLIs and Varlock,
+A Dockerfile that builds the app, installs the harness CLIs,
 sets `FOUNDRY_HOME` to a volume, and runs `marbles daemon --attach`.
 Platform notes for Railway, Render, and Cloudflare Containers follow from
 it.
