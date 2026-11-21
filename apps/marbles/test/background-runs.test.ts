@@ -1,3 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative, resolve as resolvePath } from "node:path";
 import { ModelManager } from "@foundry/models";
 import { isJsonValue } from "@foundry/workflows";
 import { Orchestrator } from "@foundry/workflows/orchestrator";
@@ -70,7 +75,7 @@ it("dispatches an ad hoc agent with route, instructions and working directory ov
       `${cwd}:${executor.provider}:${prompt}`,
   });
   const started = await jobs.start({
-    cwd: "/tmp",
+    cwd: "src",
     instructions: "Inspect only.",
     model: CODEX.model,
     prompt: "Inspect",
@@ -80,9 +85,89 @@ it("dispatches an ad hoc agent with route, instructions and working directory ov
     expect((await jobs.get(started.runId)).status).toBe("completed")
   );
   const finished = await jobs.get(started.runId);
-  expect(finished.text).toContain("/tmp:codex:");
+  expect(finished.text).toContain(`${realpathSync(resolvePath("src"))}:codex:`);
   expect(finished.text).toContain("Inspect only.");
   expect(finished.text).toContain("Inspect");
+});
+
+async function contained() {
+  const made = await mkdtemp(join(tmpdir(), "marbles-dispatch-cwd-"));
+  const base = realpathSync(made);
+  const root = join(base, "repo");
+  const outside = join(base, "outside");
+  const worktrees = join(base, "worktrees");
+  await Promise.all([
+    mkdir(join(root, "inner"), { recursive: true }),
+    mkdir(outside),
+    mkdir(join(worktrees, "stray"), { recursive: true }),
+  ]);
+  await writeFile(join(root, "README.md"), "repo\n");
+  await symlink(outside, join(root, "link"));
+  const git = (...args: string[]) =>
+    execFileSync(
+      "git",
+      ["-c", "user.email=t@example.com", "-c", "user.name=t", ...args],
+      { cwd: root, stdio: "ignore" }
+    );
+  git("init", "--quiet");
+  git("add", "README.md");
+  git("commit", "--quiet", "-m", "init");
+  const engine = testEngine({
+    live: true,
+    reply: ({ cwd }) => `cwd=${cwd}`,
+    root,
+    worktrees,
+  });
+  engines.push(engine);
+  const jobs = new BackgroundRuns(engine, new Catalog());
+  await engine.start();
+  const finish = async (cwd: string) => {
+    const started = await jobs.start({ cwd, prompt: "Where" });
+    await vi.waitFor(async () =>
+      expect((await jobs.get(started.runId)).status).toBe("completed")
+    );
+    return (await jobs.get(started.runId)).text;
+  };
+  return { base, engine, finish, jobs, outside, root, worktrees };
+}
+
+it("refuses a dispatch cwd outside the workspace and its Marbles worktrees", async () => {
+  const { base, jobs, outside, root, worktrees } = await contained();
+  try {
+    for (const cwd of [
+      outside,
+      relative(root, outside),
+      "../..",
+      "link",
+      join(worktrees, "stray"),
+    ]) {
+      await expect(jobs.start({ cwd, prompt: "Escape" }), cwd).rejects.toThrow(
+        "outside the workspace root"
+      );
+    }
+    await expect(
+      jobs.start({ cwd: "missing", prompt: "Escape" })
+    ).rejects.toThrow(`"${join(root, "missing")}"`);
+    await expect(
+      jobs.start({ cwd: "README.md", prompt: "Escape" })
+    ).rejects.toThrow("not a directory");
+  } finally {
+    await rm(base, { force: true, recursive: true });
+  }
+});
+
+it("starts a dispatch in the workspace or one of its Marbles worktrees", async () => {
+  const { base, engine, finish, root } = await contained();
+  try {
+    expect(await finish("inner")).toContain(`cwd=${join(root, "inner")}`);
+    expect(await finish(root)).toContain(`cwd=${root}`);
+    const tree = await engine.workspaces.current.git.worktree({
+      base: "HEAD",
+    });
+    expect(await finish(tree.root)).toContain(`cwd=${tree.root}`);
+  } finally {
+    await rm(base, { force: true, recursive: true });
+  }
 });
 
 it("continues the returned session on a later dispatch", async () => {

@@ -230,7 +230,9 @@ Five buckets, each importing only what sits below it:
   `ResourceAssociations` in `lib/resources.ts` states; `resources.ts`
   (`ResourceView`) is what a workspace shows of the resources every
   package store keeps, its own and those shared with it, or every
-  workspace's, each read through its owner's package store. `status`, the
+  workspace's, each read through its owner's package store, leaving out
+  what another workspace whose `<state>/<id>` is a link owns, as the
+  registry does. `status`, the
   resource listings and the dashboard's Feed read through it, and the
   dashboard's lists of other workspaces' runs and triggers
   (`workspace/others.ts`, with `storedTicks` in `triggers.ts`). Every writer handle goes through `guard.ts`, which
