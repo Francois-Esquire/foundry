@@ -22,7 +22,7 @@ export type LiveAccess =
       readonly expiresAt: number;
     }
   | { readonly kind: "proxy"; readonly url: string }
-  | { readonly kind: "credential"; readonly client: unknown };
+  | { readonly kind: "credential"; readonly credentials: string };
 
 export interface LiveDirection {
   readonly prompt: string;
