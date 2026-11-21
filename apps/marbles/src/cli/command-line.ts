@@ -96,7 +96,6 @@ const USAGE = `marbles — programmable workspace automation
   detach                     stop hosting this workspace; it is not started again at boot
 
   --source <path>    authoring folder or module (default: ./.foundry/marbles)
-  --config <path>    compatibility alias for --source
   --dry-run          echo every model turn and git mutation instead of running them
   --recheck-providers  reopen provider setup for the interactive dashboard
 
@@ -178,7 +177,11 @@ async function showStatus(
 ): Promise<void> {
   const report = await readStatus(resolve(args.state));
   if (process.stdout.isTTY && process.stdin.isTTY) {
-    const { showStatus: renderStatus } = await import("~/cli/status/view");
+    const [{ showStatus: renderStatus }, { applyTheme }] = await Promise.all([
+      import("~/cli/status/view"),
+      import("~/cli/theme"),
+    ]);
+    applyTheme(loadSettings(settingsPath(args.state)).settings.theme);
     await renderStatus({ here: workspace.id, report });
     return;
   }
@@ -593,7 +596,7 @@ async function withLocalHost(
   const host = await hostHere(args, { env: envMode(args), print });
   const { engine } = host;
   try {
-    printErrors(engine.automations);
+    await printErrors(engine.automations);
     print(
       `[providers] ${engine.models.providers.map((provider) => provider.id).join(", ") || "none configured"}`
     );

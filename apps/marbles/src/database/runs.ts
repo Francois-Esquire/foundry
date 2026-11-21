@@ -222,8 +222,15 @@ export class DatabaseRunStore implements RunStore {
           database: transaction,
           scope: this.#scope,
         });
-        await workflows.commit(await removalOf(workflows, runId));
+        const removal = await removalOf(workflows, runId);
+        await workflows.commit(removal);
         await transaction.delete(marblesWorkflowRuns).where(this.#run(runId));
+        await removeShares(
+          transaction,
+          "run",
+          this.#scope,
+          removal.deleteRuns ?? []
+        );
       })
     );
   }

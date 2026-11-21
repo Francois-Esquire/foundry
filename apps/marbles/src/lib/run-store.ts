@@ -43,7 +43,7 @@ export interface StoredScope {
   readonly session?: string;
 }
 
-type TerminalRunStatus = "complete" | "failed" | "cancelled";
+export type TerminalRunStatus = "complete" | "failed" | "cancelled";
 
 export const TERMINAL_RUN_STATUSES: ReadonlySet<string> =
   new Set<TerminalRunStatus>(["complete", "failed", "cancelled"]);

@@ -9,6 +9,8 @@ import { acquireLock, PROCESS_LOCK as LOCK } from "~/lib/state/locks";
 
 const FILE = "process.json";
 
+export const STATE_MODE = 0o700;
+
 export type ProcessHost = "daemon" | "worker";
 
 export interface ProcessInfo {

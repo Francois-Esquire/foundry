@@ -79,27 +79,27 @@ function recoveryLines(recovery: WorkspaceStatus["recovery"]): string[] {
   ];
 }
 
-function processLine(report: StatusReport): string {
+export function processLines(report: StatusReport): string[] {
   const { process: daemon } = report;
-  if (daemon?.alive) {
-    return [
-      `marbles process: pid ${daemon.pid}${daemon.version === null ? "" : ` · v${daemon.version}`}${daemon.socket === null ? "" : ` · ${daemon.socket}`}`,
-      ...report.generations
-        .filter(
-          (generation) => generation.alive || generation.state === "cannot tell"
-        )
-        .map(
-          (generation) =>
-            `  engine generation ${String(generation.number)}: pid ${String(generation.pid)} · ${generation.state}`
-        ),
-    ].join("\n");
-  }
-  return "marbles process: not running";
+  return [
+    daemon?.alive
+      ? `marbles process: pid ${daemon.pid}${daemon.version === null ? "" : ` · v${daemon.version}`}${daemon.socket === null ? "" : ` · ${daemon.socket}`}`
+      : "marbles process: not running",
+    ...report.generations
+      .filter(
+        (generation) => generation.alive || generation.state === "cannot tell"
+      )
+      .map(
+        (generation) =>
+          `  engine generation ${String(generation.number)}: pid ${String(generation.pid)} · ${generation.state}`
+      ),
+  ];
 }
 
 export function statusText(report: StatusReport, here?: string): string {
+  const processText = processLines(report).join("\n");
   if (report.workspaces.length === 0) {
-    return `${processLine(report)}\nno workspaces under ${report.root}`;
+    return `${processText}\nno workspaces under ${report.root}`;
   }
   const workspaces = report.workspaces.map((workspace) =>
     [
@@ -107,5 +107,5 @@ export function statusText(report: StatusReport, here?: string): string {
       ...workspaceLines(workspace),
     ].join("\n")
   );
-  return [processLine(report), ...workspaces].join("\n\n");
+  return [processText, ...workspaces].join("\n\n");
 }

@@ -1,7 +1,7 @@
 import type { RealtimeConnection } from "@fal-ai/client";
 
 import type { Media } from "../types";
-import { falClientFor } from "./fal-access";
+import { type FalClientFactory, falClientFor } from "./fal-access";
 import type { Connect, Transport } from "./transport";
 
 interface FalRealtimeResult {
@@ -14,59 +14,63 @@ interface FalRealtimeResult {
 
 const WEBSOCKET_CLOSE_STATUS = 1000;
 
-export const connectFalSocket: Connect = (target, access, _options, handlers) =>
-  Promise.resolve().then((): Transport => {
-    const client = falClientFor(access);
+export const falSocketTransport =
+  (create?: FalClientFactory): Connect =>
+  (target, access, _options, handlers) =>
+    Promise.resolve().then((): Transport => {
+      const client = falClientFor(access, create);
 
-    const connection: RealtimeConnection<Record<string, unknown>> =
-      client.realtime.connect(target.modelId, {
-        ...(access.kind === "token"
-          ? { tokenProvider: () => Promise.resolve(access.token) }
-          : {}),
-        onClose: (event: { code: number; reason: string }) => {
-          handlers.close("disconnected", event.reason);
-        },
-        onError: (error: { status?: number; message?: string }) => {
-          if ((error.status ?? 0) >= WEBSOCKET_CLOSE_STATUS) {
-            handlers.close("disconnected", error.message);
-            return;
-          }
-          handlers.error(error);
-        },
-        onResult: (result: FalRealtimeResult) => {
-          const media = mediaOf(result);
-          if (media === null) {
-            return;
-          }
-          handlers.message({
-            media,
-            ...(result.request_id === undefined
-              ? {}
-              : { correlation: result.request_id }),
-          });
-        },
-      });
-
-    return {
-      close() {
-        connection.close();
-      },
-      send(message) {
-        connection.send({
-          prompt: message.direction.prompt,
-          request_id: message.correlation,
-          ...(message.direction.settings ?? {}),
-          ...(message.references?.[0] === undefined
-            ? {}
-            : { reference_image_url: encode(message.references[0]) }),
-          ...(message.frame === undefined
-            ? {}
-            : { image_url: encode(message.frame) }),
+      const connection: RealtimeConnection<Record<string, unknown>> =
+        client.realtime.connect(target.modelId, {
+          ...(access.kind === "token"
+            ? { tokenProvider: () => Promise.resolve(access.token) }
+            : {}),
+          onClose: (event: { code: number; reason: string }) => {
+            handlers.close("disconnected", event.reason);
+          },
+          onError: (error: { status?: number; message?: string }) => {
+            if ((error.status ?? 0) >= WEBSOCKET_CLOSE_STATUS) {
+              handlers.close("disconnected", error.message);
+              return;
+            }
+            handlers.error(error);
+          },
+          onResult: (result: FalRealtimeResult) => {
+            const media = mediaOf(result);
+            if (media === null) {
+              return;
+            }
+            handlers.message({
+              media,
+              ...(result.request_id === undefined
+                ? {}
+                : { correlation: result.request_id }),
+            });
+          },
         });
-        return Promise.resolve();
-      },
-    };
-  });
+
+      return {
+        close() {
+          connection.close();
+        },
+        send(message) {
+          connection.send({
+            prompt: message.direction.prompt,
+            request_id: message.correlation,
+            ...(message.direction.settings ?? {}),
+            ...(message.references?.[0] === undefined
+              ? {}
+              : { reference_image_url: encode(message.references[0]) }),
+            ...(message.frame === undefined
+              ? {}
+              : { image_url: encode(message.frame) }),
+          });
+          return Promise.resolve();
+        },
+      };
+    });
+
+export const connectFalSocket = falSocketTransport();
 
 const ENCODE_CHUNK_BYTES = 32 * 1024;
 

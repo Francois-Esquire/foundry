@@ -83,9 +83,8 @@ directory is itself the workspace; a single module uses its containing
 directory. Selecting `.foundry/marbles` or a module inside it uses
 the project root even when invoked from another working directory.
 
-`--config` remains an alias for `--source`. When the default folder is absent,
-an existing `./marbles.config.ts` still loads for compatibility. The folder
-takes precedence when both exist. With no source, the working directory is
+When the default folder is absent, an existing `./marbles.config.ts` still
+loads for compatibility. The folder takes precedence when both exist. With no source, the working directory is
 the workspace. `help` and `init` do not import authoring modules.
 
 ## Environment

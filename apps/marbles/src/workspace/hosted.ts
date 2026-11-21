@@ -235,7 +235,11 @@ export class HostedWorkspaces {
     return host;
   }
 
-  async stageRegistered(): Promise<StagedWorkspaces> {
+  stageRegistered(): Promise<StagedWorkspaces> {
+    return this.#track(this.#stageRegistered());
+  }
+
+  async #stageRegistered(): Promise<StagedWorkspaces> {
     const staged: {
       readonly root: string;
       readonly staged: StagedWorkspace;
@@ -260,6 +264,10 @@ export class HostedWorkspaces {
         loads.push({ error, loaded: false, root: error.root });
       }
     }
+    if (this.#closed()) {
+      await Promise.allSettled(staged.map((each) => each.staged.abandon()));
+      throw new Error("these hosted workspaces closed while they loaded");
+    }
     let used = false;
     const once = (): void => {
       if (used) {
@@ -270,32 +278,40 @@ export class HostedWorkspaces {
       used = true;
     };
     return {
-      abandon: async () => {
-        once();
-        await Promise.allSettled(staged.map((each) => each.staged.abandon()));
-      },
+      abandon: () =>
+        this.#track(
+          (async () => {
+            once();
+            await Promise.allSettled(
+              staged.map((each) => each.staged.abandon())
+            );
+          })()
+        ),
       loads,
-      start: async () => {
-        once();
-        const started: WorkspaceLoad[] = [];
-        for (const each of staged) {
-          try {
-            const host = await this.#start(each.staged, each.root);
-            started.push({
-              files: host.files,
-              id: host.id,
-              loaded: true,
-              root: host.root,
-            });
-          } catch (error) {
-            if (!(error instanceof WorkspaceLoadError)) {
-              throw error;
+      start: () =>
+        this.#track(
+          (async () => {
+            once();
+            const started: WorkspaceLoad[] = [];
+            for (const each of staged) {
+              try {
+                const host = await this.#start(each.staged, each.root);
+                started.push({
+                  files: host.files,
+                  id: host.id,
+                  loaded: true,
+                  root: host.root,
+                });
+              } catch (error) {
+                if (!(error instanceof WorkspaceLoadError)) {
+                  throw error;
+                }
+                started.push({ error, loaded: false, root: error.root });
+              }
             }
-            started.push({ error, loaded: false, root: error.root });
-          }
-        }
-        return started;
-      },
+            return started;
+          })()
+        ),
     };
   }
 

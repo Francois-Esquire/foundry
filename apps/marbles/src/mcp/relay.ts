@@ -3,8 +3,8 @@ import { createReadStream, createWriteStream, fstatSync } from "node:fs";
 import { constants } from "node:os";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { recordChild } from "@foundry/lib/spawn-record";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
-import { recordSpawned } from "~/process/spawned";
 
 const SERVER = "MARBLES_MCP_SERVER";
 const PROTOCOL_FD = 3;
@@ -49,6 +49,14 @@ export async function relay(
     env: { ...process.env, [SERVER]: "1" },
     stdio: ["pipe", 2, "inherit", "pipe", "pipe"],
   });
+  let killer: NodeJS.Timeout | undefined;
+  const exited = new Promise<number>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      clearTimeout(killer);
+      resolve(code ?? 128 + (signal === null ? 0 : constants.signals[signal]));
+    });
+  });
   const { stdin: input } = child;
   const protocol = child.stdio[PROTOCOL_FD];
   const held = child.stdio[RELAY_FD];
@@ -60,13 +68,16 @@ export async function relay(
     )
   ) {
     child.kill("SIGKILL");
-    throw new Error("could not open the pipes to the MCP server");
+    const failure = await exited.then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    throw failure ?? new Error("could not open the pipes to the MCP server");
   }
   held.on("error", () => held.destroy());
   held.resume();
   const running = (): boolean =>
     child.exitCode === null && child.signalCode === null;
-  let killer: NodeJS.Timeout | undefined;
   const deadline = (): void => {
     if (!running()) {
       return;
@@ -87,14 +98,7 @@ export async function relay(
   for (const signal of FORWARDED) {
     process.on(signal, stop);
   }
-  const exited = new Promise<number>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      clearTimeout(killer);
-      resolve(code ?? 128 + (signal === null ? 0 : constants.signals[signal]));
-    });
-  });
-  recordSpawned(child.pid, false);
+  recordChild(child);
   const copied = pipeline(protocol, createWriteStream("", { fd: 1 })).catch(
     (error: unknown) => {
       process.stderr.write(

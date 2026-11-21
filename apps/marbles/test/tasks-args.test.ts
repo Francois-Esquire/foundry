@@ -256,3 +256,33 @@ it("refuses a tasks line that cannot run, before anything loads", () => {
   }
   expect(parseArgs(["tasks", "list", "--help"]).command).toBe("help");
 });
+
+it("takes an option's value literally, even when it spells a global flag", () => {
+  for (const value of ["--help", "-h", "--dry-run", "--recheck-providers"]) {
+    const args = task(["create", "Fix", "--description", value]);
+    expect(args).toMatchObject({ command: "tasks", dry: false });
+    expect(args.task).toMatchObject({
+      change: {
+        operations: [
+          { input: { description: value, title: "Fix" }, kind: "task.create" },
+        ],
+      },
+    });
+  }
+  expect(task(["update", "tk-1", "--title", "--json", "--json"])).toMatchObject(
+    {
+      json: true,
+      task: { change: { operations: [{ patch: { title: "--json" } }] } },
+    }
+  );
+});
+
+it("refuses a task option with no value, or a flag it does not know, even beside --help", () => {
+  expect(() => parseArgs(["tasks", "create", "Fix", "--description"])).toThrow(
+    "tasks create: --description takes a value"
+  );
+  expect(() => parseArgs(["tasks", "list", "--tags", "--help"])).toThrow(
+    "tasks list: unknown option --tags"
+  );
+  expect(parseArgs(["tasks", "create", "--help"]).command).toBe("help");
+});

@@ -483,3 +483,21 @@ describe("handing queued runs over", () => {
     }
   });
 });
+
+describe("a halted launcher's hand-over", () => {
+  it("leaves no pass scheduled once it halts with nothing left to hand over", async () => {
+    vi.useFakeTimers();
+    try {
+      for (const cancel of [true, false]) {
+        const { executions, launcher } = launcherOver(new GatedStore());
+        await executions.load();
+        await launcher.handOver({ pid: thisProcess().pid + 1, started: null });
+        expect(vi.getTimerCount()).toBe(1);
+        await launcher.halt(cancel);
+        expect(vi.getTimerCount()).toBe(0);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
