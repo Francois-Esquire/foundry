@@ -113,7 +113,8 @@ supplies the underlying file, command, and container interfaces.
 
 ## Add an agent and keep its conversation
 
-With an installed, authenticated Claude Code, Codex, or Pi CLI, save this as
+With an installed, authenticated Claude Code or Codex CLI (or Pi, once the
+workspace's source calls [`defineProvider(pi)`](/marbles/reference/api#providers)), save this as
 `.foundry/marbles/explain.ts`:
 
 ```ts

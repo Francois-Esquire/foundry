@@ -14,8 +14,9 @@ import { airplaneMode } from "@foundry/models/airplane";
 import { CLAUDE_CODE_DEFAULT_MODELS } from "@foundry/models/claude-code";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CLAUDE_CODE, CODEX, PI, selectExecutor, which } from "~/lib/harnesses";
+import { CLAUDE_CODE, CODEX, PI, selectExecutor } from "~/lib/harnesses";
 import { mockModels } from "~/lib/models/echo";
+import { which } from "~/lib/which";
 
 const NO_PROVIDER = /No configured model provider is available/;
 const REFUSED = /refused by airplane/;

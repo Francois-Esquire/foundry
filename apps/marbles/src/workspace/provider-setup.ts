@@ -3,15 +3,15 @@ import { DatabaseProviderStore } from "~/database/providers";
 import { environmentSnapshot } from "~/lib/environment";
 import type { Proposal } from "~/lib/providers/configuration";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
+import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
 import type {
+  ProviderPlugin,
   ProviderWorkspace,
-  RegisteredPlugin,
 } from "~/lib/providers/plugins";
-import { FIRST_PARTY_PLUGINS } from "~/lib/providers/plugins";
 import { ConfigurationError } from "~/lib/providers/store";
 
 interface DiscoveryOptions {
-  readonly plugins?: readonly RegisteredPlugin[];
+  readonly plugins?: readonly ProviderPlugin[];
   readonly recheck?: boolean;
   readonly state: string;
   readonly workspace?: Omit<ProviderWorkspace, "env">;
@@ -23,7 +23,7 @@ interface ProviderSetupOptions extends DiscoveryOptions {
 }
 
 export async function discoverProviderSetup(options: DiscoveryOptions) {
-  const plugins = options.plugins ?? FIRST_PARTY_PLUGINS;
+  const plugins = options.plugins ?? DEFAULT_PROVIDERS;
   const configure = () =>
     new ProviderConfiguration({
       environment: { machine: environmentSnapshot(), workspace: {} },
@@ -78,7 +78,7 @@ export async function setupProviders(
   if (setup.offered.length === 0) {
     options.print(
       setup.reserved.length === 0
-        ? "No model providers were found on this machine. Install Claude Code, Codex, or Pi, then run marbles again."
+        ? "No model providers were found on this machine. Install Claude Code or Codex, then run marbles again."
         : "Nothing else to offer for the whole machine."
     );
     return;

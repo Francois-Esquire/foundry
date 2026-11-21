@@ -73,7 +73,8 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
 `prompt` is required. State the agent's task and limits, such as "Review
 without editing."
 `provider` is `"codex"`, `"claude-code"`, or `"pi"`; omitted means the first
-installed CLI, Claude Code before Codex. `model` is optional: omit it for
+installed CLI, Claude Code before Codex. `"pi"` needs
+[`defineProvider(pi)`](#providers) in the workspace's source. `model` is optional: omit it for
 the provider's default, or set an id the provider serves. It does not pick
 the provider; an id the provider does not know is passed through with a
 warning, and `--dry-run` rejects it. `skills` takes a skill set.
@@ -826,6 +827,63 @@ and in `marbles status`) and goes on after them.
 
 `@foundry.sh/marbles/prebuilt` exports the
 [prebuilt step factories](/marbles/reference/project#prebuilt-steps).
+
+## Providers
+
+A workspace has Claude Code and Codex. Every other provider is available
+only to a workspace whose source asks for it: import the provider from its
+own entry and pass it to `defineProvider`, exported from
+`@foundry.sh/marbles/providers` and from nowhere else.
+
+```ts
+import { defineProvider } from "@foundry.sh/marbles/providers";
+import { vercel } from "@foundry.sh/marbles/providers/vercel";
+
+defineProvider(vercel);
+```
+
+| Import | Export | Provider |
+| --- | --- | --- |
+| `@foundry.sh/marbles/providers/claude-code` | `claudeCode` | Claude Code. A workspace has it without a call. |
+| `@foundry.sh/marbles/providers/codex` | `codex` | Codex. A workspace has it without a call. |
+| `@foundry.sh/marbles/providers/pi` | `pi` | Pi. |
+| `@foundry.sh/marbles/providers/vercel` | `vercel` | Vercel AI Gateway. |
+| `@foundry.sh/marbles/providers/gateway` | `gateway` | An OpenAI-compatible gateway. |
+
+Nothing loads a provider's module, or the SDK behind it, unless something
+imports it. `defineProvider(provider)` makes the provider available to the
+workspace whose source is loading, the way `step()` registers a step with
+it, and returns the provider it was given. Another workspace in the same
+process does not get it, and a reload reads the source as it is now: remove
+the call, and the provider is gone. Defining the same provider twice keeps
+it once, and passing `claudeCode` or `codex` changes nothing. A different
+provider under an id already defined, or under `claude-code` or `codex`,
+fails the load with both places named, as a second step under a taken name
+does. Call it at the top level of the source: once the workspace's engine is
+built its providers are fixed, and a call in a step is refused. In a script
+no host loads, a call reaches the engine Marbles builds for that script, if
+it comes before the first definition runs.
+
+Defining a provider does not configure it. Configuration, the machine's and
+each workspace's, stays in the Marbles database (see
+[CLI](/marbles/reference/cli#pi-and-gateway-providers)). A saved entry that
+names a provider the workspace does not define is kept, and the provider is
+unavailable there. The engine prints, when it starts and when the
+configuration changes, a line such as:
+
+```text
+[providers] provider "vercel" is unavailable: this workspace does not define it; to use it, add to the workspace's source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { vercel } from "@foundry.sh/marbles/providers/vercel"; defineProvider(vercel);
+```
+
+`ProviderConfiguration.list()` gives the entry that message as its
+`problem`, with the state `unloadable`.
+
+A provider of your own is an object of the same shape as the built-in ones,
+typed with `ProviderPlugin`, `ProviderSetup` and `ProviderInstance` from
+`@foundry.sh/marbles/providers`: an `id` (the `plugin` a configuration entry
+names), a `label`, a `settings` schema, `catalog(settings)` for its models
+and `create(setup)` for the instance, and optionally `detect`, `list`,
+`secrets` and `accountEnv`.
 
 ## Not available yet
 

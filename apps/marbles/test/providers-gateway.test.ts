@@ -17,6 +17,7 @@ import {
 } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
+import { defineProvider } from "~/authoring/providers";
 import { dispose, instanceRuntime } from "~/authoring/runtime";
 import { createEngine } from "~/create";
 import type { MarblesDatabase } from "~/database/open";
@@ -26,8 +27,9 @@ import { marblesProviderConfigurations } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
-import type { ProviderPlugin, RegisteredPlugin } from "~/lib/providers/plugins";
-import { gatewayPlugin, registered } from "~/lib/providers/plugins";
+import { gateway as gatewayPlugin } from "~/lib/providers/gateway";
+import type { ProviderPlugin } from "~/lib/providers/plugins";
+import { pluginOf } from "./helpers/plugins";
 
 const ENV = { GW_KEY: "secret" };
 const MISSING = /served\/missing/;
@@ -112,6 +114,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  catalog.reset();
   vi.unstubAllEnvs();
   opened.close();
   rmSync(state, { force: true, recursive: true });
@@ -168,7 +171,7 @@ function configure(
 }
 
 function configuration(
-  extra: readonly RegisteredPlugin[] = [],
+  extra: readonly ProviderPlugin[] = [],
   workspace?: string
 ): {
   readonly configuration: ProviderConfiguration;
@@ -179,7 +182,7 @@ function configuration(
     configuration: new ProviderConfiguration({
       environment: { machine: ENV, workspace: {} },
       models,
-      plugins: [registered(gatewayPlugin), registered(other), ...extra],
+      plugins: [pluginOf(gatewayPlugin), pluginOf(other), ...extra],
       store: new DatabaseProviderStore({ database: opened.database }),
       ...(workspace
         ? { workspace: { dir: workspace, id: "ws", root: state } }
@@ -191,8 +194,8 @@ function configuration(
 
 function lister(
   list: NonNullable<ProviderPlugin<Record<string, never>>["list"]>
-): RegisteredPlugin {
-  return registered({
+): ProviderPlugin {
+  return pluginOf({
     ...other,
     catalog: () => [],
     id: "slow",
@@ -339,7 +342,7 @@ it("asks no server while Airplane Mode is on, and asks again when it is off", as
     catalog,
     dry: false,
     environment: { machine: ENV, workspace: {} },
-    plugins: [registered(gatewayPlugin), registered(other)],
+    plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
     print: () => undefined,
     root: state,
     stateRoot: state,
@@ -370,7 +373,7 @@ it("lists the gateway's models when the engine starts", async () => {
     catalog,
     dry: false,
     environment: { machine: ENV, workspace: {} },
-    plugins: [registered(gatewayPlugin), registered(other)],
+    plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
     print: () => undefined,
     root: state,
     stateRoot: state,
@@ -408,7 +411,7 @@ function engineOver(print: (line: string) => void): Engine {
     catalog,
     dry: false,
     environment: { machine: ENV, workspace: {} },
-    plugins: [registered(gatewayPlugin), registered(other)],
+    plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
     print,
     root: state,
     stateRoot: state,
@@ -470,6 +473,7 @@ it("lists the gateway's models for definitions called outside a run", async () =
   }
   vi.stubEnv("FOUNDRY_HOME", home);
   vi.stubEnv("GW_KEY", "secret");
+  defineProvider(gatewayPlugin);
   try {
     const runtime = (await instanceRuntime()) as Engine;
     expect(runtime.models.resolve("text", "gw/served/chat").provider).toBe(

@@ -48,7 +48,7 @@ it("exposes the config directory and dry-run git through the engine's workspaces
   const scope = new RunScope("runtime-test", root);
   try {
     await engine.providers?.refresh();
-    expect(engine.harnesses).toEqual(["claude-code", "codex", "pi"]);
+    expect(engine.harnesses).toEqual(["claude-code", "codex"]);
     await writeFile(join(root, "notes.md"), "initial");
     const workspaces = engine.bindings.workspaces({
       frame: scope.frame(["root"]),

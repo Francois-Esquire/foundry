@@ -3,6 +3,8 @@ import type { AnyDefinition, NamedDefinition } from "~/lib/definition";
 import { isNamed, quoteOrigin } from "~/lib/definition";
 import type { Handler, Source } from "~/lib/events/source";
 import { sourceKey } from "~/lib/events/source";
+import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
+import type { ProviderPlugin } from "~/lib/providers/plugins";
 import type { MonitorRecord } from "~/lib/registry";
 import type { Schedule } from "~/lib/triggers";
 import type { AgentLike } from "~/lib/types";
@@ -20,10 +22,12 @@ export class Catalog {
   readonly definitions = new Map<string, NamedDefinition>();
   readonly monitors = new Map<string, MonitorRecord>();
   readonly observers: DeclaredObserver[] = [];
+  readonly providers = new Map<string, ProviderPlugin>();
   readonly schedules = new Map<string, Schedule>();
   readonly workspaces = new Set<string>();
   readonly #counters = new Map<string, number>();
   readonly #inferred = new Set<string>();
+  readonly #providerOrigins = new Map<string, string | undefined>();
   readonly #agents = new Map<
     string,
     {
@@ -53,6 +57,27 @@ export class Catalog {
     if (inferred) {
       this.#inferred.add(name);
     }
+  }
+
+  provide(provider: ProviderPlugin, origin: string | undefined): void {
+    const { id } = provider;
+    const standing = DEFAULT_PROVIDERS.find((each) => each.id === id);
+    if (standing !== undefined && standing !== provider) {
+      throw new Error(
+        `provider "${id}" is one Marbles provides by default; define your own under another id${quoteOrigin(origin)}`
+      );
+    }
+    const taken = this.providers.get(id);
+    if (taken === provider) {
+      return;
+    }
+    if (taken !== undefined) {
+      throw new Error(
+        `provider "${id}" already defined${quoteOrigin(this.#providerOrigins.get(id))}; second definition${quoteOrigin(origin)}`
+      );
+    }
+    this.providers.set(id, provider);
+    this.#providerOrigins.set(id, origin);
   }
 
   schedule(record: Schedule): void {
@@ -131,6 +156,8 @@ export class Catalog {
     this.schedules.clear();
     this.monitors.clear();
     this.observers.length = 0;
+    this.providers.clear();
+    this.#providerOrigins.clear();
     this.workspaces.clear();
     this.#counters.clear();
     this.#inferred.clear();

@@ -7,7 +7,8 @@ import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { stateDatabase } from "~/layout";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
-import { registered, vercelPlugin } from "~/lib/providers/plugins";
+import { vercel as vercelPlugin } from "~/lib/providers/vercel";
+import { pluginOf } from "./helpers/plugins";
 
 it("refreshes scoped Vercel catalogs and resolves the listed models and defaults", async () => {
   const root = mkdtempSync(join(tmpdir(), "vercel-list-"));
@@ -22,7 +23,7 @@ it("refreshes scoped Vercel catalogs and resolves the listed models and defaults
       workspace: { VERCEL_KEY: "workspace-test-key" },
     },
     models,
-    plugins: [registered(vercelPlugin)],
+    plugins: [pluginOf(vercelPlugin)],
     store,
     workspace: { dir: root, id: "ws", root },
   });

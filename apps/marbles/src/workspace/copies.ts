@@ -74,15 +74,15 @@ async function parser(): Promise<typeof parseSync> {
 const IMPORT_FROM = Symbol.for("marbles.importFrom");
 
 const roots = new Map<number, string>();
-const libraries = new Map<
-  string,
-  (load: number) => Readonly<Record<string, unknown>>
->();
+type LibraryOfLoad = (
+  load: number
+) =>
+  | Readonly<Record<string, unknown>>
+  | Promise<Readonly<Record<string, unknown>>>;
 
-export function linkLibrary(
-  specifier: string,
-  ofLoad: (load: number) => Readonly<Record<string, unknown>>
-): void {
+const libraries = new Map<string, LibraryOfLoad>();
+
+export function linkLibrary(specifier: string, ofLoad: LibraryOfLoad): void {
   libraries.set(specifier, ofLoad);
 }
 
@@ -410,9 +410,8 @@ export async function importLoad(
   await parser();
   roots.set(load, realpathSync(root));
   for (const [library, ofLoad] of libraries) {
-    const exports = ofLoad(load);
-    modules.module(libraryOf(library, load), () => ({
-      exports,
+    modules.module(libraryOf(library, load), async () => ({
+      exports: await ofLoad(load),
       loader: "object",
     }));
   }

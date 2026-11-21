@@ -35,9 +35,26 @@ function exportPaths(name: string): [string, string[]][] {
   });
 }
 
+const PROVIDERS = ["claude-code", "codex", "gateway", "pi", "vercel"];
+
+const providerEntries = Object.fromEntries(
+  PROVIDERS.map((name) => [`providers/${name}`, `src/lib/providers/${name}.ts`])
+);
+
+const selfImports: Record<string, string> = {
+  "@foundry.sh/marbles": "./src/authoring/index.ts",
+  "@foundry.sh/marbles/providers": "./src/authoring/providers.ts",
+  ...Object.fromEntries(
+    PROVIDERS.map((name) => [
+      `@foundry.sh/marbles/providers/${name}`,
+      `./src/lib/providers/${name}.ts`,
+    ])
+  ),
+};
+
 const internalPaths = Object.fromEntries([
   ["~/*", ["./src/*"]],
-  ["@foundry.sh/marbles", ["./src/authoring/index.ts"]],
+  ...Object.entries(selfImports).map(([name, file]) => [name, [file]]),
   ...INTERNAL.flatMap(exportPaths),
 ]);
 
@@ -55,11 +72,13 @@ export default defineConfig({
     lib: "src/entries/lib.ts",
     prebuilt: "src/authoring/prebuilt.ts",
     process: "src/process/index.ts",
+    providers: "src/authoring/providers.ts",
+    ...providerEntries,
     statuses: "src/lib/execution-statuses.ts",
     workspace: "src/workspace/index.ts",
   },
   esbuildOptions(options) {
-    options.alias = { "@foundry.sh/marbles": "./src/authoring/index.ts" };
+    options.alias = selfImports;
   },
   external: [/^(?!@foundry(?:\.sh)?\/)[^./~]/],
   format: ["esm"],

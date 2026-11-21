@@ -179,7 +179,8 @@ summarizeCodebase({ name: "summarize-codebase" });
 Each factory opens a read-only reviewing agent through the context, so the
 working directory, cancellation, and streaming are already wired. Options are
 `name`, extra `instructions` appended to the read-only prompt, `provider`
-(`codex`, `claude-code`, or `pi`; omitted means the first installed CLI), and
+(`codex`, `claude-code`, or `pi`, which needs `defineProvider(pi)` in the
+workspace's source; omitted means the first installed CLI), and
 `timeoutMs` for the turn, two minutes by default, with no retries.
 
 | Factory | Input | Result |

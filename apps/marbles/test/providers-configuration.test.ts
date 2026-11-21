@@ -4,18 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { environmentSnapshot } from "~/lib/environment";
 import { refusingWhenChanged } from "~/lib/providers/account";
+import { claudeCode as claudeCodePlugin } from "~/lib/providers/claude-code";
+import { codex as codexPlugin } from "~/lib/providers/codex";
 import type {
   ProviderConfigurationOptions,
   ScopedRecord,
 } from "~/lib/providers/configuration";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
+import { pi as piPlugin } from "~/lib/providers/pi";
 import type { ProviderPlugin, ProviderSetup } from "~/lib/providers/plugins";
-import {
-  claudeCodePlugin,
-  codexPlugin,
-  piPlugin,
-  registered,
-} from "~/lib/providers/plugins";
 import type {
   ProviderConfigurations,
   ProviderStore,
@@ -29,6 +26,7 @@ import {
   newIdentityKey,
   writtenTexts,
 } from "~/lib/providers/store";
+import { pluginOf } from "./helpers/plugins";
 
 class TestStore implements ProviderStore {
   readonly texts = new Map<string, string>();
@@ -155,11 +153,11 @@ function plugin(
 }
 
 const PLUGINS = [
-  registered(plugin("codex")),
-  registered(plugin("vercel")),
-  registered(plugin("bedrock", { binding: "workspace" })),
-  registered(plugin("pi", { ambient: true })),
-  registered(
+  pluginOf(plugin("codex")),
+  pluginOf(plugin("vercel")),
+  pluginOf(plugin("bedrock", { binding: "workspace" })),
+  pluginOf(plugin("pi", { ambient: true })),
+  pluginOf(
     plugin("broken", {
       create: () => {
         throw new Error("create exploded");
@@ -167,7 +165,7 @@ const PLUGINS = [
       detect: () => null,
     })
   ),
-  registered(
+  pluginOf(
     plugin("uncatalogued", {
       catalog: () => {
         throw new Error("catalog exploded");
@@ -310,8 +308,37 @@ describe("the effective set", () => {
       bound: '"bedrock" must be configured for a workspace',
       codex: "disabled",
       literal: '"key" must name an environment variable, not hold a value',
-      mystery: 'no plugin "@acme/unknown" is registered',
+      mystery:
+        'provider "@acme/unknown" is unavailable: this workspace does not define it; to use it, pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", in the workspace\'s source',
     });
+  });
+});
+
+describe("providers no workspace defined", () => {
+  it("reports each enabled entry in the order whose provider is not defined, on every refresh", async () => {
+    store.put(MACHINE_SCOPE, {
+      providers: [
+        {
+          enabled: true,
+          id: "gw",
+          plugin: "gateway",
+          settings: { baseURL: "http://127.0.0.1:9" },
+        },
+        { enabled: true, id: "gw-two", plugin: "gateway" },
+        { enabled: false, id: "old", plugin: "pi" },
+        { enabled: true, id: "codex", plugin: "codex" },
+      ],
+    });
+    const { config } = configuration();
+    const message =
+      'provider "gateway" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { gateway } from "@foundry.sh/marbles/providers/gateway"; defineProvider(gateway);';
+    expect(await config.refresh()).toEqual([message]);
+    expect(await config.refresh()).toEqual([message]);
+    store.put("ws1", { order: ["codex"], providers: [] });
+    expect(await config.refresh()).toEqual([]);
+    expect(config.list().find((entry) => entry.id === "gw")?.problem).toBe(
+      message
+    );
   });
 });
 
@@ -873,7 +900,7 @@ describe("entries that cannot be built", () => {
 });
 
 it("never repeats a value a plugin's settings schema quotes", async () => {
-  const strict = registered(
+  const strict = pluginOf(
     plugin("strict", {
       detect: () => null,
       settings: z.object({
@@ -1110,17 +1137,17 @@ it("gives the same entry another identity at another scope, and keeps it when on
 
 describe("instance identity", () => {
   const FIRST_PARTY = [
-    registered({
+    pluginOf({
       ...claudeCodePlugin,
       list: () =>
         Promise.resolve([{ id: "test", kind: "text", modelId: "test" }]),
     }),
-    registered({
+    pluginOf({
       ...codexPlugin,
       list: () =>
         Promise.resolve([{ id: "test", kind: "text", modelId: "test" }]),
     }),
-    registered(piPlugin),
+    pluginOf(piPlugin),
   ];
   const identity = async (
     pluginId: string,
@@ -1234,7 +1261,7 @@ describe("instance identity", () => {
   });
 
   it("digests settings as the plugin parses them", async () => {
-    const defaulted = registered({
+    const defaulted = pluginOf({
       ...plugin("defaulted", { detect: () => null }),
       settings: z.object({ mode: z.string().default("fast") }),
     } as unknown as ProviderPlugin<{ mode: string }>);
@@ -1345,7 +1372,7 @@ describe("order", () => {
 describe("instance ownership", () => {
   const built: Provider[] = [];
   const OWNED = [
-    registered(
+    pluginOf(
       plugin("codex", {
         create: (setup) => {
           const provider: Provider = {
@@ -1519,7 +1546,7 @@ describe("an instance that reads the process environment", () => {
     expect(Object.keys(view)).toEqual(Object.keys(original));
   });
   const AMBIENT = [
-    registered(
+    pluginOf(
       plugin("pi", {
         accountEnv: [ACCOUNT],
         ambient: true,

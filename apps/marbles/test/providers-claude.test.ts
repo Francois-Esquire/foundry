@@ -15,9 +15,10 @@ import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { stateDatabase } from "~/layout";
 import { selectExecutor } from "~/lib/executor";
+import { claudeCode as claudeCodePlugin } from "~/lib/providers/claude-code";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
-import { claudeCodePlugin, registered } from "~/lib/providers/plugins";
 import { fakeClaude } from "./helpers/claude";
+import { pluginOf } from "./helpers/plugins";
 
 it("loads scoped Claude Code catalogs and uses the reported or configured default", async () => {
   const root = mkdtempSync(join(tmpdir(), "claude-list-"));
@@ -45,7 +46,7 @@ it("loads scoped Claude Code catalogs and uses the reported or configured defaul
       workspace: { CLAUDE_CONFIG_DIR: workspace },
     },
     models,
-    plugins: [registered(claudeCodePlugin)],
+    plugins: [pluginOf(claudeCodePlugin)],
     store,
     workspace: { dir: root, id: "ws", root },
   });

@@ -12,8 +12,8 @@ import { createEngine } from "~/create";
 import { DatabaseProviderStore } from "~/database/providers";
 import { marblesIdentityKeys } from "~/database/tables";
 import { writeAsHost } from "~/database/workspaces";
-import { registered } from "~/lib/providers/plugins";
 import type { AgentDefinition, SessionRef } from "~/lib/types";
+import { pluginOf } from "./helpers/plugins";
 
 const usage = {
   inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
@@ -39,7 +39,7 @@ function replying() {
   });
 }
 
-const cli = registered({
+const cli = pluginOf({
   accountEnv: ["ACCOUNT_HOME", "ACCOUNT_TOKEN"],
   catalog: () => [{ id: "m", kind: "text", modelId: "m" }],
   create: ({ id, models }) => ({

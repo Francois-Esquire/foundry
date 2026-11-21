@@ -4,21 +4,27 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@foundry.sh/marbles": resolve(
-        import.meta.dirname,
-        "src/authoring/index.ts"
+    alias: [
+      ["@foundry.sh/marbles", "src/authoring/index.ts"],
+      ["@foundry.sh/marbles/lib", "src/lib/index.ts"],
+      ["@foundry.sh/marbles/prebuilt", "src/authoring/prebuilt.ts"],
+      ["@foundry.sh/marbles/providers", "src/authoring/providers.ts"],
+      ...["claude-code", "codex", "gateway", "pi", "vercel"].map(
+        (name) =>
+          [
+            `@foundry.sh/marbles/providers/${name}`,
+            `src/lib/providers/${name}.ts`,
+          ] as const
       ),
-      "@foundry.sh/marbles/lib": resolve(
-        import.meta.dirname,
-        "src/lib/index.ts"
-      ),
-      "@foundry.sh/marbles/prebuilt": resolve(
-        import.meta.dirname,
-        "src/authoring/prebuilt.ts"
-      ),
-      "~": resolve(import.meta.dirname, "src"),
-    },
+    ]
+      .map(([name, file]) => ({
+        find: new RegExp(`^${name.replaceAll(".", "\\.")}$`),
+        replacement: resolve(import.meta.dirname, file),
+      }))
+      .concat({
+        find: /^~\//,
+        replacement: `${resolve(import.meta.dirname, "src")}/`,
+      }),
   },
   test: {
     exclude: ["test/**/*.integration.test.ts", "test/package.test.ts"],

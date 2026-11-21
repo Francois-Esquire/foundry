@@ -15,7 +15,7 @@ import type { ContainerStore } from "@foundry/sandbox/store";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/git";
-import { Catalog } from "~/authoring/catalog";
+import { Catalog, catalog as unhosted } from "~/authoring/catalog";
 import { DatabaseActivityStore } from "~/database/activities";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import type { LinksKept } from "~/database/artifact-links";
@@ -58,8 +58,8 @@ import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { localCatalogue } from "~/lib/managers/workspaces";
 import { echoInstance } from "~/lib/models/echo";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
-import type { RegisteredPlugin } from "~/lib/providers/plugins";
-import { FIRST_PARTY_PLUGINS } from "~/lib/providers/plugins";
+import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
+import type { ProviderPlugin } from "~/lib/providers/plugins";
 import { Registry } from "~/lib/registry";
 import { containerHolder } from "~/lib/sandbox/holders";
 
@@ -77,7 +77,7 @@ export interface CreateEngineOptions {
   };
   readonly home?: string;
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
-  readonly plugins?: readonly RegisteredPlugin[];
+  readonly plugins?: readonly ProviderPlugin[];
   readonly print: (line: string) => void;
   readonly providers?: readonly Provider[];
   readonly root: string;
@@ -184,6 +184,23 @@ function artifactsFor(
   };
 }
 
+function pluginsFor({
+  catalog,
+  plugins = DEFAULT_PROVIDERS,
+}: CreateEngineOptions): readonly ProviderPlugin[] {
+  const chosen = new Map(plugins.map((plugin) => [plugin.id, plugin]));
+  for (const plugin of catalog.providers.values()) {
+    const taken = chosen.get(plugin.id);
+    if (taken !== undefined && taken !== plugin) {
+      throw new Error(
+        `provider "${plugin.id}" is defined by the workspace's source and is also one of the engine's own plugins; keep one of them`
+      );
+    }
+    chosen.set(plugin.id, plugin);
+  }
+  return [...chosen.values()];
+}
+
 function modelsFor(options: CreateEngineOptions): {
   readonly models: ModelManager;
   readonly providers: ProviderConfiguration;
@@ -203,7 +220,7 @@ function modelsFor(options: CreateEngineOptions): {
     ...(fixed ? { fixed } : {}),
     models,
     ...(options.dry ? { readOnly: true } : {}),
-    plugins: options.plugins ?? FIRST_PARTY_PLUGINS,
+    plugins: pluginsFor(options),
     store:
       options.database === undefined || options.dry
         ? DatabaseProviderStore.forState(options.stateRoot ?? layout().state)
@@ -464,6 +481,7 @@ export function createDefaultEngine({
     artifacts: machine.artifacts,
     catalog: new Catalog(),
     dry,
+    plugins: [...DEFAULT_PROVIDERS, ...unhosted.providers.values()],
     print: (line) => {
       process.stderr.write(`${line}\n`);
     },

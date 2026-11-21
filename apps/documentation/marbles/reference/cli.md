@@ -375,10 +375,25 @@ an `engine generation N: pid P · current` line for each live generation
 (`retiring` for one finishing its runs), then each workspace with
 `hosted: yes|no` and `process: pid N (generation)` or `not running`.
 
-Pi is configured like any other provider: setup offers it when its CLI is
-installed. Provider configuration lives in the Marbles database; there is
-no file to edit and no command for it yet, so an entry setup does not offer
-is added through the library, `ProviderConfiguration.add` over
+### Pi and gateway providers
+
+Pi, Vercel AI Gateway and an OpenAI-compatible gateway are available only to
+a workspace whose source defines them, with
+[`defineProvider`](/marbles/reference/api#providers):
+
+```ts
+import { defineProvider } from "@foundry.sh/marbles/providers";
+import { pi } from "@foundry.sh/marbles/providers/pi";
+
+defineProvider(pi);
+```
+
+First-run setup runs before any source loads, so it offers only Claude Code
+and Codex. A saved entry for a provider the workspace does not define stays
+saved; the engine prints a `[providers]` line naming the import and the
+call that make it available. Provider configuration lives in the Marbles
+database; there is no file to edit and no command for it yet, so an entry
+setup does not offer is added through the library, `ProviderConfiguration.add` over
 `DatabaseProviderStore.forState` (`@foundry.sh/marbles/lib`), for example
 `{ "id": "pi", "plugin": "pi", "enabled": true }`. Pi reads the process environment itself, so it does not
 serve a workspace whose `.env.schema` adds variables until it is configured
@@ -392,8 +407,9 @@ tools. Supply a session API key or sign in with Pi on the host for the selected
 `provider/model`; the host resolves the current key, and only that key enters
 the guest environment. Refresh credentials remain on the host.
 
-An OpenAI-compatible gateway is configured with the `gateway` plugin, added
-the same way:
+An OpenAI-compatible gateway is configured with the `gateway` plugin, once
+the workspace's source calls `defineProvider(gateway)` with `gateway` from
+`@foundry.sh/marbles/providers/gateway`, added the same way:
 `{ "id": "gw", "plugin": "gateway", "enabled": true, "settings": { "baseURL": "https://gateway.example/v1", "apiKey": "GATEWAY_API_KEY" } }`.
 `apiKey` names the environment variable that holds the key, never the key
 itself, and the instance is available once that variable is set. Any other

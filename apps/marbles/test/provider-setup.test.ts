@@ -5,13 +5,13 @@ import type { Provider } from "@foundry/models";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { DatabaseProviderStore } from "~/database/providers";
-import { registered } from "~/lib/providers/plugins";
 import { setupProviders } from "~/workspace/provider-setup";
+import { pluginOf } from "./helpers/plugins";
 
 let state: string;
 
 const detected = (id: string, found: boolean) =>
-  registered({
+  pluginOf({
     catalog: () => [],
     create: ({ id: name }) => ({
       provider: {

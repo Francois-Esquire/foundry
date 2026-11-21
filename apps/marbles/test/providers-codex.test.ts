@@ -14,9 +14,10 @@ import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { stateDatabase } from "~/layout";
 import { selectExecutor } from "~/lib/executor";
+import { codex as codexPlugin } from "~/lib/providers/codex";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
-import { codexPlugin, registered } from "~/lib/providers/plugins";
 import { fakeCodex } from "./helpers/codex";
+import { pluginOf } from "./helpers/plugins";
 
 it("loads the configured Codex accounts independently and honors model defaults", async () => {
   const root = mkdtempSync(join(tmpdir(), "codex-list-"));
@@ -52,7 +53,7 @@ it("loads the configured Codex accounts independently and honors model defaults"
       workspace: { CODEX_HOME: workspaceHome },
     },
     models,
-    plugins: [registered(codexPlugin)],
+    plugins: [pluginOf(codexPlugin)],
     store,
     workspace: { dir: workspaceHome, id: "ws", root },
   });
