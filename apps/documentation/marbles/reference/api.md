@@ -857,9 +857,9 @@ it, and returns the provider it was given. Another workspace in the same
 process does not get it, and a reload reads the source as it is now: remove
 the call, and the provider is gone. Defining the same provider twice keeps
 it once, and passing `claudeCode` or `codex` changes nothing. A different
-provider under an id already defined, or under `claude-code` or `codex`,
-fails the load with both places named, as a second step under a taken name
-does. Call it at the top level of the source: once the workspace's engine is
+provider under an id the source already defined fails the load with both
+places named, as a second step under a taken name does; one under
+`claude-code` or `codex` fails it too. Call it at the top level of the source: once the workspace's engine is
 built its providers are fixed, and a call in a step is refused. In a script
 no host loads, a call reaches the engine Marbles builds for that script, if
 it comes before the first definition runs.

@@ -438,8 +438,9 @@ instances are built from; do not add loose functions to it. Public entries:
 `@foundry.sh/marbles` (`authoring/index.ts`), `@foundry.sh/marbles/prebuilt`,
 `@foundry.sh/marbles/lib` (`entries/lib.ts`: `lib/index.ts` with the
 published `Engine`),
-`@foundry.sh/marbles/engine` (`entries/engine.ts`: `lib/embedded.ts` with
-the published `Engine`),
+`@foundry.sh/marbles/engine` (`entries/embedded.ts`: `lib/embedded.ts` with
+the published `Engine` from `entries/engine.ts`, which the CLI imports alone so
+it does not load the provider factories `lib/embedded.ts` re-exports),
 `@foundry.sh/marbles/statuses` (`lib/execution-statuses.ts`),
 `@foundry.sh/marbles/providers` (`authoring/providers.ts`: `defineProvider`
 and the provider types), one entry per provider,

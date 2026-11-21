@@ -90,6 +90,13 @@ const PROVIDER_ENTRIES = [
   "providers/vercel",
 ];
 
+const OPT_IN_MODELS: Record<string, string> = {
+  "providers/gateway": "function gatewayModels(",
+  "providers/vercel": "function vercelModels(",
+};
+
+const MODEL_FACTORY_ENTRIES = new Set(["engine", "lib"]);
+
 const OPT_IN_MARKERS: Record<string, string> = {
   "providers/gateway": "OpenAI-compatible gateway",
   "providers/pi": "OPENCODE_API_KEY",
@@ -444,6 +451,17 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       staticGraph(join(installed, "dist"), `${entry}.js`)
         .map((file) => readFileSync(join(installed, "dist", file), "utf8"))
         .join("\n");
+    for (const [provider, marker] of Object.entries(OPT_IN_MODELS)) {
+      expect(graphText(provider)).toContain(marker);
+      for (const entry of entries.filter(
+        (each) => !MODEL_FACTORY_ENTRIES.has(each)
+      )) {
+        expect(
+          graphText(entry).includes(marker),
+          `${entry} imports the models behind ${provider}`
+        ).toBe(false);
+      }
+    }
     for (const [provider, marker] of Object.entries(OPT_IN_MARKERS)) {
       expect(graphText(provider), `${provider} holds its provider`).toContain(
         marker
