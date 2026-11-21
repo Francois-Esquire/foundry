@@ -41,6 +41,7 @@ import {
   whenLogged,
 } from "./helpers/generation-switch";
 import { testHome } from "./helpers/home";
+import { outputLines } from "./helpers/output-lines";
 
 const daemons: Daemon[] = [];
 
@@ -224,16 +225,13 @@ async function crashableDaemon(options: Parameters<typeof moduleText>[2] = {}) {
   const home = testHome({ providers: false });
   const fixture = generationFiles(home);
   writeFileSync(fixture.source, moduleText(fixture, 0, options));
-  const lines: string[] = [];
   const child = spawn(
     process.execPath,
     [join(import.meta.dirname, "helpers", "daemon-process.ts")],
     { env: home.env, stdio: ["ignore", "pipe", "inherit"] }
   );
   home.track(child.pid, false);
-  child.stdout.on("data", (chunk: Buffer) => {
-    lines.push(...chunk.toString().split("\n").filter(Boolean));
-  });
+  const lines = outputLines(child.stdout);
   await vi.waitFor(
     () => expect(lines.some((line) => line.startsWith("ready "))).toBe(true),
     { interval: 50, timeout: 60_000 }
