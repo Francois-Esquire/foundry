@@ -287,6 +287,7 @@ report.seen = globalThis.seen;`
 
 it("rejects an import computed at run time that does not resolve from the importing file, and never resolves it from Marbles' own directory", async () => {
   const root = await scratch();
+  await mkdir(join(root, "node_modules"));
   await writeFile(
     join(root, "entry.ts"),
     `globalThis.attempt = (specifier) => {
