@@ -2,6 +2,7 @@ import type { RunRecord } from "@foundry/workflows/schema";
 import { expect, it } from "vitest";
 import { runRows } from "~/cli/state/dashboard-tree";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import type { LiveWork } from "~/lib/step-work";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 
 const record: RunRecord = {
@@ -82,11 +83,16 @@ const entry: FeedEntrySnapshot = {
   workspace: { id: "workspace", name: "workspace" },
 };
 
-function snapshot(feed: readonly FeedEntrySnapshot[], run = record) {
+function snapshot(
+  feed: readonly FeedEntrySnapshot[],
+  run = record,
+  work: readonly LiveWork[] = []
+) {
   return dashboardSnapshot([run], {
     definitions: [],
     feed,
     lastFinish: new Map(),
+    live: new Map([[run.id, work]]),
     monitors: new Map(),
     now: 200,
     root: "/workspace",
@@ -204,4 +210,47 @@ it("preserves operator-paused step presentation during an open live input", () =
   expect(run?.status).toBe("running");
   expect(run?.steps[0]?.children[0]?.status).toBe("paused");
   expect(run?.steps[0]?.children[0]?.attention).toBeUndefined();
+});
+
+it("places each live agent turn and command on the step that owns it, with the input it waits for", () => {
+  const agentTurn: LiveWork = {
+    id: "turn-1",
+    input: "steer",
+    kind: "agent",
+    sessionId: "session-1",
+    stepId: "review.write",
+  };
+  const command: LiveWork = {
+    command: "npm test",
+    id: "command-1",
+    input: "stdin",
+    kind: "command",
+    stepId: "review.other",
+  };
+  const asked: FeedEntrySnapshot = {
+    ...entry,
+    input: { ...entry.input, sessionId: "session-1" } as never,
+  };
+  const [run] = snapshot([asked], record, [agentTurn, command]).runs;
+  const [write, other] = run?.steps[0]?.children ?? [];
+  expect(write?.work).toEqual([{ ...agentTurn, attention: "approval" }]);
+  expect(write?.awaiting).toEqual(["input-1"]);
+  expect(other?.work).toEqual([command]);
+  expect(other?.awaiting).toBeUndefined();
+  expect(run?.steps[0]?.work).toBeUndefined();
+});
+
+it("keeps no live work or waiting input on a run that has ended", () => {
+  const ended = { ...record, status: "complete" as const };
+  const [run] = snapshot([entry], ended, [
+    {
+      command: "true",
+      id: "c",
+      input: "none",
+      kind: "command",
+      stepId: "review",
+    },
+  ]).runs;
+  expect(run?.steps[0]?.work).toBeUndefined();
+  expect(run?.steps[0]?.children[0]?.awaiting).toBeUndefined();
 });

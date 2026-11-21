@@ -111,7 +111,7 @@ export class HeldRuns {
       },
       print,
       signal: observing.signal,
-      write: (text) => output.text(text),
+      write: (text, chunk) => output.text(text, chunk),
     });
     const complete = async () => {
       try {

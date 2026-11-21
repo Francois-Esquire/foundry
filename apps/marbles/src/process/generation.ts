@@ -18,6 +18,7 @@ import {
   GENERATION_NOTIFICATIONS,
   hostParamsSchema,
   isWorkspaceMethod,
+  liveRunsSchema,
   queuedParamsSchema,
   releasedParamsSchema,
   retireParamsSchema,
@@ -27,9 +28,10 @@ import {
 import { envFilesLoaded } from "~/process/runtime";
 import { SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { dispatchSchema } from "~/workspace/dispatch";
-import type { WorkspaceHost } from "~/workspace/host";
+import type { GenerationHost, WorkspaceHost } from "~/workspace/host";
 import type { StagedWorkspaces, WorkspaceLoad } from "~/workspace/hosted";
 import { HostedWorkspaces } from "~/workspace/hosted";
+import { liveRuns } from "~/workspace/live-work";
 import {
   registerSetupStep,
   SETUP_STEP,
@@ -95,7 +97,7 @@ function optionalText(value: unknown): string | undefined {
 }
 
 function call(
-  host: WorkspaceHost,
+  host: GenerationHost,
   method: WorkspaceMethod,
   raw: unknown
 ): Promise<unknown> {
@@ -136,13 +138,18 @@ function call(
       );
     case "roll":
       return host.roll(text(p.name, "name"), p.input);
+    case "send":
+      return runs.send(text(p.runId, "runId"), text(p.stepId, "stepId"), {
+        target: text(p.target, "target"),
+        text: text(p.text, "text"),
+      });
     case "setTriggerEnabled":
       return runs.setTriggerEnabled(
         text(p.triggerId, "triggerId"),
         p.enabled === true
       );
     case "snapshot":
-      return host.snapshot();
+      return host.snapshot(liveRunsSchema.parse(p.live ?? []));
     case "steer":
       return runs.steer(
         text(p.runId, "runId"),
@@ -183,6 +190,7 @@ function loadResult(load: WorkspaceLoad): WorkspaceLoadResult {
 interface Ticking {
   readonly cancel: AbortController;
   readonly done: Promise<void>;
+  readonly letGo: AbortController;
   readonly stop: AbortController;
 }
 
@@ -191,8 +199,10 @@ async function main(): Promise<void> {
   let hosted: HostedWorkspaces | undefined;
   let staged: StagedWorkspaces | undefined;
   const ticking = new Map<string, Ticking>();
+  const loops = new Set<Ticking>();
   let retiring: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
+  let orphaning = false;
   const finished = Promise.withResolvers<void>();
 
   const workspaces = (): HostedWorkspaces => {
@@ -211,20 +221,24 @@ async function main(): Promise<void> {
   const tick = (host: WorkspaceHost): void => {
     const stop = new AbortController();
     const cancel = new AbortController();
+    const letGo = new AbortController();
     const done = (async () => {
       host.setStatus(
         (await host.engine.schedules()).length === 0
           ? "Ready · no triggers configured"
           : "Watching triggers"
       );
-      await host.run(stop.signal, cancel.signal);
+      await host.run(stop.signal, cancel.signal, letGo.signal);
     })().catch((error: unknown) =>
       notify(GENERATION_NOTIFICATIONS.line, {
         line: `[schedule] ${String(error)}`,
         root: host.root,
       })
     );
-    ticking.set(host.id, { cancel, done, stop });
+    const loop = { cancel, done, letGo, stop };
+    ticking.set(host.id, loop);
+    loops.add(loop);
+    done.finally(() => loops.delete(loop)).catch(() => undefined);
   };
 
   const untick = async (id: string, cancel: boolean): Promise<void> => {
@@ -409,8 +423,39 @@ async function main(): Promise<void> {
     return await workspaces().get(id).engine.takeQueued(runId, owner);
   };
 
+  const liveWork = async (raw: unknown): Promise<unknown> => {
+    const { id } = workspaceIdSchema.parse(raw);
+    const { engine } = workspaces().get(id);
+    return liveRuns(await engine.runs(), engine.scopes);
+  };
+
   const stop = (): Promise<void> => {
+    if (orphaning) {
+      for (const loop of loops) {
+        loop.cancel.abort();
+      }
+    }
     stopping ??= retiring ?? leave(true);
+    stopping.then(finished.resolve, finished.reject);
+    return stopping;
+  };
+
+  const orphaned = async (): Promise<void> => {
+    for (const loop of loops) {
+      loop.stop.abort();
+    }
+    await Promise.allSettled(
+      (hosted?.list() ?? []).map((each) => each.engine.stop())
+    );
+    for (const loop of loops) {
+      loop.letGo.abort();
+    }
+    await leave(false);
+  };
+
+  const orphan = (): Promise<void> => {
+    orphaning ||= retiring === undefined && stopping === undefined;
+    stopping ??= retiring ?? orphaned();
     stopping.then(finished.resolve, finished.reject);
     return stopping;
   };
@@ -435,6 +480,8 @@ async function main(): Promise<void> {
           return adopt(raw);
         case GENERATION_METHODS.takeQueued:
           return takeQueued(raw);
+        case GENERATION_METHODS.liveWork:
+          return liveWork(raw);
         default:
           break;
       }
@@ -446,7 +493,7 @@ async function main(): Promise<void> {
         return Promise.reject(new Error(`no workspace method "${name}"`));
       }
       const { id, ...rest } = workspaceIdSchema.passthrough().parse(raw);
-      let target: WorkspaceHost;
+      let target: GenerationHost;
       try {
         target = workspaces().get(id);
       } catch (error) {
@@ -456,7 +503,7 @@ async function main(): Promise<void> {
     },
   });
   await channel.request(DAEMON_METHODS.register, { token: args.token });
-  channel.closed.then(() => stop()).catch(() => undefined);
+  channel.closed.then(() => orphan()).catch(() => undefined);
   process.once("SIGTERM", () => {
     stop().catch(() => undefined);
   });

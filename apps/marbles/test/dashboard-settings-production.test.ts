@@ -26,14 +26,26 @@ import { testHome } from "./helpers/home";
 
 interface Captured {
   controller?: AbortController;
+  extraWorkspaces: WorkspaceSummary[];
+  failSnapshot: boolean;
+  noWorkspaces: boolean;
   providerReviews?: boolean[];
   rollResult?: RollResult;
   rollSchedule?: (key: string) => Promise<void>;
   settings?: (changes: SettingsChange) => Promise<void>;
+  readonly subscribed: Set<string>;
   readonly updates: DashboardSnapshot[];
 }
 
-const captured = vi.hoisted((): Captured => ({ updates: [] }));
+const captured = vi.hoisted(
+  (): Captured => ({
+    extraWorkspaces: [],
+    failSnapshot: false,
+    noWorkspaces: false,
+    subscribed: new Set(),
+    updates: [],
+  })
+);
 
 vi.mock("~/cli/app", () => ({
   openDashboard: (_name: string, controller: AbortController) => {
@@ -85,24 +97,34 @@ vi.mock("~/process/client", async (importOriginal) => ({
       },
       close: () => undefined,
       closed: new Promise(() => undefined),
-      subscribe: () => () => undefined,
+      subscribe: (id: string) => {
+        captured.subscribed.add(id);
+        return () => captured.subscribed.delete(id);
+      },
       workspace: (target: WorkspaceSummary) =>
         ({
           actions: {},
           roll: () => Promise.resolve(captured.rollResult ?? { lines: [] }),
           snapshot: () =>
-            Promise.resolve({
-              definitions: [],
-              feed: [],
-              mode: "live",
-              runs: [],
-              status: "ready",
-              triggers: [],
-              workspace: "ws",
-              workspaceId: target.id,
-            }),
+            captured.failSnapshot
+              ? Promise.reject(new Error("workspace unreachable"))
+              : Promise.resolve({
+                  definitions: [],
+                  feed: [],
+                  mode: "live",
+                  runs: [],
+                  status: "ready",
+                  triggers: [],
+                  workspace: "ws",
+                  workspaceId: target.id,
+                }),
         }) as unknown as WorkspaceConnection,
-      workspaces: () => Promise.resolve(attached ? [attached] : []),
+      workspaces: () =>
+        Promise.resolve(
+          attached && !captured.noWorkspaces
+            ? [attached, ...captured.extraWorkspaces]
+            : []
+        ),
     });
   },
 }));
@@ -126,6 +148,10 @@ async function useHome(providers: boolean) {
   captured.providerReviews = [];
   captured.rollSchedule = undefined;
   captured.rollResult = undefined;
+  captured.extraWorkspaces = [];
+  captured.failSnapshot = false;
+  captured.noWorkspaces = false;
+  captured.subscribed.clear();
   await mkdir(state, { recursive: true });
 }
 
@@ -250,4 +276,35 @@ it("reports a held schedule and accepts a dispatched run with no output", async 
 
   captured.rollResult = { lines: ["[schedule] daily → summarize-day"] };
   await expect(roll("daily")).resolves.toBeUndefined();
+});
+
+it("stops following a workspace once it leaves the list", async () => {
+  await open();
+  captured.extraWorkspaces = [
+    { config: null, id: "gone", root: join(dir, "gone"), state: "ready" },
+  ];
+  captured.failSnapshot = true;
+  await vi.waitFor(() => {
+    expect(captured.subscribed.has("gone")).toBe(true);
+  });
+  captured.extraWorkspaces = [];
+  await vi.waitFor(() => {
+    expect(captured.subscribed.has("gone")).toBe(false);
+  });
+  expect(captured.subscribed.has("ws")).toBe(true);
+});
+
+it("shows the workspace stopped and follows nothing once the last one is detached", async () => {
+  await open();
+  expect(captured.subscribed.has("ws")).toBe(true);
+  captured.noWorkspaces = true;
+  captured.failSnapshot = true;
+  await vi.waitFor(() => {
+    expect(captured.subscribed.size).toBe(0);
+  });
+  await vi.waitFor(() => {
+    expect(shown()?.status).toBe(
+      "workspace stopped: no workspace is attached to the Marbles process"
+    );
+  });
 });

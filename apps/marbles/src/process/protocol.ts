@@ -1,6 +1,9 @@
+import { RunRecordSchema } from "@foundry/workflows/schema";
 import { z } from "zod";
 
+import type { LiveWork } from "~/lib/step-work";
 import type { WorkspaceState } from "~/model/connection";
+import type { LiveRun } from "~/model/dashboard";
 
 export const PROTOCOL = 1;
 
@@ -189,6 +192,7 @@ export const WORKSPACE_METHODS = {
   pause: "pause",
   resume: "resume",
   roll: "roll",
+  send: "send",
   setTriggerEnabled: "setTriggerEnabled",
   snapshot: "snapshot",
   steer: "steer",
@@ -212,6 +216,7 @@ export const GENERATION_NOTIFICATIONS = {
 export const GENERATION_METHODS = {
   adopt: "adopt",
   host: "host",
+  liveWork: "liveWork",
   load: "load",
   retire: "retire",
   start: "start",
@@ -221,6 +226,31 @@ export const GENERATION_METHODS = {
 } as const;
 
 export const GENERATION_STOP_TIMEOUT_MS = 30_000;
+
+const liveWorkSchema: z.ZodType<LiveWork> = z.discriminatedUnion("kind", [
+  z.object({
+    agent: z.string().optional(),
+    id: z.string(),
+    input: z.literal("steer"),
+    kind: z.literal("agent"),
+    model: z.string().optional(),
+    provider: z.string().optional(),
+    sessionId: z.string(),
+    stepId: z.string(),
+  }),
+  z.object({
+    command: z.string(),
+    id: z.string(),
+    input: z.enum(["stdin", "none"]),
+    kind: z.literal("command"),
+    pid: z.number().int().optional(),
+    stepId: z.string(),
+  }),
+]);
+
+export const liveRunsSchema: z.ZodType<LiveRun[]> = z.array(
+  z.object({ record: RunRecordSchema, work: z.array(liveWorkSchema) })
+);
 
 const identitySchema = z.object({
   pid: z.number().int(),

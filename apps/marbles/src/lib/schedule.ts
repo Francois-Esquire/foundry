@@ -14,6 +14,7 @@ const UNITS: Record<string, number> = {
   s: 1000,
 };
 const EVERY_PATTERN = /^(\d+)([smhd])$/;
+const LET_GO: unique symbol = Symbol("the run was let go");
 
 export function parseEvery(every: string): number {
   const match = EVERY_PATTERN.exec(every.trim());
@@ -97,6 +98,7 @@ export type ScheduledEngine = Pick<
 
 export interface TickOptions {
   readonly canRun?: (schedule: Schedule) => boolean | Promise<boolean>;
+  readonly letGo?: AbortSignal;
   readonly now?: () => number;
   readonly print: (line: string) => void;
   readonly scheduled?: boolean;
@@ -106,6 +108,7 @@ export interface TickOptions {
 
 export interface LoopOptions {
   readonly cancel?: AbortSignal;
+  readonly letGo?: AbortSignal;
   readonly now?: () => number;
   readonly print: (line: string) => void;
   readonly signal: AbortSignal;
@@ -129,7 +132,7 @@ export async function tick(
   }
 
   const start = now();
-  let status: ScheduleHistory["lastStatus"] = "failed";
+  let status: ScheduleHistory["lastStatus"] | undefined = "failed";
   let dispatched = false;
   try {
     if (
@@ -143,19 +146,25 @@ export async function tick(
     const detected = await awaitRun(
       engine,
       await engine.launch(schedule.workflow, schedule.input, schedule.key),
-      options.signal
+      options
     );
     const launch =
       schedule.kind === "monitor" ? pendingOf(detected) : undefined;
     const value =
-      launch && !options.stopped?.aborted
-        ? await startPending(engine, schedule.key, launch, options.signal)
+      launch && !options.stopped?.aborted && detected !== LET_GO
+        ? await startPending(engine, schedule.key, launch, options)
         : detected;
+    if (value === LET_GO) {
+      status = undefined;
+      return undefined;
+    }
     status = "complete";
     return { value };
   } finally {
     await finishTick(triggers, schedule.key, () =>
-      dispatched ? history(schedule, start, now(), status) : undefined
+      dispatched && status !== undefined
+        ? history(schedule, start, now(), status)
+        : undefined
     );
   }
 }
@@ -211,7 +220,7 @@ async function startPending(
   engine: ScheduledEngine,
   key: string,
   launch: Launch,
-  signal: AbortSignal | undefined
+  options: Pick<TickOptions, "letGo" | "signal">
 ): Promise<unknown> {
   if (!engine.has(launch.workflow)) {
     await engine.triggers.clearPendingLaunch(key);
@@ -221,25 +230,32 @@ async function startPending(
   }
   const started = await engine.launch(launch.workflow, launch.input, key);
   await engine.triggers.clearPendingLaunch(key);
-  return await awaitRun(engine, started, signal);
+  return await awaitRun(engine, started, options);
 }
 
 async function awaitRun(
   engine: ScheduledEngine,
   started: { readonly id: string; readonly result: Promise<unknown> },
-  signal: AbortSignal | undefined
+  { letGo, signal }: Pick<TickOptions, "letGo" | "signal">
 ): Promise<unknown> {
   const cancel = () => {
     engine.cancel(started.id).catch(() => undefined);
   };
+  const released = Promise.withResolvers<typeof LET_GO>();
+  const release = () => released.resolve(LET_GO);
   signal?.addEventListener("abort", cancel, { once: true });
+  letGo?.addEventListener("abort", release, { once: true });
   if (signal?.aborted) {
     cancel();
   }
+  if (letGo?.aborted) {
+    release();
+  }
   try {
-    return await started.result;
+    return await Promise.race([started.result, released.promise]);
   } finally {
     signal?.removeEventListener("abort", cancel);
+    letGo?.removeEventListener("abort", release);
   }
 }
 
@@ -308,6 +324,7 @@ export async function runSchedules(
     await loopTick(engine, schedule, {
       canRun: async (candidate) =>
         (await engine.schedules()).some((entry) => entry.key === candidate.key),
+      ...(options.letGo === undefined ? {} : { letGo: options.letGo }),
       now,
       print: options.print,
       scheduled: true,

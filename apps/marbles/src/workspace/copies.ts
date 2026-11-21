@@ -14,7 +14,7 @@ import type {
 import { copyOf, copyPath, newLoad, sourcePath } from "~/authoring/load-tag";
 
 const COPY = /\?marbles-load=\d+(?:&format=\w+)?$/;
-const BY_PATH = /^(?:\.{1,2}\/|\/|file:)/;
+const BY_PATH = /^(?:\.{1,2}(?:\/|$)|\/|file:)/;
 const MARBLES = realpathSync(
   fileURLToPath(
     new URL(import.meta.url.endsWith(".ts") ? "../.." : "..", import.meta.url)
@@ -95,20 +95,24 @@ function inside(directory: string, file: string): boolean {
   return file.startsWith(`${directory}${sep}`);
 }
 
-function resolved(specifier: string, directory: string): string | undefined {
+function located(specifier: string, directory: string): string {
   const named = specifier.startsWith("file:")
     ? fileURLToPath(specifier)
     : specifier;
-  let target: string;
+  const target = resolveSync(named, directory);
+  return isAbsolute(target) ? realpathSync(target) : target;
+}
+
+function resolved(specifier: string, directory: string): string | undefined {
   try {
-    target = resolveSync(named, directory);
+    return located(specifier, directory);
   } catch (error) {
-    if (error instanceof Error) {
+    // biome-ignore lint/correctness/noUndeclaredVariables: ResolveMessage is the Bun global that resolveSync throws
+    if (error instanceof ResolveMessage) {
       return;
     }
     throw error;
   }
-  return isAbsolute(target) ? realpathSync(target) : target;
 }
 
 function copyFor(
@@ -142,7 +146,7 @@ function typeOf(options: ImportCallOptions | undefined): string | undefined {
   return typeof type === "string" ? type : undefined;
 }
 
-function importFrom(
+async function importFrom(
   file: string,
   load: number,
   specifier: unknown,
@@ -150,16 +154,13 @@ function importFrom(
 ): Promise<unknown> {
   const named = String(specifier);
   if (libraries.has(named)) {
-    return import(libraryOf(named, load), options);
+    return await import(libraryOf(named, load), options);
   }
-  const target = resolved(named, dirname(file));
-  if (target === undefined) {
-    return import(named, options);
-  }
+  const target = located(named, dirname(file));
   const copy = BY_PATH.test(named)
     ? copyFor(target, load, typeOf(options))
     : undefined;
-  return import(copy ?? target, options);
+  return await import(copy ?? target, options);
 }
 
 interface Edit {
@@ -203,12 +204,20 @@ function specifierEdit(
     : { end: span.end, start: span.start, text: JSON.stringify(copy) };
 }
 
+interface Request {
+  readonly end: number;
+  readonly start: number;
+  readonly value: string;
+}
+
 interface ImportSyntax {
+  readonly reexports: readonly Request[];
   readonly types: ReadonlyMap<number, string>;
   readonly withOptions: ReadonlySet<number>;
 }
 
 function importSyntax(walker: typeof Visitor, program: Program): ImportSyntax {
+  const reexports: Request[] = [];
   const types = new Map<number, string>();
   const withOptions = new Set<number>();
   const attributed = (
@@ -223,7 +232,13 @@ function importSyntax(walker: typeof Visitor, program: Program): ImportSyntax {
   };
   new walker({
     ExportAllDeclaration: attributed,
-    ExportNamedDeclaration: attributed,
+    ExportNamedDeclaration: (node) => {
+      attributed(node);
+      if (node.source !== null) {
+        const { end, start, value } = node.source;
+        reexports.push({ end, start, value });
+      }
+    },
     ImportDeclaration: attributed,
     ImportExpression: (node) => {
       if (node.options !== null) {
@@ -231,7 +246,7 @@ function importSyntax(walker: typeof Visitor, program: Program): ImportSyntax {
       }
     },
   }).visit(program);
-  return { types, withOptions };
+  return { reexports, types, withOptions };
 }
 
 function commonJsUse(
@@ -289,6 +304,7 @@ function importEdits(file: string, text: string, load: number): Edit[] {
         moduleRequest === null ? [] : [moduleRequest]
       )
     ),
+    ...syntax.reexports,
   ];
   const edits: Edit[] = [];
   const seen = new Set<number>();

@@ -67,8 +67,7 @@ bun run build --filter=@foundry.sh/marbles
 bun run marbles -- roll adversarial-review --dry-run --input '{"spec":"Describe the requirement here."}'
 ```
 
-`--dry-run` hosts the workspace in this process, so this repository's
-`.env.schema` must resolve (`AI_GATEWAY_API_KEY`). Agent turns are echoed and
+`--dry-run` hosts the workspace in this process. Agent turns are echoed and
 answered with the smallest valid reply, so the result has no findings.
 
 For a real review, an installed and logged-in Claude Code, Codex, or Pi CLI

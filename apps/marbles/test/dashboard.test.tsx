@@ -553,7 +553,7 @@ test("keyboard help lists the command table by section", async () => {
     "Keyboard help",
     "Anywhere",
     "Run controls",
-    "Steer the agent running in the step",
+    "Steer the agent or type into the command live in the step",
     "Cycle the Feed workspace filter",
     "Move focus / submit arguments",
   ]) {
@@ -788,4 +788,46 @@ test("clicking marbles and the h shortcut return home without losing run selecti
   await press(ui, "?");
   await click(ui, "nav:home");
   expect(ui.captureCharFrame()).toBe(before);
+});
+
+let replaceSnapshot: ((next: DashboardSnapshot) => void) | undefined;
+
+function RefreshingDashboard({
+  onLaunch,
+}: {
+  readonly onLaunch: (id: string) => Promise<string>;
+}) {
+  const [snapshot, setSnapshot] = useState(dashboardSnapshot);
+  replaceSnapshot = setSnapshot;
+  return (
+    <DashboardView onClose={close} onLaunch={onLaunch} snapshot={snapshot} />
+  );
+}
+
+test("a refresh that hides the searched row leaves no hidden selection for keys to act on", async () => {
+  const launched: string[] = [];
+  const launch = (id: string) => {
+    launched.push(id);
+    return Promise.resolve("run-new");
+  };
+  const ui = await mount(<RefreshingDashboard onLaunch={launch} />);
+  await press(ui, "C");
+  await press(ui, "2");
+  await press(ui, "/");
+  await act(async () => ui.mockInput.typeText("update-documentation"));
+  await press(ui, "RETURN");
+  await act(async () =>
+    replaceSnapshot?.({
+      ...dashboardSnapshot,
+      definitions: dashboardSnapshot.definitions.map((item) =>
+        item.id === "docs" ? { ...item, name: "rewrite-handbook" } : item
+      ),
+    })
+  );
+  await flush(ui);
+  expect(ui.captureCharFrame()).not.toContain("rewrite-handbook");
+  await press(ui, "l");
+  await press(ui, "f");
+  expect(launched).toEqual([]);
+  expect(ui.captureCharFrame()).toContain("No matching workflows or steps.");
 });

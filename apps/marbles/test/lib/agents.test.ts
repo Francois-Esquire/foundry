@@ -18,6 +18,7 @@ import type { AgentDefinition, SandboxHandle } from "~/lib/types";
 import { testEngine } from "../helpers/engine";
 
 const NO_TURN_PATTERN = /no agent turn is running/;
+const AMBIGUOUS = /2 agent turns are running/;
 
 function args(): ManagerArgs & { readonly written: string[] } {
   const scope = new RunScope(`run-${Math.random()}`, "/tmp/project");
@@ -312,10 +313,52 @@ describe("agents.session", () => {
         (await events).filter((event) => event.type === "finish")
       ).toHaveLength(1);
       expect(seen).toEqual(["count slowly", "stop and summarise"]);
-      expect(a.frame.sessions[0]?.steer).toBeUndefined();
+      expect(a.scope.work()).toEqual([]);
       expect(() => a.scope.steer(a.frame.key, "again")).toThrow(
         NO_TURN_PATTERN
       );
+    } finally {
+      await a.scope.settle();
+      await manager.close();
+    }
+  });
+
+  it("two agent turns in one step are steered only by naming one", async () => {
+    const a = args();
+    const models = mockModels(
+      [CLAUDE_CODE],
+      ({ prompt }) => `reply to ${prompt.split("\n").at(-1) ?? ""}`,
+      { hold: ({ prompt }) => prompt.endsWith("count slowly") }
+    );
+    const manager = new AgentsManager({ ...deps(), models });
+    const agents = manager.scoped(a);
+    try {
+      const first = await agents.session(reviewer);
+      const second = await agents.session(reviewer);
+      const turns = [
+        first.generate("count slowly"),
+        second.generate("count slowly"),
+      ];
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(() => a.scope.steer(a.frame.key, "stop")).toThrow(AMBIGUOUS);
+      const live = a.scope.work();
+      expect(
+        live.map((work) => work.kind === "agent" && work.sessionId)
+      ).toEqual([first.ref.id, second.ref.id]);
+      for (const work of live) {
+        a.scope.send(a.frame.key, {
+          target: work.id,
+          text:
+            work.kind === "agent" && work.sessionId === first.ref.id
+              ? "first stops"
+              : "second stops",
+        });
+      }
+      expect((await Promise.all(turns)).map((reply) => reply.text)).toEqual([
+        "reply to first stops",
+        "reply to second stops",
+      ]);
+      expect(a.scope.work()).toEqual([]);
     } finally {
       await a.scope.settle();
       await manager.close();

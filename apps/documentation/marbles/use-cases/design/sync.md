@@ -224,8 +224,14 @@ schedule(designSync({}, { file: "your-file-key" })).every("1h");
 ## Run and verify
 
 Set the file key in the schedule before starting the dashboard. Replace
-`YOUR_FILE_KEY` in the one-shot command as well. For persistent setup,
-declare the token through [Varlock](/marbles/reference/project#environment).
+`YOUR_FILE_KEY` in the one-shot command as well. For persistent setup, set
+the token in the environment the Marbles process starts with; see
+[environment](/marbles/reference/project#environment).
+
+If a Marbles process is already running, run `marbles stop` after exporting
+the token below, before running `marbles list` or opening the dashboard.
+The next process starts with the updated environment; attaching to an
+existing process does not update its variables.
 
 ```sh
 export FIGMA_TOKEN=figd_…
@@ -310,7 +316,6 @@ pull-request creation one atomic operation.
 Figma rate-limits requests by endpoint and plan. Handle `429` responses
 according to its [rate-limit guidance](https://developers.figma.com/docs/rest-api/rate-limits/);
 an hourly cadence is not a quota guarantee. This example throws on a failed
-request and tries again on a later scheduled tick while Marbles is running. Declare `FIGMA_TOKEN`
-in the workspace's `.env.schema` (it can read the token from the Keychain).
-Marbles resolves it each time an engine generation loads the workspace, before importing the modules;
-see [environment loading](/marbles/reference/project#environment).
+request and tries again on a later scheduled tick while Marbles is running. Set `FIGMA_TOKEN`
+in the environment the Marbles process starts with; see
+[environment](/marbles/reference/project#environment).

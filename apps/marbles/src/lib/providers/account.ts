@@ -40,16 +40,9 @@ export function identityMaterial(instance: {
 }
 
 export function ambientProblem(
-  machine: Environment,
   patterns: readonly string[],
   env: Environment
 ): string | undefined {
-  const differing = [...new Set([...Object.keys(machine), ...Object.keys(env)])]
-    .filter((name) => machine[name] !== env[name])
-    .sort();
-  if (differing.length > 0) {
-    return `reads the process environment, which does not hold the workspace's values for ${differing.join(", ")}; set them in the environment the Marbles process starts with, or configure it for the whole machine`;
-  }
   const live = liveDifference(patterns, env);
   if (live.length > 0) {
     return `reads the process environment, which holds another account in ${live.join(", ")} than the one supplied`;

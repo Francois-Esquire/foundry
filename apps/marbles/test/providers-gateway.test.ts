@@ -180,7 +180,7 @@ function configuration(
   const models = new ModelManager();
   return {
     configuration: new ProviderConfiguration({
-      environment: { machine: ENV, workspace: {} },
+      environment: ENV,
       models,
       plugins: [pluginOf(gatewayPlugin), pluginOf(other), ...extra],
       store: new DatabaseProviderStore({ database: opened.database }),
@@ -341,7 +341,7 @@ it("asks no server while Airplane Mode is on, and asks again when it is off", as
   const engine = createEngine({
     catalog,
     dry: false,
-    environment: { machine: ENV, workspace: {} },
+    environment: ENV,
     plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
     print: () => undefined,
     root: state,
@@ -372,7 +372,7 @@ it("lists the gateway's models when the engine starts", async () => {
   const engine = createEngine({
     catalog,
     dry: false,
-    environment: { machine: ENV, workspace: {} },
+    environment: ENV,
     plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
     print: () => undefined,
     root: state,
@@ -410,7 +410,7 @@ function engineOver(print: (line: string) => void): Engine {
   return createEngine({
     catalog,
     dry: false,
-    environment: { machine: ENV, workspace: {} },
+    environment: ENV,
     plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
     print,
     root: state,

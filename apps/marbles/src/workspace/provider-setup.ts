@@ -14,7 +14,7 @@ interface DiscoveryOptions {
   readonly plugins?: readonly ProviderPlugin[];
   readonly recheck?: boolean;
   readonly state: string;
-  readonly workspace?: Omit<ProviderWorkspace, "env">;
+  readonly workspace?: ProviderWorkspace;
 }
 
 interface ProviderSetupOptions extends DiscoveryOptions {
@@ -26,7 +26,7 @@ export async function discoverProviderSetup(options: DiscoveryOptions) {
   const plugins = options.plugins ?? DEFAULT_PROVIDERS;
   const configure = () =>
     new ProviderConfiguration({
-      environment: { machine: environmentSnapshot(), workspace: {} },
+      environment: environmentSnapshot(),
       models: new ModelManager(),
       plugins,
       store: DatabaseProviderStore.forState(options.state),

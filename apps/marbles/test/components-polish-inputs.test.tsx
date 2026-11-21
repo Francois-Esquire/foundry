@@ -230,6 +230,7 @@ test("a long typed answer in a narrow feed reader keeps its label", async () => 
         answer: {
           draft:
             "Ship it after the nightly digest finishes and the docs are rebuilt",
+          focused: true,
           hint: "Enter send · Esc cancel",
           kind: "typing",
           onInput: ignore,

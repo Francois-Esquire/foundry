@@ -36,12 +36,17 @@ function delivery(answer: AnswerState): AnswerDelivery {
   };
 }
 
-function openAnswer(input: FeedInput, answer: AnswerState): AnswerView {
+function openAnswer(
+  input: FeedInput,
+  answer: AnswerState,
+  focused: boolean
+): AnswerView {
   const status = delivery(answer);
   if (answer.typing) {
     return {
       ...status,
       draft: answer.draft,
+      focused,
       hint: answer.choosing
         ? "note optional · Enter send · Esc cancel"
         : "Enter send · Esc cancel",
@@ -72,7 +77,8 @@ function openAnswer(input: FeedInput, answer: AnswerState): AnswerView {
 
 export function answerView(
   input: FeedEntrySnapshot["input"],
-  answer: AnswerState
+  answer: AnswerState,
+  focused = true
 ): AnswerView | undefined {
   if (!input) {
     return undefined;
@@ -88,5 +94,5 @@ export function answerView(
   if (state === "cancelled") {
     return { kind: "cancelled" };
   }
-  return openAnswer(input, answer);
+  return openAnswer(input, answer, focused);
 }

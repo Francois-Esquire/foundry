@@ -18,6 +18,7 @@ import { selectExecutor } from "~/lib/executor";
 import { claudeCode as claudeCodePlugin } from "~/lib/providers/claude-code";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
 import { fakeClaude } from "./helpers/claude";
+import { homedCli } from "./helpers/homed-cli";
 import { pluginOf } from "./helpers/plugins";
 
 it("loads scoped Claude Code catalogs and uses the reported or configured default", async () => {
@@ -41,10 +42,7 @@ it("loads scoped Claude Code catalogs and uses the reported or configured defaul
     { resolvedModel: "claude-sonnet-5", value: "sonnet[1m]" },
   ]);
   const configuration = new ProviderConfiguration({
-    environment: {
-      machine: { CLAUDE_CONFIG_DIR: machine },
-      workspace: { CLAUDE_CONFIG_DIR: workspace },
-    },
+    environment: { CLAUDE_CONFIG_DIR: machine },
     models,
     plugins: [pluginOf(claudeCodePlugin)],
     store,
@@ -52,16 +50,26 @@ it("loads scoped Claude Code catalogs and uses the reported or configured defaul
   });
   vi.stubEnv("ANTHROPIC_API_KEY", "ambient-test-key");
   try {
+    const binPath = fakeClaude(root);
     const entry = {
       enabled: true,
       plugin: "claude-code",
-      settings: { binPath: fakeClaude(root) },
+      settings: { binPath },
     };
     await store.update("ws", () => ({
       machine: { providers: [{ ...entry, id: "claude-code" }], version: 1 },
       workspace: {
         order: ["claude-code", "work"],
-        providers: [{ ...entry, defaults: { text: "sonnet[1m]" }, id: "work" }],
+        providers: [
+          {
+            ...entry,
+            defaults: { text: "sonnet[1m]" },
+            id: "work",
+            settings: {
+              binPath: homedCli(binPath, "CLAUDE_CONFIG_DIR", workspace),
+            },
+          },
+        ],
         version: 1,
       },
     }));

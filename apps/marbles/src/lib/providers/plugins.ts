@@ -11,7 +11,6 @@ export type ProviderScope = "machine" | "workspace";
 
 export interface ProviderWorkspace {
   readonly dir: string;
-  readonly env: Readonly<Record<string, string>>;
   readonly id: string;
   readonly root: string;
 }

@@ -72,12 +72,13 @@ const reviewing = skills.load().add("./skills/review/*").pick("caveman");
 
 `prompt` is required. State the agent's task and limits, such as "Review
 without editing."
-`provider` is `"codex"`, `"claude-code"`, or `"pi"`; omitted means the first
-installed CLI, Claude Code before Codex. `"pi"` needs
-[`defineProvider(pi)`](#providers) in the workspace's source. `model` is optional: omit it for
-the provider's default, or set an id the provider serves. It does not pick
-the provider; an id the provider does not know is passed through with a
-warning, and `--dry-run` rejects it. `skills` takes a skill set.
+`provider` is `"codex"`, `"claude-code"`, or `"pi"`; omitted with no
+`model` means the first installed CLI, Claude Code before Codex. `model` is
+optional: omit it for the provider's default, or set an id the provider
+serves. Without `provider`, `model` picks it: `"provider/model"` selects
+that provider, and a bare id selects the first available provider that
+lists it. An id no provider lists is refused. `skills` takes a skill set.
+`"pi"` needs [`defineProvider(pi)`](#providers) in the workspace's source.
 
 Tool grants and agent-created triggers are stored under the agent's ID: `name`
 when given, else the top-level `const` it is assigned to, else `agent-`
@@ -684,7 +685,11 @@ without authored control code.
 ## Exports
 
 The main entry exports the factories above, the AI SDK's `Output`, `bail`,
-`defineSkill`, `dispose`, and `usage`, the shared instance of
+`defineSkill`, `dispose`, `CommandError` (what a command that exits
+non-zero throws unless `{ check: false }`, with its `result`), `models`,
+whose `models.available(selection)` says whether a model selection
+resolves on the running engine's providers (`false` with no engine), and
+`usage`, the shared instance of
 [`@foundry/usage`](https://github.com/Francois-Esquire/foundry/blob/main/packages/usage/README.md).
 Marbles adds the default accounts, `anthropic` and `openai`, before any step
 runs; a failure to add them is printed and does not stop the run. It also
@@ -700,14 +705,15 @@ exports these types:
 | Artifacts | `Artifacts`, `ArtifactVersion` |
 | Tasks | `Task`, `TaskNode`, `TaskStatus`, `TaskAvailability`, `TaskChange`, `TaskOperation`, `TaskRef`, `TaskToken`, `TaskChangeResult`, `TaskQuery`, `TagQuery`, `TaskRelations`, `DepthOptions`, `CreateTaskInput`, `UpdateTaskInput`, `TaskEvent`, `TaskDelta` |
 | Execution | `Context`, `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel` |
+| Commands | `CommandResult`, `Exec`, `ExecOptions` |
 | Triggers | `Schedule`, `ScheduleBuilder`, `MonitorBuilder`, `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`, `Change`, `FileChange`, `HttpChange` |
 | Usage | `Snapshot`, `Identity`, `Limit`, `Window`, `SpendCap`, `Budget`, `BillingAccountOptions`, `Balance`, `CreditBalance`, `Headroom`, `Money`, `Credits`, `Duration`, `Span`, `Consumption`, `SessionConsumption`, `Quantities`, `Charge`, `QueryOptions`, `QueryAllOptions`, `DurationText` |
 
 The main entry also exports `prompts` and `ref`, with `PromptError` and
 the `Prompt` class beside them: a tag per harness (`prompts.claude`,
 `prompts.codex`, `prompts.pi`) that writes each reference in that harness's
-notation. They are not in `0.0.3` and ship in the next release. See
-[Prompts](/prompts).
+notation, and `prompts.portable` for a prompt whose harness is chosen
+later. They ship from `0.0.4`. See [Prompts](/prompts).
 
 The main entry also exports `tasks`, the workspace's backlog, with the
 `Tasks` class, `MemoryTaskStore`, and `TaskError` beside it. A module imports
@@ -896,7 +902,7 @@ and `create(setup)` for the instance, and optionally `detect`, `list`,
 Do not write modules that depend on these.
 
 - Race, branch, and loops between steps. Only series and parallel.
-- A built-in model provider. No `provider` means the first installed CLI.
+- A built-in model provider. No `provider` or `model` means the first installed CLI.
 - Recovery of a step that was mid-body when the process stopped. A step
   parked on an `ask` or a pause does survive a quit, a crash, or a kill.
 - Scheduling a tree with children without wrapping it in `workflow`.

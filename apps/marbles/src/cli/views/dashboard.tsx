@@ -17,6 +17,7 @@ import { PanelShortcuts } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
 import { helpSections } from "../state/dashboard-commands";
 import type { DashboardViewKey } from "../state/dashboard-state";
+import { promptLabels } from "../state/run-actions";
 import { type DashboardOptions, useDashboard } from "../state/use-dashboard";
 import { DashboardDrawer } from "./dashboard-drawer";
 import { DashboardMain } from "./dashboard-main";
@@ -114,10 +115,9 @@ export function DashboardView({
             <PromptBar
               draft={state.draft}
               focused={!ui.quit.quitting}
-              kind={state.prompt.kind}
+              labels={promptLabels(state.prompt)}
               onInput={ui.setDraft}
               onSubmit={ui.submitPrompt}
-              stepId={state.prompt.stepId}
             />
           )}
           <WorkStatus

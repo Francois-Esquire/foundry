@@ -28,8 +28,6 @@ import {
   linkLibrary,
   onRead,
 } from "~/workspace/copies";
-import type { WorkspaceEnvironment } from "~/workspace/env";
-import { loadEnvironment } from "~/workspace/env";
 import {
   DEFAULT_SOURCE,
   resolveSource,
@@ -51,7 +49,7 @@ export interface OpenedWorkspace {
   readonly config: string | null;
   readonly configPath: string;
   readonly cwd: string;
-  readonly environment: WorkspaceEnvironment;
+  readonly environment: Readonly<Record<string, string>>;
   readonly files: readonly string[];
   readonly workspace: Workspace;
 }
@@ -194,7 +192,7 @@ function placed(args: HostOptions): {
 function opened(
   args: HostOptions,
   { configPath, found, root }: ReturnType<typeof placed>,
-  environment: WorkspaceEnvironment,
+  environment: Readonly<Record<string, string>>,
   {
     catalog = new Catalog(),
     cwd,
@@ -218,10 +216,7 @@ function opened(
 }
 
 export function findWorkspace(args: HostOptions): OpenedWorkspace {
-  return opened(args, placed(args), {
-    machine: environmentSnapshot(),
-    workspace: {},
-  });
+  return opened(args, placed(args), environmentSnapshot());
 }
 
 export async function recordedWorkspace(
@@ -241,7 +236,7 @@ export async function recordedWorkspace(
     config: record.config,
     configPath: record.config ?? resolve(workspace.root, DEFAULT_SOURCE),
     cwd: record.cwd,
-    environment: { machine: environmentSnapshot(), workspace: {} },
+    environment: environmentSnapshot(),
     files: [],
     workspace,
   };
@@ -249,7 +244,6 @@ export async function recordedWorkspace(
 
 export interface OpenWorkspaceOptions {
   readonly cwd?: string;
-  readonly env?: "require" | "warn";
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   readonly print: (line: string) => void;
   readonly read?: (file: string) => void;
@@ -261,10 +255,10 @@ class StarterLoadError extends Error {
 
 export async function openWorkspace(
   args: HostOptions,
-  { cwd, env = "warn", onMissing, print, read }: OpenWorkspaceOptions
+  { cwd, onMissing, print, read }: OpenWorkspaceOptions
 ): Promise<OpenedWorkspace> {
   const before = placed(args);
-  const environment = loadEnvironment(before.root, env, print);
+  const environment = environmentSnapshot();
   const catalog = new Catalog();
   const load = (at: ReturnType<typeof placed>) =>
     loadSource(
