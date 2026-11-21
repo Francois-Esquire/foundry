@@ -11,6 +11,7 @@ import {
   registerModuleProtocol,
   registerModuleScheme,
 } from "~/main/modules/runtime/protocol";
+import { checkSqlite, snapshotSqlite } from "~/main/modules/runtime/sqlite";
 import { systemTheme } from "~/main/system/theme";
 import { composeWorks, type Works } from "~/main/works";
 import type { ModuleSourceRevision } from "~/shared/modules";
@@ -24,6 +25,7 @@ const APP = "packages/app/src/App.tsx";
 const NAME = "Data journey";
 const DATABASE = "data.sqlite";
 const BACKUP = "data.sqlite.bak";
+const OFFLINE_RECOVERY = /requires offline recovery/;
 
 async function build(
   works: Works,
@@ -243,6 +245,29 @@ async function smoke(userData: string) {
 
     works = await compose(userData);
     open = true;
+    await assert.rejects(
+      openAppWindow(works.rpc.sessions, module.id, v1),
+      OFFLINE_RECOVERY
+    );
+    assert.equal(await exists(legacy), true);
+    assert.equal(await exists(folder.data), false);
+    await works.close();
+    open = false;
+    const recovery = path.join(userData, "legacy-data-recovery");
+    await rename(legacy, recovery);
+    await mkdir(folder.data, { recursive: true });
+    await snapshotSqlite(
+      path.join(recovery, DATABASE),
+      path.join(folder.data, DATABASE)
+    );
+    for (const name of await readdir(recovery)) {
+      if (![DATABASE, `${DATABASE}-wal`, `${DATABASE}-shm`].includes(name)) {
+        await copyFile(path.join(recovery, name), path.join(folder.data, name));
+      }
+    }
+    await checkSqlite(path.join(folder.data, DATABASE));
+    works = await compose(userData);
+    open = true;
     app = await openAppWindow(works.rpc.sessions, module.id, v1);
     try {
       assert.deepEqual(notesOf(await app.graphql("query { notes { body } }")), [
@@ -265,8 +290,9 @@ async function smoke(userData: string) {
           `${moduleDirectory(module.id)}.json`
         )
       ),
-      { format: "works.data-move/1", status: "done" }
+      undefined
     );
+    assert.equal(await exists(path.join(recovery, DATABASE)), true);
     assert.deepEqual(notesIn(path.join(folder.data, DATABASE)), [
       "First note",
       "Only in the WAL",
@@ -274,7 +300,7 @@ async function smoke(userData: string) {
       "Third note",
     ]);
     note(
-      `moved into data/ (${(await readdir(folder.data)).sort().join(", ")}); the original was removed, the move recorded done, and the Program reopened all four rows`
+      `automatic adoption refused; offline recovery into data/ (${(await readdir(folder.data)).sort().join(", ")}) kept the original at ${recovery}, and the Program reopened all four rows`
     );
     process.stdout.write(
       `Electron data journeys passed (Electron ${process.versions.electron}, Node ${process.versions.node}, SQLite ${process.versions.sqlite}, ${report.length} checks)\n`

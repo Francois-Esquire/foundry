@@ -17,12 +17,11 @@ import {
   MODULE_FILES_ROOT,
   MODULE_PROGRAM_ROOT,
 } from "@foundry/modules/platform/program-runtime";
-import { KeyedTurns } from "@foundry/modules/platform/turns";
 import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import { moduleDirectory, moduleFolder } from "../local-library";
 import { ModuleRuntimeError } from "./controller";
-import { moveLegacyData } from "./data-move";
+import { admitModuleData } from "./data-move";
 
 export function filesPersistence(
   manifest: ModuleManifest
@@ -61,8 +60,6 @@ export function createModulePrivateFiles(options: {
   const preparedDisposable = new Map<InstallationId, string>();
   const kept = new Map<string, ModuleInstallationFiles>();
   const disposed = new Set<InstallationId>();
-  const moved = new Set<InstallationId>();
-  const turns = new KeyedTurns<InstallationId>();
 
   function persistent(id: InstallationId) {
     const folder = moduleFolder(root, id).root;
@@ -75,35 +72,22 @@ export function createModulePrivateFiles(options: {
   }
   const disposableId = (id: InstallationId) =>
     installationIdSchema.parse(moduleDirectory(id));
-  function migrate(id: InstallationId) {
-    return turns.run(id, async () => {
-      if (moved.has(id)) {
-        return;
-      }
-      await moveLegacyData({
-        checkDatabase: options.checkDatabase,
-        from: path.join(root, ".data", moduleDirectory(id)),
-        snapshotDatabase,
-        state: path.join(
-          root,
-          ".library",
-          "data-moves",
-          `${moduleDirectory(id)}.json`
-        ),
-        to: moduleFolder(root, id).data,
-      });
-      moved.add(id);
+  function admit(id: InstallationId) {
+    return admitModuleData({
+      checkDatabase: options.checkDatabase,
+      from: path.join(root, ".data", moduleDirectory(id)),
+      to: moduleFolder(root, id).data,
     });
   }
 
   return {
     async backup(id) {
-      await migrate(id);
+      await admit(id);
       await persistent(id).backup(DATA);
     },
     delete: () => Promise.resolve(),
     async discardBackup(id) {
-      await migrate(id);
+      await admit(id);
       await persistent(id).discardBackup(DATA);
     },
     mounts(id) {
@@ -115,7 +99,7 @@ export function createModulePrivateFiles(options: {
       };
     },
     async prepare({ installationId, persistence, signal }) {
-      await migrate(installationId);
+      await admit(installationId);
       if (persistence === "none") {
         disposed.add(installationId);
         await disposable.delete(disposableId(installationId));
@@ -144,7 +128,7 @@ export function createModulePrivateFiles(options: {
         ? disposable.release(disposableId(id))
         : persistent(id).release(DATA),
     async restoreBackup(id) {
-      await migrate(id);
+      await admit(id);
       return await persistent(id).restoreBackup(DATA);
     },
     async stopped(id) {

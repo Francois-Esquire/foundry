@@ -1,10 +1,12 @@
 import {
   copyFile,
+  cp,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
   realpath,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -104,138 +106,164 @@ function notes(file: string) {
   }
 }
 
-describe("moving private data into the Module's data/", () => {
-  it("moves a consistent, checked copy and lets the original go only then", async () => {
-    const { folder, legacy, open, state } = await setup();
-    await legacyFiles(legacy);
-    expect(await readdir(legacy)).toContain("data.sqlite-wal");
-    const checked: string[] = [];
-    const files = open(async (file) => {
-      expect(await readdir(legacy)).toContain("data.sqlite");
-      checked.push(path.relative(folder.root, file));
-      await checkSqlite(file);
-    });
-
-    const prepared = await files.prepare({
-      installationId: id,
-      persistence: "installation",
-    });
-    expect(prepared.hostPath).toBe(folder.data);
-    expect((await readdir(folder.data)).sort()).toEqual([
-      "data.sqlite",
-      "data.sqlite.bak",
-      "uploads",
-    ]);
-    expect(notes(path.join(folder.data, "data.sqlite"))).toEqual([
-      "first",
-      "second",
-    ]);
-    expect(notes(path.join(folder.data, "data.sqlite.bak"))).toEqual(["first"]);
-    expect(
-      await readFile(path.join(folder.data, "uploads", "photo.txt"), "utf8")
-    ).toBe("app file");
-    expect(checked).toEqual([
-      ".data-moving/data.sqlite",
-      ".data-moving/data.sqlite.bak",
-      "data/data.sqlite",
-      "data/data.sqlite.bak",
-    ]);
-    await expect(readdir(legacy)).rejects.toMatchObject({ code: "ENOENT" });
-    expect(JSON.parse(await readFile(state, "utf8"))).toMatchObject({
-      status: "done",
-    });
-    expect(await readdir(folder.root)).toEqual(["data"]);
-  });
-
-  it("leaves the original in use when the copy does not check out, and moves it on retry", async () => {
-    const { folder, legacy, open } = await setup();
-    await legacyFiles(legacy);
-    const original = async () =>
-      Object.fromEntries(
-        await Promise.all(
-          ["data.sqlite", "data.sqlite-wal", "data.sqlite.bak"].map(
-            async (name) => [name, await readFile(path.join(legacy, name))]
-          )
-        )
-      );
-    const before = await original();
-    const failing = open(() =>
-      Promise.reject(new Error("database disk image is malformed"))
+describe("legacy private data requires offline recovery", () => {
+  it("refuses handover with an old SQLite writer, preserving its later committed rows", async () => {
+    const { folder, legacy, root, state } = await setup();
+    await mkdir(legacy, { recursive: true });
+    const writer = new DatabaseSync(path.join(legacy, "data.sqlite"));
+    writer.exec(
+      "CREATE TABLE notes (body TEXT); INSERT INTO notes VALUES ('before')"
     );
-    await expect(
-      failing.prepare({ installationId: id, persistence: "installation" })
-    ).rejects.toThrow("The original was left in place");
-    expect(await original()).toEqual(before);
-    expect(await readdir(folder.root)).toEqual([]);
-
-    await open().prepare({ installationId: id, persistence: "installation" });
-    expect(notes(path.join(folder.data, "data.sqlite"))).toEqual([
-      "first",
-      "second",
-    ]);
-  });
-
-  it("finishes an interrupted move after a restart, and only once", async () => {
-    const { folder, legacy, open, state } = await setup();
-    await legacyFiles(legacy);
-    const interrupted = vi.fn(checkSqlite);
-    const crashing = open(async (file) => {
-      await interrupted(file);
-      if (file.endsWith(path.join("data", "data.sqlite"))) {
-        throw new Error("Works stopped");
+    const snapshot = vi.fn(snapshotSqlite);
+    const files = createModulePrivateFiles({
+      checkDatabase: checkSqlite,
+      root,
+      snapshotDatabase: snapshot,
+    });
+    try {
+      for (const action of [
+        () =>
+          files.prepare({ installationId: id, persistence: "installation" }),
+        () => files.backup(id),
+        () => files.restoreBackup(id),
+        () => files.discardBackup(id),
+      ]) {
+        await expect(action()).rejects.toThrow("requires offline recovery");
       }
-    });
-    await expect(
-      crashing.prepare({ installationId: id, persistence: "installation" })
-    ).rejects.toThrow();
-    expect(await readdir(legacy)).toContain("data.sqlite");
+      writer.exec("INSERT INTO notes VALUES ('after refusal')");
+      expect(notes(path.join(legacy, "data.sqlite"))).toEqual([
+        "before",
+        "after refusal",
+      ]);
+      expect(snapshot).not.toHaveBeenCalled();
+      await expect(readdir(folder.data)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      await expect(readFile(state)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      writer.close();
+    }
+  });
 
-    await rm(folder.data, { force: true, recursive: true });
-    await mkdir(path.join(folder.root, ".data-moving"), { recursive: true });
-    await snapshotSqlite(
-      path.join(legacy, "data.sqlite"),
-      path.join(folder.root, ".data-moving", "data.sqlite")
-    );
+  it.each(["copying", "adopting", "done"])(
+    "never trusts a %s journal over existing legacy data",
+    async (status) => {
+      const { folder, legacy, open, state } = await setup();
+      await legacyFiles(legacy);
+      await mkdir(folder.data, { recursive: true });
+      await writeFile(path.join(folder.data, "data.sqlite"), "newer copy");
+      await mkdir(path.dirname(state), { recursive: true });
+      const journal = JSON.stringify({ format: "works.data-move/1", status });
+      await writeFile(state, journal);
+      const before = await readFile(path.join(legacy, "data.sqlite"));
+      await expect(
+        open().prepare({ installationId: id, persistence: "installation" })
+      ).rejects.toThrow("requires offline recovery");
+      expect(await readFile(path.join(legacy, "data.sqlite"))).toEqual(before);
+      expect(
+        await readFile(path.join(folder.data, "data.sqlite"), "utf8")
+      ).toBe("newer copy");
+      expect(await readFile(state, "utf8")).toBe(journal);
+    }
+  );
+
+  it("refuses to adopt staging even when the original path is absent", async () => {
+    const { folder, open, state } = await setup();
+    const staging = path.join(folder.root, ".data-moving");
+    await mkdir(staging, { recursive: true });
+    await writeFile(path.join(staging, "keep.txt"), "unreconciled");
     await mkdir(path.dirname(state), { recursive: true });
     await writeFile(
       state,
       JSON.stringify({ format: "works.data-move/1", status: "adopting" })
     );
-    const restarted = open();
-    await restarted.prepare({
-      installationId: id,
-      persistence: "installation",
+    await expect(
+      open().prepare({ installationId: id, persistence: "installation" })
+    ).rejects.toThrow("requires offline recovery");
+    expect(await readFile(path.join(staging, "keep.txt"), "utf8")).toBe(
+      "unreconciled"
+    );
+    await expect(readdir(folder.data)).rejects.toMatchObject({
+      code: "ENOENT",
     });
+  });
+
+  it("retries only after offline WAL-aware recovery, keeping the original as a recovery copy", async () => {
+    const { folder, legacy, open, root } = await setup();
+    await legacyFiles(legacy);
+    const files = open();
+    await expect(
+      files.prepare({ installationId: id, persistence: "installation" })
+    ).rejects.toThrow("requires offline recovery");
+    const recovery = path.join(root, "offline-recovery");
+    await rename(legacy, recovery);
+    await mkdir(folder.data, { recursive: true });
+    await snapshotSqlite(
+      path.join(recovery, "data.sqlite"),
+      path.join(folder.data, "data.sqlite")
+    );
+    await copyFile(
+      path.join(recovery, "data.sqlite.bak"),
+      path.join(folder.data, "data.sqlite.bak")
+    );
+    await cp(
+      path.join(recovery, "uploads"),
+      path.join(folder.data, "uploads"),
+      { recursive: true }
+    );
+    expect(
+      await files.prepare({ installationId: id, persistence: "installation" })
+    ).toMatchObject({ hostPath: folder.data });
     expect(notes(path.join(folder.data, "data.sqlite"))).toEqual([
       "first",
       "second",
     ]);
-    await expect(readdir(legacy)).rejects.toMatchObject({ code: "ENOENT" });
-
-    await mkdir(legacy, { recursive: true });
-    await writeFile(path.join(legacy, "data.sqlite"), "");
-    await open().prepare({ installationId: id, persistence: "installation" });
-    expect(await readdir(legacy)).toEqual(["data.sqlite"]);
+    expect(notes(path.join(recovery, "data.sqlite"))).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(
+      await readFile(path.join(folder.data, "uploads", "photo.txt"), "utf8")
+    ).toBe("app file");
   });
 
-  it("refuses to move into a data/ that already holds files", async () => {
-    const { folder, legacy, open } = await setup();
-    await legacyFiles(legacy);
-    await mkdir(folder.data, { recursive: true });
-    await writeFile(path.join(folder.data, "data.sqlite"), "newer");
+  it("preserves a recovered database when validation fails and retries without cached admission", async () => {
+    const { folder, open } = await setup();
+    await legacyFiles(folder.data);
+    const before = await readFile(path.join(folder.data, "data.sqlite"));
+    const check = vi
+      .fn(checkSqlite)
+      .mockRejectedValueOnce(new Error("database check failed"));
+    const files = open(check);
     await expect(
-      open().prepare({ installationId: id, persistence: "installation" })
-    ).rejects.toThrow("Both were left untouched");
-    expect(await readFile(path.join(folder.data, "data.sqlite"), "utf8")).toBe(
-      "newer"
+      files.prepare({ installationId: id, persistence: "installation" })
+    ).rejects.toThrow("database check failed");
+    expect(await readFile(path.join(folder.data, "data.sqlite"))).toEqual(
+      before
     );
-    expect(await readdir(legacy)).toContain("data.sqlite-wal");
+    expect(
+      await files.prepare({ installationId: id, persistence: "installation" })
+    ).toMatchObject({ hostPath: folder.data });
+  });
+
+  it("rechecks legacy data even after an earlier prepare succeeded", async () => {
+    const { legacy, open } = await setup();
+    const files = open();
+    await files.prepare({ installationId: id, persistence: "installation" });
+    await legacyFiles(legacy);
+    await expect(
+      files.prepare({ installationId: id, persistence: "installation" })
+    ).rejects.toThrow("requires offline recovery");
+    expect(notes(path.join(legacy, "data.sqlite"))).toEqual([
+      "first",
+      "second",
+    ]);
   });
 });
 
 it("gives a Version whose files are not kept a disposable directory, removed after its stop", async () => {
-  const { folder, legacy, open, root } = await setup();
-  await legacyFiles(legacy);
+  const { folder, open, root } = await setup();
+  await legacyFiles(folder.data);
   const files = open();
   const prepared = await files.prepare({
     installationId: id,

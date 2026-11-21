@@ -87,8 +87,26 @@ release's files, read-only), and `data/` (the app's private files and database).
 Artifact records live in `.library/artifacts.json` under that root, with blob bytes
 in `.library/blobs`. The Module Artifact's metadata also holds each Module's one
 durable Installation and its Grants. Workspace markers and staging stay in
-`.library`. Older `.data/<moduleId>` folders are moved into `data/` once, after a
-verified reopen. Product File Artifacts materialize under `~/.foundry/artifacts`.
+`.library`. Product File Artifacts materialize under `~/.foundry/artifacts`.
+
+Older `.data/<moduleId>` folders and unfinished `.data-moving` directories
+require offline recovery. Works refuses to open, back up or restore that Module
+while either contains unreconciled data. It never adopts or deletes them
+automatically: a consistent SQLite snapshot cannot stop an older process from
+committing another row afterward.
+
+To recover:
+
+1. Close every Works version, its Programs and any database tools.
+2. Back up the legacy folder, the Module's `data/` and any `.data-moving` folder.
+3. Reconcile conflicting copies and recover all private files into `data/`. Use
+   SQLite's backup API or `VACUUM INTO` to include committed WAL data; copying
+   `data.sqlite` alone can omit committed rows.
+4. Verify the recovered database and files. Move the legacy and staging folders
+   outside their active names, keeping them as recovery copies.
+5. Retry the Module. Works checks the recovered databases before starting it.
+
+There is no automatic downgrade conversion back to the earlier folder layout.
 
 On first startup using this location, Works copies an existing user-data Module
 Artifact store if the new store is absent, preserving the old store. Reading or

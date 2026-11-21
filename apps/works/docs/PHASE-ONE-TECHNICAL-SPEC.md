@@ -578,6 +578,18 @@ path. Keep the original until verification succeeds; failure leaves it usable.
 Persist migration state for idempotent restart and refuse conflicting destination
 contents. Relocate existing workspace source separately without dropping pending
 disk edits. This replaces the earlier no-migration decision.
+
+The current host cannot establish exclusive ownership over older Works versions
+or already-open database connections. SQLite locks fence a snapshot only while
+held; they cannot stop an old connection writing afterward. Until that ownership
+contract exists, the implementation refuses automatic legacy-data adoption and
+deletion. Nonempty legacy folders or any interrupted staging directory block
+prepare, backup and restore, including when an older migration journal says
+`done`. Operators must close all writers, retain backup/recovery copies, reconcile
+and verify WAL-aware data offline, then move the legacy and staging directories
+outside their active names before retrying. The README gives the recovery steps.
+No automatic downgrade conversion is provided.
+
 `persistence.files: none` uses a distinct disposable database location, removed
 only after confirmed stop; it never touches persistent Module data.
 
@@ -977,7 +989,7 @@ and later tabs assemble those real observations.
 | 1a | Works Module sandbox owner and Marbles execution adapter | Repeated Module requests reuse one sandbox; machine ceilings, observations, durable queued/running/terminal engine runs, generate/stream correlation, FIFO admission without capacity rejection, per-queue concurrency, required engine startup/failure and crash recovery, packaged import and app environment validation are verified. Marbles integration gaps are implemented and verified. |
 | 1b | Works authoring side chat | Request produces a reviewable proposal; accept/save/build/preview works; disjoint typing accepts and overlapping edits conflict safely; shared authoring/build sandbox has internet access while host credentials remain absent; questions, denial, cancellation and restart retain truthful state; chat and builds proceed in parallel against isolated snapshots supplied by the underlying technology. |
 | 2 | Works permanent navigation and initial explorer | Required icon placement, keyboard access, useful listing, Module shortcuts and existing Settings preserved. |
-| 3 | Module configuration/settings, confirmed authority store and Access panel | Both formats round-trip; quotas enforced or rejected; existing private data reopens after a verified one-time move, with originals retained until success; source includes its editable Manifest and excludes private data from authoring/build input; only data/ mounts read-write into the app; start/stop does not stale source bindings; matching Grants carry over and changed requests re-prompt; selected-release `artifact/` files match the Version, older Versions reselect and the app mount is read-only; declared-and-approved app network works, undeclared/denied/revoked network does not; revoke works; new editor/build blobs use files and store/save-dispatch latency is measured and sizing recommendations are evaluated; Module setting validation, user overrides, host ceilings and broader Artifact Grants are verified. |
+| 3 | Module configuration/settings, confirmed authority store and Access panel | Both formats round-trip; quotas enforced or rejected; legacy private data is refused without exclusive ownership and reopens only after offline recovery, with original recovery copies retained; source includes its editable Manifest and excludes private data from authoring/build input; only data/ mounts read-write into the app; start/stop does not stale source bindings; matching Grants carry over and changed requests re-prompt; selected-release `artifact/` files match the Version, older Versions reselect and the app mount is read-only; declared-and-approved app network works, undeclared/denied/revoked network does not; revoke works; new editor/build blobs use files and store/save-dispatch latency is measured and sizing recommendations are evaluated; Module setting validation, user overrides, host ceilings and broader Artifact Grants are verified. |
 | 4 | Modules SDK/composer, Works main theme/proxy | Pending stream failure/cancel fixed; initial and live mode/effective state verified in a sandbox View; private Gateway paths remain inaccessible from the View; OS, explicit override, revoke, close and reconnect release resources. |
 | 5 | Works grid/resolver | Type/MIME precedence, explicit Module resolution, fallback, multi-file picker, thumbnails and editor selection are visible and correct. |
 | 6 | Editor binding, file save provider, core fixture | Markdown Artifact create/read/save/reopen through returned binding; several owned bindings work; read-only and foreign bindings denied; stale save preserves edits; authorized Artifact watch initial/change/reconnect/revoke behavior and unsaved Draft retention verified; in-place identity, origin/engine-run history and request retry verified. |
