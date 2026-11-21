@@ -1591,15 +1591,7 @@ describe("engine generations", () => {
     const summary = await client.attach(fixture.source);
     const first = summary.pid ?? 0;
     await whenLogged(fixture, `scheduled-ask ${String(first)}`);
-    await vi.waitFor(
-      async () =>
-        expect(
-          (await executions(fixture, summary.id))
-            .filter((row) => row.name === "scheduled-ask")
-            .map((row) => row.status)
-        ).toEqual(["suspended"]),
-      { interval: 100, timeout: 30_000 }
-    );
+    const parked = await parkedRun(fixture, summary.id, "scheduled-ask");
     await crash(child);
     client.close();
     await gone(first, 60_000);
@@ -1619,20 +1611,45 @@ describe("engine generations", () => {
       { client: next },
       (pid) => pid !== first && pid > 0
     );
-    const workspace = next.workspace(summary);
+    await answerRun(restarted, next.workspace(summary), parked);
     await vi.waitFor(
-      async () => {
-        await restarted.sweepNow();
-        const entry = await openEntry(workspace, "Scheduled?");
-        await workspace.actions.answer(entry, "yes");
-        expect(logged(fixture)).toContain(
-          `scheduled-answered ${String(second)}`
-        );
-      },
-      { interval: 500, timeout: 60_000 }
+      async () =>
+        expect(
+          (await executions(fixture, summary.id)).find(
+            (row) => row.id === parked
+          )?.status
+        ).toBe("complete"),
+      { interval: 200, timeout: 60_000 }
     );
+    expect(logged(fixture)).toContain(`scheduled-answered ${String(second)}`);
     next.close();
   }, 180_000);
+
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    it(`when the daemon crashes, ${signal} sent to the orphaned generation while it drains cancels the scheduled run it is running, as a stop does`, async () => {
+      const { child, fixture } = await crashableDaemon({ holding: true });
+      const client = await connect({ layout: fixture.machine, start: false });
+      const summary = await client.attach(fixture.source);
+      const first = summary.pid ?? 0;
+      await whenLogged(fixture, `scheduled-hold ${String(first)}`);
+      await crash(child);
+      client.close();
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      expect(processAlive(first)).toBe(true);
+      process.kill(first, signal);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      open("scheduled-hold", fixture);
+      await gone(first, 60_000);
+      expect(
+        (await executions(fixture, summary.id))
+          .filter((row) => row.name === "scheduled-hold")
+          .map((row) => row.status)
+      ).toEqual(["cancelled"]);
+      expect(await scheduleTick(fixture, summary.id, "scheduled-hold")).toEqual(
+        { lastStatus: "failed", ownerPid: null }
+      );
+    }, 180_000);
+  }
 
   it("when the daemon crashes, the orphaned generation finishes the scheduled run it is running, records it, fires no more and exits", async () => {
     const { child, fixture } = await crashableDaemon({ holding: true });

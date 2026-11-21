@@ -195,6 +195,7 @@ async function main(): Promise<void> {
   const loops = new Set<Ticking>();
   let retiring: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
+  let orphaning = false;
   const finished = Promise.withResolvers<void>();
 
   const workspaces = (): HostedWorkspaces => {
@@ -412,6 +413,11 @@ async function main(): Promise<void> {
   };
 
   const stop = (): Promise<void> => {
+    if (orphaning) {
+      for (const loop of loops) {
+        loop.cancel.abort();
+      }
+    }
     stopping ??= retiring ?? leave(true);
     stopping.then(finished.resolve, finished.reject);
     return stopping;
@@ -431,6 +437,7 @@ async function main(): Promise<void> {
   };
 
   const orphan = (): Promise<void> => {
+    orphaning ||= retiring === undefined && stopping === undefined;
     stopping ??= retiring ?? orphaned();
     stopping.then(finished.resolve, finished.reject);
     return stopping;
