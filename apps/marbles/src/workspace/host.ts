@@ -19,10 +19,11 @@ import type {
   WorkspaceConfig,
   WorkspaceConnection,
 } from "~/model/connection";
-import type { DashboardSnapshot } from "~/model/dashboard";
+import type { DashboardSnapshot, LiveRun } from "~/model/dashboard";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
 import { workspaceFeed } from "~/workspace/feed";
+import { liveView, questionOwners } from "~/workspace/live-work";
 import { runSchedulesUntilStopped } from "~/workspace/loop";
 import type { OpenedWorkspace } from "~/workspace/open";
 import {
@@ -68,6 +69,10 @@ export interface WorkspaceHost extends WorkspaceConnection {
   setStatus(line: string): void;
   readonly status: string;
   readonly workspace: Workspace;
+}
+
+export interface GenerationHost extends WorkspaceHost {
+  snapshot(elsewhere?: readonly LiveRun[]): Promise<DashboardSnapshot>;
 }
 
 class LaunchInputError extends Error {
@@ -122,7 +127,7 @@ export interface StagedWorkspace {
   readonly files: readonly string[];
   readonly id: string;
   readonly root: string;
-  start(): Promise<WorkspaceHost>;
+  start(): Promise<GenerationHost>;
 }
 
 export async function stageWorkspace(
@@ -356,7 +361,7 @@ function hosted(
     setStatus,
     status,
   }: Status
-): WorkspaceHost {
+): GenerationHost {
   const { catalog, config, configPath, workspace } = opened;
   const { activities, automations } = engine;
   const tasks = hostTasks(engine);
@@ -395,6 +400,10 @@ function hosted(
         return Promise.resolve();
       },
       resume: (runId, stepId, prompt) => engine.resume(runId, stepId, prompt),
+      send(runId, stepId, input) {
+        engine.send(runId, stepId, input);
+        return Promise.resolve();
+      },
       async setTriggerEnabled(id, enabled) {
         await automations.setEnabled(id, enabled);
       },
@@ -502,20 +511,28 @@ function hosted(
         signal,
       }),
     setStatus,
-    async snapshot(): Promise<DashboardSnapshot> {
+    async snapshot(elsewhere): Promise<DashboardSnapshot> {
       const usage = await readUsage(engine, usageRead);
       const now = Date.now();
-      return dashboardSnapshot(await engine.runs(), {
+      const entries = await feed();
+      const { records, work } = liveView(
+        await engine.runs(),
+        engine.scopes,
+        elsewhere
+      );
+      return dashboardSnapshot(records, {
         activities: activities.list(),
         automationErrors: await automations.errors(),
         automations: await automations.list(),
         definitions: dispatches.definitions(),
         diagnostics: diagnostics.entries,
-        feed: await feed(),
+        feed: entries,
         lastFinish,
+        live: work,
         monitors: engine.monitors(),
         now,
         ...(others === undefined ? {} : { others: await others(now) }),
+        questionOwners: await questionOwners(engine.sessions, entries, work),
         queued: engine.executions.list(),
         root: workspace.root,
         schedules: await engine.schedules(),

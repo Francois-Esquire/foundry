@@ -19,6 +19,7 @@ import {
   reduce,
 } from "~/cli/state/dashboard-state";
 import type { RunActions } from "~/cli/state/run-actions";
+import type { LiveWork } from "~/lib/step-work";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 function footer(commandContext: CommandContext) {
@@ -41,9 +42,58 @@ const actions: RunActions = {
   deleteTrigger: noop,
   pause: noop,
   resume: noop,
+  send: noop,
   setTriggerEnabled: noop,
-  steer: noop,
   stopActivity: noop,
+};
+
+const SEND_KEY = /\bs (steer|input|interact)\b/;
+
+const WRITE_AGENT: LiveWork = {
+  id: "work-write",
+  input: "steer",
+  kind: "agent",
+  model: "claude-sonnet-5-5",
+  provider: "claude-code",
+  sessionId: "session-write",
+  stepId: "write",
+};
+
+function withWork(
+  work: readonly LiveWork[],
+  awaiting?: readonly string[]
+): DashboardSnapshot {
+  return {
+    ...dashboardSnapshot,
+    runs: dashboardSnapshot.runs.map((run) =>
+      run.id === "run-104"
+        ? {
+            ...run,
+            steps: run.steps.map((step) =>
+              step.id === "update"
+                ? {
+                    ...step,
+                    children: step.children.map((child) =>
+                      child.id === "write"
+                        ? {
+                            ...child,
+                            ...(awaiting ? { awaiting } : {}),
+                            work,
+                          }
+                        : child
+                    ),
+                  }
+                : step
+            ),
+          }
+        : run
+    ),
+  };
+}
+
+const onWrite: DashboardEvent = {
+  selection: { id: "run-104", kind: "run", stepId: "write" },
+  type: "select",
 };
 
 interface Setup {
@@ -95,6 +145,7 @@ function context({
       cycleScope: record("cycle-scope"),
       focus: "list",
       move: record("move"),
+      open: record("open"),
       read: record("read"),
       resetScope: record("reset-scope"),
       scopeCount: 2,
@@ -188,7 +239,12 @@ describe("run controls follow the target's status", () => {
       [
         "send",
         {
-          prompt: { kind: "steer", runId: "run-104", stepId: "docs" },
+          prompt: {
+            chosen: 0,
+            kind: "send",
+            runId: "run-104",
+            targets: [WRITE_AGENT],
+          },
           type: "prompt",
         },
       ],
@@ -272,6 +328,111 @@ describe("run controls follow the target's status", () => {
   });
 });
 
+describe("live work in the selected step", () => {
+  const COMMAND: LiveWork = {
+    command: "npm test",
+    id: "work-test",
+    input: "stdin",
+    kind: "command",
+    stepId: "write",
+  };
+
+  it("offers no steer on a running step with nothing live in it", () => {
+    const { context: built, press } = context({
+      events: [onWrite],
+      snapshot: withWork([]),
+    });
+    expect(footer(built).hints).toContain("p pause");
+    expect(footer(built).hints).not.toMatch(SEND_KEY);
+    expect(press(key("s"))).toBeUndefined();
+  });
+
+  it("names terminal input for a command, apart from agent steering", () => {
+    const { context: built, press } = context({
+      events: [onWrite],
+      snapshot: withWork([COMMAND]),
+    });
+    expect(footer(built).hints).toContain("s input · p pause");
+    expect(press(key("s"))).toEqual([
+      [
+        "send",
+        {
+          prompt: {
+            chosen: 0,
+            kind: "send",
+            runId: "run-104",
+            targets: [COMMAND],
+          },
+          type: "prompt",
+        },
+      ],
+    ]);
+  });
+
+  it("leaves out work that takes no input", () => {
+    const { context: built } = context({
+      events: [onWrite],
+      snapshot: withWork([{ ...COMMAND, input: "none" }]),
+    });
+    expect(footer(built).hints).not.toMatch(SEND_KEY);
+  });
+
+  it("asks which target when a step holds several, and Tab moves between them", () => {
+    const snapshot = withWork([WRITE_AGENT, COMMAND]);
+    const { context: built, press } = context({ events: [onWrite], snapshot });
+    expect(footer(built).hints).toContain("s interact");
+    const opened = press(key("s"));
+    const prompt = {
+      chosen: 0,
+      kind: "send",
+      runId: "run-104",
+      targets: [WRITE_AGENT, COMMAND],
+    } as const;
+    expect(opened).toEqual([["send", { prompt, type: "prompt" }]]);
+    const typing = context({
+      events: [onWrite, { prompt, type: "prompt" }],
+      snapshot,
+    });
+    expect(footer(typing.context).hints).toBe(
+      "steer 1/2 · Tab next · Enter send · Esc cancel"
+    );
+    expect(typing.press(key("tab"))).toEqual([
+      ["send", { by: 1, type: "prompt-target" }],
+    ]);
+    const moved = context({
+      events: [
+        onWrite,
+        { prompt, type: "prompt" },
+        { by: 1, type: "prompt-target" },
+      ],
+      snapshot,
+    });
+    expect(moved.context.state.prompt).toMatchObject({ chosen: 1 });
+    expect(footer(moved.context).hints).toBe(
+      "input 2/2 · Tab next · Enter send · Esc cancel"
+    );
+  });
+
+  it("collects the live work of the steps under the selection", () => {
+    const { context: built } = context({ snapshot: withWork([COMMAND]) });
+    expect(footer(built).hints).toContain("s input");
+  });
+
+  it("opens the Feed on the step's waiting question", () => {
+    const { context: built, press } = context({
+      events: [onWrite],
+      snapshot: withWork([WRITE_AGENT], ["feed-merge"]),
+    });
+    expect(footer(built).hints).toContain("i answer");
+    expect(press(key("i"))).toEqual([
+      ["send", { type: "view", view: "feed" }],
+      ["open", "feed-merge"],
+    ]);
+    const quiet = context({ events: [onWrite], snapshot: withWork([]) });
+    expect(footer(quiet.context).hints).not.toContain("i answer");
+  });
+});
+
 describe("footer", () => {
   it("names the pane, then its keys, with the lasting keys on their own line", () => {
     const { context: built } = context({
@@ -311,7 +472,12 @@ describe("footer", () => {
     const prompt = context({
       events: [
         {
-          prompt: { kind: "steer", runId: "run-104", stepId: "docs" },
+          prompt: {
+            chosen: 0,
+            kind: "send",
+            runId: "run-104",
+            targets: [WRITE_AGENT],
+          },
           type: "prompt",
         },
       ],

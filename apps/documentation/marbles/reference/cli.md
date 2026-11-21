@@ -253,7 +253,8 @@ the workspace and posts a setup milestone to the Feed. Use
 | ← / →, Space | Collapse or expand run branches; change inspector tab |
 | `l` in Marbles | Launch the selected step or workflow; a schema opens a form (Tab moves, Ctrl+Enter submits, Esc cancels) |
 | `f` in Marbles | Filter runs to this schedule, monitor, workflow, or step; `x` clears |
-| `s` / `p` / `k` on a run | Steer the running agent, pause or resume the step, cancel the run. Each shows only when the run's status allows it: steer and pause while running, resume while paused, cancel until the run settles |
+| `s` / `p` / `k` on a run | Steer the agent turn or type a line into the command live in the selected step (Tab picks among several), pause or resume the step, cancel the run. Each shows only when it applies: `s` while something in the step takes input, pause while running, resume while paused, cancel until the run settles |
+| `i` on a run | Open the Feed on the question or approval the selected step waits for |
 | `p` / `k` on a trigger an agent created | Pause or resume the trigger; delete it |
 | `u` on Dashboard | Show every workflow's and agent's usage; Esc or `u` closes it |
 | `a` / `e`, `b` | Jump to the active step or failure; return from step details to the run |
@@ -316,11 +317,31 @@ Pause parks the selected step and everything under it. Resume, with or
 without a prompt, replays the parked bodies from the top; a prompt leads the
 first turn of the agent session each step had open. Steer hands a prompt to
 the agent turn running in the step; the turn stops, the prompt becomes the
-next message, and the step's `generate` resolves with the steered reply. A
-live run's stream does not cross the process socket, so the run inspector's
-Stream tab is empty for a hosted workspace; `marbles watch <runId>` follows
-the run's output instead. Under `--dry-run` the run is in this process and
-the tab shows its stream, with `[steer]` and `[resume]` markers inline.
+next message, and the step's `generate` resolves with the steered reply.
+
+Each agent turn and each `exec` command a step starts shows in the run
+inspector under "Live now", with the step that owns it, until it ends.
+Nothing in the workflow names it. Each row starts with the `#` identifier it
+got when it started, then the agent, its model and session, or the command
+and its process id; the prompt `s` opens names the same identifier. `s`
+addresses that one, so a prompt never reaches a later turn, a retried
+attempt, or another step. A step holding more than one asks which with Tab.
+After a reload the run stays on the engine generation that started it, and
+its live work is still listed and takes input there. Steering an
+agent stops its turn and sends the prompt as the next message. A command on
+the host takes a line on its standard input: it is a pipe, not a terminal, so
+a program that reads from the terminal itself, or waits for end of input,
+cannot be answered this way. Marbles cannot tell whether a command is waiting
+to read. Typed lines are not written to the run's output, only a
+`[stdin] sent a line` marker. A command in a sandbox shows as output only.
+Questions and approvals an agent asks show as waiting on its row, a
+question from a child session it delegated to on the row of the turn that
+delegated it; `i` opens them in the Feed. Leaving the Stream tab or the
+dashboard does not stop anything. For a hosted workspace the Stream tab
+follows the run's saved output, as `marbles watch <runId>` does, filtered to
+the selected step; under `--dry-run` the run is in this process and the tab
+shows its stream directly. Either way `[steer]` and `[resume]` markers show
+inline.
 
 ### Quit, stop, and source edits
 

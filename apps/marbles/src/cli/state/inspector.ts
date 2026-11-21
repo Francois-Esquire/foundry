@@ -3,6 +3,7 @@ import type {
   CatalogDetailsView,
   ConfigurationView,
 } from "~/components/blocks/catalog-details";
+import type { LiveWorkItem } from "~/components/blocks/live-work";
 import type { Breadcrumb, RunTabView } from "~/components/blocks/run-inspector";
 import type {
   RunOverviewView,
@@ -28,7 +29,7 @@ import {
 } from "./dashboard-model";
 import type { InspectorTab } from "./dashboard-state";
 import { type CatalogSelection, scopedRuns } from "./dashboard-tree";
-import type { RunActions } from "./run-actions";
+import { type RunActions, workLabel } from "./run-actions";
 import { costLabel, tokensLabel } from "./usage-format";
 
 type Gone = Extract<ResolvedSelection, { kind: "gone" }>;
@@ -72,6 +73,7 @@ export type InspectorSubject =
       readonly path: readonly StepSnapshot[];
       readonly run: RunSnapshot;
       readonly stream: RunStreamTarget;
+      readonly work: readonly LiveWorkItem[];
       readonly title: string;
     }
   | {
@@ -376,6 +378,30 @@ function definitionSubject(
   };
 }
 
+const WORK_INPUT_HINT = {
+  none: "· output only",
+  stdin: "· s input: a line to its stdin, not a terminal",
+  steer: "· s steer: interrupts the turn with your prompt",
+} as const;
+
+function liveWorkItems(
+  run: RunSnapshot,
+  path: readonly StepSnapshot[]
+): readonly LiveWorkItem[] {
+  const step = path.at(-1);
+  return flattenSteps(step ? [step] : run.steps).flatMap(({ step: each }) =>
+    (each.work ?? []).map((work) => ({
+      attention: work.attention !== undefined,
+      hint: work.attention
+        ? `· ${statusDisplay({ attention: work.attention, status: "running" }).label} · i answer`
+        : WORK_INPUT_HINT[work.input],
+      id: work.id,
+      kind: work.kind,
+      label: `${workLabel(work)} in ${work.stepId}`,
+    }))
+  );
+}
+
 function runSubject(
   run: RunSnapshot,
   path: readonly StepSnapshot[]
@@ -392,6 +418,7 @@ function runSubject(
       ...(step === undefined ? {} : { stepId: step.id }),
     },
     title: step ? `Step / ${step.name}` : `Run / ${run.name}`,
+    work: liveWorkItems(run, path),
   };
 }
 

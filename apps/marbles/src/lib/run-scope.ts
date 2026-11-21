@@ -4,17 +4,12 @@ import type { Step } from "@foundry/workflows/step";
 import type { Bindings, HostBindings } from "./bindings";
 import type { AnyDefinition } from "./definition";
 import { Ledger } from "./ledger";
+import type { LiveWork, StepInput } from "./step-work";
+import { StepInputError, StepWork } from "./step-work";
 import type { SessionRef } from "./types";
 
 interface Closable {
   close(): Promise<void> | void;
-}
-
-export interface LiveSession {
-  readonly ref: SessionRef;
-  running?: Promise<unknown>;
-  steer?: string;
-  turn?: AbortController;
 }
 
 interface Pause {
@@ -33,8 +28,8 @@ export interface Frame {
   readonly path: readonly string[];
   paused?: Pause;
   resumePrompt?: string;
-  readonly sessions: LiveSession[];
   signal: AbortSignal;
+  readonly work: StepWork;
 }
 
 export interface Current {
@@ -146,8 +141,8 @@ export class RunScope {
       key,
       opened: new Set(),
       path,
-      sessions: [],
       signal: controller.signal,
+      work: new StepWork(key),
     };
     this.frames.set(key, frame);
     return frame;
@@ -241,12 +236,25 @@ export class RunScope {
 
   steer(stepId: string, prompt: string): void {
     const frame = this.frames.get(stepId);
-    const live = frame?.sessions.find((session) => session.turn !== undefined);
-    if (!(frame && live?.turn)) {
-      throw new Error(`no agent turn is running in "${stepId}"`);
+    if (!frame) {
+      throw StepWork.noTurn(stepId);
     }
-    live.steer = prompt;
-    live.turn.abort(new Error("steered"));
+    frame.work.steer(prompt);
+  }
+
+  send(stepId: string, input: StepInput): void {
+    const frame = this.frames.get(stepId);
+    if (!frame) {
+      throw new StepInputError(
+        "not-live",
+        `"${stepId}" has nothing live in run ${this.id}.`
+      );
+    }
+    frame.work.send(input);
+  }
+
+  work(): readonly LiveWork[] {
+    return [...this.frames.values()].flatMap((frame) => frame.work.list());
   }
 
   claim(frame: Frame, kind: string): { key: string; occurrence: number } {

@@ -105,6 +105,7 @@ function feedState(overrides: Partial<FeedState> = {}): FeedState {
     cycleScope: () => undefined,
     focus: "list",
     move: () => undefined,
+    open: () => undefined,
     read: () => undefined,
     resetScope: () => undefined,
     scope: { id: ALL_WORKSPACES, label: "All workspaces" },

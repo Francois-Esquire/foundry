@@ -16,6 +16,7 @@ import {
   type ProcessIdentity,
   thisProcess,
 } from "@foundry/lib/process-identity";
+import type { ChannelChunk, ChannelMessage } from "@foundry/workflows/channels";
 import { z } from "zod";
 import { formatLogValues } from "~/lib/log";
 
@@ -30,7 +31,17 @@ const outputRecordSchema = z.discriminatedUnion("type", [
     started: z.string().nullable().optional(),
     type: z.literal("start"),
   }),
-  z.object({ text: z.string(), type: z.literal("text") }),
+  z.object({
+    chunk: z
+      .object({
+        at: z.string(),
+        path: z.array(z.string()),
+        stepId: z.string(),
+      })
+      .optional(),
+    text: z.string(),
+    type: z.literal("text"),
+  }),
   z.object({
     error: z.string().optional(),
     output: z.string().optional(),
@@ -52,6 +63,8 @@ export type RunHolder = (workspace: string) => Promise<RunHolding>;
 const POLL_MS = 100;
 const HANDOVER_POLL_MS = 1000;
 const START_RECORD_WAIT_MS = 2000;
+
+export type ChunkOrigin = Omit<ChannelChunk, "payload">;
 
 export function removeRunOutput(state: string, runId: string): void {
   rmSync(outputPath(state, runId), { force: true });
@@ -82,8 +95,20 @@ export class RunOutput {
     }
   }
 
-  text(text: string): void {
-    this.#append({ text, type: "text" });
+  text(text: string, chunk?: ChunkOrigin): void {
+    this.#append({
+      ...(chunk === undefined
+        ? {}
+        : {
+            chunk: {
+              at: chunk.at,
+              path: [...chunk.path],
+              stepId: chunk.stepId,
+            },
+          }),
+      text,
+      type: "text",
+    });
   }
 
   finish(status: TerminalStatus, output?: unknown, error?: string): void {
@@ -310,4 +335,71 @@ export async function* readRunOutput(
       closeSync(fd);
     }
   }
+}
+
+async function nextChunk(
+  records: AsyncGenerator<OutputRecord>
+): Promise<ChannelMessage | undefined> {
+  for (;;) {
+    const next = await records.next();
+    if (next.done) {
+      return;
+    }
+    const record = next.value;
+    if (record.type === "text" && record.chunk !== undefined) {
+      return {
+        _tag: "chunk",
+        chunk: {
+          ...record.chunk,
+          payload: { kind: "text", text: record.text },
+        },
+      };
+    }
+  }
+}
+
+export function runOutputStream(
+  state: string,
+  runId: string,
+  signal?: AbortSignal
+): ReadableStream<ChannelMessage> {
+  const reading = new AbortController();
+  const records = readRunOutput(
+    state,
+    runId,
+    signal ? AbortSignal.any([signal, reading.signal]) : reading.signal
+  );
+  let cancelled = false;
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    signal?.removeEventListener("abort", abort);
+    reading.abort();
+    closing ??= records.return(undefined).then(() => undefined);
+    return closing;
+  };
+  const abort = (): void => {
+    close().catch(() => undefined);
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) {
+    abort();
+  }
+  return new ReadableStream<ChannelMessage>({
+    cancel() {
+      cancelled = true;
+      return close();
+    },
+    async pull(controller) {
+      const message = await nextChunk(records).catch(() => undefined);
+      if (cancelled) {
+        return;
+      }
+      if (message === undefined) {
+        signal?.removeEventListener("abort", abort);
+        controller.close();
+        return;
+      }
+      controller.enqueue(message);
+    },
+  });
 }
