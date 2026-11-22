@@ -1,6 +1,5 @@
 import { agent, step } from "@foundry.sh/marbles";
-import { verify } from "./verify";
-import { brief, workInput } from "./work";
+import { branchOf, brief, workInput } from "./work";
 
 const builder = agent({
   name: "factory-builder",
@@ -12,10 +11,10 @@ export const build = step("factory-build")
   .input(workInput)
   .config({ timeout: "30m" })
   .do(async ({ input, agents, exec, workspaces }) => {
-    const branch = `factory/${input.task}`;
+    const branch = branchOf(input.task);
     const { git } = workspaces.current;
     const revising = await git.hasBranch(branch);
-    const commit = await git.withWorktree(
+    return await git.withWorktree(
       revising ? { base: branch } : { base: "HEAD", branch },
       async () => {
         if (revising) {
@@ -34,6 +33,4 @@ export const build = step("factory-build")
         return head;
       }
     );
-    await verify.launch({ branch, commit, task: input.task });
-    return { branch, commit };
   });

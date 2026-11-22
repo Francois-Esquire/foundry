@@ -58,15 +58,16 @@ time, starting with a version that needs no agent account.
 Once a ritual is a script, something other than you can start it. Marbles
 keeps a backlog of `tasks` in workspace state. `observe(tasks, handler)`
 runs your handler after every task change. `.launch()` starts a run and
-hands back its id without waiting for it to finish. `monitor` and
-`schedule` add work when a file changes or a clock ticks.
+hands back its id without waiting for it to finish, and a key makes it
+launch once however often the handler repeats. `monitor` and `schedule`
+add work when a file changes or a clock ticks.
 
 ```ts
 observe(tasks, async function dispatch() {
   const ready = await tasks.ready({ tags: { all: ["checks"] } });
   for (const task of ready.items) {
+    await checkTask.launch({ task: task.id }, { key: `check:${task.id}` });
     await tasks.start(task.id, { expectedUpdatedAt: task.updatedAt });
-    await checkTask.launch({ task: task.id });
   }
 });
 ```
@@ -105,7 +106,7 @@ one in about 70 lines.
 | [Evaluations](/marbles/use-cases/evaluations) | Model and skill trials kept as artifacts |
 | [Design](/marbles/use-cases/design) | Briefs, wireframes, and design-token sync |
 | [Productivity](/marbles/use-cases/productivity) | A morning briefing from GitHub, Slack, and Google Docs |
-| [Software Factory](/marbles/use-cases/software-factory) | `tasks`, `observe`, `.launch()`, worktrees, `.parallel`, and `ask.approval`, taking a task to an approved pull request |
+| [Software Factory](/marbles/use-cases/software-factory) | `tasks`, `observe`, keyed `.launch()`, a nested workflow, worktrees, `.parallel`, and `ask.approval`, taking a task to an approved pull request |
 
 The [reference](/marbles/reference/cli) covers commands, the API, the MCP
 server, project setup, and troubleshooting. The [Library](/marbles/library)

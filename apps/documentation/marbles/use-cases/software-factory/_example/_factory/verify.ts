@@ -95,7 +95,10 @@ const verdict = step("factory-verdict")
       task: input.task,
     };
     if (passed) {
-      await deliver.launch({ ...change, evidence: version.id });
+      await deliver.launch(
+        { ...change, evidence: version.id },
+        { key: `factory-deliver:${input.commit}` }
+      );
     } else {
       await sendBack(input.task, body);
     }

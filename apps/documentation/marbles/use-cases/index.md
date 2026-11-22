@@ -16,7 +16,7 @@ roll`, and leave it hosted once its results are useful.
 | [Evaluations](/marbles/use-cases/evaluations) | Compares models, harnesses, and skills on recorded cases. | Sessions, structured output, artifacts, a file monitor |
 | [Design](/marbles/use-cases/design) | Carries a brief through wireframes, iterations, and token sync. | Artifacts, agent critique, approvals, an HTTP integration |
 | [Productivity](/marbles/use-cases/productivity) | Builds a morning briefing from GitHub, Slack, and Google Docs. | An agent with its CLI's MCP servers, artifacts, a calendar schedule |
-| [Software Factory](/marbles/use-cases/software-factory) | Takes a task from intake to an approved pull request, with a revision loop. | `tasks`, `observe`, `.launch()`, worktrees, `.parallel`, `ask.approval`, `runs` |
+| [Software Factory](/marbles/use-cases/software-factory) | Takes a task from intake to an approved pull request, with a revision loop. | `tasks`, `observe`, keyed `.launch()`, a nested workflow, worktrees, `.parallel`, `ask.approval`, `runs` |
 
 The blueprints share their parts. A release patrol can tag its tasks
 `factory` and hand them to the Software Factory. A docs drift finding can

@@ -17,7 +17,7 @@ const checkTask = step("check-task")
     return { exitCode: tests.exitCode };
   });
 
-async function claim(id: string, updatedAt: string): Promise<boolean> {
+async function claim(id: string, updatedAt: string): Promise<void> {
   try {
     await tasks.change({
       operations: [
@@ -30,13 +30,12 @@ async function claim(id: string, updatedAt: string): Promise<boolean> {
         },
       ],
     });
-    return true;
   } catch (error) {
     if (
       error instanceof TaskError &&
       ["conflict", "not_ready"].includes(error.code)
     ) {
-      return false;
+      return;
     }
     throw error;
   }
@@ -45,9 +44,12 @@ async function claim(id: string, updatedAt: string): Promise<boolean> {
 observe(tasks, async function dispatchChecks() {
   const ready = await tasks.ready({ tags: { all: ["checks"] } });
   for (const task of ready.items) {
-    if (await claim(task.id, task.updatedAt)) {
-      await checkTask.launch({ task: task.id });
-    }
+    const attempt = Number(task.metadata.attempt ?? 0);
+    await checkTask.launch(
+      { task: task.id },
+      { key: `check-task:${task.id}:attempt-${attempt}` }
+    );
+    await claim(task.id, task.updatedAt);
   }
 });
 
@@ -61,9 +63,12 @@ observe(
       return;
     }
     await tasks.update(task.id, {
-      metadata: { failure: run.error ?? "failed" },
+      metadata: {
+        attempt: Number(task.metadata.attempt ?? 0) + 1,
+        failure: run.error ?? "failed",
+      },
       tags: ["needs-owner"],
     });
   },
-  { types: ["run.failed"] }
+  { types: ["run.cancelled", "run.failed"] }
 );

@@ -51,7 +51,7 @@ The same definition can be used in several ways:
 | `count()` or `count({})` | Creates a node to place in a workflow. No work executes. |
 | `count({}, input)` | Creates a node carrying literal input. |
 | `await count.run(input?)` | Executes the definition in this process and returns its result. |
-| `await count.launch(input?)` | Starts a separate run on the engine and returns `{ id, result }` at once. |
+| `await count.launch(input?, { key? })` | Starts a separate run on the engine and returns `{ id, result }` at once; a second launch with the same key returns the first run. |
 | `marbles roll count-files` | Launches the registered definition from the CLI. |
 
 A **node** is one placement of a definition in a workflow tree. Creating one

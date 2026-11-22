@@ -1,6 +1,6 @@
 ---
 title: Steps and workflows
-description: Declare typed work, connect results into a tree, and choose between running, launching, and locking.
+description: Declare typed work, connect results into a tree, nest workflows, and choose between running, launching, and locking.
 ---
 
 A step owns one piece of work. A workflow gives a tree of steps a name and
@@ -112,17 +112,55 @@ aborts the siblings and waits for them before reporting the failure. A
 sibling that parks on a question parks the parent while the others finish.
 
 Data flows from children to their parent, never between siblings. Locking
-the same definition under two siblings runs it twice. When two stages both
-need one result, launch the second stage with that result as input; the
-[Software Factory](/marbles/use-cases/software-factory/verify) does this
-with a built commit.
+the same definition under two siblings runs it twice. When two siblings
+both need one result, give that result to a nested workflow, which hands
+it to each of its nodes as literal input.
+
+## Nest a workflow
+
+A workflow locks inside another tree the way a step does. Save this module
+as `.foundry/marbles/changed-checks.ts`:
+
+<include>./_example/changed-checks.ts</include>
+
+In a repository with at least two commits, run `marbles roll
+check-changed`. The inner workflow still runs on its own with
+`marbles roll checks-in --input '{"dir":"."}'`.
+
+`checks({ dir: changedPackage() })` locks `checks-in` with one child. A
+nested workflow runs like this:
+
+1. **TypeScript checks the lock.** A child whose output does not fit the
+   key it fills, here a string for `dir`, is a type error where you lock it.
+2. **Children run first.** Their results and the literal input are
+   validated against the workflow's input schema when the node runs.
+3. **Setup runs next.** Marbles calls the nested workflow's setup with that
+   input and runs the tree it returns under the node, as `$workflow`. Here
+   the verdict's path is `check-changed.$workflow` and its children sit
+   under it, such as `check-changed.$workflow.lint`.
+
+The nested steps belong to the outer run. The dashboard shows them under
+`$workflow`. Approvals, pause and resume, adoption after a restart, and
+cancellation reach them as they reach any step, and a `.parallel` sibling
+that fails aborts them. Pause and resume a nested tree at the node that
+locks it. A nested workflow has no `retry` of its own. When a parent with a `retry` policy is retried, a failed nested
+workflow under it runs its failed steps again in place, as a failed step
+child would.
+
+A workflow locked inside itself, directly or through others, fails its node
+when the run reaches it. The error names the chain, such as
+`"ping" → "pong" → "ping"`. For bounded recursion, call the workflow with
+`.run()` from a step.
+
+The [Software Factory](/marbles/use-cases/software-factory/verify) nests its
+verification workflow under the build that produces the commit.
 
 ## Choose what belongs in a step
 
 Make an operation a child step when its result, failure, or progress should
-be visible on its own. Keep ordinary calculations inside a body. A
-workflow can be the root of a run, but not a child in another tree; reuse
-its steps instead.
+be visible on its own. Keep ordinary calculations inside a body. Make a
+group of steps a workflow when you want to run it on its own and also lock
+it inside larger trees.
 
 There are no race, branch, or loop combinators. Choose a tree in ordinary
 TypeScript during workflow setup, and keep commands, file access, and agent
@@ -134,7 +172,16 @@ turns inside steps.
 | --- | --- | --- | --- |
 | Lock as a child: `review()` | No, a node in this run | The parent waits | Work whose result the parent needs, visible in the run tree |
 | `await review.run(input?)` | No, nested in the caller | Yes | A quick helper call inside a body |
-| `await review.launch(input?)` | Yes, a top-level run | No | Handing off work from an observer or a step |
+| `await review.launch(input?, { key? })` | Yes, a top-level run | No | Handing off work from an observer or a step |
+
+Locking a workflow and launching one differ in what you get. A nested
+workflow is part of one run. Its steps share the run's id, its replay, and
+its cancellation, and its result flows into the parent. A launched workflow
+is a separate top-level run on the queue, with its own id and status. It
+succeeds or fails on its own, and the launching code carries on without it.
+Nest a workflow when the parent needs its result. Launch one when the work
+should outlive the code that started it, as an approval that waits for days
+does.
 
 `.run()` executes in this process, outside the engine's queue. Its nested
 execution does not appear as its own dashboard run and cannot be paused on
@@ -147,15 +194,70 @@ unhandled rejection. Input that fails the schema rejects the launch when
 the queue has room to start it; a launch that waits in the queue reports
 the failure through `result` instead.
 
+### Launch once per key
+
+`launch(input, { key })` starts at most one run per key:
+
+```ts
+const { id } = await build.launch({ task: task.id }, { key: `build:${task.id}` });
+```
+
+Marbles matches the key together with the definition's name, across every
+engine that shares the workspace's store. A second launch with the same
+name and key returns the first run's handle, with a real `result`, whatever
+that run's state: queued, running, parked on a question, complete, failed,
+or cancelled. The second call's input is ignored. `result` resolves with
+the first run's output, or rejects with its failure. The match holds for as
+long as the run's record is kept. The CLI keeps them, and an embedding host
+can remove settled ones with `engine.executions.prune`.
+
+Choose the key from what should happen once:
+
+- **Once per task.** `key: task.id`, or `` key: `build:${task.id}` `` when
+  several definitions serve one task.
+- **Once per attempt.** When a task can come back after a failure or a
+  revision, put a counter in the key that advances each time it comes back:
+  `` key: `build:${task.id}:attempt-${attempt}` ``. Reusing a key after its
+  run failed hands back that failure instead of starting a new run.
+
+A blank key is refused with `launch(): a key must be a non-blank string`.
+A key also needs a definition the workspace's source declares by name. An
+anonymous definition is refused, and so is any launch with a key from a
+plain `bun` script, whose engine declares no definitions.
+
+An observer is delivered each change at least once, so a handler that
+launches should pass a key. A redelivered change then finds the run the
+first delivery started. [The outer loop](/marbles/get-started/outer-loop#write-the-loop)
+dispatches tasks this way.
+
+### Launch from a step
+
 Inside a step body, `.launch()` starts a top-level run on the same engine
 and records it in the step's ledger. A body that runs again after a
 question or a resume gets the same run back for the same definition at the
 same place, so a replayed handoff does not launch twice. A replayed body
-that reaches a different definition at that place launches it. That
-guarantee covers replay after a question or a resume, not a retried
-attempt, so keep `retry` off steps whose launches must happen once.
+that reaches a different definition at that place launches it. The ledger
+covers replay, not a retried attempt. Give the launch a key when a step
+with `retry` must launch once, and the retried attempt gets the first run
+back.
 
-`.launch()` needs the current source checkout.
+A step can await what it launched:
+
+```ts
+step("release").do(async () => {
+  const { result } = await build.launch({ ref: "main" });
+  return await result;
+});
+```
+
+Reading `result` gives up the launching run's queue slot until the
+launched run settles, then takes it back. Awaiting a launched run therefore
+never deadlocks the queue, even at `queue({ concurrency: 1 })`. A step that
+keeps only `id` keeps its run's slot, so on a full queue the launched run
+waits until the launching run ends. [How many runs at once](/marbles/concepts/durability#how-many-runs-at-once)
+covers the queue.
+
+`.launch()` and its `key` need the current source checkout.
 
 ## Contexts
 

@@ -2,6 +2,8 @@ import { tasks } from "@foundry.sh/marbles";
 import { z } from "zod";
 
 export const workInput = z.object({ task: z.string() });
+export const branchOf = (task: string): string => `factory/${task}`;
+
 export const changeInput = workInput.extend({
   branch: z.string(),
   commit: z.string(),
