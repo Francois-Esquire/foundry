@@ -1,12 +1,12 @@
 import type { Provider } from "@foundry/models";
-import type { ProviderScope, RegisteredPlugin } from "~/lib/providers/plugins";
+import type { ProviderPlugin, ProviderScope } from "~/lib/providers/plugins";
 import type { ProviderEntryRecord } from "~/lib/providers/store";
 import { ConfigurationError } from "~/lib/providers/store";
 
 type Environment = Readonly<Record<string, string>>;
 
 export function accountPatterns(
-  plugin: RegisteredPlugin,
+  plugin: ProviderPlugin,
   settings: unknown
 ): readonly string[] {
   const named = (plugin.secrets ?? []).flatMap((key) => {

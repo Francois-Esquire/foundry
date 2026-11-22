@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { piPlugin } from "~/lib/providers/plugins";
+import { pi as piPlugin } from "~/lib/providers/pi";
 
 afterEach(() => {
   vi.unstubAllEnvs();

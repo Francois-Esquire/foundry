@@ -22,15 +22,6 @@ export type {
   ProviderScope,
   ProviderSetup,
   ProviderWorkspace,
-  RegisteredPlugin,
-} from "~/lib/providers/plugins";
-export {
-  claudeCodePlugin,
-  codexPlugin,
-  FIRST_PARTY_PLUGINS,
-  gatewayPlugin,
-  piPlugin,
-  vercelPlugin,
 } from "~/lib/providers/plugins";
 export type {
   ProviderConfigurations,
