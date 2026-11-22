@@ -8,15 +8,29 @@ const issue = z.object({
   url: z.string(),
 });
 
+async function findByIssue(issueNumber: number): Promise<string | undefined> {
+  let cursor: number | undefined;
+  do {
+    const page = await tasks.list({
+      ...(cursor === undefined ? {} : { cursor }),
+      tags: { all: ["factory"] },
+    });
+    const existing = page.items.find(
+      (candidate) => candidate.metadata.issue === issueNumber
+    );
+    if (existing) {
+      return existing.id;
+    }
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+}
+
 step("factory-import")
   .input(z.object({ issue: z.number().int().positive() }))
   .do(async ({ input, exec }) => {
-    const known = await tasks.list({ tags: { all: ["factory"] } });
-    const existing = known.items.find(
-      (candidate) => candidate.metadata.issue === input.issue
-    );
+    const existing = await findByIssue(input.issue);
     if (existing) {
-      return { task: existing.id };
+      return { task: existing };
     }
     const view = await exec([
       "gh",
