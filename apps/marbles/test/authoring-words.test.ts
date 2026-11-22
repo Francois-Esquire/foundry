@@ -216,6 +216,22 @@ describe("locking a leaf", () => {
     const node = checks();
     expectTypeOf(node).toEqualTypeOf<LockedNode<string>>();
     expect(node).toMatchObject({ children: [], kind: "node", literal: {} });
+    const parallelNode = checks.parallel();
+    const seriesNode = checks.series();
+    expectTypeOf(parallelNode).toEqualTypeOf<LockedNode<string>>();
+    expectTypeOf(seriesNode).toEqualTypeOf<LockedNode<string>>();
+    expect(parallelNode).toMatchObject({
+      children: [],
+      kind: "node",
+      literal: {},
+      mode: "parallel",
+    });
+    expect(seriesNode).toMatchObject({
+      children: [],
+      kind: "node",
+      literal: {},
+      mode: "series",
+    });
     const both = workflow("both", () => checks());
     const engine = await startEngine({ print: () => undefined });
     engines.push(engine);
@@ -240,8 +256,16 @@ describe("locking a leaf", () => {
     const typeOnly = () => {
       // @ts-expect-error a definition with required input cannot lock with nothing
       greet();
+      // @ts-expect-error nor via parallel()
+      greet.parallel();
+      // @ts-expect-error nor via series()
+      greet.series();
       // @ts-expect-error nor can one whose input a child must supply
       review();
+      // @ts-expect-error nor via parallel()
+      review.parallel();
+      // @ts-expect-error nor via series()
+      review.series();
       // @ts-expect-error nor be run with nothing
       greet.run();
       // @ts-expect-error nor launched with nothing

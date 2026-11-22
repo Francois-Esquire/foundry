@@ -332,6 +332,59 @@ describe(".launch() at its edges", () => {
     ).toEqual(["first-choice", "second-choice"]);
   });
 
+  it("distinguishes unnamed inline definitions on replay and reuses the same unnamed definition", async () => {
+    let switchBodies = 0;
+    const switcher = step("unnamed-switcher").do(async ({ ask }) => {
+      switchBodies += 1;
+      const launched =
+        switchBodies === 1
+          ? await step()
+              .do(() => "first-anon")
+              .launch()
+          : await step()
+              .do(() => "second-anon")
+              .launch();
+      await ask.question({ title: "Switch?" });
+      return launched.id;
+    });
+
+    let sameBodies = 0;
+    let sameRuns = 0;
+    const repeater = step("unnamed-repeater").do(async ({ ask }) => {
+      sameBodies += 1;
+      const launched = await step()
+        .do(() => {
+          sameRuns += 1;
+          return "same-anon";
+        })
+        .launch();
+      await ask.question({ title: "Repeat?" });
+      return launched.id;
+    });
+
+    const engine = unhosted(true);
+    await engine.start();
+
+    const switching = engine.execute<string>(switcher, {});
+    await answerOpen(engine);
+    const switchedId = await switching;
+    expect(switchBodies).toBe(2);
+    await vi.waitFor(async () =>
+      expect((await engine.readRun(switchedId))?.status).toBe("complete")
+    );
+    expect((await engine.readRun(switchedId))?.output).toBe("second-anon");
+
+    const repeating = engine.execute<string>(repeater, {});
+    await answerOpen(engine);
+    const repeatedId = await repeating;
+    expect(sameBodies).toBe(2);
+    await vi.waitFor(async () =>
+      expect((await engine.readRun(repeatedId))?.status).toBe("complete")
+    );
+    expect(sameRuns).toBe(1);
+    expect((await engine.readRun(repeatedId))?.output).toBe("same-anon");
+  });
+
   it("rejects a launch that fails as it starts when its queue has room, and leaves the failure to result when it waits", async () => {
     const typed = step("typed-leaf")
       .input(z.object({ count: z.number() }))

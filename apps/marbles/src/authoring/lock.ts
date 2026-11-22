@@ -41,10 +41,12 @@ export interface Lockable<R, O> {
     children: C & Accepts<R, C>,
     ...input: LiteralArgs<R, C>
   ): LockedNode<O>;
+  parallel(...none: NoInput<R>): LockedNode<O>;
   series<C extends Children>(
     children: C & Accepts<R, C>,
     ...input: LiteralArgs<R, C>
   ): LockedNode<O>;
+  series(...none: NoInput<R>): LockedNode<O>;
   <C extends Children>(
     children: C & Accepts<R, C>,
     ...input: LiteralArgs<R, C>

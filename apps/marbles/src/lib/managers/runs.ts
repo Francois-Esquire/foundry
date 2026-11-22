@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { canonicalizeJson } from "@foundry/lib/json";
 import type { RunRecord } from "@foundry/workflows/schema";
 import { current } from "~/lib/run-scope";
 import type { ManagerArgs } from "../bindings";
@@ -43,8 +45,29 @@ export interface RunsSource {
 const LAUNCH_KIND = "launch";
 
 interface RecordedLaunch {
-  readonly definition: string | null;
+  readonly definition: string;
   readonly run: string;
+}
+
+function definitionIdentity(definition: AnyDefinition): string {
+  if (definition.name !== undefined) {
+    return `name:${definition.name}`;
+  }
+  const source =
+    definition.kind === "step"
+      ? definition.fn.toString()
+      : definition.setup.toString();
+  const digest = createHash("sha256")
+    .update(
+      canonicalizeJson([
+        definition.kind,
+        definition.origin ?? null,
+        definition.description ?? null,
+        source,
+      ])
+    )
+    .digest("hex");
+  return `anon:${digest}`;
 }
 
 function isoOf(at: number | null | undefined): string | undefined {
@@ -139,15 +162,15 @@ export function scopedRuns(source: RunsSource, args: ManagerArgs): Runs {
     async launch(definition, input) {
       const { key } = args.scope.claim(args.frame, LAUNCH_KIND);
       const recorded = args.scope.ledger.get<RecordedLaunch>(key);
-      const named = definition.name ?? null;
-      if (recorded !== undefined && recorded.definition === named) {
+      const identity = definitionIdentity(definition);
+      if (recorded !== undefined && recorded.definition === identity) {
         return { id: recorded.run, result: source.resultOf(recorded.run) };
       }
       const launched = await current.exit(() =>
         source.launch(definition, input)
       );
       args.scope.ledger.set(key, {
-        definition: named,
+        definition: identity,
         run: launched.id,
       } satisfies RecordedLaunch);
       return launched;
