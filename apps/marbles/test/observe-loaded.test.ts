@@ -32,14 +32,15 @@ it("delivers a loaded module's observers of every word the facts of a step's wor
   await writeFile(
     source,
     `import { appendFileSync } from "node:fs";
-import { agent, artifact, observe, sandbox, step, tasks, workflow, workspace } from "@foundry.sh/marbles";
+import { agent, artifact, observe, runs, sandbox, step, tasks, workflow, workspace } from "@foundry.sh/marbles";
 const log = (line) => {
   appendFileSync(${JSON.stringify(seen)}, line + "\\n");
   // The host's barrier: told of each fact handed, once it is written down.
   globalThis.observed?.();
 };
-observe(workflow, function runFacts(fact) {
-  log("runs " + fact.type);
+observe(workflow, async function runFacts(fact) {
+  const run = await runs.get(fact.runId);
+  log("runs " + fact.type + " " + run?.name + " " + run?.status);
 }, { types: ["run.completed"] });
 observe(artifact, function artifactFacts(fact) {
   log("artifacts " + fact.type);
@@ -93,7 +94,7 @@ process.exit(0);
 
   expect(readFileSync(seen, "utf8").trim().split("\n").sort()).toEqual([
     "artifacts artifact.created",
-    "runs run.completed",
+    "runs run.completed write complete",
     "tasks tasks.changed",
   ]);
   const stored = await readDatabase(stateDatabase(state), async (database) => ({

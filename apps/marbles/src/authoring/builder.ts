@@ -110,7 +110,9 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
     command:
       | string
       | ((context: Context<I>) => CommandLine | Promise<CommandLine>),
-    options?: ExecOptions
+    options?:
+      | ExecOptions
+      | ((context: Context<I>) => ExecOptions | Promise<ExecOptions>)
   ): StepDefinition<I, CommandResult, R> {
     const run =
       typeof command === "string"
@@ -118,9 +120,13 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
         : command;
     const { output: _output, ...fields } = this.#fields;
     const untyped = new StepBuilder<I, R>(fields);
-    return untyped.do(async (context) =>
-      context.exec(await run(context), options)
-    ) as unknown as StepDefinition<I, CommandResult, R>;
+    return untyped.do(async (context) => {
+      const line = await run(context);
+      return context.exec(
+        line,
+        typeof options === "function" ? await options(context) : options
+      );
+    }) as unknown as StepDefinition<I, CommandResult, R>;
   }
 
   do<X extends Ret | Bail<unknown>>(

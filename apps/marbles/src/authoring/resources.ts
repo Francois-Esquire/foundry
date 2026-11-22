@@ -45,13 +45,26 @@ function claimAgentId(
   return id;
 }
 
+function checkedName(name: string | undefined): string | undefined {
+  if (name !== undefined && name.trim() === "") {
+    throw new Error("agent(): a name cannot be blank");
+  }
+  return name;
+}
+
 function agentFromFunction<OUTPUT extends Output.Output, INPUT>(
+  name: string | undefined,
   define: DefineAgent<OUTPUT, INPUT>
 ): DeferredAgent<OUTPUT, INPUT> {
+  if (typeof define !== "function") {
+    throw new TypeError(
+      `agent(${JSON.stringify(name)}): give it the function that defines it`
+    );
+  }
   const digest = createHash("sha256")
     .update(canonicalizeJson(["function", define.toString()]))
     .digest("hex");
-  const id = claimAgentId(undefined, digest, define);
+  const id = claimAgentId(name, digest, define);
   const definition = recipeInstance<OUTPUT, INPUT>({
     define: define as unknown as DefineAgent<Output.Output, unknown>,
     id,
@@ -72,19 +85,25 @@ export function agent<OUTPUT extends Output.Output = never, INPUT = undefined>(
   define: DefineAgent<OUTPUT, INPUT>
 ): DeferredAgent<OUTPUT, INPUT>;
 export function agent<OUTPUT extends Output.Output = never, INPUT = undefined>(
-  spec: AgentDeclaration<OUTPUT> | DefineAgent<OUTPUT, INPUT>
+  name: string,
+  define: DefineAgent<OUTPUT, INPUT>
+): DeferredAgent<OUTPUT, INPUT>;
+export function agent<OUTPUT extends Output.Output = never, INPUT = undefined>(
+  spec: AgentDeclaration<OUTPUT> | DefineAgent<OUTPUT, INPUT> | string,
+  define?: DefineAgent<OUTPUT, INPUT>
 ): Agent<OUTPUT> | DeferredAgent<OUTPUT, INPUT> {
-  if (typeof spec === "function") {
-    return agentFromFunction(spec);
+  if (typeof spec === "string") {
+    return agentFromFunction(checkedName(spec), define as never);
   }
-  const { name, prompt, ...rest } = spec;
+  if (typeof spec === "function") {
+    return agentFromFunction(undefined, spec);
+  }
+  const { name: given, prompt, ...rest } = spec;
   const fields = promptFields(prompt);
   if (!fields.prompt.trim()) {
     throw new Error("agent(): a prompt is required");
   }
-  if (name?.trim() === "") {
-    throw new Error("agent(): a name cannot be blank");
-  }
+  const name = checkedName(given);
   const digest = createHash("sha256")
     .update(
       canonicalizeJson(

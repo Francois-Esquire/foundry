@@ -151,6 +151,31 @@ it("init creates a starter without running it and refuses to overwrite it", asyn
   }
 }, 60_000);
 
+it("lists each observer with its source and types, and a monitor by the name it was given", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "marbles-list-")));
+  try {
+    const config = join(root, "marbles.config.ts");
+    await writeFile(
+      config,
+      `import { artifact, monitor, observe, tasks } from "@foundry.sh/marbles";
+observe(tasks, () => undefined, { name: "triage" });
+observe(artifact, () => undefined, { name: "shares", types: ["artifact.shared", "artifact.unshared"] });
+monitor("*.md").name("docs").every("5m").do(() => undefined);`
+    );
+    const listed = cli(root, "list", "--source", config, "--dry-run")
+      .split("\n")
+      .filter((line) => line.startsWith("["));
+    expect(listed).toEqual([
+      `[source] ${config}`,
+      "[monitor] docs files *.md every 5m",
+      "[observer] triage ← tasks",
+      "[observer] shares ← artifacts artifact.shared, artifact.unshared",
+    ]);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+}, 30_000);
+
 it("lists what agents created from the same triggers, and leaves the state root alone", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "marbles-list-")));
   try {

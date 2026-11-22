@@ -78,6 +78,8 @@ import { Launcher } from "~/lib/launcher";
 import { createLog, type LogLevel, type LogOrigin } from "~/lib/log";
 import { AgentsManager } from "~/lib/managers/agents";
 import { ArtifactsManager } from "~/lib/managers/artifacts";
+import type { RunQuery, RunsSource, RunView } from "~/lib/managers/runs";
+import { engineRuns, scopedRuns } from "~/lib/managers/runs";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
 import { skillResolver } from "~/lib/managers/skills";
 import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
@@ -287,6 +289,18 @@ export class Engine {
   readonly #executionStore: ExecutionStore;
   readonly #delivery: Delivery;
   readonly #directNames = new WeakMap<AnyDefinition, string>();
+  readonly #directDefinitions = new Map<string, AnyDefinition>();
+  readonly #runsSource: RunsSource = {
+    execution: (runId) => this.executions.get(runId),
+    executions: () => this.executions.list(),
+    launch: (definition, input) => this.launchDefinition(definition, input),
+    nameOf: (name) => this.#directDefinitions.get(name)?.name ?? name,
+    resultOf: (runId) => this.#resultOf(runId),
+    stored: async (runId) =>
+      (await this.#running?.store.getRun(runId)) ?? undefined,
+    storedAll: () =>
+      this.#running === undefined ? Promise.resolve([]) : this.runs(),
+  };
   #running: Running | undefined;
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
@@ -510,6 +524,10 @@ export class Engine {
           : print(message)
       ),
       root,
+      runs: (args) =>
+        args === undefined
+          ? engineRuns(this.#runsSource)
+          : scopedRuns(this.#runsSource, args),
       sandboxes: (args) => this.sandboxes.scoped(args),
       setupLog: (run) =>
         createLog((level, message) =>
@@ -960,7 +978,10 @@ export class Engine {
     return launched.result;
   }
 
-  async execute<O>(definition: AnyDefinition, input: unknown): Promise<O> {
+  async launchDefinition<O>(
+    definition: AnyDefinition,
+    input: unknown
+  ): Promise<Launched<O>> {
     if (this.disposed) {
       throw new Error("engine is stopping");
     }
@@ -969,35 +990,63 @@ export class Engine {
     } else if (this.#phase === "starting") {
       await this.#starting;
     }
-    const { orchestrator } = this.#live();
-    let name = this.#directNames.get(definition);
-    if (name === undefined) {
-      const declared = definition.name;
-      const registered =
-        declared !== undefined &&
-        this.#registry.definitions.get(declared) === definition
-          ? declared
-          : undefined;
-      name = registered ?? `direct-${crypto.randomUUID()}`;
-      if (registered === undefined) {
-        const directName = name;
-        const register = (target: Orchestrator) =>
-          target.register(
-            directName,
-            factoryFor(
-              definition,
-              () => this.bindings,
-              this.#scopes,
-              directName
-            )
-          );
-        this.#extra.set(directName, register);
-        register(orchestrator);
-      }
-      this.#directNames.set(definition, name);
-    }
-    const launched = await this.launch<O>(name, input);
+    return await this.launch<O>(this.#directName(definition), input);
+  }
+
+  async execute<O>(definition: AnyDefinition, input: unknown): Promise<O> {
+    const launched = await this.launchDefinition<O>(definition, input);
     return launched.result;
+  }
+
+  #directName(definition: AnyDefinition): string {
+    const known = this.#directNames.get(definition);
+    if (known !== undefined) {
+      return known;
+    }
+    const { orchestrator } = this.#live();
+    const declared = definition.name;
+    const registered =
+      declared !== undefined &&
+      this.#registry.definitions.get(declared) === definition
+        ? declared
+        : undefined;
+    const name = registered ?? `direct-${crypto.randomUUID()}`;
+    if (registered === undefined) {
+      const register = (target: Orchestrator) =>
+        target.register(
+          name,
+          factoryFor(definition, () => this.bindings, this.#scopes, name)
+        );
+      this.#extra.set(name, register);
+      register(orchestrator);
+      this.#directDefinitions.set(name, definition);
+    }
+    this.#directNames.set(definition, name);
+    return name;
+  }
+
+  readRun(runId: string): Promise<RunView | null> {
+    return engineRuns(this.#runsSource).get(runId);
+  }
+
+  readRuns(query?: RunQuery): Promise<readonly RunView[]> {
+    return engineRuns(this.#runsSource).list(query);
+  }
+
+  async #resultOf(runId: string): Promise<unknown> {
+    const owed = this.#launcher.owedResult(runId);
+    if (owed !== undefined) {
+      return await owed;
+    }
+    const view = await this.readRun(runId);
+    if (view?.status === "complete") {
+      return view.output;
+    }
+    throw new Error(
+      view === null
+        ? `run ${runId} is not recorded here`
+        : `run ${runId} is ${view.status}; its value is not held here${view.error === undefined ? "" : ` (${view.error})`}`
+    );
   }
 
   async readUsage(): Promise<UsageRecords> {
