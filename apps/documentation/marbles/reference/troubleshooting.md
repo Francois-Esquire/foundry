@@ -58,7 +58,7 @@ skip. Different keys do not share that lock.
 The first poll reports the current source as a change. Later polls require
 changed content. A failed handler leaves the prior observation in place,
 so it can receive the same change again. HTTP bodies containing changing
-timestamps may trigger every poll. See [monitor semantics](/marbles/foundation/triggers).
+timestamps may trigger every poll. See [monitor semantics](/marbles/concepts/monitoring-and-scheduling).
 
 ## An agent or sandbox cannot start
 
@@ -93,15 +93,15 @@ but there is no default retry policy. Add `.config({ retry: { maxAttempts: 3 } }
 to the step that should retry, after making its effects safe to repeat.
 The limit includes the first attempt; `bail(error)` does not retry. A
 parent's policy does not configure its children, and the next schedule
-tick is a new run. See [retry policies](/marbles/foundation/durability#retry-a-failed-attempt).
+tick is a new run. See [retry policies](/marbles/concepts/durability#retry-a-failed-attempt).
 
 ## An agent turn repeated after answering a question
 
 A resumed body replays from the top. `agents.session` reopens its recorded
 conversation, but an explicit `session.generate` sends another turn if
 reached again. Put completed agent work in a preceding child step and ask
-in its own step, as in [Software Factory approval](/marbles/use-cases/software-factory/development/approve).
-The [replay table](/marbles/foundation/durability#replay-is-different-from-retry)
+in its own step, as in [Software Factory approval](/marbles/use-cases/software-factory/deliver).
+The [replay table](/marbles/concepts/durability#replay-is-different-from-retry)
 also explains one-shot agent calls and artifact writes.
 
 ## A run did not resume

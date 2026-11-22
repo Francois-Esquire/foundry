@@ -13,7 +13,7 @@ Marbles is packaged as `@foundry.sh/marbles`, with a `marbles` executable and
 TypeScript declarations. It bundles its Foundry libraries so it can run
 independently of the Foundry repository.
 
-The [bundled libraries](/marbles/foundation/primitives) need no separate
+The [bundled libraries](/marbles/concepts/primitives) need no separate
 installation. Their documentation explains the operations behind Marbles.
 
 Install the published package:
@@ -53,8 +53,8 @@ give each launchable definition a name.
 Keep the project package and global CLI on the same artifact. If using a
 checkout archive, install that archive in both places: an npm release and a
 checkout archive can share a version number but expose different APIs. Other libraries
-your automation imports must be installed in that project. The quickstart
-needs only Marbles; later examples state their additional dependencies.
+your automation imports must be installed in that project. The quickstart's
+first step needs only Marbles; each later example states what it adds.
 
 ## Add optional capabilities when needed
 
@@ -63,6 +63,6 @@ needs only Marbles; later examples state their additional dependencies.
 | Agent turns | An installed and authenticated Claude Code, Codex, or Pi CLI on `PATH`. Test it directly first. Pi also needs [`defineProvider(pi)`](/marbles/reference/api#providers) in the workspace's source. |
 | Typed input | A Standard Schema library. These docs use `zod`. |
 | Git worktrees | Git and a repository with at least one commit. |
-| Sandbox execution | The optional `microsandbox` SDK and its native runtime; see [sandboxes](/marbles/foundation/workspaces-and-sandboxes#sandboxes). |
+| Sandbox execution | The optional `microsandbox` SDK and its native runtime; see [sandboxes](/marbles/concepts/workspaces-and-artifacts#sandboxes). |
 
-Continue with [Your first automation](/marbles/get-started/quickstart).
+Continue with [your first ritual](/marbles/get-started/quickstart).

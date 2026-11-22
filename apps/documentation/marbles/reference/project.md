@@ -12,7 +12,7 @@ Discovery is owned by the CLI; file operations inside a step use
 [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md).
 The resolved project path also scopes local state and declared artifact
 identity. Keep it stable to retain access to the same saved runs and artifacts. See
-[Durability](/marbles/foundation/durability).
+[Durability](/marbles/concepts/durability).
 
 ## Discovery and ignored files
 

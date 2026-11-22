@@ -1,16 +1,15 @@
 ---
-title: Your first automation
-description: Write a small TypeScript automation, inspect its output, and change it.
+title: Your first ritual
+description: Run one step with no credentials, script your pre-push checks, then add an agent review beside them.
 ---
 
-Build a file inventory for a local project. By the end, you will have run
-it twice and seen how a change to its code changes the result.
+This page turns a pre-push ritual into a script in three moves. The first
+needs nothing but the [Marbles CLI](/marbles/get-started/installation). The
+second adds `zod`. The third adds an agent and needs an authenticated
+Claude Code or Codex CLI (or Pi, once the workspace's source calls
+[`defineProvider(pi)`](/marbles/reference/api#providers)).
 
-You need the [Marbles CLI](/marbles/get-started/installation) and a project
-directory. This example reads files and writes Marbles run history. It
-needs no agent credentials, Git repository, or extra library.
-
-## Write the automation
+## Run one step
 
 From your project root, create the authoring directory:
 
@@ -31,70 +30,101 @@ step("inventory").do(async ({ workspaces, log }) => {
 ```
 
 `step` registers work named `inventory`. Its callback runs when you launch
-it. `workspaces.current` refers to your project root, and `log` writes to
-the run's output. The returned object is the result.
-
-The file inventory comes from [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md).
-Marbles attaches it to a step so you can inspect its result as a run, just
-as you would later inspect a command or an agent's work.
-
-## Run it
-
-Stay in the project root:
+it. `workspaces.current` is your project root, and `log` writes to the run's
+output. The returned object is the result.
 
 ```sh
 marbles list
 marbles roll inventory
 ```
 
-`list` should include `inventory`. `roll` runs it immediately and prints a
-result like `{"files":12}` alongside run status and your log line. The count
-depends on the files visible to the workspace scanner and its ignore rules.
+`list` should include `[step] inventory`. `roll` runs it and prints your log
+line and a result like `{"files":12}`. The count depends on the files the
+[Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md)
+scanner sees after its ignore rules.
 
 If nothing is listed, check the filename and your current directory. The
-default source is `./.foundry/marbles`; a name beginning with `_` is excluded
-from automatic discovery.
+default source is `./.foundry/marbles`, and a name beginning with `_` is left
+out of discovery.
 
-## Change it and run again
+## Script the checks
 
-Replace the step with this version, keeping the import:
-
-```ts
-step("inventory").do(async ({ workspaces, log }) => {
-  const files = await workspaces.current.files();
-  const typescript = files.filter((file) => file.path.endsWith(".ts"));
-  log(`Found ${typescript.length} TypeScript files`);
-  return { files: files.length, typescript: typescript.length };
-});
-```
+Before a push you probably run lint and tests. Install the schema library,
+then save `.foundry/marbles/pre-push.ts`:
 
 ```sh
-marbles roll inventory
+bun add zod@4.4.3
 ```
 
-The result now includes `typescript`. The Marbles process notices the edit
-and starts its next engine generation, which takes over before the next
-`roll`; an open dashboard shows `reloading` and then the new module. Nothing needs
-restarting.
+```ts
+import { step, workflow } from "@foundry.sh/marbles";
+import { z } from "zod";
 
-## Find the run again
+const command = z.object({ exitCode: z.number(), stderr: z.string() });
 
-`marbles status` shows the workspace and its recent runs. To explore them in
-the dashboard, run `marbles`, press Enter at the splash, and select a run in
-the Runs panel. Its details include the steps and their output. Press `?`
-for keyboard help and `q` to open the quit dialog.
+const lint = step("lint").exec("bun run lint", { check: false });
+const tests = step("tests").exec("bun test", { check: false });
 
-Run history lives under `~/.foundry/marbles/<workspace-id>/`. Your automation
-source stays in the project. [State reference](/marbles/reference/state)
-explains the layout and how to choose a different location.
+const verdict = step("verdict")
+  .input(z.object({ lint: command, tests: command }))
+  .do(({ input }) => ({
+    lint: input.lint.exitCode === 0,
+    tests: input.tests.exitCode === 0,
+  }));
 
-Marbles keeps the result after the command exits. Each `roll` starts a new
-run. Later, [durability](/marbles/foundation/durability) explains how a
-waiting workflow can continue using its finished steps' results.
+workflow("pre-push", () => verdict.parallel({ lint: lint(), tests: tests() }));
+```
 
-## Choose the next capability
+Swap in your project's own commands. Then run it:
 
-[Observe a task](/marbles/get-started/task-loop) builds a small intake loop.
-[Using Marbles](/marbles/get-started/using-marbles) shows how to add input,
-commands, agents, workflows, and schedules. A single step is already a
-complete automation.
+```sh
+marbles roll pre-push
+```
+
+Here is what each part does:
+
+- `.exec("bun test", { check: false })` makes a step that is one command.
+  Its result is `{ exitCode, stdout, stderr }`. With `check: false` a
+  failing command is a result, not a failed step.
+- `verdict` declares the results it consumes in its input schema. A parent
+  runs after its children and receives their results under the same keys.
+- `.parallel(...)` runs the children at the same time. Calling a definition
+  with no arguments, as in `lint()`, places it in the tree as a leaf. On the
+  published `0.0.4` package, write `lint({})` instead.
+- `workflow("pre-push", ...)` names the tree so `roll` can launch it.
+
+## Add an agent review
+
+The review you usually ask for in a chat window becomes a third child. With
+an authenticated agent CLI, replace the file with this version:
+
+<include>./_example/pre-push.ts</include>
+
+`agent(...)` declares instructions, and `generate` runs one turn on a fresh
+session inside the step. The turn uses the step's working directory, writes
+to its output, and stops if you cancel the run. `marbles roll pre-push` now
+returns lint, tests, and the agent's findings together.
+
+A prompt that says "do not edit files" is an instruction, not a permission.
+To review in a throwaway checkout instead of your working tree, wrap the
+turn in `workspaces.current.git.withWorktree(...)`; see
+[Workspaces, sandboxes, and artifacts](/marbles/concepts/workspaces-and-artifacts#temporary-git-worktrees).
+
+## Edit and run again
+
+Change a prompt or a command and run `marbles roll pre-push` again. The
+Marbles process notices the edit and starts its next engine generation,
+which takes over before your next `roll`. An open dashboard shows
+`reloading` and then the new module. Nothing needs restarting.
+
+Each `roll` starts a new run. `marbles status` shows the workspace and its
+recent runs, and `marbles` opens the dashboard, where the Runs panel shows
+each step's output. Run history lives under
+`~/.foundry/marbles/<workspace-id>/`; your source stays in the project. The
+[state reference](/marbles/reference/state) explains the layout.
+
+## Next
+
+The ritual still waits for you to type `roll`.
+[The outer loop](/marbles/get-started/outer-loop) gives it a backlog and a
+dispatcher, so it runs when work appears.

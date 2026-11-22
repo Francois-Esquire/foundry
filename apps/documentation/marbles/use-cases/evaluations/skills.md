@@ -55,7 +55,7 @@ Each completed run writes a `Skill evaluation trials` artifact version with the 
 skill text, cases, replies, grades, session references, and reported usage.
 The same `report.artifact(...)` call posts a Feed summary of which cases passed
 or failed. Read that summary to spot failures; use the artifact files for the
-detailed comparison. [Artifacts and the Feed](/marbles/foundation/artifacts-and-results#artifacts-and-the-feed)
+detailed comparison. [Artifacts and the Feed](/marbles/concepts/workspaces-and-artifacts#artifacts-and-the-feed)
 explains why both are retained.
 Compare the returned version IDs; the latest version alone is not the pair.
 A completed run can contain failed cases. Read `passed` and the case results.
@@ -101,6 +101,6 @@ loop: agents propose and test changes, while the owner controls what becomes
 active. Bound attempts and model calls so an unsuccessful change ends in a
 handoff instead of endless rewrites.
 
-The [inspector](/marbles/use-cases/software-factory/improvement/inspector) can supply these
-failure cases. Next, [monitor the skill file](/marbles/use-cases/evaluations/watch)
+Findings the [factory reviewer](/marbles/use-cases/software-factory/revise)
+recorded on tasks can supply these failure cases. Next, [monitor the skill file](/marbles/use-cases/evaluations/watch)
 to rerun the check after edits.

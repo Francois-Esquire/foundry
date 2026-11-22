@@ -6,7 +6,7 @@ description: Disk layout, recovery of parked runs, locks, and the limits of cont
 ## Persisted state
 
 For the guarantees these records support, start with
-[Durability](/marbles/foundation/durability). Run snapshots use
+[Durability](/marbles/concepts/durability). Run snapshots use
 [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
 session transcripts use [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md),
 and reports and versioned outputs use [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md).

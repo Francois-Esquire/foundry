@@ -1,8 +1,8 @@
 import { defineMeta } from "blume";
 
 export default defineMeta({
-  collapsed: false,
+  collapsed: true,
   display: "group",
-  pages: ["index", "development", "maintenance", "improvement", "monitor"],
+  pages: ["index", "intake", "build", "verify", "deliver", "revise"],
   title: "Software Factory",
 });

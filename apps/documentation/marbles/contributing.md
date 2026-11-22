@@ -84,12 +84,14 @@ against the built site.
 
 Each Marbles section has one job:
 
-- **Get Started** installs the standalone CLI, gets one small TypeScript
-  automation running, then introduces capabilities in Using Marbles.
-- **Foundation** explains the API, definitions, instances, callback contexts,
-  composition, resource lifetimes, and execution.
-- **Use Cases** builds useful automations. Software Factory is a sequence of
-  runnable stages; smaller use cases stay on one page.
+- **Get Started** installs the standalone CLI, scripts a first ritual,
+  closes the outer loop with tasks and observers, and tours the UI.
+- **Concepts** explains how the parts fit: steps and workflows; agents,
+  skills, MCP, and sessions; tasks and observability; monitoring and
+  scheduling; workspaces and artifacts; durability and local state.
+- **Use Cases** builds useful automations, small blueprints first. Software
+  Factory is a sequence of runnable stages; smaller use cases stay on one
+  page.
 - **Reference** holds exact commands, options, state rules, troubleshooting,
   and the advanced remote and embedding boundaries.
 - **Roadmap** describes current priorities and planned capabilities in a

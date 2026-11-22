@@ -45,11 +45,11 @@ a built-in browser primitive or a product design evaluator.
 
 ## Connect design to engineering
 
-Use an [artifact](/marbles/foundation/artifacts-and-results) for the brief,
+Use an [artifact](/marbles/concepts/workspaces-and-artifacts#artifacts-and-the-feed) for the brief,
 prototypes, and review evidence. Use agent sessions for drafting and critique,
 and keep a human approval between the accepted design and implementation.
-Pass the approved artifact version into a
-[Software Factory issue](/marbles/use-cases/software-factory/development/intake), with
+Put the approved artifact version in a
+[Software Factory task](/marbles/use-cases/software-factory/intake), with
 acceptance criteria that include interaction and visual review.
 
 After delivery, collect actual task failures and user feedback. Turn them

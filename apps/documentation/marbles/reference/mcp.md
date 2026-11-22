@@ -77,7 +77,7 @@ workflow goes through `marbles roll --dry-run`.
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `list_workspaces` | None | Every workspace the Marbles process hosts, or without one the workspaces kept under the state root: `id`, `root`, `config`, and `state` (`starting`, `ready`, `reloading`, `failed` with an `error`, or `stopped`). |
-| `list_config` | optional `workspace` | Source path, workspace root, named definitions with input schemas, agent IDs/model routes, and declared schedules and monitors. |
+| `list_config` | optional `workspace` | Source path, workspace root, named definitions with input schemas, agent IDs/model routes, declared schedules and monitors, and declared observers as `observers: [{ name, source, types? }]`. |
 | `dispatch_workflow` | `name`, optional `input`, optional `workspace` | Starts a named workflow or step and returns its `runId`, `kind`, `name`, and `status`. |
 | `dispatch_agent` | `prompt`, optional agent and execution options below, optional `workspace` | Starts agent work and returns the same run fields plus its `session` reference. |
 | `get_run` | `runId`, optional `workspace` | Current status, final `output`, agent `text`/`session` when applicable, or an `error`. |

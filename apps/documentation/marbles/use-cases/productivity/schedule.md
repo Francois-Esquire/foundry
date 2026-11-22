@@ -66,10 +66,10 @@ Neither publishing path is implemented by this sample.
 Adjust the priorities when work changes. Inspect missed events and false
 urgency before changing the collector's instructions. Compare the candidate
 against saved evidence using the [evaluation loop](/marbles/use-cases/evaluations).
-A personal briefing can link to [Software Factory reports](/marbles/use-cases/software-factory/maintenance/automate)
-without starting development or on-call work itself.
+A personal briefing can link to a [release patrol](/marbles/use-cases/release-patrol)
+digest without starting development or on-call work itself.
 
-[Schedules](/marbles/foundation/triggers#schedules) explains local overlap
+[Schedules](/marbles/concepts/monitoring-and-scheduling#schedules) explains local overlap
 handling. Manual launches and a second machine need their own coordination.
 [Remote execution](/marbles/reference/remote) covers running the same setup on
 an always-on host; move credentials and state deliberately before switching
