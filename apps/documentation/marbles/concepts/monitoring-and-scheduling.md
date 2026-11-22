@@ -6,8 +6,8 @@ description: Start work on a clock, or when files or an HTTP response change, an
 A schedule starts work on a clock. A monitor polls files or an HTTP source
 and runs its handler when it detects a change. Both feed the outer loop:
 they can launch a definition directly or create a task for an observer to
-pick up. They need the workspace hosted by the Marbles process. `roll` runs
-one target or poll immediately and exits.
+pick up. They need the workspace hosted by the Marbles process. `marbles run`
+runs one target or poll immediately and exits.
 
 The CLI owns the polling and clock loops. A launched step or workflow runs
 through [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
@@ -60,7 +60,7 @@ monitor("**/{AGENTS,CLAUDE}.md")
   });
 ```
 
-Run `marbles list`, copy the monitor key, and run `marbles roll <key>`, or
+Run `marbles list`, copy the monitor key, and run `marbles run <key>`, or
 give the monitor a key yourself with [`.name()`](#name-a-monitor).
 The first poll reports existing matches as added. Edit a matching file and
 poll again to see a modification. The handler receives added, modified,
@@ -156,7 +156,7 @@ such as `source-ab12cd`. `.name(key)` sets a key you can type:
 monitor("src/**/*.ts").name("source").every("10m").do(handler);
 ```
 
-`marbles list` prints it, and `marbles roll source` polls once. `.name()`
+`marbles list` prints it, and `marbles run source` polls once. `.name()`
 can come anywhere in the chain before `.do()`. A key is one word: a blank
 name or one with whitespace fails at load. Schedules and monitors share
 one key space, so a taken key fails with `monitor "source": a schedule or

@@ -47,7 +47,7 @@ const verdict = step("verdict")
 workflow("pre-push", () => verdict.parallel({ lint: lint(), review: review(), tests: tests() }));
 ```
 
-`marbles roll pre-push` runs lint, tests, and the review at the same time,
+`marbles run pre-push` runs lint, tests, and the review at the same time,
 then prints all three results. The run stays in local history, so you can
 open it later in the dashboard and read each step's output. The
 [quickstart](/marbles/get-started/quickstart) builds this file one piece at a
@@ -57,16 +57,16 @@ time, starting with a version that needs no agent account.
 
 Once a ritual is a script, something other than you can start it. Marbles
 keeps a backlog of `tasks` in workspace state. `observe(tasks, handler)`
-runs your handler after every task change. `.launch()` starts a run and
+runs your handler after every task change. `.enqueue()` starts a run and
 hands back its id without waiting for it to finish, and a key makes it
-launch once however often the handler repeats. `monitor` and `schedule`
+start once however often the handler repeats. `monitor` and `schedule`
 add work when a file changes or a clock ticks.
 
 ```ts
 observe(tasks, async function dispatch() {
   const ready = await tasks.ready({ tags: { all: ["checks"] } });
   for (const task of ready.items) {
-    await checkTask.launch({ task: task.id }, { key: `check:${task.id}` });
+    await checkTask.enqueue({ task: task.id }, { key: `check:${task.id}` });
     await tasks.start(task.id, { expectedUpdatedAt: task.updatedAt });
   }
 });
@@ -76,13 +76,13 @@ observe(tasks, async function dispatch() {
 you, a monitor, a schedule, an MCP client
         │
         ▼
-      tasks ──▶ observe ──▶ .launch() ──▶ runs ──▶ results, approvals
-        ▲                                               │
-        └──────────── findings, follow-up tasks ◀───────┘
+      tasks ──▶ observe ──▶ .enqueue() ──▶ runs ──▶ results, approvals
+        ▲                                                │
+        └──────────── findings, follow-up tasks ◀────────┘
 ```
 
 That loop is the point of Marbles. Each piece stays a small script you can
-run on its own with `marbles roll`. Composed, they keep working after you
+run on its own with `marbles run`. Composed, they keep working after you
 close the terminal: the Marbles process hosts the workspace, fires its
 triggers, and parks any run that asks a question until you answer it in the
 dashboard. [The outer loop](/marbles/get-started/outer-loop) builds a working
@@ -106,7 +106,7 @@ one in about 70 lines.
 | [Evaluations](/marbles/use-cases/evaluations) | Model and skill trials kept as artifacts |
 | [Design](/marbles/use-cases/design) | Briefs, wireframes, and design-token sync |
 | [Productivity](/marbles/use-cases/productivity) | A morning briefing from GitHub, Slack, and Google Docs |
-| [Software Factory](/marbles/use-cases/software-factory) | `tasks`, `observe`, keyed `.launch()`, a nested workflow, worktrees, `.parallel`, and `ask.approval`, taking a task to an approved pull request |
+| [Software Factory](/marbles/use-cases/software-factory) | `tasks`, `observe`, keyed `.enqueue()`, a nested workflow, worktrees, `.parallel`, and `ask.approval`, taking a task to an approved pull request |
 
 The [reference](/marbles/reference/cli) covers commands, the API, the MCP
 server, project setup, and troubleshooting. The [Library](/marbles/library)
@@ -115,7 +115,7 @@ lists what comes next, including browser resources, a first-class MCP
 definition, and a hosted application.
 
 Examples on these pages follow the source checkout. Where a page uses
-`.launch()`, `runs`, observers in `marbles list`, zero-argument
+`.enqueue()`, enqueuing by name, `runs`, observers in `marbles list`, zero-argument
 locks such as `lint()`, `agent(name, fn)`, `monitor(...).name()`, or
 `.exec` options computed from the context, it needs a
 [checkout-built package](/marbles/contributing#build-a-distributable-package)

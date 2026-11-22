@@ -49,14 +49,14 @@ Check that the definitions load, then mark your actual departure:
 
 ```sh
 marbles --dry-run list
-marbles roll leave-work
+marbles run leave-work
 ```
 
 `leave-work` saves the current instant in a versioned artifact. If you forgot
 to mark it, supply the time with an explicit UTC offset:
 
 ```sh
-marbles roll leave-work --input '{"at":"2026-10-12T17:30:00-04:00"}'
+marbles run leave-work --input '{"at":"2026-10-12T17:30:00-04:00"}'
 ```
 
 The next briefing covers **after that departure, through the report's captured
@@ -67,7 +67,7 @@ until you replace it, so check the window at the top of every report.
 ## Gather the evidence
 
 ```sh
-marbles roll morning-report
+marbles run morning-report
 ```
 
 The workflow captures the window and profile, opens a fresh session per source,
@@ -128,7 +128,7 @@ It creates another report version. For a fixed replay window or a missed
 departure, use explicit inputs:
 
 ```sh
-marbles roll morning-report --input '{"since":"2026-10-12T21:30:00Z","until":"2026-10-13T12:00:00Z"}'
+marbles run morning-report --input '{"since":"2026-10-12T21:30:00Z","until":"2026-10-13T12:00:00Z"}'
 ```
 
 Validate the first report against one known GitHub event, Slack reply, and

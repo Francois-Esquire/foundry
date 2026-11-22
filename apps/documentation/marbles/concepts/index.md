@@ -14,7 +14,7 @@ until something launches a run.
 
 | Group | Words | Chapter |
 | --- | --- | --- |
-| Work | `step`, `workflow`, `.exec`, `.run()`, `.launch()` | [Steps and workflows](/marbles/concepts/steps-and-workflows) |
+| Work | `step`, `workflow`, `.exec`, `.run()`, `.enqueue()` | [Steps and workflows](/marbles/concepts/steps-and-workflows) |
 | Judgment | `agent`, `skills`, MCP servers, sessions, `models`, `usage`, `prompts` | [Agents, skills, MCP, and sessions](/marbles/concepts/agents-and-sessions) |
 | Coordination | `tasks`, `observe`, `runs` | [Tasks and observability](/marbles/concepts/tasks-and-observability) |
 | Reasons to start | `monitor`, `schedule` | [Monitoring and scheduling](/marbles/concepts/monitoring-and-scheduling) |
@@ -51,15 +51,16 @@ The same definition can be used in several ways:
 | `count()` or `count({})` | Creates a node to place in a workflow. No work executes. |
 | `count({}, input)` | Creates a node carrying literal input. |
 | `await count.run(input?)` | Executes the definition in this process and returns its result. |
-| `await count.launch(input?, { key? })` | Starts a separate run on the engine and returns `{ id, result }` at once; a second launch with the same key returns the first run. |
-| `marbles roll count-files` | Launches the registered definition from the CLI. |
+| `await count.enqueue(input?, { key? })` | Starts a separate run on the engine and returns `{ id, result }` at once; a second enqueue with the same key returns the first run. |
+| `await step.enqueue("count-files", input?, { key? })` | The same, found by name, from a module that does not import `count`. |
+| `marbles run count-files` | Runs the registered definition from the CLI and waits for it; `marbles enqueue count-files` queues it and returns its run ID. |
 
 A **node** is one placement of a definition in a workflow tree. Creating one
 is called **locking**: it fixes the node's children and literal input.
 Calling `count()` with no arguments locks a definition that needs no input,
 using the current source checkout; the published `0.0.4` package needs
-`count({})`. [Steps and workflows](/marbles/concepts/steps-and-workflows#run-launch-or-lock)
-compares `.run()` and `.launch()`.
+`count({})`. [Steps and workflows](/marbles/concepts/steps-and-workflows#run-enqueue-or-lock)
+compares `.run()` and `.enqueue()`.
 
 Use explicit, unique names for launchable steps and workflows. Shared helper
 definitions can live in modules whose names start with `_`; see the

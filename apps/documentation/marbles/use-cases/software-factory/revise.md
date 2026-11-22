@@ -17,12 +17,12 @@ Save this as `.foundry/marbles/_factory/revise.ts`:
 `sendBack` is called by the verdict when a commit needs changes, and by the
 ship step when a person declines. It writes the findings and the attempt
 count to the task's metadata and reopens the task in one atomic batch. The
-reopened task is ready again, so the dispatcher launches another
+reopened task is ready again, so the dispatcher enqueues another
 `factory-change`. The builder reads the findings through `brief` and
 commits on the same branch.
 
-The attempt count is also part of the dispatcher's launch key. A run
-launched under `factory-change:<task id>:attempt-2` is the run for that
+The attempt count is also part of the dispatcher's enqueue key. A run
+enqueued under `factory-change:<task id>:attempt-2` is the run for that
 key for as long as its record is kept, so the count only goes up.
 `sendBack` adds one, and so does `factoryFailures` below for a failed or
 cancelled run.
@@ -38,7 +38,7 @@ marbles tasks reopen <task id>
 ```
 
 Each reopen past the cap buys one more attempt. Do not reset `attempts` to
-zero. The next launch would reuse the first attempt's key and get that old
+zero. The next enqueue would reuse the first attempt's key and get that old
 run back, and the task would sit `active` with nothing building. For the
 same reason, raise `attempts` yourself before reopening a task whose run
 ended some other way, such as `interrupted` after the Marbles process
@@ -71,7 +71,7 @@ anything. It records the stage and error on the task, counts the failure
 as an attempt, and retags it `needs-owner`. A fact delivered twice is
 skipped the second time, since the task already names that run in
 `failedRun`. Resume the task the same way once the cause is fixed, and the
-next launch has a new key.
+next enqueue has a new key.
 
 `marbles tasks list --tag needs-owner --json` is the factory's inbox. The
 [release patrol's digest](/marbles/use-cases/release-patrol#make-it-yours)
@@ -80,6 +80,6 @@ lists these tasks every weekday.
 ## What you have
 
 The whole factory is five stages of ordinary marbles. Each stage runs on
-its own with `marbles roll`, every run is visible in the dashboard, and the
+its own with `marbles run`, every run is visible in the dashboard, and the
 only place work waits on a person is the approval. Start supervised, and
 read every diff the factory ships until you trust it.

@@ -46,7 +46,7 @@ socket, or keep filesystem state, so they take the library profile.
 
 What already supports these targets:
 
-- Headless operation exists. A non-terminal `marbles run` attaches and
+- Headless operation exists. A non-terminal `marbles` attaches and
   streams; `marbles daemon` runs in the foreground for systemd or launchd;
   SIGTERM drains; the daemon re-hosts every workspace marked `hosted` on
   restart.

@@ -5,7 +5,7 @@ description: Turn a GitHub issue into a task, and dispatch every ready task to t
 
 Work enters the factory as a task tagged `factory`. You can create one by
 hand, import a GitHub issue, or let a monitor or an MCP client add one. A
-dispatcher observes the backlog and launches `factory-change`, the build
+dispatcher observes the backlog and enqueues `factory-change`, the build
 and its verification, for each task that is ready.
 
 ## Shared inputs
@@ -36,7 +36,7 @@ whole tree.
 
 `dispatchFactory` is the same dispatcher as in [the outer
 loop](/marbles/get-started/outer-loop#write-the-loop). On every task change
-it asks for ready `factory` tasks, launches `factory-change` for each one,
+it asks for ready `factory` tasks, enqueues `factory-change` for each one,
 and then claims it. The key, `factory-change:<task id>:attempt-<n>`, makes
 one run per attempt. A redelivered change, a second pass, or a second
 engine on the same workspace gets that run back instead of starting
@@ -58,7 +58,7 @@ marbles tasks create "Add --json to marbles status" --tag factory \
 Or import an issue whose body has the criteria:
 
 ```sh
-marbles roll factory-import --input '{"issue":42}'
+marbles run factory-import --input '{"issue":42}'
 ```
 
 A task that says "fix the bug" gets a builder that guesses. If the criteria

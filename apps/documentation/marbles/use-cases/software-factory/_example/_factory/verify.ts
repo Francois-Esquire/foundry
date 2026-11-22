@@ -95,7 +95,7 @@ const verdict = step("factory-verdict")
       task: input.task,
     };
     if (passed) {
-      await deliver.launch(
+      await deliver.enqueue(
         { ...change, evidence: version.id },
         { key: `factory-deliver:${input.commit}` }
       );

@@ -1,15 +1,15 @@
 ---
 title: The outer loop
-description: Give a script a backlog and a dispatcher with tasks, observe, and .launch().
+description: Give a script a backlog and a dispatcher with tasks, observe, and .enqueue().
 ---
 
 The [first ritual](/marbles/get-started/quickstart) runs when you type
-`roll`. An outer loop runs it when work appears: a task lands in the
-backlog, an observer notices, and the observer launches a run without
+`marbles run`. An outer loop runs it when work appears: a task lands in the
+backlog, an observer notices, and the observer enqueues a run without
 waiting for it. A second observer watches runs and flags the ones that fail.
 
 This example needs no agent account. It uses `zod` and features from the
-current source checkout (`.launch()` with a key, and `runs`); see
+current source checkout (`.enqueue()` with a key, and `runs`); see
 [installation](/marbles/get-started/installation#install-the-package). Use a
 scratch project so its tasks do not mix with another workspace's.
 
@@ -31,8 +31,8 @@ The module has four parts:
   there first.
 - **`dispatchChecks`** runs after every committed task change. It asks
   `tasks.ready()` for open, unblocked tasks tagged `checks`. For each one it
-  calls `checkTask.launch(...)` with a key, then claims the task.
-  `.launch()` resolves as soon as the run is admitted, with `{ id, result }`,
+  calls `checkTask.enqueue(...)` with a key, then claims the task.
+  `.enqueue()` resolves as soon as the run is admitted, with `{ id, result }`,
   so the observer returns without waiting for the tests.
 - **`flagFailures`** observes runs and receives only `run.failed` and
   `run.cancelled` facts. It reads the run with `runs.get(runId)`, takes the
@@ -50,7 +50,7 @@ Attach the workspace to the Marbles process, then add two tasks, the second
 depending on the first:
 
 ```sh
-marbles attach
+marbles daemon attach
 marbles tasks create "Check the release branch" --tag checks --json
 marbles tasks create "Check after the first" --tag checks --depends-on <id from the first>
 ```
@@ -64,7 +64,7 @@ marbles tasks list --json
 Both tasks end `completed` with `"exitCode"` in their metadata, and the
 second ran only after the first finished. `marbles runs` shows two
 `check-task` runs, and `marbles status` shows both observers `caught up`.
-Stop the process with `marbles stop` when you are done.
+Stop the process with `marbles daemon stop` when you are done.
 
 ## How delivery behaves
 
@@ -72,20 +72,20 @@ Observers receive each change at least once, in commit order, starting
 from their first start. A handler that throws keeps its place and gets the
 same fact again after a backoff, so write handlers that are safe to repeat.
 
-The key makes the launch safe to repeat. `check-task:<task id>:attempt-0`
-names one run of `check-task`. If the handler throws after launching, the
-redelivered change launches with the same key and gets that run back, so
+The key makes the enqueue safe to repeat. `check-task:<task id>:attempt-0`
+names one run of `check-task`. If the handler throws after enqueuing, the
+redelivered change enqueues with the same key and gets that run back, so
 the tests run once.
 
-The dispatcher launches first and claims second, so a task is never left
-`active` without a run. If the launch throws, nothing is claimed, and the
+The dispatcher enqueues first and claims second, so a task is never left
+`active` without a run. If the enqueue throws, nothing is claimed, and the
 next delivery tries again. Once the claim lands, the task drops out of
 `ready()` and later passes skip it.
 
 A key matches its run whatever became of it. If the key never changed, a
 reopened task would get its old failed run back and nothing would check
 it. So `flagFailures` adds one to the task's `attempt` when a check fails
-or is cancelled, and the next launch uses a new key. Once you have fixed
+or is cancelled, and the next enqueue uses a new key. Once you have fixed
 the cause, put the task back:
 
 ```sh
@@ -93,7 +93,7 @@ marbles tasks update <id> --tag checks
 marbles tasks reopen <id>
 ```
 
-The reopened task is ready, the dispatcher launches
+The reopened task is ready, the dispatcher enqueues
 `check-task:<task id>:attempt-1`, and the check runs again.
 
 A run can also end without either fact, such as one marked `interrupted`

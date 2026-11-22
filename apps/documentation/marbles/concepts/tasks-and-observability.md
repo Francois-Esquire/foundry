@@ -5,10 +5,10 @@ description: Keep a backlog with dependencies, react to every change with observ
 
 Three words coordinate work that outlives a single run. `tasks` holds what
 there is to do. `observe` reacts when something changes. `runs` reads what
-each run did. Together with `.launch()` they make the outer loop from
+each run did. Together with `.enqueue()` they make the outer loop from
 [Get started](/marbles/get-started/outer-loop).
 
-`runs`, `.launch()`, and observers in `marbles list` need the current
+`runs`, `.enqueue()`, and observers in `marbles list` need the current
 source checkout.
 
 ## The backlog
@@ -125,7 +125,7 @@ Delivery follows a few rules:
 - **Own writes come next pass.** Facts a handler writes to its own source
   arrive on the following pass.
 - **Outside any run.** A handler runs outside every write and every run. A
-  definition it runs or launches starts a run of its own.
+  definition it runs or enqueues starts a run of its own.
 - **One host at a time.** Across an engine switch, the retiring generation
   hands each observer to the next at the place it stopped.
 
@@ -135,36 +135,57 @@ retention, and compaction details.
 ## Hand off work
 
 A handler should return quickly, so hand long work to a run.
-`definition.launch(input, { key })` admits a run and resolves with
-`{ id, result }` without waiting. Put the task id in the launch input: the
+`definition.enqueue(input, { key })` admits a run and resolves with
+`{ id, result }` without waiting. Put the task id in the run's input: the
 run then says which task it serves, and an observer of `workflow` can find
 that task even when the run settles before anything else is written.
 
 Put the task id in the key too. Delivery is at least once, so a handler
-that launched and then threw sees the same change again. With a key, the
+that enqueued and then threw sees the same change again. With a key, the
 second delivery gets the first run back instead of starting another:
 
 ```ts
 observe(tasks, async function dispatch() {
   const ready = await tasks.ready({ tags: { all: ["review"] } });
   for (const task of ready.items) {
-    await review.launch({ task: task.id }, { key: `review:${task.id}` });
+    await review.enqueue({ task: task.id }, { key: `review:${task.id}` });
   }
 });
 ```
 
 Every later pass that still sees the task ready gets the same run back,
-so nothing launches twice. [The outer
+so nothing is enqueued twice. [The outer
 loop](/marbles/get-started/outer-loop#write-the-loop) also claims each task
-after launching it, so later passes skip it.
+after enqueuing it, so later passes skip it.
 
 The key matches whatever that run became, including `failed`. When a task
 can be retried or revised, add a counter that advances each time it comes
-back, such as `` `review:${task.id}:attempt-${attempt}` ``. [Launch once
-per key](/marbles/concepts/steps-and-workflows#launch-once-per-key) has the
-rules, and [Run, launch, or
-lock](/marbles/concepts/steps-and-workflows#run-launch-or-lock) compares
-the three ways to start a definition.
+back, such as `` `review:${task.id}:attempt-${attempt}` ``. [Enqueue once
+per key](/marbles/concepts/steps-and-workflows#enqueue-once-per-key) has the
+rules, and [Run, enqueue, or
+lock](/marbles/concepts/steps-and-workflows#run-enqueue-or-lock) compares
+the ways to start a definition.
+
+### Hand off by name
+
+The dispatcher does not need to import what it starts. When the review
+workflow lives in another file, `workflow.enqueue` finds it by the name it
+was declared with:
+
+```ts
+observe(tasks, async function dispatch() {
+  const ready = await tasks.ready({ tags: { all: ["review"] } });
+  for (const task of ready.items) {
+    await workflow.enqueue("review", { task: task.id }, { key: `review:${task.id}` });
+  }
+});
+```
+
+A by-name enqueue and `review.enqueue(...)` share one key per definition
+name, so either spelling gets the other's run back. `workflow.enqueue`
+takes only a workflow; for a step, it refuses and names `step.enqueue`.
+[Enqueue by name](/marbles/concepts/steps-and-workflows#enqueue-by-name)
+has the rest of the rules.
 
 ## Inspect runs
 
@@ -182,7 +203,7 @@ returns matching runs, oldest first; `status` takes one status or an array.
 | --- | --- |
 | `id`, `name`, `kind` | The run id, its definition's name, and `"workflow"` or `"task"`. |
 | `status` | `queued`, `running`, `suspended`, `complete`, `failed`, `cancelled`, or `interrupted`. |
-| `input`, `output`, `error` | The launch input, the result once `complete`, the error message otherwise. |
+| `input`, `output`, `error` | The run's input, the result once `complete`, the error message otherwise. |
 | `queuedAt`, `startedAt`, `endedAt` | ISO timestamps. |
 
 Status names differ from fact names. A parked run has status `suspended`

@@ -30,8 +30,8 @@ examples; create and choose directories appropriate for the account:
 cd /srv/my-project
 marbles list
 export FOUNDRY_HOME=/srv/foundry
-marbles roll inventory
-marbles run </dev/null
+marbles run inventory
+marbles </dev/null
 ```
 
 `inventory` must be a definition in that project. Use an attended terminal
@@ -52,8 +52,8 @@ running and shows the error until a later edit loads.
 
 Process supervision and [workflow durability](/marbles/concepts/durability)
 serve different purposes. Restarting the process brings its loops back, but
-it does not resume an interrupted running step. A scheduler that launches
-`roll` again creates a new run. Account for earlier external effects before
+it does not resume an interrupted running step. A scheduler that invokes
+`marbles run` again creates a new run. Account for earlier external effects before
 relaunching.
 
 State is scoped to the canonical workspace path. Changing that path changes
@@ -78,7 +78,7 @@ between independent machines as a worker-coordination mechanism.
 - Host CLI authentication, sandbox guest lifetime, mounts, and networking
   must work on the target host. Containerizing the CLI does not itself
   provide a working MicroSandbox environment.
-- A remote scheduler invoking `roll` must choose work that needs no
+- A remote scheduler invoking `marbles run` or `marbles enqueue` must choose work that needs no
   interactive answer and account for its own retry policy.
 
 This page describes the supported process and state model, not a tested

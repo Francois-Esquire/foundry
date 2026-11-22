@@ -1,6 +1,6 @@
 ---
 title: Steps and workflows
-description: Declare typed work, connect results into a tree, nest workflows, and choose between running, launching, and locking.
+description: Declare typed work, connect results into a tree, nest workflows, and choose between running, enqueuing, and locking.
 ---
 
 A step owns one piece of work. A workflow gives a tree of steps a name and
@@ -85,7 +85,7 @@ workflow("file-summary")
   );
 ```
 
-Run `marbles roll file-summary --input '{"extension":".ts"}'`.
+Run `marbles run file-summary --input '{"extension":".ts"}'`.
 
 `summarize(children, literalInput)` takes children first and literal input
 second. `count` supplies `input.count`, and the literal supplies
@@ -123,9 +123,9 @@ as `.foundry/marbles/changed-checks.ts`:
 
 <include>./_example/changed-checks.ts</include>
 
-In a repository with at least two commits, run `marbles roll
+In a repository with at least two commits, run `marbles run
 check-changed`. The inner workflow still runs on its own with
-`marbles roll checks-in --input '{"dir":"."}'`.
+`marbles run checks-in --input '{"dir":"."}'`.
 
 `checks({ dir: changedPackage() })` locks `checks-in` with one child. A
 nested workflow runs like this:
@@ -166,50 +166,52 @@ There are no race, branch, or loop combinators. Choose a tree in ordinary
 TypeScript during workflow setup, and keep commands, file access, and agent
 turns inside steps.
 
-## Run, launch, or lock
+## Run, enqueue, or lock
 
 | Form | Separate run? | Waits? | Use it for |
 | --- | --- | --- | --- |
 | Lock as a child: `review()` | No, a node in this run | The parent waits | Work whose result the parent needs, visible in the run tree |
 | `await review.run(input?)` | No, nested in the caller | Yes | A quick helper call inside a body |
-| `await review.launch(input?, { key? })` | Yes, a top-level run | No | Handing off work from an observer or a step |
+| `await review.enqueue(input?, { key? })` | Yes, a top-level run | No | Handing off work from an observer or a step |
+| `await workflow.enqueue("review", input?, { key? })` | Yes, a top-level run | No | The same handoff by name, without importing the definition |
 
-Locking a workflow and launching one differ in what you get. A nested
+Locking a workflow and enqueuing one differ in what you get. A nested
 workflow is part of one run. Its steps share the run's id, its replay, and
-its cancellation, and its result flows into the parent. A launched workflow
-is a separate top-level run on the queue, with its own id and status. It
-succeeds or fails on its own, and the launching code carries on without it.
-Nest a workflow when the parent needs its result. Launch one when the work
-should outlive the code that started it, as an approval that waits for days
-does.
+its cancellation, and its result flows into the parent. An enqueued
+workflow is a separate top-level run on the queue, with its own id and
+status. It succeeds or fails on its own, and the enqueuing code carries on
+without it. Nest a workflow when the parent needs its result. Enqueue one
+when the work should outlive the code that started it, as an approval that
+waits for days does.
 
 `.run()` executes in this process, outside the engine's queue. Its nested
 execution does not appear as its own dashboard run and cannot be paused on
 its own.
 
-`.launch()` admits a run on the engine and resolves with `{ id, result }`
+`.enqueue()` admits a run on the engine and resolves with `{ id, result }`
 before the run ends. Keep `id` to read the run later with `runs.get(id)`,
 or await `result` for its output. An unawaited `result` never raises an
-unhandled rejection. Input that fails the schema rejects the launch when
-the queue has room to start it; a launch that waits in the queue reports
-the failure through `result` instead.
+unhandled rejection. Input that fails the schema rejects the `enqueue`
+call when the queue has room to start the run; a run that waits in the
+queue reports the failure through `result` instead.
 
-### Launch once per key
+### Enqueue once per key
 
-`launch(input, { key })` starts at most one run per key:
+`enqueue(input, { key })` starts at most one run per key:
 
 ```ts
-const { id } = await build.launch({ task: task.id }, { key: `build:${task.id}` });
+const { id } = await build.enqueue({ task: task.id }, { key: `build:${task.id}` });
 ```
 
 Marbles matches the key together with the definition's name, across every
-engine that shares the workspace's store. A second launch with the same
+engine that shares the workspace's store. A second enqueue with the same
 name and key returns the first run's handle, with a real `result`, whatever
 that run's state: queued, running, parked on a question, complete, failed,
 or cancelled. The second call's input is ignored. `result` resolves with
 the first run's output, or rejects with its failure. The match holds for as
 long as the run's record is kept. The CLI keeps them, and an embedding host
-can remove settled ones with `engine.executions.prune`.
+can remove settled ones with `engine.executions.prune`. Enqueuing by name
+and `marbles enqueue <name> --key <key>` match the same keys.
 
 Choose the key from what should happen once:
 
@@ -220,44 +222,96 @@ Choose the key from what should happen once:
   `` key: `build:${task.id}:attempt-${attempt}` ``. Reusing a key after its
   run failed hands back that failure instead of starting a new run.
 
-A blank key is refused with `launch(): a key must be a non-blank string`.
+A blank key is refused with `enqueue(): a key must be a non-blank string`.
 A key also needs a definition the workspace's source declares by name. An
-anonymous definition is refused, and so is any launch with a key from a
+anonymous definition is refused, and so is any enqueue with a key from a
 plain `bun` script, whose engine declares no definitions.
 
 An observer is delivered each change at least once, so a handler that
-launches should pass a key. A redelivered change then finds the run the
+enqueues should pass a key. A redelivered change then finds the run the
 first delivery started. [The outer loop](/marbles/get-started/outer-loop#write-the-loop)
 dispatches tasks this way.
 
-### Launch from a step
+### Enqueue by name
 
-Inside a step body, `.launch()` starts a top-level run on the same engine
+`step.enqueue(name, input?, options?)` and
+`workflow.enqueue(name, input?, options?)` enqueue a step or workflow the
+workspace declares, looked up by its name when the call runs. One module
+can hand work to another file's definition without importing it. Save the
+build as `.foundry/marbles/package-build.ts`:
+
+<include>./_example/package-build.ts</include>
+
+and the release, which never imports it, as `.foundry/marbles/release.ts`:
+
+<include>./_example/release.ts</include>
+
+`marbles run release --input '{"ref":"main"}'` runs the release, which
+resolves `main` to a commit, enqueues `package-build` as a run of its own,
+and waits for its result. The key names the commit, so releasing the same
+commit again gets that build back, and a new commit on `main` builds anew.
+
+The lookup finds the definition the engine registered under that name and
+enqueues it as its own `.enqueue()` would:
+
+- **One key space.** `step.enqueue("package-build", input, { key })`,
+  `.enqueue(input, { key })` on the definition where it is imported, and
+  `marbles enqueue package-build --key <key>` share one key per definition
+  name. Whichever comes first starts the run; the others get it back.
+- **Each word takes its own kind.** `workflow.enqueue("package-build")` is
+  refused with `workflow.enqueue("package-build"): "package-build" is a
+  step, not a workflow; use step.enqueue("package-build")`, and
+  `step.enqueue` refuses a workflow the same way. A name the workspace does
+  not declare, a monitor's key among them, is refused with `this workspace
+  declares no step or workflow named "<name>"`. A blank name throws a
+  `TypeError`. From a step body, a refusal fails the step.
+- **Input is not typed.** The call takes `Record<string, unknown>` and the
+  definition's schema checks it when the run starts. Name the output type
+  with a type argument, as in `step.enqueue<{ ok: boolean }>("package-build")`;
+  `result` is `unknown` without one.
+- **Replay and the queue work as for `.enqueue()`.** A step body that runs
+  again gets the same run back, and awaiting `result` gives up the queue
+  slot. See [Enqueue from a step](#enqueue-from-a-step).
+- **The word belongs to its workspace.** When one Marbles process hosts
+  several workspaces, the `step` and `workflow` a workspace's source
+  imports enqueue into that workspace, whichever run calls them. During
+  the source's own load they refuse: `the workspace's runs are not
+  available while its source loads; enqueue them in a step, an observe
+  handler, or once the host has started`. Once that workspace's host is
+  disposed, they refuse with `nothing was enqueued`.
+- **In a plain `bun` script** no workspace hosts, the name is found among
+  the script's own declarations: at top level, in its step bodies, and in
+  its monitor handlers. A key is refused there, as it is for `.enqueue()`.
+
+### Enqueue from a step
+
+Inside a step body, `.enqueue()` starts a top-level run on the same engine
 and records it in the step's ledger. A body that runs again after a
 question or a resume gets the same run back for the same definition at the
-same place, so a replayed handoff does not launch twice. A replayed body
-that reaches a different definition at that place launches it. The ledger
-covers replay, not a retried attempt. Give the launch a key when a step
-with `retry` must launch once, and the retried attempt gets the first run
+same place, so a replayed handoff is not enqueued twice. A replayed body
+that reaches a different definition at that place enqueues it. The ledger
+covers replay, not a retried attempt. Give the enqueue a key when a step
+with `retry` must enqueue once, and the retried attempt gets the first run
 back.
 
-A step can await what it launched:
+A step can await what it enqueued:
 
 ```ts
 step("release").do(async () => {
-  const { result } = await build.launch({ ref: "main" });
+  const { result } = await build.enqueue({ ref: "main" });
   return await result;
 });
 ```
 
-Reading `result` gives up the launching run's queue slot until the
-launched run settles, then takes it back. Awaiting a launched run therefore
-never deadlocks the queue, even at `queue({ concurrency: 1 })`. A step that
-keeps only `id` keeps its run's slot, so on a full queue the launched run
-waits until the launching run ends. [How many runs at once](/marbles/concepts/durability#how-many-runs-at-once)
+Reading `result` gives up the enqueuing run's queue slot until the
+enqueued run settles, then takes it back. Awaiting an enqueued run
+therefore never deadlocks the queue, even at `queue({ concurrency: 1 })`.
+A step that keeps only `id` keeps its run's slot, so on a full queue the
+enqueued run waits until the enqueuing run ends. [How many runs at once](/marbles/concepts/durability#how-many-runs-at-once)
 covers the queue.
 
-`.launch()` and its `key` need the current source checkout.
+`.enqueue()`, `step.enqueue(name)`, `workflow.enqueue(name)`, and `key`
+need the current source checkout.
 
 ## Contexts
 
@@ -311,7 +365,7 @@ yourself does not gain Marbles' bindings.
 A monitor handler receives the step context plus `change` and file or HTTP
 data; see [Monitoring and scheduling](/marbles/concepts/monitoring-and-scheduling).
 An observer handler receives one fact and no context; it runs outside any
-run, so a definition it launches starts a run of its own. See [Tasks and
+run, so a definition it enqueues starts a run of its own. See [Tasks and
 observability](/marbles/concepts/tasks-and-observability#observe-what-changed).
 
 The [builder reference](/marbles/reference/api#the-builder) and

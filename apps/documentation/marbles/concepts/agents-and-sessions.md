@@ -39,7 +39,7 @@ step("review-readme").do(async ({ agents }) => {
 
 `agent(...)` declares instructions. `agents.session(...)` opens the
 conversation. `session.generate(...)` performs a turn, and the step returns
-its text as the result. Run it with `marbles roll review-readme`.
+its text as the result. Run it with `marbles run review-readme`.
 
 [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
 provides the session and harness contracts.
@@ -146,8 +146,8 @@ step("review-project")
 ```
 
 ```sh
-marbles roll review-project --input '{"request":"Review the repository and remember unresolved findings."}'
-marbles roll review-project --input '{"request":"Compare this revision with your earlier findings.","session":<session from the first result>}'
+marbles run review-project --input '{"request":"Review the repository and remember unresolved findings."}'
+marbles run review-project --input '{"request":"Compare this revision with your earlier findings.","session":<session from the first result>}'
 marbles sessions
 ```
 

@@ -36,12 +36,12 @@ Save this as `.foundry/marbles/release-patrol.ts`:
 ## Run it
 
 ```sh
-marbles roll bun-release
+marbles run bun-release
 marbles tasks list --tag upgrade
 ```
 
 The first poll has no baseline, so it treats the current release as new and
-runs the assessment once. Then `marbles attach` leaves the monitor polling.
+runs the assessment once. Then `marbles daemon attach` leaves the monitor polling.
 
 ## Make it yours
 

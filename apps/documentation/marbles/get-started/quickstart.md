@@ -35,10 +35,10 @@ output. The returned object is the result.
 
 ```sh
 marbles list
-marbles roll inventory
+marbles run inventory
 ```
 
-`list` should include `[step] inventory`. `roll` runs it and prints your log
+`list` should include `[step] inventory`. `marbles run` runs it and prints your log
 line and a result like `{"files":12}`. The count depends on the files the
 [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md)
 scanner sees after its ignore rules.
@@ -78,7 +78,7 @@ workflow("pre-push", () => verdict.parallel({ lint: lint(), tests: tests() }));
 Swap in your project's own commands. Then run it:
 
 ```sh
-marbles roll pre-push
+marbles run pre-push
 ```
 
 Here is what each part does:
@@ -91,7 +91,7 @@ Here is what each part does:
 - `.parallel(...)` runs the children at the same time. Calling a definition
   with no arguments, as in `lint()`, places it in the tree as a leaf. On the
   published `0.0.4` package, write `lint({})` instead.
-- `workflow("pre-push", ...)` names the tree so `roll` can launch it.
+- `workflow("pre-push", ...)` names the tree so `marbles run` can find it.
 
 ## Add an agent review
 
@@ -102,7 +102,7 @@ an authenticated agent CLI, replace the file with this version:
 
 `agent(...)` declares instructions, and `generate` runs one turn on a fresh
 session inside the step. The turn uses the step's working directory, writes
-to its output, and stops if you cancel the run. `marbles roll pre-push` now
+to its output, and stops if you cancel the run. `marbles run pre-push` now
 returns lint, tests, and the agent's findings together.
 
 A prompt that says "do not edit files" is an instruction, not a permission.
@@ -112,12 +112,12 @@ turn in `workspaces.current.git.withWorktree(...)`; see
 
 ## Edit and run again
 
-Change a prompt or a command and run `marbles roll pre-push` again. The
+Change a prompt or a command and run `marbles run pre-push` again. The
 Marbles process notices the edit and starts its next engine generation,
-which takes over before your next `roll`. An open dashboard shows
+which takes over before your next `marbles run`. An open dashboard shows
 `reloading` and then the new module. Nothing needs restarting.
 
-Each `roll` starts a new run. `marbles status` shows the workspace and its
+Each `marbles run` starts a new run. `marbles status` shows the workspace and its
 recent runs, and `marbles` opens the dashboard, where the Runs panel shows
 each step's output. Run history lives under
 `~/.foundry/marbles/<workspace-id>/`; your source stays in the project. The
@@ -125,6 +125,6 @@ each step's output. Run history lives under
 
 ## Next
 
-The ritual still waits for you to type `roll`.
+The ritual still waits for you to type `marbles run`.
 [The outer loop](/marbles/get-started/outer-loop) gives it a backlog and a
 dispatcher, so it runs when work appears.

@@ -35,9 +35,9 @@ While it waits, the run is **parked**: its state is saved, and the question
 waits in the dashboard's Feed. An approval blocks the run until someone
 decides. A question holds its step while siblings keep going.
 
-Only a dashboard answers. `roll` and `marbles run` leave the run parked
+Only a dashboard answers. `marbles run` and piped `marbles` leave the run parked
 until one does, and `--dry-run` cancels it at the ask. A parked run
-survives a quit, a `marbles stop`, and a crash.
+survives a quit, a `marbles daemon stop`, and a crash.
 
 When the answer comes, the step body starts again from the top and reads
 the recorded answer at the same call. That is replay, below. Put an
@@ -49,7 +49,7 @@ Factory](/marbles/use-cases/software-factory/deliver) gates a push this way.
 
 | Part | Guarantee |
 | --- | --- |
-| Finished step | Its recorded result is reused when the same run continues. A new launch executes fresh work, unless its key matches an earlier run. |
+| Finished step | Its recorded result is reused when the same run continues. A new run executes fresh work, unless its key matches an earlier enqueue. |
 | Waiting question or pause | The parked run is saved. The current engine generation adopts it with the same source and state, after a restart or a switch; a dashboard answers it. |
 | Managed operations | Recorded sessions, answers, and artifact writes are matched by step path and call position during replay. |
 | Agent conversation | Messages live in the session store. A session reference can continue that conversation in another run. |
@@ -86,7 +86,7 @@ reconnect it to the work already done:
 | `agentInstance.generate(...)` or `.stream(...)` | Reuses a recorded completed one-shot reply when available; an unfinished turn can execute again. |
 | `ask.*` | Reads the recorded answer, or parks at an unanswered question. |
 | Managed artifact write | Returns its recorded version instead of creating another version at that position. |
-| `definition.launch(...)` | Returns the run it launched before, for the same definition at that position. Another definition launches. With a `key`, a retried attempt gets the same run back too. |
+| `definition.enqueue(...)`, `step.enqueue(name, ...)` | Returns the run it enqueued before, for the same definition at that position. Another definition is enqueued. With a `key`, a retried attempt gets the same run back too. |
 | Command, raw filesystem write, or `fetch` | Can execute again. The run does not make arbitrary external effects happen exactly once. |
 
 Keep step keys and managed call order stable while a run is parked. Put
@@ -122,7 +122,7 @@ step("review-with-retries")
   );
 ```
 
-Run `marbles roll review-with-retries`. A thrown error can trigger another
+Run `marbles run review-with-retries`. A thrown error can trigger another
 attempt, up to three attempts **including the first**. Each attempt has a
 five-minute deadline. The policy belongs to this step; it does not set the
 policy for its children or every agent in the project.
@@ -147,18 +147,18 @@ setup must therefore stay free of work that should only happen once.
 A run interrupted mid-body is not automatically resumed. If the Marbles
 database records its Run as running or queued, Marbles leaves it orphaned
 rather than adopting it. Launching the automation again creates a new run, which can
-repeat earlier effects. A launch with the same key gets the orphaned run
+repeat earlier effects. An enqueue with the same key gets the orphaned run
 back instead, so give the retry a new key. See [state and adoption rules](/marbles/reference/state#what-survives-a-restart).
 
 ## Design work that can repeat safely
 
 Use an idempotency key when an external API supports it, check whether an
 intended change already exists, and keep irreversible work separate from
-retryable reads. Marbles has one for its own launches:
-`definition.launch(input, { key })` returns the run an earlier launch with
+retryable reads. Marbles has one for its own runs:
+`definition.enqueue(input, { key })` returns the run an earlier enqueue with
 that key started, from any engine over the same store, so an observer
-delivered a change twice or a retried step still launches once. See
-[launch once per key](/marbles/concepts/steps-and-workflows#launch-once-per-key). Cancellation stops owned operations; it does not roll
+delivered a change twice or a retried step still enqueues once. See
+[enqueue once per key](/marbles/concepts/steps-and-workflows#enqueue-once-per-key). Cancellation stops owned operations; it does not roll
 back commits, sent requests, or file changes. Persist output as an
 [artifact](/marbles/concepts/workspaces-and-artifacts#artifacts-and-the-feed) or a commit before
 discarding a temporary worktree or sandbox.
@@ -197,15 +197,16 @@ including for inspection commands. Step bodies execute when launched.
 
 | Mode | Lifetime |
 | --- | --- |
-| `marbles roll <name-or-key>` | Dispatch one definition, schedule, or monitor in the Marbles process's current engine generation and exit. A question parks the run until a dashboard answers it. |
+| `marbles run <name-or-key>` | Run one step, workflow, schedule, or monitor in the Marbles process's current engine generation, wait for it, and exit. A question parks the run until a dashboard answers it. |
+| `marbles enqueue <name>` | Queue one step or workflow in the Marbles process, print its run ID, and exit without waiting. `marbles watch <runId>` follows it. |
 | `marbles` | Attach the workspace and open the dashboard on it: launches, answers, and every hosted workspace. |
-| `marbles run` with piped input or output | Attach the workspace and follow its status lines with plain output. Cannot answer a question. |
-| `marbles daemon`, `marbles stop` | Run the Marbles process in the foreground, or stop it with every workspace it hosts. |
+| `marbles` with piped input or output | Attach the workspace and follow its status lines with plain output. Cannot answer a question. |
+| `marbles daemon`, `marbles daemon stop` | Run the Marbles process in the foreground, or stop it with every workspace it hosts. |
 
-Each of the first three attaches the workspace to the Marbles process, one
+Each of the first four attaches the workspace to the Marbles process, one
 per machine, which starts when none runs and keeps the workspace's
-schedules and monitors ticking after the command exits; `roll` executes one
-target immediately on top of that. All modes use the same workspace state.
+schedules and monitors ticking after the command exits; `marbles run` executes one
+target immediately on top of that, and `marbles enqueue` queues one. All modes use the same workspace state.
 Editing a module starts the Marbles process's next engine generation, which takes over once it has loaded; nothing needs restarting.
 `--dry-run` hosts the workspace in the command's own process instead and
 persists nothing. See the [CLI reference](/marbles/reference/cli) for
@@ -230,9 +231,9 @@ These runs do not hold a place:
 
 - **A parked run.** A run waiting on a question or a pause gives its place
   up until it resumes.
-- **A run awaiting a launch.** A step that reads `result` of a run it
-  launched gives its run's place up until that result settles, so awaiting
-  a launched run never deadlocks, even at `queue({ concurrency: 1 })`.
+- **A run awaiting an enqueued run.** A step that reads `result` of a run it
+  enqueued gives its run's place up until that result settles, so awaiting
+  an enqueued run never deadlocks, even at `queue({ concurrency: 1 })`.
 
 A plain `bun` script's default engine also runs eight at once and honors
 its own `queue()`. An [`Engine`](/marbles/reference/engine#host-settings)

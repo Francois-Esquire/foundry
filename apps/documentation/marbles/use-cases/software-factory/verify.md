@@ -6,7 +6,7 @@ description: Run the tests and an agent review of the exact commit side by side,
 Verification checks the exact commit the build produced. Tests and review
 run at the same time, each in its own worktree at that commit. A verdict
 step reads both, saves the evidence as an artifact version, and either
-launches delivery or sends the task back.
+enqueues delivery or sends the task back.
 
 Save this as `.foundry/marbles/_factory/verify.ts`:
 
@@ -38,7 +38,7 @@ It all stays one run. The dashboard shows the verification steps under
 `factory-verify` still runs on its own, for a commit you already have:
 
 ```sh
-marbles roll factory-verify --input '{"task":"<task id>","branch":"factory/<task id>","commit":"<sha>"}'
+marbles run factory-verify --input '{"task":"<task id>","branch":"factory/<task id>","commit":"<sha>"}'
 ```
 
 If one child throws, Marbles aborts the other and fails the run. A failed
@@ -59,16 +59,16 @@ The commit passes when the tests exit 0 and the review has no blockers.
 Either way, `report.artifact` writes a version of **Factory verification**
 with the test output and the verdict, and posts the summary to the Feed.
 
-- **Passed.** `deliver.launch(...)` starts the delivery run with the
+- **Passed.** `deliver.enqueue(...)` starts the delivery run with the
   artifact version id, so the approval names the evidence for this commit.
   Its key, `factory-deliver:<commit>`, asks for one approval per commit.
-  Verifying the same commit again, from `marbles roll factory-verify` or a
+  Verifying the same commit again, from `marbles run factory-verify` or a
   second engine, gets the existing delivery back.
 - **Needs changes.** `sendBack` puts the findings on the task, counts the
-  attempt, and reopens it. The dispatcher sees a ready task and launches
+  attempt, and reopens it. The dispatcher sees a ready task and enqueues
   another `factory-change` under the next attempt's key.
 
-Delivery is launched rather than nested. It parks on an approval that can
+Delivery is enqueued rather than nested. It parks on an approval that can
 wait for days, and as its own run it does that without holding the
 verification run open. The verdict keeps only the id, so it finishes at
 once.

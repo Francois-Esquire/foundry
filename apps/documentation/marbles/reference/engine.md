@@ -79,7 +79,12 @@ const count = await launched.result;
 ```
 
 `run(name, input)` and `execute(definition, input)` wait for the result
-instead. Register a definition with `define` to launch it by name. The
+instead. Register a definition with `define` to launch it by name.
+`launch(name, input, { source })` starts at most one run per name and
+`source`. An authored `enqueue(input, { key })`, `step.enqueue(name, input,
+{ key })`, and `marbles enqueue --key` pass their key as that `source`. This
+entry's `LaunchOptions` is not `@foundry.sh/marbles`' `EnqueueOptions`,
+which holds only `key`. The
 [MCP tools](/marbles/reference/mcp#tools) use `launch` for workflows and one
 registered agent-dispatch step, exposing the handle's `id` as `runId` for both.
 
@@ -126,6 +131,10 @@ The engine owns its registry:
 - `engine.schedule(record)` registers a schedule; it does not start a clock.
 - `engine.monitor({ key, source, trigger, handler })` registers a monitor
   for a host to drive.
+- `engine.definition(name)` returns the named step or workflow the engine
+  registered, or `undefined`. It leaves out monitors, whose handlers are
+  registered as definitions too. `step.enqueue(name)` and
+  `workflow.enqueue(name)` look names up through it.
 - `engine.definitions()` and `engine.monitors()` read it back;
   `await engine.schedules()` reads the schedules with the triggers agents
   created, read afresh, so one another process created or removed is in or
@@ -303,8 +312,8 @@ try {
 }
 ```
 
-`roll` dispatches one definition or schedule and returns its value with the
-status lines printed meanwhile, as `marbles roll` does. `run` ticks the
+`roll` runs one step, workflow, schedule, or monitor and returns its value with the
+status lines printed meanwhile, as `marbles run` does. `run` ticks the
 schedules and monitors, including triggers agents add later, until the
 signal aborts; `runSchedulesUntilStopped(engine, options)` is the same loop
 over a bare engine. `describe`, `snapshot`, `dispatchWorkflow`,
@@ -382,7 +391,7 @@ another version rather than stop it. Either way, a daemon that keeps its
 artifacts somewhere other than `layout.artifacts` is refused, naming both
 paths; both refusals are a `ProcessMismatchError`, and a daemon that holds
 the claim but does not answer is a `ProcessTimeoutError`. `stopProcess({
-layout })` is what `marbles stop` does: it stops the daemon whatever its
+layout })` is what `marbles daemon stop` does: it stops the daemon whatever its
 version, calls `onStopping` once the daemon has agreed, and resolves with
 that daemon's `hello` once it has exited, or `undefined` when none ran.
 `attach` hosts the source's workspace, records it as `hosted` in the
@@ -411,8 +420,8 @@ gone, with a `Disconnect` saying why: `closed` after `close()`, `stopped`
 when the daemon stopped and released its claim, `died` when its claim
 still names a pid that no longer runs (with the log to read), `hung-up`
 when it is alive and dropped this connection, or `failed` with the socket
-error. `describeDisconnect` turns one into a line; headless `marbles run`
-prints it and exits 1 for anything but a stop. A live run's stream does not cross the socket, so
+error. `describeDisconnect` turns one into a line; `marbles` with its output
+piped prints it and exits 1 for anything but a stop. A live run's stream does not cross the socket, so
 `actions.runs.stream` is absent on a remote connection; read the
 [output journal](/marbles/reference/state#run-output) instead.
 

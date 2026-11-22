@@ -52,8 +52,8 @@ tools that need a host name the missing source. What each tool needs:
 - `list_config`, `dispatch_workflow`, `dispatch_agent`, `get_run`, and
   `cancel_run` need a running Marbles process that hosts the workspace and
   has it `ready`. Without one they return a tool error that says
-  `marbles attach` hosts it. Host the workspace with `marbles attach`,
-  `marbles run`, or `marbles roll` first.
+  `marbles daemon attach` hosts it. Host the workspace with `marbles daemon attach`,
+  `marbles`, `marbles run <name>`, or `marbles enqueue <name>` first.
 
 The server joins the Marbles process on each call and leaves it after, so
 a process started or stopped while the server runs is seen by the next
@@ -70,7 +70,7 @@ processes it starts print to stdout goes to stderr too.
 Under `--dry-run` the server still hosts nothing and loads no source. It
 joins no Marbles process, even one that hosts the workspace, and writes
 nothing. [Tools](#tools) says what each tool does then. A dry run of a
-workflow goes through `marbles roll --dry-run`.
+workflow goes through `marbles run <name> --dry-run`.
 
 ## Tools
 
@@ -101,7 +101,7 @@ Under `--dry-run`, `list_workspaces` names only the server's own workspace,
 as `stopped`. The task tools answer from memory for that workspace and
 refuse any other id. `list_config`, `dispatch_workflow`, `dispatch_agent`,
 `get_run`, and `cancel_run` return an error that names
-`marbles roll --dry-run`.
+`marbles run <name> --dry-run`.
 
 Dispatch responses are acknowledgements, even if their status is already
 `completed`. They contain no final `output`, `text`, or `error`; call `get_run`
@@ -142,9 +142,10 @@ bun --no-env-file apps/marbles/src/cli.ts watch <runId>
 ```
 
 The watcher replays earlier output, follows new output, prints the result
-and terminal status, then exits. It needs no source path and can run from
+and terminal status, then exits. A run still waiting in its queue has no
+output yet; the watcher says so and waits for it to start. It needs no source path and can run from
 another working directory. If you set `FOUNDRY_HOME` for the MCP server,
-set the same for the watcher. See [watching runs](/marbles/reference/cli#watch-a-background-run)
+set the same for the watcher. See [watching runs](/marbles/reference/cli#enqueue-and-watch-a-background-run)
 for exit codes and interruption behavior.
 
 ## Agent options
@@ -206,7 +207,8 @@ go to the generation that owns the run. The returned run ID still works
 after queued or parked work moves to a new generation. A queued agent
 dispatch reopens the same saved session when the new engine starts the
 turn. The lookup also accepts other workflow run IDs the engine knows,
-including runs started by a schedule or by `launch`. Host task runs use
+including runs started by a schedule, by `engine.launch`, or by an
+`enqueue`. Host task runs use
 their separate task controls. The
 [output journal](/marbles/reference/state#run-output) stays on disk, and
 its files have no automatic retention policy yet.
@@ -214,6 +216,6 @@ its files have no automatic retention policy yet.
 Under `--dry-run` the server runs nothing. Its in-memory tasks end with
 the connection.
 
-`marbles stop` ends the process and every workspace it hosts; `marbles
+`marbles daemon stop` ends the process and every workspace it hosts; `marbles
 status` shows the process and which workspaces are hosted. Custom artifact
 tools, sandbox tools, and remote transport are outside this iteration.

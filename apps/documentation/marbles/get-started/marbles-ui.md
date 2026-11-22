@@ -27,13 +27,15 @@ The dashboard has no task view yet. Tasks live in workspace state, and the
 ## The process behind it
 
 One Marbles process per machine hosts every attached workspace. `marbles`
-attaches the current workspace and opens the dashboard. `marbles roll
+attaches the current workspace and opens the dashboard. `marbles run
 <name>` attaches it, runs one target, prints the result, and exits.
-`marbles attach` attaches it and exits. Each leaves the workspace hosted, so
+`marbles enqueue <name>` attaches it, queues one step or workflow, prints
+the run ID, and exits at once; `marbles watch <runId>` follows that run.
+`marbles daemon attach` attaches it and exits. Each leaves the workspace hosted, so
 its schedules, monitors, and observers keep running after the command ends.
-`marbles stop` ends the process.
+`marbles daemon stop` ends the process.
 
-For unattended use, `marbles run </dev/null` attaches the workspace and
+For unattended use, `marbles </dev/null` attaches the workspace and
 follows its status lines as plain text. It cannot answer questions. See
 [CLI modes](/marbles/reference/cli).
 
@@ -73,7 +75,7 @@ to type an answer; an approval takes an optional note. The run continues
 from the step that asked.
 
 A parked run survives a quit, a stop, and a crash. The next dashboard on
-that workspace sees the question. `roll` and `marbles run` cannot answer,
+that workspace sees the question. `marbles run` and piped `marbles` cannot answer,
 so launch work that asks questions from the dashboard, or leave it parked
 until you open one. [Durability](/marbles/concepts/durability) explains how
 the step continues.
@@ -110,7 +112,7 @@ current source checkout to show observers.
 
 `watch` exits 0 when the run completes and 1 when it fails or is
 cancelled. Stopping the watcher does not cancel the run. See
-[watching a background run](/marbles/reference/cli#watch-a-background-run).
+[watching a background run](/marbles/reference/cli#enqueue-and-watch-a-background-run).
 
 ## From an MCP client
 
@@ -118,7 +120,7 @@ cancelled. Stopping the watcher does not cancel the run. See
 agent can read and change tasks, list the loaded configuration, start a
 named workflow with `dispatch_workflow`, or start agent work with
 `dispatch_agent`. Both dispatch tools return a `runId` without waiting.
-Dispatching needs the workspace hosted first, with `marbles attach`.
+Dispatching needs the workspace hosted first, with `marbles daemon attach`.
 
 An MCP client that creates tasks feeds [the outer
 loop](/marbles/get-started/outer-loop) like anyone else. The [MCP

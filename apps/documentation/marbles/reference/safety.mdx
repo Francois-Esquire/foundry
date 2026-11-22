@@ -31,7 +31,7 @@ monitors still scan, HTTP monitors still use the network, and Git status can
 still read the working tree. Worktree helpers still allocate a temporary
 directory even though their Git commands are echoed. Clients and tools you
 construct independently do not inherit these substitutions. Read the bodies
-before running `roll` on a module you did not write.
+before running `marbles run` on a module you did not write.
 
 :::note
 Use `--dry-run` to inspect managed execution, not to contain arbitrary code.
