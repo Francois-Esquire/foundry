@@ -57,7 +57,7 @@ Cap cases, per-step timeout, and improvement attempts. A monitor's polling
 interval does not limit all manually or independently launched trials. Use
 one dispatch path or coordinate claims before adding several producers.
 Pending launches can be redelivered; a failed trial is not automatically
-relaunched just because its files are unchanged. See [trigger delivery](/marbles/foundation/triggers#launch-work-from-a-change).
+relaunched just because its files are unchanged. See [trigger delivery](/marbles/concepts/monitoring-and-scheduling#launch-work-from-a-change).
 
 This loop reports evidence. It does not rewrite the watched skill or adopt
 an improvement automatically. Feed its failures into the

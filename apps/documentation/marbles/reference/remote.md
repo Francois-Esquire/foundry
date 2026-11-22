@@ -50,7 +50,7 @@ those facilities. Edited modules reload on their own, through the next
 engine generation; one whose change does not load keeps the previous load
 running and shows the error until a later edit loads.
 
-Process supervision and [workflow durability](/marbles/foundation/durability)
+Process supervision and [workflow durability](/marbles/concepts/durability)
 serve different purposes. Restarting the process brings its loops back, but
 it does not resume an interrupted running step. A scheduler that launches
 `roll` again creates a new run. Account for earlier external effects before

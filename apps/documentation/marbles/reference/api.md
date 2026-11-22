@@ -3,18 +3,18 @@ title: API reference
 description: Authoring factories, builders, resource operations, context properties, and triggers.
 ---
 
-Use this page to look up authoring options. [Foundation](/marbles/foundation/api)
+Use this page to look up authoring options. [Concepts](/marbles/concepts)
 explains the relationships between definitions, instances, and contexts.
 [Agent sessions](/marbles/reference/agent-sessions) covers advanced session options.
 
-[Durability](/marbles/foundation/durability) defines the execution guarantees;
-[Foundry primitives](/marbles/foundation/primitives) maps these operations
+[Durability](/marbles/concepts/durability) defines the execution guarantees;
+[Foundry primitives](/marbles/concepts/primitives) maps these operations
 to the libraries beneath them. Package APIs can expose capabilities beyond
 the authoring interface described here.
 
 Code blocks on this page illustrate API forms and may refer to definitions
 from earlier blocks. For complete runnable modules, use the
-[quickstart](/marbles/get-started/quickstart) or [composition examples](/marbles/foundation/composition).
+[quickstart](/marbles/get-started/quickstart) or [composition examples](/marbles/concepts/steps-and-workflows).
 
 ## Authoring factories
 
@@ -34,7 +34,7 @@ import {
 
 | Factory | Declaration | Purpose |
 | --- | --- | --- |
-| `agent` | `agent({ name?, prompt, model?, provider?, settings?, skills?, mcp? })` or `agent(async (route, input) => ({ prompt, … }))` | Who does model work, with defaults; a function builds the definition as each session opens. |
+| `agent` | `agent({ name?, prompt, model?, provider?, settings?, skills?, mcp? })`, `agent(async (route, input) => ({ prompt, … }))`, or `agent(name, async (route, input) => ({ prompt, … }))` | Who does model work, with defaults; a function builds the definition as each session opens. |
 | `workspace` | `workspace({ path })` | Another directory to work on. The current workspace is implicit. |
 | `sandbox` | `sandbox({ image, mount?, target?, … })` or `sandbox({ files, image?, … })` | An isolated place to run commands. |
 | `artifact` | `artifact({ name, type })` | A named output; each write adds a version. |
@@ -42,7 +42,7 @@ import {
 | `step` | `step(name?).describe(text).input(s).output(s).config(c).do(fn)` | One piece of work. |
 | `workflow` | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps. |
 | `schedule` | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
-| `monitor` | `monitor(source).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
+| `monitor` | `monitor(source).name?(key).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
 
 Steps, workflows, and triggers register as modules load. Exports are optional
 and useful for sharing definitions. Import singular factories to declare resources. A step uses the plural
@@ -99,6 +99,20 @@ const claudeReview = reviewer("claude"); // id "review-claude"
 
 Without `name`, each agent's id is a digest of its prompt, which moves when
 the prompt changes.
+
+An agent declared with a function takes its name as the first argument:
+
+```ts
+const reviewer = (team: string) =>
+  agent(`reviewer-${team}`, () => ({ prompt: `Review for ${team}.` }));
+
+const web = reviewer("web"); // id "reviewer-web"
+```
+
+A blank name fails with `agent(): a name cannot be blank`, and a name
+another function already claimed fails with `agent "<name>" already
+declared`. Without a name, a function agent takes the `const` it is
+assigned to, else a digest of the function's source.
 
 ### Agent inputs
 
@@ -205,7 +219,7 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
 | Instance | Operations | Context equivalent |
 | --- | --- | --- |
 | `agent` | `generate(input, turn?)`, `stream(input, turn?)`; `extend({ model?, provider?, settings?, input? })` | `agents.session(def)`, one turn |
-| `step`, `workflow` | `run(input?)` | Direct execution within the current process; no separate dashboard run. |
+| `step`, `workflow` | `run(input?)`, `launch(input?)` | `run`: direct execution within the current process, no separate dashboard run. `launch`: a separate run on the engine, resolved as `{ id, result }` once admitted. |
 | `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
 | `sandbox` | `exec`, `close`, and the container's `commands`, `filesystem`, `processes`, `shell`, `ports`, `services`, `volumes`; started by the first call | `sandboxes.start(def)` |
 | `artifact` | `write(files, options?)`, `latest()` | `artifacts.write(def, files)`, `artifacts.latest(def)` |
@@ -214,7 +228,7 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   cancellation. Replay depends on the operation: managed artifact writes
   and completed one-shot agent replies can be reused; file reads and
   commands can execute again. Keep managed call order stable. See the
-  [replay table](/marbles/foundation/durability#replay-is-different-from-retry).
+  [replay table](/marbles/concepts/durability#replay-is-different-from-retry).
 - **Anywhere else** (module top level, a plain `bun` script) it runs on the
   engine `marbles` built for the module, or, with none, on a default one:
   the installed CLI harnesses, the current directory as the workspace, and
@@ -229,13 +243,13 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   session opens, given the route `extend` set. Its data is its id and that
   route until then, and its type is `DeferredAgent` rather than
   `AgentDefinition`. See
-  [defining the agent with a function](/marbles/foundation/agents-and-sessions#define-the-agent-with-a-function).
+  [defining the agent with a function](/marbles/concepts/agents-and-sessions#define-the-agent-with-a-function).
 - **`extend` changes only the route and settings.** It returns an agent
   with the same ID, prompt, and skills. `settings` merge over the base's:
   plain objects merge recursively, and any value `extend` sets replaces the
   one before; arrays and `output` are replaced whole. A new `output` types
   the extended agent's replies. See
-  [choosing the route when the step runs](/marbles/foundation/agents-and-sessions#choose-the-route-when-the-step-runs).
+  [choosing the route when the step runs](/marbles/concepts/agents-and-sessions#choose-the-route-when-the-step-runs).
 - **A sandbox starts at its first call.** In a step it is that step's
   sandbox, closed with the run and reopened on replay; elsewhere it runs
   until `close()` or `dispose()`. Its filesystem is `box.filesystem`, since
@@ -246,6 +260,19 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   on the dashboard and cannot be paused on its own. A step that asks a
   person with nobody to answer rejects with `asked a person; run it with
   marbles to answer`.
+- **`launch` admits a separate run** on the engine and resolves with
+  `Launched<O>`, `{ id, result }`, before the run ends; `result` settles
+  with its output or error and never raises an unhandled rejection. Input
+  the schema refuses rejects the launch when the run can start at once,
+  and rejects `result` when the run waited in the queue. Inside a step body
+  it launches a top-level run of the same engine and records it in the
+  step's ledger: a body that runs again after a question or a resume gets
+  the same run back for the same definition at the same call position, and
+  launches again when a different definition is reached there. The
+  guarantee covers replay, not a retried attempt; keep `retry` off a step
+  whose launches must happen once. Outside a run it uses the engine `marbles`
+  built for the module. A retiring or disposed engine refuses it. Read the
+  run with [`runs`](#exports).
 
 ## The builder
 
@@ -261,6 +288,8 @@ step(name?)          // a builder
   .do(fn)            // returns the definition
   // or, for a step that is one command:
   .exec("bun add $package", { check?, cwd?, environment?, sandbox? })
+  // or options computed for each run:
+  .exec("bun test", ({ input }) => ({ cwd: input.dir }))
 ```
 
 - A string first argument makes the step launchable by that name. A repeated
@@ -299,7 +328,8 @@ step(name?)          // a builder
   key, or the module fails to load. `.exec(({ input }) => argv)` computes
   the list instead. The step's output is `{ exitCode, stdout, stderr }`; a
   non-zero exit fails it unless `{ check: false }`. It runs like a body's
-  `exec`.
+  `exec`. The options may be a function of the step's context, sync or
+  async, called each run before the command starts.
 - **`bail(error)`**, exported from `@foundry.sh/marbles`, is a failure as a
   value: return it from `do` to fail the step without a retry. It is not
   checked against the output schema.
@@ -329,6 +359,7 @@ Calling a definition creates a node in the workflow tree. This operation is
 called locking. It selects children and literal input without executing work.
 
 ```ts
+checks(); // leaf: no children, no input
 review({}, { target: "." }); // leaf: no children, literal input
 publish({ findings: review({}) }, { exitCode: 0 }); // one child, one literal
 publish.series({ a: x({}), b: y({}) }); // children in key order (default)
@@ -336,7 +367,10 @@ publish.parallel({ a: x({}), b: y({}) }); // children together
 ```
 
 - **Children first.** An object of locked nodes keyed by name. A leaf passes
-  `{}`. The keys name the children in the dashboard, in logs, on resume, and
+  `{}`, or nothing when the definition requires no input: `checks()`
+  locks it, and `workflow("name", checks)` takes it uncalled. A definition
+  with required input still needs its input, and so do `run` and
+  `launch`. The keys name the children in the dashboard, in logs, on resume, and
   in the parent's input.
 - **Input second, optional.** Literal values for the step's input. The
   literal takes the schema's input type, so defaulted fields are optional.
@@ -361,7 +395,7 @@ a question parks the parent with it while the others finish.
 
 Workflow setup receives only `{ input, log, run: { id } }`. Step bodies
 receive the full context below. Monitor handlers extend it with change
-data. See [Contexts](/marbles/foundation/contexts) for when each is used.
+data. See [Contexts](/marbles/concepts/steps-and-workflows#contexts) for when each is used.
 
 | Property | Use |
 | --- | --- |
@@ -419,7 +453,7 @@ The second argument to `generate` and `stream` takes
 and handlers such as `onText`. They override the agent's `settings`. A
 turn whose `output` gets no matching value rejects with
 `NoObjectGeneratedError` after the reply is committed. See
-[structured output](/marbles/foundation/agents-and-sessions#structured-output).
+[structured output](/marbles/concepts/agents-and-sessions#structured-output).
 
 ### Workspace operations
 
@@ -523,7 +557,7 @@ the artifact's current version with `text(path)` and `bytes(path)`, or
 `undefined` before the first write. A declared artifact belongs to the
 workspace, so this is what the last run here kept. Under `--dry-run` it
 reads what real runs kept while its own writes stay in memory. See the
-[persistent reviewer](/marbles/use-cases/software-factory/development/verify#keep-review-history).
+[persistent reviewer](/marbles/use-cases/software-factory/revise#keep-the-reviewers-memory).
 
 ### Reports
 
@@ -550,7 +584,7 @@ files are not automatically displayed by the Feed reader.
 
 An artifact write by itself does not post to the Feed. Feed entries persist
 too, using the artifact store internally. See
-[Artifacts and the Feed](/marbles/foundation/artifacts-and-results#artifacts-and-the-feed)
+[Artifacts and the Feed](/marbles/concepts/workspaces-and-artifacts#artifacts-and-the-feed)
 for choosing between stored outputs, messages, and returned results.
 
 ### Output and cancellation
@@ -649,6 +683,12 @@ monitor("https://tracker.example.com/latest")
 - **Keys.** A schedule is keyed `slug(target)[-sha8(input)]`, a monitor
   `slug(source)-sha6(source)`; an exact duplicate gets `-2`. `list` prints
   the keys. They name the state files and `roll <key>`.
+- **`.name(key)`** gives a monitor its key instead, anywhere in the chain
+  before `.do`. A key is one word: a blank one fails with `.name(): a name
+  cannot be blank`, and one with whitespace with ``a name is one word, as
+  `marbles roll <name>` takes it``. Schedules and monitors share one key
+  space; a taken key fails with `monitor "<key>": a schedule or monitor of
+  that name is already registered; give each its own name`.
 
 ## Composition and durability
 
@@ -673,7 +713,7 @@ call can reuse its completed reply. Put an approval at the start of its
 step, with non-repeatable work in a completed child or after the answer.
 
 The CLI saves snapshots at suspension, resumption, and settlement. Newer
-progress may not reach disk before a crash. The [durability guide](/marbles/foundation/durability)
+progress may not reach disk before a crash. The [durability guide](/marbles/concepts/durability)
 describes each operation; [state](/marbles/reference/state#what-survives-a-restart)
 lists adoption conditions.
 
@@ -698,11 +738,12 @@ exports these types:
 | Group | Types |
 | --- | --- |
 | Instances | `Agent`, `Runnable`, `WorkspaceInstance`, `SandboxInstance`, `ArtifactInstance` |
+| Runs | `Launched`, `RunReads`, `RunView`, `RunQuery` |
 | Work | `StepDefinition`, `WorkflowDefinition`, `LockedNode` |
 | Resource definitions | `AgentDefinition`, `AgentSettings`, `WorkspaceDefinition`, `SandboxDefinition`, `SandboxSpec`, `ArtifactDefinition`, `SkillSet` |
 | Agents | `Agents`, `Session`, `SessionRef`, `SessionReply`, `TurnOptions` |
 | Workspaces and sandboxes | `Workspaces`, `WorkspaceHandle`, `LoadedWorkspace`, `Sandboxes`, `SandboxHandle` |
-| Artifacts | `Artifacts`, `ArtifactVersion` |
+| Artifacts | `Artifacts`, `ArtifactVersion`, `ArtifactShareEvent` |
 | Tasks | `Task`, `TaskNode`, `TaskStatus`, `TaskAvailability`, `TaskChange`, `TaskOperation`, `TaskRef`, `TaskToken`, `TaskChangeResult`, `TaskQuery`, `TagQuery`, `TaskRelations`, `DepthOptions`, `CreateTaskInput`, `UpdateTaskInput`, `TaskEvent`, `TaskDelta` |
 | Execution | `Context`, `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel` |
 | Commands | `CommandResult`, `Exec`, `ExecOptions` |
@@ -745,6 +786,32 @@ step("triage").do(async () => {
 });
 ```
 
+The main entry also exports `runs`, a read-only view of the workspace's
+runs, bound per load as `tasks` is. `runs.get(runId)` returns a `RunView`
+or `null`, and `runs.list({ name?, status? })` the matching runs, oldest
+first; `status` is one `ExecutionStatus` or an array. A `RunView` is
+`{ id, name, kind, status, input?, output?, error?, queuedAt, startedAt?,
+endedAt? }`: `kind` is `"workflow"` or `"task"`, `status` is `queued`,
+`running`, `suspended`, `complete`, `failed`, `cancelled`, or
+`interrupted`, `output` is present once `complete`, and the timestamps are
+ISO strings. It reads the stored Run first and the live execution record
+second. `runs` never starts an engine to answer. Like `tasks`, it refuses
+while a source loads and once its host is disposed, and an empty id is a
+`TypeError`.
+
+```ts
+import { observe, runs, workflow } from "@foundry.sh/marbles";
+
+observe(
+  workflow,
+  async ({ runId }) => {
+    const run = await runs.get(runId);
+    if (run?.status === "failed") await notify(run.name, run.error);
+  },
+  { name: "failures", types: ["run.failed"] }
+);
+```
+
 `observe(source, handler, options?)` calls `handler` with each change fact
 `source` commits in the workspace from now on. Each top-level word is a
 source: `tasks` (`tasks.changed`, one per write, holding each task it put
@@ -754,7 +821,8 @@ it added and removed), `workflow` (each Run's `run.queued`, `run.started`,
 `run.cancelled`, `run.updated`), `artifact`
 (`artifact.created`, `artifact.written`, ..., and `artifact.shared` and
 `artifact.unshared` when this workspace shows one of its artifacts in
-another workspace or stops, with that workspace's id in `workspace`),
+another workspace or stops, typed `ArtifactShareEvent`: `{ id, at, type,
+artifactId, workspace }`, with the other workspace's id in `workspace`),
 `sandbox`
 (`sandbox.created`, `sandbox.started`, `sandbox.stopped`,
 `sandbox.failed`, `sandbox.destroyed`), `workspace` (`workspace.created`,
@@ -763,7 +831,11 @@ another workspace or stops, with that workspace's id in `workspace`),
 `session.messages.appended`). Every fact is `{ type, id, at, ... }` with
 the ids of what it is about; read the object by id for anything more.
 `options.types` hands the observer only facts of those types. It returns
-the observer's identity, `{ kind: "observer", name, source }`.
+the observer's identity, `{ kind: "observer", name, source }`. `marbles
+list`, MCP `list_config`, and the engine's `describe()` list each declared
+observer with its name, source, and `types`; `list` prints
+`[observer] <name> ← <source> <types>`, where the `workflow` source reads
+`runs`.
 
 ```ts
 import { observe, tasks, workflow } from "@foundry.sh/marbles";

@@ -250,7 +250,7 @@ and the palette snapshot before merging.
 `report.result(...)` posts the agent's explanation to the Feed. This sample
 keeps the palette snapshot in Git rather than declaring an output artifact.
 To retain additional screenshots or review evidence, use
-[`report.artifact(...)`](/marbles/foundation/artifacts-and-results#choose-an-output)
+[`report.artifact(...)`](/marbles/concepts/workspaces-and-artifacts#choose-an-output)
 with saved files and a readable Feed body.
 
 ## How the pieces fit
@@ -285,7 +285,7 @@ Loading the module or echoing the agent does not verify the external services.
 The branch check avoids proposing an existing palette again, but does not
 prove that a previous attempt finished pushing or opening its pull request.
 Inspect that branch and remote state after a partial failure before rerunning
-or enabling retries. [Durability](/marbles/foundation/durability) keeps the
+or enabling retries. [Durability](/marbles/concepts/durability) keeps the
 workflow's recorded progress; it cannot make an external commit, push, and
 pull-request creation one atomic operation.
 

@@ -9,7 +9,7 @@ These commands use the standalone `marbles` executable. See
 A launch uses the bundled [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
 and local persistent stores. `roll` creates a new run; it does not resume a
 previous failed run. The engine generation hosting a workspace adopts parked
-work under the [durability rules](/marbles/foundation/durability#recovery-after-a-restart).
+work under the [durability rules](/marbles/concepts/durability#recovery-after-a-restart).
 
 One Marbles process per state root, which is one per machine by default,
 hosts every attached workspace in one engine subprocess, its current
@@ -28,7 +28,7 @@ process, persists nothing, and never touches the Marbles process.
 | No command or `run` | Attach this workspace to the Marbles process, which starts its triggers, and open the splash and live dashboard; Enter enters it. Piped, attach and follow the workspace's status lines until interrupted. |
 | `help`, `--help`, `-h` | Print usage without loading modules. |
 | `init [developer \| design \| product]` | Create a starter module in `.foundry/marbles`, without running it or overwriting it. Defaults to Product. |
-| `list` | Load modules and list named work, schedules, and monitors with their keys and cadence. Runs no step body. |
+| `list` | Load modules and list named steps and workflows, schedules and monitors with their keys and cadence, and declared observers with their source and fact types. Runs no step body. |
 | `roll <name-or-key> [--input <json>]` | Attach this workspace and dispatch one step, workflow, schedule, or monitor in the current engine generation now; print the lines it logged and its result as JSON, and exit. The workspace stays hosted. |
 | `status` | Read the state root: the Marbles process (pid, version, socket) and every workspace with whether it is hosted, the pid of the engine generation hosting it, the live generations, schedules, recent runs with their top-level steps (a run shared from another workspace says so), and how many sessions and artifacts it shows. Reads files only: needs no running process and loads no module. |
 | `watch <runId>` | Replay saved output, follow new output, and exit when an agent or workflow run finishes. |
@@ -101,7 +101,23 @@ this feature, and in-memory `--dry-run` runs, have no journal to watch.
 | Monitor key | Poll once; run the handler if the observation changed. A returned locked node launches its target. |
 
 Use the keys printed by `list`. Schedule keys derive from the target and
-input; monitor keys derive from the source. The first monitor poll treats
+input; monitor keys derive from the source unless `.name(key)` sets one.
+
+`list` prints one line per entry, in this order:
+
+```text
+[source] /path/to/project/.foundry/marbles
+[step] check-task
+[workflow] pre-push
+[schedule] nightly-checks → nightly-checks daily at 02:00
+[monitor] source files src/**/*.ts every 1m
+[observer] dispatchChecks ← tasks
+[observer] flagFailures ← runs run.failed
+```
+
+An observer line is `[observer] <name> ← <source>`, followed by the fact
+types it asked for, if any. The `workflow` source reads `runs`. Observers
+are listed, not rolled: `roll` takes a definition name or a trigger key. The first monitor poll treats
 existing files or the first HTTP response as a change.
 
 `roll` runs in the current engine generation: the lines the run printed come back
