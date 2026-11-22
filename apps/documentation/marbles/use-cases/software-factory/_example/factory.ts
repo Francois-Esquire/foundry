@@ -79,7 +79,16 @@ observe(tasks, async function dispatchFactory() {
   const ready = await tasks.ready({ tags: { all: ["factory"] } });
   for (const task of ready.items) {
     if (await claim(task.id, task.updatedAt)) {
-      await build.launch({ task: task.id });
+      try {
+        await build.launch({ task: task.id });
+      } catch (error) {
+        await tasks.change({
+          operations: [
+            { kind: "task.set_status", status: "open", task: { id: task.id } },
+          ],
+        });
+        throw error;
+      }
     }
   }
 });
