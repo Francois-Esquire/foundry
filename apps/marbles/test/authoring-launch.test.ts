@@ -13,8 +13,14 @@ import {
   vi,
 } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
-import { expectHost, setHost } from "~/authoring/runtime";
+import { libraryOfLoad } from "~/authoring/bound";
+import { Catalog, catalog } from "~/authoring/catalog";
+import {
+  expectHost,
+  loadInto,
+  releaseEngine,
+  setHost,
+} from "~/authoring/runtime";
 import { DatabaseRunStore } from "~/database/runs";
 import type { Engine } from "~/lib/engine";
 import { testEngine } from "./helpers/engine";
@@ -22,10 +28,14 @@ import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
 const RUN_ID = /^rn-/;
+const SCHEMA = /"typed-leaf" input/;
+const RELEASED = /no longer hosted in this process/;
 const DISPOSED_RUNS = /host that held these runs was disposed/;
 const LOADING_RUNS = /runs are not available while its source loads/;
 const RETIRING = /this engine is retiring/;
 const STOPPING = /engine is stopping/;
+
+const library = await import("~/authoring");
 
 const engines: Engine[] = [];
 let machine: TestMachine;
@@ -292,5 +302,91 @@ describe("runs", () => {
     const { id, result } = await leaf.launch();
     await expect(result).resolves.toBe("dry");
     await expect(runs.get(id)).resolves.toMatchObject({ status: "complete" });
+  });
+});
+
+describe(".launch() at its edges", () => {
+  it("launches again when a body that runs again reaches another definition at the same place", async () => {
+    let bodies = 0;
+    const first = step("first-choice").do(() => "first");
+    const second = step("second-choice").do(() => "second");
+    const chooser = step("chooser").do(async ({ ask }) => {
+      bodies += 1;
+      const launched = await (bodies === 1 ? first : second).launch();
+      await ask.question({ title: "Again?" });
+      return launched.id;
+    });
+    const engine = unhosted(true);
+    await engine.start();
+    const running = engine.execute<string>(chooser, {});
+    await answerOpen(engine);
+    const id = await running;
+
+    expect(bodies).toBe(2);
+    expect(engine.executions.get(id)?.name).toBe("second-choice");
+    expect(
+      engine.executions
+        .list()
+        .map((run) => run.name)
+        .filter((name) => name.endsWith("-choice"))
+    ).toEqual(["first-choice", "second-choice"]);
+  });
+
+  it("rejects a launch that fails as it starts when its queue has room, and leaves the failure to result when it waits", async () => {
+    const typed = step("typed-leaf")
+      .input(z.object({ count: z.number() }))
+      .do(({ input }) => input.count);
+    const release = Promise.withResolvers<void>();
+    const hold = step("hold-lane").do(() => release.promise);
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const engine = host();
+      await engine.start();
+      const wrong = { count: "many" } as unknown as { count: number };
+      await expect(typed.launch(wrong)).rejects.toThrow(SCHEMA);
+
+      const held = await hold.launch();
+      const waiting = await typed.launch(wrong);
+      await expect(runs.get(waiting.id)).resolves.toMatchObject({
+        status: "queued",
+      });
+      release.resolve();
+      await held.result;
+      await expect(waiting.result).rejects.toThrow(SCHEMA);
+      await new Promise((done) => setTimeout(done, 20));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
+  it("refuses a launch and a read from a load whose host was disposed", async () => {
+    const into = new Catalog();
+    let leaf: { launch(): Promise<unknown> } | undefined;
+    let reads: typeof runs | undefined;
+    await loadInto(
+      "launch-released",
+      into,
+      (load) => {
+        const bound = libraryOfLoad(library, load) as typeof library;
+        leaf = bound.step("released-leaf").do(() => "never");
+        reads = bound.runs;
+        return Promise.resolve();
+      },
+      { dry: false }
+    );
+    const engine = testEngine({
+      print: () => undefined,
+      workspaceId: "launch-released",
+    });
+    engines.push(engine);
+    setHost(engine, into);
+    await engine.start();
+    await engine.dispose();
+    releaseEngine(engine);
+
+    await expect(leaf?.launch()).rejects.toThrow(RELEASED);
+    await expect(reads?.get("rn-1")).rejects.toThrow(RELEASED);
   });
 });

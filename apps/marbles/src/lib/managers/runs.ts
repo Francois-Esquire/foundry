@@ -43,6 +43,7 @@ export interface RunsSource {
 const LAUNCH_KIND = "launch";
 
 interface RecordedLaunch {
+  readonly definition: string | null;
   readonly run: string;
 }
 
@@ -138,13 +139,17 @@ export function scopedRuns(source: RunsSource, args: ManagerArgs): Runs {
     async launch(definition, input) {
       const { key } = args.scope.claim(args.frame, LAUNCH_KIND);
       const recorded = args.scope.ledger.get<RecordedLaunch>(key);
-      if (recorded !== undefined) {
+      const named = definition.name ?? null;
+      if (recorded !== undefined && recorded.definition === named) {
         return { id: recorded.run, result: source.resultOf(recorded.run) };
       }
       const launched = await current.exit(() =>
         source.launch(definition, input)
       );
-      args.scope.ledger.set(key, { run: launched.id } satisfies RecordedLaunch);
+      args.scope.ledger.set(key, {
+        definition: named,
+        run: launched.id,
+      } satisfies RecordedLaunch);
       return launched;
     },
   };
