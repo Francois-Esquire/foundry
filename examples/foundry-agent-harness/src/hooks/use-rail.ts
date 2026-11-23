@@ -12,9 +12,10 @@ import {
 export function useRail(
   context: Context,
   avatars: number,
-  stops: readonly RailStop[]
+  stops: readonly RailStop[],
+  from?: Partial<Rail>
 ): Rail {
-  const [rail, setRail] = useState(() => startRail(context));
+  const [rail, setRail] = useState(() => startRail(context, from));
   useKeyboard((key) => {
     if (key.name === "tab") {
       setRail((current) => refocus(current, stops, key.shift));

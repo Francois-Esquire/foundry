@@ -11,9 +11,24 @@ cd examples/foundry-agent-harness
 bun run start
 ```
 
-Run the build from the repository root. Type a goal and press Enter. PgUp
-and PgDn scroll the conversation, and Ctrl+C quits. A second goal continues
-the same conversation and adds to the list.
+Run the build from the repository root. The harness opens on a Get Started
+menu: Tab moves between the character, the gun, and the ammo, Up and Down
+change the one in focus, and Enter starts the mission.
+
+| Stop | Up and Down |
+| --- | --- |
+| Character | Pick the Smith, the Welder, or the Automaton. |
+| Gun | Pick the model: `sonnet`, `opus`, or `haiku`. |
+| Ammo | Load or drop a round of effort: low, medium, or high. |
+
+The menu also lists the loadout: the skills and MCP servers the worker
+carries. The character, gun, and ammo stay for the whole mission, so the
+worker keeps one conversation and its context window is never reset by a
+change of model. Quit and start again to pick differently.
+
+On the mission screen, type a goal and press Enter. The first goal names the
+mission. PgUp and PgDn scroll the conversation, and Ctrl+C quits. A second
+goal continues the same conversation and adds to the list.
 
 Each goal and everything done for it is an encounter. When one ends, a
 results card above the goal bar shows what it took and takes the keys from
@@ -25,18 +40,9 @@ verdict is in.
 The screen is laid out like a game HUD. A status rail on the left shows an
 avatar whose face follows the worker's context window, the vitals (the
 window left, the tokens spent, and your level and XP), the weapon, the
-loadout, and the arsenal of tools used so far. Tab moves the
-focus down the rail, and Up and Down change what it is on:
-
-| Stop | Up and Down |
-| --- | --- |
-| Avatar | Pick the Smith, the Welder, or the Automaton. |
-| Gun | Pick the model: `sonnet`, `opus`, or `haiku`. |
-| Ammo | Load or drop a round of effort: low, medium, or high. |
-| Loadout | Read what each skill and MCP server is for. |
-
-The gun and ammo apply to the next goal. Each pairing gets its own engine
-and worker session, so switching starts that pairing's conversation fresh.
+loadout, and the arsenal of tools used so far. The weapon is locked for the
+mission; Up and Down move through the loadout to read what each skill and
+MCP server is for.
 
 The avatar is a real image where the terminal can draw one (the Kitty
 graphics protocol or Sixel, as in Ghostty, Kitty, and WezTerm) and coloured
@@ -135,7 +141,9 @@ The screen has three layers:
 | `useThread` | `run` | The current thread, and `start(goal, weapon)`, which calls `run` with a setter and the chosen model and effort. |
 | `useVerdicts` | The latest encounter | The verdicts given so far, by encounter id. A accepts, R rejects and Esc skips, only once the latest encounter has ended and has none. |
 | `useGoalDraft` | Whether the thread is busy, and what to do with a goal | The draft, its setter, and `submit`, which trims the draft, ignores it when empty or busy, hands it over once, and clears it. |
-| `useRail` | The context, the number of avatars, and the stops the rail shows | The focused stop and the chosen avatar, model, effort, and loadout slot. Tab and Shift+Tab move the focus; Up and Down change what it is on. |
+| `useMission` | Nothing | The picks made on the menu (none until a mission starts), and `begin`, which starts one with them. |
+| `useConfirm` | What to do | Calls it when Enter is pressed. |
+| `useRail` | The context, the number of avatars, the stops in play, and optionally where to start | The focused stop and the chosen avatar, model, effort, and loadout slot. Tab and Shift+Tab move the focus; Up and Down change what it is on. The menu uses the character, gun, and ammo stops; the mission screen uses only the loadout. |
 | `usePortrait` | An avatar, its health, a seed, the frame, and when it was hit | The avatar's picture for that moment, repainted only when it changes. |
 | `useWound` | The health and the frame | The frame a hit landed, set whenever health worsens, and `hit`. |
 | `usePageScroll` | The page height | The scrollbox ref. PgUp and PgDn scroll it by a page. |
@@ -143,7 +151,7 @@ The screen has three layers:
 | `useAnimationClock` | Whether anything animates | `{ frame, now }`, ticking every 80 ms only while active. Spinners draw `frame`; a running tool's timer is `now` less its `startedAt`. |
 
 The layout sizes itself to the box it is mounted in, not the terminal.
-Below 77 columns the rail is dropped, Tab does nothing, and the
+Below 77 columns the rail is dropped and the
 conversation takes the full width. Under 42 rows the portrait halves and the
 rail gives up the arsenal, then the loadout. The results card takes six rows
 from the conversation and is dropped under 22 rows; while a verdict is

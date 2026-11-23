@@ -1,0 +1,103 @@
+import { afterEach, expect, test } from "vitest";
+import { briefingGeometry } from "../src/components/layouts/briefing";
+import type { Picks } from "../src/model/rail";
+import { AppView } from "../src/views/app";
+import { BriefingView } from "../src/views/briefing";
+import { context, threads } from "../stories/fixtures/threads";
+import { fakeRun } from "./helpers/fake-run";
+import { frameWith, mount, press, type, unmount } from "./helpers/render";
+
+const TALL = { height: 44, width: 120 };
+
+const started: Picks[] = [];
+
+function start(picks: Picks) {
+  started.push(picks);
+}
+
+function briefing() {
+  return { node: <BriefingView context={context} onStart={start} /> };
+}
+
+afterEach(async () => {
+  started.length = 0;
+  await unmount();
+});
+
+test("the menu lines up every character with the weapon and the loadout", async () => {
+  const frame = (await mount(briefing().node, TALL)).captureCharFrame();
+
+  expect(frame).toContain("GET STARTED");
+  expect(frame).toContain("SMITH");
+  expect(frame).toContain("WELDER");
+  expect(frame).toContain("AUTOMATON");
+  expect(frame).toContain("◂ 1/3 ▸");
+  expect(frame).toContain("GUN  SONNET");
+  expect(frame).toContain("01 task-notes");
+  expect(frame).toContain("↑/↓  Character");
+  expect(frame).toContain("↵  Start mission");
+});
+
+test("Tab and the arrows pick the character, the gun and the ammo, and Enter starts with them", async () => {
+  const { node } = briefing();
+  const ui = await mount(node, TALL);
+
+  await press(ui, "ARROW_DOWN");
+  await press(ui, "TAB");
+  expect(ui.captureCharFrame()).toContain("↑/↓  Gun");
+  await press(ui, "ARROW_DOWN");
+  expect(ui.captureCharFrame()).toContain("▶ GUN  OPUS");
+  await press(ui, "TAB");
+  await press(ui, "ARROW_UP");
+  expect(ui.captureCharFrame()).toContain("▶ AMMO ▮▮▮");
+  await press(ui, "TAB");
+  expect(ui.captureCharFrame()).toContain("↑/↓  Character");
+  expect(started).toEqual([]);
+
+  await press(ui, "RETURN");
+  expect(started).toEqual([{ avatar: 1, effort: "high", model: "opus" }]);
+});
+
+test("a narrow screen shows only the chosen character", async () => {
+  const ui = await mount(briefing().node, { height: 30, width: 60 });
+
+  expect(ui.captureCharFrame()).toContain("SMITH");
+  expect(ui.captureCharFrame()).not.toContain("WELDER");
+  await press(ui, "ARROW_DOWN");
+  expect(ui.captureCharFrame()).toContain("WELDER");
+  expect(ui.captureCharFrame()).toContain("◂ 2/3 ▸");
+});
+
+test("the geometry shrinks the portraits on a short screen and drops the line-up on a narrow one", () => {
+  expect(briefingGeometry(TALL, 3)).toEqual({
+    card: 36,
+    lineup: true,
+    portrait: "large",
+  });
+  expect(briefingGeometry({ height: 30, width: 120 }, 3).portrait).toBe(
+    "small"
+  );
+  expect(briefingGeometry({ height: 44, width: 100 }, 3).lineup).toBe(false);
+});
+
+test("the app opens on the menu and carries the picks into the mission", async () => {
+  const fake = fakeRun(threads.done);
+  const ui = await mount(<AppView context={context} run={fake.run} />, TALL);
+
+  expect(ui.captureCharFrame()).toContain("GET STARTED");
+  await press(ui, "ARROW_DOWN");
+  await press(ui, "TAB");
+  await press(ui, "ARROW_DOWN");
+  await press(ui, "RETURN");
+
+  const frame = await frameWith(ui, "VITALS");
+  expect(frame).not.toContain("GET STARTED");
+  expect(frame).toContain("WELDER");
+  expect(frame).toContain("GUN  OPUS");
+  expect(frame).toContain("locked");
+  expect(fake.goals).toEqual([]);
+
+  await type(ui, "explain this example");
+  await press(ui, "RETURN");
+  expect(fake.weapons).toEqual([{ effort: "medium", model: "opus" }]);
+});

@@ -253,40 +253,27 @@ test("a short screen drops the results card and keeps the conversation", async (
   expect(frame).toContain("A  Accept");
 });
 
-test("the rail shows the gun, the ammo and the loadout", async () => {
+test("the rail shows the locked weapon and the loadout", async () => {
   const frame = (await layout(threads.idle)).captureCharFrame();
 
-  expect(frame).toContain("▶ GUN  SONNET");
-  expect(frame).toContain("◂ 1/3 ▸");
+  expect(frame).toContain("GUN  SONNET");
+  expect(frame).toContain("locked");
+  expect(frame).not.toContain("◂ 1/3 ▸");
+  expect(frame).not.toContain("▶ GUN");
   expect(frame).toContain("AMMO ▮▮▯");
   expect(frame).toContain("medium effort");
-  expect(frame).toContain("01 task-notes");
+  expect(frame).toContain("▶ 01 task-notes");
   expect(frame).toContain("02 backlog");
-  expect(frame).toContain("↑/↓  Gun");
+  expect(frame).toContain("↑/↓  Loadout");
+  expect(frame).not.toContain("Tab");
 });
 
-test("the focused stop is marked and names itself in the hints", async () => {
-  const ammo = (
-    await layout(threads.idle, {
-      rail: { effort: "high", focus: "effort", model: "opus" },
-    })
-  ).captureCharFrame();
-  expect(ammo).toContain("GUN  OPUS");
-  expect(ammo).toContain("▶ AMMO ▮▮▮");
-  expect(ammo).toContain("↑/↓  Ammo");
-
+test("the loadout marks the selected slot and describes it", async () => {
   const slot = (
     await layout(threads.idle, { rail: { focus: "slot", slot: 1 } })
   ).captureCharFrame();
   expect(slot).toContain("▶ 02 backlog");
   expect(slot).toContain("The harness's own to-do list");
-  expect(slot).toContain("↑/↓  Loadout");
-
-  const avatar = (
-    await layout(threads.idle, { rail: { focus: "avatar" } })
-  ).captureCharFrame();
-  expect(avatar).toContain("◂ ❝ ready when you are ❞ ▸");
-  expect(avatar).toContain("↑/↓  Avatar");
 });
 
 test("an 80 by 24 screen keeps the portrait, vitals and weapon", async () => {
@@ -349,18 +336,9 @@ describe("the geometry", () => {
     );
   });
 
-  test("the stops follow what the rail shows", () => {
-    expect(hudGeometry({ height: 44, width: 120 }).stops).toEqual([
-      "avatar",
-      "model",
-      "effort",
-      "slot",
-    ]);
-    expect(hudGeometry({ height: 24, width: 80 }).stops).toEqual([
-      "avatar",
-      "model",
-      "effort",
-    ]);
+  test("only the loadout is a stop, and only while it shows", () => {
+    expect(hudGeometry({ height: 44, width: 120 }).stops).toEqual(["slot"]);
+    expect(hudGeometry({ height: 24, width: 80 }).stops).toEqual([]);
     expect(hudGeometry({ height: 24, width: 60 }).stops).toEqual([]);
     expect(hudGeometry({ height: 24, width: 60 }).rail).toBe(false);
   });

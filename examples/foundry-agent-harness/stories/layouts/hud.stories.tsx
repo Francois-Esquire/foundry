@@ -136,16 +136,16 @@ export const Failed = screen(
 
 export const Loadout = screen(
   "Loadout focused",
-  "Tab has reached the loadout; the chosen slot explains itself.",
+  "The loadout is the rail's one stop; the chosen slot explains itself.",
   threads.working,
   { rail: { focus: "slot" } }
 );
 
 export const Rearmed = screen(
-  "Rearmed",
-  "Another avatar, a bigger gun and full ammo.",
+  "Heavy picks",
+  "A mission started with another avatar, a bigger gun and full ammo.",
   threads.working,
-  { rail: { avatar: 2, effort: "high", focus: "effort", model: "opus" } }
+  { rail: { avatar: 2, effort: "high", model: "opus" } }
 );
 
 export const Wide = screen(

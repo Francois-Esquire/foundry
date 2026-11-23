@@ -10,13 +10,22 @@ export interface Rail {
   readonly slot: number;
 }
 
-export function startRail(context: Context): Rail {
+export type Picks = Pick<Rail, "avatar" | "effort" | "model">;
+
+export const BRIEFING_STOPS: readonly RailStop[] = [
+  "avatar",
+  "model",
+  "effort",
+];
+
+export function startRail(context: Context, from?: Partial<Rail>): Rail {
   return {
     avatar: 0,
     effort: "medium",
     focus: "model",
     model: context.models[0],
     slot: 0,
+    ...from,
   };
 }
 

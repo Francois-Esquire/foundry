@@ -70,13 +70,8 @@ export function hudGeometry({ height, width }: Size, judged = false) {
       left -= rows;
     }
   }
-  const stops: RailStop[] = rail
-    ? [
-        "avatar",
-        ...(sections.includes("weapon") ? (["model", "effort"] as const) : []),
-        ...(sections.includes("loadout") ? (["slot"] as const) : []),
-      ]
-    : [];
+  const stops: RailStop[] =
+    rail && sections.includes("loadout") ? ["slot"] : [];
   const results = judged && body - STEPS - GOAL - RESULTS >= CONVERSATION_MIN;
   return {
     main,
@@ -97,13 +92,7 @@ function shortened(text: string, room: number): string | undefined {
   return text.length > room ? `${text.slice(0, room - 1)}…` : text;
 }
 
-function keysFor(focus: RailStop | null, judging: boolean) {
-  const turn = {
-    avatar: "Avatar",
-    effort: "Ammo",
-    model: "Gun",
-    slot: "Loadout",
-  } as const;
+function keysFor(browsing: boolean, judging: boolean) {
   return [
     ...(judging
       ? ([
@@ -113,12 +102,7 @@ function keysFor(focus: RailStop | null, judging: boolean) {
         ] as const)
       : []),
     ...(judging ? [] : ([["↵", "Run"]] as const)),
-    ...(focus
-      ? ([
-          ["Tab", "Next"],
-          ["↑/↓", turn[focus]],
-        ] as const)
-      : []),
+    ...(browsing ? ([["↑/↓", "Loadout"]] as const) : []),
     ...(judging ? [] : ([["PgUp/PgDn", "Scroll"]] as const)),
     ["^C", "Quit"],
   ] as const;
@@ -164,8 +148,6 @@ export function HudLayout({
   const slots = slotsOf(context);
   const tallies = toolTallies(steps);
   const shows = (section: RailSection) => geometry.sections.includes(section);
-  const tone = (stop: RailStop, ...more: RailStop[]) =>
-    focus !== null && [stop, ...more].includes(focus) ? hud.amber : hud.bronze;
   const measure = useCallback(
     function measureHud(this: BoxRenderable) {
       onResize({ height: this.height, width: this.width });
@@ -183,14 +165,9 @@ export function HudLayout({
       <box flexDirection="row" flexGrow={1} flexShrink={1} gap={GAP}>
         {geometry.rail ? (
           <box flexDirection="column" flexShrink={0} width={RAIL_WIDTH}>
-            <Plate
-              icon="☻"
-              meta={health}
-              title={avatar.toUpperCase()}
-              tone={tone("avatar")}
-            >
+            <Plate icon="☻" meta={health} title={avatar.toUpperCase()}>
               <PortraitBay
-                focused={focus === "avatar"}
+                focused={false}
                 portrait={portrait}
                 quip={quipFor(thread, health)}
                 size={geometry.portrait}
@@ -212,15 +189,11 @@ export function HudLayout({
               </Plate>
             ) : null}
             {shows("weapon") ? (
-              <Plate
-                icon="⌖"
-                meta={context.provider}
-                title="WEAPON"
-                tone={tone("model", "effort")}
-              >
+              <Plate icon="⌖" meta={context.provider} title="WEAPON">
                 <Weapon
                   effort={rail.effort}
-                  focus={focus === "model" || focus === "effort" ? focus : null}
+                  focus={null}
+                  locked
                   model={rail.model}
                   models={context.models}
                 />
@@ -232,7 +205,7 @@ export function HudLayout({
                 icon="◧"
                 meta={`${slots.length} equipped`}
                 title="LOADOUT"
-                tone={tone("slot")}
+                tone={focus === "slot" ? hud.amber : hud.bronze}
               >
                 <Loadout
                   focused={focus === "slot"}
@@ -307,7 +280,10 @@ export function HudLayout({
           </Plate>
         </box>
       </box>
-      <HintBar keys={keysFor(focus, reviewing)} notes={thread.notes} />
+      <HintBar
+        keys={keysFor(focus === "slot", reviewing)}
+        notes={thread.notes}
+      />
     </box>
   );
 }

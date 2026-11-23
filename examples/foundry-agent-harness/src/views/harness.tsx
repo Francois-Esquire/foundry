@@ -12,6 +12,7 @@ import { useViewport } from "@/hooks/use-viewport";
 import { avatars } from "@/model/avatars";
 import type { Context } from "@/model/context";
 import { occupancyOf } from "@/model/occupancy";
+import type { Picks } from "@/model/rail";
 import { amberTheme } from "@/model/theme";
 import type { Run } from "@/model/thread";
 import {
@@ -28,15 +29,17 @@ const THEME = { setTheme: () => undefined, theme: amberTheme };
 
 export function HarnessView({
   context,
+  picks,
   run,
 }: {
   readonly context: Context;
+  readonly picks?: Picks;
   readonly run: Run;
 }) {
   const { start, thread } = useThread(run);
   const { measure, size } = useViewport();
   const { portrait, stops } = hudGeometry(size);
-  const rail = useRail(context, avatars.length, stops);
+  const rail = useRail(context, avatars.length, stops, picks);
   const { effort, model } = rail;
   const goal = useGoalDraft({
     busy: isBusy(thread),

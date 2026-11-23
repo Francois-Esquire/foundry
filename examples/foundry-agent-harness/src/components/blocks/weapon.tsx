@@ -25,11 +25,13 @@ function Row({
 export function Weapon({
   effort,
   focus,
+  locked = false,
   model,
   models,
 }: {
   readonly effort: Effort;
   readonly focus: "effort" | "model" | null;
+  readonly locked?: boolean;
   readonly model: string;
   readonly models: readonly string[];
 }) {
@@ -43,7 +45,9 @@ export function Weapon({
         </text>
         <box flexGrow={1} />
         <text fg={focus === "model" ? hud.amber : hud.dim} wrapMode="none">
-          {`◂ ${models.indexOf(model) + 1}/${models.length} ▸`}
+          {locked
+            ? "locked"
+            : `◂ ${models.indexOf(model) + 1}/${models.length} ▸`}
         </text>
       </Row>
       <Row focused={focus === "effort"}>

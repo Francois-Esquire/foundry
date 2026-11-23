@@ -60,22 +60,24 @@ test("Enter does nothing while a goal is running", async () => {
   expect(ui.captureCharFrame()).toContain("another goal");
 });
 
-test("Tab and the arrows pick the gun, the ammo and the avatar for the next goal", async () => {
-  const { fake, node } = view(threads.done);
-  const ui = await mount(node, { height: 44, width: 120 });
+test("the picked weapon and avatar stay for every goal and the arrows only browse the loadout", async () => {
+  const fake = fakeRun(threads.done);
+  const ui = await mount(
+    <HarnessView
+      context={context}
+      picks={{ avatar: 1, effort: "high", model: "opus" }}
+      run={fake.run}
+    />,
+    { height: 44, width: 120 }
+  );
 
+  expect(ui.captureCharFrame()).toContain("WELDER");
+  await press(ui, "TAB");
   await press(ui, "ARROW_DOWN");
   expect(ui.captureCharFrame()).toContain("GUN  OPUS");
-  await press(ui, "TAB");
-  await press(ui, "ARROW_UP");
-  expect(ui.captureCharFrame()).toContain("▶ AMMO ▮▮▮");
-  await press(ui, "TAB");
-  expect(ui.captureCharFrame()).toContain("▶ 01 task-notes");
-  await press(ui, "TAB");
-  await press(ui, "ARROW_DOWN");
+  expect(ui.captureCharFrame()).toContain("AMMO ▮▮▮");
   expect(ui.captureCharFrame()).toContain("WELDER");
-  await press(ui, "TAB", { shift: true });
-  expect(ui.captureCharFrame()).toContain("▶ 01 task-notes");
+  expect(ui.captureCharFrame()).toContain("▶ 02 backlog");
 
   await type(ui, "explain this example");
   await press(ui, "RETURN");
@@ -85,14 +87,13 @@ test("Tab and the arrows pick the gun, the ammo and the avatar for the next goal
 
 test("the arrows leave the goal being typed alone", async () => {
   const { node } = view(threads.idle);
-  const ui = await mount(node);
+  const ui = await mount(node, { height: 44, width: 120 });
 
   await type(ui, "list the files");
   await press(ui, "ARROW_DOWN");
-  await press(ui, "TAB");
 
   expect(ui.captureCharFrame()).toContain("› list the files");
-  expect(ui.captureCharFrame()).toContain("GUN  OPUS");
+  expect(ui.captureCharFrame()).toContain("GUN  SONNET");
 });
 
 test("PgUp and PgDn scroll the conversation", async () => {
