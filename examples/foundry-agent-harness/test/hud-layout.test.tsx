@@ -357,3 +357,21 @@ test("a typed draft keeps the keys in the goal field when an encounter ends", as
   expect(hints).not.toContain("A  Accept");
   expect(hints).toContain("↵  Run");
 });
+
+test("a narrow screen shortens the goal prompt and the notes instead of clipping them", async () => {
+  const frame = (
+    await layout(threads.done, {
+      results: scorecards.pending,
+      size: { height: 24, width: 60 },
+    })
+  ).captureCharFrame();
+  expect(frame).toContain("› Rate the result first");
+  expect(frame).toContain("◆ 1 kept");
+  expect(frame).not.toContain("...");
+
+  const roomy = (
+    await layout(threads.done, { results: scorecards.pending })
+  ).captureCharFrame();
+  expect(roomy).toContain("Accept, reject or skip the result");
+  expect(roomy).toContain("◆ notes 3f9a1c2e · 1 kept");
+});

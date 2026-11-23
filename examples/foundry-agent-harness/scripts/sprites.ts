@@ -18,6 +18,18 @@ const HEADROOM = 0.45;
 const BACKDROP_THRESHOLD = 40;
 const FULL_BLEED = 0.995;
 const TINTED = new Set(["caster", "machinist"]);
+const POCKETED = new Set(["fitter"]);
+const PALE = 170;
+const NEUTRAL = 30;
+
+type Backdrop = "plain" | "pocketed" | "tinted";
+
+function backdropOf(name: string): Backdrop {
+  if (TINTED.has(name)) {
+    return "tinted";
+  }
+  return POCKETED.has(name) ? "pocketed" : "plain";
+}
 const ZOOM_OUT: Readonly<Record<string, number>> = {
   assayer: 1.3,
   automaton: 1.3,
@@ -291,10 +303,24 @@ function panels(name: string, image: Image): Panel[] {
   return framed([top, bottom], columns, name);
 }
 
-function crop(
+function clearPale(data: Uint8Array) {
+  for (let at = 0; at < data.length; at += 3) {
+    const channels = [data[at] ?? 0, data[at + 1] ?? 0, data[at + 2] ?? 0];
+    const low = Math.min(...channels);
+    if (low > PALE && Math.max(...channels) - low < NEUTRAL) {
+      data.fill(0, at, at + 3);
+    }
+  }
+}
+
+function cut(
   image: Image,
   panel: Panel,
-  { dx = 0, dy = 0, tinted = false } = {}
+  {
+    dx = 0,
+    dy = 0,
+    backdrop: kind = "plain",
+  }: { dx?: number; dy?: number; backdrop?: Backdrop } = {}
 ): Image {
   const { side } = panel;
   const data = new Uint8Array(side * side * 3);
@@ -321,7 +347,8 @@ function crop(
   );
   const plain = (pixel: number) =>
     isWhite(data, pixel) ||
-    (tinted && distance(rgbAt(cropped, pixel), backdrop) < BACKDROP_THRESHOLD);
+    (kind === "tinted" &&
+      distance(rgbAt(cropped, pixel), backdrop) < BACKDROP_THRESHOLD);
   for (let edge = 0; edge < side; edge += 1) {
     stack.push(
       edge,
@@ -362,6 +389,18 @@ function crop(
     }
   }
   return { data, height: side, width: side };
+}
+
+function crop(
+  image: Image,
+  panel: Panel,
+  options: { dx?: number; dy?: number; backdrop?: Backdrop } = {}
+): Image {
+  const cropped = cut(image, panel, options);
+  if (options.backdrop === "pocketed") {
+    clearPale(cropped.data);
+  }
+  return cropped;
 }
 
 function average(image: Image, x: number, y: number, size: number): Rgb {
@@ -408,12 +447,17 @@ function mismatch(a: Image, b: Image): number {
   return total;
 }
 
-function align(base: Image, pose: Image, panel: Panel, tinted: boolean): Image {
-  let best = crop(pose, panel, { tinted });
+function align(
+  base: Image,
+  pose: Image,
+  panel: Panel,
+  backdrop: Backdrop
+): Image {
+  let best = crop(pose, panel, { backdrop });
   let lowest = mismatch(base, best);
   for (let dy = -SEARCH; dy <= SEARCH; dy += 1) {
     for (let dx = -SEARCH; dx <= SEARCH; dx += 1) {
-      const candidate = crop(pose, panel, { dx, dy, tinted });
+      const candidate = crop(pose, panel, { backdrop, dx, dy });
       const score = mismatch(base, candidate);
       if (score < lowest) {
         lowest = score;
@@ -539,8 +583,8 @@ function encode(rgba: Uint8Array, width: number, height: number): Buffer {
 async function build(name: string, art: readonly string[]): Promise<string> {
   const source = await load(`${name}.png`);
   const frames = panels(name, source);
-  const tinted = TINTED.has(name);
-  const crops = frames.map((panel) => crop(source, panel, { tinted }));
+  const backdrop = backdropOf(name);
+  const crops = frames.map((panel) => crop(source, panel, { backdrop }));
   const bases = crops.map((image) => scale(image, CELL));
   const poses = POSES.filter((pose) => art.includes(`${name}-${pose}.png`));
   const width = HEALTH.length * CELL;
@@ -553,13 +597,13 @@ async function build(name: string, art: readonly string[]): Promise<string> {
     const image = await load(`${name}-${pose}.png`);
     const counts = frames.map((panel, column) => {
       const base =
-        bases[column] ?? scale(crop(source, panel, { tinted }), CELL);
+        bases[column] ?? scale(crop(source, panel, { backdrop }), CELL);
       const posed = scale(
         align(
-          crops[column] ?? crop(source, panel, { tinted }),
+          crops[column] ?? crop(source, panel, { backdrop }),
           image,
           panel,
-          tinted
+          backdrop
         ),
         CELL
       );

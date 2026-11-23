@@ -275,6 +275,7 @@ export function BriefingLayout({
           ["↵", "Start mission"],
           ["^C", "Quit"],
         ]}
+        width={size.width}
       />
     </box>
   );

@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { BRACKETED, hud } from "@/model/palette";
 
+const RULE = "╌".repeat(400);
+
 export function Plate({
   children,
   grow = false,
@@ -41,7 +43,7 @@ export function Plate({
           </text>
           <box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
             <text fg={hud.faint} wrapMode="none">
-              {"╌".repeat(60)}
+              {RULE}
             </text>
           </box>
           {meta ? (

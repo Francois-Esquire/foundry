@@ -143,7 +143,8 @@ export function HudLayout({
   readonly thread: Thread;
 }) {
   const geometry = hudGeometry(size, results !== null);
-  const focus = geometry.rail ? focusOn(rail, geometry.stops) : null;
+  const focus =
+    geometry.stops.length > 0 ? focusOn(rail, geometry.stops) : null;
   const reviewing = results?.verdict === null && draft === "";
   const steps = stepsOf(thread);
   const todos = todosOf(thread);
@@ -203,22 +204,33 @@ export function HudLayout({
               </Plate>
             ) : null}
             {shows("toolkit") ? (
-              <Plate
-                grow
-                icon="◧"
-                meta={`${slots.length} equipped`}
-                title="TOOLS"
-                tone={focus === "slot" ? hud.amber : hud.bronze}
+              <box
+                flexDirection="column"
+                flexShrink={1}
+                minHeight={TOOLKIT_MIN}
               >
-                <Toolkit
-                  focused={focus === "slot"}
-                  selected={rail.slot}
-                  slots={slots}
-                />
-              </Plate>
+                <Plate
+                  grow
+                  icon="◧"
+                  meta={`${slots.length} equipped`}
+                  title="TOOLS"
+                  tone={focus === "slot" ? hud.amber : hud.bronze}
+                >
+                  <Toolkit
+                    focused={focus === "slot"}
+                    selected={rail.slot}
+                    slots={slots}
+                  />
+                </Plate>
+              </box>
             ) : null}
             {shows("arsenal") ? (
-              <box flexShrink={0} height={ARSENAL}>
+              <box
+                flexDirection="column"
+                flexGrow={1}
+                flexShrink={0}
+                minHeight={ARSENAL}
+              >
                 <Plate
                   grow
                   icon="⚒"
@@ -279,6 +291,7 @@ export function HudLayout({
               onDraft={onDraft}
               onSubmit={onSubmit}
               reviewing={reviewing}
+              width={geometry.stepsWidth}
             />
           </Plate>
         </box>
@@ -286,6 +299,7 @@ export function HudLayout({
       <HintBar
         keys={keysFor(focus === "slot", reviewing)}
         notes={thread.notes}
+        width={size.width}
       />
     </box>
   );

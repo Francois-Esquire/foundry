@@ -87,6 +87,7 @@ export const Hints = story({
           ["↑/↓", "Model"],
         ]}
         notes={threads.done.notes}
+        width={80}
       />,
       { height: 3, width: 82 }
     ),

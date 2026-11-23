@@ -56,7 +56,7 @@ export function Loadout({
         </text>
         <box flexGrow={1} />
         <text fg={focus === "effort" ? hud.amber : hud.dim} wrapMode="none">
-          {`${effort} effort`}
+          {locked ? `${effort} effort` : `◂ ${effort} effort ▸`}
         </text>
       </Row>
     </box>

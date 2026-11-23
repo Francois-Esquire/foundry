@@ -1,13 +1,25 @@
 import { Spinner } from "@/components/blocks/spinner";
 import { hud } from "@/model/palette";
 
-function placeholderFor(busy: boolean, reviewing: boolean): string {
-  if (busy) {
-    return "Working. The next goal can go in when this one is done.";
-  }
-  return reviewing
-    ? "Accept, reject or skip the result to give the next goal"
-    : "Give the harness a goal";
+const PROMPT = 2;
+
+const PLACEHOLDERS = {
+  busy: ["Working. The next goal can go in when this one is done.", "Working"],
+  idle: ["Give the harness a goal", "Goal"],
+  reviewing: [
+    "Accept, reject or skip the result to give the next goal",
+    "Rate the result first",
+  ],
+} as const;
+
+function placeholderFor(
+  busy: boolean,
+  reviewing: boolean,
+  width: number
+): string {
+  const idle = reviewing ? PLACEHOLDERS.reviewing : PLACEHOLDERS.idle;
+  const [full, short] = busy ? PLACEHOLDERS.busy : idle;
+  return full.length <= width - PROMPT ? full : short;
 }
 
 export function GoalBar({
@@ -17,6 +29,7 @@ export function GoalBar({
   onDraft,
   onSubmit,
   reviewing,
+  width,
 }: {
   readonly busy: boolean;
   readonly draft: string;
@@ -24,6 +37,7 @@ export function GoalBar({
   readonly onDraft: (draft: string) => void;
   readonly onSubmit: () => void;
   readonly reviewing: boolean;
+  readonly width: number;
 }) {
   return (
     <box flexDirection="row" gap={1} height={1}>
@@ -36,10 +50,11 @@ export function GoalBar({
       )}
       <input
         flexGrow={1}
+        flexShrink={1}
         focused={!reviewing}
         onInput={onDraft}
         onSubmit={onSubmit}
-        placeholder={placeholderFor(busy, reviewing)}
+        placeholder={placeholderFor(busy, reviewing, width)}
         value={draft}
       />
     </box>
