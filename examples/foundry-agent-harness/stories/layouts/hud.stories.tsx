@@ -150,7 +150,7 @@ export const Swapped = screen(
 
 export const Wide = screen(
   "Wide and short",
-  "At 120 by 30 the portrait shrinks and the arsenal gives way.",
+  "At 120 by 30 the portrait shrinks and the tool calls collapse to a row.",
   threads.working,
   { size: wide }
 );

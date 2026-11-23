@@ -13,7 +13,7 @@ function mark(tally: Tally, frame: number) {
     : { icon: "●", tone: hud.ok };
 }
 
-export function Arsenal({
+export function ToolCalls({
   frame,
   tallies,
 }: {
@@ -21,7 +21,7 @@ export function Arsenal({
   readonly tallies: readonly Tally[];
 }) {
   if (tallies.length === 0) {
-    return <text fg={hud.dim}>No tools fired yet.</text>;
+    return <text fg={hud.dim}>No tool calls yet.</text>;
   }
   return (
     <box flexDirection="column">

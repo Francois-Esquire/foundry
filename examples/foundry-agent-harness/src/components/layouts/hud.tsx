@@ -1,14 +1,15 @@
 import type { BoxRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { type ReactNode, type Ref, useCallback } from "react";
-import { Arsenal } from "@/components/blocks/arsenal";
 import { Conversation } from "@/components/blocks/conversation";
 import { GoalBar } from "@/components/blocks/goal-bar";
 import { HintBar } from "@/components/blocks/hint-bar";
 import { Loadout } from "@/components/blocks/loadout";
 import { Plate } from "@/components/blocks/plate";
 import { PortraitBay } from "@/components/blocks/portrait-bay";
+import { RailRow } from "@/components/blocks/rail-row";
 import { Results, resultsMeta } from "@/components/blocks/results";
 import { Steps } from "@/components/blocks/steps";
+import { ToolCalls } from "@/components/blocks/tool-calls";
 import { Toolkit } from "@/components/blocks/toolkit";
 import { totalsLine, Vitals } from "@/components/blocks/vitals";
 import type { Progress } from "@/game/progress";
@@ -20,6 +21,7 @@ import { quipFor } from "@/model/quip";
 import { focusOn, type Rail, type RailStop } from "@/model/rail";
 import type { Clock, Size } from "@/model/screen";
 import {
+  compactCount,
   finishedTodos,
   isBusy,
   stepsOf,
@@ -41,7 +43,8 @@ const PORTRAIT = { large: 20, small: 11 } as const;
 const VITALS = 6;
 const LOADOUT = 5;
 const TOOLKIT_MIN = 4;
-const ARSENAL = 6;
+const CALLS = 6;
+const ROW = 1;
 const PAGE_OVERLAP = 3;
 const PLATE_CHROME = 4;
 const RESULTS = { roomy: 6, tight: 7 } as const;
@@ -49,28 +52,35 @@ const RESULTS_ROOMY = 56;
 const CONVERSATION_MIN = 9;
 const NAME = "FOUNDRY AGENT HARNESS";
 
-export type RailSection = "arsenal" | "toolkit" | "vitals" | "loadout";
+export type RailSection = "calls" | "loadout" | "toolkit" | "vitals";
 
 export function hudGeometry({ height, width }: Size, judged = false) {
   const rail = width >= RAIL_WIDTH + GAP + MAIN_MIN;
   const body = height - HINTS;
   const main = width - (rail ? RAIL_WIDTH + GAP : 0);
-  const everything = PORTRAIT.large + VITALS + LOADOUT + TOOLKIT_MIN + ARSENAL;
-  const portrait: keyof typeof PORTRAIT =
-    body >= everything ? "large" : "small";
-  const sections: RailSection[] = [];
-  let left = body - PORTRAIT[portrait];
-  for (const [section, rows] of [
+  const cards = [
     ["vitals", VITALS],
     ["loadout", LOADOUT],
     ["toolkit", TOOLKIT_MIN],
-    ["arsenal", ARSENAL],
-  ] as const) {
-    if (left >= rows) {
-      sections.push(section);
-      left -= rows;
+    ["calls", CALLS],
+  ] as const;
+  const everything =
+    PORTRAIT.large + cards.reduce((sum, [, needs]) => sum + needs, 0);
+  const portrait: keyof typeof PORTRAIT =
+    body >= everything ? "large" : "small";
+  const listed = cards.slice(0, Math.max(0, body - PORTRAIT[portrait]));
+  let spare = body - PORTRAIT[portrait] - listed.length * ROW;
+  const sections: RailSection[] = [];
+  for (const [section, needs] of listed) {
+    if (spare < needs - ROW) {
+      break;
     }
+    sections.push(section);
+    spare -= needs - ROW;
   }
+  const rows = listed
+    .map(([section]) => section)
+    .filter((section) => !sections.includes(section));
   const stops: RailStop[] =
     rail && sections.includes("toolkit") ? ["slot"] : [];
   const card = main < RESULTS_ROOMY ? RESULTS.tight : RESULTS.roomy;
@@ -82,6 +92,7 @@ export function hudGeometry({ height, width }: Size, judged = false) {
     rail,
     results,
     resultsRows: card,
+    rows,
     sections,
     stepsWidth: main - PLATE_CHROME,
     stops,
@@ -152,6 +163,21 @@ export function HudLayout({
   const slots = slotsOf(context);
   const tallies = toolTallies(steps);
   const shows = (section: RailSection) => geometry.sections.includes(section);
+  const calls = tallies.reduce((sum, tally) => sum + tally.count, 0);
+  const folded = {
+    calls: { icon: "⚒", title: "TOOL CALLS", value: `${calls} total` },
+    loadout: {
+      icon: "⌖",
+      title: "LOADOUT",
+      value: `${rail.model} · ${rail.effort}`,
+    },
+    toolkit: { icon: "◧", title: "TOOLS", value: `${slots.length} equipped` },
+    vitals: {
+      icon: "♥",
+      title: "VITALS",
+      value: `${compactCount(left)} left · LV ${progress.level}`,
+    },
+  } as const;
   const measure = useCallback(
     function measureHud(this: BoxRenderable) {
       onResize({ height: this.height, width: this.width });
@@ -224,23 +250,21 @@ export function HudLayout({
                 </Plate>
               </box>
             ) : null}
-            {shows("arsenal") ? (
+            {shows("calls") ? (
               <box
                 flexDirection="column"
                 flexGrow={1}
                 flexShrink={0}
-                minHeight={ARSENAL}
+                minHeight={CALLS}
               >
-                <Plate
-                  grow
-                  icon="⚒"
-                  meta={`${tallies.reduce((sum, tally) => sum + tally.count, 0)} calls`}
-                  title="ARSENAL"
-                >
-                  <Arsenal frame={clock.frame} tallies={tallies} />
+                <Plate grow icon="⚒" meta={`${calls} total`} title="TOOL CALLS">
+                  <ToolCalls frame={clock.frame} tallies={tallies} />
                 </Plate>
               </box>
             ) : null}
+            {geometry.rows.map((section) => (
+              <RailRow key={section} {...folded[section]} />
+            ))}
           </box>
         ) : null}
         <box flexDirection="column" flexGrow={1} flexShrink={1}>

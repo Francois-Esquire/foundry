@@ -70,7 +70,7 @@ test("an idle thread invites a goal and shows a fresh, unused rail", async () =>
   expect(frame).toContain("❝ ready when you are ❞");
   expect(frame).toContain("200k / 200k");
   expect(frame).toContain("0 in · 0 out");
-  expect(frame).toContain("No tools fired yet.");
+  expect(frame).toContain("No tool calls yet.");
   expect(frame).toContain("Give the harness a goal");
 });
 
@@ -103,7 +103,7 @@ test("a working thread shows its steps, tool calls, tallies and health", async (
   expect(frame).toContain("⠸ Bash (4.2s) bun run --help");
   expect(frame).toContain("scuffed");
   expect(frame).toContain("138k / 200k");
-  expect(frame).toContain("3 calls");
+  expect(frame).toContain("3 total");
   expect(frame).toContain("⠸ Bash");
 });
 
@@ -192,6 +192,10 @@ test("the verdict keys fit the hint bar at 80 and 60 columns", async () => {
   }
 });
 
+const LOADOUT_ROW = /⌖ {2}LOADOUT +sonnet · medium/;
+const TOOLS_ROW = /◧ {2}TOOLS +2 equipped/;
+const CALLS_ROW = /⚒ {2}TOOL CALLS +3 total/;
+
 function mainText(frame: string, from: number): string {
   return frame
     .split("\n")
@@ -276,16 +280,18 @@ test("the toolkit marks the selected slot and describes it", async () => {
   expect(slot).toContain("The harness's own to-do list");
 });
 
-test("an 80 by 24 screen keeps the portrait, vitals and loadout", async () => {
+test("an 80 by 24 screen keeps the vitals card and folds the rest into rows", async () => {
   const frame = (
     await layout(threads.working, { size: { height: 24, width: 80 } })
   ).captureCharFrame();
 
   expect(frame).toContain("SMITH");
   expect(frame).toContain("VITALS");
-  expect(frame).toContain("LOADOUT");
-  expect(frame).not.toContain("TOOLS");
-  expect(frame).not.toContain("ARSENAL");
+  expect(frame).toContain("138k / 200k");
+  expect(frame).toMatch(LOADOUT_ROW);
+  expect(frame).toMatch(TOOLS_ROW);
+  expect(frame).toMatch(CALLS_ROW);
+  expect(frame).not.toContain("task-notes");
   expect(frame).toContain("⠸ 2 Identify");
   expect(frame.trimEnd().split("\n")).toHaveLength(24);
 });
@@ -308,21 +314,41 @@ describe("the geometry", () => {
     [
       { height: 44, width: 120 },
       "large",
-      ["vitals", "loadout", "toolkit", "arsenal"],
+      ["vitals", "loadout", "toolkit", "calls"],
+      [],
     ],
     [
       { height: 34, width: 120 },
       "small",
-      ["vitals", "loadout", "toolkit", "arsenal"],
+      ["vitals", "loadout", "toolkit", "calls"],
+      [],
     ],
-    [{ height: 30, width: 96 }, "small", ["vitals", "loadout", "toolkit"]],
-    [{ height: 24, width: 80 }, "small", ["vitals", "loadout"]],
-  ] as const)("at %o the portrait is %s", (size, portrait, sections) => {
+    [
+      { height: 30, width: 96 },
+      "small",
+      ["vitals", "loadout", "toolkit"],
+      ["calls"],
+    ],
+    [
+      { height: 24, width: 80 },
+      "small",
+      ["vitals"],
+      ["loadout", "toolkit", "calls"],
+    ],
+    [
+      { height: 16, width: 80 },
+      "small",
+      [],
+      ["vitals", "loadout", "toolkit", "calls"],
+    ],
+    [{ height: 14, width: 80 }, "small", [], ["vitals", "loadout"]],
+  ] as const)("at %o the portrait is %s", (size, portrait, sections, rows) => {
     const geometry = hudGeometry(size);
     expect(geometry.rail).toBe(true);
     expect(geometry.results).toBe(false);
     expect(geometry.portrait).toBe(portrait);
     expect(geometry.sections).toEqual(sections);
+    expect(geometry.rows).toEqual(rows);
   });
 
   test("the results card takes its rows from the page when it fits", () => {

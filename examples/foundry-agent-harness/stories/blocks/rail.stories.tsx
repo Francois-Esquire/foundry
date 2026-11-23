@@ -1,7 +1,7 @@
 import { defineStories, story } from "textbook-sh";
-import { Arsenal } from "@/components/blocks/arsenal";
 import { Loadout } from "@/components/blocks/loadout";
 import { Plate } from "@/components/blocks/plate";
+import { ToolCalls } from "@/components/blocks/tool-calls";
 import { Toolkit } from "@/components/blocks/toolkit";
 import { totalsLine, Vitals } from "@/components/blocks/vitals";
 import { slotsOf } from "@/model/context";
@@ -15,7 +15,7 @@ const size = { height: 10, width: 38 };
 export default defineStories({
   component: "Plate",
   description:
-    "The cards on the status rail: vitals, the loadout, the toolkit and the arsenal.",
+    "The cards on the status rail: vitals, the loadout, the tools and the tool calls.",
   title: "Blocks/Rail",
 });
 
@@ -116,12 +116,12 @@ export const Slots = story({
 
 export const Fired = story({
   description: "Each tool used so far, with one still running.",
-  name: "Arsenal",
+  name: "Tool calls",
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Plate icon="⚒" meta="3 calls" title="ARSENAL">
-        <Arsenal
+      <Plate icon="⚒" meta="3 total" title="TOOL CALLS">
+        <ToolCalls
           frame={clock.frame}
           tallies={toolTallies(stepsOf(threads.working))}
         />
@@ -132,12 +132,12 @@ export const Fired = story({
 
 export const Quiet = story({
   description: "Before any tool has run.",
-  name: "Arsenal, empty",
+  name: "Tool calls, empty",
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Plate icon="⚒" meta="0 calls" title="ARSENAL">
-        <Arsenal frame={clock.frame} tallies={[]} />
+      <Plate icon="⚒" meta="0 total" title="TOOL CALLS">
+        <ToolCalls frame={clock.frame} tallies={[]} />
       </Plate>,
       size
     ),

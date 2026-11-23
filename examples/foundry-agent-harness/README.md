@@ -45,7 +45,7 @@ verdict is in.
 The screen is laid out like a game HUD. A status rail on the left shows an
 avatar whose face follows the worker's context window, the vitals (the
 window left, the tokens spent, and your level and XP), the loadout, the
-tools, and the arsenal of tools used so far. The loadout is locked for the
+tools, and the tool calls made so far. The loadout is locked for the
 mission; Up and Down move through the tools to read what each skill and
 MCP server is for.
 
@@ -159,7 +159,7 @@ The screen has three layers:
 The layout sizes itself to the box it is mounted in, not the terminal.
 Below 77 columns the rail is dropped and the
 conversation takes the full width. Under 42 rows the portrait halves and the
-rail gives up the arsenal, then the tools. The results card takes six rows, or seven when the main column is under 56 columns wide,
+rail folds its cards into one-line rows, last card first: the tool calls, then the tools, the loadout and the vitals, so each still shows its number. The results card takes six rows, or seven when the main column is under 56 columns wide,
 from the conversation and is dropped under 22 rows (23 for the seven-row card); while a verdict is
 pending the hint bar shows its keys in place of the scroll keys. `test/components-imports.test.ts` fails if
 a component uses state, effects, key listeners, timers, or module-level
