@@ -25,6 +25,10 @@ const GLANCE_LEFT = 0.6;
 const GLANCE_RIGHT = 0.75;
 const FLICKER = 0.95;
 
+const MOOD_TICKS = 75;
+const SMILE_TICKS = 40;
+const SMILE_ODDS = 0.3;
+
 export const HURT_TICKS = 10;
 const SHAKE_TICKS = 4;
 const SHAKE = 0.75;
@@ -103,6 +107,22 @@ function idlePose({
     return at < FLICKER_TICKS && lit ? avatar.flicker : null;
   }
   return null;
+}
+
+function restingPose({
+  avatar,
+  frame,
+  health,
+  seed,
+}: PortraitMoment): Pose | null {
+  const { rest } = avatar;
+  if (!rest || avatar.sheet.still[rest]?.includes(health)) {
+    return null;
+  }
+  const smiles =
+    chance(seed, Math.floor(frame / MOOD_TICKS), 11) < SMILE_ODDS &&
+    frame % MOOD_TICKS < SMILE_TICKS;
+  return smiles ? null : rest;
 }
 
 function splatter(
@@ -190,9 +210,10 @@ export function portraitScene(moment: PortraitMoment): PortraitScene {
   const since = hurtAt === null ? -1 : frame - hurtAt;
   const hurting = since >= 0 && since < HURT_TICKS;
   const idle = idlePose(moment);
-  const poses = hurting
+  const face = hurting
     ? (avatar.hurt[since % avatar.hurt.length] ?? [])
-    : [idle].filter((pose) => pose !== null);
+    : [idle];
+  const poses = [restingPose(moment), ...face].filter((pose) => pose !== null);
   const spray = hurting
     ? splatter(avatar.wound, seed + (hurtAt ?? 0), since, severity)
     : [];

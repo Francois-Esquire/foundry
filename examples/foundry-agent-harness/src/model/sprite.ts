@@ -1,5 +1,7 @@
 export const PORTRAIT_SIZES = {
+  grand: { columns: 48, rows: 24 },
   large: { columns: 32, rows: 16 },
+  medium: { columns: 24, rows: 12 },
   small: { columns: 16, rows: 8 },
 } as const;
 
@@ -15,7 +17,14 @@ export const HEALTH = [
 
 export type Health = (typeof HEALTH)[number];
 
-export const POSES = ["blink", "left", "right", "wince", "glow"] as const;
+export const POSES = [
+  "smirk",
+  "blink",
+  "left",
+  "right",
+  "wince",
+  "glow",
+] as const;
 
 export type Pose = (typeof POSES)[number];
 

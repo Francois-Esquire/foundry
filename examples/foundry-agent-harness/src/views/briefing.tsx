@@ -7,7 +7,7 @@ import { useConfirm } from "@/hooks/use-confirm";
 import { ThemeContext } from "@/hooks/use-theme";
 import { useViewport } from "@/hooks/use-viewport";
 import { avatars } from "@/model/avatars";
-import type { Context } from "@/model/context";
+import { type Context, slotsOf } from "@/model/context";
 import type { Picks } from "@/model/rail";
 import { amberTheme } from "@/model/theme";
 import { LivePortrait } from "@/views/live-portrait";
@@ -25,7 +25,11 @@ export function BriefingView({
   const { choose, rail } = useBriefing(context, avatars.length);
   const { avatar, effort, model } = rail;
   useConfirm(() => onStart({ avatar, effort, model }));
-  const { portrait } = briefingGeometry(size, avatars.length);
+  const { portrait } = briefingGeometry(
+    size,
+    avatars.length,
+    slotsOf(context).length
+  );
   return (
     <ThemeContext.Provider value={THEME}>
       <BriefingLayout

@@ -20,6 +20,7 @@ export interface Avatar {
   readonly flicker?: Pose;
   readonly hurt: readonly (readonly Pose[])[];
   readonly name: string;
+  readonly rest?: Pose;
   readonly sheet: SpriteSheet;
   readonly steady?: readonly Pose[];
   readonly wound: Wound;
@@ -28,7 +29,13 @@ export interface Avatar {
 const flesh: Wound = { bottom: 18, spread: 8, style: "blood", top: 12 };
 
 export const avatars = [
-  { hurt: [["wince"]], name: "Smith", sheet: smith, wound: flesh },
+  {
+    hurt: [["wince"]],
+    name: "Smith",
+    rest: "smirk",
+    sheet: smith,
+    wound: flesh,
+  },
   {
     hurt: [["wince"]],
     name: "Welder",

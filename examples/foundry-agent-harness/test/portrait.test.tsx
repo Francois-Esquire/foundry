@@ -157,3 +157,15 @@ test("a wound opens when health worsens, not when it recovers", async () => {
   await act(async () => wound?.hit());
   expect(await frameWith(ui, "hurt at 31")).toContain("hurt at 31");
 });
+
+test("the Smith rests on a smirk, smiles now and then, and drops it once hurt", () => {
+  const [smith] = avatars;
+  const smirks = (health: Health) =>
+    Array.from({ length: 3000 }, (_, frame) =>
+      portraitScene({ avatar: smith, frame, health, hurtAt: null, seed: 1 })
+    ).filter((scene) => scene.poses.includes("smirk")).length / 3000;
+
+  expect(smirks("fresh")).toBeGreaterThan(0.6);
+  expect(smirks("fresh")).toBeLessThan(0.95);
+  expect(smirks("hurt")).toBe(0);
+});

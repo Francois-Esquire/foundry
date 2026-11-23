@@ -19,7 +19,6 @@ import { hud } from "@/model/palette";
 import { quipFor } from "@/model/quip";
 import { focusOn, type Rail, type RailStop } from "@/model/rail";
 import type { Clock, Size } from "@/model/screen";
-import type { PortraitSize } from "@/model/sprite";
 import {
   finishedTodos,
   isBusy,
@@ -56,7 +55,8 @@ export function hudGeometry({ height, width }: Size, judged = false) {
   const body = height - HINTS;
   const main = width - (rail ? RAIL_WIDTH + GAP : 0);
   const everything = PORTRAIT.large + VITALS + WEAPON + LOADOUT_MIN + ARSENAL;
-  const portrait: PortraitSize = body >= everything ? "large" : "small";
+  const portrait: keyof typeof PORTRAIT =
+    body >= everything ? "large" : "small";
   const sections: RailSection[] = [];
   let left = body - PORTRAIT[portrait];
   for (const [section, rows] of [

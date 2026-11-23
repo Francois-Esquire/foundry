@@ -22,7 +22,11 @@ Clicking a character picks it.
 | Gun | Pick the model: `sonnet`, `opus`, or `haiku`. |
 | Ammo | Load or drop a round of effort: low, medium, or high. |
 
-The menu also lists the loadout: the skills and MCP servers the worker
+The menu centres itself and scales with the terminal: it shows every
+character at the largest of four portrait sizes that fits, falls back to one
+character at a time when the row does not fit, stacks the weapon and loadout
+on a narrow screen, and gives up the header and then the loadout on a short
+one. The menu also lists the loadout: the skills and MCP servers the worker
 carries. The character, gun, and ammo stay for the whole mission, so the
 worker keeps one conversation and its context window is never reset by a
 change of model. Quit and start again to pick differently.
@@ -71,7 +75,7 @@ host with your tools, in the directory you start it from.
 | [`stories`](./stories) | Textbook stories for each block, the layout, and the view, and the sample threads they share with the tests. |
 | [`test`](./test) | The layout rendered from the sample threads, the view driven by keys, the hooks, the model, occupancy and the game's rules, the import and state rules, and every story rendered once. |
 | [`.claude/skills`](./.claude/skills) | The skills the worker gets. |
-| [`art`](./art), [`scripts/sprites.ts`](./scripts/sprites.ts) | The avatars' source strips, and `bun run sprites`, which turns them into the atlases under `src/assets/avatars`. |
+| [`art`](./art), [`scripts/sprites.ts`](./scripts/sprites.ts) | The avatars' source strips, and `bun run sprites`, which turns them into the atlases under `src/assets/avatars`. Eye poses (blink and the glances) keep only the top of the face and mouth poses (the smirk) only the bottom, so the two layers combine freely: the Smith rests on a smirk, smiles now and then, and blinks or glances with either. |
 | `src/components/ui`, `src/hooks/use-theme.ts`, `src/lib` | [TermCN](https://www.termcn.dev) components, copied in by the shadcn CLI. |
 
 | Piece | From Marbles |

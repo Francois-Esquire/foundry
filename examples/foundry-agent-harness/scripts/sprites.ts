@@ -334,6 +334,26 @@ function changedCells(base: Image, pose: Image): Set<number> {
   return cells;
 }
 
+const BROW_LINE = 18;
+const MIN_CELLS = 4;
+const EYES = { from: 0, to: BROW_LINE } as const;
+const MOUTH = { from: BROW_LINE, to: GRID } as const;
+const REGIONS: Partial<Record<Pose, { from: number; to: number }>> = {
+  blink: EYES,
+  left: EYES,
+  right: EYES,
+  smirk: MOUTH,
+};
+
+function within(pose: Pose, cells: ReadonlySet<number>): Set<number> {
+  const { from, to } = REGIONS[pose] ?? { from: 0, to: GRID };
+  const kept = [...cells].filter((cell) => {
+    const row = Math.floor(cell / GRID);
+    return row >= from && row < to;
+  });
+  return new Set(kept.length < MIN_CELLS ? [] : kept);
+}
+
 function nearChange(cells: ReadonlySet<number>, x: number, y: number) {
   for (let dy = -1; dy <= 1; dy += 1) {
     for (let dx = -1; dx <= 1; dx += 1) {
@@ -413,7 +433,7 @@ async function build(name: string, art: readonly string[]): Promise<string> {
         align(crops[column] ?? crop(source, panel), image, panel),
         CELL
       );
-      const cells = changedCells(base, posed);
+      const cells = within(pose, changedCells(base, posed));
       paste(atlas, width, column, index + 1, posed, (pixel) => {
         const x = Math.floor(((pixel % CELL) * GRID) / CELL);
         const y = Math.floor((Math.floor(pixel / CELL) * GRID) / CELL);

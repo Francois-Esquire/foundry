@@ -89,16 +89,58 @@ test("a narrow screen shows only the chosen character", async () => {
   expect(ui.captureCharFrame()).toContain("◂ 2/3 ▸");
 });
 
-test("the geometry shrinks the portraits on a short screen and drops the line-up on a narrow one", () => {
-  expect(briefingGeometry(TALL, 3)).toEqual({
+test("the geometry picks the biggest line-up that fits, then one character, then drops the extras", () => {
+  const at = (width: number, height: number) =>
+    briefingGeometry({ height, width }, 3, 2);
+
+  expect(at(200, 60)).toMatchObject({ lineup: true, portrait: "grand" });
+  expect(at(120, 44)).toMatchObject({
+    block: 110,
     card: 36,
+    header: true,
     lineup: true,
+    loadout: true,
     portrait: "large",
+    stacked: false,
   });
-  expect(briefingGeometry({ height: 30, width: 120 }, 3).portrait).toBe(
-    "small"
-  );
-  expect(briefingGeometry({ height: 44, width: 100 }, 3).lineup).toBe(false);
+  expect(at(100, 30)).toMatchObject({ lineup: true, portrait: "medium" });
+  expect(at(80, 24)).toMatchObject({
+    header: true,
+    lineup: true,
+    portrait: "small",
+  });
+  expect(at(60, 24)).toMatchObject({
+    header: false,
+    lineup: false,
+    portrait: "medium",
+    stacked: true,
+  });
+  expect(at(40, 20)).toMatchObject({
+    header: false,
+    lineup: false,
+    loadout: false,
+  });
+});
+
+test("the menu fits the screen at every size without spilling", async () => {
+  for (const [width, height] of [
+    [200, 60],
+    [160, 50],
+    [120, 44],
+    [100, 30],
+    [80, 24],
+    [60, 24],
+    [40, 20],
+  ] as const) {
+    const ui = await mount(briefing().node, { height, width });
+    const lines = ui.captureCharFrame().trimEnd().split("\n");
+
+    expect(lines.length).toBeLessThanOrEqual(height);
+    expect(lines.at(-1)).toContain("←/→  Character");
+    expect(ui.captureCharFrame()).toContain("SMITH");
+    expect(ui.captureCharFrame()).toContain("GUN  SONNET");
+    await unmount();
+  }
 });
 
 test("the app opens on the menu and carries the picks into the mission", async () => {
