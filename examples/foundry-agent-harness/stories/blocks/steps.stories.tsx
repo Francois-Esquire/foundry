@@ -1,7 +1,7 @@
 import { defineStories, story } from "textbook-sh";
 import { HintBar } from "@/components/blocks/hint-bar";
 import { Steps } from "@/components/blocks/steps";
-import type { Thread } from "@/model/thread";
+import { type Thread, todosOf } from "@/model/thread";
 import { clock, threads } from "../fixtures/threads";
 import { renderFrame } from "../frame";
 
@@ -14,13 +14,16 @@ export default defineStories({
 
 const many: Thread = {
   ...threads.working,
-  todos: Array.from({ length: 8 }, (_, index) => ({
-    added: index > 5,
-    id: `todo-${index + 1}`,
-    status:
-      (["success", "success", "success", "running"] as const)[index] ??
-      "pending",
-    title: `Step number ${index + 1} of the plan`,
+  encounters: threads.working.encounters.map((encounter) => ({
+    ...encounter,
+    todos: Array.from({ length: 8 }, (_, index) => ({
+      added: index > 5,
+      id: `todo-${index + 1}`,
+      status:
+        (["success", "success", "success", "running"] as const)[index] ??
+        "pending",
+      title: `Step number ${index + 1} of the plan`,
+    })),
   })),
 };
 
@@ -31,7 +34,12 @@ function steps(name: string, description: string, thread: Thread, width = 80) {
     render: (renderer) =>
       renderFrame(
         renderer,
-        <Steps frame={clock.frame} thread={thread} width={width} />,
+        <Steps
+          frame={clock.frame}
+          planning={thread.phase === "planning"}
+          todos={todosOf(thread)}
+          width={width}
+        />,
         { height: 3, width: width + 2 }
       ),
   });

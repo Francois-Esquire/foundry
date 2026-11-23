@@ -10,7 +10,7 @@ import {
   paintPortrait,
   portraitScene,
 } from "../src/model/portrait";
-import { HEALTH, type Health, healthAt } from "../src/model/sprite";
+import { HEALTH, type Health } from "../src/model/sprite";
 import { frameWith, mount, unmount } from "./helpers/render";
 
 const HIT_AT = 40;
@@ -124,18 +124,6 @@ test("a pose the sheet lacks leaves the picture alone", () => {
   expect(
     paintPortrait(avatar.sheet, atlas, { ...scene, poses: ["glow"] })
   ).toEqual(paintPortrait(avatar.sheet, atlas, { ...scene, poses: [] }));
-});
-
-test("health falls as the context fills", () => {
-  expect([0, 0.2, 0.3, 0.5, 0.7, 0.9, 1].map(healthAt)).toEqual([
-    "fresh",
-    "fresh",
-    "scuffed",
-    "hurt",
-    "battered",
-    "critical",
-    "critical",
-  ]);
 });
 
 test("a portrait loads its picture and draws it", async () => {

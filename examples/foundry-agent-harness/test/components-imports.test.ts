@@ -48,9 +48,14 @@ const AMBIENT = new Set(["globalThis", "process", "window"]);
 const RUNTIME = ["harness", "backlog"].map((name) => resolve(source, name));
 const HOOKS = resolve(source, "hooks");
 const THEME_HOOK = resolve(HOOKS, "use-theme");
-const COMPONENT_SOURCES = ["components", "model", "lib/terminal-themes"].map(
-  (name) => resolve(source, name)
-);
+const COMPONENT_SOURCES = [
+  "components",
+  "game",
+  "model",
+  "lib/terminal-themes",
+].map((name) => resolve(source, name));
+const GAME = resolve(source, "game");
+const GAME_SOURCES = [GAME, resolve(source, "model")];
 
 function within(directory: string, path: string): boolean {
   const inside = relative(directory, path);
@@ -109,6 +114,14 @@ function componentImportBanned(path: string, specifier: string): boolean {
   return !(
     target === THEME_HOOK ||
     COMPONENT_SOURCES.some((allowed) => within(allowed, target))
+  );
+}
+
+function gameImportBanned(path: string, specifier: string): boolean {
+  const target = resolved(path, specifier);
+  return (
+    target === undefined ||
+    !GAME_SOURCES.some((allowed) => within(allowed, target))
   );
 }
 
@@ -308,10 +321,17 @@ it("ui imports no blocks or layouts, and blocks import no layouts", async () => 
   ).toEqual([]);
 });
 
-it("model, hooks, views, and stories never reach the harness or backlog", async () => {
+it("the game imports only itself and the model, and holds no state", async () => {
+  expect(
+    await sweep([GAME], (file) => importViolations(file, gameImportBanned))
+  ).toEqual([]);
+  expect(await sweep([GAME], stateViolations)).toEqual([]);
+});
+
+it("model, game, hooks, views, and stories never reach the harness or backlog", async () => {
   expect(
     await sweep(
-      ["model", "hooks", "views"]
+      ["model", "game", "hooks", "views"]
         .map((name) => resolve(source, name))
         .concat(resolve(root, "stories")),
       (file) => importViolations(file, reachesRuntime)
@@ -330,6 +350,7 @@ describe("the classifier", () => {
     'import { Panel } from "@/components/ui/panel";',
     'import { Hint } from "./hint";',
     'import type { Thread } from "@/model/thread";',
+    'import type { Scorecard } from "@/game/scorecard";',
   ])("allows %s", (text) => {
     expect(importViolations(parse(block, text), componentImportBanned)).toEqual(
       []
@@ -383,6 +404,29 @@ describe("the classifier", () => {
     ["var frame = 0;", "module-level var frame"],
   ])("refuses %s", (text, violation) => {
     expect(stateViolations(parse(block, text))).toEqual([violation]);
+  });
+
+  it.each([
+    'import { useMemo } from "react";',
+    'import { SyntaxStyle } from "@opentui/core";',
+    'import { agent } from "@foundry.sh/marbles";',
+    'import { run } from "@/harness";',
+    'import { useThread } from "@/hooks/use-thread";',
+    'import { Vitals } from "@/components/blocks/vitals";',
+  ])("keeps the game from %s", (text) => {
+    const rules = resolve(GAME, "rules.ts");
+    expect(importViolations(parse(rules, text), gameImportBanned)).toHaveLength(
+      1
+    );
+  });
+
+  it.each([
+    'import type { Facts } from "@/game/facts";',
+    'import type { Encounter } from "@/model/thread";',
+    'import { factsOf } from "./facts";',
+  ])("lets the game %s", (text) => {
+    const rules = resolve(GAME, "rules.ts");
+    expect(importViolations(parse(rules, text), gameImportBanned)).toEqual([]);
   });
 
   it("allows constants, memos, and the theme", () => {

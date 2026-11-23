@@ -2,12 +2,12 @@ import { defineStories, story } from "textbook-sh";
 import { Arsenal } from "@/components/blocks/arsenal";
 import { Loadout } from "@/components/blocks/loadout";
 import { Plate } from "@/components/blocks/plate";
-import { Vitals } from "@/components/blocks/vitals";
+import { totalsLine, Vitals } from "@/components/blocks/vitals";
 import { Weapon } from "@/components/blocks/weapon";
 import { slotsOf } from "@/model/context";
 import { hud } from "@/model/palette";
-import { toolTallies } from "@/model/thread";
-import { clock, context, threads } from "../fixtures/threads";
+import { stepsOf, toolTallies } from "@/model/thread";
+import { clock, context, progress, threads } from "../fixtures/threads";
 import { renderFrame } from "../frame";
 
 const size = { height: 10, width: 38 };
@@ -25,12 +25,15 @@ export const Healthy = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Plate icon="♥" meta="9% used" title="VITALS">
+      <Plate
+        icon="♥"
+        meta={totalsLine({ input: 18_400, output: 912 })}
+        title="VITALS"
+      >
         <Vitals
           health="fresh"
-          input={18_400}
           limit={200_000}
-          output={912}
+          progress={progress.fresh}
           tokens={182_000}
           used={0.09}
         />
@@ -45,12 +48,15 @@ export const Spent = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Plate icon="♥" meta="93% used" title="VITALS">
+      <Plate
+        icon="♥"
+        meta={totalsLine({ input: 412_000, output: 9100 })}
+        title="VITALS"
+      >
         <Vitals
           health="critical"
-          input={412_000}
           limit={200_000}
-          output={9100}
+          progress={progress.fresh}
           tokens={14_000}
           used={0.93}
         />
@@ -115,7 +121,10 @@ export const Fired = story({
     renderFrame(
       renderer,
       <Plate icon="⚒" meta="3 calls" title="ARSENAL">
-        <Arsenal frame={clock.frame} tallies={toolTallies(threads.working)} />
+        <Arsenal
+          frame={clock.frame}
+          tallies={toolTallies(stepsOf(threads.working))}
+        />
       </Plate>,
       size
     ),
@@ -129,6 +138,30 @@ export const Quiet = story({
       renderer,
       <Plate icon="⚒" meta="0 calls" title="ARSENAL">
         <Arsenal frame={clock.frame} tallies={[]} />
+      </Plate>,
+      size
+    ),
+});
+
+export const Levelled = story({
+  description:
+    "Four accepted encounters later: level 4 and part of the way to 5.",
+  name: "Vitals, level 4",
+  render: (renderer) =>
+    renderFrame(
+      renderer,
+      <Plate
+        icon="♥"
+        meta={totalsLine({ input: 73_600, output: 3648 })}
+        title="VITALS"
+      >
+        <Vitals
+          health="fresh"
+          limit={200_000}
+          progress={progress.seasoned}
+          tokens={193_875}
+          used={0.03}
+        />
       </Plate>,
       size
     ),

@@ -17,7 +17,7 @@ export const Welcome = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Conversation clock={clock} messages={threads.idle.messages} />,
+      <Conversation clock={clock} encounters={threads.idle.encounters} />,
       size
     ),
 });
@@ -28,7 +28,7 @@ export const Working = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Conversation clock={clock} messages={threads.working.messages} />,
+      <Conversation clock={clock} encounters={threads.working.encounters} />,
       size
     ),
 });
@@ -39,7 +39,7 @@ export const Done = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Conversation clock={clock} messages={threads.done.messages} />,
+      <Conversation clock={clock} encounters={threads.done.encounters} />,
       size
     ),
 });
@@ -50,7 +50,7 @@ export const Failed = story({
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Conversation clock={clock} messages={threads.failed.messages} />,
+      <Conversation clock={clock} encounters={threads.failed.encounters} />,
       size
     ),
 });

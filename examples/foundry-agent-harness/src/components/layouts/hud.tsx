@@ -7,20 +7,27 @@ import { HintBar } from "@/components/blocks/hint-bar";
 import { Loadout } from "@/components/blocks/loadout";
 import { Plate } from "@/components/blocks/plate";
 import { PortraitBay } from "@/components/blocks/portrait-bay";
+import { Results, resultsMeta } from "@/components/blocks/results";
 import { Steps } from "@/components/blocks/steps";
-import { Vitals } from "@/components/blocks/vitals";
+import { totalsLine, Vitals } from "@/components/blocks/vitals";
 import { Weapon } from "@/components/blocks/weapon";
+import type { Progress } from "@/game/progress";
+import type { Scorecard } from "@/game/scorecard";
 import { type Context, slotsOf } from "@/model/context";
+import { occupancyOf } from "@/model/occupancy";
 import { hud } from "@/model/palette";
 import { quipFor } from "@/model/quip";
 import { focusOn, type Rail, type RailStop } from "@/model/rail";
 import type { Clock, Size } from "@/model/screen";
-import { healthAt, type PortraitSize } from "@/model/sprite";
+import type { PortraitSize } from "@/model/sprite";
 import {
-  contextUsed,
   finishedTodos,
   isBusy,
+  stepsOf,
   type Thread,
+  threadTokens,
+  titleOf,
+  todosOf,
   toolTallies,
 } from "@/model/thread";
 
@@ -38,11 +45,13 @@ const LOADOUT_MIN = 4;
 const ARSENAL = 6;
 const PAGE_OVERLAP = 3;
 const PLATE_CHROME = 4;
+const RESULTS = 6;
+const CONVERSATION_MIN = 9;
 const NAME = "FOUNDRY AGENT HARNESS";
 
 export type RailSection = "arsenal" | "loadout" | "vitals" | "weapon";
 
-export function hudGeometry({ height, width }: Size) {
+export function hudGeometry({ height, width }: Size, judged = false) {
   const rail = width >= RAIL_WIDTH + GAP + MAIN_MIN;
   const body = height - HINTS;
   const main = width - (rail ? RAIL_WIDTH + GAP : 0);
@@ -68,11 +77,13 @@ export function hudGeometry({ height, width }: Size) {
         ...(sections.includes("loadout") ? (["slot"] as const) : []),
       ]
     : [];
+  const results = judged && body - STEPS - GOAL - RESULTS >= CONVERSATION_MIN;
   return {
     main,
-    page: body - STEPS - GOAL - FRAME - PAGE_OVERLAP,
+    page: body - STEPS - GOAL - FRAME - PAGE_OVERLAP - (results ? RESULTS : 0),
     portrait,
     rail,
+    results,
     sections,
     stepsWidth: main - PLATE_CHROME,
     stops,
@@ -86,7 +97,7 @@ function shortened(text: string, room: number): string | undefined {
   return text.length > room ? `${text.slice(0, room - 1)}…` : text;
 }
 
-function keysFor(focus: RailStop | null) {
+function keysFor(focus: RailStop | null, judging: boolean) {
   const turn = {
     avatar: "Avatar",
     effort: "Ammo",
@@ -94,14 +105,21 @@ function keysFor(focus: RailStop | null) {
     slot: "Loadout",
   } as const;
   return [
-    ["↵", "Run"],
+    ...(judging
+      ? ([
+          ["A", "Accept"],
+          ["R", "Reject"],
+          ["Esc", "Skip"],
+        ] as const)
+      : []),
+    ...(judging ? [] : ([["↵", "Run"]] as const)),
     ...(focus
       ? ([
           ["Tab", "Next"],
           ["↑/↓", turn[focus]],
         ] as const)
       : []),
-    ["PgUp/PgDn", "Scroll"],
+    ...(judging ? [] : ([["PgUp/PgDn", "Scroll"]] as const)),
     ["^C", "Quit"],
   ] as const;
 }
@@ -115,7 +133,9 @@ export function HudLayout({
   onResize,
   onSubmit,
   portrait,
+  progress,
   rail,
+  results = null,
   scrollRef,
   size,
   thread,
@@ -128,17 +148,20 @@ export function HudLayout({
   readonly onResize: (size: Size) => void;
   readonly onSubmit: () => void;
   readonly portrait: ReactNode;
+  readonly progress: Progress;
   readonly rail: Rail;
+  readonly results?: Scorecard | null;
   readonly scrollRef?: Ref<ScrollBoxRenderable>;
   readonly size: Size;
   readonly thread: Thread;
 }) {
-  const geometry = hudGeometry(size);
+  const geometry = hudGeometry(size, results !== null);
   const focus = geometry.rail ? focusOn(rail, geometry.stops) : null;
-  const used = contextUsed(thread, context.limit);
-  const health = healthAt(used);
+  const steps = stepsOf(thread);
+  const todos = todosOf(thread);
+  const { health, left, used } = occupancyOf(steps, context.limit);
   const slots = slotsOf(context);
-  const tallies = toolTallies(thread);
+  const tallies = toolTallies(steps);
   const shows = (section: RailSection) => geometry.sections.includes(section);
   const tone = (stop: RailStop, ...more: RailStop[]) =>
     focus !== null && [stop, ...more].includes(focus) ? hud.amber : hud.bronze;
@@ -175,15 +198,14 @@ export function HudLayout({
             {shows("vitals") ? (
               <Plate
                 icon="♥"
-                meta={`${Math.round(used * 100)}% used`}
+                meta={totalsLine(threadTokens(thread))}
                 title="VITALS"
               >
                 <Vitals
                   health={health}
-                  input={thread.input}
                   limit={context.limit}
-                  output={thread.output}
-                  tokens={Math.max(context.limit - thread.context, 0)}
+                  progress={progress}
+                  tokens={left}
                   used={used}
                 />
               </Plate>
@@ -236,14 +258,15 @@ export function HudLayout({
           <Plate>
             <Steps
               frame={clock.frame}
-              thread={thread}
+              planning={thread.phase === "planning"}
+              todos={todos}
               width={geometry.stepsWidth}
             />
           </Plate>
           <Plate
             grow
             meta={shortened(
-              `${finishedTodos(thread)}/${thread.todos.length} · ${thread.title}`,
+              `${finishedTodos(todos)}/${todos.length} · ${titleOf(thread)}`,
               geometry.main - NAME.length - 12
             )}
             title={NAME}
@@ -255,9 +278,22 @@ export function HudLayout({
               stickyScroll
               stickyStart="bottom"
             >
-              <Conversation clock={clock} messages={thread.messages} />
+              <Conversation clock={clock} encounters={thread.encounters} />
             </scrollbox>
           </Plate>
+          {results && geometry.results ? (
+            <box flexShrink={0} height={RESULTS}>
+              <Plate
+                grow
+                icon="★"
+                meta={resultsMeta(results)}
+                title="RESULTS"
+                tone={results.verdict === null ? hud.amber : hud.bronze}
+              >
+                <Results scorecard={results} />
+              </Plate>
+            </box>
+          ) : null}
           <Plate tone={hud.amber}>
             <GoalBar
               busy={isBusy(thread)}
@@ -265,11 +301,15 @@ export function HudLayout({
               frame={clock.frame}
               onDraft={onDraft}
               onSubmit={onSubmit}
+              reviewing={results?.verdict === null}
             />
           </Plate>
         </box>
       </box>
-      <HintBar keys={keysFor(focus)} notes={thread.notes} />
+      <HintBar
+        keys={keysFor(focus, results?.verdict === null)}
+        notes={thread.notes}
+      />
     </box>
   );
 }

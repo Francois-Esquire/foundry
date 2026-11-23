@@ -1,25 +1,30 @@
 import { Gauge } from "@/components/blocks/gauge";
+import type { Progress } from "@/game/progress";
 import { hud } from "@/model/palette";
 import { HEALTH, type Health } from "@/model/sprite";
-import { compactCount } from "@/model/thread";
+import { compactCount, type Tokens } from "@/model/thread";
 
 const CELLS = 30;
+
+export function totalsLine({ input, output }: Tokens): string {
+  return `${compactCount(input)} in · ${compactCount(output)} out`;
+}
+
+const XP_CELLS = 12;
 const TONES = [hud.ok, hud.ok, hud.amber, hud.red, hud.red];
 
 export function Vitals({
   health,
-  input,
-  output,
+  limit,
+  progress,
   tokens,
   used,
-  limit,
 }: {
   readonly health: Health;
-  readonly input: number;
-  readonly output: number;
+  readonly limit: number;
+  readonly progress: Progress;
   readonly tokens: number;
   readonly used: number;
-  readonly limit: number;
 }) {
   const tone = TONES[HEALTH.indexOf(health)] ?? hud.amber;
   return (
@@ -32,9 +37,20 @@ export function Vitals({
         </text>
       </box>
       <Gauge cells={CELLS} level={1 - used} tone={tone} />
-      <text fg={hud.dim} wrapMode="none">
-        {`${compactCount(input)} in · ${compactCount(output)} out`}
-      </text>
+      <box flexDirection="row" gap={1} height={1}>
+        <text fg={hud.bright} flexShrink={0} wrapMode="none">
+          <b>{`LV ${progress.level}`}</b>
+        </text>
+        <Gauge
+          cells={XP_CELLS}
+          level={progress.into / progress.needed}
+          tone={hud.amber}
+        />
+        <box flexGrow={1} />
+        <text fg={hud.dim} flexShrink={0} wrapMode="none">
+          {`${progress.into}/${progress.needed} xp`}
+        </text>
+      </box>
     </box>
   );
 }

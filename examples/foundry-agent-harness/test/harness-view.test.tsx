@@ -45,7 +45,7 @@ test("Enter hands over a trimmed goal once and clears the field", async () => {
 
   expect(fake.goals).toEqual(["list the files"]);
   expect(fake.weapons).toEqual([{ effort: "medium", model: "sonnet" }]);
-  expect(ui.captureCharFrame()).toContain("Give the harness a goal");
+  expect(ui.captureCharFrame()).toContain("Accept, reject or skip the result");
   expect(ui.captureCharFrame()).toContain("18.4k in · 912 out");
 });
 
@@ -113,6 +113,58 @@ test("PgUp and PgDn scroll the conversation", async () => {
   const back = await frameWith(ui, "bun run start");
   expect(back).toContain("bun run start");
   expect(back).not.toContain(top);
+});
+
+test("A accepts the finished goal and hands the keys back to the goal field", async () => {
+  const { ui } = await asked(threads.done, { height: 44, width: 120 });
+
+  expect(await frameWith(ui, "awaiting verdict")).toContain("A  Accept");
+  expect(ui.captureCharFrame()).toContain("LV 1");
+  await press(ui, "a");
+
+  const frame = await frameWith(ui, "RANK S");
+  expect(frame).toContain("RANK S · +175 XP");
+  expect(frame).toContain("LV 2");
+  expect(frame).toContain("75/200 xp");
+  expect(frame).not.toContain("A  Accept");
+  await type(ui, "a rare goal");
+  expect(ui.captureCharFrame()).toContain("› a rare goal");
+  expect(ui.captureCharFrame()).toContain("RANK S · +175 XP");
+});
+
+test("R rejects the finished goal and banks nothing", async () => {
+  const { ui } = await asked(threads.done, { height: 44, width: 120 });
+
+  await press(ui, "r");
+
+  const frame = await frameWith(ui, "Rejected");
+  expect(frame).toContain("Rejected · nothing banked");
+  expect(frame).toContain("LV 1");
+  expect(frame).toContain("0/100 xp");
+});
+
+test("Escape skips the verdict, hides the card and banks nothing", async () => {
+  const { ui } = await asked(threads.done, { height: 44, width: 120 });
+
+  await frameWith(ui, "awaiting verdict");
+  await type(ui, "hello");
+  expect(ui.captureCharFrame()).not.toContain("› hello");
+  await press(ui, "ESCAPE");
+
+  const frame = ui.captureCharFrame();
+  expect(frame).not.toContain("RESULTS");
+  expect(frame).toContain("0/100 xp");
+  await type(ui, "next");
+  expect(ui.captureCharFrame()).toContain("› next");
+});
+
+test("the verdict keys go to the goal field while a goal runs", async () => {
+  const { ui } = await asked(threads.working, { height: 44, width: 120 });
+
+  await press(ui, "a");
+
+  expect(ui.captureCharFrame()).not.toContain("RESULTS");
+  expect(ui.captureCharFrame()).toContain("LV 1");
 });
 
 test("a narrow terminal drops the panel and ignores Tab", async () => {

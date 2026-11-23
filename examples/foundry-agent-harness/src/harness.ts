@@ -18,8 +18,14 @@ import { initLogger } from "evlog";
 import { z } from "zod";
 import { backlog, serveBacklog } from "@/backlog";
 import type { Context, Weapon } from "@/model/context";
-import type { Message, Run, Thread, Todo } from "@/model/thread";
-import { emptyThread } from "@/model/thread";
+import type { Encounter, Run, Step, Thread, Todo } from "@/model/thread";
+import {
+  emptyThread,
+  latestEncounter,
+  startEncounter,
+  stepsOf,
+  todosOf,
+} from "@/model/thread";
 
 const LIMIT = 8;
 const MODELS = ["sonnet", "opus", "haiku"] as const;
@@ -59,15 +65,21 @@ let show: (thread: Thread) => void = () => undefined;
 const paint = () => show(structuredClone(thread));
 
 async function add(title: string): Promise<string> {
-  if (thread.todos.length >= LIMIT) {
+  const encounter = latestEncounter(thread);
+  if (!encounter || todosOf(thread).length >= LIMIT) {
     return "The list is full. Finish the work inside this task.";
   }
-  const previous = thread.todos.at(-1);
+  const previous = todosOf(thread).at(-1);
   const task = await tasks.create(
     { title },
     { dependsOn: previous ? [{ id: previous.id }] : [] }
   );
-  thread.todos.push({ added: true, id: task.id, status: "pending", title });
+  encounter.todos.push({
+    added: true,
+    id: task.id,
+    status: "pending",
+    title,
+  });
   paint();
   return `Added "${title}" to the end of the list.`;
 }
@@ -131,8 +143,12 @@ type Armed = ReturnType<typeof arm>;
 const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
 const armed = new Map<string, Armed>();
 
+function pairing({ effort, model }: Weapon): string {
+  return `${model}/${effort}`;
+}
+
 function armedWith(weapon: Weapon): Armed {
-  const key = `${weapon.model}/${weapon.effort}`;
+  const key = pairing(weapon);
   const kept = armed.get(key) ?? arm(weapon);
   armed.set(key, kept);
   return kept;
@@ -151,36 +167,40 @@ function failure(output: unknown): string {
   return (text ?? "").trim().split("\n")[0] ?? "";
 }
 
-async function turn(todo: Todo, { working }: Armed): Promise<string> {
-  const message: Message = {
-    kind: "task",
+async function step(
+  todo: Todo,
+  encounter: Encounter,
+  { working }: Armed
+): Promise<string> {
+  const worked: Step = {
     streaming: true,
     text: "",
     title: todo.title,
     tools: [],
+    usage: null,
   };
-  thread.messages.push(message);
+  encounter.steps.push(worked);
   todo.status = "running";
   paint();
   await tasks.start(todo.id);
   const session = await working;
   const reply = await session.generate(todo.title, {
     onText: (delta) => {
-      message.text += delta;
+      worked.text += delta;
       paint();
     },
     onToolCall: ({ input, name, toolCallId }) => {
-      message.tools.push({
+      worked.tools.push({
         detail: detail(input),
         id: toolCallId,
-        name: name.replace("mcp__", "").replace("__", " · "),
+        name,
         startedAt: Date.now(),
         status: "running",
       });
       paint();
     },
     onToolResult: ({ isError, output, toolCallId }) => {
-      const tool = message.tools.find((each) => each.id === toolCallId);
+      const tool = worked.tools.find((each) => each.id === toolCallId);
       if (tool) {
         tool.status = isError ? "error" : "success";
         tool.error = isError ? failure(output) : undefined;
@@ -188,31 +208,30 @@ async function turn(todo: Todo, { working }: Armed): Promise<string> {
       paint();
     },
   });
-  message.text = reply.text;
-  message.streaming = false;
-  thread.input += reply.usage.inputTokens;
-  thread.output += reply.usage.outputTokens;
-  thread.context =
-    Math.round(reply.usage.inputTokens / (message.tools.length + 1)) +
-    reply.usage.outputTokens;
+  worked.text = reply.text;
+  worked.streaming = false;
+  worked.usage = {
+    input: reply.usage.inputTokens,
+    output: reply.usage.outputTokens,
+  };
   await tasks.complete(todo.id);
   todo.status = "success";
   paint();
   return reply.text;
 }
 
-async function work(using: Armed): Promise<void> {
+async function work(encounter: Encounter, using: Armed): Promise<void> {
   const kept: { path: string; text: string; title: string }[] = [];
   for (;;) {
     const [next] = (await tasks.ready({ limit: 1 })).items;
-    const todo = thread.todos.find((each) => each.id === next?.id);
+    const todo = todosOf(thread).find((each) => each.id === next?.id);
     if (!todo) {
       break;
     }
     const slug = todo.title.toLowerCase().replace(SLUG, "-").slice(0, 40);
     kept.push({
       path: `${kept.length + 1}-${slug}.md`,
-      text: `# ${todo.title}\n\n${await turn(todo, using)}\n`,
+      text: `# ${todo.title}\n\n${await step(todo, encounter, using)}\n`,
       title: todo.title,
     });
   }
@@ -230,67 +249,68 @@ async function work(using: Armed): Promise<void> {
   };
 }
 
-async function plan(goal: string, { engine }: Armed): Promise<void> {
+async function plan(encounter: Encounter, { engine }: Armed): Promise<void> {
   const planning = await engine.agents.session(planner);
-  const reply = await planning.generate(goal);
-  thread.input += reply.usage.inputTokens;
-  thread.output += reply.usage.outputTokens;
-  let previous = thread.todos.at(-1);
+  const reply = await planning.generate(encounter.goal);
+  encounter.plan = {
+    input: reply.usage.inputTokens,
+    output: reply.usage.outputTokens,
+  };
+  let previous = todosOf(thread).at(-1);
   for (const title of reply.output.tasks) {
     const task = await tasks.create(
       { title },
       { dependsOn: previous ? [{ id: previous.id }] : [] }
     );
     previous = { added: false, id: task.id, status: "pending", title };
-    thread.todos.push(previous);
+    encounter.todos.push(previous);
   }
 }
 
 async function abandon(): Promise<void> {
-  for (const todo of thread.todos) {
-    if (todo.status === "pending" || todo.status === "running") {
-      todo.status = "error";
-      await tasks.cancel(todo.id);
-    }
+  const open = todosOf(thread).filter(
+    (todo) => todo.status === "pending" || todo.status === "running"
+  );
+  for (const todo of open) {
+    todo.status = "error";
   }
-  for (const message of thread.messages) {
-    message.streaming = false;
-    for (const tool of message.tools) {
+  for (const each of stepsOf(thread)) {
+    each.streaming = false;
+    for (const tool of each.tools) {
       tool.status = tool.status === "running" ? "error" : tool.status;
     }
   }
+  await Promise.allSettled(open.map((todo) => tasks.cancel(todo.id)));
 }
 
 export const run: Run = async (goal, shown, weapon) => {
   show = shown;
-  thread.title = thread.messages.length === 0 ? goal : thread.title;
-  thread.messages.push({
-    kind: "goal",
-    streaming: false,
-    text: goal,
-    title: "You",
-    tools: [],
+  const encounter = startEncounter({
+    goal,
+    id: `encounter-${thread.encounters.length + 1}`,
+    rearmed: thread.encounters.length > 0 && !armed.has(pairing(weapon)),
+    startedAt: Date.now(),
+    weapon,
   });
+  thread.encounters.push(encounter);
   thread.phase = "planning";
   paint();
   try {
     const using = armedWith(weapon);
-    await plan(goal, using);
+    await plan(encounter, using);
     thread.phase = "working";
     paint();
-    await work(using);
+    await work(encounter, using);
+    encounter.outcome = "finished";
   } catch (error) {
+    encounter.outcome = "failed";
+    encounter.error = error instanceof Error ? error.message : String(error);
     await abandon();
-    thread.messages.push({
-      kind: "error",
-      streaming: false,
-      text: error instanceof Error ? error.message : String(error),
-      title: "The harness stopped",
-      tools: [],
-    });
+  } finally {
+    encounter.endedAt = Date.now();
+    thread.phase = "idle";
+    paint();
   }
-  thread.phase = "idle";
-  paint();
 };
 
 export async function close(): Promise<void> {

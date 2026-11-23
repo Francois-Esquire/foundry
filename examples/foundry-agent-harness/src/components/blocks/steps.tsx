@@ -1,10 +1,10 @@
 import { hud } from "@/model/palette";
-import { fitSteps, type Step } from "@/model/steps";
-import type { Thread } from "@/model/thread";
+import { type Chip, fitSteps } from "@/model/steps";
+import type { Todo } from "@/model/thread";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-function look(step: Step, frame: number) {
+function look(step: Chip, frame: number) {
   if (step.status === "success") {
     return { bg: hud.okDeep, fg: hud.ok, icon: "✓", link: hud.okDim };
   }
@@ -29,28 +29,30 @@ function look(step: Step, frame: number) {
 
 export function Steps({
   frame,
-  thread,
+  planning,
+  todos,
   width,
 }: {
   readonly frame: number;
-  readonly thread: Thread;
+  readonly planning: boolean;
+  readonly todos: readonly Todo[];
   readonly width: number;
 }) {
-  if (thread.phase === "planning") {
+  if (planning) {
     return (
       <text fg={hud.amber} wrapMode="none">
         {`${SPINNER[frame % SPINNER.length]} Planning the goal into to-dos`}
       </text>
     );
   }
-  if (thread.todos.length === 0) {
+  if (todos.length === 0) {
     return (
       <text fg={hud.dim} truncate wrapMode="none">
         No to-dos yet. A goal is planned into two to four.
       </text>
     );
   }
-  const { after, before, steps } = fitSteps(thread.todos, width);
+  const { after, before, steps } = fitSteps(todos, width);
   return (
     <text wrapMode="none">
       {before > 0 ? <span fg={hud.dim}>{`‹${before} `}</span> : null}

@@ -4,8 +4,11 @@ import { afterEach, expect, test } from "vitest";
 import { useAnimationClock } from "../src/hooks/use-animation-clock";
 import { useGoalDraft } from "../src/hooks/use-goal-draft";
 import { useRail } from "../src/hooks/use-rail";
+import { useVerdicts } from "../src/hooks/use-verdicts";
 import type { RailStop } from "../src/model/rail";
+import type { Encounter } from "../src/model/thread";
 import { context } from "../stories/fixtures/threads";
+import { encounter } from "./helpers/encounters";
 import { frameWith, mount, press, unmount } from "./helpers/render";
 
 const STOPS: readonly RailStop[] = ["avatar", "model", "effort", "slot"];
@@ -29,6 +32,12 @@ function RailProbe({ stops }: { readonly stops: readonly RailStop[] }) {
   return (
     <text>{`${rail.focus} ${rail.model} ${rail.effort} ${rail.avatar}`}</text>
   );
+}
+
+function VerdictProbe({ latest }: { readonly latest: Encounter | undefined }) {
+  const verdicts = useVerdicts(latest);
+  const given = [...verdicts].map(([id, verdict]) => `${id}=${verdict}`);
+  return <text>{`verdicts [${given.join(" ")}]`}</text>;
 }
 
 function ClockProbe({ active }: { readonly active: boolean }) {
@@ -95,6 +104,44 @@ test("the rail ignores keys when it has no stops", async () => {
   await press(ui, "TAB");
   await press(ui, "ARROW_DOWN");
   expect(ui.captureCharFrame()).toContain("model sonnet medium 0");
+});
+
+test("A accepts the ended encounter once and the verdict sticks", async () => {
+  const ui = await mount(
+    <VerdictProbe latest={encounter({ endedAt: 2, outcome: "finished" })} />
+  );
+
+  await press(ui, "a", { ctrl: true });
+  expect(ui.captureCharFrame()).toContain("verdicts []");
+  await press(ui, "a");
+  expect(ui.captureCharFrame()).toContain("verdicts [encounter-1=accept]");
+  await press(ui, "r");
+  expect(ui.captureCharFrame()).toContain("verdicts [encounter-1=accept]");
+});
+
+test("R rejects a failed encounter and Escape skips one", async () => {
+  const ui = await mount(
+    <VerdictProbe latest={encounter({ endedAt: 2, outcome: "failed" })} />
+  );
+
+  await press(ui, "r");
+  expect(ui.captureCharFrame()).toContain("verdicts [encounter-1=reject]");
+
+  const skipped = await mount(
+    <VerdictProbe latest={encounter({ endedAt: 2, outcome: "finished" })} />
+  );
+  await press(skipped, "ESCAPE");
+  expect(skipped.captureCharFrame()).toContain("verdicts [encounter-1=skip]");
+});
+
+test("no verdict is taken while the encounter runs or before there is one", async () => {
+  const running = await mount(<VerdictProbe latest={encounter()} />);
+  await press(running, "a");
+  expect(running.captureCharFrame()).toContain("verdicts []");
+
+  const none = await mount(<VerdictProbe latest={undefined} />);
+  await press(none, "a");
+  expect(none.captureCharFrame()).toContain("verdicts []");
 });
 
 test("an active clock advances its frame and time", async () => {

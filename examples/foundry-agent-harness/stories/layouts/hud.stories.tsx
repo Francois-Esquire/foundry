@@ -1,13 +1,21 @@
 import { defineStories, story } from "textbook-sh";
 import { Portrait } from "@/components/blocks/portrait";
 import { HudLayout, hudGeometry } from "@/components/layouts/hud";
+import type { Progress } from "@/game/progress";
+import type { Scorecard } from "@/game/scorecard";
 import { portraitImage } from "@/hooks/use-portrait";
 import { avatars } from "@/model/avatars";
+import { occupancyOf } from "@/model/occupancy";
 import { type Rail, startRail } from "@/model/rail";
 import type { Size } from "@/model/screen";
-import { healthAt } from "@/model/sprite";
-import { contextUsed, type Thread } from "@/model/thread";
-import { clock, context, threads } from "../fixtures/threads";
+import { stepsOf, type Thread } from "@/model/thread";
+import {
+  clock,
+  context,
+  progress,
+  scorecards,
+  threads,
+} from "../fixtures/threads";
 import { ignore, renderFrame } from "../frame";
 
 const tall = { height: 44, width: 120 };
@@ -28,11 +36,15 @@ function screen(
   thread: Thread,
   {
     draft = "",
+    levels = progress.fresh,
     rail = {},
+    results = null,
     size = tall,
   }: {
     readonly draft?: string;
+    readonly levels?: Progress;
     readonly rail?: Partial<Rail>;
+    readonly results?: Scorecard | null;
     readonly size?: Size;
   } = {}
 ) {
@@ -45,7 +57,7 @@ function screen(
       const image = await portraitImage({
         avatar,
         frame: 0,
-        health: healthAt(contextUsed(thread, context.limit)),
+        health: occupancyOf(stepsOf(thread), context.limit).health,
         hurtAt: null,
         seed: 1,
       });
@@ -62,7 +74,9 @@ function screen(
           portrait={
             <Portrait image={image} size={hudGeometry(size).portrait} />
           }
+          progress={levels}
           rail={state}
+          results={results}
           size={size}
           thread={thread}
         />,
@@ -95,8 +109,23 @@ export const Working = screen(
 
 export const Done = screen(
   "Done",
-  "Every step finished and the notes kept.",
-  threads.done
+  "Every step finished and the notes kept, waiting for a verdict.",
+  threads.done,
+  { results: scorecards.pending }
+);
+
+export const Scored = screen(
+  "Scored",
+  "The encounter accepted: its rank, line items and XP, and a level gained.",
+  threads.done,
+  { levels: progress.seasoned, results: scorecards.accepted }
+);
+
+export const Rejected = screen(
+  "Rejected",
+  "The encounter rejected, so nothing was banked.",
+  threads.done,
+  { results: scorecards.rejected }
 );
 
 export const Failed = screen(

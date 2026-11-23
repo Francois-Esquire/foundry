@@ -1,5 +1,5 @@
 import { hud } from "@/model/palette";
-import type { Tally } from "@/model/thread";
+import { type Tally, toolLabel } from "@/model/thread";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const PIPS = 8;
@@ -31,7 +31,7 @@ export function Arsenal({
           <box flexDirection="row" gap={1} height={1} key={tally.name}>
             <text fg={tone}>{icon}</text>
             <text fg={hud.text} flexShrink={1} truncate wrapMode="none">
-              {tally.name}
+              {toolLabel(tally.name)}
             </text>
             <box flexGrow={1} />
             <text fg={hud.bronze} flexShrink={0} wrapMode="none">

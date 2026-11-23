@@ -1,6 +1,6 @@
 import type { Status, Todo } from "@/model/thread";
 
-export interface Step {
+export interface Chip {
   readonly added: boolean;
   readonly id: string;
   readonly label: string;
@@ -11,7 +11,7 @@ export interface Step {
 export interface StepRow {
   readonly after: number;
   readonly before: number;
-  readonly steps: readonly Step[];
+  readonly steps: readonly Chip[];
 }
 
 const CHIP = 4;

@@ -1,7 +1,8 @@
 import { act, useEffect, useState } from "react";
 import { afterEach, expect, test } from "vitest";
 import { Conversation } from "../src/components/blocks/conversation";
-import type { Message } from "../src/model/thread";
+import type { Encounter } from "../src/model/thread";
+import { encounter, step } from "./helpers/encounters";
 import { frameWith, mount, unmount } from "./helpers/render";
 
 const REPLY = [
@@ -19,8 +20,13 @@ const REPLY = [
 const SIZE = { height: 14, width: 60 };
 const CLOCK = { frame: 0, now: 0 };
 
-function reply(text: string, streaming: boolean): Message {
-  return { kind: "task", streaming, text, title: "Explain", tools: [] };
+function reply(text: string, streaming: boolean): Encounter[] {
+  return [
+    encounter({
+      goal: "Explain",
+      steps: [step({ streaming, text, title: "Explain" })],
+    }),
+  ];
 }
 
 let grow: ((length: number) => void) | undefined;
@@ -35,7 +41,7 @@ function Streamed() {
   return (
     <Conversation
       clock={CLOCK}
-      messages={[reply(REPLY.slice(0, length), length < REPLY.length)]}
+      encounters={reply(REPLY.slice(0, length), length < REPLY.length)}
     />
   );
 }
@@ -45,7 +51,7 @@ afterEach(unmount);
 test("a reply that arrived in pieces ends up drawn like one that arrived whole", async () => {
   const whole = await frameWith(
     await mount(
-      <Conversation clock={CLOCK} messages={[reply(REPLY, false)]} />,
+      <Conversation clock={CLOCK} encounters={reply(REPLY, false)} />,
       SIZE
     ),
     "The second starts the harness"

@@ -5,9 +5,17 @@ import { adjust, focusOn, refocus, startRail } from "../src/model/rail";
 import { fitSteps } from "../src/model/steps";
 import {
   compactCount,
-  contextUsed,
   emptyThread,
+  hasFailed,
+  isEnded,
+  latestEncounter,
+  startEncounter,
+  stepsOf,
   type Todo,
+  threadTokens,
+  titleOf,
+  todosOf,
+  tokensOf,
   toolTallies,
 } from "../src/model/thread";
 import { context, threads } from "../stories/fixtures/threads";
@@ -68,30 +76,107 @@ describe("steps", () => {
   });
 
   test("a wide row shows every title in full", () => {
-    const row = fitSteps(threads.working.todos, 200);
+    const row = fitSteps(todosOf(threads.working), 200);
     expect(row.steps.map((step) => step.label)).toEqual(
-      threads.working.todos.map((todo) => todo.title)
+      todosOf(threads.working).map((todo) => todo.title)
     );
   });
 });
 
 test("tools are tallied by name, most used first", () => {
-  expect(toolTallies(threads.idle)).toEqual([]);
-  expect(toolTallies(threads.working)).toEqual([
+  expect(toolTallies(stepsOf(threads.idle))).toEqual([]);
+  expect(toolTallies(stepsOf(threads.working))).toEqual([
     { count: 1, failed: 0, name: "Skill", running: false },
     { count: 1, failed: 0, name: "Read", running: false },
     { count: 1, failed: 0, name: "Bash", running: true },
   ]);
-  expect(toolTallies(threads.failed)).toEqual([
+  expect(toolTallies(stepsOf(threads.failed))).toEqual([
     { count: 1, failed: 1, name: "Read", running: false },
   ]);
 });
 
-test("context use is a share of the window, kept between none and all", () => {
-  expect(contextUsed(emptyThread, 200_000)).toBe(0);
-  expect(contextUsed(threads.working, 200_000)).toBeCloseTo(0.31);
-  expect(contextUsed({ ...emptyThread, context: 900_000 }, 200_000)).toBe(1);
-  expect(contextUsed(threads.working, 0)).toBe(0);
+describe("encounters", () => {
+  const weapon = { effort: "low", model: "haiku" } as const;
+  const opened = startEncounter({
+    goal: "list the files",
+    id: "encounter-7",
+    startedAt: 1000,
+    weapon,
+  });
+
+  test("a new encounter is running, empty, and starts when it was told", () => {
+    expect(opened).toEqual({
+      endedAt: null,
+      goal: "list the files",
+      id: "encounter-7",
+      outcome: "running",
+      plan: { input: 0, output: 0 },
+      rearmed: false,
+      startedAt: 1000,
+      steps: [],
+      todos: [],
+      weapon,
+    });
+    expect(isEnded(opened)).toBe(false);
+    expect(isEnded(undefined)).toBe(false);
+    expect(isEnded({ ...opened, outcome: "failed" })).toBe(true);
+  });
+
+  test("an encounter's tokens are its plan and its own steps, not the thread's", () => {
+    const [done] = threads.done.encounters;
+    expect(done && tokensOf(done)).toEqual({ input: 18_400, output: 912 });
+    expect(
+      threadTokens({
+        ...threads.done,
+        encounters: [...threads.done.encounters, ...threads.working.encounters],
+      })
+    ).toEqual({ input: 18_400 + 182_400, output: 912 + 2120 });
+    expect(threadTokens(emptyThread)).toEqual({ input: 0, output: 0 });
+  });
+
+  test("the thread is titled by its first goal and fails with its latest encounter", () => {
+    expect(titleOf(emptyThread)).toBe("New thread");
+    expect(titleOf(threads.done)).toBe(threads.done.encounters[0]?.goal);
+    expect(latestEncounter(emptyThread)).toBeUndefined();
+    expect(hasFailed(threads.failed)).toBe(true);
+    expect(
+      hasFailed({
+        ...threads.failed,
+        encounters: [...threads.failed.encounters, opened],
+      })
+    ).toBe(false);
+  });
+
+  test("to-dos and steps keep their order across encounters", () => {
+    const second = {
+      ...opened,
+      steps: [
+        { streaming: false, text: "", title: "Later", tools: [], usage: null },
+      ],
+      todos: [
+        {
+          added: false,
+          id: "todo-9",
+          status: "pending" as const,
+          title: "Later",
+        },
+      ],
+    };
+    const thread = {
+      ...threads.done,
+      encounters: [...threads.done.encounters, second],
+    };
+    expect(todosOf(thread).map((todo) => todo.id)).toEqual([
+      "todo-1",
+      "todo-2",
+      "todo-3",
+      "todo-9",
+    ]);
+    expect(stepsOf(thread).map((step) => step.title)).toEqual([
+      "Read package.json in this directory",
+      "Later",
+    ]);
+  });
 });
 
 test("counts shorten past a thousand", () => {

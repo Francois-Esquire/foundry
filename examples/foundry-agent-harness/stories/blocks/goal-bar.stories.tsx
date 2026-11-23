@@ -23,6 +23,7 @@ export const Idle = story({
         frame={clock.frame}
         onDraft={ignore}
         onSubmit={ignore}
+        reviewing={false}
       />,
       size
     ),
@@ -40,6 +41,7 @@ export const Drafted = story({
         frame={clock.frame}
         onDraft={ignore}
         onSubmit={ignore}
+        reviewing={false}
       />,
       size
     ),
@@ -57,6 +59,7 @@ export const Busy = story({
         frame={clock.frame}
         onDraft={ignore}
         onSubmit={ignore}
+        reviewing={false}
       />,
       size
     ),

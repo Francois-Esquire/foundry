@@ -1,7 +1,7 @@
 import { ToolCall } from "@/components/ui/tool-call";
 import { useTheme } from "@/hooks/use-theme";
 import type { Clock } from "@/model/screen";
-import type { ToolUse } from "@/model/thread";
+import { type ToolUse, toolLabel } from "@/model/thread";
 
 export function ToolRow({
   clock,
@@ -19,7 +19,7 @@ export function ToolRow({
             collapsible={false}
             elapsed={Math.max(0, clock.now - tool.startedAt)}
             frame={clock.frame}
-            name={tool.name}
+            name={toolLabel(tool.name)}
             status={tool.status}
           />
         </box>

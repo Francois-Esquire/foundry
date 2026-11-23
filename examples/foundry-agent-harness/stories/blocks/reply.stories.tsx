@@ -18,7 +18,7 @@ export const Finished = story({
     renderFrame(
       renderer,
       <Reply
-        markdown={threads.done.messages[1]?.text ?? ""}
+        markdown={threads.done.encounters[0]?.steps[0]?.text ?? ""}
         streaming={false}
       />,
       size
@@ -32,7 +32,10 @@ export const Streaming = story({
     renderFrame(
       renderer,
       <Reply
-        markdown={(threads.done.messages[1]?.text ?? "").slice(0, 120)}
+        markdown={(threads.done.encounters[0]?.steps[0]?.text ?? "").slice(
+          0,
+          120
+        )}
         streaming
       />,
       size
