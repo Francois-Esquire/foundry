@@ -365,3 +365,17 @@ describe("the geometry", () => {
     expect(hudGeometry({ height: 24, width: 60 }).rail).toBe(false);
   });
 });
+
+test("a typed draft keeps the keys in the goal field when an encounter ends", async () => {
+  const frame = (
+    await layout(threads.done, {
+      draft: "a rare goal",
+      results: scorecards.pending,
+    })
+  ).captureCharFrame();
+  const hints = frame.trimEnd().split("\n").at(-1) ?? "";
+
+  expect(frame).toContain("› a rare goal");
+  expect(hints).not.toContain("A  Accept");
+  expect(hints).toContain("↵  Run");
+});

@@ -16,6 +16,7 @@ import {
   titleOf,
   todosOf,
   tokensOf,
+  toolLabel,
   toolTallies,
 } from "../src/model/thread";
 import { context, threads } from "../stories/fixtures/threads";
@@ -253,4 +254,9 @@ describe("the rail", () => {
     expect(adjust({ ...slot, slot: 1 }, STOPS, 1, around).slot).toBe(1);
     expect(adjust(slot, [], 1, around)).toBe(slot);
   });
+});
+
+test("a server tool is labelled by server and tool, and others keep their name", () => {
+  expect(toolLabel("mcp__backlog__add_todo")).toBe("backlog · add_todo");
+  expect(toolLabel("Read")).toBe("Read");
 });

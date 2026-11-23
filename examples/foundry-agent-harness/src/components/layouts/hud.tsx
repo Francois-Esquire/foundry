@@ -157,6 +157,7 @@ export function HudLayout({
 }) {
   const geometry = hudGeometry(size, results !== null);
   const focus = geometry.rail ? focusOn(rail, geometry.stops) : null;
+  const reviewing = results?.verdict === null && draft === "";
   const steps = stepsOf(thread);
   const todos = todosOf(thread);
   const { health, left, used } = occupancyOf(steps, context.limit);
@@ -301,15 +302,12 @@ export function HudLayout({
               frame={clock.frame}
               onDraft={onDraft}
               onSubmit={onSubmit}
-              reviewing={results?.verdict === null}
+              reviewing={reviewing}
             />
           </Plate>
         </box>
       </box>
-      <HintBar
-        keys={keysFor(focus, results?.verdict === null)}
-        notes={thread.notes}
-      />
+      <HintBar keys={keysFor(focus, reviewing)} notes={thread.notes} />
     </box>
   );
 }

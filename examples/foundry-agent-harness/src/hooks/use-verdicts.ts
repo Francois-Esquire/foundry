@@ -10,14 +10,15 @@ const KEYS: Readonly<Record<string, Verdict>> = {
 };
 
 export function useVerdicts(
-  latest: Encounter | undefined
+  latest: Encounter | undefined,
+  reviewing: boolean
 ): ReadonlyMap<string, Verdict> {
   const [verdicts, setVerdicts] = useState<ReadonlyMap<string, Verdict>>(
     () => new Map()
   );
   useKeyboard((key) => {
     const verdict = key.ctrl || key.meta ? undefined : KEYS[key.name];
-    if (!(verdict && latest && isEnded(latest))) {
+    if (!(verdict && reviewing && latest && isEnded(latest))) {
       return;
     }
     const { id } = latest;

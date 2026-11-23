@@ -34,8 +34,16 @@ export function HarnessView({
   readonly run: Run;
 }) {
   const { start, thread } = useThread(run);
+  const { measure, size } = useViewport();
+  const { portrait, stops } = hudGeometry(size);
+  const rail = useRail(context, avatars.length, stops);
+  const { effort, model } = rail;
+  const goal = useGoalDraft({
+    busy: isBusy(thread),
+    onGoal: (text) => start(text, { effort, model }),
+  });
   const latest = latestEncounter(thread);
-  const verdicts = useVerdicts(latest);
+  const verdicts = useVerdicts(latest, goal.draft === "");
   const scorecards = thread.encounters
     .filter(isEnded)
     .map((encounter) =>
@@ -43,15 +51,7 @@ export function HarnessView({
     );
   const scored = isEnded(latest) ? (scorecards.at(-1) ?? null) : null;
   const results = scored?.verdict === "skip" ? null : scored;
-  const { measure, size } = useViewport();
-  const { page, portrait, stops } = hudGeometry(size, results !== null);
-  const scroll = usePageScroll(page);
-  const rail = useRail(context, avatars.length, stops);
-  const { effort, model } = rail;
-  const goal = useGoalDraft({
-    busy: isBusy(thread),
-    onGoal: (text) => start(text, { effort, model }),
-  });
+  const scroll = usePageScroll(hudGeometry(size, results !== null).page);
   const clock = useAnimationClock(isAnimating(thread));
   const avatar = avatars[rail.avatar] ?? avatars[0];
   return (

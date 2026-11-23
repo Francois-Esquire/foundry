@@ -18,7 +18,7 @@ the same conversation and adds to the list.
 Each goal and everything done for it is an encounter. When one ends, a
 results card above the goal bar shows what it took and takes the keys from
 the goal field: A accepts the result, R rejects it, and Esc skips the verdict.
-Accepting banks XP toward the next level. A verdict cannot be changed, and a
+The card takes the keys only while the goal field is empty, so a goal typed ahead is never read as a verdict. Accepting banks XP toward the next level. A verdict cannot be changed, and a
 skipped encounter stays unscored. The goal field takes the keys back once a
 verdict is in.
 

@@ -34,8 +34,14 @@ function RailProbe({ stops }: { readonly stops: readonly RailStop[] }) {
   );
 }
 
-function VerdictProbe({ latest }: { readonly latest: Encounter | undefined }) {
-  const verdicts = useVerdicts(latest);
+function VerdictProbe({
+  latest,
+  reviewing = true,
+}: {
+  readonly latest: Encounter | undefined;
+  readonly reviewing?: boolean;
+}) {
+  const verdicts = useVerdicts(latest, reviewing);
   const given = [...verdicts].map(([id, verdict]) => `${id}=${verdict}`);
   return <text>{`verdicts [${given.join(" ")}]`}</text>;
 }
@@ -138,6 +144,15 @@ test("no verdict is taken while the encounter runs or before there is one", asyn
   const running = await mount(<VerdictProbe latest={encounter()} />);
   await press(running, "a");
   expect(running.captureCharFrame()).toContain("verdicts []");
+
+  const drafting = await mount(
+    <VerdictProbe
+      latest={encounter({ endedAt: 2, outcome: "finished" })}
+      reviewing={false}
+    />
+  );
+  await press(drafting, "a");
+  expect(drafting.captureCharFrame()).toContain("verdicts []");
 
   const none = await mount(<VerdictProbe latest={undefined} />);
   await press(none, "a");
