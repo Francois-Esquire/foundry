@@ -70,7 +70,8 @@ function chance(a: number, b: number, salt: number): number {
 }
 
 function glance(avatar: Avatar, health: Health, pose: Pose, at: number) {
-  if (avatar.sheet.still[pose]?.includes(health)) {
+  const steady = avatar.steady?.includes(pose) ?? false;
+  if (steady || avatar.sheet.still[pose]?.includes(health)) {
     return at < BLINK_TICKS ? "blink" : null;
   }
   return at < GLANCE_TICKS ? pose : null;

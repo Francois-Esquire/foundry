@@ -12,10 +12,11 @@ bun run start
 ```
 
 Run the build from the repository root. The harness opens on a Get Started
-menu: Tab moves between the character, the gun, and the ammo, Up and Down
-change the one in focus, and Enter starts the mission.
+menu: Left and Right change the highlighted choice, Up and Down (or Tab) move
+between the character, the gun, and the ammo, and Enter starts the mission.
+Clicking a character picks it.
 
-| Stop | Up and Down |
+| Stop | Left and Right |
 | --- | --- |
 | Character | Pick the Smith, the Welder, or the Automaton. |
 | Gun | Pick the model: `sonnet`, `opus`, or `haiku`. |
@@ -143,7 +144,8 @@ The screen has three layers:
 | `useGoalDraft` | Whether the thread is busy, and what to do with a goal | The draft, its setter, and `submit`, which trims the draft, ignores it when empty or busy, hands it over once, and clears it. |
 | `useMission` | Nothing | The picks made on the menu (none until a mission starts), and `begin`, which starts one with them. |
 | `useConfirm` | What to do | Calls it when Enter is pressed. |
-| `useRail` | The context, the number of avatars, the stops in play, and optionally where to start | The focused stop and the chosen avatar, model, effort, and loadout slot. Tab and Shift+Tab move the focus; Up and Down change what it is on. The menu uses the character, gun, and ammo stops; the mission screen uses only the loadout. |
+| `useBriefing` | The context and the number of avatars | The menu's rail and `choose(avatar)`. Left and Right change the focused choice; Up, Down, and Tab move the focus. |
+| `useRail` | The context, the number of avatars, the stops in play, and optionally where to start | The focused stop and the chosen avatar, model, effort, and loadout slot. Tab and Shift+Tab move the focus; Up and Down change what it is on. The mission screen uses only the loadout. |
 | `usePortrait` | An avatar, its health, a seed, the frame, and when it was hit | The avatar's picture for that moment, repainted only when it changes. |
 | `useWound` | The health and the frame | The frame a hit landed, set whenever health worsens, and `hit`. |
 | `usePageScroll` | The page height | The scrollbox ref. PgUp and PgDn scroll it by a page. |

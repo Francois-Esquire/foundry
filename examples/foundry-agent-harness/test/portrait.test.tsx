@@ -67,6 +67,7 @@ describe.each(everyAvatar)("$name", (avatar) => {
         for (const pose of at(frame, HIT_AT, health).poses) {
           expect(avatar.sheet.poses).toContain(pose);
           expect(avatar.sheet.still[pose] ?? []).not.toContain(health);
+          expect(avatar.steady ?? []).not.toContain(pose);
         }
       }
     }

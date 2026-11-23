@@ -78,3 +78,17 @@ export function adjust(
   }
   return { ...rail, slot: clamped(rail.slot, by, slotsOf(context).length) };
 }
+
+export function nudge(
+  rail: Rail,
+  stops: readonly RailStop[],
+  forwards: boolean,
+  among: { readonly avatars: number; readonly context: Context }
+): Rail {
+  const more = focusOn(rail, stops) === "effort" ? !forwards : forwards;
+  return adjust(rail, stops, more ? 1 : -1, among);
+}
+
+export function pick(rail: Rail, avatar: number): Rail {
+  return { ...rail, avatar, focus: "avatar" };
+}

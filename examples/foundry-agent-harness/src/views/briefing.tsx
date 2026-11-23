@@ -2,17 +2,16 @@ import {
   BriefingLayout,
   briefingGeometry,
 } from "@/components/layouts/briefing";
+import { useBriefing } from "@/hooks/use-briefing";
 import { useConfirm } from "@/hooks/use-confirm";
-import { useRail } from "@/hooks/use-rail";
 import { ThemeContext } from "@/hooks/use-theme";
 import { useViewport } from "@/hooks/use-viewport";
 import { avatars } from "@/model/avatars";
 import type { Context } from "@/model/context";
-import { BRIEFING_STOPS, type Picks } from "@/model/rail";
+import type { Picks } from "@/model/rail";
 import { amberTheme } from "@/model/theme";
 import { LivePortrait } from "@/views/live-portrait";
 
-const FIRST = { focus: "avatar" } as const;
 const THEME = { setTheme: () => undefined, theme: amberTheme };
 
 export function BriefingView({
@@ -23,7 +22,7 @@ export function BriefingView({
   readonly onStart: (picks: Picks) => void;
 }) {
   const { measure, size } = useViewport();
-  const rail = useRail(context, avatars.length, BRIEFING_STOPS, FIRST);
+  const { choose, rail } = useBriefing(context, avatars.length);
   const { avatar, effort, model } = rail;
   useConfirm(() => onStart({ avatar, effort, model }));
   const { portrait } = briefingGeometry(size, avatars.length);
@@ -32,6 +31,7 @@ export function BriefingView({
       <BriefingLayout
         avatars={avatars}
         context={context}
+        onPick={choose}
         onResize={measure}
         portraits={avatars.map((each, index) => (
           <LivePortrait

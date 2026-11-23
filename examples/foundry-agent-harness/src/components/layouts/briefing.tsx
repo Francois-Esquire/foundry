@@ -41,6 +41,7 @@ function Character({
   count,
   focused,
   index,
+  onPick,
   portrait,
   selected,
   width,
@@ -49,13 +50,16 @@ function Character({
   readonly count: number;
   readonly focused: boolean;
   readonly index: number;
+  readonly onPick: (avatar: number) => void;
   readonly portrait: ReactNode;
   readonly selected: boolean;
   readonly width: number;
 }) {
   const chosen = focused ? `◂ ${index + 1}/${count} ▸` : "chosen";
+  const choose = useCallback(() => onPick(index), [index, onPick]);
   return (
-    <box flexShrink={0} width={width}>
+    // biome-ignore lint/a11y/noStaticElementInteractions: Terminal card; Left and Right are the keyboard equivalent.
+    <box flexShrink={0} onMouseDown={choose} width={width}>
       <Plate
         icon="☻"
         meta={selected ? chosen : undefined}
@@ -71,6 +75,7 @@ function Character({
 export function BriefingLayout({
   avatars,
   context,
+  onPick,
   onResize,
   portraits,
   rail,
@@ -78,6 +83,7 @@ export function BriefingLayout({
 }: {
   readonly avatars: readonly Avatar[];
   readonly context: Context;
+  readonly onPick: (avatar: number) => void;
   readonly onResize: (size: Size) => void;
   readonly portraits: readonly ReactNode[];
   readonly rail: Rail;
@@ -107,8 +113,9 @@ export function BriefingLayout({
       <box flexDirection="column" flexGrow={1} flexShrink={1} gap={GAP}>
         <Plate meta="new mission" title="GET STARTED">
           <text fg={hud.text} wrapMode="word">
-            Pick who goes in and what they carry. The gun and ammo stay for the
-            whole mission, and your first goal names it.
+            Left and Right change the highlighted choice; Up and Down move
+            between character, gun and ammo. They stay for the whole mission,
+            and your first goal names it.
           </text>
         </Plate>
         <box flexDirection="row" flexShrink={0} gap={GAP}>
@@ -119,6 +126,7 @@ export function BriefingLayout({
               focused={focus === "avatar"}
               index={index}
               key={avatar.name}
+              onPick={onPick}
               portrait={portraits[index]}
               selected={index === rail.avatar}
               width={geometry.card}
@@ -150,8 +158,8 @@ export function BriefingLayout({
       </box>
       <HintBar
         keys={[
-          ["Tab", "Next"],
-          ["↑/↓", TURNS[focus]],
+          ["←/→", TURNS[focus]],
+          ["↑/↓", "Move"],
           ["↵", "Start mission"],
           ["^C", "Quit"],
         ]}
