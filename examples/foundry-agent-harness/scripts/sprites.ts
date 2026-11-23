@@ -15,6 +15,10 @@ const FINE_THRESHOLD = 18;
 const WHITE = 235;
 const INSET = 14;
 const HEADROOM = 0.45;
+const ZOOM_OUT: Readonly<Record<string, number>> = {
+  automaton: 1.3,
+  welder: 1.3,
+};
 const SEARCH = 6;
 const SAMPLE_STEP = 3;
 const MIN_PANEL = 100;
@@ -33,7 +37,11 @@ interface Image {
 }
 
 interface Panel {
+  readonly bottom: number;
+  readonly left: number;
+  readonly right: number;
   readonly side: number;
+  readonly top: number;
   readonly x: number;
   readonly y: number;
 }
@@ -191,11 +199,17 @@ function panels(name: string, image: Image): Panel[] {
   }
   const [top, bottom] = band;
   return columns.map(([from, to]) => {
-    const side = Math.min(to - from, bottom - top) - INSET * 2;
+    const tall = bottom - top - INSET * 2;
+    const fitted = Math.min(to - from, bottom - top) - INSET * 2;
+    const side = Math.round(fitted * (ZOOM_OUT[name] ?? 1));
     return {
+      bottom: bottom - INSET,
+      left: from + INSET,
+      right: to - INSET,
       side,
+      top: top + INSET,
       x: Math.floor((from + to) / 2 - side / 2),
-      y: top + INSET + Math.floor((bottom - top - INSET * 2 - side) * HEADROOM),
+      y: top + INSET + Math.floor((tall - side) * HEADROOM),
     };
   });
 }
@@ -204,8 +218,18 @@ function crop(image: Image, panel: Panel, dx = 0, dy = 0): Image {
   const { side } = panel;
   const data = new Uint8Array(side * side * 3);
   for (let y = 0; y < side; y += 1) {
-    const from = ((panel.y + dy + y) * image.width + panel.x + dx) * 3;
-    data.set(image.data.subarray(from, from + side * 3), y * side * 3);
+    const row = panel.y + dy + y;
+    if (row < panel.top + dy || row >= panel.bottom + dy) {
+      continue;
+    }
+    const start = panel.x + dx;
+    const left = Math.max(start, panel.left + dx);
+    const right = Math.min(start + side, panel.right + dx);
+    const from = (row * image.width + left) * 3;
+    data.set(
+      image.data.subarray(from, from + (right - left) * 3),
+      (y * side + left - start) * 3
+    );
   }
   const seen = new Uint8Array(side * side);
   const stack: number[] = [];
