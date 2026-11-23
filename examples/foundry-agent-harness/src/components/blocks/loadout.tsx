@@ -1,54 +1,64 @@
-import type { Slot } from "@/model/context";
+import type { ReactNode } from "react";
+import { EFFORTS, type Effort } from "@/model/context";
 import { hud } from "@/model/palette";
 
-export function Loadout({
+function Row({
+  children,
   focused,
-  selected,
-  slots,
 }: {
+  readonly children: ReactNode;
   readonly focused: boolean;
-  readonly selected: number;
-  readonly slots: readonly Slot[];
 }) {
-  if (slots.length === 0) {
-    return <text fg={hud.dim}>No skills or MCP servers.</text>;
-  }
-  const chosen = slots[selected];
+  return (
+    <box
+      backgroundColor={focused ? hud.tint : undefined}
+      flexDirection="row"
+      gap={1}
+      height={1}
+    >
+      <text fg={focused ? hud.amber : hud.faint}>{focused ? "▶" : " "}</text>
+      {children}
+    </box>
+  );
+}
+
+export function Loadout({
+  effort,
+  focus,
+  locked = false,
+  model,
+  models,
+}: {
+  readonly effort: Effort;
+  readonly focus: "effort" | "model" | null;
+  readonly locked?: boolean;
+  readonly model: string;
+  readonly models: readonly string[];
+}) {
+  const rounds = EFFORTS.indexOf(effort) + 1;
   return (
     <box flexDirection="column">
-      {slots.map((slot, index) => {
-        const active = focused && index === selected;
-        return (
-          <box
-            backgroundColor={active ? hud.tint : undefined}
-            flexDirection="row"
-            flexShrink={0}
-            gap={1}
-            height={1}
-            key={`${slot.kind}-${slot.name}`}
-          >
-            <text fg={active ? hud.amber : hud.faint}>
-              {active ? "▶" : " "}
-            </text>
-            <text fg={hud.bronze}>{String(index + 1).padStart(2, "0")}</text>
-            <text
-              fg={active ? hud.bright : hud.text}
-              flexShrink={1}
-              truncate
-              wrapMode="none"
-            >
-              {slot.name}
-            </text>
-            <box flexGrow={1} />
-            <text fg={hud.dim} flexShrink={0}>
-              {slot.kind}
-            </text>
-          </box>
-        );
-      })}
-      {focused && chosen ? (
-        <text fg={hud.dim}>{chosen.description}</text>
-      ) : null}
+      <Row focused={focus === "model"}>
+        <text fg={hud.bright}>
+          <b>{model.toUpperCase()}</b>
+        </text>
+        <box flexGrow={1} />
+        <text fg={focus === "model" ? hud.amber : hud.dim} wrapMode="none">
+          {locked
+            ? "locked"
+            : `◂ ${models.indexOf(model) + 1}/${models.length} ▸`}
+        </text>
+      </Row>
+      <Row focused={focus === "effort"}>
+        <text wrapMode="none">
+          <span fg={hud.amber}>{"▮".repeat(rounds)}</span>
+          <span fg={hud.trough}>{"▯".repeat(EFFORTS.length - rounds)}</span>
+        </text>
+        <box flexGrow={1} />
+        <text fg={focus === "effort" ? hud.amber : hud.dim} wrapMode="none">
+          {`${effort} effort`}
+        </text>
+      </Row>
     </box>
   );
 }

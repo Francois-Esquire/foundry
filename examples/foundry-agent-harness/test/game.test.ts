@@ -19,6 +19,7 @@ function done(count: number): Todo[] {
 function bare(overrides: Partial<Encounter> = {}): Encounter {
   return encounter({
     endedAt: STARTED + 30_000,
+    loadout: { effort: "high", model: "opus" },
     outcome: "finished",
     steps: [
       step({
@@ -27,7 +28,6 @@ function bare(overrides: Partial<Encounter> = {}): Encounter {
       }),
     ],
     todos: done(1),
-    weapon: { effort: "high", model: "opus" },
     ...overrides,
   });
 }
@@ -72,11 +72,11 @@ describe("facts", () => {
       failedCalls: 1,
       finished: 1,
       left: 0.98,
+      loadout: { effort: "high", model: "opus" },
       outcome: "finished",
-      rearmed: false,
       steps: 2,
+      swapped: false,
       tokens: { input: 10_000, output: 1100 },
-      weapon: { effort: "high", model: "opus" },
     });
   });
 });
@@ -94,7 +94,7 @@ describe("verdicts", () => {
 
   test("a rejected encounter banks nothing, however good it was", () => {
     const card = scorecardOf(
-      light({ weapon: { effort: "low", model: "haiku" } }),
+      light({ loadout: { effort: "low", model: "haiku" } }),
       "reject",
       LIMIT
     );
@@ -159,7 +159,7 @@ describe("rules", () => {
 
   test("light touch is withheld when the encounter switched to a fresh pairing", () => {
     const items = labels(
-      scorecardOf(bare({ rearmed: true, steps: [] }), "accept", LIMIT)
+      scorecardOf(bare({ steps: [], swapped: true }), "accept", LIMIT)
     );
     expect(items).not.toContain("Light touch 20");
   });
@@ -170,25 +170,29 @@ describe("rules", () => {
     expect(skipped.rank).toBeNull();
   });
 
-  test("a lighter gun earns more: haiku over sonnet over opus", () => {
-    const gun = (model: string) =>
+  test("a lighter model earns more: haiku over sonnet over opus", () => {
+    const awarded = (model: string) =>
       scorecardOf(
-        bare({ weapon: { effort: "high", model } }),
+        bare({ loadout: { effort: "high", model } }),
         "accept",
         LIMIT
-      ).items.find((item) => item.label === "Lighter gun")?.amount ?? 0;
-    expect([gun("haiku"), gun("sonnet"), gun("opus")]).toEqual([30, 15, 0]);
-    expect(gun("a model the rules do not know")).toBe(0);
+      ).items.find((item) => item.label === "Lighter model")?.amount ?? 0;
+    expect([awarded("haiku"), awarded("sonnet"), awarded("opus")]).toEqual([
+      30, 15, 0,
+    ]);
+    expect(awarded("a model the rules do not know")).toBe(0);
   });
 
-  test("less ammo earns more: low over medium over high", () => {
-    const ammo = (effort: Effort) =>
+  test("less effort earns more: low over medium over high", () => {
+    const spared = (effort: Effort) =>
       scorecardOf(
-        bare({ weapon: { effort, model: "opus" } }),
+        bare({ loadout: { effort, model: "opus" } }),
         "accept",
         LIMIT
-      ).items.find((item) => item.label === "Less ammo")?.amount ?? 0;
-    expect([ammo("low"), ammo("medium"), ammo("high")]).toEqual([20, 10, 0]);
+      ).items.find((item) => item.label === "Less effort")?.amount ?? 0;
+    expect([spared("low"), spared("medium"), spared("high")]).toEqual([
+      20, 10, 0,
+    ]);
   });
 
   test("under par needs fewer tokens than a par that grows with the steps", () => {
@@ -215,7 +219,7 @@ describe("rules", () => {
 
   test("a cheap, clean, light run reaches S", () => {
     const card = scorecardOf(
-      light({ weapon: { effort: "low", model: "haiku" } }),
+      light({ loadout: { effort: "low", model: "haiku" } }),
       "accept",
       LIMIT
     );
@@ -224,8 +228,8 @@ describe("rules", () => {
       "Steps done 20",
       "Clean run 25",
       "Light touch 20",
-      "Lighter gun 30",
-      "Less ammo 20",
+      "Lighter model 30",
+      "Less effort 20",
       "Under par 25",
     ]);
     expect(card.total).toBe(190);
@@ -235,7 +239,7 @@ describe("rules", () => {
   test("ranks step down with the total", () => {
     const rank = (overrides: Partial<Encounter>) =>
       scorecardOf(light(overrides), "accept", LIMIT).rank;
-    expect(rank({ weapon: { effort: "high", model: "opus" } })).toBe("A");
+    expect(rank({ loadout: { effort: "high", model: "opus" } })).toBe("A");
     expect(
       rank({
         steps: [
@@ -285,7 +289,7 @@ describe("progress", () => {
   const accepted = (times: number) =>
     Array.from({ length: times }, () =>
       scorecardOf(
-        light({ weapon: { effort: "low", model: "haiku" } }),
+        light({ loadout: { effort: "low", model: "haiku" } }),
         "accept",
         LIMIT
       )

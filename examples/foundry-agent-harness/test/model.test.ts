@@ -97,12 +97,12 @@ test("tools are tallied by name, most used first", () => {
 });
 
 describe("encounters", () => {
-  const weapon = { effort: "low", model: "haiku" } as const;
+  const loadout = { effort: "low", model: "haiku" } as const;
   const opened = startEncounter({
     goal: "list the files",
     id: "encounter-7",
+    loadout,
     startedAt: 1000,
-    weapon,
   });
 
   test("a new encounter is running, empty, and starts when it was told", () => {
@@ -110,13 +110,13 @@ describe("encounters", () => {
       endedAt: null,
       goal: "list the files",
       id: "encounter-7",
+      loadout,
       outcome: "running",
       plan: { input: 0, output: 0 },
-      rearmed: false,
       startedAt: 1000,
       steps: [],
+      swapped: false,
       todos: [],
-      weapon,
     });
     expect(isEnded(opened)).toBe(false);
     expect(isEnded(undefined)).toBe(false);
@@ -197,7 +197,7 @@ test("the comment follows the phase, the health and a failure", () => {
   expect(quipFor(threads.failed, "battered")).toBe("that one got away");
 });
 
-test("the loadout lists skills, then MCP servers", () => {
+test("the toolkit lists skills, then MCP servers", () => {
   expect(slotsOf(context).map(({ kind, name }) => `${kind} ${name}`)).toEqual([
     "skill task-notes",
     "mcp backlog",
@@ -207,7 +207,7 @@ test("the loadout lists skills, then MCP servers", () => {
 describe("the rail", () => {
   const rail = startRail(context);
 
-  test("starts on the first gun with medium ammo", () => {
+  test("starts on the first model on medium effort", () => {
     expect(rail).toMatchObject({
       avatar: 0,
       effort: "medium",
@@ -231,7 +231,7 @@ describe("the rail", () => {
     );
   });
 
-  test("the gun and the avatar wrap round", () => {
+  test("the model and the avatar wrap round", () => {
     expect(adjust(rail, STOPS, 1, around).model).toBe("opus");
     expect(adjust(rail, STOPS, -1, around).model).toBe("haiku");
     expect(adjust({ ...rail, focus: "avatar" }, STOPS, -1, around).avatar).toBe(
@@ -239,16 +239,16 @@ describe("the rail", () => {
     );
   });
 
-  test("Up loads ammo, Down drops it, and both stop at the ends", () => {
-    const ammo = { ...rail, focus: "effort" } as const;
-    expect(adjust(ammo, STOPS, -1, around).effort).toBe("high");
-    expect(adjust(ammo, STOPS, 1, around).effort).toBe("low");
-    expect(adjust({ ...ammo, effort: "high" }, STOPS, -1, around).effort).toBe(
-      "high"
-    );
+  test("Up raises effort, Down lowers it, and both stop at the ends", () => {
+    const focused = { ...rail, focus: "effort" } as const;
+    expect(adjust(focused, STOPS, -1, around).effort).toBe("high");
+    expect(adjust(focused, STOPS, 1, around).effort).toBe("low");
+    expect(
+      adjust({ ...focused, effort: "high" }, STOPS, -1, around).effort
+    ).toBe("high");
   });
 
-  test("the loadout slot stops at its ends", () => {
+  test("the toolkit slot stops at its ends", () => {
     const slot = { ...rail, focus: "slot" } as const;
     expect(adjust(slot, STOPS, 1, around).slot).toBe(1);
     expect(adjust({ ...slot, slot: 1 }, STOPS, 1, around).slot).toBe(1);

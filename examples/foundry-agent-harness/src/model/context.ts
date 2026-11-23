@@ -16,7 +16,7 @@ export const EFFORTS = ["low", "medium", "high"] as const;
 
 export type Effort = (typeof EFFORTS)[number];
 
-export interface Weapon {
+export interface Loadout {
   readonly effort: Effort;
   readonly model: string;
 }

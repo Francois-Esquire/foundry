@@ -8,8 +8,8 @@ export function encounter(overrides: Partial<Encounter> = {}): Encounter {
     ...startEncounter({
       goal: "Explain this example",
       id: "encounter-1",
+      loadout: { effort: "medium", model: "sonnet" },
       startedAt: STARTED,
-      weapon: { effort: "medium", model: "sonnet" },
     }),
     ...overrides,
   };

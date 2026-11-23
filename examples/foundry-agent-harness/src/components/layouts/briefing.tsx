@@ -3,7 +3,7 @@ import { type ReactNode, useCallback } from "react";
 import { HintBar } from "@/components/blocks/hint-bar";
 import { Loadout } from "@/components/blocks/loadout";
 import { Plate } from "@/components/blocks/plate";
-import { Weapon } from "@/components/blocks/weapon";
+import { Toolkit } from "@/components/blocks/toolkit";
 import type { Avatar } from "@/model/avatars";
 import { type Context, slotsOf } from "@/model/context";
 import { hud } from "@/model/palette";
@@ -20,14 +20,14 @@ const HINTS = 1;
 const MARGIN = 2;
 const PLATE_ROWS = 3;
 const SOLO_WIDTH = 56;
-const WEAPON_ROWS = 5;
-const WEAPON_WIDTH = 36;
-const LOADOUT_MIN = 24;
+const LOADOUT_ROWS = 5;
+const LOADOUT_WIDTH = 36;
+const TOOLKIT_MIN = 24;
 const TIERS: readonly PortraitSize[] = ["grand", "large", "medium", "small"];
 const TURNS = {
   avatar: "Character",
-  effort: "Ammo",
-  model: "Gun",
+  effort: "Effort",
+  model: "Model",
   slot: "Character",
 } as const;
 
@@ -66,17 +66,17 @@ function blockWidth({ portrait, visible }: Shape, width: number): number {
 function rowsFor(
   shape: Shape,
   { slots, width }: Room,
-  { header, loadout }: { readonly header: boolean; readonly loadout: boolean }
+  { header, toolkit }: { readonly header: boolean; readonly toolkit: boolean }
 ): number {
-  const stacked = blockWidth(shape, width) < WEAPON_WIDTH + GAP + LOADOUT_MIN;
-  const listed = loadout ? PLATE_ROWS + slots : 0;
-  const stackedRows = WEAPON_ROWS + (loadout ? GAP + listed : 0);
+  const stacked = blockWidth(shape, width) < LOADOUT_WIDTH + GAP + TOOLKIT_MIN;
+  const listed = toolkit ? PLATE_ROWS + slots : 0;
+  const stackedRows = LOADOUT_ROWS + (toolkit ? GAP + listed : 0);
   return (
     (header ? HEADER + GAP : 0) +
     PORTRAIT_SIZES[shape.portrait].rows +
     CARD_ROWS +
     GAP +
-    (stacked ? stackedRows : Math.max(WEAPON_ROWS, listed)) +
+    (stacked ? stackedRows : Math.max(LOADOUT_ROWS, listed)) +
     HINTS
   );
 }
@@ -84,7 +84,7 @@ function rowsFor(
 function fits(shape: Shape, room: Room): boolean {
   return (
     shape.visible >= 1 &&
-    rowsFor(shape, room, { header: false, loadout: false }) <= room.height
+    rowsFor(shape, room, { header: false, toolkit: false }) <= room.height
   );
 }
 
@@ -103,15 +103,15 @@ export function briefingGeometry(
   ) ??
     shapes[0] ?? { portrait: "small" as const, visible: 1 };
   const block = blockWidth(shape, width);
-  const loadout =
-    rowsFor(shape, room, { header: false, loadout: true }) <= height;
+  const toolkit =
+    rowsFor(shape, room, { header: false, toolkit: true }) <= height;
   return {
     block,
     card: cardWidth(shape.portrait),
-    header: rowsFor(shape, room, { header: true, loadout }) <= height,
-    loadout,
+    header: rowsFor(shape, room, { header: true, toolkit }) <= height,
     portrait: shape.portrait,
-    stacked: block < WEAPON_WIDTH + GAP + LOADOUT_MIN,
+    stacked: block < LOADOUT_WIDTH + GAP + TOOLKIT_MIN,
+    toolkit,
     visible: shape.visible,
   };
 }
@@ -242,15 +242,15 @@ export function BriefingLayout({
           >
             <box
               flexShrink={0}
-              width={geometry.stacked ? geometry.block : WEAPON_WIDTH}
+              width={geometry.stacked ? geometry.block : LOADOUT_WIDTH}
             >
               <Plate
                 icon="⌖"
                 meta={context.provider}
-                title="WEAPON"
+                title="LOADOUT"
                 tone={aiming ? hud.amber : hud.bronze}
               >
-                <Weapon
+                <Loadout
                   effort={rail.effort}
                   focus={aiming}
                   model={rail.model}
@@ -258,14 +258,10 @@ export function BriefingLayout({
                 />
               </Plate>
             </box>
-            {geometry.loadout ? (
+            {geometry.toolkit ? (
               <box flexGrow={1} flexShrink={1}>
-                <Plate
-                  icon="◧"
-                  meta={`${slots.length} equipped`}
-                  title="LOADOUT"
-                >
-                  <Loadout focused={false} selected={0} slots={slots} />
+                <Plate icon="◧" meta={`${slots.length} equipped`} title="TOOLS">
+                  <Toolkit focused={false} selected={0} slots={slots} />
                 </Plate>
               </box>
             ) : null}

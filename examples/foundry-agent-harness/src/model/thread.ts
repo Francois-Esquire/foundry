@@ -1,4 +1,4 @@
-import type { Weapon } from "@/model/context";
+import type { Loadout } from "@/model/context";
 
 export type Status = "pending" | "running" | "success" | "error";
 
@@ -38,13 +38,13 @@ export interface Encounter {
   error?: string;
   readonly goal: string;
   readonly id: string;
+  readonly loadout: Loadout;
   outcome: Outcome;
   plan: Tokens;
-  readonly rearmed: boolean;
   readonly startedAt: number;
   steps: Step[];
+  readonly swapped: boolean;
   todos: Todo[];
-  readonly weapon: Weapon;
 }
 
 export interface Notes {
@@ -63,7 +63,7 @@ export interface Thread {
 export type Run = (
   goal: string,
   show: (thread: Thread) => void,
-  weapon: Weapon
+  loadout: Loadout
 ) => Promise<void>;
 
 const NO_TOKENS: Tokens = { input: 0, output: 0 };
@@ -83,27 +83,27 @@ export const emptyThread: Thread = {
 export function startEncounter({
   goal,
   id,
-  rearmed = false,
+  swapped = false,
   startedAt,
-  weapon,
+  loadout,
 }: {
   readonly goal: string;
   readonly id: string;
-  readonly rearmed?: boolean;
+  readonly swapped?: boolean;
   readonly startedAt: number;
-  readonly weapon: Weapon;
+  readonly loadout: Loadout;
 }): Encounter {
   return {
     endedAt: null,
     goal,
     id,
+    loadout,
     outcome: "running",
     plan: NO_TOKENS,
-    rearmed,
     startedAt,
     steps: [],
+    swapped,
     todos: [],
-    weapon,
   };
 }
 

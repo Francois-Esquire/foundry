@@ -84,7 +84,7 @@ export const Hints = story({
         keys={[
           ["↵", "Run"],
           ["Tab", "Next"],
-          ["↑/↓", "Gun"],
+          ["↑/↓", "Model"],
         ]}
         notes={threads.done.notes}
       />,

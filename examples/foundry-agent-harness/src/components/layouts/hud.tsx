@@ -9,8 +9,8 @@ import { Plate } from "@/components/blocks/plate";
 import { PortraitBay } from "@/components/blocks/portrait-bay";
 import { Results, resultsMeta } from "@/components/blocks/results";
 import { Steps } from "@/components/blocks/steps";
+import { Toolkit } from "@/components/blocks/toolkit";
 import { totalsLine, Vitals } from "@/components/blocks/vitals";
-import { Weapon } from "@/components/blocks/weapon";
 import type { Progress } from "@/game/progress";
 import type { Scorecard } from "@/game/scorecard";
 import { type Context, slotsOf } from "@/model/context";
@@ -39,30 +39,31 @@ const STEPS = FRAME;
 const GOAL = FRAME;
 const PORTRAIT = { large: 20, small: 11 } as const;
 const VITALS = 6;
-const WEAPON = 5;
-const LOADOUT_MIN = 4;
+const LOADOUT = 5;
+const TOOLKIT_MIN = 4;
 const ARSENAL = 6;
 const PAGE_OVERLAP = 3;
 const PLATE_CHROME = 4;
-const RESULTS = 6;
+const RESULTS = { roomy: 6, tight: 7 } as const;
+const RESULTS_ROOMY = 56;
 const CONVERSATION_MIN = 9;
 const NAME = "FOUNDRY AGENT HARNESS";
 
-export type RailSection = "arsenal" | "loadout" | "vitals" | "weapon";
+export type RailSection = "arsenal" | "toolkit" | "vitals" | "loadout";
 
 export function hudGeometry({ height, width }: Size, judged = false) {
   const rail = width >= RAIL_WIDTH + GAP + MAIN_MIN;
   const body = height - HINTS;
   const main = width - (rail ? RAIL_WIDTH + GAP : 0);
-  const everything = PORTRAIT.large + VITALS + WEAPON + LOADOUT_MIN + ARSENAL;
+  const everything = PORTRAIT.large + VITALS + LOADOUT + TOOLKIT_MIN + ARSENAL;
   const portrait: keyof typeof PORTRAIT =
     body >= everything ? "large" : "small";
   const sections: RailSection[] = [];
   let left = body - PORTRAIT[portrait];
   for (const [section, rows] of [
     ["vitals", VITALS],
-    ["weapon", WEAPON],
-    ["loadout", LOADOUT_MIN],
+    ["loadout", LOADOUT],
+    ["toolkit", TOOLKIT_MIN],
     ["arsenal", ARSENAL],
   ] as const) {
     if (left >= rows) {
@@ -71,14 +72,16 @@ export function hudGeometry({ height, width }: Size, judged = false) {
     }
   }
   const stops: RailStop[] =
-    rail && sections.includes("loadout") ? ["slot"] : [];
-  const results = judged && body - STEPS - GOAL - RESULTS >= CONVERSATION_MIN;
+    rail && sections.includes("toolkit") ? ["slot"] : [];
+  const card = main < RESULTS_ROOMY ? RESULTS.tight : RESULTS.roomy;
+  const results = judged && body - STEPS - GOAL - card >= CONVERSATION_MIN;
   return {
     main,
-    page: body - STEPS - GOAL - FRAME - PAGE_OVERLAP - (results ? RESULTS : 0),
+    page: body - STEPS - GOAL - FRAME - PAGE_OVERLAP - (results ? card : 0),
     portrait,
     rail,
     results,
+    resultsRows: card,
     sections,
     stepsWidth: main - PLATE_CHROME,
     stops,
@@ -102,7 +105,7 @@ function keysFor(browsing: boolean, judging: boolean) {
         ] as const)
       : []),
     ...(judging ? [] : ([["↵", "Run"]] as const)),
-    ...(browsing ? ([["↑/↓", "Loadout"]] as const) : []),
+    ...(browsing ? ([["↑/↓", "Tools"]] as const) : []),
     ...(judging ? [] : ([["PgUp/PgDn", "Scroll"]] as const)),
     ["^C", "Quit"],
   ] as const;
@@ -188,9 +191,9 @@ export function HudLayout({
                 />
               </Plate>
             ) : null}
-            {shows("weapon") ? (
-              <Plate icon="⌖" meta={context.provider} title="WEAPON">
-                <Weapon
+            {shows("loadout") ? (
+              <Plate icon="⌖" meta={context.provider} title="LOADOUT">
+                <Loadout
                   effort={rail.effort}
                   focus={null}
                   locked
@@ -199,15 +202,15 @@ export function HudLayout({
                 />
               </Plate>
             ) : null}
-            {shows("loadout") ? (
+            {shows("toolkit") ? (
               <Plate
                 grow
                 icon="◧"
                 meta={`${slots.length} equipped`}
-                title="LOADOUT"
+                title="TOOLS"
                 tone={focus === "slot" ? hud.amber : hud.bronze}
               >
-                <Loadout
+                <Toolkit
                   focused={focus === "slot"}
                   selected={rail.slot}
                   slots={slots}
@@ -256,7 +259,7 @@ export function HudLayout({
             </scrollbox>
           </Plate>
           {results && geometry.results ? (
-            <box flexShrink={0} height={RESULTS}>
+            <box flexShrink={0} height={geometry.resultsRows}>
               <Plate
                 grow
                 icon="★"

@@ -134,16 +134,16 @@ export const Failed = screen(
   threads.failed
 );
 
-export const Loadout = screen(
-  "Loadout focused",
-  "The loadout is the rail's one stop; the chosen slot explains itself.",
+export const Toolkit = screen(
+  "Toolkit focused",
+  "The toolkit is the rail's one stop; the chosen slot explains itself.",
   threads.working,
   { rail: { focus: "slot" } }
 );
 
-export const Rearmed = screen(
+export const Swapped = screen(
   "Heavy picks",
-  "A mission started with another avatar, a bigger gun and full ammo.",
+  "A mission started with another avatar, a bigger model and high effort.",
   threads.working,
   { rail: { avatar: 2, effort: "high", model: "opus" } }
 );
@@ -157,7 +157,7 @@ export const Wide = screen(
 
 export const Classic = screen(
   "80 by 24",
-  "The rail keeps the portrait, vitals and weapon.",
+  "The rail keeps the portrait, vitals and loadout.",
   threads.working,
   { size: classic }
 );

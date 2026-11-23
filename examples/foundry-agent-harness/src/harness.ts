@@ -17,7 +17,7 @@ import { file, Glob } from "bun";
 import { initLogger } from "evlog";
 import { z } from "zod";
 import { backlog, serveBacklog } from "@/backlog";
-import type { Context, Weapon } from "@/model/context";
+import type { Context, Loadout } from "@/model/context";
 import type { Encounter, Run, Step, Thread, Todo } from "@/model/thread";
 import {
   emptyThread,
@@ -104,7 +104,7 @@ const worker = agent({
 
 const notes = artifact({ name: "Agent harness notes", type: "text/markdown" });
 
-function arm({ effort, model }: Weapon) {
+function equip({ effort, model }: Loadout) {
   const engine = new Engine({
     artifacts,
     askable: false,
@@ -138,19 +138,19 @@ function arm({ effort, model }: Weapon) {
   return { engine, working: engine.agents.session(worker) };
 }
 
-type Armed = ReturnType<typeof arm>;
+type Equipped = ReturnType<typeof equip>;
 
 const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
-const armed = new Map<string, Armed>();
+const equipped = new Map<string, Equipped>();
 
-function pairing({ effort, model }: Weapon): string {
+function pairing({ effort, model }: Loadout): string {
   return `${model}/${effort}`;
 }
 
-function armedWith(weapon: Weapon): Armed {
-  const key = pairing(weapon);
-  const kept = armed.get(key) ?? arm(weapon);
-  armed.set(key, kept);
+function equippedWith(loadout: Loadout): Equipped {
+  const key = pairing(loadout);
+  const kept = equipped.get(key) ?? equip(loadout);
+  equipped.set(key, kept);
   return kept;
 }
 
@@ -170,7 +170,7 @@ function failure(output: unknown): string {
 async function step(
   todo: Todo,
   encounter: Encounter,
-  { working }: Armed
+  { working }: Equipped
 ): Promise<string> {
   const worked: Step = {
     streaming: true,
@@ -220,7 +220,7 @@ async function step(
   return reply.text;
 }
 
-async function work(encounter: Encounter, using: Armed): Promise<void> {
+async function work(encounter: Encounter, using: Equipped): Promise<void> {
   const kept: { path: string; text: string; title: string }[] = [];
   for (;;) {
     const [next] = (await tasks.ready({ limit: 1 })).items;
@@ -249,7 +249,7 @@ async function work(encounter: Encounter, using: Armed): Promise<void> {
   };
 }
 
-async function plan(encounter: Encounter, { engine }: Armed): Promise<void> {
+async function plan(encounter: Encounter, { engine }: Equipped): Promise<void> {
   const planning = await engine.agents.session(planner);
   const reply = await planning.generate(encounter.goal);
   encounter.plan = {
@@ -283,20 +283,20 @@ async function abandon(): Promise<void> {
   await Promise.allSettled(open.map((todo) => tasks.cancel(todo.id)));
 }
 
-export const run: Run = async (goal, shown, weapon) => {
+export const run: Run = async (goal, shown, loadout) => {
   show = shown;
   const encounter = startEncounter({
     goal,
     id: `encounter-${thread.encounters.length + 1}`,
-    rearmed: thread.encounters.length > 0 && !armed.has(pairing(weapon)),
+    loadout,
     startedAt: Date.now(),
-    weapon,
+    swapped: thread.encounters.length > 0 && !equipped.has(pairing(loadout)),
   });
   thread.encounters.push(encounter);
   thread.phase = "planning";
   paint();
   try {
-    const using = armedWith(weapon);
+    const using = equippedWith(loadout);
     await plan(encounter, using);
     thread.phase = "working";
     paint();
@@ -315,5 +315,7 @@ export const run: Run = async (goal, shown, weapon) => {
 
 export async function close(): Promise<void> {
   await served.stop();
-  await Promise.all([...armed.values()].map(({ engine }) => engine.dispose()));
+  await Promise.all(
+    [...equipped.values()].map(({ engine }) => engine.dispose())
+  );
 }

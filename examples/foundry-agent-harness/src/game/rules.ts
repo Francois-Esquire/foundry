@@ -13,12 +13,16 @@ interface Rule {
   readonly label: string;
 }
 
-const GUNS: Readonly<Record<string, number>> = {
+const MODEL_AWARDS: Readonly<Record<string, number>> = {
   haiku: 30,
   opus: 0,
   sonnet: 15,
 };
-const AMMO: Readonly<Record<Effort, number>> = { high: 0, low: 20, medium: 10 };
+const EFFORT_AWARDS: Readonly<Record<Effort, number>> = {
+  high: 0,
+  low: 20,
+  medium: 10,
+};
 const LIGHT_TOUCH = 0.6;
 const PAR_BASE = 10_000;
 const PAR_PER_STEP = 20_000;
@@ -37,11 +41,17 @@ const RULES: readonly Rule[] = [
     label: "Clean run",
   },
   {
-    award: ({ left, rearmed }) => (left >= LIGHT_TOUCH && !rearmed ? 20 : 0),
+    award: ({ left, swapped }) => (left >= LIGHT_TOUCH && !swapped ? 20 : 0),
     label: "Light touch",
   },
-  { award: ({ weapon }) => GUNS[weapon.model] ?? 0, label: "Lighter gun" },
-  { award: ({ weapon }) => AMMO[weapon.effort], label: "Less ammo" },
+  {
+    award: ({ loadout }) => MODEL_AWARDS[loadout.model] ?? 0,
+    label: "Lighter model",
+  },
+  {
+    award: ({ loadout }) => EFFORT_AWARDS[loadout.effort],
+    label: "Less effort",
+  },
   { award: (facts) => (underPar(facts) ? 25 : 0), label: "Under par" },
 ];
 

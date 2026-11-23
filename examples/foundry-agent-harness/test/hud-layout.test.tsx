@@ -212,7 +212,7 @@ test("a judged card keeps every line item, the cap first, at 80 and 60 columns",
       from
     );
     expect(accepted).toContain(
-      "Accepted +50 · Steps done +30 · Clean run +25 · Light touch +20 · Lighter gun +15 · Less ammo +10 · Under par +25"
+      "Accepted +50 Steps done +30 Clean run +25 Light touch +20 Lighter model +15 Less effort +10 Under par +25"
     );
 
     const consoled = mainText(
@@ -223,7 +223,7 @@ test("a judged card keeps every line item, the cap first, at 80 and 60 columns",
     );
     expect(consoled).toContain("RANK C · +10 XP");
     expect(consoled).toContain(
-      "Failed run \u2212110 · Accepted +50 · Light touch +20 · Lighter gun +15 · Less ammo +10 · Under par +25"
+      "Failed run \u2212110 Accepted +50 Light touch +20 Lighter model +15 Less effort +10 Under par +25"
     );
   }
 });
@@ -253,22 +253,22 @@ test("a short screen drops the results card and keeps the conversation", async (
   expect(frame).toContain("A  Accept");
 });
 
-test("the rail shows the locked weapon and the loadout", async () => {
+test("the rail shows the locked loadout and the toolkit", async () => {
   const frame = (await layout(threads.idle)).captureCharFrame();
 
-  expect(frame).toContain("GUN  SONNET");
+  expect(frame).toContain("SONNET");
   expect(frame).toContain("locked");
   expect(frame).not.toContain("◂ 1/3 ▸");
-  expect(frame).not.toContain("▶ GUN");
-  expect(frame).toContain("AMMO ▮▮▯");
+  expect(frame).not.toContain("▶ SONNET");
+  expect(frame).toContain("▮▮▯");
   expect(frame).toContain("medium effort");
   expect(frame).toContain("▶ 01 task-notes");
   expect(frame).toContain("02 backlog");
-  expect(frame).toContain("↑/↓  Loadout");
+  expect(frame).toContain("↑/↓  Tools");
   expect(frame).not.toContain("Tab");
 });
 
-test("the loadout marks the selected slot and describes it", async () => {
+test("the toolkit marks the selected slot and describes it", async () => {
   const slot = (
     await layout(threads.idle, { rail: { focus: "slot", slot: 1 } })
   ).captureCharFrame();
@@ -276,15 +276,15 @@ test("the loadout marks the selected slot and describes it", async () => {
   expect(slot).toContain("The harness's own to-do list");
 });
 
-test("an 80 by 24 screen keeps the portrait, vitals and weapon", async () => {
+test("an 80 by 24 screen keeps the portrait, vitals and loadout", async () => {
   const frame = (
     await layout(threads.working, { size: { height: 24, width: 80 } })
   ).captureCharFrame();
 
   expect(frame).toContain("SMITH");
   expect(frame).toContain("VITALS");
-  expect(frame).toContain("WEAPON");
-  expect(frame).not.toContain("LOADOUT");
+  expect(frame).toContain("LOADOUT");
+  expect(frame).not.toContain("TOOLS");
   expect(frame).not.toContain("ARSENAL");
   expect(frame).toContain("⠸ 2 Identify");
   expect(frame.trimEnd().split("\n")).toHaveLength(24);
@@ -308,15 +308,15 @@ describe("the geometry", () => {
     [
       { height: 44, width: 120 },
       "large",
-      ["vitals", "weapon", "loadout", "arsenal"],
+      ["vitals", "loadout", "toolkit", "arsenal"],
     ],
     [
       { height: 34, width: 120 },
       "small",
-      ["vitals", "weapon", "loadout", "arsenal"],
+      ["vitals", "loadout", "toolkit", "arsenal"],
     ],
-    [{ height: 30, width: 96 }, "small", ["vitals", "weapon", "loadout"]],
-    [{ height: 24, width: 80 }, "small", ["vitals", "weapon"]],
+    [{ height: 30, width: 96 }, "small", ["vitals", "loadout", "toolkit"]],
+    [{ height: 24, width: 80 }, "small", ["vitals", "loadout"]],
   ] as const)("at %o the portrait is %s", (size, portrait, sections) => {
     const geometry = hudGeometry(size);
     expect(geometry.rail).toBe(true);
@@ -336,7 +336,7 @@ describe("the geometry", () => {
     );
   });
 
-  test("only the loadout is a stop, and only while it shows", () => {
+  test("only the toolkit is a stop, and only while it shows", () => {
     expect(hudGeometry({ height: 44, width: 120 }).stops).toEqual(["slot"]);
     expect(hudGeometry({ height: 24, width: 80 }).stops).toEqual([]);
     expect(hudGeometry({ height: 24, width: 60 }).stops).toEqual([]);

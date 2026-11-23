@@ -1,6 +1,6 @@
 import { progressOf } from "@/game/progress";
 import { scorecardOf } from "@/game/scorecard";
-import type { Context, Weapon } from "@/model/context";
+import type { Context, Loadout } from "@/model/context";
 import type { Clock } from "@/model/screen";
 import type { Encounter, Status, Step, Thread, Todo } from "@/model/thread";
 import { emptyThread, startEncounter } from "@/model/thread";
@@ -14,7 +14,7 @@ const IDENTIFY = "Identify the scripts and what each one runs";
 const WRITE = "Write the run instructions";
 const TITLES = [READ, IDENTIFY, WRITE];
 
-const WEAPON: Weapon = { effort: "medium", model: "sonnet" };
+const LOADOUT: Loadout = { effort: "medium", model: "sonnet" };
 
 const REPLY = [
   "This example starts with `bun run start`, which runs `src/main.tsx` on Bun.",
@@ -63,8 +63,8 @@ const finished: Step = {
 const opened: Encounter = startEncounter({
   goal: GOAL,
   id: "encounter-1",
+  loadout: LOADOUT,
   startedAt: STARTED,
-  weapon: WEAPON,
 });
 
 function thread(encounter: Partial<Encounter>, more: Partial<Thread> = {}) {

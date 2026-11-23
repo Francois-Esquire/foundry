@@ -13,21 +13,21 @@ bun run start
 
 Run the build from the repository root. The harness opens on a Get Started
 menu: Left and Right change the highlighted choice, Up and Down (or Tab) move
-between the character, the gun, and the ammo, and Enter starts the mission.
+between the character, the model, and the effort, and Enter starts the mission.
 Clicking a character picks it.
 
 | Stop | Left and Right |
 | --- | --- |
 | Character | Pick one of nine: the Smith, Welder, Caster, Machinist, Rigger, Assayer, Stoker, Fitter, or the Automaton. The row shows as many as fit and slides to keep the choice in view. |
-| Gun | Pick the model: `sonnet`, `opus`, or `haiku`. |
-| Ammo | Load or drop a round of effort: low, medium, or high. |
+| Model | Pick the model: `sonnet`, `opus`, or `haiku`. |
+| Effort | Raise or lower the effort: low, medium, or high. |
 
 The menu centres itself and scales with the terminal: it shows every
 character at the largest of four portrait sizes that fits, falls back to one
-character at a time when the row does not fit, stacks the weapon and loadout
-on a narrow screen, and gives up the header and then the loadout on a short
-one. The menu also lists the loadout: the skills and MCP servers the worker
-carries. The character, gun, and ammo stay for the whole mission, so the
+character at a time when the row does not fit, stacks the loadout and tools
+on a narrow screen, and gives up the header and then the tools on a short
+one. The menu also lists the tools: the skills and MCP servers the worker
+carries. The character, model, and effort stay for the whole mission, so the
 worker keeps one conversation and its context window is never reset by a
 change of model. Quit and start again to pick differently.
 
@@ -44,9 +44,9 @@ verdict is in.
 
 The screen is laid out like a game HUD. A status rail on the left shows an
 avatar whose face follows the worker's context window, the vitals (the
-window left, the tokens spent, and your level and XP), the weapon, the
-loadout, and the arsenal of tools used so far. The weapon is locked for the
-mission; Up and Down move through the loadout to read what each skill and
+window left, the tokens spent, and your level and XP), the loadout, the
+tools, and the arsenal of tools used so far. The loadout is locked for the
+mission; Up and Down move through the tools to read what each skill and
 MCP server is for.
 
 The avatar is a real image where the terminal can draw one (the Kitty
@@ -110,7 +110,7 @@ A `Thread` is its phase, its notes, and a list of encounters. Each
 | Field | Holds |
 | --- | --- |
 | `id` | Minted by the harness, so a verdict stays with its encounter. |
-| `goal`, `weapon` | The text submitted and the model and effort it ran with. |
+| `goal`, `loadout` | The text submitted and the model and effort it ran with. |
 | `startedAt`, `endedAt` | When it started and ended, from the harness's clock; `endedAt` is `null` while it runs. |
 | `outcome` | `running`, `finished`, or `failed`, with `error` saying why it failed. |
 | `plan` | The planner's own input and output tokens. |
@@ -143,13 +143,13 @@ The screen has three layers:
 
 | Hook | Takes | Gives |
 | --- | --- | --- |
-| `useThread` | `run` | The current thread, and `start(goal, weapon)`, which calls `run` with a setter and the chosen model and effort. |
+| `useThread` | `run` | The current thread, and `start(goal, loadout)`, which calls `run` with a setter and the chosen model and effort. |
 | `useVerdicts` | The latest encounter | The verdicts given so far, by encounter id. A accepts, R rejects and Esc skips, only once the latest encounter has ended and has none. |
 | `useGoalDraft` | Whether the thread is busy, and what to do with a goal | The draft, its setter, and `submit`, which trims the draft, ignores it when empty or busy, hands it over once, and clears it. |
 | `useMission` | Nothing | The picks made on the menu (none until a mission starts), and `begin`, which starts one with them. |
 | `useConfirm` | What to do | Calls it when Enter is pressed. |
 | `useBriefing` | The context and the number of avatars | The menu's rail and `choose(avatar)`. Left and Right change the focused choice; Up, Down, and Tab move the focus. |
-| `useRail` | The context, the number of avatars, the stops in play, and optionally where to start | The focused stop and the chosen avatar, model, effort, and loadout slot. Tab and Shift+Tab move the focus; Up and Down change what it is on. The mission screen uses only the loadout. |
+| `useRail` | The context, the number of avatars, the stops in play, and optionally where to start | The focused stop and the chosen avatar, model, effort, and tools slot. Tab and Shift+Tab move the focus; Up and Down change what it is on. The mission screen uses only the tools. |
 | `usePortrait` | An avatar, its health, a seed, the frame, and when it was hit | The avatar's picture for that moment, repainted only when it changes. |
 | `useWound` | The health and the frame | The frame a hit landed, set whenever health worsens, and `hit`. |
 | `usePageScroll` | The page height | The scrollbox ref. PgUp and PgDn scroll it by a page. |
@@ -159,7 +159,7 @@ The screen has three layers:
 The layout sizes itself to the box it is mounted in, not the terminal.
 Below 77 columns the rail is dropped and the
 conversation takes the full width. Under 42 rows the portrait halves and the
-rail gives up the arsenal, then the loadout. The results card takes six rows
+rail gives up the arsenal, then the tools. The results card takes six rows, or seven when the main column is under 56 columns wide,
 from the conversation and is dropped under 22 rows; while a verdict is
 pending the hint bar shows its keys in place of the scroll keys. `test/components-imports.test.ts` fails if
 a component uses state, effects, key listeners, timers, or module-level
@@ -203,7 +203,7 @@ encounter record, a verdict, and the window size. The verdicts live in
 
 - `factsOf` reads what code measured about an encounter: steps finished and
   planned, tool calls and failed calls, tokens in and out, the share of the
-  window left at its end, the weapon, how long it took, and its outcome.
+  window left at its end, the loadout, how long it took, and its outcome.
 - `lineItems` in `rules.ts` turns facts and a verdict into labelled, signed
   amounts. The rules are one table in that file.
 - `scorecardOf` gives the facts, the verdict (`null` while pending), the line
@@ -217,9 +217,9 @@ encounter record, a verdict, and the window size. The verdicts live in
 | Accepted | +50 |
 | Steps done | +10 for each finished step |
 | Clean run | +25 when no tool call failed and the encounter did not fail |
-| Light touch | +20 when at least 60% of the window is left, unless the encounter switched to a gun and ammo pairing not used before, which starts on an empty window |
-| Lighter gun | +30 for `haiku`, +15 for `sonnet`, 0 for `opus` or a model the rules do not know |
-| Less ammo | +20 for low effort, +10 for medium, 0 for high |
+| Light touch | +20 when at least 60% of the window is left, unless the encounter switched to a model and effort pairing not used before, which starts on an empty window |
+| Lighter model | +30 for `haiku`, +15 for `sonnet`, 0 for `opus` or a model the rules do not know |
+| Less effort | +20 for low effort, +10 for medium, 0 for high |
 | Under par | +25 when the tokens spent are under 10,000 plus 20,000 per planned step |
 | Failed run | Brings a failed encounter down to 10 XP |
 

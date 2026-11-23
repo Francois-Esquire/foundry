@@ -28,7 +28,7 @@ afterEach(async () => {
   await unmount();
 });
 
-test("the menu lines up every character with the weapon and the loadout", async () => {
+test("the menu lines up every character with the loadout and the toolkit", async () => {
   const frame = (await mount(briefing().node, TALL)).captureCharFrame();
 
   expect(frame).toContain("GET STARTED");
@@ -37,7 +37,7 @@ test("the menu lines up every character with the weapon and the loadout", async 
   expect(frame).toContain("CASTER");
   expect(frame).not.toContain("AUTOMATON");
   expect(frame).toContain("◂ 1/9 ▸");
-  expect(frame).toContain("GUN  SONNET");
+  expect(frame).toContain("SONNET");
   expect(frame).toContain("01 task-notes");
   expect(frame).toContain("←/→  Character");
   expect(frame).toContain("↑/↓  Move");
@@ -54,15 +54,15 @@ test("Left and Right change the choice, Up and Down move between them, and Enter
   await press(ui, "ARROW_LEFT");
   expect(ui.captureCharFrame()).toContain("◂ 9/9 ▸");
   await press(ui, "ARROW_DOWN");
-  expect(ui.captureCharFrame()).toContain("←/→  Gun");
+  expect(ui.captureCharFrame()).toContain("←/→  Model");
   await press(ui, "ARROW_RIGHT");
-  expect(ui.captureCharFrame()).toContain("▶ GUN  OPUS");
+  expect(ui.captureCharFrame()).toContain("▶ OPUS");
   await press(ui, "TAB");
   await press(ui, "ARROW_RIGHT");
-  expect(ui.captureCharFrame()).toContain("▶ AMMO ▮▮▮");
+  expect(ui.captureCharFrame()).toContain("▶ ▮▮▮");
   await press(ui, "ARROW_LEFT");
   await press(ui, "ARROW_LEFT");
-  expect(ui.captureCharFrame()).toContain("▶ AMMO ▮▯▯");
+  expect(ui.captureCharFrame()).toContain("▶ ▮▯▯");
   await press(ui, "ARROW_UP");
   await press(ui, "ARROW_UP");
   expect(ui.captureCharFrame()).toContain("←/→  Character");
@@ -102,9 +102,9 @@ test("the geometry picks the biggest line-up that fits, then one character, then
     block: 110,
     card: 36,
     header: true,
-    loadout: true,
     portrait: "large",
     stacked: false,
+    toolkit: true,
     visible: 3,
   });
   expect(at(100, 30)).toMatchObject({ portrait: "medium", visible: 3 });
@@ -121,7 +121,7 @@ test("the geometry picks the biggest line-up that fits, then one character, then
   });
   expect(at(40, 20)).toMatchObject({
     header: false,
-    loadout: false,
+    toolkit: false,
     visible: 1,
   });
 });
@@ -142,7 +142,7 @@ test("the menu fits the screen at every size without spilling", async () => {
     expect(lines.length).toBeLessThanOrEqual(height);
     expect(lines.at(-1)).toContain("←/→  Character");
     expect(ui.captureCharFrame()).toContain("SMITH");
-    expect(ui.captureCharFrame()).toContain("GUN  SONNET");
+    expect(ui.captureCharFrame()).toContain("SONNET");
     await unmount();
   }
 });
@@ -160,13 +160,13 @@ test("the app opens on the menu and carries the picks into the mission", async (
   const frame = await frameWith(ui, "VITALS");
   expect(frame).not.toContain("GET STARTED");
   expect(frame).toContain("WELDER");
-  expect(frame).toContain("GUN  OPUS");
+  expect(frame).toContain("OPUS");
   expect(frame).toContain("locked");
   expect(fake.goals).toEqual([]);
 
   await type(ui, "explain this example");
   await press(ui, "RETURN");
-  expect(fake.weapons).toEqual([{ effort: "medium", model: "opus" }]);
+  expect(fake.loadouts).toEqual([{ effort: "medium", model: "opus" }]);
 });
 
 test("a long cast shows as many as fit and slides to keep the choice in view", () => {

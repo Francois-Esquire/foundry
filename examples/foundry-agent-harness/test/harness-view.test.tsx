@@ -30,7 +30,7 @@ test("a new view shows the welcome and an empty panel", async () => {
   expect(frame).toContain("Give the harness a goal. It will:");
   expect(frame).toContain("No to-dos yet.");
   expect(frame).toContain("0/0 · New thread");
-  expect(frame).toContain("GUN  SONNET");
+  expect(frame).toContain("SONNET");
 });
 
 test("Enter hands over a trimmed goal once and clears the field", async () => {
@@ -44,7 +44,7 @@ test("Enter hands over a trimmed goal once and clears the field", async () => {
   await press(ui, "RETURN");
 
   expect(fake.goals).toEqual(["list the files"]);
-  expect(fake.weapons).toEqual([{ effort: "medium", model: "sonnet" }]);
+  expect(fake.loadouts).toEqual([{ effort: "medium", model: "sonnet" }]);
   expect(ui.captureCharFrame()).toContain("Accept, reject or skip the result");
   expect(ui.captureCharFrame()).toContain("18.4k in · 912 out");
 });
@@ -60,7 +60,7 @@ test("Enter does nothing while a goal is running", async () => {
   expect(ui.captureCharFrame()).toContain("another goal");
 });
 
-test("the picked weapon and avatar stay for every goal and the arrows only browse the loadout", async () => {
+test("the picked loadout and avatar stay for every goal and the arrows only browse the toolkit", async () => {
   const fake = fakeRun(threads.done);
   const ui = await mount(
     <HarnessView
@@ -74,15 +74,15 @@ test("the picked weapon and avatar stay for every goal and the arrows only brows
   expect(ui.captureCharFrame()).toContain("WELDER");
   await press(ui, "TAB");
   await press(ui, "ARROW_DOWN");
-  expect(ui.captureCharFrame()).toContain("GUN  OPUS");
-  expect(ui.captureCharFrame()).toContain("AMMO ▮▮▮");
+  expect(ui.captureCharFrame()).toContain("OPUS");
+  expect(ui.captureCharFrame()).toContain("▮▮▮");
   expect(ui.captureCharFrame()).toContain("WELDER");
   expect(ui.captureCharFrame()).toContain("▶ 02 backlog");
 
   await type(ui, "explain this example");
   await press(ui, "RETURN");
   expect(fake.goals).toEqual(["explain this example"]);
-  expect(fake.weapons).toEqual([{ effort: "high", model: "opus" }]);
+  expect(fake.loadouts).toEqual([{ effort: "high", model: "opus" }]);
 });
 
 test("the arrows leave the goal being typed alone", async () => {
@@ -93,7 +93,7 @@ test("the arrows leave the goal being typed alone", async () => {
   await press(ui, "ARROW_DOWN");
 
   expect(ui.captureCharFrame()).toContain("› list the files");
-  expect(ui.captureCharFrame()).toContain("GUN  SONNET");
+  expect(ui.captureCharFrame()).toContain("SONNET");
 });
 
 test("PgUp and PgDn scroll the conversation", async () => {

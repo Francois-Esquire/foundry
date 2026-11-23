@@ -2,8 +2,8 @@ import { defineStories, story } from "textbook-sh";
 import { Arsenal } from "@/components/blocks/arsenal";
 import { Loadout } from "@/components/blocks/loadout";
 import { Plate } from "@/components/blocks/plate";
+import { Toolkit } from "@/components/blocks/toolkit";
 import { totalsLine, Vitals } from "@/components/blocks/vitals";
-import { Weapon } from "@/components/blocks/weapon";
 import { slotsOf } from "@/model/context";
 import { hud } from "@/model/palette";
 import { stepsOf, toolTallies } from "@/model/thread";
@@ -15,7 +15,7 @@ const size = { height: 10, width: 38 };
 export default defineStories({
   component: "Plate",
   description:
-    "The cards on the status rail: vitals, the weapon, the loadout and the arsenal.",
+    "The cards on the status rail: vitals, the loadout, the toolkit and the arsenal.",
   title: "Blocks/Rail",
 });
 
@@ -65,14 +65,14 @@ export const Spent = story({
     ),
 });
 
-export const Gun = story({
-  description: "The model is the gun; Up and Down swap it.",
-  name: "Weapon, gun focused",
+export const Model = story({
+  description: "Up and Down swap the model.",
+  name: "Loadout, model focused",
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Plate icon="⌖" meta="claude-code" title="WEAPON" tone={hud.amber}>
-        <Weapon
+      <Plate icon="⌖" meta="claude-code" title="LOADOUT" tone={hud.amber}>
+        <Loadout
           effort="medium"
           focus="model"
           model="sonnet"
@@ -83,14 +83,14 @@ export const Gun = story({
     ),
 });
 
-export const Ammo = story({
-  description: "Effort is the ammo; Up loads a round and Down drops one.",
-  name: "Weapon, ammo focused",
+export const Effort = story({
+  description: "Up raises the effort and Down lowers it.",
+  name: "Loadout, effort focused",
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Plate icon="⌖" meta="claude-code" title="WEAPON" tone={hud.amber}>
-        <Weapon
+      <Plate icon="⌖" meta="claude-code" title="LOADOUT" tone={hud.amber}>
+        <Loadout
           effort="high"
           focus="effort"
           model="opus"
@@ -103,12 +103,12 @@ export const Ammo = story({
 
 export const Slots = story({
   description: "Skills and MCP servers, with the chosen one explained.",
-  name: "Loadout",
+  name: "Tools",
   render: (renderer) =>
     renderFrame(
       renderer,
-      <Plate icon="◧" meta="2 equipped" title="LOADOUT" tone={hud.amber}>
-        <Loadout focused selected={1} slots={slotsOf(context)} />
+      <Plate icon="◧" meta="2 equipped" title="TOOLS" tone={hud.amber}>
+        <Toolkit focused selected={1} slots={slotsOf(context)} />
       </Plate>,
       size
     ),

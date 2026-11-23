@@ -1,18 +1,18 @@
-import type { Weapon } from "../../src/model/context";
+import type { Loadout } from "../../src/model/context";
 import type { Run, Thread } from "../../src/model/thread";
 
 export function fakeRun(thread: Thread): {
   readonly goals: string[];
   readonly run: Run;
-  readonly weapons: Weapon[];
+  readonly loadouts: Loadout[];
 } {
   const goals: string[] = [];
-  const weapons: Weapon[] = [];
-  const run: Run = (goal, show, weapon) => {
+  const loadouts: Loadout[] = [];
+  const run: Run = (goal, show, loadout) => {
     goals.push(goal);
-    weapons.push(weapon);
+    loadouts.push(loadout);
     show(thread);
     return Promise.resolve();
   };
-  return { goals, run, weapons };
+  return { goals, loadouts, run };
 }

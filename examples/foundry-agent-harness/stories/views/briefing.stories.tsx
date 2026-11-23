@@ -10,12 +10,12 @@ const tall = { height: 44, padded: false, width: 120 };
 export default defineStories({
   component: "BriefingView",
   description:
-    "The Get Started menu. Tab moves between the character, the gun and the ammo; Up and Down change the one in focus; Enter starts the mission.",
+    "The Get Started menu. Tab moves between the character, the model and the effort; Up and Down change the one in focus; Enter starts the mission.",
   title: "Views/Briefing",
 });
 
 export const Menu = story({
-  description: "Every character animating, with the weapon and the loadout.",
+  description: "Every character animating, with the loadout and the tools.",
   name: "Menu",
   render: (renderer) =>
     renderFrame(

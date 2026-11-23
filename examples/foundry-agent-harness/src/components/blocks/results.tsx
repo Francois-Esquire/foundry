@@ -13,14 +13,14 @@ function factLine({
   left,
   steps,
   tokens,
-  weapon,
+  loadout,
 }: Facts): string {
   return [
     `${finished}/${steps} steps`,
     `${calls} ${calls === 1 ? "call" : "calls"}, ${failedCalls} failed`,
     `${compactCount(tokens.input + tokens.output)} tokens`,
     `${Math.round(left * 100)}% left`,
-    `${weapon.model}/${weapon.effort}`,
+    `${loadout.model}/${loadout.effort}`,
     `${Math.round(duration / MS_PER_SECOND)}s`,
   ].join(" · ");
 }
@@ -60,18 +60,15 @@ function Items({ scorecard }: { readonly scorecard: Scorecard }) {
     ...scorecard.items.filter((item) => item.amount >= 0),
   ];
   return (
-    <box height={3} overflow="hidden">
-      <text fg={hud.text} wrapMode="word">
-        {items.map((item, index) => (
-          <span key={item.label}>
-            {index > 0 ? <span fg={hud.faint}>{" · "}</span> : null}
-            {`${item.label} `}
-            <span fg={item.amount < 0 ? hud.red : hud.ok}>
-              {signed(item.amount)}
-            </span>
+    <box columnGap={2} flexDirection="row" flexWrap="wrap" overflow="hidden">
+      {items.map((item) => (
+        <text fg={hud.text} flexShrink={0} key={item.label} wrapMode="none">
+          {`${item.label} `}
+          <span fg={item.amount < 0 ? hud.red : hud.ok}>
+            {signed(item.amount)}
           </span>
-        ))}
-      </text>
+        </text>
+      ))}
     </box>
   );
 }
