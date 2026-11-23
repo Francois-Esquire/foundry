@@ -160,7 +160,7 @@ The layout sizes itself to the box it is mounted in, not the terminal.
 Below 77 columns the rail is dropped and the
 conversation takes the full width. Under 42 rows the portrait halves and the
 rail gives up the arsenal, then the tools. The results card takes six rows, or seven when the main column is under 56 columns wide,
-from the conversation and is dropped under 22 rows; while a verdict is
+from the conversation and is dropped under 22 rows (23 for the seven-row card); while a verdict is
 pending the hint bar shows its keys in place of the scroll keys. `test/components-imports.test.ts` fails if
 a component uses state, effects, key listeners, timers, or module-level
 `let`, or imports the harness, a view, a stateful hook, Marbles, evlog, or
