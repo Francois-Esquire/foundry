@@ -74,7 +74,9 @@ function chance(a: number, b: number, salt: number): number {
 }
 
 function glance(avatar: Avatar, health: Health, pose: Pose, at: number) {
-  const steady = avatar.steady?.includes(pose) ?? false;
+  const steady =
+    !avatar.sheet.poses.includes(pose) ||
+    (avatar.steady?.includes(pose) ?? false);
   if (steady || avatar.sheet.still[pose]?.includes(health)) {
     return at < BLINK_TICKS ? "blink" : null;
   }
@@ -213,7 +215,12 @@ export function portraitScene(moment: PortraitMoment): PortraitScene {
   const face = hurting
     ? (avatar.hurt[since % avatar.hurt.length] ?? [])
     : [idle];
-  const poses = [restingPose(moment), ...face].filter((pose) => pose !== null);
+  const poses = [restingPose(moment), ...face].filter(
+    (pose): pose is Pose =>
+      pose !== null &&
+      avatar.sheet.poses.includes(pose) &&
+      !avatar.sheet.still[pose]?.includes(health)
+  );
   const spray = hurting
     ? splatter(avatar.wound, seed + (hurtAt ?? 0), since, severity)
     : [];

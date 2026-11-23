@@ -15,8 +15,17 @@ const FINE_THRESHOLD = 18;
 const WHITE = 235;
 const INSET = 14;
 const HEADROOM = 0.45;
+const BACKDROP_THRESHOLD = 40;
+const FULL_BLEED = 0.995;
+const TINTED = new Set(["caster", "machinist"]);
 const ZOOM_OUT: Readonly<Record<string, number>> = {
+  assayer: 1.3,
   automaton: 1.3,
+  caster: 1.2,
+  fitter: 1.4,
+  machinist: 1.25,
+  rigger: 1.4,
+  stoker: 1.25,
   welder: 1.3,
 };
 const SEARCH = 6;
@@ -162,10 +171,17 @@ function runs(flags: readonly boolean[]): [number, number][] {
   return found;
 }
 
-function inked(image: Image, along: "column" | "row", index: number): number {
-  const length = along === "column" ? image.height : image.width;
+function inked(
+  image: Image,
+  along: "column" | "row",
+  index: number,
+  [from, to]: readonly [number, number] = [
+    0,
+    along === "column" ? image.height : image.width,
+  ]
+): number {
   let count = 0;
-  for (let step = 0; step < length; step += 1) {
+  for (let step = from; step < to; step += 1) {
     const pixel =
       along === "column"
         ? step * image.width + index
@@ -177,31 +193,38 @@ function inked(image: Image, along: "column" | "row", index: number): number {
   return count;
 }
 
-function panels(name: string, image: Image): Panel[] {
-  const columns = runs(
-    Array.from(
-      { length: image.width },
-      (_, x) => inked(image, "column", x) > image.height * COLUMN_FILL
-    )
-  )
-    .filter(([from, to]) => to - from > MIN_PANEL)
-    .slice(0, HEALTH.length);
-  const [band] = runs(
-    Array.from(
-      { length: image.height },
-      (_, y) => inked(image, "row", y) > image.width * ROW_FILL
-    )
-  ).sort((a, b) => b[1] - b[0] - (a[1] - a[0]));
-  if (columns.length !== HEALTH.length || band === undefined) {
-    throw new Error(
-      `${name}: expected ${HEALTH.length} panels in one row, found ${columns.length}`
-    );
-  }
-  const [top, bottom] = band;
+const HEADROOMS: Readonly<Record<string, number>> = {
+  assayer: 0.3,
+  fitter: 0.12,
+  rigger: 0.3,
+};
+
+const FRAMES: Readonly<
+  Record<string, { band: [number, number]; columns: [number, number][] }>
+> = {
+  fitter: {
+    band: [42, 630],
+    columns: [
+      [20, 317],
+      [331, 629],
+      [643, 941],
+      [954, 1252],
+      [1265, 1562],
+    ],
+  },
+};
+
+function framed(
+  [top, bottom]: readonly [number, number],
+  columns: readonly (readonly [number, number])[],
+  name: string
+): Panel[] {
+  const zoom = ZOOM_OUT[name] ?? 1;
+  const headroom = HEADROOMS[name] ?? HEADROOM;
   return columns.map(([from, to]) => {
     const tall = bottom - top - INSET * 2;
     const fitted = Math.min(to - from, bottom - top) - INSET * 2;
-    const side = Math.round(fitted * (ZOOM_OUT[name] ?? 1));
+    const side = Math.round(fitted * zoom);
     return {
       bottom: bottom - INSET,
       left: from + INSET,
@@ -209,12 +232,70 @@ function panels(name: string, image: Image): Panel[] {
       side,
       top: top + INSET,
       x: Math.floor((from + to) / 2 - side / 2),
-      y: top + INSET + Math.floor((tall - side) * HEADROOM),
+      y: top + INSET + Math.floor((tall - side) * headroom),
     };
   });
 }
 
-function crop(image: Image, panel: Panel, dx = 0, dy = 0): Image {
+function panels(name: string, image: Image): Panel[] {
+  const fixed = FRAMES[name];
+  if (fixed) {
+    return framed(fixed.band, fixed.columns, name);
+  }
+  const [band] = runs(
+    Array.from(
+      { length: image.height },
+      (_, y) => inked(image, "row", y) > image.width * ROW_FILL
+    )
+  ).sort((a, b) => b[1] - b[0] - (a[1] - a[0]));
+  if (band === undefined) {
+    throw new Error(`${name}: found no row of panels`);
+  }
+  const bled = (y: number) =>
+    inked(image, "row", y) >= image.width * FULL_BLEED;
+  let [top, bottom] = band;
+  while (top < bottom && bled(top)) {
+    top += 1;
+  }
+  while (bottom > top && bled(bottom - 1)) {
+    bottom -= 1;
+  }
+  if (bottom - top <= MIN_PANEL) {
+    [top, bottom] = band;
+  }
+  const quarter = Math.floor((bottom - top) / 4);
+  const wide = ([from, to]: readonly [number, number]) => to - from > MIN_PANEL;
+  const whole = runs(
+    Array.from(
+      { length: image.width },
+      (_, x) => inked(image, "column", x) > image.height * COLUMN_FILL
+    )
+  )
+    .filter(wide)
+    .slice(0, HEALTH.length);
+  const middle = runs(
+    Array.from(
+      { length: image.width },
+      (_, x) =>
+        inked(image, "column", x, [top + quarter, bottom - quarter]) >
+        (bottom - top) * COLUMN_FILL
+    )
+  ).filter(wide);
+  const share = image.width / HEALTH.length;
+  const fifths = HEALTH.map((_, index): [number, number] => [
+    Math.round(index * share),
+    Math.round((index + 1) * share),
+  ]);
+  const columns =
+    [whole, middle].find((each) => each.length === HEALTH.length) ?? fifths;
+  return framed([top, bottom], columns, name);
+}
+
+function crop(
+  image: Image,
+  panel: Panel,
+  { dx = 0, dy = 0, tinted = false } = {}
+): Image {
   const { side } = panel;
   const data = new Uint8Array(side * side * 3);
   for (let y = 0; y < side; y += 1) {
@@ -233,6 +314,14 @@ function crop(image: Image, panel: Panel, dx = 0, dy = 0): Image {
   }
   const seen = new Uint8Array(side * side);
   const stack: number[] = [];
+  const cropped = { data, height: side, width: side };
+  const backdrop = rgbAt(
+    cropped,
+    Math.max(0, panel.top - panel.y) * side + Math.max(0, panel.left - panel.x)
+  );
+  const plain = (pixel: number) =>
+    isWhite(data, pixel) ||
+    (tinted && distance(rgbAt(cropped, pixel), backdrop) < BACKDROP_THRESHOLD);
   for (let edge = 0; edge < side; edge += 1) {
     stack.push(
       edge,
@@ -241,9 +330,19 @@ function crop(image: Image, panel: Panel, dx = 0, dy = 0): Image {
       edge * side + side - 1
     );
   }
+  const first = Math.max(0, panel.top - panel.y);
+  const last = Math.min(side, panel.bottom - panel.y) - 1;
+  const near = Math.max(0, panel.left - panel.x);
+  const far = Math.min(side, panel.right - panel.x) - 1;
+  for (let x = near; x <= far; x += 1) {
+    stack.push(first * side + x, last * side + x);
+  }
+  for (let y = first; y <= last; y += 1) {
+    stack.push(y * side + near, y * side + far);
+  }
   while (stack.length > 0) {
     const pixel = stack.pop() ?? 0;
-    if (seen[pixel] === 1 || !isWhite(data, pixel)) {
+    if (seen[pixel] === 1 || !plain(pixel)) {
       continue;
     }
     seen[pixel] = 1;
@@ -309,12 +408,12 @@ function mismatch(a: Image, b: Image): number {
   return total;
 }
 
-function align(base: Image, pose: Image, panel: Panel): Image {
-  let best = crop(pose, panel);
+function align(base: Image, pose: Image, panel: Panel, tinted: boolean): Image {
+  let best = crop(pose, panel, { tinted });
   let lowest = mismatch(base, best);
   for (let dy = -SEARCH; dy <= SEARCH; dy += 1) {
     for (let dx = -SEARCH; dx <= SEARCH; dx += 1) {
-      const candidate = crop(pose, panel, dx, dy);
+      const candidate = crop(pose, panel, { dx, dy, tinted });
       const score = mismatch(base, candidate);
       if (score < lowest) {
         lowest = score;
@@ -440,7 +539,8 @@ function encode(rgba: Uint8Array, width: number, height: number): Buffer {
 async function build(name: string, art: readonly string[]): Promise<string> {
   const source = await load(`${name}.png`);
   const frames = panels(name, source);
-  const crops = frames.map((panel) => crop(source, panel));
+  const tinted = TINTED.has(name);
+  const crops = frames.map((panel) => crop(source, panel, { tinted }));
   const bases = crops.map((image) => scale(image, CELL));
   const poses = POSES.filter((pose) => art.includes(`${name}-${pose}.png`));
   const width = HEALTH.length * CELL;
@@ -452,9 +552,15 @@ async function build(name: string, art: readonly string[]): Promise<string> {
   for (const [index, pose] of poses.entries()) {
     const image = await load(`${name}-${pose}.png`);
     const counts = frames.map((panel, column) => {
-      const base = bases[column] ?? scale(crop(source, panel), CELL);
+      const base =
+        bases[column] ?? scale(crop(source, panel, { tinted }), CELL);
       const posed = scale(
-        align(crops[column] ?? crop(source, panel), image, panel),
+        align(
+          crops[column] ?? crop(source, panel, { tinted }),
+          image,
+          panel,
+          tinted
+        ),
         CELL
       );
       const cells = within(pose, changedCells(base, posed));

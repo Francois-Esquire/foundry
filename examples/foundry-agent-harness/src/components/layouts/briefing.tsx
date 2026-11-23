@@ -31,34 +31,44 @@ const TURNS = {
   slot: "Character",
 } as const;
 
+const LINEUP = 3;
+
 interface Shape {
-  readonly lineup: boolean;
   readonly portrait: PortraitSize;
+  readonly visible: number;
+}
+
+interface Room {
+  readonly avatars: number;
+  readonly height: number;
+  readonly slots: number;
+  readonly width: number;
 }
 
 function cardWidth(portrait: PortraitSize): number {
   return Math.max(PORTRAIT_SIZES[portrait].columns + CARD_CHROME, CARD_MIN);
 }
 
-function blockWidth(
-  { lineup, portrait }: Shape,
-  width: number,
-  avatars: number
-) {
+function across(portrait: PortraitSize, { avatars, width }: Room): number {
   const card = cardWidth(portrait);
-  const wanted = lineup
-    ? avatars * card + (avatars - 1) * GAP
-    : Math.max(card, SOLO_WIDTH);
+  return Math.min(avatars, Math.floor((width - MARGIN + GAP) / (card + GAP)));
+}
+
+function blockWidth({ portrait, visible }: Shape, width: number): number {
+  const card = cardWidth(portrait);
+  const wanted =
+    visible > 1
+      ? visible * card + (visible - 1) * GAP
+      : Math.max(card, SOLO_WIDTH);
   return Math.min(wanted, Math.max(width - MARGIN, card));
 }
 
 function rowsFor(
   shape: Shape,
-  { avatars, slots, width }: Room,
+  { slots, width }: Room,
   { header, loadout }: { readonly header: boolean; readonly loadout: boolean }
 ): number {
-  const stacked =
-    blockWidth(shape, width, avatars) < WEAPON_WIDTH + GAP + LOADOUT_MIN;
+  const stacked = blockWidth(shape, width) < WEAPON_WIDTH + GAP + LOADOUT_MIN;
   const listed = loadout ? PLATE_ROWS + slots : 0;
   const stackedRows = WEAPON_ROWS + (loadout ? GAP + listed : 0);
   return (
@@ -71,20 +81,9 @@ function rowsFor(
   );
 }
 
-interface Room {
-  readonly avatars: number;
-  readonly height: number;
-  readonly slots: number;
-  readonly width: number;
-}
-
 function fits(shape: Shape, room: Room): boolean {
-  const card = cardWidth(shape.portrait);
-  const across = shape.lineup
-    ? room.avatars * card + (room.avatars - 1) * GAP
-    : card;
   return (
-    across + MARGIN <= room.width &&
+    shape.visible >= 1 &&
     rowsFor(shape, room, { header: false, loadout: false }) <= room.height
   );
 }
@@ -95,26 +94,35 @@ export function briefingGeometry(
   slots = 0
 ) {
   const room = { avatars, height, slots, width };
-  const shapes: Shape[] = [
-    ...TIERS.map((portrait) => ({ lineup: true, portrait })),
-    ...TIERS.map((portrait) => ({ lineup: false, portrait })),
-  ];
-  const shape = shapes.find((each) => fits(each, room)) ?? {
-    lineup: false,
-    portrait: "small" as const,
-  };
-  const block = blockWidth(shape, width, avatars);
+  const shapes = TIERS.map((portrait) => ({
+    portrait,
+    visible: across(portrait, room),
+  })).filter((each) => fits(each, room));
+  const shape = shapes.find(
+    ({ visible }) => visible >= Math.min(avatars, LINEUP)
+  ) ??
+    shapes[0] ?? { portrait: "small" as const, visible: 1 };
+  const block = blockWidth(shape, width);
   const loadout =
     rowsFor(shape, room, { header: false, loadout: true }) <= height;
   return {
     block,
     card: cardWidth(shape.portrait),
     header: rowsFor(shape, room, { header: true, loadout }) <= height,
-    lineup: shape.lineup,
     loadout,
     portrait: shape.portrait,
     stacked: block < WEAPON_WIDTH + GAP + LOADOUT_MIN,
+    visible: shape.visible,
   };
+}
+
+export function lineupFrom(
+  selected: number,
+  visible: number,
+  avatars: number
+): number {
+  const centred = selected - Math.floor(visible / 2);
+  return Math.min(Math.max(centred, 0), Math.max(avatars - visible, 0));
 }
 
 function Character({
@@ -174,9 +182,10 @@ export function BriefingLayout({
   const geometry = briefingGeometry(size, avatars.length, slots.length);
   const focus = focusOn(rail, BRIEFING_STOPS);
   const aiming = focus === "model" || focus === "effort" ? focus : null;
+  const from = lineupFrom(rail.avatar, geometry.visible, avatars.length);
   const shown = avatars
     .map((avatar, index) => ({ avatar, index }))
-    .filter(({ index }) => geometry.lineup || index === rail.avatar);
+    .slice(from, from + geometry.visible);
   const measure = useCallback(
     function measureBriefing(this: BoxRenderable) {
       onResize({ height: this.height, width: this.width });

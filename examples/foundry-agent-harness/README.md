@@ -18,7 +18,7 @@ Clicking a character picks it.
 
 | Stop | Left and Right |
 | --- | --- |
-| Character | Pick the Smith, the Welder, or the Automaton. |
+| Character | Pick one of nine: the Smith, Welder, Caster, Machinist, Rigger, Assayer, Stoker, Fitter, or the Automaton. The row shows as many as fit and slides to keep the choice in view. |
 | Gun | Pick the model: `sonnet`, `opus`, or `haiku`. |
 | Ammo | Load or drop a round of effort: low, medium, or high. |
 

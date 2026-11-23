@@ -1,6 +1,12 @@
 import type { Pose, SpriteSheet } from "@/model/sprite";
+import { assayer } from "@/model/sprites/assayer";
 import { automaton } from "@/model/sprites/automaton";
+import { caster } from "@/model/sprites/caster";
+import { fitter } from "@/model/sprites/fitter";
+import { machinist } from "@/model/sprites/machinist";
+import { rigger } from "@/model/sprites/rigger";
 import { smith } from "@/model/sprites/smith";
+import { stoker } from "@/model/sprites/stoker";
 import { welder } from "@/model/sprites/welder";
 
 export type Wound =
@@ -43,6 +49,12 @@ export const avatars = [
     steady: ["left"],
     wound: flesh,
   },
+  { hurt: [["wince"]], name: "Caster", sheet: caster, wound: flesh },
+  { hurt: [["wince"]], name: "Machinist", sheet: machinist, wound: flesh },
+  { hurt: [["wince"]], name: "Rigger", sheet: rigger, wound: flesh },
+  { hurt: [["wince"]], name: "Assayer", sheet: assayer, wound: flesh },
+  { hurt: [["wince"]], name: "Stoker", sheet: stoker, wound: flesh },
+  { hurt: [], name: "Fitter", sheet: fitter, wound: flesh },
   {
     flicker: "glow",
     hurt: [["glow", "blink"], ["glow"]],
