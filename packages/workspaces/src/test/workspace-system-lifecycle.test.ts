@@ -58,18 +58,15 @@ describe("lifecycle", () => {
     const events: string[] = [];
     const system = directorySystem().extend({
       applies: () => true,
-      name: "probe",
-      wrap: (Base) =>
-        class extends Base {
-          protected override async start() {
-            await super.start();
-            events.push("start");
-          }
-          protected override async stop() {
-            events.push("stop");
-            await super.stop();
-          }
+      attach: () => ({
+        start() {
+          events.push("start");
         },
+        stop() {
+          events.push("stop");
+        },
+      }),
+      name: "probe",
     });
 
     const added = await system.load({ path: root });
@@ -114,11 +111,10 @@ describe("lifecycle", () => {
     const root = await makeRoot({ "README.md": "hello" });
     const system = directorySystem().extend({
       applies: (registration) => registration.source.kind === "host",
+      attach: (workspace) => ({
+        capabilities: { label: `dir:${workspace.source.path}` },
+      }),
       name: "labelled",
-      wrap: (Base) =>
-        class extends Base {
-          readonly label = `dir:${this.source.path}`;
-        },
     });
 
     const added = await system.load({ path: root });

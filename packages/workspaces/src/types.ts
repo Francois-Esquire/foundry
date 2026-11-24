@@ -7,6 +7,7 @@ import type {
   StorageNode,
   StorageObserver,
   StorageReader,
+  StorageSubscription,
   StorageTree,
 } from "@foundry/core/storage";
 import type { FileClassification } from "@foundry/lib/file-classification";
@@ -16,6 +17,7 @@ import type { Workspace } from "./instance";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceFile,
   WorkspaceId,
   WorkspaceRegistration,
 } from "./schema";
@@ -113,17 +115,44 @@ export interface WorkspaceCatalogChange {
   readonly updated: readonly WorkspaceEntry[];
 }
 
+export interface WorkspaceSourceAdapter {
+  insertFile?(path: string, bytes: Uint8Array): Promise<WriteOutcome>;
+  readFile?(file: WorkspaceFile): Promise<FileContentResult>;
+  scan(): Promise<readonly ObservedFacts[]>;
+  watch?(
+    changed: () => void,
+    failed: (error: unknown) => void
+  ): Promise<StorageSubscription | undefined>;
+  writeFile?(
+    file: WorkspaceFile,
+    bytes: Uint8Array,
+    expectedDigest: string
+  ): Promise<WriteOutcome>;
+}
+
+export interface WorkspaceLifecycle {
+  start?(): Promise<void> | void;
+  stop?(): Promise<void> | void;
+}
+
+export interface WorkspaceAttachment extends WorkspaceLifecycle {
+  readonly capabilities?: Readonly<Record<string, unknown>>;
+}
+
 export interface WorkspaceExtension<
   Ref extends object = never,
   Floor = unknown,
   Cap = unknown,
 > {
   applies: (registration: WorkspaceRegistration) => Promise<boolean> | boolean;
+  attach?(
+    workspace: Workspace
+  ): Promise<WorkspaceAttachment | undefined> | WorkspaceAttachment | undefined;
   identify?(ref: Ref): Promise<WorkspaceIdentity> | WorkspaceIdentity;
   readonly name: string;
   readonly ref?: string;
+  source?(registration: WorkspaceRegistration): WorkspaceSourceAdapter;
   readonly types?: { readonly floor: Floor; readonly cap: Cap };
-  wrap: (Base: WorkspaceCtor) => WorkspaceCtor;
 }
 
 export type AnyWorkspaceExtension = WorkspaceExtension<object>;
@@ -191,9 +220,6 @@ export interface WorkspaceContext {
     task: () => Promise<T>
   ) => Promise<T>;
 }
-
-// biome-ignore lint/suspicious/noExplicitAny: The generic mixin constructor requires an any[] rest parameter under TS2545.
-export type WorkspaceCtor<T = Workspace> = new (...args: any[]) => T;
 
 export interface IgnoreScope {
   readonly base: string;

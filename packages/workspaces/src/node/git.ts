@@ -1,13 +1,15 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { byCodeUnit } from "@foundry/lib/ordering";
-import simpleGit from "simple-git";
 import { errorCode } from "../errors";
-import type { WorkspaceCtor, WorkspaceExtension } from "../types";
+import type { WorkspaceExtension } from "../types";
 
 const WORKTREE_PREFIX_PATTERN = /^worktree /;
 const BRANCH_PREFIX_PATTERN = /^branch refs\/heads\//;
+const UNBORN_PREFIX_PATTERN = /^(?:No commits yet|Initial commit) on /;
+const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 export interface GitPathStatus {
   readonly path: string;
@@ -38,7 +40,36 @@ export interface WorktreeOptions {
   readonly home?: string;
 }
 
-const runWithSimpleGit: GitRun = (cwd, args) => simpleGit(cwd).raw([...args]);
+interface GitExecError extends Error {
+  readonly code?: number | string;
+  readonly stderr: string;
+}
+
+function execGit(cwd: string, args: readonly string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "git",
+      [...args],
+      { cwd, encoding: "utf8", maxBuffer: MAX_GIT_OUTPUT_BYTES },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve(stdout);
+          return;
+        }
+        const message = stderr.trim() || error.message;
+        const wrapped = new Error(message, { cause: error }) as GitExecError & {
+          code?: number | string;
+          stderr: string;
+        };
+        if (error.code !== undefined) {
+          wrapped.code = error.code;
+        }
+        wrapped.stderr = stderr;
+        reject(wrapped);
+      }
+    );
+  });
+}
 
 const cut = new WeakSet<Worktree>();
 
@@ -48,7 +79,7 @@ export class Git {
 
   protected constructor(root: string, options: GitOptions) {
     this.root = root;
-    this.run = options.run ?? runWithSimpleGit;
+    this.run = options.run ?? execGit;
   }
 
   static at(root: string, options: GitOptions = {}): Git {
@@ -67,39 +98,45 @@ export class Git {
 
   static async isRepository(root: string): Promise<boolean> {
     try {
-      return await simpleGit(root).checkIsRepo();
+      const output = await execGit(root, [
+        "rev-parse",
+        "--is-inside-work-tree",
+      ]);
+      return output.trim() === "true";
     } catch {
       return false;
     }
   }
 
   async status(): Promise<GitSnapshot> {
-    let client: ReturnType<typeof simpleGit>;
+    let toplevel: string;
     try {
-      client = simpleGit(this.root);
-    } catch {
-      return { kind: "none" };
-    }
-
-    try {
-      if (!(await client.checkIsRepo())) {
+      const output = await execGit(this.root, [
+        "rev-parse",
+        "--is-inside-work-tree",
+        "--show-toplevel",
+      ]);
+      const [inside, rootLine] = output.trim().split("\n");
+      if (inside !== "true" || !rootLine) {
         return { kind: "none" };
       }
+      toplevel = rootLine;
     } catch (error) {
-      return unavailable(error);
+      return isOutsideRepository(error) ? { kind: "none" } : unavailable(error);
     }
 
     try {
-      const repositoryRoot = await realpath(
-        (await client.revparse(["--show-toplevel"])).trim()
-      );
-      const workspaceRoot = await realpath(this.root);
-      const status = await client.status();
+      const [repositoryRoot, workspaceRoot, porcelain] = await Promise.all([
+        realpath(toplevel),
+        realpath(this.root),
+        execGit(this.root, ["status", "--porcelain=v1", "-z", "-b"]),
+      ]);
+      const parsed = parsePorcelainStatus(porcelain);
       return {
-        branch: status.detached ? null : status.current,
-        detached: status.detached,
+        branch: parsed.detached ? null : parsed.branch,
+        detached: parsed.detached,
         kind: "repository",
-        paths: confine(repositoryRoot, workspaceRoot, status.files),
+        paths: confine(repositoryRoot, workspaceRoot, parsed.files),
       };
     } catch (error) {
       return unavailable(error);
@@ -107,8 +144,17 @@ export class Git {
   }
 
   async hasBranch(name: string): Promise<boolean> {
-    const branches = await simpleGit(this.root).branchLocal();
-    return branches.all.includes(name);
+    try {
+      await execGit(this.root, [
+        "show-ref",
+        "--verify",
+        "--quiet",
+        `refs/heads/${name}`,
+      ]);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async worktrees(): Promise<readonly Worktree[]> {
@@ -200,15 +246,6 @@ export class Worktree extends Git {
   }
 }
 
-export function WithGit<B extends WorkspaceCtor>(
-  Base: B,
-  options: GitOptions = {}
-): B & WorkspaceCtor<GitCapable> {
-  return class extends Base implements GitCapable {
-    readonly git: Git = Git.at(this.source.path, options);
-  };
-}
-
 export interface GitCapable {
   readonly git: Git;
 }
@@ -218,9 +255,85 @@ export function git(
 ): WorkspaceExtension<never, unknown, Partial<GitCapable>> {
   return {
     applies: (registration) => Git.isRepository(registration.source.path),
+    attach: (workspace) => ({
+      capabilities: { git: Git.at(workspace.source.path, options) },
+    }),
     name: "git",
-    wrap: (Base) => WithGit(Base, options),
   };
+}
+
+function isOutsideRepository(error: unknown): boolean {
+  const code = errorCode(error);
+  if (code === "ENOENT" || code === "ENOTDIR") {
+    return true;
+  }
+  const stderr =
+    typeof (error as { stderr?: unknown } | null)?.stderr === "string"
+      ? (error as { stderr: string }).stderr.toLowerCase()
+      : "";
+  return (
+    stderr.includes("not a git repository") ||
+    stderr.includes("must be run in a work tree")
+  );
+}
+
+interface ParsedPorcelainStatus {
+  readonly branch: string | null;
+  readonly detached: boolean;
+  readonly files: readonly RawFileStatus[];
+}
+
+function parsePorcelainStatus(output: string): ParsedPorcelainStatus {
+  const tokens = output.split("\0");
+  if (tokens.at(-1) === "") {
+    tokens.pop();
+  }
+  let branch: string | null = null;
+  let detached = false;
+  let start = 0;
+
+  const [first] = tokens;
+  if (first?.startsWith("## ")) {
+    start = 1;
+    const header = first.slice(3);
+    if (header.startsWith("HEAD (")) {
+      detached = true;
+    } else if (UNBORN_PREFIX_PATTERN.test(header)) {
+      branch = header.replace(UNBORN_PREFIX_PATTERN, "");
+    } else {
+      const tracking = header.indexOf("...");
+      branch = tracking === -1 ? header : header.slice(0, tracking);
+    }
+  }
+
+  const files: RawFileStatus[] = [];
+  for (let index = start; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token || token.length < 4) {
+      continue;
+    }
+    const indexCol = token[0] ?? "";
+    const workingDirCol = token[1] ?? "";
+    const path = token.slice(3);
+    let from: string | undefined;
+    if (
+      indexCol === "R" ||
+      indexCol === "C" ||
+      workingDirCol === "R" ||
+      workingDirCol === "C"
+    ) {
+      index += 1;
+      from = tokens[index];
+    }
+    files.push({
+      from,
+      index: indexCol,
+      path,
+      working_dir: workingDirCol,
+    });
+  }
+
+  return { branch, detached, files };
 }
 
 function parseWorktreeList(

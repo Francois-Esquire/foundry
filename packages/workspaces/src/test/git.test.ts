@@ -14,9 +14,9 @@ import { promisify } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
 import { Workspace } from "../instance";
-import { WithDirectory } from "../node";
+import { directorySource } from "../node";
 import type { GitPathStatus } from "../node/git";
-import { Git, git as gitLayer, WithGit, Worktree } from "../node/git";
+import { Git, git as gitLayer, Worktree } from "../node/git";
 import { MemoryWorkspaceStore } from "../store/memory";
 import { hostWorkspace, seed } from "../testing/records";
 import { interceptCommits } from "./helpers/commits";
@@ -367,7 +367,7 @@ describe("Git.isRepository and Git.open", () => {
   });
 });
 
-describe("WithGit", () => {
+describe("git extension", () => {
   it("applies to a directory Workspace inside a working tree and reads live status", async () => {
     const root = await makeRepository({ "README.md": "hello" });
     const system = directorySystem().extend(gitLayer());
@@ -459,21 +459,25 @@ describe("WithGit", () => {
     }
   });
 
-  it("composes by hand over the directory layer", async () => {
+  it("composes by hand with directorySource and Git.at", async () => {
     const root = await realpath(await makeRepository({ "README.md": "hello" }));
     const store = new MemoryWorkspaceStore();
     const record = hostWorkspace({ path: root });
     await seed(store, record);
-    const Composed = WithGit(WithDirectory(Workspace));
 
-    const workspace = new Composed(record, {
-      catalog: new WorkspaceCatalog(store, () => undefined),
-      close: () => Promise.resolve(),
-      report: () => undefined,
-      serialize: (_workspaceId, task) => task(),
-    });
+    const workspace = new Workspace(
+      record,
+      {
+        catalog: new WorkspaceCatalog(store, () => undefined),
+        close: () => Promise.resolve(),
+        report: () => undefined,
+        serialize: (_workspaceId, task) => task(),
+      },
+      directorySource(root)
+    );
+    const repo = Git.at(workspace.source.path);
 
-    expect(workspace.git.root).toBe(root);
+    expect(repo.root).toBe(root);
     expect((await workspace.refresh()).entries.map((f) => f.path)).toEqual([
       "README.md",
     ]);

@@ -12,7 +12,7 @@ export type {
   DirectoryOptions,
   DirectoryRef,
 } from "./directory";
-export { directory, WithDirectory } from "./directory";
+export { directory, directorySource } from "./directory";
 export {
   InvalidWorkspaceInputError,
   WorkspaceFileNotFoundError,
@@ -39,10 +39,10 @@ export type {
   ResolvedSource,
   SaveFileCommand,
   SaveFileResult,
+  WorkspaceAttachment,
   WorkspaceCatalogChange,
   WorkspaceChange,
   WorkspaceContext,
-  WorkspaceCtor,
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceEvent,
@@ -51,8 +51,10 @@ export type {
   WorkspaceFileSystem,
   WorkspaceId,
   WorkspaceIdentity,
+  WorkspaceLifecycle,
   WorkspaceRegistration,
   WorkspaceSource,
+  WorkspaceSourceAdapter,
   WorkspaceSourceIssue,
   WorkspaceSourceStatus,
   WorkspaceSummary,

@@ -24,8 +24,10 @@ import type {
   WorkspaceEntryId,
   WorkspaceFile,
   WorkspaceId,
+  WorkspaceLifecycle,
   WorkspaceRegistration,
   WorkspaceSource,
+  WorkspaceSourceAdapter,
   WorkspaceSourceStatus,
   WorkspaceSummary,
   WorkspaceView,
@@ -34,98 +36,69 @@ import type {
 
 type CatalogState = "current" | "refresh-required";
 
+const lifecycles = new WeakMap<
+  Workspace,
+  {
+    readonly start: (hooks: readonly WorkspaceLifecycle[]) => Promise<void>;
+    readonly stop: () => Promise<void>;
+  }
+>();
+
+export function startWorkspace(
+  workspace: Workspace,
+  hooks: readonly WorkspaceLifecycle[] = []
+): Promise<void> {
+  const control = lifecycles.get(workspace);
+  return control ? control.start(hooks) : Promise.resolve();
+}
+
+export function stopWorkspace(workspace: Workspace): Promise<void> {
+  const control = lifecycles.get(workspace);
+  return control ? control.stop() : Promise.resolve();
+}
+
 export class Workspace {
   readonly id: WorkspaceId;
   readonly source: WorkspaceSource;
-  protected readonly context: WorkspaceContext;
-  private observation: StorageSubscription | undefined;
+  readonly #context: WorkspaceContext;
+  readonly #adapter: WorkspaceSourceAdapter;
+  #observation: StorageSubscription | undefined;
+  readonly #startedHooks: WorkspaceLifecycle[] = [];
 
-  constructor(registration: WorkspaceRegistration, context: WorkspaceContext) {
+  constructor(
+    registration: WorkspaceRegistration,
+    context: WorkspaceContext,
+    adapter: WorkspaceSourceAdapter
+  ) {
     this.id = registration.id;
     this.source = registration.source;
-    this.context = context;
-  }
-
-  static start(workspace: Workspace): Promise<void> {
-    return workspace.start();
-  }
-
-  static stop(workspace: Workspace): Promise<void> {
-    return workspace.stop();
-  }
-
-  static hasFloor(workspace: Workspace): boolean {
-    return workspace.scan !== Workspace.prototype.scan;
+    this.#context = context;
+    this.#adapter = adapter;
+    lifecycles.set(this, {
+      start: (hooks) => this.#start(hooks),
+      stop: () => this.#stop(),
+    });
   }
 
   scan(): Promise<readonly ObservedFacts[]> {
-    return Promise.reject(
-      new WorkspaceSourceUnsupportedError(this.source.kind)
-    );
-  }
-
-  protected readFile(_file: WorkspaceFile): Promise<FileContentResult> {
-    return Promise.reject(
-      new WorkspaceSourceUnsupportedError(this.source.kind)
-    );
-  }
-
-  protected writeFile(
-    _file: WorkspaceFile,
-    _bytes: Uint8Array,
-    _expectedDigest: string
-  ): Promise<WriteOutcome> {
-    return Promise.reject(
-      new WorkspaceSourceUnsupportedError(this.source.kind)
-    );
-  }
-
-  protected insertFile(
-    _path: string,
-    _bytes: Uint8Array
-  ): Promise<WriteOutcome> {
-    return Promise.reject(
-      new WorkspaceSourceUnsupportedError(this.source.kind)
-    );
-  }
-
-  protected async start(): Promise<void> {
-    this.observation = await observe(
-      (changed, failed) => this.watch(changed, failed),
-      () => this.reconcile(),
-      this.context.report
-    );
-  }
-
-  protected async stop(): Promise<void> {
-    await this.observation?.close();
-    this.observation = undefined;
-  }
-
-  protected watch(
-    _changed: () => void,
-    _failed: (error: unknown) => void
-  ): Promise<StorageSubscription | undefined> {
-    return Promise.resolve(undefined);
+    return this.#adapter.scan();
   }
 
   registration(): Promise<WorkspaceRegistration> {
-    return this.require();
+    return this.#require();
   }
 
   async summary(): Promise<WorkspaceSummary> {
     return summarize(
-      await this.require(),
-      await this.context.catalog.countFiles(this.id)
+      await this.#require(),
+      await this.#context.catalog.countFiles(this.id)
     );
   }
 
   async refresh(): Promise<WorkspaceView> {
-    await this.require();
-    const source = await this.reconcile();
-
-    const current = await this.require();
-    const entries = await this.context.catalog.listEntries(this.id);
+    const source = await this.#reconcile();
+    const current = await this.#require();
+    const entries = await this.#context.catalog.listEntries(this.id);
     return {
       entries,
       source,
@@ -137,7 +110,7 @@ export class Workspace {
   }
 
   async rename(name: string): Promise<WorkspaceRegistration> {
-    const renamed = await this.context.catalog.rename(
+    const renamed = await this.#context.catalog.rename(
       this.id,
       normalizeWorkspaceName(name),
       new Date()
@@ -149,13 +122,13 @@ export class Workspace {
   }
 
   async remove(): Promise<void> {
-    await this.serialize(async () => {
-      const result = await this.context.catalog.remove(this.id);
+    await this.#serialize(async () => {
+      const result = await this.#context.catalog.remove(this.id);
       if (result.kind === "not-found") {
         throw new WorkspaceNotFoundError(this.id);
       }
     });
-    await this.context.close(this.id);
+    await this.#context.close(this.id);
   }
 
   async files(): Promise<readonly WorkspaceFile[]> {
@@ -166,51 +139,109 @@ export class Workspace {
   }
 
   async entries(): Promise<readonly WorkspaceEntry[]> {
-    await this.require();
-    return this.context.catalog.listEntries(this.id);
+    await this.#require();
+    return this.#context.catalog.listEntries(this.id);
   }
 
   async read(fileId: WorkspaceEntryId): Promise<FileContentResult> {
-    await this.require();
-    const entry = await this.catalogEntry(fileId);
-    return entry.type === "file" ? this.readFile(entry) : notRegular(entry);
+    await this.#require();
+    const entry = await this.#catalogEntry(fileId);
+    if (entry.type !== "file") {
+      return notRegular(entry);
+    }
+    if (!this.#adapter.readFile) {
+      throw new WorkspaceSourceUnsupportedError(this.source.kind);
+    }
+    return this.#adapter.readFile(entry);
   }
 
   save(command: SaveFileCommand): Promise<SaveFileResult> {
-    return this.serialize(async () => {
-      const workspace = await this.require();
-      const file = await this.catalogEntry(command.fileId);
+    return this.#serialize(async () => {
+      const workspace = await this.#require();
+      const file = await this.#catalogEntry(command.fileId);
       if (file.type !== "file") {
         return notRegular(file);
       }
-      return this.write(
+      const { writeFile } = this.#adapter;
+      if (!writeFile) {
+        throw new WorkspaceSourceUnsupportedError(this.source.kind);
+      }
+      return this.#write(
         file.path,
         command.text,
-        (bytes) => this.writeFile(file, bytes, command.expectedDigest),
-        (snapshot) => this.recordWrite(workspace, file, snapshot)
+        (bytes) => writeFile(file, bytes, command.expectedDigest),
+        (snapshot) => this.#recordWrite(workspace, file, snapshot)
       );
     });
   }
 
   createFile(command: CreateFileCommand): Promise<SaveFileResult> {
-    return this.serialize(async () => {
-      const workspace = await this.require();
+    return this.#serialize(async () => {
+      const workspace = await this.#require();
       if (!isStoragePath(command.path)) {
         return { kind: "failed", reason: "Invalid relative storage path" };
       }
-      return this.write(
+      const { insertFile } = this.#adapter;
+      if (!insertFile) {
+        throw new WorkspaceSourceUnsupportedError(this.source.kind);
+      }
+      return this.#write(
         command.path,
         command.text,
-        (bytes) => this.insertFile(command.path, bytes),
+        (bytes) => insertFile(command.path, bytes),
         async () =>
-          (await this.observeSource(workspace)).kind === "reconciled"
+          (await this.#observeSource(workspace)).kind === "reconciled"
             ? "current"
             : "refresh-required"
       );
     });
   }
 
-  private async write(
+  async #start(hooks: readonly WorkspaceLifecycle[]): Promise<void> {
+    const { watch } = this.#adapter;
+    if (watch) {
+      this.#observation = await observe(
+        (changed, failed) => watch(changed, failed),
+        () => this.#reconcile(),
+        this.#context.report
+      );
+    }
+    for (const hook of hooks) {
+      await hook.start?.();
+      this.#startedHooks.push(hook);
+    }
+  }
+
+  async #stop(): Promise<void> {
+    const hooks = this.#startedHooks.splice(0).reverse();
+    let firstError: unknown;
+    let hasError = false;
+    for (const hook of hooks) {
+      try {
+        await hook.stop?.();
+      } catch (error) {
+        if (!hasError) {
+          firstError = error;
+          hasError = true;
+        }
+      }
+    }
+    const observation = this.#observation;
+    this.#observation = undefined;
+    try {
+      await observation?.close();
+    } catch (error) {
+      if (!hasError) {
+        firstError = error;
+        hasError = true;
+      }
+    }
+    if (hasError) {
+      throw firstError;
+    }
+  }
+
+  async #write(
     path: string,
     text: string,
     put: (bytes: Uint8Array) => Promise<WriteOutcome>,
@@ -249,7 +280,7 @@ export class Workspace {
     return { catalog, kind: "saved", snapshot };
   }
 
-  private async recordWrite(
+  async #recordWrite(
     workspace: WorkspaceRegistration,
     file: WorkspaceFile,
     snapshot: FileTextSnapshot
@@ -258,7 +289,7 @@ export class Workspace {
       return "current";
     }
     const updatedAt = nextWorkspaceObservation(workspace.lastReconciledAt);
-    const result = await this.context.catalog.applyChange({
+    const result = await this.#context.catalog.applyChange({
       change: {
         deleted: [],
         inserted: [],
@@ -277,15 +308,17 @@ export class Workspace {
     return result.kind === "committed" ? "current" : "refresh-required";
   }
 
-  private reconcile(): Promise<WorkspaceSourceStatus> {
-    return this.serialize(async () => this.observeSource(await this.require()));
+  #reconcile(): Promise<WorkspaceSourceStatus> {
+    return this.#serialize(async () =>
+      this.#observeSource(await this.#require())
+    );
   }
 
-  private serialize<T>(task: () => Promise<T>): Promise<T> {
-    return this.context.serialize(this.id, task);
+  #serialize<T>(task: () => Promise<T>): Promise<T> {
+    return this.#context.serialize(this.id, task);
   }
 
-  private async observeSource(
+  async #observeSource(
     workspace: WorkspaceRegistration
   ): Promise<WorkspaceSourceStatus> {
     let candidates: readonly ObservedFacts[];
@@ -302,11 +335,11 @@ export class Workspace {
     const change = diffCatalog({
       at,
       candidates,
-      existing: await this.context.catalog.listEntries(workspace.id),
+      existing: await this.#context.catalog.listEntries(workspace.id),
       newEntryId,
       workspaceId: workspace.id,
     });
-    const result = await this.context.catalog.applyChange({
+    const result = await this.#context.catalog.applyChange({
       change,
       lastReconciledAt: at,
       ...(isEmptyChange(change) ? {} : { updatedAt: at }),
@@ -324,18 +357,16 @@ export class Workspace {
     return { kind: "reconciled" };
   }
 
-  private async catalogEntry(
-    entryId: WorkspaceEntryId
-  ): Promise<WorkspaceEntry> {
-    const entry = await this.context.catalog.getEntry(this.id, entryId);
+  async #catalogEntry(entryId: WorkspaceEntryId): Promise<WorkspaceEntry> {
+    const entry = await this.#context.catalog.getEntry(this.id, entryId);
     if (!entry) {
       throw new WorkspaceFileNotFoundError(this.id, entryId);
     }
     return entry;
   }
 
-  private async require(): Promise<WorkspaceRegistration> {
-    const registration = await this.context.catalog.getWorkspace(this.id);
+  async #require(): Promise<WorkspaceRegistration> {
+    const registration = await this.#context.catalog.getWorkspace(this.id);
     if (!registration) {
       throw new WorkspaceNotFoundError(this.id);
     }

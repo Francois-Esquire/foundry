@@ -10,9 +10,10 @@ import { MemoryWorkspaceStore } from "../store/memory";
 import type {
   FileContentResult,
   ObservedFacts,
-  WorkspaceCtor,
   WorkspaceExtension,
   WorkspaceFile,
+  WorkspaceRegistration,
+  WorkspaceSourceAdapter,
   WriteOutcome,
 } from "../types";
 
@@ -76,10 +77,38 @@ class FakeTrees {
   }
 }
 
-function WithFake<B extends WorkspaceCtor>(Base: B, trees: FakeTrees) {
-  return class extends Base {
+function fakeSource(
+  registration: WorkspaceRegistration,
+  trees: FakeTrees
+): WorkspaceSourceAdapter {
+  const sourceRef = (): string => {
+    if (registration.source.sourceId === null) {
+      throw new Error("no source id");
+    }
+    return registration.source.sourceId;
+  };
+  return {
+    readFile(file: WorkspaceFile): Promise<FileContentResult> {
+      const value = trees.require(sourceRef())[file.path];
+      if (value === undefined) {
+        return Promise.resolve({ kind: "stale", reason: "gone" });
+      }
+      const bytes = encode(value);
+      const common = {
+        bytes: bytes.byteLength,
+        digest: digest(bytes),
+        mime: file.mime,
+        type: "file" as const,
+      };
+      return Promise.resolve(
+        typeof value === "string"
+          ? { kind: "text", text: value, ...common }
+          : { kind: "binary", ...common }
+      );
+    },
+
     scan(): Promise<readonly ObservedFacts[]> {
-      const files = trees.require(this.sourceRef());
+      const files = trees.require(sourceRef());
       const parents = new Set<string>();
       for (const path of Object.keys(files)) {
         let slash = path.lastIndexOf("/");
@@ -110,33 +139,14 @@ function WithFake<B extends WorkspaceCtor>(Base: B, trees: FakeTrees) {
           };
         }),
       ]);
-    }
+    },
 
-    protected readFile(file: WorkspaceFile): Promise<FileContentResult> {
-      const value = trees.require(this.sourceRef())[file.path];
-      if (value === undefined) {
-        return Promise.resolve({ kind: "stale", reason: "gone" });
-      }
-      const bytes = encode(value);
-      const common = {
-        bytes: bytes.byteLength,
-        digest: digest(bytes),
-        mime: file.mime,
-        type: "file" as const,
-      };
-      return Promise.resolve(
-        typeof value === "string"
-          ? { kind: "text", text: value, ...common }
-          : { kind: "binary", ...common }
-      );
-    }
-
-    protected writeFile(
+    writeFile(
       file: WorkspaceFile,
       bytes: Uint8Array,
       expectedDigest: string
     ): Promise<WriteOutcome> {
-      const files = trees.require(this.sourceRef());
+      const files = trees.require(sourceRef());
       const current = files[file.path];
       if (current === undefined) {
         return Promise.resolve({ kind: "stale", reason: "gone" });
@@ -152,19 +162,12 @@ function WithFake<B extends WorkspaceCtor>(Base: B, trees: FakeTrees) {
           kind: "conflict",
         });
       }
-      trees.replace(this.sourceRef(), {
+      trees.replace(sourceRef(), {
         ...files,
         [file.path]: new TextDecoder().decode(bytes),
       });
       return Promise.resolve({ kind: "written" });
-    }
-
-    private sourceRef(): string {
-      if (this.source.sourceId === null) {
-        throw new Error("no source id");
-      }
-      return this.source.sourceId;
-    }
+    },
   };
 }
 
@@ -181,7 +184,7 @@ function fake(trees: FakeTrees): WorkspaceExtension<FakeRef> {
     }),
     name: "fake",
     ref: "fake",
-    wrap: (Base) => WithFake(Base, trees),
+    source: (registration) => fakeSource(registration, trees),
   };
 }
 

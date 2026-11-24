@@ -1,4 +1,5 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import { WorkspaceCatalog } from "./catalog";
 import {
   InvalidWorkspaceInputError,
@@ -6,7 +7,7 @@ import {
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
 } from "./errors";
-import { Workspace } from "./instance";
+import { startWorkspace, stopWorkspace, Workspace } from "./instance";
 import { initialEntries } from "./reconcile";
 import type { WorkspaceStore } from "./store";
 import { MemoryWorkspaceStore } from "./store/memory";
@@ -17,10 +18,11 @@ import type {
   RefOf,
   WorkspaceChange,
   WorkspaceContext,
-  WorkspaceCtor,
   WorkspaceId,
   WorkspaceIdentity,
+  WorkspaceLifecycle,
   WorkspaceRegistration,
+  WorkspaceSourceAdapter,
 } from "./types";
 
 export interface WorkspaceSystemOptions {
@@ -33,104 +35,102 @@ type ChangeListener = (change: WorkspaceChange) => void | Promise<void>;
 export class WorkspaceSystem<
   Exts extends readonly AnyWorkspaceExtension[] = [],
 > {
-  private readonly context: WorkspaceContext;
-  private readonly listeners = new Set<ChangeListener>();
-  private readonly extensions: AnyWorkspaceExtension[] = [];
-  private readonly closing = new Map<WorkspaceId, Promise<void>>();
-  private readonly opened = new Map<
-    WorkspaceId,
-    Promise<Workspace & CapOf<Exts>>
-  >();
-  private readonly queues = new Map<WorkspaceId, Promise<void>>();
+  readonly #context: WorkspaceContext;
+  readonly #listeners = new Set<ChangeListener>();
+  readonly #extensions: AnyWorkspaceExtension[] = [];
+  readonly #closing = new Map<WorkspaceId, Promise<void>>();
+  readonly #opened = new Map<WorkspaceId, Promise<Workspace & CapOf<Exts>>>();
+  readonly #queues = new KeyedQueue();
 
   constructor(options: WorkspaceSystemOptions = {}) {
-    this.context = {
+    this.#context = {
       catalog: new WorkspaceCatalog(
         options.store ?? new MemoryWorkspaceStore(),
         (changes) => {
-          this.publish(changes);
+          this.#publish(changes);
         }
       ),
       close: (workspaceId) => this.close(workspaceId),
       report: options.onError ?? reportError,
-      serialize: (workspaceId, task) => this.serialize(workspaceId, task),
+      serialize: (workspaceId, task) => this.#queues.run(workspaceId, task),
     };
   }
 
   on(_event: "change", listener: ChangeListener): () => void {
-    this.listeners.add(listener);
+    this.#listeners.add(listener);
     return () => {
-      this.listeners.delete(listener);
+      this.#listeners.delete(listener);
     };
   }
 
   extend<const More extends readonly AnyWorkspaceExtension[]>(
     ...extensions: More
   ): WorkspaceSystem<[...Exts, ...More]> {
-    this.extensions.push(...extensions);
+    this.#extensions.push(...extensions);
     return this;
   }
 
   open(workspaceId: WorkspaceId): Promise<Workspace & CapOf<Exts>> {
-    const closing = this.closing.get(workspaceId);
+    const closing = this.#closing.get(workspaceId);
     if (closing) {
       return closing.then(() => this.open(workspaceId));
     }
-    const running = this.opened.get(workspaceId);
+    const running = this.#opened.get(workspaceId);
     if (running) {
       return running;
     }
 
     const opening = (async () => {
-      const registration = await this.context.catalog.getWorkspace(workspaceId);
+      const registration =
+        await this.#context.catalog.getWorkspace(workspaceId);
       if (!registration) {
         throw new WorkspaceNotFoundError(workspaceId);
       }
-      const workspace = await this.instantiate(registration);
+      const { hooks, workspace } = await this.#instantiate(registration);
       try {
-        await Workspace.start(workspace);
+        await startWorkspace(workspace, hooks);
       } catch (error) {
-        await Workspace.stop(workspace);
+        await stopWorkspace(workspace);
         throw error;
       }
       return workspace;
     })();
-    this.opened.set(workspaceId, opening);
+    this.#opened.set(workspaceId, opening);
     opening.catch(() => {
-      if (this.opened.get(workspaceId) === opening) {
-        this.opened.delete(workspaceId);
+      if (this.#opened.get(workspaceId) === opening) {
+        this.#opened.delete(workspaceId);
       }
     });
     return opening;
   }
 
   async close(workspaceId: WorkspaceId): Promise<void> {
-    const closing = this.closing.get(workspaceId);
+    const closing = this.#closing.get(workspaceId);
     if (closing) {
       return closing;
     }
-    const running = this.opened.get(workspaceId);
+    const running = this.#opened.get(workspaceId);
     if (!running) {
       return;
     }
     const stopping = running
-      .then((workspace) => Workspace.stop(workspace))
+      .then((workspace) => stopWorkspace(workspace))
       .finally(() => {
-        this.opened.delete(workspaceId);
-        this.closing.delete(workspaceId);
+        this.#opened.delete(workspaceId);
+        this.#closing.delete(workspaceId);
       });
-    this.closing.set(workspaceId, stopping);
+    this.#closing.set(workspaceId, stopping);
     await stopping;
   }
 
   async closeAll(): Promise<void> {
-    await Promise.all([...this.opened.keys()].map((id) => this.close(id)));
+    await Promise.all([...this.#opened.keys()].map((id) => this.close(id)));
   }
 
   async list(
     input: PageInput<number> = {}
   ): Promise<Page<Workspace & CapOf<Exts>, number>> {
-    const page = await this.context.catalog.listWorkspaces(input);
+    const page = await this.#context.catalog.listWorkspaces(input);
     const items = await Promise.all(
       page.items.map((registration) => this.open(registration.id))
     );
@@ -140,7 +140,7 @@ export class WorkspaceSystem<
   async load<R extends RefOf<Exts>>(
     ref: R
   ): Promise<Workspace & CapOf<Exts> & FloorFor<Exts, R>> {
-    const floor = this.extensions.find(
+    const floor = this.#extensions.find(
       (extension) => extension.ref !== undefined && extension.ref in ref
     );
     if (floor?.identify === undefined) {
@@ -148,18 +148,18 @@ export class WorkspaceSystem<
         `No registered layer accepts a ref with keys ${Object.keys(ref).join(", ")}`
       );
     }
-    const workspace = await this.register(await floor.identify(ref));
+    const workspace = await this.#register(await floor.identify(ref));
     return workspace as Workspace & CapOf<Exts> & FloorFor<Exts, R>;
   }
 
-  private async register(
+  async #register(
     identity: WorkspaceIdentity
   ): Promise<Workspace & CapOf<Exts>> {
-    const existing = await this.context.catalog.findWorkspaceByPath(
+    const existing = await this.#context.catalog.findWorkspaceByPath(
       identity.source.path
     );
     if (existing) {
-      return this.reconciled(existing.id);
+      return this.#reconciled(existing.id);
     }
 
     const createdAt = new Date();
@@ -170,22 +170,22 @@ export class WorkspaceSystem<
       updatedAt: createdAt,
       ...identity,
     };
-    const probe = await this.instantiate(registration);
+    const source = await this.#resolveSource(registration);
     const entries = initialEntries(
       registration.id,
-      await probe.scan(),
+      await source.scan(),
       createdAt
     );
-    const result = await this.context.catalog.create({
+    const result = await this.#context.catalog.create({
       entries,
       workspace: registration,
     });
     return result.kind === "committed"
       ? this.open(registration.id)
-      : this.reconciled(result.existingId);
+      : this.#reconciled(result.existingId);
   }
 
-  private async reconciled(
+  async #reconciled(
     workspaceId: WorkspaceId
   ): Promise<Workspace & CapOf<Exts>> {
     const workspace = await this.open(workspaceId);
@@ -198,60 +198,67 @@ export class WorkspaceSystem<
     return workspace;
   }
 
-  private async instantiate(
+  async #resolveSource(
     registration: WorkspaceRegistration
-  ): Promise<Workspace & CapOf<Exts>> {
-    let Composed: WorkspaceCtor = Workspace;
-    for (const extension of this.extensions) {
-      if (await extension.applies(registration)) {
-        Composed = extension.wrap(Composed);
+  ): Promise<WorkspaceSourceAdapter> {
+    for (const extension of this.#extensions) {
+      if (extension.source && (await extension.applies(registration))) {
+        return extension.source(registration);
       }
     }
-    const workspace = new Composed(registration, this.context) as Workspace &
-      CapOf<Exts>;
-    if (!Workspace.hasFloor(workspace)) {
+    throw new WorkspaceSourceUnsupportedError(registration.source.kind);
+  }
+
+  async #instantiate(registration: WorkspaceRegistration): Promise<{
+    readonly hooks: readonly WorkspaceLifecycle[];
+    readonly workspace: Workspace & CapOf<Exts>;
+  }> {
+    const matched: AnyWorkspaceExtension[] = [];
+    for (const extension of this.#extensions) {
+      if (await extension.applies(registration)) {
+        matched.push(extension);
+      }
+    }
+    const sourceOwner = matched.find((extension) => extension.source);
+    if (!sourceOwner?.source) {
       throw new WorkspaceSourceUnsupportedError(registration.source.kind);
     }
-    return workspace;
-  }
-
-  private serialize<T>(
-    workspaceId: WorkspaceId,
-    task: () => Promise<T>
-  ): Promise<T> {
-    const previous = this.queues.get(workspaceId) ?? Promise.resolve();
-    const run = previous.then(task, task);
-    const tail = run.then(
-      () => undefined,
-      () => undefined
-    );
-    this.queues.set(workspaceId, tail);
-    tail.then(() => {
-      if (this.queues.get(workspaceId) === tail) {
-        this.queues.delete(workspaceId);
+    const workspace = new Workspace(
+      registration,
+      this.#context,
+      sourceOwner.source(registration)
+    ) as Workspace & CapOf<Exts>;
+    const hooks: WorkspaceLifecycle[] = [];
+    for (const extension of matched) {
+      const attachment = await extension.attach?.(workspace);
+      if (attachment?.capabilities) {
+        Object.assign(workspace, attachment.capabilities);
       }
-    });
-    return run;
+      if (attachment?.start || attachment?.stop) {
+        hooks.push(attachment);
+      }
+    }
+    return { hooks, workspace };
   }
 
-  private publish(changes: readonly WorkspaceChange[]): void {
+  #publish(changes: readonly WorkspaceChange[]): void {
     for (const change of changes) {
-      for (const listener of [...this.listeners]) {
-        if (this.listeners.has(listener)) {
-          this.deliver(listener, change);
+      for (const listener of [...this.#listeners]) {
+        if (this.#listeners.has(listener)) {
+          this.#deliver(listener, change);
         }
       }
     }
   }
 
-  private deliver(listener: ChangeListener, change: WorkspaceChange): void {
+  #deliver(listener: ChangeListener, change: WorkspaceChange): void {
     try {
       const result = listener(structuredClone(change));
       if (result) {
-        result.catch(this.context.report);
+        result.catch(this.#context.report);
       }
     } catch (error) {
-      this.context.report(error);
+      this.#context.report(error);
     }
   }
 }
