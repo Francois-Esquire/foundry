@@ -558,6 +558,24 @@ describe("an unnamed .launch() on replay", () => {
     ).resolves.toEqual({ bodies: 2, output: 2 });
   });
 
+  it("tells apart definitions a body builds one at a time on one line", async () => {
+    const pick = (body: number) =>
+      body === 1 ? step().do(() => 1) : step().do(() => 2);
+    await expect(replayedLaunch("column-switch", pick)).resolves.toEqual({
+      bodies: 2,
+      output: 2,
+    });
+  });
+
+  it("treats one place reached with other captured values as the same definition", async () => {
+    const make = (value: string) => step().do(() => value);
+    await expect(
+      replayedLaunch("captured-values", (body) =>
+        make(body === 1 ? "kept" : "changed")
+      )
+    ).resolves.toEqual({ bodies: 2, output: "kept" });
+  });
+
   it("numbers a body's definitions apart from a nested workflow's setup that replay skips", async () => {
     let launches = 0;
     function make(value: string) {
