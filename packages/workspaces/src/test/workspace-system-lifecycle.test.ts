@@ -399,16 +399,38 @@ describe("lifecycle", () => {
     ]);
   });
 
-  it("preserves symbol-keyed capabilities and rejects floor mismatch before starting a closed incumbent", async () => {
+  it("preserves symbol-keyed capabilities and rejects floor mismatch without restarting or poisoning open", async () => {
     const tag = Symbol("tag");
     const starts: string[] = [];
+    interface Gate {
+      readonly entered: ReturnType<typeof Promise.withResolvers<void>>;
+      readonly release: ReturnType<typeof Promise.withResolvers<void>>;
+    }
+    let appliesGate: Gate | undefined;
+    let stopGate: Gate | undefined;
     const system = new WorkspaceSystem()
       .extend({
-        applies: (registration) => registration.source.kind === "alpha",
+        async applies(registration) {
+          const gate = appliesGate;
+          if (gate) {
+            appliesGate = undefined;
+            gate.entered.resolve();
+            await gate.release.promise;
+          }
+          return registration.source.kind === "alpha";
+        },
         attach: () => ({
           capabilities: { [tag]: "alpha-cap" },
           start() {
             starts.push("alpha");
+          },
+          async stop() {
+            const gate = stopGate;
+            if (gate) {
+              stopGate = undefined;
+              gate.entered.resolve();
+              await gate.release.promise;
+            }
           },
         }),
         identify: ({ alpha }: { readonly alpha: string }) => ({
@@ -434,22 +456,35 @@ describe("lifecycle", () => {
     expect(Reflect.get(first, tag)).toBe("alpha-cap");
     expect(starts).toEqual(["alpha"]);
 
+    // 1. Gated wrong-floor load reaching source matching before concurrent open(id).
     await system.close(first.id);
-    const [wrongFloor, directOpen] = await Promise.allSettled([
-      system.load({ beta: "same" }),
-      system.open(first.id),
-    ]);
-    expect(wrongFloor.status).toBe("rejected");
-    if (wrongFloor.status === "rejected") {
-      expect(wrongFloor.reason).toBeInstanceOf(WorkspaceSourceUnsupportedError);
-    }
-    expect(directOpen.status).toBe("fulfilled");
-    if (directOpen.status === "fulfilled") {
-      expect(directOpen.value.id).toBe(first.id);
-    }
+    const firstGate: Gate = {
+      entered: Promise.withResolvers<void>(),
+      release: Promise.withResolvers<void>(),
+    };
+    appliesGate = firstGate;
+    const wrongFloor = system.load({ beta: "same" });
+    await firstGate.entered.promise;
+    const directOpen = system.open(first.id);
+    firstGate.release.resolve();
+    await expect(wrongFloor).rejects.toBeInstanceOf(
+      WorkspaceSourceUnsupportedError
+    );
+    expect((await directOpen).id).toBe(first.id);
     expect(starts).toEqual(["alpha", "alpha"]);
-    await system.close(first.id);
-    await expect(system.load({ beta: "same" })).rejects.toBeInstanceOf(
+
+    // 2. Wrong-floor load arriving while close() is paused must not restart alpha.
+    const secondGate: Gate = {
+      entered: Promise.withResolvers<void>(),
+      release: Promise.withResolvers<void>(),
+    };
+    stopGate = secondGate;
+    const closing = system.close(first.id);
+    await secondGate.entered.promise;
+    const duringClose = system.load({ beta: "same" });
+    secondGate.release.resolve();
+    await closing;
+    await expect(duringClose).rejects.toBeInstanceOf(
       WorkspaceSourceUnsupportedError
     );
     expect(starts).toEqual(["alpha", "alpha"]);

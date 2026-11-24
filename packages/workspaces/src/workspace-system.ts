@@ -162,6 +162,29 @@ export class WorkspaceSystem<
     });
   }
 
+  #openComposed(
+    workspaceId: WorkspaceId,
+    composed: ComposedWorkspace<Exts>
+  ): Promise<OpenedWorkspace<Exts>> {
+    const closing = this.#closing.get(workspaceId);
+    if (closing) {
+      return closing.then(() => this.#openComposed(workspaceId, composed));
+    }
+    const running = this.#opened.get(workspaceId);
+    if (running) {
+      return running;
+    }
+
+    return this.#trackOpening(workspaceId, async () => {
+      const stop = await this.#start(composed);
+      return {
+        sourceOwner: composed.sourceOwner,
+        stop,
+        workspace: composed.workspace,
+      };
+    });
+  }
+
   #trackOpening(
     workspaceId: WorkspaceId,
     run: () => Promise<OpenedWorkspace<Exts>>
@@ -242,19 +265,22 @@ export class WorkspaceSystem<
     workspaceId: WorkspaceId,
     expectedFloor: AnyWorkspaceExtension
   ): Promise<Workspace & CapOf<Exts>> {
+    while (this.#closing.has(workspaceId)) {
+      await this.#closing.get(workspaceId);
+    }
+    let entry: OpenedWorkspace<Exts>;
     const running = this.#opened.get(workspaceId);
-    if (!running) {
+    if (running) {
+      entry = await running;
+    } else {
       const registration =
         await this.#context.catalog.getWorkspace(workspaceId);
       if (!registration) {
         throw new WorkspaceNotFoundError(workspaceId);
       }
-      const owner = await this.#sourceOwnerOf(registration);
-      if (owner !== expectedFloor) {
-        throw new WorkspaceSourceUnsupportedError(registration.source.kind);
-      }
+      const composed = await this.#compose(registration, expectedFloor);
+      entry = await this.#openComposed(workspaceId, composed);
     }
-    const entry = await this.#openEntry(workspaceId);
     if (entry.sourceOwner !== expectedFloor) {
       throw new WorkspaceSourceUnsupportedError(entry.workspace.source.kind);
     }
@@ -265,17 +291,6 @@ export class WorkspaceSystem<
       });
     }
     return entry.workspace;
-  }
-
-  async #sourceOwnerOf(
-    registration: WorkspaceRegistration
-  ): Promise<AnyWorkspaceExtension | undefined> {
-    for (const extension of this.#extensions) {
-      if (extension.source && (await extension.applies(registration))) {
-        return extension;
-      }
-    }
-    return undefined;
   }
 
   async #compose(
