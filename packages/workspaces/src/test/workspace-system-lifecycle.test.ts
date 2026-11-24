@@ -516,7 +516,9 @@ describe("lifecycle", () => {
     });
     await lookupDone.promise;
     findPathResolved = undefined;
-    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
     expect(settledDuringClose).toBe(false);
     secondGate.release.resolve();
     await closing;
