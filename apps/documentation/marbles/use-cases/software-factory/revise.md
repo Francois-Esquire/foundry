@@ -68,10 +68,12 @@ marbles tasks update <task id> --metadata '{"reviewer":null}'
 factory run carries the task id in its input, so the observer finds the
 task without a lookup table, even when the run failed before writing
 anything. It records the stage and error on the task, counts the failure
-as an attempt, and retags it `needs-owner`. A fact delivered twice is
-skipped the second time, since the task already names that run in
-`failedRun`. Resume the task the same way once the cause is fixed, and the
-next launch has a new key.
+as an attempt, and retags it `needs-owner`. It does not reopen the task: a
+failed build may have left commits on the branch, so a person looks before
+the factory builds on them. A fact delivered twice is skipped the second
+time, since the task already names that run in `failedRun`. Resume the
+task the same way once the cause is fixed, and the next launch has a new
+key.
 
 `marbles tasks list --tag needs-owner --json` is the factory's inbox. The
 [release patrol's digest](/marbles/use-cases/release-patrol#make-it-yours)
