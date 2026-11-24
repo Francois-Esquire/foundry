@@ -127,7 +127,7 @@ describe("Scheduler", () => {
     });
   });
 
-  test("after a long pause, run-once fires the latest missed due time and skip fires nothing", async () => {
+  test("after a long pause, run-once dispatches the latest missed due time and skip dispatches nothing", async () => {
     const result = await testScheduler((scheduler, dispatch) =>
       Effect.gen(function* () {
         for (const misfire of ["run-once", "skip"] as const) {
@@ -159,7 +159,7 @@ describe("Scheduler", () => {
     });
   });
 
-  test("a paused schedule does not fire on time but can still be triggered now", async () => {
+  test("a paused schedule is not dispatched on time but can still be triggered now", async () => {
     const result = await testScheduler((scheduler, dispatch) =>
       Effect.gen(function* () {
         yield* scheduler.register({
@@ -324,7 +324,7 @@ describe("Scheduler", () => {
     ]);
   });
 
-  test("a paused schedule still settles its open dispatched job without firing again", async () => {
+  test("a paused schedule still settles its open dispatched job without dispatching again", async () => {
     const result = await testScheduler(
       (scheduler, dispatch) =>
         Effect.gen(function* () {

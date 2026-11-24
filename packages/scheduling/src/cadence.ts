@@ -260,7 +260,7 @@ const dueTimes = (
 export interface DueOccurrences {
   readonly nextDueAt: Instant | null;
   readonly skipped: readonly Instant[];
-  readonly toFire: Instant | null;
+  readonly toDispatch: Instant | null;
 }
 
 export const dueOccurrences = (
@@ -270,14 +270,14 @@ export const dueOccurrences = (
   misfire: MisfirePolicy
 ): DueOccurrences => {
   if (now < nextDueAt) {
-    return { nextDueAt, skipped: [], toFire: null };
+    return { nextDueAt, skipped: [], toDispatch: null };
   }
   if (cadence.kind === "delay") {
-    return { nextDueAt: null, skipped: [], toFire: nextDueAt };
+    return { nextDueAt: null, skipped: [], toDispatch: nextDueAt };
   }
   const { latest, missed, next } = dueTimes(cadence, nextDueAt, now);
   if (missed.length === 0 || misfire === "run-once") {
-    return { nextDueAt: next, skipped: missed, toFire: latest };
+    return { nextDueAt: next, skipped: missed, toDispatch: latest };
   }
-  return { nextDueAt: next, skipped: [...missed, latest], toFire: null };
+  return { nextDueAt: next, skipped: [...missed, latest], toDispatch: null };
 };

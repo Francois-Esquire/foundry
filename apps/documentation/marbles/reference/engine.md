@@ -145,9 +145,9 @@ and defines them.
 | `git` | Chooses the Git runner, such as one that echoes commands. |
 | `worktrees` | Sets the default checkout directory, otherwise `Engine.worktreesFor(state)`. |
 | `dry` | Runs sandbox agent requests in the host process. |
-| `runs` | Keeps workflow Runs, what each run's scope recorded, and which engine owns each. |
+| `runs` | Keeps workflow Runs and what each run's scope recorded. |
 | `executionStore` | Keeps every run's Execution Run, its observations, and what pruning removed. |
-| `triggers` | Keeps each schedule's and monitor's last tick and each monitor's state. |
+| `triggers` | Keeps each schedule's cursor and occurrences and each monitor's state. |
 | `automationStore` | Keeps the triggers agents create. |
 | `usageStore` | Keeps each agent turn's usage fact. |
 
@@ -295,7 +295,7 @@ try {
   });
   const rolled = await host.roll("inventory");
   console.log(rolled.value);
-  await host.run(controller.signal); // tick triggers until interrupted
+  await host.run(controller.signal); // run triggers until interrupted
 } finally {
   await host?.close();
   claim?.release();
@@ -303,7 +303,7 @@ try {
 ```
 
 `roll` dispatches one definition or schedule and returns its value with the
-status lines printed meanwhile, as `marbles roll` does. `run` ticks the
+status lines printed meanwhile, as `marbles roll` does. `run` runs the
 schedules and monitors, including triggers agents add later, until the
 signal aborts; `runSchedulesUntilStopped(engine, options)` is the same loop
 over a bare engine. `describe`, `snapshot`, `dispatchWorkflow`,

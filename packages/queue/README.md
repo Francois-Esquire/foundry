@@ -47,7 +47,7 @@ when the job is removed while awaited.
 `submit` takes an optional `runId` for the first run, and fails with
 `RunAlreadyExistsError` when a run already has it. A run's `startedAt` is
 when it first started, kept across suspending and resuming. A suspended
-run needs no takeover: any queue may resolve its suspension, and the
+run needs no hand-over or adoption: any queue may resolve its suspension, and the
 resumed run is unowned. `abandon(runId, error)` fails an open run that no fiber of this queue drives, without
 retrying it, for a run whose driver is gone.
 
@@ -56,8 +56,9 @@ default), `instanceId` (this queue's own name, a fresh UUID by default),
 `defaultLimit` (the limit for a pool nobody configured, 1 by default),
 `pools`, and `syncIntervalMs` (500 by default; `Infinity` turns it off). It
 needs a `QueueStore`. Closing its scope stops admission and interrupts
-running fibers. Their runs stay `running` until `recover` reclaims them,
-from this process or another, once the closed queue's instance is gone.
+running fibers. Their runs stay `running` until `recover` interrupts them,
+from this process once the closed queue's instance is gone, or from another
+once its process is gone.
 
 A submitted run is owned by the queue that submitted it. Retry runs and
 resumed runs are unowned: any live queue that is not retiring and has the
@@ -65,8 +66,9 @@ handler registered starts them. `retire(successor?)` refuses new top-level
 work, while running runs finish untouched and `drain()` waits for them. A
 child a running run submits (`links.parentRunId`) is still admitted, owned
 by the retiring queue, which starts it; it starts no other queued run. It
-hands the queued runs this queue owns to `successor`, or leaves them
-unowned when there is none, and returns their ids.
+keeps the queued children of its running runs, submitted before or after
+it retired, and hands the other queued runs it owns to `successor`, or
+leaves them unowned when there is none, and returns their ids.
 
 Several queues, in one process or many, can share a store. Every commit
 raises the store's `watermark`. A queue that sees it move starts newly

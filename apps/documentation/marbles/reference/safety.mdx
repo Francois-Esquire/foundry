@@ -49,8 +49,9 @@ They can enforce their configured tool approval profile; see
 [Agent sessions](/marbles/reference/agent-sessions). Review their
 configuration before granting an automation access to your work.
 
-Schedule locks skip overlapping ticks for the same
-workspace and key. They do not coordinate every action or custom side effect
+Schedule claims keep two processes from dispatching the same occurrence of a
+workspace's schedule, and a schedule skips an occurrence while its previous
+run is still open. They do not coordinate every action or custom side effect
 across your machine.
 
 ## Continuity has boundaries

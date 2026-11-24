@@ -215,11 +215,11 @@ interface QueueService {
 - **Scoped lifecycle:** Opening `Queue.layer(...)` inside a `Scope` starts the internal dispatcher fiber; closing the `Scope` pauses admission, interrupts cleanly, and shuts down `PubSub`s without leaking fibers.
 - **Dynamic concurrency:** Calling `configurePool({ name, limit, state })` immediately adjusts how many runs may execute in that pool and wakes waiting runs if limit increased or pool resumed.
 - **Retry / timeout:** When a handler fails with a retryable `ErrorShape` (or times out per `policy.timeoutMs`) and `attempt < policy.retry.maxAttempts`, the current `Run` transitions to `failed { retryable: true }` and a **new `Run`** (`attempt + 1`) is atomically enqueued with `availableAt = now + backoffDelay`. When exhausted (or on `Bailed`), the `Job` settles as `failed`.
-- **Ownership of queued runs:** a submitted first run is pinned to the submitting queue. Retry runs and runs resumed by `resolveSuspension` are unowned, so any live, non-retiring queue with the handler registered may start them.
-- **Retirement & hand-over:** `retire(successor?)` closes top-level admission (`QueueRetiringError` for new top-level `submit`) and still admits child jobs whose `links.parentRunId` is running here, owned by the retiring queue, which starts them. A retiring queue starts no other queued run; its running runs finish untouched and `drain()` waits for them. Queued runs pinned to the retiring queue are handed over to `successor` (emitting `run.handed_over`), or unpinned when there is no successor. `retire` returns the ids of the runs it gave up.
-- **Crash recovery:** `recover({ isOwnerGone })` scans `running` runs whose `lease.owner` is gone, marks them `interrupted`, retries the `Job` if `policy.retry` allows another attempt (otherwise fails the `Job`), and re-admits `queued` runs owned by this queue (or unowned). An owner in this process is gone when its queue has closed; an owner in another process is gone when `isOwnerGone` (default `isGone`) says so.
+- **Ownership of queued runs:** a submitted first run is owned by the submitting queue. Retry runs and runs resumed by `resolveSuspension` are unowned, so any live, non-retiring queue with the handler registered may start them.
+- **Retirement & hand-over:** `retire(successor?)` closes top-level admission (`QueueRetiringError` for new top-level `submit`) and still admits child jobs whose `links.parentRunId` is running here, owned by the retiring queue, which starts them. A retiring queue starts no other queued run; its running runs finish untouched and `drain()` waits for them. Queued runs the retiring queue owns are handed over to `successor` (emitting `run.handed_over`), or left unowned when there is no successor; a queued child whose parent is still running here stays owned by the retiring queue, which starts it. `retire` returns the ids of the runs it handed over.
+- **Crash recovery:** `recover({ isOwnerGone })` scans `running` runs whose `lease.owner` is gone, marks them `interrupted`, retries the `Job` if `policy.retry` allows another attempt (otherwise fails the `Job`), and adopts `queued` runs whose owner is gone, keeping those owned by this queue (or unowned) available to start; `RecoverySummary.adopted` lists them all. An owner in this process is gone when its queue has closed; an owner in another process is gone when `isOwnerGone` (default `isGone`) says so.
 - **Shared stores:** every commit raises the store's `watermark`. Each queue reads it every `syncIntervalMs` (default 500; `Infinity` turns it off) and, when it moved, starts newly available queued runs, interrupts (aborting `signal`) any running fiber whose run another queue cancelled, and wakes `awaitJob` callers.
-- **Awaiting a job:** `awaitJob(jobId)` returns the terminal `Job` (`complete | failed | cancelled`), whichever queue, generation, or process settled it. It fails with `JobNotFoundError` when the job does not exist and `JobRemovedError` when it is removed while awaited.
+- **Awaiting a job:** `awaitJob(jobId)` returns the terminal `Job` (`complete | failed | cancelled`), whichever queue or process settled it. It fails with `JobNotFoundError` when the job does not exist and `JobRemovedError` when it is removed while awaited.
 
 #### Storage Seam (`QueueStore` `Context.Tag`)
 - One small atomic persistence seam: read/list methods, an atomic `commit(write)` with optional `onCommit(tx, write)` hook carrying emitted `QueueEvent`s, and `watermark`, a per-scope counter every commit raises.
@@ -257,7 +257,7 @@ Uses `croner` (`^9.1.0`) for `cron` and `calendar` evaluation.
     | { readonly kind: "delay"; readonly afterSettleMs: number; readonly initialDelayMs?: number };
   ```
   Validate at registration (`everyMs > 0`, `hour 0..23`, `minute 0..59`, valid cron expression / timezone, `afterSettleMs >= 1`, `initialDelayMs >= 0`) — fail with `InvalidCadenceError`. A `delay` cadence accepts only `overlap: "skip"` and `misfire: "run-once"`; any other policy fails registration with `InvalidCadenceError`.
-  - `delay` first comes due `initialDelayMs ?? afterSettleMs` after registration. Once its occurrence is dispatched, `nextDueAt` is `null` until the dispatched job settles; the next occurrence is due `afterSettleMs` after the job's own settle time. A due `delay` occurrence fires alone however late it is seen, and stays due until it is dispatched.
+  - `delay` first comes due `initialDelayMs ?? afterSettleMs` after registration. Once its occurrence is dispatched, `nextDueAt` is `null` until the dispatched job settles; the next occurrence is due `afterSettleMs` after the job's own settle time. A due `delay` occurrence is dispatched alone however late it is seen, and stays due until it is dispatched.
 - `OverlapPolicy`: `"skip" | "allow" | "cancel-previous"`
 - `MisfirePolicy`: `"run-once" | "skip"`
 - `DispatchTarget`:
@@ -284,7 +284,7 @@ Uses `croner` (`^9.1.0`) for `cron` and `calendar` evaluation.
     readonly createdAt: Instant;
   }
   ```
-- **`Occurrence`** *(Entity — one scheduled firing)*:
+- **`Occurrence`** *(Entity — one due moment of a schedule)*:
   ```ts
   type OccurrenceState =
     | { readonly kind: "claimed"; readonly lease: Lease; readonly claimedAt: Instant }
@@ -299,13 +299,13 @@ Uses `croner` (`^9.1.0`) for `cron` and `calendar` evaluation.
     readonly state: OccurrenceState;
   }
   ```
-- **`ScheduleCursor`** *(durable watermark)*:
+- **`ScheduleCursor`** *(durable progress)*:
   ```ts
   interface ScheduleCursor {
     readonly scheduleId: ScheduleId;
     readonly lastScheduledFor?: Instant;
     readonly lastSettledAt?: Instant;
-    readonly nextDueAt: Instant | null; // null after a `once` schedule has fired, and while a `delay` schedule's work is open
+    readonly nextDueAt: Instant | null; // null after a `once` schedule was dispatched, and while a `delay` schedule's work is open
     readonly activeJobId?: string;
   }
   ```
@@ -317,10 +317,10 @@ Uses `croner` (`^9.1.0`) for `cron` and `calendar` evaluation.
 #### Pure Cadence Math (`nextDue`)
 Export pure, side-effect-free functions:
 - `nextDue(cadence: Cadence, after: Instant): Instant | null`
-- `dueOccurrences(cadence: Cadence, nextDueAt: Instant, now: Instant, misfire: MisfirePolicy): { readonly toFire: Instant | null; readonly skipped: readonly Instant[]; readonly nextDueAt: Instant | null }`
+- `dueOccurrences(cadence: Cadence, nextDueAt: Instant, now: Instant, misfire: MisfirePolicy): { readonly toDispatch: Instant | null; readonly skipped: readonly Instant[]; readonly nextDueAt: Instant | null }`
   - If `now < nextDueAt`: nothing due yet.
   - If multiple due times elapsed while asleep/down (`misfire`):
-    - `"run-once"`: fires the **latest** due time once, records earlier missed ones (or collapses cleanly), advances `nextDueAt` past `now`.
+    - `"run-once"`: dispatches the **latest** due time once, records earlier missed ones (or collapses cleanly), advances `nextDueAt` past `now`.
     - `"skip"`: skips overdue occurrences older than the current window and advances `nextDueAt` past `now`.
 
 #### Dispatch Seam (`ScheduleDispatch` `Context.Tag`)
@@ -369,11 +369,11 @@ interface SchedulerService {
   - `identity`, `instanceId`: the claim owner. Every scheduler names itself with a fresh `instanceId`, so two schedulers in one process never take each other's claims as their own. A claim whose scheduler in this process has closed is taken over.
   - `retryDelayMs` (default 1000), `maxRetryDelayMs` (default 60 000): a schedule whose evaluation fails is retried after `retryDelayMs`, doubling per consecutive failure up to `maxRetryDelayMs`, reset by its next successful evaluation.
   - `settlePollMs` (default 5000): how often open dispatched work is checked for settlement.
-  - `syncIntervalMs` (off by default): wake at least this often to observe schedules and cursors another writer changed.
+  - `syncIntervalMs` (off by default): wake at least this often to observe schedules and cursors another writer changed. It is off by default, unlike the queue's 500 ms, because a scheduler already wakes for its own changes, at every due time it knows and every `settlePollMs` while work is open, and claims keep peers from dispatching one due time twice.
   - `maxOccurrencesPerSchedule` (default 100): each commit keeps only the newest this many settled or skipped occurrences of every schedule it touches; claimed and dispatched occurrences are never pruned.
 
 #### Storage Seam & Queue Adapter
-- **`ScheduleStore` (`Context.Tag`)**: reads, `claim`, `commit(write)` (a write's `retainOccurrences` prunes terminal settled/skipped occurrences of the schedules it touches in the same transaction), and `latestOccurrence(scheduleId)` (newest by `scheduledFor`).
+- **`ScheduleStore` (`Context.Tag`)**: reads, `claim`, `releaseClaim(id, owner)` (deletes an occurrence still claimed by that owner, after its dispatch failed), `commit(write)` (a write's `maxOccurrencesPerSchedule` prunes terminal settled/skipped occurrences of the schedules it touches in the same transaction; its `expectedCursors` must equal the stored cursors or the commit fails with `CursorConflictError` and writes nothing, and the scheduler evaluates again from the stored cursor), and `latestOccurrence(scheduleId)` (newest by `scheduledFor`).
   - `MemoryScheduleStore` (`@foundry/scheduling/store/memory`)
   - `SqliteScheduleStore` (`@foundry/scheduling/store/sqlite` + `@foundry/scheduling/store/tables`: `scheduling_schedules`, `scheduling_cursors`, `scheduling_occurrences`, scoped by `scope`, atomic claim via primary key `(scope, id)`). `claim(occurrence, replacing)` takes over a claim only if the stored occurrence still equals the one the scheduler read; the scheduler judges the old owner gone (`SchedulerOptions.isOwnerGone`, `isGone` by default) before it opens that transaction, and dispatches under the same occurrence id as idempotency key.
 - **`QueueDispatchLayer` (`@foundry/scheduling/queue`)**:

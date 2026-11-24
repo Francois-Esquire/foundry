@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { ALL_WORKSPACES, ResourceView } from "~/database/resources";
-import type { StoredSchedule } from "~/database/triggers";
+import type { ScheduleSnapshot } from "~/database/triggers";
 import { storedSchedules } from "~/database/triggers";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type {
@@ -110,7 +110,7 @@ function ownedElsewhere(
 }
 
 function triggerSnapshot(
-  stored: StoredSchedule,
+  stored: ScheduleSnapshot,
   owner: OwnerWorkspace
 ): TriggerSnapshot {
   const { key, kind, label, lastStatus, nextDue, pending, running } = stored;

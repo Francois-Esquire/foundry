@@ -50,6 +50,7 @@ type QueueReads = Pick<
   RunQueue,
   | "configurePool"
   | "instanceId"
+  | "awaitJob"
   | "getJob"
   | "getRun"
   | "listJobs"
@@ -58,7 +59,7 @@ type QueueReads = Pick<
   | "subscribe"
 >;
 
-interface Held {
+interface Known {
   readonly job: Job;
   readonly run: Run;
 }
@@ -84,9 +85,7 @@ function validLimit(queue: string, concurrency: number): number {
 
 const DEFAULT_LIMIT = 1;
 
-const SETTLING_POLL_MS = 1000;
-
-function heldBy(run: Run, instanceId: string | undefined): boolean {
+function ownedBy(run: Run, instanceId: string | undefined): boolean {
   if (run.state.kind === "running") {
     return run.state.lease.owner.instanceId === instanceId;
   }
@@ -104,18 +103,18 @@ export class Executions implements ExecutionRuns {
   readonly #warn: (line: string) => void;
   readonly #removed: (run: ExecutionRun) => Promise<void> | void;
   readonly #limits = new Map<string, number>();
-  readonly #held = new Map<string, Held>();
+  readonly #known = new Map<string, Known>();
   readonly #runOf = new Map<JobId, string>();
   readonly #submitted = new Map<JobId, Job>();
   readonly #annexes = new Map<string, ExecutionAnnex>();
   readonly #records = new Map<string, ExecutionRun>();
   readonly #listeners = new Set<(run: ExecutionRun) => void>();
   readonly #settling = new Map<string, PromiseWithResolvers<ExecutionRun>>();
+  readonly #awaiting = new Set<string>();
   #gaps = new Map<string, RetentionGap>();
   #queue: QueueReads | undefined;
   #unsubscribe: (() => void) | undefined;
   #writes: Promise<unknown> = Promise.resolve();
-  #watching: ReturnType<typeof setInterval> | undefined;
 
   constructor(options: ExecutionsOptions) {
     this.#store = options.store;
@@ -175,8 +174,6 @@ export class Executions implements ExecutionRuns {
   detach(): void {
     this.#unsubscribe?.();
     this.#unsubscribe = undefined;
-    clearInterval(this.#watching);
-    this.#watching = undefined;
   }
 
   async load(): Promise<void> {
@@ -216,9 +213,9 @@ export class Executions implements ExecutionRuns {
 
   owned(): readonly ExecutionRun[] {
     const instanceId = this.#queue?.instanceId;
-    return [...this.#held.values()]
-      .filter((held) => heldBy(held.run, instanceId))
-      .flatMap((held) => this.#records.get(held.run.id) ?? [])
+    return [...this.#known.values()]
+      .filter((known) => ownedBy(known.run, instanceId))
+      .flatMap((known) => this.#records.get(known.run.id) ?? [])
       .sort(bySequence);
   }
 
@@ -239,33 +236,51 @@ export class Executions implements ExecutionRuns {
     if (known !== undefined && SETTLED_EXECUTION_STATUSES.has(known.status)) {
       return Promise.resolve(known);
     }
-    let waiting = this.#settling.get(id);
-    if (waiting === undefined) {
-      waiting = Promise.withResolvers<ExecutionRun>();
-      this.#settling.set(id, waiting);
+    const pending = this.#settling.get(id);
+    if (pending !== undefined) {
+      return pending.promise;
     }
-    this.#watchSettling();
+    const waiting = Promise.withResolvers<ExecutionRun>();
+    this.#settling.set(id, waiting);
+    this.#watchEnd(id);
     return waiting.promise;
   }
 
-  #watchSettling(): void {
-    if (this.#watching !== undefined) {
+  #watchEnd(id: string): void {
+    if (this.#awaiting.has(id)) {
       return;
     }
-    const timer = setInterval(() => {
-      if (this.#settling.size === 0 || this.#queue === undefined) {
-        clearInterval(timer);
-        this.#watching = undefined;
-        return;
-      }
-      for (const id of this.#settling.keys()) {
-        this.refresh(id).catch((error: unknown) =>
-          this.#warn(`[state] execution ${id} not read: ${String(error)}`)
-        );
-      }
-    }, SETTLING_POLL_MS);
-    timer.unref?.();
-    this.#watching = timer;
+    this.#awaiting.add(id);
+    this.#awaitEnd(id)
+      .catch((error: unknown) => {
+        const waiting = this.#settling.get(id);
+        this.#settling.delete(id);
+        waiting?.reject(error);
+      })
+      .finally(() => this.#awaiting.delete(id));
+  }
+
+  async #awaitEnd(id: string): Promise<void> {
+    const queue = this.#queue;
+    if (queue === undefined) {
+      return;
+    }
+    const run = this.#known.get(id)?.run ?? (await queue.getRun(id));
+    if (run === undefined) {
+      throw new Error(`run ${id} is not stored`);
+    }
+    const job = await queue.awaitJob(run.jobId);
+    await this.refresh(id);
+    const waiting = this.#settling.get(id);
+    if (waiting === undefined) {
+      return;
+    }
+    const last = this.#records.get(this.#runOf.get(job.id) ?? id);
+    if (last === undefined || !SETTLED_EXECUTION_STATUSES.has(last.status)) {
+      throw new Error(`run ${id} ended without a settled record`);
+    }
+    this.#settling.delete(id);
+    waiting.resolve(last);
   }
 
   async peek(id: string): Promise<ExecutionRun | undefined> {
@@ -285,6 +300,13 @@ export class Executions implements ExecutionRuns {
       return;
     }
     this.#learn(job, run);
+  }
+
+  watch(listener: (run: ExecutionRun) => void): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
   }
 
   async subscribe(
@@ -433,11 +455,11 @@ export class Executions implements ExecutionRuns {
     }
     if ("job" in event) {
       const runId = this.#runOf.get(event.job.id);
-      const held = runId === undefined ? undefined : this.#held.get(runId);
-      if (held === undefined && event.type === "job.submitted") {
+      const known = runId === undefined ? undefined : this.#known.get(runId);
+      if (known === undefined && event.type === "job.submitted") {
         this.#submitted.set(event.job.id, event.job);
-      } else if (held !== undefined) {
-        this.#learn(event.job, held.run);
+      } else if (known !== undefined) {
+        this.#learn(event.job, known.run);
       }
       return;
     }
@@ -445,7 +467,7 @@ export class Executions implements ExecutionRuns {
       return;
     }
     const { run } = event;
-    const job = this.#held.get(run.id)?.job ?? this.#submitted.get(run.jobId);
+    const job = this.#known.get(run.id)?.job ?? this.#submitted.get(run.jobId);
     if (job !== undefined) {
       this.#submitted.delete(run.jobId);
       this.#learn(job, run);
@@ -460,20 +482,20 @@ export class Executions implements ExecutionRuns {
   }
 
   #learn(job: Job, run: Run): void {
-    const held = this.#held.get(run.id);
-    if (held !== undefined && held.run.revision > run.revision) {
+    const latest = this.#known.get(run.id);
+    if (latest !== undefined && latest.run.revision > run.revision) {
       return;
     }
 
     const first = this.#runOf.get(job.id);
     if (first !== undefined && first !== run.id) {
-      const current = this.#held.get(first)?.run;
+      const current = this.#known.get(first)?.run;
       if (current !== undefined && current.attempt > run.attempt) {
         return;
       }
-      this.#forget(first);
+      this.#drop(first);
     }
-    this.#held.set(run.id, { job, run });
+    this.#known.set(run.id, { job, run });
     this.#runOf.set(job.id, run.id);
     const record = executionOf(job, run, this.#annexes.get(run.id));
     const known = this.#records.get(run.id);
@@ -490,18 +512,27 @@ export class Executions implements ExecutionRuns {
     };
     const annex = { ...change(before), revision: before.revision + 1 };
     this.#annexes.set(id, annex);
-    const held = this.#held.get(id);
-    if (held !== undefined) {
-      this.#publish(executionOf(held.job, held.run, annex));
+    const known = this.#known.get(id);
+    if (known !== undefined) {
+      this.#publish(executionOf(known.job, known.run, annex));
     }
   }
 
   #forget(id: string): void {
-    const held = this.#held.get(id);
-    if (held !== undefined && this.#runOf.get(held.job.id) === id) {
-      this.#runOf.delete(held.job.id);
+    this.#drop(id);
+    const waiting = this.#settling.get(id);
+    if (waiting !== undefined) {
+      this.#settling.delete(id);
+      waiting.reject(new Error(`run ${id} was removed before it settled`));
     }
-    this.#held.delete(id);
+  }
+
+  #drop(id: string): void {
+    const known = this.#known.get(id);
+    if (known !== undefined && this.#runOf.get(known.job.id) === id) {
+      this.#runOf.delete(known.job.id);
+    }
+    this.#known.delete(id);
     this.#records.delete(id);
     this.#annexes.delete(id);
   }

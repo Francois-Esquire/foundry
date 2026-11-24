@@ -217,7 +217,7 @@ describe("Queue lifecycle", () => {
     ]);
   });
 
-  test("recovery interrupts runs whose owner is gone, retries them, and re-admits their queued runs", async () => {
+  test("recovery interrupts runs whose owner is gone, retries them, and adopts their queued runs", async () => {
     const store = await sharedStore();
     const result = await Effect.runPromise(
       Effect.gen(function* () {
@@ -261,7 +261,7 @@ describe("Queue lifecycle", () => {
       }).pipe(Effect.provide(TestContext.TestContext))
     );
     expect(result.summary.interrupted).toHaveLength(2);
-    expect(result.summary.readmitted).toHaveLength(2);
+    expect(result.summary.adopted).toHaveLength(2);
     expect(result.retriedRuns.map((run) => run.state.kind)).toEqual([
       "interrupted",
       "complete",
@@ -383,6 +383,76 @@ describe("Queue lifecycle", () => {
       kind: "queued",
       owner: alive,
     });
+  });
+
+  test("retiring keeps the queued children of a running parent and finishes them, handing over only other queued runs", async () => {
+    const result = await testQueue((queue) =>
+      Effect.gen(function* () {
+        const spawned = yield* Deferred.make<readonly JobId[]>();
+        const childGate = yield* Deferred.make<void>();
+        yield* queue.configurePool({ limit: 1, name: "b", state: "active" });
+        yield* queue.register("work", (context) =>
+          Effect.gen(function* () {
+            if (context.job.input === "child") {
+              yield* Deferred.await(childGate);
+              return { kind: "complete", output: null } as const;
+            }
+            if (context.job.input !== "parent") {
+              return { kind: "complete", output: null } as const;
+            }
+            const children = yield* Effect.all(
+              [0, 1].map(() =>
+                Effect.orDie(
+                  queue.submit({
+                    handler,
+                    input: "child",
+                    links: { parentRunId: context.run.id },
+                    pool: "b",
+                  })
+                )
+              )
+            );
+            yield* Deferred.succeed(
+              spawned,
+              children.map((child) => child.id)
+            );
+            for (const child of children) {
+              yield* Effect.orDie(queue.awaitJob(child.id));
+            }
+            return { kind: "complete", output: null } as const;
+          })
+        );
+        const parent = yield* queue.submit({
+          handler,
+          input: "parent",
+          pool: "a",
+        });
+        const children = yield* Deferred.await(spawned);
+        const later = yield* queue.submit({
+          handler,
+          input: "later",
+          pool: "b",
+        });
+        const handedOver = yield* queue.retire(alive);
+        yield* Deferred.succeed(childGate, undefined);
+        const settled = yield* awaitJob(queue, parent.id);
+        const childJobs = yield* Effect.all(
+          children.map((id) => awaitJob(queue, id))
+        );
+        return {
+          childJobs,
+          handedOver,
+          later: yield* queue.listRuns({ jobId: later.id }),
+          settled,
+        };
+      })
+    );
+    expect(result.settled.state.kind).toBe("complete");
+    expect(result.childJobs.map((job) => job.state.kind)).toEqual([
+      "complete",
+      "complete",
+    ]);
+    expect(result.handedOver).toEqual(result.later.map((run) => run.id));
   });
 
   test("a retiring queue starts none of the runs it hands to its own process", async () => {

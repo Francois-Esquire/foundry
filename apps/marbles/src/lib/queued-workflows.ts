@@ -9,10 +9,10 @@ import type { FeedPublisher } from "~/lib/feed/publish";
 import { feedEntry } from "~/lib/feed/publish";
 import type { FeedRouter } from "~/lib/feed/route";
 import { feedRouter } from "~/lib/feed/route";
-import { HeldRuns } from "~/lib/held-runs";
+import { FollowedRuns } from "~/lib/followed-runs";
 import type { DispatchedRun } from "~/lib/launcher";
 import { RunListing } from "~/lib/run-listing";
-import type { RunFactory, SubmitOptions } from "~/lib/run-queue";
+import type { QueuedRun, RunFactory, SubmitOptions } from "~/lib/run-queue";
 import { RunQueue } from "~/lib/run-queue";
 import type { RunScopes } from "~/lib/run-scope";
 import { PAUSE_KIND } from "~/lib/run-scope";
@@ -40,7 +40,7 @@ const under = (path: string, wanted: string) =>
 export class QueuedWorkflows {
   readonly queue: RunQueue;
   readonly store: QueueStoreService;
-  readonly #held: HeldRuns;
+  readonly #followed: FollowedRuns;
   readonly #listing: RunListing;
   readonly #options: QueuedWorkflowsOptions;
   readonly #router: FeedRouter;
@@ -61,8 +61,8 @@ export class QueuedWorkflows {
     this.store = store;
     this.queue = new RunQueue(store, {
       attempts: {
-        prepare: (name, runId) => this.#takeUp(name, runId),
-        started: (runId, workflow) => this.#held.attempt(runId, workflow),
+        prepare: (name, runId) => this.#followStarted(name, runId),
+        started: (runId, workflow) => this.#followed.attach(runId, workflow),
       },
       pools: options.pools,
     });
@@ -74,7 +74,7 @@ export class QueuedWorkflows {
       print,
       queue: this.queue,
     });
-    this.#held = new HeldRuns({
+    this.#followed = new FollowedRuns({
       executions,
       print,
       queue: this.queue,
@@ -96,18 +96,25 @@ export class QueuedWorkflows {
     name: string,
     input: unknown,
     options: SubmitOptions
-  ): Promise<{ readonly dispatched: DispatchedRun; readonly job: Job }> {
-    const tracked = this.#held.track(name, options.runId);
-    let job: Job;
-    try {
-      job = await this.queue.run(name, input, options);
-    } catch (error) {
+  ): Promise<{ readonly dispatched?: DispatchedRun; readonly job: Job }> {
+    const tracked = this.#followed.track(name, options.runId);
+    const dropped = async () => {
       tracked.drop();
       await this.#options.scopes.settle(options.runId);
+    };
+    let queued: QueuedRun;
+    try {
+      queued = await this.queue.run(name, input, options);
+    } catch (error) {
+      await dropped();
       throw error;
     }
+    if (queued.deduplicated) {
+      await dropped();
+      return { job: queued.job };
+    }
     this.#listing.add(options.runId);
-    return { dispatched: tracked.start(), job };
+    return { dispatched: tracked.start(), job: queued.job };
   }
 
   async resume(runId: string, stepId: string, prompt?: string): Promise<void> {
@@ -146,7 +153,7 @@ export class QueuedWorkflows {
   }
 
   following(runId: string): boolean {
-    return this.#held.has(runId);
+    return this.#followed.has(runId);
   }
 
   listed(runId: string): void {
@@ -158,29 +165,31 @@ export class QueuedWorkflows {
   }
 
   async records(): Promise<readonly RunRecord[]> {
-    return (await this.#listing.list()).map((record) => this.#asHeld(record));
+    return (await this.#listing.list()).map((record) =>
+      this.#withLiveState(record)
+    );
   }
 
   async record(runId: string): Promise<RunRecord | undefined> {
     const record = await readRun(this.store, runId);
-    return record ? this.#asHeld(record) : undefined;
+    return record ? this.#withLiveState(record) : undefined;
   }
 
   stream(
     runId: string,
     signal?: AbortSignal
   ): ReadableStream<ChannelMessage> | undefined {
-    return this.#held.workflow(runId)?.root.subscribe(signal);
+    return this.#followed.workflow(runId)?.root.subscribe(signal);
   }
 
-  async cancelHeld(): Promise<void> {
+  async cancelFollowed(): Promise<void> {
     const doomed = new Set(
       this.#options.durable
         ? ["queued", "running"]
         : ["queued", "running", "suspended"]
     );
     await Promise.all(
-      this.#held.ids().map(async (runId) => {
+      this.#followed.ids().map(async (runId) => {
         const state = await this.queue.stateOf(runId).catch(() => undefined);
         if (state !== undefined && doomed.has(state)) {
           await this.queue.cancelRun(runId);
@@ -200,15 +209,15 @@ export class QueuedWorkflows {
   }
 
   settle(): Promise<void> {
-    return this.#held.settle();
+    return this.#followed.settle();
   }
 
   stop(): Promise<void> {
     return this.queue.stop();
   }
 
-  #asHeld(record: RunRecord): RunRecord {
-    const current = this.#held.workflow(record.id)?.state;
+  #withLiveState(record: RunRecord): RunRecord {
+    const current = this.#followed.workflow(record.id)?.state;
     if (current === undefined) {
       return record;
     }
@@ -231,13 +240,13 @@ export class QueuedWorkflows {
     }
   }
 
-  #takeUp(name: string, runId: string): Promise<void> {
+  #followStarted(name: string, runId: string): Promise<void> {
     const { follow, print } = this.#options;
-    if (this.#held.has(runId)) {
+    if (this.#followed.has(runId)) {
       return Promise.resolve();
     }
     this.#listing.add(runId);
-    follow(runId, this.#held.track(name, runId).start());
+    follow(runId, this.#followed.track(name, runId).start());
     print(`[run] ${name} taken up ${runId}`);
     return Promise.resolve();
   }

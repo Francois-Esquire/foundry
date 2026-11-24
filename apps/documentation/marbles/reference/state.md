@@ -34,7 +34,7 @@ workspace this machine has run, and says which of them the process hosts.
                           change they committed and which observers completed it;
                           and, by workspace id, its workflow Runs, Execution Runs
                           and their observations, retention gaps, each schedule's
-                          and monitor's last tick, each monitor's state, the
+                          cursor and occurrences, each monitor's state, the
                           triggers agents created, each agent turn's usage, its
                           artifact and sandbox records, its agent grants, the
                           approvals waiting in the feed, its harness activities,
@@ -442,10 +442,11 @@ loads every registered workspace up to engines not yet started; one that
 does not load leaves a working generation in place. The refused load keeps
 watching outside files the previous generation read. Restoring one of those
 files can trigger a fresh load even if the failed candidate never read it.
-Then the current generation retires: it starts no tick or delivery again,
-and its run queue retires in one write that hands each of its queued runs
-to the next generation's process and refuses new top-level launches. It
-starts no queued run again but the children of its running ones. The next
+Then the current generation retires: it dispatches no occurrence and starts
+no delivery again, and its run queue retires in one write that hands each of
+its queued runs, but the queued children of its running ones, to the next
+generation's process and refuses new top-level launches. It starts no queued
+run again but the children of its running ones. The next
 generation starts and runs the queued ones it was handed. A queued agent
 dispatch reopens its saved session when the new engine starts the turn.
 The retired generation finishes its running runs untouched, on the code it
@@ -471,15 +472,21 @@ only that run.
 Local file coordination uses the [Lib file-lock helper](https://github.com/Francois-Esquire/foundry/blob/main/packages/lib/src/file-lock.ts).
 Its PID ownership applies to one host, not a distributed worker pool.
 
-The foreground loop measures an interval schedule's next tick from the
-previous tick's completion, seeded from the recorded `lastFinish` so a restart
-keeps the cadence. Missed interval ticks do not queue. Calendar slots are
-evaluated in machine-local time.
+The foreground loop runs each schedule on its cadence. An interval schedule
+is due one interval after its previous run settled, timed from that run's own
+settle time and kept in the schedule's cursor, so a restart keeps the
+cadence. It has at most one occurrence due at a time, however long the
+process was away. Calendar slots are evaluated in machine-local time; after
+downtime only the latest missed slot is dispatched, and a slot that comes due
+while the previous run is still open is skipped.
 
-A tick claims its trigger in the database before it runs. If another process holds it,
-`roll <key>` prints `skipped: held by <holder>` and exits successfully.
-`roll <definition-name>` takes no claim. Two schedules with different keys
-have different claims even when they target the same workflow.
+Each due occurrence is claimed in the database before it is dispatched, so two
+processes never dispatch the same occurrence twice. Its id is the run's
+idempotency key: a process that stopped after launching the run and before
+recording it does not launch it again. `roll <key>` and
+`roll <definition-name>` launch the target at once and record no occurrence.
+Two schedules with different keys are claimed separately even when they
+target the same workflow.
 
 ### Lock ownership and repair
 
@@ -512,9 +519,9 @@ remove <path>.break)` when a `.break` is in the way; or `an unknown process
 Monitors are polled on their cadence. A poll compares what it sees with the
 last recorded observation; the handler runs only when something changed, and
 the observation is recorded only after the handler resolves, so a throwing
-handler sees the same change again next tick. A launch the handler asked for
-is recorded as `pending` and handed out on every tick until a start succeeds.
-A target that is no longer registered fails one tick and is dropped; a started
+handler sees the same change again on the next poll. A launch the handler asked for
+is recorded as `pending` and handed out on every poll until a start succeeds.
+A target that is no longer registered fails one poll and is dropped; a started
 run that later fails or is cancelled is not started again.
 
 ## Dry runs

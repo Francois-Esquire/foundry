@@ -237,6 +237,44 @@ describe("an engine that has begun to retire", () => {
     await ended;
   });
 
+  it("finishes here the fan-out children queued behind a queue while their parent still runs", async () => {
+    const engine = testEngine({
+      print: () => undefined,
+      queues: { fanout: { concurrency: 1 } },
+    });
+    engines.push(engine);
+    const childGate = Promise.withResolvers<void>();
+    const spawned = Promise.withResolvers<void>();
+    const ran: number[] = [];
+    engine.task<number, number>({
+      name: "child",
+      queue: "fanout",
+      run: async (n) => {
+        ran.push(n);
+        await childGate.promise;
+        return n;
+      },
+    });
+    engine.task({
+      name: "parent",
+      run: async () => {
+        const children = await Promise.all(
+          [1, 2].map((n) => engine.launch<number>("child", n))
+        );
+        spawned.resolve();
+        return await Promise.all(children.map((child) => child.result));
+      },
+    });
+    await engine.start();
+    const parent = await engine.launch("parent", {});
+    await spawned.promise;
+    const { ended } = await engine.retire(successor());
+    childGate.resolve();
+    expect(await outcome(parent.result)).toEqual([1, 2]);
+    expect(ran).toEqual([1, 2]);
+    await ended;
+  });
+
   it("hands over a child queued behind a busy queue whose parent suspended before retirement began", async () => {
     const engine = engineHere();
     const busyGate = Promise.withResolvers<void>();

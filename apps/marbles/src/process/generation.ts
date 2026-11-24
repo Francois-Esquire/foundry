@@ -4,7 +4,7 @@ import { thisProcess } from "@foundry/lib/process-identity";
 
 import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";
-import type { QueuedTake } from "~/lib/launcher";
+import type { QueuedAdoption } from "~/lib/launcher";
 import { Channel, socketTransport } from "~/process/channel";
 import type {
   LoadResult,
@@ -410,12 +410,12 @@ async function main(): Promise<void> {
     return await workspaces().get(id).engine.takeHanded(runId);
   };
 
-  const takeQueued = async (raw: unknown): Promise<QueuedTake> => {
+  const adoptQueued = async (raw: unknown): Promise<QueuedAdoption> => {
     const { id, owner, runId } = queuedParamsSchema.parse(raw);
     if (retiring !== undefined || stopping !== undefined) {
       return { taken: false, why: "its generation is retiring or stopping" };
     }
-    return await workspaces().get(id).engine.takeQueued(runId, owner);
+    return await workspaces().get(id).engine.adoptQueued(runId, owner);
   };
 
   const liveWork = async (raw: unknown): Promise<unknown> => {
@@ -471,7 +471,7 @@ async function main(): Promise<void> {
         case GENERATION_METHODS.takeHanded:
           return takeHanded(raw);
         case GENERATION_METHODS.takeQueued:
-          return takeQueued(raw);
+          return adoptQueued(raw);
         case GENERATION_METHODS.liveWork:
           return liveWork(raw);
         default:

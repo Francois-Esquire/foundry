@@ -167,11 +167,16 @@ export class StoreError extends Data.TaggedError("StoreError")<{
   readonly cause: unknown;
 }> {}
 
+export class CursorConflictError extends Data.TaggedError(
+  "CursorConflictError"
+)<{ readonly scheduleId: ScheduleId }> {}
+
 export type ScheduleError =
   | InvalidCadenceError
   | ScheduleNotFoundError
   | DispatchError
-  | StoreError;
+  | StoreError
+  | CursorConflictError;
 
 export const occurrenceId = (
   scheduleId: ScheduleId,

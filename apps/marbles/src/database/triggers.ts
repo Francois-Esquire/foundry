@@ -131,7 +131,7 @@ function monitorStateOf(row: MonitorRow): MonitorState {
       };
 }
 
-export interface StoredSchedule {
+export interface ScheduleSnapshot {
   readonly key: string;
   readonly kind: "schedule" | "monitor";
   readonly label: string;
@@ -200,7 +200,7 @@ async function latestOutcomeOf(
 export async function readStoredSchedules(
   state: string,
   scope: string
-): Promise<readonly StoredSchedule[]> {
+): Promise<readonly ScheduleSnapshot[]> {
   return (
     (await asBusy(() =>
       readDatabase(stateDatabase(state), (database) =>
@@ -213,7 +213,7 @@ export async function readStoredSchedules(
 export function storedSchedules(
   database: StoreDatabase,
   scope: string
-): Promise<readonly StoredSchedule[]> {
+): Promise<readonly ScheduleSnapshot[]> {
   return asBusy(async () => {
     const store = makeSqliteScheduleStore({ database, scope });
     const schedules = [...(await runStoreEffect(store.listSchedules))].sort(
@@ -231,7 +231,7 @@ export function storedSchedules(
         row.pending === null ? [] : [[row.key, row.pending.workflow] as const]
       )
     );
-    const stored: StoredSchedule[] = [];
+    const stored: ScheduleSnapshot[] = [];
     for (const schedule of schedules) {
       const target = scheduledTarget(schedule.target);
       const kind = target?.kind ?? "schedule";

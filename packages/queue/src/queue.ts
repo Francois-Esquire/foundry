@@ -50,7 +50,7 @@ import type {
 import { makeSettlement } from "./settlement";
 import { QueueStore } from "./store/index";
 import { MemoryQueueStore } from "./store/memory";
-import { awaitingJob, watchStore } from "./sync";
+import { awaitingJob, JobWaiters, watchStore } from "./sync";
 import {
   cancellation,
   removal,
@@ -76,17 +76,14 @@ const makeQueue = (options: QueueOptions) =>
       PubSub.unbounded<QueueEvent>(),
       PubSub.shutdown
     );
-    const changes = yield* Effect.acquireRelease(
-      PubSub.unbounded<void>(),
-      PubSub.shutdown
-    );
+    const waiters = new JobWaiters();
     const self = yield* Effect.acquireRelease(
       Effect.sync(() =>
         openInstance(options.identity ?? thisProcess(), options.instanceId)
       ),
       (instance) => Effect.sync(() => closeInstance(instance))
     );
-    const ledger = makeLedger(store, hub, changes);
+    const ledger = makeLedger(store, hub, waiters);
     const { commit, requireJob, requireRun, requireSuspension } = ledger;
     const checkPool = (pool: ConcurrencyPool) =>
       validLimit(pool.limit)
@@ -135,7 +132,7 @@ const makeQueue = (options: QueueOptions) =>
           intervalMs: syncIntervalMs,
           onChange: Effect.gen(function* () {
             const stale = yield* mutate(releaseStaleSlots);
-            yield* PubSub.publish(changes, undefined);
+            yield* Effect.sync(() => waiters.notify("unknown"));
             yield* Fiber.interruptAll(stale);
           }),
           store,
@@ -380,11 +377,11 @@ const makeQueue = (options: QueueOptions) =>
           yield* all;
           return;
         }
-        const finished = yield* Effect.timeoutOption(
+        const drained = yield* Effect.timeoutOption(
           all,
           Duration.millis(graceMs)
         );
-        if (Option.isSome(finished)) {
+        if (Option.isSome(drained)) {
           return;
         }
         const remaining = yield* locked(
@@ -417,7 +414,7 @@ const makeQueue = (options: QueueOptions) =>
 
     return Queue.of({
       abandon: (id, error) => mutate(abandon(id, error)),
-      awaitJob: awaitingJob(store, changes),
+      awaitJob: awaitingJob(store, waiters),
       cancel,
       cancelSuspension: (suspensionId, reason) =>
         mutate(cancelSuspension(suspensionId, reason)),

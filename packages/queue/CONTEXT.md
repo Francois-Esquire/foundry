@@ -79,8 +79,14 @@ _Avoid_: snapshot, state, savepoint
 ### Ownership
 
 **Lease**:
-A queue's claim on a running run, recording who runs it and since when.
+A queue's hold on a running run, recording who runs it and since when.
 _Avoid_: lock, claim
+
+**Instance**:
+One live queue, named by its process and its own instance id. Two queues
+in one process are different instances and never take each other's work as
+their own.
+_Avoid_: node, worker, replica
 
 **Owner**:
 The queue a queued run or a lease belongs to. Several queues can live in
@@ -111,14 +117,20 @@ _Avoid_: kill, reap
 **Retirement**:
 A queue closing admission for good while its running work finishes
 untouched. Children of its running runs are still admitted, owned by it,
-and it starts them; it starts no other queued run. The queued runs it owned
-when it retired are handed over to a successor or left unowned.
+and it starts them, including those queued before it retired; it starts no
+other queued run. The other queued runs it owned when it retired are handed
+over to a successor or left unowned.
 _Avoid_: shutdown, decommission
 
 **Hand-over**:
 Giving a queued run to another queue, or to any queue in another process,
 to own.
 _Avoid_: transfer, migration
+
+**Watermark**:
+A per-scope counter every commit raises, so a queue sharing a store notices
+commits other instances made and wakes what waits on them.
+_Avoid_: version, revision, cursor
 
 **Removal**:
 Deleting a settled job together with its runs and suspensions.

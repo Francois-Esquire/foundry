@@ -53,10 +53,10 @@ describe("Queue instances sharing a store", () => {
               const handedOn = yield* Fiber.join(waiting);
               yield* Deferred.succeed(gate, undefined);
               return {
-                finished: yield* old.awaitJob(running.id),
                 handedOn,
                 leftQueued,
                 released,
+                settled: yield* old.awaitJob(running.id),
               };
             })
           );
@@ -67,7 +67,7 @@ describe("Queue instances sharing a store", () => {
     expect(result.leftQueued[0]?.state.kind).toBe("queued");
     expect(result.leftQueued[0]?.state).not.toHaveProperty("owner");
     expect(result.handedOn.state).toMatchObject({ output: "successor" });
-    expect(result.finished.state).toMatchObject({ output: "old" });
+    expect(result.settled.state).toMatchObject({ output: "old" });
   });
 
   test("refuses a removal whose runs another queue removed after it read them", async () => {

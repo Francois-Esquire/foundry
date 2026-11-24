@@ -1,4 +1,4 @@
-import { StoreError } from "@foundry/scheduling";
+import { CursorConflictError, StoreError } from "@foundry/scheduling";
 import type { ScheduleStoreService } from "@foundry/scheduling/store";
 import { makeMemoryScheduleStore } from "@foundry/scheduling/store/memory";
 import { Cause, Effect, Exit } from "effect";
@@ -50,7 +50,7 @@ export function storedMonitorState(
   }) as MonitorState;
 }
 
-const settled = async <A>(effect: Effect.Effect<A, StoreError>): Promise<A> => {
+const settled = async <A, E>(effect: Effect.Effect<A, E>): Promise<A> => {
   const exit = await Effect.runPromiseExit(effect);
   if (Exit.isSuccess(exit)) {
     return exit.value;
@@ -68,16 +68,27 @@ export function gatedScheduleStore(
         cause instanceof StoreError ? cause : new StoreError({ cause }),
       try: () => around(() => settled(effect)),
     });
+  const guarded = (
+    effect: Effect.Effect<void, StoreError | CursorConflictError>
+  ) =>
+    Effect.tryPromise({
+      catch: (cause) =>
+        cause instanceof StoreError || cause instanceof CursorConflictError
+          ? cause
+          : new StoreError({ cause }),
+      try: () => around(() => settled(effect)),
+    });
   return {
     claim: (occurrence, replacing) =>
       through(store.claim(occurrence, replacing)),
-    commit: (write) => through(store.commit(write)),
+    commit: (write) => guarded(store.commit(write)),
     getCursor: (id) => through(store.getCursor(id)),
     getOccurrence: (id) => through(store.getOccurrence(id)),
     getSchedule: (id) => through(store.getSchedule(id)),
     latestOccurrence: (id) => through(store.latestOccurrence(id)),
     listOccurrences: (filter) => through(store.listOccurrences(filter)),
     listSchedules: Effect.suspend(() => through(store.listSchedules)),
+    releaseClaim: (id, owner) => through(store.releaseClaim(id, owner)),
   };
 }
 

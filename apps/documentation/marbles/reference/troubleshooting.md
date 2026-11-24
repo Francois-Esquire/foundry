@@ -43,15 +43,17 @@ The dashboard uses structured fields when a schema exposes Standard JSON
 Schema. Other schemas remain valid for execution and use a JSON field.
 Install the schema library in the project containing the importing module.
 
-## A schedule does not fire
+## A schedule does not run
 
 `list` does not keep a clock running. `marbles`, `marbles run </dev/null`,
 and `roll` attach the workspace to the Marbles process, which keeps its
-schedules ticking until `marbles stop`; `marbles status` shows
-`marbles process: pid …` and `hosted: yes` when it does. `--dry-run` ticks
-only while the command runs. Check the cadence and host timezone, and inspect schedule history with
-`status`. A live process holding the same schedule key makes another tick
-skip. Different keys do not share that lock.
+schedules running until `marbles stop`; `marbles status` shows
+`marbles process: pid …` and `hosted: yes` when it does. `--dry-run`
+dispatches schedules only while the command runs. Check the cadence and host
+timezone, and inspect schedule history with `status`. An interval schedule
+waits for its previous run to settle, so a run still open or suspended holds
+its next occurrence back. An occurrence another live process claimed runs
+there, not here. Different keys are claimed separately.
 
 ## A monitor repeats or appears idle
 
@@ -93,7 +95,7 @@ but there is no default retry policy. Add `.config({ retry: { maxAttempts: 3 } }
 to the step that should retry, after making its effects safe to repeat.
 The limit includes the first attempt; `bail(error)` does not retry. A
 parent's policy does not configure its children, and the next schedule
-tick is a new run. See [retry policies](/marbles/foundation/durability#retry-a-failed-attempt).
+occurrence is a new run. See [retry policies](/marbles/foundation/durability#retry-a-failed-attempt).
 
 ## An agent turn repeated after answering a question
 

@@ -113,7 +113,7 @@ export class ScheduleDispatcher {
     print(`[schedule] ${schedule.key} → ${schedule.workflow}`);
     let started: Launched<unknown>;
     try {
-      started = await startScheduled(this.#engine, schedule);
+      started = await startScheduled(this.#engine, schedule, idempotencyKey);
     } catch (error) {
       print(`[schedule] ${schedule.key} failed: ${String(error)}`);
       return this.#remember(idempotencyKey, refusedJob(idempotencyKey));

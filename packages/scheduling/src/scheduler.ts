@@ -130,7 +130,7 @@ const makeScheduler = (options: SchedulerOptions) =>
       commit,
       dispatch,
       isOwnerGone: options.isOwnerGone ?? isGone,
-      retainOccurrences:
+      maxOccurrencesPerSchedule:
         options.maxOccurrencesPerSchedule ?? DEFAULT_MAX_OCCURRENCES,
       self,
       store,
@@ -277,18 +277,17 @@ const makeScheduler = (options: SchedulerOptions) =>
           state: input.state ?? existing?.state ?? "active",
           target: input.target,
         };
-        const cursor: ScheduleCursor =
+        const keepsCursor =
           existing !== undefined &&
           previous !== undefined &&
-          sameJson(existing.cadence, cadence)
-            ? previous
-            : {
-                ...previous,
-                nextDueAt: firstDue(cadence, now),
-                scheduleId: input.id,
-              };
+          sameJson(existing.cadence, cadence);
+        const cursor: ScheduleCursor = {
+          ...previous,
+          nextDueAt: firstDue(cadence, now),
+          scheduleId: input.id,
+        };
         yield* commit(now, [{ schedule, type: "schedule.registered" }], {
-          cursors: [cursor],
+          ...(keepsCursor ? {} : { cursors: [cursor] }),
           schedules: [schedule],
         });
         failures.delete(input.id);

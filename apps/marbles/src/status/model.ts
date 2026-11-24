@@ -13,7 +13,7 @@ import { readDatabase } from "~/database/open";
 import { readLastRecovery } from "~/database/recoveries";
 import type { RunResource, Shown } from "~/database/resources";
 import { ResourceView } from "~/database/resources";
-import type { StoredSchedule } from "~/database/triggers";
+import type { ScheduleSnapshot } from "~/database/triggers";
 import { readStoredSchedules } from "~/database/triggers";
 import { recordedWorkspaces } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
@@ -176,7 +176,7 @@ function readWorkspaceStatus(
   current: CurrentHost | undefined,
   record: WorkspaceRecord,
   shows: Shows,
-  schedules: readonly StoredSchedule[],
+  schedules: readonly ScheduleSnapshot[],
   recovery: RecoveryReport | null,
   log: Awaited<ReturnType<typeof readStoredObservers>>
 ): WorkspaceStatus {
@@ -205,7 +205,7 @@ function readWorkspaceStatus(
   };
 }
 
-function scheduleStatus(stored: StoredSchedule): ScheduleStatus {
+function scheduleStatus(stored: ScheduleSnapshot): ScheduleStatus {
   return {
     key: stored.key,
     kind: stored.kind === "monitor" ? "monitor" : null,

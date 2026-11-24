@@ -10,7 +10,7 @@ import { bump, claimOf } from "./transitions";
 
 type Gone = (owner: QueueOwner) => boolean;
 
-const released = (run: Run): Run => {
+const unowned = (run: Run): Run => {
   if (run.state.kind !== "queued") {
     return run;
   }
@@ -49,23 +49,23 @@ export const makeRecovery = (
       return interrupted;
     });
 
-  const readmitQueued = (gone: Gone) =>
+  const adoptQueued = (gone: Gone) =>
     Effect.gen(function* () {
-      const readmitted: RunId[] = [];
-      const adopted: Run[] = [];
+      const adopted: RunId[] = [];
+      const updated: Run[] = [];
       for (const run of yield* store.listRuns({ state: "queued" })) {
         const claim = yield* Effect.sync(() => claimOf(run, self, gone));
         if (claim === "skip" || run.state.kind !== "queued") {
           continue;
         }
-        readmitted.push(run.id);
+        adopted.push(run.id);
         if (claim === "adopt") {
-          adopted.push(bump(run, { ...run.state, owner: self }));
+          updated.push(bump(run, { ...run.state, owner: self }));
         }
       }
       const now = yield* Clock.currentTimeMillis;
-      yield* commit(now, { facts: [], write: { runs: adopted } });
-      return readmitted;
+      yield* commit(now, { facts: [], write: { runs: updated } });
+      return adopted;
     });
 
   const recover = (options: RecoverOptions = {}) =>
@@ -73,39 +73,49 @@ export const makeRecovery = (
       const processGone = options.isOwnerGone ?? isGone;
       const gone: Gone = (owner) => instanceGone(owner, self, processGone);
       const interrupted = yield* interruptAbandoned(gone);
-      const readmitted = yield* readmitQueued(gone);
-      return { interrupted, readmitted } satisfies RecoverySummary;
+      const adopted = yield* adoptQueued(gone);
+      return { adopted, interrupted } satisfies RecoverySummary;
+    });
+
+  const runsBesideRunningParent = (run: Run) =>
+    Effect.map(store.getJob(run.jobId), (job) => {
+      const parent = job?.links.parentRunId;
+      return parent !== undefined && capacity.slots.has(parent);
     });
 
   const retire = (successor?: QueueOwner) =>
     Effect.gen(function* () {
       capacity.admission.retiring = true;
-      const pinned = (yield* store.listRuns({ state: "queued" })).filter(
-        (run) => capacity.pins(run)
+      const owned = (yield* store.listRuns({ state: "queued" })).filter((run) =>
+        capacity.ownedBySelf(run)
       );
-      const given = pinned.flatMap((run) => {
-        if (run.state.kind !== "queued") {
-          return [];
+      const handed: Run[] = [];
+      for (const run of owned) {
+        if (
+          run.state.kind !== "queued" ||
+          (yield* runsBesideRunningParent(run))
+        ) {
+          continue;
         }
-        return [
+        handed.push(
           successor === undefined
-            ? released(run)
-            : bump(run, { ...run.state, owner: successor }),
-        ];
-      });
+            ? unowned(run)
+            : bump(run, { ...run.state, owner: successor })
+        );
+      }
       const now = yield* Clock.currentTimeMillis;
       yield* commit(now, {
         facts:
           successor === undefined
             ? []
-            : given.map((run) => ({
+            : handed.map((run) => ({
                 run,
                 successor,
                 type: "run.handed_over" as const,
               })),
-        write: { runs: given },
+        write: { runs: handed },
       });
-      return given.map((run) => run.id);
+      return handed.map((run) => run.id);
     });
 
   return { recover, retire };

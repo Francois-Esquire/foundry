@@ -1,4 +1,12 @@
-import { Clock, Effect, Layer, Ref, type Scope, TestContext } from "effect";
+import {
+  Clock,
+  Context,
+  Effect,
+  Layer,
+  Ref,
+  type Scope,
+  TestContext,
+} from "effect";
 import {
   type DispatchRequest,
   type DispatchStatus,
@@ -15,7 +23,7 @@ import {
   type SchedulerOptions,
   type SchedulerService,
 } from "../../scheduler";
-import type { ScheduleStore } from "../../store/index";
+import { ScheduleStore, type ScheduleStoreService } from "../../store/index";
 import { MemoryScheduleStore } from "../../store/memory";
 
 export interface FakeDispatch {
@@ -30,7 +38,7 @@ export interface FakeDispatch {
   readonly submitted: Ref.Ref<readonly DispatchRequest[]>;
 }
 
-const fakeDispatch = Effect.gen(function* () {
+export const fakeDispatch = Effect.gen(function* () {
   const submitted = yield* Ref.make<readonly DispatchRequest[]>([]);
   const cancelled = yield* Ref.make<readonly string[]>([]);
   const statuses = yield* Ref.make(new Map<string, DispatchStatus>());
@@ -124,3 +132,25 @@ export const target: DispatchTarget = {
   handler: { name: "sync" },
   input: { full: true },
 };
+
+export const startScheduler = (
+  store: ScheduleStoreService,
+  dispatch: FakeDispatch,
+  options: SchedulerOptions = {}
+): Effect.Effect<SchedulerService, never, Scope.Scope> =>
+  Effect.map(
+    Layer.build(
+      Scheduler.layer(options).pipe(
+        Layer.provide(dispatch.layer),
+        Layer.provide(Layer.succeed(ScheduleStore, store))
+      )
+    ),
+    (context) => Context.get(context, Scheduler)
+  );
+
+export const inTestContext = <A, E>(
+  body: Effect.Effect<A, E, Scope.Scope>
+): Promise<A> =>
+  Effect.runPromise(
+    Effect.scoped(body).pipe(Effect.provide(TestContext.TestContext))
+  );

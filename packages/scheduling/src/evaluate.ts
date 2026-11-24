@@ -48,12 +48,20 @@ export interface EvaluatorOptions {
   readonly commit: Commit;
   readonly dispatch: ScheduleDispatchService;
   readonly isOwnerGone: (owner: ProcessIdentity) => boolean;
-  readonly retainOccurrences: number;
+  readonly maxOccurrencesPerSchedule: number;
   readonly self: SchedulerOwner;
   readonly store: ScheduleStoreService;
 }
 
 const SUPERSEDED = "superseded by next schedule occurrence";
+
+const CURSOR_CONFLICT_RETRIES = 3;
+
+const retryingConflicts = <A>(attempt: Effect.Effect<A, ScheduleError>) =>
+  Effect.retry(attempt, {
+    times: CURSOR_CONFLICT_RETRIES,
+    while: (error) => error._tag === "CursorConflictError",
+  });
 
 export const sameJson = (one: unknown, other: unknown) =>
   canonicalizeJson(one) === canonicalizeJson(other);
@@ -123,7 +131,7 @@ export const makeEvaluator = ({
   commit,
   dispatch,
   isOwnerGone,
-  retainOccurrences,
+  maxOccurrencesPerSchedule,
   self,
   store,
 }: EvaluatorOptions) => {
@@ -217,7 +225,7 @@ export const makeEvaluator = ({
         : "held-by-peer";
     });
 
-  const fire = (
+  const dispatchDue = (
     schedule: Schedule,
     progress: Progress,
     scheduledFor: Instant,
@@ -267,15 +275,20 @@ export const makeEvaluator = ({
           true
         );
       }
-      if (active !== undefined && schedule.overlap === "cancel-previous") {
-        yield* dispatch.cancel(active, SUPERSEDED);
-      }
-      const { jobId } = yield* dispatch.submit({
-        idempotencyKey: base.id,
-        scheduledFor,
-        scheduleId: schedule.id,
-        target: schedule.target,
-      });
+      const { jobId } = yield* Effect.tapError(
+        Effect.gen(function* () {
+          if (active !== undefined && schedule.overlap === "cancel-previous") {
+            yield* dispatch.cancel(active, SUPERSEDED);
+          }
+          return yield* dispatch.submit({
+            idempotencyKey: base.id,
+            scheduledFor,
+            scheduleId: schedule.id,
+            target: schedule.target,
+          });
+        }),
+        () => Effect.ignore(store.releaseClaim(base.id, self))
+      );
       const dispatched: Occurrence = {
         ...base,
         state: { dispatchedAt: now, jobId, kind: "dispatched" },
@@ -292,7 +305,12 @@ export const makeEvaluator = ({
       );
     });
 
-  const save = (before: ScheduleCursor, progress: Progress, now: Instant) => {
+  const save = (
+    stored: ScheduleCursor | undefined,
+    before: ScheduleCursor,
+    progress: Progress,
+    now: Instant
+  ) => {
     const cursorChanged = !sameJson(before, progress.cursor);
     return progress.writes.length === 0 &&
       progress.facts.length === 0 &&
@@ -300,8 +318,11 @@ export const makeEvaluator = ({
       ? Effect.void
       : commit(now, progress.facts, {
           ...(cursorChanged ? { cursors: [progress.cursor] } : {}),
+          ...(cursorChanged && stored !== undefined
+            ? { expectedCursors: [stored] }
+            : {}),
+          maxOccurrencesPerSchedule,
           occurrences: progress.writes,
-          retainOccurrences,
         });
   };
 
@@ -326,14 +347,14 @@ export const makeEvaluator = ({
     const advanced: Progress = {
       cursor: {
         ...progress.cursor,
-        lastScheduledFor: due.toFire ?? due.skipped.at(-1),
+        lastScheduledFor: due.toDispatch ?? due.skipped.at(-1),
         nextDueAt: due.nextDueAt,
       },
       decided: [...progress.decided, ...missed],
       facts: [...progress.facts, ...missed.map(skippedFact)],
       writes: [...progress.writes, ...missed],
     };
-    if (due.toFire === null) {
+    if (due.toDispatch === null) {
       return Effect.succeed(advanced);
     }
     const pending: ScheduleCursor = {
@@ -341,12 +362,12 @@ export const makeEvaluator = ({
       ...(due.skipped.length > 0
         ? { lastScheduledFor: due.skipped.at(-1) }
         : {}),
-      nextDueAt: due.toFire,
+      nextDueAt: due.toDispatch,
     };
-    return fire(schedule, advanced, due.toFire, now, pending);
+    return dispatchDue(schedule, advanced, due.toDispatch, now, pending);
   };
 
-  const evaluate = (schedule: Schedule, now: Instant) =>
+  const evaluateOnce = (schedule: Schedule, now: Instant) =>
     Effect.gen(function* () {
       const cursor = yield* store.getCursor(schedule.id);
       if (cursor === undefined) {
@@ -361,7 +382,7 @@ export const makeEvaluator = ({
         schedule.state === "active"
           ? yield* advance(schedule, refreshed, now)
           : refreshed;
-      yield* save(cursor, progress, now);
+      yield* save(cursor, cursor, progress, now);
       return {
         decided: progress.decided,
         nextDueAt:
@@ -376,21 +397,25 @@ export const makeEvaluator = ({
       } satisfies Evaluation;
     });
 
-  const triggerNow = (schedule: Schedule, now: Instant) =>
+  const triggerNowOnce = (schedule: Schedule, now: Instant) =>
     Effect.gen(function* () {
-      const cursor = (yield* store.getCursor(schedule.id)) ?? {
-        nextDueAt: null,
-        scheduleId: schedule.id,
-      };
-      const progress = yield* fire(
+      const stored = yield* store.getCursor(schedule.id);
+      const cursor = stored ?? { nextDueAt: null, scheduleId: schedule.id };
+      const progress = yield* dispatchDue(
         schedule,
         yield* refresh(schedule, cursor),
         now,
         now
       );
-      yield* save(cursor, progress, now);
+      yield* save(stored, cursor, progress, now);
       return progress.decided.at(-1);
     });
+
+  const evaluate = (schedule: Schedule, now: Instant) =>
+    retryingConflicts(evaluateOnce(schedule, now));
+
+  const triggerNow = (schedule: Schedule, now: Instant) =>
+    retryingConflicts(triggerNowOnce(schedule, now));
 
   return { evaluate, triggerNow };
 };

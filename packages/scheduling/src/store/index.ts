@@ -1,5 +1,6 @@
 import { Context, type Effect } from "effect";
 import type {
+  CursorConflictError,
   Occurrence,
   OccurrenceFilter,
   OccurrenceId,
@@ -7,15 +8,17 @@ import type {
   ScheduleCursor,
   ScheduleEvent,
   ScheduleId,
+  SchedulerOwner,
   StoreError,
 } from "../domain";
 
 export interface ScheduleWrite {
   readonly cursors?: readonly ScheduleCursor[];
   readonly events?: readonly ScheduleEvent[];
+  readonly expectedCursors?: readonly ScheduleCursor[];
+  readonly maxOccurrencesPerSchedule?: number;
   readonly occurrences?: readonly Occurrence[];
   readonly removed?: readonly ScheduleId[];
-  readonly retainOccurrences?: number;
   readonly schedules?: readonly Schedule[];
 }
 
@@ -24,7 +27,9 @@ export interface ScheduleStoreService {
     occurrence: Occurrence,
     replacing?: Occurrence
   ) => Effect.Effect<boolean, StoreError>;
-  readonly commit: (write: ScheduleWrite) => Effect.Effect<void, StoreError>;
+  readonly commit: (
+    write: ScheduleWrite
+  ) => Effect.Effect<void, StoreError | CursorConflictError>;
   readonly getCursor: (
     id: ScheduleId
   ) => Effect.Effect<ScheduleCursor | undefined, StoreError>;
@@ -41,6 +46,10 @@ export interface ScheduleStoreService {
     filter?: OccurrenceFilter
   ) => Effect.Effect<readonly Occurrence[], StoreError>;
   readonly listSchedules: Effect.Effect<readonly Schedule[], StoreError>;
+  readonly releaseClaim: (
+    id: OccurrenceId,
+    owner: SchedulerOwner
+  ) => Effect.Effect<void, StoreError>;
 }
 
 export class ScheduleStore extends Context.Tag(

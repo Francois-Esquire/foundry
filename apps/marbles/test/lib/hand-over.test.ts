@@ -107,3 +107,59 @@ it("settles its callers' results when another engine cancels their runs, running
   expect(owner.executions.get(running.id)?.status).toBe("cancelled");
   expect(owner.executions.get(queued.id)?.status).toBe("cancelled");
 });
+
+it("launches one run for a key launched twice at once, task or workflow", async () => {
+  const engine = fixture.engine();
+  const finish = gate();
+  engine.task({ name: "keyed-task", run: () => finish.opened });
+  engine.define({
+    fn: () => finish.opened,
+    kind: "step",
+    name: "keyed-flow",
+  });
+  await engine.start();
+  const launchTwice = (name: string) =>
+    Promise.all(
+      [0, 1].map(() => engine.launch(name, {}, { idempotencyKey: name }))
+    );
+  const tasks = await launchTwice("keyed-task");
+  const flows = await launchTwice("keyed-flow");
+  finish.open();
+  await Promise.all([...tasks, ...flows].map((launched) => launched.result));
+  expect(new Set(tasks.map((launched) => launched.id)).size).toBe(1);
+  expect(new Set(flows.map((launched) => launched.id)).size).toBe(1);
+  expect(engine.executions.list().map((run) => [run.name, run.status])).toEqual(
+    [
+      ["keyed-task", "complete"],
+      ["keyed-flow", "complete"],
+    ]
+  );
+  expect(
+    (await engine.runs()).filter((run) => run.id === flows[0]?.id)
+  ).toHaveLength(1);
+});
+
+it("follows a keyed run another engine launched to its end when launched again with the key", async () => {
+  const state = join(fixture.root, "state");
+  const finish = gate();
+  const ran: string[] = [];
+  const owner = fixture.engine({ state });
+  owner.task({
+    name: "keyed",
+    run: async () => {
+      ran.push("owner");
+      await finish.opened;
+    },
+  });
+  await owner.start();
+  const other = fixture.engine({ state });
+  other.task({ name: "keyed", run: () => ran.push("other") });
+  await other.start();
+  const first = await owner.launch("keyed", {}, { idempotencyKey: "keyed" });
+  const again = await other.launch("keyed", {}, { idempotencyKey: "keyed" });
+  finish.open();
+  await first.result;
+  await expect(again.result).resolves.toBeUndefined();
+  expect(again.id).toBe(first.id);
+  expect(ran).toEqual(["owner"]);
+});

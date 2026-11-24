@@ -225,6 +225,36 @@ describe("the schedule loop", { timeout: 20_000 }, () => {
     expect(launched).toEqual(["again"]);
   });
 
+  it("launches one run for an occurrence a restarted dispatcher submits again", async () => {
+    const finish = Promise.withResolvers<void>();
+    step("again").do(() => finish.promise);
+    const engine = await engineWith(every("again", 60_000));
+    const request = {
+      idempotencyKey: "again:1",
+      scheduledFor: 1,
+      scheduleId: "again",
+      target: { handler: { name: "again" }, input: null },
+    };
+    const submitThrough = (dispatcher: ScheduleDispatcher) =>
+      Effect.runPromise(
+        Effect.flatMap(ScheduleDispatch, (dispatch) =>
+          dispatch.submit(request)
+        ).pipe(Effect.provide(dispatcher.layer))
+      );
+    const dispatcherFor = () =>
+      new ScheduleDispatcher(engine, {
+        cancel: new AbortController().signal,
+        print: () => undefined,
+      });
+    const first = await submitThrough(dispatcherFor());
+    const again = await submitThrough(dispatcherFor());
+    finish.resolve();
+    expect(again).toEqual(first);
+    expect(engine.executions.list().map((run) => run.id)).toEqual([
+      first.jobId,
+    ]);
+  });
+
   it("reports a failed read of the schedules and reads them again", async () => {
     const launched: string[] = [];
     let reads = 0;

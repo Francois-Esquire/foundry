@@ -56,7 +56,7 @@ export type RunFactory<
   execution: RunExecution
 ) => Runnable<I, O, X> | Promise<Runnable<I, O, X>>;
 
-export interface HeldWorkflow {
+export interface AttachedWorkflow {
   result(): Promise<WorkflowResult<unknown>>;
   readonly root: {
     readonly path: readonly string[];
@@ -83,9 +83,14 @@ export interface SubmitOptions {
   readonly runId: string;
 }
 
+export interface QueuedRun {
+  readonly deduplicated: boolean;
+  readonly job: Job;
+}
+
 export interface Attempts {
   prepare(name: string, runId: string): Promise<void>;
-  started(runId: string, workflow: HeldWorkflow): void;
+  started(runId: string, workflow: AttachedWorkflow): void;
 }
 
 export type TaskHandler = (context: QueueHandlerContext) => Promise<RunOutcome>;
@@ -149,7 +154,7 @@ const latest = (runs: readonly Run[]): Run | undefined =>
 
 export class RunQueue {
   readonly instanceId = randomUUID();
-  readonly #attached = new Map<string, HeldWorkflow>();
+  readonly #attached = new Map<string, AttachedWorkflow>();
   readonly #attempts: Attempts;
   readonly #client: QueueClient;
   readonly #definitions = new Map<string, Definition>();
@@ -250,7 +255,7 @@ export class RunQueue {
     return () => this.#events.delete(listener);
   }
 
-  attached(runId: string): HeldWorkflow | undefined {
+  attached(runId: string): AttachedWorkflow | undefined {
     return this.#attached.get(runId);
   }
 
@@ -258,7 +263,7 @@ export class RunQueue {
     name: string,
     input: unknown,
     options: SubmitOptions
-  ): Promise<Job> {
+  ): Promise<QueuedRun> {
     const runId = requireRunId(options.runId);
     const stored = storableJson(`the input of run ${runId}`, input ?? null);
     const definition = this.#definitions.get(name);
@@ -268,7 +273,14 @@ export class RunQueue {
     await definition.registered;
     await definition.first(input, runId);
     try {
-      return await this.submit(name, stored, options);
+      const job = await this.submit(name, stored, options);
+      const deduplicated =
+        options.idempotencyKey !== undefined &&
+        (await this.getRun(runId)) === undefined;
+      if (deduplicated) {
+        definition.forget(runId);
+      }
+      return { deduplicated, job };
     } catch (error) {
       definition.forget(runId);
       throw error;

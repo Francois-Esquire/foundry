@@ -4,7 +4,7 @@ import type { Executions } from "~/lib/executions";
 import type { FeedRouter } from "~/lib/feed/route";
 import type { DispatchedRun } from "~/lib/launcher";
 import { observeSteps } from "~/lib/observe";
-import type { HeldWorkflow, RunQueue } from "~/lib/run-queue";
+import type { AttachedWorkflow, RunQueue } from "~/lib/run-queue";
 import type { RunScopes } from "~/lib/run-scope";
 import { RunOutput } from "~/lib/state/output";
 
@@ -36,9 +36,10 @@ interface Followed {
   ended?: WorkflowResult<unknown>;
   finalized?: Promise<unknown>;
   idle: boolean;
-  last?: HeldWorkflow;
+  last?: AttachedWorkflow;
   readonly name: string;
-  readonly observations: Observation[];
+  observationFailure?: { readonly reason: unknown };
+  readonly observing: Set<Observation>;
   opened?: Opened;
   readonly runId: string;
 }
@@ -48,7 +49,7 @@ export interface TrackedRun {
   start(): DispatchedRun;
 }
 
-export interface HeldRunsOptions {
+export interface FollowedRunsOptions {
   readonly executions: Pick<Executions, "progress">;
   readonly print: (line: string) => void;
   readonly queue: RunQueue;
@@ -57,16 +58,17 @@ export interface HeldRunsOptions {
   readonly state: string | undefined;
 }
 
-export class HeldRuns {
-  readonly #options: HeldRunsOptions;
+export class FollowedRuns {
+  readonly #options: FollowedRunsOptions;
   readonly #followed = new Map<string, Followed>();
 
-  constructor(options: HeldRunsOptions) {
+  constructor(options: FollowedRunsOptions) {
     this.#options = options;
     options.queue.on("suspended", (runId) => {
       const followed = this.#followed.get(runId);
       if (followed !== undefined) {
         followed.idle = true;
+        followed.last = undefined;
       }
     });
   }
@@ -79,7 +81,7 @@ export class HeldRuns {
     return [...this.#followed.keys()];
   }
 
-  workflow(runId: string): HeldWorkflow | undefined {
+  workflow(runId: string): AttachedWorkflow | undefined {
     return this.#options.queue.attached(runId);
   }
 
@@ -91,13 +93,13 @@ export class HeldRuns {
       context: new AsyncResource("marbles.run"),
       idle: false,
       name,
-      observations: [],
+      observing: new Set(),
       runId,
     };
     this.#followed.set(runId, followed);
     const attached = this.#options.queue.attached(runId);
     if (attached !== undefined) {
-      this.attempt(runId, attached);
+      this.attach(runId, attached);
     }
     return {
       drop: () => {
@@ -110,7 +112,7 @@ export class HeldRuns {
     };
   }
 
-  attempt(runId: string, workflow: HeldWorkflow): void {
+  attach(runId: string, workflow: AttachedWorkflow): void {
     const followed = this.#followed.get(runId);
     if (followed === undefined) {
       return;
@@ -122,13 +124,20 @@ export class HeldRuns {
     const done = followed.context.runInAsyncScope(() =>
       this.#observe(followed, workflow, controller.signal)
     );
-    done.catch(() => undefined);
-    followed.observations.push({ controller, done });
+    const observation = { controller, done };
+    followed.observing.add(observation);
+    done.then(
+      () => followed.observing.delete(observation),
+      (reason: unknown) => {
+        followed.observing.delete(observation);
+        followed.observationFailure ??= { reason };
+      }
+    );
   }
 
   #observe(
     followed: Followed,
-    workflow: HeldWorkflow,
+    workflow: AttachedWorkflow,
     signal: AbortSignal
   ): Promise<void> {
     const { executions, print } = this.#options;
@@ -178,7 +187,7 @@ export class HeldRuns {
   }
 
   #stopObserving(followed: Followed, reason?: unknown): void {
-    for (const { controller } of followed.observations) {
+    for (const { controller } of followed.observing) {
       controller.abort(reason);
     }
   }
@@ -210,9 +219,7 @@ export class HeldRuns {
       if (followed.idle) {
         this.#stopObserving(followed);
       }
-      const observations = await Promise.allSettled(
-        followed.observations.map(({ done }) => done)
-      );
+      await Promise.allSettled([...followed.observing].map(({ done }) => done));
       await routed.settled();
       if (settled.status !== "complete") {
         const message =
@@ -222,12 +229,8 @@ export class HeldRuns {
         await router.close(runId);
         throw new RunEndedError(message);
       }
-      const failed = observations.find(
-        (observation): observation is PromiseRejectedResult =>
-          observation.status === "rejected"
-      );
-      if (failed !== undefined) {
-        throw failed.reason;
+      if (followed.observationFailure !== undefined) {
+        throw followed.observationFailure.reason;
       }
       return await this.#valueOf(followed, settled.value);
     } finally {

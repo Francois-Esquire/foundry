@@ -64,10 +64,10 @@ export class Capacity {
     if (this.admission.retiring) {
       return run.state.owner?.instanceId === this.#self.instanceId;
     }
-    return this.pins(run) || run.state.owner === undefined;
+    return this.ownedBySelf(run) || run.state.owner === undefined;
   }
 
-  pins(run: Run): boolean {
+  ownedBySelf(run: Run): boolean {
     return (
       run.state.kind === "queued" &&
       run.state.owner !== undefined &&

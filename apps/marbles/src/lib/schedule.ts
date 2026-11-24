@@ -81,13 +81,20 @@ export function describeTrigger(trigger: Trigger): string {
 
 const LOCAL_TIME = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+function intervalAsDelayAfterSettle(
+  everyMs: number,
+  initialDelayMs?: number
+): Cadence {
+  return {
+    afterSettleMs: everyMs,
+    kind: "delay",
+    ...(initialDelayMs === undefined ? {} : { initialDelayMs }),
+  };
+}
+
 function cadenceOf(trigger: Trigger, initialDelayMs?: number): Cadence {
   if (trigger.kind === "interval") {
-    return {
-      afterSettleMs: trigger.ms,
-      kind: "delay",
-      ...(initialDelayMs === undefined ? {} : { initialDelayMs }),
-    };
+    return intervalAsDelayAfterSettle(trigger.ms, initialDelayMs);
   }
   const { slot } = trigger;
   const days = weekdays(slot);
@@ -208,12 +215,16 @@ export type ScheduledEngine = Pick<
 
 export async function startScheduled(
   engine: ScheduledEngine,
-  schedule: Schedule
+  schedule: Schedule,
+  idempotencyKey?: string
 ): Promise<Launched<unknown>> {
   if (schedule.kind === "schedule") {
     await engine.triggers.forgetMonitor(schedule.key);
   }
-  return await engine.launch(schedule.workflow, schedule.input, schedule.key);
+  return await engine.launch(schedule.workflow, schedule.input, {
+    ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+    triggerId: schedule.key,
+  });
 }
 
 export function pendingOf(

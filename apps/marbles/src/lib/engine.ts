@@ -54,7 +54,7 @@ import type { FeedPublisher } from "~/lib/feed/publish";
 import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
-import type { Launched, LaunchOptions, QueuedTake } from "~/lib/launcher";
+import type { Launched, LaunchOptions, QueuedAdoption } from "~/lib/launcher";
 import { Launcher } from "~/lib/launcher";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { AgentsManager } from "~/lib/managers/agents";
@@ -127,7 +127,7 @@ export interface EngineOptions {
 }
 
 // biome-ignore lint/performance/noBarrelFile: Preserve the existing engine error export after moving run tracking.
-export { RunEndedError } from "~/lib/held-runs";
+export { RunEndedError } from "~/lib/followed-runs";
 
 export class Engine {
   readonly activities: HarnessActivities;
@@ -715,7 +715,10 @@ export class Engine {
     return { ended: this.#launcher.idle() };
   }
 
-  async takeQueued(runId: string, owner: ProcessIdentity): Promise<QueuedTake> {
+  async adoptQueued(
+    runId: string,
+    owner: ProcessIdentity
+  ): Promise<QueuedAdoption> {
     if (this.#running === undefined || this.#phase !== "started") {
       return { taken: false, why: "this engine is not running" };
     }
@@ -723,7 +726,7 @@ export class Engine {
     if (this.#retiring) {
       return { taken: false, why: "this engine is retiring" };
     }
-    return await this.#launcher.takeOrphaned(runId, owner);
+    return await this.#launcher.adoptQueued(runId, owner);
   }
 
   async takeHanded(runId: string): Promise<boolean> {
@@ -767,7 +770,7 @@ export class Engine {
     let ended = false;
     const cancelAll = async () => {
       await this.#launcher.cancelPending();
-      await running.cancelHeld();
+      await running.cancelFollowed();
     };
     this.#cancelStopping = async () => {
       if (cancelling || ended) {

@@ -1,3 +1,4 @@
+import { sameInstance } from "@foundry/lib/instance-identity";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
@@ -19,6 +20,7 @@ import type {
 } from "drizzle-orm/sqlite-core";
 import { Effect, Layer } from "effect";
 import {
+  CursorConflictError,
   type Occurrence,
   type Schedule,
   type ScheduleCursor,
@@ -124,7 +126,7 @@ const pruneOccurrences = async (
   scope: string,
   write: ScheduleWrite
 ) => {
-  const keep = write.retainOccurrences;
+  const keep = write.maxOccurrencesPerSchedule;
   if (keep === undefined) {
     return;
   }
@@ -147,11 +149,33 @@ const pruneOccurrences = async (
   }
 };
 
+const requireExpectedCursors = async (
+  transaction: ScheduleTransaction,
+  scope: string,
+  write: ScheduleWrite
+) => {
+  for (const expected of write.expectedCursors ?? []) {
+    const [stored] = await transaction
+      .select({ body: schedulingCursors.body })
+      .from(schedulingCursors)
+      .where(
+        and(
+          eq(schedulingCursors.scope, scope),
+          eq(schedulingCursors.scheduleId, expected.scheduleId)
+        )
+      );
+    if (canonicalizeJson(stored?.body ?? null) !== canonicalizeJson(expected)) {
+      throw new CursorConflictError({ scheduleId: expected.scheduleId });
+    }
+  }
+};
+
 const writeRecords = async (
   transaction: ScheduleTransaction,
   scope: string,
   write: ScheduleWrite
 ) => {
+  await requireExpectedCursors(transaction, scope, write);
   await removeSchedules(transaction, scope, write.removed ?? []);
   await upsert(
     transaction,
@@ -197,6 +221,14 @@ export const makeSqliteScheduleStore = (
   const run = <A>(work: () => Promise<A>) =>
     Effect.tryPromise({
       catch: (cause) => new StoreError({ cause }),
+      try: () => turns.run(work),
+    });
+  const guarded = (work: () => Promise<void>) =>
+    Effect.tryPromise({
+      catch: (cause) =>
+        cause instanceof CursorConflictError
+          ? cause
+          : new StoreError({ cause }),
       try: () => turns.run(work),
     });
   const bodies = <Body>(
@@ -252,7 +284,7 @@ export const makeSqliteScheduleStore = (
         });
       }),
     commit: (write) =>
-      run(() =>
+      guarded(() =>
         database.transaction(async (transaction) => {
           await writeRecords(transaction, scope, write);
           await options.onCommit?.(transaction, write);
@@ -305,6 +337,26 @@ export const makeSqliteScheduleStore = (
         schedulingOccurrences.scheduledFor
       ),
     listSchedules: bodies<Schedule>(schedulingSchedules, undefined),
+    releaseClaim: (id, owner) =>
+      run(() =>
+        database.transaction(async (transaction) => {
+          const where = and(
+            eq(schedulingOccurrences.scope, scope),
+            eq(schedulingOccurrences.id, id)
+          );
+          const [stored] = await transaction
+            .select({ body: schedulingOccurrences.body })
+            .from(schedulingOccurrences)
+            .where(where);
+          const state = stored?.body.state;
+          if (
+            state?.kind === "claimed" &&
+            sameInstance(state.lease.owner, owner)
+          ) {
+            await transaction.delete(schedulingOccurrences).where(where);
+          }
+        })
+      ),
   };
 };
 

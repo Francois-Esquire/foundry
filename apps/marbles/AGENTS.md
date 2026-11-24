@@ -120,18 +120,20 @@ Five buckets, each importing only what sits below it:
   calendar slot a calendar cadence, each with overlap skip and misfire
   run-once) and removing what is no longer declared; `lib/schedule-dispatch.ts`
   is its `ScheduleDispatch`, which launches each occurrence through the
-  engine, reads its end from the Execution Run, records a launch the engine
+  engine under the occurrence's id as the queue's idempotency key, so a
+  restarted dispatcher gets the same run back, reads its end from the
+  Execution Run, records a launch the engine
   refuses as a failed occurrence, and holds a monitor's occurrence open
   until the launch its detector asked for is started. A roll
   (`rollSchedule`) launches and awaits a schedule's target directly and
   records no occurrence.
-  `lib/held-runs.ts` follows workflow runs to their end: it observes each
+  `lib/followed-runs.ts` follows workflow runs to their end: it observes each
   attempt that runs here, and settles a run when its Job settles,
   whichever engine ran its last attempt. An engine whose queue starts a
   resumed run it does not follow follows it from then. `lib/run-store.ts`
   is where their Runs are kept (`RunStore`, in memory by default); what a
   gone process left is the queue's to recover (`recover`): a run it left
-  running is interrupted, one it left queued is taken over. A suspended run needs no owner: any engine may answer it, and its
+  running is interrupted, one it left queued is adopted. A suspended run needs no owner: any engine may answer it, and its
   questions are open in the Feed from the engine that asked them, or from
   an askable engine that starts while the run is suspended. `lib/crash-recovery.ts` is the one entry point that puts
   right what a crash left, run once per start before the host schedules
@@ -261,7 +263,8 @@ Five buckets, each importing only what sits below it:
   `marbles_executions`; each observation a row of
   `marbles_execution_observations`, so recording one costs the same however
   many its run has; and what pruning removed, `marbles_execution_gaps`,
-  counted in the transaction that removes the rows. Its readers
+  counted once the queue has removed the pruned jobs, in the transaction
+  that deletes whatever annex rows remain. Its readers
   (`readExecution`, `queuedRuns`) project a run from the queue's tables.
   The run store's `onCommit` hook deletes a removed job's rows in the
   commit that records `job.removed`. `automations.ts` is the triggers agents created, one
@@ -394,7 +397,7 @@ Five buckets, each importing only what sits below it:
   occurrence or delivery starts there again, its queued runs are handed to
   the candidate, and its run queue retires, so it starts nothing but the
   children of its running runs) and finishes its running runs untouched
-  before it exits, and the candidate starts, taking over the queued work;
+  before it exits, and the candidate starts, adopting the queued work;
   the candidate is current from the moment it has loaded, before the
   previous one is told to go, and only a current generation that is not
   retiring is replaced when it exits. A suspended run is nobody's to hand
@@ -416,9 +419,9 @@ Five buckets, each importing only what sits below it:
   their owner is alive;
   the sweep records it exited once its pid and start prove it gone, and a
   record without a start, which proves nothing, shows in `marbles status`
-  as "cannot tell". A queued run whose owner is proved gone is taken by
+  as "cannot tell". A queued run whose owner is proved gone is adopted by
   the current generation as it starts, or through the sweep
-  (`Engine.takeQueued`), both the queue's `recover`. The fingerprint
+  (`Engine.adoptQueued`), both the queue's `recover`. The fingerprint
   (`process/fingerprint.ts`) is taken before a generation loads: every
   file under each workspace's root, by relative path and content, and
   every file the generation reports reading outside it (`onRead` in

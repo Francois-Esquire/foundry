@@ -255,8 +255,8 @@ export interface SuspensionFilter {
 }
 
 export interface RecoverySummary {
+  readonly adopted: readonly RunId[];
   readonly interrupted: readonly RunId[];
-  readonly readmitted: readonly RunId[];
 }
 
 export class JobNotFoundError extends Data.TaggedError("JobNotFoundError")<{

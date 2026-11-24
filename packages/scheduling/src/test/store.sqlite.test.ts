@@ -152,7 +152,7 @@ describe("SqliteScheduleStore", () => {
     expect(results).toEqual([true, true, [], undefined]);
   });
 
-  test("a commit retaining occurrences keeps the newest finished ones and every open one, and reads the latest", async () => {
+  test("a commit retaining occurrences keeps the newest terminal ones and every open one, and reads the latest", async () => {
     const database = await openDatabase();
     const store = makeSqliteScheduleStore({ database, scope: "retain" });
     const at = (scheduledFor: number, state: Occurrence["state"]) => ({
@@ -176,8 +176,8 @@ describe("SqliteScheduleStore", () => {
           ],
         });
         yield* store.commit({
+          maxOccurrencesPerSchedule: 2,
           occurrences: [skipped(6)],
-          retainOccurrences: 2,
         });
         return {
           kept: yield* store.listOccurrences({ scheduleId: "nightly" }),
@@ -189,5 +189,48 @@ describe("SqliteScheduleStore", () => {
       1, 5, 6,
     ]);
     expect(result.latest?.scheduledFor).toBe(6);
+  });
+
+  test("a commit expecting a cursor writes nothing when the stored cursor moved, and a claim is released only by its owner", async () => {
+    const database = await openDatabase();
+    const store = makeSqliteScheduleStore({ database, scope: "guarded" });
+    const read = { nextDueAt: 1000, scheduleId: "nightly" };
+    const moved = {
+      lastSettledAt: 900,
+      nextDueAt: 1900,
+      scheduleId: "nightly",
+    };
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* store.commit({ cursors: [moved] });
+        const conflict = yield* Effect.flip(
+          store.commit({
+            cursors: [{ nextDueAt: null, scheduleId: "nightly" }],
+            expectedCursors: [read],
+            occurrences: [claimed(7)],
+          })
+        );
+        yield* store.commit({
+          cursors: [{ ...moved, nextDueAt: 2900 }],
+          expectedCursors: [moved],
+        });
+        yield* store.claim(claimed(7));
+        yield* store.releaseClaim("nightly:1000", { pid: 8, started: null });
+        const keptForOwner = yield* store.getOccurrence("nightly:1000");
+        yield* store.releaseClaim("nightly:1000", { pid: 7, started: null });
+        return {
+          conflict: conflict._tag,
+          cursor: yield* store.getCursor("nightly"),
+          keptForOwner: keptForOwner?.state.kind,
+          released: yield* store.getOccurrence("nightly:1000"),
+        };
+      })
+    );
+    expect(result).toEqual({
+      conflict: "CursorConflictError",
+      cursor: { ...moved, nextDueAt: 2900 },
+      keptForOwner: "claimed",
+      released: undefined,
+    });
   });
 });

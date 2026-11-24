@@ -1,10 +1,17 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { createQueueClient } from "@foundry/queue/client";
+import { QueueStore } from "@foundry/queue/store";
+import { makeMemoryQueueStore } from "@foundry/queue/store/memory";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { Step } from "@foundry/workflows/step";
 import { Workflow } from "@foundry/workflows/workflow";
+import { Effect, Layer } from "effect";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
+import { MemoryExecutionStore } from "~/lib/execution-store";
+import { Executions } from "~/lib/executions";
 import type { Factory } from "~/lib/run-queue";
 import type { TaskContext } from "~/lib/tasks";
 import { dashboardSnapshot } from "~/workspace/snapshot";
@@ -230,6 +237,37 @@ it("records workflow runs under the Orchestrator's own id, and shows queued ones
     progress: { event: "step.complete", step: "hold" },
     status: "complete",
   });
+});
+
+it("rejects a wait on a run whose job another queue cancelled and removed", async () => {
+  const store = Layer.succeed(QueueStore, Effect.runSync(makeMemoryQueueStore));
+  const here = createQueueClient({ store, syncIntervalMs: 10 });
+  const elsewhere = createQueueClient({ store });
+  const executions = new Executions({
+    store: new MemoryExecutionStore(),
+    warn: () => undefined,
+  });
+  executions.attach({ ...here, instanceId: randomUUID() });
+  try {
+    await elsewhere.register("held", () => ({
+      kind: "complete",
+      output: null,
+    }));
+    await elsewhere.configurePool({ limit: 1, name: "held", state: "paused" });
+    const job = await elsewhere.submit({
+      handler: { name: "held" },
+      pool: "held",
+      runId: "rn-removed",
+    });
+    const waiting = executions.settled("rn-removed");
+    await elsewhere.cancel(job.id, "gone");
+    await elsewhere.removeJob(job.id);
+    await expect(waiting).rejects.toThrow();
+  } finally {
+    executions.detach();
+    await here.dispose();
+    await elsewhere.dispose();
+  }
 });
 
 it("cancels a queued run without starting it", async () => {

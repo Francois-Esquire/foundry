@@ -3,7 +3,14 @@ import { thisProcess } from "@foundry/lib/process-identity";
 import { Effect, Ref, TestClock } from "effect";
 import { describe, expect, test } from "vitest";
 import { ScheduleStore } from "../store/index";
-import { target, testScheduler } from "./helpers/scheduler";
+import { makeMemoryScheduleStore } from "../store/memory";
+import {
+  fakeDispatch,
+  inTestContext,
+  startScheduler,
+  target,
+  testScheduler,
+} from "./helpers/scheduler";
 
 const every = (everyMs: number) => ({ everyMs, kind: "interval" }) as const;
 
@@ -77,8 +84,33 @@ describe("Scheduler instances and retention", () => {
     expect(result).toEqual({ afterPeerCloses: 1, whilePeerLives: 0 });
   });
 
+  test("a scheduler whose dispatch fails releases its claim, so another live scheduler dispatches the occurrence at once", async () => {
+    const dispatched = await inTestContext(
+      Effect.gen(function* () {
+        const store = yield* makeMemoryScheduleStore;
+        const dispatch = yield* fakeDispatch;
+        const failing = yield* startScheduler(store, dispatch, {
+          retryDelayMs: 60_000,
+        });
+        yield* failing.register({
+          cadence: { at: 1000, kind: "once" },
+          id: "launch",
+          target,
+        });
+        yield* Ref.set(dispatch.failNext, 1);
+        yield* TestClock.adjust(1000);
+        yield* startScheduler(store, dispatch);
+        yield* TestClock.adjust(0);
+        return (yield* Ref.get(dispatch.submitted)).map(
+          (request) => request.idempotencyKey
+        );
+      })
+    );
+    expect(dispatched).toEqual(["launch:1000"]);
+  });
+
   test("with a sync interval the loop notices a schedule another writer stored without waking it", async () => {
-    const fired = await testScheduler(
+    const dispatched = await testScheduler(
       (_scheduler, dispatch) =>
         Effect.gen(function* () {
           const store = yield* ScheduleStore;
@@ -104,6 +136,6 @@ describe("Scheduler instances and retention", () => {
         }),
       { syncIntervalMs: 1000 }
     );
-    expect(fired).toEqual(["external:500"]);
+    expect(dispatched).toEqual(["external:500"]);
   });
 });

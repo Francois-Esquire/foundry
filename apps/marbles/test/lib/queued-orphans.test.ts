@@ -47,7 +47,7 @@ it("takes a gone process's queued run as it starts, and runs it", async () => {
   await expect
     .poll(async () => (await storedExecution(state, "rn-orphan"))?.status)
     .toBe("complete");
-  expect(await engine.takeQueued("rn-orphan", dead)).toEqual({
+  expect(await engine.adoptQueued("rn-orphan", dead)).toEqual({
     taken: false,
     why: "it is no longer queued under a process proved gone",
   });
@@ -58,7 +58,7 @@ it("takes a gone process's queued run it is offered while it runs, and runs it",
   const ran: string[] = [];
   const engine = await engineHere(ran);
   await leftBehind(state, dead.pid, [{ id: "rn-offered", input: {} }]);
-  expect(await engine.takeQueued("rn-offered", dead)).toEqual({ taken: true });
+  expect(await engine.adoptQueued("rn-offered", dead)).toEqual({ taken: true });
   await expect.poll(() => ran).toEqual(["save"]);
   await expect
     .poll(async () => (await storedExecution(state, "rn-offered"))?.status)
@@ -70,7 +70,7 @@ it("moves nothing when the owner is alive", async () => {
   await leftBehind(state, alive.pid, [{ id: "rn-alive", input: {} }]);
   const ran: string[] = [];
   const engine = await engineHere(ran);
-  expect(await engine.takeQueued("rn-alive", alive)).toMatchObject({
+  expect(await engine.adoptQueued("rn-alive", alive)).toMatchObject({
     taken: false,
   });
   expect(ran).toEqual([]);
@@ -85,7 +85,7 @@ it("moves nothing when the run is no longer the named owner's", async () => {
   const alive = { pid: process.ppid, started: null };
   await leftBehind(state, alive.pid, [{ id: "rn-moved", input: {} }]);
   const engine = await engineHere([]);
-  expect(await engine.takeQueued("rn-moved", dead)).toMatchObject({
+  expect(await engine.adoptQueued("rn-moved", dead)).toMatchObject({
     taken: false,
   });
   expect((await storedExecution(state, "rn-moved"))?.owner?.pid).toBe(
@@ -100,8 +100,8 @@ it("takes it once when two engines race for it", async () => {
   const second = await engineHere(ran);
   await leftBehind(state, dead.pid, [{ id: "rn-raced", input: {} }]);
   await Promise.all([
-    first.takeQueued("rn-raced", dead),
-    second.takeQueued("rn-raced", dead),
+    first.adoptQueued("rn-raced", dead),
+    second.adoptQueued("rn-raced", dead),
   ]);
   await expect.poll(() => ran).toEqual(["save"]);
   await new Promise((resolve) => setTimeout(resolve, 50));
@@ -114,7 +114,7 @@ it("takes nothing once it has begun to retire", async () => {
   const engine = await engineHere(ran);
   await engine.retire({ pid: thisProcess().pid + 1, started: null });
   await leftBehind(state, dead.pid, [{ id: "rn-late", input: {} }]);
-  expect(await engine.takeQueued("rn-late", dead)).toEqual({
+  expect(await engine.adoptQueued("rn-late", dead)).toEqual({
     taken: false,
     why: "this engine is retiring",
   });
@@ -127,7 +127,7 @@ it("says why it leaves a gone process's queued run nothing here can run", async 
   await leftBehind(state, dead.pid, [
     { id: "rn-unknown", input: {}, name: "gone-task" },
   ]);
-  expect(await engine.takeQueued("rn-unknown", dead)).toEqual({
+  expect(await engine.adoptQueued("rn-unknown", dead)).toEqual({
     taken: false,
     why: 'no task named "gone-task" is registered here',
   });

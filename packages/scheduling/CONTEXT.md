@@ -26,13 +26,21 @@ _Avoid_: run, execution, firing, slot, tick
 
 **Claim**:
 The first scheduler to record an occurrence wins it; any other scheduler,
-in this process or another, sees it as already claimed.
+in this process or another, sees it as already claimed. A claim whose
+dispatch fails is released.
 _Avoid_: lock, lease
 
 **Cursor**:
-A schedule's durable watermark: the next due time, the last one handled,
+A schedule's durable progress: the next due time, the last one handled,
 when dispatched work last settled, and which dispatched work is still open.
-_Avoid_: state, checkpoint, offset
+A scheduler commits a cursor only over the one it read.
+_Avoid_: state, checkpoint, offset, watermark
+
+**Instance**:
+One live scheduler, named by its process and its own instance id. Two
+schedulers in one process are different instances and never take each
+other's claims as their own.
+_Avoid_: node, worker, replica
 
 **Target**:
 What a schedule dispatches at each occurrence: a handler, its input, and
@@ -62,8 +70,9 @@ occurrence is due at a time.
 _Avoid_: catch-up, backfill, missed run
 
 **Retention**:
-How many terminal (settled or skipped) occurrences a schedule keeps; older
-ones are pruned. Claimed and dispatched occurrences are always kept.
+How many terminal (settled or skipped) occurrences a schedule keeps
+(`maxOccurrencesPerSchedule`); older ones are pruned. Claimed and dispatched
+occurrences are always kept.
 _Avoid_: history limit, cleanup
 
 **Trigger now**:

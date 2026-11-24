@@ -1,6 +1,12 @@
+import { sameInstance } from "@foundry/lib/instance-identity";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { Effect, Layer, Ref } from "effect";
-import type { Occurrence, Schedule, ScheduleCursor } from "../domain";
+import {
+  CursorConflictError,
+  type Occurrence,
+  type Schedule,
+  type ScheduleCursor,
+} from "../domain";
 import {
   ScheduleStore,
   type ScheduleStoreService,
@@ -34,7 +40,7 @@ const retained = (
   occurrences: ReadonlyMap<string, Occurrence>,
   write: ScheduleWrite
 ): ReadonlyMap<string, Occurrence> => {
-  const keep = write.retainOccurrences;
+  const keep = write.maxOccurrencesPerSchedule;
   if (keep === undefined) {
     return occurrences;
   }
@@ -61,6 +67,40 @@ const claimable = (
     ? stored === undefined
     : stored !== undefined &&
       canonicalizeJson(stored) === canonicalizeJson(replacing);
+
+const conflictIn = (
+  cursors: ReadonlyMap<string, ScheduleCursor>,
+  write: ScheduleWrite
+) =>
+  (write.expectedCursors ?? []).find(
+    (expected) =>
+      canonicalizeJson(cursors.get(expected.scheduleId) ?? null) !==
+      canonicalizeJson(expected)
+  );
+
+const applied = (current: Records, write: ScheduleWrite): Records => {
+  const removed = new Set(write.removed ?? []);
+  return {
+    cursors: upsert(
+      without(current.cursors, (id) => removed.has(id)),
+      write.cursors,
+      (cursor) => cursor.scheduleId
+    ),
+    occurrences: retained(
+      upsert(
+        without(current.occurrences, (_, o) => removed.has(o.scheduleId)),
+        write.occurrences,
+        (o) => o.id
+      ),
+      write
+    ),
+    schedules: upsert(
+      without(current.schedules, (id) => removed.has(id)),
+      write.schedules,
+      (schedule) => schedule.id
+    ),
+  };
+};
 
 export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
   Effect.map(
@@ -90,31 +130,20 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
               : [false, current]
           ),
         commit: (write) =>
-          Ref.update(records, (current) => {
-            const removed = new Set(write.removed ?? []);
-            return {
-              cursors: upsert(
-                without(current.cursors, (id) => removed.has(id)),
-                write.cursors,
-                (cursor) => cursor.scheduleId
-              ),
-              occurrences: retained(
-                upsert(
-                  without(current.occurrences, (_, o) =>
-                    removed.has(o.scheduleId)
-                  ),
-                  write.occurrences,
-                  (o) => o.id
-                ),
-                write
-              ),
-              schedules: upsert(
-                without(current.schedules, (id) => removed.has(id)),
-                write.schedules,
-                (schedule) => schedule.id
-              ),
-            };
-          }),
+          Effect.flatMap(
+            Ref.modify(records, (current) => {
+              const conflict = conflictIn(current.cursors, write);
+              return conflict === undefined
+                ? [undefined, applied(current, write)]
+                : [conflict, current];
+            }),
+            (conflict) =>
+              conflict === undefined
+                ? Effect.void
+                : Effect.fail(
+                    new CursorConflictError({ scheduleId: conflict.scheduleId })
+                  )
+          ),
         getCursor: (id) => read((current) => current.cursors.get(id)),
         getOccurrence: (id) => read((current) => current.occurrences.get(id)),
         getSchedule: (id) => read((current) => current.schedules.get(id)),
@@ -140,6 +169,20 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
             )
           ),
         listSchedules: read((current) => [...current.schedules.values()]),
+        releaseClaim: (id, owner) =>
+          Ref.update(records, (current) => {
+            const stored = current.occurrences.get(id);
+            return stored?.state.kind === "claimed" &&
+              sameInstance(stored.state.lease.owner, owner)
+              ? {
+                  ...current,
+                  occurrences: without(
+                    current.occurrences,
+                    (key) => key === id
+                  ),
+                }
+              : current;
+          }),
       };
     }
   );

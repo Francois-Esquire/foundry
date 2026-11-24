@@ -20,6 +20,7 @@ import { withinContext } from "./execution-context";
 
 export interface LaunchOptions {
   readonly correlation?: Readonly<Record<string, string>>;
+  readonly idempotencyKey?: string;
   readonly queue?: string;
   readonly recordErrorMessage?: boolean;
   readonly source?: string;
@@ -41,7 +42,7 @@ interface WorkflowDispatch {
     name: string,
     input: unknown,
     options: SubmitOptions
-  ): Promise<{ readonly dispatched: DispatchedRun; readonly job: Job }>;
+  ): Promise<{ readonly dispatched?: DispatchedRun; readonly job: Job }>;
   has(name: string): boolean;
 }
 
@@ -86,11 +87,9 @@ class EngineRetiringError extends Error {
   }
 }
 
-export type QueuedTake =
+export type QueuedAdoption =
   | { readonly taken: true }
   | { readonly taken: false; readonly why: string };
-
-const IDLE_POLL_MS = 25;
 
 const idempotencyKeyOf = (name: string, source: string): string =>
   JSON.stringify([name, source]);
@@ -218,9 +217,10 @@ export class Launcher {
     const queue = this.#requireQueue();
     const task = this.#tasks.get(name);
     const idempotencyKey =
-      options.source === undefined
+      options.idempotencyKey ??
+      (options.source === undefined
         ? undefined
-        : idempotencyKeyOf(name, options.source);
+        : idempotencyKeyOf(name, options.source));
     const existing =
       idempotencyKey === undefined
         ? undefined
@@ -241,16 +241,14 @@ export class Launcher {
     try {
       job = await this.#submit(queue, name, input, task, submit);
     } catch (error) {
-      this.#owed.delete(runId);
-      this.#inputs.delete(runId);
-      this.#contexts.delete(runId);
+      this.#unowe(runId);
       throw isRetiring(error) ? new EngineRetiringError(name) : error;
     }
     if (this.executions.get(runId) === undefined) {
       await this.executions.refresh(runId);
     }
     if (this.executions.get(runId) === undefined && idempotencyKey) {
-      this.#owed.delete(runId);
+      this.#unowe(runId);
       return (await this.#existing(queue, idempotencyKey, job)) as Launched<O>;
     }
     if (task) {
@@ -287,7 +285,9 @@ export class Launcher {
       const { dispatched, job } = await asRun(runId, () =>
         this.#options.workflows.dispatch(name, input, submit)
       );
-      this.#follow(runId, dispatched.result);
+      if (dispatched !== undefined) {
+        this.#follow(runId, dispatched.result);
+      }
       return job;
     } finally {
       this.#dispatching.delete(runId);
@@ -370,7 +370,7 @@ export class Launcher {
 
   async recover(): Promise<RecoverySummary> {
     const summary = await this.#requireQueue().recover();
-    for (const id of summary.readmitted) {
+    for (const id of summary.adopted) {
       const run = this.executions.get(id) ?? (await this.executions.peek(id));
       if (run !== undefined) {
         this.#options.print(`[run] ${run.name} queued again ${id}`);
@@ -401,7 +401,10 @@ export class Launcher {
     return handed;
   }
 
-  async takeOrphaned(id: string, owner: ProcessIdentity): Promise<QueuedTake> {
+  async adoptQueued(
+    id: string,
+    owner: ProcessIdentity
+  ): Promise<QueuedAdoption> {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
     if (this.#retiring) {
       return { taken: false, why: "this engine is retiring" };
@@ -507,13 +510,23 @@ export class Launcher {
 
   async idle(): Promise<void> {
     await Promise.all(this.#launching);
-    for (;;) {
-      const pending = this.#pending();
-      if (pending.length === 0) {
-        break;
+    while (this.#pending().length > 0) {
+      const changed = Promise.withResolvers<void>();
+      const unwatch = this.executions.watch(() => changed.resolve());
+      try {
+        const pending = this.#pending();
+        await Promise.all(pending.map((run) => this.#refreshed(run.id)));
+        if (this.#pending().length > 0) {
+          await Promise.race([
+            changed.promise,
+            ...pending.map((run) =>
+              this.executions.settled(run.id).catch(() => undefined)
+            ),
+          ]);
+        }
+      } finally {
+        unwatch();
       }
-      await new Promise((resolve) => setTimeout(resolve, IDLE_POLL_MS));
-      await Promise.all(pending.map((run) => this.#refreshed(run.id)));
     }
     await Promise.all(this.#live.values());
   }
@@ -536,6 +549,12 @@ export class Launcher {
     return owed;
   }
 
+  #unowe(id: string): void {
+    this.#owed.delete(id);
+    this.#inputs.delete(id);
+    this.#contexts.delete(id);
+  }
+
   #pay(id: string, error: unknown, value?: unknown): void {
     const owed = this.#owed.get(id);
     this.#owed.delete(id);
@@ -555,11 +574,21 @@ export class Launcher {
     if (run?.status === "complete") {
       return Promise.resolve(undefined);
     }
+    if (run !== undefined && !SETTLED_EXECUTION_STATUSES.has(run.status)) {
+      return this.#endOf(id);
+    }
     return Promise.reject(
       new Error(
         `run ${id} is ${run?.status ?? "gone"}; its value is not held here`
       )
     );
+  }
+
+  async #endOf(id: string): Promise<void> {
+    const settled = await this.executions.settled(id);
+    if (settled.status !== "complete") {
+      throw new Error(this.#endedWith(settled));
+    }
   }
 
   #activeCaller(): string | undefined {
