@@ -1,11 +1,11 @@
 import {
-  type AsyncSQLiteDatabase,
-  type AsyncSQLiteTransaction,
   assertScope,
   batches,
   replacing,
   SQLITE_MAX_PARAMETERS,
-  storable,
+  type SqliteDatabase,
+  type SqliteTransaction,
+  storableText,
 } from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
 import type { SQL } from "drizzle-orm";
@@ -19,14 +19,14 @@ import type { SessionRow, UnplacedMessageRow } from "./sqlite-rows";
 import { captured, owned } from "./sqlite-rows";
 import { agentMessages, agentSessions } from "./tables";
 
-export type SessionDatabase = AsyncSQLiteDatabase;
+export type SessionDatabase = SqliteDatabase;
 
 export interface MessageTally {
   readonly messages: number;
   readonly summarized: boolean;
 }
 
-export type SessionTransaction = AsyncSQLiteTransaction;
+export type SessionTransaction = SqliteTransaction;
 
 export interface SqliteSessionStoreOptions {
   readonly database: SessionDatabase;
@@ -135,7 +135,7 @@ export class SqliteSessionStore implements SessionStore {
 
   getSession(id: string): Promise<SessionRecord | null> {
     return this.#turns.run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -152,7 +152,7 @@ export class SqliteSessionStore implements SessionStore {
     return this.#turns.run(async () => {
       const sessions: SessionRecord[] = [];
       for (const batch of batches(
-        [...new Set(ids.filter(storable))],
+        [...new Set(ids.filter(storableText))],
         SQLITE_MAX_PARAMETERS - 1
       )) {
         const rows = await this.#database
@@ -176,7 +176,7 @@ export class SqliteSessionStore implements SessionStore {
     return this.#turns.run(async () => {
       const tallies = new Map<string, MessageTally>();
       for (const batch of batches(
-        [...new Set(sessionIds.filter(storable))],
+        [...new Set(sessionIds.filter(storableText))],
         SQLITE_MAX_PARAMETERS - 1
       )) {
         const rows = await this.#database
@@ -206,7 +206,7 @@ export class SqliteSessionStore implements SessionStore {
 
   getMessage(id: string): Promise<SessionMessage | null> {
     return this.#turns.run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -221,7 +221,7 @@ export class SqliteSessionStore implements SessionStore {
 
   listMessages(sessionId: string): Promise<SessionMessage[]> {
     return this.#turns.run(async () => {
-      if (!storable(sessionId)) {
+      if (!storableText(sessionId)) {
         return [];
       }
       const rows = await this.#database

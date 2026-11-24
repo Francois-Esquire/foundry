@@ -1,11 +1,11 @@
 import {
-  type AsyncSQLiteDatabase,
-  type AsyncSQLiteTransaction,
   assertScope,
   batches,
   replacing,
   SQLITE_MAX_PARAMETERS,
-  storable,
+  type SqliteDatabase,
+  type SqliteTransaction,
+  storableText,
   whyUnstorable,
 } from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
@@ -47,9 +47,9 @@ import {
   artifacts,
 } from "./tables";
 
-export type ArtifactDatabase = AsyncSQLiteDatabase;
+export type ArtifactDatabase = SqliteDatabase;
 
-export type ArtifactDatabaseTransaction = AsyncSQLiteTransaction;
+export type ArtifactDatabaseTransaction = SqliteTransaction;
 
 export interface SqliteArtifactStoreOptions {
   readonly database: ArtifactDatabase;
@@ -163,7 +163,7 @@ export class SqliteArtifactStore implements ArtifactStore {
 
   getArtifact(id: ArtifactId): Promise<Artifact | null> {
     return this.#run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -176,7 +176,7 @@ export class SqliteArtifactStore implements ArtifactStore {
 
   getContent(id: ContentId): Promise<Content | null> {
     return this.#run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -194,7 +194,7 @@ export class SqliteArtifactStore implements ArtifactStore {
 
   getBlob(id: BlobId): Promise<Blob | null> {
     return this.#run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -209,7 +209,7 @@ export class SqliteArtifactStore implements ArtifactStore {
 
   findBlobs(digest: string): Promise<readonly Blob[]> {
     return this.#run(async () => {
-      if (!storable(digest)) {
+      if (!storableText(digest)) {
         return [];
       }
       const rows = await this.#database
@@ -227,7 +227,7 @@ export class SqliteArtifactStore implements ArtifactStore {
 
   findReferences(id: BlobId): Promise<BlobReferences> {
     return this.#run(() => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return Promise.resolve({ blobIds: [], contentIds: [] });
       }
       return this.#database.transaction(async (transaction) => {
@@ -271,7 +271,7 @@ export class SqliteArtifactStore implements ArtifactStore {
     return this.#run(() => {
       const needle = query.text?.toLowerCase();
       if (
-        (query.type !== undefined && !storable(query.type)) ||
+        (query.type !== undefined && !storableText(query.type)) ||
         needle?.includes("\u0000")
       ) {
         return Promise.resolve({ artifacts: [], total: 0 });
@@ -319,7 +319,7 @@ export class SqliteArtifactStore implements ArtifactStore {
 
   listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
     return this.#run(() => {
-      if (artifactId !== undefined && !storable(artifactId)) {
+      if (artifactId !== undefined && !storableText(artifactId)) {
         return Promise.resolve([]);
       }
       return this.#database
@@ -515,9 +515,9 @@ function writeRows(scope: string, write: ArtifactStoreWrite): WriteRows {
       tree: content.tree,
       updatedAt: content.updatedAt,
     })),
-    deleteArtifacts: (write.deleteArtifacts ?? []).filter(storable),
-    deleteBlobs: (write.deleteBlobs ?? []).filter(storable),
-    deleteContents: (write.deleteContents ?? []).filter(storable),
+    deleteArtifacts: (write.deleteArtifacts ?? []).filter(storableText),
+    deleteBlobs: (write.deleteBlobs ?? []).filter(storableText),
+    deleteContents: (write.deleteContents ?? []).filter(storableText),
   };
 }
 

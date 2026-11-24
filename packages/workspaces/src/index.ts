@@ -29,16 +29,16 @@ export { scanDirectory } from "./scanner";
 export type { WorkspaceStore, WorkspaceStoreWrite } from "./store";
 export type {
   AnyWorkspaceExtension,
-  CapOf,
+  CapabilitiesOf,
   CreateFileCommand,
   FileContentResult,
   FileTextSnapshot,
-  FloorFor,
   ObservedFacts,
   RefOf,
   ResolvedSource,
   SaveFileCommand,
   SaveFileResult,
+  SourceCapabilitiesFor,
   WorkspaceAttachContext,
   WorkspaceAttachment,
   WorkspaceCatalogChange,

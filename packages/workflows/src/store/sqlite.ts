@@ -1,13 +1,13 @@
 import {
-  type AsyncSQLiteDatabase,
-  type AsyncSQLiteTransaction,
   assertScope,
   batches,
-  below,
+  joinFieldPath,
   RecordFault,
   replacing,
   SQLITE_MAX_PARAMETERS,
-  storable,
+  type SqliteDatabase,
+  type SqliteTransaction,
+  storableText,
 } from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
 import type { SQL } from "drizzle-orm";
@@ -66,9 +66,9 @@ import {
   workflowSuspensions,
 } from "./tables";
 
-export type WorkflowDatabase = AsyncSQLiteDatabase;
+export type WorkflowDatabase = SqliteDatabase;
 
-export type WorkflowTransaction = AsyncSQLiteTransaction;
+export type WorkflowTransaction = SqliteTransaction;
 
 export interface SqliteWorkflowStoreOptions {
   readonly database: WorkflowDatabase;
@@ -268,7 +268,7 @@ export class SqliteWorkflowStore implements WorkflowStore {
 
   #get<T>(shelf: Shelf<T>, key: readonly string[]): Promise<T | null> {
     return this.#turns.run(async () => {
-      if (!key.every(storable)) {
+      if (!key.every(storableText)) {
         return null;
       }
       const [, ...columns] = shelf.keys;
@@ -332,7 +332,7 @@ export class SqliteWorkflowStore implements WorkflowStore {
   ): Promise<void> {
     const table = column.table as StoreTable;
     for (const batch of batches(
-      ids.filter(storable),
+      ids.filter(storableText),
       SQLITE_MAX_PARAMETERS - 1
     )) {
       await transaction
@@ -517,7 +517,7 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
       } catch (error) {
         if (error instanceof RecordFault) {
           throw new RangeError(
-            `SqliteWorkflowStore cannot store ${below(at, error.path)}: ${error.reason}`,
+            `SqliteWorkflowStore cannot store ${joinFieldPath(at, error.path)}: ${error.reason}`,
             { cause: error }
           );
         }
@@ -597,7 +597,7 @@ function exact(column: SQLiteColumn, value: string | undefined): Filter {
   if (value === undefined) {
     return undefined;
   }
-  return storable(value) ? eq(column, value) : NOTHING;
+  return storableText(value) ? eq(column, value) : NOTHING;
 }
 
 function among(
@@ -607,7 +607,7 @@ function among(
   if (values === undefined) {
     return undefined;
   }
-  const held = values.filter(storable);
+  const held = values.filter(storableText);
   return held.length === 0 ? NOTHING : inArray(column, held);
 }
 

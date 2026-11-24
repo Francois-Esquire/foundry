@@ -1,12 +1,13 @@
 import { ownedWrite } from "@foundry/lib/plain-json";
 import {
-  type AsyncSQLiteDatabase,
-  type AsyncSQLiteTransaction,
   assertScope,
   batches,
   replacing,
   SQLITE_MAX_PARAMETERS,
-  storable,
+  type SqliteDatabase,
+  type SqliteTransaction,
+  storableText,
+  UNSTORABLE_TEXT,
 } from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
 import { and, eq, getTableColumns, inArray, max, or } from "drizzle-orm";
@@ -21,9 +22,9 @@ import type {
 import type { TaskStore } from "./index";
 import { taskDependencies, tasks } from "./tables";
 
-export type TaskDatabase = AsyncSQLiteDatabase;
+export type TaskDatabase = SqliteDatabase;
 
-export type TaskTransaction = AsyncSQLiteTransaction;
+export type TaskTransaction = SqliteTransaction;
 
 export interface SqliteTaskStoreOptions {
   readonly database: TaskDatabase;
@@ -74,7 +75,7 @@ export class SqliteTaskStore implements TaskStore {
     if (field !== undefined) {
       return Promise.reject(
         new RangeError(
-          `SqliteTaskStore cannot store ${field}: text holding U+0000 or a lone surrogate (not well-formed UTF-16) does not read back intact from SQLite`
+          `SqliteTaskStore cannot store ${field}: ${UNSTORABLE_TEXT}`
         )
       );
     }
@@ -82,12 +83,13 @@ export class SqliteTaskStore implements TaskStore {
       this.#database.transaction(async (transaction) => {
         await this.#deleteTasks(
           transaction,
-          (owned.deleteTasks ?? []).filter(storable)
+          (owned.deleteTasks ?? []).filter(storableText)
         );
         await this.#deleteDependencies(
           transaction,
           (owned.deleteDependencies ?? []).filter(
-            (edge) => storable(edge.taskId) && storable(edge.dependsOnId)
+            (edge) =>
+              storableText(edge.taskId) && storableText(edge.dependsOnId)
           )
         );
         await this.#putTasks(transaction, owned.putTasks ?? []);
@@ -99,7 +101,7 @@ export class SqliteTaskStore implements TaskStore {
 
   get(id: TaskId): Promise<Task | null> {
     return this.#turns.run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [task] = await this.#database
@@ -250,7 +252,7 @@ function unstorableField(write: TaskStoreWrite): string | undefined {
       const values: Readonly<Record<string, unknown>> = record;
       const field = fields.find((name) => {
         const value = values[name];
-        return typeof value === "string" && !storable(value);
+        return typeof value === "string" && !storableText(value);
       });
       if (field !== undefined) {
         return `${list}[${index}].${field}`;

@@ -205,7 +205,7 @@ function seed(files: Files = TREE) {
   return { add, id, store, system, trees };
 }
 
-describe("create over a registered layer", () => {
+describe("create over a registered extension", () => {
   it("commits the Workspace, its address, and its complete catalog", async () => {
     const { id, store, add } = seed();
 
@@ -274,7 +274,7 @@ describe("create over a registered layer", () => {
 
 describe.each([
   {
-    layer: "directory",
+    extension: "directory",
     open: async () => {
       const root = await makeRoot(TREE);
       const system = directorySystem();
@@ -282,13 +282,13 @@ describe.each([
     },
   },
   {
-    layer: "fake",
+    extension: "fake",
     open: async () => {
       const { system, add } = seed();
       return { added: await add(), system };
     },
   },
-])("shared operations over a $layer Workspace", ({ open }) => {
+])("shared operations over a $extension Workspace", ({ open }) => {
   it("summarizes, refreshes, lists, reads text and binary, saves, and removes", async () => {
     const { system, added } = await open();
 
@@ -362,8 +362,8 @@ describe.each([
   });
 });
 
-describe("mixed-layer collection", () => {
-  it("lists both layers and offers Git to neither more than it has", async () => {
+describe("mixed-extension collection", () => {
+  it("lists both extensions and offers Git to neither more than it has", async () => {
     const root = await makeRoot(TREE);
     const { system, add } = seed();
 
@@ -380,8 +380,8 @@ describe("mixed-layer collection", () => {
   });
 });
 
-describe("a layered Workspace follows its source", () => {
-  it("reconciles onto whatever the layer scans at that moment", async () => {
+describe("a composed Workspace follows its source", () => {
+  it("reconciles onto whatever the source extension scans at that moment", async () => {
     const { trees, id, add } = seed({ "dropped.md": "d", "kept.md": "first" });
     const added = await add();
 

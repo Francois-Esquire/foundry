@@ -6,13 +6,13 @@ import type {
   SQLiteTransaction,
 } from "drizzle-orm/sqlite-core";
 
-export type AsyncSQLiteDatabase = BaseSQLiteDatabase<
+export type SqliteDatabase = BaseSQLiteDatabase<
   "async",
   unknown,
   Record<string, unknown>
 >;
 
-export type AsyncSQLiteTransaction = SQLiteTransaction<
+export type SqliteTransaction = SQLiteTransaction<
   "async",
   unknown,
   Record<string, unknown>,
@@ -30,7 +30,7 @@ const UNSTORABLE_TIME =
 const UNSTORABLE_INTEGER =
   "SQLite keeps an integer column as a safe integer, and reads -0 back as 0";
 
-export function storable(text: unknown): text is string {
+export function storableText(text: unknown): text is string {
   return (
     typeof text === "string" && text.isWellFormed() && !text.includes("\u0000")
   );
@@ -50,7 +50,7 @@ export function whyUnstorable(
 ): string | undefined {
   switch (kind) {
     case "text":
-      return typeof value === "string" && !storable(value)
+      return typeof value === "string" && !storableText(value)
         ? UNSTORABLE_TEXT
         : undefined;
     case "time":
@@ -66,7 +66,7 @@ export function whyUnstorable(
 }
 
 export function assertScope(scope: string): void {
-  if (scope.length === 0 || !storable(scope)) {
+  if (scope.length === 0 || !storableText(scope)) {
     throw new RangeError(
       "scope must be a nonempty string with no U+0000 and no lone surrogate"
     );
@@ -110,7 +110,7 @@ export class RecordFault extends Error {
   }
 }
 
-export function below(at: string, path: string): string {
+export function joinFieldPath(at: string, path: string): string {
   if (path === "") {
     return at;
   }

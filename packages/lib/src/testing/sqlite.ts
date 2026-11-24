@@ -1,13 +1,10 @@
 import type { SQL } from "drizzle-orm";
 import { sql } from "drizzle-orm";
-import type { BaseSQLiteDatabase, SQLiteTable } from "drizzle-orm/sqlite-core";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { getTableConfig, SQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { SqliteDatabase } from "../sqlite";
 
-export type TestDatabase = BaseSQLiteDatabase<
-  "async",
-  unknown,
-  Record<string, unknown>
->;
+export type TestDatabase = SqliteDatabase;
 
 export async function createTables(
   database: TestDatabase,

@@ -1,8 +1,8 @@
 import {
   describeNumber,
   RecordFault,
-  storable,
   storableNumber,
+  storableText,
   UNSTORABLE_TEXT,
 } from "@foundry/lib/sqlite";
 import type { SessionMessage, SessionRecord } from "../schema";
@@ -146,7 +146,7 @@ function textOf(path: string, value: unknown): string {
   if (typeof value !== "string") {
     throw new RecordFault(path, `holds ${describe(value)}, not text`);
   }
-  if (!storable(value)) {
+  if (!storableText(value)) {
     throw new RecordFault(path, UNSTORABLE_TEXT);
   }
   return value;

@@ -1,5 +1,5 @@
 import { ownedEvents } from "@foundry/lib/plain-json";
-import { below, RecordFault } from "@foundry/lib/sqlite";
+import { joinFieldPath, RecordFault } from "@foundry/lib/sqlite";
 import type { SessionChangeEvent } from "../schema";
 import type { SessionStoreWrite } from "./index";
 import { keptMessage, keptSession } from "./sqlite-records";
@@ -71,7 +71,7 @@ function stored<T>(at: string, keep: () => T): T {
   } catch (error) {
     if (error instanceof RecordFault) {
       throw new RangeError(
-        `SqliteSessionStore cannot store ${below(at, error.path)}: ${error.reason}`,
+        `SqliteSessionStore cannot store ${joinFieldPath(at, error.path)}: ${error.reason}`,
         { cause: error }
       );
     }

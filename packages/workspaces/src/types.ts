@@ -142,40 +142,45 @@ export interface WorkspaceLifecycle {
 
 type HasRequiredKeys<T> = Record<never, never> extends T ? false : true;
 
-export type WorkspaceAttachment<Caps extends object = object> =
+export type WorkspaceAttachment<Capabilities extends object = object> =
   WorkspaceLifecycle &
-    (HasRequiredKeys<Caps> extends true
-      ? { readonly capabilities: Caps }
-      : { readonly capabilities?: Caps });
+    (HasRequiredKeys<Capabilities> extends true
+      ? { readonly capabilities: Capabilities }
+      : { readonly capabilities?: Capabilities });
 
-type ExtensionAttach<Caps extends object> =
-  HasRequiredKeys<Caps> extends true
+type ExtensionAttach<Capabilities extends object> =
+  HasRequiredKeys<Capabilities> extends true
     ? {
         attach(
           context: WorkspaceAttachContext
-        ): Promise<WorkspaceAttachment<Caps>> | WorkspaceAttachment<Caps>;
+        ):
+          | Promise<WorkspaceAttachment<Capabilities>>
+          | WorkspaceAttachment<Capabilities>;
       }
     : {
         attach?(
           context: WorkspaceAttachContext
         ):
-          | Promise<WorkspaceAttachment<Caps> | undefined>
-          | WorkspaceAttachment<Caps>
+          | Promise<WorkspaceAttachment<Capabilities> | undefined>
+          | WorkspaceAttachment<Capabilities>
           | undefined;
       };
 
 export type WorkspaceExtension<
   Ref extends object = never,
-  Floor = unknown,
-  Cap = unknown,
+  SourceCapabilities = unknown,
+  Capabilities = unknown,
 > = {
   applies: (registration: WorkspaceRegistration) => Promise<boolean> | boolean;
   identify?(ref: Ref): Promise<WorkspaceIdentity> | WorkspaceIdentity;
   readonly name: string;
   readonly ref?: string;
   source?(registration: WorkspaceRegistration): WorkspaceSourceAdapter;
-  readonly types?: { readonly floor: Floor; readonly cap: Cap };
-} & ExtensionAttach<Floor & Cap & object>;
+  readonly types?: {
+    readonly capabilities: Capabilities;
+    readonly source: SourceCapabilities;
+  };
+} & ExtensionAttach<SourceCapabilities & Capabilities & object>;
 
 export interface AnyWorkspaceExtension {
   applies: (registration: WorkspaceRegistration) => Promise<boolean> | boolean;
@@ -189,37 +194,38 @@ export interface AnyWorkspaceExtension {
   readonly name: string;
   readonly ref?: string;
   source?(registration: WorkspaceRegistration): WorkspaceSourceAdapter;
-  readonly types?: { readonly floor: unknown; readonly cap: unknown };
+  readonly types?: { readonly capabilities: unknown; readonly source: unknown };
 }
 
-export type RefOf<Exts extends readonly AnyWorkspaceExtension[]> =
-  Exts[number] extends infer E
+export type RefOf<Extensions extends readonly AnyWorkspaceExtension[]> =
+  Extensions[number] extends infer E
     ? E extends WorkspaceExtension<infer R>
       ? R
       : never
     : never;
 
-export type FloorFor<
-  Exts extends readonly AnyWorkspaceExtension[],
+export type SourceCapabilitiesFor<
+  Extensions extends readonly AnyWorkspaceExtension[],
   R,
-> = Exts[number] extends infer E
-  ? E extends WorkspaceExtension<infer Ref, infer Floor>
+> = Extensions[number] extends infer E
+  ? E extends WorkspaceExtension<infer Ref, infer SourceCapabilities>
     ? R extends Ref
-      ? Floor
+      ? SourceCapabilities
       : never
     : never
   : never;
 
-export type CapOf<Exts extends readonly AnyWorkspaceExtension[]> =
-  UnionToIntersection<
-    Exts[number] extends infer E
-      ? E extends WorkspaceExtension<never, unknown, infer Cap>
-        ? unknown extends Cap
-          ? never
-          : Cap
-        : never
+export type CapabilitiesOf<
+  Extensions extends readonly AnyWorkspaceExtension[],
+> = UnionToIntersection<
+  Extensions[number] extends infer E
+    ? E extends WorkspaceExtension<never, unknown, infer Capabilities>
+      ? unknown extends Capabilities
+        ? never
+        : Capabilities
       : never
-  >;
+    : never
+>;
 
 type UnionToIntersection<U> = (
   U extends unknown

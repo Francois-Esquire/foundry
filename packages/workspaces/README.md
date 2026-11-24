@@ -22,7 +22,7 @@ that supplies a source adapter and/or attaches capabilities and lifecycle hooks
 when the system opens an instance.
 
 The root entry has no Node runtime imports or default storage. Its directory
-layer requires caller-supplied storage: `directory({ filesystem })`.
+extension requires caller-supplied storage: `directory({ filesystem })`.
 `WorkspaceFileSystem` combines `StorageReader` and `AtomicStorageWriter` from
 `@foundry/core/storage`. Storage owns its path separator; catalog paths
 remain POSIX. Digests use Web Crypto.
@@ -362,7 +362,7 @@ behind it.
 `@foundry/workspaces/node` also exports `directorySource` with default disk
 storage and `nodeFileSystem`.
 
-Git is opt-in on `@foundry/workspaces/git`: the `git()` layer, plus
+Git is opt-in on `@foundry/workspaces/git`: the `git()` extension, plus
 `Git.at(root)`, `Git.open(root)`, `Git.isRepository(root)`, and worktrees on
 the resulting `Git`.
 

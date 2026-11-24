@@ -1,13 +1,13 @@
 import { ownedWrite } from "@foundry/lib/plain-json";
 import {
-  type AsyncSQLiteDatabase,
-  type AsyncSQLiteTransaction,
   batches,
   describeNumber,
   replacing,
   SQLITE_MAX_PARAMETERS,
-  storable,
+  type SqliteDatabase,
+  type SqliteTransaction,
   storableNumber,
+  storableText,
   UNSTORABLE_TEXT,
 } from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
@@ -17,9 +17,9 @@ import type { ContainerRow } from "../schema";
 import type { ContainerStore, ContainerStoreWrite } from "./index";
 import { sandboxContainers } from "./tables";
 
-export type ContainerDatabase = AsyncSQLiteDatabase;
+export type ContainerDatabase = SqliteDatabase;
 
-export type ContainerTransaction = AsyncSQLiteTransaction;
+export type ContainerTransaction = SqliteTransaction;
 
 export interface SqliteContainerStoreOptions {
   readonly database: ContainerDatabase;
@@ -57,7 +57,7 @@ export class SqliteContainerStore implements ContainerStore {
 
   constructor(options: SqliteContainerStoreOptions) {
     const { scope } = options;
-    if (scope.length === 0 || !storable(scope) || scope.includes(UNIT)) {
+    if (scope.length === 0 || !storableText(scope) || scope.includes(UNIT)) {
       throw new RangeError(
         "scope must be a nonempty string with no U+0000, no U+001F and no lone surrogate"
       );
@@ -81,7 +81,7 @@ export class SqliteContainerStore implements ContainerStore {
       if (field !== undefined) {
         return Promise.reject(new RangeError(`${CANNOT_STORE} ${field}`));
       }
-      const deletes = (owned.deleteContainers ?? []).filter(storable);
+      const deletes = (owned.deleteContainers ?? []).filter(storableText);
       const puts = owned.putContainers ?? [];
       return this.#database.transaction(async (transaction) => {
         await this.#remove(transaction, deletes);
@@ -93,7 +93,7 @@ export class SqliteContainerStore implements ContainerStore {
 
   get(id: string): Promise<ContainerRow | undefined> {
     return this.#turns.run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return;
       }
       const [row] = await this.#database
@@ -252,7 +252,7 @@ function unstorableField(write: ContainerStoreWrite): string | undefined {
     const path = `putContainers[${index}]`;
     const text = TEXT_FIELDS.find((name) => {
       const value = row[name];
-      return typeof value === "string" && !storable(value);
+      return typeof value === "string" && !storableText(value);
     });
     if (text !== undefined) {
       return `${path}.${text}: ${UNSTORABLE_TEXT}`;

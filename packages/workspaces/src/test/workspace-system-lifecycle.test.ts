@@ -101,7 +101,7 @@ describe("lifecycle", () => {
     );
   });
 
-  it("refuses a stored source no registered layer claims, by name", async () => {
+  it("refuses a stored source no registered extension claims, by name", async () => {
     const store = new MemoryWorkspaceStore();
     const record = artifactWorkspace(
       crypto.randomUUID(),
@@ -118,7 +118,7 @@ describe("lifecycle", () => {
     );
   });
 
-  it("composes layers in registration order and lets a later layer see the earlier one", async () => {
+  it("composes extensions in registration order and lets a later extension see earlier capabilities", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const system = directorySystem().extend({
       applies: (registration) => registration.source.kind === "host",

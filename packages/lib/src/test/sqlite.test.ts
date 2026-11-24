@@ -8,14 +8,14 @@ import { describe, expect, test } from "vitest";
 import {
   assertScope,
   batches,
-  below,
   describeNumber,
   excluded,
+  joinFieldPath,
   RecordFault,
   replacing,
   SQLITE_MAX_PARAMETERS,
-  storable,
   storableNumber,
+  storableText,
   UNSTORABLE_TEXT,
   whyUnstorable,
 } from "../sqlite";
@@ -28,18 +28,18 @@ const items = sqliteTable("items", {
 
 const dialect = new SQLiteSyncDialect();
 
-describe("storable", () => {
+describe("storableText", () => {
   test("accepts well-formed text without U+0000", () => {
-    expect(storable("")).toBe(true);
-    expect(storable("plain text \u{1f600}")).toBe(true);
+    expect(storableText("")).toBe(true);
+    expect(storableText("plain text \u{1f600}")).toBe(true);
   });
 
   test("refuses U+0000, lone surrogates and non-strings", () => {
-    expect(storable("a\u0000b")).toBe(false);
-    expect(storable("\ud800")).toBe(false);
-    expect(storable("x\udc00")).toBe(false);
-    expect(storable(1)).toBe(false);
-    expect(storable(undefined)).toBe(false);
+    expect(storableText("a\u0000b")).toBe(false);
+    expect(storableText("\ud800")).toBe(false);
+    expect(storableText("x\udc00")).toBe(false);
+    expect(storableText(1)).toBe(false);
+    expect(storableText(undefined)).toBe(false);
   });
 });
 
@@ -177,10 +177,10 @@ describe("record faults", () => {
     );
   });
 
-  test("below joins a field path under a location", () => {
-    expect(below("putRuns[0]", "")).toBe("putRuns[0]");
-    expect(below("putRuns[0]", "links")).toBe("putRuns[0].links");
-    expect(below("putRuns[0]", '["a b"]')).toBe('putRuns[0]["a b"]');
-    expect(below("putRuns[0]", "[2].id")).toBe("putRuns[0][2].id");
+  test("joinFieldPath joins a field path under a location", () => {
+    expect(joinFieldPath("putRuns[0]", "")).toBe("putRuns[0]");
+    expect(joinFieldPath("putRuns[0]", "links")).toBe("putRuns[0].links");
+    expect(joinFieldPath("putRuns[0]", '["a b"]')).toBe('putRuns[0]["a b"]');
+    expect(joinFieldPath("putRuns[0]", "[2].id")).toBe("putRuns[0][2].id");
   });
 });

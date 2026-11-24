@@ -1,13 +1,13 @@
 import type { ContentId } from "@foundry/artifacts";
 import {
-  type AsyncSQLiteDatabase,
-  type AsyncSQLiteTransaction,
   assertScope,
   batches,
   replacing,
   SQLITE_MAX_PARAMETERS,
-  storable,
+  type SqliteDatabase,
+  type SqliteTransaction,
   storableNumber,
+  storableText,
   UNSTORABLE_TEXT,
 } from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
@@ -47,9 +47,9 @@ import {
   modules,
 } from "./tables";
 
-export type ModuleDatabase = AsyncSQLiteDatabase;
+export type ModuleDatabase = SqliteDatabase;
 
-export type ModuleTransaction = AsyncSQLiteTransaction;
+export type ModuleTransaction = SqliteTransaction;
 
 export interface SqliteModuleStoreOptions {
   readonly database: ModuleDatabase;
@@ -179,7 +179,7 @@ export class SqliteModuleStore implements ModuleStore {
 
   getModule(id: ModuleId): Promise<Module | null> {
     return this.#turns.run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -192,7 +192,7 @@ export class SqliteModuleStore implements ModuleStore {
 
   getManifest(contentId: ContentId): Promise<StoredManifest | null> {
     return this.#turns.run(async () => {
-      if (!storable(contentId)) {
+      if (!storableText(contentId)) {
         return null;
       }
       const [row] = await this.#database
@@ -210,7 +210,7 @@ export class SqliteModuleStore implements ModuleStore {
 
   getInstallation(id: InstallationId): Promise<StoredInstallation | null> {
     return this.#turns.run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -228,7 +228,7 @@ export class SqliteModuleStore implements ModuleStore {
 
   listModules(query: ModuleListQuery): Promise<ModuleStorePage<Module>> {
     return this.#page(query, (owned) => {
-      if (owned.artifactId !== undefined && !storable(owned.artifactId)) {
+      if (owned.artifactId !== undefined && !storableText(owned.artifactId)) {
         return null;
       }
       return {
@@ -252,7 +252,7 @@ export class SqliteModuleStore implements ModuleStore {
     query: InstallationListQuery
   ): Promise<ModuleStorePage<StoredInstallation>> {
     return this.#page(query, (owned) => {
-      if (owned.moduleId !== undefined && !storable(owned.moduleId)) {
+      if (owned.moduleId !== undefined && !storableText(owned.moduleId)) {
         return null;
       }
       return {
@@ -287,7 +287,7 @@ export class SqliteModuleStore implements ModuleStore {
       return Promise.reject(error);
     }
     return this.#turns.run(async () => {
-      if (owned.moduleId !== undefined && !storable(owned.moduleId)) {
+      if (owned.moduleId !== undefined && !storableText(owned.moduleId)) {
         return [];
       }
       return await this.#database
@@ -356,7 +356,7 @@ export class SqliteModuleStore implements ModuleStore {
     keys: readonly string[]
   ): Promise<void> {
     for (const batch of batches(
-      keys.filter(storable),
+      keys.filter(storableText),
       SQLITE_MAX_PARAMETERS - 1
     )) {
       await transaction
@@ -548,7 +548,7 @@ function text<T extends string>(value: T, field: string): T {
   if (typeof value !== "string") {
     throw unstorable(field, `${describe(value)} is not text`);
   }
-  if (!storable(value)) {
+  if (!storableText(value)) {
     throw unstorable(field, UNSTORABLE_TEXT);
   }
   return value;

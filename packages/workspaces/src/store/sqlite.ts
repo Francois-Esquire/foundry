@@ -3,13 +3,13 @@ import { FILE_KINDS, type FileKind } from "@foundry/lib/file-classification";
 import { buildPage, pageLimit } from "@foundry/lib/pagination";
 import { ownedWrite } from "@foundry/lib/plain-json";
 import {
-  type AsyncSQLiteDatabase,
-  type AsyncSQLiteTransaction,
   assertScope,
   batches,
   replacing,
   SQLITE_MAX_PARAMETERS,
-  storable,
+  type SqliteDatabase,
+  type SqliteTransaction,
+  storableText,
   whyUnstorable,
 } from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
@@ -28,9 +28,9 @@ import type {
 import { byPathThenId, pageInputOf, pageOffset } from "./order";
 import { workspaceEntries, workspaces } from "./tables";
 
-export type WorkspaceDatabase = AsyncSQLiteDatabase;
+export type WorkspaceDatabase = SqliteDatabase;
 
-export type WorkspaceTransaction = AsyncSQLiteTransaction;
+export type WorkspaceTransaction = SqliteTransaction;
 
 export interface SqliteWorkspaceStoreOptions {
   readonly database: WorkspaceDatabase;
@@ -116,7 +116,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     workspaceId: WorkspaceId
   ): Promise<WorkspaceRegistration | null> {
     return this.#turns.run(async () => {
-      if (!storable(workspaceId)) {
+      if (!storableText(workspaceId)) {
         return null;
       }
       const [row] = await this.#database
@@ -180,7 +180,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     entryId: WorkspaceEntryId
   ): Promise<WorkspaceEntry | null> {
     return this.#turns.run(async () => {
-      if (!(storable(workspaceId) && storable(entryId))) {
+      if (!(storableText(workspaceId) && storableText(entryId))) {
         return null;
       }
       const [row] = await this.#database
@@ -199,7 +199,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
 
   listEntries(workspaceId: WorkspaceId): Promise<readonly WorkspaceEntry[]> {
     return this.#turns.run(async () => {
-      if (!storable(workspaceId)) {
+      if (!storableText(workspaceId)) {
         return [];
       }
       const rows = await this.#database
@@ -220,7 +220,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     column: typeof workspaces.sourcePath | typeof workspaces.sourceId
   ): Promise<WorkspaceRegistration | null> {
     return this.#turns.run(async () => {
-      if (!storable(value)) {
+      if (!storableText(value)) {
         return null;
       }
       const [row] = await this.#database
@@ -240,7 +240,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     await this.#deleteEntries(
       transaction,
       write.workspace.id,
-      (write.deleteEntries ?? []).filter(storable)
+      (write.deleteEntries ?? []).filter(storableText)
     );
     await this.#putEntries(transaction, write.putEntries ?? []);
     await this.#putWorkspace(transaction, write.workspace);
@@ -250,7 +250,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     transaction: WorkspaceTransaction,
     workspaceId: WorkspaceId
   ): Promise<void> {
-    if (!storable(workspaceId)) {
+    if (!storableText(workspaceId)) {
       return;
     }
     await transaction

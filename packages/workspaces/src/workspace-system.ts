@@ -14,9 +14,9 @@ import type { WorkspaceStore } from "./store";
 import { MemoryWorkspaceStore } from "./store/memory";
 import type {
   AnyWorkspaceExtension,
-  CapOf,
-  FloorFor,
+  CapabilitiesOf,
   RefOf,
+  SourceCapabilitiesFor,
   WorkspaceChange,
   WorkspaceContext,
   WorkspaceId,
@@ -33,27 +33,32 @@ export interface WorkspaceSystemOptions {
 
 type ChangeListener = (change: WorkspaceChange) => void | Promise<void>;
 
-interface ComposedWorkspace<Exts extends readonly AnyWorkspaceExtension[]> {
+interface ComposedWorkspace<
+  Extensions extends readonly AnyWorkspaceExtension[],
+> {
   readonly adapter: WorkspaceSourceAdapter;
   readonly hooks: readonly WorkspaceLifecycle[];
   readonly sourceOwner: AnyWorkspaceExtension;
-  readonly workspace: Workspace & CapOf<Exts>;
+  readonly workspace: Workspace & CapabilitiesOf<Extensions>;
 }
 
-interface OpenedWorkspace<Exts extends readonly AnyWorkspaceExtension[]> {
+interface OpenedWorkspace<Extensions extends readonly AnyWorkspaceExtension[]> {
   readonly sourceOwner: AnyWorkspaceExtension;
   readonly stop: () => Promise<void>;
-  readonly workspace: Workspace & CapOf<Exts>;
+  readonly workspace: Workspace & CapabilitiesOf<Extensions>;
 }
 
 export class WorkspaceSystem<
-  Exts extends readonly AnyWorkspaceExtension[] = [],
+  Extensions extends readonly AnyWorkspaceExtension[] = [],
 > {
   readonly #context: WorkspaceContext;
   readonly #listeners = new Set<ChangeListener>();
   readonly #extensions: AnyWorkspaceExtension[] = [];
   readonly #closing = new Map<WorkspaceId, Promise<void>>();
-  readonly #opened = new Map<WorkspaceId, Promise<OpenedWorkspace<Exts>>>();
+  readonly #opened = new Map<
+    WorkspaceId,
+    Promise<OpenedWorkspace<Extensions>>
+  >();
   readonly #queues = new KeyedQueue();
 
   constructor(options: WorkspaceSystemOptions = {}) {
@@ -79,12 +84,14 @@ export class WorkspaceSystem<
 
   extend<const More extends readonly AnyWorkspaceExtension[]>(
     ...extensions: More
-  ): WorkspaceSystem<[...Exts, ...More]> {
+  ): WorkspaceSystem<[...Extensions, ...More]> {
     this.#extensions.push(...extensions);
     return this;
   }
 
-  open(workspaceId: WorkspaceId): Promise<Workspace & CapOf<Exts>> {
+  open(
+    workspaceId: WorkspaceId
+  ): Promise<Workspace & CapabilitiesOf<Extensions>> {
     return this.#openEntry(workspaceId).then((entry) => entry.workspace);
   }
 
@@ -116,7 +123,7 @@ export class WorkspaceSystem<
 
   async list(
     input: PageInput<number> = {}
-  ): Promise<Page<Workspace & CapOf<Exts>, number>> {
+  ): Promise<Page<Workspace & CapabilitiesOf<Extensions>, number>> {
     const page = await this.#context.catalog.listWorkspaces(input);
     const items = await Promise.all(
       page.items.map((registration) => this.open(registration.id))
@@ -124,25 +131,34 @@ export class WorkspaceSystem<
     return { ...page, items };
   }
 
-  async load<R extends RefOf<Exts>>(
+  async load<R extends RefOf<Extensions>>(
     ref: R
-  ): Promise<Workspace & CapOf<Exts> & FloorFor<Exts, R>> {
-    const floor = this.#extensions.find(
+  ): Promise<
+    Workspace &
+      CapabilitiesOf<Extensions> &
+      SourceCapabilitiesFor<Extensions, R>
+  > {
+    const sourceExtension = this.#extensions.find(
       (extension) => extension.ref !== undefined && extension.ref in ref
     );
-    if (floor?.identify === undefined) {
+    if (sourceExtension?.identify === undefined) {
       throw new InvalidWorkspaceInputError(
-        `No registered layer accepts a ref with keys ${Object.keys(ref).join(", ")}`
+        `No registered extension accepts a ref with keys ${Object.keys(ref).join(", ")}`
       );
     }
-    const workspace = await this.#register(await floor.identify(ref), floor);
-    return workspace as Workspace & CapOf<Exts> & FloorFor<Exts, R>;
+    const workspace = await this.#register(
+      await sourceExtension.identify(ref),
+      sourceExtension
+    );
+    return workspace as Workspace &
+      CapabilitiesOf<Extensions> &
+      SourceCapabilitiesFor<Extensions, R>;
   }
 
   #openEntry(
     workspaceId: WorkspaceId,
-    precomposed?: ComposedWorkspace<Exts>
-  ): Promise<OpenedWorkspace<Exts>> {
+    precomposed?: ComposedWorkspace<Extensions>
+  ): Promise<OpenedWorkspace<Extensions>> {
     const closing = this.#closing.get(workspaceId);
     if (closing) {
       return closing.then(() => this.#openEntry(workspaceId, precomposed));
@@ -170,8 +186,8 @@ export class WorkspaceSystem<
 
   #trackOpening(
     workspaceId: WorkspaceId,
-    run: () => Promise<OpenedWorkspace<Exts>>
-  ): Promise<OpenedWorkspace<Exts>> {
+    run: () => Promise<OpenedWorkspace<Extensions>>
+  ): Promise<OpenedWorkspace<Extensions>> {
     const opening = Promise.resolve().then(run);
     this.#opened.set(workspaceId, opening);
     opening.catch(() => {
@@ -184,13 +200,13 @@ export class WorkspaceSystem<
 
   async #register(
     identity: WorkspaceIdentity,
-    floor: AnyWorkspaceExtension
-  ): Promise<Workspace & CapOf<Exts>> {
+    sourceOwner: AnyWorkspaceExtension
+  ): Promise<Workspace & CapabilitiesOf<Extensions>> {
     const existing = await this.#context.catalog.findWorkspaceByPath(
       identity.source.path
     );
     if (existing) {
-      return this.#reconciled(existing.id, floor);
+      return this.#reconciled(existing.id, sourceOwner);
     }
 
     const createdAt = new Date();
@@ -201,7 +217,7 @@ export class WorkspaceSystem<
       updatedAt: createdAt,
       ...identity,
     };
-    const composed = await this.#compose(registration, floor);
+    const composed = await this.#compose(registration, sourceOwner);
     const entries = initialEntries(
       registration.id,
       await composed.workspace.scan(),
@@ -236,7 +252,7 @@ export class WorkspaceSystem<
     if (result.kind === "workspace-exists") {
       committed.resolve(false);
       await opening.catch(() => undefined);
-      return this.#reconciled(result.existingId, floor);
+      return this.#reconciled(result.existingId, sourceOwner);
     }
 
     committed.resolve(true);
@@ -246,12 +262,12 @@ export class WorkspaceSystem<
 
   async #reconciled(
     workspaceId: WorkspaceId,
-    expectedFloor: AnyWorkspaceExtension
-  ): Promise<Workspace & CapOf<Exts>> {
+    expectedOwner: AnyWorkspaceExtension
+  ): Promise<Workspace & CapabilitiesOf<Extensions>> {
     while (this.#closing.has(workspaceId)) {
       await this.#closing.get(workspaceId);
     }
-    let entry: OpenedWorkspace<Exts>;
+    let entry: OpenedWorkspace<Extensions>;
     const running = this.#opened.get(workspaceId);
     if (running) {
       entry = await running;
@@ -261,10 +277,10 @@ export class WorkspaceSystem<
       if (!registration) {
         throw new WorkspaceNotFoundError(workspaceId);
       }
-      const composed = await this.#compose(registration, expectedFloor);
+      const composed = await this.#compose(registration, expectedOwner);
       entry = await this.#openEntry(workspaceId, composed);
     }
-    if (entry.sourceOwner !== expectedFloor) {
+    if (entry.sourceOwner !== expectedOwner) {
       throw new WorkspaceSourceUnsupportedError(entry.workspace.source.kind);
     }
     const view = await entry.workspace.refresh();
@@ -278,8 +294,8 @@ export class WorkspaceSystem<
 
   async #compose(
     registration: WorkspaceRegistration,
-    expectedFloor?: AnyWorkspaceExtension
-  ): Promise<ComposedWorkspace<Exts>> {
+    expectedOwner?: AnyWorkspaceExtension
+  ): Promise<ComposedWorkspace<Extensions>> {
     const matched: AnyWorkspaceExtension[] = [];
     for (const extension of this.#extensions) {
       if (await extension.applies(registration)) {
@@ -290,7 +306,7 @@ export class WorkspaceSystem<
     if (!sourceOwner?.source) {
       throw new WorkspaceSourceUnsupportedError(registration.source.kind);
     }
-    if (expectedFloor !== undefined && sourceOwner !== expectedFloor) {
+    if (expectedOwner !== undefined && sourceOwner !== expectedOwner) {
       throw new WorkspaceSourceUnsupportedError(registration.source.kind);
     }
     const adapter = sourceOwner.source(registration);
@@ -298,7 +314,7 @@ export class WorkspaceSystem<
       registration,
       this.#context,
       adapter
-    ) as Workspace & CapOf<Exts>;
+    ) as Workspace & CapabilitiesOf<Extensions>;
     const attached: Record<PropertyKey, unknown> = Object.create(null);
     const hooks: WorkspaceLifecycle[] = [];
     for (const extension of matched) {
@@ -322,7 +338,7 @@ export class WorkspaceSystem<
   }
 
   async #start(
-    composed: ComposedWorkspace<Exts>
+    composed: ComposedWorkspace<Extensions>
   ): Promise<() => Promise<void>> {
     const { adapter, hooks, workspace } = composed;
     const cleanups: (() => Promise<void> | void)[] = [];
