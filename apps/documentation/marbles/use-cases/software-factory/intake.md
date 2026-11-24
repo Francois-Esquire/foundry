@@ -35,6 +35,11 @@ readiness, so two passes, or two processes, never start the same task.
 Dependencies work as they do anywhere else: a task that depends on another
 waits until that one settles.
 
+If `build.launch` rejects, the dispatcher sets the task back to `open` and
+rethrows. No build ran, so the task is ready again on the next pass. Once a
+build run has started, a failure goes to the [revision
+loop](/marbles/use-cases/software-factory/revise#flag-failed-runs) instead.
+
 ## Write acceptance criteria into the task
 
 The builder and the reviewer read the task's title and description. Write
