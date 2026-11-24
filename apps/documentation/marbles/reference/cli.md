@@ -107,10 +107,10 @@ existing files or the first HTTP response as a change.
 `roll` runs in the current engine generation: the lines the run printed come back
 with the value and are printed before it. The first `roll` on a workspace
 attaches it, so its schedules and monitors keep ticking in the Marbles
-process after the command exits; `marbles stop` ends that. A tick claims
-its trigger's row in the Marbles database, so a `roll` of a key whose own
-tick is under way at that moment prints `skipped: held by <holder>`. Under
-`--dry-run` the roll runs in this process and persists nothing.
+process after the command exits; `marbles stop` ends that. A `roll`
+launches the schedule's target at once, alongside any occurrence of it
+under way, and records no occurrence. Under `--dry-run` the roll runs in
+this process and persists nothing.
 
 ### Input errors and questions
 

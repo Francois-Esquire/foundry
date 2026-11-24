@@ -9,15 +9,12 @@ import {
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { processAlive } from "@foundry/lib/process-identity";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GenerationRecords, readLiveGenerations } from "~/database/generations";
 import { readDatabase } from "~/database/open";
-import {
-  marblesExecutions,
-  marblesGenerations,
-  marblesScheduleTicks,
-} from "~/database/tables";
+import { marblesExecutions, marblesGenerations } from "~/database/tables";
+import { readStoredSchedules } from "~/database/triggers";
 import { recordedWorkspaces, WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import { connect, type MarblesClient } from "~/process/client";
@@ -326,27 +323,20 @@ async function executions(
   );
 }
 
-async function scheduleTick(
+async function scheduleState(
   fixture: Pick<Fixture, "machine">,
   scope: string,
   key: string
 ) {
-  const rows =
-    (await readDatabase(stateDatabase(fixture.machine.state), (database) =>
-      database
-        .select({
-          lastStatus: marblesScheduleTicks.lastStatus,
-          ownerPid: marblesScheduleTicks.ownerPid,
-        })
-        .from(marblesScheduleTicks)
-        .where(
-          and(
-            eq(marblesScheduleTicks.scope, scope),
-            eq(marblesScheduleTicks.key, key)
-          )
-        )
-    )) ?? [];
-  return rows[0];
+  const schedule = (
+    await readStoredSchedules(fixture.machine.state, scope)
+  ).find((each) => each.key === key);
+  return (
+    schedule && {
+      lastStatus: schedule.lastStatus ?? null,
+      ownerPid: schedule.running,
+    }
+  );
 }
 
 async function suspendedRun(
@@ -1885,9 +1875,9 @@ describe("engine generations", () => {
           .filter((row) => row.name === "scheduled-hold")
           .map((row) => row.status)
       ).toEqual(["cancelled"]);
-      expect(await scheduleTick(fixture, summary.id, "scheduled-hold")).toEqual(
-        { lastStatus: "failed", ownerPid: null }
-      );
+      expect(
+        await scheduleState(fixture, summary.id, "scheduled-hold")
+      ).toEqual({ lastStatus: "cancelled", ownerPid: null });
     }, 180_000);
   }
 
@@ -1911,7 +1901,7 @@ describe("engine generations", () => {
         .filter((row) => row.name === "scheduled-hold")
         .map((row) => row.status)
     ).toEqual(["complete"]);
-    expect(await scheduleTick(fixture, summary.id, "scheduled-hold")).toEqual({
+    expect(await scheduleState(fixture, summary.id, "scheduled-hold")).toEqual({
       lastStatus: "complete",
       ownerPid: null,
     });
@@ -1929,7 +1919,7 @@ describe("engine generations", () => {
     open("scheduled-late", fixture);
     await gone(first, 60_000);
     const suspended = await suspendedRun(fixture, summary.id, "scheduled-late");
-    expect(await scheduleTick(fixture, summary.id, "scheduled-late")).toEqual({
+    expect(await scheduleState(fixture, summary.id, "scheduled-late")).toEqual({
       lastStatus: null,
       ownerPid: null,
     });
@@ -1960,7 +1950,7 @@ describe("engine generations", () => {
     next.close();
   }, 180_000);
 
-  it("when the daemon crashes, the schedule whose suspended run the orphan let go fires again under the next daemon while that run waits, as when its generation dies, and its answer writes no history", async () => {
+  it("when the daemon crashes, the schedule whose suspended run the orphan let go waits under the next daemon until that run is answered, then dispatches again", async () => {
     const { child, fixture } = await crashableDaemon({ asking: true });
     const client = await connect({ layout: fixture.machine, start: false });
     const summary = await client.attach(fixture.source);
@@ -1969,7 +1959,7 @@ describe("engine generations", () => {
     await crash(child);
     client.close();
     await gone(first, 60_000);
-    expect(await scheduleTick(fixture, summary.id, "scheduled-ask")).toEqual({
+    expect(await scheduleState(fixture, summary.id, "scheduled-ask")).toEqual({
       lastStatus: null,
       ownerPid: null,
     });
@@ -1984,16 +1974,13 @@ describe("engine generations", () => {
       { client: next },
       (pid) => pid !== first && pid > 0
     );
-    await whenLogged(fixture, `scheduled-ask ${String(second)}`);
-    await vi.waitFor(
-      async () =>
-        expect(
-          (await executions(fixture, summary.id))
-            .filter((row) => row.name === "scheduled-ask")
-            .map((row) => row.status)
-        ).toEqual(["suspended", "suspended"]),
-      { interval: 100, timeout: 30_000 }
-    );
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    expect(logged(fixture)).not.toContain(`scheduled-ask ${String(second)}`);
+    expect(
+      (await executions(fixture, summary.id))
+        .filter((row) => row.name === "scheduled-ask")
+        .map((row) => row.status)
+    ).toEqual(["suspended"]);
     await answerRun(restarted, next.workspace(summary), suspended);
     await vi.waitFor(
       async () =>
@@ -2005,10 +1992,14 @@ describe("engine generations", () => {
       { interval: 200, timeout: 60_000 }
     );
     expect(logged(fixture)).toContain(`scheduled-answered ${String(second)}`);
-    expect(await scheduleTick(fixture, summary.id, "scheduled-ask")).toEqual({
-      lastStatus: null,
-      ownerPid: second,
-    });
+    await whenLogged(fixture, `scheduled-ask ${String(second)}`);
+    await vi.waitFor(
+      async () =>
+        expect(
+          await scheduleState(fixture, summary.id, "scheduled-ask")
+        ).toEqual({ lastStatus: null, ownerPid: second }),
+      { interval: 200, timeout: 30_000 }
+    );
     next.close();
   }, 180_000);
 
@@ -2030,8 +2021,8 @@ describe("engine generations", () => {
         .filter((row) => row.name === "scheduled-ask")
         .map((row) => row.status)
     ).toEqual(["cancelled"]);
-    expect(await scheduleTick(fixture, summary.id, "scheduled-ask")).toEqual({
-      lastStatus: "failed",
+    expect(await scheduleState(fixture, summary.id, "scheduled-ask")).toEqual({
+      lastStatus: "cancelled",
       ownerPid: null,
     });
   }, 180_000);

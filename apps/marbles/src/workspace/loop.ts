@@ -1,5 +1,5 @@
 import type { Engine } from "~/lib/engine";
-import { runSchedules } from "~/lib/schedule";
+import { runScheduler } from "~/lib/schedule-loop";
 
 export interface RunLoopOptions {
   readonly cancel?: AbortSignal;
@@ -31,7 +31,7 @@ export async function runSchedulesUntilStopped(
     signal.addEventListener("abort", stop, { once: true });
   }
   try {
-    await runSchedules(engine, {
+    await runScheduler(engine, {
       ...(cancel === undefined ? {} : { cancel }),
       ...(letGo === undefined ? {} : { letGo }),
       print,

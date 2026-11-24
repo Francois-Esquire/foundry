@@ -616,7 +616,6 @@ it("shows a workflow run still being set up on the dashboard, once", async () =>
   const rows = async () =>
     dashboardSnapshot(await engine.runs(), {
       definitions: [],
-      lastFinish: new Map(),
       monitors: new Map(),
       queued: engine.executions.list(),
       root: fixture.root,

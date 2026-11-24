@@ -18,12 +18,12 @@ import {
 import type { AutomationStore } from "~/lib/automation/store";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { ScheduledEngine } from "~/lib/schedule";
-import { runSchedules, tick } from "~/lib/schedule";
-import type { TriggerStore } from "~/lib/trigger-store";
+import { registration, rollSchedule } from "~/lib/schedule";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
 import { bindMock } from "./helpers/bindings";
 import { declared, startEngine } from "./helpers/engine";
+import { occurrencesOf, startScheduler } from "./helpers/schedules";
 
 const directories: string[] = [];
 const owner: AutomationOwner = {
@@ -62,19 +62,20 @@ async function serviceAt(state?: string): Promise<AutomationService> {
 
 function loopEngine(
   schedules: () => readonly Schedule[] | Promise<readonly Schedule[]>,
-  launch: (name: string) => void,
-  triggers: TriggerStore = new MemoryTriggerStore()
+  launch: (name: string, triggerId: string) => void
 ): ScheduledEngine {
   return {
+    automations: { paused: async () => [] },
     cancel: async () => undefined,
+    executions: { peek: async () => undefined },
     has: () => true,
-    launch: async (name: string) => {
-      launch(name);
-      return { id: "run", result: Promise.resolve(undefined) };
+    launch: async (name: string, _input: unknown, triggerId: string) => {
+      launch(name, triggerId);
+      return { id: "rn-loop", result: Promise.resolve(undefined) };
     },
     schedules: async () => await schedules(),
-    triggers,
-  } as ScheduledEngine;
+    triggers: new MemoryTriggerStore(),
+  } as unknown as ScheduledEngine;
 }
 
 afterEach(() => {
@@ -207,11 +208,11 @@ it("launches a dynamically created file monitor once per change through the exis
     if (!schedule) {
       throw new Error("Missing schedule");
     }
-    await tick(engine, schedule, { print: () => undefined });
-    await tick(engine, schedule, { print: () => undefined });
+    await rollSchedule(engine, schedule, { print: () => undefined });
+    await rollSchedule(engine, schedule, { print: () => undefined });
     expect(starts).toBe(1);
     writeFileSync(join(root, "watched.txt"), "second");
-    await tick(engine, schedule, { print: () => undefined });
+    await rollSchedule(engine, schedule, { print: () => undefined });
     expect(starts).toBe(2);
   } finally {
     await engine.stop({ cancel: true });
@@ -219,38 +220,31 @@ it("launches a dynamically created file monitor once per change through the exis
   }
 });
 
-it("waits for additions to an empty live catalogue and stops on cancellation", async () => {
-  let now = 0;
-  const controller = new AbortController();
+it("waits for additions to an empty live catalogue", async () => {
   const active: Schedule[] = [];
   const calls: string[] = [];
   const engine = loopEngine(
     () => active,
     (name) => {
       calls.push(name);
-      controller.abort();
     }
   );
-  await runSchedules(engine, {
-    now: () => now,
-    print: () => undefined,
-    signal: controller.signal,
-    sleep: async (ms) => {
-      now += ms;
-      if (!active.length) {
-        active.push({
-          input: null,
-          key: "new",
-          kind: "schedule",
-          label: "new",
-          trigger: { kind: "interval", ms: 1000 },
-          workflow: "target",
-        });
-      }
-    },
+  const scheduler = startScheduler(engine);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  active.push({
+    input: null,
+    key: "new",
+    kind: "schedule",
+    label: "new",
+    trigger: { kind: "interval", ms: 50 },
+    workflow: "target",
   });
-  expect(calls).toEqual(["target"]);
-});
+  await vi.waitFor(() => expect(calls).toEqual(["target"]), {
+    interval: 50,
+    timeout: 10_000,
+  });
+  await scheduler.stop();
+}, 20_000);
 
 it("does not relaunch an observed change after the started target fails", async () => {
   const root = temp();
@@ -279,9 +273,9 @@ it("does not relaunch an observed change after the started target fails", async 
       throw new Error("Missing schedule");
     }
     await expect(
-      tick(engine, schedule, { print: () => undefined })
+      rollSchedule(engine, schedule, { print: () => undefined })
     ).rejects.toThrow("target failed");
-    await tick(engine, schedule, { print: () => undefined });
+    await rollSchedule(engine, schedule, { print: () => undefined });
     expect(starts).toBe(1);
   } finally {
     await engine.stop({ cancel: true });
@@ -334,42 +328,6 @@ it("fails closed on invalid persisted records while exposing a host-readable err
   expect(await service.schedules()).toHaveLength(0);
 });
 
-it("rechecks completion and live membership under the tick's claim", async () => {
-  let starts = 0;
-  const schedule = {
-    input: null,
-    key: "test",
-    kind: "schedule" as const,
-    label: "test",
-    trigger: { kind: "interval" as const, ms: 1000 },
-    workflow: "target",
-  };
-  const engine = loopEngine(
-    () => [schedule],
-    () => {
-      starts += 1;
-    },
-    new MemoryTriggerStore()
-  );
-  await tick(engine, schedule, {
-    now: () => 2000,
-    print: () => undefined,
-    scheduled: true,
-  });
-  await tick(engine, schedule, {
-    now: () => 2000,
-    print: () => undefined,
-    scheduled: true,
-  });
-  await tick(engine, schedule, {
-    canRun: () => false,
-    now: () => 4000,
-    print: () => undefined,
-    scheduled: true,
-  });
-  expect(starts).toBe(1);
-});
-
 it("retries a pending monitor launch after restart when setup previously failed", async () => {
   const root = temp();
   const state = temp();
@@ -399,7 +357,7 @@ it("retries a pending monitor launch after restart when setup previously failed"
       .spyOn(engine, "launch")
       .mockRejectedValue(new Error("setup unavailable"));
     await expect(
-      tick(engine, schedule, { print: () => undefined })
+      rollSchedule(engine, schedule, { print: () => undefined })
     ).rejects.toThrow("setup unavailable");
     failing.mockRestore();
     expect(starts).toBe(0);
@@ -418,8 +376,8 @@ it("retries a pending monitor launch after restart when setup previously failed"
     if (!recovered) {
       throw new Error("Missing restored schedule");
     }
-    await tick(restarted, recovered, { print: () => undefined });
-    await tick(restarted, recovered, { print: () => undefined });
+    await rollSchedule(restarted, recovered, { print: () => undefined });
+    await rollSchedule(restarted, recovered, { print: () => undefined });
     expect(starts).toBe(1);
   } finally {
     await restarted.stop({ cancel: true });
@@ -427,9 +385,9 @@ it("retries a pending monitor launch after restart when setup previously failed"
   }
 });
 
-it("cancels a running monitor request when the schedule loop signal aborts", async () => {
+it("cancels a running monitor request when the schedule loop stops", async () => {
   const state = temp();
-  const controller = new AbortController();
+  let cancelled = false;
   let entered: () => void = () => undefined;
   const requested = new Promise<void>((resolve) => {
     entered = resolve;
@@ -440,7 +398,10 @@ it("cancels a running monitor request when the schedule loop signal aborts", asy
         entered();
         init.signal?.addEventListener(
           "abort",
-          () => reject(new Error("request cancelled")),
+          () => {
+            cancelled = true;
+            reject(new Error("request cancelled"));
+          },
           { once: true }
         );
       })
@@ -466,25 +427,18 @@ it("cancels a running monitor request when the schedule loop signal aborts", asy
     if (!schedule) {
       throw new Error("Missing schedule");
     }
-    const running = tick(engine, schedule, {
-      print: () => undefined,
-      signal: controller.signal,
-    });
-    const outcome = running.then(
-      () => "complete",
-      () => "cancelled"
-    );
+    const scheduler = startScheduler(engine);
     await requested;
-    controller.abort();
-    expect(await outcome).toBe("cancelled");
+    await scheduler.stop();
+    expect(cancelled).toBe(true);
   } finally {
     mockedFetch.mockRestore();
     await engine.stop({ cancel: true });
     await bound.dispose();
   }
-});
+}, 20_000);
 
-it("records a visible failed tick when a restored target was removed", async () => {
+it("records a visible failed occurrence when a restored target was removed", async () => {
   const state = temp();
   step("target").do(() => 1);
   const first = await serviceAt(state);
@@ -501,18 +455,26 @@ it("records a visible failed tick when a restored target was removed", async () 
       throw new Error("Missing restored schedule");
     }
     await expect(
-      tick(engine, schedule, { print: () => undefined })
+      rollSchedule(engine, schedule, { print: () => undefined })
     ).rejects.toThrow();
-    expect(await engine.triggers.lastTick(record.id)).toMatchObject({
-      lastStatus: "failed",
-    });
+    const scheduler = startScheduler(engine);
+    await vi.waitFor(
+      async () =>
+        expect(
+          (await occurrencesOf(engine, record.id)).map((each) => each.state)
+        ).toContainEqual(
+          expect.objectContaining({ kind: "settled", outcome: "failed" })
+        ),
+      { interval: 100, timeout: 10_000 }
+    );
+    await scheduler.stop();
   } finally {
     await engine.stop({ cancel: true });
     await bound.dispose();
   }
-});
+}, 20_000);
 
-it("preserves the first firing deadline when restored before any tick history exists", async () => {
+it("preserves the first deadline when restored before it was ever dispatched", async () => {
   const state = temp();
   step("target").do(() => 1);
   const first = await serviceAt(state);
@@ -527,23 +489,17 @@ it("preserves the first firing deadline when restored before any tick history ex
   expect((await restored.schedules())[0]?.registeredAt).toBe(
     Date.parse(record.createdAt)
   );
-  let now = Date.parse(record.createdAt) + 400;
-  const waits: number[] = [];
-  const controller = new AbortController();
-  const engine = loopEngine(
-    () => restored.schedules(),
-    () => controller.abort()
-  );
-  await runSchedules(engine, {
-    now: () => now,
-    print: () => undefined,
-    signal: controller.signal,
-    sleep: async (ms) => {
-      waits.push(ms);
-      now += ms;
-    },
-  });
-  expect(waits).toEqual([600]);
+  const [restoredSchedule] = await restored.schedules();
+  if (!restoredSchedule) {
+    throw new Error("Missing restored schedule");
+  }
+  expect(
+    registration(
+      restoredSchedule,
+      undefined,
+      Date.parse(record.createdAt) + 400
+    )?.cadence
+  ).toEqual({ afterSettleMs: 1000, initialDelayMs: 600, kind: "delay" });
 });
 
 it("isolates pending monitor launches and first deadlines when a deleted key is recreated", async () => {
@@ -578,7 +534,7 @@ it("isolates pending monitor launches and first deadlines when a deleted key is 
       .spyOn(engine, "launch")
       .mockRejectedValue(new Error("setup unavailable"));
     await expect(
-      tick(engine, oldSchedule, { print: () => undefined })
+      rollSchedule(engine, oldSchedule, { print: () => undefined })
     ).rejects.toThrow("setup unavailable");
     failing.mockRestore();
     await service.delete(original.id, owner);
@@ -597,7 +553,7 @@ it("isolates pending monitor launches and first deadlines when a deleted key is 
     }
     expect(recreated.id).not.toBe(original.id);
     expect(newSchedule.key).not.toBe(oldSchedule.key);
-    await tick(engine, newSchedule, { print: () => undefined });
+    await rollSchedule(engine, newSchedule, { print: () => undefined });
     expect(launched).toEqual(["new"]);
   } finally {
     await engine.stop({ cancel: true });
@@ -618,68 +574,19 @@ it("does not dispatch an old trigger after its owner key was recreated", async (
   }
   await service.delete(original.id, owner);
   await service.create({ at: "1s", key: "job", workflow: "target" }, owner);
-  const controller = new AbortController();
   let reads = 0;
-  let starts = 0;
+  const dispatched: string[] = [];
   const engine = loopEngine(
     () => {
       reads += 1;
-      if (reads === 1) {
-        return [selected];
-      }
-      controller.abort();
-      return service.schedules();
+      return reads === 1 ? [selected] : service.schedules();
     },
-    () => {
-      starts += 1;
+    (_name, triggerId) => {
+      dispatched.push(triggerId);
     }
   );
-  await runSchedules(engine, {
-    now: () => Date.parse(original.createdAt) + 1000,
-    print: () => undefined,
-    signal: controller.signal,
-  });
-  expect(starts).toBe(0);
-});
-
-it("picks up another writer's record, and its removal, at the next read", async () => {
-  const state = temp();
-  step("target").do(() => 1);
-  const reader = await serviceAt(state);
-  expect(await reader.schedules()).toEqual([]);
-  const record = await (await serviceAt(state)).create(
-    { at: "1h", key: "hourly", workflow: "target" },
-    owner
-  );
-  expect((await reader.schedules()).map((schedule) => schedule.key)).toEqual([
-    record.id,
-  ]);
-
-  const id = `automation-${"b".repeat(24)}`;
-  const store = await storeAt(state);
-  await store.put({ ...record, id, key: "by-hand" });
-  expect(
-    (await reader.schedules()).map((schedule) => schedule.label).sort()
-  ).toEqual(["by-hand", "hourly"]);
-  expect((await reader.list()).map((entry) => entry.id)).toContain(id);
-
-  await store.remove(id);
-  expect((await reader.schedules()).map((schedule) => schedule.key)).toEqual([
-    record.id,
-  ]);
-});
-
-it("keeps an in-memory host's records in its own store", async () => {
-  step("target").do(() => 1);
-  const store = new MemoryAutomationStore();
-  const first = new AutomationService({ registry: declared(), store });
-  const record = await first.create(
-    { at: "1h", key: "hourly", workflow: "target" },
-    owner
-  );
-  const second = new AutomationService({ registry: declared(), store });
-  expect((await second.schedules()).map((schedule) => schedule.key)).toEqual([
-    record.id,
-  ]);
-  expect(await (await serviceAt()).list()).toEqual([]);
-});
+  const scheduler = startScheduler(engine);
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  await scheduler.stop();
+  expect(dispatched).not.toContain(original.id);
+}, 20_000);

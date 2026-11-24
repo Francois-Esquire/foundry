@@ -237,7 +237,6 @@ it("projects recorded turns onto real runs and steps, and catalog origins onto t
   await launched.result;
   const snapshot = dashboardSnapshot(await engine.runs(), {
     definitions: engine.definitions(),
-    lastFinish: new Map(),
     monitors: engine.monitors(),
     root: HERE,
     schedules: await engine.schedules(),
@@ -288,7 +287,6 @@ it("a step's log line shows once in Logs, attributed to its run and step, even w
   const snapshot = dashboardSnapshot(await engine.runs(), {
     definitions: [],
     diagnostics: diagnostics.entries,
-    lastFinish: new Map(),
     monitors: new Map(),
     root: HERE,
     schedules: [],
@@ -339,7 +337,6 @@ it("a definition declared through a symlinked path is still local to the canonic
           origin: "/nowhere/prebuilt.js:9",
         },
       ],
-      lastFinish: new Map(),
       monitors: new Map(),
       root,
       schedules: [],
@@ -414,7 +411,6 @@ it("after a restart, a malformed leaf in a run's document makes that run's, its 
     expect(records.unreadableAt.runs.get(launched.id)).toBe(1);
     const snapshot = dashboardSnapshot(await second.runs(), {
       definitions: second.definitions(),
-      lastFinish: new Map(),
       monitors: second.monitors(),
       root: state,
       schedules: [],
@@ -615,7 +611,6 @@ it("a workflow's setup lines stay in Logs with their run and no step; body lines
   const snapshot = dashboardSnapshot(await engine.runs(), {
     definitions: [],
     diagnostics: diagnostics.entries,
-    lastFinish: new Map(),
     monitors: new Map(),
     root: HERE,
     schedules: [],

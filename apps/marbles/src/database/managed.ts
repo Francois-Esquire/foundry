@@ -5,6 +5,7 @@ import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
 import type { JsonValue } from "@foundry/lib/json";
 import { ownedWrite } from "@foundry/lib/plain-json";
 import type { QueueStoreService } from "@foundry/queue/store";
+import type { ScheduleStoreService } from "@foundry/scheduling/store";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { DatabaseActivityStore } from "~/database/activities";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
@@ -61,12 +62,8 @@ import type {
 } from "~/lib/run-store";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
-import type {
-  MonitorState,
-  ScheduleHistory,
-  TickClaim,
-  TriggerStore,
-} from "~/lib/trigger-store";
+import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
+import { gatedScheduleStore } from "~/lib/trigger-store";
 import type { RecordedUsageFact } from "~/lib/usage";
 import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
 import type { StoredUsage, UsageStore } from "~/lib/usage-store";
@@ -657,10 +654,6 @@ class ManagedTriggerStore implements TriggerStore {
     );
   }
 
-  claimTick(key: string): Promise<TickClaim> {
-    return this.#run((store) => store.claimTick(key));
-  }
-
   clearPendingLaunch(key: string): Promise<void> {
     return this.#run((store) => store.clearPendingLaunch(key));
   }
@@ -681,12 +674,8 @@ class ManagedTriggerStore implements TriggerStore {
     );
   }
 
-  finishTick(key: string, tick?: ScheduleHistory): Promise<void> {
-    return this.#run((store) => store.finishTick(key, tick));
-  }
-
-  lastTick(key: string): Promise<ScheduleHistory | undefined> {
-    return this.#run((store) => store.lastTick(key));
+  forgetMonitor(key: string): Promise<void> {
+    return this.#run((store) => store.forgetMonitor(key));
   }
 
   monitorState(key: string): Promise<MonitorState | undefined> {
@@ -695,6 +684,13 @@ class ManagedTriggerStore implements TriggerStore {
 
   saveMonitorState(key: string, state: MonitorState): Promise<void> {
     return this.#run((store) => store.saveMonitorState(key, state));
+  }
+
+  async schedules(): Promise<ScheduleStoreService> {
+    return gatedScheduleStore(
+      await this.#run((store) => store.schedules()),
+      (call) => this.#gate.run(call)
+    );
   }
 
   #run<T>(call: (store: DatabaseTriggerStore) => Promise<T>): Promise<T> {

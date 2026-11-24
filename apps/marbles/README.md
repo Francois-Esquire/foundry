@@ -274,8 +274,8 @@ they were, by their key, and the runs waiting in a queue or suspended on a
 question move to it. The previous generation starts nothing new; it
 finishes the runs it has running, whole, then exits, and with none it
 exits at once; a run of it that suspends on a question meanwhile moves to the
-current generation as it suspends, which answers it. Each schedule tick and
-each task change is handled by one generation only. A generation that dies
+current generation as it suspends, which answers it. Each schedule occurrence
+and each task change is handled by one generation only. A generation that dies
 is replaced after a pause that doubles from 1 second up to 30 while
 replacements keep failing, and the next one's start puts its runs right.
 What counts as a change is any file under a workspace's root (but

@@ -75,12 +75,7 @@ export type {
 } from "./sandbox/deferred-approvals";
 export { MemoryDeferredApprovalStore } from "./sandbox/deferred-approvals";
 export type { TaskContext, TaskDefinition, TaskObservation } from "./tasks";
-export type {
-  MonitorState,
-  ScheduleHistory,
-  TickClaim,
-  TriggerStore,
-} from "./trigger-store";
+export type { MonitorState, TriggerStore } from "./trigger-store";
 export { MemoryTriggerStore } from "./trigger-store";
 export type {
   AgentDefinition,

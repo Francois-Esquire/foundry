@@ -2,8 +2,8 @@ import { basename } from "node:path";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { ALL_WORKSPACES, ResourceView } from "~/database/resources";
-import type { StoredTick } from "~/database/triggers";
-import { isMonitorTick, storedTicks } from "~/database/triggers";
+import type { StoredSchedule } from "~/database/triggers";
+import { storedSchedules } from "~/database/triggers";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type {
   OwnerWorkspace,
@@ -68,8 +68,8 @@ export function otherWorkspaces(
     const triggers: TriggerSnapshot[] = [];
     for (const owner of owners.values()) {
       if (owner.id !== workspace) {
-        for (const tick of await storedTicks(database, owner.id)) {
-          triggers.push(triggerSnapshot(tick, owner));
+        for (const stored of await storedSchedules(database, owner.id)) {
+          triggers.push(triggerSnapshot(stored, owner));
         }
       }
     }
@@ -110,14 +110,13 @@ function ownedElsewhere(
 }
 
 function triggerSnapshot(
-  tick: StoredTick,
+  stored: StoredSchedule,
   owner: OwnerWorkspace
 ): TriggerSnapshot {
-  const { key, last, pending, running } = tick;
-  const kind = isMonitorTick(tick) ? "monitor" : "schedule";
+  const { key, kind, label, lastStatus, nextDue, pending, running } = stored;
   let status: TriggerSnapshot["status"] =
     kind === "monitor" ? "watching" : "waiting";
-  if (last?.lastStatus === "failed") {
+  if (lastStatus === "failed") {
     status = "failed";
   }
   if (running !== null) {
@@ -127,10 +126,10 @@ function triggerSnapshot(
     description: `${kind} in ${owner.name}${pending === undefined ? "" : ` · a launch of ${pending} waits`}`,
     id: key,
     kind,
-    name: `${last?.label ?? key} · ${owner.name}`,
-    ...(last === undefined
+    name: `${label} · ${owner.name}`,
+    ...(nextDue === undefined
       ? {}
-      : { next: new Date(last.nextDue).toLocaleString() }),
+      : { next: new Date(nextDue).toLocaleString() }),
     status,
     targetId: pending ?? key,
     workspace: owner,

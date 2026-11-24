@@ -66,4 +66,6 @@ pure helpers `nextDue`, `dueOccurrences`, `validateCadence`, and
 | `./queue` | `QueueDispatchLayer`, the adapter onto `@foundry/queue` and the only module that imports it |
 | `./client` | `createSchedulerClient({ dispatch })`, a Promise wrapper |
 
-Next: hosts replace their own schedule loops with this package.
+Marbles hosts its schedules and monitor polling on this package: its
+schedule loop runs a `Scheduler` over `SqliteScheduleStore`, with a
+`ScheduleDispatch` onto its engine.

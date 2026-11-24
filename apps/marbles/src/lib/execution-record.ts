@@ -105,6 +105,7 @@ export interface ExecutionRuns {
   gaps(): readonly RetentionGap[];
   get(id: string): ExecutionRun | undefined;
   list(): readonly ExecutionRun[];
+  peek(id: string): Promise<ExecutionRun | undefined>;
   prune(
     ids: Iterable<string>,
     scopeOf: (run: ExecutionRun) => string

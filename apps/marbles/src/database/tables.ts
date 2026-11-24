@@ -93,24 +93,6 @@ export const marblesWorkflowRuns = sqliteTable(
   ]
 );
 
-export const marblesScheduleTicks = sqliteTable(
-  "marbles_schedule_ticks",
-  {
-    key: text().notNull(),
-    kind: text({ enum: ["schedule", "monitor"] }),
-    label: text(),
-    lastFinish: text("last_finish"),
-    lastStart: text("last_start"),
-    lastStatus: text("last_status", { enum: ["complete", "failed"] }),
-    nextDue: text("next_due"),
-    ownerId: text("owner_id"),
-    ownerPid: integer("owner_pid"),
-    ownerStarted: text("owner_started"),
-    scope: text().notNull(),
-  },
-  (table) => [primaryKey({ columns: [table.scope, table.key] })]
-);
-
 export const marblesMonitorStates = sqliteTable(
   "marbles_monitor_states",
   {

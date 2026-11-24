@@ -4,13 +4,8 @@ import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StoreDatabase } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
-import {
-  marblesDeliveryClaims,
-  marblesScheduleTicks,
-  marblesWorkflowRuns,
-} from "~/database/tables";
+import { marblesDeliveryClaims, marblesWorkflowRuns } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
-import { DatabaseTriggerStore } from "~/database/triggers";
 import type { ExecutionStore } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
 import { Executions } from "~/lib/executions";
@@ -139,30 +134,6 @@ describe("a claim on a row another engine left", () => {
     expect(await again.claim("rn-1", ANY_STORED_RUN)).toBe(true);
     expect(watch.asked).toEqual([false]);
     await again.close();
-  });
-
-  it("on a tick judges its owner before its transaction", async () => {
-    const { database, raw } = await watched();
-    const left = gone();
-    await raw.insert(marblesScheduleTicks).values({
-      key: "schedule:a",
-      ownerId: "gone-engine",
-      ownerPid: left.pid,
-      ownerStarted: left.started,
-      scope: "ws",
-    });
-    const store = new DatabaseTriggerStore({ database, scope: "ws" });
-    expect((await store.claimTick("schedule:a")).claimed).toBe(true);
-    expect(watch.asked).toEqual([false]);
-    watch.asked.length = 0;
-    const other = new DatabaseTriggerStore({ database, scope: "ws" });
-    expect(await other.claimTick("schedule:a")).toEqual({
-      claimed: false,
-      holder: "this process",
-    });
-    expect(watch.asked).toEqual([false]);
-    await store.close();
-    await other.close();
   });
 
   it("on delivering task changes judges its owner before its transaction", async () => {

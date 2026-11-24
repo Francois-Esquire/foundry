@@ -638,10 +638,11 @@ monitor("https://tracker.example.com/latest")
 - **A handler that returns a locked node starts it**, attributed to the
   monitor: `ship({}, { task })` or `nightly({})`. Return a childless lock of a
   named definition. A bare definition is ignored; `undefined` launches
-  nothing. At most one node starts per tick.
-  The launch is held as pending until a tick has started it, so a crash in
+  nothing. At most one node starts per poll, once the poll's run ends;
+  the next poll is due the monitor's interval after that.
+  The launch is held as pending until it has started, so a crash in
   between hands it out again; a target no longer registered is dropped after
-  one failed tick; a started run that fails or is cancelled is not started
+  one failed poll; a started run that fails or is cancelled is not started
   again.
 - **The first poll has no baseline.** Every matching file is `added`, or the
   first body counts as a change, so the handler runs once on first start. A

@@ -315,6 +315,23 @@ function description(
   return `${schedule.workflow} · ${describeTrigger(schedule.trigger)}`;
 }
 
+function nextDueAt(
+  schedule: Schedule,
+  latest: RunRecord | undefined,
+  { nextDue: due, startedAt }: Pick<SnapshotOptions, "nextDue" | "startedAt">
+): number | undefined {
+  if (due?.has(schedule.key)) {
+    return due.get(schedule.key) ?? undefined;
+  }
+  return nextDue(
+    schedule,
+    latest?.timestamps.completedAt ??
+      latest?.timestamps.failedAt ??
+      schedule.registeredAt ??
+      startedAt
+  );
+}
+
 export interface OtherWorkspaces {
   readonly runs: readonly RunSnapshot[];
   readonly triggers: readonly TriggerSnapshot[];
@@ -327,9 +344,9 @@ export interface SnapshotOptions {
   readonly definitions: readonly DefinitionEntry[];
   readonly diagnostics?: readonly LogEntry[];
   readonly feed?: readonly FeedEntrySnapshot[];
-  readonly lastFinish: ReadonlyMap<string, number>;
   readonly live?: ReadonlyMap<string, readonly LiveWork[]>;
   readonly monitors: ReadonlyMap<string, { readonly source: MonitorSpec }>;
+  readonly nextDue?: ReadonlyMap<string, number | null>;
   readonly now?: number;
   readonly others?: OtherWorkspaces;
   readonly questionOwners?: ReadonlyMap<string, string>;
@@ -428,13 +445,7 @@ export function dashboardSnapshot(
     if (active) {
       status = "running";
     }
-    const finished =
-      latest?.timestamps.completedAt ??
-      latest?.timestamps.failedAt ??
-      options.lastFinish.get(schedule.key) ??
-      schedule.registeredAt ??
-      options.startedAt;
-    const nextAt = nextDue(schedule, finished);
+    const nextAt = nextDueAt(schedule, latest, options);
     return {
       ...(automation
         ? {
@@ -456,8 +467,9 @@ export function dashboardSnapshot(
       id: schedule.key,
       kind: schedule.kind,
       name: schedule.label,
-      next: new Date(nextAt).toLocaleString(),
-      nextAt,
+      ...(nextAt === undefined
+        ? {}
+        : { next: new Date(nextAt).toLocaleString(), nextAt }),
       status,
       targetId: automation?.workflow ?? schedule.workflow,
     };

@@ -7,13 +7,8 @@ import {
 import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { afterEach, describe, expect, it } from "vitest";
 import { DatabaseRunStore } from "~/database/runs";
-import {
-  marblesDeliveryClaims,
-  marblesScheduleTicks,
-  marblesWorkflowRuns,
-} from "~/database/tables";
+import { marblesDeliveryClaims, marblesWorkflowRuns } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
-import { DatabaseTriggerStore } from "~/database/triggers";
 import { ANY_STORED_RUN } from "~/lib/run-store";
 import { testHome } from "./helpers/home";
 import type { TestMachine } from "./helpers/records";
@@ -87,26 +82,6 @@ describe("a claim recorded by another engine", () => {
       });
       const store = new DatabaseRunStore({ database: db, scope: "ws" });
       expect([name, await store.claim(runId, ANY_STORED_RUN)]).toEqual([
-        name,
-        !held,
-      ]);
-      await store.close();
-    }
-  });
-
-  it("on a tick is held only while its holder is there", async () => {
-    const db = await database();
-    for (const [name, owner, held] of holders()) {
-      const key = `schedule:${name}`;
-      await db.insert(marblesScheduleTicks).values({
-        key,
-        ownerId: "another-engine",
-        ownerPid: owner.pid,
-        ownerStarted: owner.started,
-        scope: "ws",
-      });
-      const store = new DatabaseTriggerStore({ database: db, scope: "ws" });
-      expect([name, (await store.claimTick(key)).claimed]).toEqual([
         name,
         !held,
       ]);

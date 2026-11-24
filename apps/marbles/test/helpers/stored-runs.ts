@@ -1,13 +1,14 @@
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import { type ProcessIdentity, startedAt } from "@foundry/lib/process-identity";
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
+import { type Occurrence, occurrenceId } from "@foundry/scheduling";
+import { makeSqliteScheduleStore } from "@foundry/scheduling/store/sqlite";
 import { and, eq } from "drizzle-orm";
 import { openDatabase, readDatabase } from "~/database/open";
 import { readResourceView } from "~/database/resources";
 import { DatabaseRunStore } from "~/database/runs";
-import { marblesScheduleTicks, marblesWorkflowRuns } from "~/database/tables";
+import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { StoredScope } from "~/lib/run-store";
-import type { ScheduleHistory } from "~/lib/trigger-store";
 import { isRunId, readRun, runStoreEffect } from "~/lib/workflow-runs";
 import { putRun } from "./queue-runs";
 
@@ -97,30 +98,94 @@ export async function seedRuns(
   }
 }
 
-export interface SeededTick {
+export interface SeededSchedule {
   readonly key: string;
-  readonly last?: ScheduleHistory;
-  readonly owner: number | null;
+  readonly kind?: "schedule" | "monitor";
+  readonly label?: string;
+  readonly last?: {
+    readonly outcome: "complete" | "failed" | "cancelled";
+    readonly settledAt: string;
+  };
+  readonly nextDue?: string;
+  readonly owner?: number | null;
 }
 
-export async function seedTicks(
+function occurrenceOf({
+  key,
+  last,
+  owner,
+}: SeededSchedule): Occurrence | undefined {
+  if (owner !== undefined && owner !== null) {
+    return {
+      id: occurrenceId(key, 1),
+      scheduledFor: 1,
+      scheduleId: key,
+      state: {
+        claimedAt: 1,
+        kind: "claimed" as const,
+        lease: {
+          claimedAt: 1,
+          owner: { pid: owner, started: startedAt(owner) ?? null },
+        },
+      },
+    };
+  }
+  if (last === undefined) {
+    return;
+  }
+  const settledAt = Date.parse(last.settledAt);
+  return {
+    id: occurrenceId(key, settledAt),
+    scheduledFor: settledAt,
+    scheduleId: key,
+    state: {
+      jobId: "rn-seeded",
+      kind: "settled" as const,
+      outcome: last.outcome,
+      settledAt,
+    },
+  };
+}
+
+export async function seedSchedules(
   state: string,
   scope: string,
-  ticks: readonly SeededTick[]
+  schedules: readonly SeededSchedule[]
 ): Promise<void> {
   const opened = await openDatabase(stateDatabase(state));
   if (opened === undefined) {
     throw new Error("no Marbles database to seed");
   }
   try {
-    for (const { key, last, owner } of ticks) {
-      await opened.database.insert(marblesScheduleTicks).values({
-        key,
-        ...(last ?? {}),
-        ownerId: owner === null ? null : "seeded",
-        ownerPid: owner,
-        scope,
-      });
+    const store = makeSqliteScheduleStore({ database: opened.database, scope });
+    for (const seeded of schedules) {
+      const { key, kind = "schedule", label = key, nextDue } = seeded;
+      const occurrence = occurrenceOf(seeded);
+      await runStoreEffect(
+        store.commit({
+          cursors: [
+            {
+              nextDueAt: nextDue === undefined ? null : Date.parse(nextDue),
+              scheduleId: key,
+            },
+          ],
+          occurrences: occurrence === undefined ? [] : [occurrence],
+          schedules: [
+            {
+              cadence: { afterSettleMs: 60_000, kind: "delay" },
+              createdAt: 0,
+              id: key,
+              misfire: "run-once",
+              overlap: "skip",
+              state: "active",
+              target: {
+                handler: { name: key },
+                input: { input: null, kind, label },
+              },
+            },
+          ],
+        })
+      );
     }
   } finally {
     opened.close();

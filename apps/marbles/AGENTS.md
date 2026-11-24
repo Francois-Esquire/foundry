@@ -89,6 +89,18 @@ Five buckets, each importing only what sits below it:
   `@foundry/workflows/queue-handler`, holding each live workflow across
   suspend and resume; `lib/workflow-runs.ts` projects the queue's Jobs and
   Runs into `RunRecord`s and its events into `RUNS` facts.
+  `lib/schedule-loop.ts` runs `@foundry/scheduling`'s scheduler over the
+  trigger store's schedule store while a host runs (`run`), registering
+  every declared and agent-created schedule (`registration` in
+  `lib/schedule.ts`: an interval is a fixed delay after its run settles, a
+  calendar slot a calendar cadence, each with overlap skip and misfire
+  run-once) and removing what is no longer declared; `lib/schedule-dispatch.ts`
+  is its `ScheduleDispatch`, which launches each occurrence through the
+  engine, reads its end from the Execution Run, records a launch the engine
+  refuses as a failed occurrence, and holds a monitor's occurrence open
+  until the launch its detector asked for is started. A roll
+  (`rollSchedule`) launches and awaits a schedule's target directly and
+  records no occurrence.
   `lib/held-runs.ts` follows held workflow runs to their end;
   `lib/run-store.ts` is where their Runs are kept (`RunStore`, in memory
   by default), and `lib/run-recovery.ts` is the one rule for which suspended
@@ -212,9 +224,12 @@ Five buckets, each importing only what sits below it:
   run is adopted by the next process that can answer it; a claim on a Run
   is a transaction on that row, not a lock file. Each run's output stays
   a log file on disk, `<state>/<id>/output/<run>.jsonl`. `triggers.ts`
-  is a workspace's trigger state: each schedule's and monitor's last tick
-  and each monitor's state by the trigger's key, and the claim that keeps
-  two ticks of one trigger apart, a transaction on the tick's row.
+  is a workspace's trigger state: each monitor's state by the trigger's
+  key (`marbles_monitor_states`), and `@foundry/scheduling`'s
+  `SqliteScheduleStore` scoped by the workspace id, whose occurrence
+  claims keep two schedulers from dispatching one due time twice; its
+  readers (`storedSchedules`) derive each schedule's last outcome and
+  running owner from its latest occurrence and that run's Execution Run.
   `executions.ts` is a workspace's Execution Runs: each record a row of
   `marbles_executions`, its lifecycle changed only from a status the
   change allows and by the owner it names, and its progress patched only
@@ -231,8 +246,7 @@ Five buckets, each importing only what sits below it:
   repository validates), deferred approvals (one document) and harness
   activities (a row each, replaced only by a higher revision); the
   workspace's records (`tasks.ts`) keep who delivers its changes in
-  `marbles_delivery_claims`, a claim a transaction on that row, as tick
-  claims are. `providers.ts` is the machine's provider configuration, a row
+  `marbles_delivery_claims`, a claim a transaction on that row. `providers.ts` is the machine's provider configuration, a row
   per scope with a revision the configuration's watcher polls, and the
   identity key; `DatabaseProviderStore.forState` is the same for a
   process that keeps no handle open. Its settings may hold secrets: `initializeDatabase` keeps
@@ -248,7 +262,7 @@ Five buckets, each importing only what sits below it:
   registry does. `status`, the
   resource listings and the dashboard's Feed read through it, and the
   dashboard's lists of other workspaces' runs and triggers
-  (`workspace/others.ts`, with `storedTicks` in `triggers.ts`). Every writer handle goes through `guard.ts`, which
+  (`workspace/others.ts`, with `storedSchedules` in `triggers.ts`). Every writer handle goes through `guard.ts`, which
   refuses a transaction once another Marbles has migrated the file past
   this one. A task command with no generation hosting its workspace opens the database per
   command: `readTasks` read-only, `changeTasks` as a writer (`writeAsHost`).
@@ -284,7 +298,7 @@ Five buckets, each importing only what sits below it:
 - `src/workspace/` hosts one workspace in the process it runs in: source
   discovery (`source.ts`), module
   loading and the engine builder (`open.ts`), the schedule loop
-  (`loop.ts`), the dashboard snapshot (`snapshot.ts`) with its feed of
+  (`loop.ts`, over `lib/schedule-loop.ts`), the dashboard snapshot (`snapshot.ts`) with its feed of
   every workspace (`feed.ts`) and its usage
   totals (`usage.ts`) and the host's own lines (`diagnostics.ts`), source
   watching (`watch.ts`), starter templates and creation, background agent
@@ -351,7 +365,7 @@ Five buckets, each importing only what sits below it:
   source), a reload, or a generation that died starts a candidate: it
   loads every registered workspace up to engines not yet started, else
   nothing switches; then the current one retires (`Engine.retire`: no
-  tick, delivery or queued run starts there again, its queued runs are
+  occurrence, delivery or queued run starts there again, its queued runs are
   handed to the candidate and its suspended runs let go) and finishes its
   running runs before it exits, and the candidate starts, taking over the
   suspended and queued work; the candidate is current from the moment it has
@@ -373,11 +387,12 @@ Five buckets, each importing only what sits below it:
   the daemon retries elsewhere. A generation that was current and died is
   replaced after a bounded backoff, and only a candidate that does not
   load has its fingerprint refused. A generation whose daemon is gone (a
-  crash) is out of any daemon's reach: it ticks and delivers no more, lets
+  crash) is out of any daemon's reach: it schedules and delivers no more, lets
   in its queued runs and finishes them with its running ones on the code
   it loaded, then lets go of its suspended runs, which stay in the store, and
-  exits; a schedule records no outcome for a firing whose run it let go,
-  and the sweep offers that run to the current generation. The next daemon
+  exits; a schedule's occurrence whose run it let go stays open, so the
+  schedule dispatches again only once that run ends, and the sweep offers that
+  run to the current generation. The next daemon
   records it retiring while its
   process is alive, and leaves its running and queued runs to it, since
   their owner is alive;

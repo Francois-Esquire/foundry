@@ -13,8 +13,8 @@ import { readDatabase } from "~/database/open";
 import { readLastRecovery } from "~/database/recoveries";
 import type { RunResource, Shown } from "~/database/resources";
 import { ResourceView } from "~/database/resources";
-import type { StoredTick } from "~/database/triggers";
-import { isMonitorTick, readStoredTicks } from "~/database/triggers";
+import type { StoredSchedule } from "~/database/triggers";
+import { readStoredSchedules } from "~/database/triggers";
 import { recordedWorkspaces } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import type { RecoveryReport } from "~/lib/crash-recovery";
@@ -138,7 +138,7 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
           current,
           record,
           shows?.get(record.id) ?? NOTHING_SHOWN,
-          await readStoredTicks(stateRoot, record.id),
+          await readStoredSchedules(stateRoot, record.id),
           await readLastRecovery(stateRoot, record.id),
           await readStoredObservers(stateRoot, record.id)
         )
@@ -176,7 +176,7 @@ function readWorkspaceStatus(
   current: CurrentHost | undefined,
   record: WorkspaceRecord,
   shows: Shows,
-  ticks: readonly StoredTick[],
+  schedules: readonly StoredSchedule[],
   recovery: RecoveryReport | null,
   log: Awaited<ReturnType<typeof readStoredObservers>>
 ): WorkspaceStatus {
@@ -200,21 +200,20 @@ function readWorkspaceStatus(
     recovery,
     root: record.root,
     runs: runsStatus(record.id, shows.runs),
-    schedules: ticks.map(scheduleStatus),
+    schedules: schedules.map(scheduleStatus),
     sessions: shows.sessions,
   };
 }
 
-function scheduleStatus(tick: StoredTick): ScheduleStatus {
-  const { key, last, running } = tick;
+function scheduleStatus(stored: StoredSchedule): ScheduleStatus {
   return {
-    key,
-    kind: isMonitorTick(tick) ? "monitor" : null,
-    lastFinish: last?.lastFinish ?? null,
-    lastStatus: last?.lastStatus ?? null,
-    name: last?.label ?? key,
-    nextDue: last?.nextDue ?? null,
-    running,
+    key: stored.key,
+    kind: stored.kind === "monitor" ? "monitor" : null,
+    lastFinish: stored.lastSettledAt ?? null,
+    lastStatus: stored.lastStatus ?? null,
+    name: stored.label,
+    nextDue: stored.nextDue ?? null,
+    running: stored.running,
   };
 }
 

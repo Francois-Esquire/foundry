@@ -39,10 +39,12 @@ carrying input. For example, `schedule(count({}, { extension: ".ts" }))`
 can target the `count` step from [Using Marbles](/marbles/get-started/using-marbles#give-work-input).
 Finish the declaration with `.every(...)` or `.at(...)`.
 
-Configured interval schedules count from completion, preserve their last
-completion across restarts, and do not queue missed ticks. An overlapping
-tick of the same schedule key on the same machine is skipped. A direct
-launch by definition name is not protected by that schedule lock.
+Configured interval schedules count from when their run settles, keep
+their next due time across restarts, and do not queue missed occurrences.
+A schedule whose run is still open, suspended on a question included, is
+not dispatched again until that run ends, and one due time is dispatched
+by one engine only. A direct launch by definition name, or a `roll`, is
+not held back by either.
 
 ## File monitors
 

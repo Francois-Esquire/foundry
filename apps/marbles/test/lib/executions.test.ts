@@ -208,7 +208,6 @@ it("records workflow runs under the Orchestrator's own id, and shows queued ones
 
   const snapshot = dashboardSnapshot(await engine.runs(), {
     definitions: engine.definitions(),
-    lastFinish: new Map(),
     monitors: new Map(),
     queued: engine.executions.list(),
     root: fixture.root,
