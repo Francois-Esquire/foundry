@@ -5,10 +5,9 @@ import type { Artifact, ArtifactId } from "@foundry/artifacts";
 import type { ArtifactCursor } from "@foundry/artifacts/listing";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import type { ContainerRow } from "@foundry/sandbox/schema";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
-import type { RunRecord } from "@foundry/workflows/schema";
-import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq } from "drizzle-orm";
 import { DatabaseAssociationStore } from "~/database/associations";
 import { asBusy } from "~/database/busy";
@@ -30,6 +29,8 @@ import type {
 } from "~/lib/resources";
 import { ResourceAssociations, sameResource } from "~/lib/resources";
 import { insideState } from "~/lib/state/workspace";
+import type { RunRecord } from "~/lib/workflow-runs";
+import { readRun, readRuns } from "~/lib/workflow-runs";
 
 export type ViewScope = { readonly workspace: string } | typeof ALL_WORKSPACES;
 
@@ -287,7 +288,7 @@ export class ResourceView {
       return pids;
     };
     const store = (owner: string) =>
-      new SqliteWorkflowStore({ database, scope: owner });
+      makeSqliteQueueStore({ database, scope: owner });
     return {
       get: (owner, ids) =>
         asBusy(async () => {
@@ -295,7 +296,7 @@ export class ResourceView {
           const pids = await ownerPids(owner, ids);
           const found: RunResource[] = [];
           for (const id of ids) {
-            const record = await runs.getRun(id);
+            const record = await readRun(runs, id);
             if (record !== null) {
               found.push({ owner: pids.get(id) ?? null, record });
             }
@@ -306,19 +307,10 @@ export class ResourceView {
       list: (owner) =>
         asBusy(async () => {
           const pids = await ownerPids(owner);
-          const runs: RunResource[] = [];
-          let after: number | undefined;
-          do {
-            const page = await store(owner).listRuns({
-              limit: PAGE,
-              ...(after === undefined ? {} : { after }),
-            });
-            for (const record of page.items) {
-              runs.push({ owner: pids.get(record.id) ?? null, record });
-            }
-            after = page.next;
-          } while (after !== undefined);
-          return runs;
+          return (await readRuns(store(owner))).map((record) => ({
+            owner: pids.get(record.id) ?? null,
+            record,
+          }));
         }),
     };
   }

@@ -26,13 +26,13 @@ import type {
   DefinitionContext,
   DefinitionDescriptor,
   DefinitionGraphBuilder,
+  Factory,
 } from "./definitions";
 import type { BaseContext } from "./executable";
 import { isSuspendSignal } from "./executable";
 import { errorToShape, resolveInput, runEffectPromise } from "./helpers";
 import type { WorkflowEffectAccess } from "./internal/workflow-effect-access";
 import { workflowEffectAccessKey } from "./internal/workflow-effect-access";
-import type { Factory } from "./orchestrator";
 import type { ErrorShape } from "./schema";
 import type {
   SnapshotState,

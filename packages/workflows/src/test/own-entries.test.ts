@@ -2,18 +2,12 @@ import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
 import type { DefinitionGraphBuilder } from "../definitions";
-import { ExecutionCoordinator } from "../index";
-import {
-  decodeMetadataValue,
-  encodePersistedMetadata,
-  stepsFromMetadata,
-} from "../metadata-codec";
-import { Queue } from "../queue";
+import { WorkflowCheckpointSchema, workflowHandler } from "../queue-handler";
 import type { StepSnapshot } from "../schema";
 import { Snapshot } from "../snapshot";
 import { Step } from "../step";
-import type { WorkflowState } from "../workflow";
 import { Workflow } from "../workflow";
+import { settledJob, withDurableQueue } from "./helpers/durable-queue";
 
 function withProtoEntry<V>(
   entries: Record<string, V>,
@@ -52,13 +46,10 @@ const completedStep: StepSnapshot = {
 
 describe("entries named __proto__ stay own entries", () => {
   test("recovery seeding keeps a decoded step and its result", async () => {
-    const decoded = decodeMetadataValue({
-      workflow: { steps: withProtoEntry({}, completedStep) },
+    const { steps } = WorkflowCheckpointSchema.parse({
+      steps: withProtoEntry({}, completedStep),
+      tree: null,
     });
-    const steps = stepsFromMetadata(decoded);
-    if (steps === null) {
-      throw new Error("expected decoded steps");
-    }
 
     const state = await Effect.runPromise(
       Effect.scoped(
@@ -76,21 +67,48 @@ describe("entries named __proto__ stay own entries", () => {
     });
   });
 
-  test("transient encoding keeps the step and removes its output", () => {
-    const workflow = {
-      runId: "rn-1",
-      status: "complete",
-      step: "flow",
-      steps: withProtoEntry({}, completedStep),
-    } as WorkflowState & { readonly runId: string; readonly step: string };
+  test("a checkpoint keeps the step, and its output only when results are retained", async () => {
+    class Summarize extends Step<null, typeof output> {
+      readonly definitionKey = "own-entry.summarize";
 
-    const encoded = encodePersistedMetadata(workflow, [], {
-      results: "transient",
-    }) as { workflow: { steps: unknown } };
-    const step = ownEntry(encoded.workflow.steps, "__proto__");
+      protected execute(): Promise<typeof output> {
+        return Promise.resolve(output);
+      }
+    }
+    class ProtoFlow extends Workflow<null, typeof output> {
+      readonly definitionKey = "__proto__";
 
-    expect(step).toMatchObject({ name: "__proto__", status: "complete" });
-    expect(step).not.toHaveProperty("output");
+      protected define(graph: DefinitionGraphBuilder<null, unknown>): void {
+        graph.step("__proto__", new Summarize()).output(() => output);
+      }
+    }
+    class TransientProtoFlow extends ProtoFlow {
+      override readonly persistence = { results: "transient" } as const;
+    }
+    const checkpointed = (workflow: ProtoFlow) =>
+      withDurableQueue((queue) =>
+        Effect.gen(function* () {
+          yield* queue.register(
+            "proto",
+            workflowHandler(() => workflow.factory()(null))
+          );
+          const job = yield* queue.submit({ handler: { name: "proto" } });
+          yield* settledJob(queue, job.id);
+          const [run] = yield* queue.listRuns({ jobId: job.id });
+          return WorkflowCheckpointSchema.parse(run?.checkpoint).steps;
+        })
+      );
+
+    const key = "__proto__";
+    const retained = ownEntry(await checkpointed(new ProtoFlow()), key);
+    const transient = ownEntry(
+      await checkpointed(new TransientProtoFlow()),
+      key
+    );
+
+    expect(retained).toMatchObject({ output, status: "complete" });
+    expect(transient).toMatchObject({ name: "__proto__", status: "complete" });
+    expect(transient).not.toHaveProperty("output");
   });
 
   test("the live snapshot seeds and updates a step keyed __proto__", async () => {
@@ -146,23 +164,6 @@ describe("entries named __proto__ stay own entries", () => {
 
     expect(plain).toMatchObject({ attempt: 0, status: "pending" });
     expect(ownEntry(progressed("__proto__"), "__proto__")).toEqual(plain);
-  });
-
-  test("stored Run data and persisted results keep the entry", async () => {
-    const store = new ExecutionCoordinator();
-    const created = await store.createRun({
-      input: withProtoEntry<unknown>({ kept: 1 }, { nested: true }),
-      metadata: { workflow: { steps: withProtoEntry({}, completedStep) } },
-      queueId: "main",
-      step: "flow",
-    });
-    const stored = await store.getRun(created.id);
-    const queue = new Queue({ concurrency: 1, store });
-    const results = await queue.results(created.id);
-    await queue.shutdown();
-
-    expect(ownEntry(stored?.input, "__proto__")).toEqual({ nested: true });
-    expect(ownEntry(results, "__proto__")).toEqual(output);
   });
 
   test("definition node keys named __proto__ run and reach the output", async () => {

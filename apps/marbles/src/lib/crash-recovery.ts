@@ -3,11 +3,11 @@ import { stopOrphans } from "@foundry/lib/orphans";
 import { removeByHand } from "@foundry/sandbox/container/constants";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { ContainerStore } from "@foundry/sandbox/store";
-import type { ExecutionCoordinator } from "@foundry/workflows";
 import { z } from "zod";
 
 import type { ExecutionRun } from "./execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
+import type { AbandonedRunsOptions } from "./run-recovery";
 import { closeAbandonedRuns } from "./run-recovery";
 import type { RunStore } from "./run-store";
 import type { HarnessActivities } from "./sandbox/activities";
@@ -66,9 +66,10 @@ export class CrashRecovery {
     this.#options = options;
   }
 
-  async recover(
-    store: Pick<ExecutionCoordinator, "abandonRun" | "listRuns">
-  ): Promise<{
+  async recover({
+    queue,
+    store,
+  }: Pick<AbandonedRunsOptions, "queue" | "store">): Promise<{
     readonly closed: readonly string[];
     readonly report: RecoveryReport;
   }> {
@@ -82,6 +83,7 @@ export class CrashRecovery {
           execution: (runId) =>
             this.#options.executions().find((run) => run.id === runId),
           print,
+          queue,
           runs,
           store,
         });

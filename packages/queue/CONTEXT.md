@@ -11,7 +11,7 @@ knows nothing about schedules, calendars, or what the work does.
 **Job**:
 One piece of work someone asked for: which handler does it, with what
 input, in which pool, under which policy. A job ends exactly once, as
-completed, failed, or cancelled.
+complete, failed, or cancelled.
 _Avoid_: task (a backlog item), request, execution
 
 **Run**:
@@ -28,8 +28,9 @@ The named piece of code that carries out a job's runs.
 _Avoid_: worker, processor, executor
 
 **Outcome**:
-What a handler reports at the end of a run: completed with output, parked
-on a wait, or bailed with a failure that must not be retried.
+What a handler reports at the end of a run: complete with output,
+suspended on a suspension, or bailed with an error that must not be
+retried.
 _Avoid_: result, status
 
 **Bail**:
@@ -54,15 +55,21 @@ _Avoid_: intake, acceptance
 
 ### Pauses and progress
 
-**Wait**:
+**Suspension**:
 A durable pause a run asks for until something outside the queue answers,
-such as a person's approval. A wait is resolved with a value or cancelled.
-_Avoid_: signal, hook, suspension
+such as a person's approval. A suspension is resolved with a value or
+cancelled.
+_Avoid_: wait, signal, hook
 
-**Parked**:
-The state of a run that is held by a pending wait. A parked run holds no
-slot.
-_Avoid_: suspended, sleeping, blocked
+**Suspended**:
+The state of a run, and of its job, held by a pending suspension. A
+suspended run holds no slot.
+_Avoid_: parked, waiting, sleeping, blocked
+
+**Resolution**:
+The value a resolved suspension answered with, handed to the run that
+resumes after it.
+_Avoid_: answer, reply
 
 **Checkpoint**:
 Progress a handler saves on its run so a later attempt or a resumed run can
@@ -83,6 +90,16 @@ _Avoid_: host, node, worker
 Taking back runs whose owner is gone: running ones are interrupted and
 retried if their policy allows; queued ones are adopted.
 _Avoid_: restart, resync
+
+**Adoption**:
+Taking over a run another process left: a queued run during recovery, or a
+suspended run through `adopt`, which moves its pending suspensions to a new
+revision so a resolution read before the takeover is refused as stale.
+_Avoid_: steal, claim
+
+**Abandonment**:
+Failing an open run whose driver is gone, without retrying it.
+_Avoid_: kill, reap
 
 **Retirement**:
 A process closing admission for good while its running work finishes.

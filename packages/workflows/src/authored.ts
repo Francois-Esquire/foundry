@@ -1,9 +1,11 @@
 import { z } from "zod";
 
-import type { DefinitionGraphBuilder } from "./definitions";
+import type {
+  DefinitionGraphBuilder,
+  RunExecutionContext,
+} from "./definitions";
 import type { BaseContext } from "./executable";
 import type { JsonValue } from "./json-value";
-import type { RunExecutionContext } from "./orchestrator";
 import type { StepContext } from "./step";
 
 import { Step } from "./step";

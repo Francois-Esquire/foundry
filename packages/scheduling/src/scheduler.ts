@@ -92,7 +92,7 @@ const skipped = (
 
 const skippedFact = (occurrence: Occurrence): Fact => ({
   occurrence,
-  type: "OccurrenceSkipped",
+  type: "occurrence.skipped",
 });
 
 const record = (
@@ -108,7 +108,7 @@ const record = (
   writes: persist ? [...progress.writes, occurrence] : progress.writes,
 });
 
-const slot = (scheduleId: ScheduleId, scheduledFor: Instant) => ({
+const occurrenceAt = (scheduleId: ScheduleId, scheduledFor: Instant) => ({
   id: occurrenceId(scheduleId, scheduledFor),
   scheduledFor,
   scheduleId,
@@ -210,7 +210,7 @@ const makeScheduler = (options: SchedulerOptions) =>
           decided: [],
           facts: settled.map((occurrence) => ({
             occurrence,
-            type: "OccurrenceSettled" as const,
+            type: "occurrence.settled" as const,
           })),
           writes: settled,
         } satisfies Progress;
@@ -235,7 +235,7 @@ const makeScheduler = (options: SchedulerOptions) =>
       now: Instant
     ) =>
       Effect.gen(function* () {
-        const base = slot(schedule.id, scheduledFor);
+        const base = occurrenceAt(schedule.id, scheduledFor);
         const claimed: Occurrence = {
           ...base,
           state: {
@@ -251,7 +251,7 @@ const makeScheduler = (options: SchedulerOptions) =>
         }
         const claimedFact: Fact = {
           occurrence: claimed,
-          type: "OccurrenceClaimed",
+          type: "occurrence.claimed",
         };
         const active = progress.cursor.activeJobId;
         if (active !== undefined && schedule.overlap === "skip") {
@@ -283,7 +283,7 @@ const makeScheduler = (options: SchedulerOptions) =>
           dispatched,
           [
             claimedFact,
-            { occurrence: dispatched, type: "OccurrenceDispatched" },
+            { occurrence: dispatched, type: "occurrence.dispatched" },
           ],
           true
         );
@@ -315,7 +315,7 @@ const makeScheduler = (options: SchedulerOptions) =>
         schedule.misfire
       );
       const missed = due.skipped.map((at) =>
-        skipped(slot(schedule.id, at), "misfire", now)
+        skipped(occurrenceAt(schedule.id, at), "misfire", now)
       );
       const advanced: Progress = {
         cursor: {
@@ -361,7 +361,7 @@ const makeScheduler = (options: SchedulerOptions) =>
         const decided: Occurrence[] = [];
         let soonest: Instant | undefined;
         for (const schedule of yield* store.listSchedules) {
-          if (schedule.state !== "enabled") {
+          if (schedule.state !== "active") {
             continue;
           }
           const result = yield* evaluate(schedule, now).pipe(
@@ -420,7 +420,8 @@ const makeScheduler = (options: SchedulerOptions) =>
             [
               {
                 schedule,
-                type: state === "paused" ? "SchedulePaused" : "ScheduleResumed",
+                type:
+                  state === "paused" ? "schedule.paused" : "schedule.resumed",
               },
             ],
             { schedules: [schedule] }
@@ -441,7 +442,7 @@ const makeScheduler = (options: SchedulerOptions) =>
           id: input.id,
           misfire: input.misfire ?? "run-once",
           overlap: input.overlap ?? "skip",
-          state: input.state ?? existing?.state ?? "enabled",
+          state: input.state ?? existing?.state ?? "active",
           target: input.target,
         };
         const sameCadence =
@@ -455,7 +456,7 @@ const makeScheduler = (options: SchedulerOptions) =>
                 nextDueAt: firstDue(cadence, now),
                 scheduleId: input.id,
               };
-        yield* commit(now, [{ schedule, type: "ScheduleRegistered" }], {
+        yield* commit(now, [{ schedule, type: "schedule.registered" }], {
           cursors: [cursor],
           schedules: [schedule],
         });
@@ -485,7 +486,7 @@ const makeScheduler = (options: SchedulerOptions) =>
       Effect.gen(function* () {
         yield* requireSchedule(id);
         const now = yield* Clock.currentTimeMillis;
-        yield* commit(now, [{ scheduleId: id, type: "ScheduleRemoved" }], {
+        yield* commit(now, [{ scheduleId: id, type: "schedule.removed" }], {
           removed: [id],
         });
       });
@@ -497,7 +498,7 @@ const makeScheduler = (options: SchedulerOptions) =>
       list: store.listSchedules,
       pause: (id) => setState(id, "paused"),
       register: (input) => changed(register(input)),
-      resume: (id) => setState(id, "enabled"),
+      resume: (id) => setState(id, "active"),
       tick: Effect.map(
         locked(evaluateAll((error) => Effect.fail(error))),
         (result) => result.decided

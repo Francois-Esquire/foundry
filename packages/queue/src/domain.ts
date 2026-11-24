@@ -4,7 +4,7 @@ import { Data } from "effect";
 
 export type JobId = `jb-${string}`;
 export type RunId = `rn-${string}`;
-export type WaitId = `wt-${string}`;
+export type SuspensionId = `su-${string}`;
 export type PoolName = string;
 export type Instant = number;
 
@@ -15,9 +15,9 @@ export interface HandlerRef {
   readonly version?: string;
 }
 
-export interface Failure {
-  readonly code: string;
+export interface ErrorShape {
   readonly message: string;
+  readonly name: string;
   readonly stack?: string;
 }
 
@@ -60,7 +60,7 @@ export interface ExecutionPolicy {
   readonly timeoutMs?: number;
 }
 
-export interface CausalLinks {
+export interface Links {
   readonly parentJobId?: JobId;
   readonly parentRunId?: RunId;
   readonly source?: string;
@@ -68,7 +68,7 @@ export interface CausalLinks {
   readonly triggerId?: string;
 }
 
-export interface WaitRequest {
+export interface SuspensionRequest {
   readonly key: string;
   readonly kind: string;
   readonly reason: string;
@@ -76,9 +76,9 @@ export interface WaitRequest {
 }
 
 export type RunOutcome =
-  | { readonly kind: "completed"; readonly output: JsonValue }
-  | { readonly kind: "parked"; readonly wait: WaitRequest }
-  | { readonly kind: "bailed"; readonly error: Failure };
+  | { readonly kind: "complete"; readonly output: JsonValue }
+  | { readonly kind: "suspended"; readonly suspension: SuspensionRequest }
+  | { readonly kind: "bailed"; readonly error: ErrorShape };
 
 export interface ConcurrencyPool {
   readonly limit: number;
@@ -99,12 +99,12 @@ export type JobState =
       readonly attempt: number;
     }
   | {
-      readonly kind: "waiting";
+      readonly kind: "suspended";
       readonly runId: RunId;
-      readonly waitId: WaitId;
+      readonly suspensionId: SuspensionId;
     }
   | {
-      readonly kind: "completed";
+      readonly kind: "complete";
       readonly runId: RunId;
       readonly output: JsonValue;
       readonly completedAt: Instant;
@@ -112,7 +112,7 @@ export type JobState =
   | {
       readonly kind: "failed";
       readonly lastRunId: RunId;
-      readonly error: Failure;
+      readonly error: ErrorShape;
       readonly failedAt: Instant;
     }
   | {
@@ -126,7 +126,7 @@ export interface Job {
   readonly handler: HandlerRef;
   readonly id: JobId;
   readonly input: JsonValue;
-  readonly links: CausalLinks;
+  readonly links: Links;
   readonly policy: ExecutionPolicy;
   readonly pool: PoolName;
   readonly state: JobState;
@@ -145,19 +145,19 @@ export type RunState =
       readonly startedAt: Instant;
     }
   | {
-      readonly kind: "parked";
-      readonly waitId: WaitId;
-      readonly parkedAt: Instant;
+      readonly kind: "suspended";
+      readonly suspensionId: SuspensionId;
+      readonly suspendedAt: Instant;
     }
   | {
-      readonly kind: "completed";
+      readonly kind: "complete";
       readonly output: JsonValue;
       readonly startedAt: Instant;
       readonly completedAt: Instant;
     }
   | {
       readonly kind: "failed";
-      readonly error: Failure;
+      readonly error: ErrorShape;
       readonly retryable: boolean;
       readonly startedAt: Instant;
       readonly failedAt: Instant;
@@ -181,10 +181,11 @@ export interface Run {
   readonly jobId: JobId;
   readonly pool: PoolName;
   readonly revision: number;
+  readonly startedAt?: Instant;
   readonly state: RunState;
 }
 
-export type WaitState =
+export type SuspensionState =
   | { readonly kind: "pending"; readonly createdAt: Instant }
   | {
       readonly kind: "resolved";
@@ -197,15 +198,15 @@ export type WaitState =
       readonly cancelledAt: Instant;
     };
 
-export interface Wait {
-  readonly id: WaitId;
+export interface Suspension {
+  readonly id: SuspensionId;
   readonly key: string;
   readonly kind: string;
   readonly reason: string;
   readonly request: JsonValue;
   readonly revision: number;
   readonly runId: RunId;
-  readonly state: WaitState;
+  readonly state: SuspensionState;
 }
 
 type EventOf<Type extends string, Fields> = {
@@ -215,23 +216,23 @@ type EventOf<Type extends string, Fields> = {
 } & Fields;
 
 export type QueueEvent =
-  | EventOf<"JobSubmitted", { readonly job: Job }>
-  | EventOf<"JobSettled", { readonly job: Job }>
-  | EventOf<"RunQueued", { readonly run: Run }>
-  | EventOf<"RunStarted", { readonly run: Run }>
-  | EventOf<"RunParked", { readonly run: Run }>
-  | EventOf<"RunResumed", { readonly run: Run }>
-  | EventOf<"RunCompleted", { readonly run: Run }>
-  | EventOf<"RunFailed", { readonly run: Run }>
-  | EventOf<"RunCancelled", { readonly run: Run }>
-  | EventOf<"RunInterrupted", { readonly run: Run }>
+  | EventOf<"job.submitted", { readonly job: Job }>
+  | EventOf<"job.settled", { readonly job: Job }>
+  | EventOf<"run.queued", { readonly run: Run }>
+  | EventOf<"run.started", { readonly run: Run }>
+  | EventOf<"run.suspended", { readonly run: Run }>
+  | EventOf<"run.resumed", { readonly run: Run }>
+  | EventOf<"run.completed", { readonly run: Run }>
+  | EventOf<"run.failed", { readonly run: Run }>
+  | EventOf<"run.cancelled", { readonly run: Run }>
+  | EventOf<"run.interrupted", { readonly run: Run }>
   | EventOf<
-      "RunHandedOver",
+      "run.handed_over",
       { readonly run: Run; readonly successor: ProcessIdentity }
     >
-  | EventOf<"WaitOpened", { readonly wait: Wait }>
-  | EventOf<"WaitResolved", { readonly wait: Wait }>
-  | EventOf<"WaitCancelled", { readonly wait: Wait }>;
+  | EventOf<"suspension.opened", { readonly suspension: Suspension }>
+  | EventOf<"suspension.resolved", { readonly suspension: Suspension }>
+  | EventOf<"suspension.cancelled", { readonly suspension: Suspension }>;
 
 export type QueueEventType = QueueEvent["type"];
 
@@ -245,9 +246,9 @@ export interface RunFilter {
   readonly state?: RunState["kind"];
 }
 
-export interface WaitFilter {
+export interface SuspensionFilter {
   readonly runId?: RunId;
-  readonly state?: WaitState["kind"];
+  readonly state?: SuspensionState["kind"];
 }
 
 export interface RecoverySummary {
@@ -263,8 +264,14 @@ export class RunNotFoundError extends Data.TaggedError("RunNotFoundError")<{
   readonly id: RunId;
 }> {}
 
-export class WaitNotFoundError extends Data.TaggedError("WaitNotFoundError")<{
-  readonly id: WaitId;
+export class RunAlreadyExistsError extends Data.TaggedError(
+  "RunAlreadyExistsError"
+)<{ readonly id: RunId }> {}
+
+export class SuspensionNotFoundError extends Data.TaggedError(
+  "SuspensionNotFoundError"
+)<{
+  readonly id: SuspensionId;
 }> {}
 
 export class HandlerNotRegisteredError extends Data.TaggedError(
@@ -275,9 +282,17 @@ export class HandlerAlreadyRegisteredError extends Data.TaggedError(
   "HandlerAlreadyRegisteredError"
 )<{ readonly name: string }> {}
 
-export class WaitAlreadySettledError extends Data.TaggedError(
-  "WaitAlreadySettledError"
-)<{ readonly wait: Wait }> {}
+export class SuspensionAlreadySettledError extends Data.TaggedError(
+  "SuspensionAlreadySettledError"
+)<{ readonly suspension: Suspension }> {}
+
+export class StaleSuspensionRevisionError extends Data.TaggedError(
+  "StaleSuspensionRevisionError"
+)<{ readonly expectedRevision: number; readonly suspension: Suspension }> {}
+
+export class JobNotSettledError extends Data.TaggedError("JobNotSettledError")<{
+  readonly job: Job;
+}> {}
 
 export class QueueRetiringError extends Data.TaggedError("QueueRetiringError")<{
   readonly handler: string;
@@ -294,18 +309,21 @@ export class StoreError extends Data.TaggedError("StoreError")<{
 export type QueueError =
   | JobNotFoundError
   | RunNotFoundError
-  | WaitNotFoundError
+  | RunAlreadyExistsError
+  | SuspensionNotFoundError
   | HandlerNotRegisteredError
-  | WaitAlreadySettledError
+  | SuspensionAlreadySettledError
+  | StaleSuspensionRevisionError
+  | JobNotSettledError
   | QueueRetiringError
   | StoreError;
 
 export const isTerminalJob = (state: JobState): boolean =>
-  state.kind === "completed" ||
+  state.kind === "complete" ||
   state.kind === "failed" ||
   state.kind === "cancelled";
 
 export const isOpenRun = (state: RunState): boolean =>
   state.kind === "queued" ||
   state.kind === "running" ||
-  state.kind === "parked";
+  state.kind === "suspended";

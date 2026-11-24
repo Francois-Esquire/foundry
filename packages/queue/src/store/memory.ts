@@ -1,12 +1,12 @@
 import { Effect, Layer, Ref } from "effect";
-import type { ConcurrencyPool, Job, Run, Wait } from "../domain";
+import type { ConcurrencyPool, Job, Run, Suspension } from "../domain";
 import { QueueStore, type QueueStoreService } from "./index";
 
 interface Records {
   readonly jobs: ReadonlyMap<string, Job>;
   readonly pools: ReadonlyMap<string, ConcurrencyPool>;
   readonly runs: ReadonlyMap<string, Run>;
-  readonly waits: ReadonlyMap<string, Wait>;
+  readonly suspensions: ReadonlyMap<string, Suspension>;
 }
 
 const upsert = <T>(
@@ -24,13 +24,27 @@ const upsert = <T>(
   return next;
 };
 
+const without = <T>(
+  current: ReadonlyMap<string, T>,
+  ids: readonly string[] | undefined
+): ReadonlyMap<string, T> => {
+  if (ids === undefined || ids.length === 0) {
+    return current;
+  }
+  const next = new Map(current);
+  for (const id of ids) {
+    next.delete(id);
+  }
+  return next;
+};
+
 export const makeMemoryQueueStore: Effect.Effect<QueueStoreService> =
   Effect.map(
     Ref.make<Records>({
       jobs: new Map(),
       pools: new Map(),
       runs: new Map(),
-      waits: new Map(),
+      suspensions: new Map(),
     }),
     (records) => {
       const read = <T>(pick: (current: Records) => T) =>
@@ -38,14 +52,27 @@ export const makeMemoryQueueStore: Effect.Effect<QueueStoreService> =
       return {
         commit: (write) =>
           Ref.update(records, (current) => ({
-            jobs: upsert(current.jobs, write.jobs, (job) => job.id),
+            jobs: without(
+              upsert(current.jobs, write.jobs, (job) => job.id),
+              write.deleteJobs
+            ),
             pools: upsert(current.pools, write.pools, (pool) => pool.name),
-            runs: upsert(current.runs, write.runs, (run) => run.id),
-            waits: upsert(current.waits, write.waits, (wait) => wait.id),
+            runs: without(
+              upsert(current.runs, write.runs, (run) => run.id),
+              write.deleteRuns
+            ),
+            suspensions: without(
+              upsert(
+                current.suspensions,
+                write.suspensions,
+                (suspension) => suspension.id
+              ),
+              write.deleteSuspensions
+            ),
           })),
         getJob: (id) => read((current) => current.jobs.get(id)),
         getRun: (id) => read((current) => current.runs.get(id)),
-        getWait: (id) => read((current) => current.waits.get(id)),
+        getSuspension: (id) => read((current) => current.suspensions.get(id)),
         listJobs: (filter = {}) =>
           read((current) =>
             [...current.jobs.values()].filter(
@@ -66,13 +93,14 @@ export const makeMemoryQueueStore: Effect.Effect<QueueStoreService> =
                 (filter.jobId === undefined || run.jobId === filter.jobId)
             )
           ),
-        listWaits: (filter = {}) =>
+        listSuspensions: (filter = {}) =>
           read((current) =>
-            [...current.waits.values()].filter(
-              (wait) =>
+            [...current.suspensions.values()].filter(
+              (suspension) =>
                 (filter.state === undefined ||
-                  wait.state.kind === filter.state) &&
-                (filter.runId === undefined || wait.runId === filter.runId)
+                  suspension.state.kind === filter.state) &&
+                (filter.runId === undefined ||
+                  suspension.runId === filter.runId)
             )
           ),
       };

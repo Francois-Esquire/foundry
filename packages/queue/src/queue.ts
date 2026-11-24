@@ -11,143 +11,78 @@ import {
   Context,
   Duration,
   Effect,
+  ExecutionStrategy,
   Exit,
   Fiber,
   Layer,
   Option,
   PubSub,
+  Scope,
   Stream,
 } from "effect";
 import {
-  type CausalLinks,
   type ConcurrencyPool,
   DEFAULT_POOL,
-  type ExecutionPolicy,
-  type Failure,
+  type ErrorShape,
   HandlerAlreadyRegisteredError,
   HandlerNotRegisteredError,
-  type HandlerRef,
   type Instant,
   InvalidPoolLimitError,
   isOpenRun,
   isTerminalJob,
   type Job,
-  type JobFilter,
   type JobId,
   JobNotFoundError,
+  JobNotSettledError,
   type PoolName,
-  type PoolStats,
-  type QueueError,
   type QueueEvent,
   QueueRetiringError,
   type RecoverySummary,
   type Run,
-  type RunFilter,
+  RunAlreadyExistsError,
   type RunId,
   RunNotFoundError,
   type RunOutcome,
+  StaleSuspensionRevisionError,
   type StoreError,
-  type Wait,
-  WaitAlreadySettledError,
-  type WaitFilter,
-  type WaitId,
-  WaitNotFoundError,
-  type WaitRequest,
+  type Suspension,
+  SuspensionAlreadySettledError,
+  type SuspensionId,
+  SuspensionNotFoundError,
+  type SuspensionRequest,
 } from "./domain";
 import { nextAttemptAt } from "./retry";
-import { QueueStore, type QueueWrite } from "./store/index";
+import type {
+  QueueOptions,
+  QueueService,
+  RecoverOptions,
+  ResolveSuspensionOptions,
+  RunContext,
+  RunHandler,
+  SubmitJobInput,
+} from "./service";
+import { QueueStore } from "./store/index";
 import { MemoryQueueStore } from "./store/memory";
-
-export interface RunContext {
-  readonly checkpoint: JsonValue | undefined;
-  readonly job: Job;
-  readonly resolvedWaits: ReadonlyMap<string, JsonValue>;
-  readonly run: Run;
-  readonly saveCheckpoint: (
-    value: JsonValue
-  ) => Effect.Effect<void, QueueError>;
-  readonly signal: AbortSignal;
-}
-
-export type RunHandler = (
-  context: RunContext
-) => Effect.Effect<RunOutcome, Failure>;
-
-export interface SubmitJobInput {
-  readonly delayMs?: number;
-  readonly handler: HandlerRef;
-  readonly input?: JsonValue;
-  readonly links?: CausalLinks;
-  readonly policy?: ExecutionPolicy;
-  readonly pool?: PoolName;
-}
-
-export interface QueueOptions {
-  readonly defaultLimit?: number;
-  readonly identity?: ProcessIdentity;
-  readonly pools?: readonly ConcurrencyPool[];
-}
-
-export interface RecoverOptions {
-  readonly isOwnerGone?: (owner: ProcessIdentity) => boolean;
-}
-
-export interface QueueService {
-  readonly cancel: (
-    id: JobId | RunId,
-    reason?: string
-  ) => Effect.Effect<void, QueueError>;
-  readonly cancelWait: (
-    waitId: WaitId,
-    reason?: string
-  ) => Effect.Effect<Wait, QueueError>;
-  readonly configurePool: (
-    pool: ConcurrencyPool
-  ) => Effect.Effect<void, InvalidPoolLimitError | StoreError>;
-  readonly drain: (graceMs?: number) => Effect.Effect<void, QueueError>;
-  readonly events: Stream.Stream<QueueEvent>;
-  readonly getJob: (id: JobId) => Effect.Effect<Job | undefined, StoreError>;
-  readonly getRun: (id: RunId) => Effect.Effect<Run | undefined, StoreError>;
-  readonly getWait: (id: WaitId) => Effect.Effect<Wait | undefined, StoreError>;
-  readonly listJobs: (
-    filter?: JobFilter
-  ) => Effect.Effect<readonly Job[], StoreError>;
-  readonly listRuns: (
-    filter?: RunFilter
-  ) => Effect.Effect<readonly Run[], StoreError>;
-  readonly listWaits: (
-    filter?: WaitFilter
-  ) => Effect.Effect<readonly Wait[], StoreError>;
-  readonly pause: Effect.Effect<void>;
-  readonly pools: Effect.Effect<readonly PoolStats[]>;
-  readonly recover: (
-    options?: RecoverOptions
-  ) => Effect.Effect<RecoverySummary, QueueError>;
-  readonly register: (
-    name: string,
-    handler: RunHandler
-  ) => Effect.Effect<void, HandlerAlreadyRegisteredError>;
-  readonly resolveWait: (
-    waitId: WaitId,
-    value: JsonValue
-  ) => Effect.Effect<Wait, QueueError>;
-  readonly resume: Effect.Effect<void>;
-  readonly retire: (
-    successor?: ProcessIdentity
-  ) => Effect.Effect<readonly RunId[], QueueError>;
-  readonly submit: (input: SubmitJobInput) => Effect.Effect<Job, QueueError>;
-}
-
-type Fact = QueueEvent extends infer Event
-  ? Event extends QueueEvent
-    ? Omit<Event, "at" | "id">
-    : never
-  : never;
-
-interface Change {
-  readonly facts: readonly Fact[];
-  readonly write: QueueWrite;
-}
+import {
+  availableAt,
+  bump,
+  type Change,
+  cancellation,
+  claimOf,
+  completion,
+  type FollowUp,
+  failedJob,
+  failure,
+  interruption,
+  type QueuedRunInput,
+  queuedRun,
+  removal,
+  resolution,
+  retrying,
+  starting,
+  submission,
+  suspending,
+} from "./transitions";
 
 interface Slot {
   readonly fiber: Fiber.RuntimeFiber<void>;
@@ -172,33 +107,24 @@ const isJobId = (id: JobId | RunId): id is JobId => id.startsWith("jb-");
 const validLimit = (limit: number) =>
   limit === Number.POSITIVE_INFINITY || (Number.isInteger(limit) && limit >= 1);
 
-const failureOf = (cause: Cause.Cause<Failure>): Failure =>
+const errorShapeOf = (cause: Cause.Cause<ErrorShape>): ErrorShape =>
   Option.getOrElse(Cause.failureOption(cause), () => ({
-    code: "defect",
     message: Cause.pretty(cause),
+    name: "defect",
   }));
 
 const withTimeout =
   (timeoutMs: number | undefined) =>
-  (effect: Effect.Effect<RunOutcome, Failure>) =>
+  (effect: Effect.Effect<RunOutcome, ErrorShape>) =>
     timeoutMs === undefined
       ? effect
       : Effect.timeoutFail(effect, {
           duration: Duration.millis(timeoutMs),
-          onTimeout: (): Failure => ({
-            code: "timeout",
+          onTimeout: (): ErrorShape => ({
             message: `run exceeded ${timeoutMs}ms`,
+            name: "timeout",
           }),
         });
-
-const bump = (run: Run, state: Run["state"]): Run => ({
-  ...run,
-  revision: run.revision + 1,
-  state,
-});
-
-const availableAt = (run: Run) =>
-  run.state.kind === "queued" ? run.state.availableAt : 0;
 
 const makeQueue = (options: QueueOptions) =>
   Effect.gen(function* () {
@@ -208,10 +134,11 @@ const makeQueue = (options: QueueOptions) =>
       PubSub.unbounded<QueueEvent>(),
       PubSub.shutdown
     );
+    const runScope = yield* Scope.fork(scope, ExecutionStrategy.sequential);
     const lock = yield* Effect.makeSemaphore(1);
     const wake = yield* Effect.makeLatch(false);
     const self = options.identity ?? thisProcess();
-    const defaultLimit = options.defaultLimit ?? Number.POSITIVE_INFINITY;
+    const defaultLimit = options.defaultLimit ?? 1;
     const handlers = new Map<string, RunHandler>();
     const pools = new Map<PoolName, ConcurrencyPool>();
     const slots = new Map<RunId, Slot>();
@@ -256,187 +183,130 @@ const makeQueue = (options: QueueOptions) =>
       store.getRun,
       (id) => new RunNotFoundError({ id })
     );
-    const requireWait = required(
-      store.getWait,
-      (id) => new WaitNotFoundError({ id })
+    const requireSuspension = required(
+      store.getSuspension,
+      (id) => new SuspensionNotFoundError({ id })
     );
 
-    const queuedRun = (
-      jobId: JobId,
-      attempt: number,
-      pool: PoolName,
-      at: Instant,
-      now: Instant,
-      checkpoint?: JsonValue
+    const newRun = (
+      input: Omit<QueuedRunInput, "id" | "owner">,
+      chosen?: RunId
     ) =>
       Effect.map(
-        newId("rn"),
-        (id): Run => ({
-          attempt,
-          ...(checkpoint === undefined ? {} : { checkpoint }),
-          id,
-          jobId,
-          pool,
-          revision: 0,
-          state: {
-            availableAt: at,
-            kind: "queued",
-            owner: self,
-            queuedAt: now,
-          },
-        })
+        chosen === undefined ? newId("rn") : Effect.succeed(chosen),
+        (id) => queuedRun({ ...input, id, owner: self })
       );
 
-    const followUp = (job: Job, ended: Run, error: Failure, now: Instant) =>
+    const freshRunId = (id: RunId | undefined) =>
+      id === undefined
+        ? Effect.void
+        : Effect.flatMap(store.getRun(id), (taken) =>
+            taken === undefined
+              ? Effect.void
+              : Effect.fail(new RunAlreadyExistsError({ id }))
+          );
+
+    const followUp = (job: Job, ended: Run, error: ErrorShape, now: Instant) =>
       Effect.gen(function* () {
         const retryAt = yield* nextAttemptAt(job, ended.attempt, now);
         if (retryAt === undefined) {
-          return failedJob(job, ended, error, now);
+          return failedJob({ error, job, now, run: ended });
         }
-        const retry = yield* queuedRun(
-          job.id,
-          ended.attempt + 1,
-          ended.pool,
-          retryAt,
+        const retry = yield* newRun({
+          at: retryAt,
+          attempt: ended.attempt + 1,
+          jobId: job.id,
           now,
-          ended.checkpoint
-        );
-        return {
-          facts: [{ run: retry, type: "RunQueued" }],
-          jobs: [{ ...job, state: { kind: "pending" } }],
-          runs: [retry],
-        } satisfies FollowUp;
+          pool: ended.pool,
+          ...(ended.checkpoint === undefined
+            ? {}
+            : { checkpoint: ended.checkpoint }),
+        });
+        return retrying(job, retry);
       });
 
-    const fail = (job: Job, run: Run, error: Failure, retryable: boolean) =>
+    const fail = (job: Job, run: Run, error: ErrorShape, retryable: boolean) =>
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
-        const next = retryable
+        const next: FollowUp = retryable
           ? yield* followUp(job, run, error, now)
-          : failedJob(job, run, error, now);
-        const failed = bump(run, {
-          error,
-          failedAt: now,
-          kind: "failed",
-          retryable: next.runs.length > 0,
-          startedAt: run.state.kind === "running" ? run.state.startedAt : now,
-        });
-        yield* commit(now, {
-          facts: [{ run: failed, type: "RunFailed" }, ...next.facts],
-          write: { jobs: next.jobs, runs: [failed, ...next.runs] },
-        });
+          : failedJob({ error, job, now, run });
+        yield* commit(now, failure({ error, next, now, run }));
       });
 
     const interrupt = (job: Job, run: Run, reason: string) =>
       Effect.gen(function* () {
-        if (run.state.kind !== "running") {
+        const { state } = run;
+        if (state.kind !== "running") {
           return;
         }
         const now = yield* Clock.currentTimeMillis;
-        const interrupted = bump(run, {
-          interruptedAt: now,
-          kind: "interrupted",
-          lease: run.state.lease,
-          reason,
-        });
         const next = yield* followUp(
           job,
           run,
-          { code: "interrupted", message: reason },
+          { message: reason, name: "interrupted" },
           now
         );
-        yield* commit(now, {
-          facts: [{ run: interrupted, type: "RunInterrupted" }, ...next.facts],
-          write: { jobs: next.jobs, runs: [interrupted, ...next.runs] },
-        });
+        yield* commit(
+          now,
+          interruption({ next, now, reason, run: { ...run, state } })
+        );
       });
 
     const complete = (job: Job, run: Run, output: JsonValue) =>
-      Effect.gen(function* () {
-        const now = yield* Clock.currentTimeMillis;
-        const startedAt =
-          run.state.kind === "running" ? run.state.startedAt : now;
-        const done = bump(run, {
-          completedAt: now,
-          kind: "completed",
-          output,
-          startedAt,
-        });
-        const settled: Job = {
-          ...job,
-          state: { completedAt: now, kind: "completed", output, runId: run.id },
-        };
-        yield* commit(now, {
-          facts: [
-            { run: done, type: "RunCompleted" },
-            { job: settled, type: "JobSettled" },
-          ],
-          write: { jobs: [settled], runs: [done] },
-        });
-      });
+      Effect.flatMap(Clock.currentTimeMillis, (now) =>
+        commit(now, completion({ job, now, output, run }))
+      );
 
-    const park = (job: Job, run: Run, request: WaitRequest) =>
+    const suspend = (job: Job, run: Run, request: SuspensionRequest) =>
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
-        const pending = yield* store.listWaits({
+        const pending = yield* store.listSuspensions({
           runId: run.id,
           state: "pending",
         });
         const existing = pending.find((open) => open.key === request.key);
-        const wait: Wait = existing ?? {
+        const suspension: Suspension = existing ?? {
           ...request,
-          id: yield* newId("wt"),
+          id: yield* newId("su"),
           revision: 0,
           runId: run.id,
           state: { createdAt: now, kind: "pending" },
         };
-        const parked = bump(run, {
-          kind: "parked",
-          parkedAt: now,
-          waitId: wait.id,
-        });
-        yield* commit(now, {
-          facts: [
-            { run: parked, type: "RunParked" },
-            ...(existing === undefined
-              ? [{ type: "WaitOpened", wait } as const]
-              : []),
-          ],
-          write: {
-            jobs: [
-              {
-                ...job,
-                state: { kind: "waiting", runId: run.id, waitId: wait.id },
-              },
-            ],
-            runs: [parked],
-            waits: [wait],
-          },
-        });
+        yield* commit(
+          now,
+          suspending({
+            job,
+            now,
+            opened: existing === undefined,
+            run,
+            suspension,
+          })
+        );
       });
 
     const conclude = (
       job: Job,
       run: Run,
-      exit: Exit.Exit<RunOutcome, Failure>
+      exit: Exit.Exit<RunOutcome, ErrorShape>
     ) => {
       if (Exit.isFailure(exit)) {
         return Cause.isInterruptedOnly(exit.cause)
           ? Effect.void
-          : fail(job, run, failureOf(exit.cause), true);
+          : fail(job, run, errorShapeOf(exit.cause), true);
       }
       const outcome = exit.value;
       switch (outcome.kind) {
-        case "completed":
+        case "complete":
           return complete(job, run, outcome.output);
-        case "parked":
-          return park(job, run, outcome.wait);
+        case "suspended":
+          return suspend(job, run, outcome.suspension);
         default:
           return fail(job, run, outcome.error, false);
       }
     };
 
-    const settle = (runId: RunId, exit: Exit.Exit<RunOutcome, Failure>) =>
+    const settle = (runId: RunId, exit: Exit.Exit<RunOutcome, ErrorShape>) =>
       Effect.gen(function* () {
         slots.delete(runId);
         const run = yield* store.getRun(runId);
@@ -453,36 +323,13 @@ const makeQueue = (options: QueueOptions) =>
       Effect.gen(function* () {
         const job = yield* requireJob(run.jobId);
         const now = yield* Clock.currentTimeMillis;
-        const wait =
-          run.state.kind === "parked"
-            ? yield* store.getWait(run.state.waitId)
+        const suspension =
+          run.state.kind === "suspended"
+            ? yield* store.getSuspension(run.state.suspensionId)
             : undefined;
-        const cancelled = {
-          cancelledAt: now,
-          kind: "cancelled",
-          reason,
-        } as const;
-        const cancelledRun = bump(run, cancelled);
-        const cancelledJob: Job = { ...job, state: cancelled };
-        const cancelledWait: Wait | undefined =
-          wait?.state.kind === "pending"
-            ? { ...wait, revision: wait.revision + 1, state: cancelled }
-            : undefined;
-        yield* commit(now, {
-          facts: [
-            ...(cancelledWait
-              ? [{ type: "WaitCancelled", wait: cancelledWait } as const]
-              : []),
-            { run: cancelledRun, type: "RunCancelled" },
-            { job: cancelledJob, type: "JobSettled" },
-          ],
-          write: {
-            jobs: [cancelledJob],
-            runs: [cancelledRun],
-            waits: cancelledWait ? [cancelledWait] : [],
-          },
-        });
-        return cancelledWait;
+        const cancelled = cancellation({ job, now, reason, run, suspension });
+        yield* commit(now, cancelled.change);
+        return cancelled.suspension;
       });
 
     const savedCheckpoint = (runId: RunId, value: JsonValue) =>
@@ -505,14 +352,14 @@ const makeQueue = (options: QueueOptions) =>
 
     const contextFor = (job: Job, run: Run, signal: AbortSignal) =>
       Effect.map(
-        store.listWaits({ runId: run.id, state: "resolved" }),
-        (waits): RunContext => ({
+        store.listSuspensions({ runId: run.id, state: "resolved" }),
+        (suspensions): RunContext => ({
           checkpoint: run.checkpoint,
           job,
-          resolvedWaits: new Map(
-            waits.flatMap((wait) =>
-              wait.state.kind === "resolved"
-                ? [[wait.key, wait.state.value] as const]
+          resolutions: new Map(
+            suspensions.flatMap((suspension) =>
+              suspension.state.kind === "resolved"
+                ? [[suspension.key, suspension.state.value] as const]
                 : []
             )
           ),
@@ -527,7 +374,7 @@ const makeQueue = (options: QueueOptions) =>
         const controller = new AbortController();
         const exit = yield* contextFor(job, run, controller.signal).pipe(
           Effect.mapError(
-            (error): Failure => ({ code: "store", message: String(error) })
+            (error): ErrorShape => ({ message: String(error), name: "store" })
           ),
           Effect.flatMap((context) =>
             handler(context).pipe(
@@ -546,22 +393,16 @@ const makeQueue = (options: QueueOptions) =>
 
     const start = (job: Job, run: Run, handler: RunHandler, now: Instant) =>
       Effect.gen(function* () {
-        const running = bump(run, {
-          kind: "running",
-          lease: { claimedAt: now, owner: self },
-          startedAt: now,
+        const { active, change, running } = starting({
+          job,
+          now,
+          owner: self,
+          run,
         });
-        const active: Job = {
-          ...job,
-          state: { attempt: run.attempt, kind: "active", runId: run.id },
-        };
-        yield* commit(now, {
-          facts: [{ run: running, type: "RunStarted" }],
-          write: { jobs: [active], runs: [running] },
-        });
+        yield* commit(now, change);
         const fiber = yield* Effect.forkIn(
           execute(active, running, handler),
-          scope
+          runScope
         );
         slots.set(run.id, { fiber, pool: run.pool });
       }).pipe(Effect.uninterruptible);
@@ -716,6 +557,7 @@ const makeQueue = (options: QueueOptions) =>
         if (existing !== undefined) {
           return existing;
         }
+        yield* freshRunId(input.runId);
         const now = yield* Clock.currentTimeMillis;
         const job: Job = {
           createdAt: now,
@@ -727,69 +569,115 @@ const makeQueue = (options: QueueOptions) =>
           pool: input.pool ?? DEFAULT_POOL,
           state: { kind: "pending" },
         };
-        const run = yield* queuedRun(
-          job.id,
-          1,
-          job.pool,
-          now + (input.delayMs ?? 0),
-          now
+        const run = yield* newRun(
+          {
+            at: now + (input.delayMs ?? 0),
+            attempt: 1,
+            jobId: job.id,
+            now,
+            pool: job.pool,
+          },
+          input.runId
         );
-        yield* commit(now, {
-          facts: [
-            { job, type: "JobSubmitted" },
-            { run, type: "RunQueued" },
-          ],
-          write: { jobs: [job], runs: [run] },
-        });
+        yield* commit(now, submission(job, run));
         return job;
       });
 
-    const resolveWait = (waitId: WaitId, value: JsonValue) =>
+    const abandon = (id: RunId, error: ErrorShape) =>
       Effect.gen(function* () {
-        const wait = yield* requireWait(waitId);
-        if (wait.state.kind !== "pending") {
-          return yield* new WaitAlreadySettledError({ wait });
+        const run = yield* requireRun(id);
+        const open =
+          run.state.kind === "queued" || run.state.kind === "running";
+        if (!open || slots.has(id)) {
+          return run;
         }
+        yield* fail(yield* requireJob(run.jobId), run, error, false);
+        return (yield* store.getRun(id)) ?? run;
+      });
+
+    const adopt = (id: RunId) =>
+      Effect.gen(function* () {
+        const run = yield* requireRun(id);
+        if (run.state.kind !== "suspended") {
+          return run;
+        }
+        const pending = yield* store.listSuspensions({
+          runId: id,
+          state: "pending",
+        });
         const now = yield* Clock.currentTimeMillis;
-        const resolved: Wait = {
-          ...wait,
-          revision: wait.revision + 1,
-          state: { kind: "resolved", resolvedAt: now, value },
-        };
-        const run = yield* requireRun(wait.runId);
-        const job = yield* requireJob(run.jobId);
-        const resumed = bump(run, {
-          availableAt: now,
-          kind: "queued",
-          owner: self,
-          queuedAt: now,
-        });
-        const live = run.state.kind === "parked";
         yield* commit(now, {
-          facts: [
-            { type: "WaitResolved", wait: resolved },
-            ...(live ? [{ run: resumed, type: "RunResumed" } as const] : []),
-          ],
-          write: live
-            ? {
-                jobs: [{ ...job, state: { kind: "pending" } }],
-                runs: [resumed],
-                waits: [resolved],
-              }
-            : { waits: [resolved] },
+          facts: [],
+          write: {
+            suspensions: pending.map((suspension) => ({
+              ...suspension,
+              revision: suspension.revision + 1,
+            })),
+          },
         });
+        return run;
+      });
+
+    const resolveSuspension = (
+      suspensionId: SuspensionId,
+      value: JsonValue,
+      { expectedRevision }: ResolveSuspensionOptions = {}
+    ) =>
+      Effect.gen(function* () {
+        const suspension = yield* requireSuspension(suspensionId);
+        if (suspension.state.kind !== "pending") {
+          return yield* new SuspensionAlreadySettledError({ suspension });
+        }
+        if (
+          expectedRevision !== undefined &&
+          expectedRevision !== suspension.revision
+        ) {
+          return yield* new StaleSuspensionRevisionError({
+            expectedRevision,
+            suspension,
+          });
+        }
+        const run = yield* requireRun(suspension.runId);
+        const job = yield* requireJob(run.jobId);
+        const now = yield* Clock.currentTimeMillis;
+        const { change, resolved } = resolution({
+          job,
+          now,
+          owner: self,
+          run,
+          suspension,
+          value,
+        });
+        yield* commit(now, change);
         return resolved;
       });
 
-    const cancelWait = (waitId: WaitId, reason?: string) =>
+    const cancelSuspension = (suspensionId: SuspensionId, reason?: string) =>
       Effect.gen(function* () {
-        const wait = yield* requireWait(waitId);
-        if (wait.state.kind !== "pending") {
-          return yield* new WaitAlreadySettledError({ wait });
+        const suspension = yield* requireSuspension(suspensionId);
+        if (suspension.state.kind !== "pending") {
+          return yield* new SuspensionAlreadySettledError({ suspension });
         }
-        const run = yield* requireRun(wait.runId);
+        const run = yield* requireRun(suspension.runId);
         const cancelled = yield* cancelOpen(run, reason);
-        return cancelled ?? wait;
+        return cancelled ?? suspension;
+      });
+
+    const removeJob = (id: JobId) =>
+      Effect.gen(function* () {
+        const job = yield* requireJob(id);
+        if (!isTerminalJob(job.state)) {
+          return yield* new JobNotSettledError({ job });
+        }
+        const runs = yield* store.listRuns({ jobId: id });
+        const suspensions = yield* Effect.map(
+          Effect.forEach(runs, (run) =>
+            store.listSuspensions({ runId: run.id })
+          ),
+          (found) => found.flat()
+        );
+        const now = yield* Clock.currentTimeMillis;
+        yield* commit(now, removal(job, runs, suspensions));
       });
 
     const configurePool = (pool: ConcurrencyPool) =>
@@ -852,7 +740,7 @@ const makeQueue = (options: QueueOptions) =>
           facts: handedOver.map((run) => ({
             run,
             successor,
-            type: "RunHandedOver",
+            type: "run.handed_over",
           })),
           write: { runs: handedOver },
         });
@@ -878,26 +766,12 @@ const makeQueue = (options: QueueOptions) =>
         return interrupted;
       });
 
-    const claimOf = (
-      run: Run,
-      gone: (owner: ProcessIdentity) => boolean
-    ): "adopt" | "mine" | "skip" => {
-      const owner = run.state.kind === "queued" ? run.state.owner : self;
-      if (owner === undefined) {
-        return "adopt";
-      }
-      if (sameProcess(owner, self)) {
-        return "mine";
-      }
-      return gone(owner) ? "adopt" : "skip";
-    };
-
     const readmitQueued = (gone: (owner: ProcessIdentity) => boolean) =>
       Effect.gen(function* () {
         const readmitted: RunId[] = [];
         const adopted: Run[] = [];
         for (const run of yield* store.listRuns({ state: "queued" })) {
-          const claim = yield* Effect.sync(() => claimOf(run, gone));
+          const claim = yield* Effect.sync(() => claimOf(run, self, gone));
           if (claim !== "skip" && run.state.kind === "queued") {
             readmitted.push(run.id);
           }
@@ -919,17 +793,20 @@ const makeQueue = (options: QueueOptions) =>
       });
 
     return Queue.of({
+      abandon: (id, error) => mutate(abandon(id, error)),
+      adopt: (id) => mutate(adopt(id)),
       cancel,
-      cancelWait: (waitId, reason) => mutate(cancelWait(waitId, reason)),
+      cancelSuspension: (suspensionId, reason) =>
+        mutate(cancelSuspension(suspensionId, reason)),
       configurePool: (pool) => mutate(configurePool(pool)),
       drain,
       events: Stream.fromPubSub(hub),
       getJob: store.getJob,
       getRun: store.getRun,
-      getWait: store.getWait,
+      getSuspension: store.getSuspension,
       listJobs: store.listJobs,
       listRuns: store.listRuns,
-      listWaits: store.listWaits,
+      listSuspensions: store.listSuspensions,
       pause: Effect.sync(() => {
         admission.paused = true;
       }),
@@ -954,7 +831,9 @@ const makeQueue = (options: QueueOptions) =>
               Effect.sync(() => handlers.set(name, handler)),
               wake.open
             ),
-      resolveWait: (waitId, value) => mutate(resolveWait(waitId, value)),
+      removeJob: (id) => mutate(removeJob(id)),
+      resolveSuspension: (suspensionId, value, resolveOptions) =>
+        mutate(resolveSuspension(suspensionId, value, resolveOptions)),
       resume: Effect.zipRight(
         Effect.sync(() => {
           admission.paused = false;
@@ -968,29 +847,6 @@ const makeQueue = (options: QueueOptions) =>
         ),
     });
   });
-
-const failedJob = (
-  job: Job,
-  run: Run,
-  error: Failure,
-  now: Instant
-): FollowUp => {
-  const failed: Job = {
-    ...job,
-    state: { error, failedAt: now, kind: "failed", lastRunId: run.id },
-  };
-  return {
-    facts: [{ job: failed, type: "JobSettled" }],
-    jobs: [failed],
-    runs: [],
-  };
-};
-
-interface FollowUp {
-  readonly facts: readonly Fact[];
-  readonly jobs: readonly Job[];
-  readonly runs: readonly Run[];
-}
 
 export class Queue extends Context.Tag("@foundry/queue/Queue")<
   Queue,

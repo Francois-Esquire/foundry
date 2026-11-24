@@ -4,6 +4,7 @@ import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { Effect } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { DatabaseRecoveryLog, readLastRecovery } from "~/database/recoveries";
 import { workspaceStores } from "~/database/stores";
@@ -19,8 +20,11 @@ import { testMachine } from "./helpers/records";
 const SPEC = { format: "foundry.sandbox.container/1", image: "x" } as const;
 const machines: TestMachine[] = [];
 const RUNS = {
-  abandonRun: () => Promise.resolve(null),
-  listRuns: () => Promise.resolve({ items: [], total: 0 }),
+  queue: { abandonRun: () => Promise.resolve() },
+  store: {
+    getJob: () => Effect.succeed(undefined),
+    listRuns: () => Effect.succeed([]),
+  },
 };
 
 afterEach(() => {

@@ -1,8 +1,8 @@
 import { Deferred, Effect, TestClock, TestContext } from "effect";
 import { describe, expect, test } from "vitest";
 import { createQueueClient } from "../client";
-import type { RunOutcome } from "../domain";
-import type { RunContext } from "../queue";
+import type { JobId, RunOutcome } from "../domain";
+import type { RunContext } from "../service";
 import {
   awaitJob,
   flush,
@@ -14,12 +14,12 @@ import {
 
 const approval = (context: RunContext): Effect.Effect<RunOutcome> =>
   Effect.gen(function* () {
-    const answer = context.resolvedWaits.get("approval");
+    const answer = context.resolutions.get("approval");
     if (answer === undefined) {
       yield* Effect.orDie(context.saveCheckpoint({ step: "asked" }));
       return {
-        kind: "parked",
-        wait: {
+        kind: "suspended",
+        suspension: {
           key: "approval",
           kind: "human",
           reason: "needs sign-off",
@@ -28,7 +28,7 @@ const approval = (context: RunContext): Effect.Effect<RunOutcome> =>
       };
     }
     return {
-      kind: "completed",
+      kind: "complete",
       output: { answer, checkpoint: context.checkpoint ?? null },
     };
   });
@@ -37,51 +37,60 @@ const dead = { pid: 1, started: "gone" } as const;
 const alive = { pid: 2, started: "here" } as const;
 
 describe("Queue lifecycle", () => {
-  test("a parked run frees its slot and resumes with its checkpoint and resolved wait", async () => {
+  test("a suspended run frees its slot and resumes with its checkpoint and resolved suspension", async () => {
     const result = await testQueue(
       (queue) =>
         Effect.gen(function* () {
           yield* queue.register("work", approval);
-          const parked = yield* queue.submit({ handler });
-          const waiting = yield* awaitJob(queue, parked.id, ["waiting"]);
+          const suspended = yield* queue.submit({ handler });
+          const held = yield* awaitJob(queue, suspended.id, ["suspended"]);
           const other = yield* queue.submit({ handler });
-          yield* awaitJob(queue, other.id, ["waiting"]);
-          const [wait] = yield* queue.listWaits({ state: "pending" });
-          if (wait === undefined) {
-            return yield* Effect.dieMessage("no pending wait");
+          yield* awaitJob(queue, other.id, ["suspended"]);
+          const [suspension] = yield* queue.listSuspensions({
+            state: "pending",
+          });
+          if (suspension === undefined) {
+            return yield* Effect.dieMessage("no pending suspension");
           }
-          const resolved = yield* queue.resolveWait(wait.id, "yes");
-          const job = yield* awaitJob(queue, parked.id);
-          const again = yield* Effect.flip(queue.resolveWait(wait.id, "no"));
-          const [otherWait] = yield* queue.listWaits({ state: "pending" });
-          const cancelled = otherWait
-            ? yield* queue.cancelWait(otherWait.id, "withdrawn")
+          yield* TestClock.adjust(1000);
+          const resolved = yield* queue.resolveSuspension(suspension.id, "yes");
+          const job = yield* awaitJob(queue, suspended.id);
+          const again = yield* Effect.flip(
+            queue.resolveSuspension(suspension.id, "no")
+          );
+          const [otherSuspension] = yield* queue.listSuspensions({
+            state: "pending",
+          });
+          const cancelled = otherSuspension
+            ? yield* queue.cancelSuspension(otherSuspension.id, "withdrawn")
             : undefined;
           return {
             again,
             cancelled,
+            held,
             job,
             other: yield* queue.getJob(other.id),
             resolved,
-            runs: yield* queue.listRuns({ jobId: parked.id }),
-            waiting,
+            runs: yield* queue.listRuns({ jobId: suspended.id }),
           };
         }),
       { defaultLimit: 1 }
     );
-    expect(result.waiting.state.kind).toBe("waiting");
+    expect(result.held.state.kind).toBe("suspended");
     expect(result.resolved.state).toMatchObject({
       kind: "resolved",
       value: "yes",
     });
     expect(result.job.state).toMatchObject({
-      kind: "completed",
+      kind: "complete",
       output: { answer: "yes", checkpoint: { step: "asked" } },
     });
     expect(result.runs.map((run) => [run.attempt, run.state.kind])).toEqual([
-      [1, "completed"],
+      [1, "complete"],
     ]);
-    expect(result.again._tag).toBe("WaitAlreadySettledError");
+    expect(result.runs[0]?.startedAt).toBe(0);
+    expect(result.runs[0]?.state).toMatchObject({ startedAt: 1000 });
+    expect(result.again._tag).toBe("SuspensionAlreadySettledError");
     expect(result.cancelled?.state).toMatchObject({
       kind: "cancelled",
       reason: "withdrawn",
@@ -89,28 +98,102 @@ describe("Queue lifecycle", () => {
     expect(result.other?.state.kind).toBe("cancelled");
   });
 
+  test("resolving a suspension checks its expected revision, adopting its run moves the revision on, and only a settled job can be removed with its runs and suspensions", async () => {
+    const result = await testQueue((queue) =>
+      Effect.gen(function* () {
+        yield* queue.register("work", approval);
+        const job = yield* queue.submit({ handler });
+        yield* awaitJob(queue, job.id, ["suspended"]);
+        const [suspension] = yield* queue.listSuspensions({ state: "pending" });
+        if (suspension === undefined) {
+          return yield* Effect.dieMessage("no pending suspension");
+        }
+        const stale = yield* Effect.flip(
+          queue.resolveSuspension(suspension.id, "yes", {
+            expectedRevision: suspension.revision + 1,
+          })
+        );
+        const open = yield* Effect.flip(queue.removeJob(job.id));
+        yield* queue.adopt(suspension.runId);
+        const readBeforeAdoption = yield* Effect.flip(
+          queue.resolveSuspension(suspension.id, "yes", {
+            expectedRevision: suspension.revision,
+          })
+        );
+        yield* queue.resolveSuspension(suspension.id, "yes", {
+          expectedRevision: suspension.revision + 1,
+        });
+        yield* awaitJob(queue, job.id);
+        yield* queue.removeJob(job.id);
+        return {
+          job: yield* queue.getJob(job.id),
+          open,
+          readBeforeAdoption,
+          runs: yield* queue.listRuns({ jobId: job.id }),
+          stale,
+          suspension: yield* queue.getSuspension(suspension.id),
+        };
+      })
+    );
+    expect(result.stale._tag).toBe("StaleSuspensionRevisionError");
+    expect(result.readBeforeAdoption._tag).toBe("StaleSuspensionRevisionError");
+    expect(result.open._tag).toBe("JobNotSettledError");
+    expect(result.job).toBeUndefined();
+    expect(result.runs).toEqual([]);
+    expect(result.suspension).toBeUndefined();
+  });
+
+  test("closing the queue starts none of its queued runs", async () => {
+    const store = await sharedStore();
+    const started: unknown[] = [];
+    await Effect.runPromise(
+      withQueue(store, {}, (queue) =>
+        Effect.gen(function* () {
+          yield* queue.register("work", (context) =>
+            Effect.zipRight(
+              Effect.sync(() => started.push(context.job.input)),
+              Effect.never
+            )
+          );
+          yield* queue.submit({ handler, input: "first" });
+          yield* queue.submit({ handler, input: "second" });
+          yield* flush;
+        })
+      ).pipe(Effect.provide(TestContext.TestContext))
+    );
+    const runs = await Effect.runPromise(store.listRuns());
+    expect(started).toEqual(["first"]);
+    expect(runs.map((run) => run.state.kind).sort()).toEqual([
+      "queued",
+      "running",
+    ]);
+  });
+
   test("recovery interrupts runs whose owner is gone, retries them, and re-admits their queued runs", async () => {
     const store = await sharedStore();
     const result = await Effect.runPromise(
       Effect.gen(function* () {
-        const before = yield* withQueue(store, { identity: dead }, (queue) =>
-          Effect.gen(function* () {
-            yield* queue.register("work", () => Effect.never);
-            const retried = yield* queue.submit({
-              handler,
-              policy: { retry: { maxAttempts: 2 } },
-            });
-            const failed = yield* queue.submit({ handler });
-            const delayed = yield* queue.submit({ delayMs: 60_000, handler });
-            yield* flush;
-            return { delayed, failed, retried };
-          })
+        const before = yield* withQueue(
+          store,
+          { defaultLimit: Number.POSITIVE_INFINITY, identity: dead },
+          (queue) =>
+            Effect.gen(function* () {
+              yield* queue.register("work", () => Effect.never);
+              const retried = yield* queue.submit({
+                handler,
+                policy: { retry: { maxAttempts: 2 } },
+              });
+              const failed = yield* queue.submit({ handler });
+              const delayed = yield* queue.submit({ delayMs: 60_000, handler });
+              yield* flush;
+              return { delayed, failed, retried };
+            })
         );
         return yield* withQueue(store, { identity: alive }, (queue) =>
           Effect.gen(function* () {
             yield* queue.register("work", () =>
               Effect.succeed<RunOutcome>({
-                kind: "completed",
+                kind: "complete",
                 output: "redone",
               })
             );
@@ -133,14 +216,72 @@ describe("Queue lifecycle", () => {
     expect(result.summary.readmitted).toHaveLength(2);
     expect(result.retriedRuns.map((run) => run.state.kind)).toEqual([
       "interrupted",
-      "completed",
+      "complete",
     ]);
     expect(result.retried.state).toMatchObject({ output: "redone" });
     expect(result.failed.state).toMatchObject({
-      error: { code: "interrupted" },
+      error: { name: "interrupted" },
       kind: "failed",
     });
-    expect(result.delayed.state.kind).toBe("completed");
+    expect(result.delayed.state.kind).toBe("complete");
+  });
+
+  test("a submission keeps the run id it names, and abandoning fails an open run no fiber here drives, without retry", async () => {
+    const store = await sharedStore();
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const left = yield* withQueue(
+          store,
+          { defaultLimit: Number.POSITIVE_INFINITY, identity: dead },
+          (queue) =>
+            Effect.gen(function* () {
+              yield* queue.register("work", () => Effect.never);
+              const job = yield* queue.submit({
+                handler,
+                policy: { retry: { maxAttempts: 3 } },
+                runId: "rn-chosen",
+              });
+              const taken = yield* Effect.flip(
+                queue.submit({ handler, runId: "rn-chosen" })
+              );
+              yield* flush;
+              return { job, taken };
+            })
+        );
+        return yield* withQueue(store, { identity: alive }, (queue) =>
+          Effect.gen(function* () {
+            const error = {
+              message: "its process exited",
+              name: "Interrupted",
+            };
+            const abandoned = yield* queue.abandon("rn-chosen", error);
+            const again = yield* queue.abandon("rn-chosen", {
+              message: "ignored",
+              name: "other",
+            });
+            return {
+              abandoned,
+              again,
+              job: yield* queue.getJob(left.job.id),
+              runs: yield* queue.listRuns({ jobId: left.job.id }),
+              taken: left.taken,
+            };
+          })
+        );
+      }).pipe(Effect.provide(TestContext.TestContext))
+    );
+    expect(result.taken._tag).toBe("RunAlreadyExistsError");
+    expect(result.runs.map((run) => run.id)).toEqual(["rn-chosen"]);
+    expect(result.abandoned.state).toMatchObject({
+      error: { message: "its process exited", name: "Interrupted" },
+      kind: "failed",
+      retryable: false,
+    });
+    expect(result.again).toEqual(result.abandoned);
+    expect(result.job?.state).toMatchObject({
+      kind: "failed",
+      lastRunId: "rn-chosen",
+    });
   });
 
   test("retiring refuses new top-level work, admits children of running parents, and hands queued runs to a successor", async () => {
@@ -151,7 +292,7 @@ describe("Queue lifecycle", () => {
           yield* queue.register("work", (context) =>
             Effect.gen(function* () {
               if (context.job.input !== "parent") {
-                return { kind: "completed", output: null } as const;
+                return { kind: "complete", output: null } as const;
               }
               yield* Deferred.await(gate);
               const child = yield* Effect.orDie(
@@ -160,7 +301,7 @@ describe("Queue lifecycle", () => {
                   links: { parentRunId: context.run.id },
                 })
               );
-              return { kind: "completed", output: child.id } as const;
+              return { kind: "complete", output: child.id } as const;
             })
           );
           const parent = yield* queue.submit({ handler, input: "parent" });
@@ -172,7 +313,7 @@ describe("Queue lifecycle", () => {
           yield* flush;
           return {
             child:
-              settled.state.kind === "completed" ? settled.state.output : null,
+              settled.state.kind === "complete" ? settled.state.output : null,
             handedOver,
             queued: yield* queue.listRuns({ jobId: queued.id }),
             refused,
@@ -189,23 +330,41 @@ describe("Queue lifecycle", () => {
     });
   });
 
-  test("the promise client runs plain handlers at the edge", async () => {
+  test("the promise client runs plain and Effect handlers through one register", async () => {
     const client = createQueueClient();
     try {
       await client.register("work", (context) => ({
-        kind: "completed",
+        kind: "complete",
         output: { echoed: context.job.input },
       }));
+      await client.register("effect", (context) =>
+        Effect.as(context.saveCheckpoint("saved"), {
+          kind: "complete",
+          output: { effect: context.job.input },
+        } satisfies RunOutcome)
+      );
+      const settledJob = async (id: JobId) => {
+        let settled = await client.getJob(id);
+        for (
+          let poll = 0;
+          poll < 50 && settled?.state.kind !== "complete";
+          poll += 1
+        ) {
+          settled = await client.getJob(id);
+        }
+        return settled;
+      };
       const job = await client.submit({ handler, input: "hi" });
-      let settled = await client.getJob(job.id);
-      for (
-        let poll = 0;
-        poll < 50 && settled?.state.kind !== "completed";
-        poll += 1
-      ) {
-        settled = await client.getJob(job.id);
-      }
-      expect(settled?.state).toMatchObject({ output: { echoed: "hi" } });
+      const effect = await client.submit({
+        handler: { name: "effect" },
+        input: "yo",
+      });
+      expect((await settledJob(job.id))?.state).toMatchObject({
+        output: { echoed: "hi" },
+      });
+      expect((await settledJob(effect.id))?.state).toMatchObject({
+        output: { effect: "yo" },
+      });
       await expect(
         client.submit({ handler: { name: "missing" } })
       ).rejects.toMatchObject({

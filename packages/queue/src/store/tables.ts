@@ -13,9 +13,9 @@ import type {
   Run,
   RunId,
   RunState,
-  Wait,
-  WaitId,
-  WaitState,
+  Suspension,
+  SuspensionId,
+  SuspensionState,
 } from "../domain";
 
 export const queueJobs = sqliteTable(
@@ -53,18 +53,18 @@ export const queueRuns = sqliteTable(
   ]
 );
 
-export const queueWaits = sqliteTable(
-  "queue_waits",
+export const queueSuspensions = sqliteTable(
+  "queue_suspensions",
   {
-    body: text("body", { mode: "json" }).$type<Wait>().notNull(),
-    id: text("id").$type<WaitId>().notNull(),
+    body: text("body", { mode: "json" }).$type<Suspension>().notNull(),
+    id: text("id").$type<SuspensionId>().notNull(),
     runId: text("run_id").$type<RunId>().notNull(),
     scope: text("scope").notNull(),
-    state: text("state").$type<WaitState["kind"]>().notNull(),
+    state: text("state").$type<SuspensionState["kind"]>().notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.scope, table.id] }),
-    index("queue_waits_scope_run").on(table.scope, table.runId),
+    index("queue_suspensions_scope_run").on(table.scope, table.runId),
   ]
 );
 
@@ -79,4 +79,4 @@ export const queuePools = sqliteTable(
   (table) => [primaryKey({ columns: [table.scope, table.name] })]
 );
 
-export const queueTables = [queueJobs, queueRuns, queueWaits, queuePools];
+export const queueTables = [queueJobs, queueRuns, queueSuspensions, queuePools];

@@ -37,13 +37,3 @@ export interface WorkflowEffectAccess<I, O> {
 export const workflowEffectAccessKey: unique symbol = Symbol(
   "workflows.effect-access"
 );
-
-export interface WorkflowEffectAccessProvider<I, O> {
-  [workflowEffectAccessKey](): WorkflowEffectAccess<I, O>;
-}
-
-export function workflowEffectAccess<I, O>(
-  workflow: WorkflowEffectAccessProvider<I, O>
-): WorkflowEffectAccess<I, O> {
-  return workflow[workflowEffectAccessKey]();
-}

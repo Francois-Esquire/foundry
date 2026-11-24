@@ -116,13 +116,13 @@ export const nextDue = (cadence: Cadence, after: Instant): Instant | null => {
 export const firstDue = (cadence: Cadence, now: Instant): Instant | null =>
   cadence.kind === "once" ? cadence.at : nextDue(cadence, now);
 
-interface DueSlots {
+interface DueTimes {
   readonly latest: Instant;
   readonly missed: readonly Instant[];
   readonly next: Instant | null;
 }
 
-const dueSlots = (cadence: Cadence, first: Instant, now: Instant): DueSlots => {
+const dueTimes = (cadence: Cadence, first: Instant, now: Instant): DueTimes => {
   if (cadence.kind === "interval") {
     const elapsed = Math.floor((now - first) / cadence.everyMs);
     const latest = first + elapsed * cadence.everyMs;
@@ -136,16 +136,16 @@ const dueSlots = (cadence: Cadence, first: Instant, now: Instant): DueSlots => {
       next: latest + cadence.everyMs,
     };
   }
-  const slots = [first];
+  const times = [first];
   let next = nextDue(cadence, first);
   while (next !== null && next <= now) {
-    slots.push(next);
-    if (slots.length > MAX_RECORDED_MISSES + 1) {
-      slots.shift();
+    times.push(next);
+    if (times.length > MAX_RECORDED_MISSES + 1) {
+      times.shift();
     }
     next = nextDue(cadence, next);
   }
-  return { latest: slots.at(-1) ?? first, missed: slots.slice(0, -1), next };
+  return { latest: times.at(-1) ?? first, missed: times.slice(0, -1), next };
 };
 
 export interface DueOccurrences {
@@ -163,7 +163,7 @@ export const dueOccurrences = (
   if (now < nextDueAt) {
     return { nextDueAt, skipped: [], toFire: null };
   }
-  const { latest, missed, next } = dueSlots(cadence, nextDueAt, now);
+  const { latest, missed, next } = dueTimes(cadence, nextDueAt, now);
   if (missed.length === 0 || misfire === "run-once") {
     return { nextDueAt: next, skipped: missed, toFire: latest };
   }

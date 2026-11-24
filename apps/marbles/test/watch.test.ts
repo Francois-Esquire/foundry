@@ -248,7 +248,7 @@ function journal(root: string): string {
 }
 
 function startLine(owner: { pid: number; started: string | null }): string {
-  return `${JSON.stringify({ name: "parked", runId: "rn-test", type: "start", ...owner })}\n`;
+  return `${JSON.stringify({ name: "held", runId: "rn-test", type: "start", ...owner })}\n`;
 }
 
 async function storedRun(
@@ -263,7 +263,7 @@ async function storedRun(
     correlation: {},
     id: "rn-test",
     kind: "workflow",
-    name: "parked",
+    name: "held",
     observations: [],
     queue: "marbles",
     revision: 1,
@@ -279,7 +279,7 @@ async function storedRun(
 
 it.each([
   ["an empty journal", ""],
-  ["a torn first record", '{"name":"parked","pid":1'],
+  ["a torn first record", '{"name":"held","pid":1'],
 ])(
   "fails on %s whose writer stopped before its start record",
   async (_, content) => {
@@ -297,7 +297,7 @@ it.each([
   10_000
 );
 
-it("keeps following a parked run handed over until its adopter writes its ending", async () => {
+it("keeps following a suspended run handed over until its adopter writes its ending", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-watch-handover-"));
   await mkdir(join(root, "workspace", "output"), { recursive: true });
   const opened = await storedRun(root, { owner: GONE, status: "suspended" });
@@ -317,13 +317,13 @@ it("keeps following a parked run handed over until its adopter writes its ending
     const adopter = new RunOutput(
       join(root, "workspace"),
       "rn-test",
-      "parked",
+      "held",
       () => undefined
     );
     adopter.text("answered");
     adopter.finish("completed", "done");
     expect(await watching).toBe("completed");
-    expect(text.match(/parked running/g)).toHaveLength(2);
+    expect(text.match(/held running/g)).toHaveLength(2);
     expect(text).toContain("answered");
   } finally {
     opened.close();
@@ -412,7 +412,7 @@ it("reads what the adopter appended while the stored record was read before usin
       const adopter = new RunOutput(
         join(root, "workspace"),
         "rn-test",
-        "parked",
+        "held",
         () => undefined
       );
       adopter.text("final text");

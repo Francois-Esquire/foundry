@@ -7,7 +7,6 @@ import {
 import type { SessionStore } from "@foundry/agents/store";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
-import { Config } from "@foundry/lib/config";
 import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
 import {
   type ProcessIdentity,
@@ -19,16 +18,12 @@ import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
 import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
 import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
+import type { QueueStoreService } from "@foundry/queue/store";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import type { TaskStore } from "@foundry/tasks";
-import { ExecutionCoordinator } from "@foundry/workflows";
 import type { ChannelMessage } from "@foundry/workflows/channels";
-import { contributeQueueConfig } from "@foundry/workflows/config";
 import type { BaseContext } from "@foundry/workflows/executable";
-import type { Factory } from "@foundry/workflows/orchestrator";
-import { Orchestrator } from "@foundry/workflows/orchestrator";
-import type { RunRecord } from "@foundry/workflows/schema";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
@@ -57,7 +52,7 @@ import type {
   ExecutionRuns,
   QueueSettings,
 } from "~/lib/executions";
-import { DEFAULT_QUEUE, Executions } from "~/lib/executions";
+import { Executions } from "~/lib/executions";
 import { selectExecutor } from "~/lib/executor";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedPublisher } from "~/lib/feed/publish";
@@ -66,7 +61,6 @@ import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
 import type { FeedRouter } from "~/lib/feed/route";
 import { feedRouter, movedAway, QuestionMovingError } from "~/lib/feed/route";
-import type { Dispatched } from "~/lib/held-runs";
 import { HeldRuns } from "~/lib/held-runs";
 import type {
   DispatchedRun,
@@ -89,8 +83,8 @@ import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import { RunListing } from "~/lib/run-listing";
 import {
-  adoptParkedRun,
-  adoptParkedRuns,
+  adoptSuspendedRun,
+  adoptSuspendedRuns,
   workflowStatuses,
 } from "~/lib/run-recovery";
 import type { ReadonlyRunScopes, RecordedScope } from "~/lib/run-scope";
@@ -119,6 +113,10 @@ import type {
 import { listsSessions, UsageEvidence } from "~/lib/usage-evidence";
 import type { UsageStore } from "~/lib/usage-store";
 import { MemoryUsageStore } from "~/lib/usage-store";
+import type { Factory, LiveRun } from "~/lib/workflow-queue";
+import { WorkflowQueue } from "~/lib/workflow-queue";
+import type { RunRecord } from "~/lib/workflow-runs";
+import { readRun } from "~/lib/workflow-runs";
 
 export interface EngineOptions {
   readonly activityStore?: ActivityStore;
@@ -235,12 +233,10 @@ interface OwedRelease {
 interface Running {
   readonly held: HeldRuns;
   readonly listing: RunListing;
-  readonly orchestrator: Orchestrator;
+  readonly queue: WorkflowQueue;
   readonly router: FeedRouter;
-  readonly store: ExecutionCoordinator;
+  readonly store: QueueStoreService;
 }
-
-const ORCHESTRATOR_CONCURRENCY = Number.MAX_SAFE_INTEGER;
 
 // biome-ignore lint/performance/noBarrelFile: Preserve the existing engine error export after moving run tracking.
 export { RunEndedError } from "~/lib/held-runs";
@@ -276,7 +272,7 @@ export class Engine {
   readonly #print: (line: string) => void;
   readonly #registry = new Registry();
   readonly #scopes = new RunScopes();
-  readonly #extra = new Map<string, (orchestrator: Orchestrator) => void>();
+  readonly #extra = new Map<string, (queue: WorkflowQueue) => void>();
   readonly #executions: Executions;
   readonly #crashRecovery: CrashRecovery;
   readonly #recoveryLog: RecoveryLog | undefined;
@@ -296,8 +292,11 @@ export class Engine {
     launch: (definition, input) => this.launchDefinition(definition, input),
     nameOf: (name) => this.#directDefinitions.get(name)?.name ?? name,
     resultOf: (runId) => this.#resultOf(runId),
-    stored: async (runId) =>
-      (await this.#running?.store.getRun(runId)) ?? undefined,
+    stored: async (runId) => {
+      const store = this.#running?.store;
+      const record = store && (await readRun(store, runId));
+      return record ? this.#asHeld(record) : undefined;
+    },
     storedAll: () =>
       this.#running === undefined ? Promise.resolve([]) : this.runs(),
   };
@@ -401,7 +400,7 @@ export class Engine {
       sandbox: (container, signal) => this.sandboxes.adopt(container, signal),
       workflows: {
         cancel: async (id) => {
-          await this.#live().orchestrator.cancelRun(id);
+          await this.#live().queue.cancelRun(id);
         },
         dispatch: (run, input, signal) => this.#dispatch(run, input, signal),
         has: (name) => this.#registered(name),
@@ -578,7 +577,7 @@ export class Engine {
   #adopt(name: string): void {
     const definition = this.#registry.definitions.get(name);
     if (definition && this.#running) {
-      this.#running.orchestrator.register(
+      this.#running.queue.register(
         name,
         factoryFor(definition, () => this.bindings, this.#scopes)
       );
@@ -629,8 +628,8 @@ export class Engine {
       throw new Error(`register("${name}"): the engine has already started`);
     }
     this.#claim(name, { definitions: true, label: "register" });
-    this.#extra.set(name, (orchestrator) =>
-      orchestrator.register(name, factory)
+    this.#extra.set(name, (queue) =>
+      queue.register(name, (input) => factory(input as I))
     );
   }
 
@@ -656,15 +655,15 @@ export class Engine {
     return this.#registry.definitions.has(name) || this.#extra.has(name);
   }
 
-  #registerAll(orchestrator: Orchestrator): void {
+  #registerAll(queue: WorkflowQueue): void {
     for (const [name, definition] of this.#registry.definitions) {
-      orchestrator.register(
+      queue.register(
         name,
         factoryFor(definition, () => this.bindings, this.#scopes)
       );
     }
     for (const register of this.#extra.values()) {
-      register(orchestrator);
+      register(queue);
     }
   }
 
@@ -705,23 +704,16 @@ export class Engine {
     const feed = this.#publisher;
     const print = this.#print;
     await this.#listModels();
-    const config = new Config();
-    contributeQueueConfig(config, {
-      concurrency: ORCHESTRATOR_CONCURRENCY,
-      defaultName: DEFAULT_QUEUE,
-    });
-    let orchestrator: Orchestrator | undefined;
+    let queue: WorkflowQueue | undefined;
     let adopted: ReadonlyMap<string, RecordedScope> = new Map();
     try {
       await this.activities.load();
       await this.#executions.load();
-      const store = new ExecutionCoordinator({
-        store: await this.#runs.open(
-          (runId) => this.#scopes.get(runId)?.recorded(),
-          (runId, status) => this.#executions.follows(runId, status)
-        ),
-      });
-      adopted = await adoptParkedRuns({
+      const store = await this.#runs.open(
+        (runId) => this.#scopes.get(runId)?.recorded(),
+        (runId, status) => this.#executions.follows(runId, status)
+      );
+      adopted = await adoptSuspendedRuns({
         askable,
         print,
         registered: (name) => this.#registered(name),
@@ -734,20 +726,13 @@ export class Engine {
       }
       const statuses = await workflowStatuses(store, this.#executions.list());
 
-      orchestrator = new Orchestrator({
-        config,
-        recovers: (run) =>
-          adopted.has(run.id) && run.lastStatus === "suspended",
-        store,
-      });
-      await orchestrator.setup();
-      this.#registerAll(orchestrator);
-      await orchestrator.start();
-      const router = feedRouter({ askable, feed, orchestrator, print });
+      queue = new WorkflowQueue(store);
+      this.#registerAll(queue);
+      const router = feedRouter({ askable, feed, print, queue });
       const held = new HeldRuns({
         executions: this.#executions,
-        orchestrator,
         print,
+        queue,
         router,
         scopes: this.#scopes,
         state,
@@ -755,12 +740,13 @@ export class Engine {
       const recovered: {
         createdAt: number;
         name: string;
-        dispatched: Dispatched<unknown>;
+        dispatched: LiveRun;
       }[] = [];
 
       for (const runId of adopted.keys()) {
-        const dispatched = await orchestrator.get(runId);
-        const record = await store.getRun(runId);
+        const record = await readRun(store, runId);
+        const dispatched =
+          record?.status === "suspended" ? await queue.adopt(runId) : null;
         if (!(dispatched && record)) {
           this.#scopes.forget(runId);
           await this.#runs.release(runId);
@@ -783,10 +769,10 @@ export class Engine {
       for (const { dispatched } of recovered) {
         listing.add(dispatched.id);
       }
-      this.#running = { held, listing, orchestrator, router, store };
+      this.#running = { held, listing, queue, router, store };
       for (const { createdAt, name, dispatched } of recovered) {
         await this.#executions
-          .adoptParked({ createdAt, id: dispatched.id, name })
+          .adoptSuspended({ createdAt, id: dispatched.id, name })
           .catch((error: unknown) =>
             print(
               `[state] run ${dispatched.id} has no record: ${String(error)}`
@@ -800,7 +786,7 @@ export class Engine {
         new Set(recovered.map(({ dispatched }) => dispatched.id)),
         statuses
       );
-      const recovery = await this.#crashRecovery.recover(store);
+      const recovery = await this.#crashRecovery.recover({ queue, store });
       for (const runId of recovery.closed) {
         listing.add(runId);
       }
@@ -817,7 +803,7 @@ export class Engine {
         try {
           await this.#delivery.stop();
           await this.#launcher.halt(true);
-          await orchestrator?.stop();
+          await queue?.stop();
           await this.#launcher.settled();
         } finally {
           for (const scope of this.#scopes) {
@@ -853,17 +839,16 @@ export class Engine {
     input: unknown,
     signal: AbortSignal
   ): Promise<DispatchedRun> {
-    const { orchestrator } = this.#live();
+    const { queue } = this.#live();
     const { correlation } = run;
-    let dispatched: Dispatched<unknown>;
+    let dispatched: LiveRun;
     try {
-      dispatched = await orchestrator.run<unknown, unknown>(run.name, input, {
-        extensions:
-          "triggerId" in correlation
-            ? { triggerId: correlation.triggerId }
-            : {},
+      dispatched = await queue.run(run.name, input, {
         runId: run.id,
         signal,
+        ...("triggerId" in correlation
+          ? { triggerId: correlation.triggerId }
+          : {}),
       });
     } catch (error) {
       await this.#scopes.settle(run.id);
@@ -925,17 +910,13 @@ export class Engine {
   }
 
   async resume(runId: string, stepId: string, prompt?: string): Promise<void> {
-    const { orchestrator } = this.#live();
+    const { queue } = this.#live();
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
     if (this.#retiring || this.#letGo.has(runId)) {
       throw new QuestionMovingError(runId);
     }
     const scope = this.#scopeOf(runId);
-    const pending = await orchestrator.listSuspensions({
-      kind: PAUSE_KIND,
-      runId,
-      status: "pending",
-    });
+    const pending = await queue.suspensions({ kind: PAUSE_KIND, runId });
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
     if (this.#retiring || this.#letGo.has(runId)) {
       throw new QuestionMovingError(runId);
@@ -943,21 +924,21 @@ export class Engine {
     const below = stepId.split(".").slice(1).join(".");
     const under = (path: string, wanted: string) =>
       path === wanted || (wanted !== "" && path.startsWith(`${wanted}.`));
-    const parked = pending.items.filter(
+    const suspended = pending.filter(
       (item) =>
         under(item.stepPath.join("."), stepId) ||
         under(item.stepPath.slice(1).join("."), below)
     );
-    if (parked.length === 0) {
+    if (suspended.length === 0) {
       throw new Error(`"${stepId}" is not paused`);
     }
     const trimmed = prompt?.trim() || undefined;
-    for (const suspension of parked) {
+    for (const suspension of suspended) {
       const frame = scope.frames.get(suspension.stepPath.join("."));
       if (frame && trimmed !== undefined) {
         frame.resumePrompt = trimmed;
       }
-      await orchestrator
+      await queue
         .resolve(
           suspension.id,
           { prompt: trimmed ?? null },
@@ -1003,7 +984,7 @@ export class Engine {
     if (known !== undefined) {
       return known;
     }
-    const { orchestrator } = this.#live();
+    const { queue } = this.#live();
     const declared = definition.name;
     const registered =
       declared !== undefined &&
@@ -1012,13 +993,13 @@ export class Engine {
         : undefined;
     const name = registered ?? `direct-${crypto.randomUUID()}`;
     if (registered === undefined) {
-      const register = (target: Orchestrator) =>
+      const register = (target: WorkflowQueue) =>
         target.register(
           name,
           factoryFor(definition, () => this.bindings, this.#scopes, name)
         );
       this.#extra.set(name, register);
-      register(orchestrator);
+      register(queue);
       this.#directDefinitions.set(name, definition);
     }
     this.#directNames.set(definition, name);
@@ -1081,17 +1062,22 @@ export class Engine {
   }
 
   async runs(): Promise<readonly RunRecord[]> {
-    const { held, listing } = this.#live();
-    return (await listing.list()).map((record) => {
-      const current = held.workflow(record.id)?.state;
-      return current
-        ? {
-            ...record,
-            metadata: { ...record.metadata, workflow: current },
-            snapshot: current.tree ?? record.snapshot,
-          }
-        : record;
-    });
+    const { listing } = this.#live();
+    return (await listing.list()).map((record) => this.#asHeld(record));
+  }
+
+  #asHeld(record: RunRecord): RunRecord {
+    const current = this.#running?.held.workflow(record.id)?.state;
+    if (current === undefined) {
+      return record;
+    }
+    const begun = !(record.status === "running" && current.status === "queued");
+    return {
+      ...record,
+      metadata: { ...record.metadata, workflow: current },
+      snapshot: current.tree ?? record.snapshot,
+      status: begun ? record.status : "queued",
+    };
   }
 
   schedules(): Promise<readonly Schedule[]> {
@@ -1129,7 +1115,7 @@ export class Engine {
     for (const runId of await this.#launcher.handOver(successor, handedLate)) {
       this.#letGo.add(runId);
     }
-    running.orchestrator.on("suspended", ({ runId }) => {
+    running.queue.on("suspended", (runId) => {
       if (
         this.#letGo.has(runId) ||
         running.held.workflow(runId) === undefined
@@ -1193,14 +1179,14 @@ export class Engine {
     if (handed !== undefined) {
       return handed;
     }
-    const record = await running.store.getRun(runId);
+    const record = await readRun(running.store, runId);
     if (record?.status !== "suspended" || away()) {
       return false;
     }
     const owed = this.#forgive(runId);
-    let scope: Awaited<ReturnType<typeof adoptParkedRun>>;
+    let scope: Awaited<ReturnType<typeof adoptSuspendedRun>>;
     try {
-      scope = await adoptParkedRun(record, {
+      scope = await adoptSuspendedRun(record, {
         askable: this.#askable,
         print: () => undefined,
         registered: (name) => this.#registered(name),
@@ -1222,20 +1208,20 @@ export class Engine {
     }
     this.#scopes.recover(runId, scope);
     this.#letGo.delete(runId);
-    let dispatched: Awaited<ReturnType<Orchestrator["adopt"]>>;
+    let dispatched: LiveRun | null;
     try {
       if (away()) {
         throw new Error("this engine began to retire");
       }
       if (!(await this.#executions.takeReleased(runId))) {
-        throw new Error("its execution run is not parked");
+        throw new Error("its execution run is not suspended");
       }
       if (away()) {
         throw new Error("this engine began to retire");
       }
-      dispatched = await running.orchestrator.adopt(runId);
+      dispatched = await running.queue.adopt(runId);
       if (dispatched === null) {
-        throw new Error("it is no longer parked in the store");
+        throw new Error("it is no longer suspended in the store");
       }
       if (away()) {
         throw new Error("this engine began to retire");
@@ -1246,13 +1232,7 @@ export class Engine {
       }
     } catch (error) {
       this.#scopes.forget(runId);
-      await running.orchestrator
-        .forget(runId)
-        .catch((failure: unknown) =>
-          this.#print(
-            `[run] ${record.step} ${runId} not dropped from the queue: ${String(failure)}`
-          )
-        );
+      running.queue.forget(runId);
       await this.#giveBack(running, runId);
       if (away()) {
         this.#print(
@@ -1362,7 +1342,7 @@ export class Engine {
   }
 
   async #stop(
-    { held, orchestrator, router }: Running,
+    { held, queue, router }: Running,
     cancel: boolean
   ): Promise<void> {
     let cancelling = cancel;
@@ -1373,7 +1353,7 @@ export class Engine {
         ? ["queued", "running"]
         : ["queued", "running", "suspended"];
       await Promise.all(
-        held.withStatus(doomed).map((runId) => orchestrator.cancelRun(runId))
+        held.withStatus(doomed).map((runId) => queue.cancelRun(runId))
       );
     };
     this.#cancelStopping = async () => {
@@ -1401,13 +1381,13 @@ export class Engine {
         await cancelHeld();
       }
       await this.#executions.drained();
-      await orchestrator.drain();
+      await queue.drain();
       await this.#launcher.settled();
       await held.settle();
     } finally {
       ended = true;
       try {
-        await orchestrator.stop();
+        await queue.stop();
         await this.#executions.flush();
         await this.#executions.retrySettlements();
       } finally {

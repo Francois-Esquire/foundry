@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { Effect } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { CrashRecovery } from "~/lib/crash-recovery";
 import { MemoryRunStore } from "~/lib/run-store";
@@ -55,8 +56,11 @@ it("reports a part that fails and goes on to the next", async () => {
     runs: new MemoryRunStore(),
   });
   const { report } = await recovery.recover({
-    abandonRun: () => Promise.reject(new Error("never asked")),
-    listRuns: () => Promise.reject(new Error("never asked")),
+    queue: { abandonRun: () => Promise.reject(new Error("never asked")) },
+    store: {
+      getJob: () => Effect.die(new Error("never asked")),
+      listRuns: () => Effect.die(new Error("never asked")),
+    },
   });
   expect(lines).toEqual([
     "ended: true",

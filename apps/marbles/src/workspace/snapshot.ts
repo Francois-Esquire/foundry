@@ -1,6 +1,5 @@
 import { realpathSync } from "node:fs";
 import { basename, isAbsolute, relative, sep } from "node:path";
-import type { RunRecord } from "@foundry/workflows/schema";
 import type { WorkflowStepNode } from "@foundry/workflows/snapshot";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type { ExecutionRun } from "~/lib/executions";
@@ -14,6 +13,7 @@ import { describeTrigger, nextDue } from "~/lib/schedule";
 import type { LiveWork } from "~/lib/step-work";
 import type { Schedule } from "~/lib/triggers";
 import type { RunUsageFact, UsageRecords } from "~/lib/usage";
+import type { RunRecord } from "~/lib/workflow-runs";
 import type {
   CatalogOrigin,
   DashboardSnapshot,

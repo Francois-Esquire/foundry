@@ -1,4 +1,4 @@
-import { Cron } from "croner";
+import { type Cadence, nextDue as nextOccurrence } from "@foundry/scheduling";
 import type { Engine } from "~/lib/engine";
 import type { Launch } from "~/lib/launch";
 import { isLaunch } from "~/lib/launch";
@@ -74,21 +74,29 @@ export function describeTrigger(trigger: Trigger): string {
   return `${days} at ${clock(trigger.slot)}`;
 }
 
-export function nextDue(schedule: Schedule, last: number): number {
-  const { trigger } = schedule;
+const LOCAL_TIME = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+function cadenceOf(trigger: Trigger): Cadence {
   if (trigger.kind === "interval") {
-    return last + trigger.ms;
+    return { everyMs: trigger.ms, kind: "interval" };
   }
   const { slot } = trigger;
   const days = weekdays(slot);
-  const pattern = `${String(slot.minute ?? 0)} ${String(slot.hour)} * * ${
-    days.length === 0 ? "*" : days.map((day) => day.toUpperCase()).join(",")
-  }`;
-  const next = new Cron(pattern).nextRun(new Date(last));
+  return {
+    hour: slot.hour,
+    kind: "calendar",
+    minute: slot.minute ?? 0,
+    timezone: LOCAL_TIME,
+    ...(days.length === 0 ? {} : { weekdays: days }),
+  };
+}
+
+export function nextDue(schedule: Schedule, last: number): number {
+  const next = nextOccurrence(cadenceOf(schedule.trigger), last);
   if (next === null) {
-    throw new Error(`"${pattern}" never fires`);
+    throw new Error(`${describeTrigger(schedule.trigger)} never fires`);
   }
-  return next.getTime();
+  return next;
 }
 
 export type ScheduledEngine = Pick<

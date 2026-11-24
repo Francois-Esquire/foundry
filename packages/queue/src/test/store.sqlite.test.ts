@@ -4,7 +4,8 @@ import { drizzle } from "drizzle-orm/libsql";
 import { Effect, Layer, type Scope } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import type { QueueEvent, RunOutcome } from "../domain";
-import { Queue, type QueueService } from "../queue";
+import { Queue } from "../queue";
+import type { QueueService } from "../service";
 import type { QueueWrite } from "../store/index";
 import {
   makeSqliteQueueStore,
@@ -45,7 +46,7 @@ const withSqliteQueue = <A, E>(
   );
 
 describe("SqliteQueueStore", () => {
-  test("persists jobs, runs, waits, and pools so a new store instance reads them back", async () => {
+  test("persists jobs, runs, suspensions, and pools so a new store instance reads them back", async () => {
     const database = await openDatabase();
     const events: QueueEvent["type"][] = [];
     const { promise: settled, resolve } = Promise.withResolvers<void>();
@@ -53,7 +54,7 @@ describe("SqliteQueueStore", () => {
       database,
       onCommit: async (_transaction, write) => {
         events.push(...(write.events ?? []).map((event) => event.type));
-        if (events.includes("JobSettled")) {
+        if (events.includes("job.settled")) {
           resolve();
         }
       },
@@ -62,7 +63,7 @@ describe("SqliteQueueStore", () => {
     const job = await withSqliteQueue(options, (queue) =>
       Effect.gen(function* () {
         yield* queue.register("work", () =>
-          Effect.succeed<RunOutcome>({ kind: "completed", output: { n: 1 } })
+          Effect.succeed<RunOutcome>({ kind: "complete", output: { n: 1 } })
         );
         yield* queue.configurePool({
           limit: Number.POSITIVE_INFINITY,
@@ -86,7 +87,7 @@ describe("SqliteQueueStore", () => {
         byKey: reopened.listJobs({ idempotencyKey: "once" }),
         job: reopened.getJob(job.id),
         pools: reopened.listPools,
-        runs: reopened.listRuns({ jobId: job.id, state: "completed" }),
+        runs: reopened.listRuns({ jobId: job.id, state: "complete" }),
       })
     );
     expect(read.job).toEqual(job);
@@ -96,11 +97,11 @@ describe("SqliteQueueStore", () => {
       { limit: Number.POSITIVE_INFINITY, name: "wide", state: "paused" },
     ]);
     expect(events).toEqual([
-      "JobSubmitted",
-      "RunQueued",
-      "RunStarted",
-      "RunCompleted",
-      "JobSettled",
+      "job.submitted",
+      "run.queued",
+      "run.started",
+      "run.completed",
+      "job.settled",
     ]);
   });
 
@@ -149,7 +150,7 @@ describe("SqliteQueueStore", () => {
     const job = await withSqliteQueue({ database, scope: "alpha" }, (queue) =>
       Effect.gen(function* () {
         yield* queue.register("work", () =>
-          Effect.succeed<RunOutcome>({ kind: "completed", output: null })
+          Effect.succeed<RunOutcome>({ kind: "complete", output: null })
         );
         return yield* queue.submit({
           handler,
@@ -167,4 +168,85 @@ describe("SqliteQueueStore", () => {
     );
     expect(seen).toEqual([undefined, [], []]);
   });
+
+  test("a commit deletes the named jobs, runs, and suspensions in its own scope only", async () => {
+    const database = await openDatabase();
+    const records: QueueWrite = {
+      jobs: [
+        {
+          createdAt: 0,
+          handler,
+          id: "jb-1",
+          input: null,
+          links: {},
+          policy: {},
+          pool: "default",
+          state: { cancelledAt: 0, kind: "cancelled" },
+        },
+      ],
+      runs: [
+        {
+          attempt: 1,
+          id: "rn-1",
+          jobId: "jb-1",
+          pool: "default",
+          revision: 1,
+          state: { cancelledAt: 0, kind: "cancelled" },
+        },
+      ],
+      suspensions: [
+        {
+          id: "su-1",
+          key: "approval",
+          kind: "human",
+          reason: "sign-off",
+          request: null,
+          revision: 1,
+          runId: "rn-1",
+          state: { cancelledAt: 0, kind: "cancelled" },
+        },
+      ],
+    };
+    const alpha = makeSqliteQueueStore({ database, scope: "alpha" });
+    const beta = makeSqliteQueueStore({ database, scope: "beta" });
+    const contents = (store: typeof alpha) =>
+      Effect.all([store.listJobs(), store.listRuns(), store.listSuspensions()]);
+    const after = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* alpha.commit(records);
+        yield* beta.commit(records);
+        yield* alpha.commit({
+          deleteJobs: ["jb-1"],
+          deleteRuns: ["rn-1"],
+          deleteSuspensions: ["su-1"],
+        });
+        return { alpha: yield* contents(alpha), beta: yield* contents(beta) };
+      })
+    );
+    expect(after.alpha).toEqual([[], [], []]);
+    expect(after.beta.map((rows) => rows.length)).toEqual([1, 1, 1]);
+  });
+
+  test("a commit writes and deletes more records than one statement can bind", async () => {
+    const database = await openDatabase();
+    const store = makeSqliteQueueStore({ database, scope: "bulk" });
+    const count = 40_000;
+    const runs = Array.from({ length: count }, (_, index) => ({
+      attempt: 1,
+      id: `rn-${String(index)}` as const,
+      jobId: "jb-1" as const,
+      pool: "default",
+      revision: 0,
+      state: { cancelledAt: 0, kind: "cancelled" as const },
+    }));
+    const counted = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* store.commit({ runs });
+        const written = (yield* store.listRuns()).length;
+        yield* store.commit({ deleteRuns: runs.map((run) => run.id) });
+        return { left: (yield* store.listRuns()).length, written };
+      })
+    );
+    expect(counted).toEqual({ left: 0, written: count });
+  }, 60_000);
 });

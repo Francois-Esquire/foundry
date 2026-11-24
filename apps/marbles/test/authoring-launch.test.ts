@@ -2,7 +2,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { thisProcess } from "@foundry/lib/process-identity";
-import type { RunEvent } from "@foundry/workflows/schema";
 import type { RunView } from "@foundry.sh/marbles";
 import { observe, runs, step, tasks, workflow } from "@foundry.sh/marbles";
 import {
@@ -26,6 +25,7 @@ import {
 import { DatabaseRunStore } from "~/database/runs";
 import type { Engine } from "~/lib/engine";
 import { DEFINITION_IDENTITY } from "~/lib/handles";
+import type { RunEvent } from "~/lib/workflow-runs";
 import { startEngine, testEngine } from "./helpers/engine";
 import { openFeed } from "./helpers/feed";
 import type { TestMachine } from "./helpers/records";
@@ -97,7 +97,7 @@ async function answerOpen(engine: Engine): Promise<void> {
 
 describe(".launch()", () => {
   it("admits a run from an observer and hands back its id at once, so the observer keeps its place while the run waits on a question", async () => {
-    const review = step("parked-review")
+    const review = step("held-review")
       .input(z.object({ title: z.string() }))
       .do(async ({ ask, input }) => {
         const answer = await ask.question({ title: `Ship ${input.title}?` });
@@ -141,7 +141,7 @@ describe(".launch()", () => {
     await answerOpen(engine);
     await vi.waitFor(async () => {
       const done = await runs.list({
-        name: "parked-review",
+        name: "held-review",
         status: "complete",
       });
       expect(done.map((run) => run.id).sort()).toEqual(

@@ -1,5 +1,5 @@
-import type { RunRecord } from "@foundry/workflows/schema";
 import { current } from "~/lib/run-scope";
+import type { RunRecord } from "~/lib/workflow-runs";
 import type { ManagerArgs } from "../bindings";
 import type { AnyDefinition } from "../definition";
 import type { ExecutionRun } from "../execution-record";

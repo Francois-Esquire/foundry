@@ -33,7 +33,7 @@ const schedule: Schedule = {
   id: "nightly",
   misfire: "run-once",
   overlap: "skip",
-  state: "enabled",
+  state: "active",
   target,
 };
 
@@ -66,7 +66,7 @@ describe("SqliteScheduleStore", () => {
     await Effect.runPromise(
       store.commit({
         cursors: [{ nextDueAt: 2000, scheduleId: "nightly" }],
-        events: [{ at: 0, id: "ev-1", schedule, type: "ScheduleRegistered" }],
+        events: [{ at: 0, id: "ev-1", schedule, type: "schedule.registered" }],
         occurrences: [dispatched],
         schedules: [schedule],
       })
@@ -95,7 +95,7 @@ describe("SqliteScheduleStore", () => {
       open: [dispatched],
       schedules: [schedule],
     });
-    expect(committed).toEqual(["ScheduleRegistered"]);
+    expect(committed).toEqual(["schedule.registered"]);
     expect(removed).toEqual([undefined, undefined, []]);
   });
 

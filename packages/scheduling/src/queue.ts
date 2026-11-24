@@ -21,7 +21,7 @@ export const QueueDispatchLayer: Layer.Layer<ScheduleDispatch, never, Queue> =
             ? queue.getJob(jobId).pipe(
                 Effect.map((job) => {
                   switch (job?.state.kind) {
-                    case "completed":
+                    case "complete":
                     case "failed":
                     case "cancelled":
                       return job.state.kind;

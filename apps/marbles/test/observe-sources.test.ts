@@ -5,6 +5,9 @@ import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
 import { ArtifactManager } from "@foundry/artifacts";
 import type { ArtifactStore } from "@foundry/artifacts/store";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
+import type { QueueEvent, Run } from "@foundry/queue";
+import type { QueueStoreService, QueueWrite } from "@foundry/queue/store";
+import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
@@ -12,9 +15,6 @@ import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { TaskStore } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";
-import { ExecutionCoordinator } from "@foundry/workflows";
-import type { WorkflowStore } from "@foundry/workflows/store";
-import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import type { WorkspaceId } from "@foundry/workspaces";
 import { WorkspaceCatalog } from "@foundry/workspaces";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
@@ -36,7 +36,9 @@ import {
   WORKSPACES,
 } from "~/lib/events/source";
 import { current } from "~/lib/run-scope";
+import { readRun, runStoreEffect } from "~/lib/workflow-runs";
 import { testEngine } from "./helpers/engine";
+import { putRun } from "./helpers/queue-runs";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
@@ -49,6 +51,35 @@ beforeAll(async () => {
 afterAll(() => {
   machine.close();
 });
+
+const PROBED: Run = {
+  attempt: 1,
+  id: "rn-probed",
+  jobId: "jb-probed",
+  pool: "marbles",
+  revision: 0,
+  state: { availableAt: 0, kind: "queued", queuedAt: 0 },
+};
+
+function probedRuns(write: { readonly events: readonly Fact[] }): QueueWrite {
+  return {
+    events: write.events.map(
+      (fact): QueueEvent => ({
+        at: Date.parse(fact.at),
+        id: fact.id,
+        run: PROBED,
+        type: "run.queued",
+      })
+    ),
+  };
+}
+
+function promised(store: QueueStoreService) {
+  return {
+    commit: (write: QueueWrite) => runStoreEffect(store.commit(write)),
+    store,
+  };
+}
 
 const SOURCES: readonly (readonly [string, Source])[] = [
   ["artifacts", ARTIFACTS],
@@ -108,15 +139,14 @@ describe("observing every source", () => {
     await sandbox.close();
     await containers.shutdown();
     await new Sessions({ store: sessionStore }).createSession({ id: "s1" });
-    const coordinator = new ExecutionCoordinator({
-      store: await runStore.open(() => undefined),
-    });
-    const run = await coordinator.createRun({
-      input: null,
-      queueId: "q",
-      step: "s",
-    });
-    await coordinator.updateRun(run.id, { status: "running" });
+    await putRun(
+      await runStore.open(() => undefined),
+      "rn-observed",
+      "running",
+      {
+        step: "s",
+      }
+    );
     const now = new Date();
     await new WorkspaceCatalog(stores.workspaces, () => undefined).create({
       entries: [],
@@ -227,7 +257,9 @@ describe("the run a fact is recorded as made by", () => {
       [
         "runs",
         async (write) =>
-          (await runStore.open(() => undefined)).commit(write as never),
+          runStoreEffect(
+            (await runStore.open(() => undefined)).commit(probedRuns(write))
+          ),
       ],
     ];
     const reads = new Map<string, number>();
@@ -388,19 +420,19 @@ describe("a write the recorder hands a store", () => {
       {
         field: "deleteRuns",
         name: "runs",
-        plain: (scope) => new SqliteWorkflowStore({ database, scope }),
-        present: async (store: WorkflowStore, id) =>
-          (await store.getRun(id)) !== null,
-        recorded: (scope) =>
-          new DatabaseRunStore({ database, scope }).open(() => undefined),
-        seed: async (store: WorkflowStore) =>
-          (
-            await new ExecutionCoordinator({ store }).createRun({
-              input: null,
-              queueId: "q",
-              step: "s",
-            })
-          ).id,
+        plain: (scope) => promised(makeSqliteQueueStore({ database, scope })),
+        present: async ({ store }: ReturnType<typeof promised>, id) =>
+          (await readRun(store, id)) !== null,
+        recorded: async (scope) =>
+          promised(
+            await new DatabaseRunStore({ database, scope }).open(
+              () => undefined
+            )
+          ),
+        seed: async ({ store }: ReturnType<typeof promised>) => {
+          await putRun(store, "rn-variant", undefined, { step: "s" });
+          return "rn-variant";
+        },
         value: (id) => [id],
       },
     ];
@@ -446,22 +478,19 @@ describe("a Run commit the owner check refuses", () => {
     const { database } = machine.database;
     const owner = new DatabaseRunStore({ database, scope });
     const other = new DatabaseRunStore({ database, scope });
-    const owned = new ExecutionCoordinator({
-      store: await owner.open(() => undefined),
-    });
-    const run = await owned.createRun({ input: null, queueId: "q", step: "s" });
+    const owned = await owner.open(() => undefined);
+    const run = { id: "rn-moved" } as const;
+    await putRun(owned, run.id, undefined, { step: "s" });
     const before = await machine.changes(state);
     expect(before.map((change) => change.type)).toEqual(["run.queued"]);
 
-    const elsewhere = new ExecutionCoordinator({
-      store: await other.open(() => undefined),
-    });
-    await expect(
-      elsewhere.updateRun(run.id, { status: "running" })
-    ).rejects.toThrow("is not held by this engine any more");
+    const elsewhere = await other.open(() => undefined);
+    await expect(putRun(elsewhere, run.id, "running")).rejects.toThrow(
+      "is not held by this engine any more"
+    );
 
     expect(await machine.changes(state)).toEqual(before);
-    expect((await owned.getRun(run.id))?.status).toBe("queued");
+    expect((await readRun(owned, run.id))?.status).toBe("queued");
     await owner.close();
     await other.close();
   });

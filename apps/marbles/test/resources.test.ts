@@ -4,9 +4,8 @@ import { Sessions } from "@foundry/agents/session";
 import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
 import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
+import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
-import { ExecutionCoordinator } from "@foundry/workflows";
-import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { inArray } from "drizzle-orm";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { resourceLines } from "~/cli/resources/text";
@@ -29,6 +28,8 @@ import {
   ResourceAssociationError,
   ResourceAssociations,
 } from "~/lib/resources";
+import { runStoreEffect } from "~/lib/workflow-runs";
+import { putRun } from "./helpers/queue-runs";
 import { seedWorkspace } from "./helpers/registry";
 import { seedRuns } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
@@ -254,7 +255,7 @@ describe("the resource views", () => {
       const runs = await new DatabaseRunStore({ database, scope: "ws1" }).open(
         () => undefined
       );
-      await runs.commit({ deleteRuns: ["rn-1"] });
+      await runStoreEffect(runs.commit({ deleteRuns: ["rn-1"] }));
     } finally {
       opened.close();
     }
@@ -392,7 +393,7 @@ describe("the resource views", () => {
       const associations = resourceAssociations(database, state);
       for (let index = 0; index < 20; index += 1) {
         await associations.share(
-          { id: `shared-${String(index)}`, kind: "run", owner: "ws2" },
+          { id: `rn-shared-${String(index)}`, kind: "run", owner: "ws2" },
           "ws1"
         );
       }
@@ -538,18 +539,10 @@ async function seedRunsOn(
   scope: string,
   count: number
 ): Promise<void> {
-  const coordinator = new ExecutionCoordinator({
-    store: new SqliteWorkflowStore({ database, scope }),
-  });
-  const queue = await coordinator.ensureQueue({ id: "qu-many", name: "many" });
+  const store = makeSqliteQueueStore({ database, scope });
   for (let index = 0; index < count; index += 1) {
-    const id = `shared-${String(index)}`;
-    await coordinator.createRun({
-      id,
-      input: null,
-      queueId: queue.id,
-      step: "s",
-    });
+    const id = `rn-shared-${String(index)}`;
+    await putRun(store, id, undefined, { step: "s" });
     await database.insert(marblesWorkflowRuns).values({
       ledger: {},
       literals: {},

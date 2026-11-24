@@ -1,6 +1,6 @@
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations } from "drizzle-orm";
-import { and, eq, getTableColumns, type SQL, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, type SQL, sql } from "drizzle-orm";
 import type {
   BaseSQLiteDatabase,
   SQLiteColumn,
@@ -14,10 +14,10 @@ import {
   type Job,
   type Run,
   StoreError,
-  type Wait,
+  type Suspension,
 } from "../domain";
 import { QueueStore, type QueueStoreService, type QueueWrite } from "./index";
-import { queueJobs, queuePools, queueRuns, queueWaits } from "./tables";
+import { queueJobs, queuePools, queueRuns, queueSuspensions } from "./tables";
 
 export type QueueDatabase = BaseSQLiteDatabase<
   "async",
@@ -44,6 +44,13 @@ export interface SqliteQueueStoreOptions {
 const REENTRY =
   "SqliteQueueStore was called from inside its own transaction or onCommit hook; use the transaction passed to onCommit instead";
 
+const BATCH = 500;
+
+const batches = <T>(items: readonly T[], size: number): T[][] =>
+  Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
+    items.slice(index * size, (index + 1) * size)
+  );
+
 const upsert = async <Table extends SQLiteTable>(
   transaction: QueueTransaction,
   table: Table,
@@ -51,22 +58,20 @@ const upsert = async <Table extends SQLiteTable>(
   rows: readonly Table["$inferInsert"][],
   update: readonly (keyof Table["$inferInsert"] & string)[]
 ) => {
-  if (rows.length === 0) {
-    return;
-  }
   const columns: Record<string, SQLiteColumn> = getTableColumns(table);
-  await transaction
-    .insert(table)
-    .values([...rows])
-    .onConflictDoUpdate({
-      set: Object.fromEntries(
-        update.map((key) => [
-          key,
-          sql.raw(`excluded."${columns[key]?.name ?? key}"`),
-        ])
-      ) as SQLiteUpdateSetSource<Table>,
-      target: [...target],
-    });
+  const set = Object.fromEntries(
+    update.map((key) => [
+      key,
+      sql.raw(`excluded."${columns[key]?.name ?? key}"`),
+    ])
+  ) as SQLiteUpdateSetSource<Table>;
+  const size = Math.max(1, Math.floor(BATCH / Object.keys(columns).length));
+  for (const batch of batches(rows, size)) {
+    await transaction
+      .insert(table)
+      .values(batch)
+      .onConflictDoUpdate({ set, target: [...target] });
+  }
 };
 
 const writeRecords = async (
@@ -102,14 +107,14 @@ const writeRecords = async (
   );
   await upsert(
     transaction,
-    queueWaits,
-    [queueWaits.scope, queueWaits.id],
-    (write.waits ?? []).map((wait) => ({
-      body: wait,
-      id: wait.id,
-      runId: wait.runId,
+    queueSuspensions,
+    [queueSuspensions.scope, queueSuspensions.id],
+    (write.suspensions ?? []).map((suspension) => ({
+      body: suspension,
+      id: suspension.id,
+      runId: suspension.runId,
       scope,
-      state: wait.state.kind,
+      state: suspension.state.kind,
     })),
     ["body", "state"]
   );
@@ -125,6 +130,36 @@ const writeRecords = async (
     })),
     ["limit", "state"]
   );
+};
+
+const remove = async (
+  transaction: QueueTransaction,
+  table: typeof queueJobs | typeof queueRuns | typeof queueSuspensions,
+  column: SQLiteColumn,
+  scope: string,
+  ids: readonly string[] | undefined
+) => {
+  for (const batch of batches(ids ?? [], BATCH)) {
+    await transaction
+      .delete(table)
+      .where(and(eq(table.scope, scope), inArray(column, batch)));
+  }
+};
+
+const deleteRecords = async (
+  transaction: QueueTransaction,
+  scope: string,
+  write: QueueWrite
+) => {
+  await remove(
+    transaction,
+    queueSuspensions,
+    queueSuspensions.id,
+    scope,
+    write.deleteSuspensions
+  );
+  await remove(transaction, queueRuns, queueRuns.id, scope, write.deleteRuns);
+  await remove(transaction, queueJobs, queueJobs.id, scope, write.deleteJobs);
 };
 
 const matching = (
@@ -150,7 +185,7 @@ export const makeSqliteQueueStore = (
       try: () => turns.run(work),
     });
   const bodies = <Body>(
-    table: typeof queueJobs | typeof queueRuns | typeof queueWaits,
+    table: typeof queueJobs | typeof queueRuns | typeof queueSuspensions,
     where: SQL | undefined
   ) =>
     run(async () => {
@@ -168,12 +203,14 @@ export const makeSqliteQueueStore = (
       run(() =>
         database.transaction(async (transaction) => {
           await writeRecords(transaction, scope, write);
+          await deleteRecords(transaction, scope, write);
           await options.onCommit?.(transaction, write);
         })
       ),
     getJob: (id) => first(bodies<Job>(queueJobs, eq(queueJobs.id, id))),
     getRun: (id) => first(bodies<Run>(queueRuns, eq(queueRuns.id, id))),
-    getWait: (id) => first(bodies<Wait>(queueWaits, eq(queueWaits.id, id))),
+    getSuspension: (id) =>
+      first(bodies<Suspension>(queueSuspensions, eq(queueSuspensions.id, id))),
     listJobs: (filter = {}) =>
       bodies<Job>(
         queueJobs,
@@ -203,12 +240,12 @@ export const makeSqliteQueueStore = (
           [queueRuns.jobId, filter.jobId]
         )
       ),
-    listWaits: (filter = {}) =>
-      bodies<Wait>(
-        queueWaits,
+    listSuspensions: (filter = {}) =>
+      bodies<Suspension>(
+        queueSuspensions,
         matching(
-          [queueWaits.state, filter.state],
-          [queueWaits.runId, filter.runId]
+          [queueSuspensions.state, filter.state],
+          [queueSuspensions.runId, filter.runId]
         )
       ),
   };

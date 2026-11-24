@@ -1,11 +1,12 @@
 import { Effect, Layer, type Scope, TestClock, TestContext } from "effect";
 import type { Job, JobId, JobState } from "../../domain";
-import { Queue, type QueueOptions, type QueueService } from "../../queue";
+import { Queue } from "../../queue";
+import type { QueueOptions, QueueService } from "../../service";
 import { QueueStore, type QueueStoreService } from "../../store/index";
 import { makeMemoryQueueStore } from "../../store/memory";
 
 const TERMINAL: readonly JobState["kind"][] = [
-  "completed",
+  "complete",
   "failed",
   "cancelled",
 ];

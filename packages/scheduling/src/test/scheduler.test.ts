@@ -12,7 +12,7 @@ const keys = (requests: readonly { readonly idempotencyKey: string }[]) =>
   requests.map((request) => request.idempotencyKey);
 
 describe("Scheduler", () => {
-  test("the loop sleeps until each due time and dispatches one occurrence per slot", async () => {
+  test("the loop sleeps until each due time and dispatches one occurrence per due time", async () => {
     const result = await testScheduler((scheduler, dispatch) =>
       Effect.gen(function* () {
         yield* scheduler.register({
@@ -96,7 +96,7 @@ describe("Scheduler", () => {
           });
         }
         yield* TestClock.adjust(2000);
-        yield* dispatch.settle("job:skip:1000", "completed");
+        yield* dispatch.settle("job:skip:1000", "complete");
         yield* TestClock.adjust(1000);
         return {
           cancelled: yield* Ref.get(dispatch.cancelled),
@@ -125,7 +125,7 @@ describe("Scheduler", () => {
     });
   });
 
-  test("after a long pause, run-once fires the latest missed slot and skip fires nothing", async () => {
+  test("after a long pause, run-once fires the latest missed due time and skip fires nothing", async () => {
     const result = await testScheduler((scheduler, dispatch) =>
       Effect.gen(function* () {
         for (const misfire of ["run-once", "skip"] as const) {
@@ -192,11 +192,11 @@ describe("Scheduler", () => {
           const scheduler = yield* Scheduler;
           yield* queue.register("sync", (context) =>
             Effect.succeed<RunOutcome>(
-              context.resolvedWaits.has("ok")
-                ? { kind: "completed", output: "synced" }
+              context.resolutions.has("ok")
+                ? { kind: "complete", output: "synced" }
                 : {
-                    kind: "parked",
-                    wait: {
+                    kind: "suspended",
+                    suspension: {
                       key: "ok",
                       kind: "human",
                       reason: "confirm",
@@ -211,9 +211,11 @@ describe("Scheduler", () => {
             target,
           });
           yield* TestClock.adjust(2000);
-          const [wait] = yield* queue.listWaits({ state: "pending" });
-          if (wait !== undefined) {
-            yield* queue.resolveWait(wait.id, true);
+          const [suspension] = yield* queue.listSuspensions({
+            state: "pending",
+          });
+          if (suspension !== undefined) {
+            yield* queue.resolveSuspension(suspension.id, true);
           }
           yield* TestClock.adjust(1000);
           return { jobs: yield* queue.listJobs() };
@@ -227,8 +229,8 @@ describe("Scheduler", () => {
         job.state.kind,
       ])
     ).toEqual([
-      ["sync", "sync:1000", "completed"],
-      ["sync", "sync:3000", "waiting"],
+      ["sync", "sync:1000", "complete"],
+      ["sync", "sync:3000", "suspended"],
     ]);
   });
 });

@@ -365,7 +365,7 @@ describe("agents.session", () => {
     }
   });
 
-  it("a resume prompt rides on the first turn of the session that was parked", async () => {
+  it("a resume prompt rides on the first turn of the session that was suspended", async () => {
     const a = args();
     const seen: string[] = [];
     const models = mockModels([CLAUDE_CODE], ({ prompt }) => {

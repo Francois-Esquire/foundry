@@ -191,7 +191,7 @@ it("shows a running step and cancels it on shutdown without starting queued work
   }
 });
 
-it("shows a parked step as cancelled and keeps its completed prerequisite", async () => {
+it("shows a suspended step as cancelled and keeps its completed prerequisite", async () => {
   const prepare = step("prepare").do(() => "draft");
   const askForReview = step("ask-review")
     .input(z.object({ draft: z.string() }))

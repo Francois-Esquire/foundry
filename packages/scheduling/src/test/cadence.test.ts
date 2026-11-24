@@ -65,7 +65,7 @@ describe("cadence", () => {
     });
   });
 
-  test("when several slots elapsed, run-once fires the latest and skip fires none", () => {
+  test("when several due times elapsed, run-once fires the latest and skip fires none", () => {
     const cadence: Cadence = { everyMs: 1000, kind: "interval" };
     expect(dueOccurrences(cadence, 1000, 3500, "run-once")).toEqual({
       nextDueAt: 4000,

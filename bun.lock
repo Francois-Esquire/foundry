@@ -67,7 +67,9 @@
         "@foundry/lib": "workspace:*",
         "@foundry/models": "workspace:*",
         "@foundry/prompts": "workspace:*",
+        "@foundry/queue": "workspace:*",
         "@foundry/sandbox": "workspace:*",
+        "@foundry/scheduling": "workspace:*",
         "@foundry/tasks": "workspace:*",
         "@foundry/tsconfig": "workspace:*",
         "@foundry/usage": "workspace:*",
@@ -517,8 +519,8 @@
       "name": "@foundry/workflows",
       "version": "0.1.0",
       "dependencies": {
-        "@foundry/core": "workspace:*",
         "@foundry/lib": "workspace:*",
+        "@foundry/queue": "workspace:*",
         "effect": "^3.22.1",
         "evlog": "^2.25.0",
         "zod": "^4.4.3",
@@ -526,19 +528,11 @@
       "devDependencies": {
         "@effect/language-service": "^0.87.2",
         "@foundry/tsconfig": "workspace:*",
-        "@libsql/client": "^0.18.0",
         "@types/bun": "1.3.14",
         "@vitest/coverage-v8": "^4.1.9",
-        "drizzle-orm": "^0.45.4",
         "typescript": "^6.0.3",
         "vitest": "^4.1.9",
       },
-      "peerDependencies": {
-        "drizzle-orm": "^0.45.4",
-      },
-      "optionalPeers": [
-        "drizzle-orm",
-      ],
     },
     "packages/workspaces": {
       "name": "@foundry/workspaces",

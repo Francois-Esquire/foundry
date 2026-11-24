@@ -1,4 +1,3 @@
-import type { JsonValue } from "@foundry/lib/json";
 import {
   Cause,
   Effect,
@@ -8,23 +7,20 @@ import {
   ManagedRuntime,
   Stream,
 } from "effect";
-import type { Failure, QueueEvent, RunOutcome } from "./domain";
-import {
-  Queue,
-  type QueueOptions,
-  type QueueService,
-  type RunContext,
-} from "./queue";
+import type { ErrorShape, QueueEvent, RunOutcome } from "./domain";
+import { Queue } from "./queue";
+import type {
+  QueueOptions,
+  QueueService,
+  RunContext,
+  RunHandler,
+} from "./service";
 import type { QueueStore } from "./store/index";
 import { MemoryQueueStore } from "./store/memory";
 
-export interface PlainRunContext extends Omit<RunContext, "saveCheckpoint"> {
-  readonly saveCheckpoint: (value: JsonValue) => Promise<void>;
-}
-
-export type PlainRunHandler = (
-  context: PlainRunContext
-) => Promise<RunOutcome> | RunOutcome;
+export type QueueHandler = (
+  context: RunContext
+) => Effect.Effect<RunOutcome, ErrorShape> | Promise<RunOutcome> | RunOutcome;
 
 export interface QueueClientOptions extends QueueOptions {
   readonly store?: Layer.Layer<QueueStore>;
@@ -43,18 +39,32 @@ type Promised<Service> = {
 export interface QueueClient
   extends Omit<Promised<QueueService>, "events" | "register"> {
   dispose(): Promise<void>;
-  register(name: string, handler: PlainRunHandler): Promise<void>;
+  register(name: string, handler: QueueHandler): Promise<void>;
   subscribe(listener: (event: QueueEvent) => void): () => void;
 }
 
-const failureOf = (error: unknown): Failure =>
+const errorShapeOf = (error: unknown): ErrorShape =>
   error instanceof Error
     ? {
-        code: "error",
         message: error.message,
+        name: error.name,
         ...(error.stack === undefined ? {} : { stack: error.stack }),
       }
-    : { code: "error", message: String(error) };
+    : { message: String(error), name: "Error" };
+
+const lifted =
+  (handler: QueueHandler): RunHandler =>
+  (context) =>
+    Effect.flatMap(
+      Effect.try({ catch: errorShapeOf, try: () => handler(context) }),
+      (result) =>
+        Effect.isEffect(result)
+          ? result
+          : Effect.tryPromise({
+              catch: errorShapeOf,
+              try: async () => await result,
+            })
+    );
 
 export const createQueueClient = (
   options: QueueClientOptions = {}
@@ -74,37 +84,30 @@ export const createQueueClient = (
   };
 
   return {
+    abandon: (id, error) => use((queue) => queue.abandon(id, error)),
+    adopt: (id) => use((queue) => queue.adopt(id)),
     cancel: (id, reason) => use((queue) => queue.cancel(id, reason)),
-    cancelWait: (waitId, reason) =>
-      use((queue) => queue.cancelWait(waitId, reason)),
+    cancelSuspension: (suspensionId, reason) =>
+      use((queue) => queue.cancelSuspension(suspensionId, reason)),
     configurePool: (pool) => use((queue) => queue.configurePool(pool)),
     dispose: () => runtime.dispose(),
     drain: (graceMs) => use((queue) => queue.drain(graceMs)),
     getJob: (id) => use((queue) => queue.getJob(id)),
     getRun: (id) => use((queue) => queue.getRun(id)),
-    getWait: (id) => use((queue) => queue.getWait(id)),
+    getSuspension: (id) => use((queue) => queue.getSuspension(id)),
     listJobs: (filter) => use((queue) => queue.listJobs(filter)),
     listRuns: (filter) => use((queue) => queue.listRuns(filter)),
-    listWaits: (filter) => use((queue) => queue.listWaits(filter)),
+    listSuspensions: (filter) => use((queue) => queue.listSuspensions(filter)),
     pause: () => use((queue) => queue.pause),
     pools: () => use((queue) => queue.pools),
     recover: (recoverOptions) => use((queue) => queue.recover(recoverOptions)),
     register: (name, handler) =>
+      use((queue) => queue.register(name, lifted(handler))),
+    removeJob: (id) => use((queue) => queue.removeJob(id)),
+    resolveSuspension: (suspensionId, value, resolveOptions) =>
       use((queue) =>
-        queue.register(name, (context) =>
-          Effect.tryPromise({
-            catch: failureOf,
-            try: async () =>
-              await handler({
-                ...context,
-                saveCheckpoint: (value) =>
-                  use(() => context.saveCheckpoint(value)),
-              }),
-          })
-        )
+        queue.resolveSuspension(suspensionId, value, resolveOptions)
       ),
-    resolveWait: (waitId, value) =>
-      use((queue) => queue.resolveWait(waitId, value)),
     resume: () => use((queue) => queue.resume),
     retire: (successor) => use((queue) => queue.retire(successor)),
     submit: (input) => use((queue) => queue.submit(input)),

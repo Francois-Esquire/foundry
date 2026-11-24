@@ -40,7 +40,7 @@ export interface Schedule {
   readonly id: ScheduleId;
   readonly misfire: MisfirePolicy;
   readonly overlap: OverlapPolicy;
-  readonly state: "enabled" | "paused";
+  readonly state: "active" | "paused";
   readonly target: DispatchTarget;
 }
 
@@ -58,8 +58,8 @@ export interface Lease {
   readonly owner: ProcessIdentity;
 }
 
-export type SkipReason = "overlap" | "misfire" | "paused" | "already-claimed";
-export type JobOutcome = "completed" | "failed" | "cancelled";
+export type SkipReason = "overlap" | "misfire" | "already-claimed";
+export type JobOutcome = "complete" | "failed" | "cancelled";
 
 export type OccurrenceState =
   | {
@@ -111,14 +111,14 @@ type EventOf<Type extends string, Fields> = {
 } & Fields;
 
 export type ScheduleEvent =
-  | EventOf<"ScheduleRegistered", { readonly schedule: Schedule }>
-  | EventOf<"SchedulePaused", { readonly schedule: Schedule }>
-  | EventOf<"ScheduleResumed", { readonly schedule: Schedule }>
-  | EventOf<"ScheduleRemoved", { readonly scheduleId: ScheduleId }>
-  | EventOf<"OccurrenceClaimed", { readonly occurrence: Occurrence }>
-  | EventOf<"OccurrenceSkipped", { readonly occurrence: Occurrence }>
-  | EventOf<"OccurrenceDispatched", { readonly occurrence: Occurrence }>
-  | EventOf<"OccurrenceSettled", { readonly occurrence: Occurrence }>;
+  | EventOf<"schedule.registered", { readonly schedule: Schedule }>
+  | EventOf<"schedule.paused", { readonly schedule: Schedule }>
+  | EventOf<"schedule.resumed", { readonly schedule: Schedule }>
+  | EventOf<"schedule.removed", { readonly scheduleId: ScheduleId }>
+  | EventOf<"occurrence.claimed", { readonly occurrence: Occurrence }>
+  | EventOf<"occurrence.skipped", { readonly occurrence: Occurrence }>
+  | EventOf<"occurrence.dispatched", { readonly occurrence: Occurrence }>
+  | EventOf<"occurrence.settled", { readonly occurrence: Occurrence }>;
 
 export class InvalidCadenceError extends Data.TaggedError(
   "InvalidCadenceError"

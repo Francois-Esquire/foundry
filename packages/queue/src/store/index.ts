@@ -9,24 +9,29 @@ import type {
   RunFilter,
   RunId,
   StoreError,
-  Wait,
-  WaitFilter,
-  WaitId,
+  Suspension,
+  SuspensionFilter,
+  SuspensionId,
 } from "../domain";
 
 export interface QueueWrite {
+  readonly deleteJobs?: readonly JobId[];
+  readonly deleteRuns?: readonly RunId[];
+  readonly deleteSuspensions?: readonly SuspensionId[];
   readonly events?: readonly QueueEvent[];
   readonly jobs?: readonly Job[];
   readonly pools?: readonly ConcurrencyPool[];
   readonly runs?: readonly Run[];
-  readonly waits?: readonly Wait[];
+  readonly suspensions?: readonly Suspension[];
 }
 
 export interface QueueStoreService {
   readonly commit: (write: QueueWrite) => Effect.Effect<void, StoreError>;
   readonly getJob: (id: JobId) => Effect.Effect<Job | undefined, StoreError>;
   readonly getRun: (id: RunId) => Effect.Effect<Run | undefined, StoreError>;
-  readonly getWait: (id: WaitId) => Effect.Effect<Wait | undefined, StoreError>;
+  readonly getSuspension: (
+    id: SuspensionId
+  ) => Effect.Effect<Suspension | undefined, StoreError>;
   readonly listJobs: (
     filter?: JobFilter
   ) => Effect.Effect<readonly Job[], StoreError>;
@@ -34,9 +39,9 @@ export interface QueueStoreService {
   readonly listRuns: (
     filter?: RunFilter
   ) => Effect.Effect<readonly Run[], StoreError>;
-  readonly listWaits: (
-    filter?: WaitFilter
-  ) => Effect.Effect<readonly Wait[], StoreError>;
+  readonly listSuspensions: (
+    filter?: SuspensionFilter
+  ) => Effect.Effect<readonly Suspension[], StoreError>;
 }
 
 export class QueueStore extends Context.Tag("@foundry/queue/QueueStore")<

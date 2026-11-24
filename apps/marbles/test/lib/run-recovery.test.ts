@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { thisProcess } from "@foundry/lib/process-identity";
-import { ExecutionCoordinator } from "@foundry/workflows";
 import { and, eq } from "drizzle-orm";
 import { afterEach, expect, it } from "vitest";
 import { DatabaseExecutionStore } from "~/database/executions";
@@ -14,9 +13,12 @@ import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { ExecutionRun } from "~/lib/execution-record";
 import { parseStored } from "~/lib/execution-record";
-import { adoptParkedRuns, closeAbandonedRuns } from "~/lib/run-recovery";
+import { adoptSuspendedRuns, closeAbandonedRuns } from "~/lib/run-recovery";
 import type { ClaimCondition, RunStore } from "~/lib/run-store";
 import { ANY_STORED_RUN } from "~/lib/run-store";
+import { WorkflowQueue } from "~/lib/workflow-queue";
+import { readRun } from "~/lib/workflow-runs";
+import { putRun } from "../helpers/queue-runs";
 
 const roots: string[] = [];
 const handles: MarblesDatabase[] = [];
@@ -30,26 +32,17 @@ afterEach(() => {
   }
 });
 
-async function parkedByAnOwner() {
+async function suspendedByAnOwner() {
   const root = mkdtempSync(join(tmpdir(), "marbles-recovery-race-"));
   roots.push(root);
   const opened = await initializeDatabase(stateDatabase(root));
   handles.push(opened);
   const { database } = opened;
-  const owner = new ExecutionCoordinator({
-    store: await new DatabaseRunStore({ database, scope: "ws" }).open(
-      () => undefined
-    ),
-  });
-  const queue = await owner.ensureQueue({ id: "qu-1", name: "marbles" });
-  await owner.createRun({
-    id: "rn-1",
-    input: null,
-    queueId: queue.id,
-    step: "flow",
-  });
-  await owner.updateRun("rn-1", { status: "running" });
-  await owner.updateRun("rn-1", { status: "suspended" });
+  const owner = await new DatabaseRunStore({ database, scope: "ws" }).open(
+    () => undefined
+  );
+  await putRun(owner, "rn-1", "running");
+  await putRun(owner, "rn-1", "suspended");
   const ownerDies = async () => {
     await database
       .update(marblesWorkflowRuns)
@@ -83,9 +76,7 @@ async function parkedByAnOwner() {
     return stored && parseStored(stored);
   };
   const next = new DatabaseRunStore({ database, scope: "ws" });
-  const store = new ExecutionCoordinator({
-    store: await next.open(() => undefined),
-  });
+  const store = await next.open(() => undefined);
   return {
     execution,
     executions,
@@ -116,15 +107,15 @@ function interleaved(runs: RunStore, between: () => Promise<void>): RunStore {
   };
 }
 
-it("does not adopt a parked Run its owner resumed, and died running, after the scan", async () => {
-  const { next, owner, ownerDies, store } = await parkedByAnOwner();
+it("does not adopt a suspended Run its owner resumed, and died running, after the scan", async () => {
+  const { next, owner, ownerDies, store } = await suspendedByAnOwner();
   const lines: string[] = [];
-  const adopted = await adoptParkedRuns({
+  const adopted = await adoptSuspendedRuns({
     askable: true,
     print: (line) => lines.push(line),
     registered: () => true,
     runs: interleaved(next, async () => {
-      await owner.updateRun("rn-1", { status: "running" });
+      await putRun(owner, "rn-1", "running");
       await ownerDies();
     }),
     settled: unasked,
@@ -133,17 +124,17 @@ it("does not adopt a parked Run its owner resumed, and died running, after the s
 
   expect(adopted.size).toBe(0);
   expect(lines).toEqual([
-    "[run] flow rn-1 not adopted: it is running now, not parked",
+    "[run] flow rn-1 not adopted: it is running now, not suspended",
   ]);
   expect(
     await next.claim("rn-1", (stored) => stored?.status === "running")
   ).toBe(true);
 });
 
-it("does not adopt a parked Run whose Execution Run settled after the scan", async () => {
-  const { execution, executions, next, store } = await parkedByAnOwner();
+it("does not adopt a suspended Run whose Execution Run settled after the scan", async () => {
+  const { execution, executions, next, store } = await suspendedByAnOwner();
   const lines: string[] = [];
-  const adopted = await adoptParkedRuns({
+  const adopted = await adoptSuspendedRuns({
     askable: true,
     print: (line) => lines.push(line),
     registered: () => true,
@@ -168,14 +159,14 @@ it("does not adopt a parked Run whose Execution Run settled after the scan", asy
 });
 
 it("reads a settled Execution Run once the claim is held, from a run store that keeps none beside its Runs", async () => {
-  const { next, store } = await parkedByAnOwner();
+  const { next, store } = await suspendedByAnOwner();
   const blind: RunStore = {
     ...interleaved(next, () => Promise.resolve()),
     claim: (runId, when) => next.claim(runId, (stored) => when(stored)),
   };
   let reads = 0;
   const lines: string[] = [];
-  const adopted = await adoptParkedRuns({
+  const adopted = await adoptSuspendedRuns({
     askable: true,
     print: (line) => lines.push(line),
     registered: () => true,
@@ -200,11 +191,11 @@ it("reads a settled Execution Run once the claim is held, from a run store that 
 });
 
 it("reads a settled Execution Run once the claim is held, when the run store's database holds none for the Run", async () => {
-  const { executions, next, store } = await parkedByAnOwner();
+  const { executions, next, store } = await suspendedByAnOwner();
   await executions.remove("rn-1");
   let reads = 0;
   const lines: string[] = [];
-  const adopted = await adoptParkedRuns({
+  const adopted = await adoptSuspendedRuns({
     askable: true,
     print: (line) => lines.push(line),
     registered: () => true,
@@ -275,7 +266,7 @@ async function appears(path: string): Promise<void> {
 it("does not adopt a Run whose Execution Run a canceller settled before dying with its claim", {
   timeout: 30_000,
 }, async () => {
-  const { next, root, store, storedExecution } = await parkedByAnOwner();
+  const { next, root, store, storedExecution } = await suspendedByAnOwner();
   const { exited } = canceller(root);
   await appears(join(root, "claimed"));
   writeFileSync(join(root, "settle"), "");
@@ -283,7 +274,7 @@ it("does not adopt a Run whose Execution Run a canceller settled before dying wi
   expect(await storedExecution()).toMatchObject({ status: "cancelled" });
 
   const lines: string[] = [];
-  const adopted = await adoptParkedRuns({
+  const adopted = await adoptSuspendedRuns({
     askable: true,
     print: (line) => lines.push(line),
     registered: () => true,
@@ -300,7 +291,7 @@ it("does not adopt a Run whose Execution Run a canceller settled before dying wi
 it("lands no canceller's settle while this engine decides its claim", {
   timeout: 30_000,
 }, async () => {
-  const { next, root, store, storedExecution } = await parkedByAnOwner();
+  const { next, root, store, storedExecution } = await suspendedByAnOwner();
   const { exited } = canceller(root);
   await appears(join(root, "claimed"));
   const released = join(root, "released");
@@ -316,7 +307,7 @@ it("lands no canceller's settle while this engine decides its claim", {
         return when(stored, execution);
       }),
   };
-  const adopted = await adoptParkedRuns({
+  const adopted = await adoptSuspendedRuns({
     askable: true,
     print: () => undefined,
     registered: () => true,
@@ -329,9 +320,9 @@ it("lands no canceller's settle while this engine decides its claim", {
   expect(adopted.size).toBeLessThanOrEqual(1);
 });
 
-it("adopts a Run still parked when it is claimed", async () => {
-  const { next, store } = await parkedByAnOwner();
-  const adopted = await adoptParkedRuns({
+it("adopts a Run still suspended when it is claimed", async () => {
+  const { next, store } = await suspendedByAnOwner();
+  const adopted = await adoptSuspendedRuns({
     askable: true,
     print: () => undefined,
     registered: () => true,
@@ -348,19 +339,10 @@ it("closes out a Run a gone process left running whose settled Execution Run the
   const opened = await initializeDatabase(stateDatabase(root));
   handles.push(opened);
   const { database } = opened;
-  const owner = new ExecutionCoordinator({
-    store: await new DatabaseRunStore({ database, scope: "ws" }).open(
-      () => undefined
-    ),
-  });
-  const queue = await owner.ensureQueue({ id: "qu-1", name: "marbles" });
-  await owner.createRun({
-    id: "rn-1",
-    input: null,
-    queueId: queue.id,
-    step: "flow",
-  });
-  await owner.updateRun("rn-1", { status: "running" });
+  const owner = await new DatabaseRunStore({ database, scope: "ws" }).open(
+    () => undefined
+  );
+  await putRun(owner, "rn-1", "running");
   await database
     .update(marblesWorkflowRuns)
     .set({ ownerPid: spawnSync("true").pid })
@@ -385,20 +367,21 @@ it("closes out a Run a gone process left running whose settled Execution Run the
     timestamps: { queuedAt: at, startedAt: at, updatedAt: at },
   };
   const next = new DatabaseRunStore({ database, scope: "ws" });
-  const store = new ExecutionCoordinator({
-    store: await next.open(() => undefined),
-  });
+  const store = await next.open(() => undefined);
   const lines: string[] = [];
 
+  const queue = new WorkflowQueue(store);
   const closed = await closeAbandonedRuns({
     execution: (runId) => (runId === settled.id ? settled : undefined),
     print: (line) => lines.push(line),
+    queue,
     runs: next,
     store,
   });
+  await queue.stop();
 
   expect(closed).toEqual(["rn-1"]);
-  expect((await store.getRun("rn-1"))?.status).toBe("failed");
+  expect((await readRun(store, "rn-1"))?.status).toBe("failed");
   expect(lines).toEqual([
     "[run] flow rn-1 closed out: its process exited while it was running",
   ]);
@@ -417,17 +400,8 @@ it("leaves a Run this engine runs, whose Execution Run it holds open elsewhere, 
   handles.push(opened);
   const { database } = opened;
   const next = new DatabaseRunStore({ database, scope: "ws" });
-  const store = new ExecutionCoordinator({
-    store: await next.open(() => undefined),
-  });
-  const queue = await store.ensureQueue({ id: "qu-1", name: "marbles" });
-  await store.createRun({
-    id: "rn-2",
-    input: null,
-    queueId: queue.id,
-    step: "flow",
-  });
-  await store.updateRun("rn-2", { status: "running" });
+  const store = await next.open(() => undefined);
+  await putRun(store, "rn-2", "running");
   const at = new Date().toISOString();
   const open: ExecutionRun = {
     correlation: {},
@@ -447,11 +421,12 @@ it("leaves a Run this engine runs, whose Execution Run it holds open elsewhere, 
     await closeAbandonedRuns({
       execution: (runId) => (runId === open.id ? open : undefined),
       print: () => undefined,
+      queue: { abandonRun: () => Promise.reject(new Error("never asked")) },
       runs: next,
       store,
     })
   ).toEqual([]);
-  expect((await store.getRun("rn-2"))?.status).toBe("running");
+  expect((await readRun(store, "rn-2"))?.status).toBe("running");
   expect(
     await new DatabaseRunStore({ database, scope: "ws" }).claim(
       "rn-2",

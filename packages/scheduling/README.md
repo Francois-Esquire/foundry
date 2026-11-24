@@ -1,10 +1,10 @@
 # @foundry/scheduling
 
 A time-driven scheduler built on Effect. Register a **Schedule** with a
-**Cadence**. The scheduler sleeps until the next slot is due, claims the
+**Cadence**. The scheduler sleeps until the next occurrence is due, claims the
 **Occurrence** once, and hands it to a `ScheduleDispatch` with
 `scheduleId:scheduledFor` as the idempotency key. Overlap and misfire rules
-decide what happens when work is still open or when slots piled up while
+decide what happens when work is still open or when occurrences piled up while
 the scheduler was paused or down. The terms are defined in
 [CONTEXT.md](./CONTEXT.md).
 

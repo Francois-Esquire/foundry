@@ -342,7 +342,7 @@ describe("a dispatched run that moves between engine generations", () => {
     );
   }, 150_000);
 
-  it("reads and cancels a parked workflow dispatch on the generation that took it", async () => {
+  it("reads and cancels a suspended workflow dispatch on the generation that took it", async () => {
     const fixture = await switchingWorkspace();
     const first = fixture.summary.pid ?? 0;
     const workspace = fixture.client.workspace(fixture.summary);

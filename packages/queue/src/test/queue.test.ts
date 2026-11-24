@@ -1,13 +1,13 @@
 import type { JsonValue } from "@foundry/lib/json";
 import { Chunk, Deferred, Effect, Fiber, Stream, TestClock } from "effect";
 import { describe, expect, test } from "vitest";
-import type { Failure, RunOutcome } from "../domain";
-import type { RunContext } from "../queue";
+import type { ErrorShape, RunOutcome } from "../domain";
+import type { RunContext } from "../service";
 import { awaitJob, flush, handler, testQueue } from "./helpers/queue";
 
 const done = (outcome: RunOutcome) => outcome;
 const completed = (output: JsonValue = null) =>
-  Effect.succeed(done({ kind: "completed", output }));
+  Effect.succeed(done({ kind: "complete", output }));
 
 describe("Queue", () => {
   test("submitting with a known idempotency key returns the existing job and does the work once", async () => {
@@ -29,7 +29,7 @@ describe("Queue", () => {
     );
     expect(result.second.id).toBe(result.first.id);
     expect(result.calls).toBe(1);
-    expect(result.job.state).toMatchObject({ kind: "completed", output: 1 });
+    expect(result.job.state).toMatchObject({ kind: "complete", output: 1 });
   });
 
   test("a pool runs at most its limit, and resizing or pausing it takes effect immediately", async () => {
@@ -72,14 +72,14 @@ describe("Queue", () => {
           Effect.suspend(() => {
             calls += 1;
             return calls < 3
-              ? Effect.fail<Failure>({ code: "flaky", message: "try again" })
+              ? Effect.fail<ErrorShape>({ message: "try again", name: "flaky" })
               : completed("ok");
           })
         );
         yield* queue.register("reject", () =>
           Effect.succeed(
             done({
-              error: { code: "invalid", message: "bad input" },
+              error: { message: "bad input", name: "invalid" },
               kind: "bailed",
             })
           )
@@ -123,14 +123,14 @@ describe("Queue", () => {
     expect(result.runs.map((run) => [run.attempt, run.state.kind])).toEqual([
       [1, "failed"],
       [2, "failed"],
-      [3, "completed"],
+      [3, "complete"],
     ]);
     expect(result.settled.state).toMatchObject({
-      kind: "completed",
+      kind: "complete",
       output: "ok",
     });
     expect(result.bailed.state).toMatchObject({
-      error: { code: "invalid" },
+      error: { name: "invalid" },
       kind: "failed",
     });
     expect(result.bailedRuns).toHaveLength(1);
@@ -161,7 +161,7 @@ describe("Queue", () => {
     );
     expect(result.aborted).toBe(true);
     expect(result.job.state).toMatchObject({
-      error: { code: "timeout" },
+      error: { name: "timeout" },
       kind: "failed",
     });
   });
@@ -176,7 +176,7 @@ describe("Queue", () => {
             context.job.input === "first"
               ? Effect.as(
                   Deferred.await(first),
-                  done({ kind: "completed", output: null })
+                  done({ kind: "complete", output: null })
                 )
               : Effect.zipRight(
                   Deferred.succeed(started, context.signal),
@@ -213,46 +213,48 @@ describe("Queue", () => {
     ]);
   });
 
-  test("draining waits for running work, interrupts what outlives the grace period, and starts nothing new", async () => {
-    const result = await testQueue((queue) =>
-      Effect.gen(function* () {
-        yield* queue.register("work", (context) =>
-          Effect.as(
-            Effect.sleep(context.job.input === "slow" ? 10_000 : 100),
-            done({ kind: "completed", output: null })
-          )
-        );
-        const quick = yield* queue.submit({ handler, input: "quick" });
-        const slow = yield* queue.submit({
-          handler,
-          input: "slow",
-          policy: { retry: { maxAttempts: 2 } },
-        });
-        yield* flush;
-        const draining = yield* Effect.fork(queue.drain(1000));
-        yield* TestClock.adjust(1000);
-        yield* Fiber.join(draining);
-        const late = yield* queue.submit({ handler, input: "quick" });
-        yield* TestClock.adjust(1000);
-        const whileDrained = yield* queue.getJob(late.id);
-        const slowRuns = yield* queue.listRuns({ jobId: slow.id });
-        yield* queue.resume;
-        yield* TestClock.adjust(100);
-        return {
-          late: yield* queue.getJob(late.id),
-          quick: yield* queue.getJob(quick.id),
-          slowRuns,
-          whileDrained,
-        };
-      })
+  test("draining suspensions for running work, interrupts what outlives the grace period, and starts nothing new", async () => {
+    const result = await testQueue(
+      (queue) =>
+        Effect.gen(function* () {
+          yield* queue.register("work", (context) =>
+            Effect.as(
+              Effect.sleep(context.job.input === "slow" ? 10_000 : 100),
+              done({ kind: "complete", output: null })
+            )
+          );
+          const quick = yield* queue.submit({ handler, input: "quick" });
+          const slow = yield* queue.submit({
+            handler,
+            input: "slow",
+            policy: { retry: { maxAttempts: 2 } },
+          });
+          yield* flush;
+          const draining = yield* Effect.fork(queue.drain(1000));
+          yield* TestClock.adjust(1000);
+          yield* Fiber.join(draining);
+          const late = yield* queue.submit({ handler, input: "quick" });
+          yield* TestClock.adjust(1000);
+          const whileDrained = yield* queue.getJob(late.id);
+          const slowRuns = yield* queue.listRuns({ jobId: slow.id });
+          yield* queue.resume;
+          yield* TestClock.adjust(100);
+          return {
+            late: yield* queue.getJob(late.id),
+            quick: yield* queue.getJob(quick.id),
+            slowRuns,
+            whileDrained,
+          };
+        }),
+      { defaultLimit: Number.POSITIVE_INFINITY }
     );
-    expect(result.quick?.state.kind).toBe("completed");
+    expect(result.quick?.state.kind).toBe("complete");
     expect(result.slowRuns.map((run) => run.state.kind)).toEqual([
       "interrupted",
       "queued",
     ]);
     expect(result.whileDrained?.state.kind).toBe("pending");
-    expect(result.late?.state.kind).toBe("completed");
+    expect(result.late?.state.kind).toBe("complete");
   });
 
   test("events stream the lifecycle of a job as past-tense facts", async () => {
@@ -269,11 +271,11 @@ describe("Queue", () => {
       })
     );
     expect(types).toEqual([
-      "JobSubmitted",
-      "RunQueued",
-      "RunStarted",
-      "RunCompleted",
-      "JobSettled",
+      "job.submitted",
+      "run.queued",
+      "run.started",
+      "run.completed",
+      "job.settled",
     ]);
   });
 });

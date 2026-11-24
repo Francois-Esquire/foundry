@@ -1,8 +1,31 @@
 import type { BaseContext } from "./executable";
-import type { RunExecutionContext } from "./orchestrator";
+import type { JsonValue } from "./json-value";
+import type { Step } from "./step";
+import type { Workflow } from "./workflow";
 
 // biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/workflows/definitions public API.
 export { DefinitionAuthoringError } from "./definition-errors";
+
+export interface RunExecutionContext {
+  readonly claimEffect: (key: string, metadata?: JsonValue) => Promise<boolean>;
+  readonly emitOutput: (value: JsonValue) => Promise<void>;
+  readonly runId: string;
+}
+
+export type Runnable<
+  I = unknown,
+  O = unknown,
+  X extends BaseContext = BaseContext,
+> = Step<I, O, X> | Workflow<I, O, X>;
+
+export type Factory<
+  I = unknown,
+  O = unknown,
+  X extends BaseContext = BaseContext,
+> = (
+  input: I,
+  context?: RunExecutionContext
+) => Runnable<I, O, X> | Promise<Runnable<I, O, X>>;
 
 export interface DefinitionDescriptor {
   readonly definitionKey: string;
