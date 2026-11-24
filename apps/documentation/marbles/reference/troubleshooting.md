@@ -28,7 +28,7 @@ if needed. See [Installation](/marbles/get-started/installation).
   next engine generation on its own. A change that throws while loading
   keeps the previous load running, and the workspace shows the error; fix
   it, and the next edit loads. A header showing `failed` means no load of
-  the workspace runs: fix it, then open `marbles` (or run `roll`) again.
+  the workspace runs: fix it, then open `marbles` (or `marbles run <name>`) again.
 
 [Discovery rules](/marbles/reference/project#discovery-and-ignored-files)
 also explain how imported helper modules register work.
@@ -36,7 +36,7 @@ also explain how imported helper modules register work.
 ## Input is rejected or the launch form is JSON
 
 Pass valid JSON to `--input` with fields matching the input schema.
-`roll <definition>` uses that input; a schedule key already carries its
+`marbles run <definition>` uses that input; a schedule key already carries its
 configured input. The CLI's error lists fields and matching schedule keys.
 
 The dashboard uses structured fields when a schema exposes Standard JSON
@@ -45,9 +45,9 @@ Install the schema library in the project containing the importing module.
 
 ## A schedule does not fire
 
-`list` does not keep a clock running. `marbles`, `marbles run </dev/null`,
-and `roll` attach the workspace to the Marbles process, which keeps its
-schedules ticking until `marbles stop`; `marbles status` shows
+`list` does not keep a clock running. `marbles`, `marbles </dev/null`,
+`marbles run <name>`, and `marbles enqueue <name>` attach the workspace to the Marbles process, which keeps its
+schedules ticking until `marbles daemon stop`; `marbles status` shows
 `marbles process: pid …` and `hosted: yes` when it does. `--dry-run` ticks
 only while the command runs. Check the cadence and host timezone, and inspect schedule history with
 `status`. A live process holding the same schedule key makes another tick
@@ -80,8 +80,8 @@ host `compaction` settings. See [Agent sessions](/marbles/reference/agent-sessio
 
 ## A question cancels the run
 
-`roll` and headless `run` cannot answer workflow questions. Through the
-Marbles process the run parks with its question on the Feed, and `roll`
+`marbles run` and piped `marbles` cannot answer workflow questions. Through the
+Marbles process the run parks with its question on the Feed, and `marbles run`
 waits; open `marbles` to answer it. Under `--dry-run` the run is cancelled
 at the ask. Work before the ask has already run; launching again can repeat
 it.

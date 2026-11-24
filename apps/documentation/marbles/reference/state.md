@@ -93,7 +93,8 @@ Output journals are append-only. Lock files are created in place
 read. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
 A workspace is recorded in the database when it is attached to the Marbles
-process (`run`, `roll`, `attach`, or the dashboard), which sets
+process (`marbles`, `marbles run`, `marbles enqueue`, or
+`marbles daemon attach`), which sets
 `hosted: true`, and by a program that hosts it itself; `list`, `status`,
 `sessions`, `watch`, a task read, and anything under `--dry-run` leave an
 empty state root empty. Only a process holding `locks/process` at the state
@@ -119,7 +120,7 @@ so failed with SQLite's busy error, opens a fresh connection before it
 runs anything else, because the driver (`@libsql/client` 0.18) leaves the
 failed one unable to commit; the failed operation is not retried, and a
 refused commit is rolled back. `hosted` goes back to `false` when
-`marbles detach` or a client of the process detaches the workspace.
+`marbles daemon detach` or a client of the process detaches the workspace.
 
 ### Tasks
 
@@ -249,7 +250,7 @@ where each is filed first, about 150 ms for a thousand.
 ### Run output
 
 `output/<runId>.jsonl` is the stream read by
-[`marbles watch <runId>`](/marbles/reference/cli#watch-a-background-run).
+[`marbles watch <runId>`](/marbles/reference/cli#enqueue-and-watch-a-background-run).
 A persisted engine creates a journal for each run, including agent and
 workflow runs launched through [MCP](/marbles/reference/mcp). The MCP
 `runId` is the engine's run ID, not an agent-session ID.
@@ -316,9 +317,10 @@ no database (a script no host loaded) keeps its artifacts in memory.
 
 Runs, sessions, artifacts and sandbox containers are resources:
 each is kept once, by its kind's store, under the workspace that created it
-(its owner), which it belongs to for good. `marbles share` shows a run,
-session or artifact in another registered workspace as well, a row
-of `marbles_resource_workspaces`; `marbles unshare` removes the row and
+(its owner), which it belongs to for good. `marbles runs share` (likewise `sessions` and
+`artifacts`) shows a run, session or artifact in another registered
+workspace as well, a row of `marbles_resource_workspaces`; `unshare` removes
+the row and
 never the resource. A sandbox container cannot be shared. `status`, the
 resource listings (`runs`, `sessions`, `artifacts`, `sandboxes`)
 and the dashboard read a workspace's view: what it owns and what is shared
@@ -341,7 +343,7 @@ one shared with it, point at the blob file holding each of its files. Each
 id and owner is percent-encoded as UTF-8, uppercase letters and a bare `.`
 or `..` included, so no two names collide on any file system, none starts
 with `@`, and `decodeURIComponent` gives the name back. A file the database holds inline, or in chunks, has no link.
-`marbles relink` reconciles the directory with the database: it removes
+`marbles artifacts relink` reconciles the directory with the database: it removes
 the links Marbles made (those pointing into the artifact store) that should
 not be there and makes the missing ones; anything else is left and
 reported, and `.marbles/.gitignore` keeps the directory out of git. Before
@@ -387,8 +389,9 @@ loads.
 
 A launch with a `source` looks for a run of the same name and source and
 records a new one in one database transaction, so two engines sharing the
-database start it once. `.launch(input, { key })` on a step or workflow
-launches with its key as the `source`.
+database start it once. `.enqueue(input, { key })` on a step or workflow,
+`step.enqueue(name, input, { key })` and `workflow.enqueue(...)`, and
+`marbles enqueue <name> --key <key>` launch with the key as the `source`.
 
 `get`, `list` and `gaps` on `engine.executions` answer from the engine at
 once: what it changed, and what it last read of other processes' runs, at
@@ -497,8 +500,8 @@ keeps the cadence. Missed interval ticks do not queue. Calendar slots are
 evaluated in machine-local time.
 
 A tick claims its trigger in the database before it runs. If another process holds it,
-`roll <key>` prints `skipped: held by <holder>` and exits successfully.
-`roll <definition-name>` takes no claim. Two schedules with different keys
+`marbles run <key>` prints `skipped: held by <holder>` and exits successfully.
+`marbles run <definition-name>` takes no claim. Two schedules with different keys
 have different claims even when they target the same workflow.
 
 ### Lock ownership and repair

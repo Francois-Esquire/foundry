@@ -47,8 +47,8 @@ Run each variant with the same provider and model. Omitting `model` uses
 that provider's default:
 
 ```sh
-marbles roll skill-eval --input '{"variant":"baseline","provider":"codex"}'
-marbles roll skill-eval --input '{"variant":"candidate","provider":"codex"}'
+marbles run skill-eval --input '{"variant":"baseline","provider":"codex"}'
+marbles run skill-eval --input '{"variant":"candidate","provider":"codex"}'
 ```
 
 Each completed run writes a `Skill evaluation trials` artifact version with the exact

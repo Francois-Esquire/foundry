@@ -45,7 +45,7 @@ observe(tasks, async function dispatchChecks() {
   const ready = await tasks.ready({ tags: { all: ["checks"] } });
   for (const task of ready.items) {
     const attempt = Number(task.metadata.attempt ?? 0);
-    await checkTask.launch(
+    await checkTask.enqueue(
       { task: task.id },
       { key: `check-task:${task.id}:attempt-${attempt}` }
     );

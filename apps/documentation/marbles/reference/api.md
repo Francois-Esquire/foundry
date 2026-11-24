@@ -221,7 +221,7 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
 | Instance | Operations | Context equivalent |
 | --- | --- | --- |
 | `agent` | `generate(input, turn?)`, `stream(input, turn?)`; `extend({ model?, provider?, settings?, input? })` | `agents.session(def)`, one turn |
-| `step`, `workflow` | `run(input?)`, `launch(input?, { key? })` | `run`: direct execution within the current process, no separate dashboard run. `launch`: a separate run on the engine, resolved as `{ id, result }` once admitted; a `key` launches at most once per definition name and key. |
+| `step`, `workflow` | `run(input?)`, `enqueue(input?, { key? })`; by name, `step.enqueue(name, input?, { key? })` and `workflow.enqueue(name, input?, { key? })` | `run`: direct execution within the current process, no separate dashboard run. `enqueue`: a separate run on the engine, resolved as `{ id, result }` once admitted; a `key` enqueues at most once per definition name and key. |
 | `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
 | `sandbox` | `exec`, `close`, and the container's `commands`, `filesystem`, `processes`, `shell`, `ports`, `services`, `volumes`; started by the first call | `sandboxes.start(def)` |
 | `artifact` | `write(files, options?)`, `latest()` | `artifacts.write(def, files)`, `artifacts.latest(def)` |
@@ -262,41 +262,62 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   on the dashboard and cannot be paused on its own. A step that asks a
   person with nobody to answer rejects with `asked a person; run it with
   marbles to answer`.
-- **`launch` admits a separate run** on the engine and resolves with
-  `Launched<O>`, `{ id, result }`, before the run ends; `result` settles
+- **`enqueue` admits a separate run** on the engine and resolves with
+  `Enqueued<O>`, `{ id, result }`, before the run ends; `result` settles
   with its output or error and never raises an unhandled rejection. Input
-  the schema refuses rejects the launch when the run can start at once,
+  the schema refuses rejects the call when the run can start at once,
   and rejects `result` when the run waited in the queue. Inside a step body
-  it launches a top-level run of the same engine and records it in the
+  it enqueues a top-level run of the same engine and records it in the
   step's ledger: a body that runs again after a question or a resume gets
   the same run back for the same definition at the same call position, and
-  launches again when a different definition is reached there. The ledger
+  enqueues again when a different definition is reached there. The ledger
   covers replay, not a retried attempt; give a step with `retry` a keyed
-  launch when it must launch once. Outside a run it uses the engine `marbles`
+  enqueue when it must enqueue once. Outside a run it uses the engine `marbles`
   built for the module. A retiring or disposed engine refuses it. Read the
   run with [`runs`](#exports).
-- **`launch(input, { key })` launches once per key.** `LaunchOptions` is
+- **`enqueue(input, { key })` enqueues once per key.** `EnqueueOptions` is
   `{ key?: string }`. The key is the Execution Run's `source`, matched with
   the definition's name in one database transaction, so any engine over the
-  same store finds it. A launch whose name and key match an existing run
+  same store finds it. An enqueue whose name and key match an existing run
   returns that run's `{ id, result }`, whatever its status (queued,
   running, parked, complete, failed, or cancelled) and whatever input the
   new call passed; `result` settles with that run's output or error. The
   match lasts as long as the run's record, which the CLI keeps and an
   embedding host removes with `engine.executions.prune`. A blank key throws
-  `launch(): a key must be a non-blank string`. A key needs a definition
+  `enqueue(): a key must be a non-blank string`. A key needs a definition
   the workspace's source declares by name; an anonymous definition, or one
-  a plain script's engine launches, throws `launch(): a key is matched by
+  a plain script's engine runs, throws `enqueue(): a key is matched by
   the definition's name`. Inside a step body the ledger still applies, so a
   replayed body gets its run back by position and a retried attempt gets
-  it back by key. See [Launch once per
-  key](/marbles/concepts/steps-and-workflows#launch-once-per-key).
-- **Awaiting a launched run from a step does not deadlock.** Reading
-  `result` of a run a step body launched gives the launching run's queue
+  it back by key. `marbles enqueue <name> --key <key>` matches the same
+  keys. See [Enqueue once per
+  key](/marbles/concepts/steps-and-workflows#enqueue-once-per-key).
+- **`step.enqueue(name, input?, options?)` and
+  `workflow.enqueue(name, input?, options?)` enqueue by name.** Each is
+  `<O = unknown>(name: string, input?: Record<string, unknown>, options?:
+  EnqueueOptions) => Promise<Enqueued<O>>`. The name is looked up when the
+  call runs, among the steps and workflows the hosting engine registered
+  (`Engine.definition`, which leaves out monitors), and that definition is
+  enqueued as its own `.enqueue()` would be: the same key space, the same
+  ledger in a step body, and the same queue-slot rule. Input is checked by
+  the definition's schema, not by TypeScript. Each word refuses the other
+  kind and names the call to use: `workflow.enqueue("build"): "build" is a
+  step, not a workflow; use step.enqueue("build")`. An undeclared name, a
+  monitor's key included, rejects with `this workspace declares no step or
+  workflow named "<name>"`, and a blank or non-string name with a
+  `TypeError`. A call during the source's own load rejects, and so does one
+  after the workspace's host is disposed. The `step` and `workflow` a
+  workspace's source imports enqueue into that workspace, even from a run
+  of another workspace the same process hosts. In a script no workspace
+  hosts, the name is found among the script's own declarations, from top
+  level, a step body, or a monitor handler. See [Enqueue by
+  name](/marbles/concepts/steps-and-workflows#enqueue-by-name).
+- **Awaiting an enqueued run from a step does not deadlock.** Reading
+  `result` of a run a step body enqueued gives the enqueuing run's queue
   slot up until that result settles, as a parked run does, and takes it
   back afterwards, above the queue's bound if need be. A body that keeps
-  only `id` keeps its slot; on a full queue the launched run waits until
-  the launching run ends.
+  only `id` keeps its slot; on a full queue the enqueued run waits until
+  the enqueuing run ends.
 
 ## The builder
 
@@ -394,7 +415,7 @@ publish.parallel({ a: x({}), b: y({}) }); // children together
   `{}`, or nothing when the definition requires no input: `checks()`
   locks it, and `workflow("name", checks)` takes it uncalled. A definition
   with required input still needs its input, and so do `run` and
-  `launch`. The keys name the children in the dashboard, in logs, on resume, and
+  `enqueue`. The keys name the children in the dashboard, in logs, on resume, and
   in the parent's input.
 - **Input second, optional.** Literal values for the step's input. The
   literal takes the schema's input type, so defaulted fields are optional.
@@ -408,7 +429,7 @@ publish.parallel({ a: x({}), b: y({}) }); // children together
 - `.parallel` is the only combinator besides the default series. There is no
   race, branch, or loop yet.
 - **A workflow locks like a step.** `weekly({})` locks it, as the root of a
-  run (launched, scheduled, or returned by a monitor) or as a node in
+  run (enqueued, scheduled, or returned by a monitor) or as a node in
   another tree. TypeScript checks each child's output against the
   workflow's input type where it is locked. When the node runs, its
   children run first; their results and the literal are validated against
@@ -425,8 +446,8 @@ publish.parallel({ a: x({}), b: y({}) }); // children together
   workflow cannot be locked inside itself ("ping" → "pong" → "ping"); to
   recurse, call it with .run() from a step`. Recursion goes through `.run()`
   from a step.
-- **Nest or launch.** A nested workflow is part of its parent's run, and its
-  result is the node's result. `.launch()` starts a separate top-level run
+- **Nest or enqueue.** A nested workflow is part of its parent's run, and its
+  result is the node's result. `.enqueue()` starts a separate top-level run
   on the queue, with its own id and status.
 
 In a parallel group the first failure fails the run; the siblings are
@@ -724,11 +745,11 @@ monitor("https://tracker.example.com/latest")
   glob that matches nothing fires nothing.
 - **Keys.** A schedule is keyed `slug(target)[-sha8(input)]`, a monitor
   `slug(source)-sha6(source)`; an exact duplicate gets `-2`. `list` prints
-  the keys. They name the state files and `roll <key>`.
+  the keys. They name the state files and `marbles run <key>`.
 - **`.name(key)`** gives a monitor its key instead, anywhere in the chain
   before `.do`. A key is one word: a blank one fails with `.name(): a name
   cannot be blank`, and one with whitespace with ``a name is one word, as
-  `marbles roll <name>` takes it``. Schedules and monitors share one key
+  `marbles run <name>` takes it``. Schedules and monitors share one key
   space; a taken key fails with `monitor "<key>": a schedule or monitor of
   that name is already registered; give each its own name`.
 
@@ -744,7 +765,7 @@ by new commands and sessions. Session options can select a different host
 | Continue the same run | Reuse completed step results. |
 | Resume a parked step | Replay its unfinished body from the top. Recorded managed operations are matched by call order. |
 | Retry a failed attempt | Apply that step's policy with fresh managed operations; completed children keep their results. |
-| Launch again | Create a new run and execute fresh work. A launch whose key matches an earlier run gets that run back instead. |
+| Enqueue again | Create a new run and execute fresh work. An enqueue whose key matches an earlier run gets that run back instead. |
 | Restart the host | Adopt eligible parked runs. Interrupted queued or running work is not adopted. |
 | Rebuild workflow setup | Recreate the tree; recovered nodes retain their recorded literal input. |
 
@@ -780,7 +801,7 @@ exports these types:
 | Group | Types |
 | --- | --- |
 | Instances | `Agent`, `Runnable`, `WorkspaceInstance`, `SandboxInstance`, `ArtifactInstance` |
-| Runs | `Launched`, `LaunchOptions`, `RunReads`, `RunView`, `RunQuery` |
+| Runs | `Enqueued`, `EnqueueOptions`, `RunReads`, `RunView`, `RunQuery` |
 | Work | `StepDefinition`, `WorkflowDefinition`, `LockedNode` |
 | Resource definitions | `AgentDefinition`, `AgentSettings`, `WorkspaceDefinition`, `SandboxDefinition`, `SandboxSpec`, `ArtifactDefinition`, `SkillSet` |
 | Agents | `Agents`, `Session`, `SessionRef`, `SessionReply`, `TurnOptions` |
@@ -1016,8 +1037,8 @@ configuration changes, a line such as:
 ```
 
 Under `--dry-run` the command prints it. A workspace the Marbles process
-hosts writes it to `daemon.log` in the state root, and `marbles run` shows
-the lines printed while it is attached. A run whose agent asks for that
+hosts writes it to `daemon.log` in the state root, and the dashboard
+(`marbles`) shows the lines printed while it is attached. A run whose agent asks for that
 provider, by its id or in a model such as `"vercel/vendor/chat"`, fails with
 the same text after `cannot use "vercel":`.
 

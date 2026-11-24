@@ -32,15 +32,15 @@ goes to the Feed.
 
 ```sh
 marbles list
-marbles roll source
+marbles run source
 ```
 
-`list` shows `[monitor] source files src/**/*.ts every 10m`. `roll source`
+`list` shows `[monitor] source files src/**/*.ts every 10m`. `marbles run source`
 polls once. The first poll has no baseline, so every matching file counts
 as added and the agent audits the whole tree. After that, only changes
 since the last poll reach it. Change the glob to match your layout.
 
-Attach the workspace with `marbles attach` to keep it polling.
+Attach the workspace with `marbles daemon attach` to keep it polling.
 
 ## Make it yours
 

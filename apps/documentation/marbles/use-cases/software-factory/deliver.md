@@ -20,7 +20,7 @@ the test output and review. The verification report sits beside it in the
 Feed. Choose approve or decline, with an optional note.
 
 The parked run waits as long as it needs to. Quitting the dashboard,
-`marbles stop`, or a crash leaves it parked, and the next dashboard shows it
+`marbles daemon stop`, or a crash leaves it parked, and the next dashboard shows it
 again.
 
 ## Why two steps

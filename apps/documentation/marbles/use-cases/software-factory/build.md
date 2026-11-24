@@ -24,7 +24,7 @@ Save this as `.foundry/marbles/_factory/build.ts`:
   checkout. Anything else fails the step, and the failure is flagged on the
   task by the [revision loop](/marbles/use-cases/software-factory/revise).
 - **Returns the commit.** The step's result is the commit SHA, plain JSON
-  that the next stage can check out. It launches nothing. In
+  that the next stage can check out. It enqueues nothing. In
   `factory-change` it is the `commit` child of `factory-verify`, so its
   result becomes verification's input in the same run.
 
@@ -53,10 +53,10 @@ a task first, since the dispatcher normally does:
 
 ```sh
 marbles tasks start <task id>
-marbles roll factory-build --input '{"task":"<task id>"}'
+marbles run factory-build --input '{"task":"<task id>"}'
 ```
 
 The build stops at its commit and starts no verification. To run the whole
-line for that task, roll `factory-change` with the same input instead.
+line for that task, run `factory-change` with the same input instead.
 
 Next: [Verify in parallel](/marbles/use-cases/software-factory/verify).

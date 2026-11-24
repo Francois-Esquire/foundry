@@ -101,7 +101,7 @@ Marbles process starts with.
 ## Names and the catalog
 
 A named step or workflow is a marble, and together they are the catalog:
-`list` prints it, `roll <name>` runs one, the dashboard launches one from its
+`list` prints it, `run <name>` runs one, `enqueue <name>` queues one, the dashboard launches one from its
 Marbles panel, and a schedule or monitor can target one.
 Name launchable work explicitly with `step("review")` or `workflow("review", tree)`.
 
@@ -188,4 +188,4 @@ keeps the form open and shows the error; nothing is registered in the run
 table. On acceptance the dashboard selects the new run and clears run
 filters. Schedules and monitors keep running. Tab moves focus, Ctrl+Enter
 submits, Esc returns without launching. Nested input that the form cannot
-express is reachable with `marbles roll <name> --input '<json>'`.
+express is reachable with `marbles run <name> --input '<json>'`.

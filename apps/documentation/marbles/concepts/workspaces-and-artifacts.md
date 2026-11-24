@@ -49,7 +49,7 @@ step("inspect-commit").do(({ workspaces, exec }) =>
 );
 ```
 
-`marbles roll inspect-commit` returns the commit and temporary path. The
+`marbles run inspect-commit` returns the commit and temporary path. The
 checkout is removed when the callback ends. Supplying a new `branch` keeps
 that branch after cleanup; committed changes survive, but uncommitted work
 in the temporary checkout is not a durable result.
@@ -173,7 +173,7 @@ step("inventory-report").do(async ({ workspaces, report }) => {
 });
 ```
 
-Run `marbles roll inventory-report`, then open the dashboard Feed. The
+Run `marbles run inventory-report`, then open the dashboard Feed. The
 Feed shows the file count. The artifact retains `inventory.md`, and the
 returned result identifies the output and its version. A subsequent run writes
 another version of **Project inventory**, rather than declaring an
@@ -216,8 +216,10 @@ purposes even when they all came from the same step.
 ## Share across workspaces
 
 Every run, session, and artifact belongs to the workspace that created it.
-`marbles share <kind> <id> <dir>` shows a run, session, or artifact in
-another registered workspace as well; `marbles unshare` stops showing it.
+`marbles runs share <id> <dir>` shows a run in another registered workspace
+as well, and `marbles sessions share` and `marbles artifacts share` do the
+same for a session or an artifact; `unshare` under the same noun stops
+showing it.
 Neither copies or moves the resource. A sandbox container stays with the
 workspace that started it.
 

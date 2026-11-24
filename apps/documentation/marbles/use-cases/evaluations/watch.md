@@ -26,7 +26,7 @@ monitor("skills/review/SKILL.md")
 
 The handler returns a childless lock of a named step. A bare definition would
 not launch anything. Run `marbles list`, inspect the monitor with
-`marbles roll <monitor-key>`, then keep `marbles` or `marbles run </dev/null`
+`marbles run <monitor-key>`, then keep `marbles` or `marbles </dev/null`
 running to poll continuously. The first observation includes an existing file,
 so it can launch the first check without an edit.
 Each launch makes two model calls. Choose the polling cadence with that

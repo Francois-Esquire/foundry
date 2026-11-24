@@ -35,7 +35,7 @@ intake ─▶ task ─▶ factory-change: build ─▶ factory-verify (tests ∥
 
 | Stage | Marbles | Page |
 | --- | --- | --- |
-| Intake | `tasks.create`, `observe(tasks)`, `.launch()` with a key | [Take work in](/marbles/use-cases/software-factory/intake) |
+| Intake | `tasks.create`, `observe(tasks)`, `.enqueue()` with a key | [Take work in](/marbles/use-cases/software-factory/intake) |
 | Plan and build | `withWorktree`, an agent session | [Plan and build](/marbles/use-cases/software-factory/build) |
 | Parallel verify | A nested `workflow`, `.parallel`, structured output, `report.artifact` | [Verify in parallel](/marbles/use-cases/software-factory/verify) |
 | Human gate and deliver | `ask.approval`, a later step that pushes | [Approve and deliver](/marbles/use-cases/software-factory/deliver) |
@@ -64,7 +64,7 @@ all:
 
 Names starting with `_` are left out of discovery, so the helpers load only
 through `factory.ts`. Each stage is still a named step or workflow you can
-launch with `marbles roll` while you debug it.
+launch with `marbles run` while you debug it.
 
 ## Before you start
 
@@ -78,7 +78,7 @@ needs:
 - Bun and a `bun test` suite. Change the commands in `verify.ts` for
   another toolchain.
 - `zod@4.4.3` in the project, and the current source checkout of Marbles
-  for `.launch()` with a key, nested workflows, and `runs`.
+  for `.enqueue()` with a key, nested workflows, and `runs`.
 
 Work in a repository you can afford to experiment in. The factory pushes
 branches and opens pull requests only after you approve in the dashboard.

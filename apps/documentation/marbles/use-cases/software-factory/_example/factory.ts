@@ -89,7 +89,7 @@ observe(tasks, async function dispatchFactory() {
   const ready = await tasks.ready({ tags: { all: ["factory"] } });
   for (const task of ready.items) {
     const attempt = Number(task.metadata.attempts ?? 0);
-    await change.launch(
+    await change.enqueue(
       { task: task.id },
       { key: `factory-change:${task.id}:attempt-${attempt}` }
     );
