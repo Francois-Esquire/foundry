@@ -698,6 +698,50 @@ describe("lifecycle", () => {
     );
   });
 
+  it("skips startup hooks when close arrives before start begins", async () => {
+    let attachGate:
+      | {
+          readonly entered: ReturnType<typeof Promise.withResolvers<void>>;
+          readonly release: ReturnType<typeof Promise.withResolvers<void>>;
+        }
+      | undefined;
+    let starts = 0;
+    const system = new WorkspaceSystem().extend(memExtension()).extend({
+      applies: () => true,
+      async attach() {
+        const gate = attachGate;
+        if (gate) {
+          attachGate = undefined;
+          gate.entered.resolve();
+          await gate.release.promise;
+        }
+        return {
+          async start(workspace) {
+            starts += 1;
+            await system.close(workspace.id);
+          },
+        };
+      },
+      name: "gated",
+    });
+
+    const first = await system.load({ mem: "pre-close" });
+    expect(starts).toBe(1);
+
+    const gate = {
+      entered: Promise.withResolvers<void>(),
+      release: Promise.withResolvers<void>(),
+    };
+    attachGate = gate;
+    const reopening = system.open(first.id);
+    await gate.entered.promise;
+    const closing = system.close(first.id);
+    gate.release.resolve();
+
+    await Promise.all([reopening, closing]);
+    expect(starts).toBe(1);
+  });
+
   it("attaches once when two cold loads race for the same closed workspace", async () => {
     let attaches = 0;
     const system = new WorkspaceSystem().extend(memExtension()).extend({

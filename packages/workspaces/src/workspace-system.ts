@@ -148,7 +148,8 @@ export class WorkspaceSystem<
   }
 
   async closeAll(): Promise<void> {
-    await Promise.all([...this.#opened.keys()].map((id) => this.close(id)));
+    const ids = new Set([...this.#opened.keys(), ...this.#closing.keys()]);
+    await Promise.all([...ids].map((id) => this.close(id)));
   }
 
   async list(
@@ -405,6 +406,9 @@ export class WorkspaceSystem<
     composed: ComposedWorkspace<Extensions>
   ): Promise<() => Promise<void>> {
     const { adapter, hooks, workspace } = composed;
+    if (this.#closing.has(workspace.id)) {
+      return () => Promise.resolve();
+    }
     const state: StartingWorkspace = { cleanups: [], closed: false };
     const { cleanups } = state;
     this.#starting.set(workspace.id, state);
