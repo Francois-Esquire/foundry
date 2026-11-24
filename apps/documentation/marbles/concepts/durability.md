@@ -215,7 +215,7 @@ commands and controls.
 ### How many runs at once
 
 Every run of a workspace's steps and workflows waits in one queue for a
-place to run. A hosted workspace runs up to eight at once, and the ninth
+place to run. A hosted workspace runs up to four at once, and the fifth
 waits as `queued` until one ends. Set the number once per workspace, in any one
 module:
 
@@ -235,7 +235,7 @@ These runs do not hold a place:
   enqueued gives its run's place up until that result settles, so awaiting
   an enqueued run never deadlocks, even at `queue({ concurrency: 1 })`.
 
-A plain `bun` script's default engine also runs eight at once and honors
+A plain `bun` script's default engine also runs four at once and honors
 its own `queue()`. An [`Engine`](/marbles/reference/engine#host-settings)
 you construct runs one at a time unless you pass `queues`.
 

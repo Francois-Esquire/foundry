@@ -45,6 +45,11 @@ the task comes back, so a revision gets a fresh run. Dependencies work as
 they do anywhere else: a task that depends on another waits until that one
 settles.
 
+If `change.enqueue` rejects, the dispatcher has not claimed the task yet,
+so it stays `open` and the next pass tries again. Once a run has started,
+a failure goes to the [revision
+loop](/marbles/use-cases/software-factory/revise#flag-failed-runs) instead.
+
 ## Write acceptance criteria into the task
 
 The builder and the reviewer read the task's title and description. Write

@@ -83,7 +83,7 @@ needs:
 Work in a repository you can afford to experiment in. The factory pushes
 branches and opens pull requests only after you approve in the dashboard.
 
-A hosted workspace runs up to eight runs at once, so eight tasks can be on
+A hosted workspace runs up to four runs at once, so four tasks can be on
 the floor together, each with its own agent session. Each build holds an
 agent for up to 30 minutes. To keep fewer going, set the workspace's queue
 once, in any one module:
