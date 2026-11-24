@@ -298,6 +298,29 @@ describe("Git.status inside a repository", () => {
     expect(snapshot.paths.map((entry) => entry.path)).toEqual(["kept.md"]);
   });
 
+  it("reports untracked files inside a nested workspace under a wholly untracked ancestor", async () => {
+    const repository = await makeRepository({ "README.md": "hello" });
+    await write(repository, {
+      "untracked-ancestor/sub/fresh.md": "new",
+    });
+
+    const snapshot = await inspectGit(
+      join(repository, "untracked-ancestor", "sub")
+    );
+    if (snapshot.kind !== "repository") {
+      throw new Error("expected a repository");
+    }
+
+    expect(snapshot.paths).toEqual([
+      {
+        path: "fresh.md",
+        staged: false,
+        unstaged: false,
+        untracked: true,
+      },
+    ]);
+  });
+
   it("returns no absolute path anywhere in the snapshot", async () => {
     const repository = await makeRepository({ "inside/kept.md": "hello" });
     await write(repository, { "inside/kept.md": "changed" });
@@ -605,6 +628,11 @@ describe("Git worktrees", () => {
     });
     expect(await repo.hasBranch("design/palette")).toBe(true);
     expect(await repo.hasBranch("design/other")).toBe(false);
+  });
+
+  it("propagates unexpected Git failures from hasBranch outside a repository", async () => {
+    const plain = await makeDirectory({ "a.md": "hi" });
+    await expect(Git.at(plain).hasBranch("main")).rejects.toThrow();
   });
 
   it("refuses a branch that exists before cutting a directory", async () => {

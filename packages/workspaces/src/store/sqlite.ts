@@ -50,8 +50,11 @@ const { scope: _workspaceScope, ...workspaceColumns } =
 const { scope: _entryScope, ...entryColumns } =
   getTableColumns(workspaceEntries);
 
-const replaceWorkspace = replacing(workspaceColumns, ["id"]);
-const replaceEntry = replacing(entryColumns, ["id", "workspaceId"]);
+const replaceWorkspace = replacing(workspaceColumns, [workspaces.id]);
+const replaceEntry = replacing(entryColumns, [
+  workspaceEntries.id,
+  workspaceEntries.workspaceId,
+]);
 
 const REENTRY =
   "SqliteWorkspaceStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";

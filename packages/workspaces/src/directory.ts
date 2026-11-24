@@ -61,6 +61,9 @@ export function directorySource<Ref extends object = DirectoryRef>(
 
   return {
     async insertFile(path: string, bytes: Uint8Array): Promise<WriteOutcome> {
+      if (!isStoragePath(path)) {
+        return { kind: "failed", reason: "Invalid relative storage path" };
+      }
       if (!filesystem.createFile) {
         return {
           kind: "failed",

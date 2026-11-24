@@ -141,10 +141,10 @@ describe("upsert helpers", () => {
     );
   });
 
-  test("replacing maps every column outside the key to its excluded value", () => {
+  test("replacing maps every column outside the preserved columns to its excluded value", () => {
     const set = replacing(
       { count: items.count, id: items.id, scope: items.scope },
-      ["id", "scope"]
+      [items.id, items.scope]
     );
     expect(
       Object.entries(set).map(([field, value]) => [

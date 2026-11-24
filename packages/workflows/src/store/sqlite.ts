@@ -4,8 +4,8 @@ import {
   assertScope,
   batches,
   below,
-  excluded,
   RecordFault,
+  replacing,
   SQLITE_MAX_PARAMETERS,
   storable,
 } from "@foundry/lib/sqlite";
@@ -361,7 +361,10 @@ export class SqliteWorkflowStore implements WorkflowStore {
         .insert(shelf.table)
         .values(batch as never[])
         .onConflictDoUpdate({
-          set: replacing(shelf),
+          set: replacing(getTableColumns(shelf.table), [
+            positionOf(shelf.table),
+            ...shelf.keys,
+          ]),
           target: [...shelf.keys],
         });
     }
@@ -575,17 +578,6 @@ function rawColumns(shelf: Shelf<unknown>): Record<string, SQL<unknown>> {
       field,
       sql<unknown>`${column}`,
     ])
-  );
-}
-
-function replacing(shelf: Shelf<unknown>): Record<string, SQL> {
-  const keys = new Set(shelf.keys.map((column) => column.name));
-  return Object.fromEntries(
-    Object.entries(getTableColumns(shelf.table))
-      .filter(
-        ([field, column]) => field !== "position" && !keys.has(column.name)
-      )
-      .map(([field, column]) => [field, excluded(column)])
   );
 }
 

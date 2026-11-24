@@ -79,12 +79,18 @@ const { scope: _contentScope, ...contentColumns } =
 
 const { scope: _blobScope, ...blobColumns } = getTableColumns(artifactBlobs);
 
-const replaceArtifact = replacing(getTableColumns(artifacts), ["scope", "id"]);
-const replaceContent = replacing(getTableColumns(artifactContents), [
-  "scope",
-  "id",
+const replaceArtifact = replacing(getTableColumns(artifacts), [
+  artifacts.scope,
+  artifacts.id,
 ]);
-const replaceBlob = replacing(getTableColumns(artifactBlobs), ["scope", "id"]);
+const replaceContent = replacing(getTableColumns(artifactContents), [
+  artifactContents.scope,
+  artifactContents.id,
+]);
+const replaceBlob = replacing(getTableColumns(artifactBlobs), [
+  artifactBlobs.scope,
+  artifactBlobs.id,
+]);
 
 const REENTRY =
   "SqliteArtifactStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";

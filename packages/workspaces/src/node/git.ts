@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { byCodeUnit } from "@foundry/lib/ordering";
@@ -8,7 +8,7 @@ import type { WorkspaceExtension } from "../types";
 
 const WORKTREE_PREFIX_PATTERN = /^worktree /;
 const BRANCH_PREFIX_PATTERN = /^branch refs\/heads\//;
-const UNBORN_PREFIX_PATTERN = /^(?:No commits yet|Initial commit) on /;
+const BRANCH_HEAD_PREFIX = "# branch.head ";
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 export interface GitPathStatus {
@@ -40,9 +40,26 @@ export interface WorktreeOptions {
   readonly home?: string;
 }
 
-interface GitExecError extends Error {
-  readonly code?: number | string;
+class GitExecError extends Error {
+  readonly code: string | undefined;
+  readonly exitCode: number | null;
   readonly stderr: string;
+
+  constructor(
+    message: string,
+    options: {
+      readonly cause: unknown;
+      readonly code?: string;
+      readonly exitCode: number | null;
+      readonly stderr: string;
+    }
+  ) {
+    super(message, { cause: options.cause });
+    this.name = "GitExecError";
+    this.code = options.code;
+    this.exitCode = options.exitCode;
+    this.stderr = options.stderr;
+  }
 }
 
 function execGit(cwd: string, args: readonly string[]): Promise<string> {
@@ -50,22 +67,27 @@ function execGit(cwd: string, args: readonly string[]): Promise<string> {
     execFile(
       "git",
       [...args],
-      { cwd, encoding: "utf8", maxBuffer: MAX_GIT_OUTPUT_BYTES },
+      {
+        cwd,
+        encoding: "utf8",
+        env: { ...process.env, LC_ALL: "C" },
+        maxBuffer: MAX_GIT_OUTPUT_BYTES,
+      },
       (error, stdout, stderr) => {
         if (!error) {
           resolve(stdout);
           return;
         }
-        const message = stderr.trim() || error.message;
-        const wrapped = new Error(message, { cause: error }) as GitExecError & {
-          code?: number | string;
-          stderr: string;
-        };
-        if (error.code !== undefined) {
-          wrapped.code = error.code;
-        }
-        wrapped.stderr = stderr;
-        reject(wrapped);
+        const errno = typeof error.code === "string" ? error.code : undefined;
+        const exitCode = typeof error.code === "number" ? error.code : null;
+        reject(
+          new GitExecError(stderr.trim() || error.message, {
+            cause: error,
+            ...(errno === undefined ? {} : { code: errno }),
+            exitCode,
+            stderr,
+          })
+        );
       }
     );
   });
@@ -122,16 +144,24 @@ export class Git {
       }
       toplevel = rootLine;
     } catch (error) {
-      return isOutsideRepository(error) ? { kind: "none" } : unavailable(error);
+      return (await isOutsideRepository(this.root, error))
+        ? { kind: "none" }
+        : unavailable(error);
     }
 
     try {
       const [repositoryRoot, workspaceRoot, porcelain] = await Promise.all([
         realpath(toplevel),
         realpath(this.root),
-        execGit(this.root, ["status", "--porcelain=v1", "-z", "-b"]),
+        execGit(this.root, [
+          "status",
+          "--porcelain=v2",
+          "-z",
+          "--branch",
+          "--untracked-files=all",
+        ]),
       ]);
-      const parsed = parsePorcelainStatus(porcelain);
+      const parsed = parsePorcelainV2Status(porcelain);
       return {
         branch: parsed.detached ? null : parsed.branch,
         detached: parsed.detached,
@@ -152,8 +182,11 @@ export class Git {
         `refs/heads/${name}`,
       ]);
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if (error instanceof GitExecError && error.exitCode === 1) {
+        return false;
+      }
+      throw error;
     }
   }
 
@@ -262,19 +295,32 @@ export function git(
   };
 }
 
-function isOutsideRepository(error: unknown): boolean {
-  const code = errorCode(error);
-  if (code === "ENOENT" || code === "ENOTDIR") {
+async function isOutsideRepository(
+  root: string,
+  error: unknown
+): Promise<boolean> {
+  if (!(error instanceof GitExecError)) {
+    return false;
+  }
+  if (error.code === "ENOTDIR") {
     return true;
   }
-  const stderr =
-    typeof (error as { stderr?: unknown } | null)?.stderr === "string"
-      ? (error as { stderr: string }).stderr.toLowerCase()
-      : "";
+  if (error.code === "ENOENT") {
+    return !(await directoryExists(root));
+  }
+  const stderr = error.stderr.toLowerCase();
   return (
     stderr.includes("not a git repository") ||
     stderr.includes("must be run in a work tree")
   );
+}
+
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 interface ParsedPorcelainStatus {
@@ -283,54 +329,85 @@ interface ParsedPorcelainStatus {
   readonly files: readonly RawFileStatus[];
 }
 
-function parsePorcelainStatus(output: string): ParsedPorcelainStatus {
+function afterSpaces(line: string, count: number): string | undefined {
+  let cursor = 0;
+  for (let seen = 0; seen < count; seen += 1) {
+    const space = line.indexOf(" ", cursor);
+    if (space === -1) {
+      return;
+    }
+    cursor = space + 1;
+  }
+  return line.slice(cursor);
+}
+
+const PORCELAIN_PATH_SPACES: Readonly<Record<string, number>> = {
+  "1": 8,
+  "2": 9,
+  u: 10,
+};
+
+function parsePorcelainV2Entry(
+  token: string,
+  nextToken: string | undefined
+):
+  | { readonly consumedNext: boolean; readonly file: RawFileStatus }
+  | undefined {
+  if (token.startsWith("? ")) {
+    return {
+      consumedNext: false,
+      file: { index: "?", path: token.slice(2), working_dir: "?" },
+    };
+  }
+  const [kind] = token;
+  const spaces = kind === undefined ? undefined : PORCELAIN_PATH_SPACES[kind];
+  const path = spaces === undefined ? undefined : afterSpaces(token, spaces);
+  if (path === undefined) {
+    return;
+  }
+  const consumedNext = kind === "2";
+  return {
+    consumedNext,
+    file: {
+      from: consumedNext ? nextToken : undefined,
+      index: token[2] ?? ".",
+      path,
+      working_dir: token[3] ?? ".",
+    },
+  };
+}
+
+function parsePorcelainV2Status(output: string): ParsedPorcelainStatus {
   const tokens = output.split("\0");
   if (tokens.at(-1) === "") {
     tokens.pop();
   }
   let branch: string | null = null;
   let detached = false;
-  let start = 0;
-
-  const [first] = tokens;
-  if (first?.startsWith("## ")) {
-    start = 1;
-    const header = first.slice(3);
-    if (header.startsWith("HEAD (")) {
-      detached = true;
-    } else if (UNBORN_PREFIX_PATTERN.test(header)) {
-      branch = header.replace(UNBORN_PREFIX_PATTERN, "");
-    } else {
-      const tracking = header.indexOf("...");
-      branch = tracking === -1 ? header : header.slice(0, tracking);
-    }
-  }
-
   const files: RawFileStatus[] = [];
-  for (let index = start; index < tokens.length; index += 1) {
+
+  for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
-    if (!token || token.length < 4) {
+    if (!token) {
       continue;
     }
-    const indexCol = token[0] ?? "";
-    const workingDirCol = token[1] ?? "";
-    const path = token.slice(3);
-    let from: string | undefined;
-    if (
-      indexCol === "R" ||
-      indexCol === "C" ||
-      workingDirCol === "R" ||
-      workingDirCol === "C"
-    ) {
-      index += 1;
-      from = tokens[index];
+    if (token.startsWith(BRANCH_HEAD_PREFIX)) {
+      const head = token.slice(BRANCH_HEAD_PREFIX.length);
+      detached = head === "(detached)";
+      branch = detached ? null : head;
+      continue;
     }
-    files.push({
-      from,
-      index: indexCol,
-      path,
-      working_dir: workingDirCol,
-    });
+    if (token.startsWith("# ")) {
+      continue;
+    }
+    const parsed = parsePorcelainV2Entry(token, tokens[index + 1]);
+    if (!parsed) {
+      continue;
+    }
+    files.push(parsed.file);
+    if (parsed.consumedNext) {
+      index += 1;
+    }
   }
 
   return { branch, detached, files };
@@ -420,5 +497,5 @@ function strip(prefix: string, path: string): string | null {
 }
 
 function isChanged(column: string): boolean {
-  return column !== " " && column !== "?" && column !== "";
+  return column !== "." && column !== " " && column !== "?" && column !== "";
 }

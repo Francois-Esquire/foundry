@@ -1,4 +1,3 @@
-import type { StorageSubscription } from "@foundry/core/storage";
 import { isStoragePath } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
 import { decodeText } from "@foundry/lib/encoding";
@@ -10,7 +9,7 @@ import {
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
 } from "./errors";
-import { nextWorkspaceObservation, observe } from "./observation";
+import { nextWorkspaceObservation } from "./observation";
 import { diffCatalog, isEmptyChange, newEntryId } from "./reconcile";
 import type {
   CreateFileCommand,
@@ -24,7 +23,6 @@ import type {
   WorkspaceEntryId,
   WorkspaceFile,
   WorkspaceId,
-  WorkspaceLifecycle,
   WorkspaceRegistration,
   WorkspaceSource,
   WorkspaceSourceAdapter,
@@ -36,34 +34,13 @@ import type {
 
 type CatalogState = "current" | "refresh-required";
 
-const lifecycles = new WeakMap<
-  Workspace,
-  {
-    readonly start: (hooks: readonly WorkspaceLifecycle[]) => Promise<void>;
-    readonly stop: () => Promise<void>;
-  }
->();
-
-export function startWorkspace(
-  workspace: Workspace,
-  hooks: readonly WorkspaceLifecycle[] = []
-): Promise<void> {
-  const control = lifecycles.get(workspace);
-  return control ? control.start(hooks) : Promise.resolve();
-}
-
-export function stopWorkspace(workspace: Workspace): Promise<void> {
-  const control = lifecycles.get(workspace);
-  return control ? control.stop() : Promise.resolve();
-}
+export const RECONCILE = Symbol("workspace.reconcile");
 
 export class Workspace {
   readonly id: WorkspaceId;
   readonly source: WorkspaceSource;
   readonly #context: WorkspaceContext;
   readonly #adapter: WorkspaceSourceAdapter;
-  #observation: StorageSubscription | undefined;
-  readonly #startedHooks: WorkspaceLifecycle[] = [];
 
   constructor(
     registration: WorkspaceRegistration,
@@ -74,10 +51,10 @@ export class Workspace {
     this.source = registration.source;
     this.#context = context;
     this.#adapter = adapter;
-    lifecycles.set(this, {
-      start: (hooks) => this.#start(hooks),
-      stop: () => this.#stop(),
-    });
+  }
+
+  [RECONCILE](): Promise<WorkspaceSourceStatus> {
+    return this.#reconcile();
   }
 
   scan(): Promise<readonly ObservedFacts[]> {
@@ -162,14 +139,18 @@ export class Workspace {
       if (file.type !== "file") {
         return notRegular(file);
       }
-      const { writeFile } = this.#adapter;
-      if (!writeFile) {
+      if (!this.#adapter.writeFile) {
         throw new WorkspaceSourceUnsupportedError(this.source.kind);
       }
       return this.#write(
         file.path,
         command.text,
-        (bytes) => writeFile(file, bytes, command.expectedDigest),
+        (bytes) => {
+          if (!this.#adapter.writeFile) {
+            throw new WorkspaceSourceUnsupportedError(this.source.kind);
+          }
+          return this.#adapter.writeFile(file, bytes, command.expectedDigest);
+        },
         (snapshot) => this.#recordWrite(workspace, file, snapshot)
       );
     });
@@ -181,64 +162,24 @@ export class Workspace {
       if (!isStoragePath(command.path)) {
         return { kind: "failed", reason: "Invalid relative storage path" };
       }
-      const { insertFile } = this.#adapter;
-      if (!insertFile) {
+      if (!this.#adapter.insertFile) {
         throw new WorkspaceSourceUnsupportedError(this.source.kind);
       }
       return this.#write(
         command.path,
         command.text,
-        (bytes) => insertFile(command.path, bytes),
+        (bytes) => {
+          if (!this.#adapter.insertFile) {
+            throw new WorkspaceSourceUnsupportedError(this.source.kind);
+          }
+          return this.#adapter.insertFile(command.path, bytes);
+        },
         async () =>
           (await this.#observeSource(workspace)).kind === "reconciled"
             ? "current"
             : "refresh-required"
       );
     });
-  }
-
-  async #start(hooks: readonly WorkspaceLifecycle[]): Promise<void> {
-    const { watch } = this.#adapter;
-    if (watch) {
-      this.#observation = await observe(
-        (changed, failed) => watch(changed, failed),
-        () => this.#reconcile(),
-        this.#context.report
-      );
-    }
-    for (const hook of hooks) {
-      await hook.start?.();
-      this.#startedHooks.push(hook);
-    }
-  }
-
-  async #stop(): Promise<void> {
-    const hooks = this.#startedHooks.splice(0).reverse();
-    let firstError: unknown;
-    let hasError = false;
-    for (const hook of hooks) {
-      try {
-        await hook.stop?.();
-      } catch (error) {
-        if (!hasError) {
-          firstError = error;
-          hasError = true;
-        }
-      }
-    }
-    const observation = this.#observation;
-    this.#observation = undefined;
-    try {
-      await observation?.close();
-    } catch (error) {
-      if (!hasError) {
-        firstError = error;
-        hasError = true;
-      }
-    }
-    if (hasError) {
-      throw firstError;
-    }
   }
 
   async #write(

@@ -1,12 +1,22 @@
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import type { StorageSubscription } from "@foundry/core/storage";
+import { describe, expect, it, vi } from "vitest";
 import {
+  InvalidWorkspaceInputError,
   WorkspaceNotFoundError,
   WorkspaceSourceUnsupportedError,
 } from "../errors";
+import { directorySource } from "../node";
 import { MemoryWorkspaceStore } from "../store/memory";
 import { artifactWorkspace, seed } from "../testing/records";
+import type {
+  ObservedFacts,
+  WorkspaceFile,
+  WorkspaceSourceAdapter,
+  WriteOutcome,
+} from "../types";
+import { WorkspaceSystem } from "../workspace-system";
 import { directorySystem } from "./helpers/directory-system";
 import { makeRoot } from "./helpers/temp-roots";
 
@@ -121,5 +131,186 @@ describe("lifecycle", () => {
 
     expect(added).toHaveProperty("label", `dir:${root}`);
     expect(added).toHaveProperty("root", root);
+  });
+
+  it("commits nothing when attach throws during load", async () => {
+    const root = await makeRoot({ "README.md": "hello" });
+    const store = new MemoryWorkspaceStore();
+    const system = directorySystem({ store }).extend({
+      applies: () => true,
+      attach: () => {
+        throw new Error("attach failed");
+      },
+      name: "broken-attach",
+    });
+
+    await expect(system.load({ path: root })).rejects.toThrow("attach failed");
+    expect((await store.listWorkspaces()).items).toEqual([]);
+  });
+
+  it("rolls back partially started hooks and preserves the startup error", async () => {
+    const root = await makeRoot({ "README.md": "hello" });
+    const events: string[] = [];
+    const reported: unknown[] = [];
+    const store = new MemoryWorkspaceStore();
+    const system = new WorkspaceSystem({
+      onError: (error) => {
+        reported.push(error);
+      },
+      store,
+    })
+      .extend({
+        applies: () => true,
+        identify: ({ mem }: { readonly mem: string }) => ({
+          name: mem,
+          source: { kind: "mem", path: `mem:${mem}`, sourceId: null },
+        }),
+        name: "mem",
+        ref: "mem",
+        source: () => ({ scan: () => Promise.resolve([]) }),
+      })
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          start() {
+            events.push("first:start");
+          },
+          stop() {
+            events.push("first:stop");
+            throw new Error("cleanup boom");
+          },
+        }),
+        name: "first",
+      })
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          start() {
+            events.push("second:start");
+            throw new Error("start boom");
+          },
+          stop() {
+            events.push("second:stop");
+          },
+        }),
+        name: "second",
+      });
+
+    await expect(system.load({ mem: root })).rejects.toThrow("start boom");
+    expect(events).toEqual([
+      "first:start",
+      "second:start",
+      "second:stop",
+      "first:stop",
+    ]);
+    expect(reported.map((error) => (error as Error).message)).toEqual([
+      "cleanup boom",
+    ]);
+  });
+
+  it("rejects capability collisions with core Workspace members or earlier extensions", async () => {
+    const root = await makeRoot({ "README.md": "hello" });
+    const colliding = directorySystem().extend({
+      applies: () => true,
+      attach: () => ({ capabilities: { refresh: "nope" } }),
+      name: "collider",
+    });
+
+    await expect(colliding.load({ path: root })).rejects.toBeInstanceOf(
+      InvalidWorkspaceInputError
+    );
+  });
+
+  it("preserves the adapter receiver on watch, writeFile, and insertFile", async () => {
+    class StatefulAdapter implements WorkspaceSourceAdapter {
+      readonly files = new Map<string, string>([["a.txt", "before"]]);
+      watchCalls = 0;
+
+      scan(): Promise<readonly ObservedFacts[]> {
+        return Promise.resolve(
+          [...this.files.entries()].map(([path, text]) => ({
+            bytes: Buffer.byteLength(text),
+            digest: "a".repeat(64),
+            extension: ".txt",
+            kind: "document" as const,
+            mime: "text/plain",
+            name: path,
+            path,
+            type: "file" as const,
+          }))
+        );
+      }
+
+      watch(): Promise<StorageSubscription> {
+        this.watchCalls += 1;
+        return Promise.resolve({ close: () => Promise.resolve() });
+      }
+
+      writeFile(
+        target: WorkspaceFile,
+        bytes: Uint8Array
+      ): Promise<WriteOutcome> {
+        this.files.set(target.path, new TextDecoder().decode(bytes));
+        return Promise.resolve({ kind: "written" });
+      }
+
+      insertFile(path: string, bytes: Uint8Array): Promise<WriteOutcome> {
+        this.files.set(path, new TextDecoder().decode(bytes));
+        return Promise.resolve({ kind: "written" });
+      }
+    }
+
+    const adapter = new StatefulAdapter();
+    const system = new WorkspaceSystem().extend({
+      applies: () => true,
+      identify: ({ stateful }: { readonly stateful: string }) => ({
+        name: stateful,
+        source: {
+          kind: "stateful",
+          path: `stateful:${stateful}`,
+          sourceId: null,
+        },
+      }),
+      name: "stateful",
+      ref: "stateful",
+      source: () => adapter,
+    });
+
+    const workspace = await system.load({ stateful: "one" });
+    expect(adapter.watchCalls).toBe(1);
+    const [file] = await workspace.files();
+    if (!file) {
+      throw new Error("Expected file");
+    }
+    const saved = await workspace.save({
+      expectedDigest: file.digest,
+      fileId: file.id,
+      text: "after",
+    });
+    expect(saved.kind).toBe("saved");
+    const created = await workspace.createFile({
+      path: "b.txt",
+      text: "created",
+    });
+    expect(created.kind).toBe("saved");
+    expect(adapter.files.get("a.txt")).toBe("after");
+    expect(adapter.files.get("b.txt")).toBe("created");
+    await system.closeAll();
+  });
+
+  it("rejects invalid paths passed directly to directorySource().insertFile", async () => {
+    const root = await makeRoot({ "README.md": "hello" });
+    const source = directorySource(root);
+    const write = vi.spyOn(source, "insertFile");
+
+    const outcome = await source.insertFile?.(
+      "../escape.txt",
+      new TextEncoder().encode("nope")
+    );
+    expect(write).toHaveBeenCalledOnce();
+    expect(outcome).toEqual({
+      kind: "failed",
+      reason: "Invalid relative storage path",
+    });
   });
 });

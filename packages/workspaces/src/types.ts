@@ -135,8 +135,9 @@ export interface WorkspaceLifecycle {
   stop?(): Promise<void> | void;
 }
 
-export interface WorkspaceAttachment extends WorkspaceLifecycle {
-  readonly capabilities?: Readonly<Record<string, unknown>>;
+export interface WorkspaceAttachment<Caps extends object = object>
+  extends WorkspaceLifecycle {
+  readonly capabilities?: Caps;
 }
 
 export interface WorkspaceExtension<
@@ -147,7 +148,10 @@ export interface WorkspaceExtension<
   applies: (registration: WorkspaceRegistration) => Promise<boolean> | boolean;
   attach?(
     workspace: Workspace
-  ): Promise<WorkspaceAttachment | undefined> | WorkspaceAttachment | undefined;
+  ):
+    | Promise<WorkspaceAttachment<Floor & Cap & object> | undefined>
+    | WorkspaceAttachment<Floor & Cap & object>
+    | undefined;
   identify?(ref: Ref): Promise<WorkspaceIdentity> | WorkspaceIdentity;
   readonly name: string;
   readonly ref?: string;

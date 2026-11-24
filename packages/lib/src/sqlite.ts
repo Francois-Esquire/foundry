@@ -88,11 +88,12 @@ export function excluded(column: SQLiteColumn): SQL {
 
 export function replacing(
   columns: Record<string, SQLiteColumn>,
-  key: readonly string[] = []
+  preserve: readonly SQLiteColumn[] = []
 ): Record<string, SQL> {
+  const kept = new Set(preserve.map((column) => column.name));
   return Object.fromEntries(
     Object.entries(columns)
-      .filter(([field]) => !key.includes(field))
+      .filter(([, column]) => !kept.has(column.name))
       .map(([field, column]) => [field, excluded(column)])
   );
 }

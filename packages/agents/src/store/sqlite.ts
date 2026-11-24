@@ -77,12 +77,12 @@ const placementColumns = {
 };
 
 const replaceSession = replacing(getTableColumns(agentSessions), [
-  "scope",
-  "id",
+  agentSessions.scope,
+  agentSessions.id,
 ]);
 const replaceMessage = replacing(getTableColumns(agentMessages), [
-  "scope",
-  "id",
+  agentMessages.scope,
+  agentMessages.id,
 ]);
 
 const REENTRY =

@@ -11,19 +11,12 @@ export const nodeObserver: StorageObserver = {
     let stopped = false;
     let subscription: StorageSubscription | undefined;
     let fallback: Promise<void> | undefined;
-    let ready = false;
-    let startupFailure: { error: unknown } | undefined;
     const notify = () => {
       if (!stopped) {
         changed();
       }
     };
     const recover = (error: unknown) => {
-      // biome-ignore lint/suspicious/noUnnecessaryConditions: Provider callbacks can run before or after subscription initialization.
-      if (!ready) {
-        startupFailure = { error };
-        return;
-      }
       if (stopped || fallback) {
         return;
       }
@@ -51,10 +44,6 @@ export const nodeObserver: StorageObserver = {
     } catch (error) {
       failed(error);
       subscription = await polling().watch(root, notify, failed);
-    }
-    ready = true;
-    if (startupFailure) {
-      recover(startupFailure.error);
     }
     return {
       async close() {
