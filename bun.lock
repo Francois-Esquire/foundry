@@ -387,6 +387,30 @@
         "vitest": "^4.1.9",
       },
     },
+    "packages/queue": {
+      "name": "@foundry/queue",
+      "version": "0.1.0",
+      "dependencies": {
+        "@foundry/lib": "workspace:*",
+        "effect": "^3.22.1",
+      },
+      "devDependencies": {
+        "@effect/language-service": "^0.87.2",
+        "@foundry/tsconfig": "workspace:*",
+        "@libsql/client": "^0.18.0",
+        "@types/bun": "1.3.14",
+        "@vitest/coverage-v8": "^4.1.9",
+        "drizzle-orm": "^0.45.4",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.9",
+      },
+      "peerDependencies": {
+        "drizzle-orm": "^0.45.4",
+      },
+      "optionalPeers": [
+        "drizzle-orm",
+      ],
+    },
     "packages/sandbox": {
       "name": "@foundry/sandbox",
       "version": "0.1.0",
@@ -415,6 +439,32 @@
         "drizzle-orm",
         "just-bash",
         "microsandbox",
+      ],
+    },
+    "packages/scheduling": {
+      "name": "@foundry/scheduling",
+      "version": "0.1.0",
+      "dependencies": {
+        "@foundry/lib": "workspace:*",
+        "@foundry/queue": "workspace:*",
+        "croner": "^9.1.0",
+        "effect": "^3.22.1",
+      },
+      "devDependencies": {
+        "@effect/language-service": "^0.87.2",
+        "@foundry/tsconfig": "workspace:*",
+        "@libsql/client": "^0.18.0",
+        "@types/bun": "1.3.14",
+        "@vitest/coverage-v8": "^4.1.9",
+        "drizzle-orm": "^0.45.4",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.9",
+      },
+      "peerDependencies": {
+        "drizzle-orm": "^0.45.4",
+      },
+      "optionalPeers": [
+        "drizzle-orm",
       ],
     },
     "packages/tasks": {
@@ -986,9 +1036,13 @@
 
     "@foundry/prompts": ["@foundry/prompts@workspace:packages/prompts"],
 
+    "@foundry/queue": ["@foundry/queue@workspace:packages/queue"],
+
     "@foundry/release": ["@foundry/release@workspace:tooling/release"],
 
     "@foundry/sandbox": ["@foundry/sandbox@workspace:packages/sandbox"],
+
+    "@foundry/scheduling": ["@foundry/scheduling@workspace:packages/scheduling"],
 
     "@foundry/tasks": ["@foundry/tasks@workspace:packages/tasks"],
 
