@@ -40,14 +40,15 @@ Follow three disciplines strictly:
 
 ### Ubiquitous Language & Data Structures
 
-Reuse `JsonValue` from `@foundry/lib/json` and `ProcessIdentity` (`thisProcess`, `sameProcess`, `isGone`) from `@foundry/lib/process-identity`.
+Reuse `JsonValue` from `@foundry/lib/json`, `ProcessIdentity` (`thisProcess`, `isGone`) from `@foundry/lib/process-identity`, and `InstanceIdentity` (`openInstance`, `closeInstance`, `sameInstance`, `instanceGone`) from `@foundry/lib/instance-identity`.
 
 #### Branded / Prefixed IDs & Value Objects
 - `JobId` (`jb-<uuid>`), `RunId` (`rn-<uuid>`), `SuspensionId` (`su-<uuid>`), `PoolName` (non-empty string, default `"default"`).
 - `Instant`: epoch milliseconds (`number`, UTC) — clean for `Clock.currentTimeMillis`, SQLite integer columns, and comparisons.
 - `HandlerRef`: `{ readonly name: string; readonly version?: string }`
 - `ErrorShape`: `{ readonly name: string; readonly message: string; readonly stack?: string }`
-- `Lease`: `{ readonly owner: ProcessIdentity; readonly claimedAt: Instant; readonly expiresAt?: Instant }`
+- `QueueOwner`: `InstanceIdentity`, a `ProcessIdentity` plus an optional `instanceId`. Every `Queue` names itself with a fresh `instanceId` (`QueueOptions.instanceId` overrides it), so two queues in one OS process never take each other's leases as their own. An owner without an `instanceId` (one handed over to a `ProcessIdentity`) belongs to any queue in that process.
+- `Lease`: `{ readonly owner: QueueOwner; readonly claimedAt: Instant; readonly expiresAt?: Instant }`
 - `Backoff`:
   - `{ readonly kind: "fixed"; readonly delayMs: number }`
   - `{ readonly kind: "exponential"; readonly initialMs: number; readonly factor?: number; readonly maxDelayMs?: number }`
@@ -105,7 +106,7 @@ Reuse `JsonValue` from `@foundry/lib/json` and `ProcessIdentity` (`thisProcess`,
 - **`Run`** *(Aggregate Root — one execution attempt)*:
   ```ts
   type RunState =
-    | { readonly kind: "queued"; readonly availableAt: Instant; readonly queuedAt: Instant; readonly owner?: ProcessIdentity }
+    | { readonly kind: "queued"; readonly availableAt: Instant; readonly queuedAt: Instant; readonly owner?: QueueOwner }
     | { readonly kind: "running"; readonly lease: Lease }
     | { readonly kind: "suspended"; readonly suspensionId: SuspensionId; readonly suspendedAt: Instant }
     | { readonly kind: "complete"; readonly output: JsonValue; readonly completedAt: Instant }
@@ -155,7 +156,7 @@ Reuse `JsonValue` from `@foundry/lib/json` and `ProcessIdentity` (`thisProcess`,
 
 #### Domain Events (`QueueEvent`)
 Immutable past-tense facts emitted atomically with store commits. `queue.subscribe` (scoped) returns a stream that receives every event committed after the subscription is open:
-- `job.submitted`, `job.settled`
+- `job.submitted`, `job.settled`, `job.removed` (`{ job, runIds }`, committed by `removeJob`)
 - `run.queued`, `run.started`, `run.suspended`, `run.resumed`, `run.completed`, `run.failed`, `run.cancelled`, `run.interrupted`, `run.handed_over`
 - `suspension.opened`, `suspension.resolved`, `suspension.cancelled`
 
@@ -182,6 +183,7 @@ type RunHandler = (ctx: RunContext) => Effect.Effect<RunOutcome, ErrorShape>;
 Small, clear tagged errors:
 - `JobNotFoundError`, `RunNotFoundError`, `SuspensionNotFoundError`
 - `HandlerNotRegisteredError`, `HandlerAlreadyRegisteredError`
+- `JobNotSettledError`, `JobRemovedError`
 - `SuspensionAlreadySettledError`, `StaleSuspensionRevisionError`, `QueueRetiringError`, `InvalidPoolLimitError`, `InvalidRetryPolicyError`, `StoreError`, `WriteConflictError`
 
 #### Queue Module Interface (`Context.Tag` + scoped `Layer`)
@@ -190,13 +192,14 @@ interface QueueService {
   readonly register: (name: string, handler: RunHandler) => Effect.Effect<void, HandlerAlreadyRegisteredError>;
   readonly submit: (input: SubmitJobInput) => Effect.Effect<Job, QueueError>;
   readonly cancel: (id: JobId | RunId, reason?: string) => Effect.Effect<void, QueueError>;
+  readonly awaitJob: (id: JobId) => Effect.Effect<Job, QueueError>;
   readonly resolveSuspension: (suspensionId: SuspensionId, value: JsonValue) => Effect.Effect<Suspension, QueueError>;
   readonly cancelSuspension: (suspensionId: SuspensionId, reason?: string) => Effect.Effect<Suspension, QueueError>;
   readonly configurePool: (pool: ConcurrencyPool) => Effect.Effect<void, InvalidPoolLimitError | QueueError>;
   readonly pause: Effect.Effect<void>;
   readonly resume: Effect.Effect<void>;
   readonly drain: (graceMs?: number) => Effect.Effect<void, QueueError>;
-  readonly retire: (successor?: ProcessIdentity) => Effect.Effect<readonly RunId[], QueueError>;
+  readonly retire: (successor?: QueueOwner) => Effect.Effect<readonly RunId[], QueueError>;
   readonly recover: (options?: { readonly isOwnerGone?: (owner: ProcessIdentity) => boolean }) => Effect.Effect<RecoverySummary, QueueError>;
   readonly getJob: (id: JobId) => Effect.Effect<Job | undefined, StoreError>;
   readonly getRun: (id: RunId) => Effect.Effect<Run | undefined, StoreError>;
@@ -212,14 +215,17 @@ interface QueueService {
 - **Scoped lifecycle:** Opening `Queue.layer(...)` inside a `Scope` starts the internal dispatcher fiber; closing the `Scope` pauses admission, interrupts cleanly, and shuts down `PubSub`s without leaking fibers.
 - **Dynamic concurrency:** Calling `configurePool({ name, limit, state })` immediately adjusts how many runs may execute in that pool and wakes waiting runs if limit increased or pool resumed.
 - **Retry / timeout:** When a handler fails with a retryable `ErrorShape` (or times out per `policy.timeoutMs`) and `attempt < policy.retry.maxAttempts`, the current `Run` transitions to `failed { retryable: true }` and a **new `Run`** (`attempt + 1`) is atomically enqueued with `availableAt = now + backoffDelay`. When exhausted (or on `Bailed`), the `Job` settles as `failed`.
-- **Retirement & hand-over:** `retire(successor?)` closes top-level admission (`QueueRetiringError` for new top-level `submit`), **allows** child jobs whose `links.parentRunId` is currently active to still admit (preventing parent/child deadlocks), and if `successor` is provided, atomically hands over unstarted top-level `queued` runs to `successor` (emitting `RunHandedOver`).
-- **Crash recovery:** `recover({ isOwnerGone })` scans `running` runs whose `lease.owner` is gone, marks them `interrupted`, retries the `Job` if `policy.retry` allows another attempt (otherwise fails the `Job`), and re-admits `queued` runs owned by this process (or unowned).
+- **Ownership of queued runs:** a submitted first run is pinned to the submitting queue. Retry runs and runs resumed by `resolveSuspension` are unowned, so any live, non-retiring queue with the handler registered may start them.
+- **Retirement & hand-over:** `retire(successor?)` closes top-level admission (`QueueRetiringError` for new top-level `submit`) and still admits child jobs whose `links.parentRunId` is running here, left unowned. A retiring queue starts no queued run; its running runs finish untouched and `drain()` waits for them. Queued runs pinned to the retiring queue are handed over to `successor` (emitting `run.handed_over`), or unpinned when there is no successor. `retire` returns the ids of the runs it gave up.
+- **Crash recovery:** `recover({ isOwnerGone })` scans `running` runs whose `lease.owner` is gone, marks them `interrupted`, retries the `Job` if `policy.retry` allows another attempt (otherwise fails the `Job`), and re-admits `queued` runs owned by this queue (or unowned). An owner in this process is gone when its queue has closed; an owner in another process is gone when `isOwnerGone` (default `isGone`) says so.
+- **Shared stores:** every commit raises the store's `watermark`. Each queue reads it every `syncIntervalMs` (default 500; `Infinity` turns it off) and, when it moved, starts newly available queued runs, interrupts (aborting `signal`) any running fiber whose run another queue cancelled, and wakes `awaitJob` callers.
+- **Awaiting a job:** `awaitJob(jobId)` returns the terminal `Job` (`complete | failed | cancelled`), whichever queue, generation, or process settled it. It fails with `JobNotFoundError` when the job does not exist and `JobRemovedError` when it is removed while awaited.
 
 #### Storage Seam (`QueueStore` `Context.Tag`)
-- One small atomic persistence seam: read/list methods + `transaction` (or atomic `commit(write)` with optional `onCommit(tx, write)` hook carrying emitted `QueueEvent`s).
+- One small atomic persistence seam: read/list methods, an atomic `commit(write)` with optional `onCommit(tx, write)` hook carrying emitted `QueueEvent`s, and `watermark`, a per-scope counter every commit raises.
 - Two adapters:
   1. `MemoryQueueStore` (`@foundry/queue/store/memory`) — default in-memory `Layer`.
-  2. `SqliteQueueStore` (`@foundry/queue/store/sqlite`) + Drizzle tables (`@foundry/queue/store/tables`: `queue_jobs`, `queue_runs`, `queue_suspensions`, `queue_pools`, scoped by `scope` string, using `@foundry/lib/turns` for in-process serialization just like `@foundry/tasks`).
+  2. `SqliteQueueStore` (`@foundry/queue/store/sqlite`) + Drizzle tables (`@foundry/queue/store/tables`: `queue_jobs`, `queue_runs`, `queue_suspensions`, `queue_pools`, `queue_watermarks`, scoped by `scope` string, using `@foundry/lib/turns` for in-process serialization just like `@foundry/tasks`).
 
 #### Exports for `@foundry/queue`
 Keep exports clean and minimal:
@@ -247,9 +253,11 @@ Uses `croner` (`^9.1.0`) for `cron` and `calendar` evaluation.
     | { readonly kind: "interval"; readonly everyMs: number }
     | { readonly kind: "calendar"; readonly hour: number; readonly minute: number; readonly weekdays?: readonly Weekday[]; readonly timezone: string }
     | { readonly kind: "cron"; readonly expression: string; readonly timezone: string }
-    | { readonly kind: "once"; readonly at: Instant };
+    | { readonly kind: "once"; readonly at: Instant }
+    | { readonly kind: "delay"; readonly afterSettleMs: number; readonly initialDelayMs?: number };
   ```
-  Validate at registration (`everyMs > 0`, `hour 0..23`, `minute 0..59`, valid cron expression / timezone) — fail with `InvalidCadenceError`.
+  Validate at registration (`everyMs > 0`, `hour 0..23`, `minute 0..59`, valid cron expression / timezone, `afterSettleMs >= 1`, `initialDelayMs >= 0`) — fail with `InvalidCadenceError`. A `delay` cadence accepts only `overlap: "skip"` and `misfire: "run-once"`; any other policy fails registration with `InvalidCadenceError`.
+  - `delay` first comes due `initialDelayMs ?? afterSettleMs` after registration. Once its occurrence is dispatched, `nextDueAt` is `null` until the dispatched job settles; the next occurrence is due `afterSettleMs` after the job's own settle time. A due `delay` occurrence fires alone however late it is seen, and stays due until it is dispatched.
 - `OverlapPolicy`: `"skip" | "allow" | "cancel-previous"`
 - `MisfirePolicy`: `"run-once" | "skip"`
 - `DispatchTarget`:
@@ -297,7 +305,7 @@ Uses `croner` (`^9.1.0`) for `cron` and `calendar` evaluation.
     readonly scheduleId: ScheduleId;
     readonly lastScheduledFor?: Instant;
     readonly lastSettledAt?: Instant;
-    readonly nextDueAt: Instant | null; // null after a `once` schedule has fired
+    readonly nextDueAt: Instant | null; // null after a `once` schedule has fired, and while a `delay` schedule's work is open
     readonly activeJobId?: string;
   }
   ```
@@ -324,17 +332,21 @@ interface ScheduleDispatchService {
     readonly scheduleId: ScheduleId;
     readonly scheduledFor: Instant;
   }) => Effect.Effect<{ readonly jobId: string }, DispatchError>;
-  readonly status: (jobId: string) => Effect.Effect<"open" | "complete" | "failed" | "cancelled", DispatchError>;
+  readonly status: (jobId: string) => Effect.Effect<
+    | { readonly kind: "open" }
+    | { readonly kind: "settled"; readonly outcome: "complete" | "failed" | "cancelled"; readonly settledAt: Instant },
+    DispatchError
+  >;
   readonly cancel: (jobId: string, reason?: string) => Effect.Effect<void, DispatchError>;
 }
 ```
 *Overlap semantics:*
 - Before dispatching a due `Occurrence`, if `cursor.activeJobId` exists, check `dispatch.status(cursor.activeJobId)`.
-- A Job that is `pending`, `active`, or `suspended` reports `"open"`.
+- A Job that is `pending`, `active`, or `suspended` reports `{ kind: "open" }`; a terminal one reports its outcome and the job's own terminal time as `settledAt`.
   - `overlap: "skip"` → record `Occurrence` as `skipped { reason: "overlap" }` and advance `nextDueAt`.
   - `overlap: "cancel-previous"` → call `dispatch.cancel(activeJobId, "superseded by next schedule occurrence")` then submit the new Job.
   - `overlap: "allow"` → submit the new Job immediately.
-- Once settled, record `lastSettledAt` and clear `activeJobId`.
+- Once settled, record the job's `settledAt` as the occurrence's `settledAt` and the cursor's `lastSettledAt`, and clear `activeJobId`.
 
 #### Scheduler Module Interface (`Context.Tag` + scoped `Layer`)
 ```ts
@@ -348,17 +360,24 @@ interface SchedulerService {
   readonly get: (id: ScheduleId) => Effect.Effect<Schedule | undefined, ScheduleError>;
   readonly list: Effect.Effect<readonly Schedule[], ScheduleError>;
   readonly cursor: (id: ScheduleId) => Effect.Effect<ScheduleCursor | undefined, ScheduleError>;
+  readonly latestOccurrence: (id: ScheduleId) => Effect.Effect<Occurrence | undefined, ScheduleError>;
   readonly subscribe: Effect.Effect<Stream.Stream<ScheduleEvent>, never, Scope.Scope>;
 }
 ```
 - The scoped `Scheduler.layer(...)` runs a single lightweight loop fiber using Effect `Clock.sleep` computed dynamically from the soonest `nextDueAt` (woken immediately via a `Deferred`/signal whenever schedules are registered/resumed/unregistered — no wasteful tight polling).
+- `SchedulerOptions`:
+  - `identity`, `instanceId`: the claim owner. Every scheduler names itself with a fresh `instanceId`, so two schedulers in one process never take each other's claims as their own. A claim whose scheduler in this process has closed is taken over.
+  - `retryDelayMs` (default 1000), `maxRetryDelayMs` (default 60 000): a schedule whose evaluation fails is retried after `retryDelayMs`, doubling per consecutive failure up to `maxRetryDelayMs`, reset by its next successful evaluation.
+  - `settlePollMs` (default 5000): how often open dispatched work is checked for settlement.
+  - `syncIntervalMs` (off by default): wake at least this often to observe schedules and cursors another writer changed.
+  - `maxOccurrencesPerSchedule` (default 100): each commit keeps only the newest this many settled or skipped occurrences of every schedule it touches; claimed and dispatched occurrences are never pruned.
 
 #### Storage Seam & Queue Adapter
-- **`ScheduleStore` (`Context.Tag`)**:
+- **`ScheduleStore` (`Context.Tag`)**: reads, `claim`, `commit(write)` (a write's `retainOccurrences` prunes terminal settled/skipped occurrences of the schedules it touches in the same transaction), and `latestOccurrence(scheduleId)` (newest by `scheduledFor`).
   - `MemoryScheduleStore` (`@foundry/scheduling/store/memory`)
   - `SqliteScheduleStore` (`@foundry/scheduling/store/sqlite` + `@foundry/scheduling/store/tables`: `scheduling_schedules`, `scheduling_cursors`, `scheduling_occurrences`, scoped by `scope`, atomic claim via primary key `(scope, id)`). `claim(occurrence, replacing)` takes over a claim only if the stored occurrence still equals the one the scheduler read; the scheduler judges the old owner gone (`SchedulerOptions.isOwnerGone`, `isGone` by default) before it opens that transaction, and dispatches under the same occurrence id as idempotency key.
 - **`QueueDispatchLayer` (`@foundry/scheduling/queue`)**:
-  - Thin adapter (~30–50 LOC) bridging `ScheduleDispatch` to `@foundry/queue`'s `Queue` tag (`submit` with `idempotencyKey`, `links.triggerId = scheduleId`, `status` mapping `pending|active|suspended → "open"`, `cancel`).
+  - Thin adapter (~30–50 LOC) bridging `ScheduleDispatch` to `@foundry/queue`'s `Queue` tag (`submit` with `idempotencyKey`, `links.triggerId = scheduleId`, `status` mapping `pending|active|suspended → { kind: "open" }` and terminal jobs to their `completedAt` / `failedAt` / `cancelledAt`, `cancel`).
 
 #### Exports for `@foundry/scheduling`
 - `.` — `Scheduler`, `SchedulerService`, `ScheduleDispatch`, cadence helpers (`nextDue`, `parseEvery`), domain types, errors

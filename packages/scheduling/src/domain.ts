@@ -1,5 +1,5 @@
+import type { InstanceIdentity } from "@foundry/lib/instance-identity";
 import type { JsonValue } from "@foundry/lib/json";
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { Data } from "effect";
 
 export type ScheduleId = string;
@@ -22,7 +22,12 @@ export type Cadence =
       readonly expression: string;
       readonly timezone: string;
     }
-  | { readonly kind: "once"; readonly at: Instant };
+  | { readonly kind: "once"; readonly at: Instant }
+  | {
+      readonly kind: "delay";
+      readonly afterSettleMs: number;
+      readonly initialDelayMs?: number;
+    };
 
 export type OverlapPolicy = "skip" | "allow" | "cancel-previous";
 export type MisfirePolicy = "run-once" | "skip";
@@ -77,9 +82,11 @@ export interface RegisterScheduleInput {
   readonly target: DispatchTarget;
 }
 
+export type SchedulerOwner = InstanceIdentity;
+
 export interface Lease {
   readonly claimedAt: Instant;
-  readonly owner: ProcessIdentity;
+  readonly owner: SchedulerOwner;
 }
 
 export type SkipReason = "overlap" | "misfire" | "already-claimed";

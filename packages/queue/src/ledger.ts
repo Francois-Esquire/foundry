@@ -51,7 +51,8 @@ export const retryOnConflict = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 
 export const makeLedger = (
   store: QueueStoreService,
-  hub: PubSub.PubSub<QueueEvent>
+  hub: PubSub.PubSub<QueueEvent>,
+  changes: PubSub.PubSub<void>
 ) => ({
   commit: (now: Instant, change: Change) =>
     Effect.gen(function* () {
@@ -74,6 +75,7 @@ export const makeLedger = (
         },
       });
       yield* PubSub.publishAll(hub, events);
+      yield* PubSub.publish(changes, undefined);
     }).pipe(Effect.uninterruptible),
   requireJob: required(store.getJob, (id) => new JobNotFoundError({ id })),
   requireRun: required(store.getRun, (id) => new RunNotFoundError({ id })),

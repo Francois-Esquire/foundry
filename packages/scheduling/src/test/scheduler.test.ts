@@ -123,7 +123,7 @@ describe("Scheduler", () => {
     ]);
     expect(result.skipCursor).toMatchObject({
       activeJobId: "job:skip:3000",
-      lastSettledAt: 3000,
+      lastSettledAt: 2000,
     });
   });
 
@@ -228,7 +228,7 @@ describe("Scheduler", () => {
     );
     expect(cursor).toEqual({
       lastScheduledFor: 1000,
-      lastSettledAt: 1500,
+      lastSettledAt: 1000,
       nextDueAt: null,
       scheduleId: "launch",
     });
@@ -348,7 +348,7 @@ describe("Scheduler", () => {
     expect(result.submitted).toEqual(["sync:1000"]);
     expect(result.cursor).toMatchObject({
       lastScheduledFor: 1000,
-      lastSettledAt: 1500,
+      lastSettledAt: 1000,
       nextDueAt: 2000,
     });
     expect(result.cursor?.activeJobId).toBeUndefined();

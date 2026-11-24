@@ -1,7 +1,11 @@
 import { canonicalizeJson } from "@foundry/lib/json";
 import { Effect, Layer, Ref } from "effect";
 import type { Occurrence, Schedule, ScheduleCursor } from "../domain";
-import { ScheduleStore, type ScheduleStoreService } from "./index";
+import {
+  ScheduleStore,
+  type ScheduleStoreService,
+  type ScheduleWrite,
+} from "./index";
 
 interface Records {
   readonly cursors: ReadonlyMap<string, ScheduleCursor>;
@@ -23,6 +27,31 @@ const upsert = <T>(
     ...current,
     ...(values ?? []).map((value) => [key(value), value] as const),
   ]);
+
+const TERMINAL = new Set(["settled", "skipped"]);
+
+const retained = (
+  occurrences: ReadonlyMap<string, Occurrence>,
+  write: ScheduleWrite
+): ReadonlyMap<string, Occurrence> => {
+  const keep = write.retainOccurrences;
+  if (keep === undefined) {
+    return occurrences;
+  }
+  const touched = new Set((write.occurrences ?? []).map((o) => o.scheduleId));
+  const dropped = new Set<string>(
+    [...touched].flatMap((scheduleId) =>
+      [...occurrences.values()]
+        .filter(
+          (o) => o.scheduleId === scheduleId && TERMINAL.has(o.state.kind)
+        )
+        .sort((one, other) => other.scheduledFor - one.scheduledFor)
+        .slice(keep)
+        .map((o) => o.id)
+    )
+  );
+  return without(occurrences, (id) => dropped.has(id));
+};
 
 const claimable = (
   stored: Occurrence | undefined,
@@ -69,12 +98,15 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
                 write.cursors,
                 (cursor) => cursor.scheduleId
               ),
-              occurrences: upsert(
-                without(current.occurrences, (_, o) =>
-                  removed.has(o.scheduleId)
+              occurrences: retained(
+                upsert(
+                  without(current.occurrences, (_, o) =>
+                    removed.has(o.scheduleId)
+                  ),
+                  write.occurrences,
+                  (o) => o.id
                 ),
-                write.occurrences,
-                (o) => o.id
+                write
               ),
               schedules: upsert(
                 without(current.schedules, (id) => removed.has(id)),
@@ -86,6 +118,18 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
         getCursor: (id) => read((current) => current.cursors.get(id)),
         getOccurrence: (id) => read((current) => current.occurrences.get(id)),
         getSchedule: (id) => read((current) => current.schedules.get(id)),
+        latestOccurrence: (scheduleId) =>
+          read((current) =>
+            [...current.occurrences.values()]
+              .filter((o) => o.scheduleId === scheduleId)
+              .reduce<Occurrence | undefined>(
+                (latest, o) =>
+                  latest === undefined || o.scheduledFor > latest.scheduledFor
+                    ? o
+                    : latest,
+                undefined
+              )
+          ),
         listOccurrences: (filter = {}) =>
           read((current) =>
             [...current.occurrences.values()].filter(

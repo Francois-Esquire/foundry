@@ -151,4 +151,43 @@ describe("SqliteScheduleStore", () => {
     );
     expect(results).toEqual([true, true, [], undefined]);
   });
+
+  test("a commit retaining occurrences keeps the newest finished ones and every open one, and reads the latest", async () => {
+    const database = await openDatabase();
+    const store = makeSqliteScheduleStore({ database, scope: "retain" });
+    const at = (scheduledFor: number, state: Occurrence["state"]) => ({
+      id: `nightly:${scheduledFor}` as const,
+      scheduledFor,
+      scheduleId: "nightly",
+      state,
+    });
+    const skipped = (scheduledFor: number) =>
+      at(scheduledFor, {
+        at: scheduledFor,
+        kind: "skipped",
+        reason: "overlap",
+      });
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* store.commit({
+          occurrences: [
+            at(1, { dispatchedAt: 1, jobId: "jb-1", kind: "dispatched" }),
+            ...[2, 3, 4, 5].map(skipped),
+          ],
+        });
+        yield* store.commit({
+          occurrences: [skipped(6)],
+          retainOccurrences: 2,
+        });
+        return {
+          kept: yield* store.listOccurrences({ scheduleId: "nightly" }),
+          latest: yield* store.latestOccurrence("nightly"),
+        };
+      })
+    );
+    expect(result.kept.map((occurrence) => occurrence.scheduledFor)).toEqual([
+      1, 5, 6,
+    ]);
+    expect(result.latest?.scheduledFor).toBe(6);
+  });
 });

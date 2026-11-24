@@ -1,3 +1,4 @@
+import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
 import type { JsonValue } from "@foundry/lib/json";
 import { thisProcess } from "@foundry/lib/process-identity";
 import {
@@ -49,6 +50,7 @@ import type {
 import { makeSettlement } from "./settlement";
 import { QueueStore } from "./store/index";
 import { MemoryQueueStore } from "./store/memory";
+import { awaitingJob, watchStore } from "./sync";
 import {
   cancellation,
   removal,
@@ -62,6 +64,8 @@ const isJobId = (id: JobId | RunId): id is JobId => id.startsWith("jb-");
 const validLimit = (limit: number) =>
   limit === Number.POSITIVE_INFINITY || (Number.isInteger(limit) && limit >= 1);
 
+const DEFAULT_SYNC_INTERVAL_MS = 500;
+
 const delayOf = (delayMs: number | undefined) =>
   delayMs !== undefined && Number.isFinite(delayMs) ? Math.max(0, delayMs) : 0;
 
@@ -72,8 +76,17 @@ const makeQueue = (options: QueueOptions) =>
       PubSub.unbounded<QueueEvent>(),
       PubSub.shutdown
     );
-    const self = options.identity ?? thisProcess();
-    const ledger = makeLedger(store, hub);
+    const changes = yield* Effect.acquireRelease(
+      PubSub.unbounded<void>(),
+      PubSub.shutdown
+    );
+    const self = yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        openInstance(options.identity ?? thisProcess(), options.instanceId)
+      ),
+      (instance) => Effect.sync(() => closeInstance(instance))
+    );
+    const ledger = makeLedger(store, hub, changes);
     const { commit, requireJob, requireRun, requireSuspension } = ledger;
     const checkPool = (pool: ConcurrencyPool) =>
       validLimit(pool.limit)
@@ -89,7 +102,7 @@ const makeQueue = (options: QueueOptions) =>
     });
     const capacity = new Capacity(defaultPool.limit, self);
     const handlers = new Map<string, RunHandler>();
-    const settlement = makeSettlement(ledger, self);
+    const settlement = makeSettlement(ledger);
     const recovery = makeRecovery(ledger, settlement, capacity, self);
 
     for (const pool of [
@@ -99,7 +112,7 @@ const makeQueue = (options: QueueOptions) =>
       capacity.pools.set(pool.name, yield* checkPool(pool));
     }
 
-    const { locked, mutate, nudge } = yield* makeDispatcher({
+    const { locked, mutate, nudge, releaseStaleSlots } = yield* makeDispatcher({
       capacity,
       handlers,
       ledger,
@@ -112,6 +125,23 @@ const makeQueue = (options: QueueOptions) =>
         capacity.admission.paused = true;
       })
     );
+
+    const syncIntervalMs = options.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS;
+    if (Number.isFinite(syncIntervalMs) && syncIntervalMs > 0) {
+      const from = yield* store.watermark;
+      yield* Effect.forkScoped(
+        watchStore({
+          from,
+          intervalMs: syncIntervalMs,
+          onChange: Effect.gen(function* () {
+            const stale = yield* mutate(releaseStaleSlots);
+            yield* PubSub.publish(changes, undefined);
+            yield* Fiber.interruptAll(stale);
+          }),
+          store,
+        })
+      );
+    }
 
     const freshRunId = (id: RunId | undefined) =>
       id === undefined
@@ -235,6 +265,7 @@ const makeQueue = (options: QueueOptions) =>
             attempt: 1,
             jobId: job.id,
             now,
+            ...(capacity.admission.retiring ? {} : { owner: self }),
             pool: job.pool,
           },
           input.runId
@@ -307,7 +338,6 @@ const makeQueue = (options: QueueOptions) =>
         const { change, resolved } = resolution({
           job,
           now,
-          owner: self,
           run,
           suspension,
           value,
@@ -411,6 +441,7 @@ const makeQueue = (options: QueueOptions) =>
     return Queue.of({
       abandon: (id, error) => mutate(abandon(id, error)),
       adopt: (id) => mutate(adopt(id)),
+      awaitJob: awaitingJob(store, changes),
       cancel,
       cancelSuspension: (suspensionId, reason) =>
         mutate(cancelSuspension(suspensionId, reason)),

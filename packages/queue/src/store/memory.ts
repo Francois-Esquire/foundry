@@ -14,6 +14,7 @@ interface Records {
   readonly pools: ReadonlyMap<string, ConcurrencyPool>;
   readonly runs: ReadonlyMap<string, Run>;
   readonly suspensions: ReadonlyMap<string, Suspension>;
+  readonly watermark: number;
 }
 
 const upsert = <T>(
@@ -63,6 +64,7 @@ const applied = (current: Records, write: QueueWrite): Records => ({
     ),
     write.deleteSuspensions
   ),
+  watermark: current.watermark + 1,
 });
 
 export const makeMemoryQueueStore: Effect.Effect<QueueStoreService> =
@@ -72,6 +74,7 @@ export const makeMemoryQueueStore: Effect.Effect<QueueStoreService> =
       pools: new Map(),
       runs: new Map(),
       suspensions: new Map(),
+      watermark: 0,
     }),
     (records) => {
       const read = <T>(pick: (current: Records) => T) =>
@@ -131,6 +134,7 @@ export const makeMemoryQueueStore: Effect.Effect<QueueStoreService> =
                   suspension.runId === filter.runId)
             )
           ),
+        watermark: read((current) => current.watermark),
       };
     }
   );

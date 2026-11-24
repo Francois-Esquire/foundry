@@ -1,11 +1,11 @@
 import { createTables } from "@foundry/lib/testing/sqlite";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
-import { Effect, Layer, type Scope } from "effect";
+import { Deferred, Effect, Fiber, Layer, type Scope } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import type { QueueEvent, RunOutcome } from "../domain";
 import { Queue } from "../queue";
-import type { QueueService } from "../service";
+import type { QueueOptions, QueueService } from "../service";
 import type { QueueWrite } from "../store/index";
 import {
   makeSqliteQueueStore,
@@ -33,17 +33,21 @@ const openDatabase = async (): Promise<QueueDatabase> => {
 
 const handler = { name: "work" } as const;
 
+const sqliteQueue = <A, E>(
+  options: SqliteQueueStoreOptions,
+  body: (queue: QueueService) => Effect.Effect<A, E, Scope.Scope>,
+  queueOptions: QueueOptions = {}
+) =>
+  Effect.scoped(Effect.flatMap(Queue, body)).pipe(
+    Effect.provide(
+      Queue.layer(queueOptions).pipe(Layer.provide(SqliteQueueStore(options)))
+    )
+  );
+
 const withSqliteQueue = <A, E>(
   options: SqliteQueueStoreOptions,
   body: (queue: QueueService) => Effect.Effect<A, E, Scope.Scope>
-) =>
-  Effect.runPromise(
-    Effect.scoped(Effect.flatMap(Queue, body)).pipe(
-      Effect.provide(
-        Queue.layer().pipe(Layer.provide(SqliteQueueStore(options)))
-      )
-    )
-  );
+) => Effect.runPromise(sqliteQueue(options, body));
 
 describe("SqliteQueueStore", () => {
   test("persists jobs, runs, suspensions, and pools so a new store instance reads them back", async () => {
@@ -287,4 +291,41 @@ describe("SqliteQueueStore", () => {
     );
     expect(counted).toEqual({ left: 0, written: count });
   }, 60_000);
+
+  test("a queue on another store instance of the same scope notices the job another queue settled", async () => {
+    const database = await openDatabase();
+    const options = { database, scope: "shared" };
+    const syncing = { syncIntervalMs: 10 };
+    const seen = await Effect.runPromise(
+      sqliteQueue(
+        options,
+        (watcher) =>
+          Effect.gen(function* () {
+            const gate = yield* Deferred.make<void>();
+            return yield* sqliteQueue(
+              options,
+              (worker) =>
+                Effect.gen(function* () {
+                  yield* worker.register("work", () =>
+                    Effect.as(Deferred.await(gate), {
+                      kind: "complete",
+                      output: "from worker",
+                    } satisfies RunOutcome)
+                  );
+                  const job = yield* worker.submit({ handler });
+                  const waiting = yield* Effect.fork(watcher.awaitJob(job.id));
+                  yield* Deferred.succeed(gate, undefined);
+                  return yield* Fiber.join(waiting);
+                }),
+              syncing
+            );
+          }),
+        syncing
+      )
+    );
+    expect(seen.state).toMatchObject({
+      kind: "complete",
+      output: "from worker",
+    });
+  });
 });

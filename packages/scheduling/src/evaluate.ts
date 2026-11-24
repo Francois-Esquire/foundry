@@ -1,10 +1,8 @@
+import { instanceGone, sameInstance } from "@foundry/lib/instance-identity";
 import { canonicalizeJson } from "@foundry/lib/json";
-import {
-  type ProcessIdentity,
-  sameProcess,
-} from "@foundry/lib/process-identity";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { Effect } from "effect";
-import { dueOccurrences } from "./cadence";
+import { dueOccurrences, nextDue } from "./cadence";
 import type { ScheduleDispatchService } from "./dispatch";
 import {
   type Instant,
@@ -15,6 +13,7 @@ import {
   type ScheduleError,
   type ScheduleEvent,
   type ScheduleId,
+  type SchedulerOwner,
   type SkipReason,
 } from "./domain";
 import type { ScheduleStoreService, ScheduleWrite } from "./store/index";
@@ -49,7 +48,8 @@ export interface EvaluatorOptions {
   readonly commit: Commit;
   readonly dispatch: ScheduleDispatchService;
   readonly isOwnerGone: (owner: ProcessIdentity) => boolean;
-  readonly self: ProcessIdentity;
+  readonly retainOccurrences: number;
+  readonly self: SchedulerOwner;
   readonly store: ScheduleStoreService;
 }
 
@@ -96,14 +96,38 @@ const occurrenceAt = (scheduleId: ScheduleId, scheduledFor: Instant) => ({
   scheduleId,
 });
 
+const latestSettle = (settled: readonly Occurrence[]) =>
+  settled.reduce<Instant | undefined>(
+    (latest, occurrence) =>
+      occurrence.state.kind === "settled"
+        ? Math.max(
+            latest ?? occurrence.state.settledAt,
+            occurrence.state.settledAt
+          )
+        : latest,
+    undefined
+  );
+
+const afterSettle = (
+  schedule: Schedule,
+  cursor: ScheduleCursor,
+  settledAt: Instant | undefined
+): ScheduleCursor =>
+  schedule.cadence.kind === "delay" &&
+  settledAt !== undefined &&
+  cursor.activeJobId === undefined
+    ? { ...cursor, nextDueAt: nextDue(schedule.cadence, settledAt) }
+    : cursor;
+
 export const makeEvaluator = ({
   commit,
   dispatch,
   isOwnerGone,
+  retainOccurrences,
   self,
   store,
 }: EvaluatorOptions) => {
-  const settledOf = (occurrence: Occurrence, now: Instant) => {
+  const settledOf = (occurrence: Occurrence) => {
     if (occurrence.state.kind !== "dispatched") {
       return Effect.succeed(undefined);
     }
@@ -111,28 +135,28 @@ export const makeEvaluator = ({
     return Effect.map(
       dispatch.status(jobId),
       (status): Occurrence | undefined =>
-        status === "open"
+        status.kind === "open"
           ? undefined
           : {
               ...occurrence,
               state: {
                 jobId,
                 kind: "settled",
-                outcome: status,
-                settledAt: now,
+                outcome: status.outcome,
+                settledAt: status.settledAt,
               },
             }
     );
   };
 
-  const refresh = (cursor: ScheduleCursor, now: Instant) =>
+  const refresh = (schedule: Schedule, cursor: ScheduleCursor) =>
     Effect.gen(function* () {
       const open = yield* store.listOccurrences({
         scheduleId: cursor.scheduleId,
         state: "dispatched",
       });
       const checked = yield* Effect.forEach(open, (occurrence) =>
-        Effect.map(settledOf(occurrence, now), (done) => ({
+        Effect.map(settledOf(occurrence), (done) => ({
           done,
           occurrence,
         }))
@@ -145,14 +169,19 @@ export const makeEvaluator = ({
             : []
         )
         .at(-1);
-      const lastSettledAt = settled.length > 0 ? now : cursor.lastSettledAt;
+      const settledAt = latestSettle(settled);
+      const lastSettledAt = settledAt ?? cursor.lastSettledAt;
       return {
-        cursor: withActive(
-          {
-            ...cursor,
-            ...(lastSettledAt === undefined ? {} : { lastSettledAt }),
-          },
-          active
+        cursor: afterSettle(
+          schedule,
+          withActive(
+            {
+              ...cursor,
+              ...(lastSettledAt === undefined ? {} : { lastSettledAt }),
+            },
+            active
+          ),
+          settledAt
         ),
         decided: [],
         facts: settled.map((occurrence) => ({
@@ -177,10 +206,10 @@ export const makeEvaluator = ({
         return "decided";
       }
       const { owner } = existing.state.lease;
-      if (sameProcess(owner, self)) {
+      if (sameInstance(owner, self)) {
         return "claimed";
       }
-      if (!(yield* Effect.sync(() => isOwnerGone(owner)))) {
+      if (!(yield* Effect.sync(() => instanceGone(owner, self, isOwnerGone)))) {
         return "held-by-peer";
       }
       return (yield* store.claim(occurrence, existing))
@@ -272,6 +301,7 @@ export const makeEvaluator = ({
       : commit(now, progress.facts, {
           ...(cursorChanged ? { cursors: [progress.cursor] } : {}),
           occurrences: progress.writes,
+          retainOccurrences,
         });
   };
 
@@ -326,7 +356,7 @@ export const makeEvaluator = ({
           open: false,
         } satisfies Evaluation;
       }
-      const refreshed: Progress = yield* refresh(cursor, now);
+      const refreshed: Progress = yield* refresh(schedule, cursor);
       const progress: Progress =
         schedule.state === "active"
           ? yield* advance(schedule, refreshed, now)
@@ -340,7 +370,9 @@ export const makeEvaluator = ({
             : null,
         open:
           progress.cursor.activeJobId !== undefined ||
-          progress.contended === true,
+          progress.contended === true ||
+          (schedule.cadence.kind === "delay" &&
+            progress.cursor.nextDueAt === null),
       } satisfies Evaluation;
     });
 
@@ -352,7 +384,7 @@ export const makeEvaluator = ({
       };
       const progress = yield* fire(
         schedule,
-        yield* refresh(cursor, now),
+        yield* refresh(schedule, cursor),
         now,
         now
       );

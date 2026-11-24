@@ -1,7 +1,15 @@
 import { canonicalizeJson } from "@foundry/lib/json";
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
-import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import type {
   BaseSQLiteDatabase,
   SQLiteColumn,
@@ -109,6 +117,36 @@ const removeSchedules = async (
   }
 };
 
+const TERMINAL = ["settled", "skipped"] as const;
+
+const pruneOccurrences = async (
+  transaction: ScheduleTransaction,
+  scope: string,
+  write: ScheduleWrite
+) => {
+  const keep = write.retainOccurrences;
+  if (keep === undefined) {
+    return;
+  }
+  const touched = new Set((write.occurrences ?? []).map((o) => o.scheduleId));
+  for (const scheduleId of touched) {
+    const terminal = and(
+      eq(schedulingOccurrences.scope, scope),
+      eq(schedulingOccurrences.scheduleId, scheduleId),
+      inArray(schedulingOccurrences.state, [...TERMINAL])
+    );
+    const newest = transaction
+      .select({ id: schedulingOccurrences.id })
+      .from(schedulingOccurrences)
+      .where(terminal)
+      .orderBy(desc(schedulingOccurrences.scheduledFor))
+      .limit(keep);
+    await transaction
+      .delete(schedulingOccurrences)
+      .where(and(terminal, notInArray(schedulingOccurrences.id, newest)));
+  }
+};
+
 const writeRecords = async (
   transaction: ScheduleTransaction,
   scope: string,
@@ -145,6 +183,7 @@ const writeRecords = async (
     (write.occurrences ?? []).map((o) => occurrenceRow(scope, o)),
     ["body", "state"]
   );
+  await pruneOccurrences(transaction, scope, write);
 };
 
 export const makeSqliteScheduleStore = (
@@ -237,6 +276,21 @@ export const makeSqliteScheduleStore = (
       first(
         bodies<Schedule>(schedulingSchedules, eq(schedulingSchedules.id, id))
       ),
+    latestOccurrence: (scheduleId) =>
+      run(async () => {
+        const [row] = await database
+          .select({ body: schedulingOccurrences.body })
+          .from(schedulingOccurrences)
+          .where(
+            and(
+              eq(schedulingOccurrences.scope, scope),
+              eq(schedulingOccurrences.scheduleId, scheduleId)
+            )
+          )
+          .orderBy(desc(schedulingOccurrences.scheduledFor))
+          .limit(1);
+        return row?.body;
+      }),
     listOccurrences: (filter = {}) =>
       bodies<Occurrence>(
         schedulingOccurrences,

@@ -1,18 +1,18 @@
-import {
-  type ProcessIdentity,
-  sameProcess,
-} from "@foundry/lib/process-identity";
+import { sameInstance } from "@foundry/lib/instance-identity";
 import type { Fiber } from "effect";
 import type {
   ConcurrencyPool,
+  Lease,
   PoolName,
   PoolStats,
+  QueueOwner,
   Run,
   RunId,
 } from "./domain";
 
 interface Slot {
   readonly fiber: Fiber.RuntimeFiber<void>;
+  readonly lease: Lease;
   readonly pool: PoolName;
 }
 
@@ -27,9 +27,9 @@ export class Capacity {
   readonly slots = new Map<RunId, Slot>();
   readonly waiting = new Map<PoolName, number>();
   readonly #defaultLimit: number;
-  readonly #self: ProcessIdentity;
+  readonly #self: QueueOwner;
 
-  constructor(defaultLimit: number, self: ProcessIdentity) {
+  constructor(defaultLimit: number, self: QueueOwner) {
     this.#defaultLimit = defaultLimit;
     this.#self = self;
   }
@@ -51,7 +51,7 @@ export class Capacity {
   hasRoom(name: PoolName): boolean {
     const pool = this.poolOf(name);
     return (
-      !this.admission.paused &&
+      !(this.admission.paused || this.admission.retiring) &&
       pool.state === "active" &&
       this.activeIn(pool.name) < pool.limit
     );
@@ -60,8 +60,15 @@ export class Capacity {
   owns(run: Run): boolean {
     return (
       run.state.kind === "queued" &&
-      (run.state.owner === undefined ||
-        sameProcess(run.state.owner, this.#self))
+      (run.state.owner === undefined || this.pins(run))
+    );
+  }
+
+  pins(run: Run): boolean {
+    return (
+      run.state.kind === "queued" &&
+      run.state.owner !== undefined &&
+      sameInstance(run.state.owner, this.#self)
     );
   }
 

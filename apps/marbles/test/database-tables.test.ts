@@ -37,6 +37,7 @@ const COMPOSED = [
   "queue_pools",
   "queue_runs",
   "queue_suspensions",
+  "queue_watermarks",
   "sandbox_containers",
   "task_dependencies",
   "tasks",

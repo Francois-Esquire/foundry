@@ -14,7 +14,13 @@ export interface DispatchRequest {
   readonly target: DispatchTarget;
 }
 
-export type DispatchStatus = "open" | JobOutcome;
+export type DispatchStatus =
+  | { readonly kind: "open" }
+  | {
+      readonly kind: "settled";
+      readonly outcome: JobOutcome;
+      readonly settledAt: Instant;
+    };
 
 export interface ScheduleDispatchService {
   readonly cancel: (

@@ -1,5 +1,4 @@
 import type { JsonValue } from "@foundry/lib/json";
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { Cause, Clock, Effect, Exit, Option } from "effect";
 import type {
   ErrorShape,
@@ -31,16 +30,13 @@ const errorShapeOf = (cause: Cause.Cause<ErrorShape>): ErrorShape =>
     name: "defect",
   }));
 
-export const makeSettlement = (ledger: Ledger, self: ProcessIdentity) => {
+export const makeSettlement = (ledger: Ledger) => {
   const { commit, store } = ledger;
 
-  const newRun = (
-    input: Omit<QueuedRunInput, "id" | "owner">,
-    chosen?: RunId
-  ) =>
+  const newRun = (input: Omit<QueuedRunInput, "id">, chosen?: RunId) =>
     Effect.map(
       chosen === undefined ? newId("rn") : Effect.succeed(chosen),
-      (id) => queuedRun({ ...input, id, owner: self })
+      (id) => queuedRun({ ...input, id })
     );
 
   const followUp = (job: Job, ended: Run, error: ErrorShape, now: Instant) =>

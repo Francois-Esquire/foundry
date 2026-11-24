@@ -13,8 +13,8 @@ _Avoid_: job, cron job, timer, trigger
 
 **Cadence**:
 When a schedule is due: every fixed interval, at a wall-clock time on chosen
-weekdays in a timezone, on a cron expression in a timezone, or once at an
-instant.
+weekdays in a timezone, on a cron expression in a timezone, once at an
+instant, or a fixed delay after its previous work settled.
 _Avoid_: frequency, recurrence, period
 
 **Occurrence**:
@@ -25,8 +25,8 @@ dispatched twice.
 _Avoid_: run, execution, firing, slot, tick
 
 **Claim**:
-The first process to record an occurrence wins it; any other process sees it
-as already claimed.
+The first scheduler to record an occurrence wins it; any other scheduler,
+in this process or another, sees it as already claimed.
 _Avoid_: lock, lease
 
 **Cursor**:
@@ -57,8 +57,14 @@ _Avoid_: concurrency policy
 **Misfire**:
 Several occurrences coming due at once because the scheduler was paused or
 down. Run-once dispatches only the latest of them; skip dispatches none and
-waits for the next due time.
+waits for the next due time. A fixed delay never misfires: at most one
+occurrence is due at a time.
 _Avoid_: catch-up, backfill, missed run
+
+**Retention**:
+How many terminal (settled or skipped) occurrences a schedule keeps; older
+ones are pruned. Claimed and dispatched occurrences are always kept.
+_Avoid_: history limit, cleanup
 
 **Trigger now**:
 Dispatching a schedule's target immediately, outside its cadence, even while

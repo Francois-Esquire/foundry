@@ -5,6 +5,7 @@ import {
   type Instant,
   InvalidCadenceError,
   type MisfirePolicy,
+  type OverlapPolicy,
   type Weekday,
 } from "./domain";
 
@@ -59,7 +60,22 @@ const cronProblem = (cadence: CronCadence): string | undefined => {
 };
 
 const unknownCadence = (cadence: never): string =>
-  `cadence ${JSON.stringify(cadence)} must be an interval, calendar, cron, or once`;
+  `cadence ${JSON.stringify(cadence)} must be an interval, calendar, cron, once, or delay`;
+
+const delayProblem = (
+  cadence: Extract<Cadence, { kind: "delay" }>
+): string | undefined => {
+  if (
+    !(Number.isSafeInteger(cadence.afterSettleMs) && cadence.afterSettleMs >= 1)
+  ) {
+    return "afterSettleMs must be a positive integer";
+  }
+  return cadence.initialDelayMs === undefined ||
+    (Number.isSafeInteger(cadence.initialDelayMs) &&
+      cadence.initialDelayMs >= 0)
+    ? undefined
+    : "initialDelayMs must be an integer of at least 0";
+};
 
 const timezoneProblem = (cadence: CronCadence) =>
   cadence.timezone.trim().length === 0
@@ -88,6 +104,8 @@ const problemOf = (cadence: Cadence): string | undefined => {
       return timezoneProblem(cadence) ?? cronProblem(cadence);
     case "cron":
       return timezoneProblem(cadence) ?? cronProblem(cadence);
+    case "delay":
+      return delayProblem(cadence);
     default:
       return unknownCadence(cadence);
   }
@@ -99,6 +117,33 @@ export const validateCadence = (
   const reason = problemOf(cadence);
   return reason === undefined
     ? Effect.succeed(cadence)
+    : Effect.fail(new InvalidCadenceError({ cadence, reason }));
+};
+
+const policyProblem = (
+  cadence: Cadence,
+  overlap: OverlapPolicy,
+  misfire: MisfirePolicy
+): string | undefined => {
+  if (cadence.kind !== "delay") {
+    return;
+  }
+  if (overlap !== "skip") {
+    return "a delay cadence only supports the skip overlap policy";
+  }
+  return misfire === "run-once"
+    ? undefined
+    : "a delay cadence only supports the run-once misfire policy";
+};
+
+export const validatePolicies = (
+  cadence: Cadence,
+  overlap: OverlapPolicy,
+  misfire: MisfirePolicy
+): Effect.Effect<void, InvalidCadenceError> => {
+  const reason = policyProblem(cadence, overlap, misfire);
+  return reason === undefined
+    ? Effect.void
     : Effect.fail(new InvalidCadenceError({ cadence, reason }));
 };
 
@@ -140,13 +185,23 @@ export const nextDue = (cadence: Cadence, after: Instant): Instant | null => {
     case "calendar":
     case "cron":
       return runAfter(cronOf(cadence), after);
+    case "delay":
+      return after + cadence.afterSettleMs;
     default:
       throw new TypeError(unknownCadence(cadence));
   }
 };
 
-export const firstDue = (cadence: Cadence, now: Instant): Instant | null =>
-  cadence.kind === "once" ? cadence.at : nextDue(cadence, now);
+export const firstDue = (cadence: Cadence, now: Instant): Instant | null => {
+  switch (cadence.kind) {
+    case "once":
+      return cadence.at;
+    case "delay":
+      return now + (cadence.initialDelayMs ?? cadence.afterSettleMs);
+    default:
+      return nextDue(cadence, now);
+  }
+};
 
 interface DueTimes {
   readonly latest: Instant;
@@ -177,7 +232,11 @@ const recentRuns = (cron: Cron, first: Instant, now: Instant) => {
   }
 };
 
-const dueTimes = (cadence: Cadence, first: Instant, now: Instant): DueTimes => {
+const dueTimes = (
+  cadence: Exclude<Cadence, { kind: "delay" }>,
+  first: Instant,
+  now: Instant
+): DueTimes => {
   if (cadence.kind === "interval") {
     const elapsed = Math.floor((now - first) / cadence.everyMs);
     const latest = first + elapsed * cadence.everyMs;
@@ -212,6 +271,9 @@ export const dueOccurrences = (
 ): DueOccurrences => {
   if (now < nextDueAt) {
     return { nextDueAt, skipped: [], toFire: null };
+  }
+  if (cadence.kind === "delay") {
+    return { nextDueAt: null, skipped: [], toFire: nextDueAt };
   }
   const { latest, missed, next } = dueTimes(cadence, nextDueAt, now);
   if (missed.length === 0 || misfire === "run-once") {

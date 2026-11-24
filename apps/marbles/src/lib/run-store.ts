@@ -164,6 +164,7 @@ export function gatedQueueStore(
     listPools: Effect.suspend(() => through(store.listPools)),
     listRuns: (filter) => through(store.listRuns(filter)),
     listSuspensions: (filter) => through(store.listSuspensions(filter)),
+    watermark: Effect.suspend(() => through(store.watermark)),
   };
 }
 

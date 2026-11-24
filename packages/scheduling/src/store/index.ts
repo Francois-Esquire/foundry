@@ -15,6 +15,7 @@ export interface ScheduleWrite {
   readonly events?: readonly ScheduleEvent[];
   readonly occurrences?: readonly Occurrence[];
   readonly removed?: readonly ScheduleId[];
+  readonly retainOccurrences?: number;
   readonly schedules?: readonly Schedule[];
 }
 
@@ -33,6 +34,9 @@ export interface ScheduleStoreService {
   readonly getSchedule: (
     id: ScheduleId
   ) => Effect.Effect<Schedule | undefined, StoreError>;
+  readonly latestOccurrence: (
+    scheduleId: ScheduleId
+  ) => Effect.Effect<Occurrence | undefined, StoreError>;
   readonly listOccurrences: (
     filter?: OccurrenceFilter
   ) => Effect.Effect<readonly Occurrence[], StoreError>;

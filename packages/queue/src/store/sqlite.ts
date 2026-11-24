@@ -20,7 +20,13 @@ import {
 } from "../domain";
 import { conflictOf, type StoredRevisions } from "./conflict";
 import { QueueStore, type QueueStoreService, type QueueWrite } from "./index";
-import { queueJobs, queuePools, queueRuns, queueSuspensions } from "./tables";
+import {
+  queueJobs,
+  queuePools,
+  queueRuns,
+  queueSuspensions,
+  queueWatermarks,
+} from "./tables";
 
 export type QueueDatabase = BaseSQLiteDatabase<
   "async",
@@ -165,6 +171,15 @@ const deleteRecords = async (
   await remove(transaction, queueJobs, queueJobs.id, scope, write.deleteJobs);
 };
 
+const raiseWatermark = (transaction: QueueTransaction, scope: string) =>
+  transaction
+    .insert(queueWatermarks)
+    .values({ scope, value: 1 })
+    .onConflictDoUpdate({
+      set: { value: sql`${queueWatermarks.value} + 1` },
+      target: queueWatermarks.scope,
+    });
+
 const revisionsIn = async (
   transaction: QueueTransaction,
   table: typeof queueRuns | typeof queueSuspensions,
@@ -296,6 +311,7 @@ export const makeSqliteQueueStore = (
               }
               await writeRecords(transaction, scope, write);
               await deleteRecords(transaction, scope, write);
+              await raiseWatermark(transaction, scope);
               await options.onCommit?.(transaction, write);
             })
           ),
@@ -341,6 +357,13 @@ export const makeSqliteQueueStore = (
           [queueSuspensions.runId, filter.runId]
         )
       ),
+    watermark: run(async () => {
+      const [row] = await database
+        .select({ value: queueWatermarks.value })
+        .from(queueWatermarks)
+        .where(eq(queueWatermarks.scope, scope));
+      return row?.value ?? 0;
+    }),
   };
 };
 

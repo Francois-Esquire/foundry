@@ -79,12 +79,19 @@ _Avoid_: snapshot, state, savepoint
 ### Ownership
 
 **Lease**:
-A process's claim on a running run, recording who runs it and since when.
+A queue's claim on a running run, recording who runs it and since when.
 _Avoid_: lock, claim
 
 **Owner**:
-The process a queued run or a lease belongs to.
+The queue a queued run or a lease belongs to. Several queues can live in
+one process, and each owns only its own work. An owner that names only a
+process stands for any queue in it.
 _Avoid_: host, node, worker
+
+**Unowned**:
+A queued run no queue owns, which any live queue that is not retiring and
+has its handler may start. Retries and resumed runs are unowned.
+_Avoid_: orphaned, free
 
 **Recovery**:
 Taking back runs whose owner is gone: running ones are interrupted and
@@ -92,7 +99,7 @@ retried if their policy allows; queued ones are adopted.
 _Avoid_: restart, resync
 
 **Adoption**:
-Taking over a run another process left: a queued run during recovery, or a
+Taking over a run another queue left: a queued run during recovery, or a
 suspended run, whose pending suspensions move to a new revision so a
 resolution read before the takeover is refused as stale.
 _Avoid_: steal, claim
@@ -102,14 +109,20 @@ Failing an open run whose driver is gone, without retrying it.
 _Avoid_: kill, reap
 
 **Retirement**:
-A process closing admission for good while its running work finishes.
-Children of its running runs are still admitted, and its queued top-level
-runs can be handed over to a successor.
+A queue closing admission for good while its running work finishes
+untouched. A retiring queue starts no queued run. Children of its running
+runs are still admitted, unowned, and the queued runs it owns are handed
+over to a successor or left unowned.
 _Avoid_: shutdown, decommission
 
 **Hand-over**:
-Giving a queued run to another process to own.
+Giving a queued run to another queue, or to any queue in another process,
+to own.
 _Avoid_: transfer, migration
+
+**Removal**:
+Deleting a settled job together with its runs and suspensions.
+_Avoid_: purge, cleanup
 
 **Drain**:
 Stopping new runs from starting and letting running ones finish, up to an
