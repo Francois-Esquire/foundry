@@ -336,7 +336,11 @@ ref `load` accepts (`ref: "path"`) and turns it into a registration
 the system accumulates through `extend` — the ref, what `load(ref)` returns,
 and what every opened Workspace carries — so a composed system's `load`,
 `open`, and `list` are typed by exactly the extensions it holds. An extension
-that applies per record declares its capability optional (`{ git?: Git }`).
+whose `applies` can return `false` contributes its capabilities as optional;
+only one whose `applies` always returns `true` (or that declares
+`WorkspaceExtension<Ref, Source, Capabilities, true>`) contributes them as
+required. Each extension's capabilities are intersected with the others',
+and a union one extension declares stays a union.
 
 Composition by hand needs no registry:
 
@@ -349,6 +353,10 @@ const ws = new Workspace(
   directorySource(registration.source.path, { filesystem }),
 );
 ```
+
+`directorySource(root)` needs a canonical root, one where
+`realpath(root) === root`, such as `registration.source.path`. Its confined
+reads, writes, and creates check that equality and fail when it does not hold.
 
 Lifecycle `start` and `stop` hooks run in registration order on open and in
 reverse order on close.

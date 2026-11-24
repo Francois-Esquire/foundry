@@ -1,16 +1,17 @@
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { StorageSubscription } from "@foundry/core/storage";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   InvalidWorkspaceInputError,
   WorkspaceNotFoundError,
   WorkspaceSourceUnsupportedError,
 } from "../errors";
-import { directorySource } from "../node";
+import { directory, directorySource } from "../node";
 import { MemoryWorkspaceStore } from "../store/memory";
 import { artifactWorkspace, seed } from "../testing/records";
 import type {
+  CapabilitiesOf,
   ObservedFacts,
   WorkspaceExtension,
   WorkspaceFile,
@@ -122,11 +123,12 @@ describe("lifecycle", () => {
     const root = await makeRoot({ "README.md": "hello" });
     const system = directorySystem().extend({
       applies: (registration) => registration.source.kind === "host",
-      attach: ({ capabilities, registration }) => ({
-        capabilities: {
-          label: `dir:${String(capabilities.root ?? registration.source.path)}`,
-        },
-      }),
+      attach: ({ capabilities }) => {
+        if (typeof capabilities.root !== "string") {
+          throw new Error("expected the directory root capability");
+        }
+        return { capabilities: { label: `dir:${capabilities.root}` } };
+      },
       name: "labelled",
     });
 
@@ -624,6 +626,201 @@ describe("lifecycle", () => {
     ]).toHaveLength(3);
   });
 
+  it("lets an async start hook close its own workspace without deadlocking", async () => {
+    const events: string[] = [];
+    let starts = 0;
+    const system = new WorkspaceSystem()
+      .extend(memExtension())
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          async start(workspace) {
+            events.push("closer:start");
+            starts += 1;
+            if (starts === 1) {
+              await system.close(workspace.id);
+            }
+          },
+          stop() {
+            events.push("closer:stop");
+          },
+        }),
+        name: "closer",
+      })
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          start() {
+            events.push("later:start");
+          },
+          stop() {
+            events.push("later:stop");
+          },
+        }),
+        name: "later",
+      });
+
+    const first = await system.load({ mem: "one" });
+    expect(events).toEqual(["closer:start", "closer:stop"]);
+
+    const reopened = await system.open(first.id);
+    expect(reopened).not.toBe(first);
+    expect(events.slice(2)).toEqual(["closer:start", "later:start"]);
+
+    await system.closeAll();
+    expect(events.slice(4)).toEqual(["later:stop", "closer:stop"]);
+  });
+
+  it("lets an async start hook remove its own workspace without deadlocking", async () => {
+    const store = new MemoryWorkspaceStore();
+    let stopped = 0;
+    const system = new WorkspaceSystem({ store })
+      .extend(memExtension())
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          async start(workspace) {
+            await workspace.remove();
+          },
+          stop() {
+            stopped += 1;
+          },
+        }),
+        name: "remover",
+      });
+
+    const loaded = await system.load({ mem: "gone" });
+
+    expect(stopped).toBe(1);
+    expect((await store.listWorkspaces()).items).toEqual([]);
+    await expect(system.open(loaded.id)).rejects.toBeInstanceOf(
+      WorkspaceNotFoundError
+    );
+  });
+
+  it("attaches once when two cold loads race for the same closed workspace", async () => {
+    let attaches = 0;
+    const system = new WorkspaceSystem().extend(memExtension()).extend({
+      applies: () => true,
+      attach: () => {
+        attaches += 1;
+        return {};
+      },
+      name: "counter",
+    });
+    const first = await system.load({ mem: "same" });
+    await system.close(first.id);
+    attaches = 0;
+
+    const [left, right] = await Promise.all([
+      system.load({ mem: "same" }),
+      system.load({ mem: "same" }),
+    ]);
+
+    expect(left).toBe(right);
+    expect(attaches).toBe(1);
+    await system.closeAll();
+  });
+
+  it("skips an extension that declares a ref it cannot identify", async () => {
+    const root = await makeRoot({ "README.md": "hello" });
+    const system = new WorkspaceSystem()
+      .extend({ applies: () => true, name: "lifecycle-only", ref: "path" })
+      .extend(directory());
+
+    const loaded = await system.load({ path: root });
+
+    expect(loaded.root).toBe(root);
+    await system.closeAll();
+  });
+
+  it("rejects capabilities that are not a plain object", async () => {
+    class Greeter {
+      readonly greeting = "hi";
+
+      greet(): string {
+        return this.greeting;
+      }
+    }
+    const system = new WorkspaceSystem().extend(memExtension()).extend({
+      applies: () => true,
+      attach: () => ({ capabilities: new Greeter() }),
+      name: "classy",
+    });
+
+    await expect(system.load({ mem: "classy" })).rejects.toBeInstanceOf(
+      InvalidWorkspaceInputError
+    );
+  });
+
+  it("keeps one extension's capability union intact", () => {
+    const either: WorkspaceExtension<
+      never,
+      unknown,
+      { readonly alpha: string } | { readonly beta: number },
+      true
+    > = {
+      applies: () => true,
+      attach: () => ({ capabilities: { alpha: "a" } }),
+      name: "either",
+    };
+    type Either = CapabilitiesOf<[typeof either]>;
+
+    expectTypeOf<Either>().toEqualTypeOf<
+      { readonly alpha: string } | { readonly beta: number }
+    >();
+    const accept = (capabilities: Either) => capabilities;
+    const readAlpha = (capabilities: Either) =>
+      // @ts-expect-error -- alpha exists on only one alternative
+      capabilities.alpha;
+    expect(accept({ alpha: "a" })).toEqual({ alpha: "a" });
+    expect(readAlpha({ beta: 1 })).toBeUndefined();
+
+    const other: WorkspaceExtension<
+      never,
+      unknown,
+      { readonly gamma: boolean },
+      true
+    > = {
+      applies: () => true,
+      attach: () => ({ capabilities: { gamma: true } }),
+      name: "other",
+    };
+    type Both = CapabilitiesOf<[typeof either, typeof other]>;
+    const acceptBoth = (capabilities: Both) => capabilities.gamma;
+    const readBothAlpha = (capabilities: Both) =>
+      // @ts-expect-error -- alpha exists on only one alternative
+      capabilities.alpha;
+    // @ts-expect-error -- gamma is required alongside either alternative
+    const missingGamma: Both = { alpha: "a" };
+    expect(acceptBoth({ alpha: "a", gamma: true })).toBe(true);
+    expect(readBothAlpha({ beta: 1, gamma: false })).toBeUndefined();
+    expect(missingGamma).toEqual({ alpha: "a" });
+  });
+
+  it("types a conditional extension's capabilities as optional", async () => {
+    const system = new WorkspaceSystem().extend(memExtension()).extend({
+      applies: (registration) => registration.source.kind === "x",
+      attach: () => ({
+        capabilities: { token: "t" } as { readonly token: string },
+      }),
+      name: "conditional",
+    });
+
+    const loaded = await system.load({ mem: "plain" });
+    const opened = await system.open(loaded.id);
+    const [listed] = (await system.list()).items;
+    if (!listed) {
+      throw new Error("expected a listed workspace");
+    }
+
+    expectTypeOf(loaded.token).toEqualTypeOf<string | undefined>();
+    expectTypeOf(opened.token).toEqualTypeOf<string | undefined>();
+    expectTypeOf(listed.token).toEqualTypeOf<string | undefined>();
+    expect(loaded.token).toBeUndefined();
+    await system.closeAll();
+  });
+
   it("names the unsupported operation when a source adapter omits file I/O", async () => {
     const system = new WorkspaceSystem().extend({
       applies: (registration) => registration.source.kind === "readonly-index",
@@ -675,3 +872,16 @@ describe("lifecycle", () => {
     );
   });
 });
+
+function memExtension() {
+  return {
+    applies: () => true,
+    identify: ({ mem }: { readonly mem: string }) => ({
+      name: mem,
+      source: { kind: "mem", path: `mem:${mem}`, sourceId: null },
+    }),
+    name: "mem",
+    ref: "mem",
+    source: (): WorkspaceSourceAdapter => ({ scan: () => Promise.resolve([]) }),
+  };
+}

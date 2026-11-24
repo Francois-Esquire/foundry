@@ -74,6 +74,9 @@ export function assertScope(scope: string): void {
 }
 
 export function batches<T>(items: readonly T[], size: number): T[][] {
+  if (Number.isNaN(size)) {
+    throw new RangeError("batch size must not be NaN");
+  }
   const length = Math.max(1, Math.floor(size));
   const result: T[][] = [];
   for (let start = 0; start < items.length; start += length) {

@@ -88,6 +88,22 @@ describe("Git.status outside a repository", () => {
     expect(await inspectGit(root)).toEqual({ kind: "none" });
   });
 
+  it("ignores an inherited GIT_DIR that points at another repository", async () => {
+    const repository = await makeRepository({ "README.md": "hello" });
+    const plain = await makeDirectory({ "notes.md": "plain" });
+    const inherited = process.env.GIT_DIR;
+    process.env.GIT_DIR = join(repository, ".git");
+    try {
+      expect(await inspectGit(plain)).toEqual({ kind: "none" });
+    } finally {
+      if (inherited === undefined) {
+        Reflect.deleteProperty(process.env, "GIT_DIR");
+      } else {
+        process.env.GIT_DIR = inherited;
+      }
+    }
+  });
+
   it("reports no capability for a directory that is gone", async () => {
     const root = await makeDirectory();
     await rm(root, { force: true, recursive: true });

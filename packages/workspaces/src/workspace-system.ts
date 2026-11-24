@@ -42,6 +42,16 @@ interface ComposedWorkspace<
   readonly workspace: Workspace & CapabilitiesOf<Extensions>;
 }
 
+interface MatchedExtensions {
+  readonly matched: readonly AnyWorkspaceExtension[];
+  readonly sourceOwner: AnyWorkspaceExtension;
+}
+
+interface StartingWorkspace {
+  readonly cleanups: (() => Promise<void> | void)[];
+  closed: boolean;
+}
+
 interface OpenedWorkspace<Extensions extends readonly AnyWorkspaceExtension[]> {
   readonly sourceOwner: AnyWorkspaceExtension;
   readonly stop: () => Promise<void>;
@@ -60,6 +70,7 @@ export class WorkspaceSystem<
     Promise<OpenedWorkspace<Extensions>>
   >();
   readonly #queues = new KeyedQueue();
+  readonly #starting = new Map<WorkspaceId, StartingWorkspace>();
 
   constructor(options: WorkspaceSystemOptions = {}) {
     this.#context = {
@@ -100,6 +111,11 @@ export class WorkspaceSystem<
     if (closing) {
       return closing;
     }
+    const starting = this.#starting.get(workspaceId);
+    if (starting) {
+      await this.#abortStartup(workspaceId, starting);
+      return;
+    }
     const running = this.#opened.get(workspaceId);
     if (!running) {
       return;
@@ -115,6 +131,20 @@ export class WorkspaceSystem<
       });
     this.#closing.set(workspaceId, stopping);
     await stopping;
+  }
+
+  #abortStartup(
+    workspaceId: WorkspaceId,
+    starting: StartingWorkspace
+  ): Promise<void> {
+    starting.closed = true;
+    this.#starting.delete(workspaceId);
+    this.#opened.delete(workspaceId);
+    const stopping = this.#settleCleanups(starting.cleanups).finally(() => {
+      this.#closing.delete(workspaceId);
+    });
+    this.#closing.set(workspaceId, stopping);
+    return stopping;
   }
 
   async closeAll(): Promise<void> {
@@ -139,7 +169,10 @@ export class WorkspaceSystem<
       SourceCapabilitiesFor<Extensions, R>
   > {
     const sourceExtension = this.#extensions.find(
-      (extension) => extension.ref !== undefined && extension.ref in ref
+      (extension) =>
+        extension.identify !== undefined &&
+        extension.ref !== undefined &&
+        extension.ref in ref
     );
     if (sourceExtension?.identify === undefined) {
       throw new InvalidWorkspaceInputError(
@@ -157,11 +190,11 @@ export class WorkspaceSystem<
 
   #openEntry(
     workspaceId: WorkspaceId,
-    precomposed?: ComposedWorkspace<Extensions>
+    prematched?: MatchedExtensions
   ): Promise<OpenedWorkspace<Extensions>> {
     const closing = this.#closing.get(workspaceId);
     if (closing) {
-      return closing.then(() => this.#openEntry(workspaceId, precomposed));
+      return closing.then(() => this.#openEntry(workspaceId, prematched));
     }
     const running = this.#opened.get(workspaceId);
     if (running) {
@@ -174,7 +207,13 @@ export class WorkspaceSystem<
       if (!registration) {
         throw new WorkspaceNotFoundError(workspaceId);
       }
-      const composed = precomposed ?? (await this.#compose(registration));
+      const composed = prematched
+        ? await this.#attachMatched(
+            registration,
+            prematched.matched,
+            prematched.sourceOwner
+          )
+        : await this.#compose(registration);
       const stop = await this.#start(composed);
       return {
         sourceOwner: composed.sourceOwner,
@@ -277,8 +316,11 @@ export class WorkspaceSystem<
       if (!registration) {
         throw new WorkspaceNotFoundError(workspaceId);
       }
-      const composed = await this.#compose(registration, expectedOwner);
-      entry = await this.#openEntry(workspaceId, composed);
+      const prematched = await this.#matchExtensions(
+        registration,
+        expectedOwner
+      );
+      entry = await this.#openEntry(workspaceId, prematched);
     }
     if (entry.sourceOwner !== expectedOwner) {
       throw new WorkspaceSourceUnsupportedError(entry.workspace.source.kind);
@@ -296,6 +338,17 @@ export class WorkspaceSystem<
     registration: WorkspaceRegistration,
     expectedOwner?: AnyWorkspaceExtension
   ): Promise<ComposedWorkspace<Extensions>> {
+    const { matched, sourceOwner } = await this.#matchExtensions(
+      registration,
+      expectedOwner
+    );
+    return this.#attachMatched(registration, matched, sourceOwner);
+  }
+
+  async #matchExtensions(
+    registration: WorkspaceRegistration,
+    expectedOwner?: AnyWorkspaceExtension
+  ): Promise<MatchedExtensions> {
     const matched: AnyWorkspaceExtension[] = [];
     for (const extension of this.#extensions) {
       if (await extension.applies(registration)) {
@@ -303,10 +356,21 @@ export class WorkspaceSystem<
       }
     }
     const sourceOwner = matched.find((extension) => extension.source);
-    if (!sourceOwner?.source) {
+    if (
+      sourceOwner === undefined ||
+      (expectedOwner !== undefined && sourceOwner !== expectedOwner)
+    ) {
       throw new WorkspaceSourceUnsupportedError(registration.source.kind);
     }
-    if (expectedOwner !== undefined && sourceOwner !== expectedOwner) {
+    return { matched, sourceOwner };
+  }
+
+  async #attachMatched(
+    registration: WorkspaceRegistration,
+    matched: readonly AnyWorkspaceExtension[],
+    sourceOwner: AnyWorkspaceExtension
+  ): Promise<ComposedWorkspace<Extensions>> {
+    if (!sourceOwner.source) {
       throw new WorkspaceSourceUnsupportedError(registration.source.kind);
     }
     const adapter = sourceOwner.source(registration);
@@ -341,7 +405,9 @@ export class WorkspaceSystem<
     composed: ComposedWorkspace<Extensions>
   ): Promise<() => Promise<void>> {
     const { adapter, hooks, workspace } = composed;
-    const cleanups: (() => Promise<void> | void)[] = [];
+    const state: StartingWorkspace = { cleanups: [], closed: false };
+    const { cleanups } = state;
+    this.#starting.set(workspace.id, state);
     try {
       if (adapter.watch) {
         const subscription = await observe(
@@ -354,11 +420,16 @@ export class WorkspaceSystem<
             this.#safeReport(error);
           }
         );
-        if (subscription) {
+        if (subscription && state.closed) {
+          await subscription.close();
+        } else if (subscription) {
           cleanups.push(() => subscription.close());
         }
       }
       for (const hook of hooks) {
+        if (state.closed) {
+          break;
+        }
         if (hook.stop) {
           cleanups.push(() => hook.stop?.(workspace));
         }
@@ -369,17 +440,25 @@ export class WorkspaceSystem<
         this.#safeReport(cleanupError);
       }
       throw startupError;
+    } finally {
+      if (this.#starting.get(workspace.id) === state) {
+        this.#starting.delete(workspace.id);
+      }
     }
 
-    return async () => {
-      const errors = await runCleanups(cleanups);
-      for (const extra of errors.slice(1)) {
-        this.#safeReport(extra);
-      }
-      if (errors.length > 0) {
-        throw errors[0];
-      }
-    };
+    return () => this.#settleCleanups(cleanups);
+  }
+
+  async #settleCleanups(
+    cleanups: (() => Promise<void> | void)[]
+  ): Promise<void> {
+    const errors = await runCleanups(cleanups);
+    for (const extra of errors.slice(1)) {
+      this.#safeReport(extra);
+    }
+    if (errors.length > 0) {
+      throw errors[0];
+    }
   }
 
   #safeReport(error: unknown): void {
@@ -434,6 +513,12 @@ function attachCapabilities(
   extensionName: string,
   capabilities: object
 ): void {
+  const prototype = Object.getPrototypeOf(capabilities);
+  if (prototype !== null && prototype !== Object.prototype) {
+    throw new InvalidWorkspaceInputError(
+      `Workspace extension "${extensionName}" must return capabilities as a plain object`
+    );
+  }
   for (const key of Reflect.ownKeys(capabilities)) {
     const descriptor = Object.getOwnPropertyDescriptor(capabilities, key);
     if (!descriptor?.enumerable) {

@@ -125,6 +125,12 @@ describe("batches", () => {
     expect(batches([1, 2], 0.5)).toEqual([[1], [2]]);
   });
 
+  test("rejects a NaN size", () => {
+    expect(() => batches([1, 2], Number.NaN)).toThrow(
+      new RangeError("batch size must not be NaN")
+    );
+  });
+
   test("yields nothing for no items", () => {
     expect(batches([], 10)).toEqual([]);
   });

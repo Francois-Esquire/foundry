@@ -170,8 +170,13 @@ export type WorkspaceExtension<
   Ref extends object = never,
   SourceCapabilities = unknown,
   Capabilities = unknown,
+  Always extends boolean = boolean,
 > = {
-  applies: (registration: WorkspaceRegistration) => Promise<boolean> | boolean;
+  applies: (
+    registration: WorkspaceRegistration
+  ) => [Always] extends [true]
+    ? Promise<true> | true
+    : Promise<boolean> | boolean;
   identify?(ref: Ref): Promise<WorkspaceIdentity> | WorkspaceIdentity;
   readonly name: string;
   readonly ref?: string;
@@ -207,25 +212,38 @@ export type RefOf<Extensions extends readonly AnyWorkspaceExtension[]> =
 export type SourceCapabilitiesFor<
   Extensions extends readonly AnyWorkspaceExtension[],
   R,
-> = Extensions[number] extends infer E
-  ? E extends WorkspaceExtension<infer Ref, infer SourceCapabilities>
-    ? R extends Ref
-      ? SourceCapabilities
-      : never
-    : never
-  : never;
-
-export type CapabilitiesOf<
-  Extensions extends readonly AnyWorkspaceExtension[],
-> = UnionToIntersection<
+> = OrUnknown<
   Extensions[number] extends infer E
-    ? E extends WorkspaceExtension<never, unknown, infer Capabilities>
-      ? unknown extends Capabilities
-        ? never
-        : Capabilities
+    ? E extends WorkspaceExtension<
+        infer Ref,
+        infer SourceCapabilities,
+        infer _Capabilities
+      >
+      ? R extends Ref
+        ? unknown extends SourceCapabilities
+          ? never
+          : SourceCapabilities
+        : never
       : never
     : never
 >;
+
+export type CapabilitiesOf<
+  Extensions extends readonly AnyWorkspaceExtension[],
+> = Unboxed<
+  UnionToIntersection<
+    | {
+        readonly [K in keyof Extensions]: {
+          readonly capabilities: ExtensionCapabilities<Extensions[K]>;
+        };
+      }[number]
+    | { readonly capabilities: unknown }
+  >
+>;
+
+type Unboxed<Box> = Box extends { readonly capabilities: infer Capabilities }
+  ? Capabilities
+  : unknown;
 
 type UnionToIntersection<U> = (
   U extends unknown
@@ -233,7 +251,28 @@ type UnionToIntersection<U> = (
     : never
 ) extends (member: infer I) => void
   ? I
-  : unknown;
+  : never;
+
+type ExtensionCapabilities<E> =
+  E extends WorkspaceExtension<never, unknown, infer Capabilities>
+    ? unknown extends Capabilities
+      ? unknown
+      : AppliesAlways<E> extends true
+        ? Capabilities
+        : DistributivePartial<Capabilities>
+    : unknown;
+
+type AppliesAlways<E> = E extends {
+  readonly applies: (registration: WorkspaceRegistration) => infer Applied;
+}
+  ? false extends Awaited<Applied>
+    ? false
+    : true
+  : false;
+
+type DistributivePartial<T> = T extends unknown ? Partial<T> : never;
+
+type OrUnknown<T> = [T] extends [never] ? unknown : T;
 
 export interface ResolvedSource {
   readonly name?: string;

@@ -62,6 +62,27 @@ class GitExecError extends Error {
   }
 }
 
+const REPOSITORY_LOCATION_VARIABLES = new Set([
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_WORK_TREE",
+]);
+
+function gitEnv(): NodeJS.ProcessEnv {
+  return {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([name]) => !REPOSITORY_LOCATION_VARIABLES.has(name)
+      )
+    ),
+    LC_ALL: "C",
+  };
+}
+
 function execGit(cwd: string, args: readonly string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -70,7 +91,7 @@ function execGit(cwd: string, args: readonly string[]): Promise<string> {
       {
         cwd,
         encoding: "utf8",
-        env: { ...process.env, LC_ALL: "C" },
+        env: gitEnv(),
         maxBuffer: MAX_GIT_OUTPUT_BYTES,
       },
       (error, stdout, stderr) => {
