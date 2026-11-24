@@ -1,4 +1,6 @@
-import { basename } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { thisProcess } from "@foundry/lib/process-identity";
 import type { RunEvent } from "@foundry/workflows/schema";
 import type { RunView } from "@foundry.sh/marbles";
@@ -23,7 +25,9 @@ import {
 } from "~/authoring/runtime";
 import { DatabaseRunStore } from "~/database/runs";
 import type { Engine } from "~/lib/engine";
-import { testEngine } from "./helpers/engine";
+import { DEFINITION_IDENTITY } from "~/lib/handles";
+import { startEngine, testEngine } from "./helpers/engine";
+import { openFeed } from "./helpers/feed";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
@@ -34,6 +38,8 @@ const DISPOSED_RUNS = /host that held these runs was disposed/;
 const LOADING_RUNS = /runs are not available while its source loads/;
 const RETIRING = /this engine is retiring/;
 const STOPPING = /engine is stopping/;
+const FIRST_CLAIM = /^catalog:.+#1$/;
+const SECOND_CLAIM = /^catalog:.+#2$/;
 
 const library = await import("~/authoring");
 
@@ -332,6 +338,30 @@ describe(".launch() at its edges", () => {
     ).toEqual(["first-choice", "second-choice"]);
   });
 
+  it("distinguishes factory closures at the same replay place", async () => {
+    function make(value: string) {
+      return step().do(() => value);
+    }
+    const first = make("first");
+    const second = make("second");
+    let bodies = 0;
+    const chooser = step("closure-chooser").do(async ({ ask }) => {
+      bodies += 1;
+      const launched = await (bodies === 1 ? first : second).launch();
+      await ask.question({ title: "Again?" });
+      return launched.id;
+    });
+    const engine = unhosted(true);
+    await engine.start();
+    const running = engine.execute<string>(chooser, {});
+    await answerOpen(engine);
+    const id = await running;
+    await vi.waitFor(async () =>
+      expect((await engine.readRun(id))?.status).toBe("complete")
+    );
+    expect((await engine.readRun(id))?.output).toBe("second");
+  });
+
   it("distinguishes unnamed inline definitions on replay and reuses the same unnamed definition", async () => {
     let switchBodies = 0;
     const switcher = step("unnamed-switcher").do(async ({ ask }) => {
@@ -441,5 +471,253 @@ describe(".launch() at its edges", () => {
 
     await expect(leaf?.launch()).rejects.toThrow(RELEASED);
     await expect(reads?.get("rn-1")).rejects.toThrow(RELEASED);
+  });
+});
+
+interface Launchable {
+  launch(): Promise<{ readonly id: string; readonly result: Promise<unknown> }>;
+}
+
+function identityOf(definition: object): string | undefined {
+  return (definition as { [DEFINITION_IDENTITY]?: string })[
+    DEFINITION_IDENTITY
+  ];
+}
+
+function isolated(workspaceId: string): Engine {
+  const engine = testEngine({
+    askable: true,
+    print: () => undefined,
+    workspaceId,
+  });
+  engines.push(engine);
+  return engine;
+}
+
+async function replayedLaunch(
+  name: string,
+  pick: (body: number) => Launchable
+): Promise<{ readonly bodies: number; readonly output: unknown }> {
+  let bodies = 0;
+  const chooser = step(name).do(async ({ ask }) => {
+    bodies += 1;
+    const launched = await pick(bodies).launch();
+    await ask.question({ title: "Again?" });
+    return launched.id;
+  });
+  const engine = isolated(name);
+  await engine.start();
+  const running = engine.execute<string>(chooser, {});
+  await answerOpen(engine);
+  const id = await running;
+  await vi.waitFor(async () =>
+    expect((await engine.readRun(id))?.status).toBe("complete")
+  );
+  return { bodies, output: (await engine.readRun(id))?.output };
+}
+
+describe("an unnamed .launch() on replay", () => {
+  it("tells apart definitions a factory loop builds and reuses the same one", async () => {
+    const calls: string[] = [];
+    function make(value: string) {
+      return step().do(() => {
+        calls.push(value);
+        return value;
+      });
+    }
+    const built = ["a", "b", "c"].map(make);
+    await expect(
+      replayedLaunch(
+        "loop-switch",
+        (body) => built[body === 1 ? 0 : 2] as Launchable
+      )
+    ).resolves.toEqual({ bodies: 2, output: "c" });
+    await expect(
+      replayedLaunch("loop-same", () => built[1] as Launchable)
+    ).resolves.toEqual({ bodies: 2, output: "b" });
+    expect(calls).toEqual(["a", "c", "b"]);
+  });
+
+  it("tells apart each .do() of one reused builder", async () => {
+    const base = step().describe("shared builder");
+    const first = base.do(() => "first-do");
+    const second = base.do(() => "second-do");
+    expect(identityOf(first)).not.toBe(identityOf(second));
+    await expect(
+      replayedLaunch("builder-switch", (body) => (body === 1 ? first : second))
+    ).resolves.toEqual({ bodies: 2, output: "second-do" });
+  });
+
+  it("tells apart definitions on one line and those an exec wrapper builds", async () => {
+    const pair = [step().do(() => 1), step().do(() => 2)] as const;
+    const sh = (command: string) => step().exec(command);
+    const wrapped = [sh("true"), sh("false")];
+    expect(new Set([...pair, ...wrapped].map(identityOf)).size).toBe(4);
+    await expect(
+      replayedLaunch("line-switch", (body) => pair[body === 1 ? 0 : 1])
+    ).resolves.toEqual({ bodies: 2, output: 2 });
+  });
+
+  it("numbers a body's definitions apart from a nested workflow's setup that replay skips", async () => {
+    let launches = 0;
+    function make(value: string) {
+      return step().do(() => {
+        launches += 1;
+        return value;
+      });
+    }
+    const leaf = step("setup-leaf").do(() => "leaf");
+    const child = workflow().do(() => {
+      make("in-setup");
+      return leaf();
+    });
+    let bodies = 0;
+    const parent = step("setup-then-launch").do(async ({ ask }) => {
+      bodies += 1;
+      await child.run();
+      const launched = await make("after-setup").launch();
+      await ask.question({ title: "Again?" });
+      return launched.id;
+    });
+    const engine = isolated("setup-then-launch");
+    await engine.start();
+    const running = engine.execute<string>(parent, {});
+    await answerOpen(engine);
+    const id = await running;
+    await vi.waitFor(async () =>
+      expect((await engine.readRun(id))?.status).toBe("complete")
+    );
+    expect(bodies).toBe(2);
+    expect(launches).toBe(1);
+    expect((await engine.readRun(id))?.output).toBe("after-setup");
+  });
+
+  it("claims a setup's definitions in setup and a body's in that body, either way they nest", async () => {
+    const seen: string[] = [];
+    const record = (definition: object) =>
+      seen.push((identityOf(definition) ?? "").split(":")[0] ?? "");
+    const probe = step("nested-probe").do(() => {
+      record(step().do(() => "probe"));
+      return "probed";
+    });
+    const child = workflow().do(async () => {
+      record(step().do(() => "setup"));
+      await probe.run();
+      return probe();
+    });
+    const outer = step("nesting-outer").do(async () => {
+      record(step().do(() => "outer"));
+      return await child.run();
+    });
+    const engine = isolated("nesting-outer");
+    await engine.start();
+    await expect(engine.execute(outer, {})).resolves.toBe("probed");
+    expect(seen).toEqual(["run", "setup", "run", "run"]);
+  });
+
+  it("numbers each source load's definitions on its own, however loads interleave", async () => {
+    const build = (words: typeof library) => words.step().do(() => "loaded");
+    const ids = new Map<string, string[]>();
+    const gate = Promise.withResolvers<void>();
+    function loadOf(workspaceId: string, between?: Promise<void>) {
+      return loadInto(workspaceId, new Catalog(), async (load) => {
+        const words = libraryOfLoad(library, load) as typeof library;
+        const own: string[] = [];
+        ids.set(workspaceId, own);
+        own.push(identityOf(build(words)) ?? "");
+        await between;
+        own.push(identityOf(build(words)) ?? "");
+      });
+    }
+    const first = loadOf("interleave-a", gate.promise);
+    await loadOf("interleave-b");
+    gate.resolve();
+    await first;
+    const [one, two] = ids.get("interleave-a") ?? [];
+    expect(one).toMatch(FIRST_CLAIM);
+    expect(two).toMatch(SECOND_CLAIM);
+    expect(ids.get("interleave-b")).toEqual([one, two]);
+  });
+
+  it("restores a completed unnamed launch after a restart without running it again", async () => {
+    const root = await mkdtemp(join(tmpdir(), "marbles-launch-restart-"));
+    try {
+      const state = join(root, "state");
+      const feedRoot = join(root, "feed");
+      let childCalls = 0;
+      let parentCalls = 0;
+      function declare() {
+        const make = (value: number) =>
+          step().do(() => {
+            childCalls += 1;
+            return value;
+          });
+        const built = [make(1), make(2)];
+        const parent = step("restart-launcher").do(async ({ ask }) => {
+          parentCalls += 1;
+          const launched = await (built[1] as Launchable).launch();
+          await ask.approval({ title: "Keep the launched result?" });
+          return { id: launched.id, value: await launched.result };
+        });
+        workflow("restart-launch", () => parent());
+      }
+      declare();
+      const feedOne = openFeed(feedRoot, { id: "ws", root });
+      const one = await startEngine({
+        artifacts: feedOne.artifacts,
+        askable: true,
+        print: () => undefined,
+        root,
+        state,
+      });
+      engines.push(one);
+      const launched = await one.launch("restart-launch", {});
+      launched.result.catch(() => undefined);
+      const question = await vi.waitFor(async () => {
+        const open = (await feedOne.read()).find(
+          (entry) => entry.input?.status === "open"
+        );
+        expect(open).toBeDefined();
+        return open;
+      });
+      const childId = await vi.waitFor(async () => {
+        const all = await one.runs();
+        expect(all.find((run) => run.id === launched.id)?.status).toBe(
+          "suspended"
+        );
+        const child = all.find((run) => run.id !== launched.id);
+        expect(child?.status).toBe("complete");
+        return child?.id;
+      });
+      await one.dispose();
+      expect({ childCalls, parentCalls }).toEqual({
+        childCalls: 1,
+        parentCalls: 1,
+      });
+
+      catalog.reset();
+      declare();
+      const feedTwo = openFeed(feedRoot, { id: "ws", root });
+      const two = await startEngine({
+        artifacts: feedTwo.artifacts,
+        askable: true,
+        print: () => undefined,
+        root,
+        state,
+      });
+      engines.push(two);
+      await two.answer(question?.id ?? "", "approve");
+      await vi.waitFor(async () => {
+        const run = (await two.runs()).find((each) => each.id === launched.id);
+        expect(run?.status).toBe("complete");
+        expect(run?.output).toEqual({ id: childId, value: 2 });
+      });
+      expect({ childCalls, parentCalls }).toEqual({
+        childCalls: 1,
+        parentCalls: 2,
+      });
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
   });
 });

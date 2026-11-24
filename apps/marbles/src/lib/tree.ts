@@ -17,7 +17,13 @@ import type {
 import { isLockedNode, rootLock } from "./definition";
 import { withinContext } from "./execution-context";
 import type { Frame, RunScope, RunScopes } from "./run-scope";
-import { current, PAUSE_KIND, raceAbort, workingDirectory } from "./run-scope";
+import {
+  current,
+  PAUSE_KIND,
+  raceAbort,
+  setupCounters,
+  workingDirectory,
+} from "./run-scope";
 import { parseEvery } from "./schedule";
 import { notJson, validate } from "./schema";
 
@@ -141,8 +147,10 @@ async function runBody(
   const timer = startTimeout(definition, where, frame);
   try {
     attempt = current.run(store, () =>
-      Promise.resolve(
-        definition.fn(buildContext({ bindings, ctx, frame, input, scope }))
+      setupCounters.exit(() =>
+        Promise.resolve(
+          definition.fn(buildContext({ bindings, ctx, frame, input, scope }))
+        )
       )
     );
     output = await raceAbort(frame, attempt);
@@ -359,11 +367,14 @@ async function rootNode(
   if (!isWorkflow(definition)) {
     return rootLock(definition, input);
   }
-  const tree: unknown = await definition.setup({
-    input,
-    log: bindings.setupLog?.({ id: scope.id, workflow: name }) ?? bindings.log,
-    run: { id: scope.id },
-  });
+  const tree: unknown = await setupCounters.run(new Map(), () =>
+    definition.setup({
+      input,
+      log:
+        bindings.setupLog?.({ id: scope.id, workflow: name }) ?? bindings.log,
+      run: { id: scope.id },
+    })
+  );
   if (!isLockedNode(tree)) {
     throw new Error(`"${name}": setup must return a locked node`);
   }

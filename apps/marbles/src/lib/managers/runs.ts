@@ -1,11 +1,10 @@
-import { createHash } from "node:crypto";
-import { canonicalizeJson } from "@foundry/lib/json";
 import type { RunRecord } from "@foundry/workflows/schema";
 import { current } from "~/lib/run-scope";
 import type { ManagerArgs } from "../bindings";
 import type { AnyDefinition } from "../definition";
 import type { ExecutionRun } from "../execution-record";
 import type { ExecutionStatus } from "../execution-statuses";
+import { DEFINITION_IDENTITY } from "../handles";
 import type { Launched } from "../launcher";
 
 export interface RunView {
@@ -53,21 +52,10 @@ function definitionIdentity(definition: AnyDefinition): string {
   if (definition.name !== undefined) {
     return `name:${definition.name}`;
   }
-  const source =
-    definition.kind === "step"
-      ? definition.fn.toString()
-      : definition.setup.toString();
-  const digest = createHash("sha256")
-    .update(
-      canonicalizeJson([
-        definition.kind,
-        definition.origin ?? null,
-        definition.description ?? null,
-        source,
-      ])
-    )
-    .digest("hex");
-  return `anon:${digest}`;
+  const constructed = (definition as { [DEFINITION_IDENTITY]?: string })[
+    DEFINITION_IDENTITY
+  ];
+  return constructed === undefined ? "anon" : `anon:${constructed}`;
 }
 
 function isoOf(at: number | null | undefined): string | undefined {
