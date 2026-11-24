@@ -3,14 +3,14 @@ title: Agent sessions
 description: Host and sandbox options, permissions, questions, child agents, and managed triggers.
 ---
 
-For the authoring model, start with [Agents and sessions](/marbles/foundation/agents-and-sessions).
+For the authoring model, start with [Agents and sessions](/marbles/concepts/agents-and-sessions).
 This page covers the advanced options of `agents.session(definition, options)`.
 
 The contracts come from [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md),
 with provider resolution from [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md)
 and guest commands and tools from [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md).
 Marbles binds their lifetime to the owning step. Read
-[Durability](/marbles/foundation/durability#replay-is-different-from-retry)
+[Durability](/marbles/concepts/durability#replay-is-different-from-retry)
 for the difference between continuing a conversation, replaying a step,
 and retrying a failed attempt.
 
@@ -25,7 +25,7 @@ Native CLI sessions manage their own compaction and reject an explicit
 
 ## Coding inside MicroSandbox
 
-Configure the [sandbox runtime](/marbles/foundation/workspaces-and-sandboxes#sandboxes)
+Configure the [sandbox runtime](/marbles/concepts/workspaces-and-artifacts#sandboxes)
 before running this example. It edits the mounted project and requires a
 working `bun test` command. Review the permission profile for your project.
 

@@ -96,7 +96,7 @@ Configure actual permissions as described in the prerequisites.
 ## Read the result
 
 Open `marbles` and read **Morning briefing** in the Feed. The example uses
-[artifacts and the Feed](/marbles/foundation/artifacts-and-results#artifacts-and-the-feed)
+[artifacts and the Feed](/marbles/concepts/workspaces-and-artifacts#artifacts-and-the-feed)
 for different purposes:
 
 - `departures.write(...)` keeps the departure time for the next run without
@@ -118,8 +118,8 @@ an incomplete notice at the top; no updates from a failed source never means
 that nothing happened there. You still choose today's priorities.
 
 The [Artifacts library](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
-keeps report versions. [Agents](/marbles/foundation/agents-and-sessions) supplies
-the source sessions, and [Workflows](/marbles/foundation/durability) records the
+keeps report versions. [Agents](/marbles/concepts/agents-and-sessions) supplies
+the source sessions, and [Workflows](/marbles/concepts/durability) records the
 completed stages. A retry can repeat a source read or artifact write. The
 example configures a collection timeout and no automatic retries.
 

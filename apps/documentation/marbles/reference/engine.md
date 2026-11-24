@@ -8,7 +8,7 @@ launch and inspect Marbles work. The host supplies configured package
 instances, registers definitions, and owns startup and shutdown.
 
 Marbles connects those instances to step contexts, the Feed, approvals,
-and run execution. The [package map](/marbles/foundation/primitives) explains
+and run execution. The [package map](/marbles/concepts/primitives) explains
 what each library provides.
 
 ## Create and run an engine
@@ -163,7 +163,7 @@ workspace's tasks, is described [below](#tasks).
 [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
 provides the orchestrator and step execution. Marbles adds run-owned
 sessions, resources, and the saved ledger used when a parked run replays.
-The [durability contract](/marbles/foundation/durability) still applies when
+The [durability contract](/marbles/concepts/durability) still applies when
 you embed the engine; the library's broader recovery APIs do not change
 Marbles' adoption rules.
 
