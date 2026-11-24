@@ -4,8 +4,8 @@ import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
 import type { JsonValue } from "@foundry/lib/json";
 import { ownedWrite } from "@foundry/lib/plain-json";
+import type { QueueStoreService } from "@foundry/queue/store";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
-import type { WorkflowStore } from "@foundry/workflows/store";
 import { DatabaseActivityStore } from "~/database/activities";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import { DatabaseAutomationStore } from "~/database/automations";
@@ -614,7 +614,7 @@ class ManagedRunStore implements RunStore {
   open(
     recorded: (runId: string) => RecordedScope | undefined,
     follows?: RunFollower
-  ): Promise<WorkflowStore> {
+  ): Promise<QueueStoreService> {
     return this.#run((store) => store.open(recorded, follows));
   }
 

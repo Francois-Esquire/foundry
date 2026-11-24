@@ -28,7 +28,7 @@ import {
 import { GenerationRecords } from "~/database/generations";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
-import { unheldParkedRuns } from "~/database/runs";
+import { unheldSuspendedRuns } from "~/database/runs";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Layout } from "~/layout";
 import {
@@ -837,14 +837,14 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     id: string
   ): Promise<readonly string[]> {
     try {
-      const parked = await unheldParkedRuns(database.database, id);
+      const suspended = await unheldSuspendedRuns(database.database, id);
       const owner = target.identity;
       const queued =
         owner === undefined
           ? []
           : await queuedRunsOwnedBy(database.database, id, owner);
       return [
-        ...parked,
+        ...suspended,
         ...queued.filter((runId) => !holding.keys.has(`${id}\0${runId}`)),
       ];
     } catch {

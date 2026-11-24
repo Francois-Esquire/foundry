@@ -2,9 +2,9 @@ import type { SessionChangeEvent } from "@foundry/agents/schema";
 import type { ArtifactEvent } from "@foundry/artifacts";
 import type { SandboxEvent } from "@foundry/sandbox/store";
 import type { TaskEvent } from "@foundry/tasks";
-import type { RunEvent } from "@foundry/workflows/schema";
 import type { WorkspaceEvent } from "@foundry/workspaces/schema";
 import type { ArtifactShareEvent } from "~/lib/resources";
+import type { RunEvent } from "~/lib/workflow-runs";
 
 declare const payloadType: unique symbol;
 

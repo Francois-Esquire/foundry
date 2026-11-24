@@ -17,6 +17,7 @@ const KEY_SEPARATORS = /[^a-z0-9]+/g;
 const KEY_TRIM = /^-+|-+$/g;
 const KEY_MAX = 40;
 const HTTP_SOURCE = /^https?:\/\//;
+const WHITESPACE = /\s/;
 
 function slug(text: string): string {
   const cleaned = text
@@ -70,7 +71,14 @@ export function schedule(target: AnyDefinition | LockedNode): ScheduleBuilder {
 export interface MonitorBuilder {
   do(handler: MonitorHandler): void;
   every(interval: string): MonitorBuilder;
+  name(key: string): MonitorBuilder;
   request(init: MonitorRequest): MonitorBuilder;
+}
+
+interface MonitorFields {
+  readonly every: string;
+  readonly key?: string;
+  readonly request?: MonitorRequest;
 }
 
 export function monitor(source: string): MonitorBuilder {
@@ -81,25 +89,36 @@ export function monitor(source: string): MonitorBuilder {
     ? { kind: "http", url: source }
     : { glob: source, kind: "files" };
   const scope = captureScope();
-  const build = (every: string, request?: MonitorRequest): MonitorBuilder => ({
+  const build = (fields: MonitorFields): MonitorBuilder => ({
     do(handler) {
-      const trigger = parseAt(every);
+      const trigger = parseAt(fields.every);
       const into = scope(declaringCatalog);
-      const key = into.uniqueKey(
-        `${slug(source)}-${sha256(source).slice(0, 6)}`
-      );
+      const key =
+        fields.key ??
+        into.uniqueKey(`${slug(source)}-${sha256(source).slice(0, 6)}`);
       into.monitor({
         handler,
         key,
         label: source,
-        ...(request === undefined ? {} : { request }),
+        ...(fields.request === undefined ? {} : { request: fields.request }),
         source: spec,
         trigger,
       });
     },
     every(interval) {
       parseAt(interval);
-      return build(interval, request);
+      return build({ ...fields, every: interval });
+    },
+    name(key) {
+      if (typeof key !== "string" || !key.trim()) {
+        throw new Error(`monitor("${source}").name(): a name cannot be blank`);
+      }
+      if (WHITESPACE.test(key)) {
+        throw new Error(
+          `monitor("${source}").name(${JSON.stringify(key)}): a name is one word, as \`marbles roll <name>\` takes it`
+        );
+      }
+      return build({ ...fields, key });
     },
     request(init) {
       if (spec.kind !== "http") {
@@ -107,8 +126,8 @@ export function monitor(source: string): MonitorBuilder {
           `monitor("${source}").request(): only an http or https source sends a request`
         );
       }
-      return build(every, init);
+      return build({ ...fields, request: init });
     },
   });
-  return build(DEFAULT_EVERY);
+  return build({ every: DEFAULT_EVERY });
 }

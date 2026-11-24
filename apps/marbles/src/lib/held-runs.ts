@@ -1,5 +1,3 @@
-import type { Orchestrator } from "@foundry/workflows/orchestrator";
-
 import type { Executions } from "~/lib/executions";
 import type { FeedRouter } from "~/lib/feed/route";
 import type { DispatchedRun } from "~/lib/launcher";
@@ -7,14 +5,15 @@ import { observeSteps } from "~/lib/observe";
 import type { RunScopes } from "~/lib/run-scope";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import { RunOutput } from "~/lib/state/output";
+import type {
+  LiveRun,
+  HeldWorkflow as LiveWorkflow,
+  WorkflowQueue,
+} from "~/lib/workflow-queue";
 
 export class RunEndedError extends Error {
   override readonly name = "RunEndedError";
 }
-
-export type Dispatched<O> = Awaited<
-  ReturnType<typeof Orchestrator.prototype.run<unknown, O>>
->;
 
 const STEP_LIFECYCLE: ReadonlySet<string> = new Set([
   "step.started",
@@ -25,11 +24,9 @@ const STEP_LIFECYCLE: ReadonlySet<string> = new Set([
   "step.aborted",
 ]);
 
-type DispatchedWorkflow = Dispatched<unknown>["workflow"];
-
 interface HeldWorkflow {
-  readonly root: Pick<DispatchedWorkflow["root"], "subscribe">;
-  readonly state: DispatchedWorkflow["state"];
+  readonly root: Pick<LiveWorkflow["root"], "subscribe">;
+  readonly state: LiveWorkflow["state"];
 }
 
 interface HeldRun {
@@ -39,8 +36,8 @@ interface HeldRun {
 
 export interface HeldRunsOptions {
   readonly executions: Pick<Executions, "progress" | "resume" | "suspend">;
-  readonly orchestrator: Orchestrator;
   readonly print: (line: string) => void;
+  readonly queue: WorkflowQueue;
   readonly router: FeedRouter;
   readonly scopes: RunScopes;
   readonly state: string | undefined;
@@ -52,13 +49,13 @@ export class HeldRuns {
 
   constructor(options: HeldRunsOptions) {
     this.#options = options;
-    const { executions, orchestrator } = options;
-    orchestrator.on("suspended", ({ runId }) => {
+    const { executions, queue } = options;
+    queue.on("suspended", (runId) => {
       if (this.#held.has(runId)) {
         executions.suspend(runId);
       }
     });
-    orchestrator.on("resumed", ({ runId }) => {
+    queue.on("resumed", (runId) => {
       if (this.#held.has(runId)) {
         executions.resume(runId);
       }
@@ -75,11 +72,11 @@ export class HeldRuns {
       .map(([runId]) => runId);
   }
 
-  follow(name: string, dispatched: Dispatched<unknown>): DispatchedRun {
-    const { orchestrator } = this.#options;
+  follow(name: string, dispatched: LiveRun): DispatchedRun {
+    const { queue } = this.#options;
     return {
       cancel: async () => {
-        await orchestrator.cancelRun(dispatched.id);
+        await queue.cancelRun(dispatched.id);
       },
       endedAs: () => {
         const { status } = dispatched.workflow.state;
@@ -92,7 +89,7 @@ export class HeldRuns {
     };
   }
 
-  #track<O>(name: string, dispatched: Dispatched<O>): Promise<O> {
+  #track(name: string, dispatched: LiveRun): Promise<unknown> {
     const { executions, print, router, scopes, state } = this.#options;
     const held: HeldRun = { workflow: dispatched.workflow };
     this.#held.set(dispatched.id, held);
@@ -123,7 +120,10 @@ export class HeldRuns {
           observed,
         ]);
         await routed.settled();
-        const settled = await dispatched.workflow.result();
+        if (execution.status === "rejected") {
+          throw execution.reason;
+        }
+        const settled = execution.value;
         if (settled.status !== "complete") {
           const message =
             settled.status === "failed"
@@ -131,9 +131,6 @@ export class HeldRuns {
               : `run "${name}" was cancelled: ${settled.reason ?? router.cancelReason(dispatched.id) ?? "no reason"}`;
           await router.close(dispatched.id);
           throw new RunEndedError(message);
-        }
-        if (execution.status === "rejected") {
-          throw execution.reason;
         }
         if (observation.status === "rejected") {
           throw observation.reason;

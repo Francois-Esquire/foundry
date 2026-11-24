@@ -8,6 +8,7 @@ import type { Output } from "ai";
 import type { Bindings, ManagerArgs } from "~/lib/bindings";
 import type { AnyDefinition } from "~/lib/definition";
 import { AGENT_DEFINITION, AGENT_PROMPT, SANDBOX_HANDLE } from "~/lib/handles";
+import type { Launched } from "~/lib/launcher";
 import { deferredStream } from "~/lib/managers/agent-turns";
 import type { AgentTurns } from "~/lib/managers/agents";
 import { inputSnapshot } from "~/lib/managers/agents";
@@ -34,7 +35,7 @@ import type {
   WorkspaceInstance,
 } from "~/lib/types";
 import type { InstanceRuntime, Scope } from "./runtime";
-import { captureScope, instanceRoot, instanceRuntime } from "./runtime";
+import { captureScope, instanceRoot, instanceRuntime, ownRun } from "./runtime";
 
 function inRun(): { bindings: Bindings; args: ManagerArgs } | undefined {
   const store = current.getStore();
@@ -337,6 +338,31 @@ export function runDefinition(
     : scope(instanceRuntime).then((runtime) =>
         runtime.execute(definition, input)
       );
+}
+
+function quiet(launched: Launched<unknown>): Launched<unknown> {
+  launched.result.catch(() => undefined);
+  return launched;
+}
+
+export function launchDefinition(
+  definition: AnyDefinition,
+  input: unknown,
+  scope: Scope = (work) => work()
+): Promise<Launched<unknown>> {
+  const running = ownRun();
+  const runs = running?.bindings.runs;
+  const launched =
+    running !== undefined && runs !== undefined
+      ? runs({
+          frame: running.frame,
+          scope: running.scope,
+          write: running.write,
+        }).launch(definition, input)
+      : scope(instanceRuntime).then((runtime) =>
+          runtime.launchDefinition(definition, input)
+        );
+  return launched.then(quiet);
 }
 
 export function workspaceInstance(

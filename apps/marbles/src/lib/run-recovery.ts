@@ -1,32 +1,29 @@
-import type {
-  ExecutionCoordinator,
-  OrchestratorStore,
-} from "@foundry/workflows";
-import type { RunRecord } from "@foundry/workflows/schema";
-
 import type { ExecutionRun } from "~/lib/execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import type { RecordedScope } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
+import type { WorkflowQueue } from "~/lib/workflow-queue";
+import type { RunReads, RunRecord } from "~/lib/workflow-runs";
+import { readRun, readRuns } from "~/lib/workflow-runs";
 
-export interface ParkedRunsOptions {
+export interface SuspendedRunsOptions {
   readonly askable: boolean;
   readonly print: (line: string) => void;
   readonly registered: (name: string) => boolean;
   readonly runs: RunStore;
   readonly settled: (runId: string) => Promise<boolean>;
-  readonly store: Pick<OrchestratorStore, "listRuns">;
+  readonly store: Pick<RunReads, "listJobs" | "listRuns">;
 }
 
-export async function adoptParkedRuns(
-  options: ParkedRunsOptions
+export async function adoptSuspendedRuns(
+  options: SuspendedRunsOptions
 ): Promise<ReadonlyMap<string, RecordedScope>> {
   const adopted = new Map<string, RecordedScope>();
   if (!options.runs.durable) {
     return adopted;
   }
-  for (const run of await parked(options.store)) {
-    const scope = await adoptParkedRun(run, options);
+  for (const run of await readRuns(options.store, ["suspended"])) {
+    const scope = await adoptSuspendedRun(run, options);
     if (scope !== undefined) {
       adopted.set(run.id, scope);
     }
@@ -34,9 +31,9 @@ export async function adoptParkedRuns(
   return adopted;
 }
 
-export async function adoptParkedRun(
+export async function adoptSuspendedRun(
   run: RunRecord,
-  { askable, print, registered, runs, settled }: ParkedRunsOptions
+  { askable, print, registered, runs, settled }: SuspendedRunsOptions
 ): Promise<RecordedScope | undefined> {
   const passed = (why: string): undefined => {
     print(`[run] ${run.step} ${run.id} not adopted: ${why}`);
@@ -48,7 +45,7 @@ export async function adoptParkedRun(
   let sawExecution = false;
   const claimed = await runs.claim(run.id, (stored, execution) => {
     if (stored?.status !== "suspended") {
-      refused = `it is ${stored === null ? "gone" : stored.status} now, not parked`;
+      refused = `it is ${stored === null ? "gone" : stored.status} now, not suspended`;
       return false;
     }
     sawExecution = execution !== undefined && execution !== null;
@@ -80,26 +77,8 @@ export async function adoptParkedRun(
   }
 }
 
-async function parked(
-  store: Pick<OrchestratorStore, "listRuns">
-): Promise<RunRecord[]> {
-  const runs: RunRecord[] = [];
-  let cursor: number | undefined;
-  do {
-    const page = await store.listRuns({
-      limit: 200,
-      order: "oldest",
-      status: "suspended",
-      ...(cursor === undefined ? {} : { cursor }),
-    });
-    runs.push(...page.items);
-    cursor = page.nextCursor;
-  } while (cursor !== undefined);
-  return runs;
-}
-
 export async function workflowStatuses(
-  store: Pick<OrchestratorStore, "getRun">,
+  store: Pick<RunReads, "getJob" | "getRun">,
   executions: readonly ExecutionRun[]
 ): Promise<ReadonlyMap<string, string>> {
   const statuses = new Map<string, string>();
@@ -110,7 +89,7 @@ export async function workflowStatuses(
     ) {
       continue;
     }
-    const run = await store.getRun(execution.id);
+    const run = await readRun(store, execution.id);
     if (run !== null) {
       statuses.set(run.id, run.status);
     }
@@ -138,8 +117,9 @@ function abandonedBecause(execution: ExecutionRun): {
 export interface AbandonedRunsOptions {
   readonly execution: (runId: string) => ExecutionRun | undefined;
   readonly print: (line: string) => void;
+  readonly queue: Pick<WorkflowQueue, "abandonRun">;
   readonly runs: RunStore;
-  readonly store: Pick<ExecutionCoordinator, "abandonRun" | "listRuns">;
+  readonly store: Pick<RunReads, "listJobs" | "listRuns">;
 }
 
 export async function closeAbandonedRuns(
@@ -149,7 +129,7 @@ export async function closeAbandonedRuns(
   if (!options.runs.durable) {
     return closed;
   }
-  for (const run of await unsettled(options.store)) {
+  for (const run of await readRuns(options.store, ["queued", "running"])) {
     const held = options.execution(run.id);
     const read: { settled?: ExecutionRun } = {};
     const claimed = await options.runs.claim(run.id, (stored, execution) => {
@@ -167,7 +147,7 @@ export async function closeAbandonedRuns(
     }
     try {
       const why = abandonedBecause(settled);
-      await options.store.abandonRun(run.id, why);
+      await options.queue.abandonRun(run.id, why);
       options.print(`[run] ${run.step} ${run.id} closed out: ${why.message}`);
       closed.push(run.id);
     } finally {
@@ -175,22 +155,4 @@ export async function closeAbandonedRuns(
     }
   }
   return closed;
-}
-
-async function unsettled(
-  store: Pick<OrchestratorStore, "listRuns">
-): Promise<RunRecord[]> {
-  const runs: RunRecord[] = [];
-  let cursor: number | undefined;
-  do {
-    const page = await store.listRuns({
-      limit: 200,
-      order: "oldest",
-      status: ["queued", "running"],
-      ...(cursor === undefined ? {} : { cursor }),
-    });
-    runs.push(...page.items);
-    cursor = page.nextCursor;
-  } while (cursor !== undefined);
-  return runs;
 }

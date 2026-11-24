@@ -361,7 +361,7 @@ export class ExecutionRecords {
     });
   }
 
-  async adoptParked(run: {
+  async adoptSuspended(run: {
     readonly createdAt: number;
     readonly id: string;
     readonly name: string;

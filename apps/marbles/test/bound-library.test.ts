@@ -31,6 +31,7 @@ it("binds every authoring word and prebuilt factory to the load that imports it"
     }
   }
   expect(bound.tasks).not.toBe(library.tasks);
+  expect(bound.runs).not.toBe(library.runs);
   expect(bound.Tasks).toBe(library.Tasks);
   expect(bound.TaskError).toBe(library.TaskError);
   const factories = prebuiltOfLoad(prebuilt, 1);

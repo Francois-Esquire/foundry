@@ -1,10 +1,10 @@
-import type { RunRecord } from "@foundry/workflows/schema";
 import type {
   StepSnapshot as ObservedStep,
   WorkflowStepNode,
 } from "@foundry/workflows/snapshot";
 import { SnapshotStateSchema } from "@foundry/workflows/snapshot";
 import { z } from "zod";
+import type { RunRecord } from "~/lib/workflow-runs";
 
 const TraceSchema = z.object({
   workflow: z

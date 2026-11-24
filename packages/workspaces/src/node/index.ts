@@ -21,9 +21,9 @@ import type {
 import type { DirectoryOptions as PortableDirectoryOptions } from "../directory";
 import {
   directory as storageDirectory,
-  WithDirectory as WithStorageDirectory,
+  directorySource as storageDirectorySource,
 } from "../directory";
-import type { WorkspaceCtor } from "../types";
+import type { WorkspaceSourceAdapter } from "../types";
 
 export type DirectoryOptions = Partial<PortableDirectoryOptions>;
 
@@ -34,11 +34,11 @@ export function directory(options: DirectoryOptions = {}) {
   });
 }
 
-export function WithDirectory<B extends WorkspaceCtor>(
-  Base: B,
+export function directorySource(
+  root: string,
   options: DirectoryOptions = {}
-) {
-  return WithStorageDirectory(Base, {
+): WorkspaceSourceAdapter {
+  return storageDirectorySource(root, {
     ...options,
     filesystem: options.filesystem ?? nodeFileSystem,
   });

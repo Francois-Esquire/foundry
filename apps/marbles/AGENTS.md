@@ -25,6 +25,8 @@ hoisting can select an incompatible version in a fresh standalone install.
 MCP over STDIO with it, and it also satisfies a required Claude Agent SDK
 peer.
 The `evlog` exception covers imports in the bundled models and workflows code.
+The `croner` exception covers the bundled scheduling package, which reads
+calendar cadences with it.
 The `@ai-sdk/mcp` exception covers the bundled agents MCP client, which
 connects the MCP servers an agent's definition names; its version follows
 `packages/agents`.
@@ -58,7 +60,11 @@ Five buckets, each importing only what sits below it:
   (`withWorkspaceDatabase` in `database/managed.ts`). Each manager has the plain operation as a
   method, usable on the engine directly, and `scoped(frame)` for the view a
   step body gets, which adds replay, cancellation, and cleanup on top; new
-  manager behavior goes in the plain method. The engine owns its registry
+  manager behavior goes in the plain method. `lib/managers/runs.ts` is
+  how a run is read (`RunView`: the stored Run first, then the execution
+  record) and launched from a step body, each launch kept in the run's
+  ledger by its place and definition, so a body that runs again gets the
+  same run back. The engine owns its registry
   and is told what can run through `define`, `schedule`, `monitor`, and `task`. Every launch goes through
   `lib/launcher.ts`, which owns queue admission, host tasks, and live runs.
   `lib/executions.ts` owns durable execution records and retention; they
@@ -79,9 +85,13 @@ Five buckets, each importing only what sits below it:
   are kept in a `ProviderStore` (`lib/providers/store.ts`); the
   configuration reads it when the engine starts (`refresh`), not when it
   is built.
+  `lib/workflow-queue.ts` runs workflow Runs on `@foundry/queue` through
+  `@foundry/workflows/queue-handler`, holding each live workflow across
+  suspend and resume; `lib/workflow-runs.ts` projects the queue's Jobs and
+  Runs into `RunRecord`s and its events into `RUNS` facts.
   `lib/held-runs.ts` follows held workflow runs to their end;
   `lib/run-store.ts` is where their Runs are kept (`RunStore`, in memory
-  by default), and `lib/run-recovery.ts` is the one rule for which parked
+  by default), and `lib/run-recovery.ts` is the one rule for which suspended
   Runs a starting engine adopts and which Runs a gone process left it
   closes out. `lib/crash-recovery.ts` is the one entry point that puts
   right what a crash left, run once per start after the launcher settles
@@ -195,10 +205,10 @@ Five buckets, each importing only what sits below it:
   store. Shares are checked and written in one transaction
   (`associationTransaction`). Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
-  view of them a dry run reads through to. `runs.ts` is a workspace's workflow Runs: the package's
-  `SqliteWorkflowStore` scoped by the workspace id, whose `onCommit` hook
+  view of them a dry run reads through to. `runs.ts` is a workspace's workflow Runs: `@foundry/queue`'s
+  `SqliteQueueStore` scoped by the workspace id, whose `onCommit` hook
   files beside each Run it puts Marbles' row in `marbles_workflow_runs`,
-  what the run's scope recorded and the engine that owns it, so a parked
+  what the run's scope recorded and the engine that owns it, so a suspended
   run is adopted by the next process that can answer it; a claim on a Run
   is a transaction on that row, not a lock file. Each run's output stays
   a log file on disk, `<state>/<id>/output/<run>.jsonl`. `triggers.ts`
@@ -212,7 +222,7 @@ Five buckets, each importing only what sits below it:
   observation a row of `marbles_execution_observations`, so recording one
   costs the same however many its run has; and what pruning removed,
   `marbles_execution_gaps`. The run store's `onCommit` hook writes a
-  workflow's Execution Run there too when its Run parks or resumes, so the
+  workflow's Execution Run there too when its Run suspends or resumes, so the
   two land together. `automations.ts` is the triggers agents created, one
   row of `marbles_automations` each, an edit a transaction that reads
   first; `usage.ts` is each agent turn's usage fact, a row of
@@ -251,7 +261,9 @@ Five buckets, each importing only what sits below it:
 - `src/authoring/` owns definition instance methods and runtime routing as
   well as the module-authoring sugar; it collects into the `catalog` in
   `authoring/catalog.ts`, which is private to Marbles, and may import
-  `lib/`, never the reverse. `Engine.execute` runs direct definitions
+  `lib/`, never the reverse. `authoring/runs.ts` is the read-only
+  `runs` word, bound per load as `tasks` is; it never starts an engine to
+  answer a read. `Engine.execute` runs direct definitions
   through the same orchestration as named launches; calls inside a step
   become dynamic children in that run. `createEngine` in `src/create.ts`
   is the one place the Marbles defaults and what `--dry-run` echoes are
@@ -340,20 +352,20 @@ Five buckets, each importing only what sits below it:
   loads every registered workspace up to engines not yet started, else
   nothing switches; then the current one retires (`Engine.retire`: no
   tick, delivery or queued run starts there again, its queued runs are
-  handed to the candidate and its parked runs let go) and finishes its
+  handed to the candidate and its suspended runs let go) and finishes its
   running runs before it exits, and the candidate starts, taking over the
-  parked and queued work; the candidate is current from the moment it has
+  suspended and queued work; the candidate is current from the moment it has
   loaded, before the previous one is told to go, and only a current
   generation that is not retiring is replaced when it exits. A run of a
-  retired generation that parks later is let go as it parks and taken
-  over by the current one (`Engine.adopt`, over `Orchestrator.adopt`,
-  which claims the run's suspensions at a new revision). The retiring
-  engine stops answering a parked run before it gives up its claim. A
+  retired generation that suspends later is let go as it suspends and taken
+  over by the current one (`Engine.adopt`, over `WorkflowQueue.adopt`,
+  which moves the run's pending suspensions to a new revision). The retiring
+  engine stops answering a suspended run before it gives up its claim. A
   failed release is retried with backoff while the engine lives. A
-  failed adoption clears the local scope, parked queue handle and router
+  failed adoption clears the local scope, suspended queue handle and router
   entry, and gives up the claim through the same retry path. Taking the
   claim again cancels any pending retry for the previous attempt. The daemon also
-  sweeps the database for parked runs no live engine holds and offers
+  sweeps the database for suspended runs no live engine holds and offers
   them to the current generation. An answer is applied only by the engine
   that holds the run when it is written: the router resolves at the
   revision it read, and the run store refuses a commit to a Run another
@@ -363,7 +375,7 @@ Five buckets, each importing only what sits below it:
   load has its fingerprint refused. A generation whose daemon is gone (a
   crash) is out of any daemon's reach: it ticks and delivers no more, lets
   in its queued runs and finishes them with its running ones on the code
-  it loaded, then lets go of its parked runs, which stay suspended, and
+  it loaded, then lets go of its suspended runs, which stay in the store, and
   exits; a schedule records no outcome for a firing whose run it let go,
   and the sweep offers that run to the current generation. The next daemon
   records it retiring while its

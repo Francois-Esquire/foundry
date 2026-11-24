@@ -21,11 +21,11 @@ import type {
   DefinitionBinding,
   DefinitionContext,
   DefinitionDescriptor,
+  Factory,
 } from "./definitions";
 import type { BaseContext, Executable, ExecutableConfig } from "./executable";
 import { Executable as ExecutableClass } from "./executable";
 import { runEffectPromise } from "./helpers";
-import type { Factory } from "./orchestrator";
 import type {
   SnapshotState,
   StepSnapshot,

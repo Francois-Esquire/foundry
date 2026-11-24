@@ -1,7 +1,7 @@
-import type { RunRecord } from "@foundry/workflows/schema";
 import { expect, expectTypeOf, it } from "vitest";
 import { type ReadonlyRunScopes, RunScope } from "~/lib/run-scope";
 import type { LiveWork } from "~/lib/step-work";
+import type { RunRecord } from "~/lib/workflow-runs";
 import type { WorkspaceHost } from "~/workspace/index";
 import { liveView } from "~/workspace/live-work";
 

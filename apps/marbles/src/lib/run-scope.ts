@@ -43,6 +43,8 @@ export interface Current {
 
 export const current = new AsyncLocalStorage<Current>();
 
+export const setupCounters = new AsyncLocalStorage<Map<string, number>>();
+
 export function workingDirectory(fallback: string): string {
   return current.getStore()?.cwd ?? fallback;
 }

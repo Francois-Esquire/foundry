@@ -11,7 +11,9 @@ import type { ExecutionRun } from "~/lib/execution-record";
 import { parseStored } from "~/lib/execution-record";
 import type { RunFollower } from "~/lib/run-store";
 import { MemoryRunStore } from "~/lib/run-store";
-import { describeRunStore, putRun } from "./helpers/run-store";
+import { readRun } from "~/lib/workflow-runs";
+import { putRun } from "./helpers/queue-runs";
+import { describeRunStore } from "./helpers/run-store";
 
 describeRunStore(
   "MemoryRunStore",
@@ -80,8 +82,8 @@ it("writes the Execution Run a Run's commit follows with in that commit's own tr
     );
     await putRun(workflows, "rn-1", "running");
     await putRun(workflows, "rn-1", "suspended");
-    const parked = await executions.get("rn-1");
-    expect(parked && parseStored(parked)).toMatchObject({
+    const suspended = await executions.get("rn-1");
+    expect(suspended && parseStored(suspended)).toMatchObject({
       revision: 3,
       status: "suspended",
     });
@@ -92,7 +94,7 @@ it("writes the Execution Run a Run's commit follows with in that commit's own tr
     await expect(putRun(workflows, "rn-1", "running")).rejects.toThrow(
       "no record to follow with"
     );
-    expect((await workflows.getRun("rn-1"))?.status).toBe("suspended");
+    expect((await readRun(workflows, "rn-1"))?.status).toBe("suspended");
   } finally {
     opened.close();
     rmSync(root, { force: true, recursive: true });
