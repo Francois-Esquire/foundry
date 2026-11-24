@@ -408,7 +408,34 @@ describe("lifecycle", () => {
     }
     let appliesGate: Gate | undefined;
     let stopGate: Gate | undefined;
-    const system = new WorkspaceSystem()
+    const store = new MemoryWorkspaceStore();
+    type Deferred = ReturnType<typeof Promise.withResolvers<void>>;
+    let findPathResolved: Deferred | undefined;
+    let commitResolved: Deferred | undefined;
+    let getWorkspaceGate: Gate | undefined;
+    const baseFind = store.findWorkspaceByPath.bind(store);
+    store.findWorkspaceByPath = async (path) => {
+      const found = await baseFind(path);
+      findPathResolved?.resolve();
+      return found;
+    };
+    const baseGet = store.getWorkspace.bind(store);
+    store.getWorkspace = async (id) => {
+      const gate = getWorkspaceGate;
+      if (gate) {
+        getWorkspaceGate = undefined;
+        gate.entered.resolve();
+        await gate.release.promise;
+      }
+      return baseGet(id);
+    };
+    const baseTransaction = store.transaction.bind(store);
+    store.transaction = async (work) => {
+      const result = await baseTransaction(work);
+      commitResolved?.resolve();
+      return result;
+    };
+    const system = new WorkspaceSystem({ store })
       .extend({
         async applies(registration) {
           const gate = appliesGate;
@@ -481,9 +508,16 @@ describe("lifecycle", () => {
     stopGate = secondGate;
     const closing = system.close(first.id);
     await secondGate.entered.promise;
-    const duringClose = system.load({ beta: "same" });
-    // Let load({ beta }) complete findWorkspaceByPath and reach the #closing wait.
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    const lookupDone = Promise.withResolvers<void>();
+    findPathResolved = lookupDone;
+    let settledDuringClose = false;
+    const duringClose = system.load({ beta: "same" }).finally(() => {
+      settledDuringClose = true;
+    });
+    await lookupDone.promise;
+    findPathResolved = undefined;
+    await Promise.resolve();
+    expect(settledDuringClose).toBe(false);
     secondGate.release.resolve();
     await closing;
     await expect(duringClose).rejects.toBeInstanceOf(
@@ -491,17 +525,32 @@ describe("lifecycle", () => {
     );
     expect(starts).toEqual(["alpha", "alpha"]);
 
-    // 3. Removing a workspace while a cold same-floor load is paused in applies() must not revive it.
-    const removeGate: Gate = {
+    // 3. Removing a workspace while a cold same-floor load is paused in tracked opening
+    //    must not fail remove() or revive the workspace.
+    const openingGetGate: Gate = {
       entered: Promise.withResolvers<void>(),
       release: Promise.withResolvers<void>(),
     };
-    appliesGate = removeGate;
-    const reviving = system.load({ alpha: "same" });
-    await removeGate.entered.promise;
-    await first.remove();
-    removeGate.release.resolve();
-    await expect(reviving).rejects.toBeInstanceOf(WorkspaceNotFoundError);
+    let getCalls = 0;
+    const origGet = store.getWorkspace;
+    store.getWorkspace = (id) => {
+      getCalls += 1;
+      if (getCalls === 2) {
+        getWorkspaceGate = openingGetGate;
+      }
+      return origGet(id);
+    };
+    const racingLoad = system.load({ alpha: "same" });
+    await openingGetGate.entered.promise;
+    store.getWorkspace = origGet;
+    const removalCommitted = Promise.withResolvers<void>();
+    commitResolved = removalCommitted;
+    const removing = first.remove();
+    await removalCommitted.promise;
+    commitResolved = undefined;
+    openingGetGate.release.resolve();
+    await expect(removing).resolves.toBeUndefined();
+    await expect(racingLoad).rejects.toBeInstanceOf(WorkspaceNotFoundError);
     await expect(system.open(first.id)).rejects.toBeInstanceOf(
       WorkspaceNotFoundError
     );

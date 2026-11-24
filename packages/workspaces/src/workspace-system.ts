@@ -98,7 +98,10 @@ export class WorkspaceSystem<
       return;
     }
     const stopping = running
-      .then((entry) => entry.stop())
+      .then(
+        (entry) => entry.stop(),
+        () => undefined
+      )
       .finally(() => {
         this.#opened.delete(workspaceId);
         this.#closing.delete(workspaceId);
