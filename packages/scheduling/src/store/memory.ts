@@ -1,3 +1,4 @@
+import { canonicalizeJson } from "@foundry/lib/json";
 import { Effect, Layer, Ref } from "effect";
 import type { Occurrence, Schedule, ScheduleCursor } from "../domain";
 import { ScheduleStore, type ScheduleStoreService } from "./index";
@@ -23,6 +24,15 @@ const upsert = <T>(
     ...(values ?? []).map((value) => [key(value), value] as const),
   ]);
 
+const claimable = (
+  stored: Occurrence | undefined,
+  replacing: Occurrence | undefined
+) =>
+  replacing === undefined
+    ? stored === undefined
+    : stored !== undefined &&
+      canonicalizeJson(stored) === canonicalizeJson(replacing);
+
 export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
   Effect.map(
     Ref.make<Records>({
@@ -34,11 +44,10 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
       const read = <T>(pick: (current: Records) => T) =>
         Effect.map(Ref.get(records), pick);
       return {
-        claim: (occurrence) =>
+        claim: (occurrence, replacing) =>
           Ref.modify(records, (current) =>
-            current.occurrences.has(occurrence.id)
-              ? [false, current]
-              : [
+            claimable(current.occurrences.get(occurrence.id), replacing)
+              ? [
                   true,
                   {
                     ...current,
@@ -49,6 +58,7 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
                     ),
                   },
                 ]
+              : [false, current]
           ),
         commit: (write) =>
           Ref.update(records, (current) => {

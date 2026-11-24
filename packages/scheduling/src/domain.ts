@@ -27,10 +27,34 @@ export type Cadence =
 export type OverlapPolicy = "skip" | "allow" | "cancel-previous";
 export type MisfirePolicy = "run-once" | "skip";
 
+export type Backoff =
+  | { readonly kind: "fixed"; readonly delayMs: number }
+  | {
+      readonly kind: "exponential" | "jittered";
+      readonly initialMs: number;
+      readonly factor?: number;
+      readonly maxDelayMs?: number;
+    }
+  | {
+      readonly kind: "linear";
+      readonly initialMs: number;
+      readonly stepMs: number;
+      readonly maxDelayMs?: number;
+    };
+
+export interface RetryPolicy {
+  readonly backoff?: Backoff;
+  readonly maxAttempts: number;
+  readonly maxElapsedMs?: number;
+}
+
 export interface DispatchTarget {
   readonly handler: { readonly name: string; readonly version?: string };
   readonly input: JsonValue;
-  readonly policy?: { readonly retry?: unknown; readonly timeoutMs?: number };
+  readonly policy?: {
+    readonly retry?: RetryPolicy;
+    readonly timeoutMs?: number;
+  };
   readonly pool?: string;
 }
 

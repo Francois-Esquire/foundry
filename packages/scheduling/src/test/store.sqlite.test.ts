@@ -114,6 +114,28 @@ describe("SqliteScheduleStore", () => {
     expect(stored?.state).toMatchObject({ lease: { owner: { pid: winner } } });
   });
 
+  test("a claim is taken over only from the occurrence the taker read", async () => {
+    const database = await openDatabase();
+    const store = makeSqliteScheduleStore({ database, scope: "alpha" });
+    const results = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* store.claim(claimed(1));
+        const stale = yield* store.claim(claimed(3), claimed(2));
+        const taken = yield* store.claim(claimed(2), claimed(1));
+        return {
+          stale,
+          stored: yield* store.getOccurrence("nightly:1000"),
+          taken,
+        };
+      })
+    );
+    expect(results.stale).toBe(false);
+    expect(results.taken).toBe(true);
+    expect(results.stored?.state).toMatchObject({
+      lease: { owner: { pid: 2 } },
+    });
+  });
+
   test("stores in different scopes on one database never see each other's records", async () => {
     const database = await openDatabase();
     const alpha = makeSqliteScheduleStore({ database, scope: "alpha" });

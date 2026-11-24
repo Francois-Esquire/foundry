@@ -2,9 +2,9 @@ import {
   Cause,
   Effect,
   Exit,
-  Fiber,
   Layer,
   ManagedRuntime,
+  Scope,
   Stream,
 } from "effect";
 import type { ScheduleDispatch } from "./dispatch";
@@ -33,10 +33,17 @@ type Promised<Service> = {
 };
 
 export interface SchedulerClient
-  extends Omit<Promised<SchedulerService>, "events"> {
+  extends Omit<Promised<SchedulerService>, "subscribe"> {
   dispose(): Promise<void>;
   subscribe(listener: (event: ScheduleEvent) => void): () => void;
 }
+
+const settledValue = <A, E>(exit: Exit.Exit<A, E>): A => {
+  if (Exit.isSuccess(exit)) {
+    return exit.value;
+  }
+  throw Cause.squash(exit.cause);
+};
 
 export const createSchedulerClient = (
   options: SchedulerClientOptions
@@ -51,35 +58,50 @@ export const createSchedulerClient = (
       Layer.provide(Layer.merge(dispatch, store))
     )
   );
+  const listeners = new Set<(event: ScheduleEvent) => void>();
+  const fanOut = Effect.runSync(Scope.make());
+  const announce = (event: ScheduleEvent) =>
+    Effect.forEach(
+      [...listeners],
+      (listener) =>
+        Effect.try(() => listener(event)).pipe(
+          Effect.catchAll((error) =>
+            Effect.logWarning("schedule listener failed", error)
+          )
+        ),
+      { discard: true }
+    );
+  const ready = runtime.runPromiseExit(
+    Effect.flatMap(Scheduler, (scheduler) =>
+      Effect.flatMap(Scope.extend(scheduler.subscribe, fanOut), (events) =>
+        Effect.forkIn(Stream.runForEach(events, announce), fanOut)
+      )
+    )
+  );
   const use = async <A, E>(
     operation: (scheduler: SchedulerService) => Effect.Effect<A, E>
   ): Promise<A> => {
-    const exit = await runtime.runPromiseExit(
-      Effect.flatMap(Scheduler, operation)
+    settledValue(await ready);
+    return settledValue(
+      await runtime.runPromiseExit(Effect.flatMap(Scheduler, operation))
     );
-    if (Exit.isSuccess(exit)) {
-      return exit.value;
-    }
-    throw Cause.squash(exit.cause);
   };
 
   return {
     cursor: (id) => use((scheduler) => scheduler.cursor(id)),
-    dispose: () => runtime.dispose(),
+    dispose: async () => {
+      await Effect.runPromise(Scope.close(fanOut, Exit.void));
+      await runtime.dispose();
+    },
     get: (id) => use((scheduler) => scheduler.get(id)),
     list: () => use((scheduler) => scheduler.list),
     pause: (id) => use((scheduler) => scheduler.pause(id)),
     register: (input) => use((scheduler) => scheduler.register(input)),
     resume: (id) => use((scheduler) => scheduler.resume(id)),
     subscribe: (listener) => {
-      const fiber = runtime.runFork(
-        Stream.runForEach(
-          Stream.unwrap(Effect.map(Scheduler, (scheduler) => scheduler.events)),
-          (event) => Effect.sync(() => listener(event))
-        )
-      );
+      listeners.add(listener);
       return () => {
-        runtime.runFork(Fiber.interrupt(fiber));
+        listeners.delete(listener);
       };
     },
     tick: () => use((scheduler) => scheduler.tick),

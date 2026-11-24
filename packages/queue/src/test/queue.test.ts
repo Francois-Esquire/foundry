@@ -213,7 +213,7 @@ describe("Queue", () => {
     ]);
   });
 
-  test("draining suspensions for running work, interrupts what outlives the grace period, and starts nothing new", async () => {
+  test("draining waits for running work, interrupts what outlives the grace period, and starts nothing new", async () => {
     const result = await testQueue(
       (queue) =>
         Effect.gen(function* () {
@@ -261,13 +261,13 @@ describe("Queue", () => {
     const types = await testQueue((queue) =>
       Effect.gen(function* () {
         yield* queue.register("work", () => completed("ok"));
+        const events = yield* queue.subscribe;
         const collected = yield* Effect.fork(
-          queue.events.pipe(Stream.take(5), Stream.runCollect)
+          events.pipe(Stream.take(5), Stream.runCollect)
         );
-        yield* flush;
         yield* queue.submit({ handler });
-        const events = yield* Fiber.join(collected);
-        return Chunk.toArray(events).map((event) => event.type);
+        const seen = yield* Fiber.join(collected);
+        return Chunk.toArray(seen).map((event) => event.type);
       })
     );
     expect(types).toEqual([

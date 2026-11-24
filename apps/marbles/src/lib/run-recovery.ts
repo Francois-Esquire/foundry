@@ -12,7 +12,7 @@ export interface SuspendedRunsOptions {
   readonly registered: (name: string) => boolean;
   readonly runs: RunStore;
   readonly settled: (runId: string) => Promise<boolean>;
-  readonly store: Pick<RunReads, "getJob" | "listRuns">;
+  readonly store: Pick<RunReads, "listJobs" | "listRuns">;
 }
 
 export async function adoptSuspendedRuns(
@@ -119,7 +119,7 @@ export interface AbandonedRunsOptions {
   readonly print: (line: string) => void;
   readonly queue: Pick<WorkflowQueue, "abandonRun">;
   readonly runs: RunStore;
-  readonly store: Pick<RunReads, "getJob" | "listRuns">;
+  readonly store: Pick<RunReads, "listJobs" | "listRuns">;
 }
 
 export async function closeAbandonedRuns(

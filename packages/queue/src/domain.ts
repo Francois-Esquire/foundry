@@ -142,7 +142,6 @@ export type RunState =
   | {
       readonly kind: "running";
       readonly lease: Lease;
-      readonly startedAt: Instant;
     }
   | {
       readonly kind: "suspended";
@@ -152,14 +151,12 @@ export type RunState =
   | {
       readonly kind: "complete";
       readonly output: JsonValue;
-      readonly startedAt: Instant;
       readonly completedAt: Instant;
     }
   | {
       readonly kind: "failed";
       readonly error: ErrorShape;
       readonly retryable: boolean;
-      readonly startedAt: Instant;
       readonly failedAt: Instant;
     }
   | {
@@ -302,8 +299,16 @@ export class InvalidPoolLimitError extends Data.TaggedError(
   "InvalidPoolLimitError"
 )<{ readonly pool: PoolName; readonly limit: number }> {}
 
+export class InvalidRetryPolicyError extends Data.TaggedError(
+  "InvalidRetryPolicyError"
+)<{ readonly reason: string }> {}
+
 export class StoreError extends Data.TaggedError("StoreError")<{
   readonly cause: unknown;
+}> {}
+
+export class WriteConflictError extends Data.TaggedError("WriteConflictError")<{
+  readonly id: string;
 }> {}
 
 export type QueueError =
@@ -316,7 +321,9 @@ export type QueueError =
   | StaleSuspensionRevisionError
   | JobNotSettledError
   | QueueRetiringError
-  | StoreError;
+  | InvalidRetryPolicyError
+  | StoreError
+  | WriteConflictError;
 
 export const isTerminalJob = (state: JobState): boolean =>
   state.kind === "complete" ||

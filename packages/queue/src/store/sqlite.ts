@@ -12,10 +12,13 @@ import { Effect, Layer } from "effect";
 import {
   type ConcurrencyPool,
   type Job,
+  type JobId,
   type Run,
   StoreError,
   type Suspension,
+  WriteConflictError,
 } from "../domain";
+import { conflictOf, type StoredRevisions } from "./conflict";
 import { QueueStore, type QueueStoreService, type QueueWrite } from "./index";
 import { queueJobs, queuePools, queueRuns, queueSuspensions } from "./tables";
 
@@ -162,6 +165,82 @@ const deleteRecords = async (
   await remove(transaction, queueJobs, queueJobs.id, scope, write.deleteJobs);
 };
 
+const revisionsIn = async (
+  transaction: QueueTransaction,
+  table: typeof queueRuns | typeof queueSuspensions,
+  scope: string,
+  ids: readonly string[]
+) => {
+  const found = new Map<string, number>();
+  const column: SQLiteColumn = table.id;
+  for (const batch of batches(ids, BATCH)) {
+    const rows = await transaction
+      .select({ body: table.body, id: table.id })
+      .from(table)
+      .where(and(eq(table.scope, scope), inArray(column, batch)));
+    for (const row of rows) {
+      found.set(row.id, row.body.revision);
+    }
+  }
+  return found;
+};
+
+const holdersIn = async (
+  transaction: QueueTransaction,
+  scope: string,
+  keys: readonly string[]
+) => {
+  const found = new Map<string, JobId>();
+  for (const batch of batches(keys, BATCH)) {
+    const rows = await transaction
+      .select({ id: queueJobs.id, key: queueJobs.idempotencyKey })
+      .from(queueJobs)
+      .where(
+        and(
+          eq(queueJobs.scope, scope),
+          inArray(queueJobs.idempotencyKey, batch)
+        )
+      );
+    for (const row of rows) {
+      if (row.key !== null) {
+        found.set(row.key, row.id);
+      }
+    }
+  }
+  return found;
+};
+
+const storedRevisions = async (
+  transaction: QueueTransaction,
+  scope: string,
+  write: QueueWrite
+): Promise<StoredRevisions> => {
+  const runs = await revisionsIn(
+    transaction,
+    queueRuns,
+    scope,
+    (write.expected?.runs ?? []).map(({ id }) => id)
+  );
+  const suspensions = await revisionsIn(
+    transaction,
+    queueSuspensions,
+    scope,
+    (write.expected?.suspensions ?? []).map(({ id }) => id)
+  );
+  const holders = await holdersIn(
+    transaction,
+    scope,
+    (write.jobs ?? []).flatMap((job) =>
+      job.policy.idempotencyKey === undefined ? [] : [job.policy.idempotencyKey]
+    )
+  );
+  return {
+    holderOf: (key) => holders.get(key),
+    runRevision: (id) => runs.get(id),
+    suspensionRevision: (id) => suspensions.get(id),
+  };
+};
+
 const matching = (
   ...conditions: readonly [SQLiteColumn, string | undefined][]
 ): SQL | undefined =>
@@ -200,13 +279,27 @@ export const makeSqliteQueueStore = (
 
   return {
     commit: (write) =>
-      run(() =>
-        database.transaction(async (transaction) => {
-          await writeRecords(transaction, scope, write);
-          await deleteRecords(transaction, scope, write);
-          await options.onCommit?.(transaction, write);
-        })
-      ),
+      Effect.tryPromise({
+        catch: (cause) =>
+          cause instanceof WriteConflictError
+            ? cause
+            : new StoreError({ cause }),
+        try: () =>
+          turns.run(() =>
+            database.transaction(async (transaction) => {
+              const conflict = conflictOf(
+                write,
+                await storedRevisions(transaction, scope, write)
+              );
+              if (conflict !== undefined) {
+                throw new WriteConflictError({ id: conflict });
+              }
+              await writeRecords(transaction, scope, write);
+              await deleteRecords(transaction, scope, write);
+              await options.onCommit?.(transaction, write);
+            })
+          ),
+      }),
     getJob: (id) => first(bodies<Job>(queueJobs, eq(queueJobs.id, id))),
     getRun: (id) => first(bodies<Run>(queueRuns, eq(queueRuns.id, id))),
     getSuspension: (id) =>

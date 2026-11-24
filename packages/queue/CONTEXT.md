@@ -93,8 +93,8 @@ _Avoid_: restart, resync
 
 **Adoption**:
 Taking over a run another process left: a queued run during recovery, or a
-suspended run through `adopt`, which moves its pending suspensions to a new
-revision so a resolution read before the takeover is refused as stale.
+suspended run, whose pending suspensions move to a new revision so a
+resolution read before the takeover is refused as stale.
 _Avoid_: steal, claim
 
 **Abandonment**:

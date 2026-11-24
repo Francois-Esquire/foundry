@@ -61,12 +61,18 @@ fibers. Their runs stay `running` until `recover` reclaims them.
 | `./store/memory` | `MemoryQueueStore`, the default store |
 | `./store/sqlite` | `SqliteQueueStore({ database, scope, onCommit? })` on Drizzle |
 | `./store/tables` | Drizzle tables `queue_jobs`, `queue_runs`, `queue_suspensions`, `queue_pools` |
-| `./client` | `createQueueClient()`, a Promise wrapper for plain TypeScript callers; its `register` takes a handler that returns an outcome, a promise of one, or an Effect |
+| `./client` | `createQueueClient()`, a Promise wrapper for plain TypeScript callers; its `register` takes a handler that returns an outcome, a promise of one, or an Effect, and its `saveCheckpoint` can be awaited or yielded |
 
 The SQLite store's `onCommit(transaction, write)` runs inside the commit's
 transaction and receives the events it records, so an outbox writes them in
 the same transaction. A commit writes and deletes in batches, so one commit
 may hold more records than a statement can bind.
+
+Every write names the revision it expects each run and suspension it
+changes to hold. A store checks them, and that no other job holds a written
+job's idempotency key, in the commit's own transaction, and refuses a stale
+write with `WriteConflictError`; the queue then reads again and decides
+again, so several queues can share one store.
 
 `@foundry/workflows/queue-handler` runs a workflow on this queue as a
 handler.

@@ -51,6 +51,15 @@ const pipeline = (calls: string[], second: Body) =>
       name: "second",
     });
 
+const collect = async (
+  stream: ReadableStream<ChannelMessage>,
+  into: ChannelMessage[]
+) => {
+  for await (const message of stream) {
+    into.push(message);
+  }
+};
+
 const echo = () =>
   Effect.succeed<RunOutcome>({ kind: "complete", output: "echoed" });
 
@@ -154,6 +163,81 @@ describe("workflowHandler", () => {
     ).toBe(1);
     expect(calls).toEqual(["fetch", "second", "second"]);
     expect(result.runs.map((run) => run.state.kind)).toEqual(["complete"]);
+  });
+
+  test("telemetry logged before a suspension survives the resume", async () => {
+    const result = await withDurableQueue((queue) =>
+      Effect.gen(function* () {
+        yield* queue.register(
+          "pipeline",
+          workflowHandler(() =>
+            pipeline([], async (ctx) => {
+              ctx.log("info", "asking");
+              const answer = await ctx.suspend<JsonValue>({
+                kind: "human",
+                name: "approval",
+                reason: "sign-off",
+              });
+              ctx.log("info", "approved");
+              return answer;
+            }).step<null, JsonValue>({
+              execute: async (_input, ctx) => {
+                ctx.log("info", "after");
+                return null;
+              },
+              input: null,
+              name: "after",
+            })
+          )
+        );
+        const job = yield* queue.submit({ handler });
+        yield* settledJob(queue, job.id, ["suspended"]);
+        const [suspension] = yield* queue.listSuspensions({ state: "pending" });
+        if (suspension === undefined) {
+          return yield* Effect.dieMessage("no pending suspension");
+        }
+        yield* queue.resolveSuspension(suspension.id, "yes");
+        yield* settledJob(queue, job.id);
+        return yield* queue.listRuns({ jobId: job.id });
+      })
+    );
+    const { telemetry } = WorkflowCheckpointSchema.parse(result[0]?.checkpoint);
+    expect(telemetry?.metrics.values["workflow.status.suspended"]).toBe(1);
+    expect(
+      telemetry?.logs
+        .map((entry) => entry.message)
+        .filter((message) => message !== "after")
+    ).toEqual(["asking", "asking", "approved"]);
+  });
+
+  test("a workflow whose output is not JSON bails instead of retrying", async () => {
+    const result = await withDurableQueue((queue) =>
+      Effect.gen(function* () {
+        yield* queue.register(
+          "pipeline",
+          workflowHandler(() =>
+            Workflow.create<null, unknown>({
+              execute: async () => new Map([["key", "value"]]),
+              input: null,
+              name: "mapped",
+            })
+          )
+        );
+        const job = yield* queue.submit({
+          handler,
+          policy: { retry: { maxAttempts: 3 } },
+        });
+        return {
+          job: yield* settledJob(queue, job.id),
+          runs: yield* queue.listRuns({ jobId: job.id }),
+        };
+      })
+    );
+    expect(result.job?.state).toMatchObject({
+      error: { name: "not-json" },
+      kind: "failed",
+    });
+    expect(result.runs).toHaveLength(1);
   });
 
   test("a bailed workflow fails its job without retrying", async () => {
@@ -300,13 +384,9 @@ describe("workflowHandler", () => {
               onFinish: (_runId, workflow) => {
                 lifecycle.push(`finish:${workflow.status}`);
               },
-              onStart: async (runId, workflow) => {
+              onStart: (runId, workflow) => {
                 lifecycle.push(`start:${runId.slice(0, 3)}`);
-                for await (const message of workflow.root.subscribe(
-                  reading.signal
-                )) {
-                  messages.push(message);
-                }
+                collect(workflow.root.subscribe(reading.signal), messages);
               },
             }
           )

@@ -1,11 +1,13 @@
 import type { JsonValue } from "@foundry/lib/json";
 import {
   type Job,
+  type JobId,
   type QueueEvent,
   type Run,
   type RunId,
   type RunState,
   StoreError,
+  WriteConflictError,
 } from "@foundry/queue";
 import type { QueueStoreService } from "@foundry/queue/store";
 import {
@@ -275,7 +277,7 @@ export const isRunId = (id: string): id is RunId => id.startsWith("rn-");
 
 export type RunReads = Pick<
   QueueStoreService,
-  "getJob" | "getRun" | "listRuns"
+  "getJob" | "getRun" | "listJobs" | "listRuns"
 >;
 
 export const surfaced = (error: unknown): unknown =>
@@ -299,6 +301,17 @@ export const storeEffect = <A>(
   Effect.tryPromise({
     catch: (cause) =>
       cause instanceof StoreError ? cause : new StoreError({ cause }),
+    try: call,
+  });
+
+export const commitEffect = (
+  call: () => Promise<void>
+): Effect.Effect<void, StoreError | WriteConflictError> =>
+  Effect.tryPromise({
+    catch: (cause) =>
+      cause instanceof StoreError || cause instanceof WriteConflictError
+        ? cause
+        : new StoreError({ cause }),
     try: call,
   });
 
@@ -342,20 +355,20 @@ const listed = (
       );
 
 export const readRuns = (
-  store: Pick<RunReads, "getJob" | "listRuns">,
+  store: Pick<RunReads, "listJobs" | "listRuns">,
   statuses?: readonly RunStatus[]
 ): Promise<RunRecord[]> =>
   runStoreEffect(
     Effect.gen(function* () {
-      const records: RunRecord[] = [];
-      for (const run of yield* listed(store, statuses)) {
-        const job = yield* store.getJob(run.jobId);
-        if (job !== undefined) {
-          records.push(runRecordOf(job, run));
-        }
-      }
-      return records.sort(
-        (a, b) => a.timestamps.createdAt - b.timestamps.createdAt
+      const runs = yield* listed(store, statuses);
+      const jobs = new Map<JobId, Job>(
+        (yield* store.listJobs()).map((job) => [job.id, job])
       );
+      return runs
+        .flatMap((run) => {
+          const job = jobs.get(run.jobId);
+          return job === undefined ? [] : [runRecordOf(job, run)];
+        })
+        .sort((a, b) => a.timestamps.createdAt - b.timestamps.createdAt);
     })
   );

@@ -94,11 +94,28 @@ describe("cadence", () => {
     expect(later.nextDueAt).toBe(start + 3 * 3_600_000);
   });
 
+  test("a cron cadence down for a year catches up to its latest due time and keeps the last hundred misses", () => {
+    const cron: Cadence = {
+      expression: "* * * * *",
+      kind: "cron",
+      timezone: "UTC",
+    };
+    const start = at("2025-01-01T00:00:00.000Z");
+    const now = at("2026-01-01T00:00:30.000Z");
+    const due = dueOccurrences(cron, start, now, "run-once");
+    expect(due.toFire).toBe(at("2026-01-01T00:00:00.000Z"));
+    expect(due.nextDueAt).toBe(at("2026-01-01T00:01:00.000Z"));
+    expect(due.skipped).toHaveLength(100);
+    expect(due.skipped.at(-1)).toBe(at("2025-12-31T23:59:00.000Z"));
+  });
+
   test("invalid cadences are rejected and durations parse into intervals", async () => {
     const invalid: Cadence[] = [
       { everyMs: 0, kind: "interval" },
       { hour: 24, kind: "calendar", minute: 0, timezone: "UTC" },
       { hour: 9, kind: "calendar", minute: 0, timezone: "Mars/Olympus" },
+      { hour: 9, kind: "calendar", minute: 0, timezone: "UTC", weekdays: [] },
+      { expression: "0 * * * *", kind: "cron", timezone: " " },
       { expression: "99 * * * *", kind: "cron", timezone: "UTC" },
     ];
     const results = await Effect.runPromise(

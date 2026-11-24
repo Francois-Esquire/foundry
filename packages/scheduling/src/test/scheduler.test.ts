@@ -1,9 +1,11 @@
 import { Queue, type RunOutcome } from "@foundry/queue";
 import { Effect, Layer, Ref, TestClock, TestContext } from "effect";
 import { describe, expect, test } from "vitest";
+import { StoreError } from "../domain";
 import { QueueDispatchLayer } from "../queue";
 import { Scheduler } from "../scheduler";
-import { MemoryScheduleStore } from "../store/memory";
+import { ScheduleStore } from "../store/index";
+import { MemoryScheduleStore, makeMemoryScheduleStore } from "../store/memory";
 import { target, testScheduler } from "./helpers/scheduler";
 
 const every = (everyMs: number) => ({ everyMs, kind: "interval" }) as const;
@@ -179,7 +181,95 @@ describe("Scheduler", () => {
     });
   });
 
-  test("composed with the queue, a parked job counts as open until its wait resolves", async () => {
+  test("a claim whose owner is gone is taken over and dispatched under the occurrence's key", async () => {
+    const gone = { pid: 7, started: "crashed" } as const;
+    const submitted = await testScheduler(
+      (scheduler, dispatch) =>
+        Effect.gen(function* () {
+          const store = yield* ScheduleStore;
+          yield* scheduler.register({
+            cadence: every(1000),
+            id: "sync",
+            target,
+          });
+          yield* store.claim({
+            id: "sync:1000",
+            scheduledFor: 1000,
+            scheduleId: "sync",
+            state: {
+              claimedAt: 0,
+              kind: "claimed",
+              lease: { claimedAt: 0, owner: gone },
+            },
+          });
+          yield* TestClock.adjust(1000);
+          return keys(yield* Ref.get(dispatch.submitted));
+        }),
+      { isOwnerGone: (owner) => owner.pid === gone.pid }
+    );
+    expect(submitted).toEqual(["sync:1000"]);
+  });
+
+  test("a once schedule observes its dispatched job settle without another due time", async () => {
+    const cursor = await testScheduler(
+      (scheduler, dispatch) =>
+        Effect.gen(function* () {
+          yield* scheduler.register({
+            cadence: { at: 1000, kind: "once" },
+            id: "launch",
+            target,
+          });
+          yield* TestClock.adjust(1000);
+          yield* dispatch.settle("job:launch:1000", "complete");
+          yield* TestClock.adjust(500);
+          return yield* scheduler.cursor("launch");
+        }),
+      { settlePollMs: 500 }
+    );
+    expect(cursor).toEqual({
+      lastScheduledFor: 1000,
+      lastSettledAt: 1500,
+      nextDueAt: null,
+      scheduleId: "launch",
+    });
+  });
+
+  test("the loop retries after a failed listing instead of sleeping until the next change", async () => {
+    let failNext = false;
+    const flaky = Layer.effect(
+      ScheduleStore,
+      Effect.map(makeMemoryScheduleStore, (store) => ({
+        ...store,
+        listSchedules: Effect.suspend(() => {
+          const fail = failNext;
+          failNext = false;
+          return fail
+            ? Effect.fail(new StoreError({ cause: "store down" }))
+            : store.listSchedules;
+        }),
+      }))
+    );
+    const submitted = await testScheduler(
+      (scheduler, dispatch) =>
+        Effect.gen(function* () {
+          yield* scheduler.register({
+            cadence: every(1000),
+            id: "sync",
+            target,
+          });
+          yield* TestClock.adjust(0);
+          failNext = true;
+          yield* TestClock.adjust(1000);
+          yield* TestClock.adjust(1000);
+          return keys(yield* Ref.get(dispatch.submitted));
+        }),
+      { retryDelayMs: 1000 },
+      flaky
+    );
+    expect(submitted).toEqual(["sync:2000"]);
+  });
+
+  test("composed with the queue, a suspended job counts as open until its suspension resolves", async () => {
     const layer = Scheduler.layer().pipe(
       Layer.provide(QueueDispatchLayer),
       Layer.provide(MemoryScheduleStore),

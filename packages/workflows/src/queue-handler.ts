@@ -8,8 +8,9 @@ import type {
   RunId,
   RunOutcome,
 } from "@foundry/queue";
-import { Effect, Either, Fiber, Stream } from "effect";
+import { Data, Effect, Either, Fiber, Stream } from "effect";
 import { z } from "zod";
+import type { Runnable } from "./definitions";
 import {
   type BaseContext,
   isSuspendSignal,
@@ -25,7 +26,6 @@ import {
   WorkflowTelemetrySchema,
 } from "./schema";
 import type { SnapshotState, StepSnapshot } from "./snapshot";
-import type { Step } from "./step";
 import { type Bail, isBail } from "./types";
 import { Workflow, type WorkflowState } from "./workflow";
 
@@ -41,8 +41,6 @@ export interface WorkflowExecution {
   readonly job: Job;
   readonly run: Run;
 }
-
-type Runnable<I, O, X extends BaseContext> = Step<I, O, X> | Workflow<I, O, X>;
 
 export type WorkflowRunFactory<
   I = unknown,
@@ -81,14 +79,18 @@ const pruned = (value: unknown): unknown => {
   );
 };
 
+class NotJsonError extends Data.TaggedError("NotJsonError")<{
+  readonly what: string;
+}> {}
+
 const asJson = (
   value: unknown,
   what: string
-): Effect.Effect<JsonValue, ErrorShape> => {
+): Effect.Effect<JsonValue, NotJsonError> => {
   const json = pruned(value);
   return isJsonValue(json)
     ? Effect.succeed(json)
-    : Effect.fail({ message: `${what} is not a JSON value`, name: "not-json" });
+    : Effect.fail(new NotJsonError({ what }));
 };
 
 const checkpointOf = (
@@ -111,17 +113,13 @@ const checkpointOf = (
   );
 
 const settledSteps = (
-  checkpoint: JsonValue | undefined
-): Record<string, StepSnapshot> => {
-  const parsed = WorkflowCheckpointSchema.safeParse(checkpoint);
-  return parsed.success
-    ? Object.fromEntries(
-        Object.entries(parsed.data.steps).filter(([, step]) =>
-          SETTLED.has(step.status)
-        )
-      )
-    : {};
-};
+  checkpoint: WorkflowCheckpoint | undefined
+): Record<string, StepSnapshot> =>
+  Object.fromEntries(
+    Object.entries(checkpoint?.steps ?? {}).filter(([, step]) =>
+      SETTLED.has(step.status)
+    )
+  );
 
 const progressOf = (state: SnapshotState) =>
   Object.entries(state.steps)
@@ -129,21 +127,27 @@ const progressOf = (state: SnapshotState) =>
     .map(([key]) => key)
     .join("\n");
 
-const suspendedOn = ({
-  originPath,
-  suspension,
-}: SuspendSignal): RunOutcome => ({
-  kind: "suspended",
-  suspension: {
-    key: suspensionOccurrenceKey(
-      originPath,
-      suspension.name,
-      suspension.occurrence ?? 0
-    ),
-    kind: suspension.kind ?? "external",
-    reason: suspension.reason,
-    request: isJsonValue(suspension.request) ? suspension.request : null,
-  },
+const suspendedOn = ({ originPath, suspension }: SuspendSignal) =>
+  Effect.map(
+    asJson(suspension.request ?? null, "suspension request"),
+    (request): RunOutcome => ({
+      kind: "suspended",
+      suspension: {
+        key: suspensionOccurrenceKey(
+          originPath,
+          suspension.name,
+          suspension.occurrence ?? 0
+        ),
+        kind: suspension.kind ?? "external",
+        reason: suspension.reason,
+        request,
+      },
+    })
+  );
+
+const notJson = ({ what }: NotJsonError): RunOutcome => ({
+  error: { message: `${what} is not a JSON value`, name: "not-json" },
+  kind: "bailed",
 });
 
 const bailedWith = ({ error }: Bail<unknown>): RunOutcome => ({
@@ -176,7 +180,14 @@ const hydrate = <I, O, X extends BaseContext>(
       catch: errorToShape,
       try: () => workflow.root,
     });
-    yield* root.snapshot.seed(settledSteps(context.checkpoint));
+    const parsed = WorkflowCheckpointSchema.safeParse(context.checkpoint);
+    const checkpoint = parsed.success ? parsed.data : undefined;
+    yield* root.snapshot.seed(settledSteps(checkpoint));
+    if (checkpoint?.telemetry !== undefined) {
+      yield* workflow[workflowEffectAccessKey]().restoreTelemetry(
+        checkpoint.telemetry
+      );
+    }
     yield* Effect.forEach(
       context.resolutions,
       ([key, value]) => root.executable.resolve(key, value),
@@ -223,7 +234,7 @@ const drive = <I, O, X extends BaseContext>(
       yield* Effect.flatMap(workflow.root.snapshot.current, save);
       if (Either.isLeft(result)) {
         return isSuspendSignal(result.left)
-          ? suspendedOn(result.left)
+          ? yield* suspendedOn(result.left)
           : yield* Effect.fail(errorToShape(result.left));
       }
       if (isBail(result.right)) {
@@ -233,7 +244,12 @@ const drive = <I, O, X extends BaseContext>(
         ? null
         : yield* asJson(result.right ?? null, "workflow output");
       return { kind: "complete", output } satisfies RunOutcome;
-    })
+    }).pipe(
+      Effect.catchIf(
+        (error): error is NotJsonError => error instanceof NotJsonError,
+        (error) => Effect.succeed(notJson(error))
+      )
+    )
   );
 
 export const restoreWorkflow = <I, O, X extends BaseContext>(

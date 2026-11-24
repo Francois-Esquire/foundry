@@ -1,4 +1,8 @@
-import { type Cadence, nextDue as nextOccurrence } from "@foundry/scheduling";
+import {
+  type Cadence,
+  durationMs,
+  nextDue as nextOccurrence,
+} from "@foundry/scheduling";
 import type { Engine } from "~/lib/engine";
 import type { Launch } from "~/lib/launch";
 import { isLaunch } from "~/lib/launch";
@@ -13,16 +17,13 @@ const UNITS: Record<string, number> = {
   m: 60_000,
   s: 1000,
 };
-const EVERY_PATTERN = /^(\d+)([smhd])$/;
 const LET_GO: unique symbol = Symbol("the run was let go");
 
 export function parseEvery(every: string): number {
-  const match = EVERY_PATTERN.exec(every.trim());
-  const unit = match?.[2] === undefined ? undefined : UNITS[match[2]];
-  if (!match || unit === undefined) {
+  const ms = durationMs(every);
+  if (ms === undefined) {
     throw new Error(`cannot read cadence "${every}" (want e.g. 30m, 6h, 1d)`);
   }
-  const ms = Number(match[1]) * unit;
   if (!Number.isSafeInteger(ms) || ms <= 0) {
     throw new Error(
       `cadence "${every}" must be a positive interval that fits in a safe integer`

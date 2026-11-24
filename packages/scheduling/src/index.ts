@@ -2,6 +2,7 @@
 export {
   type DueOccurrences,
   dueOccurrences,
+  durationMs,
   nextDue,
   parseEvery,
   validateCadence,

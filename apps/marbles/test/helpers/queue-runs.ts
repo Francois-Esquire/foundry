@@ -39,7 +39,6 @@ function stateOf(
       return {
         kind: "running",
         lease: { claimedAt: at, owner: thisProcess() },
-        startedAt: at,
       };
     case "suspended":
       return {
@@ -48,14 +47,13 @@ function stateOf(
         suspensionId: suspension.id,
       };
     case "complete":
-      return { completedAt: at, kind: "complete", output, startedAt: at };
+      return { completedAt: at, kind: "complete", output };
     case "failed":
       return {
         error: { message: "seeded failure", name: "Error" },
         failedAt: at,
         kind: "failed",
         retryable: false,
-        startedAt: at,
       };
     default:
       return { cancelledAt: at, kind: "cancelled" };

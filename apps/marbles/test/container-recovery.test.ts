@@ -22,7 +22,7 @@ const machines: TestMachine[] = [];
 const RUNS = {
   queue: { abandonRun: () => Promise.resolve() },
   store: {
-    getJob: () => Effect.succeed(undefined),
+    listJobs: () => Effect.succeed([]),
     listRuns: () => Effect.succeed([]),
   },
 };

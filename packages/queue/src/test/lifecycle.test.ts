@@ -89,7 +89,7 @@ describe("Queue lifecycle", () => {
       [1, "complete"],
     ]);
     expect(result.runs[0]?.startedAt).toBe(0);
-    expect(result.runs[0]?.state).toMatchObject({ startedAt: 1000 });
+    expect(result.runs[0]?.state).toMatchObject({ completedAt: 1000 });
     expect(result.again._tag).toBe("SuspensionAlreadySettledError");
     expect(result.cancelled?.state).toMatchObject({
       kind: "cancelled",
@@ -141,6 +141,61 @@ describe("Queue lifecycle", () => {
     expect(result.job).toBeUndefined();
     expect(result.runs).toEqual([]);
     expect(result.suspension).toBeUndefined();
+  });
+
+  test("cancelling a pending suspension its run is not suspended on cancels that suspension alone", async () => {
+    const store = await sharedStore();
+    await Effect.runPromise(
+      store.commit({
+        jobs: [
+          {
+            createdAt: 0,
+            handler,
+            id: "jb-1",
+            input: null,
+            links: {},
+            policy: {},
+            pool: "default",
+            state: { kind: "pending" },
+          },
+        ],
+        runs: [
+          {
+            attempt: 1,
+            id: "rn-1",
+            jobId: "jb-1",
+            pool: "default",
+            revision: 0,
+            state: { availableAt: 0, kind: "queued", queuedAt: 0 },
+          },
+        ],
+        suspensions: [
+          {
+            id: "su-1",
+            key: "approval",
+            kind: "human",
+            reason: "stale",
+            request: null,
+            revision: 0,
+            runId: "rn-1",
+            state: { createdAt: 0, kind: "pending" },
+          },
+        ],
+      })
+    );
+    const result = await Effect.runPromise(
+      withQueue(store, {}, (queue) =>
+        Effect.gen(function* () {
+          const cancelled = yield* queue.cancelSuspension("su-1", "withdrawn");
+          return { cancelled, run: yield* queue.getRun("rn-1") };
+        })
+      ).pipe(Effect.provide(TestContext.TestContext))
+    );
+    expect(result.cancelled.state).toMatchObject({
+      kind: "cancelled",
+      reason: "withdrawn",
+    });
+    expect(result.run?.state.kind).toBe("queued");
   });
 
   test("closing the queue starts none of its queued runs", async () => {

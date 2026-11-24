@@ -145,6 +145,44 @@ describe("SqliteQueueStore", () => {
     expect(after).toEqual([[], []]);
   });
 
+  test("a commit expecting a revision the store does not hold writes nothing and is refused as a conflict", async () => {
+    const database = await openDatabase();
+    let committed = 0;
+    const store = makeSqliteQueueStore({
+      database,
+      onCommit: async () => {
+        committed += 1;
+      },
+      scope: "alpha",
+    });
+    const run = {
+      attempt: 1,
+      id: "rn-1",
+      jobId: "jb-1",
+      pool: "default",
+      revision: 0,
+      state: { availableAt: 0, kind: "queued", queuedAt: 0 },
+    } as const;
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* store.commit({
+          expected: { runs: [{ id: run.id, revision: null }] },
+          runs: [run],
+        });
+        const stale = yield* Effect.flip(
+          store.commit({
+            expected: { runs: [{ id: run.id, revision: null }] },
+            runs: [{ ...run, revision: 1 }],
+          })
+        );
+        return { stale, stored: yield* store.getRun(run.id) };
+      })
+    );
+    expect(outcome.stale._tag).toBe("WriteConflictError");
+    expect(outcome.stored?.revision).toBe(0);
+    expect(committed).toBe(1);
+  });
+
   test("stores in different scopes on one database never see each other's records", async () => {
     const database = await openDatabase();
     const job = await withSqliteQueue({ database, scope: "alpha" }, (queue) =>

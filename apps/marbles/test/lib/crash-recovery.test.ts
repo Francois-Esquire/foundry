@@ -58,7 +58,7 @@ it("reports a part that fails and goes on to the next", async () => {
   const { report } = await recovery.recover({
     queue: { abandonRun: () => Promise.reject(new Error("never asked")) },
     store: {
-      getJob: () => Effect.die(new Error("never asked")),
+      listJobs: () => Effect.die(new Error("never asked")),
       listRuns: () => Effect.die(new Error("never asked")),
     },
   });

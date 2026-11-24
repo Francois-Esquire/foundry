@@ -1,3 +1,4 @@
+import { canonicalizeJson } from "@foundry/lib/json";
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
 import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
@@ -51,6 +52,13 @@ export interface SqliteScheduleStoreOptions {
 const REENTRY =
   "SqliteScheduleStore was called from inside its own transaction or onCommit hook; use the transaction passed to onCommit instead";
 
+const BATCH = 500;
+
+const batches = <T>(items: readonly T[], size: number): T[][] =>
+  Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
+    items.slice(index * size, (index + 1) * size)
+  );
+
 const occurrenceRow = (scope: string, occurrence: Occurrence) => ({
   body: occurrence,
   id: occurrence.id,
@@ -67,22 +75,20 @@ const upsert = async <Table extends SQLiteTable>(
   rows: readonly Table["$inferInsert"][],
   update: readonly (keyof Table["$inferInsert"] & string)[]
 ) => {
-  if (rows.length === 0) {
-    return;
-  }
   const columns: Record<string, SQLiteColumn> = getTableColumns(table);
-  await transaction
-    .insert(table)
-    .values([...rows])
-    .onConflictDoUpdate({
-      set: Object.fromEntries(
-        update.map((key) => [
-          key,
-          sql.raw(`excluded."${columns[key]?.name ?? key}"`),
-        ])
-      ) as SQLiteUpdateSetSource<Table>,
-      target: [...target],
-    });
+  const set = Object.fromEntries(
+    update.map((key) => [
+      key,
+      sql.raw(`excluded."${columns[key]?.name ?? key}"`),
+    ])
+  ) as SQLiteUpdateSetSource<Table>;
+  const size = Math.max(1, Math.floor(BATCH / Object.keys(columns).length));
+  for (const batch of batches(rows, size)) {
+    await transaction
+      .insert(table)
+      .values(batch)
+      .onConflictDoUpdate({ set, target: [...target] });
+  }
 };
 
 const removeSchedules = async (
@@ -90,17 +96,16 @@ const removeSchedules = async (
   scope: string,
   ids: readonly string[]
 ) => {
-  if (ids.length === 0) {
-    return;
-  }
   for (const [table, column] of [
     [schedulingSchedules, schedulingSchedules.id],
     [schedulingCursors, schedulingCursors.scheduleId],
     [schedulingOccurrences, schedulingOccurrences.scheduleId],
   ] as const) {
-    await transaction
-      .delete(table)
-      .where(and(eq(table.scope, scope), inArray(column, [...ids])));
+    for (const batch of batches(ids, BATCH)) {
+      await transaction
+        .delete(table)
+        .where(and(eq(table.scope, scope), inArray(column, batch)));
+    }
   }
 };
 
@@ -175,14 +180,37 @@ export const makeSqliteScheduleStore = (
     Effect.map(rows, ([found]) => found);
 
   return {
-    claim: (occurrence) =>
+    claim: (occurrence, replacing) =>
       run(async () => {
-        const inserted = await database
-          .insert(schedulingOccurrences)
-          .values(occurrenceRow(scope, occurrence))
-          .onConflictDoNothing()
-          .returning({ id: schedulingOccurrences.id });
-        return inserted.length > 0;
+        if (replacing === undefined) {
+          const inserted = await database
+            .insert(schedulingOccurrences)
+            .values(occurrenceRow(scope, occurrence))
+            .onConflictDoNothing()
+            .returning({ id: schedulingOccurrences.id });
+          return inserted.length > 0;
+        }
+        return await database.transaction(async (transaction) => {
+          const where = and(
+            eq(schedulingOccurrences.scope, scope),
+            eq(schedulingOccurrences.id, occurrence.id)
+          );
+          const [stored] = await transaction
+            .select({ body: schedulingOccurrences.body })
+            .from(schedulingOccurrences)
+            .where(where);
+          if (
+            stored === undefined ||
+            canonicalizeJson(stored.body) !== canonicalizeJson(replacing)
+          ) {
+            return false;
+          }
+          await transaction
+            .update(schedulingOccurrences)
+            .set({ body: occurrence, state: occurrence.state.kind })
+            .where(where);
+          return true;
+        });
       }),
     commit: (write) =>
       run(() =>

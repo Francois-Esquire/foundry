@@ -11,6 +11,7 @@ import type {
 import { createQueueClient, type QueueClient } from "@foundry/queue/client";
 import { QueueStore, type QueueStoreService } from "@foundry/queue/store";
 import type { ChannelMessage } from "@foundry/workflows/channels";
+import type { Runnable } from "@foundry/workflows/definitions";
 import type { BaseContext } from "@foundry/workflows/executable";
 import { parseSuspensionOccurrenceKey } from "@foundry/workflows/executable";
 import {
@@ -30,8 +31,6 @@ import { isRunId, surfaced } from "~/lib/workflow-runs";
 export interface RunExecution {
   readonly runId: string;
 }
-
-type Runnable<I, O, X extends BaseContext> = Step<I, O, X> | Workflow<I, O, X>;
 
 export type Factory<
   I = unknown,
@@ -69,6 +68,7 @@ interface Definition {
   ): Promise<HeldWorkflow>;
   forget(runId: string): void;
   open(input: unknown, runId: string): Promise<HeldWorkflow>;
+  readonly registered: Promise<void>;
 }
 
 export interface LiveRun {
@@ -173,7 +173,6 @@ export class WorkflowQueue {
   ]);
   readonly #store: QueueStoreService;
   readonly #unsubscribe: () => void;
-  #ready: Promise<void> = Promise.resolve();
 
   constructor(store: QueueStoreService) {
     this.#store = store;
@@ -200,17 +199,6 @@ export class WorkflowQueue {
       live.set(runId, workflow);
       return workflow;
     };
-    const definition: Definition = {
-      adopt: async (input, runId, checkpoint) => {
-        const workflow = await materialize(input, runId);
-        await restoreWorkflow(workflow, checkpoint);
-        await workflow.seedState({ status: "suspended" });
-        return workflow;
-      },
-      forget: (runId) => live.delete(runId),
-      open: materialize,
-    };
-    this.#definitions.set(name, definition);
     const handler = workflowHandler<I, O, X>(async (input, { run }) => {
       const held = live.get(run.id);
       if (held !== undefined) {
@@ -220,9 +208,20 @@ export class WorkflowQueue {
       this.#hold(run.id, definition, workflow);
       return workflow;
     });
-    this.#ready = this.#ready.then(() =>
-      this.#client.register(name, this.#admitted(handler))
-    );
+    const registered = this.#client.register(name, this.#admitted(handler));
+    registered.catch(() => undefined);
+    const definition: Definition = {
+      adopt: async (input, runId, checkpoint) => {
+        const workflow = await materialize(input, runId);
+        await restoreWorkflow(workflow, checkpoint);
+        await workflow.seedState({ status: "suspended" });
+        return workflow;
+      },
+      forget: (runId) => live.delete(runId),
+      open: materialize,
+      registered,
+    };
+    this.#definitions.set(name, definition);
   }
 
   on(signal: RunSignal, listener: (runId: string) => void): () => void {
@@ -236,7 +235,6 @@ export class WorkflowQueue {
     input: unknown,
     options: RunOptions
   ): Promise<LiveRun> {
-    await this.#ready;
     const runId = requireRunId(options.runId);
     const withdrawn = () => {
       if (options.signal?.aborted) {
@@ -248,6 +246,7 @@ export class WorkflowQueue {
     withdrawn();
     const stored = storableJson(`the input of run ${runId}`, input ?? null);
     const definition = this.#definition(name);
+    await definition.registered;
     const workflow = await definition.open(input, runId);
     const live = this.#hold(runId, definition, workflow);
     try {
@@ -276,7 +275,6 @@ export class WorkflowQueue {
   }
 
   async adopt(runId: string): Promise<LiveRun | null> {
-    await this.#ready;
     const run = isRunId(runId)
       ? await surfacing(this.#client.getRun(runId))
       : undefined;
@@ -289,8 +287,9 @@ export class WorkflowQueue {
         `Run ${runId} is ${run.state.kind}, not suspended; only a suspended run is taken on after start`
       );
     }
-    await surfacing(this.#client.adopt(run.id));
     const definition = this.#definition(job.handler.name);
+    await definition.registered;
+    await surfacing(this.#client.adopt(run.id));
     const workflow = await definition.adopt(job.input, runId, run.checkpoint);
     return this.#hold(runId, definition, workflow);
   }

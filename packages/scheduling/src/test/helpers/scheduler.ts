@@ -10,6 +10,7 @@ import {
   type SchedulerOptions,
   type SchedulerService,
 } from "../../scheduler";
+import type { ScheduleStore } from "../../store/index";
 import { MemoryScheduleStore } from "../../store/memory";
 
 export interface FakeDispatch {
@@ -66,8 +67,9 @@ export const testScheduler = <A, E>(
   body: (
     scheduler: SchedulerService,
     dispatch: FakeDispatch
-  ) => Effect.Effect<A, E, Scope.Scope>,
-  options: SchedulerOptions = {}
+  ) => Effect.Effect<A, E, Scope.Scope | ScheduleStore>,
+  options: SchedulerOptions = {},
+  store: Layer.Layer<ScheduleStore> = MemoryScheduleStore
 ): Promise<A> =>
   Effect.runPromise(
     Effect.gen(function* () {
@@ -77,7 +79,8 @@ export const testScheduler = <A, E>(
       ).pipe(
         Effect.provide(
           Scheduler.layer(options).pipe(
-            Layer.provide(Layer.merge(dispatch.layer, MemoryScheduleStore))
+            Layer.provide(dispatch.layer),
+            Layer.provideMerge(store)
           )
         )
       );

@@ -120,7 +120,6 @@ export const failure = ({
     failedAt: now,
     kind: "failed",
     retryable: next.runs.length > 0,
-    startedAt: run.state.kind === "running" ? run.state.startedAt : now,
   });
   return {
     facts: [{ run: failed, type: "run.failed" }, ...next.facts],
@@ -162,13 +161,7 @@ export const completion = ({
   readonly output: JsonValue;
   readonly run: Run;
 }): Change => {
-  const startedAt = run.state.kind === "running" ? run.state.startedAt : now;
-  const done = bump(run, {
-    completedAt: now,
-    kind: "complete",
-    output,
-    startedAt,
-  });
+  const done = bump(run, { completedAt: now, kind: "complete", output });
   const settled: Job = {
     ...job,
     state: { completedAt: now, kind: "complete", output, runId: run.id },
@@ -217,7 +210,7 @@ export const suspending = ({
         },
       ],
       runs: [suspended],
-      suspensions: [suspension],
+      suspensions: opened ? [suspension] : [],
     },
   };
 };
@@ -269,6 +262,29 @@ export const cancellation = ({
   };
 };
 
+export const suspensionCancellation = ({
+  now,
+  reason,
+  suspension,
+}: {
+  readonly now: Instant;
+  readonly reason: string | undefined;
+  readonly suspension: Suspension;
+}): { readonly change: Change; readonly suspension: Suspension } => {
+  const cancelled: Suspension = {
+    ...suspension,
+    revision: suspension.revision + 1,
+    state: { cancelledAt: now, kind: "cancelled", reason },
+  };
+  return {
+    change: {
+      facts: [{ suspension: cancelled, type: "suspension.cancelled" }],
+      write: { suspensions: [cancelled] },
+    },
+    suspension: cancelled,
+  };
+};
+
 export const starting = ({
   job,
   now,
@@ -286,7 +302,7 @@ export const starting = ({
 } => {
   const running = bump(
     { ...run, startedAt: run.startedAt ?? now },
-    { kind: "running", lease: { claimedAt: now, owner }, startedAt: now }
+    { kind: "running", lease: { claimedAt: now, owner } }
   );
   const active: Job = {
     ...job,

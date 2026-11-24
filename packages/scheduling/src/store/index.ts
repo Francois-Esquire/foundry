@@ -20,7 +20,8 @@ export interface ScheduleWrite {
 
 export interface ScheduleStoreService {
   readonly claim: (
-    occurrence: Occurrence
+    occurrence: Occurrence,
+    replacing?: Occurrence
   ) => Effect.Effect<boolean, StoreError>;
   readonly commit: (write: ScheduleWrite) => Effect.Effect<void, StoreError>;
   readonly getCursor: (

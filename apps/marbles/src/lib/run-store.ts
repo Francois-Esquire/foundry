@@ -11,6 +11,7 @@ import type { RecordedScope } from "~/lib/run-scope";
 import { storableJson } from "~/lib/state/json";
 import type { RunRecord } from "~/lib/workflow-runs";
 import {
+  commitEffect,
   isRunId,
   readRun,
   runStatusOf,
@@ -118,22 +119,28 @@ function storedScope(runId: string, scope: RecordedScope): RecordedScope {
   };
 }
 
-export function ownedWrite(write: QueueWrite): QueueWrite {
+const readEveryField = (_unread: Record<PropertyKey, never>) => undefined;
+
+export function ownedQueueWrite(write: QueueWrite): QueueWrite {
   const {
     deleteJobs,
     deleteRuns,
     deleteSuspensions,
     events,
+    expected,
     jobs,
     pools,
     runs,
     suspensions,
+    ...unread
   } = write;
+  readEveryField(unread);
   return {
     ...(deleteJobs === undefined ? {} : { deleteJobs }),
     ...(deleteRuns === undefined ? {} : { deleteRuns }),
     ...(deleteSuspensions === undefined ? {} : { deleteSuspensions }),
     ...(events === undefined ? {} : { events }),
+    ...(expected === undefined ? {} : { expected }),
     ...(jobs === undefined ? {} : { jobs }),
     ...(pools === undefined ? {} : { pools }),
     ...(runs === undefined ? {} : { runs }),
@@ -148,7 +155,8 @@ export function gatedQueueStore(
   const through = <A>(effect: Effect.Effect<A, StoreError>) =>
     storeEffect(() => around(() => runStoreEffect(effect)));
   return {
-    commit: (write) => through(store.commit(write)),
+    commit: (write) =>
+      commitEffect(() => around(() => runStoreEffect(store.commit(write)))),
     getJob: (id) => through(store.getJob(id)),
     getRun: (id) => through(store.getRun(id)),
     getSuspension: (id) => through(store.getSuspension(id)),
@@ -201,7 +209,7 @@ export class MemoryRunStore implements RunStore {
         ...gated,
         commit: (write: QueueWrite) =>
           Effect.suspend(() => {
-            const owned = ownedWrite(write);
+            const owned = ownedQueueWrite(write);
             return Effect.flatMap(
               Effect.try({
                 catch: (cause) => new StoreError({ cause }),

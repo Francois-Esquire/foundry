@@ -1,13 +1,14 @@
+import type { JsonValue } from "@foundry/lib/json";
 import {
   Cause,
   Effect,
   Exit,
-  Fiber,
   Layer,
   ManagedRuntime,
+  Scope,
   Stream,
 } from "effect";
-import type { ErrorShape, QueueEvent, RunOutcome } from "./domain";
+import type { ErrorShape, QueueError, QueueEvent, RunOutcome } from "./domain";
 import { Queue } from "./queue";
 import type {
   QueueOptions,
@@ -18,8 +19,15 @@ import type {
 import type { QueueStore } from "./store/index";
 import { MemoryQueueStore } from "./store/memory";
 
+export type Checkpointing = Effect.Effect<void, QueueError> & PromiseLike<void>;
+
+export interface QueueHandlerContext
+  extends Omit<RunContext, "saveCheckpoint"> {
+  readonly saveCheckpoint: (value: JsonValue) => Checkpointing;
+}
+
 export type QueueHandler = (
-  context: RunContext
+  context: QueueHandlerContext
 ) => Effect.Effect<RunOutcome, ErrorShape> | Promise<RunOutcome> | RunOutcome;
 
 export interface QueueClientOptions extends QueueOptions {
@@ -37,7 +45,7 @@ type Promised<Service> = {
 };
 
 export interface QueueClient
-  extends Omit<Promised<QueueService>, "events" | "register"> {
+  extends Omit<Promised<QueueService>, "register" | "subscribe"> {
   dispose(): Promise<void>;
   register(name: string, handler: QueueHandler): Promise<void>;
   subscribe(listener: (event: QueueEvent) => void): () => void;
@@ -52,19 +60,12 @@ const errorShapeOf = (error: unknown): ErrorShape =>
       }
     : { message: String(error), name: "Error" };
 
-const lifted =
-  (handler: QueueHandler): RunHandler =>
-  (context) =>
-    Effect.flatMap(
-      Effect.try({ catch: errorShapeOf, try: () => handler(context) }),
-      (result) =>
-        Effect.isEffect(result)
-          ? result
-          : Effect.tryPromise({
-              catch: errorShapeOf,
-              try: async () => await result,
-            })
-    );
+const settledValue = <A, E>(exit: Exit.Exit<A, E>): A => {
+  if (Exit.isSuccess(exit)) {
+    return exit.value;
+  }
+  throw Cause.squash(exit.cause);
+};
 
 export const createQueueClient = (
   options: QueueClientOptions = {}
@@ -73,15 +74,72 @@ export const createQueueClient = (
   const runtime = ManagedRuntime.make(
     Queue.layer(queueOptions).pipe(Layer.provide(store))
   );
-  const use = async <A, E>(
-    operation: (queue: QueueService) => Effect.Effect<A, E>
-  ): Promise<A> => {
-    const exit = await runtime.runPromiseExit(Effect.flatMap(Queue, operation));
-    if (Exit.isSuccess(exit)) {
-      return exit.value;
-    }
-    throw Cause.squash(exit.cause);
+  const listeners = new Set<(event: QueueEvent) => void>();
+  const fanOut = Effect.runSync(Scope.make());
+  const announce = (event: QueueEvent) =>
+    Effect.forEach(
+      [...listeners],
+      (listener) =>
+        Effect.try(() => listener(event)).pipe(
+          Effect.catchAll((error) =>
+            Effect.logWarning("queue listener failed", error)
+          )
+        ),
+      { discard: true }
+    );
+  const ready = runtime.runPromiseExit(
+    Effect.flatMap(Queue, (queue) =>
+      Effect.flatMap(Scope.extend(queue.subscribe, fanOut), (events) =>
+        Effect.forkIn(Stream.runForEach(events, announce), fanOut)
+      )
+    )
+  );
+  const run = async <A, E>(effect: Effect.Effect<A, E, Queue>): Promise<A> => {
+    settledValue(await ready);
+    return settledValue(await runtime.runPromiseExit(effect));
   };
+  const use = <A, E>(
+    operation: (queue: QueueService) => Effect.Effect<A, E>
+  ): Promise<A> => run(Effect.flatMap(Queue, operation));
+
+  const checkpointing = (saving: Effect.Effect<void, QueueError>) => {
+    let started: Promise<void> | undefined;
+    const awaited = (): Promise<void> => {
+      started ??= run(saving);
+      return started;
+    };
+    const awaitable: PromiseLike<void> = {
+      // biome-ignore lint/suspicious/noThenProperty: a saved checkpoint is awaitable from plain handlers and yieldable from Effect handlers.
+      then: (onFulfilled, onRejected) =>
+        awaited().then(onFulfilled, onRejected),
+    };
+    return Object.assign(
+      Effect.suspend(() => saving),
+      awaitable
+    );
+  };
+
+  const lifted =
+    (handler: QueueHandler): RunHandler =>
+    (context) =>
+      Effect.flatMap(
+        Effect.try({
+          catch: errorShapeOf,
+          try: () =>
+            handler({
+              ...context,
+              saveCheckpoint: (value) =>
+                checkpointing(context.saveCheckpoint(value)),
+            }),
+        }),
+        (result) =>
+          Effect.isEffect(result)
+            ? result
+            : Effect.tryPromise({
+                catch: errorShapeOf,
+                try: async () => await result,
+              })
+      );
 
   return {
     abandon: (id, error) => use((queue) => queue.abandon(id, error)),
@@ -90,7 +148,10 @@ export const createQueueClient = (
     cancelSuspension: (suspensionId, reason) =>
       use((queue) => queue.cancelSuspension(suspensionId, reason)),
     configurePool: (pool) => use((queue) => queue.configurePool(pool)),
-    dispose: () => runtime.dispose(),
+    dispose: async () => {
+      await Effect.runPromise(Scope.close(fanOut, Exit.void));
+      await runtime.dispose();
+    },
     drain: (graceMs) => use((queue) => queue.drain(graceMs)),
     getJob: (id) => use((queue) => queue.getJob(id)),
     getRun: (id) => use((queue) => queue.getRun(id)),
@@ -112,14 +173,9 @@ export const createQueueClient = (
     retire: (successor) => use((queue) => queue.retire(successor)),
     submit: (input) => use((queue) => queue.submit(input)),
     subscribe: (listener) => {
-      const fiber = runtime.runFork(
-        Stream.runForEach(
-          Stream.unwrap(Effect.map(Queue, (queue) => queue.events)),
-          (event) => Effect.sync(() => listener(event))
-        )
-      );
+      listeners.add(listener);
       return () => {
-        runtime.runFork(Fiber.interrupt(fiber));
+        listeners.delete(listener);
       };
     },
   };

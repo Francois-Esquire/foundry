@@ -33,7 +33,7 @@ import type {
 import {
   filedRuns,
   gatedQueueStore,
-  ownedWrite,
+  ownedQueueWrite,
   removalOf,
 } from "~/lib/run-store";
 import { readRun, runEventsOf, runStoreEffect } from "~/lib/workflow-runs";
@@ -181,7 +181,7 @@ export class DatabaseRunStore implements RunStore {
         commit: (write: QueueWrite) => {
           const cause = causingRun();
           return Effect.suspend(() => {
-            const owned = ownedWrite(write);
+            const owned = ownedQueueWrite(write);
             causes.set(owned, cause);
             return gated.commit(owned);
           });
@@ -239,7 +239,16 @@ export class DatabaseRunStore implements RunStore {
         });
         const removal = await runStoreEffect(removalOf(queue, runId));
         await runStoreEffect(queue.commit(removal));
-        await transaction.delete(marblesWorkflowRuns).where(this.#run(runId));
+        await transaction
+          .delete(marblesWorkflowRuns)
+          .where(
+            and(
+              eq(marblesWorkflowRuns.scope, this.#scope),
+              inList(marblesWorkflowRuns.runId, [
+                ...new Set([runId, ...(removal.deleteRuns ?? [])]),
+              ])
+            )
+          );
         await removeShares(
           transaction,
           "run",

@@ -20,9 +20,14 @@ const WEEKDAYS: readonly Weekday[] = [
 
 const MAX_RECORDED_MISSES = 100;
 
+const SEARCH_SPAN_MS = 60_000;
+
 const UNIT_MS = { d: 86_400_000, h: 3_600_000, m: 60_000, ms: 1, s: 1000 };
 
 const EVERY = /^(\d+)\s*(ms|s|m|h|d)$/;
+
+const isUnit = (unit: string): unit is keyof typeof UNIT_MS =>
+  Object.hasOwn(UNIT_MS, unit);
 
 type CronCadence = Extract<Cadence, { kind: "calendar" | "cron" }>;
 
@@ -53,6 +58,14 @@ const cronProblem = (cadence: CronCadence): string | undefined => {
   }
 };
 
+const unknownCadence = (cadence: never): string =>
+  `cadence ${JSON.stringify(cadence)} must be an interval, calendar, cron, or once`;
+
+const timezoneProblem = (cadence: CronCadence) =>
+  cadence.timezone.trim().length === 0
+    ? "timezone must name an IANA timezone"
+    : undefined;
+
 const problemOf = (cadence: Cadence): string | undefined => {
   switch (cadence.kind) {
     case "interval":
@@ -65,12 +78,18 @@ const problemOf = (cadence: Cadence): string | undefined => {
       if (!(inRange(cadence.hour, 23) && inRange(cadence.minute, 59))) {
         return "hour must be 0..23 and minute 0..59";
       }
-      if (cadence.weekdays?.some((day) => !WEEKDAYS.includes(day))) {
-        return "weekdays must be sun..sat";
+      if (
+        cadence.weekdays !== undefined &&
+        (cadence.weekdays.length === 0 ||
+          cadence.weekdays.some((day) => !WEEKDAYS.includes(day)))
+      ) {
+        return "weekdays must name at least one of sun..sat";
       }
-      return cronProblem(cadence);
+      return timezoneProblem(cadence) ?? cronProblem(cadence);
+    case "cron":
+      return timezoneProblem(cadence) ?? cronProblem(cadence);
     default:
-      return cronProblem(cadence);
+      return unknownCadence(cadence);
   }
 };
 
@@ -83,16 +102,23 @@ export const validateCadence = (
     : Effect.fail(new InvalidCadenceError({ cadence, reason }));
 };
 
+export const durationMs = (text: string): number | undefined => {
+  const match = EVERY.exec(text.trim());
+  const amount = match?.[1];
+  const unit = match?.[2];
+  return amount === undefined || unit === undefined || !isUnit(unit)
+    ? undefined
+    : Number(amount) * UNIT_MS[unit];
+};
+
 export const parseEvery = (
   text: string
 ): Either.Either<
   Extract<Cadence, { kind: "interval" }>,
   InvalidCadenceError
 > => {
-  const match = EVERY.exec(text.trim());
-  const unit = match?.[2] as keyof typeof UNIT_MS | undefined;
-  const everyMs = Number(match?.[1]) * (unit === undefined ? 0 : UNIT_MS[unit]);
-  return everyMs > 0
+  const everyMs = durationMs(text);
+  return everyMs !== undefined && Number.isSafeInteger(everyMs) && everyMs > 0
     ? Either.right({ everyMs, kind: "interval" })
     : Either.left(
         new InvalidCadenceError({
@@ -102,14 +128,20 @@ export const parseEvery = (
       );
 };
 
+const runAfter = (cron: Cron, after: Instant): Instant | null =>
+  cron.nextRun(new Date(after))?.getTime() ?? null;
+
 export const nextDue = (cadence: Cadence, after: Instant): Instant | null => {
   switch (cadence.kind) {
     case "interval":
       return after + cadence.everyMs;
     case "once":
       return cadence.at > after ? cadence.at : null;
+    case "calendar":
+    case "cron":
+      return runAfter(cronOf(cadence), after);
     default:
-      return cronOf(cadence).nextRun(new Date(after))?.getTime() ?? null;
+      throw new TypeError(unknownCadence(cadence));
   }
 };
 
@@ -121,6 +153,29 @@ interface DueTimes {
   readonly missed: readonly Instant[];
   readonly next: Instant | null;
 }
+
+const runsFrom = (cron: Cron, from: Instant, first: Instant, now: Instant) => {
+  const times = from === first ? [first] : [];
+  let next = runAfter(cron, from === first ? first : from - 1);
+  while (next !== null && next <= now) {
+    times.push(next);
+    if (times.length > MAX_RECORDED_MISSES + 1) {
+      times.shift();
+    }
+    next = runAfter(cron, next);
+  }
+  return { next, times };
+};
+
+const recentRuns = (cron: Cron, first: Instant, now: Instant) => {
+  for (let span = SEARCH_SPAN_MS; ; span *= 2) {
+    const from = Math.max(first, now - span);
+    const found = runsFrom(cron, from, first, now);
+    if (from === first || found.times.length > MAX_RECORDED_MISSES) {
+      return found;
+    }
+  }
+};
 
 const dueTimes = (cadence: Cadence, first: Instant, now: Instant): DueTimes => {
   if (cadence.kind === "interval") {
@@ -136,15 +191,10 @@ const dueTimes = (cadence: Cadence, first: Instant, now: Instant): DueTimes => {
       next: latest + cadence.everyMs,
     };
   }
-  const times = [first];
-  let next = nextDue(cadence, first);
-  while (next !== null && next <= now) {
-    times.push(next);
-    if (times.length > MAX_RECORDED_MISSES + 1) {
-      times.shift();
-    }
-    next = nextDue(cadence, next);
+  if (cadence.kind === "once") {
+    return { latest: first, missed: [], next: null };
   }
+  const { next, times } = recentRuns(cronOf(cadence), first, now);
   return { latest: times.at(-1) ?? first, missed: times.slice(0, -1), next };
 };
 

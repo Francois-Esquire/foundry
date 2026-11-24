@@ -310,7 +310,7 @@ it("gives up its claim on a suspended run when a read after the claim fails", as
             ? Promise.reject(new Error("database busy"))
             : Promise.resolve(false),
         store: {
-          getJob: () => Effect.die(new Error("unused")),
+          listJobs: () => Effect.die(new Error("unused")),
           listRuns: () => Effect.die(new Error("unused")),
         },
       })

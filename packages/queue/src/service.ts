@@ -1,6 +1,6 @@
 import type { JsonValue } from "@foundry/lib/json";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
-import type { Effect, Stream } from "effect";
+import type { Effect, Scope, Stream } from "effect";
 import type {
   ConcurrencyPool,
   ErrorShape,
@@ -82,9 +82,8 @@ export interface QueueService {
   ) => Effect.Effect<Suspension, QueueError>;
   readonly configurePool: (
     pool: ConcurrencyPool
-  ) => Effect.Effect<void, InvalidPoolLimitError | StoreError>;
+  ) => Effect.Effect<void, InvalidPoolLimitError | QueueError>;
   readonly drain: (graceMs?: number) => Effect.Effect<void, QueueError>;
-  readonly events: Stream.Stream<QueueEvent>;
   readonly getJob: (id: JobId) => Effect.Effect<Job | undefined, StoreError>;
   readonly getRun: (id: RunId) => Effect.Effect<Run | undefined, StoreError>;
   readonly getSuspension: (
@@ -119,4 +118,9 @@ export interface QueueService {
     successor?: ProcessIdentity
   ) => Effect.Effect<readonly RunId[], QueueError>;
   readonly submit: (input: SubmitJobInput) => Effect.Effect<Job, QueueError>;
+  readonly subscribe: Effect.Effect<
+    Stream.Stream<QueueEvent>,
+    never,
+    Scope.Scope
+  >;
 }

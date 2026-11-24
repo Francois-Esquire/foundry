@@ -1,6 +1,6 @@
 import {
+  isGone,
   type ProcessIdentity,
-  sameProcess,
   thisProcess,
 } from "@foundry/lib/process-identity";
 import {
@@ -10,14 +10,14 @@ import {
   Effect,
   Layer,
   PubSub,
+  type Scope,
   Stream,
 } from "effect";
-import { dueOccurrences, firstDue, validateCadence } from "./cadence";
+import { firstDue, validateCadence } from "./cadence";
 import { ScheduleDispatch } from "./dispatch";
 import {
   type Instant,
   type Occurrence,
-  occurrenceId,
   type RegisterScheduleInput,
   type Schedule,
   type ScheduleCursor,
@@ -25,20 +25,26 @@ import {
   type ScheduleEvent,
   type ScheduleId,
   ScheduleNotFoundError,
-  type SkipReason,
 } from "./domain";
+import {
+  type Commit,
+  type Evaluation,
+  makeEvaluator,
+  sameJson,
+} from "./evaluate";
 import { ScheduleStore } from "./store/index";
 
 export interface SchedulerOptions {
   readonly identity?: ProcessIdentity;
+  readonly isOwnerGone?: (owner: ProcessIdentity) => boolean;
   readonly retryDelayMs?: number;
+  readonly settlePollMs?: number;
 }
 
 export interface SchedulerService {
   readonly cursor: (
     id: ScheduleId
   ) => Effect.Effect<ScheduleCursor | undefined, ScheduleError>;
-  readonly events: Stream.Stream<ScheduleEvent>;
   readonly get: (
     id: ScheduleId
   ) => Effect.Effect<Schedule | undefined, ScheduleError>;
@@ -48,6 +54,11 @@ export interface SchedulerService {
     input: RegisterScheduleInput
   ) => Effect.Effect<Schedule, ScheduleError>;
   readonly resume: (id: ScheduleId) => Effect.Effect<Schedule, ScheduleError>;
+  readonly subscribe: Effect.Effect<
+    Stream.Stream<ScheduleEvent>,
+    never,
+    Scope.Scope
+  >;
   readonly tick: Effect.Effect<readonly Occurrence[], ScheduleError>;
   readonly triggerNow: (
     id: ScheduleId
@@ -55,64 +66,11 @@ export interface SchedulerService {
   readonly unregister: (id: ScheduleId) => Effect.Effect<void, ScheduleError>;
 }
 
-type Fact = ScheduleEvent extends infer Event
-  ? Event extends ScheduleEvent
-    ? Omit<Event, "at" | "id">
-    : never
-  : never;
-
-interface Progress {
-  readonly cursor: ScheduleCursor;
-  readonly decided: readonly Occurrence[];
-  readonly facts: readonly Fact[];
-  readonly writes: readonly Occurrence[];
-}
-
-interface Evaluation {
-  readonly decided: readonly Occurrence[];
-  readonly nextDueAt: Instant | null;
-}
-
-const SUPERSEDED = "superseded by next schedule occurrence";
 const DEFAULT_RETRY_DELAY_MS = 1000;
+const DEFAULT_SETTLE_POLL_MS = 5000;
 
-const withActive = (
-  cursor: ScheduleCursor,
-  jobId: string | undefined
-): ScheduleCursor => {
-  const { activeJobId: _previous, ...rest } = cursor;
-  return jobId === undefined ? rest : { ...rest, activeJobId: jobId };
-};
-
-const skipped = (
-  occurrence: Omit<Occurrence, "state">,
-  reason: SkipReason,
-  at: Instant
-): Occurrence => ({ ...occurrence, state: { at, kind: "skipped", reason } });
-
-const skippedFact = (occurrence: Occurrence): Fact => ({
-  occurrence,
-  type: "occurrence.skipped",
-});
-
-const record = (
-  progress: Progress,
-  cursor: ScheduleCursor,
-  occurrence: Occurrence,
-  facts: readonly Fact[],
-  persist: boolean
-): Progress => ({
-  cursor,
-  decided: [...progress.decided, occurrence],
-  facts: [...progress.facts, ...facts],
-  writes: persist ? [...progress.writes, occurrence] : progress.writes,
-});
-
-const occurrenceAt = (scheduleId: ScheduleId, scheduledFor: Instant) => ({
-  id: occurrenceId(scheduleId, scheduledFor),
-  scheduledFor,
-  scheduleId,
-});
+const earliest = (one: Instant | undefined, other: Instant | null) =>
+  other === null ? one : Math.min(one ?? other, other);
 
 const makeScheduler = (options: SchedulerOptions) =>
   Effect.gen(function* () {
@@ -126,17 +84,9 @@ const makeScheduler = (options: SchedulerOptions) =>
     const wake = yield* Effect.makeLatch(false);
     const self = options.identity ?? thisProcess();
     const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+    const settlePollMs = options.settlePollMs ?? DEFAULT_SETTLE_POLL_MS;
 
-    const commit = (
-      now: Instant,
-      facts: readonly Fact[],
-      write: {
-        readonly cursors?: readonly ScheduleCursor[];
-        readonly occurrences?: readonly Occurrence[];
-        readonly removed?: readonly ScheduleId[];
-        readonly schedules?: readonly Schedule[];
-      }
-    ) =>
+    const commit: Commit = (now, facts, write) =>
       Effect.gen(function* () {
         const events = facts.map(
           (fact): ScheduleEvent => ({
@@ -149,206 +99,20 @@ const makeScheduler = (options: SchedulerOptions) =>
         yield* PubSub.publishAll(hub, events);
       }).pipe(Effect.uninterruptible);
 
+    const { evaluate, triggerNow: fireNow } = makeEvaluator({
+      commit,
+      dispatch,
+      isOwnerGone: options.isOwnerGone ?? isGone,
+      self,
+      store,
+    });
+
     const requireSchedule = (id: ScheduleId) =>
       Effect.flatMap(store.getSchedule(id), (schedule) =>
         schedule === undefined
           ? Effect.fail(new ScheduleNotFoundError({ id }))
           : Effect.succeed(schedule)
       );
-
-    const settledOf = (occurrence: Occurrence, now: Instant) => {
-      if (occurrence.state.kind !== "dispatched") {
-        return Effect.succeed(undefined);
-      }
-      const { jobId } = occurrence.state;
-      return Effect.map(
-        dispatch.status(jobId),
-        (status): Occurrence | undefined =>
-          status === "open"
-            ? undefined
-            : {
-                ...occurrence,
-                state: {
-                  jobId,
-                  kind: "settled",
-                  outcome: status,
-                  settledAt: now,
-                },
-              }
-      );
-    };
-
-    const refresh = (cursor: ScheduleCursor, now: Instant) =>
-      Effect.gen(function* () {
-        const open = yield* store.listOccurrences({
-          scheduleId: cursor.scheduleId,
-          state: "dispatched",
-        });
-        const checked = yield* Effect.forEach(open, (occurrence) =>
-          Effect.map(settledOf(occurrence, now), (done) => ({
-            done,
-            occurrence,
-          }))
-        );
-        const settled = checked.flatMap(({ done }) => (done ? [done] : []));
-        const active = checked
-          .flatMap(({ done, occurrence }) =>
-            done === undefined && occurrence.state.kind === "dispatched"
-              ? [occurrence.state.jobId]
-              : []
-          )
-          .at(-1);
-        const lastSettledAt = settled.length > 0 ? now : cursor.lastSettledAt;
-        return {
-          cursor: withActive(
-            {
-              ...cursor,
-              ...(lastSettledAt === undefined ? {} : { lastSettledAt }),
-            },
-            active
-          ),
-          decided: [],
-          facts: settled.map((occurrence) => ({
-            occurrence,
-            type: "occurrence.settled" as const,
-          })),
-          writes: settled,
-        } satisfies Progress;
-      });
-
-    const claim = (occurrence: Occurrence) =>
-      Effect.gen(function* () {
-        if (yield* store.claim(occurrence)) {
-          return true;
-        }
-        const existing = yield* store.getOccurrence(occurrence.id);
-        return (
-          existing?.state.kind === "claimed" &&
-          sameProcess(existing.state.lease.owner, self)
-        );
-      });
-
-    const fire = (
-      schedule: Schedule,
-      progress: Progress,
-      scheduledFor: Instant,
-      now: Instant
-    ) =>
-      Effect.gen(function* () {
-        const base = occurrenceAt(schedule.id, scheduledFor);
-        const claimed: Occurrence = {
-          ...base,
-          state: {
-            claimedAt: now,
-            kind: "claimed",
-            lease: { claimedAt: now, owner: self },
-          },
-        };
-        const cursor = { ...progress.cursor, lastScheduledFor: scheduledFor };
-        if (!(yield* claim(claimed))) {
-          const taken = skipped(base, "already-claimed", now);
-          return record(progress, cursor, taken, [skippedFact(taken)], false);
-        }
-        const claimedFact: Fact = {
-          occurrence: claimed,
-          type: "occurrence.claimed",
-        };
-        const active = progress.cursor.activeJobId;
-        if (active !== undefined && schedule.overlap === "skip") {
-          const overlapped = skipped(base, "overlap", now);
-          return record(
-            progress,
-            cursor,
-            overlapped,
-            [claimedFact, skippedFact(overlapped)],
-            true
-          );
-        }
-        if (active !== undefined && schedule.overlap === "cancel-previous") {
-          yield* dispatch.cancel(active, SUPERSEDED);
-        }
-        const { jobId } = yield* dispatch.submit({
-          idempotencyKey: base.id,
-          scheduledFor,
-          scheduleId: schedule.id,
-          target: schedule.target,
-        });
-        const dispatched: Occurrence = {
-          ...base,
-          state: { dispatchedAt: now, jobId, kind: "dispatched" },
-        };
-        return record(
-          progress,
-          withActive(cursor, jobId),
-          dispatched,
-          [
-            claimedFact,
-            { occurrence: dispatched, type: "occurrence.dispatched" },
-          ],
-          true
-        );
-      });
-
-    const save = (before: ScheduleCursor, progress: Progress, now: Instant) =>
-      progress.writes.length === 0 &&
-      progress.facts.length === 0 &&
-      JSON.stringify(before) === JSON.stringify(progress.cursor)
-        ? Effect.void
-        : commit(now, progress.facts, {
-            cursors: [progress.cursor],
-            occurrences: progress.writes,
-          });
-
-    const advance = (
-      schedule: Schedule,
-      progress: Progress,
-      now: Instant
-    ): Effect.Effect<Progress, ScheduleError> => {
-      const { nextDueAt } = progress.cursor;
-      if (nextDueAt === null || now < nextDueAt) {
-        return Effect.succeed(progress);
-      }
-      const due = dueOccurrences(
-        schedule.cadence,
-        nextDueAt,
-        now,
-        schedule.misfire
-      );
-      const missed = due.skipped.map((at) =>
-        skipped(occurrenceAt(schedule.id, at), "misfire", now)
-      );
-      const advanced: Progress = {
-        cursor: {
-          ...progress.cursor,
-          lastScheduledFor: due.toFire ?? due.skipped.at(-1),
-          nextDueAt: due.nextDueAt,
-        },
-        decided: [...progress.decided, ...missed],
-        facts: [...progress.facts, ...missed.map(skippedFact)],
-        writes: [...progress.writes, ...missed],
-      };
-      return due.toFire === null
-        ? Effect.succeed(advanced)
-        : fire(schedule, advanced, due.toFire, now);
-    };
-
-    const evaluate = (schedule: Schedule, now: Instant) =>
-      Effect.gen(function* () {
-        const cursor = yield* store.getCursor(schedule.id);
-        if (cursor === undefined) {
-          return { decided: [], nextDueAt: null } satisfies Evaluation;
-        }
-        const progress = yield* advance(
-          schedule,
-          yield* refresh(cursor, now),
-          now
-        );
-        yield* save(cursor, progress, now);
-        return {
-          decided: progress.decided,
-          nextDueAt: progress.cursor.nextDueAt,
-        } satisfies Evaluation;
-      });
 
     const evaluateAll = (
       recover: (
@@ -368,8 +132,9 @@ const makeScheduler = (options: SchedulerOptions) =>
             Effect.catchAll((error) => recover(error, now))
           );
           decided.push(...result.decided);
-          if (result.nextDueAt !== null) {
-            soonest = Math.min(soonest ?? result.nextDueAt, result.nextDueAt);
+          soonest = earliest(soonest, result.nextDueAt);
+          if (result.open) {
+            soonest = earliest(soonest, now + settlePollMs);
           }
         }
         return { decided, soonest };
@@ -393,15 +158,19 @@ const makeScheduler = (options: SchedulerOptions) =>
       Effect.as(Effect.logWarning("schedule evaluation failed", error), {
         decided: [],
         nextDueAt: now + retryDelayMs,
+        open: false,
       });
 
     yield* Effect.gen(function* () {
       yield* wake.close;
       const { soonest } = yield* locked(evaluateAll(tolerate)).pipe(
         Effect.catchAll((error) =>
-          Effect.as(Effect.logWarning("schedule evaluation failed", error), {
-            soonest: undefined,
-          })
+          Effect.zipRight(
+            Effect.logWarning("schedule evaluation failed", error),
+            Effect.map(Clock.currentTimeMillis, (now) => ({
+              soonest: now + retryDelayMs,
+            }))
+          )
         )
       );
       yield* nap(soonest);
@@ -445,11 +214,10 @@ const makeScheduler = (options: SchedulerOptions) =>
           state: input.state ?? existing?.state ?? "active",
           target: input.target,
         };
-        const sameCadence =
-          existing !== undefined &&
-          JSON.stringify(existing.cadence) === JSON.stringify(cadence);
         const cursor: ScheduleCursor =
-          sameCadence && previous !== undefined
+          existing !== undefined &&
+          previous !== undefined &&
+          sameJson(existing.cadence, cadence)
             ? previous
             : {
                 ...previous,
@@ -467,18 +235,7 @@ const makeScheduler = (options: SchedulerOptions) =>
       Effect.gen(function* () {
         const schedule = yield* requireSchedule(id);
         const now = yield* Clock.currentTimeMillis;
-        const cursor = (yield* store.getCursor(id)) ?? {
-          nextDueAt: null,
-          scheduleId: id,
-        };
-        const progress = yield* fire(
-          schedule,
-          yield* refresh(cursor, now),
-          now,
-          now
-        );
-        yield* save(cursor, progress, now);
-        const [occurrence] = progress.decided.slice(-1);
+        const occurrence = yield* fireNow(schedule, now);
         return occurrence ?? (yield* Effect.dieMessage("nothing was decided"));
       });
 
@@ -493,17 +250,17 @@ const makeScheduler = (options: SchedulerOptions) =>
 
     return Scheduler.of({
       cursor: store.getCursor,
-      events: Stream.fromPubSub(hub),
       get: store.getSchedule,
       list: store.listSchedules,
       pause: (id) => setState(id, "paused"),
       register: (input) => changed(register(input)),
       resume: (id) => setState(id, "active"),
+      subscribe: Stream.fromPubSub(hub, { scoped: true }),
       tick: Effect.map(
         locked(evaluateAll((error) => Effect.fail(error))),
         (result) => result.decided
       ),
-      triggerNow: (id) => locked(triggerNow(id)),
+      triggerNow: (id) => changed(triggerNow(id)),
       unregister: (id) => changed(unregister(id)),
     });
   });

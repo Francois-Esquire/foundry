@@ -1,6 +1,13 @@
 import { Effect, Layer, Ref } from "effect";
-import type { ConcurrencyPool, Job, Run, Suspension } from "../domain";
-import { QueueStore, type QueueStoreService } from "./index";
+import {
+  type ConcurrencyPool,
+  type Job,
+  type Run,
+  type Suspension,
+  WriteConflictError,
+} from "../domain";
+import { conflictOf } from "./conflict";
+import { QueueStore, type QueueStoreService, type QueueWrite } from "./index";
 
 interface Records {
   readonly jobs: ReadonlyMap<string, Job>;
@@ -38,6 +45,26 @@ const without = <T>(
   return next;
 };
 
+const applied = (current: Records, write: QueueWrite): Records => ({
+  jobs: without(
+    upsert(current.jobs, write.jobs, (job) => job.id),
+    write.deleteJobs
+  ),
+  pools: upsert(current.pools, write.pools, (pool) => pool.name),
+  runs: without(
+    upsert(current.runs, write.runs, (run) => run.id),
+    write.deleteRuns
+  ),
+  suspensions: without(
+    upsert(
+      current.suspensions,
+      write.suspensions,
+      (suspension) => suspension.id
+    ),
+    write.deleteSuspensions
+  ),
+});
+
 export const makeMemoryQueueStore: Effect.Effect<QueueStoreService> =
   Effect.map(
     Ref.make<Records>({
@@ -51,25 +78,26 @@ export const makeMemoryQueueStore: Effect.Effect<QueueStoreService> =
         Effect.map(Ref.get(records), pick);
       return {
         commit: (write) =>
-          Ref.update(records, (current) => ({
-            jobs: without(
-              upsert(current.jobs, write.jobs, (job) => job.id),
-              write.deleteJobs
-            ),
-            pools: upsert(current.pools, write.pools, (pool) => pool.name),
-            runs: without(
-              upsert(current.runs, write.runs, (run) => run.id),
-              write.deleteRuns
-            ),
-            suspensions: without(
-              upsert(
-                current.suspensions,
-                write.suspensions,
-                (suspension) => suspension.id
-              ),
-              write.deleteSuspensions
-            ),
-          })),
+          Effect.flatMap(
+            Ref.modify(records, (current) => {
+              const conflict = conflictOf(write, {
+                holderOf: (key) =>
+                  [...current.jobs.values()].find(
+                    (job) => job.policy.idempotencyKey === key
+                  )?.id,
+                runRevision: (id) => current.runs.get(id)?.revision,
+                suspensionRevision: (id) =>
+                  current.suspensions.get(id)?.revision,
+              });
+              return conflict === undefined
+                ? [undefined, applied(current, write)]
+                : [conflict, current];
+            }),
+            (conflict) =>
+              conflict === undefined
+                ? Effect.void
+                : Effect.fail(new WriteConflictError({ id: conflict }))
+          ),
         getJob: (id) => read((current) => current.jobs.get(id)),
         getRun: (id) => read((current) => current.runs.get(id)),
         getSuspension: (id) => read((current) => current.suspensions.get(id)),
