@@ -30,8 +30,7 @@
         "@noble/hashes",
         "effect",
         "evlog",
-        "ignore",
-        "simple-git"
+        "ignore"
       ],
       "entry": [
         "examples/**/*.ts",

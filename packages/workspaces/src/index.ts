@@ -39,6 +39,7 @@ export type {
   ResolvedSource,
   SaveFileCommand,
   SaveFileResult,
+  WorkspaceAttachContext,
   WorkspaceAttachment,
   WorkspaceCatalogChange,
   WorkspaceChange,

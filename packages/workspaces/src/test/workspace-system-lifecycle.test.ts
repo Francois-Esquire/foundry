@@ -12,6 +12,7 @@ import { MemoryWorkspaceStore } from "../store/memory";
 import { artifactWorkspace, seed } from "../testing/records";
 import type {
   ObservedFacts,
+  WorkspaceExtension,
   WorkspaceFile,
   WorkspaceSourceAdapter,
   WriteOutcome,
@@ -121,8 +122,10 @@ describe("lifecycle", () => {
     const root = await makeRoot({ "README.md": "hello" });
     const system = directorySystem().extend({
       applies: (registration) => registration.source.kind === "host",
-      attach: (workspace) => ({
-        capabilities: { label: `dir:${workspace.source.path}` },
+      attach: ({ capabilities, registration }) => ({
+        capabilities: {
+          label: `dir:${String(capabilities.root ?? registration.source.path)}`,
+        },
       }),
       name: "labelled",
     });
@@ -312,5 +315,141 @@ describe("lifecycle", () => {
       kind: "failed",
       reason: "Invalid relative storage path",
     });
+  });
+
+  it("reuses the prevalidated composition when a change listener opens the workspace during load", async () => {
+    const root = await makeRoot({ "README.md": "hello" });
+    let attaches = 0;
+    let openedFromListener: Promise<unknown> | undefined;
+    const system = directorySystem().extend({
+      applies: () => true,
+      attach: ({ registration }) => {
+        attaches += 1;
+        return {
+          capabilities: { tag: registration.id },
+          async start(workspace) {
+            expect((await workspace.registration()).id).toBe(registration.id);
+          },
+        };
+      },
+      name: "observer",
+    });
+    system.on("change", ({ entry }) => {
+      openedFromListener ??= system.open(entry.workspaceId);
+    });
+
+    const loaded = await system.load({ path: root });
+    expect(await openedFromListener).toBe(loaded);
+    expect(attaches).toBe(1);
+    await system.closeAll();
+  });
+
+  it("finishes rollback and preserves startup error even when stop and onError both throw", async () => {
+    const events: string[] = [];
+    const system = new WorkspaceSystem({
+      onError() {
+        events.push("report");
+        throw new Error("reporter boom");
+      },
+    })
+      .extend({
+        applies: () => true,
+        identify: ({ mem }: { readonly mem: string }) => ({
+          name: mem,
+          source: { kind: "mem", path: `mem:${mem}`, sourceId: null },
+        }),
+        name: "mem",
+        ref: "mem",
+        source: () => ({ scan: () => Promise.resolve([]) }),
+      })
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          start() {
+            events.push("first:start");
+          },
+          stop() {
+            events.push("first:stop");
+          },
+        }),
+        name: "first",
+      })
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          start() {
+            events.push("second:start");
+            throw new Error("start boom");
+          },
+          stop() {
+            events.push("second:stop");
+            throw new Error("stop boom");
+          },
+        }),
+        name: "second",
+      });
+
+    await expect(system.load({ mem: "x" })).rejects.toThrow("start boom");
+    expect(events).toEqual([
+      "first:start",
+      "second:start",
+      "second:stop",
+      "first:stop",
+      "report",
+    ]);
+  });
+
+  it("preserves symbol-keyed capabilities and rejects floor mismatch before starting a closed incumbent", async () => {
+    const tag = Symbol("tag");
+    const starts: string[] = [];
+    const system = new WorkspaceSystem()
+      .extend({
+        applies: (registration) => registration.source.kind === "alpha",
+        attach: () => ({
+          capabilities: { [tag]: "alpha-cap" },
+          start() {
+            starts.push("alpha");
+          },
+        }),
+        identify: ({ alpha }: { readonly alpha: string }) => ({
+          name: alpha,
+          source: { kind: "alpha", path: `shared:${alpha}`, sourceId: null },
+        }),
+        name: "alpha",
+        ref: "alpha",
+        source: () => ({ scan: () => Promise.resolve([]) }),
+      })
+      .extend({
+        applies: (registration) => registration.source.kind === "beta",
+        identify: ({ beta }: { readonly beta: string }) => ({
+          name: beta,
+          source: { kind: "beta", path: `shared:${beta}`, sourceId: null },
+        }),
+        name: "beta",
+        ref: "beta",
+        source: () => ({ scan: () => Promise.resolve([]) }),
+      });
+
+    const first = await system.load({ alpha: "same" });
+    expect(Reflect.get(first, tag)).toBe("alpha-cap");
+    expect(starts).toEqual(["alpha"]);
+
+    await system.close(first.id);
+    await expect(system.load({ beta: "same" })).rejects.toBeInstanceOf(
+      WorkspaceSourceUnsupportedError
+    );
+    expect(starts).toEqual(["alpha"]);
+
+    const missingRequired: WorkspaceExtension<
+      never,
+      unknown,
+      { readonly token: string }
+    > = {
+      applies: () => true,
+      // @ts-expect-error -- required capability `token` must be returned by attach()
+      attach: () => ({}),
+      name: "missing-required",
+    };
+    expect(missingRequired.name).toBe("missing-required");
   });
 });

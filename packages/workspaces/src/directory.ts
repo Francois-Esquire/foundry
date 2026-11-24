@@ -201,7 +201,9 @@ export function directory<Ref extends object = DirectoryRef>(
   const kind = options.source ?? DIRECTORY_SOURCE;
   return {
     applies: (registration) => registration.source.kind === kind,
-    attach: (workspace) => ({ capabilities: { root: workspace.source.path } }),
+    attach: ({ registration }) => ({
+      capabilities: { root: registration.source.path },
+    }),
     async identify(ref) {
       const resolved = await resolveSource(filesystem, ref);
       const root = await canonicalizeRoot(filesystem, resolved.path);

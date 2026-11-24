@@ -323,9 +323,10 @@ they do not record every intermediate write or provide a durable event log.
 
 An extension is a `WorkspaceExtension`: `applies(registration)` decides from
 the stored registration, `source(registration)` supplies the
-`WorkspaceSourceAdapter` for a source-owning extension, and `attach(workspace)`
-returns optional capabilities and `start`/`stop` lifecycle hooks. Extensions
-apply in registration order so later attachments can read earlier capabilities.
+`WorkspaceSourceAdapter` for a source-owning extension, and
+`attach({ registration, capabilities })` returns optional capabilities and
+`start(workspace)`/`stop(workspace)` lifecycle hooks. Extensions apply in
+registration order so later attachments can read earlier capabilities.
 A record no source extension claims is refused at open with
 `WorkspaceSourceUnsupportedError`.
 

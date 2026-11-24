@@ -130,36 +130,71 @@ export interface WorkspaceSourceAdapter {
   ): Promise<WriteOutcome>;
 }
 
+export interface WorkspaceAttachContext {
+  readonly capabilities: Readonly<Record<PropertyKey, unknown>>;
+  readonly registration: WorkspaceRegistration;
+}
+
 export interface WorkspaceLifecycle {
-  start?(): Promise<void> | void;
-  stop?(): Promise<void> | void;
+  start?(workspace: Workspace): Promise<void> | void;
+  stop?(workspace: Workspace): Promise<void> | void;
 }
 
-export interface WorkspaceAttachment<Caps extends object = object>
-  extends WorkspaceLifecycle {
-  readonly capabilities?: Caps;
-}
+type HasRequiredKeys<T> = keyof T extends never
+  ? false
+  : Record<never, never> extends T
+    ? false
+    : true;
 
-export interface WorkspaceExtension<
+export type WorkspaceAttachment<Caps extends object = object> =
+  WorkspaceLifecycle &
+    (HasRequiredKeys<Caps> extends true
+      ? { readonly capabilities: Caps }
+      : { readonly capabilities?: Caps });
+
+type ExtensionAttach<Caps extends object> =
+  HasRequiredKeys<Caps> extends true
+    ? {
+        attach(
+          context: WorkspaceAttachContext
+        ): Promise<WorkspaceAttachment<Caps>> | WorkspaceAttachment<Caps>;
+      }
+    : {
+        attach?(
+          context: WorkspaceAttachContext
+        ):
+          | Promise<WorkspaceAttachment<Caps> | undefined>
+          | WorkspaceAttachment<Caps>
+          | undefined;
+      };
+
+export type WorkspaceExtension<
   Ref extends object = never,
   Floor = unknown,
   Cap = unknown,
-> {
+> = {
   applies: (registration: WorkspaceRegistration) => Promise<boolean> | boolean;
-  attach?(
-    workspace: Workspace
-  ):
-    | Promise<WorkspaceAttachment<Floor & Cap & object> | undefined>
-    | WorkspaceAttachment<Floor & Cap & object>
-    | undefined;
   identify?(ref: Ref): Promise<WorkspaceIdentity> | WorkspaceIdentity;
   readonly name: string;
   readonly ref?: string;
   source?(registration: WorkspaceRegistration): WorkspaceSourceAdapter;
   readonly types?: { readonly floor: Floor; readonly cap: Cap };
-}
+} & ExtensionAttach<Floor & Cap & object>;
 
-export type AnyWorkspaceExtension = WorkspaceExtension<object>;
+export interface AnyWorkspaceExtension {
+  applies: (registration: WorkspaceRegistration) => Promise<boolean> | boolean;
+  attach?(
+    context: WorkspaceAttachContext
+  ):
+    | Promise<WorkspaceAttachment<object> | undefined>
+    | WorkspaceAttachment<object>
+    | undefined;
+  identify?(ref: object): Promise<WorkspaceIdentity> | WorkspaceIdentity;
+  readonly name: string;
+  readonly ref?: string;
+  source?(registration: WorkspaceRegistration): WorkspaceSourceAdapter;
+  readonly types?: { readonly floor: unknown; readonly cap: unknown };
+}
 
 export type RefOf<Exts extends readonly AnyWorkspaceExtension[]> =
   Exts[number] extends infer E

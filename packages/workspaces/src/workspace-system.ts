@@ -138,26 +138,33 @@ export class WorkspaceSystem<
 
   #openEntry(
     workspaceId: WorkspaceId,
-    precomposed?: ComposedWorkspace<Exts>
+    expectedFloor?: AnyWorkspaceExtension
   ): Promise<OpenedWorkspace<Exts>> {
     const closing = this.#closing.get(workspaceId);
     if (closing) {
-      return closing.then(() => this.#openEntry(workspaceId, precomposed));
+      return closing.then(() => this.#openEntry(workspaceId, expectedFloor));
     }
     const running = this.#opened.get(workspaceId);
     if (running) {
       return running;
     }
 
-    const opening = (async (): Promise<OpenedWorkspace<Exts>> => {
-      const composed = precomposed ?? (await this.#composeStored(workspaceId));
+    return this.#trackOpening(workspaceId, async () => {
+      const composed = await this.#composeStored(workspaceId, expectedFloor);
       const stop = await this.#start(composed);
       return {
         sourceOwner: composed.sourceOwner,
         stop,
         workspace: composed.workspace,
       };
-    })();
+    });
+  }
+
+  #trackOpening(
+    workspaceId: WorkspaceId,
+    run: () => Promise<OpenedWorkspace<Exts>>
+  ): Promise<OpenedWorkspace<Exts>> {
+    const opening = run();
     this.#opened.set(workspaceId, opening);
     opening.catch(() => {
       if (this.#opened.get(workspaceId) === opening) {
@@ -168,13 +175,14 @@ export class WorkspaceSystem<
   }
 
   async #composeStored(
-    workspaceId: WorkspaceId
+    workspaceId: WorkspaceId,
+    expectedFloor?: AnyWorkspaceExtension
   ): Promise<ComposedWorkspace<Exts>> {
     const registration = await this.#context.catalog.getWorkspace(workspaceId);
     if (!registration) {
       throw new WorkspaceNotFoundError(workspaceId);
     }
-    return this.#compose(registration);
+    return this.#compose(registration, expectedFloor);
   }
 
   async #register(
@@ -202,14 +210,40 @@ export class WorkspaceSystem<
       await composed.workspace.scan(),
       createdAt
     );
-    const result = await this.#context.catalog.create({
-      entries,
-      workspace: registration,
+
+    const committed = Promise.withResolvers<boolean>();
+    const opening = this.#trackOpening(registration.id, async () => {
+      if (!(await committed.promise)) {
+        throw new WorkspaceNotFoundError(registration.id);
+      }
+      const stop = await this.#start(composed);
+      return {
+        sourceOwner: composed.sourceOwner,
+        stop,
+        workspace: composed.workspace,
+      };
     });
+
+    let result: Awaited<ReturnType<WorkspaceCatalog["create"]>>;
+    try {
+      result = await this.#context.catalog.create({
+        entries,
+        workspace: registration,
+      });
+    } catch (error) {
+      committed.resolve(false);
+      await opening.catch(() => undefined);
+      throw error;
+    }
+
     if (result.kind === "workspace-exists") {
+      committed.resolve(false);
+      await opening.catch(() => undefined);
       return this.#reconciled(result.existingId, floor);
     }
-    const entry = await this.#openEntry(registration.id, composed);
+
+    committed.resolve(true);
+    const entry = await opening;
     return entry.workspace;
   }
 
@@ -217,7 +251,7 @@ export class WorkspaceSystem<
     workspaceId: WorkspaceId,
     expectedFloor: AnyWorkspaceExtension
   ): Promise<Workspace & CapOf<Exts>> {
-    const entry = await this.#openEntry(workspaceId);
+    const entry = await this.#openEntry(workspaceId, expectedFloor);
     if (entry.sourceOwner !== expectedFloor) {
       throw new WorkspaceSourceUnsupportedError(entry.workspace.source.kind);
     }
@@ -253,11 +287,20 @@ export class WorkspaceSystem<
       this.#context,
       adapter
     ) as Workspace & CapOf<Exts>;
+    const attached: Record<PropertyKey, unknown> = Object.create(null);
     const hooks: WorkspaceLifecycle[] = [];
     for (const extension of matched) {
-      const attachment = await extension.attach?.(workspace);
+      const attachment = await extension.attach?.({
+        capabilities: Object.freeze({ ...attached }),
+        registration,
+      });
       if (attachment?.capabilities) {
-        attachCapabilities(workspace, extension.name, attachment.capabilities);
+        attachCapabilities(
+          workspace,
+          attached,
+          extension.name,
+          attachment.capabilities
+        );
       }
       if (attachment?.start || attachment?.stop) {
         hooks.push(attachment);
@@ -279,7 +322,9 @@ export class WorkspaceSystem<
               ? adapter.watch(changed, failed)
               : Promise.resolve(undefined),
           () => workspace[RECONCILE](),
-          this.#context.report
+          (error) => {
+            this.#safeReport(error);
+          }
         );
         if (subscription) {
           cleanups.push(() => subscription.close());
@@ -287,38 +332,34 @@ export class WorkspaceSystem<
       }
       for (const hook of hooks) {
         if (hook.stop) {
-          cleanups.push(() => hook.stop?.());
+          cleanups.push(() => hook.stop?.(workspace));
         }
-        await hook.start?.();
+        await hook.start?.(workspace);
       }
     } catch (startupError) {
-      for (const cleanup of cleanups.splice(0).reverse()) {
-        try {
-          await cleanup();
-        } catch (cleanupError) {
-          this.#context.report(cleanupError);
-        }
+      for (const cleanupError of await runCleanups(cleanups)) {
+        this.#safeReport(cleanupError);
       }
       throw startupError;
     }
 
     return async () => {
-      let firstError: unknown;
-      let hasError = false;
-      for (const cleanup of cleanups.splice(0).reverse()) {
-        try {
-          await cleanup();
-        } catch (error) {
-          if (!hasError) {
-            firstError = error;
-            hasError = true;
-          }
-        }
+      const errors = await runCleanups(cleanups);
+      for (const extra of errors.slice(1)) {
+        this.#safeReport(extra);
       }
-      if (hasError) {
-        throw firstError;
+      if (errors.length > 0) {
+        throw errors[0];
       }
     };
+  }
+
+  #safeReport(error: unknown): void {
+    try {
+      this.#context.report(error);
+    } catch {
+      // Never let a listener or error reporter mask primary errors or abort cleanup.
+    }
   }
 
   #publish(changes: readonly WorkspaceChange[]): void {
@@ -335,25 +376,48 @@ export class WorkspaceSystem<
     try {
       const result = listener(structuredClone(change));
       if (result) {
-        result.catch(this.#context.report);
+        result.catch((error) => {
+          this.#safeReport(error);
+        });
       }
     } catch (error) {
-      this.#context.report(error);
+      this.#safeReport(error);
     }
   }
 }
 
+async function runCleanups(
+  cleanups: (() => Promise<void> | void)[]
+): Promise<readonly unknown[]> {
+  const errors: unknown[] = [];
+  for (const cleanup of cleanups.splice(0).reverse()) {
+    try {
+      await cleanup();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  return errors;
+}
+
 function attachCapabilities(
   workspace: Workspace,
+  attached: Record<PropertyKey, unknown>,
   extensionName: string,
   capabilities: object
 ): void {
-  for (const [key, value] of Object.entries(capabilities)) {
+  for (const key of Reflect.ownKeys(capabilities)) {
+    const descriptor = Object.getOwnPropertyDescriptor(capabilities, key);
+    if (!descriptor?.enumerable) {
+      continue;
+    }
     if (key in workspace) {
       throw new InvalidWorkspaceInputError(
-        `Workspace extension "${extensionName}" cannot overwrite existing property "${key}"`
+        `Workspace extension "${extensionName}" cannot overwrite existing property "${String(key)}"`
       );
     }
+    const value: unknown = Reflect.get(capabilities, key);
+    attached[key] = value;
     Object.defineProperty(workspace, key, {
       configurable: false,
       enumerable: true,

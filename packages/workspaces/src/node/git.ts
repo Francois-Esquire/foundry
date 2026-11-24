@@ -288,8 +288,8 @@ export function git(
 ): WorkspaceExtension<never, unknown, Partial<GitCapable>> {
   return {
     applies: (registration) => Git.isRepository(registration.source.path),
-    attach: (workspace) => ({
-      capabilities: { git: Git.at(workspace.source.path, options) },
+    attach: ({ registration }) => ({
+      capabilities: { git: Git.at(registration.source.path, options) },
     }),
     name: "git",
   };
