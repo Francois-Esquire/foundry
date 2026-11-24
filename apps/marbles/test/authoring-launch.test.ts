@@ -415,7 +415,7 @@ describe(".launch() at its edges", () => {
     expect((await engine.readRun(repeatedId))?.output).toBe("same-anon");
   });
 
-  it("rejects a launch that fails as it starts when its queue has room, and leaves the failure to result when it waits", async () => {
+  it("rejects a launch whose input its schema refuses before any run exists, whether or not its queue has room", async () => {
     const typed = step("typed-leaf")
       .input(z.object({ count: z.number() }))
       .do(({ input }) => input.count);
@@ -430,13 +430,11 @@ describe(".launch() at its edges", () => {
       await expect(typed.launch(wrong)).rejects.toThrow(SCHEMA);
 
       const held = await hold.launch();
-      const waiting = await typed.launch(wrong);
-      await expect(runs.get(waiting.id)).resolves.toMatchObject({
-        status: "queued",
-      });
+      const before = (await runs.list()).length;
+      await expect(typed.launch(wrong)).rejects.toThrow(SCHEMA);
+      expect(await runs.list()).toHaveLength(before);
       release.resolve();
       await held.result;
-      await expect(waiting.result).rejects.toThrow(SCHEMA);
       await new Promise((done) => setTimeout(done, 20));
       expect(unhandled).not.toHaveBeenCalled();
     } finally {

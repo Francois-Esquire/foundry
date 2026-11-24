@@ -17,16 +17,16 @@ describe("cadence", () => {
     expect(dueOccurrences(cadence, 6000, 5999, "run-once")).toEqual({
       nextDueAt: 6000,
       skipped: [],
-      toFire: null,
+      toDispatch: null,
     });
     expect(dueOccurrences(cadence, 6000, 6400, "skip")).toEqual({
       nextDueAt: 7000,
       skipped: [],
-      toFire: 6000,
+      toDispatch: 6000,
     });
   });
 
-  test("a calendar cadence fires at its wall-clock time on its weekdays in its timezone", () => {
+  test("a calendar cadence is due at its wall-clock time on its weekdays in its timezone", () => {
     const cadence: Cadence = {
       hour: 9,
       kind: "calendar",
@@ -40,7 +40,7 @@ describe("cadence", () => {
     expect(nextDue(cadence, friday)).toBe(at("2026-01-12T14:30:00.000Z"));
   });
 
-  test("a cron cadence fires strictly after the reference", () => {
+  test("a cron cadence is due strictly after the reference", () => {
     const cadence: Cadence = {
       expression: "*/15 * * * *",
       kind: "cron",
@@ -54,28 +54,28 @@ describe("cadence", () => {
     );
   });
 
-  test("a once cadence fires a single time and is then exhausted", () => {
+  test("a once cadence is due a single time and is then exhausted", () => {
     const cadence: Cadence = { at: 2000, kind: "once" };
     expect(nextDue(cadence, 1000)).toBe(2000);
     expect(nextDue(cadence, 2000)).toBeNull();
     expect(dueOccurrences(cadence, 2000, 9000, "skip")).toEqual({
       nextDueAt: null,
       skipped: [],
-      toFire: 2000,
+      toDispatch: 2000,
     });
   });
 
-  test("when several due times elapsed, run-once fires the latest and skip fires none", () => {
+  test("when several due times elapsed, run-once dispatches the latest and skip dispatches none", () => {
     const cadence: Cadence = { everyMs: 1000, kind: "interval" };
     expect(dueOccurrences(cadence, 1000, 3500, "run-once")).toEqual({
       nextDueAt: 4000,
       skipped: [1000, 2000],
-      toFire: 3000,
+      toDispatch: 3000,
     });
     expect(dueOccurrences(cadence, 1000, 3500, "skip")).toEqual({
       nextDueAt: 4000,
       skipped: [1000, 2000, 3000],
-      toFire: null,
+      toDispatch: null,
     });
     const cron: Cadence = {
       expression: "0 * * * *",
@@ -89,7 +89,7 @@ describe("cadence", () => {
       start + 2.5 * 3_600_000,
       "run-once"
     );
-    expect(later.toFire).toBe(start + 2 * 3_600_000);
+    expect(later.toDispatch).toBe(start + 2 * 3_600_000);
     expect(later.skipped).toEqual([start, start + 3_600_000]);
     expect(later.nextDueAt).toBe(start + 3 * 3_600_000);
   });
@@ -103,7 +103,7 @@ describe("cadence", () => {
     const start = at("2025-01-01T00:00:00.000Z");
     const now = at("2026-01-01T00:00:30.000Z");
     const due = dueOccurrences(cron, start, now, "run-once");
-    expect(due.toFire).toBe(at("2026-01-01T00:00:00.000Z"));
+    expect(due.toDispatch).toBe(at("2026-01-01T00:00:00.000Z"));
     expect(due.nextDueAt).toBe(at("2026-01-01T00:01:00.000Z"));
     expect(due.skipped).toHaveLength(100);
     expect(due.skipped.at(-1)).toBe(at("2025-12-31T23:59:00.000Z"));

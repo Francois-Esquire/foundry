@@ -1,7 +1,7 @@
-import { type JobId, Queue } from "@foundry/queue";
-import { Effect, Layer } from "effect";
-import { ScheduleDispatch } from "./dispatch";
-import { DispatchError } from "./domain";
+import { type Job, type JobId, Queue } from "@foundry/queue";
+import { Clock, Effect, Layer } from "effect";
+import { type DispatchStatus, ScheduleDispatch } from "./dispatch";
+import { DispatchError, type Instant } from "./domain";
 
 const toDispatchError = (cause: unknown) => new DispatchError({ cause });
 
@@ -11,6 +11,33 @@ const jobIdOf = (id: string): Effect.Effect<JobId, DispatchError> =>
   isJobId(id)
     ? Effect.succeed(id)
     : Effect.fail(toDispatchError(`"${id}" is not a queue job id`));
+
+const statusOf = (job: Job | undefined, now: Instant): DispatchStatus => {
+  switch (job?.state.kind) {
+    case "complete":
+      return {
+        kind: "settled",
+        outcome: "complete",
+        settledAt: job.state.completedAt,
+      };
+    case "failed":
+      return {
+        kind: "settled",
+        outcome: "failed",
+        settledAt: job.state.failedAt,
+      };
+    case "cancelled":
+      return {
+        kind: "settled",
+        outcome: "cancelled",
+        settledAt: job.state.cancelledAt,
+      };
+    case undefined:
+      return { kind: "settled", outcome: "cancelled", settledAt: now };
+    default:
+      return { kind: "open" };
+  }
+};
 
 export const QueueDispatchLayer: Layer.Layer<ScheduleDispatch, never, Queue> =
   Layer.effect(
@@ -23,20 +50,10 @@ export const QueueDispatchLayer: Layer.Layer<ScheduleDispatch, never, Queue> =
           ),
         status: (jobId) =>
           Effect.flatMap(jobIdOf(jobId), (id) =>
-            queue.getJob(id).pipe(
-              Effect.map((job) => {
-                switch (job?.state.kind) {
-                  case "complete":
-                  case "failed":
-                  case "cancelled":
-                    return job.state.kind;
-                  case undefined:
-                    return "cancelled";
-                  default:
-                    return "open";
-                }
-              }),
-              Effect.mapError(toDispatchError)
+            Effect.zipWith(
+              Effect.mapError(queue.getJob(id), toDispatchError),
+              Clock.currentTimeMillis,
+              statusOf
             )
           ),
         submit: ({ idempotencyKey, scheduleId, target }) =>

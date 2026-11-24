@@ -1,3 +1,4 @@
+import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
 import type { JsonValue } from "@foundry/lib/json";
 import { thisProcess } from "@foundry/lib/process-identity";
 import {
@@ -49,6 +50,7 @@ import type {
 import { makeSettlement } from "./settlement";
 import { QueueStore } from "./store/index";
 import { MemoryQueueStore } from "./store/memory";
+import { awaitingJob, JobWaiters, watchStore } from "./sync";
 import {
   cancellation,
   removal,
@@ -62,6 +64,8 @@ const isJobId = (id: JobId | RunId): id is JobId => id.startsWith("jb-");
 const validLimit = (limit: number) =>
   limit === Number.POSITIVE_INFINITY || (Number.isInteger(limit) && limit >= 1);
 
+const DEFAULT_SYNC_INTERVAL_MS = 500;
+
 const delayOf = (delayMs: number | undefined) =>
   delayMs !== undefined && Number.isFinite(delayMs) ? Math.max(0, delayMs) : 0;
 
@@ -72,8 +76,14 @@ const makeQueue = (options: QueueOptions) =>
       PubSub.unbounded<QueueEvent>(),
       PubSub.shutdown
     );
-    const self = options.identity ?? thisProcess();
-    const ledger = makeLedger(store, hub);
+    const waiters = new JobWaiters();
+    const self = yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        openInstance(options.identity ?? thisProcess(), options.instanceId)
+      ),
+      (instance) => Effect.sync(() => closeInstance(instance))
+    );
+    const ledger = makeLedger(store, hub, waiters);
     const { commit, requireJob, requireRun, requireSuspension } = ledger;
     const checkPool = (pool: ConcurrencyPool) =>
       validLimit(pool.limit)
@@ -89,17 +99,37 @@ const makeQueue = (options: QueueOptions) =>
     });
     const capacity = new Capacity(defaultPool.limit, self);
     const handlers = new Map<string, RunHandler>();
-    const settlement = makeSettlement(ledger, self);
+    const settlement = makeSettlement(ledger);
     const recovery = makeRecovery(ledger, settlement, capacity, self);
 
-    for (const pool of [
-      ...(yield* store.listPools),
-      ...(options.pools ?? []),
-    ]) {
+    const persistedPools = new Map<string, ConcurrencyPool>();
+    for (const pool of yield* store.listPools) {
+      const valid = yield* checkPool(pool);
+      persistedPools.set(valid.name, valid);
+      capacity.pools.set(valid.name, valid);
+    }
+    for (const pool of options.pools ?? []) {
       capacity.pools.set(pool.name, yield* checkPool(pool));
     }
 
-    const { locked, mutate, nudge } = yield* makeDispatcher({
+    const syncPersistedPools = Effect.map(store.listPools, (pools) => {
+      for (const pool of pools) {
+        if (!validLimit(pool.limit)) {
+          continue;
+        }
+        const known = persistedPools.get(pool.name);
+        if (
+          known === undefined ||
+          known.limit !== pool.limit ||
+          known.state !== pool.state
+        ) {
+          persistedPools.set(pool.name, pool);
+          capacity.pools.set(pool.name, pool);
+        }
+      }
+    });
+
+    const { locked, mutate, nudge, releaseStaleSlots } = yield* makeDispatcher({
       capacity,
       handlers,
       ledger,
@@ -112,6 +142,25 @@ const makeQueue = (options: QueueOptions) =>
         capacity.admission.paused = true;
       })
     );
+
+    const syncIntervalMs = options.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS;
+    if (Number.isFinite(syncIntervalMs) && syncIntervalMs > 0) {
+      const from = yield* store.watermark;
+      yield* Effect.forkScoped(
+        watchStore({
+          from,
+          intervalMs: syncIntervalMs,
+          onChange: Effect.gen(function* () {
+            const stale = yield* mutate(
+              Effect.zipRight(syncPersistedPools, releaseStaleSlots)
+            );
+            yield* Effect.sync(() => waiters.notify("unknown"));
+            yield* Fiber.interruptAll(stale);
+          }),
+          store,
+        })
+      );
+    }
 
     const freshRunId = (id: RunId | undefined) =>
       id === undefined
@@ -235,6 +284,7 @@ const makeQueue = (options: QueueOptions) =>
             attempt: 1,
             jobId: job.id,
             now,
+            owner: self,
             pool: job.pool,
           },
           input.runId
@@ -253,29 +303,6 @@ const makeQueue = (options: QueueOptions) =>
         }
         yield* settlement.fail(yield* requireJob(run.jobId), run, error, false);
         return (yield* store.getRun(id)) ?? run;
-      });
-
-    const adopt = (id: RunId) =>
-      Effect.gen(function* () {
-        const run = yield* requireRun(id);
-        if (run.state.kind !== "suspended") {
-          return run;
-        }
-        const pending = yield* store.listSuspensions({
-          runId: id,
-          state: "pending",
-        });
-        const now = yield* Clock.currentTimeMillis;
-        yield* commit(now, {
-          facts: [],
-          write: {
-            suspensions: pending.map((suspension) => ({
-              ...suspension,
-              revision: suspension.revision + 1,
-            })),
-          },
-        });
-        return run;
       });
 
     const pendingSuspension = (suspensionId: SuspensionId) =>
@@ -307,7 +334,6 @@ const makeQueue = (options: QueueOptions) =>
         const { change, resolved } = resolution({
           job,
           now,
-          owner: self,
           run,
           suspension,
           value,
@@ -357,6 +383,7 @@ const makeQueue = (options: QueueOptions) =>
         yield* checkPool(pool);
         const now = yield* Clock.currentTimeMillis;
         yield* commit(now, { facts: [], write: { pools: [pool] } });
+        persistedPools.set(pool.name, pool);
         capacity.pools.set(pool.name, pool);
       });
 
@@ -373,11 +400,11 @@ const makeQueue = (options: QueueOptions) =>
           yield* all;
           return;
         }
-        const finished = yield* Effect.timeoutOption(
+        const drained = yield* Effect.timeoutOption(
           all,
           Duration.millis(graceMs)
         );
-        if (Option.isSome(finished)) {
+        if (Option.isSome(drained)) {
           return;
         }
         const remaining = yield* locked(
@@ -410,7 +437,7 @@ const makeQueue = (options: QueueOptions) =>
 
     return Queue.of({
       abandon: (id, error) => mutate(abandon(id, error)),
-      adopt: (id) => mutate(adopt(id)),
+      awaitJob: awaitingJob(store, waiters),
       cancel,
       cancelSuspension: (suspensionId, reason) =>
         mutate(cancelSuspension(suspensionId, reason)),

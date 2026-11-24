@@ -48,7 +48,11 @@ export class RunListing {
         this.#settled.set(runId, run);
       }
     }
-    const live = read.filter((run) => this.#live.has(run.id));
+    const live = read.filter(
+      (run) =>
+        this.#live.has(run.id) ||
+        (this.#elsewhere.has(run.id) && run.status === "suspended")
+    );
     return [...this.#settled.values(), ...live].sort(
       (a, b) => a.timestamps.createdAt - b.timestamps.createdAt
     );

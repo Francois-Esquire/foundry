@@ -14,9 +14,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { catalog } from "~/authoring/catalog";
 import { defaultWorkspaceTriggers } from "~/database/managed";
-import { initializeDatabase } from "~/database/open";
-import { marblesMonitorStates } from "~/database/tables";
-import { DatabaseTriggerStore } from "~/database/triggers";
 import type { AnyDefinition } from "~/lib/definition";
 import type { EngineOptions } from "~/lib/engine";
 import { createLog } from "~/lib/log";
@@ -31,7 +28,7 @@ import type {
   MonitorSpec,
 } from "~/lib/monitor";
 import { detector, handlerResponse } from "~/lib/monitor";
-import { tick } from "~/lib/schedule";
+import { registration, rollSchedule } from "~/lib/schedule";
 import { isRecord, NotStorableError } from "~/lib/state/json";
 import type { TriggerStore } from "~/lib/trigger-store";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
@@ -316,12 +313,12 @@ describe("files detector", () => {
       print: () => undefined,
     });
     await expect(
-      tick(engine, schedule, { print: () => undefined })
+      rollSchedule(engine, schedule, { print: () => undefined })
     ).rejects.toThrow("cannot ship guide.md");
     expect(attempts).toBe(1);
     expect((await hosted.triggers.monitorState(key))?.pending).toBeUndefined();
     await expect(
-      tick(engine, schedule, { print: () => undefined })
+      rollSchedule(engine, schedule, { print: () => undefined })
     ).resolves.toEqual({ value: { changed: false } });
     expect(attempts).toBe(1);
     await engine.stop();
@@ -331,7 +328,7 @@ describe("files detector", () => {
     ["the database", true],
     ["memory", false],
   ])(
-    "drops a launch a monitor left once its key ticks as a schedule, so it never goes out, kept in %s",
+    "drops a launch a monitor left once a schedule is dispatched under its key, so it never goes out, kept in %s",
     async (_where, persisted) => {
       const root = temporaryDirectory("marbles-mon-");
       const state = temporaryDirectory("marbles-mon-state-");
@@ -362,81 +359,38 @@ describe("files detector", () => {
         workflow: "tidy",
       };
       await expect(
-        tick(engine, scheduled, { print: () => undefined })
+        rollSchedule(engine, scheduled, { print: () => undefined })
       ).resolves.toEqual({ value: "tidied" });
       expect(shipped).toBe(0);
       expect(await hosted.triggers.monitorState(key)).toBeUndefined();
       await expect(
-        tick(engine, watching, { print: () => undefined })
+        rollSchedule(engine, watching, { print: () => undefined })
       ).resolves.toEqual({ value: { changed: true } });
       expect(shipped).toBe(0);
       await engine.stop();
     }
   );
 
-  it("hands no launch an older Marbles left under a schedule's key to a monitor, dropping it, and polls", async () => {
-    const root = temporaryDirectory("marbles-mon-");
-    writeFileSync(join(root, "guide.md"), "one\n");
-    const opened = await initializeDatabase(join(root, "marbles.db"));
-    const triggers = new DatabaseTriggerStore({
-      database: opened.database,
-      scope: "one",
-    });
-    try {
-      const time = "2026-11-01T00:00:00.000Z";
-      await triggers.claimTick("m");
-      await triggers.finishTick("m", {
-        kind: "schedule",
-        lastFinish: time,
-        lastStart: time,
-        lastStatus: "complete",
-        nextDue: time,
-      });
-      await opened.database.insert(marblesMonitorStates).values({
-        key: "m",
-        observed: {},
-        pending: { input: { old: true }, workflow: "obsolete-target" },
-        scope: "one",
-      });
-      const { context } = hostIn(root);
-      const detect = detector(
-        "m",
-        spec,
-        handlerResponse("m", () => undefined),
-        {
-          host: () => ({ ...hosted, triggers }),
-        }
-      );
-      await expect(detect(context)).resolves.toEqual({ changed: true });
-      expect((await triggers.monitorState("m"))?.pending).toBeUndefined();
-    } finally {
-      await triggers.close();
-      opened.close();
-    }
-  });
-
-  it("records a declared schedule's tick as a schedule's", async () => {
+  it("registers a declared schedule as a schedule's and a monitor as a monitor's", () => {
     const root = temporaryDirectory("marbles-mon-");
     const tidy = step("tidy").do(() => "tidied");
     declareSchedule(tidy({})).every("1h");
+    monitor("**/*.md").do(() => undefined);
     hostIn(root);
-    const [scheduled] = [...declared().schedules.values()];
-    if (!scheduled) {
-      throw new Error("expected the schedule");
-    }
-    const engine = await startEngine({ ...hosted, print: () => undefined });
-    await tick(engine, scheduled, { print: () => undefined });
-    expect((await hosted.triggers.lastTick(scheduled.key))?.kind).toBe(
-      "schedule"
+    const kinds = [...declared().schedules.values()].map(
+      (scheduled) => registration(scheduled, undefined, 0)?.target.input
     );
-    await engine.stop();
+    expect(kinds).toEqual([
+      expect.objectContaining({ kind: "schedule", label: "tidy" }),
+      expect.objectContaining({ kind: "monitor", label: "**/*.md" }),
+    ]);
   });
 
   it.each([
     ["the database", true],
     ["memory", false],
   ])(
-    "keeps the launch a monitor hands over on its first tick where a schedule ticked last, and starts it once, kept in %s",
+    "keeps the launch a monitor hands over on its first poll after a schedule was dispatched under its key, until it is started, kept in %s",
     async (_where, persisted) => {
       const root = temporaryDirectory("marbles-mon-");
       const state = temporaryDirectory("marbles-mon-state-");
@@ -450,16 +404,7 @@ describe("files detector", () => {
         return ship({}, { task: files?.added[0]?.path ?? "" });
       });
       const { context } = hostIn(root, persisted ? state : undefined);
-      const time = "2026-11-01T00:00:00.000Z";
-      await hosted.triggers.claimTick("m");
-      await hosted.triggers.finishTick("m", {
-        kind: "schedule",
-        lastFinish: time,
-        lastStart: time,
-        lastStatus: "complete",
-        nextDue: time,
-      });
-      await hosted.triggers.claimTick("m");
+      await hosted.triggers.forgetMonitor("m");
       const expected = {
         changed: true,
         launch: { input: { task: "guide.md" }, workflow: "ship" },
@@ -493,11 +438,11 @@ describe("files detector", () => {
       print: () => undefined,
     });
     await expect(
-      tick(engine, schedule, { print: () => undefined })
+      rollSchedule(engine, schedule, { print: () => undefined })
     ).rejects.toThrow();
     expect((await hosted.triggers.monitorState(key))?.pending).toBeUndefined();
     await expect(
-      tick(engine, schedule, { print: () => undefined })
+      rollSchedule(engine, schedule, { print: () => undefined })
     ).resolves.toEqual({ value: { changed: true } });
     await engine.stop();
   });
@@ -535,13 +480,13 @@ describe("files detector", () => {
       print: () => undefined,
     });
     await expect(
-      tick(engine, schedule, { print: () => undefined })
+      rollSchedule(engine, schedule, { print: () => undefined })
     ).rejects.toThrow("not yet");
     expect(await hosted.triggers.monitorState(key)).toMatchObject({
       pending: { workflow: "flaky" },
     });
     await expect(
-      tick(engine, schedule, { print: () => undefined })
+      rollSchedule(engine, schedule, { print: () => undefined })
     ).resolves.toEqual({ value: "shipped" });
     expect(handled).toBe(1);
     expect(bodies).toEqual(["shipped"]);

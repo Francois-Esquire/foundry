@@ -8,19 +8,16 @@ import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import type { ContainerRow } from "@foundry/sandbox/schema";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
-import { and, eq } from "drizzle-orm";
 import { DatabaseAssociationStore } from "~/database/associations";
 import { asBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
-import { inList } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
-import { rowOwner } from "~/database/owner";
 import { DatabaseSessionStore } from "~/database/sessions";
-import { marblesWorkflowRuns } from "~/database/tables";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import { ARTIFACTS, sourceKey } from "~/lib/events/source";
+import { ownerOfRun } from "~/lib/execution-record";
 import type {
   AssociationTransaction,
   ResourceAssociation,
@@ -29,8 +26,8 @@ import type {
 } from "~/lib/resources";
 import { ResourceAssociations, sameResource } from "~/lib/resources";
 import { insideState } from "~/lib/state/workspace";
-import type { RunRecord } from "~/lib/workflow-runs";
-import { readRun, readRuns } from "~/lib/workflow-runs";
+import type { RunReads, RunRecord } from "~/lib/workflow-runs";
+import { readRun, readRuns, runStoreEffect } from "~/lib/workflow-runs";
 
 export type ViewScope = { readonly workspace: string } | typeof ALL_WORKSPACES;
 
@@ -265,40 +262,18 @@ export class ResourceView {
 
   #runs(): KindReader<RunResource> {
     const database = this.#database;
-    const ownerPids = async (owner: string, ids?: readonly string[]) => {
-      const pids = new Map<string, ProcessIdentity | null>();
-      const rows = await database
-        .select({
-          ownerPid: marblesWorkflowRuns.ownerPid,
-          ownerStarted: marblesWorkflowRuns.ownerStarted,
-          runId: marblesWorkflowRuns.runId,
-        })
-        .from(marblesWorkflowRuns)
-        .where(
-          and(
-            eq(marblesWorkflowRuns.scope, owner),
-            ids === undefined
-              ? undefined
-              : inList(marblesWorkflowRuns.runId, ids)
-          )
-        );
-      for (const row of rows) {
-        pids.set(row.runId, rowOwner(row));
-      }
-      return pids;
-    };
     const store = (owner: string) =>
       makeSqliteQueueStore({ database, scope: owner });
     return {
       get: (owner, ids) =>
         asBusy(async () => {
           const runs = store(owner);
-          const pids = await ownerPids(owner, ids);
+          const held = await holdersIn(runs);
           const found: RunResource[] = [];
           for (const id of ids) {
             const record = await readRun(runs, id);
             if (record !== null) {
-              found.push({ owner: pids.get(id) ?? null, record });
+              found.push({ owner: held.get(id) ?? null, record });
             }
           }
           return found;
@@ -306,9 +281,10 @@ export class ResourceView {
       id: (run) => run.record.id,
       list: (owner) =>
         asBusy(async () => {
-          const pids = await ownerPids(owner);
-          return (await readRuns(store(owner))).map((record) => ({
-            owner: pids.get(record.id) ?? null,
+          const runs = store(owner);
+          const held = await holdersIn(runs);
+          return (await readRuns(runs)).map((record) => ({
+            owner: held.get(record.id) ?? null,
             record,
           }));
         }),
@@ -485,4 +461,17 @@ export function readResourceView<T>(
   return readDatabase(stateDatabase(state), (database) =>
     work(new ResourceView({ database, scope, state }))
   );
+}
+
+async function holdersIn(
+  runs: Pick<RunReads, "listRuns">
+): Promise<ReadonlyMap<string, ProcessIdentity>> {
+  const held = new Map<string, ProcessIdentity>();
+  for (const run of await runStoreEffect(runs.listRuns())) {
+    const owner = ownerOfRun(run);
+    if (owner !== undefined) {
+      held.set(run.id, owner);
+    }
+  }
+  return held;
 }

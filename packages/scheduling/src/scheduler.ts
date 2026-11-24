@@ -1,3 +1,4 @@
+import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
 import {
   isGone,
   type ProcessIdentity,
@@ -13,7 +14,7 @@ import {
   type Scope,
   Stream,
 } from "effect";
-import { firstDue, validateCadence } from "./cadence";
+import { firstDue, validateCadence, validatePolicies } from "./cadence";
 import { ScheduleDispatch } from "./dispatch";
 import {
   type Instant,
@@ -36,9 +37,13 @@ import { ScheduleStore } from "./store/index";
 
 export interface SchedulerOptions {
   readonly identity?: ProcessIdentity;
+  readonly instanceId?: string;
   readonly isOwnerGone?: (owner: ProcessIdentity) => boolean;
+  readonly maxOccurrencesPerSchedule?: number;
+  readonly maxRetryDelayMs?: number;
   readonly retryDelayMs?: number;
   readonly settlePollMs?: number;
+  readonly syncIntervalMs?: number;
 }
 
 export interface SchedulerService {
@@ -48,6 +53,9 @@ export interface SchedulerService {
   readonly get: (
     id: ScheduleId
   ) => Effect.Effect<Schedule | undefined, ScheduleError>;
+  readonly latestOccurrence: (
+    id: ScheduleId
+  ) => Effect.Effect<Occurrence | undefined, ScheduleError>;
   readonly list: Effect.Effect<readonly Schedule[], ScheduleError>;
   readonly pause: (id: ScheduleId) => Effect.Effect<Schedule, ScheduleError>;
   readonly register: (
@@ -67,7 +75,9 @@ export interface SchedulerService {
 }
 
 const DEFAULT_RETRY_DELAY_MS = 1000;
+const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
 const DEFAULT_SETTLE_POLL_MS = 5000;
+const DEFAULT_MAX_OCCURRENCES = 100;
 
 const earliest = (one: Instant | undefined, other: Instant | null) =>
   other === null ? one : Math.min(one ?? other, other);
@@ -82,9 +92,26 @@ const makeScheduler = (options: SchedulerOptions) =>
     );
     const lock = yield* Effect.makeSemaphore(1);
     const wake = yield* Effect.makeLatch(false);
-    const self = options.identity ?? thisProcess();
+    const self = yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        openInstance(options.identity ?? thisProcess(), options.instanceId)
+      ),
+      (instance) => Effect.sync(() => closeInstance(instance))
+    );
     const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+    const maxRetryDelayMs =
+      options.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
     const settlePollMs = options.settlePollMs ?? DEFAULT_SETTLE_POLL_MS;
+    const syncIntervalMs =
+      options.syncIntervalMs !== undefined &&
+      Number.isFinite(options.syncIntervalMs) &&
+      options.syncIntervalMs > 0
+        ? options.syncIntervalMs
+        : undefined;
+    const failures = new Map<
+      ScheduleId,
+      { readonly count: number; readonly retryAt: Instant }
+    >();
 
     const commit: Commit = (now, facts, write) =>
       Effect.gen(function* () {
@@ -103,6 +130,8 @@ const makeScheduler = (options: SchedulerOptions) =>
       commit,
       dispatch,
       isOwnerGone: options.isOwnerGone ?? isGone,
+      maxOccurrencesPerSchedule:
+        options.maxOccurrencesPerSchedule ?? DEFAULT_MAX_OCCURRENCES,
       self,
       store,
     });
@@ -114,19 +143,45 @@ const makeScheduler = (options: SchedulerOptions) =>
           : Effect.succeed(schedule)
       );
 
-    const evaluateAll = (
-      recover: (
-        error: ScheduleError,
-        now: Instant
-      ) => Effect.Effect<Evaluation, ScheduleError>
-    ) =>
+    const backingOff = (id: ScheduleId, now: Instant) => {
+      const retryAt = failures.get(id)?.retryAt;
+      return retryAt !== undefined && retryAt > now ? retryAt : undefined;
+    };
+
+    type Recover = (
+      error: ScheduleError,
+      now: Instant,
+      id: ScheduleId
+    ) => Effect.Effect<Evaluation, ScheduleError>;
+
+    const evaluateOne = (
+      schedule: Schedule,
+      now: Instant,
+      recover: Recover,
+      waitOutBackoff: boolean
+    ): Effect.Effect<Evaluation, ScheduleError> => {
+      const retryAt = waitOutBackoff ? backingOff(schedule.id, now) : undefined;
+      if (retryAt !== undefined) {
+        return Effect.succeed({ decided: [], nextDueAt: retryAt, open: false });
+      }
+      return evaluate(schedule, now).pipe(
+        Effect.tap(() => Effect.sync(() => failures.delete(schedule.id))),
+        Effect.catchAll((error) => recover(error, now, schedule.id))
+      );
+    };
+
+    const evaluateAll = (recover: Recover, waitOutBackoff: boolean) =>
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
         const decided: Occurrence[] = [];
-        let soonest: Instant | undefined;
+        let soonest =
+          syncIntervalMs === undefined ? undefined : now + syncIntervalMs;
         for (const schedule of yield* store.listSchedules) {
-          const result = yield* evaluate(schedule, now).pipe(
-            Effect.catchAll((error) => recover(error, now))
+          const result = yield* evaluateOne(
+            schedule,
+            now,
+            recover,
+            waitOutBackoff
           );
           decided.push(...result.decided);
           soonest = earliest(soonest, result.nextDueAt);
@@ -136,6 +191,14 @@ const makeScheduler = (options: SchedulerOptions) =>
         }
         return { decided, soonest };
       });
+
+    const retryAtAfterFailure = (id: ScheduleId, now: Instant) => {
+      const count = (failures.get(id)?.count ?? 0) + 1;
+      const retryAt =
+        now + Math.min(retryDelayMs * 2 ** (count - 1), maxRetryDelayMs);
+      failures.set(id, { count, retryAt });
+      return retryAt;
+    };
 
     const locked = lock.withPermits(1);
 
@@ -151,16 +214,16 @@ const makeScheduler = (options: SchedulerOptions) =>
         );
       });
 
-    const tolerate = (error: ScheduleError, now: Instant) =>
+    const tolerate = (error: ScheduleError, now: Instant, id: ScheduleId) =>
       Effect.as(Effect.logWarning("schedule evaluation failed", error), {
         decided: [],
-        nextDueAt: now + retryDelayMs,
+        nextDueAt: retryAtAfterFailure(id, now),
         open: false,
       });
 
     yield* Effect.gen(function* () {
       yield* wake.close;
-      const { soonest } = yield* locked(evaluateAll(tolerate)).pipe(
+      const { soonest } = yield* locked(evaluateAll(tolerate, true)).pipe(
         Effect.catchAll((error) =>
           Effect.zipRight(
             Effect.logWarning("schedule evaluation failed", error),
@@ -176,57 +239,76 @@ const makeScheduler = (options: SchedulerOptions) =>
     const changed = <A, E>(effect: Effect.Effect<A, E>) =>
       Effect.zipLeft(locked(effect), wake.open);
 
+    const retryingScheduleConflicts = <A>(
+      attempt: Effect.Effect<A, ScheduleError>
+    ) =>
+      Effect.retry(attempt, {
+        times: 3,
+        while: (error) => error._tag === "ScheduleConflictError",
+      });
+
     const setState = (id: ScheduleId, state: Schedule["state"]) =>
       changed(
-        Effect.gen(function* () {
-          const schedule = { ...(yield* requireSchedule(id)), state };
-          const now = yield* Clock.currentTimeMillis;
-          yield* commit(
-            now,
-            [
-              {
-                schedule,
-                type:
-                  state === "paused" ? "schedule.paused" : "schedule.resumed",
-              },
-            ],
-            { schedules: [schedule] }
-          );
-          return schedule;
-        })
+        retryingScheduleConflicts(
+          Effect.gen(function* () {
+            const existing = yield* requireSchedule(id);
+            const schedule = { ...existing, state };
+            const now = yield* Clock.currentTimeMillis;
+            yield* commit(
+              now,
+              [
+                {
+                  schedule,
+                  type:
+                    state === "paused" ? "schedule.paused" : "schedule.resumed",
+                },
+              ],
+              { expectedSchedules: [existing], schedules: [schedule] }
+            );
+            return schedule;
+          })
+        )
       );
 
     const register = (input: RegisterScheduleInput) =>
-      Effect.gen(function* () {
-        const cadence = yield* validateCadence(input.cadence);
-        const now = yield* Clock.currentTimeMillis;
-        const existing = yield* store.getSchedule(input.id);
-        const previous = yield* store.getCursor(input.id);
-        const schedule: Schedule = {
-          cadence,
-          createdAt: existing?.createdAt ?? now,
-          id: input.id,
-          misfire: input.misfire ?? "run-once",
-          overlap: input.overlap ?? "skip",
-          state: input.state ?? existing?.state ?? "active",
-          target: input.target,
-        };
-        const cursor: ScheduleCursor =
-          existing !== undefined &&
-          previous !== undefined &&
-          sameJson(existing.cadence, cadence)
-            ? previous
-            : {
-                ...previous,
-                nextDueAt: firstDue(cadence, now),
-                scheduleId: input.id,
-              };
-        yield* commit(now, [{ schedule, type: "schedule.registered" }], {
-          cursors: [cursor],
-          schedules: [schedule],
-        });
-        return schedule;
-      });
+      retryingScheduleConflicts(
+        Effect.gen(function* () {
+          const cadence = yield* validateCadence(input.cadence);
+          const misfire = input.misfire ?? "run-once";
+          const overlap = input.overlap ?? "skip";
+          yield* validatePolicies(cadence, overlap, misfire);
+          const now = yield* Clock.currentTimeMillis;
+          const existing = yield* store.getSchedule(input.id);
+          const previous = yield* store.getCursor(input.id);
+          const schedule: Schedule = {
+            cadence,
+            createdAt: existing?.createdAt ?? now,
+            id: input.id,
+            misfire,
+            overlap,
+            state: input.state ?? existing?.state ?? "active",
+            target: input.target,
+          };
+          const keepsCursor =
+            existing !== undefined &&
+            previous !== undefined &&
+            sameJson(existing.cadence, cadence);
+          const cursor: ScheduleCursor = {
+            ...previous,
+            nextDueAt: firstDue(cadence, now),
+            scheduleId: input.id,
+          };
+          yield* commit(now, [{ schedule, type: "schedule.registered" }], {
+            ...(keepsCursor ? {} : { cursors: [cursor] }),
+            ...(existing === undefined
+              ? {}
+              : { expectedSchedules: [existing] }),
+            schedules: [schedule],
+          });
+          failures.delete(input.id);
+          return schedule;
+        })
+      );
 
     const triggerNow = (id: ScheduleId) =>
       Effect.gen(function* () {
@@ -248,14 +330,17 @@ const makeScheduler = (options: SchedulerOptions) =>
     return Scheduler.of({
       cursor: store.getCursor,
       get: store.getSchedule,
+      latestOccurrence: store.latestOccurrence,
       list: store.listSchedules,
       pause: (id) => setState(id, "paused"),
       register: (input) => changed(register(input)),
       resume: (id) => setState(id, "active"),
       subscribe: Stream.fromPubSub(hub, { scoped: true }),
-      tick: Effect.map(
-        locked(evaluateAll((error) => Effect.fail(error))),
-        (result) => result.decided
+      tick: changed(
+        Effect.map(
+          evaluateAll((error) => Effect.fail(error), false),
+          (result) => result.decided
+        )
       ),
       triggerNow: (id) => changed(triggerNow(id)),
       unregister: (id) => changed(unregister(id)),

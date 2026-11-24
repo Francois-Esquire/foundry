@@ -1,17 +1,18 @@
 import { AsyncResource } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import {
-  type ProcessIdentity,
-  sameProcess,
-  thisProcess,
-} from "@foundry/lib/process-identity";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import { sameProcess } from "@foundry/lib/process-identity";
+import type { Job, RecoverySummary, RunOutcome } from "@foundry/queue";
+import type { QueueHandlerContext } from "@foundry/queue/client";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { asRun, callingRun } from "~/lib/calling-run";
+import type { ExecutionRun } from "~/lib/execution-record";
+import { DEFAULT_QUEUE, isTask, linksOf } from "~/lib/execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
-import type { ExecutionView } from "~/lib/execution-store";
-import type { ExecutionRun, Executions } from "~/lib/executions";
-import { DEFAULT_QUEUE } from "~/lib/executions";
+import type { Executions } from "~/lib/executions";
 import { errorCode } from "~/lib/observations";
+import type { RunQueue, SubmitOptions } from "~/lib/run-queue";
+import { storableJson } from "~/lib/state/json";
 import type { TaskContext, TaskDefinition } from "~/lib/tasks";
 import type { Agents, SandboxHandle } from "~/lib/types";
 import type { ExecutionContext } from "./execution-context";
@@ -19,6 +20,7 @@ import { withinContext } from "./execution-context";
 
 export interface LaunchOptions {
   readonly correlation?: Readonly<Record<string, string>>;
+  readonly idempotencyKey?: string;
   readonly queue?: string;
   readonly recordErrorMessage?: boolean;
   readonly source?: string;
@@ -31,18 +33,16 @@ export interface Launched<O> {
 }
 
 export interface DispatchedRun {
-  cancel(): Promise<void>;
-  endedAs(): "cancelled" | "failed" | undefined;
   readonly result: Promise<unknown>;
 }
 
 interface WorkflowDispatch {
-  cancel(id: string): Promise<void>;
+  cancel(id: string, reason: string): Promise<void>;
   dispatch(
-    run: ExecutionRun,
+    name: string,
     input: unknown,
-    signal: AbortSignal
-  ): Promise<DispatchedRun>;
+    options: SubmitOptions
+  ): Promise<{ readonly dispatched?: DispatchedRun; readonly job: Job }>;
   has(name: string): boolean;
 }
 
@@ -62,7 +62,6 @@ export interface LauncherOptions {
   readonly context?: ExecutionContext;
   readonly executions: Executions;
   readonly print: (line: string) => void;
-  readonly recoverQueued: boolean;
   readonly sandbox: (
     container: Container,
     signal: AbortSignal
@@ -74,31 +73,9 @@ interface Owed extends PromiseWithResolvers<unknown> {
   readonly recordErrorMessage: boolean;
 }
 
-type Live =
-  | {
-      readonly controller?: AbortController;
-      readonly kind: "workflow";
-      readonly dispatched: Promise<DispatchedRun | undefined>;
-    }
-  | {
-      readonly controller: AbortController;
-      done: Promise<void>;
-      readonly kind: "task";
-      released: boolean;
-    };
-
-type Ending = "cancelled" | "failed" | undefined;
-
-export class RunNotRecordedError extends Error {
-  override readonly name = "RunNotRecordedError";
-
-  constructor(id: string, cause: unknown) {
-    super(
-      `run ${id} ended, but how it ended could not be recorded: ${cause instanceof Error ? cause.message : String(cause)}`,
-      { cause }
-    );
-  }
-}
+type TaskEnding =
+  | { readonly kind: "complete"; readonly value: unknown }
+  | { readonly kind: "failed"; readonly error: unknown };
 
 class EngineRetiringError extends Error {
   override readonly name = "EngineRetiringError";
@@ -110,33 +87,65 @@ class EngineRetiringError extends Error {
   }
 }
 
-const HAND_OVER_RETRY_MS = 1000;
-const HAND_OVER_RETRY_MAX_MS = 30_000;
-const HAND_OVER_PASS_MS = 2000;
-
-interface Admission {
-  readonly controller: AbortController;
-  readonly settled: PromiseWithResolvers<void>;
-}
-
-export type QueuedTake =
+export type QueuedAdoption =
   | { readonly taken: true }
   | { readonly taken: false; readonly why: string };
 
-type Halting = "stop" | "cancel" | undefined;
+const idempotencyKeyOf = (name: string, source: string): string =>
+  JSON.stringify([name, source]);
+
+const isRetiring = (error: unknown): boolean =>
+  error instanceof Error &&
+  "_tag" in error &&
+  error._tag === "QueueRetiringError";
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+function submitOptionsOf(
+  runId: string,
+  idempotencyKey: string | undefined,
+  task: TaskDefinition | undefined,
+  options: LaunchOptions,
+  parent: string | undefined
+): SubmitOptions {
+  const { correlation, queue, source, triggerId } = options;
+  return {
+    ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+    links: linksOf({
+      ...(correlation === undefined ? {} : { correlation }),
+      kind: task ? "task" : "workflow",
+      ...(parent?.startsWith("rn-")
+        ? { parentRunId: parent as `rn-${string}` }
+        : {}),
+      ...(source === undefined ? {} : { source }),
+      ...(triggerId === undefined ? {} : { triggerId }),
+    }),
+    pool: queue ?? task?.queue ?? DEFAULT_QUEUE,
+    runId,
+  };
+}
+
+const cancelledBefore = (id: string) =>
+  `run ${id} was cancelled before it started`;
 
 export class Launcher {
   readonly executions: Executions;
   readonly #options: LauncherOptions;
   readonly #tasks = new Map<string, TaskDefinition>();
+  readonly #registered = new Map<string, Promise<void>>();
   readonly #owed = new Map<string, Owed>();
-  readonly #live = new Map<string, Live>();
-  readonly #admitted = new Map<string, Admission>();
-  readonly #withdrawing: Promise<void>[] = [];
-  #halting: Halting;
-  #retiring = false;
+  readonly #inputs = new Map<string, unknown>();
+  readonly #contexts = new Map<string, AsyncResource>();
+  readonly #endings = new Map<string, TaskEnding>();
+  readonly #reasons = new Map<string, string>();
+  readonly #settlingTasks = new Set<string>();
+  readonly #live = new Map<string, Promise<void>>();
   readonly #launching = new Set<Promise<void>>();
-  readonly #handingOver = new Set<ReturnType<typeof setTimeout>>();
+  readonly #dispatching = new Set<string>();
+  #queue: RunQueue | undefined;
+  #retiring = false;
+  #cancelling = false;
 
   constructor(options: LauncherOptions) {
     this.#options = options;
@@ -149,16 +158,29 @@ export class Launcher {
 
   task(definition: TaskDefinition): void {
     this.#tasks.set(definition.name, definition);
+    if (this.#queue !== undefined) {
+      this.#register(this.#queue, definition);
+    }
+  }
+
+  async attach(queue: RunQueue): Promise<void> {
+    this.#queue = queue;
+    for (const task of this.#tasks.values()) {
+      this.#register(queue, task);
+    }
+    await Promise.all(this.#registered.values());
+  }
+
+  #register(queue: RunQueue, task: TaskDefinition): void {
+    const registered = queue.registerTask(task.name, (context) =>
+      this.#handle(task, context)
+    );
+    registered.catch(() => undefined);
+    this.#registered.set(task.name, registered);
   }
 
   #runnable(name: string): boolean {
     return this.#tasks.has(name) || this.#options.workflows.has(name);
-  }
-
-  #runnableAs(run: Pick<ExecutionRun, "kind" | "name">): boolean {
-    return run.kind === "task"
-      ? this.#tasks.has(run.name)
-      : this.#options.workflows.has(run.name);
   }
 
   async launch<O>(
@@ -174,16 +196,16 @@ export class Launcher {
     if (this.#retiring && parent === undefined) {
       throw new EngineRetiringError(name);
     }
-    const admitted = Promise.withResolvers<void>();
-    const done = () => {
-      this.#launching.delete(admitted.promise);
-      admitted.resolve();
-    };
-    this.#launching.add(admitted.promise);
+    const launching = this.#launch<O>(name, input, options, parent);
+    const tracked = launching.then(
+      () => undefined,
+      () => undefined
+    );
+    this.#launching.add(tracked);
     try {
-      return await this.#launch<O>(name, input, options, done, parent);
+      return await launching;
     } finally {
-      done();
+      this.#launching.delete(tracked);
     }
   }
 
@@ -191,219 +213,245 @@ export class Launcher {
     name: string,
     input: unknown,
     options: LaunchOptions,
-    admitted: () => void,
     parent: string | undefined
   ): Promise<Launched<O>> {
+    const queue = this.#requireQueue();
     const task = this.#tasks.get(name);
-    const { existing, run } = await this.executions.enqueue({
-      correlation: {
-        ...options.correlation,
-        ...(options.triggerId === undefined
-          ? {}
-          : { triggerId: options.triggerId }),
-      },
-      input,
-      kind: task ? "task" : "workflow",
-      name,
-      queue: options.queue ?? task?.queue ?? DEFAULT_QUEUE,
-      ...(options.source === undefined ? {} : { source: options.source }),
-    });
-    if (existing) {
-      admitted();
-      return { id: run.id, result: this.#resultOf<O>(run) };
+    const idempotencyKey =
+      options.idempotencyKey ??
+      (options.source === undefined
+        ? undefined
+        : idempotencyKeyOf(name, options.source));
+    const existing =
+      idempotencyKey === undefined
+        ? undefined
+        : await this.#existing(queue, idempotencyKey);
+    if (existing !== undefined) {
+      return existing as Launched<O>;
     }
-    const owed = this.#owe(run.id, options.recordErrorMessage ?? true);
-    const started = this.#admit(run.id, parent);
-    admitted();
-    if (started) {
-      await started;
+    const runId = `rn-${randomUUID()}`;
+    const submit = submitOptionsOf(
+      runId,
+      idempotencyKey,
+      task,
+      options,
+      parent
+    );
+    const owed = this.#owe(runId, options.recordErrorMessage ?? true);
+    let job: Job;
+    try {
+      job = await this.#submit(queue, name, input, task, submit);
+    } catch (error) {
+      this.#unowe(runId);
+      throw isRetiring(error) ? new EngineRetiringError(name) : error;
     }
-    return { id: run.id, result: owed.promise as Promise<O> };
+    if (this.executions.get(runId) === undefined) {
+      await this.executions.refresh(runId);
+    }
+    if (this.executions.get(runId) === undefined && idempotencyKey) {
+      this.#unowe(runId);
+      return (await this.#existing(queue, idempotencyKey, job)) as Launched<O>;
+    }
+    if (task) {
+      this.#settleTask(runId);
+    }
+    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `cancelPending` sets it.
+    if (this.#cancelling) {
+      await this.#cancelRun(runId, cancelledBefore(runId));
+      await this.#refreshed(runId);
+    }
+    return { id: runId, result: owed.promise as Promise<O> };
+  }
+
+  async #submit(
+    queue: RunQueue,
+    name: string,
+    input: unknown,
+    task: TaskDefinition | undefined,
+    submit: SubmitOptions
+  ): Promise<Job> {
+    const { runId } = submit;
+    if (task) {
+      await this.#registered.get(name);
+      this.#inputs.set(runId, input);
+      this.#contexts.set(runId, new AsyncResource("marbles.task"));
+      return await queue.submit(
+        name,
+        storableJson(`the input of run ${runId}`, input ?? null),
+        submit
+      );
+    }
+    this.#dispatching.add(runId);
+    try {
+      const { dispatched, job } = await asRun(runId, () =>
+        this.#options.workflows.dispatch(name, input, submit)
+      );
+      if (dispatched !== undefined) {
+        this.#follow(runId, dispatched.result);
+      }
+      return job;
+    } finally {
+      this.#dispatching.delete(runId);
+    }
+  }
+
+  async #existing(
+    queue: RunQueue,
+    idempotencyKey: string,
+    known?: Job
+  ): Promise<Launched<unknown> | undefined> {
+    const job =
+      known ?? (await queue.listJobs({ idempotencyKey })).find(Boolean);
+    if (job === undefined) {
+      return;
+    }
+    const [run] = await queue.listRuns({ jobId: job.id });
+    if (run === undefined) {
+      return;
+    }
+    await this.executions.refresh(run.id);
+    return { id: run.id, result: this.#resultOf(run.id) };
   }
 
   follow(id: string, dispatched: DispatchedRun): void {
-    this.#live.set(id, {
-      dispatched: Promise.resolve(dispatched),
-      kind: "workflow",
-    });
-    this.#finish(id, dispatched.result, dispatched.endedAs);
-  }
-
-  async recover(options: {
-    readonly adopted: ReadonlySet<string>;
-    readonly fileStatus: (run: ExecutionRun) => string | undefined;
-  }): Promise<void> {
-    const readmitted = await this.executions.recover({
-      adopted: options.adopted,
-      fileStatus: options.fileStatus,
-      readmit: (run) =>
-        (this.#options.recoverQueued ||
-          sameProcess(run.owner, thisProcess())) &&
-        this.#runnableAs(run),
-    });
-    for (const run of readmitted) {
-      this.#options.print(`[run] ${run.name} queued again ${run.id}`);
-      this.#owe(run.id, true);
-      this.#admit(run.id);
+    if (!this.#owed.has(id)) {
+      this.#owe(id, true);
     }
+    this.#follow(id, dispatched.result);
   }
 
-  async handOver(
-    successor: ProcessIdentity,
-    onHanded: (id: string) => void = () => undefined
-  ): Promise<readonly string[]> {
+  #follow(id: string, result: Promise<unknown>): void {
+    result.then(
+      async (value) => {
+        await this.#refreshed(id);
+        this.#pay(id, undefined, value);
+      },
+      async (error: unknown) => {
+        await this.#refreshed(id);
+        this.#pay(id, error);
+      }
+    );
+  }
+
+  #settleTask(id: string): void {
+    if (this.#settlingTasks.has(id)) {
+      return;
+    }
+    this.#settlingTasks.add(id);
+    this.executions
+      .settled(id)
+      .then((settled) => {
+        const ending = this.#endings.get(id);
+        this.#endings.delete(id);
+        this.#inputs.delete(id);
+        this.#contexts.delete(id);
+        const reason = this.#endedWith(settled);
+        this.#reasons.delete(id);
+        if (settled.status === "complete") {
+          this.#pay(
+            id,
+            undefined,
+            ending?.kind === "complete" ? ending.value : undefined
+          );
+        } else if (ending?.kind === "failed" && settled.status === "failed") {
+          this.#pay(id, ending.error);
+        } else {
+          this.#pay(id, new Error(reason));
+        }
+      })
+      .catch((error: unknown) => {
+        this.#endings.delete(id);
+        this.#inputs.delete(id);
+        this.#contexts.delete(id);
+        this.#reasons.delete(id);
+        this.#pay(id, error);
+      })
+      .finally(() => this.#settlingTasks.delete(id));
+  }
+
+  #endedWith(run: ExecutionRun): string {
+    if (run.status === "cancelled") {
+      return this.#reasons.get(run.id) ?? `run ${run.id} was cancelled`;
+    }
+    return `run ${run.id} ${run.status}${run.error?.message === undefined ? "" : `: ${run.error.message}`}`;
+  }
+
+  async #refreshed(id: string): Promise<void> {
+    await this.executions.refresh(id).catch(() => undefined);
+  }
+
+  async recover(): Promise<RecoverySummary> {
+    const summary = await this.#requireQueue().recover();
+    for (const id of summary.adopted) {
+      const run = this.executions.get(id) ?? (await this.executions.peek(id));
+      if (run !== undefined) {
+        this.#options.print(`[run] ${run.name} queued again ${id}`);
+      }
+    }
+    for (const id of summary.interrupted) {
+      const run = await this.executions.peek(id);
+      if (run !== undefined) {
+        this.#options.print(
+          `[run] ${run.name} ${id} closed out: ${run.error?.message ?? "its owner is gone"}`
+        );
+      }
+    }
+    return summary;
+  }
+
+  async handOver(successor: ProcessIdentity): Promise<readonly string[]> {
     this.beginRetiring();
-    const handed: string[] = [];
-    const told = (id: string) => {
-      handed.push(id);
+    await Promise.all(this.#launching);
+    const handed = await this.#requireQueue().retire(successor);
+    for (const id of handed) {
+      await this.#refreshed(id);
       this.#pay(
         id,
         new Error(`run ${id} was handed to the next engine generation`)
       );
-    };
-    await Promise.all(this.#launching);
-    const { failed } = await this.executions.handOverAll(
-      () => Promise.resolve(successor),
-      told
-    );
-    const said = new Set<string>();
-    this.#sayFailed(failed, said);
-    this.#handOverLater(
-      (view) =>
-        view.successor === undefined
-          ? Promise.resolve(successor)
-          : view.successor(),
-      onHanded,
-      said,
-      failed.length > 0 ? HAND_OVER_RETRY_MS : HAND_OVER_PASS_MS
-    );
-    return [...handed];
-  }
-
-  #sayFailed(
-    failed: readonly { readonly error: unknown; readonly id: string }[],
-    said: Set<string>
-  ): void {
-    for (const { error, id } of failed) {
-      const why = error instanceof Error ? error.message : String(error);
-      if (!said.has(why)) {
-        said.add(why);
-        this.#options.print(
-          `[run] ${id} not handed to the next engine generation: ${why}; it stays queued here, unstarted, and is tried again`
-        );
-      }
     }
+    return handed;
   }
 
-  #handOverLater(
-    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>,
-    onHanded: (id: string) => void,
-    said: Set<string>,
-    delay: number
-  ): void {
-    if (this.#handedAll()) {
-      return;
-    }
-    const timer = setTimeout(async () => {
-      this.#handingOver.delete(timer);
-      if (this.#handedAll()) {
-        return;
-      }
-      const told = (id: string) => {
-        this.#pay(
-          id,
-          new Error(`run ${id} was handed to the next engine generation`)
-        );
-        onHanded(id);
-      };
-      let failed: readonly { readonly error: unknown; readonly id: string }[];
-      try {
-        await this.#takeUpQueued();
-        ({ failed } = await this.executions.handOverAll(choose, told));
-      } catch (error) {
-        failed = [{ error, id: "a queued run" }];
-      }
-      this.#sayFailed(failed, said);
-      this.#handOverLater(
-        choose,
-        onHanded,
-        said,
-        failed.length === 0
-          ? HAND_OVER_PASS_MS
-          : Math.min(
-              delay === HAND_OVER_PASS_MS ? HAND_OVER_RETRY_MS : delay * 2,
-              HAND_OVER_RETRY_MAX_MS
-            )
-      );
-    }, delay);
-    timer.unref?.();
-    this.#handingOver.add(timer);
-  }
-
-  #handedAll(): boolean {
-    return (
-      this.#halting === "cancel" ||
-      (this.#halting === "stop" && this.executions.waiting().length === 0)
-    );
-  }
-
-  #stopHandingOver(): void {
-    if (!this.#handedAll()) {
-      return;
-    }
-    for (const timer of this.#handingOver) {
-      clearTimeout(timer);
-    }
-    this.#handingOver.clear();
-  }
-
-  async #takeUpQueued(): Promise<void> {
-    for (const id of await this.executions.queuedHere()) {
-      if (this.#owed.has(id) || this.#admitted.has(id)) {
-        continue;
-      }
-      const run = await this.executions.readHanded(id);
-      if (run === undefined || this.#owed.has(id) || this.#admitted.has(id)) {
-        continue;
-      }
-      this.#owe(id, true);
-      this.#admit(id);
-    }
-  }
-
-  async takeOrphaned(id: string, owner: ProcessIdentity): Promise<QueuedTake> {
+  async adoptQueued(
+    id: string,
+    owner: ProcessIdentity
+  ): Promise<QueuedAdoption> {
     // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
     if (this.#retiring) {
       return { taken: false, why: "this engine is retiring" };
     }
-    if (this.#owed.has(id) || this.#admitted.has(id)) {
-      return { taken: true };
-    }
-    const stored = await this.executions.peek(id);
-    if (stored === undefined) {
+    const queue = this.#requireQueue();
+    const run = await this.executions.peek(id);
+    if (run === undefined) {
       return { taken: false, why: "it is no longer stored" };
     }
-    if (!this.#runnableAs(stored)) {
+    if (!this.#runnable(run.name)) {
       return {
         taken: false,
-        why: `no ${stored.kind} named "${stored.name}" is registered here`,
+        why: `no ${run.kind} named "${run.name}" is registered here`,
       };
     }
-    const run = await this.executions.takeQueuedFrom(id, owner);
-    if (run === undefined) {
+    if (
+      run.status !== "queued" ||
+      (run.owner !== undefined && !sameProcess(run.owner, owner))
+    ) {
       return {
         taken: false,
         why: "it is no longer queued under a process proved gone",
       };
     }
-    if (this.#owed.has(id) || this.#admitted.has(id)) {
-      return { taken: true };
+    await queue.recover();
+    const taken = await this.executions.peek(id);
+    if (taken?.status === "queued" && !this.#ours(id)) {
+      return {
+        taken: false,
+        why: "it is no longer queued under a process proved gone",
+      };
     }
     this.#options.print(
       `[run] ${run.name} taken over from a gone process ${id}`
     );
-    this.#owe(id, true);
-    this.#admit(id);
     return { taken: true };
   }
 
@@ -412,119 +460,95 @@ export class Launcher {
     if (this.#retiring) {
       return false;
     }
-    if (this.#owed.has(id) || this.#admitted.has(id)) {
-      return true;
-    }
-    const run = await this.executions.readHanded(id);
+    const run = await this.executions.peek(id);
     if (run === undefined) {
       return;
     }
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `beginRetiring` sets it.
-    if (this.#retiring || !this.#runnableAs(run)) {
+    if (!this.#runnable(run.name)) {
       return false;
     }
-    if (this.#owed.has(id) || this.#admitted.has(id)) {
-      return true;
+    if (run.status === "queued" && this.#ours(id)) {
+      this.#options.print(`[run] ${run.name} handed over ${id}`);
     }
-    this.#options.print(`[run] ${run.name} handed over ${id}`);
-    this.#owe(id, true);
-    this.#admit(id);
     return true;
   }
 
   async cancel(id: string): Promise<void> {
-    if (await this.executions.withdraw(id)) {
-      this.#pay(id, new Error(`run ${id} was cancelled before it started`));
+    const run = this.executions.get(id) ?? (await this.executions.peek(id));
+    if (run === undefined) {
+      throw new Error(`run ${id} is not recorded here`);
+    }
+    if (SETTLED_EXECUTION_STATUSES.has(run.status)) {
       return;
     }
-    const live = this.#live.get(id);
-    if (live?.kind === "task") {
-      live.controller.abort(new Error(`run ${id} was cancelled`));
-      await live.done;
-      return;
-    }
-    const admission = this.#admitted.get(id);
-    if (!live && admission) {
-      admission.controller.abort(new Error(`run ${id} was cancelled`));
-      await admission.settled.promise;
-      return;
-    }
-    live?.controller?.abort(new Error(`run ${id} was cancelled`));
-    const dispatched = await live?.dispatched;
-    if (dispatched) {
-      await dispatched.cancel();
-      return;
-    }
-    const run = this.executions.get(id);
-    if (run && SETTLED_EXECUTION_STATUSES.has(run.status)) {
-      return;
-    }
-    if (await this.executions.cancelOrphan(id)) {
-      return;
-    }
-    if (run?.kind === "task") {
-      throw new Error(`run ${id} is not running in this process`);
-    }
-    await this.#options.workflows.cancel(id);
-  }
-
-  cancelPending(): void {
-    this.#halting = "cancel";
-    for (const id of this.executions.waiting()) {
-      this.#withdrawing.push(
-        this.executions.withdraw(id).then(
-          (cancelled) => {
-            if (cancelled) {
-              this.#pay(
-                id,
-                new Error(`run ${id} was cancelled before it started`)
-              );
-            }
-          },
-          (error: unknown) => this.#pay(id, error)
-        )
-      );
-    }
-    for (const [id, live] of this.#live) {
-      live.controller?.abort(new Error(`run ${id} stopped with the engine`));
-    }
-  }
-
-  async halt(cancel: boolean): Promise<void> {
-    if (cancel) {
-      this.cancelPending();
+    const reason =
+      run.status === "queued" ? cancelledBefore(id) : `run ${id} was cancelled`;
+    if (run.kind === "workflow") {
+      await this.#options.workflows.cancel(id, reason);
     } else {
-      this.#halting ??= "stop";
+      await this.#cancelRun(id, reason);
     }
-    this.#abortHalted();
-    await Promise.all(this.#withdrawing.splice(0));
-    await Promise.all(
-      [...this.#live.values()].map((live) =>
-        live.kind === "workflow" ? live.dispatched : undefined
-      )
-    );
-    this.#abortHalted();
-    this.#stopHandingOver();
+    await this.#live.get(id);
+    await this.#refreshed(id);
   }
 
-  #abortHalted(): void {
-    for (const [id, live] of this.#live) {
-      if (
-        live.kind === "task" &&
-        (this.#halting === "cancel" || live.released)
-      ) {
-        live.controller.abort(new Error(`run ${id} stopped with the engine`));
+  async cancelPending(): Promise<void> {
+    this.#cancelling = true;
+    const queue = this.#queue;
+    if (queue === undefined) {
+      return;
+    }
+    await queue.pause();
+    const owned = this.#pending();
+    for (const run of owned.filter((each) => each.status === "queued")) {
+      await this.#cancelOwned(run, cancelledBefore(run.id));
+    }
+    await Promise.all(
+      owned
+        .filter((each) => each.status !== "queued")
+        .map((run) =>
+          this.#cancelOwned(run, `run ${run.id} stopped with the engine`)
+        )
+    );
+  }
+
+  async #cancelOwned(run: ExecutionRun, reason: string): Promise<void> {
+    await this.#cancelRun(run.id, reason).catch((error: unknown) => {
+      this.#options.print(`[run] ${run.id} not cancelled: ${String(error)}`);
+    });
+    await this.#live.get(run.id);
+    await this.#refreshed(run.id);
+  }
+
+  async idle(): Promise<void> {
+    await Promise.all(this.#launching);
+    while (this.#pending().length > 0) {
+      const changed = Promise.withResolvers<void>();
+      const unwatch = this.executions.watch(() => changed.resolve());
+      try {
+        const pending = this.#pending();
+        await Promise.all(pending.map((run) => this.#refreshed(run.id)));
+        if (this.#pending().length > 0) {
+          await Promise.race([
+            changed.promise,
+            ...pending.map((run) =>
+              this.executions.settled(run.id).catch(() => undefined)
+            ),
+          ]);
+        }
+      } finally {
+        unwatch();
       }
     }
+    await Promise.all(this.#live.values());
   }
 
-  async settled(): Promise<void> {
-    await Promise.all(
-      [...this.#live.values()].map((live) =>
-        live.kind === "task" ? live.done : undefined
-      )
-    );
-    this.#stopHandingOver();
+  owedResult(id: string): Promise<unknown> | undefined {
+    return this.#owed.get(id)?.promise;
+  }
+
+  beginRetiring(): void {
+    this.#retiring = true;
   }
 
   #owe(id: string, recordErrorMessage: boolean): Owed {
@@ -537,10 +561,13 @@ export class Launcher {
     return owed;
   }
 
+  #unowe(id: string): void {
+    this.#owed.delete(id);
+    this.#inputs.delete(id);
+    this.#contexts.delete(id);
+  }
+
   #pay(id: string, error: unknown, value?: unknown): void {
-    const admission = this.#admitted.get(id);
-    this.#admitted.delete(id);
-    admission?.settled.resolve();
     const owed = this.#owed.get(id);
     this.#owed.delete(id);
     if (error === undefined) {
@@ -550,150 +577,134 @@ export class Launcher {
     }
   }
 
-  owedResult(id: string): Promise<unknown> | undefined {
-    return this.#owed.get(id)?.promise;
-  }
-
-  #resultOf<O>(run: ExecutionRun): Promise<O> {
-    const owed = this.#owed.get(run.id);
+  #resultOf(id: string): Promise<unknown> {
+    const owed = this.#owed.get(id);
     if (owed) {
-      return owed.promise as Promise<O>;
+      return owed.promise;
     }
-    if (run.status === "complete") {
-      return Promise.resolve(undefined as O);
+    const run = this.executions.get(id);
+    if (run?.status === "complete") {
+      return Promise.resolve(undefined);
+    }
+    if (run !== undefined && !SETTLED_EXECUTION_STATUSES.has(run.status)) {
+      return this.#endOf(id);
     }
     return Promise.reject(
-      new Error(`run ${run.id} is ${run.status}; its value is not held here`)
+      new Error(
+        `run ${id} is ${run?.status ?? "gone"}; its value is not held here`
+      )
     );
   }
 
-  #admit(id: string, parent?: string): Promise<void> | undefined {
-    if (this.executions.get(id)?.status !== "queued") {
-      this.#pay(id, new Error(`run ${id} was cancelled before it started`));
-      return;
+  async #endOf(id: string): Promise<void> {
+    const settled = await this.executions.settled(id);
+    if (settled.status !== "complete") {
+      throw new Error(this.#endedWith(settled));
     }
-    const admission: Admission = {
-      controller: new AbortController(),
-      settled: Promise.withResolvers<void>(),
-    };
-    this.#admitted.set(id, admission);
-    return this.executions.admit(
-      id,
-      AsyncResource.bind((input: unknown) =>
-        this.#start(id, input, admission.controller)
-      ),
-      (error) => this.#pay(id, error),
-      parent
-    );
   }
 
   #activeCaller(): string | undefined {
     const id = callingRun();
-    return id !== undefined && this.#active(id) ? id : undefined;
+    if (id === undefined || this.#dispatching.has(id)) {
+      return id;
+    }
+    return this.executions
+      .owned()
+      .some((run) => run.id === id && run.status === "running")
+      ? id
+      : undefined;
   }
 
-  #active(id: string): boolean {
-    const run = this.executions.get(id);
-    return (
-      this.#live.has(id) &&
-      run?.status === "running" &&
-      sameProcess(run.owner, thisProcess())
+  #pending(): readonly ExecutionRun[] {
+    return this.executions
+      .owned()
+      .filter((run) => run.status === "running" || this.#runnable(run.name));
+  }
+
+  #ours(id: string): boolean {
+    return this.executions.owned().some((run) => run.id === id);
+  }
+
+  #cancelRun(id: string, reason: string): Promise<void> {
+    this.#reasons.set(id, reason);
+    return this.#requireQueue().cancelRun(id, reason);
+  }
+
+  #requireQueue(): RunQueue {
+    if (this.#queue === undefined) {
+      throw new Error("the engine has not started");
+    }
+    return this.#queue;
+  }
+
+  async #handle(
+    task: TaskDefinition,
+    context: QueueHandlerContext
+  ): Promise<RunOutcome> {
+    const { id } = context.run;
+    if (!isTask(context.job)) {
+      return {
+        error: {
+          message: `run ${id} was queued as a workflow; "${task.name}" is a task now`,
+          name: "KindChanged",
+        },
+        kind: "bailed",
+      };
+    }
+    this.#settleTask(id);
+    await this.#refreshed(id);
+    const input =
+      this.#inputs.has(id) && this.#inputs.get(id) === undefined
+        ? undefined
+        : context.job.input;
+    const launched = this.#contexts.get(id);
+    this.#contexts.delete(id);
+    const done =
+      launched === undefined
+        ? this.#run(task, id, input, context.signal)
+        : launched.runInAsyncScope(() =>
+            this.#run(task, id, input, context.signal)
+          );
+    const live = done.then(
+      () => undefined,
+      () => undefined
     );
-  }
-
-  beginRetiring(): void {
-    this.#retiring = true;
-    this.executions.closeAdmission((id) => this.#active(id));
-  }
-
-  #start(
-    id: string,
-    input: unknown,
-    controller: AbortController
-  ): Promise<void> {
-    const run = this.executions.get(id);
-    if (!run) {
-      return Promise.reject(new Error(`execution run ${id} is not recorded`));
-    }
-    if (run.kind === "workflow") {
-      return this.#dispatch(run, input, controller);
-    }
-    const task = this.#tasks.get(run.name);
-    if (!task) {
-      const error = new Error(
-        `run ${id}: no task is registered as ${run.name}`
-      );
-      return this.#end(id, "failed", { error }).then(() => {
-        throw error;
-      });
-    }
-    this.#run(task, run, input, controller);
-    return Promise.resolve();
-  }
-
-  async #dispatch(
-    run: ExecutionRun,
-    input: unknown,
-    controller: AbortController
-  ): Promise<void> {
-    if (this.#halting === "cancel") {
-      controller.abort(new Error(`run ${run.id} stopped with the engine`));
-    }
-    const outcome = Promise.withResolvers<DispatchedRun | undefined>();
-    this.#live.set(run.id, {
-      controller,
-      dispatched: outcome.promise,
-      kind: "workflow",
-    });
-    let dispatched: DispatchedRun | undefined;
+    this.#live.set(id, live);
     try {
-      dispatched = await this.#options.workflows.dispatch(
-        run,
-        input,
-        controller.signal
-      );
+      const value = await done;
+      this.#endings.set(id, { kind: "complete", value });
+      return { kind: "complete", output: null };
     } catch (error) {
-      this.#live.delete(run.id);
-      if (controller.signal.aborted) {
-        await this.#end(run.id, "cancelled", {
-          error: new Error(`run ${run.id} was cancelled`),
-        });
-        return;
-      }
-      await this.#end(run.id, "failed", { error });
-      throw error;
+      this.#endings.set(id, { error, kind: "failed" });
+      const recordMessage = this.#owed.get(id)?.recordErrorMessage ?? true;
+      return {
+        error: {
+          message: recordMessage ? messageOf(error) : "",
+          name: errorCode(error),
+        },
+        kind: "bailed",
+      };
     } finally {
-      outcome.resolve(dispatched);
+      if (this.#live.get(id) === live) {
+        this.#live.delete(id);
+      }
     }
-    this.#finish(run.id, dispatched.result, dispatched.endedAs);
   }
 
   #run(
     task: TaskDefinition,
-    run: ExecutionRun,
+    id: string,
     input: unknown,
-    controller: AbortController
-  ): void {
-    const { id } = run;
-    if (this.#halting === "cancel") {
-      controller.abort(new Error(`run ${id} stopped with the engine`));
-    }
+    signal: AbortSignal
+  ): Promise<unknown> {
     const lifetime = new AbortController();
-    const resourceSignal = AbortSignal.any([
-      controller.signal,
-      lifetime.signal,
-    ]);
+    const resourceSignal = AbortSignal.any([signal, lifetime.signal]);
     const opened = new Set<Closable>();
-    const live: Live & { kind: "task" } = {
-      controller,
-      done: Promise.resolve(),
-      kind: "task",
-      released: false,
-    };
+    const run = this.executions.get(id) as ExecutionRun;
     const context: TaskContext = {
       agents: this.#options.agents({
         id,
-        name: run.name,
+        name: task.name,
         retain: (closable) => opened.add(closable),
         signal: resourceSignal,
       }),
@@ -709,25 +720,14 @@ export class Launcher {
           { keepStart: observation.startedAt === undefined }
         ),
       progress: (value) => this.executions.progress(id, value),
-      release: () => {
-        live.released = true;
-        this.executions.release(id);
-        if (this.#halting !== undefined) {
-          queueMicrotask(() =>
-            controller.abort(new Error(`run ${id} stopped with the engine`))
-          );
-        }
-      },
       run,
       sandbox: (container) => this.#options.sandbox(container, resourceSignal),
       signal: resourceSignal,
     };
-    this.#live.set(id, live);
-    const result = withinContext(this.#options.context, async () => {
-      let value: unknown;
+    return withinContext(this.#options.context, async () => {
       try {
-        controller.signal.throwIfAborted();
-        value = await asRun(id, () => task.run(input, context));
+        signal.throwIfAborted();
+        return await asRun(id, () => task.run(input, context));
       } finally {
         lifetime.abort(new Error(`run ${id} resource lifetime ended`));
         for (const closable of [...opened].reverse()) {
@@ -736,72 +736,6 @@ export class Launcher {
             .catch(() => undefined);
         }
       }
-      if (controller.signal.aborted) {
-        throw new Error(`run ${id} was cancelled`);
-      }
-      return value;
     });
-    live.done = this.#finish(id, result, () =>
-      controller.signal.aborted ? "cancelled" : "failed"
-    );
-  }
-
-  #finish(
-    id: string,
-    result: Promise<unknown>,
-    endedAs: (error: unknown) => Ending
-  ): Promise<void> {
-    return result.then(
-      async (value) => {
-        this.#live.delete(id);
-        await this.#end(id, "complete", { value });
-      },
-      async (error: unknown) => {
-        this.#live.delete(id);
-        await this.#end(id, endedAs(error), { error });
-      }
-    );
-  }
-
-  async #end(
-    id: string,
-    ending: "complete" | Ending,
-    outcome: { readonly error?: unknown; readonly value?: unknown }
-  ): Promise<void> {
-    if (ending !== undefined) {
-      let stored: ExecutionRun | undefined;
-      try {
-        stored = await this.executions.settle(
-          id,
-          ending,
-          ending === "failed" ? this.#failure(id, outcome.error) : undefined
-        );
-      } catch (failure) {
-        this.#pay(id, new RunNotRecordedError(id, failure));
-        return;
-      }
-      if (stored && stored.status !== ending) {
-        this.#pay(
-          id,
-          stored.status === "complete"
-            ? undefined
-            : new Error(`run ${id} was ${stored.status} already`),
-          undefined
-        );
-        return;
-      }
-    }
-    this.#pay(id, outcome.error, outcome.value);
-  }
-
-  #failure(id: string, error: unknown): { code: string; message?: string } {
-    const code = errorCode(error);
-    if (this.#owed.get(id)?.recordErrorMessage === false) {
-      return { code };
-    }
-    return {
-      code,
-      message: error instanceof Error ? error.message : String(error),
-    };
   }
 }

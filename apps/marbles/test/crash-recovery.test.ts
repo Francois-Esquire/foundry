@@ -1,14 +1,14 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
 import { anotherStart } from "@foundry/lib/testing/process-identity";
-import { eq } from "drizzle-orm";
+import type { RunId } from "@foundry/queue";
+import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { expect, it } from "vitest";
 import { writeDatabase } from "~/database/open";
 import { readLastRecovery } from "~/database/recoveries";
-import { marblesExecutions, marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
+import { runStoreEffect } from "~/lib/workflow-runs";
 import {
   SPAWN_RECOVERY_ENV,
   type SpawnRecord,
@@ -214,10 +214,7 @@ async function expectRecovered(
     status: "interrupted",
   });
   expect(report.run).toMatchObject({
-    error: {
-      message: "its process exited while it was running",
-      name: "Interrupted",
-    },
+    error: { message: "owner gone", name: "interrupted" },
     status: "failed",
   });
   expect((await runs(home)).find((entry) => entry.id === runId)).toMatchObject({
@@ -245,7 +242,7 @@ it(
     expect(recovered.lines).toEqual(
       expect.arrayContaining([
         "[recovery] processes: done, 1 process(es) stopped",
-        `[run] hold ${runId} closed out: its process exited while it was running`,
+        `[run] hold ${runId} closed out: owner gone`,
         "[recovery] runs: done, 1 run(s) closed out",
         "[recovery] activities: done, 1 harness activity(ies) closed out",
       ])
@@ -304,16 +301,24 @@ it(
     const home = testHome();
     const { command, runId } = await crashedHost(home);
     const state = join(home.path, "state");
-    const before = { ownerPid: process.pid, ownerStarted: LONG_AGO };
     await writeDatabase(stateDatabase(state), async (database) => {
-      await database
-        .update(marblesExecutions)
-        .set(before)
-        .where(eq(marblesExecutions.id, runId));
-      await database
-        .update(marblesWorkflowRuns)
-        .set(before)
-        .where(eq(marblesWorkflowRuns.runId, runId));
+      const store = makeSqliteQueueStore({ database, scope: "test" });
+      const left = await runStoreEffect(store.getRun(runId as RunId));
+      if (left?.state.kind !== "running") {
+        throw new Error(`${runId} is not running`);
+      }
+      const owner = { pid: process.pid, started: LONG_AGO };
+      await runStoreEffect(
+        store.commit({
+          runs: [
+            {
+              ...left,
+              revision: left.revision + 1,
+              state: { ...left.state, lease: { ...left.state.lease, owner } },
+            },
+          ],
+        })
+      );
     });
 
     const engine = testEngine({
@@ -334,7 +339,7 @@ it(
         command,
         runId
       );
-      expect(engine.executions.get(runId)?.owner).toEqual(thisProcess());
+      expect(engine.executions.get(runId)?.owner).toBeUndefined();
     } finally {
       await engine.dispose();
     }

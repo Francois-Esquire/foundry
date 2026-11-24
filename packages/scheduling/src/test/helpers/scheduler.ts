@@ -1,16 +1,29 @@
-import { Effect, Layer, Ref, type Scope, TestContext } from "effect";
+import {
+  Clock,
+  Context,
+  Effect,
+  Layer,
+  Ref,
+  type Scope,
+  TestContext,
+} from "effect";
 import {
   type DispatchRequest,
   type DispatchStatus,
   ScheduleDispatch,
 } from "../../dispatch";
-import { DispatchError, type DispatchTarget } from "../../domain";
+import {
+  DispatchError,
+  type DispatchTarget,
+  type Instant,
+  type JobOutcome,
+} from "../../domain";
 import {
   Scheduler,
   type SchedulerOptions,
   type SchedulerService,
 } from "../../scheduler";
-import type { ScheduleStore } from "../../store/index";
+import { ScheduleStore, type ScheduleStoreService } from "../../store/index";
 import { MemoryScheduleStore } from "../../store/memory";
 
 export interface FakeDispatch {
@@ -19,12 +32,13 @@ export interface FakeDispatch {
   readonly layer: Layer.Layer<ScheduleDispatch>;
   readonly settle: (
     jobId: string,
-    status: DispatchStatus
+    outcome: JobOutcome,
+    settledAt?: Instant
   ) => Effect.Effect<void>;
   readonly submitted: Ref.Ref<readonly DispatchRequest[]>;
 }
 
-const fakeDispatch = Effect.gen(function* () {
+export const fakeDispatch = Effect.gen(function* () {
   const submitted = yield* Ref.make<readonly DispatchRequest[]>([]);
   const cancelled = yield* Ref.make<readonly string[]>([]);
   const statuses = yield* Ref.make(new Map<string, DispatchStatus>());
@@ -35,10 +49,27 @@ const fakeDispatch = Effect.gen(function* () {
       cancel: (jobId) =>
         Effect.zipRight(
           Ref.update(cancelled, (all) => [...all, jobId]),
-          Ref.update(statuses, (all) => new Map(all).set(jobId, "cancelled"))
+          Effect.flatMap(Clock.currentTimeMillis, (settledAt) =>
+            Ref.update(statuses, (all) =>
+              new Map(all).set(jobId, {
+                kind: "settled",
+                outcome: "cancelled",
+                settledAt,
+              })
+            )
+          )
         ),
       status: (jobId) =>
-        Effect.map(Ref.get(statuses), (all) => all.get(jobId) ?? "cancelled"),
+        Effect.zipWith(
+          Ref.get(statuses),
+          Clock.currentTimeMillis,
+          (all, now): DispatchStatus =>
+            all.get(jobId) ?? {
+              kind: "settled",
+              outcome: "cancelled",
+              settledAt: now,
+            }
+        ),
       submit: (request) =>
         Effect.gen(function* () {
           if (
@@ -48,7 +79,9 @@ const fakeDispatch = Effect.gen(function* () {
           }
           const jobId = `job:${request.idempotencyKey}`;
           yield* Ref.update(submitted, (all) => [...all, request]);
-          yield* Ref.update(statuses, (all) => new Map(all).set(jobId, "open"));
+          yield* Ref.update(statuses, (all) =>
+            new Map(all).set(jobId, { kind: "open" })
+          );
           return { jobId };
         }),
     })
@@ -57,8 +90,16 @@ const fakeDispatch = Effect.gen(function* () {
     cancelled,
     failNext,
     layer,
-    settle: (jobId: string, status: DispatchStatus) =>
-      Ref.update(statuses, (all) => new Map(all).set(jobId, status)),
+    settle: (jobId: string, outcome: JobOutcome, settledAt?: Instant) =>
+      Effect.flatMap(Clock.currentTimeMillis, (now) =>
+        Ref.update(statuses, (all) =>
+          new Map(all).set(jobId, {
+            kind: "settled",
+            outcome,
+            settledAt: settledAt ?? now,
+          })
+        )
+      ),
     submitted,
   } satisfies FakeDispatch;
 });
@@ -91,3 +132,25 @@ export const target: DispatchTarget = {
   handler: { name: "sync" },
   input: { full: true },
 };
+
+export const startScheduler = (
+  store: ScheduleStoreService,
+  dispatch: FakeDispatch,
+  options: SchedulerOptions = {}
+): Effect.Effect<SchedulerService, never, Scope.Scope> =>
+  Effect.map(
+    Layer.build(
+      Scheduler.layer(options).pipe(
+        Layer.provide(dispatch.layer),
+        Layer.provide(Layer.succeed(ScheduleStore, store))
+      )
+    ),
+    (context) => Context.get(context, Scheduler)
+  );
+
+export const inTestContext = <A, E>(
+  body: Effect.Effect<A, E, Scope.Scope>
+): Promise<A> =>
+  Effect.runPromise(
+    Effect.scoped(body).pipe(Effect.provide(TestContext.TestContext))
+  );

@@ -72,7 +72,7 @@ describe("an engine that has begun to retire", () => {
     expect(started).toEqual(["active"]);
   });
 
-  it("refuses to resume a paused run once retirement began, before that run is let go", async () => {
+  it("answers a paused run once retirement began, and leaves the resumed run to a live engine", async () => {
     const engine = engineHere();
     const entered = Promise.withResolvers<void>();
     const observing = Promise.withResolvers<void>();
@@ -102,12 +102,19 @@ describe("an engine that has begun to retire", () => {
     await new Tasks({ store: engine.taskStore }).create({ title: "held" });
     await entered.promise;
     const retiring = engine.retire(successor());
-    await expect(engine.resume(run.id, "paused")).rejects.toMatchObject({
-      name: "QuestionMovingError",
-    });
-    expect(resumed).toEqual(["entered"]);
     observing.resolve();
-    await retiring;
+    await (await retiring).ended;
+    await engine.resume(run.id, "paused");
+    await vi.waitFor(() =>
+      expect(engine.executions.get(run.id)?.status).toBe("queued")
+    );
+    await vi.waitFor(async () =>
+      expect(
+        (await engine.runs()).find((each) => each.id === run.id)?.status
+      ).toBe("queued")
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(resumed).toEqual(["entered"]);
   });
 
   it("hands its queued runs over without waiting for an observer, and ends once its runs have, the observer still running", async () => {
@@ -230,6 +237,44 @@ describe("an engine that has begun to retire", () => {
     await ended;
   });
 
+  it("finishes here the fan-out children queued behind a queue while their parent still runs", async () => {
+    const engine = testEngine({
+      print: () => undefined,
+      queues: { fanout: { concurrency: 1 } },
+    });
+    engines.push(engine);
+    const childGate = Promise.withResolvers<void>();
+    const spawned = Promise.withResolvers<void>();
+    const ran: number[] = [];
+    engine.task<number, number>({
+      name: "child",
+      queue: "fanout",
+      run: async (n) => {
+        ran.push(n);
+        await childGate.promise;
+        return n;
+      },
+    });
+    engine.task({
+      name: "parent",
+      run: async () => {
+        const children = await Promise.all(
+          [1, 2].map((n) => engine.launch<number>("child", n))
+        );
+        spawned.resolve();
+        return await Promise.all(children.map((child) => child.result));
+      },
+    });
+    await engine.start();
+    const parent = await engine.launch("parent", {});
+    await spawned.promise;
+    const { ended } = await engine.retire(successor());
+    childGate.resolve();
+    expect(await outcome(parent.result)).toEqual([1, 2]);
+    expect(ran).toEqual([1, 2]);
+    await ended;
+  });
+
   it("hands over a child queued behind a busy queue whose parent suspended before retirement began", async () => {
     const engine = engineHere();
     const busyGate = Promise.withResolvers<void>();
@@ -281,7 +326,7 @@ describe("an engine that has begun to retire", () => {
     });
   });
 
-  it("runs a child a cancelled task launches before its body returns", async () => {
+  it("refuses a child a cancelled task launches before its body returns, since the run no longer runs", async () => {
     const engine = engineHere();
     const launched = Promise.withResolvers<unknown>();
     engine.task({ name: "child", queue: "child", run: () => 42 });
@@ -303,7 +348,9 @@ describe("an engine that has begun to retire", () => {
     parent.result.catch(() => undefined);
     const { ended } = await engine.retire(successor());
     await engine.cancel(parent.id);
-    expect(await launched.promise).toBe(42);
+    expect(await launched.promise).toBe(
+      "EngineRetiringError: child was not launched: this engine is retiring; launch it on the next engine generation"
+    );
     await ended;
   });
 

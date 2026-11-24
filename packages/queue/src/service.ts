@@ -16,6 +16,7 @@ import type {
   PoolStats,
   QueueError,
   QueueEvent,
+  QueueOwner,
   RecoverySummary,
   Run,
   RunFilter,
@@ -55,7 +56,9 @@ export interface SubmitJobInput {
 export interface QueueOptions {
   readonly defaultLimit?: number;
   readonly identity?: ProcessIdentity;
+  readonly instanceId?: string;
   readonly pools?: readonly ConcurrencyPool[];
+  readonly syncIntervalMs?: number;
 }
 
 export interface ResolveSuspensionOptions {
@@ -71,7 +74,7 @@ export interface QueueService {
     id: RunId,
     error: ErrorShape
   ) => Effect.Effect<Run, QueueError>;
-  readonly adopt: (id: RunId) => Effect.Effect<Run, QueueError>;
+  readonly awaitJob: (id: JobId) => Effect.Effect<Job, QueueError>;
   readonly cancel: (
     id: JobId | RunId,
     reason?: string
@@ -115,7 +118,7 @@ export interface QueueService {
   ) => Effect.Effect<Suspension, QueueError>;
   readonly resume: Effect.Effect<void>;
   readonly retire: (
-    successor?: ProcessIdentity
+    successor?: QueueOwner
   ) => Effect.Effect<readonly RunId[], QueueError>;
   readonly submit: (input: SubmitJobInput) => Effect.Effect<Job, QueueError>;
   readonly subscribe: Effect.Effect<

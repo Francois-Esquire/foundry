@@ -13,6 +13,7 @@ import type {
   QueueStoreService,
   QueueWrite,
 } from "./store/index";
+import { changeOf, type JobWaiters } from "./sync";
 import type { Change } from "./transitions";
 
 const CONFLICT_RETRIES = 5;
@@ -51,7 +52,8 @@ export const retryOnConflict = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 
 export const makeLedger = (
   store: QueueStoreService,
-  hub: PubSub.PubSub<QueueEvent>
+  hub: PubSub.PubSub<QueueEvent>,
+  waiters: JobWaiters
 ) => ({
   commit: (now: Instant, change: Change) =>
     Effect.gen(function* () {
@@ -69,11 +71,18 @@ export const makeLedger = (
         ...change.write,
         events,
         expected: {
-          runs: (change.write.runs ?? []).map(previousRevision),
-          suspensions: (change.write.suspensions ?? []).map(previousRevision),
+          runs: [
+            ...(change.write.expected?.runs ?? []),
+            ...(change.write.runs ?? []).map(previousRevision),
+          ],
+          suspensions: [
+            ...(change.write.expected?.suspensions ?? []),
+            ...(change.write.suspensions ?? []).map(previousRevision),
+          ],
         },
       });
       yield* PubSub.publishAll(hub, events);
+      yield* Effect.sync(() => waiters.notify(changeOf(change.write)));
     }).pipe(Effect.uninterruptible),
   requireJob: required(store.getJob, (id) => new JobNotFoundError({ id })),
   requireRun: required(store.getRun, (id) => new RunNotFoundError({ id })),

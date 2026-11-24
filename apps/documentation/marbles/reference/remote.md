@@ -37,7 +37,7 @@ marbles </dev/null
 `inventory` must be a definition in that project. Use an attended terminal
 and `marbles` for the dashboard if the work asks questions. Headless `run`
 attaches the workspace to the Marbles process, whose triggers keep running
-after Ctrl+C; a run that asks parks until a dashboard answers.
+after Ctrl+C; a run that asks suspends until a dashboard answers.
 
 ## What deployment must supply
 
@@ -72,7 +72,7 @@ between independent machines as a worker-coordination mechanism.
 
 ## Limits to plan around
 
-- A parked run can be adopted by a later dashboard on the same setup. A
+- A suspended run can be answered by a later dashboard on the same setup. A
   run interrupted mid-body is not automatically resumed.
 - An ephemeral host loses local history unless its storage is preserved.
 - Host CLI authentication, sandbox guest lifetime, mounts, and networking

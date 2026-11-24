@@ -91,7 +91,6 @@ function snapshot(
   return dashboardSnapshot([run], {
     definitions: [],
     feed,
-    lastFinish: new Map(),
     live: new Map([[run.id, work]]),
     monitors: new Map(),
     now: 200,

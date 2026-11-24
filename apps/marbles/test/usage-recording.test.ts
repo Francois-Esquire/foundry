@@ -534,7 +534,6 @@ it("when the fact and its marker both fail, a new engine over the same disk find
   expect(recovered?.tokens?.total).toBeGreaterThan(0);
   const snapshot = dashboardSnapshot(await second.runs(), {
     definitions: second.definitions(),
-    lastFinish: new Map(),
     monitors: second.monitors(),
     root: state,
     schedules: [],
@@ -587,7 +586,6 @@ function snapshotOf(
 ) {
   return dashboardSnapshot(runs, {
     definitions: engine.definitions(),
-    lastFinish: new Map(),
     monitors: engine.monitors(),
     root: state,
     schedules: [],

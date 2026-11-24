@@ -1,3 +1,4 @@
+import { thisProcess } from "@foundry/lib/process-identity";
 import { Deferred, Effect, TestClock, TestContext } from "effect";
 import { describe, expect, test } from "vitest";
 import { createQueueClient } from "../client";
@@ -98,7 +99,7 @@ describe("Queue lifecycle", () => {
     expect(result.other?.state.kind).toBe("cancelled");
   });
 
-  test("resolving a suspension checks its expected revision, adopting its run moves the revision on, and only a settled job can be removed with its runs and suspensions", async () => {
+  test("resolving a suspension checks its expected revision, and only a settled job can be removed with its runs and suspensions", async () => {
     const result = await testQueue((queue) =>
       Effect.gen(function* () {
         yield* queue.register("work", approval);
@@ -114,21 +115,14 @@ describe("Queue lifecycle", () => {
           })
         );
         const open = yield* Effect.flip(queue.removeJob(job.id));
-        yield* queue.adopt(suspension.runId);
-        const readBeforeAdoption = yield* Effect.flip(
-          queue.resolveSuspension(suspension.id, "yes", {
-            expectedRevision: suspension.revision,
-          })
-        );
         yield* queue.resolveSuspension(suspension.id, "yes", {
-          expectedRevision: suspension.revision + 1,
+          expectedRevision: suspension.revision,
         });
         yield* awaitJob(queue, job.id);
         yield* queue.removeJob(job.id);
         return {
           job: yield* queue.getJob(job.id),
           open,
-          readBeforeAdoption,
           runs: yield* queue.listRuns({ jobId: job.id }),
           stale,
           suspension: yield* queue.getSuspension(suspension.id),
@@ -136,7 +130,6 @@ describe("Queue lifecycle", () => {
       })
     );
     expect(result.stale._tag).toBe("StaleSuspensionRevisionError");
-    expect(result.readBeforeAdoption._tag).toBe("StaleSuspensionRevisionError");
     expect(result.open._tag).toBe("JobNotSettledError");
     expect(result.job).toBeUndefined();
     expect(result.runs).toEqual([]);
@@ -224,7 +217,7 @@ describe("Queue lifecycle", () => {
     ]);
   });
 
-  test("recovery interrupts runs whose owner is gone, retries them, and re-admits their queued runs", async () => {
+  test("recovery interrupts runs whose owner is gone, retries them, and adopts their queued runs", async () => {
     const store = await sharedStore();
     const result = await Effect.runPromise(
       Effect.gen(function* () {
@@ -268,7 +261,7 @@ describe("Queue lifecycle", () => {
       }).pipe(Effect.provide(TestContext.TestContext))
     );
     expect(result.summary.interrupted).toHaveLength(2);
-    expect(result.summary.readmitted).toHaveLength(2);
+    expect(result.summary.adopted).toHaveLength(2);
     expect(result.retriedRuns.map((run) => run.state.kind)).toEqual([
       "interrupted",
       "complete",
@@ -339,7 +332,7 @@ describe("Queue lifecycle", () => {
     });
   });
 
-  test("retiring refuses new top-level work, admits children of running parents, and hands queued runs to a successor", async () => {
+  test("retiring refuses new top-level work, runs the children of its running parents itself, and hands queued runs to a successor", async () => {
     const result = await testQueue(
       (queue) =>
         Effect.gen(function* () {
@@ -365,10 +358,16 @@ describe("Queue lifecycle", () => {
           const refused = yield* Effect.flip(queue.submit({ handler }));
           yield* Deferred.succeed(gate, undefined);
           const settled = yield* awaitJob(queue, parent.id);
+          const child =
+            settled.state.kind === "complete" ? settled.state.output : null;
+          const childJob =
+            typeof child === "string"
+              ? yield* queue.awaitJob(child as JobId)
+              : undefined;
           yield* flush;
           return {
-            child:
-              settled.state.kind === "complete" ? settled.state.output : null,
+            child,
+            childJob,
             handedOver,
             queued: yield* queue.listRuns({ jobId: queued.id }),
             refused,
@@ -378,11 +377,111 @@ describe("Queue lifecycle", () => {
     );
     expect(result.refused._tag).toBe("QueueRetiringError");
     expect(typeof result.child).toBe("string");
+    expect(result.childJob?.state.kind).toBe("complete");
     expect(result.handedOver).toEqual(result.queued.map((run) => run.id));
     expect(result.queued[0]?.state).toMatchObject({
       kind: "queued",
       owner: alive,
     });
+  });
+
+  test("retiring keeps the queued children of a running parent and finishes them, handing over only other queued runs", async () => {
+    const result = await testQueue((queue) =>
+      Effect.gen(function* () {
+        const spawned = yield* Deferred.make<readonly JobId[]>();
+        const childGate = yield* Deferred.make<void>();
+        yield* queue.configurePool({ limit: 1, name: "b", state: "active" });
+        yield* queue.register("work", (context) =>
+          Effect.gen(function* () {
+            if (context.job.input === "child") {
+              yield* Deferred.await(childGate);
+              return { kind: "complete", output: null } as const;
+            }
+            if (context.job.input !== "parent") {
+              return { kind: "complete", output: null } as const;
+            }
+            const children = yield* Effect.all(
+              [0, 1].map(() =>
+                Effect.orDie(
+                  queue.submit({
+                    handler,
+                    input: "child",
+                    links: { parentRunId: context.run.id },
+                    pool: "b",
+                  })
+                )
+              )
+            );
+            yield* Deferred.succeed(
+              spawned,
+              children.map((child) => child.id)
+            );
+            for (const child of children) {
+              yield* Effect.orDie(queue.awaitJob(child.id));
+            }
+            return { kind: "complete", output: null } as const;
+          })
+        );
+        const parent = yield* queue.submit({
+          handler,
+          input: "parent",
+          pool: "a",
+        });
+        const children = yield* Deferred.await(spawned);
+        const later = yield* queue.submit({
+          handler,
+          input: "later",
+          pool: "b",
+        });
+        const handedOver = yield* queue.retire(alive);
+        yield* Deferred.succeed(childGate, undefined);
+        const settled = yield* awaitJob(queue, parent.id);
+        const childJobs = yield* Effect.all(
+          children.map((id) => awaitJob(queue, id))
+        );
+        return {
+          childJobs,
+          handedOver,
+          later: yield* queue.listRuns({ jobId: later.id }),
+          settled,
+        };
+      })
+    );
+    expect(result.settled.state.kind).toBe("complete");
+    expect(result.childJobs.map((job) => job.state.kind)).toEqual([
+      "complete",
+      "complete",
+    ]);
+    expect(result.handedOver).toEqual(result.later.map((run) => run.id));
+  });
+
+  test("a retiring queue starts none of the runs it hands to its own process", async () => {
+    const self = thisProcess();
+    const runs = await testQueue(
+      (queue) =>
+        Effect.gen(function* () {
+          const gate = yield* Deferred.make<void>();
+          yield* queue.register("work", (context) =>
+            context.job.input === "first"
+              ? Effect.as(Deferred.await(gate), {
+                  kind: "complete",
+                  output: null,
+                } as const)
+              : Effect.succeed({ kind: "complete", output: null } as const)
+          );
+          const first = yield* queue.submit({ handler, input: "first" });
+          const later = yield* queue.submit({ handler, input: "later" });
+          yield* queue.retire(self);
+          yield* Deferred.succeed(gate, undefined);
+          yield* awaitJob(queue, first.id);
+          yield* flush;
+          return yield* queue.listRuns({ jobId: later.id });
+        }),
+      { defaultLimit: 1 }
+    );
+    expect(runs.map((run) => run.state)).toMatchObject([
+      { kind: "queued", owner: self },
+    ]);
   });
 
   test("the promise client runs plain and Effect handlers through one register", async () => {

@@ -44,7 +44,7 @@ try {
     artifacts: marbles.artifacts,
     askable: false, // true when something in this process can answer `ask`
     prepare(engine) {
-      // Before the engine starts, which is what adopts parked runs.
+      // Before the engine starts, which is what puts suspended runs' questions on the Feed.
       if (engine.state !== undefined) {
         claim = claimProcess(engine.state, { config: source, host: "worker" });
       }
@@ -93,12 +93,12 @@ source is relative to, which is the workspace's root without one. `cwd`
 sets where the workspace's runs start and its commands run, the root when
 omitted. Claim the workspace's state directory
 (`engine.state`, which is `<state>/<workspace-id>`) inside `prepare`, so
-the engine starts only once the claim holds, and two programs hosting the
-same workspace themselves never adopt the same parked runs. The Marbles
-process claims no workspace directory: its engine generations take each
-parked run by a claim on its row in the Marbles database instead, and one
-of them hosting the workspace while your program does is not refused by
-the lock. A live
+the engine starts only once the claim holds, and two programs never host
+the same workspace at once. The Marbles process claims no workspace
+directory: its engine generations share the workspace's runs through the
+Marbles database instead, where any of them can answer a suspended run, and
+one of them hosting the workspace while your program does is not refused
+by the lock. A live
 holder throws `ProcessHeldError`, naming who has it; a lock left by an
 exited process is taken over. Pass `dry: true` to persist nothing.
 `watchSource(configPath, { onChange, signal })` polls the

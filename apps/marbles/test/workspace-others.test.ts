@@ -5,7 +5,7 @@ import { marblesMonitorStates } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import { otherWorkspaces } from "~/workspace/others";
 import { seedWorkspace } from "./helpers/registry";
-import { seedRuns, seedTicks } from "./helpers/stored-runs";
+import { seedRuns, seedSchedules } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
 const SEEN = "2026-11-01T00:00:00.000Z";
@@ -29,17 +29,13 @@ async function machine() {
     { createdAt: 2, id: "rn-two", owner: null, status: "failed" },
     { createdAt: 3, id: "rn-shared", owner: null, status: "complete" },
   ]);
-  await seedTicks(state, "ws2", [
+  await seedSchedules(state, "ws2", [
     {
       key: "watch",
-      last: {
-        kind: "monitor",
-        label: "watch docs",
-        lastFinish: SEEN,
-        lastStart: SEEN,
-        lastStatus: "complete",
-        nextDue: "2026-11-01T01:00:00.000Z",
-      },
+      kind: "monitor",
+      label: "watch docs",
+      last: { outcome: "complete", settledAt: SEEN },
+      nextDue: "2026-11-01T01:00:00.000Z",
       owner: null,
     },
   ]);
@@ -129,9 +125,9 @@ describe("other workspaces on the dashboard", () => {
     }
   });
 
-  it("shows a monitor whose first tick handed a launch over and died before its history, as a monitor", async () => {
+  it("shows a monitor whose launch waits before any of its runs ended, as a monitor", async () => {
     const state = await machine();
-    await seedTicks(state, "ws2", [{ key: "first", owner: null }]);
+    await seedSchedules(state, "ws2", [{ key: "first", kind: "monitor" }]);
     const opened = await initializeDatabase(stateDatabase(state));
     try {
       const { database } = opened;

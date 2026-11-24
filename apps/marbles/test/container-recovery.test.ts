@@ -4,12 +4,10 @@ import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
-import { Effect } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { DatabaseRecoveryLog, readLastRecovery } from "~/database/recoveries";
 import { workspaceStores } from "~/database/stores";
 import { CrashRecovery } from "~/lib/crash-recovery";
-import { MemoryRunStore } from "~/lib/run-store";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { containerHolder, leftBehind } from "~/lib/sandbox/holders";
 import { startedAt } from "~/process/spawned";
@@ -19,13 +17,7 @@ import { testMachine } from "./helpers/records";
 
 const SPEC = { format: "foundry.sandbox.container/1", image: "x" } as const;
 const machines: TestMachine[] = [];
-const RUNS = {
-  queue: { abandonRun: () => Promise.resolve() },
-  store: {
-    listJobs: () => Effect.succeed([]),
-    listRuns: () => Effect.succeed([]),
-  },
-};
+const RUNS = () => Promise.resolve([]);
 
 afterEach(() => {
   for (const machine of machines.splice(0)) {
@@ -75,7 +67,6 @@ async function fixture() {
       containers: () => Promise.resolve(registry),
       executions: () => [],
       print: (line) => lines.push(line),
-      runs: new MemoryRunStore(),
     });
   return { ours, recovery, runtime, stores, theirs };
 }
@@ -285,7 +276,6 @@ it("takes back only its own workspace's rows and VMs, beside another workspace i
     containers: () => Promise.resolve(betaNext),
     executions: () => [],
     print: (line) => lines.push(line),
-    runs: new MemoryRunStore(),
   }).recover(RUNS);
 
   expect(lines).toEqual([
@@ -329,7 +319,6 @@ it("keeps the names of passed-over VMs in the report as the database keeps it an
     containers: () => Promise.resolve(ours()),
     executions: () => [],
     print: () => undefined,
-    runs: new MemoryRunStore(),
   });
   const { report } = await recovered.recover(RUNS);
   await log.record(report);

@@ -101,7 +101,7 @@ it("reports a trigger store's cleanup and the handle's close when both fail", as
     root,
     "triggers"
   );
-  await triggers.lastTick("tick");
+  await triggers.monitorState("monitor");
   expect(await failures(triggers.close())).toEqual([
     "triggers cleanup failed",
     "the database failed to close",

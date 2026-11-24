@@ -27,7 +27,7 @@ import {
 } from "./schema";
 import type { SnapshotState, StepSnapshot } from "./snapshot";
 import { type Bail, isBail } from "./types";
-import { Workflow, type WorkflowState } from "./workflow";
+import { Workflow, type WorkflowResult, type WorkflowState } from "./workflow";
 
 export const WorkflowCheckpointSchema = z.object({
   steps: SnapshotStateSchema.shape.steps,
@@ -260,6 +260,23 @@ const drive = <I, O, X extends BaseContext>(
       )
     )
   );
+
+export const runResultOf = ({ state }: Run): WorkflowResult<unknown> => {
+  switch (state.kind) {
+    case "complete":
+      return { status: "complete", value: state.output };
+    case "failed":
+      return { error: new Error(state.error.message), status: "failed" };
+    case "interrupted":
+      return { error: new Error(state.reason), status: "failed" };
+    case "cancelled":
+      return state.reason === undefined
+        ? { status: "cancelled" }
+        : { reason: state.reason, status: "cancelled" };
+    default:
+      return { status: "cancelled" };
+  }
+};
 
 export const restoreWorkflow = <I, O, X extends BaseContext>(
   workflow: Workflow<I, O, X>,

@@ -1,5 +1,5 @@
 import type { JsonValue } from "@foundry/lib/json";
-import type { RunOutcome } from "@foundry/queue";
+import type { Run, RunOutcome } from "@foundry/queue";
 import { Effect, TestClock } from "effect";
 import { describe, expect, test } from "vitest";
 import type { ChannelMessage } from "../channels";
@@ -7,7 +7,11 @@ import {
   parseSuspensionOccurrenceKey,
   suspensionOccurrenceKey,
 } from "../executable";
-import { WorkflowCheckpointSchema, workflowHandler } from "../queue-handler";
+import {
+  runResultOf,
+  WorkflowCheckpointSchema,
+  workflowHandler,
+} from "../queue-handler";
 import { Step, type StepContext } from "../step";
 import { bail } from "../types";
 import { Workflow } from "../workflow";
@@ -457,5 +461,44 @@ describe("workflowHandler", () => {
         }),
       })
     );
+  });
+});
+
+describe("runResultOf", () => {
+  test("maps each terminal run state onto the workflow result it ended with", () => {
+    const run = (state: Run["state"]): Run => ({
+      attempt: 1,
+      id: "rn-1",
+      jobId: "jb-1",
+      pool: "default",
+      revision: 1,
+      state,
+    });
+    const lease = { claimedAt: 0, owner: { pid: 1, started: null } };
+    expect(
+      [
+        run({ completedAt: 1, kind: "complete", output: { ok: true } }),
+        run({
+          error: { message: "boom", name: "Error" },
+          failedAt: 1,
+          kind: "failed",
+          retryable: false,
+        }),
+        run({
+          interruptedAt: 1,
+          kind: "interrupted",
+          lease,
+          reason: "drained",
+        }),
+        run({ cancelledAt: 1, kind: "cancelled", reason: "stop" }),
+        run({ cancelledAt: 1, kind: "cancelled" }),
+      ].map(runResultOf)
+    ).toEqual([
+      { status: "complete", value: { ok: true } },
+      { error: new Error("boom"), status: "failed" },
+      { error: new Error("drained"), status: "failed" },
+      { reason: "stop", status: "cancelled" },
+      { status: "cancelled" },
+    ]);
   });
 });

@@ -81,7 +81,6 @@ async function damagedSnapshot(): Promise<DashboardSnapshot> {
   const second = await startEngine(durable());
   const snapshot = dashboardSnapshot(await second.runs(), {
     definitions: second.definitions(),
-    lastFinish: new Map(),
     monitors: second.monitors(),
     root: state,
     schedules: [],
@@ -158,7 +157,6 @@ test("a workflow with no valid facts shows unowned unreadable usage in its Catal
   const second = await startEngine(durable());
   const snapshot = dashboardSnapshot(await second.runs(), {
     definitions: second.definitions(),
-    lastFinish: new Map(),
     monitors: second.monitors(),
     root: dir,
     schedules: [],
@@ -229,7 +227,6 @@ test("a known workflow whose running run the reader cannot load shows an unattri
     const reader = await startEngine(durable());
     const snapshot = dashboardSnapshot(await reader.runs(), {
       definitions: reader.definitions(),
-      lastFinish: new Map(),
       monitors: reader.monitors(),
       root: dir,
       schedules: [],

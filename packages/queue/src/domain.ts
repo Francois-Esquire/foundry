@@ -1,5 +1,5 @@
+import type { InstanceIdentity } from "@foundry/lib/instance-identity";
 import type { JsonValue } from "@foundry/lib/json";
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { Data } from "effect";
 
 export type JobId = `jb-${string}`;
@@ -21,10 +21,12 @@ export interface ErrorShape {
   readonly stack?: string;
 }
 
+export type QueueOwner = InstanceIdentity;
+
 export interface Lease {
   readonly claimedAt: Instant;
   readonly expiresAt?: Instant;
-  readonly owner: ProcessIdentity;
+  readonly owner: QueueOwner;
 }
 
 export type Backoff =
@@ -137,7 +139,7 @@ export type RunState =
       readonly kind: "queued";
       readonly availableAt: Instant;
       readonly queuedAt: Instant;
-      readonly owner?: ProcessIdentity;
+      readonly owner?: QueueOwner;
     }
   | {
       readonly kind: "running";
@@ -215,6 +217,10 @@ type EventOf<Type extends string, Fields> = {
 export type QueueEvent =
   | EventOf<"job.submitted", { readonly job: Job }>
   | EventOf<"job.settled", { readonly job: Job }>
+  | EventOf<
+      "job.removed",
+      { readonly job: Job; readonly runIds: readonly RunId[] }
+    >
   | EventOf<"run.queued", { readonly run: Run }>
   | EventOf<"run.started", { readonly run: Run }>
   | EventOf<"run.suspended", { readonly run: Run }>
@@ -225,7 +231,7 @@ export type QueueEvent =
   | EventOf<"run.interrupted", { readonly run: Run }>
   | EventOf<
       "run.handed_over",
-      { readonly run: Run; readonly successor: ProcessIdentity }
+      { readonly run: Run; readonly successor: QueueOwner }
     >
   | EventOf<"suspension.opened", { readonly suspension: Suspension }>
   | EventOf<"suspension.resolved", { readonly suspension: Suspension }>
@@ -249,8 +255,8 @@ export interface SuspensionFilter {
 }
 
 export interface RecoverySummary {
+  readonly adopted: readonly RunId[];
   readonly interrupted: readonly RunId[];
-  readonly readmitted: readonly RunId[];
 }
 
 export class JobNotFoundError extends Data.TaggedError("JobNotFoundError")<{
@@ -287,6 +293,10 @@ export class StaleSuspensionRevisionError extends Data.TaggedError(
   "StaleSuspensionRevisionError"
 )<{ readonly expectedRevision: number; readonly suspension: Suspension }> {}
 
+export class JobRemovedError extends Data.TaggedError("JobRemovedError")<{
+  readonly id: JobId;
+}> {}
+
 export class JobNotSettledError extends Data.TaggedError("JobNotSettledError")<{
   readonly job: Job;
 }> {}
@@ -320,6 +330,7 @@ export type QueueError =
   | SuspensionAlreadySettledError
   | StaleSuspensionRevisionError
   | JobNotSettledError
+  | JobRemovedError
   | QueueRetiringError
   | InvalidRetryPolicyError
   | StoreError

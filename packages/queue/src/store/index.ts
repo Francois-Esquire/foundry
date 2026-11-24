@@ -56,6 +56,7 @@ export interface QueueStoreService {
   readonly listSuspensions: (
     filter?: SuspensionFilter
   ) => Effect.Effect<readonly Suspension[], StoreError>;
+  readonly watermark: Effect.Effect<number, StoreError>;
 }
 
 export class QueueStore extends Context.Tag("@foundry/queue/QueueStore")<

@@ -42,11 +42,7 @@ export {
   EXECUTION_STATUSES,
   SETTLED_EXECUTION_STATUSES,
 } from "./execution-statuses";
-export type {
-  ExecutionStore,
-  ExecutionView,
-  StoredExecution,
-} from "./execution-store";
+export type { ExecutionStore } from "./execution-store";
 export { MemoryExecutionStore } from "./execution-store";
 export type {
   ExecutionObservation,
@@ -75,12 +71,7 @@ export type {
 } from "./sandbox/deferred-approvals";
 export { MemoryDeferredApprovalStore } from "./sandbox/deferred-approvals";
 export type { TaskContext, TaskDefinition, TaskObservation } from "./tasks";
-export type {
-  MonitorState,
-  ScheduleHistory,
-  TickClaim,
-  TriggerStore,
-} from "./trigger-store";
+export type { MonitorState, TriggerStore } from "./trigger-store";
 export { MemoryTriggerStore } from "./trigger-store";
 export type {
   AgentDefinition,

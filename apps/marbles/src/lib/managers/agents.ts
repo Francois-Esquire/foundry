@@ -236,11 +236,7 @@ function frameSite(
     retain: (closable) => frame.opened.add(closable),
     signal: () => frame.signal,
     source,
-    takeResume: () => {
-      const prompt = frame.resumePrompt;
-      frame.resumePrompt = undefined;
-      return prompt;
-    },
+    takeResume: () => scope.takeResumePrompt(frame),
     work: frame.work,
     write,
   };

@@ -1,5 +1,8 @@
 import type { JsonValue } from "@foundry/lib/json";
-import { thisProcess } from "@foundry/lib/process-identity";
+import {
+  type ProcessIdentity,
+  thisProcess,
+} from "@foundry/lib/process-identity";
 import type {
   Job,
   QueueEvent,
@@ -15,6 +18,7 @@ import { isRunId, runStoreEffect } from "~/lib/workflow-runs";
 export interface PutRunOptions {
   readonly at?: number;
   readonly output?: JsonValue;
+  readonly owner?: ProcessIdentity;
   readonly step?: string;
 }
 
@@ -32,13 +36,14 @@ function stateOf(
   status: Seeded,
   at: number,
   suspension: Suspension,
-  output: JsonValue
+  output: JsonValue,
+  owner: ProcessIdentity
 ): RunState {
   switch (status) {
     case "running":
       return {
         kind: "running",
-        lease: { claimedAt: at, owner: thisProcess() },
+        lease: { claimedAt: at, owner },
       };
     case "suspended":
       return {
@@ -95,7 +100,8 @@ function moved(
   run: Run,
   status: Seeded,
   at: number,
-  output: JsonValue = null
+  output: JsonValue,
+  owner: ProcessIdentity
 ): QueueWrite {
   const suspension: Suspension = {
     id: `su-${run.id}`,
@@ -111,7 +117,7 @@ function moved(
     ...run,
     revision: run.revision + 1,
     startedAt: run.startedAt ?? at,
-    state: stateOf(status, at, suspension, output),
+    state: stateOf(status, at, suspension, output, owner),
   };
   return {
     events: [{ ...stamp(at), run: next, type: ENTERED[status] }],
@@ -131,7 +137,12 @@ export function putRun(
   store: QueueStoreService,
   id: string,
   status?: Seeded,
-  { at = Date.now(), output = null, step = "flow" }: PutRunOptions = {}
+  {
+    at = Date.now(),
+    output = null,
+    owner = thisProcess(),
+    step = "flow",
+  }: PutRunOptions = {}
 ): Promise<void> {
   if (!isRunId(id)) {
     throw new TypeError(`${id} is not a run id`);
@@ -148,7 +159,7 @@ export function putRun(
           run !== undefined &&
           !(next === "running" && run.state.kind === "running")
         ) {
-          yield* store.commit(moved(run, next, at, output));
+          yield* store.commit(moved(run, next, at, output, owner));
         }
       }
     })

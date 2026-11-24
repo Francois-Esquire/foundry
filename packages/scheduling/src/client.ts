@@ -94,6 +94,8 @@ export const createSchedulerClient = (
       await runtime.dispose();
     },
     get: (id) => use((scheduler) => scheduler.get(id)),
+    latestOccurrence: (id) =>
+      use((scheduler) => scheduler.latestOccurrence(id)),
     list: () => use((scheduler) => scheduler.list),
     pause: (id) => use((scheduler) => scheduler.pause(id)),
     register: (input) => use((scheduler) => scheduler.register(input)),

@@ -43,15 +43,17 @@ The dashboard uses structured fields when a schema exposes Standard JSON
 Schema. Other schemas remain valid for execution and use a JSON field.
 Install the schema library in the project containing the importing module.
 
-## A schedule does not fire
+## A schedule does not run
 
 `list` does not keep a clock running. `marbles`, `marbles </dev/null`,
 `marbles run <name>`, and `marbles enqueue <name>` attach the workspace to the Marbles process, which keeps its
-schedules ticking until `marbles daemon stop`; `marbles status` shows
-`marbles process: pid …` and `hosted: yes` when it does. `--dry-run` ticks
-only while the command runs. Check the cadence and host timezone, and inspect schedule history with
-`status`. A live process holding the same schedule key makes another tick
-skip. Different keys do not share that lock.
+schedules running until `marbles daemon stop`; `marbles status` shows
+`marbles process: pid …` and `hosted: yes` when it does. `--dry-run`
+dispatches schedules only while the command runs. Check the cadence and host
+timezone, and inspect schedule history with `status`. An interval schedule
+waits for its previous run to settle, so a run still open or suspended holds
+its next occurrence back. An occurrence another live process claimed runs
+there, not here. Different keys are claimed separately.
 
 ## A monitor repeats or appears idle
 
@@ -81,7 +83,7 @@ host `compaction` settings. See [Agent sessions](/marbles/reference/agent-sessio
 ## A question cancels the run
 
 `marbles run` and piped `marbles` cannot answer workflow questions. Through the
-Marbles process the run parks with its question on the Feed, and `marbles run`
+Marbles process the run suspends with its question on the Feed, and `marbles run`
 waits; open `marbles` to answer it. Under `--dry-run` the run is cancelled
 at the ask. Work before the ask has already run; launching again can repeat
 it.
@@ -93,7 +95,7 @@ but there is no default retry policy. Add `.config({ retry: { maxAttempts: 3 } }
 to the step that should retry, after making its effects safe to repeat.
 The limit includes the first attempt; `bail(error)` does not retry. A
 parent's policy does not configure its children, and the next schedule
-tick is a new run. See [retry policies](/marbles/concepts/durability#retry-a-failed-attempt).
+occurrence is a new run. See [retry policies](/marbles/concepts/durability#retry-a-failed-attempt).
 
 ## An agent turn repeated after answering a question
 
@@ -106,10 +108,10 @@ also explains one-shot agent calls and artifact writes.
 
 ## A run did not resume
 
-Only parked runs are adopted after restart. Keep the workspace path, state
-root, and registered definitions available; the current engine generation
-adopts them when it starts, or as soon as a retiring one lets one go, and
-the question waits on the Feed for a dashboard.
+Only suspended runs resume after a restart. Keep the workspace path, state
+root, and registered definitions available; the question waits on the
+Feed for a dashboard, and once it is answered the current engine
+generation resumes the run.
 Runs interrupted while actively executing appear orphaned. See
 [recovery conditions](/marbles/reference/state#what-survives-a-restart).
 

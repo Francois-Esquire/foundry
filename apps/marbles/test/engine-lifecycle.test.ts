@@ -77,68 +77,56 @@ it.each(["publication", "cleanup"] as const)(
   }
 );
 
-it.each(["factory", "interactions"] as const)(
-  "failed %s recovery releases ownership and leaves the saved run recoverable",
-  async (stage) => {
-    const state = await mkdtemp(join(tmpdir(), "marbles-lifecycle-"));
-    const first = testEngine({ askable: true, state });
-    const definition = {
-      fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
-      kind: "step" as const,
-      name: "probe",
-    };
-    first.define(definition);
-    await first.start();
-    const launched = await first.launch("probe", {});
-    await vi.waitFor(async () =>
-      expect((await first.runs())[0]?.status).toBe("suspended")
+it("a start that fails leaves a suspended run as it was, for the next engine to answer", async () => {
+  const state = await mkdtemp(join(tmpdir(), "marbles-lifecycle-"));
+  const first = testEngine({ askable: true, state });
+  const definition = {
+    fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
+    kind: "step" as const,
+    name: "probe",
+  };
+  first.define(definition);
+  await first.start();
+  const launched = await first.launch("probe", {});
+  await vi.waitFor(async () =>
+    expect((await first.runs())[0]?.status).toBe("suspended")
+  );
+  await first.stop({ cancel: true });
+  await first.dispose();
+  const saved = await storedRun(state, launched.id);
+  expect(saved).toMatchObject({ owner: null, status: "suspended" });
+  const failed = testEngine({ askable: true, state });
+  failed.define(definition);
+  vi.spyOn(failed.interactions, "restore").mockRejectedValue(
+    new Error("recovery failed")
+  );
+  const next = testEngine({ askable: true, state });
+  next.define(definition);
+  try {
+    await expect(failed.start()).rejects.toThrow("recovery failed");
+    await failed.stop();
+    expect(failed.scopes.size).toBe(0);
+    expect(await storedRun(state, launched.id)).toEqual(saved);
+    await next.start();
+    const question = (await next.feed()).find(
+      (entry) => entry.input?.status === "open"
     );
-    await first.stop({ cancel: true });
-    await first.dispose();
-    const saved = await storedRun(state, launched.id);
-    expect(saved).toMatchObject({ owner: null, status: "suspended" });
-    const failed = testEngine({ askable: true, state });
-    if (stage === "factory") {
-      failed.define({
-        kind: "workflow",
-        name: "probe",
-        setup: () => {
-          throw new Error("recovery failed");
-        },
-      });
-    } else {
-      failed.define(definition);
-      vi.spyOn(failed.interactions, "restore").mockRejectedValue(
-        new Error("recovery failed")
-      );
+    if (!question) {
+      throw new Error("expected the question to stay open");
     }
-    const next = testEngine({ askable: true, state });
-    next.define(definition);
-    try {
-      await expect(failed.start()).rejects.toThrow("recovery failed");
-      await failed.stop();
-      expect(failed.scopes.size).toBe(0);
-      expect(await storedRun(state, launched.id)).toEqual(saved);
-      await next.start();
-      expect(next.scopes.has(launched.id)).toBe(true);
-      const question = (await next.feed()).find(
-        (entry) => entry.input?.status === "open"
-      );
-      expect(question).toBeDefined();
-      if (!question) {
-        throw new Error("expected recovered question");
-      }
-      await next.answer(question.id, "yes");
-      await next.stop();
-      expect(next.scopes.size).toBe(0);
-    } finally {
-      await failed.dispose();
-      await next.stop({ cancel: true });
-      await next.dispose();
-      await rm(state, { force: true, recursive: true });
-    }
+    await next.answer(question.id, "yes");
+    await vi.waitFor(async () =>
+      expect((await storedRun(state, launched.id))?.status).toBe("complete")
+    );
+    await next.stop();
+    expect(next.scopes.size).toBe(0);
+  } finally {
+    await failed.dispose();
+    await next.stop({ cancel: true });
+    await next.dispose();
+    await rm(state, { force: true, recursive: true });
   }
-);
+});
 
 it("disposal waits for startup, stops the engine, and closes dependencies once", async () => {
   const engine = testEngine();

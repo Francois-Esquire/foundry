@@ -44,7 +44,6 @@ it("a step named `a.b` keeps its own turns: its sibling `a`, and `a`'s dynamic c
   await launched.result;
   const snapshot = dashboardSnapshot(await engine.runs(), {
     definitions: engine.definitions(),
-    lastFinish: new Map(),
     monitors: engine.monitors(),
     root: process.cwd(),
     schedules: [],

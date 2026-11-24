@@ -24,7 +24,7 @@ bodies stay ordinary TypeScript.
   run in series or in parallel, named as workflows.
 - **Observation.** file and HTTP change detection on a cadence, with handlers
   that can start a workflow.
-- **Continuity.** a run parked on a question survives a quit or a crash and is
+- **Continuity.** a run suspended on a question survives a quit or a crash and is
   answered from the next dashboard; sessions continue by reference; declared
   artifacts gain a version per write.
 - **Local operation.** one-shot execution, a dashboard that can answer, steer,

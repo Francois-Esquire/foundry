@@ -1,7 +1,17 @@
+import { sameInstance } from "@foundry/lib/instance-identity";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { Turns } from "@foundry/lib/turns";
 import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
-import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  ne,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import type {
   BaseSQLiteDatabase,
   SQLiteColumn,
@@ -11,8 +21,10 @@ import type {
 } from "drizzle-orm/sqlite-core";
 import { Effect, Layer } from "effect";
 import {
+  CursorConflictError,
   type Occurrence,
   type Schedule,
+  ScheduleConflictError,
   type ScheduleCursor,
   StoreError,
 } from "../domain";
@@ -109,11 +121,85 @@ const removeSchedules = async (
   }
 };
 
+const TERMINAL = ["settled", "skipped"] as const;
+
+const pruneOccurrences = async (
+  transaction: ScheduleTransaction,
+  scope: string,
+  write: ScheduleWrite
+) => {
+  const keep = write.maxOccurrencesPerSchedule;
+  if (keep === undefined) {
+    return;
+  }
+  const touched = new Set((write.occurrences ?? []).map((o) => o.scheduleId));
+  for (const scheduleId of touched) {
+    const terminal = and(
+      eq(schedulingOccurrences.scope, scope),
+      eq(schedulingOccurrences.scheduleId, scheduleId),
+      inArray(schedulingOccurrences.state, [...TERMINAL])
+    );
+    const newest = transaction
+      .select({ id: schedulingOccurrences.id })
+      .from(schedulingOccurrences)
+      .where(terminal)
+      .orderBy(desc(schedulingOccurrences.scheduledFor))
+      .limit(keep);
+    await transaction
+      .delete(schedulingOccurrences)
+      .where(and(terminal, notInArray(schedulingOccurrences.id, newest)));
+  }
+};
+
+const requireExpectedSchedules = async (
+  transaction: ScheduleTransaction,
+  scope: string,
+  write: ScheduleWrite
+) => {
+  for (const expected of write.expectedSchedules ?? []) {
+    const [stored] = await transaction
+      .select({ body: schedulingSchedules.body })
+      .from(schedulingSchedules)
+      .where(
+        and(
+          eq(schedulingSchedules.scope, scope),
+          eq(schedulingSchedules.id, expected.id)
+        )
+      );
+    if (canonicalizeJson(stored?.body ?? null) !== canonicalizeJson(expected)) {
+      throw new ScheduleConflictError({ scheduleId: expected.id });
+    }
+  }
+};
+
+const requireExpectedCursors = async (
+  transaction: ScheduleTransaction,
+  scope: string,
+  write: ScheduleWrite
+) => {
+  for (const expected of write.expectedCursors ?? []) {
+    const [stored] = await transaction
+      .select({ body: schedulingCursors.body })
+      .from(schedulingCursors)
+      .where(
+        and(
+          eq(schedulingCursors.scope, scope),
+          eq(schedulingCursors.scheduleId, expected.scheduleId)
+        )
+      );
+    if (canonicalizeJson(stored?.body ?? null) !== canonicalizeJson(expected)) {
+      throw new CursorConflictError({ scheduleId: expected.scheduleId });
+    }
+  }
+};
+
 const writeRecords = async (
   transaction: ScheduleTransaction,
   scope: string,
   write: ScheduleWrite
 ) => {
+  await requireExpectedSchedules(transaction, scope, write);
+  await requireExpectedCursors(transaction, scope, write);
   await removeSchedules(transaction, scope, write.removed ?? []);
   await upsert(
     transaction,
@@ -145,6 +231,7 @@ const writeRecords = async (
     (write.occurrences ?? []).map((o) => occurrenceRow(scope, o)),
     ["body", "state"]
   );
+  await pruneOccurrences(transaction, scope, write);
 };
 
 export const makeSqliteScheduleStore = (
@@ -158,6 +245,15 @@ export const makeSqliteScheduleStore = (
   const run = <A>(work: () => Promise<A>) =>
     Effect.tryPromise({
       catch: (cause) => new StoreError({ cause }),
+      try: () => turns.run(work),
+    });
+  const guarded = (work: () => Promise<void>) =>
+    Effect.tryPromise({
+      catch: (cause) =>
+        cause instanceof CursorConflictError ||
+        cause instanceof ScheduleConflictError
+          ? cause
+          : new StoreError({ cause }),
       try: () => turns.run(work),
     });
   const bodies = <Body>(
@@ -180,9 +276,9 @@ export const makeSqliteScheduleStore = (
     Effect.map(rows, ([found]) => found);
 
   return {
-    claim: (occurrence, replacing) =>
+    claim: (occurrence, replacing, exclusive = false) =>
       run(async () => {
-        if (replacing === undefined) {
+        if (replacing === undefined && !exclusive) {
           const inserted = await database
             .insert(schedulingOccurrences)
             .values(occurrenceRow(scope, occurrence))
@@ -191,6 +287,31 @@ export const makeSqliteScheduleStore = (
           return inserted.length > 0;
         }
         return await database.transaction(async (transaction) => {
+          if (exclusive) {
+            const [other] = await transaction
+              .select({ id: schedulingOccurrences.id })
+              .from(schedulingOccurrences)
+              .where(
+                and(
+                  eq(schedulingOccurrences.scope, scope),
+                  eq(schedulingOccurrences.scheduleId, occurrence.scheduleId),
+                  eq(schedulingOccurrences.state, "claimed"),
+                  ne(schedulingOccurrences.id, occurrence.id)
+                )
+              )
+              .limit(1);
+            if (other !== undefined) {
+              return false;
+            }
+          }
+          if (replacing === undefined) {
+            const inserted = await transaction
+              .insert(schedulingOccurrences)
+              .values(occurrenceRow(scope, occurrence))
+              .onConflictDoNothing()
+              .returning({ id: schedulingOccurrences.id });
+            return inserted.length > 0;
+          }
           const where = and(
             eq(schedulingOccurrences.scope, scope),
             eq(schedulingOccurrences.id, occurrence.id)
@@ -213,7 +334,7 @@ export const makeSqliteScheduleStore = (
         });
       }),
     commit: (write) =>
-      run(() =>
+      guarded(() =>
         database.transaction(async (transaction) => {
           await writeRecords(transaction, scope, write);
           await options.onCommit?.(transaction, write);
@@ -237,6 +358,21 @@ export const makeSqliteScheduleStore = (
       first(
         bodies<Schedule>(schedulingSchedules, eq(schedulingSchedules.id, id))
       ),
+    latestOccurrence: (scheduleId) =>
+      run(async () => {
+        const [row] = await database
+          .select({ body: schedulingOccurrences.body })
+          .from(schedulingOccurrences)
+          .where(
+            and(
+              eq(schedulingOccurrences.scope, scope),
+              eq(schedulingOccurrences.scheduleId, scheduleId)
+            )
+          )
+          .orderBy(desc(schedulingOccurrences.scheduledFor))
+          .limit(1);
+        return row?.body;
+      }),
     listOccurrences: (filter = {}) =>
       bodies<Occurrence>(
         schedulingOccurrences,
@@ -251,6 +387,26 @@ export const makeSqliteScheduleStore = (
         schedulingOccurrences.scheduledFor
       ),
     listSchedules: bodies<Schedule>(schedulingSchedules, undefined),
+    releaseClaim: (id, owner) =>
+      run(() =>
+        database.transaction(async (transaction) => {
+          const where = and(
+            eq(schedulingOccurrences.scope, scope),
+            eq(schedulingOccurrences.id, id)
+          );
+          const [stored] = await transaction
+            .select({ body: schedulingOccurrences.body })
+            .from(schedulingOccurrences)
+            .where(where);
+          const state = stored?.body.state;
+          if (
+            state?.kind === "claimed" &&
+            sameInstance(state.lease.owner, owner)
+          ) {
+            await transaction.delete(schedulingOccurrences).where(where);
+          }
+        })
+      ),
   };
 };
 

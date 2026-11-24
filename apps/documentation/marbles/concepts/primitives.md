@@ -34,7 +34,7 @@ trigger loops, local state, and the bindings between resources and steps.
 
 For example, Workflows supplies the retry and suspension machinery. Marbles
 records the agent sessions and artifact versions opened by a step, and
-persists parked runs for later adoption. Agents keeps the conversation;
+persists suspended runs so any later engine can resume them. Agents keeps the conversation;
 Artifacts keeps the report. Together they support a workflow that waits
 for approval without repeating its completed review.
 

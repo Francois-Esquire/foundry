@@ -37,7 +37,11 @@ function holdingOf(record: ExecutionRun | null | undefined): RunHolding {
   if (record.status === "queued" || record.status === "suspended") {
     return { kind: "held" };
   }
-  if (record.status === "running" && !isGone(record.owner)) {
+  if (
+    record.status === "running" &&
+    record.owner !== undefined &&
+    !isGone(record.owner)
+  ) {
     return { kind: "held" };
   }
   return { kind: "lost" };

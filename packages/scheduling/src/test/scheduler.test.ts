@@ -123,11 +123,11 @@ describe("Scheduler", () => {
     ]);
     expect(result.skipCursor).toMatchObject({
       activeJobId: "job:skip:3000",
-      lastSettledAt: 3000,
+      lastSettledAt: 2000,
     });
   });
 
-  test("after a long pause, run-once fires the latest missed due time and skip fires nothing", async () => {
+  test("after a long pause, run-once dispatches the latest missed due time and skip dispatches nothing", async () => {
     const result = await testScheduler((scheduler, dispatch) =>
       Effect.gen(function* () {
         for (const misfire of ["run-once", "skip"] as const) {
@@ -159,7 +159,7 @@ describe("Scheduler", () => {
     });
   });
 
-  test("a paused schedule does not fire on time but can still be triggered now", async () => {
+  test("a paused schedule is not dispatched on time but can still be triggered now", async () => {
     const result = await testScheduler((scheduler, dispatch) =>
       Effect.gen(function* () {
         yield* scheduler.register({
@@ -228,7 +228,7 @@ describe("Scheduler", () => {
     );
     expect(cursor).toEqual({
       lastScheduledFor: 1000,
-      lastSettledAt: 1500,
+      lastSettledAt: 1000,
       nextDueAt: null,
       scheduleId: "launch",
     });
@@ -324,7 +324,7 @@ describe("Scheduler", () => {
     ]);
   });
 
-  test("a paused schedule still settles its open dispatched job without firing again", async () => {
+  test("a paused schedule still settles its open dispatched job without dispatching again", async () => {
     const result = await testScheduler(
       (scheduler, dispatch) =>
         Effect.gen(function* () {
@@ -348,7 +348,7 @@ describe("Scheduler", () => {
     expect(result.submitted).toEqual(["sync:1000"]);
     expect(result.cursor).toMatchObject({
       lastScheduledFor: 1000,
-      lastSettledAt: 1500,
+      lastSettledAt: 1000,
       nextDueAt: 2000,
     });
     expect(result.cursor?.activeJobId).toBeUndefined();

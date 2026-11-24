@@ -79,4 +79,19 @@ export const queuePools = sqliteTable(
   (table) => [primaryKey({ columns: [table.scope, table.name] })]
 );
 
-export const queueTables = [queueJobs, queueRuns, queueSuspensions, queuePools];
+export const queueWatermarks = sqliteTable(
+  "queue_watermarks",
+  {
+    scope: text("scope").notNull(),
+    value: integer("value").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.scope] })]
+);
+
+export const queueTables = [
+  queueJobs,
+  queueRuns,
+  queueSuspensions,
+  queuePools,
+  queueWatermarks,
+];

@@ -10,8 +10,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
+import { RunQueue } from "~/lib/run-queue";
 import type { SessionRef } from "~/lib/types";
-import { WorkflowQueue } from "~/lib/workflow-queue";
 import { isJsonValue } from "~/lib/workflow-runs";
 import type { RunInfo } from "~/model/connection";
 import { BackgroundRuns } from "~/workspace/background-runs";
@@ -323,7 +323,7 @@ it("reports cancellation requested directly through the engine", async () => {
 it("reuses one registered agent step and records serializable dispatch input", async () => {
   const engine = testEngine();
   engines.push(engine);
-  const registrations = vi.spyOn(WorkflowQueue.prototype, "register");
+  const registrations = vi.spyOn(RunQueue.prototype, "register");
   try {
     const jobs = new BackgroundRuns(engine, new Catalog());
     await engine.start();

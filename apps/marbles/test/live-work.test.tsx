@@ -84,7 +84,6 @@ function snapshotOf(
   return dashboardSnapshot([record], {
     definitions: [],
     feed: [],
-    lastFinish: new Map(),
     live: new Map([[record.id, work]]),
     monitors: new Map(),
     now: 200,

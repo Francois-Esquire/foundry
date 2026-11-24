@@ -1,16 +1,33 @@
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import type { JsonValue } from "@foundry/lib/json";
+import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
 import type {
+  ConcurrencyPool,
+  Job,
+  JobId,
+  QueueEvent,
+  Run,
+} from "@foundry/queue";
+import type {
+  ExecutionAnnex,
+  ExecutionObservation,
   ExecutionRun,
   ExecutionRuns,
+  ExecutionSubscription,
   QueueSettings,
   QueueState,
+  RetentionGap,
 } from "./execution-record";
 import {
-  ExecutionRecords,
-  type ExecutionRecordsOptions,
-} from "./execution-records";
+  annexOf,
+  bySequence,
+  executionOf,
+  now,
+  withObservation,
+} from "./execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
-import type { ExecutionView } from "./execution-store";
+import type { ExecutionStore } from "./execution-store";
+import { storedObservation, storedProgress } from "./execution-store";
+import type { RunQueue } from "./run-queue";
 
 export type {
   ExecutionObservation,
@@ -29,23 +46,32 @@ export type {
 // biome-ignore lint/performance/noBarrelFile: Preserve the existing execution API while its record boundary has a canonical home.
 export { DEFAULT_QUEUE } from "./execution-record";
 
-const DEFAULT_CONCURRENCY = 1;
+type QueueReads = Pick<
+  RunQueue,
+  | "configurePool"
+  | "instanceId"
+  | "awaitJob"
+  | "getJob"
+  | "getRun"
+  | "listJobs"
+  | "listRuns"
+  | "removeJob"
+  | "subscribe"
+>;
 
-interface Waiting {
-  readonly fail: (error: unknown) => void;
-  readonly id: string;
-  readonly parent?: string;
-  readonly start: (input: unknown) => Promise<void>;
-  started?: Promise<void>;
+interface Known {
+  readonly job: Job;
+  readonly run: Run;
 }
 
-interface Lane {
-  readonly active: Set<string>;
-  concurrency: number;
-  readonly waiting: Waiting[];
+export interface ExecutionsOptions {
+  readonly queues?: Readonly<Record<string, QueueSettings>>;
+  readonly removed?: (run: ExecutionRun) => Promise<void> | void;
+  readonly store: ExecutionStore;
+  readonly warn: (line: string) => void;
 }
 
-function validConcurrency(queue: string, concurrency: number): number {
+function validLimit(queue: string, concurrency: number): number {
   if (
     concurrency === Number.POSITIVE_INFINITY ||
     (Number.isInteger(concurrency) && concurrency >= 1)
@@ -57,265 +83,492 @@ function validConcurrency(queue: string, concurrency: number): number {
   );
 }
 
-export class Executions extends ExecutionRecords implements ExecutionRuns {
-  readonly #lanes = new Map<string, Lane>();
-  readonly #idle = new Set<() => void>();
-  readonly #withdrawing = new Set<string>();
-  #closed = false;
-  readonly #kept = new Set<string>();
-  constructor(
-    options: ExecutionRecordsOptions & {
-      readonly queues?: Readonly<Record<string, QueueSettings>>;
-    }
-  ) {
-    super(options);
+const DEFAULT_LIMIT = 1;
+
+function ownedBy(run: Run, instanceId: string | undefined): boolean {
+  if (run.state.kind === "running") {
+    return run.state.lease.owner.instanceId === instanceId;
+  }
+  if (run.state.kind !== "queued" || run.state.owner === undefined) {
+    return false;
+  }
+  const { owner } = run.state;
+  return owner.instanceId === undefined
+    ? sameProcess(owner, thisProcess())
+    : owner.instanceId === instanceId;
+}
+
+export class Executions implements ExecutionRuns {
+  readonly #store: ExecutionStore;
+  readonly #warn: (line: string) => void;
+  readonly #removed: (run: ExecutionRun) => Promise<void> | void;
+  readonly #limits = new Map<string, number>();
+  readonly #known = new Map<string, Known>();
+  readonly #runOf = new Map<JobId, string>();
+  readonly #submitted = new Map<JobId, Job>();
+  readonly #annexes = new Map<string, ExecutionAnnex>();
+  readonly #records = new Map<string, ExecutionRun>();
+  readonly #listeners = new Set<(run: ExecutionRun) => void>();
+  readonly #settling = new Map<string, PromiseWithResolvers<ExecutionRun>>();
+  readonly #awaiting = new Set<string>();
+  #gaps = new Map<string, RetentionGap>();
+  #queue: QueueReads | undefined;
+  #unsubscribe: (() => void) | undefined;
+  #writes: Promise<unknown> = Promise.resolve();
+
+  constructor(options: ExecutionsOptions) {
+    this.#store = options.store;
+    this.#warn = options.warn;
+    this.#removed = options.removed ?? (() => undefined);
     for (const [name, settings] of Object.entries(options.queues ?? {})) {
       this.configure(name, settings);
     }
   }
 
   configure(queue: string, settings: QueueSettings): void {
-    const concurrency = validConcurrency(queue, settings.concurrency);
-    const lane = this.#lane(queue);
-    lane.concurrency = concurrency;
-    this.#pump(lane);
+    const limit = validLimit(queue, settings.concurrency);
+    this.#limits.set(queue, limit);
+    this.#queue
+      ?.configurePool({ limit, name: queue, state: "active" })
+      .catch((error: unknown) =>
+        this.#warn(`[queue] "${queue}" not configured: ${String(error)}`)
+      );
   }
 
-  queues(): readonly QueueState[] {
-    return [...this.#lanes].map(([name, lane]) => ({
-      active: lane.active.size,
-      concurrency: lane.concurrency,
+  pools(): readonly ConcurrencyPool[] {
+    return [...this.#limits].map(([name, limit]) => ({
+      limit,
       name,
-      waiting: lane.waiting.length,
+      state: "active",
     }));
   }
 
-  admit(
-    id: string,
-    start: (input: unknown) => Promise<void>,
-    fail: (error: unknown) => void,
-    parent?: string
-  ): Promise<void> | undefined {
-    const run = this.requireRecord(id);
-    const lane = this.#lane(run.queue);
-    const waiting: Waiting = {
-      fail,
-      id,
-      start,
-      ...(parent === undefined ? {} : { parent }),
+  queues(): readonly QueueState[] {
+    const states = new Map<string, QueueState>(
+      [...this.#limits].map(([name, concurrency]) => [
+        name,
+        { active: 0, concurrency, name, waiting: 0 },
+      ])
+    );
+    for (const run of this.owned()) {
+      const state = states.get(run.queue) ?? {
+        active: 0,
+        concurrency: DEFAULT_LIMIT,
+        name: run.queue,
+        waiting: 0,
+      };
+      states.set(run.queue, {
+        ...state,
+        active: state.active + (run.status === "running" ? 1 : 0),
+        waiting: state.waiting + (run.status === "queued" ? 1 : 0),
+      });
+    }
+    return [...states.values()];
+  }
+
+  attach(queue: QueueReads): void {
+    this.#queue = queue;
+    this.#unsubscribe = queue.subscribe((event) => this.#learnEvent(event));
+  }
+
+  detach(): void {
+    this.#unsubscribe?.();
+    this.#unsubscribe = undefined;
+  }
+
+  async load(): Promise<void> {
+    const queue = this.#queue;
+    if (queue === undefined) {
+      return;
+    }
+    const existing = new Set(this.#records.keys());
+    const [gaps, annexes, jobs, runs] = await Promise.all([
+      this.#store.gaps(),
+      this.#store.list(),
+      queue.listJobs(),
+      queue.listRuns(),
+    ]);
+    this.#gaps = gapsOf(gaps);
+    for (const stored of annexes) {
+      this.#annexes.set(stored.id, this.#parsed(stored));
+    }
+    const byId = new Map(jobs.map((job) => [job.id, job]));
+    const seen = new Set<string>();
+    for (const run of runs) {
+      const job = byId.get(run.jobId);
+      if (job !== undefined) {
+        seen.add(run.id);
+        this.#learn(job, run);
+      }
+    }
+    for (const id of existing) {
+      if (!seen.has(id)) {
+        this.#forget(id);
+      }
+    }
+  }
+
+  get(id: string): ExecutionRun | undefined {
+    return this.#records.get(id);
+  }
+
+  owned(): readonly ExecutionRun[] {
+    const instanceId = this.#queue?.instanceId;
+    return [...this.#known.values()]
+      .filter((known) => ownedBy(known.run, instanceId))
+      .flatMap((known) => this.#records.get(known.run.id) ?? [])
+      .sort(bySequence);
+  }
+
+  list(): readonly ExecutionRun[] {
+    return [...this.#records.values()].sort(bySequence);
+  }
+
+  gaps(): readonly RetentionGap[] {
+    return [...this.#gaps.values()];
+  }
+
+  async flush(): Promise<void> {
+    await this.#writes;
+  }
+
+  settled(id: string): Promise<ExecutionRun> {
+    const known = this.#records.get(id);
+    if (known !== undefined && SETTLED_EXECUTION_STATUSES.has(known.status)) {
+      return Promise.resolve(known);
+    }
+    const pending = this.#settling.get(id);
+    if (pending !== undefined) {
+      return pending.promise;
+    }
+    const waiting = Promise.withResolvers<ExecutionRun>();
+    this.#settling.set(id, waiting);
+    this.#watchEnd(id);
+    return waiting.promise;
+  }
+
+  #watchEnd(id: string): void {
+    if (this.#awaiting.has(id)) {
+      return;
+    }
+    this.#awaiting.add(id);
+    this.#awaitEnd(id)
+      .catch((error: unknown) => {
+        const waiting = this.#settling.get(id);
+        this.#settling.delete(id);
+        waiting?.reject(error);
+      })
+      .finally(() => this.#awaiting.delete(id));
+  }
+
+  async #awaitEnd(id: string): Promise<void> {
+    const queue = this.#queue;
+    if (queue === undefined) {
+      return;
+    }
+    const run = this.#known.get(id)?.run ?? (await queue.getRun(id));
+    if (run === undefined) {
+      throw new Error(`run ${id} is not stored`);
+    }
+    const job = await queue.awaitJob(run.jobId);
+    await this.refresh(id);
+    const waiting = this.#settling.get(id);
+    if (waiting === undefined) {
+      return;
+    }
+    const last = this.#records.get(this.#runOf.get(job.id) ?? id);
+    if (last === undefined || !SETTLED_EXECUTION_STATUSES.has(last.status)) {
+      throw new Error(`run ${id} ended without a settled record`);
+    }
+    this.#settling.delete(id);
+    waiting.resolve(last);
+  }
+
+  async peek(id: string): Promise<ExecutionRun | undefined> {
+    await this.refresh(id);
+    return this.#records.get(id);
+  }
+
+  async refresh(id: string): Promise<void> {
+    const queue = this.#queue;
+    if (queue === undefined) {
+      return;
+    }
+    const run = await queue.getRun(id);
+    const job = run && (await queue.getJob(run.jobId));
+    if (run === undefined || job === undefined) {
+      this.#forget(id);
+      return;
+    }
+    this.#learn(job, run);
+  }
+
+  watch(listener: (run: ExecutionRun) => void): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
     };
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
-    if (this.#closed && parent !== undefined) {
-      this.#kept.add(id);
+  }
+
+  async subscribe(
+    listener: (run: ExecutionRun) => void
+  ): Promise<ExecutionSubscription> {
+    this.#listeners.add(listener);
+    try {
+      await this.load();
+    } catch (error) {
+      this.#warn(`[state] executions not refreshed: ${String(error)}`);
     }
-    lane.waiting.push(waiting);
-    this.#pump(lane);
-    return waiting.started;
+    return {
+      snapshot: this.list(),
+      unsubscribe: () => {
+        this.#listeners.delete(listener);
+      },
+    };
   }
 
-  release(id: string): void {
-    const run = this.get(id);
-    const lane = run && this.#lanes.get(run.queue);
-    if (lane?.active.delete(id)) {
-      this.#pump(lane);
-      this.#checkIdle();
-    }
-  }
-
-  suspend(id: string): void {
-    this.moveRecord(id, "suspended");
-    this.release(id);
-  }
-
-  resume(id: string): void {
-    const run = this.get(id);
-    if (!run || SETTLED_EXECUTION_STATUSES.has(run.status)) {
+  progress(id: string, value: JsonValue): void {
+    if (!this.#open(id)) {
       return;
     }
-    this.moveRecord(id, "running");
-    this.#lane(run.queue).active.add(id);
-  }
-
-  async withdraw(id: string): Promise<boolean> {
-    const run = this.get(id);
-    if (run?.status !== "queued") {
-      return false;
-    }
-    this.#withdrawing.add(id);
-    let cancelled = false;
+    let progress: JsonValue;
     try {
-      cancelled = await this.cancelQueued(id);
-    } finally {
-      this.#withdrawing.delete(id);
-      const lane = this.#lane(run.queue);
-      if (cancelled) {
-        const index = lane.waiting.findIndex((item) => item.id === id);
-        if (index >= 0) {
-          lane.waiting.splice(index, 1);
-        }
-      }
-      this.#pump(lane);
-      this.#checkIdle();
-    }
-    return cancelled;
-  }
-
-  closeAdmission(active: (runId: string) => boolean): void {
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; this sets it.
-    if (this.#closed) {
+      progress = storedProgress(id, value);
+    } catch (error) {
+      this.#warn(
+        `[state] execution ${id} progress not saved: ${String(error)}`
+      );
       return;
     }
-    this.#closed = true;
-    for (const lane of this.#lanes.values()) {
-      for (const item of lane.waiting) {
-        if (item.parent !== undefined && active(item.parent)) {
-          this.#kept.add(item.id);
-        }
+    this.#persist(async () => {
+      if (!this.#open(id)) {
+        return;
       }
-    }
-  }
-
-  async handOverAll(
-    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>,
-    onHanded: (id: string) => void
-  ): Promise<{
-    readonly failed: readonly {
-      readonly error: unknown;
-      readonly id: string;
-    }[];
-  }> {
-    const failed: { readonly error: unknown; readonly id: string }[] = [];
-    for (const id of this.waiting().filter((each) => !this.#kept.has(each))) {
-      try {
-        if (await this.#handOver(id, choose)) {
-          onHanded(id);
-        }
-      } catch (error) {
-        failed.push({ error, id });
-      }
-    }
-    return { failed };
-  }
-
-  async #handOver(
-    id: string,
-    choose: (view: ExecutionView) => Promise<ProcessIdentity | undefined>
-  ): Promise<boolean> {
-    const run = this.get(id);
-    if (run?.status !== "queued") {
-      return false;
-    }
-    this.#withdrawing.add(id);
-    let handed = false;
-    try {
-      handed = await this.handQueued(id, choose);
-    } finally {
-      this.#withdrawing.delete(id);
-      const lane = this.#lane(run.queue);
-      if (handed) {
-        const index = lane.waiting.findIndex((item) => item.id === id);
-        if (index >= 0) {
-          lane.waiting.splice(index, 1);
-        }
-      }
-      this.#pump(lane);
-      this.#checkIdle();
-    }
-    return handed;
-  }
-
-  waiting(): readonly string[] {
-    return [...this.#lanes.values()].flatMap((lane) =>
-      lane.waiting.map((item) => item.id)
+      const at = now();
+      await this.#store.progress(id, progress, at);
+      this.#annex(id, (annex) => ({ ...annex, progress, updatedAt: at }));
+    }).catch((error: unknown) =>
+      this.#warn(`[state] execution ${id} progress not saved: ${String(error)}`)
     );
   }
 
-  drained(): Promise<void> {
-    return new Promise((resolve) => {
-      this.#idle.add(resolve);
-      this.#checkIdle();
+  observe(
+    id: string,
+    observation: ExecutionObservation,
+    options?: { readonly keepStart?: boolean }
+  ): Promise<boolean> {
+    if (!this.#open(id)) {
+      return Promise.resolve(false);
+    }
+    let stored: ExecutionObservation;
+    try {
+      stored = storedObservation(id, observation);
+    } catch (error) {
+      this.#warn(
+        `[state] execution ${id} observation not saved: ${String(error)}`
+      );
+      return Promise.resolve(false);
+    }
+    return this.#persist(async () => {
+      if (!this.#open(id)) {
+        return false;
+      }
+      const observations = withObservation(
+        this.#annexes.get(id)?.observations ?? [],
+        stored,
+        options?.keepStart ?? false
+      );
+      const at = now();
+      await this.#store.observe(id, observations.at(-1) ?? stored, at);
+      this.#annex(id, (annex) => ({ ...annex, observations, updatedAt: at }));
+      return true;
+    }).catch((error: unknown) => {
+      this.#warn(
+        `[state] execution ${id} observation not saved: ${String(error)}`
+      );
+      return false;
     });
   }
 
-  #lane(name: string): Lane {
-    let lane = this.#lanes.get(name);
-    if (!lane) {
-      lane = {
-        active: new Set(),
-        concurrency: DEFAULT_CONCURRENCY,
-        waiting: [],
-      };
-      this.#lanes.set(name, lane);
-    }
-    return lane;
+  #open(id: string): boolean {
+    const run = this.#records.get(id);
+    return run !== undefined && !SETTLED_EXECUTION_STATUSES.has(run.status);
   }
 
-  #pump(lane: Lane): void {
-    while (lane.active.size < lane.concurrency) {
-      // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `closeAdmission` sets it.
-      const index = this.#closed
-        ? lane.waiting.findIndex((item) => this.#kept.has(item.id))
-        : 0;
-      const next = index === -1 ? undefined : lane.waiting[index];
-      if (!next || this.#withdrawing.has(next.id)) {
-        return;
+  async prune(
+    ids: Iterable<string>,
+    scopeOf: (run: ExecutionRun) => string
+  ): Promise<readonly ExecutionRun[]> {
+    const queue = this.#queue;
+    if (queue === undefined) {
+      return [];
+    }
+    const removed: ExecutionRun[] = [];
+    for (const id of new Set(ids)) {
+      const run = await this.peek(id);
+      if (!(run && SETTLED_EXECUTION_STATUSES.has(run.status))) {
+        continue;
       }
-      lane.waiting.splice(index, 1);
-      lane.active.add(next.id);
-      next.started = this.#start(next);
-      next.started.catch(() => undefined);
+      try {
+        await this.#removed(run);
+        await queue.removeJob(run.jobId as JobId);
+        removed.push(run);
+      } catch (error) {
+        if (!removedElsewhere(error)) {
+          this.#warn(`[state] run ${run.id} not removed: ${String(error)}`);
+        }
+      }
     }
-  }
-
-  async #start({ fail, id, start }: Waiting): Promise<void> {
-    const { input } = this.requireRecord(id);
-    try {
-      await this.startRecord(id);
-    } catch (error) {
-      await this.settle(id, "failed", { code: "not_recorded" }).catch(
-        () => undefined
-      );
-      fail(error);
-      throw error;
+    if (removed.length === 0) {
+      return [];
     }
-    await start(input);
-  }
-
-  #checkIdle(): void {
-    const busy = [...this.#lanes.values()].some(
-      (lane) => lane.active.size > 0 || lane.waiting.length > 0
+    const gaps = await this.#persist(() =>
+      this.#store.remove(
+        removed.map((run) => run.id),
+        removed.map((run) => ({
+          scope: scopeOf(run),
+          through: run.timestamps.settledAt ?? run.timestamps.updatedAt,
+        })),
+        now()
+      )
     );
-    if (busy) {
+    this.#gaps = gapsOf(gaps);
+    for (const run of removed) {
+      this.#forget(run.id);
+    }
+    return removed;
+  }
+
+  #parsed(stored: Parameters<typeof annexOf>[0]): ExecutionAnnex {
+    return annexOf(stored, (count) =>
+      this.#warn(
+        `[state] skipped ${String(count)} unreadable observation(s) in executions/${stored.id}`
+      )
+    );
+  }
+
+  #learnEvent(event: QueueEvent): void {
+    if (event.type === "job.removed") {
+      for (const runId of event.runIds) {
+        this.#forget(runId);
+      }
       return;
     }
-    for (const resolve of this.#idle) {
-      resolve();
+    if ("job" in event) {
+      const runId = this.#runOf.get(event.job.id);
+      const known = runId === undefined ? undefined : this.#known.get(runId);
+      if (known === undefined && event.type === "job.submitted") {
+        this.#submitted.set(event.job.id, event.job);
+      } else if (known !== undefined) {
+        this.#learn(event.job, known.run);
+      }
+      return;
     }
-    this.#idle.clear();
+    if (!("run" in event)) {
+      return;
+    }
+    const { run } = event;
+    const job = this.#known.get(run.id)?.job ?? this.#submitted.get(run.jobId);
+    if (job !== undefined) {
+      this.#submitted.delete(run.jobId);
+      this.#learn(job, run);
+      return;
+    }
+    this.#queue
+      ?.getJob(run.jobId)
+      .then((found) => found && this.#learn(found, run))
+      .catch((error: unknown) =>
+        this.#warn(`[state] execution ${run.id} not read: ${String(error)}`)
+      );
   }
 
-  private requireRecord(id: string): ExecutionRun {
-    const run = this.get(id);
-    if (!run) {
-      throw new Error(`execution run ${id} is not recorded`);
+  #learn(job: Job, run: Run): void {
+    const latest = this.#known.get(run.id);
+    if (latest !== undefined && latest.run.revision > run.revision) {
+      return;
     }
-    return run;
+
+    const first = this.#runOf.get(job.id);
+    if (first !== undefined && first !== run.id) {
+      const current = this.#known.get(first)?.run;
+      if (current !== undefined && current.attempt > run.attempt) {
+        return;
+      }
+      this.#drop(first);
+    }
+    this.#known.set(run.id, { job, run });
+    this.#runOf.set(job.id, run.id);
+    const record = executionOf(job, run, this.#annexes.get(run.id));
+    const known = this.#records.get(run.id);
+    if (known === undefined || record.revision > known.revision) {
+      this.#publish(record);
+    }
   }
-  override settle(
-    id: string,
-    status: "complete" | "failed" | "cancelled" | "interrupted",
-    error?: { readonly code: string; readonly message?: string }
-  ): Promise<ExecutionRun | undefined> {
-    const run = this.get(id);
-    if (!run) {
-      return Promise.resolve(undefined);
+
+  #annex(id: string, change: (annex: ExecutionAnnex) => ExecutionAnnex): void {
+    const before = this.#annexes.get(id) ?? {
+      id,
+      observations: [],
+      revision: 0,
+    };
+    const annex = { ...change(before), revision: before.revision + 1 };
+    this.#annexes.set(id, annex);
+    const known = this.#known.get(id);
+    if (known !== undefined) {
+      this.#publish(executionOf(known.job, known.run, annex));
     }
-    const written = super.settle(id, status, error);
-    const lane = this.#lanes.get(run.queue);
-    if (lane?.active.delete(id)) {
-      this.#pump(lane);
-    }
-    this.#checkIdle();
-    return written;
   }
+
+  #forget(id: string): void {
+    this.#drop(id);
+    const waiting = this.#settling.get(id);
+    if (waiting !== undefined) {
+      this.#settling.delete(id);
+      waiting.reject(new Error(`run ${id} was removed before it settled`));
+    }
+  }
+
+  #drop(id: string): void {
+    const known = this.#known.get(id);
+    if (known !== undefined && this.#runOf.get(known.job.id) === id) {
+      this.#runOf.delete(known.job.id);
+    }
+    this.#known.delete(id);
+    this.#records.delete(id);
+    this.#annexes.delete(id);
+  }
+
+  #publish(run: ExecutionRun): void {
+    this.#records.set(run.id, run);
+    if (SETTLED_EXECUTION_STATUSES.has(run.status)) {
+      this.#settling.get(run.id)?.resolve(run);
+      this.#settling.delete(run.id);
+    }
+    for (const listener of this.#listeners) {
+      try {
+        listener(run);
+      } catch (error) {
+        this.#warn(`[executions] a subscriber failed: ${String(error)}`);
+      }
+    }
+  }
+
+  #persist<T>(write: () => Promise<T>): Promise<T> {
+    const landing = this.#writes.then(write);
+    this.#writes = landing.catch(() => undefined);
+    return landing;
+  }
+}
+
+function gapsOf(gaps: readonly RetentionGap[]): Map<string, RetentionGap> {
+  return new Map(gaps.map((gap) => [gap.scope, gap]));
+}
+
+function removedElsewhere(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "_tag" in error &&
+    error._tag === "JobNotFoundError"
+  );
 }

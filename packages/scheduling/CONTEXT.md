@@ -13,8 +13,8 @@ _Avoid_: job, cron job, timer, trigger
 
 **Cadence**:
 When a schedule is due: every fixed interval, at a wall-clock time on chosen
-weekdays in a timezone, on a cron expression in a timezone, or once at an
-instant.
+weekdays in a timezone, on a cron expression in a timezone, once at an
+instant, or a fixed delay after its previous work settled.
 _Avoid_: frequency, recurrence, period
 
 **Occurrence**:
@@ -25,14 +25,22 @@ dispatched twice.
 _Avoid_: run, execution, firing, slot, tick
 
 **Claim**:
-The first process to record an occurrence wins it; any other process sees it
-as already claimed.
+The first scheduler to record an occurrence wins it; any other scheduler,
+in this process or another, sees it as already claimed. A claim whose
+dispatch fails is released.
 _Avoid_: lock, lease
 
 **Cursor**:
-A schedule's durable watermark: the next due time, the last one handled,
+A schedule's durable progress: the next due time, the last one handled,
 when dispatched work last settled, and which dispatched work is still open.
-_Avoid_: state, checkpoint, offset
+A scheduler commits a cursor only over the one it read.
+_Avoid_: state, checkpoint, offset, watermark
+
+**Instance**:
+One live scheduler, named by its process and its own instance id. Two
+schedulers in one process are different instances and never take each
+other's claims as their own.
+_Avoid_: node, worker, replica
 
 **Target**:
 What a schedule dispatches at each occurrence: a handler, its input, and
@@ -57,8 +65,15 @@ _Avoid_: concurrency policy
 **Misfire**:
 Several occurrences coming due at once because the scheduler was paused or
 down. Run-once dispatches only the latest of them; skip dispatches none and
-waits for the next due time.
+waits for the next due time. A fixed delay never misfires: at most one
+occurrence is due at a time.
 _Avoid_: catch-up, backfill, missed run
+
+**Retention**:
+How many terminal (settled or skipped) occurrences a schedule keeps
+(`maxOccurrencesPerSchedule`); older ones are pruned. Claimed and dispatched
+occurrences are always kept.
+_Avoid_: history limit, cleanup
 
 **Trigger now**:
 Dispatching a schedule's target immediately, outside its cadence, even while

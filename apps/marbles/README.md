@@ -274,8 +274,8 @@ they were, by their key, and the runs waiting in a queue or suspended on a
 question move to it. The previous generation starts nothing new; it
 finishes the runs it has running, whole, then exits, and with none it
 exits at once; a run of it that suspends on a question meanwhile moves to the
-current generation as it suspends, which answers it. Each schedule tick and
-each task change is handled by one generation only. A generation that dies
+current generation as it suspends, which answers it. Each schedule occurrence
+and each task change is handled by one generation only. A generation that dies
 is replaced after a pause that doubles from 1 second up to 30 while
 replacements keep failing, and the next one's start puts its runs right.
 What counts as a change is any file under a workspace's root (but
@@ -398,9 +398,12 @@ load only when those harnesses run. `@foundry.sh/marbles/statuses` exports only
 Execution Run statuses and can load in a renderer.
 
 Hosts register work with `engine.task` and launch it with `engine.launch` or
-`engine.run`. Every launch joins a named FIFO queue with configurable concurrency
-and no length limit. `engine.executions` reads and follows the runs and their
-model-turn, tool-call and host observations. Task sessions and borrowed sandbox
+`engine.run`. Every launch is a job of the engine's `@foundry/queue` from the
+moment it is launched, in a named FIFO queue (a concurrency pool) with
+configurable concurrency and no length limit; a long-lived task belongs in a
+queue of its own whose concurrency is `Infinity`, so it never holds a bounded
+one. `engine.executions` reads and follows the runs and their model-turn,
+tool-call and host observations. Task sessions and borrowed sandbox
 handles stop with the task; closing a borrowed handle leaves its container with
 its owner.
 

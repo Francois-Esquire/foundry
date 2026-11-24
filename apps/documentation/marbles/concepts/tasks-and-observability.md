@@ -87,7 +87,7 @@ the source commits in the workspace, from the observer's first start on.
 | Source | Facts |
 | --- | --- |
 | `tasks` | `tasks.changed`, one per write, holding each task `before` and `after` and the edges added and removed |
-| `workflow` | `run.queued`, `run.started`, `run.parked`, `run.resumed`, `run.completed`, `run.failed`, `run.cancelled`, `run.updated`, `run.removed` |
+| `workflow` | `run.queued`, `run.started`, `run.suspended`, `run.resumed`, `run.completed`, `run.failed`, `run.cancelled`, `run.updated` |
 | `artifact` | `artifact.created`, `artifact.written`, and the others, plus `artifact.shared` and `artifact.unshared` |
 | `agent` | `session.created`, `session.updated`, `session.messages.appended` |
 | `sandbox` | `sandbox.created`, `sandbox.started`, `sandbox.stopped`, `sandbox.failed`, `sandbox.destroyed` |
@@ -206,8 +206,8 @@ returns matching runs, oldest first; `status` takes one status or an array.
 | `input`, `output`, `error` | The run's input, the result once `complete`, the error message otherwise. |
 | `queuedAt`, `startedAt`, `endedAt` | ISO timestamps. |
 
-Status names differ from fact names. A parked run has status `suspended`
-and emitted `run.parked`; a finished run has status `complete` and emitted
+Status names can differ from fact names. A suspended run has status `suspended`
+and emitted `run.suspended`; a completed run has status `complete` and emitted
 `run.completed`.
 
 `runs` reads inside a step, an observer, or a monitor handler. Like `tasks`,

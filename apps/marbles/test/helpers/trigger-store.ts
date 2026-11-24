@@ -1,24 +1,39 @@
+import type { Occurrence, Schedule, ScheduleCursor } from "@foundry/scheduling";
 import { afterEach, describe, expect, it } from "vitest";
 import { NotStorableError } from "~/lib/state/json";
-import type {
-  MonitorState,
-  ScheduleHistory,
-  TriggerStore,
-} from "~/lib/trigger-store";
+import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
+import { runStoreEffect as run } from "~/lib/workflow-runs";
 
 export interface TriggerStoreFixture {
   close(): Promise<void>;
-  leftover?(key: string, state: MonitorState): Promise<void>;
   store(): TriggerStore;
 }
 
-const TICK: ScheduleHistory = {
-  kind: "monitor",
-  label: "guides",
-  lastFinish: "2026-09-10T01:00:00.000Z",
-  lastStart: "2026-09-10T00:59:00.000Z",
-  lastStatus: "complete",
-  nextDue: "2026-09-10T01:30:00.000Z",
+const SCHEDULE: Schedule = {
+  cadence: { afterSettleMs: 60_000, kind: "delay" },
+  createdAt: 1000,
+  id: "s",
+  misfire: "run-once",
+  overlap: "skip",
+  state: "active",
+  target: {
+    handler: { name: "tidy" },
+    input: { input: null, kind: "schedule", label: "tidy" },
+  },
+};
+
+const CURSOR: ScheduleCursor = { nextDueAt: 61_000, scheduleId: "s" };
+
+const OCCURRENCE: Occurrence = {
+  id: "s:61000",
+  scheduledFor: 61_000,
+  scheduleId: "s",
+  state: {
+    jobId: "rn-1",
+    kind: "settled",
+    outcome: "complete",
+    settledAt: 62_000,
+  },
 };
 
 export function describeTriggerStore(
@@ -44,55 +59,31 @@ export function describeTriggerStore(
       fixture = undefined;
     });
 
-    it("holds a trigger's tick until it is finished, its own next tick included", async () => {
-      const triggers = await store();
-      expect(await triggers.claimTick("s")).toEqual({ claimed: true });
-      expect(await triggers.claimTick("s")).toEqual({
-        claimed: false,
-        holder: "this process",
-      });
-      expect(await triggers.claimTick("t")).toEqual({ claimed: true });
-      await triggers.finishTick("s");
-      expect(await triggers.claimTick("s")).toEqual({ claimed: true });
-    });
-
-    it("records a tick and gives up its claim in one write", async () => {
-      const triggers = await store();
-      expect(await triggers.lastTick("s")).toBeUndefined();
-      await triggers.claimTick("s");
-      await triggers.finishTick("s", TICK);
-      expect(await triggers.lastTick("s")).toEqual(TICK);
-      expect(await triggers.claimTick("s")).toEqual({ claimed: true });
-      await triggers.finishTick("s");
-      expect(await triggers.lastTick("s")).toEqual(TICK);
+    it("keeps each schedule, its cursor and its occurrences in its schedule store", async () => {
+      const schedules = await (await store()).schedules();
+      await run(
+        schedules.commit({
+          cursors: [CURSOR],
+          occurrences: [OCCURRENCE],
+          schedules: [SCHEDULE],
+        })
+      );
+      expect(await run(schedules.getSchedule("s"))).toEqual(SCHEDULE);
+      expect(await run(schedules.getCursor("s"))).toEqual(CURSOR);
+      expect(await run(schedules.latestOccurrence("s"))).toEqual(OCCURRENCE);
+      expect(await run(schedules.getSchedule("t"))).toBeUndefined();
     });
 
     it.runIf(shared)(
-      "holds one trigger's tick for one engine at a time, and gives a stopped engine's up",
+      "shares one workspace's schedule store between engines",
       async () => {
-        const first = await store();
-        const second = await store();
-        await first.claimTick("s");
-        expect(await second.claimTick("s")).toMatchObject({ claimed: false });
-        await first.finishTick("s", TICK);
-        expect(await second.lastTick("s")).toEqual(TICK);
-
-        expect(await second.claimTick("s")).toEqual({ claimed: true });
-        await second.close();
-        expect(await first.claimTick("s")).toEqual({ claimed: true });
+        const first = await (await store()).schedules();
+        await run(first.commit({ cursors: [CURSOR], schedules: [SCHEDULE] }));
+        const second = await (await store()).schedules();
+        expect(await run(second.listSchedules)).toEqual([SCHEDULE]);
+        expect(await run(second.getCursor("s"))).toEqual(CURSOR);
       }
     );
-
-    it("refuses a tick record that is not one", async () => {
-      const triggers = await store();
-      await triggers.claimTick("s");
-      await expect(
-        triggers.finishTick("s", {
-          ...TICK,
-          lastStatus: "maybe",
-        } as unknown as ScheduleHistory)
-      ).rejects.toThrow();
-    });
 
     it("keeps a monitor's state whole, and its pending launch until it is cleared", async () => {
       const triggers = await store();
@@ -117,61 +108,17 @@ export function describeTriggerStore(
       });
     });
 
-    it("drops what a monitor left under a key once a schedule's tick is recorded there, and keeps it for a monitor's", async () => {
+    it("forgets what a monitor kept under a key", async () => {
       const triggers = await store();
-      const left: MonitorState = {
-        observed: { files: { "a.md": "hash" } },
-        pending: { input: null, workflow: "ship" },
-      };
-      for (const key of ["watched", "rescheduled"]) {
-        await triggers.saveMonitorState(key, left);
-        expect(await triggers.claimTick(key)).toEqual({ claimed: true });
-      }
-      await triggers.finishTick("watched", TICK);
-      await triggers.finishTick("rescheduled", { ...TICK, kind: "schedule" });
-      expect(await triggers.monitorState("watched")).toEqual(left);
-      expect(await triggers.monitorState("rescheduled")).toBeUndefined();
-      expect((await triggers.lastTick("rescheduled"))?.kind).toBe("schedule");
-    });
-
-    it("marks a key a monitor's when a monitor keeps its state there, so the launch it leaves before its tick is recorded goes out again", async () => {
-      const triggers = await store();
-      const left: MonitorState = {
-        observed: { files: { "a.md": "hash" } },
-        pending: { input: null, workflow: "ship" },
-      };
-      expect(await triggers.claimTick("k")).toEqual({ claimed: true });
-      await triggers.finishTick("k", { ...TICK, kind: "schedule" });
-      expect(await triggers.claimTick("k")).toEqual({ claimed: true });
-      await triggers.saveMonitorState("k", left);
-      expect(await triggers.lastTick("k")).toBeUndefined();
-      expect(await triggers.monitorState("k")).toEqual(left);
-    });
-
-    it("drops, where it would hand it out, what an older Marbles left under a key whose last tick is a schedule's", async ({
-      skip,
-    }) => {
-      const triggers = await store();
-      const leftover = fixture?.leftover;
-      if (leftover === undefined) {
-        skip("this store keeps nothing an older Marbles could have left");
-        return;
-      }
-      const left: MonitorState = {
+      await triggers.saveMonitorState("m", {
         observed: { files: {} },
-        pending: { input: { old: true }, workflow: "obsolete-target" },
-      };
-      for (const [key, kind] of [
-        ["rescheduled", "schedule"],
-        ["watched", "monitor"],
-      ] as const) {
-        expect(await triggers.claimTick(key)).toEqual({ claimed: true });
-        await triggers.finishTick(key, { ...TICK, kind });
-        await leftover(key, left);
-      }
-      expect(await triggers.monitorState("rescheduled")).toBeUndefined();
-      expect(await (await store()).monitorState("rescheduled")).toBeUndefined();
-      expect(await triggers.monitorState("watched")).toEqual(left);
+        pending: { input: null, workflow: "ship" },
+      });
+      await triggers.saveMonitorState("kept", { observed: {} });
+      await triggers.forgetMonitor("m");
+      await triggers.forgetMonitor("never-seen");
+      expect(await triggers.monitorState("m")).toBeUndefined();
+      expect(await triggers.monitorState("kept")).toEqual({ observed: {} });
     });
 
     it("refuses, keeping what it had, a monitor state JSON would not give back as it is", async () => {
@@ -213,9 +160,9 @@ export function describeTriggerStore(
     it("refuses every call once closed", async () => {
       const triggers = await store();
       await triggers.close();
-      await expect(triggers.claimTick("s")).rejects.toThrow();
-      await expect(triggers.lastTick("s")).rejects.toThrow();
       await expect(triggers.monitorState("m")).rejects.toThrow();
+      await expect(triggers.forgetMonitor("m")).rejects.toThrow();
+      await expect(triggers.schedules()).rejects.toThrow();
     });
   });
 }

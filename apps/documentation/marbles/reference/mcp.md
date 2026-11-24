@@ -204,7 +204,7 @@ most; a task call that does not finish in time is cut off. The Marbles process k
 keep running, and runs already dispatched run to completion. Several MCP
 clients can run at once against one process. `get_run` and `cancel_run`
 go to the generation that owns the run. The returned run ID still works
-after queued or parked work moves to a new generation. A queued agent
+after queued or suspended work moves to a new generation. A queued agent
 dispatch reopens the same saved session when the new engine starts the
 turn. The lookup also accepts other workflow run IDs the engine knows,
 including runs started by a schedule, by `engine.launch`, or by an

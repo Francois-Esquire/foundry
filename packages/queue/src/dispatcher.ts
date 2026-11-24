@@ -1,14 +1,12 @@
+import { sameInstance } from "@foundry/lib/instance-identity";
 import type { JsonValue } from "@foundry/lib/json";
-import {
-  type ProcessIdentity,
-  sameProcess,
-} from "@foundry/lib/process-identity";
 import {
   Clock,
   Duration,
   Effect,
   ExecutionStrategy,
   type Exit,
+  type Fiber,
   Schedule,
   Scope,
 } from "effect";
@@ -18,6 +16,7 @@ import {
   type Instant,
   type Job,
   type Lease,
+  type QueueOwner,
   type Run,
   type RunId,
   type RunOutcome,
@@ -38,7 +37,7 @@ const settleRetries = Schedule.exponential(Duration.millis(50)).pipe(
 const heldBy = (run: Run | undefined, lease: Lease): run is Run =>
   run?.state.kind === "running" &&
   run.state.lease.claimedAt === lease.claimedAt &&
-  sameProcess(run.state.lease.owner, lease.owner);
+  sameInstance(run.state.lease.owner, lease.owner);
 
 const withTimeout =
   (timeoutMs: number | undefined) =>
@@ -57,7 +56,7 @@ export interface DispatcherOptions {
   readonly capacity: Capacity;
   readonly handlers: ReadonlyMap<string, RunHandler>;
   readonly ledger: Ledger;
-  readonly self: ProcessIdentity;
+  readonly self: QueueOwner;
   readonly settlement: Settlement;
 }
 
@@ -250,7 +249,11 @@ export const makeDispatcher = ({
           execute(active, running, running.state.lease, handler),
           runScope
         );
-        capacity.slots.set(run.id, { fiber, pool: run.pool });
+        capacity.slots.set(run.id, {
+          fiber,
+          lease: running.state.lease,
+          pool: run.pool,
+        });
       }).pipe(Effect.uninterruptible);
 
     const tryStart = (run: Run, now: Instant) =>
@@ -268,6 +271,17 @@ export const makeDispatcher = ({
           )
         );
       });
+
+    const releaseStaleSlots = Effect.gen(function* () {
+      const stale: Fiber.RuntimeFiber<void>[] = [];
+      for (const [runId, slot] of [...capacity.slots]) {
+        if (!heldBy(yield* store.getRun(runId), slot.lease)) {
+          capacity.slots.delete(runId);
+          stale.push(slot.fiber);
+        }
+      }
+      return stale;
+    });
 
     const nap = (soonest: Instant | undefined) =>
       Effect.gen(function* () {
@@ -301,5 +315,5 @@ export const makeDispatcher = ({
       yield* nap(soonest);
     }).pipe(Effect.forever, Effect.forkScoped);
 
-    return { locked, mutate, nudge: wake.open };
+    return { locked, mutate, nudge: wake.open, releaseStaleSlots };
   });

@@ -15,6 +15,7 @@ import type {
 } from "./definition";
 import { isLockedNode, rootLock } from "./definition";
 import { withinContext } from "./execution-context";
+import type { RunExecution } from "./run-queue";
 import type { Frame, RunScope, RunScopes } from "./run-scope";
 import {
   current,
@@ -25,7 +26,6 @@ import {
 } from "./run-scope";
 import { parseEvery } from "./schedule";
 import { notJson, validate } from "./schema";
-import type { RunExecution } from "./workflow-queue";
 
 type Input = Readonly<Record<string, unknown>>;
 
@@ -113,6 +113,7 @@ async function runBody(
 ): Promise<unknown> {
   const frame = scope.frame(ctx.path);
   await scope.enter(frame);
+  scope.offerResumePrompt(frame);
   const results =
     node.mode === "parallel"
       ? await driveParallel(
@@ -169,7 +170,7 @@ async function runBody(
     frame.paused = undefined;
     return await ctx.suspend({
       kind: PAUSE_KIND,
-      name: `marbles.pause:${crypto.randomUUID().slice(0, 8)}`,
+      name: scope.pauseName(frame),
       reason: paused.reason,
       request: {},
     });
@@ -198,7 +199,7 @@ async function runChild(
   bindings: Bindings
 ): Promise<unknown> {
   frame.signal.throwIfAborted();
-  const { occurrence } = scope.claim(frame, "step.run");
+  const { key, occurrence } = scope.claim(frame, "step.run");
   const attempt = (await parent.steps)[parent.path.join(".")]?.attempt ?? 0;
   frame.signal.throwIfAborted();
   const name = `$run-${occurrence}-${attempt}`;
@@ -206,15 +207,12 @@ async function runChild(
   if (existing) {
     return existing.run();
   }
-  const input = (
-    definition.input
-      ? await validate(
-          definition.input,
-          raw ?? {},
-          `${describe(definition, name)} input`
-        )
-      : (raw ?? {})
-  ) as Input;
+  const input =
+    scope.ledger.get<{ readonly input: Input }>(key)?.input ??
+    (await childInput(definition, raw, describe(definition, name)));
+  if (notJson(input) === undefined) {
+    scope.ledger.set(key, { input });
+  }
   const node = stepTree(
     await rootNode(definition, name, input, scope, bindings),
     name
@@ -224,6 +222,18 @@ async function runChild(
     materialize(node, name, scope, bindings, parent.path)
   );
   return child.run();
+}
+
+async function childInput(
+  definition: AnyDefinition,
+  raw: unknown,
+  where: string
+): Promise<Input> {
+  return (
+    definition.input
+      ? await validate(definition.input, raw ?? {}, `${where} input`)
+      : (raw ?? {})
+  ) as Input;
 }
 
 export function timeoutMs(timeout: number | string): number {
@@ -316,7 +326,10 @@ export function factoryFor(
     const bound = bindings();
     const runId = execution?.runId ?? crypto.randomUUID();
     return asRunWork(runId, bound, () =>
-      openRun(definition, name, scopes, bound, rawInput, runId)
+      openRun(definition, name, scopes, bound, rawInput, {
+        ...execution,
+        runId,
+      })
     );
   };
 }
@@ -327,7 +340,7 @@ async function openRun(
   scopes: RunScopes,
   bound: Bindings,
   rawInput: unknown,
-  runId: string
+  { resolutions, runId }: RunExecution
 ): Promise<Step<unknown, unknown>> {
   const input = (
     definition.input
@@ -346,7 +359,8 @@ async function openRun(
           scope,
           bound
         )
-      )
+      ),
+    resolutions
   );
 }
 

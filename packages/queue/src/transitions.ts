@@ -1,8 +1,5 @@
+import { sameInstance } from "@foundry/lib/instance-identity";
 import type { JsonValue } from "@foundry/lib/json";
-import {
-  type ProcessIdentity,
-  sameProcess,
-} from "@foundry/lib/process-identity";
 import type {
   ErrorShape,
   Instant,
@@ -10,6 +7,7 @@ import type {
   JobId,
   PoolName,
   QueueEvent,
+  QueueOwner,
   Run,
   RunId,
   Suspension,
@@ -40,7 +38,7 @@ export interface QueuedRunInput {
   readonly id: RunId;
   readonly jobId: JobId;
   readonly now: Instant;
-  readonly owner: ProcessIdentity;
+  readonly owner?: QueueOwner;
   readonly pool: PoolName;
 }
 
@@ -63,7 +61,7 @@ export const queuedRun = (input: QueuedRunInput): Run => ({
   state: {
     availableAt: input.at,
     kind: "queued",
-    owner: input.owner,
+    ...(input.owner === undefined ? {} : { owner: input.owner }),
     queuedAt: input.now,
   },
 });
@@ -293,7 +291,7 @@ export const starting = ({
 }: {
   readonly job: Job;
   readonly now: Instant;
-  readonly owner: ProcessIdentity;
+  readonly owner: QueueOwner;
   readonly run: Run;
 }): {
   readonly active: Job;
@@ -321,14 +319,12 @@ export const starting = ({
 export const resolution = ({
   job,
   now,
-  owner,
   run,
   value,
   suspension,
 }: {
   readonly job: Job;
   readonly now: Instant;
-  readonly owner: ProcessIdentity;
   readonly run: Run;
   readonly value: JsonValue;
   readonly suspension: Suspension;
@@ -341,7 +337,6 @@ export const resolution = ({
   const resumed = bump(run, {
     availableAt: now,
     kind: "queued",
-    owner,
     queuedAt: now,
   });
   const live = run.state.kind === "suspended";
@@ -368,24 +363,24 @@ export const removal = (
   runs: readonly Run[],
   suspensions: readonly Suspension[]
 ): Change => ({
-  facts: [],
+  facts: [{ job, runIds: runs.map((run) => run.id), type: "job.removed" }],
   write: {
     deleteJobs: [job.id],
     deleteRuns: runs.map((run) => run.id),
     deleteSuspensions: suspensions.map((suspension) => suspension.id),
+    expected: {
+      runs: runs.map((run) => ({ id: run.id, revision: run.revision })),
+    },
   },
 });
 
 export const claimOf = (
   run: Run,
-  self: ProcessIdentity,
-  gone: (owner: ProcessIdentity) => boolean
+  self: QueueOwner,
+  gone: (owner: QueueOwner) => boolean
 ): "adopt" | "mine" | "skip" => {
   const owner = run.state.kind === "queued" ? run.state.owner : self;
-  if (owner === undefined) {
-    return "adopt";
-  }
-  if (sameProcess(owner, self)) {
+  if (owner === undefined || sameInstance(owner, self)) {
     return "mine";
   }
   return gone(owner) ? "adopt" : "skip";

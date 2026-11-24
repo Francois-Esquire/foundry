@@ -143,7 +143,7 @@ export const createQueueClient = (
 
   return {
     abandon: (id, error) => use((queue) => queue.abandon(id, error)),
-    adopt: (id) => use((queue) => queue.adopt(id)),
+    awaitJob: (id) => use((queue) => queue.awaitJob(id)),
     cancel: (id, reason) => use((queue) => queue.cancel(id, reason)),
     cancelSuspension: (suspensionId, reason) =>
       use((queue) => queue.cancelSuspension(suspensionId, reason)),
