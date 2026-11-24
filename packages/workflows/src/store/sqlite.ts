@@ -1,5 +1,16 @@
+import {
+  assertScope,
+  batches,
+  joinFieldPath,
+  RecordFault,
+  replacing,
+  SQLITE_MAX_PARAMETERS,
+  type SqliteDatabase,
+  type SqliteTransaction,
+  storableText,
+} from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import {
   and,
   asc,
@@ -11,11 +22,7 @@ import {
   max,
   sql,
 } from "drizzle-orm";
-import type {
-  BaseSQLiteDatabase,
-  SQLiteColumn,
-  SQLiteTable,
-} from "drizzle-orm/sqlite-core";
+import type { SQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 
 import { detached } from "../detached";
@@ -42,16 +49,13 @@ import type {
 import { ownedQuery } from "./page";
 import type { RecordKind } from "./sqlite-records";
 import {
-  below,
   describe,
   FRAME,
   JOB,
   kept,
   QUEUE,
-  RecordFault,
   RUN,
   SUSPENSION,
-  storable,
 } from "./sqlite-records";
 import {
   workflowJobs,
@@ -62,18 +66,9 @@ import {
   workflowSuspensions,
 } from "./tables";
 
-export type WorkflowDatabase = BaseSQLiteDatabase<
-  "async",
-  unknown,
-  Record<string, unknown>
->;
+export type WorkflowDatabase = SqliteDatabase;
 
-export type WorkflowTransaction = SQLiteTransaction<
-  "async",
-  unknown,
-  Record<string, unknown>,
-  ExtractTablesWithRelations<Record<string, unknown>>
->;
+export type WorkflowTransaction = SqliteTransaction;
 
 export interface SqliteWorkflowStoreOptions {
   readonly database: WorkflowDatabase;
@@ -146,11 +141,7 @@ export class SqliteWorkflowStore implements WorkflowStore {
   readonly #turns = new Turns(REENTRY);
 
   constructor(options: SqliteWorkflowStoreOptions) {
-    if (options.scope.length === 0 || !storable(options.scope)) {
-      throw new RangeError(
-        "scope must be a nonempty string with no U+0000 and no lone surrogate"
-      );
-    }
+    assertScope(options.scope);
     const joined = is(options.database, SQLiteTransaction);
     if (joined && options.durability === "commit") {
       throw new RangeError(
@@ -277,7 +268,7 @@ export class SqliteWorkflowStore implements WorkflowStore {
 
   #get<T>(shelf: Shelf<T>, key: readonly string[]): Promise<T | null> {
     return this.#turns.run(async () => {
-      if (!key.every(storable)) {
+      if (!key.every(storableText)) {
         return null;
       }
       const [, ...columns] = shelf.keys;
@@ -340,11 +331,14 @@ export class SqliteWorkflowStore implements WorkflowStore {
     ids: readonly string[]
   ): Promise<void> {
     const table = column.table as StoreTable;
-    await inOrder(batches(ids.filter(storable), MAX_PARAMETERS - 1), (batch) =>
-      transaction
+    for (const batch of batches(
+      ids.filter(storableText),
+      SQLITE_MAX_PARAMETERS - 1
+    )) {
+      await transaction
         .delete(table)
-        .where(and(eq(scopeOf(table), this.#scope), inArray(column, batch)))
-    );
+        .where(and(eq(scopeOf(table), this.#scope), inArray(column, batch)));
+    }
   }
 
   async #put<T>(
@@ -362,15 +356,18 @@ export class SqliteWorkflowStore implements WorkflowStore {
       scope: this.#scope,
     }));
     const columns = Object.keys(getTableColumns(shelf.table)).length;
-    await inOrder(batches(placed, MAX_PARAMETERS / columns), (batch) =>
-      transaction
+    for (const batch of batches(placed, SQLITE_MAX_PARAMETERS / columns)) {
+      await transaction
         .insert(shelf.table)
         .values(batch as never[])
         .onConflictDoUpdate({
-          set: replacing(shelf),
+          set: replacing(getTableColumns(shelf.table), [
+            positionOf(shelf.table),
+            ...shelf.keys,
+          ]),
           target: [...shelf.keys],
-        })
-    );
+        });
+    }
   }
 
   async #positions(
@@ -520,7 +517,7 @@ function owned(write: WorkflowStoreWrite): OwnedWrite {
       } catch (error) {
         if (error instanceof RecordFault) {
           throw new RangeError(
-            `SqliteWorkflowStore cannot store ${below(at, error.path)}: ${error.reason}`,
+            `SqliteWorkflowStore cannot store ${joinFieldPath(at, error.path)}: ${error.reason}`,
             { cause: error }
           );
         }
@@ -584,17 +581,6 @@ function rawColumns(shelf: Shelf<unknown>): Record<string, SQL<unknown>> {
   );
 }
 
-function replacing(shelf: Shelf<unknown>): Record<string, SQL> {
-  const keys = new Set(shelf.keys.map((column) => column.name));
-  return Object.fromEntries(
-    Object.entries(getTableColumns(shelf.table))
-      .filter(
-        ([field, column]) => field !== "position" && !keys.has(column.name)
-      )
-      .map(([field, column]) => [field, excluded(column)])
-  );
-}
-
 function scopeOf(table: StoreTable): SQLiteColumn {
   return (table as SQLiteTable & { scope: SQLiteColumn }).scope;
 }
@@ -611,7 +597,7 @@ function exact(column: SQLiteColumn, value: string | undefined): Filter {
   if (value === undefined) {
     return undefined;
   }
-  return storable(value) ? eq(column, value) : NOTHING;
+  return storableText(value) ? eq(column, value) : NOTHING;
 }
 
 function among(
@@ -621,7 +607,7 @@ function among(
   if (values === undefined) {
     return undefined;
   }
-  const held = values.filter(storable);
+  const held = values.filter(storableText);
   return held.length === 0 ? NOTHING : inArray(column, held);
 }
 
@@ -650,28 +636,4 @@ function unreadable(what: string, fault: string, cause?: unknown): Error {
   return new Error(`SqliteWorkflowStore cannot read ${what}: ${fault}`, {
     cause,
   });
-}
-
-const MAX_PARAMETERS = 32_766;
-
-function batches<T>(items: readonly T[], size: number): T[][] {
-  const length = Math.max(1, Math.floor(size));
-  const result: T[][] = [];
-  for (let start = 0; start < items.length; start += length) {
-    result.push(items.slice(start, start + length));
-  }
-  return result;
-}
-
-async function inOrder<T>(
-  items: readonly T[],
-  run: (item: T) => PromiseLike<unknown>
-): Promise<void> {
-  for (const item of items) {
-    await run(item);
-  }
-}
-
-function excluded(column: SQLiteColumn): SQL {
-  return sql.raw(`excluded."${column.name}"`);
 }

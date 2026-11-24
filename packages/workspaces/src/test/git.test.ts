@@ -14,9 +14,9 @@ import { promisify } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
 import { Workspace } from "../instance";
-import { WithDirectory } from "../node";
+import { directorySource } from "../node";
 import type { GitPathStatus } from "../node/git";
-import { Git, git as gitLayer, WithGit, Worktree } from "../node/git";
+import { Git, git as gitExtension, Worktree } from "../node/git";
 import { MemoryWorkspaceStore } from "../store/memory";
 import { hostWorkspace, seed } from "../testing/records";
 import { interceptCommits } from "./helpers/commits";
@@ -86,6 +86,22 @@ describe("Git.status outside a repository", () => {
     const root = await makeDirectory({ "README.md": "hello" });
 
     expect(await inspectGit(root)).toEqual({ kind: "none" });
+  });
+
+  it("ignores an inherited GIT_DIR that points at another repository", async () => {
+    const repository = await makeRepository({ "README.md": "hello" });
+    const plain = await makeDirectory({ "notes.md": "plain" });
+    const inherited = process.env.GIT_DIR;
+    process.env.GIT_DIR = join(repository, ".git");
+    try {
+      expect(await inspectGit(plain)).toEqual({ kind: "none" });
+    } finally {
+      if (inherited === undefined) {
+        Reflect.deleteProperty(process.env, "GIT_DIR");
+      } else {
+        process.env.GIT_DIR = inherited;
+      }
+    }
   });
 
   it("reports no capability for a directory that is gone", async () => {
@@ -298,6 +314,29 @@ describe("Git.status inside a repository", () => {
     expect(snapshot.paths.map((entry) => entry.path)).toEqual(["kept.md"]);
   });
 
+  it("reports untracked files inside a nested workspace under a wholly untracked ancestor", async () => {
+    const repository = await makeRepository({ "README.md": "hello" });
+    await write(repository, {
+      "untracked-ancestor/sub/fresh.md": "new",
+    });
+
+    const snapshot = await inspectGit(
+      join(repository, "untracked-ancestor", "sub")
+    );
+    if (snapshot.kind !== "repository") {
+      throw new Error("expected a repository");
+    }
+
+    expect(snapshot.paths).toEqual([
+      {
+        path: "fresh.md",
+        staged: false,
+        unstaged: false,
+        untracked: true,
+      },
+    ]);
+  });
+
   it("returns no absolute path anywhere in the snapshot", async () => {
     const repository = await makeRepository({ "inside/kept.md": "hello" });
     await write(repository, { "inside/kept.md": "changed" });
@@ -367,10 +406,10 @@ describe("Git.isRepository and Git.open", () => {
   });
 });
 
-describe("WithGit", () => {
+describe("git extension", () => {
   it("applies to a directory Workspace inside a working tree and reads live status", async () => {
     const root = await makeRepository({ "README.md": "hello" });
-    const system = directorySystem().extend(gitLayer());
+    const system = directorySystem().extend(gitExtension());
     const added = await system.load({ path: root });
 
     await writeFile(join(root, "README.md"), "changed outside the workspace");
@@ -391,7 +430,7 @@ describe("WithGit", () => {
 
   it("does not apply to an ordinary directory", async () => {
     const root = await makeDirectory({ "README.md": "hello" });
-    const system = directorySystem().extend(gitLayer());
+    const system = directorySystem().extend(gitExtension());
     const added = await system.load({ path: root });
 
     expect(added.git).toBeUndefined();
@@ -401,7 +440,7 @@ describe("WithGit", () => {
     const root = await makeRepository({ "README.md": "hello" });
     const runs: string[][] = [];
     const system = directorySystem().extend(
-      gitLayer({
+      gitExtension({
         run: (cwd, args) => {
           runs.push([cwd, ...args]);
           return Promise.resolve("");
@@ -459,21 +498,25 @@ describe("WithGit", () => {
     }
   });
 
-  it("composes by hand over the directory layer", async () => {
+  it("composes by hand with directorySource and Git.at", async () => {
     const root = await realpath(await makeRepository({ "README.md": "hello" }));
     const store = new MemoryWorkspaceStore();
     const record = hostWorkspace({ path: root });
     await seed(store, record);
-    const Composed = WithGit(WithDirectory(Workspace));
 
-    const workspace = new Composed(record, {
-      catalog: new WorkspaceCatalog(store, () => undefined),
-      close: () => Promise.resolve(),
-      report: () => undefined,
-      serialize: (_workspaceId, task) => task(),
-    });
+    const workspace = new Workspace(
+      record,
+      {
+        catalog: new WorkspaceCatalog(store, () => undefined),
+        close: () => Promise.resolve(),
+        report: () => undefined,
+        serialize: (_workspaceId, task) => task(),
+      },
+      directorySource(root)
+    );
+    const repo = Git.at(workspace.source.path);
 
-    expect(workspace.git.root).toBe(root);
+    expect(repo.root).toBe(root);
     expect((await workspace.refresh()).entries.map((f) => f.path)).toEqual([
       "README.md",
     ]);
@@ -482,7 +525,7 @@ describe("WithGit", () => {
   it("does not write while answering", async () => {
     const root = await makeRepository({ "README.md": "hello" });
     const store = new MemoryWorkspaceStore();
-    const system = directorySystem({ store }).extend(gitLayer());
+    const system = directorySystem({ store }).extend(gitExtension());
     const added = await system.load({ path: root });
     const { intercept } = interceptCommits(store);
 
@@ -601,6 +644,11 @@ describe("Git worktrees", () => {
     });
     expect(await repo.hasBranch("design/palette")).toBe(true);
     expect(await repo.hasBranch("design/other")).toBe(false);
+  });
+
+  it("propagates unexpected Git failures from hasBranch outside a repository", async () => {
+    const plain = await makeDirectory({ "a.md": "hi" });
+    await expect(Git.at(plain).hasBranch("main")).rejects.toThrow();
   });
 
   it("refuses a branch that exists before cutting a directory", async () => {

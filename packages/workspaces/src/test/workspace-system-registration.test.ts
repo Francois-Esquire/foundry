@@ -102,11 +102,11 @@ describe("add({ path })", () => {
     ).rejects.toBeInstanceOf(InvalidWorkspaceInputError);
   });
 
-  it("refuses a ref no registered floor names, at compile time and at runtime", async () => {
+  it("refuses a ref no registered extension names, at compile time and at runtime", async () => {
     const system = directorySystem();
 
     await expect(
-      // @ts-expect-error -- `nope` is not a ref any registered floor accepts
+      // @ts-expect-error -- `nope` is not a ref any registered extension accepts
       system.load({ nope: "x" })
     ).rejects.toBeInstanceOf(InvalidWorkspaceInputError);
   });

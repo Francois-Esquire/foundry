@@ -8,11 +8,11 @@ export type {
 export { WorkspaceCatalog } from "./catalog";
 export { DIRECTORY_SOURCE } from "./constants";
 export type {
-  DirectoryCapable,
+  DirectoryCapabilities,
   DirectoryOptions,
   DirectoryRef,
 } from "./directory";
-export { directory, WithDirectory } from "./directory";
+export { directory, directorySource } from "./directory";
 export {
   InvalidWorkspaceInputError,
   WorkspaceFileNotFoundError,
@@ -29,20 +29,21 @@ export { scanDirectory } from "./scanner";
 export type { WorkspaceStore, WorkspaceStoreWrite } from "./store";
 export type {
   AnyWorkspaceExtension,
-  CapOf,
+  CapabilitiesOf,
   CreateFileCommand,
   FileContentResult,
   FileTextSnapshot,
-  FloorFor,
   ObservedFacts,
   RefOf,
   ResolvedSource,
   SaveFileCommand,
   SaveFileResult,
+  SourceCapabilitiesFor,
+  WorkspaceAttachContext,
+  WorkspaceAttachment,
   WorkspaceCatalogChange,
   WorkspaceChange,
   WorkspaceContext,
-  WorkspaceCtor,
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceEvent,
@@ -51,8 +52,10 @@ export type {
   WorkspaceFileSystem,
   WorkspaceId,
   WorkspaceIdentity,
+  WorkspaceLifecycle,
   WorkspaceRegistration,
   WorkspaceSource,
+  WorkspaceSourceAdapter,
   WorkspaceSourceIssue,
   WorkspaceSourceStatus,
   WorkspaceSummary,

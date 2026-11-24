@@ -10,9 +10,10 @@ import { MemoryWorkspaceStore } from "../store/memory";
 import type {
   FileContentResult,
   ObservedFacts,
-  WorkspaceCtor,
   WorkspaceExtension,
   WorkspaceFile,
+  WorkspaceRegistration,
+  WorkspaceSourceAdapter,
   WriteOutcome,
 } from "../types";
 
@@ -76,10 +77,38 @@ class FakeTrees {
   }
 }
 
-function WithFake<B extends WorkspaceCtor>(Base: B, trees: FakeTrees) {
-  return class extends Base {
+function fakeSource(
+  registration: WorkspaceRegistration,
+  trees: FakeTrees
+): WorkspaceSourceAdapter {
+  const sourceRef = (): string => {
+    if (registration.source.sourceId === null) {
+      throw new Error("no source id");
+    }
+    return registration.source.sourceId;
+  };
+  return {
+    readFile(file: WorkspaceFile): Promise<FileContentResult> {
+      const value = trees.require(sourceRef())[file.path];
+      if (value === undefined) {
+        return Promise.resolve({ kind: "stale", reason: "gone" });
+      }
+      const bytes = encode(value);
+      const common = {
+        bytes: bytes.byteLength,
+        digest: digest(bytes),
+        mime: file.mime,
+        type: "file" as const,
+      };
+      return Promise.resolve(
+        typeof value === "string"
+          ? { kind: "text", text: value, ...common }
+          : { kind: "binary", ...common }
+      );
+    },
+
     scan(): Promise<readonly ObservedFacts[]> {
-      const files = trees.require(this.sourceRef());
+      const files = trees.require(sourceRef());
       const parents = new Set<string>();
       for (const path of Object.keys(files)) {
         let slash = path.lastIndexOf("/");
@@ -110,33 +139,14 @@ function WithFake<B extends WorkspaceCtor>(Base: B, trees: FakeTrees) {
           };
         }),
       ]);
-    }
+    },
 
-    protected readFile(file: WorkspaceFile): Promise<FileContentResult> {
-      const value = trees.require(this.sourceRef())[file.path];
-      if (value === undefined) {
-        return Promise.resolve({ kind: "stale", reason: "gone" });
-      }
-      const bytes = encode(value);
-      const common = {
-        bytes: bytes.byteLength,
-        digest: digest(bytes),
-        mime: file.mime,
-        type: "file" as const,
-      };
-      return Promise.resolve(
-        typeof value === "string"
-          ? { kind: "text", text: value, ...common }
-          : { kind: "binary", ...common }
-      );
-    }
-
-    protected writeFile(
+    writeFile(
       file: WorkspaceFile,
       bytes: Uint8Array,
       expectedDigest: string
     ): Promise<WriteOutcome> {
-      const files = trees.require(this.sourceRef());
+      const files = trees.require(sourceRef());
       const current = files[file.path];
       if (current === undefined) {
         return Promise.resolve({ kind: "stale", reason: "gone" });
@@ -152,19 +162,12 @@ function WithFake<B extends WorkspaceCtor>(Base: B, trees: FakeTrees) {
           kind: "conflict",
         });
       }
-      trees.replace(this.sourceRef(), {
+      trees.replace(sourceRef(), {
         ...files,
         [file.path]: new TextDecoder().decode(bytes),
       });
       return Promise.resolve({ kind: "written" });
-    }
-
-    private sourceRef(): string {
-      if (this.source.sourceId === null) {
-        throw new Error("no source id");
-      }
-      return this.source.sourceId;
-    }
+    },
   };
 }
 
@@ -181,7 +184,7 @@ function fake(trees: FakeTrees): WorkspaceExtension<FakeRef> {
     }),
     name: "fake",
     ref: "fake",
-    wrap: (Base) => WithFake(Base, trees),
+    source: (registration) => fakeSource(registration, trees),
   };
 }
 
@@ -202,7 +205,7 @@ function seed(files: Files = TREE) {
   return { add, id, store, system, trees };
 }
 
-describe("create over a registered layer", () => {
+describe("create over a registered extension", () => {
   it("commits the Workspace, its address, and its complete catalog", async () => {
     const { id, store, add } = seed();
 
@@ -271,7 +274,7 @@ describe("create over a registered layer", () => {
 
 describe.each([
   {
-    layer: "directory",
+    extension: "directory",
     open: async () => {
       const root = await makeRoot(TREE);
       const system = directorySystem();
@@ -279,13 +282,13 @@ describe.each([
     },
   },
   {
-    layer: "fake",
+    extension: "fake",
     open: async () => {
       const { system, add } = seed();
       return { added: await add(), system };
     },
   },
-])("shared operations over a $layer Workspace", ({ open }) => {
+])("shared operations over a $extension Workspace", ({ open }) => {
   it("summarizes, refreshes, lists, reads text and binary, saves, and removes", async () => {
     const { system, added } = await open();
 
@@ -359,8 +362,8 @@ describe.each([
   });
 });
 
-describe("mixed-layer collection", () => {
-  it("lists both layers and offers Git to neither more than it has", async () => {
+describe("mixed-extension collection", () => {
+  it("lists both extensions and offers Git to neither more than it has", async () => {
     const root = await makeRoot(TREE);
     const { system, add } = seed();
 
@@ -377,8 +380,8 @@ describe("mixed-layer collection", () => {
   });
 });
 
-describe("a layered Workspace follows its source", () => {
-  it("reconciles onto whatever the layer scans at that moment", async () => {
+describe("a composed Workspace follows its source", () => {
+  it("reconciles onto whatever the source extension scans at that moment", async () => {
     const { trees, id, add } = seed({ "dropped.md": "d", "kept.md": "first" });
     const added = await add();
 

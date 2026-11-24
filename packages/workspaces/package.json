@@ -73,13 +73,11 @@
     "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
     "ignore": "^7.0.6",
-    "simple-git": "^3.36.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@foundry/tsconfig": "workspace:*",
     "@libsql/client": "^0.18.0",
-    "@parcel/watcher": "^2.5.1",
     "@types/bun": "1.3.14",
     "@types/node": "^26.4.1",
     "@vitest/coverage-v8": "^4.1.9",
@@ -88,13 +86,9 @@
     "vitest": "^4.1.9"
   },
   "peerDependencies": {
-    "@parcel/watcher": "^2.5.1",
     "drizzle-orm": "^0.45.4"
   },
   "peerDependenciesMeta": {
-    "@parcel/watcher": {
-      "optional": true
-    },
     "drizzle-orm": {
       "optional": true
     }
