@@ -176,4 +176,40 @@ describe("Queue concurrency", () => {
       output: "StoreError",
     });
   });
+
+  test("a dispatch scan failure after submit keeps the committed job and retries on the loop", async () => {
+    const store = await sharedStore();
+    let failOnce = true;
+    const flaky: QueueStoreService = {
+      ...store,
+      listRuns: (filter) =>
+        Effect.suspend(() => {
+          if (failOnce && filter?.state === "queued") {
+            failOnce = false;
+            return Effect.fail(new StoreError({ cause: "transient scan" }));
+          }
+          return store.listRuns(filter);
+        }),
+    };
+    const result = await Effect.runPromise(
+      withQueue(flaky, {}, (queue) =>
+        Effect.gen(function* () {
+          yield* queue.register("work", () =>
+            Effect.succeed<RunOutcome>({ kind: "complete", output: "ok" })
+          );
+          const job = yield* queue.submit({ handler });
+          return yield* awaitJob(queue, job.id);
+        })
+      ).pipe(Effect.provide(TestContext.TestContext))
+    );
+    expect(result.state).toMatchObject({ kind: "complete", output: "ok" });
+  });
+
+  test("invalid defaultLimit fails queue initialization with InvalidPoolLimitError", async () => {
+    const store = await sharedStore();
+    const error = await Effect.runPromise(
+      Effect.flip(withQueue(store, { defaultLimit: 0 }, () => Effect.void))
+    );
+    expect(error._tag).toBe("InvalidPoolLimitError");
+  });
 });

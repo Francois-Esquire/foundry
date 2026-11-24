@@ -323,4 +323,80 @@ describe("Scheduler", () => {
       ["sync", "sync:3000", "suspended"],
     ]);
   });
+
+  test("a paused schedule still settles its open dispatched job without firing again", async () => {
+    const result = await testScheduler(
+      (scheduler, dispatch) =>
+        Effect.gen(function* () {
+          yield* scheduler.register({
+            cadence: every(1000),
+            id: "sync",
+            target,
+          });
+          yield* TestClock.adjust(1000);
+          yield* scheduler.pause("sync");
+          yield* TestClock.adjust(0);
+          yield* dispatch.settle("job:sync:1000", "complete");
+          yield* TestClock.adjust(1500);
+          return {
+            cursor: yield* scheduler.cursor("sync"),
+            submitted: keys(yield* Ref.get(dispatch.submitted)),
+          };
+        }),
+      { settlePollMs: 500 }
+    );
+    expect(result.submitted).toEqual(["sync:1000"]);
+    expect(result.cursor).toMatchObject({
+      lastScheduledFor: 1000,
+      lastSettledAt: 1500,
+      nextDueAt: 2000,
+    });
+    expect(result.cursor?.activeJobId).toBeUndefined();
+  });
+
+  test("a live peer claim on a once schedule stays retryable and is taken over if the peer dies", async () => {
+    const peer = { pid: 99, started: "peer" } as const;
+    let peerGone = false;
+    const result = await testScheduler(
+      (scheduler, dispatch) =>
+        Effect.gen(function* () {
+          const store = yield* ScheduleStore;
+          yield* scheduler.register({
+            cadence: { at: 1000, kind: "once" },
+            id: "launch",
+            target,
+          });
+          yield* store.claim({
+            id: "launch:1000",
+            scheduledFor: 1000,
+            scheduleId: "launch",
+            state: {
+              claimedAt: 1000,
+              kind: "claimed",
+              lease: { claimedAt: 1000, owner: peer },
+            },
+          });
+          yield* TestClock.adjust(1000);
+          const whileAlive = yield* scheduler.cursor("launch");
+          peerGone = true;
+          yield* TestClock.adjust(500);
+          return {
+            afterTakeover: yield* scheduler.cursor("launch"),
+            submitted: keys(yield* Ref.get(dispatch.submitted)),
+            whileAlive,
+          };
+        }),
+      {
+        isOwnerGone: (owner) => peerGone && owner.pid === peer.pid,
+        settlePollMs: 500,
+      }
+    );
+    expect(result.whileAlive?.nextDueAt).toBe(1000);
+    expect(result.submitted).toEqual(["launch:1000"]);
+    expect(result.afterTakeover).toMatchObject({
+      activeJobId: "job:launch:1000",
+      lastScheduledFor: 1000,
+      nextDueAt: null,
+    });
+  });
 });

@@ -180,7 +180,15 @@ export const makeDispatcher = ({
       locked(
         Effect.gen(function* () {
           const result = yield* retryOnConflict(effect);
-          yield* rearm(yield* dispatch);
+          yield* dispatch.pipe(
+            Effect.flatMap(rearm),
+            Effect.catchAll((error) =>
+              Effect.zipRight(
+                Effect.logWarning("dispatch failed after mutation", error),
+                wake.open
+              )
+            )
+          );
           return result;
         })
       );

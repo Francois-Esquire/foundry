@@ -125,9 +125,6 @@ const makeScheduler = (options: SchedulerOptions) =>
         const decided: Occurrence[] = [];
         let soonest: Instant | undefined;
         for (const schedule of yield* store.listSchedules) {
-          if (schedule.state !== "active") {
-            continue;
-          }
           const result = yield* evaluate(schedule, now).pipe(
             Effect.catchAll((error) => recover(error, now))
           );

@@ -240,6 +240,46 @@ describe("workflowHandler", () => {
     expect(result.runs).toHaveLength(1);
   });
 
+  test("a step returning a cyclic plain object bails with not-json instead of overflowing", async () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const result = await withDurableQueue((queue) =>
+        Effect.gen(function* () {
+          yield* queue.register(
+            "pipeline",
+            workflowHandler(() =>
+              Workflow.create<null, unknown>({
+                execute: async () => {
+                  const cycle: Record<string, unknown> = {};
+                  cycle.self = cycle;
+                  return cycle;
+                },
+                input: null,
+                name: "cyclic",
+              })
+            )
+          );
+          const job = yield* queue.submit({
+            handler,
+            policy: { retry: { maxAttempts: 3 } },
+          });
+          return {
+            job: yield* settledJob(queue, job.id),
+            runs: yield* queue.listRuns({ jobId: job.id }),
+          };
+        })
+      );
+      expect(result.job?.state).toMatchObject({
+        error: { name: "not-json" },
+        kind: "failed",
+      });
+      expect(result.runs).toHaveLength(1);
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+
   test("a bailed workflow fails its job without retrying", async () => {
     const result = await withDurableQueue((queue) =>
       Effect.gen(function* () {

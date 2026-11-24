@@ -32,6 +32,7 @@ export type Commit = (
 ) => Effect.Effect<void, ScheduleError>;
 
 interface Progress {
+  readonly contended?: boolean;
   readonly cursor: ScheduleCursor;
   readonly decided: readonly Occurrence[];
   readonly facts: readonly Fact[];
@@ -162,30 +163,37 @@ export const makeEvaluator = ({
       } satisfies Progress;
     });
 
-  const claim = (occurrence: Occurrence) =>
+  type ClaimResult = "claimed" | "decided" | "held-by-peer";
+
+  const claim = (
+    occurrence: Occurrence
+  ): Effect.Effect<ClaimResult, ScheduleError> =>
     Effect.gen(function* () {
       if (yield* store.claim(occurrence)) {
-        return true;
+        return "claimed";
       }
       const existing = yield* store.getOccurrence(occurrence.id);
       if (existing?.state.kind !== "claimed") {
-        return false;
+        return "decided";
       }
       const { owner } = existing.state.lease;
       if (sameProcess(owner, self)) {
-        return true;
+        return "claimed";
       }
-      return (
-        (yield* Effect.sync(() => isOwnerGone(owner))) &&
-        (yield* store.claim(occurrence, existing))
-      );
+      if (!(yield* Effect.sync(() => isOwnerGone(owner)))) {
+        return "held-by-peer";
+      }
+      return (yield* store.claim(occurrence, existing))
+        ? "claimed"
+        : "held-by-peer";
     });
 
   const fire = (
     schedule: Schedule,
     progress: Progress,
     scheduledFor: Instant,
-    now: Instant
+    now: Instant,
+    retryCursor?: ScheduleCursor
   ) =>
     Effect.gen(function* () {
       const base = occurrenceAt(schedule.id, scheduledFor);
@@ -198,8 +206,21 @@ export const makeEvaluator = ({
         },
       };
       const cursor = { ...progress.cursor, lastScheduledFor: scheduledFor };
-      if (!(yield* claim(claimed))) {
+      const outcome = yield* claim(claimed);
+      if (outcome !== "claimed") {
         const taken = skipped(base, "already-claimed", now);
+        if (outcome === "held-by-peer") {
+          return {
+            ...record(
+              progress,
+              retryCursor ?? progress.cursor,
+              taken,
+              [skippedFact(taken)],
+              false
+            ),
+            contended: true,
+          };
+        }
         return record(progress, cursor, taken, [skippedFact(taken)], false);
       }
       const claimedFact: Fact = {
@@ -242,15 +263,17 @@ export const makeEvaluator = ({
       );
     });
 
-  const save = (before: ScheduleCursor, progress: Progress, now: Instant) =>
-    progress.writes.length === 0 &&
-    progress.facts.length === 0 &&
-    sameJson(before, progress.cursor)
+  const save = (before: ScheduleCursor, progress: Progress, now: Instant) => {
+    const cursorChanged = !sameJson(before, progress.cursor);
+    return progress.writes.length === 0 &&
+      progress.facts.length === 0 &&
+      !cursorChanged
       ? Effect.void
       : commit(now, progress.facts, {
-          cursors: [progress.cursor],
+          ...(cursorChanged ? { cursors: [progress.cursor] } : {}),
           occurrences: progress.writes,
         });
+  };
 
   const advance = (
     schedule: Schedule,
@@ -280,9 +303,17 @@ export const makeEvaluator = ({
       facts: [...progress.facts, ...missed.map(skippedFact)],
       writes: [...progress.writes, ...missed],
     };
-    return due.toFire === null
-      ? Effect.succeed(advanced)
-      : fire(schedule, advanced, due.toFire, now);
+    if (due.toFire === null) {
+      return Effect.succeed(advanced);
+    }
+    const pending: ScheduleCursor = {
+      ...progress.cursor,
+      ...(due.skipped.length > 0
+        ? { lastScheduledFor: due.skipped.at(-1) }
+        : {}),
+      nextDueAt: due.toFire,
+    };
+    return fire(schedule, advanced, due.toFire, now, pending);
   };
 
   const evaluate = (schedule: Schedule, now: Instant) =>
@@ -295,16 +326,21 @@ export const makeEvaluator = ({
           open: false,
         } satisfies Evaluation;
       }
-      const progress = yield* advance(
-        schedule,
-        yield* refresh(cursor, now),
-        now
-      );
+      const refreshed: Progress = yield* refresh(cursor, now);
+      const progress: Progress =
+        schedule.state === "active"
+          ? yield* advance(schedule, refreshed, now)
+          : refreshed;
       yield* save(cursor, progress, now);
       return {
         decided: progress.decided,
-        nextDueAt: progress.cursor.nextDueAt,
-        open: progress.cursor.activeJobId !== undefined,
+        nextDueAt:
+          schedule.state === "active" && !progress.contended
+            ? progress.cursor.nextDueAt
+            : null,
+        open:
+          progress.cursor.activeJobId !== undefined ||
+          progress.contended === true,
       } satisfies Evaluation;
     });
 

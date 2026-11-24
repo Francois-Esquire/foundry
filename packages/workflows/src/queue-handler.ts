@@ -65,18 +65,27 @@ const SETTLED: ReadonlySet<StepSnapshot["status"]> = new Set([
   "skipped",
 ]);
 
-const pruned = (value: unknown): unknown => {
+const pruned = (value: unknown, seen = new Set<object>()): unknown => {
+  if (typeof value !== "object" || value === null || seen.has(value)) {
+    return value;
+  }
   if (Array.isArray(value)) {
-    return value.map(pruned);
+    seen.add(value);
+    const result = value.map((item) => pruned(item, seen));
+    seen.delete(value);
+    return result;
   }
   if (!isPlainRecord(value)) {
     return value;
   }
-  return Object.fromEntries(
+  seen.add(value);
+  const result = Object.fromEntries(
     Object.entries(value).flatMap(([key, field]) =>
-      field === undefined ? [] : [[key, pruned(field)]]
+      field === undefined ? [] : [[key, pruned(field, seen)]]
     )
   );
+  seen.delete(value);
+  return result;
 };
 
 class NotJsonError extends Data.TaggedError("NotJsonError")<{

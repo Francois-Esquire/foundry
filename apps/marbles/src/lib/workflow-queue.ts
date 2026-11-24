@@ -244,10 +244,16 @@ export class WorkflowQueue {
       }
     };
     withdrawn();
+    if (this.#held.has(runId)) {
+      throw new Error(`Run ${runId} already exists`);
+    }
     const stored = storableJson(`the input of run ${runId}`, input ?? null);
     const definition = this.#definition(name);
     await definition.registered;
     const workflow = await definition.open(input, runId);
+    if (this.#held.has(runId)) {
+      throw new Error(`Run ${runId} already exists`);
+    }
     const live = this.#hold(runId, definition, workflow);
     try {
       withdrawn();
@@ -409,6 +415,14 @@ export class WorkflowQueue {
     }
     this.forget(run.id);
     const { settled, workflow } = held;
+    if (event.type === "run.failed" || event.type === "run.interrupted") {
+      const outcome = outcomeOf(run);
+      if (!TERMINAL.has(workflow.status)) {
+        workflow.abort(outcome.status === "failed" ? outcome.error : undefined);
+      }
+      settled.resolve(outcome);
+      return;
+    }
     if (TERMINAL.has(workflow.status)) {
       workflow.result().then(settled.resolve, settled.reject);
       return;

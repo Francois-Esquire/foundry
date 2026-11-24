@@ -75,17 +75,22 @@ const makeQueue = (options: QueueOptions) =>
     const self = options.identity ?? thisProcess();
     const ledger = makeLedger(store, hub);
     const { commit, requireJob, requireRun, requireSuspension } = ledger;
-    const capacity = new Capacity(options.defaultLimit ?? 1, self);
-    const handlers = new Map<string, RunHandler>();
-    const settlement = makeSettlement(ledger, self);
-    const recovery = makeRecovery(ledger, settlement, capacity, self);
-
     const checkPool = (pool: ConcurrencyPool) =>
       validLimit(pool.limit)
         ? Effect.succeed(pool)
         : Effect.fail(
             new InvalidPoolLimitError({ limit: pool.limit, pool: pool.name })
           );
+
+    const defaultPool = yield* checkPool({
+      limit: options.defaultLimit ?? 1,
+      name: DEFAULT_POOL,
+      state: "active",
+    });
+    const capacity = new Capacity(defaultPool.limit, self);
+    const handlers = new Map<string, RunHandler>();
+    const settlement = makeSettlement(ledger, self);
+    const recovery = makeRecovery(ledger, settlement, capacity, self);
 
     for (const pool of [
       ...(yield* store.listPools),
