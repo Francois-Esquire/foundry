@@ -1,15 +1,12 @@
 import { join } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
 import { expect, it } from "vitest";
 import { step } from "~/authoring/builder";
-import { MemoryExecutionStore } from "~/lib/execution-store";
-import { type ExecutionRun, Executions } from "~/lib/executions";
+import type { ExecutionRun } from "~/lib/executions";
 import {
   blockingTask,
   executionFixture,
   exitedPid,
   leftBehind,
-  orphan,
   seedExecution,
   storedExecution,
   until,
@@ -18,7 +15,6 @@ import {
 
 const fixture = executionFixture();
 const engineWith = fixture.engine;
-const NOT_TAKEN_OVER = /not taken over/;
 
 it("marks what an exited process was running interrupted, and admits its queue again in order", async () => {
   const state = join(fixture.root, "state");
@@ -29,12 +25,10 @@ it("marks what an exited process was running interrupted, and admits its queue a
     { id: "rn-save-2", input: { n: 2 } },
     { id: "rn-save-3", input: { n: 3 } },
   ]);
-  await leftBehind(state, process.ppid, [
-    { id: "rn-live", input: { n: 9 }, sequence: 1 },
-  ]);
+  await leftBehind(state, process.ppid, [{ id: "rn-live", input: { n: 9 } }]);
 
   const order: number[] = [];
-  const engine = engineWith({ recoverQueued: true, state });
+  const engine = engineWith({ state });
   engine.task<{ n: number }, number>({
     name: "save",
     queue: "system",
@@ -51,7 +45,6 @@ it("marks what an exited process was running interrupted, and admits its queue a
   expect(order).toEqual([1, 2, 3, 4]);
   expect(engine.executions.get("rn-program")).toMatchObject({
     error: { code: "interrupted" },
-    owner: thisProcess(),
     status: "interrupted",
   });
   expect(engine.executions.get("rn-live")).toMatchObject({
@@ -64,24 +57,6 @@ it("marks what an exited process was running interrupted, and admits its queue a
   expect(await storedExecution(state, "rn-program")).toMatchObject({
     status: "interrupted",
   });
-});
-
-it("leaves an exited process's queue queued and visible unless asked to recover it", async () => {
-  const state = join(fixture.root, "state");
-  await leftBehind(state, exitedPid(), [{ id: "rn-save-1", input: { n: 1 } }]);
-  let calls = 0;
-  const engine = engineWith({ state });
-  engine.task({
-    name: "save",
-    run: () => {
-      calls += 1;
-    },
-  });
-  await engine.start();
-  expect(engine.executions.get("rn-save-1")?.status).toBe("queued");
-  await engine.cancel("rn-save-1");
-  expect(engine.executions.get("rn-save-1")?.status).toBe("cancelled");
-  expect(calls).toBe(0);
 });
 
 it("keeps queued work across a stop and admits it in the next process's order", async () => {
@@ -113,7 +88,7 @@ it("keeps queued work across a stop and admits it in the next process's order", 
     }
   });
 
-  const second = engineWith({ recoverQueued: true, state });
+  const second = engineWith({ state });
   const resumed: string[] = [];
   second.task<{ label: string }, string>({
     name: "save",
@@ -129,31 +104,14 @@ it("keeps queued work across a stop and admits it in the next process's order", 
   expect(started).toEqual(["a"]);
 });
 
-it("re-admits a queued workflow under its recorded id, and trusts a settled run file over a running record", async () => {
+it("re-admits a gone process's queued workflow under its recorded id", async () => {
   const state = join(fixture.root, "state");
   const calls: string[] = [];
   step("flow").do(() => {
     calls.push("flow");
     return "ran";
   });
-  const first = engineWith({ state });
-  await first.start();
-  const finished = await first.launch<string>("flow", {});
-  await finished.result;
-  await first.dispose();
-  const dead = exitedPid();
-  const record = await storedExecution(state, finished.id);
-  if (!record) {
-    throw new Error("the run was not stored");
-  }
-  await withExecutions(state, async (store) => {
-    await seedExecution(store, {
-      ...record,
-      owner: { pid: dead, started: null },
-      status: "running",
-    });
-  });
-  await leftBehind(state, dead, [
+  await leftBehind(state, exitedPid(), [
     {
       id: "rn-flow-queued",
       input: {},
@@ -163,91 +121,33 @@ it("re-admits a queued workflow under its recorded id, and trusts a settled run 
     },
   ]);
 
-  const second = engineWith({ recoverQueued: true, state });
-  await second.start();
+  const engine = engineWith({ state });
+  await engine.start();
   await until(
-    () => second.executions.get("rn-flow-queued")?.status === "complete"
+    () => engine.executions.get("rn-flow-queued")?.status === "complete"
   );
-  expect(second.executions.get(finished.id)?.status).toBe("complete");
-  expect(calls).toEqual(["flow", "flow"]);
-  expect((await second.runs()).map((run) => run.id)).toContain(
+  expect(calls).toEqual(["flow"]);
+  expect((await engine.runs()).map((run) => run.id)).toContain(
     "rn-flow-queued"
   );
 });
 
-it.each([
-  ["suspended", "cancelled", "cancelled"],
-  ["suspended", "complete", "complete"],
-  ["suspended", "running", "interrupted"],
-  ["suspended", "suspended", "suspended"],
-  ["suspended", undefined, "suspended"],
-  ["running", "failed", "failed"],
-  ["running", "suspended", "suspended"],
-  ["running", "running", "interrupted"],
-  ["running", undefined, "interrupted"],
-] as const)(
-  "reconciles an exited process's %s workflow record with a %s Run",
-  async (status, file, expected) => {
-    const store = new MemoryExecutionStore();
-    await orphan(store, { id: "rn-left", status });
-    const executions = new Executions({ store, warn: () => undefined });
-    await executions.load();
-
-    await executions.recover({
-      fileStatus: () => file,
-      readmit: () => false,
+it("lets one of two engines taking over an exited process's queued run run it", async () => {
+  const state = join(fixture.root, "state");
+  await leftBehind(state, exitedPid(), [{ id: "rn-queued", input: {} }]);
+  const ran: string[] = [];
+  const engines = [engineWith({ state }), engineWith({ state })];
+  for (const engine of engines) {
+    engine.task({
+      name: "save",
+      queue: "system",
+      run: () => {
+        ran.push("save");
+      },
     });
-
-    expect(executions.get("rn-left")?.status).toBe(expected);
-    expect(
-      ((await store.get("rn-left"))?.value as ExecutionRun | undefined)?.status
-    ).toBe(expected);
   }
-);
-
-it("readmits a queued run only once its new owner is on disk", async () => {
-  const store = new MemoryExecutionStore();
-  await orphan(store, {
-    id: "rn-queued",
-    input: {},
-    kind: "task",
-    status: "queued",
-  });
-  const left = await store.get("rn-queued");
-  const warnings: string[] = [];
-  const executions = new Executions({
-    store,
-    warn: (line) => warnings.push(line),
-  });
-  await executions.load();
-  store.transaction = () => Promise.reject(new Error("disk full"));
-
-  const readmitted = await executions.recover({
-    readmit: () => true,
-  });
-
-  expect(readmitted).toEqual([]);
-  expect(await store.get("rn-queued")).toEqual(left);
-  expect(executions.get("rn-queued")?.owner.pid).not.toBe(process.pid);
-  expect(warnings.join("\n")).toMatch(NOT_TAKEN_OVER);
-});
-
-it("lets one of two engines taking over an exited process's queued run admit it", async () => {
-  const store = new MemoryExecutionStore();
-  await orphan(store, {
-    id: "rn-queued",
-    input: {},
-    kind: "task",
-    status: "queued",
-  });
-  const engines = [0, 1].map(
-    () => new Executions({ store, warn: () => undefined })
-  );
-  for (const executions of engines) {
-    await executions.load();
-  }
-  const readmitted = await Promise.all(
-    engines.map((executions) => executions.recover({ readmit: () => true }))
-  );
-  expect(readmitted.flat().map((run) => run.id)).toEqual(["rn-queued"]);
+  await Promise.all(engines.map((engine) => engine.start()));
+  await until(() => ran.length > 0);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(ran).toEqual(["save"]);
 });

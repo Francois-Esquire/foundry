@@ -34,7 +34,10 @@ describe("lists past what one statement binds", () => {
     const scope = basename(machine.workspace());
     const { database } = machine.database;
     const runs = new DatabaseRunStore({ database, scope });
-    const store = await runs.open(() => undefined);
+    const store = await runs.open(() => ({
+      ledger: {},
+      session: { id: "run-session" },
+    }));
     const run = { id: "rn-listed" } as const;
     await putRun(store, run.id, undefined, { step: "s" });
     const row = () =>

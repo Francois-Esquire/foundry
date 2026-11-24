@@ -1865,7 +1865,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const run = await readExecution(database.database, id, runId).catch(
       () => null
     );
-    if (run === null) {
+    if (run?.owner === undefined) {
       return;
     }
     const owner = { pid: run.owner.pid, started: run.owner.started ?? null };

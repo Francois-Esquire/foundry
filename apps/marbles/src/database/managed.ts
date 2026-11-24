@@ -35,31 +35,14 @@ import type { WorkspaceRecords } from "~/lib/events/records";
 import { RecordsGate } from "~/lib/events/records";
 import type {
   ExecutionObservation,
-  ExecutionRun,
   RetentionGap,
+  StoredAnnex,
 } from "~/lib/execution-record";
-import type {
-  ExecutionStore,
-  ExecutionView,
-  LifecycleChange,
-  StoredExecution,
-  Written,
-} from "~/lib/execution-store";
-import {
-  storedChange,
-  storedExecutionRun,
-  storedObservation,
-  storedProgress,
-  storedRetentionGap,
-} from "~/lib/execution-store";
+import type { ExecutionStore, Removal } from "~/lib/execution-store";
+import { storedObservation, storedProgress } from "~/lib/execution-store";
 import { inTurn } from "~/lib/in-turn";
 import type { RecordedScope } from "~/lib/run-scope";
-import type {
-  ClaimCondition,
-  RunFollower,
-  RunStore,
-  StoredScope,
-} from "~/lib/run-store";
+import type { RunStore, StoredScope } from "~/lib/run-store";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
@@ -588,10 +571,6 @@ class ManagedRunStore implements RunStore {
     );
   }
 
-  claim(runId: string, when: ClaimCondition): Promise<boolean> {
-    return this.#run((store) => store.claim(runId, when));
-  }
-
   close(): Promise<void> {
     this.#closing ??= this.#shutDown();
     return this.#closing;
@@ -609,22 +588,13 @@ class ManagedRunStore implements RunStore {
   }
 
   open(
-    recorded: (runId: string) => RecordedScope | undefined,
-    follows?: RunFollower
+    recorded: (runId: string) => RecordedScope | undefined
   ): Promise<QueueStoreService> {
-    return this.#run((store) => store.open(recorded, follows));
+    return this.#run((store) => store.open(recorded));
   }
 
   recorded(runId: string): Promise<StoredScope> {
     return this.#run((store) => store.recorded(runId));
-  }
-
-  release(runId?: string): Promise<void> {
-    return this.#run((store) => store.release(runId));
-  }
-
-  remove(runId: string): Promise<void> {
-    return this.#run((store) => store.remove(runId));
   }
 
   #run<T>(call: (store: DatabaseRunStore) => Promise<T>): Promise<T> {
@@ -876,7 +846,7 @@ class ManagedExecutionStore implements ExecutionStore {
     );
   }
 
-  get(id: string): Promise<StoredExecution | undefined> {
+  get(id: string): Promise<StoredAnnex | undefined> {
     return this.#run((store) => store.get(id));
   }
 
@@ -884,35 +854,15 @@ class ManagedExecutionStore implements ExecutionStore {
     return this.#run((store) => store.gaps());
   }
 
-  list(): Promise<readonly StoredExecution[]> {
+  list(): Promise<readonly StoredAnnex[]> {
     return this.#run((store) => store.list());
-  }
-
-  advise(
-    id: string,
-    change: { readonly progress: JsonValue; readonly updatedAt: string }
-  ): Promise<Written> {
-    return this.#owning(
-      change,
-      (value) => ({
-        progress: storedProgress(id, value.progress),
-        updatedAt: value.updatedAt,
-      }),
-      (store, owned) => store.advise(id, owned)
-    );
-  }
-
-  create(run: ExecutionRun): Promise<boolean> {
-    return this.#owning(run, storedExecutionRun, (store, owned) =>
-      store.create(owned)
-    );
   }
 
   observe(
     id: string,
     observation: ExecutionObservation,
     updatedAt: string
-  ): Promise<Written> {
+  ): Promise<void> {
     return this.#owning(
       observation,
       (value) => storedObservation(id, value),
@@ -920,33 +870,20 @@ class ManagedExecutionStore implements ExecutionStore {
     );
   }
 
-  transition(id: string, change: LifecycleChange): Promise<Written> {
+  progress(id: string, progress: JsonValue, updatedAt: string): Promise<void> {
     return this.#owning(
-      change,
-      (value) => storedChange(id, value),
-      (store, owned) => store.transition(id, owned)
+      progress,
+      (value) => storedProgress(id, value),
+      (store, owned) => store.progress(id, owned, updatedAt)
     );
   }
 
-  putGap(gap: RetentionGap): Promise<void> {
-    return this.#owning(gap, storedRetentionGap, (store, owned) =>
-      store.putGap(owned)
-    );
-  }
-
-  remove(id: string): Promise<void> {
-    return this.#run((store) => store.remove(id));
-  }
-
-  transaction<T>(work: (view: ExecutionView) => Promise<T>): Promise<T> {
-    return this.#run((store) => store.transaction(work));
-  }
-
-  withSource(
-    name: string,
-    source: string
-  ): Promise<StoredExecution | undefined> {
-    return this.#run((store) => store.withSource(name, source));
+  remove(
+    ids: readonly string[],
+    removals: readonly Removal[],
+    updatedAt: string
+  ): Promise<readonly RetentionGap[]> {
+    return this.#run((store) => store.remove(ids, removals, updatedAt));
   }
 
   #owning<V, T>(

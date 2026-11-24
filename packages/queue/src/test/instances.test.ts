@@ -8,6 +8,7 @@ import {
 } from "effect";
 import { describe, expect, test } from "vitest";
 import type { QueueEvent, RunOutcome } from "../domain";
+import type { QueueStoreService } from "../store/index";
 import {
   awaitJob,
   flush,
@@ -67,6 +68,45 @@ describe("Queue instances sharing a store", () => {
     expect(result.leftQueued[0]?.state).not.toHaveProperty("owner");
     expect(result.handedOn.state).toMatchObject({ output: "successor" });
     expect(result.finished.state).toMatchObject({ output: "old" });
+  });
+
+  test("refuses a removal whose runs another queue removed after it read them", async () => {
+    const store = await sharedStore();
+    const read = await Effect.runPromise(Deferred.make<void>());
+    const removed = await Effect.runPromise(Deferred.make<void>());
+    const stale: QueueStoreService = {
+      ...store,
+      listSuspensions: (filter) =>
+        Effect.zipRight(
+          Effect.zipRight(
+            Deferred.succeed(read, undefined),
+            Deferred.await(removed)
+          ),
+          store.listSuspensions(filter)
+        ),
+    };
+    const result = await inTestClock(
+      withQueue(store, {}, (first) =>
+        withQueue(stale, {}, (second) =>
+          Effect.gen(function* () {
+            yield* first.register("work", () =>
+              Effect.succeed(complete("done"))
+            );
+            const job = yield* first.submit({ handler });
+            yield* awaitJob(first, job.id);
+            const late = yield* Effect.fork(
+              Effect.either(second.removeJob(job.id))
+            );
+            yield* Deferred.await(read);
+            yield* first.removeJob(job.id);
+            yield* Deferred.succeed(removed, undefined);
+            const outcome = yield* Fiber.join(late);
+            return outcome._tag === "Left" ? outcome.left._tag : "removed";
+          })
+        )
+      )
+    );
+    expect(result).toBe("JobNotFoundError");
   });
 
   test("retry and resumed runs are left unowned for any live queue to pick up", async () => {

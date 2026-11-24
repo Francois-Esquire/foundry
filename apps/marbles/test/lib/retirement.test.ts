@@ -105,7 +105,9 @@ describe("an engine that has begun to retire", () => {
     observing.resolve();
     await (await retiring).ended;
     await engine.resume(run.id, "paused");
-    expect(engine.executions.get(run.id)?.status).toBe("suspended");
+    await vi.waitFor(() =>
+      expect(engine.executions.get(run.id)?.status).toBe("queued")
+    );
     await vi.waitFor(async () =>
       expect(
         (await engine.runs()).find((each) => each.id === run.id)?.status
@@ -286,7 +288,7 @@ describe("an engine that has begun to retire", () => {
     });
   });
 
-  it("runs a child a cancelled task launches before its body returns", async () => {
+  it("refuses a child a cancelled task launches before its body returns, since the run no longer runs", async () => {
     const engine = engineHere();
     const launched = Promise.withResolvers<unknown>();
     engine.task({ name: "child", queue: "child", run: () => 42 });
@@ -308,7 +310,9 @@ describe("an engine that has begun to retire", () => {
     parent.result.catch(() => undefined);
     const { ended } = await engine.retire(successor());
     await engine.cancel(parent.id);
-    expect(await launched.promise).toBe(42);
+    expect(await launched.promise).toBe(
+      "EngineRetiringError: child was not launched: this engine is retiring; launch it on the next engine generation"
+    );
     await ended;
   });
 

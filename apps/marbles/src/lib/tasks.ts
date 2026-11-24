@@ -14,7 +14,6 @@ export interface TaskContext {
   readonly agents: Agents;
   observe(observation: TaskObservation): Promise<boolean>;
   progress(value: JsonValue): void;
-  release(): void;
   readonly run: ExecutionRun;
   sandbox(container: Container): SandboxHandle;
   readonly signal: AbortSignal;

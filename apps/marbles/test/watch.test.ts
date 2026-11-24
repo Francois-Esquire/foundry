@@ -6,10 +6,8 @@ import { thisProcess } from "@foundry/lib/process-identity";
 import { expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { watchRun } from "~/cli/watch";
-import { DatabaseExecutionStore } from "~/database/executions";
 import { initializeDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
-import type { ExecutionRun } from "~/lib/execution-record";
 import {
   type OutputRecord,
   type RunHolding,
@@ -20,6 +18,7 @@ import {
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { cliArgs } from "./helpers/cli";
 import { testEngine } from "./helpers/engine";
+import { type SeededRun, seedExecution } from "./helpers/executions";
 import { testHome } from "./helpers/home";
 
 it("replays existing output, follows live text, and waits for completion", async () => {
@@ -253,27 +252,22 @@ function startLine(owner: { pid: number; started: string | null }): string {
 
 async function storedRun(
   root: string,
-  record: Pick<ExecutionRun, "owner" | "status"> & Partial<ExecutionRun>
+  record: Pick<SeededRun, "owner" | "status"> & Partial<SeededRun>
 ) {
   const opened = await initializeDatabase(stateDatabase(root));
-  await new DatabaseExecutionStore({
-    database: opened.database,
-    scope: "workspace",
-  }).create({
-    correlation: {},
-    id: "rn-test",
-    kind: "workflow",
-    name: "held",
-    observations: [],
-    queue: "marbles",
-    revision: 1,
-    sequence: 1,
-    timestamps: {
-      queuedAt: "2026-11-01T09:00:00.000Z",
-      updatedAt: "2026-11-01T09:00:00.000Z",
-    },
-    ...record,
-  });
+  await seedExecution(
+    { database: opened.database, scope: "workspace" },
+    {
+      id: "rn-test",
+      kind: "workflow",
+      name: "held",
+      timestamps: {
+        queuedAt: "2026-11-01T09:00:00.000Z",
+        updatedAt: "2026-11-01T09:00:00.000Z",
+      },
+      ...record,
+    }
+  );
   return opened;
 }
 

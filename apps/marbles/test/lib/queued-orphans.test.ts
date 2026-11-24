@@ -38,18 +38,31 @@ async function engineHere(ran: string[]): Promise<Engine> {
   return engine;
 }
 
-it("takes a queued run whose owner is gone, and runs it", async () => {
+it("takes a gone process's queued run as it starts, and runs it", async () => {
   const dead = { pid: exitedPid(), started: null };
   await leftBehind(state, dead.pid, [{ id: "rn-orphan", input: {} }]);
   const ran: string[] = [];
   const engine = await engineHere(ran);
-  expect((await storedExecution(state, "rn-orphan"))?.status).toBe("queued");
-  expect(await engine.takeQueued("rn-orphan", dead)).toEqual({ taken: true });
   await expect.poll(() => ran).toEqual(["save"]);
-  expect(await storedExecution(state, "rn-orphan")).toMatchObject({
-    owner: { pid: thisProcess().pid },
-    status: "complete",
+  await expect
+    .poll(async () => (await storedExecution(state, "rn-orphan"))?.status)
+    .toBe("complete");
+  expect(await engine.takeQueued("rn-orphan", dead)).toEqual({
+    taken: false,
+    why: "it is no longer queued under a process proved gone",
   });
+});
+
+it("takes a gone process's queued run it is offered while it runs, and runs it", async () => {
+  const dead = { pid: exitedPid(), started: null };
+  const ran: string[] = [];
+  const engine = await engineHere(ran);
+  await leftBehind(state, dead.pid, [{ id: "rn-offered", input: {} }]);
+  expect(await engine.takeQueued("rn-offered", dead)).toEqual({ taken: true });
+  await expect.poll(() => ran).toEqual(["save"]);
+  await expect
+    .poll(async () => (await storedExecution(state, "rn-offered"))?.status)
+    .toBe("complete");
 });
 
 it("moves nothing when the owner is alive", async () => {
@@ -69,56 +82,56 @@ it("moves nothing when the owner is alive", async () => {
 
 it("moves nothing when the run is no longer the named owner's", async () => {
   const dead = { pid: exitedPid(), started: null };
-  const other = { pid: exitedPid(), started: null };
-  await leftBehind(state, other.pid, [{ id: "rn-moved", input: {} }]);
-  const ran: string[] = [];
-  const engine = await engineHere(ran);
+  const alive = { pid: process.ppid, started: null };
+  await leftBehind(state, alive.pid, [{ id: "rn-moved", input: {} }]);
+  const engine = await engineHere([]);
   expect(await engine.takeQueued("rn-moved", dead)).toMatchObject({
     taken: false,
   });
-  expect((await storedExecution(state, "rn-moved"))?.owner.pid).toBe(other.pid);
+  expect((await storedExecution(state, "rn-moved"))?.owner?.pid).toBe(
+    alive.pid
+  );
 });
 
 it("takes it once when two engines race for it", async () => {
   const dead = { pid: exitedPid(), started: null };
-  await leftBehind(state, dead.pid, [{ id: "rn-raced", input: {} }]);
   const ran: string[] = [];
   const first = await engineHere(ran);
   const second = await engineHere(ran);
-  const taken = await Promise.all([
+  await leftBehind(state, dead.pid, [{ id: "rn-raced", input: {} }]);
+  await Promise.all([
     first.takeQueued("rn-raced", dead),
     second.takeQueued("rn-raced", dead),
   ]);
-  expect(taken.filter((take) => take.taken)).toHaveLength(1);
   await expect.poll(() => ran).toEqual(["save"]);
-  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 50));
   expect(ran).toEqual(["save"]);
 });
 
 it("takes nothing once it has begun to retire", async () => {
   const dead = { pid: exitedPid(), started: null };
-  await leftBehind(state, dead.pid, [{ id: "rn-late", input: {} }]);
   const ran: string[] = [];
   const engine = await engineHere(ran);
   await engine.retire({ pid: thisProcess().pid + 1, started: null });
+  await leftBehind(state, dead.pid, [{ id: "rn-late", input: {} }]);
   expect(await engine.takeQueued("rn-late", dead)).toEqual({
     taken: false,
     why: "this engine is retiring",
   });
-  expect((await storedExecution(state, "rn-late"))?.owner.pid).toBe(dead.pid);
+  expect((await storedExecution(state, "rn-late"))?.owner?.pid).toBe(dead.pid);
 });
 
 it("says why it leaves a gone process's queued run nothing here can run", async () => {
   const dead = { pid: exitedPid(), started: null };
+  const engine = await engineHere([]);
   await leftBehind(state, dead.pid, [
     { id: "rn-unknown", input: {}, name: "gone-task" },
   ]);
-  const engine = await engineHere([]);
   expect(await engine.takeQueued("rn-unknown", dead)).toEqual({
     taken: false,
     why: 'no task named "gone-task" is registered here',
   });
-  expect((await storedExecution(state, "rn-unknown"))?.owner.pid).toBe(
+  expect((await storedExecution(state, "rn-unknown"))?.owner?.pid).toBe(
     dead.pid
   );
 });

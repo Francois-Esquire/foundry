@@ -38,7 +38,8 @@ when the run is cancelled, times out, or is drained. On resume,
 `StaleSuspensionRevisionError` when the suspension has moved on. `removeJob`
 deletes a settled job with its runs and suspensions in one commit, records
 `job.removed` with the job and its run ids, and fails with
-`JobNotSettledError` while the job is open. `awaitJob(jobId)` returns the
+`JobNotSettledError` while the job is open and `JobNotFoundError` once
+another queue removed it first. `awaitJob(jobId)` returns the
 job once it is complete, failed, or cancelled, whichever queue settled it;
 it fails with `JobNotFoundError` for an unknown job and `JobRemovedError`
 when the job is removed while awaited.

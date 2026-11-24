@@ -1,11 +1,12 @@
+import { AsyncResource } from "node:async_hooks";
 import type { WorkflowResult } from "@foundry/workflows/workflow";
 import type { Executions } from "~/lib/executions";
 import type { FeedRouter } from "~/lib/feed/route";
 import type { DispatchedRun } from "~/lib/launcher";
 import { observeSteps } from "~/lib/observe";
+import type { HeldWorkflow, RunQueue } from "~/lib/run-queue";
 import type { RunScopes } from "~/lib/run-scope";
 import { RunOutput } from "~/lib/state/output";
-import type { HeldWorkflow, WorkflowQueue } from "~/lib/workflow-queue";
 
 export class RunEndedError extends Error {
   override readonly name = "RunEndedError";
@@ -31,6 +32,7 @@ interface Opened {
 }
 
 interface Followed {
+  readonly context: AsyncResource;
   ended?: WorkflowResult<unknown>;
   finalized?: Promise<unknown>;
   idle: boolean;
@@ -47,12 +49,9 @@ export interface TrackedRun {
 }
 
 export interface HeldRunsOptions {
-  readonly executions: Pick<
-    Executions,
-    "get" | "progress" | "resume" | "suspend"
-  >;
+  readonly executions: Pick<Executions, "progress">;
   readonly print: (line: string) => void;
-  readonly queue: WorkflowQueue;
+  readonly queue: RunQueue;
   readonly router: FeedRouter;
   readonly scopes: RunScopes;
   readonly state: string | undefined;
@@ -64,12 +63,10 @@ export class HeldRuns {
 
   constructor(options: HeldRunsOptions) {
     this.#options = options;
-    const { executions, queue } = options;
-    queue.on("suspended", (runId) => {
+    options.queue.on("suspended", (runId) => {
       const followed = this.#followed.get(runId);
       if (followed !== undefined) {
         followed.idle = true;
-        executions.suspend(runId);
       }
     });
   }
@@ -90,7 +87,13 @@ export class HeldRuns {
     if (this.#followed.has(runId)) {
       throw new Error(`Run ${runId} already exists`);
     }
-    const followed: Followed = { idle: false, name, observations: [], runId };
+    const followed: Followed = {
+      context: new AsyncResource("marbles.run"),
+      idle: false,
+      name,
+      observations: [],
+      runId,
+    };
     this.#followed.set(runId, followed);
     const attached = this.#options.queue.attached(runId);
     if (attached !== undefined) {
@@ -115,14 +118,23 @@ export class HeldRuns {
     this.#stopObserving(followed);
     followed.idle = false;
     followed.last = workflow;
-    const { executions, print } = this.#options;
-    if (executions.get(runId)?.status === "suspended") {
-      executions.resume(runId);
-    }
-    const { output, routed } = this.#opened(followed);
-    const { name } = followed;
     const controller = new AbortController();
-    const done = observeSteps(name, workflow, {
+    const done = followed.context.runInAsyncScope(() =>
+      this.#observe(followed, workflow, controller.signal)
+    );
+    done.catch(() => undefined);
+    followed.observations.push({ controller, done });
+  }
+
+  #observe(
+    followed: Followed,
+    workflow: HeldWorkflow,
+    signal: AbortSignal
+  ): Promise<void> {
+    const { executions, print } = this.#options;
+    const { output, routed } = this.#opened(followed);
+    const { name, runId } = followed;
+    return observeSteps(name, workflow, {
       onEvent: (event) => {
         routed.onEvent(event);
         if (STEP_LIFECYCLE.has(event._tag)) {
@@ -133,11 +145,9 @@ export class HeldRuns {
         }
       },
       print,
-      signal: controller.signal,
+      signal,
       write: (text, chunk) => output.text(text, chunk),
     });
-    done.catch(() => undefined);
-    followed.observations.push({ controller, done });
   }
 
   async settle(): Promise<void> {
@@ -174,7 +184,6 @@ export class HeldRuns {
   }
 
   #start(followed: Followed): DispatchedRun {
-    const { queue } = this.#options;
     const { output } = this.#opened(followed);
     const result = output.follow(
       this.#complete(followed),
@@ -182,19 +191,7 @@ export class HeldRuns {
     );
     followed.finalized = result;
     result.catch(() => undefined);
-    return {
-      cancel: async () => {
-        await queue.cancelRun(followed.runId);
-      },
-      endedAs: () => {
-        const status = followed.ended?.status;
-        if (status === "cancelled") {
-          return "cancelled";
-        }
-        return status === undefined ? undefined : "failed";
-      },
-      result,
-    };
+    return { result };
   }
 
   async #complete(followed: Followed): Promise<unknown> {

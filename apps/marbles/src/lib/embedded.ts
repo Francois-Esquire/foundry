@@ -42,11 +42,7 @@ export {
   EXECUTION_STATUSES,
   SETTLED_EXECUTION_STATUSES,
 } from "./execution-statuses";
-export type {
-  ExecutionStore,
-  ExecutionView,
-  StoredExecution,
-} from "./execution-store";
+export type { ExecutionStore } from "./execution-store";
 export { MemoryExecutionStore } from "./execution-store";
 export type {
   ExecutionObservation,

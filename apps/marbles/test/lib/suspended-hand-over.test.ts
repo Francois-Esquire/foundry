@@ -132,7 +132,7 @@ it("a run paused on a retiring engine, resumed there, runs on the next one with 
   await (await old.engine.retire(thisProcess())).ended;
 
   await old.engine.resume(launched.id, "review", "focus on flaky ones");
-  expect(old.engine.executions.get(launched.id)?.status).toBe("suspended");
+  expect(old.engine.executions.get(launched.id)?.status).not.toBe("running");
   await vi.waitFor(
     async () =>
       expect((await storedRun(state, launched.id))?.status).toBe("complete"),

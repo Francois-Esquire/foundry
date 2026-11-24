@@ -66,11 +66,17 @@ Five buckets, each importing only what sits below it:
   ledger by its place and definition, so a body that runs again gets the
   same run back. The engine owns its registry
   and is told what can run through `define`, `schedule`, `monitor`, and `task`. Every launch goes through
-  `lib/launcher.ts`, which owns queue admission, host tasks, and live runs.
-  `lib/executions.ts` owns durable execution records and retention; they
-  are kept in an `ExecutionStore` (`lib/execution-store.ts`), each change
-  written in the order it was made, and a step that reads and decides
-  across processes in one store transaction. Agent-created triggers are
+  `lib/launcher.ts`, which submits it to the engine's one run queue at
+  once, registers each host task as a queue handler, and pays each caller
+  its run's result. Concurrency is the queue's: each Marbles queue is a
+  `@foundry/queue` pool (`configure`, `queues`), so a queued run is queued
+  in `@foundry/queue` from its launch. `lib/executions.ts` (`Executions`)
+  projects the queue's Jobs and Runs into Execution Runs
+  (`executionOf` in `lib/execution-record.ts`), kept current from the
+  queue's events, and keeps only what Marbles adds to a run, its
+  observations, progress and retention gaps, in an `ExecutionStore`
+  (`lib/execution-store.ts`), each write in the order it was made.
+  Agent-created triggers are
   kept in an `AutomationStore` (`lib/automation/store.ts`) and usage facts
   in a `UsageStore` (`lib/usage-store.ts`). Agent grants are one validated
   document in a `GrantDocumentStorage` (`@foundry/lib`), deferred approvals
@@ -85,7 +91,8 @@ Five buckets, each importing only what sits below it:
   are kept in a `ProviderStore` (`lib/providers/store.ts`); the
   configuration reads it when the engine starts (`refresh`), not when it
   is built.
-  `lib/workflow-queue.ts` runs workflow Runs on `@foundry/queue` through
+  `lib/run-queue.ts` (`RunQueue`) is the engine's one `@foundry/queue`,
+  with its pools and host task handlers; it runs workflow Runs through
   `@foundry/workflows/queue-handler`. It materializes a fresh workflow for
   every attempt, from the run's checkpoint and the resolutions of its
   suspensions, and holds it only while that attempt runs (`onStart` to
@@ -121,15 +128,13 @@ Five buckets, each importing only what sits below it:
   `lib/held-runs.ts` follows workflow runs to their end: it observes each
   attempt that runs here, and settles a run when its Job settles,
   whichever engine ran its last attempt. An engine whose queue starts a
-  resumed run it does not follow takes up its Execution Run then
-  (`takeUp`), and follows it. `lib/run-store.ts` is where their Runs are
-  kept (`RunStore`, in memory by default), and `lib/run-recovery.ts` is the
-  one rule for which Runs a gone process left a starting engine closes
-  out. A suspended run needs no owner: any engine may answer it, and its
+  resumed run it does not follow follows it from then. `lib/run-store.ts`
+  is where their Runs are kept (`RunStore`, in memory by default); what a
+  gone process left is the queue's to recover (`recover`): a run it left
+  running is interrupted, one it left queued is taken over. A suspended run needs no owner: any engine may answer it, and its
   questions are open in the Feed from the engine that asked them, or from
   an askable engine that starts while the run is suspended. `lib/crash-recovery.ts` is the one entry point that puts
-  right what a crash left, run once per start after the launcher settles
-  the Execution Runs of exited processes and before the host schedules
+  right what a crash left, run once per start before the host schedules
   anything; each part's rule is its own package's or module's, and it
   only orders the calls (orphaned children, container rows, Runs,
   harness activities, artifact files), and keeps what each step did for
@@ -239,13 +244,11 @@ Five buckets, each importing only what sits below it:
   store. Shares are checked and written in one transaction
   (`associationTransaction`). Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
-  view of them a dry run reads through to. `runs.ts` is a workspace's workflow Runs: `@foundry/queue`'s
+  view of them a dry run reads through to. `runs.ts` is a workspace's run queue: `@foundry/queue`'s
   `SqliteQueueStore` scoped by the workspace id, whose `onCommit` hook
-  files beside each Run it puts Marbles' row in `marbles_workflow_runs`,
-  what the run's scope recorded and the engine that last wrote it, so a
-  later attempt in another process opens its scope from it; a claim on a
-  Run, which closing out a gone process's Run takes, is a transaction on
-  that row, not a lock file. Each run's output stays
+  files beside each workflow Run it puts Marbles' row in
+  `marbles_workflow_runs`, what the run's scope recorded, so a later
+  attempt in another process opens its scope from it. Each run's output stays
   a log file on disk, `<state>/<id>/output/<run>.jsonl`. `triggers.ts`
   is a workspace's trigger state: each monitor's state by the trigger's
   key (`marbles_monitor_states`), and `@foundry/scheduling`'s
@@ -253,15 +256,15 @@ Five buckets, each importing only what sits below it:
   claims keep two schedulers from dispatching one due time twice; its
   readers (`storedSchedules`) derive each schedule's last outcome and
   running owner from its latest occurrence and that run's Execution Run.
-  `executions.ts` is a workspace's Execution Runs: each record a row of
-  `marbles_executions`, its lifecycle changed only from a status the
-  change allows and by the owner it names, and its progress patched only
-  while it is unsettled (`ExecutionStore`); each
-  observation a row of `marbles_execution_observations`, so recording one
-  costs the same however many its run has; and what pruning removed,
-  `marbles_execution_gaps`. The run store's `onCommit` hook writes a
-  workflow's Execution Run there too when its Run suspends or resumes, so the
-  two land together. `automations.ts` is the triggers agents created, one
+  `executions.ts` is what Marbles adds to a workspace's Execution Runs
+  (`ExecutionStore`): each run's progress and revision a row of
+  `marbles_executions`; each observation a row of
+  `marbles_execution_observations`, so recording one costs the same however
+  many its run has; and what pruning removed, `marbles_execution_gaps`,
+  counted in the transaction that removes the rows. Its readers
+  (`readExecution`, `queuedRuns`) project a run from the queue's tables.
+  The run store's `onCommit` hook deletes a removed job's rows in the
+  commit that records `job.removed`. `automations.ts` is the triggers agents created, one
   row of `marbles_automations` each, an edit a transaction that reads
   first; `usage.ts` is each agent turn's usage fact, a row of
   `marbles_usage_facts` by turn. `grants.ts`, `approvals.ts` and
@@ -396,9 +399,9 @@ Five buckets, each importing only what sits below it:
   previous one is told to go, and only a current generation that is not
   retiring is replaced when it exits. A suspended run is nobody's to hand
   over: any generation answers it, the resolved run is unowned in the
-  queue, and the live generation that is not retiring starts it and takes
-  up its Execution Run (`Engine.takeHanded` is the hand-over of queued
-  Execution Runs only). A retiring generation does not wait for its
+  queue, and the live generation that is not retiring starts it
+  (`Engine.takeHanded` answers for queued runs handed over only). A
+  retiring generation does not wait for its
   suspended runs. A generation that was current and died is
   replaced after a bounded backoff, and only a candidate that does not
   load has its fingerprint refused. A generation whose daemon is gone (a
@@ -414,7 +417,8 @@ Five buckets, each importing only what sits below it:
   the sweep records it exited once its pid and start prove it gone, and a
   record without a start, which proves nothing, shows in `marbles status`
   as "cannot tell". A queued run whose owner is proved gone is taken by
-  the current generation through the sweep (`Engine.takeQueued`). The fingerprint
+  the current generation as it starts, or through the sweep
+  (`Engine.takeQueued`), both the queue's `recover`. The fingerprint
   (`process/fingerprint.ts`) is taken before a generation loads: every
   file under each workspace's root, by relative path and content, and
   every file the generation reports reading outside it (`onRead` in

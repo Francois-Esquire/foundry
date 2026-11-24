@@ -1,7 +1,7 @@
 import type { ChannelEvent } from "@foundry/workflows/channels";
 import { formatLogValues } from "~/lib/log";
+import type { HeldWorkflow } from "~/lib/run-queue";
 import type { ChunkOrigin } from "~/lib/state/output";
-import type { HeldWorkflow } from "~/lib/workflow-queue";
 
 export async function observeSteps(
   name: string,

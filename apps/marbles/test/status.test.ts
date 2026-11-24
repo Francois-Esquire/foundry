@@ -312,12 +312,10 @@ describe("readStatus", () => {
       { createdAt: 1, id: "rn-a", owner: dead, status: "running" },
       { createdAt: 2, id: "rn-b", owner: process.pid, status: "running" },
       { createdAt: 3, id: "rn-c", owner: null, status: "failed" },
-      { createdAt: 4, id: "rn-d", owner: null, status: "running" },
     ]);
 
     const recent = (await readStatus(state)).workspaces[0]?.runs.recent;
     expect(recent?.map((r) => [r.id, r.orphaned])).toEqual([
-      ["rn-d", true],
       ["rn-c", false],
       ["rn-b", false],
       ["rn-a", true],

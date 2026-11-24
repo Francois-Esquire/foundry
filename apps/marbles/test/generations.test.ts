@@ -9,11 +9,13 @@ import {
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { processAlive } from "@foundry/lib/process-identity";
+import { queueRuns } from "@foundry/queue/store/tables";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readExecution } from "~/database/executions";
 import { GenerationRecords, readLiveGenerations } from "~/database/generations";
 import { readDatabase } from "~/database/open";
-import { marblesExecutions, marblesGenerations } from "~/database/tables";
+import { marblesGenerations } from "~/database/tables";
 import { readStoredSchedules } from "~/database/triggers";
 import { recordedWorkspaces, WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
@@ -306,21 +308,34 @@ async function executions(
   readonly {
     readonly id: string;
     readonly name: string;
-    readonly ownerPid: number;
+    readonly ownerPid: number | undefined;
     readonly status: string;
   }[]
 > {
   return (
-    (await readDatabase(stateDatabase(fixture.machine.state), (database) =>
-      database
-        .select({
-          id: marblesExecutions.id,
-          name: marblesExecutions.name,
-          ownerPid: marblesExecutions.ownerPid,
-          status: marblesExecutions.status,
-        })
-        .from(marblesExecutions)
-        .where(eq(marblesExecutions.scope, scope))
+    (await readDatabase(
+      stateDatabase(fixture.machine.state),
+      async (database) => {
+        const runs = await database
+          .select({ id: queueRuns.id })
+          .from(queueRuns)
+          .where(eq(queueRuns.scope, scope));
+        const found = await Promise.all(
+          runs.map((run) => readExecution(database, scope, run.id))
+        );
+        return found.flatMap((run) =>
+          run === null
+            ? []
+            : [
+                {
+                  id: run.id,
+                  name: run.name,
+                  ownerPid: run.owner?.pid,
+                  status: run.status,
+                },
+              ]
+        );
+      }
     )) ?? []
   );
 }
@@ -388,6 +403,8 @@ async function provedGeneration(
   expect(record?.state).toBe(state);
   expect(record?.started).toBe(startedAt(pid));
 }
+
+const OPEN_STATUS = /^(running|suspended)$/;
 
 describe("engine generations", () => {
   it("terminates the old generation at once when it has no runs, and new work runs on the new one", async () => {
@@ -728,10 +745,9 @@ describe("engine generations", () => {
     await vi.waitFor(
       async () => {
         const rows = await executions(fixture, fixture.summary.id);
-        expect(rows.find((row) => row.name === "late")).toMatchObject({
-          ownerPid: second,
-          status: "complete",
-        });
+        expect(rows.find((row) => row.name === "late")?.status).toBe(
+          "complete"
+        );
       },
       { interval: 200, timeout: 30_000 }
     );
@@ -1027,39 +1043,6 @@ describe("engine generations", () => {
     client.close();
   }, 150_000);
 
-  it("runs a queued run on the current generation that its retired one handed over only after the current one started", async () => {
-    const marker = join(testHome({ providers: false }).path, "fail-handover");
-    process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
-    try {
-      const fixture = await setUp({
-        daemon: {
-          generationEntry: join(
-            import.meta.dirname,
-            "helpers",
-            "generation-failing-handover.ts"
-          ),
-        },
-      });
-      const first = fixture.summary.pid ?? 0;
-      const workspace = fixture.client.workspace(fixture.summary);
-      const holding = workspace.roll("hold1");
-      await whenLogged(fixture, `hold1 ${String(first)}`);
-      await workspace.actions.launch("where", {});
-      writeFileSync(marker, "");
-      const second = await switchFrom(fixture, first, 1);
-      expect(logged(fixture)).not.toContain("where");
-      rmSync(marker);
-      await whenLogged(fixture, `where ${String(second)}`);
-      expect(logged(fixture)).not.toContain(`where ${String(first)}`);
-      open(1, fixture);
-      expect((await holding).value).toBe(first);
-      await gone(first);
-      fixture.client.close();
-    } finally {
-      delete process.env.MARBLES_TEST_FAIL_HANDOVER;
-    }
-  }, 150_000);
-
   it("waits for a retire under way when told to stop during it, closing its hosts only after the retire", async () => {
     const release = join(testHome({ providers: false }).path, "release-retire");
     process.env.MARBLES_TEST_RELEASE_RETIRE = release;
@@ -1109,18 +1092,14 @@ describe("engine generations", () => {
     const at = new Date().toISOString();
     await withExecutions(
       fixture.machine.state,
-      (store) =>
-        seedExecution(store, {
-          correlation: {},
+      (seeds) =>
+        seedExecution(seeds, {
           id: "rn-unrunnable",
           input: {},
           kind: "task",
           name: "gone-task",
-          observations: [],
           owner: { pid: exitedPid(), started: null },
           queue: "marbles",
-          revision: 1,
-          sequence: 1,
           status: "queued",
           timestamps: { queuedAt: at, updatedAt: at },
         }),
@@ -1214,9 +1193,7 @@ describe("engine generations", () => {
     }
   }, 150_000);
 
-  it("finds a queued run handed over late by the database sweep when its notice is lost", async () => {
-    const marker = join(testHome({ providers: false }).path, "fail-handover");
-    process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
+  it("runs a queued run handed over on the next generation though the notice of its hand-over is lost", async () => {
     process.env.MARBLES_TEST_DROP_HANDED = "1";
     try {
       const fixture = await setUp({
@@ -1233,51 +1210,15 @@ describe("engine generations", () => {
       const holding = workspace.roll("hold1");
       await whenLogged(fixture, `hold1 ${String(first)}`);
       await workspace.actions.launch("where", {});
-      writeFileSync(marker, "");
       const second = await switchFrom(fixture, first, 1);
-      rmSync(marker);
       await whenLogged(fixture, `where ${String(second)}`);
-      open(1, fixture);
-      expect((await holding).value).toBe(first);
-      await gone(first);
-      fixture.client.close();
-    } finally {
-      delete process.env.MARBLES_TEST_FAIL_HANDOVER;
-      delete process.env.MARBLES_TEST_DROP_HANDED;
-    }
-  }, 150_000);
-
-  it("hands a queued run over late to the generation current then, though another switch came after the one that retired it", async () => {
-    const marker = join(testHome({ providers: false }).path, "fail-handover");
-    process.env.MARBLES_TEST_FAIL_HANDOVER = marker;
-    try {
-      const fixture = await setUp({
-        daemon: {
-          generationEntry: join(
-            import.meta.dirname,
-            "helpers",
-            "generation-failing-handover.ts"
-          ),
-        },
-      });
-      const first = fixture.summary.pid ?? 0;
-      const workspace = fixture.client.workspace(fixture.summary);
-      const holding = workspace.roll("hold1");
-      await whenLogged(fixture, `hold1 ${String(first)}`);
-      await workspace.actions.launch("where", {});
-      writeFileSync(marker, "");
-      const second = await switchFrom(fixture, first, 1);
-      const third = await switchFrom(fixture, second, 2);
-      rmSync(marker);
-      await whenLogged(fixture, `where ${String(third)}`);
       expect(logged(fixture)).not.toContain(`where ${String(first)}`);
-      expect(logged(fixture)).not.toContain(`where ${String(second)}`);
       open(1, fixture);
       expect((await holding).value).toBe(first);
       await gone(first);
       fixture.client.close();
     } finally {
-      delete process.env.MARBLES_TEST_FAIL_HANDOVER;
+      delete process.env.MARBLES_TEST_DROP_HANDED;
     }
   }, 150_000);
 
@@ -1865,10 +1806,18 @@ describe("engine generations", () => {
     expect(logged(fixture)).toContain(`scheduled-answered ${String(second)}`);
     await whenLogged(fixture, `scheduled-ask ${String(second)}`);
     await vi.waitFor(
-      async () =>
+      async () => {
         expect(
-          await scheduleState(fixture, summary.id, "scheduled-ask")
-        ).toEqual({ lastStatus: null, ownerPid: second }),
+          (await scheduleState(fixture, summary.id, "scheduled-ask"))
+            ?.lastStatus
+        ).toBeNull();
+        const again = (await executions(fixture, summary.id)).filter(
+          (row) => row.name === "scheduled-ask" && row.id !== suspended
+        );
+        expect(again.map((row) => row.status)).toEqual([
+          expect.stringMatching(OPEN_STATUS),
+        ]);
+      },
       { interval: 200, timeout: 30_000 }
     );
     next.close();

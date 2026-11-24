@@ -376,10 +376,9 @@ export function dashboardSnapshot(
   const queued = (options.queued ?? [])
     .filter(
       (run) =>
-        run.status === "queued" ||
-        (run.kind === "workflow" &&
-          run.status === "running" &&
-          !dispatched.has(run.id))
+        !dispatched.has(run.id) &&
+        (run.status === "queued" ||
+          (run.kind === "workflow" && run.status === "running"))
     )
     .map((run) => queuedSnapshot(run, now))
     .reverse();

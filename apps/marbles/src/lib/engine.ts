@@ -3,11 +3,7 @@ import { basename, join } from "node:path";
 import type { SessionStore } from "@foundry/agents/store";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
-import {
-  type ProcessIdentity,
-  sameProcess,
-  thisProcess,
-} from "@foundry/lib/process-identity";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type { ModelManager } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
@@ -22,7 +18,6 @@ import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
 import type { Bindings } from "~/lib/bindings";
-import { callingRun } from "~/lib/calling-run";
 import { harnessOf } from "~/lib/cli-harnesses";
 import {
   CrashRecovery,
@@ -47,7 +42,6 @@ import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Fact, Handler, Source } from "~/lib/events/source";
 import type { ExecutionContext } from "~/lib/execution-context";
-import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import type { ExecutionStore } from "~/lib/execution-store";
 import type {
   ExecutionRun,
@@ -60,12 +54,7 @@ import type { FeedPublisher } from "~/lib/feed/publish";
 import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
-import type {
-  DispatchedRun,
-  Launched,
-  LaunchOptions,
-  QueuedTake,
-} from "~/lib/launcher";
+import type { Launched, LaunchOptions, QueuedTake } from "~/lib/launcher";
 import { Launcher } from "~/lib/launcher";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { AgentsManager } from "~/lib/managers/agents";
@@ -78,7 +67,7 @@ import { localCatalogue, WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import { QueuedWorkflows } from "~/lib/queued-workflows";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
-import { workflowStatuses } from "~/lib/run-recovery";
+import type { Factory } from "~/lib/run-queue";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
 import { RunScopes } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
@@ -97,7 +86,6 @@ import { UsageLedger, withRecovered } from "~/lib/usage";
 import type { ReconciledRun } from "~/lib/usage-evidence";
 import { UsageEvidence } from "~/lib/usage-evidence";
 import type { UsageStore } from "~/lib/usage-store";
-import type { Factory } from "~/lib/workflow-queue";
 import type { RunRecord } from "~/lib/workflow-runs";
 
 export interface EngineOptions {
@@ -124,7 +112,6 @@ export interface EngineOptions {
   readonly providers?: ProviderConfiguration;
   readonly queues?: Readonly<Record<string, QueueSettings>>;
   readonly records?: WorkspaceRecords;
-  readonly recoverQueued?: boolean;
   readonly recoveryLog?: RecoveryLog;
   readonly root: string;
   readonly runs?: RunStore;
@@ -138,8 +125,6 @@ export interface EngineOptions {
   readonly workspaces?: Catalogue;
   readonly worktrees?: string;
 }
-
-const RETIRED_POLL_MS = 250;
 
 // biome-ignore lint/performance/noBarrelFile: Preserve the existing engine error export after moving run tracking.
 export { RunEndedError } from "~/lib/held-runs";
@@ -203,7 +188,6 @@ export class Engine {
   #stopping: Promise<void> | undefined;
   #cancelStopping: (() => Promise<void>) | undefined;
   #retiring = false;
-  readonly #handed = new Set<string>();
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
   readonly #unwatchRecords: () => void;
@@ -287,7 +271,6 @@ export class Engine {
     this.#executions = new Executions({
       ...(options.queues === undefined ? {} : { queues: options.queues }),
       removed: (run) => this.#removeRun(run),
-      runs,
       store: executions,
       warn: print,
     });
@@ -297,13 +280,11 @@ export class Engine {
       context: this.context,
       executions: this.#executions,
       print,
-      recoverQueued: options.recoverQueued ?? false,
       sandbox: (container, signal) => this.sandboxes.adopt(container, signal),
       workflows: {
-        cancel: async (id) => {
-          await this.#live().cancel(id);
-        },
-        dispatch: (run, input, signal) => this.#dispatch(run, input, signal),
+        cancel: (id, reason) => this.#live().cancel(id, reason),
+        dispatch: (name, input, submit) =>
+          this.#live().dispatch(name, input, submit),
         has: (name) => this.#definitions.registered(name),
       },
     });
@@ -332,7 +313,7 @@ export class Engine {
       ...(options.activityStore ? { store: options.activityStore } : {}),
     });
     this.#recoveryLog = options.recoveryLog;
-    this.#crashRecovery = this.#recoveryOf(options, print, runs);
+    this.#crashRecovery = this.#recoveryOf(options, print);
     this.automations = new AutomationService({
       allowHttp: configuredMonitorUrl(this.#definitions.registry),
       registry: this.#definitions.registry,
@@ -381,14 +362,13 @@ export class Engine {
     });
   }
 
-  async #removeRun(run: ExecutionRun): Promise<void> {
+  #removeRun(run: ExecutionRun): void {
     if (run.kind !== "workflow") {
       return;
     }
     if (this.state !== undefined) {
       removeRunOutput(this.state, run.id);
     }
-    await this.#runs.remove(run.id);
     this.#running?.unlisted(run.id);
   }
 
@@ -456,8 +436,7 @@ export class Engine {
 
   #recoveryOf(
     options: EngineOptions,
-    print: (line: string) => void,
-    runs: RunStore
+    print: (line: string) => void
   ): CrashRecovery {
     const { containerRows } = options;
     const { spawned } = Engine.persistence(options);
@@ -468,7 +447,6 @@ export class Engine {
       containers: () => this.sandboxes.containers(),
       executions: () => this.#executions.list(),
       print,
-      runs,
       ...(spawned === undefined ? {} : { spawned }),
     });
   }
@@ -494,12 +472,9 @@ export class Engine {
     let running: QueuedWorkflows | undefined;
     try {
       await this.activities.load();
-      await this.#executions.load();
-      const store = await this.#runs.open(
-        (runId) => this.#scopes.get(runId)?.recorded(),
-        (runId, status) => this.#executions.follows(runId, status)
+      const store = await this.#runs.open((runId) =>
+        this.#scopes.get(runId)?.recorded()
       );
-      const statuses = await workflowStatuses(store, this.#executions.list());
       running = await QueuedWorkflows.open({
         askable,
         durable: this.#runs.durable,
@@ -507,6 +482,7 @@ export class Engine {
         feed,
         feedEntries: this.#feedEntries,
         follow: (runId, dispatched) => this.#launcher.follow(runId, dispatched),
+        pools: this.#executions.pools(),
         print,
         registered: (name) => this.#definitions.registered(name),
         scopes: this.#scopes,
@@ -517,21 +493,21 @@ export class Engine {
       await feed
         .cancelAbandoned()
         .catch((error: unknown) => print(`[feed] ${String(error)}`));
+      await running.queue.pause();
+      this.#executions.attach(running.queue);
+      await this.#executions.load();
       this.#running = running;
+      await this.#launcher.attach(running.queue);
       this.#definitions.registerAll(running);
       await this.#delivery.start();
       this.#phase = "started";
-      await this.#launcher.recover({
-        fileStatus: (run) =>
-          run.kind === "workflow" ? statuses.get(run.id) : undefined,
-      });
-      const recovery = await this.#crashRecovery.recover({
-        queue: running.queue,
-        store,
-      });
+      const recovery = await this.#crashRecovery.recover(
+        async () => (await this.#launcher.recover()).interrupted
+      );
       for (const runId of recovery.closed) {
         running.listed(runId);
       }
+      await running.queue.resume();
       this.#lastRecovery = recovery.report;
       await this.#recoveryLog
         ?.record(recovery.report)
@@ -542,32 +518,19 @@ export class Engine {
     } catch (error) {
       this.#phase = "failed";
       try {
-        try {
-          await this.#delivery.stop();
-          await this.#launcher.halt(true);
-          await running?.stop();
-          await this.#launcher.settled();
-        } finally {
-          for (const scope of this.#scopes) {
-            scope.abort(error);
-            await this.#scopes.settle(scope.id);
-          }
-        }
+        await this.#delivery.stop();
+        this.#executions.detach();
+        await running?.stop();
       } finally {
         this.#running = undefined;
-        await this.#runs.release().catch(() => undefined);
+        for (const scope of this.#scopes) {
+          scope.abort(error);
+          await this.#scopes.settle(scope.id);
+        }
       }
       throw error;
     }
     return this;
-  }
-
-  #dispatch(
-    run: ExecutionRun,
-    input: unknown,
-    signal: AbortSignal
-  ): Promise<DispatchedRun> {
-    return this.#live().dispatch(run, input, signal, callingRun());
   }
 
   #live(): QueuedWorkflows {
@@ -737,48 +700,19 @@ export class Engine {
     }
     this.#retiring = true;
     this.#launcher.beginRetiring();
+    try {
+      for (const runId of await this.#launcher.handOver(successor)) {
+        options.onHanded?.(runId);
+      }
+    } catch (error) {
+      this.#print(`[engine] the run queue did not retire: ${String(error)}`);
+    }
     await this.#delivery.stop({ grace: 0 }).catch((error: unknown) => {
       this.#print(
         `[engine] the delivery claim was not given up as this engine retires: ${String(error)}`
       );
     });
-    const handedLate = (late: string) => {
-      this.#handed.add(late);
-      options.onHanded?.(late);
-    };
-    for (const runId of await this.#launcher.handOver(successor, handedLate)) {
-      this.#handed.add(runId);
-    }
-    const queueRetired = this.#launcher
-      .dispatched()
-      .then(() => running.retire(successor))
-      .catch((error: unknown) =>
-        this.#print(`[engine] the run queue did not retire: ${String(error)}`)
-      );
-    const left = () =>
-      this.#executions
-        .list()
-        .some(
-          (run) =>
-            !(
-              this.#handed.has(run.id) ||
-              run.status === "suspended" ||
-              SETTLED_EXECUTION_STATUSES.has(run.status)
-            ) && sameProcess(run.owner, thisProcess())
-        );
-    const runsEnded = new Promise<void>((resolve) => {
-      const look = () => {
-        if (left()) {
-          setTimeout(look, RETIRED_POLL_MS).unref?.();
-        } else {
-          resolve();
-        }
-      };
-      look();
-    });
-    return {
-      ended: Promise.all([queueRetired, runsEnded]).then(() => undefined),
-    };
+    return { ended: this.#launcher.idle() };
   }
 
   async takeQueued(runId: string, owner: ProcessIdentity): Promise<QueuedTake> {
@@ -830,44 +764,36 @@ export class Engine {
 
   async #stop(running: QueuedWorkflows, cancel: boolean): Promise<void> {
     let cancelling = cancel;
-    let halted = false;
     let ended = false;
-    const cancelHeld = () => running.cancelHeld();
+    const cancelAll = async () => {
+      await this.#launcher.cancelPending();
+      await running.cancelHeld();
+    };
     this.#cancelStopping = async () => {
       if (cancelling || ended) {
         return;
       }
       cancelling = true;
-      this.#launcher.cancelPending();
-      if (halted) {
-        await cancelHeld();
-      }
+      await cancelAll();
     };
     try {
       if (cancel) {
-        this.#launcher.cancelPending();
+        await cancelAll();
       }
       await this.#delivery.stop();
       await this.interactions.close();
       await running.cancelQuestions();
-      await this.#launcher.halt(cancel);
-      halted = true;
       if (cancelling) {
-        await cancelHeld();
+        await cancelAll();
       }
-      await this.#executions.drained();
+      await this.#launcher.idle();
       await running.drain();
-      await this.#launcher.settled();
       await running.settle();
     } finally {
       ended = true;
-      try {
-        await running.stop();
-        await this.#executions.flush();
-        await this.#executions.retrySettlements();
-      } finally {
-        await this.#runs.release();
-      }
+      this.#executions.detach();
+      await running.stop();
+      await this.#executions.flush();
     }
   }
 
@@ -928,8 +854,6 @@ export class Engine {
     await close(() => this.triggers.close());
     await close(() => this.#automationStore.close());
     await close(() => this.#executions.flush());
-    await close(() => this.#executions.retrySettlements());
-    this.#executions.stopRetrying();
     await close(() => this.#executionStore.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());

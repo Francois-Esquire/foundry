@@ -258,10 +258,9 @@ describe("the schedule loop", { timeout: 20_000 }, () => {
     const scheduler = startScheduler(engine);
     await started.promise;
     await scheduler.stop();
-    const [occurrence] = await occurrencesOf(engine, "hold");
-    const jobId =
-      occurrence?.state.kind === "dispatched" ? occurrence.state.jobId : "";
-    expect(engine.executions.get(jobId)?.status).toBe("cancelled");
+    expect(
+      engine.executions.list().map((run) => [run.name, run.status])
+    ).toEqual([["hold", "cancelled"]]);
   });
 
   it("stops waiting for a run it started once that run is suspended, leaving it suspended", async () => {

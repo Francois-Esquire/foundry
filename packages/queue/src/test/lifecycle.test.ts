@@ -1,3 +1,4 @@
+import { thisProcess } from "@foundry/lib/process-identity";
 import { Deferred, Effect, TestClock, TestContext } from "effect";
 import { describe, expect, test } from "vitest";
 import { createQueueClient } from "../client";
@@ -382,6 +383,35 @@ describe("Queue lifecycle", () => {
       kind: "queued",
       owner: alive,
     });
+  });
+
+  test("a retiring queue starts none of the runs it hands to its own process", async () => {
+    const self = thisProcess();
+    const runs = await testQueue(
+      (queue) =>
+        Effect.gen(function* () {
+          const gate = yield* Deferred.make<void>();
+          yield* queue.register("work", (context) =>
+            context.job.input === "first"
+              ? Effect.as(Deferred.await(gate), {
+                  kind: "complete",
+                  output: null,
+                } as const)
+              : Effect.succeed({ kind: "complete", output: null } as const)
+          );
+          const first = yield* queue.submit({ handler, input: "first" });
+          const later = yield* queue.submit({ handler, input: "later" });
+          yield* queue.retire(self);
+          yield* Deferred.succeed(gate, undefined);
+          yield* awaitJob(queue, first.id);
+          yield* flush;
+          return yield* queue.listRuns({ jobId: later.id });
+        }),
+      { defaultLimit: 1 }
+    );
+    expect(runs.map((run) => run.state)).toMatchObject([
+      { kind: "queued", owner: self },
+    ]);
   });
 
   test("the promise client runs plain and Effect handlers through one register", async () => {

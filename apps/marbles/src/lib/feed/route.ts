@@ -14,10 +14,10 @@ import type {
   FeedPublisher,
   FeedSource,
 } from "~/lib/feed/publish";
-import type { Suspension, WorkflowQueue } from "~/lib/workflow-queue";
+import type { RunQueue, Suspension } from "~/lib/run-queue";
 
 type FeedQueue = Pick<
-  WorkflowQueue,
+  RunQueue,
   "cancelRun" | "on" | "resolve" | "suspension" | "suspensions"
 >;
 

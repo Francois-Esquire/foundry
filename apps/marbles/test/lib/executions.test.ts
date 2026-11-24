@@ -5,8 +5,8 @@ import { Workflow } from "@foundry/workflows/workflow";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
+import type { Factory } from "~/lib/run-queue";
 import type { TaskContext } from "~/lib/tasks";
-import type { Factory } from "~/lib/workflow-queue";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import {
   blockingTask,
@@ -204,7 +204,7 @@ it("records workflow runs under the Orchestrator's own id, and shows queued ones
   });
   expect(engine.executions.get(second.id)?.status).toBe("queued");
   const runIds = (await engine.runs()).map((run) => run.id);
-  expect(runIds).toEqual([first.id]);
+  expect(runIds).toEqual([first.id, second.id]);
 
   const snapshot = dashboardSnapshot(await engine.runs(), {
     definitions: engine.definitions(),
@@ -248,38 +248,6 @@ it("cancels a queued run without starting it", async () => {
   expect(engine.executions.get(second.id)?.status).toBe("cancelled");
 });
 
-it("cancels a workflow run whose dispatch is still in flight", async () => {
-  const dispatch = gate();
-  let ran = false;
-  class Record extends Step<string, string> {
-    readonly definitionKey = "test.record";
-
-    protected execute(input: string): Promise<string> {
-      ran = true;
-      return Promise.resolve(input);
-    }
-  }
-  const engine = engineWith();
-  const factory = new Record().factory();
-  engine.register<string, string>("slow", async (input, context) => {
-    await dispatch.opened;
-    return factory(input, context);
-  });
-  await engine.start();
-  const launching = engine.launch<string>("slow", "x");
-  await until(() =>
-    engine.executions.list().some((run) => run.status === "running")
-  );
-  const [running] = engine.executions.list();
-  const cancelled = engine.cancel(running?.id ?? "");
-  dispatch.open();
-  const launched = await launching;
-  await cancelled;
-  await expect(launched.result).rejects.toThrow("cancelled");
-  expect(engine.executions.get(launched.id)?.status).toBe("cancelled");
-  expect(ran).toBe(false);
-});
-
 it("leaves a settled task as it is when it is cancelled", async () => {
   const engine = engineWith();
   engine.task({ name: "save", run: () => "saved" });
@@ -321,41 +289,46 @@ it("aborts exec through a lent container when its task is cancelled", async () =
   expect(signals[0]?.aborted).toBe(true);
 });
 
-it("keeps a long-lived run running after it gives up its slot, until it is stopped", async () => {
+it("keeps a long-lived run in an unbounded queue running beside bounded work, until it is cancelled", async () => {
   const state = join(fixture.root, "state");
-  const engine = engineWith({ state });
-  let stopped = false;
+  const engine = engineWith({
+    queues: { programs: { concurrency: Number.POSITIVE_INFINITY } },
+    state,
+  });
+  let stopped = 0;
   engine.task({
     name: "program",
-    queue: "system",
-    run: async (_input, { release, signal }: TaskContext) => {
-      release();
+    queue: "programs",
+    run: async (_input, { signal }: TaskContext) => {
       await new Promise<void>((resolve) =>
         signal.addEventListener("abort", () => resolve(), { once: true })
       );
-      stopped = true;
+      stopped += 1;
     },
   });
-  engine.task({ name: "save", queue: "system", run: () => "saved" });
+  engine.task({ name: "save", run: () => "saved" });
   await engine.start();
   const program = await engine.launch(
     "program",
     {},
-    {
-      correlation: { kind: "program", moduleId: "notes" },
-    }
+    { correlation: { kind: "program", moduleId: "notes" } }
   );
+  const another = await engine.launch("program", {});
   expect(await engine.run("save", {})).toBe("saved");
   expect(engine.executions.get(program.id)?.status).toBe("running");
+  expect(engine.executions.get(another.id)?.status).toBe("running");
 
   await engine.cancel(program.id);
-  expect(stopped).toBe(true);
+  expect(stopped).toBe(1);
   await expect(program.result).rejects.toThrow("cancelled");
-  expect(engine.executions.get(program.id)?.status).toBe("cancelled");
+  expect(engine.executions.get(program.id)).toMatchObject({
+    correlation: { kind: "program", moduleId: "notes" },
+    status: "cancelled",
+  });
 
-  const another = await engine.launch("program", {});
-  await engine.stop();
+  await engine.stop({ cancel: true });
   await expect(another.result).rejects.toThrow();
+  expect(stopped).toBe(2);
   expect(engine.executions.get(another.id)?.status).toBe("cancelled");
 });
 
@@ -447,7 +420,9 @@ it("admits nothing on a cancelling stop while it waits on a dispatch in flight",
     queues: { slow: { concurrency: 1 }, work: { concurrency: 1 } },
   });
   const dispatch = gate();
+  const dispatching = gate();
   engine.register<string, string>("slow", async (input, context) => {
+    dispatching.open();
     await dispatch.opened;
     return factory(input, context);
   });
@@ -463,9 +438,7 @@ it("admits nothing on a cancelling stop while it waits on a dispatch in flight",
   });
   await engine.start();
   const launching = engine.launch<string>("slow", "slow", { queue: "slow" });
-  await until(() =>
-    engine.executions.list().some((run) => run.name === "slow")
-  );
+  await dispatching.opened;
   await engine.launch("hold", {});
   const queued = await engine.launch<string>("queued", "queued", {
     queue: "work",

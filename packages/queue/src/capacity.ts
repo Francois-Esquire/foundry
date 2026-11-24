@@ -58,11 +58,13 @@ export class Capacity {
   }
 
   owns(run: Run): boolean {
-    return (
-      run.state.kind === "queued" &&
-      (this.pins(run) ||
-        (run.state.owner === undefined && !this.admission.retiring))
-    );
+    if (run.state.kind !== "queued") {
+      return false;
+    }
+    if (this.admission.retiring) {
+      return run.state.owner?.instanceId === this.#self.instanceId;
+    }
+    return this.pins(run) || run.state.owner === undefined;
   }
 
   pins(run: Run): boolean {

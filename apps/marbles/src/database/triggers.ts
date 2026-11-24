@@ -150,8 +150,8 @@ interface LatestOutcome {
 
 const isoOf = (at: number) => new Date(at).toISOString();
 
-const liveOwner = (owner: ProcessIdentity): number | null =>
-  isGone(owner) ? null : owner.pid;
+const liveOwner = (owner: ProcessIdentity | undefined): number | null =>
+  owner === undefined || isGone(owner) ? null : owner.pid;
 
 async function latestOutcomeOf(
   database: StoreDatabase,

@@ -398,9 +398,12 @@ load only when those harnesses run. `@foundry.sh/marbles/statuses` exports only
 Execution Run statuses and can load in a renderer.
 
 Hosts register work with `engine.task` and launch it with `engine.launch` or
-`engine.run`. Every launch joins a named FIFO queue with configurable concurrency
-and no length limit. `engine.executions` reads and follows the runs and their
-model-turn, tool-call and host observations. Task sessions and borrowed sandbox
+`engine.run`. Every launch is a job of the engine's `@foundry/queue` from the
+moment it is launched, in a named FIFO queue (a concurrency pool) with
+configurable concurrency and no length limit; a long-lived task belongs in a
+queue of its own whose concurrency is `Infinity`, so it never holds a bounded
+one. `engine.executions` reads and follows the runs and their model-turn,
+tool-call and host observations. Task sessions and borrowed sandbox
 handles stop with the task; closing a borrowed handle leaves its container with
 its owner.
 

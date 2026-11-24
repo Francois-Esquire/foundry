@@ -5,10 +5,10 @@ import type { Launcher } from "~/lib/launcher";
 import type { QueuedWorkflows } from "~/lib/queued-workflows";
 import type { MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
+import type { Factory } from "~/lib/run-queue";
 import type { RunScopes } from "~/lib/run-scope";
 import type { TaskDefinition } from "~/lib/tasks";
 import { factoryFor } from "~/lib/tree";
-import type { Factory } from "~/lib/workflow-queue";
 
 export interface EngineDefinitionsOptions {
   readonly bindings: () => Bindings;

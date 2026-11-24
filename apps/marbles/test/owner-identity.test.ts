@@ -6,10 +6,8 @@ import {
 } from "@foundry/lib/process-identity";
 import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { afterEach, describe, expect, it } from "vitest";
-import { DatabaseRunStore } from "~/database/runs";
-import { marblesDeliveryClaims, marblesWorkflowRuns } from "~/database/tables";
+import { marblesDeliveryClaims } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
-import { ANY_STORED_RUN } from "~/lib/run-store";
 import { testHome } from "./helpers/home";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
@@ -67,28 +65,6 @@ function holders(): readonly [string, ProcessIdentity, boolean][] {
 }
 
 describe("a claim recorded by another engine", () => {
-  it("on a Run is held only while its holder, by pid and start time, is there", async () => {
-    const db = await database();
-    for (const [name, owner, held] of holders()) {
-      const runId = `rn-${name.replaceAll(" ", "-")}`;
-      await db.insert(marblesWorkflowRuns).values({
-        ledger: {},
-        literals: {},
-        ownerId: "another-engine",
-        ownerPid: owner.pid,
-        ownerStarted: owner.started,
-        runId,
-        scope: "ws",
-      });
-      const store = new DatabaseRunStore({ database: db, scope: "ws" });
-      expect([name, await store.claim(runId, ANY_STORED_RUN)]).toEqual([
-        name,
-        !held,
-      ]);
-      await store.close();
-    }
-  });
-
   it("on delivering a workspace's task changes is held only while its holder is there", async () => {
     const db = await database();
     for (const [name, owner, held] of holders()) {

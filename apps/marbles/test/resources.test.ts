@@ -21,7 +21,7 @@ import {
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { workspaceStores } from "~/database/stores";
-import { marblesChanges, marblesWorkflowRuns } from "~/database/tables";
+import { marblesChanges } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { ResourceRef } from "~/lib/resources";
 import {
@@ -280,10 +280,13 @@ describe("the resource views", () => {
     );
     const opened = await initializeDatabase(stateDatabase(state));
     try {
-      await new DatabaseRunStore({
+      const runs = await new DatabaseRunStore({
         database: opened.database,
         scope: "ws1",
-      }).remove("rn-1");
+      }).open(() => undefined);
+      await runStoreEffect(
+        runs.commit({ deleteJobs: ["jb-rn-1"], deleteRuns: ["rn-1"] })
+      );
     } finally {
       opened.close();
     }
@@ -378,7 +381,7 @@ describe("the resource views", () => {
     }
   });
 
-  it("read sessions and their tallies in a batch per owner, and the owners of shared runs once per owner", async () => {
+  it("read sessions and their tallies in a batch per owner, and the shared runs of every owner", async () => {
     const { state } = await machine();
     const opened = await initializeDatabase(stateDatabase(state));
     try {
@@ -407,30 +410,8 @@ describe("the resource views", () => {
       onTestFinished(() => {
         vi.restoreAllMocks();
       });
-      let pidReads = 0;
-      const counted = new Proxy(database, {
-        get(target, property) {
-          const value: unknown = Reflect.get(target, property, target);
-          if (property !== "select" || typeof value !== "function") {
-            return typeof value === "function" ? value.bind(target) : value;
-          }
-          return (...args: unknown[]) => {
-            const query = Reflect.apply(value, target, args) as {
-              from(table: unknown): unknown;
-            };
-            const from = query.from.bind(query);
-            query.from = (table: unknown) => {
-              if (table === marblesWorkflowRuns) {
-                pidReads += 1;
-              }
-              return from(table);
-            };
-            return query;
-          };
-        },
-      });
       const view = new ResourceView({
-        database: counted,
+        database,
         scope: { workspace: "ws1" },
         state,
       });
@@ -441,7 +422,6 @@ describe("the resource views", () => {
       expect(getSessions).toHaveBeenCalledTimes(1);
       expect(tallies).toHaveBeenCalledTimes(1);
       expect(await view.sharedRuns()).toHaveLength(20);
-      expect(pidReads).toBe(1);
     } finally {
       opened.close();
     }
@@ -543,13 +523,5 @@ async function seedRunsOn(
   for (let index = 0; index < count; index += 1) {
     const id = `rn-shared-${String(index)}`;
     await putRun(store, id, undefined, { step: "s" });
-    await database.insert(marblesWorkflowRuns).values({
-      ledger: {},
-      literals: {},
-      ownerId: null,
-      ownerPid: null,
-      runId: id,
-      scope,
-    });
   }
 }

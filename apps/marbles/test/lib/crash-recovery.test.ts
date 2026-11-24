@@ -5,10 +5,8 @@ import { join } from "node:path";
 import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import { Effect } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { CrashRecovery } from "~/lib/crash-recovery";
-import { MemoryRunStore } from "~/lib/run-store";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { testEngine } from "../helpers/engine";
 
@@ -53,15 +51,8 @@ it("reports a part that fails and goes on to the next", async () => {
     containers: () => Promise.reject(new Error("never opened")),
     executions: () => [],
     print: (line) => lines.push(line),
-    runs: new MemoryRunStore(),
   });
-  const { report } = await recovery.recover({
-    queue: { abandonRun: () => Promise.reject(new Error("never asked")) },
-    store: {
-      listJobs: () => Effect.die(new Error("never asked")),
-      listRuns: () => Effect.die(new Error("never asked")),
-    },
-  });
+  const { report } = await recovery.recover(() => Promise.resolve([]));
   expect(lines).toEqual([
     "ended: true",
     "[recovery] artifacts: failed, Error: disk is gone",

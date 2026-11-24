@@ -70,8 +70,14 @@ export const makeLedger = (
         ...change.write,
         events,
         expected: {
-          runs: (change.write.runs ?? []).map(previousRevision),
-          suspensions: (change.write.suspensions ?? []).map(previousRevision),
+          runs: [
+            ...(change.write.expected?.runs ?? []),
+            ...(change.write.runs ?? []).map(previousRevision),
+          ],
+          suspensions: [
+            ...(change.write.expected?.suspensions ?? []),
+            ...(change.write.suspensions ?? []).map(previousRevision),
+          ],
         },
       });
       yield* PubSub.publishAll(hub, events);

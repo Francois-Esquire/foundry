@@ -368,6 +368,9 @@ export const removal = (
     deleteJobs: [job.id],
     deleteRuns: runs.map((run) => run.id),
     deleteSuspensions: suspensions.map((suspension) => suspension.id),
+    expected: {
+      runs: runs.map((run) => ({ id: run.id, revision: run.revision })),
+    },
   },
 });
 

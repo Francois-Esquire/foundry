@@ -473,7 +473,7 @@ export class BackgroundRuns {
 
   #ownedHere(runId: string): boolean {
     const run = this.#engine.executions.get(runId);
-    return run === undefined || sameProcess(run.owner, thisProcess());
+    return run?.owner === undefined || sameProcess(run.owner, thisProcess());
   }
 
   async close(): Promise<void> {

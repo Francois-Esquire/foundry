@@ -1,9 +1,8 @@
 import type { Artifacts } from "@foundry/artifacts";
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import type { ConcurrencyPool, Job } from "@foundry/queue";
 import type { QueueStoreService } from "@foundry/queue/store";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import type { BaseContext } from "@foundry/workflows/executable";
-import type { ExecutionRun } from "~/lib/execution-record";
 import type { Executions } from "~/lib/executions";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedPublisher } from "~/lib/feed/publish";
@@ -13,20 +12,21 @@ import { feedRouter } from "~/lib/feed/route";
 import { HeldRuns } from "~/lib/held-runs";
 import type { DispatchedRun } from "~/lib/launcher";
 import { RunListing } from "~/lib/run-listing";
+import type { RunFactory, SubmitOptions } from "~/lib/run-queue";
+import { RunQueue } from "~/lib/run-queue";
 import type { RunScopes } from "~/lib/run-scope";
 import { PAUSE_KIND } from "~/lib/run-scope";
-import type { RunFactory } from "~/lib/workflow-queue";
-import { WorkflowQueue } from "~/lib/workflow-queue";
 import type { RunRecord } from "~/lib/workflow-runs";
 import { readRun, readRuns } from "~/lib/workflow-runs";
 
 export interface QueuedWorkflowsOptions {
   readonly askable: boolean;
   readonly durable: boolean;
-  readonly executions: Executions;
+  readonly executions: Pick<Executions, "progress">;
   readonly feed: FeedPublisher;
   readonly feedEntries: Pick<Artifacts, "get">;
   readonly follow: (runId: string, dispatched: DispatchedRun) => void;
+  readonly pools: readonly ConcurrencyPool[];
   readonly print: (line: string) => void;
   readonly registered: (name: string) => boolean;
   readonly scopes: RunScopes;
@@ -38,7 +38,7 @@ const under = (path: string, wanted: string) =>
   path === wanted || (wanted !== "" && path.startsWith(`${wanted}.`));
 
 export class QueuedWorkflows {
-  readonly queue: WorkflowQueue;
+  readonly queue: RunQueue;
   readonly store: QueueStoreService;
   readonly #held: HeldRuns;
   readonly #listing: RunListing;
@@ -59,9 +59,12 @@ export class QueuedWorkflows {
       options;
     this.#options = options;
     this.store = store;
-    this.queue = new WorkflowQueue(store, {
-      prepare: (name, runId) => this.#takeUp(name, runId),
-      started: (runId, workflow) => this.#held.attempt(runId, workflow),
+    this.queue = new RunQueue(store, {
+      attempts: {
+        prepare: (name, runId) => this.#takeUp(name, runId),
+        started: (runId, workflow) => this.#held.attempt(runId, workflow),
+      },
+      pools: options.pools,
     });
     this.#router = feedRouter({
       askable,
@@ -90,29 +93,21 @@ export class QueuedWorkflows {
   }
 
   async dispatch(
-    run: ExecutionRun,
+    name: string,
     input: unknown,
-    signal: AbortSignal,
-    parentRunId: string | undefined
-  ): Promise<DispatchedRun> {
-    const { correlation } = run;
-    const tracked = this.#held.track(run.name, run.id);
+    options: SubmitOptions
+  ): Promise<{ readonly dispatched: DispatchedRun; readonly job: Job }> {
+    const tracked = this.#held.track(name, options.runId);
+    let job: Job;
     try {
-      await this.queue.run(run.name, input, {
-        ...(parentRunId === undefined ? {} : { parentRunId }),
-        runId: run.id,
-        signal,
-        ...("triggerId" in correlation
-          ? { triggerId: correlation.triggerId }
-          : {}),
-      });
+      job = await this.queue.run(name, input, options);
     } catch (error) {
       tracked.drop();
-      await this.#options.scopes.settle(run.id);
+      await this.#options.scopes.settle(options.runId);
       throw error;
     }
-    this.#listing.add(run.id);
-    return tracked.start();
+    this.#listing.add(options.runId);
+    return { dispatched: tracked.start(), job };
   }
 
   async resume(runId: string, stepId: string, prompt?: string): Promise<void> {
@@ -136,8 +131,8 @@ export class QueuedWorkflows {
     }
   }
 
-  async cancel(runId: string): Promise<void> {
-    const cancelRun = () => this.queue.cancelRun(runId);
+  async cancel(runId: string, reason?: string): Promise<void> {
+    const cancelRun = () => this.queue.cancelRun(runId, reason);
     const record = await readRun(this.store, runId).catch(() => null);
     if (record?.status !== "suspended") {
       await cancelRun();
@@ -176,10 +171,6 @@ export class QueuedWorkflows {
     signal?: AbortSignal
   ): ReadableStream<ChannelMessage> | undefined {
     return this.#held.workflow(runId)?.root.subscribe(signal);
-  }
-
-  retire(successor: ProcessIdentity): Promise<void> {
-    return this.queue.retire(successor);
   }
 
   async cancelHeld(): Promise<void> {
@@ -240,16 +231,14 @@ export class QueuedWorkflows {
     }
   }
 
-  async #takeUp(name: string, runId: string): Promise<void> {
-    const { executions, follow, print } = this.#options;
+  #takeUp(name: string, runId: string): Promise<void> {
+    const { follow, print } = this.#options;
     if (this.#held.has(runId)) {
-      return;
-    }
-    if (!(await executions.takeUp(runId)) || this.#held.has(runId)) {
-      return;
+      return Promise.resolve();
     }
     this.#listing.add(runId);
     follow(runId, this.#held.track(name, runId).start());
     print(`[run] ${name} taken up ${runId}`);
+    return Promise.resolve();
   }
 }

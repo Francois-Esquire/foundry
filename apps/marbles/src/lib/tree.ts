@@ -15,6 +15,7 @@ import type {
 } from "./definition";
 import { isLockedNode, rootLock } from "./definition";
 import { withinContext } from "./execution-context";
+import type { RunExecution } from "./run-queue";
 import type { Frame, RunScope, RunScopes } from "./run-scope";
 import {
   current,
@@ -25,7 +26,6 @@ import {
 } from "./run-scope";
 import { parseEvery } from "./schedule";
 import { notJson, validate } from "./schema";
-import type { RunExecution } from "./workflow-queue";
 
 type Input = Readonly<Record<string, unknown>>;
 

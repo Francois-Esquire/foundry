@@ -20,7 +20,7 @@ export const NO_OWNER = {
   ownerStarted: null,
 } as const;
 
-export function rowOwner(row: {
+function rowOwner(row: {
   readonly ownerPid: number | null;
   readonly ownerStarted: string | null;
 }): ProcessIdentity | null {

@@ -17,6 +17,7 @@ import {
 import { WorkflowSnapshotSchema } from "@foundry/workflows/snapshot";
 import { Cause, Effect, Exit } from "effect";
 import { z } from "zod";
+import { isTask } from "~/lib/execution-record";
 import { storableJson } from "~/lib/state/json";
 
 const RUN_STATUSES = [
@@ -99,7 +100,7 @@ const STATUS: Readonly<Record<RunState["kind"], RunStatus>> = {
   suspended: "suspended",
 };
 
-export const runStatusOf = (state: RunState): RunStatus => STATUS[state.kind];
+const runStatusOf = (state: RunState): RunStatus => STATUS[state.kind];
 
 const errorOf = (state: RunState): RunRecord["error"] => {
   if (state.kind === "failed") {
@@ -326,7 +327,7 @@ export const readRun = (
       }
       const run = yield* store.getRun(runId);
       const job = run && (yield* store.getJob(run.jobId));
-      return run && job ? runRecordOf(job, run) : null;
+      return run && job && !isTask(job) ? runRecordOf(job, run) : null;
     })
   );
 
@@ -367,7 +368,9 @@ export const readRuns = (
       return runs
         .flatMap((run) => {
           const job = jobs.get(run.jobId);
-          return job === undefined ? [] : [runRecordOf(job, run)];
+          return job === undefined || isTask(job)
+            ? []
+            : [runRecordOf(job, run)];
         })
         .sort((a, b) => a.timestamps.createdAt - b.timestamps.createdAt);
     })

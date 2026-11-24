@@ -80,17 +80,11 @@ export const marblesWorkflowRuns = sqliteTable(
     literals: text({ mode: "json" })
       .$type<Record<string, Record<string, unknown>>>()
       .notNull(),
-    ownerId: text("owner_id"),
-    ownerPid: integer("owner_pid"),
-    ownerStarted: text("owner_started"),
     runId: text("run_id").notNull(),
     scope: text().notNull(),
     sessionId: text("session_id"),
   },
-  (table) => [
-    primaryKey({ columns: [table.scope, table.runId] }),
-    index("marbles_workflow_runs_scope_owner").on(table.scope, table.ownerId),
-  ]
+  (table) => [primaryKey({ columns: [table.scope, table.runId] })]
 );
 
 export const marblesMonitorStates = sqliteTable(
@@ -149,37 +143,13 @@ export const marblesAutomations = sqliteTable(
 export const marblesExecutions = sqliteTable(
   "marbles_executions",
   {
-    correlation: text({ mode: "json" })
-      .$type<Record<string, string>>()
-      .notNull(),
-    errorCode: text("error_code"),
-    errorMessage: text("error_message"),
     id: text().notNull(),
-    input: text(),
-    kind: text({ enum: ["workflow", "task"] }).notNull(),
-    name: text().notNull(),
-    ownerPid: integer("owner_pid").notNull(),
-    ownerStarted: text("owner_started"),
     progress: text(),
-    queue: text().notNull(),
-    queuedAt: text("queued_at").notNull(),
-    revision: integer().notNull(),
+    revision: integer().notNull().default(0),
     scope: text().notNull(),
-    sequence: integer().notNull(),
-    settledAt: text("settled_at"),
-    source: text(),
-    startedAt: text("started_at"),
-    status: text().notNull(),
     updatedAt: text("updated_at").notNull(),
   },
-  (table) => [
-    primaryKey({ columns: [table.scope, table.id] }),
-    index("marbles_executions_scope_source").on(
-      table.scope,
-      table.name,
-      table.source
-    ),
-  ]
+  (table) => [primaryKey({ columns: [table.scope, table.id] })]
 );
 
 export const marblesExecutionObservations = sqliteTable(

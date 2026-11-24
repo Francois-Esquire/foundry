@@ -2,12 +2,11 @@ import { type ProcessIdentity, startedAt } from "@foundry/lib/process-identity";
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { type Occurrence, occurrenceId } from "@foundry/scheduling";
 import { makeSqliteScheduleStore } from "@foundry/scheduling/store/sqlite";
-import { and, eq } from "drizzle-orm";
 import { openDatabase, readDatabase } from "~/database/open";
 import { readResourceView } from "~/database/resources";
 import { DatabaseRunStore } from "~/database/runs";
-import { marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
+import { ownerOfRun } from "~/lib/execution-record";
 import type { StoredScope } from "~/lib/run-store";
 import { isRunId, readRun, runStoreEffect } from "~/lib/workflow-runs";
 import { putRun } from "./queue-runs";
@@ -35,17 +34,10 @@ export async function storedRun(
       const suspensions = await runStoreEffect(
         workflows.listSuspensions({ runId })
       );
-      const [owned] = await database
-        .select({ owner: marblesWorkflowRuns.ownerPid })
-        .from(marblesWorkflowRuns)
-        .where(
-          and(
-            eq(marblesWorkflowRuns.scope, scope),
-            eq(marblesWorkflowRuns.runId, runId)
-          )
-        );
+      const stored = await runStoreEffect(workflows.getRun(runId));
+      const owner = stored && ownerOfRun(stored);
       return {
-        owner: owned?.owner ?? null,
+        owner: owner?.pid ?? null,
         recorded: await new DatabaseRunStore({ database, scope }).recorded(
           runId
         ),
@@ -79,19 +71,16 @@ export async function seedRuns(
     for (const run of runs) {
       await putRun(store, run.id, "running", {
         at: run.createdAt,
+        ...(run.owner === null
+          ? {}
+          : {
+              owner: { pid: run.owner, started: startedAt(run.owner) ?? null },
+            }),
         step: "guides",
       });
       if (run.status !== "running") {
         await putRun(store, run.id, run.status, { at: run.createdAt });
       }
-      await database.insert(marblesWorkflowRuns).values({
-        ledger: {},
-        literals: {},
-        ownerId: run.owner === null ? null : "seeded",
-        ownerPid: run.owner,
-        runId: run.id,
-        scope,
-      });
     }
   } finally {
     opened.close();

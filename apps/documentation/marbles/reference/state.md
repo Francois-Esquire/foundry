@@ -443,27 +443,25 @@ does not load leaves a working generation in place. The refused load keeps
 watching outside files the previous generation read. Restoring one of those
 files can trigger a fresh load even if the failed candidate never read it.
 Then the current generation retires: it starts no tick or delivery again,
-hands each of its queued Execution Runs to the next one in the same
-transaction that checks it is still queued and still its own, and starts
-no queued Run again but the children of its running ones. Then the next
-generation starts and lets the queued ones in. A queued agent dispatch
-reopens its saved session when the new engine starts the turn. The
-retired generation finishes its running runs untouched, on the code it
+and its run queue retires in one write that hands each of its queued runs
+to the next generation's process and refuses new top-level launches. It
+starts no queued run again but the children of its running ones. The next
+generation starts and runs the queued ones it was handed. A queued agent
+dispatch reopens its saved session when the new engine starts the turn.
+The retired generation finishes its running runs untouched, on the code it
 loaded, and exits without waiting for its suspended ones; an answer to
 one, from either generation, resumes it on the current one.
 
-A Run left queued or running by a process that died is never run again at
-start: nothing picks a run up mid-body. Its Execution Run is reconciled
-with the Run as it is stored, in a transaction of its own, so two starting
-engines never take one over twice: a Run that settled settles the record
-the same way, one left suspended keeps the record `suspended` until an
-engine resumes it, and one left running marks the record `interrupted`.
-A queued Execution Run that never became a Run stays queued, unless the
-host asks to let such runs in again (`recoverQueued`), in their original
-order. Results already committed stay
-in the database, but a step that had not finished is not resumed; `status`
-marks a Run whose owner exited while it ran as orphaned. A new launch does
-not reuse its step results.
+Every run, workflow or host task, is one job of the workspace's
+`@foundry/queue`, from the moment it is launched: queued, running,
+suspended and how it ended are what the queue recorded, and an Execution
+Run adds only what Marbles observed of it (its observations and progress).
+A run left running by a process that died is never run again: an engine
+that starts marks it `interrupted`, and one left queued is taken over and
+run in its original order. Results already committed stay in the
+database, but a step that had not ended is not resumed; `status` marks
+a Run whose owner exited while it ran as orphaned. A new launch does not
+reuse its step results.
 
 A stored record that cannot be read is skipped with a warning and costs
 only that run.
