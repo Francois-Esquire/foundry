@@ -270,6 +270,7 @@ describe("Modules boundary", () => {
 
   it("admits Drizzle only in the SQLite store and its tables", () => {
     expect(MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS).toEqual([
+      "@foundry/lib/sqlite",
       "drizzle-orm",
       "drizzle-orm/sqlite-core",
     ]);

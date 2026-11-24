@@ -1,3 +1,10 @@
+import {
+  describeNumber,
+  RecordFault,
+  storable,
+  storableNumber,
+  UNSTORABLE_TEXT,
+} from "@foundry/lib/sqlite";
 import type { z } from "zod";
 
 import { runCheckedAs } from "../execution-records";
@@ -17,29 +24,6 @@ import {
   RunRecordShapeSchema,
   SuspensionRecordSchema,
 } from "../schema";
-
-export class RecordFault extends Error {
-  override readonly name = "RecordFault";
-  readonly path: string;
-  readonly reason: string;
-
-  constructor(path: string, reason: string) {
-    super(`${path || "(record)"}: ${reason}`);
-    this.path = path;
-    this.reason = reason;
-  }
-}
-
-export function below(at: string, path: string): string {
-  if (path === "") {
-    return at;
-  }
-  return path.startsWith("[") ? `${at}${path}` : `${at}.${path}`;
-}
-
-export function storable(text: string): boolean {
-  return text.isWellFormed() && !text.includes("\u0000");
-}
 
 type FieldKind = "integer" | "json" | "optional" | "text";
 
@@ -225,8 +209,6 @@ function fieldOf(key: string, fieldKind: FieldKind, value: unknown): unknown {
   }
 }
 
-const TEXT =
-  "text holding U+0000 or a lone surrogate (not well-formed UTF-16) does not read back intact from SQLite";
 const UNDEFINED =
   "a property holding undefined does not read back from SQLite; leave the field out";
 
@@ -235,7 +217,7 @@ function textOf(path: string, value: unknown): string {
     throw new RecordFault(path, `holds ${describe(value)}, not text`);
   }
   if (!storable(value)) {
-    throw new RecordFault(path, TEXT);
+    throw new RecordFault(path, UNSTORABLE_TEXT);
   }
   return value;
 }
@@ -244,7 +226,7 @@ function integerOf(path: string, value: unknown): number {
   if (typeof value !== "number") {
     throw new RecordFault(path, `holds ${describe(value)}, not a number`);
   }
-  if (Object.is(value, -0) || !(Math.abs(value) <= Number.MAX_SAFE_INTEGER)) {
+  if (!storableNumber(value)) {
     throw new RecordFault(
       path,
       `${describeNumber(value)} does not read back intact from SQLite; it must be a number within ±Number.MAX_SAFE_INTEGER, and not -0`
@@ -351,10 +333,6 @@ function objectOf(
     defineOwnEntry(copy, key, jsonOf(keyPath(at, key), item, ancestors));
   }
   return copy;
-}
-
-function describeNumber(value: number): string {
-  return Object.is(value, -0) ? "-0" : String(value);
 }
 
 export function describe(value: unknown): string {

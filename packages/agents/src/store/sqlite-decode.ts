@@ -1,5 +1,6 @@
+import { RecordFault } from "@foundry/lib/sqlite";
 import type { SessionMessage, SessionRecord } from "../schema";
-import { keptMessage, keptSession, RecordFault } from "./sqlite-records";
+import { keptMessage, keptSession } from "./sqlite-records";
 
 export interface RawSessionRow {
   readonly createdAt: unknown;

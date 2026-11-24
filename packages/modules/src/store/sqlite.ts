@@ -1,6 +1,17 @@
 import type { ContentId } from "@foundry/artifacts";
+import {
+  type AsyncSQLiteDatabase,
+  type AsyncSQLiteTransaction,
+  assertScope,
+  batches,
+  replacing,
+  SQLITE_MAX_PARAMETERS,
+  storable,
+  storableNumber,
+  UNSTORABLE_TEXT,
+} from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import {
   and,
   asc,
@@ -10,9 +21,8 @@ import {
   inArray,
   is,
   max,
-  sql,
 } from "drizzle-orm";
-import type { BaseSQLiteDatabase, SQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 
 import type { InstallationId, ModuleId } from "../domain";
@@ -37,18 +47,9 @@ import {
   modules,
 } from "./tables";
 
-export type ModuleDatabase = BaseSQLiteDatabase<
-  "async",
-  unknown,
-  Record<string, unknown>
->;
+export type ModuleDatabase = AsyncSQLiteDatabase;
 
-export type ModuleTransaction = SQLiteTransaction<
-  "async",
-  unknown,
-  Record<string, unknown>,
-  ExtractTablesWithRelations<Record<string, unknown>>
->;
+export type ModuleTransaction = AsyncSQLiteTransaction;
 
 export interface SqliteModuleStoreOptions {
   readonly database: ModuleDatabase;
@@ -90,11 +91,7 @@ export class SqliteModuleStore implements ModuleStore {
   readonly #turns = new Turns(REENTRY);
 
   constructor(options: SqliteModuleStoreOptions) {
-    if (options.scope.length === 0 || !storable(options.scope)) {
-      throw new RangeError(
-        "scope must be a nonempty string with no U+0000 and no lone surrogate"
-      );
-    }
+    assertScope(options.scope);
     const joined = is(options.database, SQLiteTransaction);
     if (joined && options.durability === "commit") {
       throw new RangeError(
@@ -358,11 +355,14 @@ export class SqliteModuleStore implements ModuleStore {
     key: SQLiteColumn,
     keys: readonly string[]
   ): Promise<void> {
-    await inOrder(batches(keys.filter(storable), MAX_PARAMETERS - 1), (batch) =>
-      transaction
+    for (const batch of batches(
+      keys.filter(storable),
+      SQLITE_MAX_PARAMETERS - 1
+    )) {
+      await transaction
         .delete(table)
-        .where(and(eq(table.scope, this.#scope), inArray(key, batch)))
-    );
+        .where(and(eq(table.scope, this.#scope), inArray(key, batch)));
+    }
   }
 
   async #put(
@@ -378,23 +378,19 @@ export class SqliteModuleStore implements ModuleStore {
       positions.next += 1;
       return { ...record, position, scope: this.#scope };
     });
-    const replace = Object.fromEntries(
-      Object.entries(recordColumns(columns)).map(([field, column]) => [
-        field,
-        excluded(column),
-      ])
-    );
-    await inOrder(
-      batches(rows, MAX_PARAMETERS / Object.keys(columns).length),
-      (batch) =>
-        transaction
-          .insert(table)
-          .values(batch as never[])
-          .onConflictDoUpdate({
-            set: replace,
-            target: [table.scope, ...keys],
-          })
-    );
+    const replace = replacing(recordColumns(columns));
+    for (const batch of batches(
+      rows,
+      SQLITE_MAX_PARAMETERS / Object.keys(columns).length
+    )) {
+      await transaction
+        .insert(table)
+        .values(batch as never[])
+        .onConflictDoUpdate({
+          set: replace,
+          target: [table.scope, ...keys],
+        });
+    }
   }
 
   async #positions(
@@ -548,23 +544,12 @@ function unstorable(field: string, reason: string): RangeError {
   return new RangeError(`SqliteModuleStore cannot store ${field}: ${reason}`);
 }
 
-function storable(value: string): boolean {
-  return (
-    typeof value === "string" &&
-    value.isWellFormed() &&
-    !value.includes("\u0000")
-  );
-}
-
 function text<T extends string>(value: T, field: string): T {
   if (typeof value !== "string") {
     throw unstorable(field, `${describe(value)} is not text`);
   }
   if (!storable(value)) {
-    throw unstorable(
-      field,
-      "text holding U+0000 or a lone surrogate (not well-formed UTF-16) does not read back intact from SQLite"
-    );
+    throw unstorable(field, UNSTORABLE_TEXT);
   }
   return value;
 }
@@ -584,11 +569,7 @@ function instant(value: Date, field: string): string {
 }
 
 function integer(value: number, field: string): number {
-  if (
-    typeof value !== "number" ||
-    Object.is(value, -0) ||
-    !(Math.abs(value) <= Number.MAX_SAFE_INTEGER)
-  ) {
+  if (typeof value !== "number" || !storableNumber(value)) {
     throw unstorable(
       field,
       `${describe(value)} does not read back intact from SQLite; it must be a number within ±Number.MAX_SAFE_INTEGER, and not -0`
@@ -696,28 +677,4 @@ function describe(value: unknown): string {
     return `a ${value.constructor?.name ?? "object"}`;
   }
   return value === undefined ? "undefined" : `a ${typeof value}`;
-}
-
-const MAX_PARAMETERS = 32_766;
-
-function batches<T>(items: readonly T[], size: number): T[][] {
-  const length = Math.max(1, Math.floor(size));
-  const result: T[][] = [];
-  for (let start = 0; start < items.length; start += length) {
-    result.push(items.slice(start, start + length));
-  }
-  return result;
-}
-
-async function inOrder<T>(
-  items: readonly T[],
-  run: (item: T) => PromiseLike<unknown>
-): Promise<void> {
-  for (const item of items) {
-    await run(item);
-  }
-}
-
-function excluded(column: SQLiteColumn): SQL {
-  return sql.raw(`excluded."${column.name}"`);
 }

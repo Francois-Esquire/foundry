@@ -1,28 +1,25 @@
 import { ownedWrite } from "@foundry/lib/plain-json";
+import {
+  type AsyncSQLiteDatabase,
+  type AsyncSQLiteTransaction,
+  batches,
+  describeNumber,
+  replacing,
+  SQLITE_MAX_PARAMETERS,
+  storable,
+  storableNumber,
+  UNSTORABLE_TEXT,
+} from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
-import { and, eq, getTableColumns, inArray, max, sql } from "drizzle-orm";
-import type {
-  BaseSQLiteDatabase,
-  SQLiteColumn,
-  SQLiteTransaction,
-} from "drizzle-orm/sqlite-core";
+import type { SQL } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, max } from "drizzle-orm";
 import type { ContainerRow } from "../schema";
 import type { ContainerStore, ContainerStoreWrite } from "./index";
 import { sandboxContainers } from "./tables";
 
-export type ContainerDatabase = BaseSQLiteDatabase<
-  "async",
-  unknown,
-  Record<string, unknown>
->;
+export type ContainerDatabase = AsyncSQLiteDatabase;
 
-export type ContainerTransaction = SQLiteTransaction<
-  "async",
-  unknown,
-  Record<string, unknown>,
-  ExtractTablesWithRelations<Record<string, unknown>>
->;
+export type ContainerTransaction = AsyncSQLiteTransaction;
 
 export interface SqliteContainerStoreOptions {
   readonly database: ContainerDatabase;
@@ -40,9 +37,7 @@ const {
   ...rowColumns
 } = getTableColumns(sandboxContainers);
 
-const replaceRow = Object.fromEntries(
-  Object.entries(rowColumns).map(([key, column]) => [key, excluded(column)])
-);
+const replaceRow = replacing(rowColumns);
 
 const REENTRY =
   "The SQLite container store was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";
@@ -62,7 +57,7 @@ export class SqliteContainerStore implements ContainerStore {
 
   constructor(options: SqliteContainerStoreOptions) {
     const { scope } = options;
-    if (scope.length === 0 || !storableText(scope) || scope.includes(UNIT)) {
+    if (scope.length === 0 || !storable(scope) || scope.includes(UNIT)) {
       throw new RangeError(
         "scope must be a nonempty string with no U+0000, no U+001F and no lone surrogate"
       );
@@ -86,7 +81,7 @@ export class SqliteContainerStore implements ContainerStore {
       if (field !== undefined) {
         return Promise.reject(new RangeError(`${CANNOT_STORE} ${field}`));
       }
-      const deletes = (owned.deleteContainers ?? []).filter(storableText);
+      const deletes = (owned.deleteContainers ?? []).filter(storable);
       const puts = owned.putContainers ?? [];
       return this.#database.transaction(async (transaction) => {
         await this.#remove(transaction, deletes);
@@ -98,7 +93,7 @@ export class SqliteContainerStore implements ContainerStore {
 
   get(id: string): Promise<ContainerRow | undefined> {
     return this.#turns.run(async () => {
-      if (!storableText(id)) {
+      if (!storable(id)) {
         return;
       }
       const [row] = await this.#database
@@ -196,26 +191,26 @@ export class SqliteContainerStore implements ContainerStore {
         scope: this.#scope,
       })
     );
-    await inOrder(batches(stored, MAX_PARAMETERS / columns), (batch) =>
-      transaction
+    for (const batch of batches(stored, SQLITE_MAX_PARAMETERS / columns)) {
+      await transaction
         .insert(sandboxContainers)
         .values(batch)
         .onConflictDoUpdate({
           set: replaceRow,
           target: [sandboxContainers.scope, sandboxContainers.id],
-        })
-    );
+        });
+    }
   }
 
   async #remove(
     transaction: ContainerTransaction,
     ids: readonly string[]
   ): Promise<void> {
-    await inOrder(batches(ids, MAX_PARAMETERS - 1), (batch) =>
-      transaction
+    for (const batch of batches(ids, SQLITE_MAX_PARAMETERS - 1)) {
+      await transaction
         .delete(sandboxContainers)
-        .where(and(this.#inScope, inArray(sandboxContainers.id, batch)))
-    );
+        .where(and(this.#inScope, inArray(sandboxContainers.id, batch)));
+    }
   }
 }
 
@@ -252,55 +247,19 @@ const TEXT_FIELDS = ["holder", "id", "nativeId", "spec", "status"] as const;
 
 const NUMBER_FIELDS = ["createdAt", "updatedAt"] as const;
 
-function storableText(text: string): boolean {
-  return text.isWellFormed() && !text.includes("\u0000");
-}
-
-function storableNumber(value: number): boolean {
-  return !Object.is(value, -0) && Math.abs(value) <= Number.MAX_SAFE_INTEGER;
-}
-
 function unstorableField(write: ContainerStoreWrite): string | undefined {
   for (const [index, row] of (write.putContainers ?? []).entries()) {
     const path = `putContainers[${index}]`;
     const text = TEXT_FIELDS.find((name) => {
       const value = row[name];
-      return typeof value === "string" && !storableText(value);
+      return typeof value === "string" && !storable(value);
     });
     if (text !== undefined) {
-      return `${path}.${text}: text holding U+0000 or a lone surrogate (not well-formed UTF-16) does not read back intact from SQLite`;
+      return `${path}.${text}: ${UNSTORABLE_TEXT}`;
     }
     const number = NUMBER_FIELDS.find((name) => !storableNumber(row[name]));
     if (number !== undefined) {
       return `${path}.${number}: ${describeNumber(row[number])} does not read back intact from SQLite; a timestamp must be a number within ±Number.MAX_SAFE_INTEGER, and not -0`;
     }
   }
-}
-
-function describeNumber(value: number): string {
-  return Object.is(value, -0) ? "-0" : String(value);
-}
-
-const MAX_PARAMETERS = 32_766;
-
-function batches<T>(items: readonly T[], size: number): T[][] {
-  const length = Math.max(1, Math.floor(size));
-  const result: T[][] = [];
-  for (let start = 0; start < items.length; start += length) {
-    result.push(items.slice(start, start + length));
-  }
-  return result;
-}
-
-async function inOrder<T>(
-  items: readonly T[],
-  run: (item: T) => PromiseLike<unknown>
-): Promise<void> {
-  for (const item of items) {
-    await run(item);
-  }
-}
-
-function excluded(column: SQLiteColumn): SQL {
-  return sql.raw(`excluded."${column.name}"`);
 }

@@ -38,6 +38,7 @@ export const MODULE_PLATFORM_ALLOWED_PACKAGE_IMPORTS = [
 ] as const;
 
 export const MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS = [
+  "@foundry/lib/sqlite",
   "drizzle-orm",
   "drizzle-orm/sqlite-core",
 ] as const;

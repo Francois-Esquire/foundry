@@ -1,7 +1,8 @@
 import { ownedEvents } from "@foundry/lib/plain-json";
+import { below, RecordFault } from "@foundry/lib/sqlite";
 import type { SessionChangeEvent } from "../schema";
 import type { SessionStoreWrite } from "./index";
-import { below, keptMessage, keptSession, RecordFault } from "./sqlite-records";
+import { keptMessage, keptSession } from "./sqlite-records";
 import type { agentMessages, agentSessions } from "./tables";
 
 export type SessionRow = typeof agentSessions.$inferSelect;

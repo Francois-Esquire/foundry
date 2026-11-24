@@ -2,22 +2,18 @@ import type { Page, PageInput } from "@foundry/core/pagination";
 import { FILE_KINDS, type FileKind } from "@foundry/lib/file-classification";
 import { buildPage, pageLimit } from "@foundry/lib/pagination";
 import { ownedWrite } from "@foundry/lib/plain-json";
-import { Turns } from "@foundry/lib/turns";
-import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
 import {
-  and,
-  asc,
-  count,
-  eq,
-  getTableColumns,
-  inArray,
-  sql,
-} from "drizzle-orm";
-import type {
-  BaseSQLiteDatabase,
-  SQLiteColumn,
-  SQLiteTransaction,
-} from "drizzle-orm/sqlite-core";
+  type AsyncSQLiteDatabase,
+  type AsyncSQLiteTransaction,
+  assertScope,
+  batches,
+  replacing,
+  SQLITE_MAX_PARAMETERS,
+  storable,
+  whyUnstorable,
+} from "@foundry/lib/sqlite";
+import { Turns } from "@foundry/lib/turns";
+import { and, asc, count, eq, getTableColumns, inArray } from "drizzle-orm";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
@@ -32,18 +28,9 @@ import type {
 import { byPathThenId, pageInputOf, pageOffset } from "./order";
 import { workspaceEntries, workspaces } from "./tables";
 
-export type WorkspaceDatabase = BaseSQLiteDatabase<
-  "async",
-  unknown,
-  Record<string, unknown>
->;
+export type WorkspaceDatabase = AsyncSQLiteDatabase;
 
-export type WorkspaceTransaction = SQLiteTransaction<
-  "async",
-  unknown,
-  Record<string, unknown>,
-  ExtractTablesWithRelations<Record<string, unknown>>
->;
+export type WorkspaceTransaction = AsyncSQLiteTransaction;
 
 export interface SqliteWorkspaceStoreOptions {
   readonly database: WorkspaceDatabase;
@@ -76,11 +63,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
   readonly #turns = new Turns(REENTRY);
 
   constructor(options: SqliteWorkspaceStoreOptions) {
-    if (options.scope.length === 0 || !storable(options.scope)) {
-      throw new RangeError(
-        "scope must be a nonempty string with no U+0000 and no lone surrogate"
-      );
-    }
+    assertScope(options.scope);
     this.#database = options.database;
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;
@@ -287,8 +270,8 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     workspaceId: WorkspaceId,
     ids: readonly WorkspaceEntryId[]
   ): Promise<void> {
-    await inOrder(batches(ids, MAX_PARAMETERS - 2), (batch) =>
-      transaction
+    for (const batch of batches(ids, SQLITE_MAX_PARAMETERS - 2)) {
+      await transaction
         .delete(workspaceEntries)
         .where(
           and(
@@ -296,8 +279,8 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
             eq(workspaceEntries.workspaceId, workspaceId),
             inArray(workspaceEntries.id, batch)
           )
-        )
-    );
+        );
+    }
   }
 
   async #putEntries(
@@ -305,8 +288,8 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     entries: readonly WorkspaceEntry[]
   ): Promise<void> {
     const rows = entries.map((entry) => rowOfEntry(this.#scope, entry));
-    await inOrder(batches(rows, MAX_PARAMETERS / ENTRY_COLUMNS), (batch) =>
-      transaction
+    for (const batch of batches(rows, SQLITE_MAX_PARAMETERS / ENTRY_COLUMNS)) {
+      await transaction
         .insert(workspaceEntries)
         .values(batch)
         .onConflictDoUpdate({
@@ -316,8 +299,8 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
             workspaceEntries.workspaceId,
             workspaceEntries.id,
           ],
-        })
-    );
+        });
+    }
   }
 
   async #putWorkspace(
@@ -482,17 +465,6 @@ function rowOfEntry(scope: string, entry: WorkspaceEntry): EntryRow {
   };
 }
 
-function storable(text: string): boolean {
-  return text.isWellFormed() && !text.includes("\u0000");
-}
-
-const TEXT =
-  "text holding U+0000 or a lone surrogate (not well-formed UTF-16) does not read back intact from SQLite";
-const TIME =
-  "a time that is not a valid Date has no epoch milliseconds to store";
-const INTEGER =
-  "SQLite keeps an integer column as a safe integer, and reads -0 back as 0";
-
 type Put = readonly [
   field: string,
   value: unknown,
@@ -524,22 +496,6 @@ function unstorableField(
     if (reason !== undefined) {
       return { name, reason };
     }
-  }
-}
-
-function whyUnstorable(value: unknown, kind: Put[2]): string | undefined {
-  switch (kind) {
-    case "text":
-      return typeof value === "string" && !storable(value) ? TEXT : undefined;
-    case "time":
-      return value instanceof Date && !Number.isFinite(value.getTime())
-        ? TIME
-        : undefined;
-    default:
-      return typeof value === "number" &&
-        (!Number.isSafeInteger(value) || Object.is(value, -0))
-        ? INTEGER
-        : undefined;
   }
 }
 
@@ -583,39 +539,4 @@ function entryPuts(at: string, entry: WorkspaceEntry): Put[] {
   }
 }
 
-const MAX_PARAMETERS = 32_766;
-
 const ENTRY_COLUMNS = Object.keys(getTableColumns(workspaceEntries)).length;
-
-function batches<T>(items: readonly T[], size: number): T[][] {
-  const length = Math.max(1, Math.floor(size));
-  const result: T[][] = [];
-  for (let start = 0; start < items.length; start += length) {
-    result.push(items.slice(start, start + length));
-  }
-  return result;
-}
-
-async function inOrder<T>(
-  items: readonly T[],
-  run: (item: T) => PromiseLike<unknown>
-): Promise<void> {
-  for (const item of items) {
-    await run(item);
-  }
-}
-
-function replacing(
-  columns: Record<string, SQLiteColumn>,
-  key: readonly string[]
-): Record<string, SQL> {
-  return Object.fromEntries(
-    Object.entries(columns)
-      .filter(([field]) => !key.includes(field))
-      .map(([field, column]) => [field, excluded(column)])
-  );
-}
-
-function excluded(column: SQLiteColumn): SQL {
-  return sql.raw(`excluded."${column.name}"`);
-}
