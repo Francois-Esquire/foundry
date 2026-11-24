@@ -1,37 +1,32 @@
+import {
+  assertScope,
+  batches,
+  replacing,
+  SQLITE_MAX_PARAMETERS,
+  type SqliteDatabase,
+  type SqliteTransaction,
+  storableText,
+} from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { and, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
-import type {
-  BaseSQLiteDatabase,
-  SQLiteColumn,
-  SQLiteTransaction,
-} from "drizzle-orm/sqlite-core";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 
 import type { SessionMessage, SessionRecord } from "../schema";
 import type { SessionStore, SessionStoreWrite } from "./index";
 import { messageOf, sessionOf } from "./sqlite-decode";
-import { storable } from "./sqlite-records";
 import type { SessionRow, UnplacedMessageRow } from "./sqlite-rows";
 import { captured, owned } from "./sqlite-rows";
 import { agentMessages, agentSessions } from "./tables";
 
-export type SessionDatabase = BaseSQLiteDatabase<
-  "async",
-  unknown,
-  Record<string, unknown>
->;
+export type SessionDatabase = SqliteDatabase;
 
 export interface MessageTally {
   readonly messages: number;
   readonly summarized: boolean;
 }
 
-export type SessionTransaction = SQLiteTransaction<
-  "async",
-  unknown,
-  Record<string, unknown>,
-  ExtractTablesWithRelations<Record<string, unknown>>
->;
+export type SessionTransaction = SqliteTransaction;
 
 export interface SqliteSessionStoreOptions {
   readonly database: SessionDatabase;
@@ -82,12 +77,12 @@ const placementColumns = {
 };
 
 const replaceSession = replacing(getTableColumns(agentSessions), [
-  "scope",
-  "id",
+  agentSessions.scope,
+  agentSessions.id,
 ]);
 const replaceMessage = replacing(getTableColumns(agentMessages), [
-  "scope",
-  "id",
+  agentMessages.scope,
+  agentMessages.id,
 ]);
 
 const REENTRY =
@@ -100,11 +95,7 @@ export class SqliteSessionStore implements SessionStore {
   readonly #turns = new Turns(REENTRY);
 
   constructor(options: SqliteSessionStoreOptions) {
-    if (options.scope.length === 0 || !storable(options.scope)) {
-      throw new RangeError(
-        "scope must be a nonempty string with no U+0000 and no lone surrogate"
-      );
-    }
+    assertScope(options.scope);
     this.#database = options.database;
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;
@@ -144,7 +135,7 @@ export class SqliteSessionStore implements SessionStore {
 
   getSession(id: string): Promise<SessionRecord | null> {
     return this.#turns.run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -161,8 +152,8 @@ export class SqliteSessionStore implements SessionStore {
     return this.#turns.run(async () => {
       const sessions: SessionRecord[] = [];
       for (const batch of batches(
-        [...new Set(ids.filter(storable))],
-        MAX_PARAMETERS - 1
+        [...new Set(ids.filter(storableText))],
+        SQLITE_MAX_PARAMETERS - 1
       )) {
         const rows = await this.#database
           .select(sessionColumns)
@@ -185,8 +176,8 @@ export class SqliteSessionStore implements SessionStore {
     return this.#turns.run(async () => {
       const tallies = new Map<string, MessageTally>();
       for (const batch of batches(
-        [...new Set(sessionIds.filter(storable))],
-        MAX_PARAMETERS - 1
+        [...new Set(sessionIds.filter(storableText))],
+        SQLITE_MAX_PARAMETERS - 1
       )) {
         const rows = await this.#database
           .select({
@@ -215,7 +206,7 @@ export class SqliteSessionStore implements SessionStore {
 
   getMessage(id: string): Promise<SessionMessage | null> {
     return this.#turns.run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -230,7 +221,7 @@ export class SqliteSessionStore implements SessionStore {
 
   listMessages(sessionId: string): Promise<SessionMessage[]> {
     return this.#turns.run(async () => {
-      if (!storable(sessionId)) {
+      if (!storableText(sessionId)) {
         return [];
       }
       const rows = await this.#database
@@ -251,15 +242,18 @@ export class SqliteSessionStore implements SessionStore {
     transaction: SessionTransaction,
     rows: readonly SessionRow[]
   ): Promise<void> {
-    await inOrder(batches(rows, MAX_PARAMETERS / SESSION_COLUMNS), (batch) =>
-      transaction
+    for (const batch of batches(
+      rows,
+      SQLITE_MAX_PARAMETERS / SESSION_COLUMNS
+    )) {
+      await transaction
         .insert(agentSessions)
         .values(batch)
         .onConflictDoUpdate({
           set: replaceSession,
           target: [agentSessions.scope, agentSessions.id],
-        })
-    );
+        });
+    }
   }
 
   async #putMessages(
@@ -284,17 +278,18 @@ export class SqliteSessionStore implements SessionStore {
       placements.set(row.id, { position, sessionId: row.sessionId });
       placed.set(row.id, { ...row, position });
     }
-    await inOrder(
-      batches([...placed.values()], MAX_PARAMETERS / MESSAGE_COLUMNS),
-      (batch) =>
-        transaction
-          .insert(agentMessages)
-          .values(batch)
-          .onConflictDoUpdate({
-            set: replaceMessage,
-            target: [agentMessages.scope, agentMessages.id],
-          })
-    );
+    for (const batch of batches(
+      [...placed.values()],
+      SQLITE_MAX_PARAMETERS / MESSAGE_COLUMNS
+    )) {
+      await transaction
+        .insert(agentMessages)
+        .values(batch)
+        .onConflictDoUpdate({
+          set: replaceMessage,
+          target: [agentMessages.scope, agentMessages.id],
+        });
+    }
   }
 
   async #placements(
@@ -305,23 +300,20 @@ export class SqliteSessionStore implements SessionStore {
       string,
       { position: number; sessionId: string }
     >();
-    await inOrder(
-      batches([...new Set(ids)], MAX_PARAMETERS - 1),
-      async (batch) => {
-        const found = await transaction
-          .select(placementColumns)
-          .from(agentMessages)
-          .where(
-            and(
-              eq(agentMessages.scope, this.#scope),
-              inArray(agentMessages.id, batch)
-            )
-          );
-        for (const { id, position, sessionId } of found) {
-          placements.set(id, { position, sessionId });
-        }
+    for (const batch of batches([...new Set(ids)], SQLITE_MAX_PARAMETERS - 1)) {
+      const found = await transaction
+        .select(placementColumns)
+        .from(agentMessages)
+        .where(
+          and(
+            eq(agentMessages.scope, this.#scope),
+            inArray(agentMessages.id, batch)
+          )
+        );
+      for (const { id, position, sessionId } of found) {
+        placements.set(id, { position, sessionId });
       }
-    );
+    }
     return placements;
   }
 
@@ -350,40 +342,5 @@ export class SqliteSessionStore implements SessionStore {
   }
 }
 
-const MAX_PARAMETERS = 32_766;
-
 const SESSION_COLUMNS = Object.keys(getTableColumns(agentSessions)).length;
 const MESSAGE_COLUMNS = Object.keys(getTableColumns(agentMessages)).length;
-
-function batches<T>(items: readonly T[], size: number): T[][] {
-  const length = Math.max(1, Math.floor(size));
-  const result: T[][] = [];
-  for (let start = 0; start < items.length; start += length) {
-    result.push(items.slice(start, start + length));
-  }
-  return result;
-}
-
-async function inOrder<T>(
-  items: readonly T[],
-  run: (item: T) => PromiseLike<unknown>
-): Promise<void> {
-  for (const item of items) {
-    await run(item);
-  }
-}
-
-function replacing(
-  columns: Record<string, SQLiteColumn>,
-  key: readonly string[]
-): Record<string, SQL> {
-  return Object.fromEntries(
-    Object.entries(columns)
-      .filter(([field]) => !key.includes(field))
-      .map(([field, column]) => [field, excluded(column)])
-  );
-}
-
-function excluded(column: SQLiteColumn): SQL {
-  return sql.raw(`excluded."${column.name}"`);
-}

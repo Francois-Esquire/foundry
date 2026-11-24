@@ -30,8 +30,7 @@
         "@noble/hashes",
         "croner",
         "evlog",
-        "ignore",
-        "simple-git"
+        "ignore"
       ],
       "entry": [
         "examples/**/*.ts",
