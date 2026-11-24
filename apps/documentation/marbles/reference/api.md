@@ -23,6 +23,7 @@ import {
   agent,
   artifact,
   monitor,
+  queue,
   sandbox,
   schedule,
   skills,
@@ -40,9 +41,10 @@ import {
 | `artifact` | `artifact({ name, type })` | A named output; each write adds a version. |
 | `skills` | `skills.load().add(glob).pick(...names)` | A skill set an agent takes. |
 | `step` | `step(name?).describe(text).input(s).output(s).config(c).do(fn)` | One piece of work. |
-| `workflow` | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps. |
+| `workflow` | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps and nested workflows. |
 | `schedule` | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
 | `monitor` | `monitor(source).name?(key).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
+| `queue` | `queue({ concurrency })` | How many of the workspace's runs may run at once. |
 
 Steps, workflows, and triggers register as modules load. Exports are optional
 and useful for sharing definitions. Import singular factories to declare resources. A step uses the plural
@@ -219,7 +221,7 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
 | Instance | Operations | Context equivalent |
 | --- | --- | --- |
 | `agent` | `generate(input, turn?)`, `stream(input, turn?)`; `extend({ model?, provider?, settings?, input? })` | `agents.session(def)`, one turn |
-| `step`, `workflow` | `run(input?)`, `launch(input?)` | `run`: direct execution within the current process, no separate dashboard run. `launch`: a separate run on the engine, resolved as `{ id, result }` once admitted. |
+| `step`, `workflow` | `run(input?)`, `launch(input?, { key? })` | `run`: direct execution within the current process, no separate dashboard run. `launch`: a separate run on the engine, resolved as `{ id, result }` once admitted; a `key` launches at most once per definition name and key. |
 | `workspace` | `root`, `files()`, `git` | `workspaces.load(def)` |
 | `sandbox` | `exec`, `close`, and the container's `commands`, `filesystem`, `processes`, `shell`, `ports`, `services`, `volumes`; started by the first call | `sandboxes.start(def)` |
 | `artifact` | `write(files, options?)`, `latest()` | `artifacts.write(def, files)`, `artifacts.latest(def)` |
@@ -268,11 +270,33 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   it launches a top-level run of the same engine and records it in the
   step's ledger: a body that runs again after a question or a resume gets
   the same run back for the same definition at the same call position, and
-  launches again when a different definition is reached there. The
-  guarantee covers replay, not a retried attempt; keep `retry` off a step
-  whose launches must happen once. Outside a run it uses the engine `marbles`
+  launches again when a different definition is reached there. The ledger
+  covers replay, not a retried attempt; give a step with `retry` a keyed
+  launch when it must launch once. Outside a run it uses the engine `marbles`
   built for the module. A retiring or disposed engine refuses it. Read the
   run with [`runs`](#exports).
+- **`launch(input, { key })` launches once per key.** `LaunchOptions` is
+  `{ key?: string }`. The key is the Execution Run's `source`, matched with
+  the definition's name in one database transaction, so any engine over the
+  same store finds it. A launch whose name and key match an existing run
+  returns that run's `{ id, result }`, whatever its status (queued,
+  running, parked, complete, failed, or cancelled) and whatever input the
+  new call passed; `result` settles with that run's output or error. The
+  match lasts as long as the run's record, which the CLI keeps and an
+  embedding host removes with `engine.executions.prune`. A blank key throws
+  `launch(): a key must be a non-blank string`. A key needs a definition
+  the workspace's source declares by name; an anonymous definition, or one
+  a plain script's engine launches, throws `launch(): a key is matched by
+  the definition's name`. Inside a step body the ledger still applies, so a
+  replayed body gets its run back by position and a retried attempt gets
+  it back by key. See [Launch once per
+  key](/marbles/concepts/steps-and-workflows#launch-once-per-key).
+- **Awaiting a launched run from a step does not deadlock.** Reading
+  `result` of a run a step body launched gives the launching run's queue
+  slot up until that result settles, as a parked run does, and takes it
+  back afterwards, above the queue's bound if need be. A body that keeps
+  only `id` keeps its slot; on a full queue the launched run waits until
+  the launching run ends.
 
 ## The builder
 
@@ -382,10 +406,28 @@ publish.parallel({ a: x({}), b: y({}) }); // children together
   takes it as a child.
 - One definition can be locked many times; each lock is its own node.
 - `.parallel` is the only combinator besides the default series. There is no
-  race, branch, or loop yet. A workflow is a definition too: `weekly({})`
-  locks it. A workflow lock is only ever the root of a run, launched,
-  scheduled, or returned by a monitor. As a child in another tree it throws
-  `a workflow can only be the root of a run`.
+  race, branch, or loop yet.
+- **A workflow locks like a step.** `weekly({})` locks it, as the root of a
+  run (launched, scheduled, or returned by a monitor) or as a node in
+  another tree. TypeScript checks each child's output against the
+  workflow's input type where it is locked. When the node runs, its
+  children run first; their results and the literal are validated against
+  the workflow's input schema, then its setup is called with that input,
+  and the tree it returns runs under the node as `$workflow`. A nested tree
+  locked at `release.outcome` has its root step at
+  `release.outcome.$workflow` and that step's children below it. The nested steps
+  replay by path and answer to the run's approvals, pauses, adoption,
+  cancellation, and `.parallel` sibling aborts as any other subtree. Pause
+  and resume address the node that locks the workflow. The node has no
+  `retry` of its own; a retried parent runs its failed steps again in place.
+- **A workflow cannot nest inside itself.** Locked inside itself, directly
+  or through others, it fails its node when the run reaches it with `a
+  workflow cannot be locked inside itself ("ping" → "pong" → "ping"); to
+  recurse, call it with .run() from a step`. Recursion goes through `.run()`
+  from a step.
+- **Nest or launch.** A nested workflow is part of its parent's run, and its
+  result is the node's result. `.launch()` starts a separate top-level run
+  on the queue, with its own id and status.
 
 In a parallel group the first failure fails the run; the siblings are
 aborted and awaited before the failure is reported. A sibling that parks on
@@ -702,7 +744,7 @@ by new commands and sessions. Session options can select a different host
 | Continue the same run | Reuse completed step results. |
 | Resume a parked step | Replay its unfinished body from the top. Recorded managed operations are matched by call order. |
 | Retry a failed attempt | Apply that step's policy with fresh managed operations; completed children keep their results. |
-| Launch again | Create a new run and execute fresh work. |
+| Launch again | Create a new run and execute fresh work. A launch whose key matches an earlier run gets that run back instead. |
 | Restart the host | Adopt eligible parked runs. Interrupted queued or running work is not adopted. |
 | Rebuild workflow setup | Recreate the tree; recovered nodes retain their recorded literal input. |
 
@@ -738,7 +780,7 @@ exports these types:
 | Group | Types |
 | --- | --- |
 | Instances | `Agent`, `Runnable`, `WorkspaceInstance`, `SandboxInstance`, `ArtifactInstance` |
-| Runs | `Launched`, `RunReads`, `RunView`, `RunQuery` |
+| Runs | `Launched`, `LaunchOptions`, `RunReads`, `RunView`, `RunQuery` |
 | Work | `StepDefinition`, `WorkflowDefinition`, `LockedNode` |
 | Resource definitions | `AgentDefinition`, `AgentSettings`, `WorkspaceDefinition`, `SandboxDefinition`, `SandboxSpec`, `ArtifactDefinition`, `SkillSet` |
 | Agents | `Agents`, `Session`, `SessionRef`, `SessionReply`, `TurnOptions` |
@@ -747,6 +789,7 @@ exports these types:
 | Tasks | `Task`, `TaskNode`, `TaskStatus`, `TaskAvailability`, `TaskChange`, `TaskOperation`, `TaskRef`, `TaskToken`, `TaskChangeResult`, `TaskQuery`, `TagQuery`, `TaskRelations`, `DepthOptions`, `CreateTaskInput`, `UpdateTaskInput`, `TaskEvent`, `TaskDelta` |
 | Execution | `Context`, `Ask`, `Approval`, `Report`, `Stream`, `Run`, `Log`, `LogLevel` |
 | Commands | `CommandResult`, `Exec`, `ExecOptions` |
+| Queue | `QueueOptions` |
 | Triggers | `Schedule`, `ScheduleBuilder`, `MonitorBuilder`, `CalendarSlot`, `Weekday`, `Trigger`, `MonitorContext`, `MonitorHandler`, `Change`, `FileChange`, `HttpChange` |
 | Usage | `Snapshot`, `Identity`, `Limit`, `Window`, `SpendCap`, `Budget`, `BillingAccountOptions`, `Balance`, `CreditBalance`, `Headroom`, `Money`, `Credits`, `Duration`, `Span`, `Consumption`, `SessionConsumption`, `Quantities`, `Charge`, `QueryOptions`, `QueryAllOptions`, `DurationText` |
 
@@ -903,6 +946,25 @@ call. One no host has declared for a week is not waited for: when it next
 moves on, it is told which facts it missed (once, in the host's output,
 and in `marbles status`) and goes on after them.
 
+`queue({ concurrency })` sets how many of the workspace's runs may run at
+once. It takes `QueueOptions`, `{ concurrency: number }`: a positive integer
+or `Infinity`; anything else throws `queue(): concurrency must be a positive
+integer or Infinity`, and a call without `concurrency` throws a
+`TypeError`. Call it once per workspace, in any one module; a second call
+throws `queue(): the workspace's queue is set already`. It configures the
+workspace's default queue, `marbles`, where runs of its steps and
+workflows wait for a place. A hosted workspace and a plain script's default
+engine run four at once without it. An [`Engine`](/marbles/reference/engine)
+you build yourself does not read `queue()`; it runs one at a time unless
+its `queues` option says otherwise. A run parked on a question gives its place up, so parked runs do
+not count against the bound.
+
+```ts
+import { queue } from "@foundry.sh/marbles";
+
+queue({ concurrency: 2 });
+```
+
 `@foundry.sh/marbles/prebuilt` exports the
 [prebuilt step factories](/marbles/reference/project#prebuilt-steps).
 
@@ -974,6 +1036,7 @@ and `create(setup)` for the instance, and optionally `detect`, `list`,
 Do not write modules that depend on these.
 
 - Race, branch, and loops between steps. Only series and parallel.
+- Named queues. `queue()` configures the workspace's one default queue.
 - A built-in model provider. No `provider` or `model` means the first installed CLI.
 - Recovery of a step that was mid-body when the process stopped. A step
   parked on an `ask` or a pause does survive a quit, a crash, or a kill.

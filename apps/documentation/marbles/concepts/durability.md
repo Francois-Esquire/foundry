@@ -49,7 +49,7 @@ Factory](/marbles/use-cases/software-factory/deliver) gates a push this way.
 
 | Part | Guarantee |
 | --- | --- |
-| Finished step | Its recorded result is reused when the same run continues. A new launch executes fresh work. |
+| Finished step | Its recorded result is reused when the same run continues. A new launch executes fresh work, unless its key matches an earlier run. |
 | Waiting question or pause | The parked run is saved. The current engine generation adopts it with the same source and state, after a restart or a switch; a dashboard answers it. |
 | Managed operations | Recorded sessions, answers, and artifact writes are matched by step path and call position during replay. |
 | Agent conversation | Messages live in the session store. A session reference can continue that conversation in another run. |
@@ -86,7 +86,7 @@ reconnect it to the work already done:
 | `agentInstance.generate(...)` or `.stream(...)` | Reuses a recorded completed one-shot reply when available; an unfinished turn can execute again. |
 | `ask.*` | Reads the recorded answer, or parks at an unanswered question. |
 | Managed artifact write | Returns its recorded version instead of creating another version at that position. |
-| `definition.launch(...)` | Returns the run it launched before, for the same definition at that position. Another definition launches. |
+| `definition.launch(...)` | Returns the run it launched before, for the same definition at that position. Another definition launches. With a `key`, a retried attempt gets the same run back too. |
 | Command, raw filesystem write, or `fetch` | Can execute again. The run does not make arbitrary external effects happen exactly once. |
 
 Keep step keys and managed call order stable while a run is parked. Put
@@ -147,13 +147,18 @@ setup must therefore stay free of work that should only happen once.
 A run interrupted mid-body is not automatically resumed. If the Marbles
 database records its Run as running or queued, Marbles leaves it orphaned
 rather than adopting it. Launching the automation again creates a new run, which can
-repeat earlier effects. See [state and adoption rules](/marbles/reference/state#what-survives-a-restart).
+repeat earlier effects. A launch with the same key gets the orphaned run
+back instead, so give the retry a new key. See [state and adoption rules](/marbles/reference/state#what-survives-a-restart).
 
 ## Design work that can repeat safely
 
 Use an idempotency key when an external API supports it, check whether an
 intended change already exists, and keep irreversible work separate from
-retryable reads. Cancellation stops owned operations; it does not roll
+retryable reads. Marbles has one for its own launches:
+`definition.launch(input, { key })` returns the run an earlier launch with
+that key started, from any engine over the same store, so an observer
+delivered a change twice or a retried step still launches once. See
+[launch once per key](/marbles/concepts/steps-and-workflows#launch-once-per-key). Cancellation stops owned operations; it does not roll
 back commits, sent requests, or file changes. Persist output as an
 [artifact](/marbles/concepts/workspaces-and-artifacts#artifacts-and-the-feed) or a commit before
 discarding a temporary worktree or sandbox.
@@ -205,6 +210,33 @@ Editing a module starts the Marbles process's next engine generation, which take
 `--dry-run` hosts the workspace in the command's own process instead and
 persists nothing. See the [CLI reference](/marbles/reference/cli) for
 commands and controls.
+
+### How many runs at once
+
+Every run of a workspace's steps and workflows waits in one queue for a
+place to run. A hosted workspace runs up to four at once, and the fifth
+waits as `queued` until one ends. Set the number once per workspace, in any one
+module:
+
+```ts
+import { queue } from "@foundry.sh/marbles";
+
+queue({ concurrency: 2 });
+```
+
+`concurrency` is a positive integer or `Infinity`. A second `queue()` call
+in the same workspace is an error, and there are no named queues yet.
+These runs do not hold a place:
+
+- **A parked run.** A run waiting on a question or a pause gives its place
+  up until it resumes.
+- **A run awaiting a launch.** A step that reads `result` of a run it
+  launched gives its run's place up until that result settles, so awaiting
+  a launched run never deadlocks, even at `queue({ concurrency: 1 })`.
+
+A plain `bun` script's default engine also runs four at once and honors
+its own `queue()`. An [`Engine`](/marbles/reference/engine#host-settings)
+you construct runs one at a time unless you pass `queues`.
 
 ### Different stores remember different things
 

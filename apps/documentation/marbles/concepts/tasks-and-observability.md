@@ -135,10 +135,34 @@ retention, and compaction details.
 ## Hand off work
 
 A handler should return quickly, so hand long work to a run.
-`definition.launch(input)` admits a run and resolves with `{ id, result }`
-without waiting. Put the task id in the launch input: the run then says
-which task it serves, and an observer of `workflow` can find that task even
-when the run settles before anything else is written. [Run, launch, or
+`definition.launch(input, { key })` admits a run and resolves with
+`{ id, result }` without waiting. Put the task id in the launch input: the
+run then says which task it serves, and an observer of `workflow` can find
+that task even when the run settles before anything else is written.
+
+Put the task id in the key too. Delivery is at least once, so a handler
+that launched and then threw sees the same change again. With a key, the
+second delivery gets the first run back instead of starting another:
+
+```ts
+observe(tasks, async function dispatch() {
+  const ready = await tasks.ready({ tags: { all: ["review"] } });
+  for (const task of ready.items) {
+    await review.launch({ task: task.id }, { key: `review:${task.id}` });
+  }
+});
+```
+
+Every later pass that still sees the task ready gets the same run back,
+so nothing launches twice. [The outer
+loop](/marbles/get-started/outer-loop#write-the-loop) also claims each task
+after launching it, so later passes skip it.
+
+The key matches whatever that run became, including `failed`. When a task
+can be retried or revised, add a counter that advances each time it comes
+back, such as `` `review:${task.id}:attempt-${attempt}` ``. [Launch once
+per key](/marbles/concepts/steps-and-workflows#launch-once-per-key) has the
+rules, and [Run, launch, or
 lock](/marbles/concepts/steps-and-workflows#run-launch-or-lock) compares
 the three ways to start a definition.
 

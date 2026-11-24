@@ -387,7 +387,8 @@ loads.
 
 A launch with a `source` looks for a run of the same name and source and
 records a new one in one database transaction, so two engines sharing the
-database start it once.
+database start it once. `.launch(input, { key })` on a step or workflow
+launches with its key as the `source`.
 
 `get`, `list` and `gaps` on `engine.executions` answer from the engine at
 once: what it changed, and what it last read of other processes' runs, at

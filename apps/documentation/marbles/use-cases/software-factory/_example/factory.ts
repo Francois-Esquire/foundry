@@ -1,6 +1,8 @@
-import { observe, step, TaskError, tasks } from "@foundry.sh/marbles";
+import { observe, step, TaskError, tasks, workflow } from "@foundry.sh/marbles";
 import { z } from "zod";
 import { build } from "./_factory/build";
+import { verify } from "./_factory/verify";
+import { branchOf, workInput } from "./_factory/work";
 
 const issue = z.object({
   body: z.string(),
@@ -50,7 +52,16 @@ step("factory-import")
     return { task: task.id };
   });
 
-async function claim(id: string, updatedAt: string): Promise<boolean> {
+const change = workflow("factory-change")
+  .input(workInput)
+  .do(({ input }) =>
+    verify(
+      { commit: build({}, input) },
+      { branch: branchOf(input.task), task: input.task }
+    )
+  );
+
+async function claim(id: string, updatedAt: string): Promise<void> {
   try {
     await tasks.change({
       operations: [
@@ -63,13 +74,12 @@ async function claim(id: string, updatedAt: string): Promise<boolean> {
         },
       ],
     });
-    return true;
   } catch (error) {
     if (
       error instanceof TaskError &&
       ["conflict", "not_ready"].includes(error.code)
     ) {
-      return false;
+      return;
     }
     throw error;
   }
@@ -78,17 +88,11 @@ async function claim(id: string, updatedAt: string): Promise<boolean> {
 observe(tasks, async function dispatchFactory() {
   const ready = await tasks.ready({ tags: { all: ["factory"] } });
   for (const task of ready.items) {
-    if (await claim(task.id, task.updatedAt)) {
-      try {
-        await build.launch({ task: task.id });
-      } catch (error) {
-        await tasks.change({
-          operations: [
-            { kind: "task.set_status", status: "open", task: { id: task.id } },
-          ],
-        });
-        throw error;
-      }
-    }
+    const attempt = Number(task.metadata.attempts ?? 0);
+    await change.launch(
+      { task: task.id },
+      { key: `factory-change:${task.id}:attempt-${attempt}` }
+    );
+    await claim(task.id, task.updatedAt);
   }
 });

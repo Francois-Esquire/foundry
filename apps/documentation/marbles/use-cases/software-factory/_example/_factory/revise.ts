@@ -36,13 +36,17 @@ observe(
     if (!(run?.name.startsWith("factory-") && task)) {
       return;
     }
+    if (task.metadata.failedRun === runId) {
+      return;
+    }
     await tasks.update(task.id, {
       metadata: {
+        attempts: Number(task.metadata.attempts ?? 0) + 1,
         failedRun: runId,
         failure: `${run.name}: ${run.error ?? "failed"}`,
       },
       tags: ["needs-owner"],
     });
   },
-  { types: ["run.failed"] }
+  { types: ["run.cancelled", "run.failed"] }
 );

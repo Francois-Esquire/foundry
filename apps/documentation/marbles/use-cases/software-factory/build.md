@@ -6,7 +6,7 @@ description: Have an agent plan and implement the task on its own branch in a wo
 The build stage gives each task its own branch, `factory/<task id>`, and
 works in a throwaway worktree so your checkout is never touched. An agent
 plans against the task's criteria, implements, and commits. The stage
-records the commit and launches verification with it.
+returns the commit, and `factory-change` hands it to verification.
 
 Save this as `.foundry/marbles/_factory/build.ts`:
 
@@ -23,13 +23,16 @@ Save this as `.foundry/marbles/_factory/build.ts`:
 - **Checks the result.** The builder must leave a new commit and a clean
   checkout. Anything else fails the step, and the failure is flagged on the
   task by the [revision loop](/marbles/use-cases/software-factory/revise).
-- **Hands off.** `verify.launch(...)` starts verification as a separate run
-  with the commit as input and returns at once. The build run completes;
-  verification shows up as its own run on the dashboard.
+- **Returns the commit.** The step's result is the commit SHA, plain JSON
+  that the next stage can check out. It launches nothing. In
+  `factory-change` it is the `commit` child of `factory-verify`, so its
+  result becomes verification's input in the same run.
 
 The step has a 30-minute timeout and no `retry`. A retry would run the
-whole body again, with a fresh agent turn, and nothing promises it would
-not launch verification a second time.
+whole body again with a fresh agent turn, starting from whatever the
+failed attempt had already committed on the branch. A failed build fails the run
+instead, and the [revision loop](/marbles/use-cases/software-factory/revise)
+flags it for a person.
 
 ## One agent or two
 
@@ -53,7 +56,7 @@ marbles tasks start <task id>
 marbles roll factory-build --input '{"task":"<task id>"}'
 ```
 
-`verify.ts` is imported by this file, so complete [Verify in
-parallel](/marbles/use-cases/software-factory/verify) first.
+The build stops at its commit and starts no verification. To run the whole
+line for that task, roll `factory-change` with the same input instead.
 
 Next: [Verify in parallel](/marbles/use-cases/software-factory/verify).

@@ -9,7 +9,7 @@ backlog, an observer notices, and the observer launches a run without
 waiting for it. A second observer watches runs and flags the ones that fail.
 
 This example needs no agent account. It uses `zod` and features from the
-current source checkout (`.launch()` and `runs`); see
+current source checkout (`.launch()` with a key, and `runs`); see
 [installation](/marbles/get-started/installation#install-the-package). Use a
 scratch project so its tasks do not mix with another workspace's.
 
@@ -27,15 +27,17 @@ The module has four parts:
 - **`claim`** moves a task from `open` to `active` in one atomic change.
   `requireReady: true` refuses a task whose dependencies are not settled,
   and `expectedUpdatedAt` refuses a task that changed since it was read. A
-  refused claim means another pass or another writer got there first.
+  refused claim means another pass, another writer, or the run itself got
+  there first.
 - **`dispatchChecks`** runs after every committed task change. It asks
-  `tasks.ready()` for open, unblocked tasks tagged `checks`, claims each
-  one, and calls `checkTask.launch(...)`. `.launch()` resolves as soon as
-  the run is admitted, with `{ id, result }`, so the observer returns
-  without waiting for the tests.
-- **`flagFailures`** observes runs and receives only `run.failed` facts. It
-  reads the run with `runs.get(runId)`, takes the task id from the run's
-  input, and retags the task `needs-owner` with the error.
+  `tasks.ready()` for open, unblocked tasks tagged `checks`. For each one it
+  calls `checkTask.launch(...)` with a key, then claims the task.
+  `.launch()` resolves as soon as the run is admitted, with `{ id, result }`,
+  so the observer returns without waiting for the tests.
+- **`flagFailures`** observes runs and receives only `run.failed` and
+  `run.cancelled` facts. It reads the run with `runs.get(runId)`, takes the
+  task id from the run's input, counts the attempt, and retags the task
+  `needs-owner` with the error.
 
 The dispatcher queries `ready()` on every change instead of looking for one
 task's tag being added. A task that depends on another becomes ready when
@@ -69,9 +71,35 @@ Stop the process with `marbles stop` when you are done.
 Observers receive each change at least once, in commit order, starting
 from their first start. A handler that throws keeps its place and gets the
 same fact again after a backoff, so write handlers that are safe to repeat.
-Here the claim makes a repeat harmless: a task that is already `active` is
-no longer ready. If a launch fails after its claim, the task stays `active`
-without a run; reopen it with `marbles tasks reopen <id>`.
+
+The key makes the launch safe to repeat. `check-task:<task id>:attempt-0`
+names one run of `check-task`. If the handler throws after launching, the
+redelivered change launches with the same key and gets that run back, so
+the tests run once.
+
+The dispatcher launches first and claims second, so a task is never left
+`active` without a run. If the launch throws, nothing is claimed, and the
+next delivery tries again. Once the claim lands, the task drops out of
+`ready()` and later passes skip it.
+
+A key matches its run whatever became of it. If the key never changed, a
+reopened task would get its old failed run back and nothing would check
+it. So `flagFailures` adds one to the task's `attempt` when a check fails
+or is cancelled, and the next launch uses a new key. Once you have fixed
+the cause, put the task back:
+
+```sh
+marbles tasks update <id> --tag checks
+marbles tasks reopen <id>
+```
+
+The reopened task is ready, the dispatcher launches
+`check-task:<task id>:attempt-1`, and the check runs again.
+
+A run can also end without either fact, such as one marked `interrupted`
+after the Marbles process stopped mid-body. Before you reopen its task,
+set `attempt` one higher yourself, adding `--metadata '{"attempt":1}'` to
+the update for a task still on its first attempt.
 
 The observer's own writes are changes too. They arrive on the next pass,
 where the claimed tasks are no longer ready, so the loop settles.

@@ -15,19 +15,31 @@ Save this as `.foundry/marbles/_factory/verify.ts`:
 ## The tree
 
 `factory-verify` is a workflow whose root is `verdict` with two parallel
-children:
+children. `factory-change`, in `factory.ts`, locks it with the build as its
+`commit` child:
 
 ```text
-factory-verify
-└─ factory-verdict
-   ├─ tests    (bun install, bun test in a worktree at the commit)
-   └─ review   (agent session in a worktree at the commit)
+factory-change
+├─ commit        factory-build (agent session in a worktree, returns the SHA)
+└─ $workflow     factory-verdict, the nested factory-verify tree
+   ├─ tests      bun install, bun test in a worktree at the commit
+   └─ review     agent session in a worktree at the commit
 ```
 
-The commit arrives as launch input, and the workflow passes it to every
-node as literal input. That is why build launches verification rather than
-locking it as a child: data flows only from children to their parent, and a
-build locked under both siblings would run twice.
+The build runs first. Marbles then checks its SHA, with the branch and task
+id given as literal input, against `factory-verify`'s input schema, and
+calls the workflow's setup. Setup passes that input to every node as
+literal input, so both siblings check out the same commit. Locking the
+build under each sibling instead would run it twice, since data flows only
+from children to their parent.
+
+It all stays one run. The dashboard shows the verification steps under
+`$workflow`, and cancelling `factory-change` stops a review in progress.
+`factory-verify` still runs on its own, for a commit you already have:
+
+```sh
+marbles roll factory-verify --input '{"task":"<task id>","branch":"factory/<task id>","commit":"<sha>"}'
+```
 
 If one child throws, Marbles aborts the other and fails the run. A failed
 test suite is not a throw: `check: false` turns it into an exit code the
@@ -49,7 +61,16 @@ with the test output and the verdict, and posts the summary to the Feed.
 
 - **Passed.** `deliver.launch(...)` starts the delivery run with the
   artifact version id, so the approval names the evidence for this commit.
-- **Needs changes.** `sendBack` puts the findings on the task and reopens
-  it. The dispatcher sees a ready task and launches another build.
+  Its key, `factory-deliver:<commit>`, asks for one approval per commit.
+  Verifying the same commit again, from `marbles roll factory-verify` or a
+  second engine, gets the existing delivery back.
+- **Needs changes.** `sendBack` puts the findings on the task, counts the
+  attempt, and reopens it. The dispatcher sees a ready task and launches
+  another `factory-change` under the next attempt's key.
+
+Delivery is launched rather than nested. It parks on an approval that can
+wait for days, and as its own run it does that without holding the
+verification run open. The verdict keeps only the id, so it finishes at
+once.
 
 Next: [Approve and deliver](/marbles/use-cases/software-factory/deliver).

@@ -5,19 +5,20 @@ description: Turn a GitHub issue into a task, and dispatch every ready task to t
 
 Work enters the factory as a task tagged `factory`. You can create one by
 hand, import a GitHub issue, or let a monitor or an MCP client add one. A
-dispatcher observes the backlog and launches the build stage for each task
-that is ready.
+dispatcher observes the backlog and launches `factory-change`, the build
+and its verification, for each task that is ready.
 
 ## Shared inputs
 
 Every stage takes the task id as input, and the later stages add the
-branch and commit. `brief` turns a task into the text the agents read,
-including findings from an earlier attempt. Save it as
+branch and commit. `branchOf` names the task's branch, `factory/<task id>`.
+`brief` turns a task into the text the agents read, including findings
+from an earlier attempt. Save it as
 `.foundry/marbles/_factory/work.ts`:
 
 <include>./_example/_factory/work.ts</include>
 
-## The intake step and the dispatcher
+## The intake step, the line, and the dispatcher
 
 Save this as `.foundry/marbles/factory.ts`:
 
@@ -27,17 +28,26 @@ Save this as `.foundry/marbles/factory.ts`:
 description keeps the issue body and URL, and its metadata keeps the issue
 number, so importing the same issue twice returns the existing task.
 
+`factory-change` is the line one task runs down. It locks
+`factory-verify` with the build as its `commit` child, so the build runs
+first and verification starts from the commit it returns. [Verify in
+parallel](/marbles/use-cases/software-factory/verify#the-tree) shows the
+whole tree.
+
 `dispatchFactory` is the same dispatcher as in [the outer
 loop](/marbles/get-started/outer-loop#write-the-loop). On every task change
-it asks for ready `factory` tasks, claims each one atomically, and launches
-`factory-build` with its id. A claim checks both the task's token and its
-readiness, so two passes, or two processes, never start the same task.
-Dependencies work as they do anywhere else: a task that depends on another
-waits until that one settles.
+it asks for ready `factory` tasks, launches `factory-change` for each one,
+and then claims it. The key, `factory-change:<task id>:attempt-<n>`, makes
+one run per attempt. A redelivered change, a second pass, or a second
+engine on the same workspace gets that run back instead of starting
+another. `n` is the task's `attempts` metadata, which goes up each time
+the task comes back, so a revision gets a fresh run. Dependencies work as
+they do anywhere else: a task that depends on another waits until that one
+settles.
 
-If `build.launch` rejects, the dispatcher sets the task back to `open` and
-rethrows. No build ran, so the task is ready again on the next pass. Once a
-build run has started, a failure goes to the [revision
+If `change.launch` rejects, the dispatcher has not claimed the task yet,
+so it stays `open` and the next pass tries again. Once a run has started,
+a failure goes to the [revision
 loop](/marbles/use-cases/software-factory/revise#flag-failed-runs) instead.
 
 ## Write acceptance criteria into the task
@@ -61,9 +71,10 @@ are missing, leave the task untagged until a person adds them.
 
 ## Run it
 
-`factory.ts` imports the build stage, which imports the rest, so the
-module loads only once all six files exist. Save the files from the next
-four pages before attaching the workspace. Then open `marbles`, create a task, and watch `factory-build`
-appear in the Runs panel.
+`factory.ts` imports the build and verify stages, which import the rest,
+so the module loads only once all six files exist. Save the files from the
+next four pages before attaching the workspace. Then open `marbles`, create
+a task, and watch `factory-change` appear in the Runs panel, with the
+build as its `commit` step and verification under `$workflow`.
 
 Next: [Plan and build](/marbles/use-cases/software-factory/build).
