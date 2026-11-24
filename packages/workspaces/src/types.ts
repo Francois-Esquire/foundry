@@ -140,11 +140,7 @@ export interface WorkspaceLifecycle {
   stop?(workspace: Workspace): Promise<void> | void;
 }
 
-type HasRequiredKeys<T> = keyof T extends never
-  ? false
-  : Record<never, never> extends T
-    ? false
-    : true;
+type HasRequiredKeys<T> = Record<never, never> extends T ? false : true;
 
 export type WorkspaceAttachment<Caps extends object = object> =
   WorkspaceLifecycle &

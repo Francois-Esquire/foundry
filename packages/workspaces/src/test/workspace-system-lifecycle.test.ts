@@ -435,10 +435,24 @@ describe("lifecycle", () => {
     expect(starts).toEqual(["alpha"]);
 
     await system.close(first.id);
+    const [wrongFloor, directOpen] = await Promise.allSettled([
+      system.load({ beta: "same" }),
+      system.open(first.id),
+    ]);
+    expect(wrongFloor.status).toBe("rejected");
+    if (wrongFloor.status === "rejected") {
+      expect(wrongFloor.reason).toBeInstanceOf(WorkspaceSourceUnsupportedError);
+    }
+    expect(directOpen.status).toBe("fulfilled");
+    if (directOpen.status === "fulfilled") {
+      expect(directOpen.value.id).toBe(first.id);
+    }
+    expect(starts).toEqual(["alpha", "alpha"]);
+    await system.close(first.id);
     await expect(system.load({ beta: "same" })).rejects.toBeInstanceOf(
       WorkspaceSourceUnsupportedError
     );
-    expect(starts).toEqual(["alpha"]);
+    expect(starts).toEqual(["alpha", "alpha"]);
 
     const missingRequired: WorkspaceExtension<
       never,
@@ -450,6 +464,29 @@ describe("lifecycle", () => {
       attach: () => ({}),
       name: "missing-required",
     };
-    expect(missingRequired.name).toBe("missing-required");
+    const missingUnionCapabilities: WorkspaceExtension<
+      never,
+      unknown,
+      { readonly alpha: string } | { readonly beta: number }
+    > = {
+      applies: () => true,
+      // @ts-expect-error -- disjoint union of required capabilities must be returned by attach()
+      attach: () => ({}),
+      name: "missing-union-cap",
+    };
+    // @ts-expect-error -- disjoint union of required capabilities must declare attach()
+    const missingUnionAttach: WorkspaceExtension<
+      never,
+      unknown,
+      { readonly alpha: string } | { readonly beta: number }
+    > = {
+      applies: () => true,
+      name: "missing-union-attach",
+    };
+    expect([
+      missingRequired.name,
+      missingUnionCapabilities.name,
+      missingUnionAttach.name,
+    ]).toHaveLength(3);
   });
 });

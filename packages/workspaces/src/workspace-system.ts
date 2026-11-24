@@ -136,13 +136,10 @@ export class WorkspaceSystem<
     return workspace as Workspace & CapOf<Exts> & FloorFor<Exts, R>;
   }
 
-  #openEntry(
-    workspaceId: WorkspaceId,
-    expectedFloor?: AnyWorkspaceExtension
-  ): Promise<OpenedWorkspace<Exts>> {
+  #openEntry(workspaceId: WorkspaceId): Promise<OpenedWorkspace<Exts>> {
     const closing = this.#closing.get(workspaceId);
     if (closing) {
-      return closing.then(() => this.#openEntry(workspaceId, expectedFloor));
+      return closing.then(() => this.#openEntry(workspaceId));
     }
     const running = this.#opened.get(workspaceId);
     if (running) {
@@ -150,7 +147,12 @@ export class WorkspaceSystem<
     }
 
     return this.#trackOpening(workspaceId, async () => {
-      const composed = await this.#composeStored(workspaceId, expectedFloor);
+      const registration =
+        await this.#context.catalog.getWorkspace(workspaceId);
+      if (!registration) {
+        throw new WorkspaceNotFoundError(workspaceId);
+      }
+      const composed = await this.#compose(registration);
       const stop = await this.#start(composed);
       return {
         sourceOwner: composed.sourceOwner,
@@ -172,17 +174,6 @@ export class WorkspaceSystem<
       }
     });
     return opening;
-  }
-
-  async #composeStored(
-    workspaceId: WorkspaceId,
-    expectedFloor?: AnyWorkspaceExtension
-  ): Promise<ComposedWorkspace<Exts>> {
-    const registration = await this.#context.catalog.getWorkspace(workspaceId);
-    if (!registration) {
-      throw new WorkspaceNotFoundError(workspaceId);
-    }
-    return this.#compose(registration, expectedFloor);
   }
 
   async #register(
@@ -251,7 +242,19 @@ export class WorkspaceSystem<
     workspaceId: WorkspaceId,
     expectedFloor: AnyWorkspaceExtension
   ): Promise<Workspace & CapOf<Exts>> {
-    const entry = await this.#openEntry(workspaceId, expectedFloor);
+    const running = this.#opened.get(workspaceId);
+    if (!running) {
+      const registration =
+        await this.#context.catalog.getWorkspace(workspaceId);
+      if (!registration) {
+        throw new WorkspaceNotFoundError(workspaceId);
+      }
+      const owner = await this.#sourceOwnerOf(registration);
+      if (owner !== expectedFloor) {
+        throw new WorkspaceSourceUnsupportedError(registration.source.kind);
+      }
+    }
+    const entry = await this.#openEntry(workspaceId);
     if (entry.sourceOwner !== expectedFloor) {
       throw new WorkspaceSourceUnsupportedError(entry.workspace.source.kind);
     }
@@ -262,6 +265,17 @@ export class WorkspaceSystem<
       });
     }
     return entry.workspace;
+  }
+
+  async #sourceOwnerOf(
+    registration: WorkspaceRegistration
+  ): Promise<AnyWorkspaceExtension | undefined> {
+    for (const extension of this.#extensions) {
+      if (extension.source && (await extension.applies(registration))) {
+        return extension;
+      }
+    }
+    return undefined;
   }
 
   async #compose(
