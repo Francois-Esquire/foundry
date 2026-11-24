@@ -81,5 +81,5 @@ lists these tasks every weekday.
 
 The whole factory is five stages of ordinary marbles. Each stage runs on
 its own with `marbles run`, every run is visible in the dashboard, and the
-only place work waits on a person is the approval. Start supervised, and
-read every diff the factory ships until you trust it.
+factory waits on a person for approval and to recover failed builds.
+Start supervised, and read every diff the factory ships until you trust it.
