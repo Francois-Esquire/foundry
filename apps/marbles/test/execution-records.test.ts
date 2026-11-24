@@ -36,7 +36,7 @@ it("shows a run it takes over with the observations another engine recorded", as
   await second.load();
   const { run } = await first.enqueue({
     kind: "workflow",
-    name: "parked",
+    name: "held",
     queue: "default",
   });
   const at = () => new Date().toISOString();

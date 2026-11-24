@@ -7,6 +7,7 @@ import type {
   StorageNode,
   StorageObserver,
   StorageReader,
+  StorageSubscription,
   StorageTree,
 } from "@foundry/core/storage";
 import type { FileClassification } from "@foundry/lib/file-classification";
@@ -16,6 +17,7 @@ import type { Workspace } from "./instance";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
+  WorkspaceFile,
   WorkspaceId,
   WorkspaceRegistration,
 } from "./schema";
@@ -113,49 +115,135 @@ export interface WorkspaceCatalogChange {
   readonly updated: readonly WorkspaceEntry[];
 }
 
-export interface WorkspaceExtension<
+export interface WorkspaceSourceAdapter {
+  insertFile?(path: string, bytes: Uint8Array): Promise<WriteOutcome>;
+  readFile?(file: WorkspaceFile): Promise<FileContentResult>;
+  scan(): Promise<readonly ObservedFacts[]>;
+  watch?(
+    changed: () => void,
+    failed: (error: unknown) => void
+  ): Promise<StorageSubscription | undefined>;
+  writeFile?(
+    file: WorkspaceFile,
+    bytes: Uint8Array,
+    expectedDigest: string
+  ): Promise<WriteOutcome>;
+}
+
+export interface WorkspaceAttachContext {
+  readonly capabilities: Readonly<Record<PropertyKey, unknown>>;
+  readonly registration: WorkspaceRegistration;
+}
+
+export interface WorkspaceLifecycle {
+  start?(workspace: Workspace): Promise<void> | void;
+  stop?(workspace: Workspace): Promise<void> | void;
+}
+
+type HasRequiredKeys<T> = Record<never, never> extends T ? false : true;
+
+export type WorkspaceAttachment<Capabilities extends object = object> =
+  WorkspaceLifecycle &
+    (HasRequiredKeys<Capabilities> extends true
+      ? { readonly capabilities: Capabilities }
+      : { readonly capabilities?: Capabilities });
+
+type ExtensionAttach<Capabilities extends object> =
+  HasRequiredKeys<Capabilities> extends true
+    ? {
+        attach(
+          context: WorkspaceAttachContext
+        ):
+          | Promise<WorkspaceAttachment<Capabilities>>
+          | WorkspaceAttachment<Capabilities>;
+      }
+    : {
+        attach?(
+          context: WorkspaceAttachContext
+        ):
+          | Promise<WorkspaceAttachment<Capabilities> | undefined>
+          | WorkspaceAttachment<Capabilities>
+          | undefined;
+      };
+
+export type WorkspaceExtension<
   Ref extends object = never,
-  Floor = unknown,
-  Cap = unknown,
-> {
-  applies: (registration: WorkspaceRegistration) => Promise<boolean> | boolean;
+  SourceCapabilities = unknown,
+  Capabilities = unknown,
+  Always extends boolean = boolean,
+> = {
+  applies: (
+    registration: WorkspaceRegistration
+  ) => [Always] extends [true]
+    ? Promise<true> | true
+    : Promise<boolean> | boolean;
   identify?(ref: Ref): Promise<WorkspaceIdentity> | WorkspaceIdentity;
   readonly name: string;
   readonly ref?: string;
-  readonly types?: { readonly floor: Floor; readonly cap: Cap };
-  wrap: (Base: WorkspaceCtor) => WorkspaceCtor;
+  source?(registration: WorkspaceRegistration): WorkspaceSourceAdapter;
+  readonly types?: {
+    readonly capabilities: Capabilities;
+    readonly source: SourceCapabilities;
+  };
+} & ExtensionAttach<SourceCapabilities & Capabilities & object>;
+
+export interface AnyWorkspaceExtension {
+  applies: (registration: WorkspaceRegistration) => Promise<boolean> | boolean;
+  attach?(
+    context: WorkspaceAttachContext
+  ):
+    | Promise<WorkspaceAttachment<object> | undefined>
+    | WorkspaceAttachment<object>
+    | undefined;
+  identify?(ref: object): Promise<WorkspaceIdentity> | WorkspaceIdentity;
+  readonly name: string;
+  readonly ref?: string;
+  source?(registration: WorkspaceRegistration): WorkspaceSourceAdapter;
+  readonly types?: { readonly capabilities: unknown; readonly source: unknown };
 }
 
-export type AnyWorkspaceExtension = WorkspaceExtension<object>;
-
-export type RefOf<Exts extends readonly AnyWorkspaceExtension[]> =
-  Exts[number] extends infer E
+export type RefOf<Extensions extends readonly AnyWorkspaceExtension[]> =
+  Extensions[number] extends infer E
     ? E extends WorkspaceExtension<infer R>
       ? R
       : never
     : never;
 
-export type FloorFor<
-  Exts extends readonly AnyWorkspaceExtension[],
+export type SourceCapabilitiesFor<
+  Extensions extends readonly AnyWorkspaceExtension[],
   R,
-> = Exts[number] extends infer E
-  ? E extends WorkspaceExtension<infer Ref, infer Floor>
-    ? R extends Ref
-      ? Floor
-      : never
-    : never
-  : never;
-
-export type CapOf<Exts extends readonly AnyWorkspaceExtension[]> =
-  UnionToIntersection<
-    Exts[number] extends infer E
-      ? E extends WorkspaceExtension<never, unknown, infer Cap>
-        ? unknown extends Cap
+> = OrUnknown<
+  Extensions[number] extends infer E
+    ? E extends WorkspaceExtension<
+        infer Ref,
+        infer SourceCapabilities,
+        infer _Capabilities
+      >
+      ? R extends Ref
+        ? unknown extends SourceCapabilities
           ? never
-          : Cap
+          : SourceCapabilities
         : never
       : never
-  >;
+    : never
+>;
+
+export type CapabilitiesOf<
+  Extensions extends readonly AnyWorkspaceExtension[],
+> = Unboxed<
+  UnionToIntersection<
+    | {
+        readonly [K in keyof Extensions]: {
+          readonly capabilities: ExtensionCapabilities<Extensions[K]>;
+        };
+      }[number]
+    | { readonly capabilities: unknown }
+  >
+>;
+
+type Unboxed<Box> = Box extends { readonly capabilities: infer Capabilities }
+  ? Capabilities
+  : unknown;
 
 type UnionToIntersection<U> = (
   U extends unknown
@@ -163,7 +251,28 @@ type UnionToIntersection<U> = (
     : never
 ) extends (member: infer I) => void
   ? I
-  : unknown;
+  : never;
+
+type ExtensionCapabilities<E> =
+  E extends WorkspaceExtension<never, unknown, infer Capabilities>
+    ? unknown extends Capabilities
+      ? unknown
+      : AppliesAlways<E> extends true
+        ? Capabilities
+        : DistributivePartial<Capabilities>
+    : unknown;
+
+type AppliesAlways<E> = E extends {
+  readonly applies: (registration: WorkspaceRegistration) => infer Applied;
+}
+  ? false extends Awaited<Applied>
+    ? false
+    : true
+  : false;
+
+type DistributivePartial<T> = T extends unknown ? Partial<T> : never;
+
+type OrUnknown<T> = [T] extends [never] ? unknown : T;
 
 export interface ResolvedSource {
   readonly name?: string;
@@ -191,9 +300,6 @@ export interface WorkspaceContext {
     task: () => Promise<T>
   ) => Promise<T>;
 }
-
-// biome-ignore lint/suspicious/noExplicitAny: The generic mixin constructor requires an any[] rest parameter under TS2545.
-export type WorkspaceCtor<T = Workspace> = new (...args: any[]) => T;
 
 export interface IgnoreScope {
   readonly base: string;

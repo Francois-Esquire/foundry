@@ -2,9 +2,10 @@ import { fillArgv, parseArgv, placeholdersOf } from "@foundry/lib/argv";
 import type { Bail } from "@foundry/workflows/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Scope } from "~/authoring/runtime";
-import { captureScope, declaringCatalog } from "~/authoring/runtime";
+import { captureScope, declaringCatalog, ownRun } from "~/authoring/runtime";
 import type { CommandResult, ExecOptions } from "~/lib/command";
 import type {
+  AnyDefinition,
   LockedNode,
   SetupFn,
   Shared,
@@ -13,6 +14,8 @@ import type {
 } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
 import { observable, RUNS } from "~/lib/events/source";
+import { DEFINITION_IDENTITY } from "~/lib/handles";
+import { setupCounters } from "~/lib/run-scope";
 import type { Input, Output } from "~/lib/schema";
 import { inputKeysOf } from "~/lib/schema";
 import { timeoutMs } from "~/lib/tree";
@@ -55,6 +58,40 @@ function identify(
     ? explicit
     : `install typescript@6 in the config's project to name it from its const, or ${explicit}`;
   return { fields: { nameHint, origin }, inferred: false };
+}
+
+function constructionId(site: CallSite | undefined): string {
+  const key =
+    site === undefined
+      ? "unplaced"
+      : `${site.file}:${String(site.line)}:${String(site.column)}`;
+  const setup = setupCounters.getStore();
+  if (setup !== undefined) {
+    const occurrence = setup.get(key) ?? 0;
+    setup.set(key, occurrence + 1);
+    return `setup:${key}#${String(occurrence)}`;
+  }
+  const running = ownRun();
+  if (running !== undefined) {
+    const { occurrence } = running.scope.claim(
+      running.frame,
+      `definition:${key}`
+    );
+    return `run:${key}#${String(occurrence)}`;
+  }
+  return `catalog:${declaringCatalog().claimId(key)}`;
+}
+
+function identified<D extends AnyDefinition>(
+  definition: D,
+  site: CallSite | undefined
+): D {
+  if (definition.name === undefined) {
+    Object.defineProperty(definition, DEFINITION_IDENTITY, {
+      value: constructionId(site),
+    });
+  }
+  return definition;
 }
 
 interface StepFields {
@@ -110,7 +147,9 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
     command:
       | string
       | ((context: Context<I>) => CommandLine | Promise<CommandLine>),
-    options?: ExecOptions
+    options?:
+      | ExecOptions
+      | ((context: Context<I>) => ExecOptions | Promise<ExecOptions>)
   ): StepDefinition<I, CommandResult, R> {
     const run =
       typeof command === "string"
@@ -118,9 +157,13 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
         : command;
     const { output: _output, ...fields } = this.#fields;
     const untyped = new StepBuilder<I, R>(fields);
-    return untyped.do(async (context) =>
-      context.exec(await run(context), options)
-    ) as unknown as StepDefinition<I, CommandResult, R>;
+    return untyped.do(async (context) => {
+      const line = await run(context);
+      return context.exec(
+        line,
+        typeof options === "function" ? await options(context) : options
+      );
+    }) as unknown as StepDefinition<I, CommandResult, R>;
   }
 
   do<X extends Ret | Bail<unknown>>(
@@ -142,7 +185,7 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
         ...(output === undefined ? {} : { output }),
       });
       declaringCatalog().define(definition, identity.inferred);
-      return definition;
+      return identified(definition, site);
     });
   }
 }
@@ -238,6 +281,7 @@ export class WorkflowBuilder<I = Empty, R = Empty> {
     return this.#scope(() =>
       finishWorkflow<I, O, R>(
         identify("workflow", this.#name, this.#site),
+        this.#site,
         this.#description,
         this.#input,
         setup
@@ -248,6 +292,7 @@ export class WorkflowBuilder<I = Empty, R = Empty> {
 
 function finishWorkflow<I, O, R = I>(
   identity: Identity,
+  site: CallSite | undefined,
   description: string | undefined,
   input: StandardSchemaV1 | undefined,
   setup: SetupFn<I, O>
@@ -260,7 +305,7 @@ function finishWorkflow<I, O, R = I>(
     setup,
   });
   declaringCatalog().define(definition, identity.inferred);
-  return definition;
+  return identified(definition, site);
 }
 
 type TreeArg<O = unknown> = LockedNode<O> | (() => LockedNode<O>);
@@ -289,14 +334,14 @@ export function workflow(
   }
   const identity = identify("workflow", name, site);
   if (typeof tree === "function") {
-    return finishWorkflow(identity, undefined, undefined, () => tree());
+    return finishWorkflow(identity, site, undefined, undefined, () => tree());
   }
   if (!isLockedNode(tree)) {
     throw new Error(
       `workflow(${name ? `"${name}"` : ""}): expected a locked node or a function returning one`
     );
   }
-  return finishWorkflow(identity, undefined, undefined, () => tree);
+  return finishWorkflow(identity, site, undefined, undefined, () => tree);
 }
 
 observable(workflow, RUNS);

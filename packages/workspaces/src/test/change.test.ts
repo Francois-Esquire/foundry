@@ -23,12 +23,9 @@ function fixture() {
     }),
     name: "memory",
     ref: "memory",
-    wrap: (Base) =>
-      class extends Base {
-        scan() {
-          return Promise.resolve(entries);
-        }
-      },
+    source: () => ({
+      scan: () => Promise.resolve(entries),
+    }),
   });
   return {
     errors,

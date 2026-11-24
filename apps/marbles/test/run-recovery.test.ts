@@ -3,10 +3,11 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { RunRecord } from "@foundry/workflows/schema";
+import { Effect } from "effect";
 import { afterEach, expect, it } from "vitest";
-import { adoptParkedRun } from "~/lib/run-recovery";
+import { adoptSuspendedRun } from "~/lib/run-recovery";
 import type { RunStore } from "~/lib/run-store";
+import type { RunRecord } from "~/lib/workflow-runs";
 import { readStoredRuns } from "./helpers/stored-runs";
 
 const SRC = resolve("src");
@@ -109,10 +110,10 @@ await engine.stop({ cancel: true });`
   return runId;
 }
 
-async function parkedRun(root: string): Promise<string> {
-  const park = phase(
+async function suspendedRun(root: string): Promise<string> {
+  const suspend = phase(
     root,
-    "park",
+    "suspend",
     `const launched = await engine.launch("hold", {});
 launched.result.catch(() => undefined);
 report.runId = launched.id;
@@ -120,9 +121,9 @@ await until(async () => (await status(launched.id)) === "suspended");
 report.questions = (await engine.feed()).filter((entry) => entry.input?.status === "open").map((entry) => entry.title);
 await engine.stop({ cancel: true });`
   );
-  const parked = run(park, ASK);
-  expect(parked.questions).toEqual(["Go on?"]);
-  const runId = parked.runId as string;
+  const suspended = run(suspend, ASK);
+  expect(suspended.questions).toEqual(["Go on?"]);
+  const runId = suspended.runId as string;
   expect(await storedStatus(root, runId)).toBe("suspended");
   expect(lines(root, "entries.log")).toHaveLength(1);
   expect(lines(root, "answers.log")).toEqual([]);
@@ -204,11 +205,11 @@ report.status = await status(id);`
 );
 
 it(
-  "a run parked on a question outlives its process: the next one adopts it, and the answer finishes the same run",
+  "a run suspended on a question outlives its process: the next one adopts it, and the answer finishes the same run",
   async () => {
-    const root = await mkdtemp(join(tmpdir(), "marbles-recovery-parked-"));
+    const root = await mkdtemp(join(tmpdir(), "marbles-recovery-suspended-"));
     roots.push(root);
-    const runId = await parkedRun(root);
+    const runId = await suspendedRun(root);
 
     const answer = phase(
       root,
@@ -241,7 +242,7 @@ it(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "marbles-recovery-answered-"));
     roots.push(root);
-    const runId = await parkedRun(root);
+    const runId = await suspendedRun(root);
 
     const answer = phase(
       root,
@@ -283,7 +284,7 @@ report.questions = (await engine.feed()).filter((entry) => entry.input?.status =
   TEST_TIMEOUT
 );
 
-it("gives up its claim on a parked run when a read after the claim fails", async () => {
+it("gives up its claim on a suspended run when a read after the claim fails", async () => {
   for (const failing of ["settled", "recorded"] as const) {
     const released: (string | undefined)[] = [];
     const runs = {
@@ -299,7 +300,7 @@ it("gives up its claim on a parked run when a read after the claim fails", async
       },
     } as unknown as RunStore;
     await expect(
-      adoptParkedRun({ id: "parked", step: "hold" } as RunRecord, {
+      adoptSuspendedRun({ id: "held", step: "hold" } as RunRecord, {
         askable: true,
         print: () => undefined,
         registered: () => true,
@@ -308,9 +309,12 @@ it("gives up its claim on a parked run when a read after the claim fails", async
           failing === "settled"
             ? Promise.reject(new Error("database busy"))
             : Promise.resolve(false),
-        store: { listRuns: () => Promise.reject(new Error("unused")) },
+        store: {
+          listJobs: () => Effect.die(new Error("unused")),
+          listRuns: () => Effect.die(new Error("unused")),
+        },
       })
     ).rejects.toThrow("database busy");
-    expect(released).toEqual(["parked"]);
+    expect(released).toEqual(["held"]);
   }
 });

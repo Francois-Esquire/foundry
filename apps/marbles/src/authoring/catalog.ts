@@ -88,7 +88,9 @@ export class Catalog {
 
   monitor(record: MonitorRecord): void {
     if (this.#keyTaken(record.key)) {
-      throw new Error(`schedule "${record.key}" already registered`);
+      throw new Error(
+        `monitor "${record.key}": a schedule or monitor of that name is already registered; give each its own name`
+      );
     }
     this.monitors.set(record.key, record);
   }
@@ -105,6 +107,18 @@ export class Catalog {
       );
     }
     this.observers.push(observer);
+  }
+
+  observerEntries(): readonly {
+    readonly name: string;
+    readonly source: string;
+    readonly types?: readonly string[];
+  }[] {
+    return this.observers.map(({ name, source, types }) => ({
+      name,
+      source: sourceKey(source) ?? String(source.description),
+      ...(types === undefined ? {} : { types: [...types] }),
+    }));
   }
 
   #keyTaken(key: string): boolean {

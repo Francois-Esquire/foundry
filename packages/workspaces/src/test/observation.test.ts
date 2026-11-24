@@ -28,22 +28,19 @@ function fixture() {
     }),
     name: "memory",
     ref: "memory",
-    wrap: (Base) =>
-      class extends Base {
-        scan() {
-          return scan();
-        }
-        protected watch(changed: () => void): Promise<StorageSubscription> {
-          subscribed();
-          signal = changed;
-          return Promise.resolve({
-            close: () => {
-              closed();
-              return Promise.resolve();
-            },
-          });
-        }
+    source: () => ({
+      scan: () => scan(),
+      watch(changed: () => void): Promise<StorageSubscription> {
+        subscribed();
+        signal = changed;
+        return Promise.resolve({
+          close: () => {
+            closed();
+            return Promise.resolve();
+          },
+        });
       },
+    }),
   });
   return {
     blockScan: (value: () => Promise<readonly ObservedFacts[]>) => {

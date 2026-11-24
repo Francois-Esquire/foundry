@@ -4,8 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { nodeObserver } from "../node/watch";
 
-const mocks = vi.hoisted(() => ({ subscribe: vi.fn(), watch: vi.fn() }));
-vi.mock("@parcel/watcher", () => ({ subscribe: mocks.subscribe }));
+const mocks = vi.hoisted(() => ({ watch: vi.fn() }));
 vi.mock("node:fs", () => ({ watch: mocks.watch }));
 
 afterEach(() => {
@@ -14,29 +13,8 @@ afterEach(() => {
 });
 
 describe("Node observation backends", () => {
-  it("uses Parcel signals and awaits unsubscribe", async () => {
-    const unsubscribe = vi.fn().mockResolvedValue(undefined);
-    mocks.subscribe.mockResolvedValue({ unsubscribe });
-    const changed = vi.fn();
-    const failed = vi.fn();
-    const subscription = await nodeObserver.watch("/root", changed, failed);
-    const callback = mocks.subscribe.mock.calls[0]?.[1] as (
-      error: Error | null,
-      events: unknown[]
-    ) => void;
-    callback(null, []);
-    callback(null, [{}]);
-    expect(changed).toHaveBeenCalledTimes(1);
-    await subscription.close();
-    callback(null, [{}]);
-    expect(changed).toHaveBeenCalledTimes(1);
-    expect(unsubscribe).toHaveBeenCalledTimes(1);
-    expect(mocks.watch).not.toHaveBeenCalled();
-  });
-
-  it("falls back to Node, then polling on a runtime watcher failure", async () => {
+  it("uses recursive fs.watch, skips ignored paths, and falls back to polling on error", async () => {
     vi.useFakeTimers();
-    mocks.subscribe.mockRejectedValue(new Error("native unavailable"));
     const handle = Object.assign(new EventEmitter(), { close: vi.fn() });
     mocks.watch.mockReturnValue(handle);
     const changed = vi.fn();
@@ -60,9 +38,8 @@ describe("Node observation backends", () => {
     expect(changed).toHaveBeenCalledTimes(2);
   });
 
-  it("polls when neither native backend starts", async () => {
+  it("polls when fs.watch fails to start", async () => {
     vi.useFakeTimers();
-    mocks.subscribe.mockRejectedValue(new Error("native unavailable"));
     mocks.watch.mockImplementation(() => {
       throw new Error("root unavailable");
     });

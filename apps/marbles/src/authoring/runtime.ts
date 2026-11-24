@@ -9,6 +9,8 @@ import { initializeUsage } from "~/authoring/usage";
 import type { Engine } from "~/lib/engine";
 import type { ExecutionContext } from "~/lib/execution-context";
 import { activeContext } from "~/lib/execution-context";
+import type { Current } from "~/lib/run-scope";
+import { current } from "~/lib/run-scope";
 
 export type InstanceRuntime = Pick<
   Engine,
@@ -19,7 +21,10 @@ export type InstanceRuntime = Pick<
   | "dispose"
   | "disposed"
   | "execute"
+  | "launchDefinition"
   | "models"
+  | "readRun"
+  | "readRuns"
   | "sandboxes"
   | "taskStore"
   | "workspaceId"
@@ -475,6 +480,40 @@ export function hostTaskStore(): TaskStore | undefined {
   }
   throw new Error(
     "tasks: the workspace host that held these tasks was disposed; nothing was read or written"
+  );
+}
+
+export function ownRun(): Current | undefined {
+  const store = current.getStore();
+  if (
+    store === undefined ||
+    (store.bindings.context !== undefined &&
+      loadOfAnother(routeScope.getStore(), store.bindings.context))
+  ) {
+    return;
+  }
+  return store;
+}
+
+export function readingRuntime(word: string): Promise<InstanceRuntime | null> {
+  let hosting: Answer | undefined;
+  try {
+    hosting = answering();
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  if (hosting?.runtime !== undefined) {
+    return Promise.resolve(hosting.runtime);
+  }
+  if (hosting === undefined && hostState === "unhosted") {
+    return fallbacks.get(false) ?? Promise.resolve(null);
+  }
+  return Promise.reject(
+    new Error(
+      hosting !== undefined || hostState === "loading"
+        ? `${word}: the workspace's runs are not available while its source loads; read them in a step, an observe handler, or once the host has started`
+        : `${word}: the workspace host that held these runs was disposed; nothing was read`
+    )
   );
 }
 

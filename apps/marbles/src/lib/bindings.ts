@@ -4,6 +4,7 @@ import type { TriggerStore } from "~/lib/trigger-store";
 import type { Exec } from "./command";
 import type { ExecutionContext } from "./execution-context";
 import type { AgentTurns } from "./managers/agents";
+import type { Runs } from "./managers/runs";
 import type { Catalogue } from "./managers/workspaces";
 import type { Frame, RunScope } from "./run-scope";
 import type { Agents, Artifacts, Sandboxes, Workspaces } from "./types";
@@ -27,6 +28,7 @@ export interface Bindings {
   readonly host?: HostBindings;
   readonly log: Log;
   readonly root: string;
+  readonly runs?: (args?: ManagerArgs) => Runs;
   readonly sandboxes: (args: ManagerArgs) => Sandboxes;
   readonly setupLog?: (run: {
     readonly id: string;

@@ -30,12 +30,11 @@ import {
 } from "./scanner";
 import type {
   FileContentResult,
-  ObservedFacts,
   ResolvedSource,
-  WorkspaceCtor,
   WorkspaceExtension,
   WorkspaceFile,
   WorkspaceFileSystem,
+  WorkspaceSourceAdapter,
   WriteOutcome,
 } from "./types";
 
@@ -45,43 +44,67 @@ export interface DirectoryOptions<Ref extends object = DirectoryRef> {
   readonly source?: string;
 }
 
-export interface DirectoryCapable {
+export interface DirectoryCapabilities {
   readonly root: string;
 }
 
-export function WithDirectory<
-  B extends WorkspaceCtor,
-  Ref extends object = DirectoryRef,
->(
-  Base: B,
+export interface DirectoryRef {
+  readonly path: string;
+}
+
+export function directorySource<Ref extends object = DirectoryRef>(
+  root: string,
   options: DirectoryOptions<Ref>
-): B & WorkspaceCtor<DirectoryCapable> {
+): WorkspaceSourceAdapter {
   const { filesystem } = options;
+  const watcher = options.observer ?? filesystem;
 
-  return class extends Base implements DirectoryCapable {
-    get root(): string {
-      return this.source.path;
-    }
-
-    scan(): Promise<readonly ObservedFacts[]> {
-      return scanSource(filesystem, this.root);
-    }
-
-    protected watch(changed: () => void, failed: (error: unknown) => void) {
-      return (
-        (options.observer ?? filesystem).watch?.(this.root, changed, failed) ??
-        super.watch(changed, failed)
+  return {
+    async insertFile(path: string, bytes: Uint8Array): Promise<WriteOutcome> {
+      if (!isStoragePath(path)) {
+        return { kind: "failed", reason: "Invalid relative storage path" };
+      }
+      if (!filesystem.createFile) {
+        return {
+          kind: "failed",
+          reason: "This storage does not support file creation",
+        };
+      }
+      const slash = path.lastIndexOf("/");
+      const parentPath = slash < 0 ? "" : path.slice(0, slash);
+      const located = await locateConfined(filesystem, root, parentPath, {
+        expectedType: "directory",
+        missingReason: "Parent directory does not exist",
+        nonMatchingReason: "Parent must be an existing regular directory",
+      });
+      if (located.kind === "failure") {
+        return { kind: "failed", reason: located.reason };
+      }
+      const destination = joinFilesystemPath(
+        located.resolved,
+        path.slice(slash + 1),
+        filesystem.separator
       );
-    }
+      try {
+        await filesystem.createFile(destination, bytes);
+      } catch (error) {
+        if (error instanceof StorageApplicationError) {
+          return { application: "pending", kind: "written" };
+        }
+        return {
+          kind: "failed",
+          reason: `Could not create ${path} (${errorCode(error)})`,
+        };
+      }
+      return { kind: "written" };
+    },
 
-    protected async readFile(file: WorkspaceFile): Promise<FileContentResult> {
-      const read = await this.resolveBytes(file);
+    async readFile(file: WorkspaceFile): Promise<FileContentResult> {
+      const read = await resolveFileBytes(filesystem, root, file);
       if (read.kind === "failure") {
         return { kind: contentKindFor(read.issue), reason: read.reason };
       }
-      const text = isTextMime(file.mime)
-        ? decodeUtf8(read.bytes)
-        : decodeText(read.bytes);
+      const text = decodeFileBytes(file, read.bytes);
       const digest = await sha256Hex(read.bytes);
       return text === null
         ? {
@@ -99,21 +122,29 @@ export function WithDirectory<
             text,
             type: "file",
           };
-    }
+    },
 
-    protected async writeFile(
+    scan: () => scanSource(filesystem, root),
+
+    ...(watcher.watch
+      ? {
+          watch: (changed: () => void, failed: (error: unknown) => void) =>
+            watcher.watch?.(root, changed, failed) ??
+            Promise.resolve(undefined),
+        }
+      : {}),
+
+    async writeFile(
       file: WorkspaceFile,
       bytes: Uint8Array,
       expectedDigest: string
     ): Promise<WriteOutcome> {
-      const read = await this.resolveBytes(file);
+      const read = await resolveFileBytes(filesystem, root, file);
       if (read.kind === "failure") {
         return { kind: saveKindFor(read.issue), reason: read.reason };
       }
 
-      const currentText = isTextMime(file.mime)
-        ? decodeUtf8(read.bytes)
-        : decodeText(read.bytes);
+      const currentText = decodeFileBytes(file, read.bytes);
       if (currentText === null) {
         return {
           kind: "stale",
@@ -159,131 +190,20 @@ export function WithDirectory<
         };
       }
       return { kind: "written" };
-    }
-
-    protected async insertFile(
-      path: string,
-      bytes: Uint8Array
-    ): Promise<WriteOutcome> {
-      if (!filesystem.createFile) {
-        return {
-          kind: "failed",
-          reason: "This storage does not support file creation",
-        };
-      }
-      const rootFailure = await verifyWorkspaceRoot(filesystem, this.root);
-      if (rootFailure) {
-        return { kind: "failed", reason: rootFailure.reason };
-      }
-      const slash = path.lastIndexOf("/");
-      const parent =
-        slash < 0
-          ? this.root
-          : await resolveStoredPath(
-              filesystem,
-              this.root,
-              path.slice(0, slash)
-            );
-      if (!parent) {
-        return { kind: "failed", reason: "Parent directory does not exist" };
-      }
-      const stats = await storedFileStats(filesystem, parent, path);
-      if ("kind" in stats || stats.type !== "directory") {
-        return {
-          kind: "failed",
-          reason: "Parent must be an existing regular directory",
-        };
-      }
-      const resolved = await resolveConfinedPath(
-        filesystem,
-        this.root,
-        parent,
-        path
-      );
-      if (typeof resolved !== "string") {
-        return { kind: "failed", reason: resolved.reason };
-      }
-      const destination = joinFilesystemPath(
-        resolved,
-        path.slice(slash + 1),
-        filesystem.separator
-      );
-      try {
-        await filesystem.createFile(destination, bytes);
-      } catch (error) {
-        if (error instanceof StorageApplicationError) {
-          return { application: "pending", kind: "written" };
-        }
-        return {
-          kind: "failed",
-          reason: `Could not create ${path} (${errorCode(error)})`,
-        };
-      }
-      return { kind: "written" };
-    }
-
-    private async resolveBytes(
-      file: WorkspaceFile
-    ): Promise<ResolvedBytes | ResolveFailure> {
-      if (!isStoragePath(file.path)) {
-        return escapePathFailure(file.path);
-      }
-
-      const rootFailure = await verifyWorkspaceRoot(filesystem, this.root);
-      if (rootFailure !== undefined) {
-        return rootFailure;
-      }
-
-      const absolute = await resolveStoredPath(
-        filesystem,
-        this.root,
-        file.path
-      );
-      if (absolute === null) {
-        return missingFileFailure(file.path);
-      }
-
-      const stats = await storedFileStats(filesystem, absolute, file.path);
-      if ("kind" in stats) {
-        return stats;
-      }
-      if (stats.type === "symlink") {
-        return symlinkFailure(file.path);
-      }
-      if (stats.type !== "file") {
-        return nonRegularFileFailure(file.path);
-      }
-
-      const resolved = await resolveConfinedPath(
-        filesystem,
-        this.root,
-        absolute,
-        file.path
-      );
-      if (typeof resolved !== "string") {
-        return resolved;
-      }
-
-      const bytes = await readStoredFile(filesystem, resolved, file.path);
-      if ("kind" in bytes) {
-        return bytes;
-      }
-      return { bytes, kind: "bytes", resolved };
-    }
+    },
   };
-}
-
-export interface DirectoryRef {
-  readonly path: string;
 }
 
 export function directory<Ref extends object = DirectoryRef>(
   options: DirectoryOptions<Ref>
-): WorkspaceExtension<Ref, DirectoryCapable> {
+): WorkspaceExtension<Ref, DirectoryCapabilities> {
   const { filesystem } = options;
   const kind = options.source ?? DIRECTORY_SOURCE;
   return {
     applies: (registration) => registration.source.kind === kind,
+    attach: ({ registration }) => ({
+      capabilities: { root: registration.source.path },
+    }),
     async identify(ref) {
       const resolved = await resolveSource(filesystem, ref);
       const root = await canonicalizeRoot(filesystem, resolved.path);
@@ -294,8 +214,16 @@ export function directory<Ref extends object = DirectoryRef>(
     },
     name: "directory",
     ref: filesystem.reference ?? "path",
-    wrap: (Base) => WithDirectory(Base, options),
+    source: (registration) =>
+      directorySource(registration.source.path, options),
   };
+}
+
+function decodeFileBytes(
+  file: WorkspaceFile,
+  bytes: Uint8Array
+): string | null {
+  return isTextMime(file.mime) ? decodeUtf8(bytes) : decodeText(bytes);
 }
 
 function resolveSource<Ref extends object>(
@@ -313,107 +241,6 @@ function resolveSource<Ref extends object>(
   );
 }
 
-function failure(
-  issue: ResolveFailure["issue"],
-  reason: string
-): ResolveFailure {
-  return { issue, kind: "failure", reason };
-}
-
-function missingFileFailure(path: string): ResolveFailure {
-  return failure(
-    "missing",
-    `${path} is no longer present in the Workspace source`
-  );
-}
-
-function escapePathFailure(path: string): ResolveFailure {
-  return failure(
-    "escape",
-    `Refusing a File path that escapes its Workspace root: ${path}`
-  );
-}
-
-function symlinkFailure(path: string): ResolveFailure {
-  return failure("symlink", `Refusing to follow a symlink at ${path}`);
-}
-
-function nonRegularFileFailure(path: string): ResolveFailure {
-  return failure("not-regular", `${path} is no longer a regular file`);
-}
-
-async function verifyWorkspaceRoot(
-  filesystem: Pick<StorageReader, "lstat" | "realpath">,
-  root: string
-): Promise<ResolveFailure | undefined> {
-  try {
-    await verifyRoot(filesystem, root);
-    return undefined;
-  } catch (error) {
-    if (!(error instanceof WorkspaceSourceUnavailableError)) {
-      throw error;
-    }
-    return failure(
-      error.issue === "unavailable" ? "root-unavailable" : "root-unreadable",
-      error.message
-    );
-  }
-}
-
-async function storedFileStats(
-  filesystem: Pick<StorageReader, "lstat">,
-  absolute: string,
-  path: string
-): Promise<EntryStats | ResolveFailure> {
-  try {
-    return await filesystem.lstat(absolute);
-  } catch {
-    return missingFileFailure(path);
-  }
-}
-
-async function resolveConfinedPath(
-  filesystem: Pick<StorageReader, "realpath" | "separator">,
-  root: string,
-  absolute: string,
-  path: string
-): Promise<string | ResolveFailure> {
-  let resolved: string;
-  try {
-    resolved = await filesystem.realpath(absolute);
-  } catch {
-    return missingFileFailure(path);
-  }
-  if (!isFilesystemPathWithin(root, resolved, filesystem.separator)) {
-    return failure(
-      "escape",
-      `Refusing a File that resolves outside its Workspace root: ${path}`
-    );
-  }
-  return resolved;
-}
-
-async function readStoredFile(
-  filesystem: Pick<StorageReader, "readFile">,
-  resolved: string,
-  path: string
-): Promise<Uint8Array | ResolveFailure> {
-  try {
-    return await filesystem.readFile(resolved);
-  } catch (error) {
-    return failure(
-      "read-error",
-      `Could not read ${path} (${errorCode(error)})`
-    );
-  }
-}
-
-interface ResolvedBytes {
-  readonly bytes: Uint8Array;
-  readonly kind: "bytes";
-  readonly resolved: string;
-}
-
 interface ResolveFailure {
   readonly issue:
     | "escape"
@@ -425,6 +252,123 @@ interface ResolveFailure {
     | "read-error";
   readonly kind: "failure";
   readonly reason: string;
+}
+
+function failure(
+  issue: ResolveFailure["issue"],
+  reason: string
+): ResolveFailure {
+  return { issue, kind: "failure", reason };
+}
+
+async function locateConfined(
+  filesystem: Pick<
+    StorageReader,
+    "lstat" | "readDirectory" | "realpath" | "separator"
+  >,
+  root: string,
+  relativePath: string,
+  expect: {
+    readonly expectedType: "directory" | "file";
+    readonly missingReason: string;
+    readonly nonMatchingReason: string;
+  }
+): Promise<
+  { readonly kind: "ok"; readonly resolved: string } | ResolveFailure
+> {
+  const target = expect.expectedType === "directory" ? "directory" : "File";
+  if (relativePath !== "" && !isStoragePath(relativePath)) {
+    return failure(
+      "escape",
+      `Refusing a ${target} path that escapes its Workspace root: ${relativePath}`
+    );
+  }
+
+  try {
+    await verifyRoot(filesystem, root);
+  } catch (error) {
+    if (!(error instanceof WorkspaceSourceUnavailableError)) {
+      throw error;
+    }
+    return failure(
+      error.issue === "unavailable" ? "root-unavailable" : "root-unreadable",
+      error.message
+    );
+  }
+
+  const absolute =
+    relativePath === ""
+      ? root
+      : await resolveStoredPath(filesystem, root, relativePath);
+  if (absolute === null) {
+    return failure("missing", expect.missingReason);
+  }
+
+  let stats: EntryStats;
+  try {
+    stats = await filesystem.lstat(absolute);
+  } catch {
+    return failure("missing", expect.missingReason);
+  }
+  if (stats.type === "symlink") {
+    return failure(
+      "symlink",
+      expect.expectedType === "file"
+        ? `Refusing to follow a symlink at ${relativePath}`
+        : expect.nonMatchingReason
+    );
+  }
+  if (stats.type !== expect.expectedType) {
+    return failure("not-regular", expect.nonMatchingReason);
+  }
+
+  let resolved: string;
+  try {
+    resolved = await filesystem.realpath(absolute);
+  } catch {
+    return failure("missing", expect.missingReason);
+  }
+  if (!isFilesystemPathWithin(root, resolved, filesystem.separator)) {
+    return failure(
+      "escape",
+      `Refusing a ${target} that resolves outside its Workspace root: ${relativePath}`
+    );
+  }
+  return { kind: "ok", resolved };
+}
+
+async function resolveFileBytes(
+  filesystem: StorageReader,
+  root: string,
+  file: WorkspaceFile
+): Promise<
+  | {
+      readonly bytes: Uint8Array;
+      readonly kind: "bytes";
+      readonly resolved: string;
+    }
+  | ResolveFailure
+> {
+  const located = await locateConfined(filesystem, root, file.path, {
+    expectedType: "file",
+    missingReason: `${file.path} is no longer present in the Workspace source`,
+    nonMatchingReason: `${file.path} is no longer a regular file`,
+  });
+  if (located.kind === "failure") {
+    return located;
+  }
+  try {
+    return {
+      bytes: await filesystem.readFile(located.resolved),
+      kind: "bytes",
+      resolved: located.resolved,
+    };
+  } catch (error) {
+    return failure(
+      "read-error",
+      `Could not read ${file.path} (${errorCode(error)})`
+    );
+  }
 }
 
 function contentKindFor(

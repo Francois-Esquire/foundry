@@ -103,7 +103,7 @@ describe("other workspaces on the dashboard", () => {
       "ws2",
       Array.from({ length: 120 }, (_, index) => ({
         createdAt: 100 + index,
-        id: `newer-${String(index)}`,
+        id: `rn-newer-${String(index)}`,
         owner: null,
         status: "complete" as const,
       }))

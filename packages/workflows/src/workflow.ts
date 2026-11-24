@@ -26,13 +26,13 @@ import type {
   DefinitionContext,
   DefinitionDescriptor,
   DefinitionGraphBuilder,
+  Factory,
 } from "./definitions";
 import type { BaseContext } from "./executable";
 import { isSuspendSignal } from "./executable";
 import { errorToShape, resolveInput, runEffectPromise } from "./helpers";
 import type { WorkflowEffectAccess } from "./internal/workflow-effect-access";
 import { workflowEffectAccessKey } from "./internal/workflow-effect-access";
-import type { Factory } from "./orchestrator";
 import type { ErrorShape } from "./schema";
 import type {
   SnapshotState,
@@ -710,20 +710,6 @@ export abstract class Workflow<
     });
   }
 
-  #markStarted(at: string): Effect.Effect<string> {
-    const self = this;
-    return Effect.gen(function* () {
-      const { startedAt } = yield* SubscriptionRef.get(self.#state);
-      if (startedAt !== undefined) {
-        return startedAt;
-      }
-      return yield* SubscriptionRef.modify(self.#state, (row) => {
-        const kept = row.startedAt ?? at;
-        return [kept, { ...row, startedAt: kept }];
-      });
-    });
-  }
-
   seedState(
     persisted: Partial<WorkflowState> & { status: RunStatus }
   ): Promise<void> {
@@ -734,20 +720,17 @@ export abstract class Workflow<
   [workflowEffectAccessKey](): WorkflowEffectAccess<I, O> {
     return {
       cancel: (reason) => this.#cancel(reason),
-      markStarted: (at) => this.#markStarted(at),
-      resolve: (name, value) => this.#resolve(name, value),
-      resolveOccurrence: (path, name, occurrence, value) =>
-        this.#resolveOccurrence(path, name, occurrence, value),
-      result: Deferred.await(this.#result),
-      resume: (name, value) => this.#resume(name, value),
-      resumeOccurrence: (path, name, occurrence, value) =>
-        this.#resumeOccurrence(path, name, occurrence, value),
+      restoreTelemetry: (telemetry) =>
+        Effect.sync(() => this.#telemetry.restore(telemetry)).pipe(
+          Effect.zipRight(
+            SubscriptionRef.update(this.#state, (row) => ({
+              ...row,
+              telemetry: this.#telemetry.snapshot(),
+            }))
+          )
+        ),
       run: (input, context) => this.#run(input, context),
-      seedState: (state) => this.#seedState(state),
       state: SubscriptionRef.get(this.#state),
-      stateChanges: this.#state.changes,
-      status: SubscriptionRef.get(this.#status),
-      statusChanges: this.#status.changes,
     };
   }
 }

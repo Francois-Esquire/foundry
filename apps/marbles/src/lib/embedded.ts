@@ -64,6 +64,7 @@ export type {
 } from "./executions";
 export { DEFAULT_QUEUE } from "./executions";
 export type { Launched, LaunchOptions } from "./launcher";
+export type { RunQuery, RunView } from "./managers/runs";
 export type { RecordedScope } from "./run-scope";
 export type { RunStore, StoredScope } from "./run-store";
 export { MemoryRunStore } from "./run-store";

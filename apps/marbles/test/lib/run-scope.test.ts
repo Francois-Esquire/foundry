@@ -179,7 +179,7 @@ describe("Ledger", () => {
     expect(frame.signal.aborted).toBe(true);
   });
 
-  it("pause parks the subtree and a step entering under it parks at once", async () => {
+  it("pause suspends the subtree and a step entering under it suspends at once", async () => {
     const scope = new RunScope("run-subtree", "/tmp");
     const root = scope.frame(["flow"]);
     const child = scope.frame(["flow", "a"]);

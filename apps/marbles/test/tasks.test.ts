@@ -151,7 +151,7 @@ describe("tasks", () => {
 
     await expect(writer.run()).resolves.toBe("nested");
     expect(ids.nested).toBe(ids.writer);
-    const parked = await vi.waitFor(async () => {
+    const suspended = await vi.waitFor(async () => {
       const found = (await first.runs()).find(
         (run) => run.step === "observed-question"
       );
@@ -159,7 +159,7 @@ describe("tasks", () => {
       return found;
     });
     expect(ids.handler).toBe("outside any run");
-    expect(parked?.id).toBe(ids.asked);
+    expect(suspended?.id).toBe(ids.asked);
     expect(ids.asked).not.toBe(ids.writer);
     expect(
       (await first.runs()).find((run) => run.id === ids.writer)?.status

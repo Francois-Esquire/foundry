@@ -1,12 +1,11 @@
 import type { ChannelEvent } from "@foundry/workflows/channels";
-import type { BaseContext } from "@foundry/workflows/executable";
-import type { Workflow } from "@foundry/workflows/workflow";
 import { formatLogValues } from "~/lib/log";
 import type { ChunkOrigin } from "~/lib/state/output";
+import type { HeldWorkflow } from "~/lib/workflow-queue";
 
-export async function observeSteps<I, O, X extends BaseContext>(
+export async function observeSteps(
   name: string,
-  workflow: Workflow<I, O, X>,
+  workflow: Pick<HeldWorkflow, "root">,
   {
     print,
     onEvent,

@@ -1,6 +1,5 @@
 import { Sessions } from "@foundry/agents/session";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import type { RunRecord } from "@foundry/workflows/schema";
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
 import type { DashboardSnapshot } from "~/cli/state/dashboard-model";
@@ -10,6 +9,7 @@ import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { RunScope } from "~/lib/run-scope";
 import type { LiveWork } from "~/lib/step-work";
+import type { RunRecord } from "~/lib/workflow-runs";
 import { questionOwners } from "~/workspace/live-work";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { flush, mount, press, unmount } from "./helpers/render";

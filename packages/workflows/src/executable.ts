@@ -1,10 +1,10 @@
 import type { Schedule, Scope } from "effect";
 
 import { Effect, HashMap, Option, Ref } from "effect";
+import { z } from "zod";
 
 import type { Channels, SuspensionRequest, SuspensionState } from "./channels";
 import type { Composer, ParallelEntry } from "./composer";
-import { resolveStepExecution } from "./config";
 import {
   errorToShape,
   parseDuration,
@@ -53,6 +53,35 @@ export function suspensionOccurrenceKey(
   occurrence: number
 ): string {
   return JSON.stringify([stepPath, name, occurrence]);
+}
+
+export interface SuspensionOccurrence {
+  readonly name: string;
+  readonly occurrence: number;
+  readonly stepPath: readonly string[];
+}
+
+const SuspensionOccurrenceKeySchema = z.tuple([
+  z.array(z.string()),
+  z.string(),
+  z.number().int().nonnegative(),
+]);
+
+export function parseSuspensionOccurrenceKey(
+  key: string
+): SuspensionOccurrence | undefined {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(key);
+  } catch {
+    return;
+  }
+  const parsed = SuspensionOccurrenceKeySchema.safeParse(decoded);
+  if (!parsed.success) {
+    return;
+  }
+  const [stepPath, name, occurrence] = parsed.data;
+  return { name, occurrence, stepPath };
 }
 
 export interface Witness {
@@ -438,10 +467,9 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
       const ctx = buildCtx();
       const attemptRef = yield* Ref.make(0);
 
-      const stepPolicy = resolveStepExecution(step.config);
       const policy = {
-        retry: stepPolicy.retry ?? self.config.retry,
-        timeout: stepPolicy.timeout ?? self.config.timeout,
+        retry: step.config.retry ?? self.config.retry,
+        timeout: step.config.timeout ?? self.config.timeout,
       };
 
       let timeoutMs: number | null = null;

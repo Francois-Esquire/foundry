@@ -72,9 +72,10 @@ it("dispatches workflows and agents through the MCP tools, over a workspace a dr
   const schemaLibrary = createRequire(import.meta.url).resolve("zod");
   await writeFile(
     source,
-    `import { agent, step, workflow } from "@foundry.sh/marbles";
+    `import { agent, observe, step, tasks, workflow } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(schemaLibrary)};
 agent({ name: "helper", prompt: "You help with tasks." });
+observe(tasks, () => undefined, { name: "triage", types: ["tasks.changed"] });
 const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => {
   console.error("workflow diagnostic");
   return { greeting: "Hello " + input.name };
@@ -120,6 +121,11 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
         text: expect.stringContaining('"inputSchema"'),
       }),
     ]);
+    expect(payload(config)).toMatchObject({
+      observers: [
+        { name: "triage", source: "tasks", types: ["tasks.changed"] },
+      ],
+    });
     const run = await client.callTool({
       arguments: { input: { name: "Ada" }, name: "greeting" },
       name: "dispatch_workflow",

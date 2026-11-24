@@ -1,204 +1,31 @@
 import { afterEach, describe, expect, test } from "vitest";
 
-import type {
-  AuthoredContext,
-  AuthoredRunInput,
-  BoundContractRecord,
-  EvidenceHost,
-  InvocationContext,
-  LinearPlan,
-  RehydrateContext,
-  StampedOutput,
-  StepContract,
-  TrustedStep,
-} from "../authored";
+import type { LinearPlan, StepContract, TrustedStep } from "../authored";
 import {
   ContractFailure,
-  InvocationInterrupted,
-  materializeLinear,
+  type InvocationContext,
+  type RehydrateContext,
 } from "../authored";
 import type { DefinitionGraphBuilder } from "../definitions";
-import type { JsonValue, OrchestratorStore } from "../index";
-import { ExecutionCoordinator } from "../index";
-import { Orchestrator } from "../orchestrator";
-import type { RunJournal } from "../run-journal";
 import { Workflow } from "../workflow";
-import { makeOrchestratorConfig } from "./helpers/config";
+import {
+  clients,
+  disposeClients,
+  eventsOf,
+  logRecords,
+  makeStep,
+  outputFrames,
+  runPlan,
+  textInput,
+  textResult,
+} from "./helpers/authored-plans";
+import {
+  settledJob,
+  sharedQueueStore,
+  startQueue,
+} from "./helpers/authored-queue";
 
-function journalHost(journal: RunJournal): EvidenceHost {
-  const isRecord = (v: unknown): v is Record<string, JsonValue> =>
-    typeof v === "object" && v !== null && !Array.isArray(v);
-  return {
-    async evidenceOf(runId, placement) {
-      const frames = await journal.listRunFrames(runId);
-      let bound: BoundContractRecord | null = null;
-      const outputs: StampedOutput[] = [];
-      for (const frame of frames) {
-        const p = frame.payload;
-        if (
-          p.kind === "log" &&
-          isRecord(p.value) &&
-          p.value.event === "invocation-bound" &&
-          p.value.placement === placement
-        ) {
-          bound = p.value as unknown as BoundContractRecord;
-        }
-        if (
-          p.kind === "output" &&
-          isRecord(p.value) &&
-          p.value.placement === placement
-        ) {
-          outputs.push(p.value as unknown as StampedOutput);
-        }
-      }
-      return { bound, outputs };
-    },
-    async recordEvidence(runId, record) {
-      await journal.appendRunFrame({
-        payload: { kind: "log", value: record as unknown as JsonValue },
-        runId,
-      });
-    },
-  };
-}
-
-interface StepOptions {
-  readonly contract: StepContract;
-  readonly invoke?: (
-    inputs: Readonly<Record<string, string | null>>,
-    ctx: InvocationContext
-  ) => Promise<string | null>;
-  readonly rehydrate?: (ctx: RehydrateContext) => Promise<string | null>;
-}
-
-function makeStep(key: string, options: StepOptions): TrustedStep {
-  return {
-    contract: options.contract,
-    invoke: options.invoke ?? (async () => `result:${key}`),
-    key,
-    name: key,
-    ...(options.rehydrate ? { rehydrate: options.rehydrate } : {}),
-  };
-}
-
-const textInput = (required = true) =>
-  ({
-    key: "text",
-    label: "Text",
-    required,
-    type: "text",
-  }) as const;
-
-const textResult = { type: "text" } as const;
-
-const orchestrators: Orchestrator[] = [];
-
-afterEach(async () => {
-  while (orchestrators.length > 0) {
-    const orch = orchestrators.pop();
-    try {
-      await orch?.stop();
-    } catch {
-      // biome-ignore lint/complexity/noUselessContinue: Finish tearing down the remaining orchestrators.
-      continue;
-    }
-  }
-});
-
-async function startOrchestrator(
-  plan: LinearPlan,
-  resolve: (key: string) => TrustedStep,
-  persistence: OrchestratorStore,
-  queueName?: string
-): Promise<{ orch: Orchestrator; host: EvidenceHost }> {
-  const orch = new Orchestrator({
-    config: makeOrchestratorConfig(
-      queueName === undefined ? {} : { defaultName: queueName }
-    ),
-    store: persistence,
-  });
-  orchestrators.push(orch);
-  await orch.setup();
-  const host = journalHost(persistence);
-  orch.register<AuthoredRunInput, null, AuthoredContext>(
-    "workflow.authored",
-    (input, execution) =>
-      materializeLinear(plan, resolve, host).factory()(input, execution)
-  );
-  await orch.start();
-  return { host, orch };
-}
-
-interface Attribution {
-  readonly message: string;
-  readonly name: string;
-}
-
-interface RunOutcome {
-  readonly error?: Attribution;
-  readonly orch: Orchestrator;
-  readonly persistence: OrchestratorStore;
-  readonly runId: string;
-  readonly status: string;
-}
-
-async function runPlan(
-  plan: LinearPlan,
-  resolve: (key: string) => TrustedStep,
-  inputs: Record<string, string> = {}
-): Promise<RunOutcome> {
-  const persistence = new ExecutionCoordinator();
-  const { orch } = await startOrchestrator(plan, resolve, persistence);
-  const dispatched = await orch.run<AuthoredRunInput, null>(
-    "workflow.authored",
-    { inputs, snapshotId: "snap" }
-  );
-  await dispatched.result();
-  return {
-    orch,
-    persistence,
-    runId: dispatched.id,
-    status: dispatched.status,
-    ...(dispatched.error ? { error: dispatched.error } : {}),
-  };
-}
-
-async function logRecords(
-  persistence: OrchestratorStore,
-  runId: string
-): Promise<Record<string, JsonValue>[]> {
-  const frames = await persistence.listRunFrames(runId);
-  const records: Record<string, JsonValue>[] = [];
-  for (const frame of frames) {
-    if (
-      frame.payload.kind === "log" &&
-      typeof frame.payload.value === "object" &&
-      frame.payload.value !== null &&
-      !Array.isArray(frame.payload.value) &&
-      "event" in frame.payload.value
-    ) {
-      records.push(frame.payload.value);
-    }
-  }
-  return records;
-}
-
-async function outputFrames(
-  persistence: OrchestratorStore,
-  runId: string
-): Promise<Record<string, JsonValue>[]> {
-  const frames = await persistence.listRunFrames(runId);
-  return frames
-    .filter((f) => f.payload.kind === "output")
-    .map((f) => f.payload.value as Record<string, JsonValue>);
-}
-
-const eventsOf = (records: Record<string, JsonValue>[], event: string) =>
-  records.filter((r) => r.event === event);
-
-function readMetadata(metadata: unknown): unknown {
-  return typeof metadata === "string" ? JSON.parse(metadata) : metadata;
-}
+afterEach(disposeClients);
 
 const threePlan: LinearPlan = {
   inputs: [{ key: "topic", label: "Topic", required: true, type: "text" }],
@@ -262,7 +89,7 @@ function threeResolve(seen: string[]): (key: string) => TrustedStep {
 describe("Group A — Invocation and evidence", () => {
   test("three-placement plan: bound records in order, Results flow, no Result persisted", async () => {
     const seen: string[] = [];
-    const { persistence, runId, status } = await runPlan(
+    const { checkpoint, output, persistence, runId, status } = await runPlan(
       threePlan,
       threeResolve(seen),
       { topic: "otters" }
@@ -271,12 +98,12 @@ describe("Group A — Invocation and evidence", () => {
     expect(status).toBe("complete");
     expect(seen).toEqual(["agent:otters", "text:notes", "doc:article-body"]);
 
-    const records = await logRecords(persistence, runId);
+    const records = logRecords(persistence, runId);
     expect(
       eventsOf(records, "invocation-bound").map((r) => r.placement)
     ).toEqual(["research", "write", "article"]);
 
-    const outs = await outputFrames(persistence, runId);
+    const outs = outputFrames(persistence, runId);
     expect(outs).toEqual([
       {
         kind: "account",
@@ -286,23 +113,16 @@ describe("Group A — Invocation and evidence", () => {
       },
     ]);
 
-    const row = await persistence.getRun(runId);
-    expect(row?.output).toBeNull();
-    const meta = readMetadata(row?.metadata) as {
-      workflow: { steps: Record<string, Record<string, unknown>> };
-      stream: { _tag: string; value?: unknown }[];
-    };
-    const stepKeys = Object.keys(meta.workflow.steps);
+    expect(output).toBeNull();
+    const steps = checkpoint?.steps ?? {};
+    const stepKeys = Object.keys(steps);
     for (const key of ["research", "write", "article"]) {
       expect(stepKeys.some((k) => k === key || k.endsWith(`.${key}`))).toBe(
         true
       );
     }
-    for (const snapshot of Object.values(meta.workflow.steps)) {
+    for (const snapshot of Object.values(steps)) {
       expect(snapshot).not.toHaveProperty("output");
-    }
-    for (const e of meta.stream.filter((s) => s._tag === "step.complete")) {
-      expect(e.value).toBeNull();
     }
   });
 
@@ -335,7 +155,7 @@ describe("Group A — Invocation and evidence", () => {
     expect(error?.name).toBe("ContractFailure");
     expect(error?.message).toBe("s at p: input prompt is null");
     const failures = eventsOf(
-      await logRecords(persistence, runId),
+      logRecords(persistence, runId),
       "contract-failure"
     );
     expect(failures).toEqual([
@@ -348,7 +168,7 @@ describe("Group A — Invocation and evidence", () => {
         step: "s",
       },
     ]);
-    const records = await logRecords(persistence, runId);
+    const records = logRecords(persistence, runId);
     const boundIndex = records.findIndex((r) => r.event === "invocation-bound");
     const failureIndex = records.findIndex(
       (r) => r.event === "contract-failure"
@@ -373,7 +193,7 @@ describe("Group A — Invocation and evidence", () => {
     expect(status).toBe("failed");
     expect(error?.name).toBe("ContractFailure");
     const failures = eventsOf(
-      await logRecords(persistence, runId),
+      logRecords(persistence, runId),
       "contract-failure"
     );
     expect(failures[0]?.boundary).toBe("result");
@@ -416,7 +236,7 @@ describe("Group A — Invocation and evidence", () => {
     expect(status).toBe("complete");
     expect(consumerSaw).toBeNull();
     expect(
-      eventsOf(await logRecords(persistence, runId), "contract-failure")
+      eventsOf(logRecords(persistence, runId), "contract-failure")
     ).toEqual([]);
   });
 
@@ -437,7 +257,7 @@ describe("Group A — Invocation and evidence", () => {
 
     const { persistence, runId, status } = await runPlan(plan, resolve);
     expect(status).toBe("failed");
-    const outs = await outputFrames(persistence, runId);
+    const outs = outputFrames(persistence, runId);
     expect(outs).toEqual([
       { kind: "account", placement: "p", step: "s", text: "did the work" },
     ]);
@@ -456,11 +276,11 @@ describe("Group A — Invocation and evidence", () => {
     const { persistence, runId, status, error } = await runPlan(plan, resolve);
     expect(status).toBe("failed");
     expect(error?.name).toBe("StepUnavailable");
-    const records = await logRecords(persistence, runId);
+    const records = logRecords(persistence, runId);
     expect(eventsOf(records, "invocation-bound")).toEqual([]);
   });
 
-  test("live values ride custom events and never reach the persisted stream", async () => {
+  test("live values ride custom events and never reach the checkpoint", async () => {
     const plan: LinearPlan = {
       inputs: [],
       placements: [{ inputs: {}, key: "p", step: "s" }],
@@ -475,13 +295,9 @@ describe("Group A — Invocation and evidence", () => {
         },
       });
 
-    const { persistence, runId, status } = await runPlan(plan, resolve);
+    const { checkpoint, status } = await runPlan(plan, resolve);
     expect(status).toBe("complete");
-    const row = await persistence.getRun(runId);
-    const meta = readMetadata(row?.metadata) as {
-      stream: { _tag: string }[];
-    };
-    expect(meta.stream.some((e) => e._tag === "custom")).toBe(false);
+    expect(JSON.stringify(checkpoint)).not.toContain("streaming");
   });
 
   test("stamping ignores placement/step a Step supplies", async () => {
@@ -506,7 +322,7 @@ describe("Group A — Invocation and evidence", () => {
       });
 
     const { persistence, runId } = await runPlan(plan, resolve);
-    const outs = await outputFrames(persistence, runId);
+    const outs = outputFrames(persistence, runId);
     expect(outs[0]?.placement).toBe("real-placement");
     expect(outs[0]?.step).toBe("s");
   });
@@ -585,7 +401,7 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
     expect(status).toBe("complete");
     expect(consumerSaw).toBe("restored-notes");
     const rehydrations = eventsOf(
-      await logRecords(persistence, runId),
+      logRecords(persistence, runId),
       "result-rehydrated"
     );
     expect(rehydrations).toEqual([
@@ -615,7 +431,7 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
     expect(status).toBe("complete");
     expect(calls).toBe(1);
     expect(
-      eventsOf(await logRecords(persistence, runId), "result-rehydrated")
+      eventsOf(logRecords(persistence, runId), "result-rehydrated")
     ).toHaveLength(1);
   });
 
@@ -646,7 +462,7 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
     expect(status).toBe("complete");
     expect(calls).toBe(0);
     expect(
-      eventsOf(await logRecords(persistence, runId), "result-rehydrated")
+      eventsOf(logRecords(persistence, runId), "result-rehydrated")
     ).toEqual([]);
   });
 
@@ -657,7 +473,7 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
       (key) => (key === "p" ? producer : requiredConsumer)
     );
     expect(status).toBe("failed");
-    const records = await logRecords(persistence, runId);
+    const records = logRecords(persistence, runId);
     expect(eventsOf(records, "result-rehydrated")).toEqual([
       {
         event: "result-rehydrated",
@@ -681,7 +497,7 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
       (key) => (key === "p" ? producer : requiredConsumer)
     );
     expect(status).toBe("failed");
-    const records = await logRecords(persistence, runId);
+    const records = logRecords(persistence, runId);
     expect(eventsOf(records, "result-rehydrated")).toEqual([]);
     const [failure] = eventsOf(records, "contract-failure");
     expect(failure?.boundary).toBe("connection");
@@ -698,7 +514,7 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
       (key) => (key === "p" ? producer : requiredConsumer)
     );
     const rehydrations = eventsOf(
-      await logRecords(persistence, runId),
+      logRecords(persistence, runId),
       "result-rehydrated"
     );
     expect(rehydrations[0]).toMatchObject({
@@ -711,353 +527,6 @@ describe("Group B — absent Results and rehydration (in-process)", () => {
     const failure = new ContractFailure("x at y: connection text is null");
     expect(failure).toBeInstanceOf(Error);
     expect(failure.name).toBe("ContractFailure");
-  });
-});
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-function blockUntilAborted(signal: AbortSignal): Promise<never> {
-  return new Promise<never>((_resolve, reject) => {
-    if (signal.aborted) {
-      reject(new Error("aborted"));
-    }
-    signal.addEventListener(
-      "abort",
-      () => {
-        reject(new Error("aborted"));
-      },
-      { once: true }
-    );
-  });
-}
-
-async function waitFor(
-  predicate: () => Promise<boolean>,
-  label: string
-): Promise<void> {
-  for (let i = 0; i < 400; i += 1) {
-    if (await predicate()) {
-      return;
-    }
-    await sleep(5);
-  }
-  throw new Error(`waitFor timed out: ${label}`);
-}
-
-async function placementComplete(
-  persistence: OrchestratorStore,
-  runId: string,
-  placement: string
-): Promise<boolean> {
-  const row = await persistence.getRun(runId);
-  const meta = readMetadata(row?.metadata) as
-    | { workflow?: { steps?: Record<string, { status?: string }> } }
-    | null
-    | undefined;
-  const steps = meta?.workflow?.steps ?? {};
-  return Object.entries(steps).some(
-    ([key, snap]) =>
-      (key === placement || key.endsWith(`.${placement}`)) &&
-      snap.status === "complete"
-  );
-}
-
-async function restartAfterProducer(args: {
-  plan: LinearPlan;
-  producer: string;
-  resolve1: (key: string) => TrustedStep;
-  resolve2: (key: string) => TrustedStep;
-  inputs?: Record<string, string>;
-}): Promise<{
-  persistence: OrchestratorStore;
-  runId: string;
-  status: string;
-  error?: Attribution;
-}> {
-  const persistence = new ExecutionCoordinator();
-  const queueName = "restart-shared";
-  const { orch: orch1 } = await startOrchestrator(
-    args.plan,
-    args.resolve1,
-    persistence,
-    queueName
-  );
-  const dispatched = await orch1.run<AuthoredRunInput, null>(
-    "workflow.authored",
-    { inputs: args.inputs ?? {}, snapshotId: "snap" }
-  );
-  const runId = dispatched.id;
-  await waitFor(
-    () => placementComplete(persistence, runId, args.producer),
-    `producer ${args.producer} complete`
-  );
-
-  const { orch: orch2 } = await startOrchestrator(
-    args.plan,
-    args.resolve2,
-    persistence,
-    queueName
-  );
-  const recovered = await orch2.get(runId);
-  if (!recovered) {
-    throw new Error("expected recovered run");
-  }
-  await recovered.result();
-  await dispatched.cancel("restart").catch(() => undefined);
-  return {
-    persistence,
-    runId,
-    status: recovered.status,
-    ...(recovered.error ? { error: recovered.error } : {}),
-  };
-}
-
-function blockingConsumerPlan(): LinearPlan {
-  return {
-    inputs: [],
-    placements: [
-      { inputs: {}, key: "producer", step: "p" },
-      {
-        inputs: { text: { placement: "producer", source: "connection" } },
-        key: "consumer",
-        step: "c",
-      },
-    ],
-    schema: 1,
-  };
-}
-
-const completingProducer = (rehydrate?: StepContract["rehydrate"]) =>
-  makeStep("p", {
-    contract: {
-      inputs: [],
-      outputs: ["session"],
-      result: textResult,
-      ...(rehydrate ? { rehydrate } : {}),
-    },
-    invoke: async (_inputs, ctx) => {
-      await ctx.emit({ kind: "session", sessionId: "run:producer" });
-      return "produced";
-    },
-  });
-
-const blockingConsumer = makeStep("c", {
-  contract: { inputs: [textInput()], outputs: [], result: textResult },
-  invoke: async (_inputs, ctx) => blockUntilAborted(ctx.signal),
-});
-
-describe("Group C — recovery", () => {
-  test("adoption with the producer's Result absent, no rehydrate: consumer fails at connection with from; producer not re-invoked", async () => {
-    let producerCalls = 0;
-    const resolve2 = (key: string): TrustedStep =>
-      key === "p"
-        ? makeStep("p", {
-            contract: { inputs: [], outputs: ["session"], result: textResult },
-            invoke: async () => {
-              producerCalls += 1;
-              return "produced";
-            },
-          })
-        : makeStep("c", {
-            contract: {
-              inputs: [textInput()],
-              outputs: [],
-              result: textResult,
-            },
-            invoke: async (inputs) => `used:${String(inputs.text)}`,
-          });
-
-    const { persistence, runId, status, error } = await restartAfterProducer({
-      plan: blockingConsumerPlan(),
-      producer: "producer",
-      resolve1: (key) =>
-        key === "p" ? completingProducer() : blockingConsumer,
-      resolve2,
-    });
-
-    expect(status).toBe("failed");
-    expect(producerCalls).toBe(0);
-    const failure = eventsOf(
-      await logRecords(persistence, runId),
-      "contract-failure"
-    ).find((r) => r.placement === "consumer");
-    expect(failure?.boundary).toBe("connection");
-    expect(failure?.from).toBe("producer");
-    expect(error?.message).toBe("c at consumer: connection text is null");
-  });
-
-  test("the bound Contract governs rehydration across a swap: current Contract omits rehydrate, bound still enables it", async () => {
-    let producerCalls = 0;
-    const resolve2 = (key: string): TrustedStep =>
-      key === "p"
-        ? {
-            ...makeStep("p", {
-              contract: {
-                inputs: [],
-                outputs: ["session"],
-                result: textResult,
-              },
-              invoke: async () => {
-                producerCalls += 1;
-                return "produced";
-              },
-            }),
-            rehydrate: async () => "rehydrated-from-session",
-          }
-        : makeStep("c", {
-            contract: {
-              inputs: [textInput()],
-              outputs: [],
-              result: textResult,
-            },
-            invoke: async (inputs) => `used:${String(inputs.text)}`,
-          });
-
-    const { persistence, runId, status } = await restartAfterProducer({
-      plan: blockingConsumerPlan(),
-      producer: "producer",
-      resolve1: (key) =>
-        key === "p" ? completingProducer("session") : blockingConsumer,
-      resolve2,
-    });
-
-    expect(status).toBe("complete");
-    expect(producerCalls).toBe(0);
-    const rehydrations = eventsOf(
-      await logRecords(persistence, runId),
-      "result-rehydrated"
-    ).filter((r) => r.placement === "producer");
-    expect(rehydrations).toHaveLength(1);
-    expect(rehydrations[0]).toMatchObject({ from: "session", restored: true });
-  });
-
-  test("Step-version swap: the completed placement keeps v1's Contract; the next Invocation binds v2", async () => {
-    const plan: LinearPlan = {
-      inputs: [],
-      placements: [
-        { inputs: {}, key: "p0", step: "s" },
-        {
-          inputs: { text: { placement: "p0", source: "connection" } },
-          key: "p1",
-          step: "s",
-        },
-      ],
-      schema: 1,
-    };
-    const stepVersion = (version: string, block: boolean): TrustedStep =>
-      makeStep("s", {
-        contract: {
-          inputs: [textInput(false)],
-          outputs: [],
-          result: { label: version, type: "text" },
-        },
-        invoke: async (_inputs, ctx) =>
-          block ? blockUntilAborted(ctx.signal) : "produced",
-      });
-    let firstCalls = 0;
-    const resolve1 = (): TrustedStep => {
-      firstCalls += 1;
-      return stepVersion("v1", firstCalls > 1);
-    };
-    const resolve2 = (): TrustedStep => stepVersion("v2", false);
-
-    const { persistence, runId } = await restartAfterProducer({
-      plan,
-      producer: "p0",
-      resolve1,
-      resolve2,
-    });
-
-    const bounds = eventsOf(
-      await logRecords(persistence, runId),
-      "invocation-bound"
-    );
-    const p0Bound = bounds.find((b) => b.placement === "p0");
-    const p1Bounds = bounds.filter((b) => b.placement === "p1");
-    if (p0Bound === undefined) {
-      throw new Error("expected a p0 invocation bound");
-    }
-    expect(
-      (p0Bound.contract as { result?: { label?: string } }).result?.label
-    ).toBe("v1");
-    const lastP1 = p1Bounds.at(-1);
-    if (lastP1 === undefined) {
-      throw new Error("expected a p1 invocation bound");
-    }
-    expect(
-      (lastP1.contract as { result?: { label?: string } }).result?.label
-    ).toBe("v2");
-  });
-
-  test("a claim already taken on adoption: InterruptedRecord and InvocationInterrupted", async () => {
-    const plan: LinearPlan = {
-      inputs: [],
-      placements: [{ inputs: {}, key: "effect", step: "s" }],
-      schema: 1,
-    };
-    const claimingStep = (): TrustedStep =>
-      makeStep("s", {
-        contract: { inputs: [], outputs: ["account"], result: textResult },
-        invoke: async (_inputs, ctx) => {
-          const claimed = await ctx.claimEffect("agent:effect");
-          if (!claimed) {
-            throw new InvocationInterrupted("agent:effect");
-          }
-          return blockUntilAborted(ctx.signal);
-        },
-      });
-
-    const persistence = new ExecutionCoordinator();
-    const queueName = "restart-interrupt";
-    const { orch: orch1 } = await startOrchestrator(
-      plan,
-      () => claimingStep(),
-      persistence,
-      queueName
-    );
-    const dispatched = await orch1.run<AuthoredRunInput, null>(
-      "workflow.authored",
-      { inputs: {}, snapshotId: "snap" }
-    );
-    const runId = dispatched.id;
-    await waitFor(async () => {
-      const frames = await persistence.listRunFrames(runId);
-      return frames.some(
-        (f) =>
-          f.payload.kind === "log" &&
-          typeof f.payload.value === "object" &&
-          f.payload.value !== null &&
-          (f.payload.value as { key?: string }).key === "agent:effect"
-      );
-    }, "claim frame durable");
-
-    const { orch: orch2 } = await startOrchestrator(
-      plan,
-      () => claimingStep(),
-      persistence,
-      queueName
-    );
-    const recovered = await orch2.get(runId);
-    if (!recovered) {
-      throw new Error("expected recovered run");
-    }
-    await recovered.result();
-    await dispatched.cancel("restart").catch(() => undefined);
-
-    expect(recovered.status).toBe("failed");
-    expect(recovered.error?.name).toBe("InvocationInterrupted");
-    const interrupts = eventsOf(
-      await logRecords(persistence, runId),
-      "invocation-interrupted"
-    );
-    expect(interrupts).toEqual([
-      {
-        claim: "agent:effect",
-        event: "invocation-interrupted",
-        placement: "effect",
-        step: "s",
-      },
-    ]);
   });
 });
 
@@ -1076,19 +545,13 @@ async function runOutputWorkflow(
   workflow: Workflow<null, string>,
   name: string
 ): Promise<unknown> {
-  const persistence = new ExecutionCoordinator();
-  const orch = new Orchestrator({
-    config: makeOrchestratorConfig(),
-    store: persistence,
-  });
-  orchestrators.push(orch);
-  await orch.setup();
-  orch.register(name, workflow.factory());
-  await orch.start();
-  const dispatched = await orch.run(name, null);
-  await dispatched.result();
-  const row = await persistence.getRun(dispatched.id);
-  return row?.output ?? null;
+  const client = await startQueue(await sharedQueueStore(), name, () =>
+    workflow.factory()(null)
+  );
+  clients.push(client);
+  const { id } = await client.submit({ handler: { name }, input: null });
+  const { job } = await settledJob(client, id);
+  return job.state.kind === "complete" ? job.state.output : null;
 }
 
 describe("Group D — run-output strip", () => {

@@ -1,6 +1,5 @@
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
-import { ExecutionCoordinator } from "@foundry/workflows";
-import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
+import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { and, eq } from "drizzle-orm";
 import { openDatabase, readDatabase } from "~/database/open";
 import { readResourceView } from "~/database/resources";
@@ -9,6 +8,8 @@ import { marblesScheduleTicks, marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { StoredScope } from "~/lib/run-store";
 import type { ScheduleHistory } from "~/lib/trigger-store";
+import { isRunId, readRun, runStoreEffect } from "~/lib/workflow-runs";
+import { putRun } from "./queue-runs";
 
 export interface StoredRunState {
   readonly owner: number | null;
@@ -25,15 +26,14 @@ export async function storedRun(
   const read = await readDatabase(
     stateDatabase(state),
     async (database): Promise<StoredRunState | undefined> => {
-      const workflows = new SqliteWorkflowStore({ database, scope });
-      const run = await workflows.getRun(runId);
-      if (run === null) {
+      const workflows = makeSqliteQueueStore({ database, scope });
+      const run = await readRun(workflows, runId);
+      if (run === null || !isRunId(runId)) {
         return undefined;
       }
-      const suspensions = await workflows.listSuspensions({
-        limit: 100,
-        runId,
-      });
+      const suspensions = await runStoreEffect(
+        workflows.listSuspensions({ runId })
+      );
       const [owned] = await database
         .select({ owner: marblesWorkflowRuns.ownerPid })
         .from(marblesWorkflowRuns)
@@ -49,7 +49,7 @@ export async function storedRun(
           runId
         ),
         status: run.status,
-        suspensions: suspensions.items.map((suspension) => suspension.status),
+        suspensions: suspensions.map((wait) => wait.state.kind),
       };
     }
   );
@@ -74,23 +74,14 @@ export async function seedRuns(
   }
   try {
     const { database } = opened;
-    const store = new ExecutionCoordinator({
-      store: new SqliteWorkflowStore({ database, scope }),
-    });
-    const queue = await store.ensureQueue({ id: "qu-seeded", name: "marbles" });
+    const store = makeSqliteQueueStore({ database, scope });
     for (const run of runs) {
-      await store.createRun({
-        id: run.id,
-        input: null,
-        queueId: queue.id,
+      await putRun(store, run.id, "running", {
+        at: run.createdAt,
         step: "guides",
       });
-      await store.updateRun(run.id, {
-        status: "running",
-        timestamps: { createdAt: run.createdAt },
-      });
       if (run.status !== "running") {
-        await store.updateRun(run.id, { status: run.status });
+        await putRun(store, run.id, run.status, { at: run.createdAt });
       }
       await database.insert(marblesWorkflowRuns).values({
         ledger: {},

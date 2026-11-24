@@ -1,7 +1,6 @@
-import { RunRecordSchema } from "@foundry/workflows/schema";
 import { z } from "zod";
-
 import type { LiveWork } from "~/lib/step-work";
+import { RunRecordSchema } from "~/lib/workflow-runs";
 import type { WorkspaceState } from "~/model/connection";
 import type { LiveRun } from "~/model/dashboard";
 

@@ -74,7 +74,7 @@ const USAGE = `marbles — programmable workspace automation
   init [starter]             create a starter module (developer | design | product)
   help, --help, -h            show this help
   roll <name> [--input json] dispatch one workflow or schedule now, then exit
-  list                       workflows, then each schedule and monitor with its cadence
+  list                       workflows, schedules and monitors with cadence, observers
   status                     the Marbles process and every workspace it has run
   settings themes            list terminal themes
   settings get theme         print the saved theme
@@ -224,7 +224,7 @@ function association<C extends "share" | "unshare">(
 
 async function listTriggers(
   _args: Args,
-  _opened: OpenedWorkspace,
+  opened: OpenedWorkspace,
   triggers: Triggers
 ): Promise<void> {
   const { automations, registry } = triggers;
@@ -250,6 +250,11 @@ async function listTriggers(
         `[schedule] ${schedule.key} → ${schedule.workflow}${input} ${describeTrigger(schedule.trigger)}`
       );
     }
+  }
+  for (const { name, source, types } of opened.catalog.observerEntries()) {
+    print(
+      `[observer] ${name} ← ${source}${types === undefined ? "" : ` ${types.join(", ")}`}`
+    );
   }
 }
 

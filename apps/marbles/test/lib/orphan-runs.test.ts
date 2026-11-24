@@ -141,7 +141,7 @@ it("lets a run in again after delivery starts, on an engine that accepts launche
   expect(launched).toHaveLength(1);
 });
 
-async function parkedThenOrphaned(): Promise<string> {
+async function suspendedThenOrphaned(): Promise<string> {
   const definition = {
     fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
     kind: "step" as const,
@@ -162,8 +162,8 @@ async function parkedThenOrphaned(): Promise<string> {
   return id;
 }
 
-it("cancels a parked run whose process exited when nothing here can adopt it", async () => {
-  const id = await parkedThenOrphaned();
+it("cancels a suspended run whose process exited when nothing here can adopt it", async () => {
+  const id = await suspendedThenOrphaned();
   const engine = engineWith({ askable: true });
   await engine.start();
   expect(engine.executions.get(id)?.status).toBe("suspended");
@@ -181,8 +181,8 @@ it("cancels a parked run whose process exited when nothing here can adopt it", a
   expect(await engine.executions.prune([id], () => "scope")).toHaveLength(1);
 });
 
-it("never resumes a parked run that was cancelled after its process exited", async () => {
-  const id = await parkedThenOrphaned();
+it("never resumes a suspended run that was cancelled after its process exited", async () => {
+  const id = await suspendedThenOrphaned();
   const cancelling = engineWith({ askable: true });
   await cancelling.start();
   await cancelling.cancel(id);
@@ -201,7 +201,7 @@ it("never resumes a parked run that was cancelled after its process exited", asy
   expect(await claimedElsewhere(id)).toBe(false);
 });
 
-it("leaves a parked run alone while a live process owns it", async () => {
+it("leaves a suspended run alone while a live process owns it", async () => {
   await leftBehind({
     id: "rn-remote",
     kind: "workflow",
@@ -221,7 +221,7 @@ it("leaves a parked run alone while a live process owns it", async () => {
   });
 });
 
-it("leaves a parked run alone while another process is adopting it", async () => {
+it("leaves a suspended run alone while another process is adopting it", async () => {
   await leftBehind({
     id: "rn-adopting",
     kind: "workflow",
@@ -269,8 +269,8 @@ async function rewriteRecord(
   });
 }
 
-it("records suspended a run it adopts whose process exited before its record saw the park", async () => {
-  const id = await parkedThenOrphaned();
+it("records suspended a run it adopts whose process exited before its record saw the suspension", async () => {
+  const id = await suspendedThenOrphaned();
   await rewriteRecord(id, { status: "running" });
   const engine = engineWith({ askable: true });
   defineProbe(engine);
@@ -283,8 +283,8 @@ it("records suspended a run it adopts whose process exited before its record saw
   });
 });
 
-it("leaves a parked run it cannot adopt suspended for a process that can, even when its record said running", async () => {
-  const id = await parkedThenOrphaned();
+it("leaves a suspended run it cannot adopt suspended for a process that can, even when its record said running", async () => {
+  const id = await suspendedThenOrphaned();
   await rewriteRecord(id, { status: "running" });
   const dead = (await storedExecution(state, id))?.owner.pid;
   const engine = engineWith({ askable: true });
@@ -303,8 +303,8 @@ it("leaves a parked run it cannot adopt suspended for a process that can, even w
   expect(next.executions.get(id)?.status).toBe("suspended");
 });
 
-it("gives a parked run saved before Execution Runs existed a record when it is adopted", async () => {
-  const id = await parkedThenOrphaned();
+it("gives a suspended run saved before Execution Runs existed a record when it is adopted", async () => {
+  const id = await suspendedThenOrphaned();
   await withExecutions(state, (store) => store.remove(id));
   const engine = engineWith({ askable: true });
   defineProbe(engine);

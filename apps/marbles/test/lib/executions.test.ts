@@ -1,12 +1,12 @@
 import { join } from "node:path";
 import type { Container } from "@foundry/sandbox/container/containers";
-import type { Factory } from "@foundry/workflows/orchestrator";
 import { Step } from "@foundry/workflows/step";
 import { Workflow } from "@foundry/workflows/workflow";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
 import type { TaskContext } from "~/lib/tasks";
+import type { Factory } from "~/lib/workflow-queue";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import {
   blockingTask,

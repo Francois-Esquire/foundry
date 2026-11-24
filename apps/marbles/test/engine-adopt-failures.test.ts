@@ -2,6 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { thisProcess } from "@foundry/lib/process-identity";
+import { StoreError, type SuspensionFilter } from "@foundry/queue";
+import type { QueueStoreService } from "@foundry/queue/store";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { step } from "~/authoring/index";
 import { DatabaseExecutionStore } from "~/database/executions";
@@ -47,42 +50,24 @@ interface Faults {
   releases: number;
 }
 
-interface Listing {
-  readonly runId?: string;
-  readonly status?: unknown;
-}
-
-function faultyStore<T extends object>(store: T, faults: Faults): T {
-  return new Proxy(store, {
-    get(target, property) {
-      const value: unknown = Reflect.get(target, property, target);
-      if (typeof value !== "function") {
-        return value;
-      }
-      if (property === "transaction") {
-        return (work: (view: object) => Promise<unknown>) =>
-          Reflect.apply(value, target, [
-            (view: object) => work(faultyStore(view, faults)),
-          ]);
-      }
-      if (property !== "listSuspensions") {
-        return (...given: unknown[]) => Reflect.apply(value, target, given);
-      }
-      return (query?: Listing) => {
-        if (faults.listing && query?.runId !== undefined) {
-          if (query.status === undefined) {
-            if (faults.rebuilding) {
-              return Promise.reject(new Error(LISTING_FAILURE));
-            }
-            faults.rebuilt = true;
-          } else if (faults.rebuilt) {
-            return Promise.reject(new Error(LISTING_FAILURE));
-          }
+function faultyStore(
+  store: QueueStoreService,
+  faults: Faults
+): QueueStoreService {
+  const refused = () =>
+    Effect.fail(new StoreError({ cause: new Error(LISTING_FAILURE) }));
+  return {
+    ...store,
+    listSuspensions: (filter?: SuspensionFilter) => {
+      if (faults.listing && filter?.runId !== undefined) {
+        if (faults.rebuilt || faults.rebuilding) {
+          return refused();
         }
-        return Reflect.apply(value, target, [query]);
-      };
+        faults.rebuilt = true;
+      }
+      return store.listSuspensions(filter);
     },
-  });
+  };
 }
 
 async function home() {
@@ -141,7 +126,7 @@ async function statusOf(engine: Engine, runId: string) {
   return (await engine.runs()).find((each) => each.id === runId)?.status;
 }
 
-async function launchParked(engine: Engine) {
+async function launchSuspended(engine: Engine) {
   const launched = await engine.launch("adopt-failures-ask", {});
   launched.result.catch(() => undefined);
   await vi.waitFor(async () =>
@@ -176,7 +161,7 @@ describe("an adoption that fails after the orchestrator took the run on", () => 
     const { faulty, plain } = await home();
     const first = await plain();
     const second = await faulty();
-    const runId = await launchParked(first);
+    const runId = await launchSuspended(first);
     await first.retire(thisProcess());
 
     second.faults.listing = true;
@@ -191,7 +176,7 @@ describe("an adoption that fails after the orchestrator took the run on", () => 
     const { faulty, plain } = await home();
     const first = await plain();
     const second = await faulty();
-    const runId = await launchParked(first);
+    const runId = await launchSuspended(first);
     await first.retire(thisProcess());
 
     second.faults.listing = true;
@@ -208,7 +193,7 @@ describe("an adoption that fails after the orchestrator took the run on", () => 
     const first = await plain();
     const second = await faulty();
     const third = await plain();
-    const runId = await launchParked(first);
+    const runId = await launchSuspended(first);
     await first.retire(thisProcess());
 
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -234,7 +219,7 @@ describe("an adoption that fails after the orchestrator took the run on", () => 
     const first = await plain();
     const second = await faulty();
     const third = await plain();
-    const runId = await launchParked(first);
+    const runId = await launchSuspended(first);
     await first.retire(thisProcess());
 
     second.faults.listing = true;
@@ -250,8 +235,8 @@ describe("an adoption that fails after the orchestrator took the run on", () => 
   }, 60_000);
 });
 
-describe("a retired engine whose release of a parked run fails", () => {
-  it("keeps trying to let go of a run that parked after it retired, answers nothing for it meanwhile, and says so once it is let go", async () => {
+describe("a retired engine whose release of a suspended run fails", () => {
+  it("keeps trying to let go of a run that suspended after it retired, answers nothing for it meanwhile, and says so once it is let go", async () => {
     const { faulty, plain } = await home();
     const old = await faulty();
     const next = await plain();
@@ -283,12 +268,12 @@ describe("a retired engine whose release of a parked run fails", () => {
     expect(letGo).toEqual([launched.id]);
   }, 60_000);
 
-  it("retires all the same and lets go of every run parked before it retired, the failed one once its release works", async () => {
+  it("retires all the same and lets go of every run suspended before it retired, the failed one once its release works", async () => {
     const { faulty, plain } = await home();
     const old = await faulty();
     const next = await plain();
-    const one = await launchParked(old.engine);
-    const two = await launchParked(old.engine);
+    const one = await launchSuspended(old.engine);
+    const two = await launchSuspended(old.engine);
 
     old.faults.releases = 1;
     await old.engine.retire(thisProcess());

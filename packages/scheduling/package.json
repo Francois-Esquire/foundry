@@ -1,0 +1,82 @@
+{
+  "name": "@foundry/scheduling",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Time-driven scheduler: Schedules, Occurrences, and overlap and misfire rules over a narrow dispatch seam.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./src/client.ts",
+      "default": "./src/client.ts"
+    },
+    "./queue": {
+      "types": "./dist/queue.d.ts",
+      "import": "./src/queue.ts",
+      "default": "./src/queue.ts"
+    },
+    "./store": {
+      "types": "./dist/store/index.d.ts",
+      "import": "./src/store/index.ts",
+      "default": "./src/store/index.ts"
+    },
+    "./store/memory": {
+      "types": "./dist/store/memory.d.ts",
+      "import": "./src/store/memory.ts",
+      "default": "./src/store/memory.ts"
+    },
+    "./store/sqlite": {
+      "types": "./dist/store/sqlite.d.ts",
+      "import": "./src/store/sqlite.ts",
+      "default": "./src/store/sqlite.ts"
+    },
+    "./store/tables": {
+      "types": "./dist/store/tables.d.ts",
+      "import": "./src/store/tables.ts",
+      "default": "./src/store/tables.ts"
+    }
+  },
+  "files": [
+    "./dist/**/*",
+    "./src/**/*",
+    "!**/*.test.*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist .cache .turbo coverage",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@foundry/lib": "workspace:*",
+    "@foundry/queue": "workspace:*",
+    "croner": "^9.1.0",
+    "effect": "^3.22.1"
+  },
+  "devDependencies": {
+    "@effect/language-service": "^0.87.2",
+    "@foundry/tsconfig": "workspace:*",
+    "@libsql/client": "^0.18.0",
+    "@types/bun": "1.3.14",
+    "@vitest/coverage-v8": "^4.1.9",
+    "drizzle-orm": "^0.45.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "^0.45.4"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    }
+  }
+}

@@ -550,6 +550,10 @@ export class Launcher {
     }
   }
 
+  owedResult(id: string): Promise<unknown> | undefined {
+    return this.#owed.get(id)?.promise;
+  }
+
   #resultOf<O>(run: ExecutionRun): Promise<O> {
     const owed = this.#owed.get(run.id);
     if (owed) {
