@@ -54,8 +54,10 @@ marbles tasks update <task id> --metadata '{"reviewer":null}'
 reads the run with `runs.get(runId)`. Every factory run carries the task
 id in its input, so the observer finds the task without a lookup table,
 even when the run failed before writing anything. It records the stage and
-error on the task and retags it `needs-owner`. Resume it the same way once
-the cause is fixed.
+error on the task and retags it `needs-owner`. It does not reopen the
+task: a failed build may have left commits on the branch, so a person
+looks before the factory builds on them. Resume it the same way once the
+cause is fixed.
 
 `marbles tasks list --tag needs-owner --json` is the factory's inbox. The
 [release patrol's digest](/marbles/use-cases/release-patrol#make-it-yours)
@@ -65,5 +67,5 @@ lists these tasks every weekday.
 
 The whole factory is five stages of ordinary marbles. Each stage runs on
 its own with `marbles roll`, every run is visible in the dashboard, and the
-only place work waits on a person is the approval. Start supervised, and
-read every diff the factory ships until you trust it.
+factory waits on a person for approval and to recover failed builds.
+Start supervised, and read every diff the factory ships until you trust it.
