@@ -5,6 +5,7 @@ import {
   CursorConflictError,
   type Occurrence,
   type Schedule,
+  ScheduleConflictError,
   type ScheduleCursor,
 } from "../domain";
 import {
@@ -59,24 +60,54 @@ const retained = (
   return without(occurrences, (id) => dropped.has(id));
 };
 
-const claimable = (
-  stored: Occurrence | undefined,
-  replacing: Occurrence | undefined
+const hasOtherClaim = (
+  occurrences: ReadonlyMap<string, Occurrence>,
+  occurrence: Occurrence
 ) =>
-  replacing === undefined
+  [...occurrences.values()].some(
+    (other) =>
+      other.scheduleId === occurrence.scheduleId &&
+      other.id !== occurrence.id &&
+      other.state.kind === "claimed"
+  );
+
+const claimable = (
+  occurrences: ReadonlyMap<string, Occurrence>,
+  occurrence: Occurrence,
+  replacing: Occurrence | undefined,
+  exclusive: boolean
+) => {
+  if (exclusive && hasOtherClaim(occurrences, occurrence)) {
+    return false;
+  }
+  const stored = occurrences.get(occurrence.id);
+  return replacing === undefined
     ? stored === undefined
     : stored !== undefined &&
-      canonicalizeJson(stored) === canonicalizeJson(replacing);
+        canonicalizeJson(stored) === canonicalizeJson(replacing);
+};
 
 const conflictIn = (
-  cursors: ReadonlyMap<string, ScheduleCursor>,
+  current: Records,
   write: ScheduleWrite
-) =>
-  (write.expectedCursors ?? []).find(
+): CursorConflictError | ScheduleConflictError | undefined => {
+  const schedule = (write.expectedSchedules ?? []).find(
     (expected) =>
-      canonicalizeJson(cursors.get(expected.scheduleId) ?? null) !==
+      canonicalizeJson(current.schedules.get(expected.id) ?? null) !==
       canonicalizeJson(expected)
   );
+  if (schedule !== undefined) {
+    return new ScheduleConflictError({ scheduleId: schedule.id });
+  }
+  const cursor = (write.expectedCursors ?? []).find(
+    (expected) =>
+      canonicalizeJson(current.cursors.get(expected.scheduleId) ?? null) !==
+      canonicalizeJson(expected)
+  );
+  return cursor === undefined
+    ? undefined
+    : new CursorConflictError({ scheduleId: cursor.scheduleId });
+};
 
 const applied = (current: Records, write: ScheduleWrite): Records => {
   const removed = new Set(write.removed ?? []);
@@ -113,9 +144,9 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
       const read = <T>(pick: (current: Records) => T) =>
         Effect.map(Ref.get(records), pick);
       return {
-        claim: (occurrence, replacing) =>
+        claim: (occurrence, replacing, exclusive = false) =>
           Ref.modify(records, (current) =>
-            claimable(current.occurrences.get(occurrence.id), replacing)
+            claimable(current.occurrences, occurrence, replacing, exclusive)
               ? [
                   true,
                   {
@@ -132,17 +163,13 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
         commit: (write) =>
           Effect.flatMap(
             Ref.modify(records, (current) => {
-              const conflict = conflictIn(current.cursors, write);
+              const conflict = conflictIn(current, write);
               return conflict === undefined
                 ? [undefined, applied(current, write)]
                 : [conflict, current];
             }),
             (conflict) =>
-              conflict === undefined
-                ? Effect.void
-                : Effect.fail(
-                    new CursorConflictError({ scheduleId: conflict.scheduleId })
-                  )
+              conflict === undefined ? Effect.void : Effect.fail(conflict)
           ),
         getCursor: (id) => read((current) => current.cursors.get(id)),
         getOccurrence: (id) => read((current) => current.occurrences.get(id)),

@@ -215,22 +215,47 @@ describe("SqliteScheduleStore", () => {
           expectedCursors: [moved],
         });
         yield* store.claim(claimed(7));
+        const blockedByExclusive = yield* store.claim(
+          { ...claimed(8), id: "nightly:2000", scheduledFor: 2000 },
+          undefined,
+          true
+        );
         yield* store.releaseClaim("nightly:1000", { pid: 8, started: null });
         const keptForOwner = yield* store.getOccurrence("nightly:1000");
         yield* store.releaseClaim("nightly:1000", { pid: 7, started: null });
+        const guardedSchedule = {
+          cadence: { everyMs: 1000, kind: "interval" as const },
+          createdAt: 0,
+          id: "nightly",
+          misfire: "run-once" as const,
+          overlap: "skip" as const,
+          state: "active" as const,
+          target: { handler: { name: "sync" }, input: null },
+        };
+        yield* store.commit({ schedules: [guardedSchedule] });
+        const scheduleConflict = yield* Effect.flip(
+          store.commit({
+            expectedSchedules: [{ ...guardedSchedule, state: "paused" }],
+            schedules: [{ ...guardedSchedule, state: "paused" }],
+          })
+        );
         return {
+          blockedByExclusive,
           conflict: conflict._tag,
           cursor: yield* store.getCursor("nightly"),
           keptForOwner: keptForOwner?.state.kind,
           released: yield* store.getOccurrence("nightly:1000"),
+          scheduleConflict: scheduleConflict._tag,
         };
       })
     );
     expect(result).toEqual({
+      blockedByExclusive: false,
       conflict: "CursorConflictError",
       cursor: { ...moved, nextDueAt: 2900 },
       keptForOwner: "claimed",
       released: undefined,
+      scheduleConflict: "ScheduleConflictError",
     });
   });
 });

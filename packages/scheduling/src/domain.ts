@@ -171,12 +171,17 @@ export class CursorConflictError extends Data.TaggedError(
   "CursorConflictError"
 )<{ readonly scheduleId: ScheduleId }> {}
 
+export class ScheduleConflictError extends Data.TaggedError(
+  "ScheduleConflictError"
+)<{ readonly scheduleId: ScheduleId }> {}
+
 export type ScheduleError =
   | InvalidCadenceError
   | ScheduleNotFoundError
   | DispatchError
   | StoreError
-  | CursorConflictError;
+  | CursorConflictError
+  | ScheduleConflictError;
 
 export const occurrenceId = (
   scheduleId: ScheduleId,

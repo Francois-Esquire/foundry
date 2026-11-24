@@ -202,27 +202,66 @@ export const makeEvaluator = ({
 
   type ClaimResult = "claimed" | "decided" | "held-by-peer";
 
-  const claim = (
-    occurrence: Occurrence
+  const ownerGone = (owner: SchedulerOwner) =>
+    Effect.sync(() => instanceGone(owner, self, isOwnerGone));
+
+  const claimExisting = (
+    occurrence: Occurrence,
+    existing: Occurrence,
+    exclusive: boolean
   ): Effect.Effect<ClaimResult, ScheduleError> =>
     Effect.gen(function* () {
-      if (yield* store.claim(occurrence)) {
-        return "claimed";
-      }
-      const existing = yield* store.getOccurrence(occurrence.id);
-      if (existing?.state.kind !== "claimed") {
+      if (existing.state.kind !== "claimed") {
         return "decided";
       }
       const { owner } = existing.state.lease;
       if (sameInstance(owner, self)) {
         return "claimed";
       }
-      if (!(yield* Effect.sync(() => instanceGone(owner, self, isOwnerGone)))) {
+      if (!(yield* ownerGone(owner))) {
         return "held-by-peer";
       }
-      return (yield* store.claim(occurrence, existing))
+      return (yield* store.claim(occurrence, existing, exclusive))
         ? "claimed"
         : "held-by-peer";
+    });
+
+  const claimAroundPeer = (
+    occurrence: Occurrence
+  ): Effect.Effect<ClaimResult, ScheduleError> =>
+    Effect.gen(function* () {
+      const claimed = yield* store.listOccurrences({
+        scheduleId: occurrence.scheduleId,
+        state: "claimed",
+      });
+      for (const other of claimed) {
+        if (other.id === occurrence.id || other.state.kind !== "claimed") {
+          continue;
+        }
+        const { owner } = other.state.lease;
+        if (!(yield* ownerGone(owner))) {
+          return "held-by-peer";
+        }
+        yield* store.releaseClaim(other.id, owner);
+      }
+      return (yield* store.claim(occurrence, undefined, true))
+        ? "claimed"
+        : "held-by-peer";
+    });
+
+  const claim = (
+    occurrence: Occurrence,
+    exclusive: boolean
+  ): Effect.Effect<ClaimResult, ScheduleError> =>
+    Effect.gen(function* () {
+      if (yield* store.claim(occurrence, undefined, exclusive)) {
+        return "claimed";
+      }
+      const existing = yield* store.getOccurrence(occurrence.id);
+      if (existing !== undefined) {
+        return yield* claimExisting(occurrence, existing, exclusive);
+      }
+      return exclusive ? yield* claimAroundPeer(occurrence) : "held-by-peer";
     });
 
   const dispatchDue = (
@@ -242,8 +281,9 @@ export const makeEvaluator = ({
           lease: { claimedAt: now, owner: self },
         },
       };
+      const exclusive = schedule.overlap !== "allow";
       const cursor = { ...progress.cursor, lastScheduledFor: scheduledFor };
-      const outcome = yield* claim(claimed);
+      const outcome = yield* claim(claimed, exclusive);
       if (outcome !== "claimed") {
         const taken = skipped(base, "already-claimed", now);
         if (outcome === "held-by-peer") {
@@ -264,7 +304,10 @@ export const makeEvaluator = ({
         occurrence: claimed,
         type: "occurrence.claimed",
       };
-      const active = progress.cursor.activeJobId;
+      let active = progress.cursor.activeJobId;
+      if (exclusive && active === undefined) {
+        active = (yield* refresh(schedule, progress.cursor)).cursor.activeJobId;
+      }
       if (active !== undefined && schedule.overlap === "skip") {
         const overlapped = skipped(base, "overlap", now);
         return record(

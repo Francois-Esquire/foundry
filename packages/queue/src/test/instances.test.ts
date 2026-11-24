@@ -2,6 +2,7 @@ import {
   Deferred,
   Effect,
   Fiber,
+  Ref,
   Stream,
   TestClock,
   TestContext,
@@ -268,5 +269,66 @@ describe("Queue instances sharing a store", () => {
     );
     expect(result.whileOpen.interrupted).toEqual([]);
     expect(result.afterClose.interrupted).toHaveLength(1);
+  });
+
+  test("sync reloads pool changes another queue persisted while keeping local startup overrides", async () => {
+    const store = await sharedStore();
+    const result = await inTestClock(
+      Effect.gen(function* () {
+        yield* withQueue(store, {}, (seed) =>
+          seed.configurePool({ limit: 4, name: "local", state: "active" })
+        );
+        return yield* withQueue(
+          store,
+          { pools: [{ limit: 1, name: "local", state: "active" }] },
+          (peer) =>
+            withQueue(store, {}, (admin) =>
+              Effect.gen(function* () {
+                const started = yield* Ref.make(0);
+                yield* peer.register("work", () =>
+                  Effect.as(
+                    Ref.update(started, (count) => count + 1),
+                    complete("ok")
+                  )
+                );
+                yield* admin.configurePool({
+                  limit: 1,
+                  name: "shared",
+                  state: "paused",
+                });
+                yield* TestClock.adjust(SYNC_MS);
+                const submitted = yield* peer.submit({
+                  handler,
+                  pool: "shared",
+                });
+                yield* flush;
+                const whilePaused = yield* Ref.get(started);
+                const localStats = (yield* peer.pools).find(
+                  (pool) => pool.name === "local"
+                );
+                yield* admin.configurePool({
+                  limit: 1,
+                  name: "shared",
+                  state: "active",
+                });
+                yield* TestClock.adjust(SYNC_MS);
+                const settled = yield* peer.awaitJob(submitted.id);
+                return {
+                  afterResume: yield* Ref.get(started),
+                  localLimit: localStats?.limit,
+                  settled: settled.state.kind,
+                  whilePaused,
+                };
+              })
+            )
+        );
+      })
+    );
+    expect(result).toEqual({
+      afterResume: 1,
+      localLimit: 1,
+      settled: "complete",
+      whilePaused: 0,
+    });
   });
 });

@@ -5,6 +5,7 @@ import type {
   OccurrenceFilter,
   OccurrenceId,
   Schedule,
+  ScheduleConflictError,
   ScheduleCursor,
   ScheduleEvent,
   ScheduleId,
@@ -16,6 +17,7 @@ export interface ScheduleWrite {
   readonly cursors?: readonly ScheduleCursor[];
   readonly events?: readonly ScheduleEvent[];
   readonly expectedCursors?: readonly ScheduleCursor[];
+  readonly expectedSchedules?: readonly Schedule[];
   readonly maxOccurrencesPerSchedule?: number;
   readonly occurrences?: readonly Occurrence[];
   readonly removed?: readonly ScheduleId[];
@@ -25,11 +27,15 @@ export interface ScheduleWrite {
 export interface ScheduleStoreService {
   readonly claim: (
     occurrence: Occurrence,
-    replacing?: Occurrence
+    replacing?: Occurrence,
+    exclusive?: boolean
   ) => Effect.Effect<boolean, StoreError>;
   readonly commit: (
     write: ScheduleWrite
-  ) => Effect.Effect<void, StoreError | CursorConflictError>;
+  ) => Effect.Effect<
+    void,
+    StoreError | CursorConflictError | ScheduleConflictError
+  >;
   readonly getCursor: (
     id: ScheduleId
   ) => Effect.Effect<ScheduleCursor | undefined, StoreError>;

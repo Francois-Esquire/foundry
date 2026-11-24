@@ -1,4 +1,8 @@
-import { CursorConflictError, StoreError } from "@foundry/scheduling";
+import {
+  CursorConflictError,
+  ScheduleConflictError,
+  StoreError,
+} from "@foundry/scheduling";
 import type { ScheduleStoreService } from "@foundry/scheduling/store";
 import { makeMemoryScheduleStore } from "@foundry/scheduling/store/memory";
 import { Cause, Effect, Exit } from "effect";
@@ -69,18 +73,23 @@ export function gatedScheduleStore(
       try: () => around(() => settled(effect)),
     });
   const guarded = (
-    effect: Effect.Effect<void, StoreError | CursorConflictError>
+    effect: Effect.Effect<
+      void,
+      StoreError | CursorConflictError | ScheduleConflictError
+    >
   ) =>
     Effect.tryPromise({
       catch: (cause) =>
-        cause instanceof StoreError || cause instanceof CursorConflictError
+        cause instanceof StoreError ||
+        cause instanceof CursorConflictError ||
+        cause instanceof ScheduleConflictError
           ? cause
           : new StoreError({ cause }),
       try: () => around(() => settled(effect)),
     });
   return {
-    claim: (occurrence, replacing) =>
-      through(store.claim(occurrence, replacing)),
+    claim: (occurrence, replacing, exclusive) =>
+      through(store.claim(occurrence, replacing, exclusive)),
     commit: (write) => guarded(store.commit(write)),
     getCursor: (id) => through(store.getCursor(id)),
     getOccurrence: (id) => through(store.getOccurrence(id)),

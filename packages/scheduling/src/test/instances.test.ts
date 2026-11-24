@@ -1,6 +1,6 @@
 import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
 import { thisProcess } from "@foundry/lib/process-identity";
-import { Effect, Ref, TestClock } from "effect";
+import { Deferred, Effect, Fiber, Ref, TestClock } from "effect";
 import { describe, expect, test } from "vitest";
 import { ScheduleStore } from "../store/index";
 import { makeMemoryScheduleStore } from "../store/memory";
@@ -137,5 +137,143 @@ describe("Scheduler instances and retention", () => {
       { syncIntervalMs: 1000 }
     );
     expect(dispatched).toEqual(["external:500"]);
+  });
+
+  test("pause retries on schedule conflict instead of overwriting a concurrent register", async () => {
+    const stored = await inTestContext(
+      Effect.gen(function* () {
+        const store = yield* makeMemoryScheduleStore;
+        const dispatch = yield* fakeDispatch;
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const gated = yield* Ref.make(true);
+        const pausing = yield* startScheduler(
+          {
+            ...store,
+            commit: (write) =>
+              Effect.gen(function* () {
+                const shouldGate =
+                  write.expectedSchedules !== undefined &&
+                  (yield* Ref.getAndSet(gated, false));
+                if (shouldGate) {
+                  yield* Deferred.succeed(entered, undefined);
+                  yield* Deferred.await(release);
+                }
+                return yield* store.commit(write);
+              }),
+          },
+          dispatch
+        );
+        const updating = yield* startScheduler(store, dispatch);
+        yield* updating.register({
+          cadence: every(1000),
+          id: "sync",
+          target,
+        });
+        const pauseFiber = yield* Effect.fork(pausing.pause("sync"));
+        yield* Deferred.await(entered);
+        const updatedTarget = {
+          handler: { name: "sync-v2" },
+          input: { full: false },
+        };
+        yield* updating.register({
+          cadence: every(5000),
+          id: "sync",
+          target: updatedTarget,
+        });
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(pauseFiber);
+        return yield* store.getSchedule("sync");
+      })
+    );
+    expect(stored).toMatchObject({
+      cadence: every(5000),
+      state: "paused",
+      target: { handler: { name: "sync-v2" }, input: { full: false } },
+    });
+  });
+
+  test("separate schedulers serialize overlap: skip across in-flight claims", async () => {
+    const dispatched = await inTestContext(
+      Effect.gen(function* () {
+        const store = yield* makeMemoryScheduleStore;
+        const dispatch = yield* fakeDispatch;
+        const submitting = yield* Deferred.make<void>();
+        const releaseSubmit = yield* Deferred.make<void>();
+        const firstSubmit = yield* Ref.make(true);
+        const slowDispatch = {
+          ...dispatch,
+          layer: dispatch.layer,
+        };
+        const first = yield* startScheduler(
+          store,
+          {
+            ...slowDispatch,
+            layer: dispatch.layer.pipe((layer) => layer),
+          },
+          { settlePollMs: 500 }
+        );
+        yield* first.register({
+          cadence: every(1000),
+          id: "solo",
+          overlap: "skip",
+          target,
+        });
+        const storeWithGate = {
+          ...store,
+          claim: (
+            occurrence: Parameters<typeof store.claim>[0],
+            replacing?: Parameters<typeof store.claim>[1],
+            exclusive?: boolean
+          ) =>
+            Effect.gen(function* () {
+              const won = yield* store.claim(occurrence, replacing, exclusive);
+              if (won && (yield* Ref.getAndSet(firstSubmit, false))) {
+                yield* Deferred.succeed(submitting, undefined);
+                yield* Deferred.await(releaseSubmit);
+              }
+              return won;
+            }),
+        };
+        const peerA = yield* startScheduler(storeWithGate, dispatch, {
+          settlePollMs: 500,
+        });
+        const peerB = yield* startScheduler(store, dispatch, {
+          settlePollMs: 500,
+        });
+        const firstTrigger = yield* Effect.fork(peerA.triggerNow("solo"));
+        yield* Deferred.await(submitting);
+        yield* TestClock.adjust(10);
+        const secondTrigger = yield* Effect.fork(peerB.triggerNow("solo"));
+        yield* TestClock.adjust(0);
+        yield* Deferred.succeed(releaseSubmit, undefined);
+        yield* Fiber.join(firstTrigger);
+        yield* Fiber.join(secondTrigger);
+        return yield* Ref.get(dispatch.submitted);
+      })
+    );
+    expect(dispatched).toHaveLength(1);
+  });
+
+  test("manual tick wakes the loop when it settles an open delay job with an earlier nextDueAt", async () => {
+    const dispatched = await testScheduler(
+      (scheduler, dispatch) =>
+        Effect.gen(function* () {
+          yield* scheduler.register({
+            cadence: { afterSettleMs: 200, initialDelayMs: 100, kind: "delay" },
+            id: "poll",
+            target,
+          });
+          yield* TestClock.adjust(100);
+          yield* dispatch.settle("job:poll:100", "complete", 100);
+          yield* scheduler.tick;
+          yield* TestClock.adjust(200);
+          return (yield* Ref.get(dispatch.submitted)).map(
+            (request) => request.scheduledFor
+          );
+        }),
+      { settlePollMs: 10_000 }
+    );
+    expect(dispatched).toEqual([100, 300]);
   });
 });

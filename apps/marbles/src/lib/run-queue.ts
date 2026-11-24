@@ -437,7 +437,26 @@ export class RunQueue {
     );
   }
 
+  #forgetPreloaded(runId: string): void {
+    for (const definition of this.#definitions.values()) {
+      definition.forget(runId);
+    }
+  }
+
   #observe(event: QueueEvent): void {
+    if (event.type === "job.removed") {
+      for (const runId of event.runIds) {
+        this.#forgetPreloaded(runId);
+      }
+    } else if (
+      event.type === "run.cancelled" ||
+      event.type === "run.completed" ||
+      event.type === "run.failed" ||
+      event.type === "run.handed_over" ||
+      event.type === "run.interrupted"
+    ) {
+      this.#forgetPreloaded(event.run.id);
+    }
     for (const listener of this.#events) {
       listener(event);
     }

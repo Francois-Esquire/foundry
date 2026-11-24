@@ -7,8 +7,11 @@ import { putRun } from "../helpers/queue-runs";
 function arranged() {
   const store = Effect.runSync(makeMemoryQueueStore);
   const writer = { ...store };
-  const put = (id: string, status: "complete" | "running", at: number) =>
-    putRun(writer, id, status, { at, step: "s" });
+  const put = (
+    id: string,
+    status: "complete" | "running" | "suspended",
+    at: number
+  ) => putRun(writer, id, status, { at, step: "s" });
   const complete = (id: string, output?: string) =>
     putRun(writer, id, "complete", output === undefined ? {} : { output });
   return { complete, put, store };
@@ -74,6 +77,19 @@ it("lists no Run pruned while a listing was reading it", async () => {
   const listing = new RunListing(store);
   await listing.load();
   listing.add("rn-a");
+  const { getRun } = store;
+  vi.spyOn(store, "getRun").mockImplementation((id) =>
+    Effect.tap(getRun(id), () => listing.remove(id))
+  );
+
+  expect(await listing.list()).toEqual([]);
+});
+
+it("lists no suspended Run pruned while a listing was reading it", async () => {
+  const { put, store } = arranged();
+  await put("rn-s", "suspended", 1);
+  const listing = new RunListing(store);
+  await listing.load();
   const { getRun } = store;
   vi.spyOn(store, "getRun").mockImplementation((id) =>
     Effect.tap(getRun(id), () => listing.remove(id))

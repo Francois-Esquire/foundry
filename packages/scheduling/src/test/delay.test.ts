@@ -92,10 +92,10 @@ describe("delay cadence", () => {
         const late = yield* startScheduler(
           {
             ...store,
-            claim: (occurrence, replacing) =>
+            claim: (occurrence, replacing, exclusive) =>
               Effect.zipRight(
                 Deferred.await(gate),
-                store.claim(occurrence, replacing)
+                store.claim(occurrence, replacing, exclusive)
               ),
           },
           dispatch,

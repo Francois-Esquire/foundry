@@ -239,60 +239,76 @@ const makeScheduler = (options: SchedulerOptions) =>
     const changed = <A, E>(effect: Effect.Effect<A, E>) =>
       Effect.zipLeft(locked(effect), wake.open);
 
+    const retryingScheduleConflicts = <A>(
+      attempt: Effect.Effect<A, ScheduleError>
+    ) =>
+      Effect.retry(attempt, {
+        times: 3,
+        while: (error) => error._tag === "ScheduleConflictError",
+      });
+
     const setState = (id: ScheduleId, state: Schedule["state"]) =>
       changed(
-        Effect.gen(function* () {
-          const schedule = { ...(yield* requireSchedule(id)), state };
-          const now = yield* Clock.currentTimeMillis;
-          yield* commit(
-            now,
-            [
-              {
-                schedule,
-                type:
-                  state === "paused" ? "schedule.paused" : "schedule.resumed",
-              },
-            ],
-            { schedules: [schedule] }
-          );
-          return schedule;
-        })
+        retryingScheduleConflicts(
+          Effect.gen(function* () {
+            const existing = yield* requireSchedule(id);
+            const schedule = { ...existing, state };
+            const now = yield* Clock.currentTimeMillis;
+            yield* commit(
+              now,
+              [
+                {
+                  schedule,
+                  type:
+                    state === "paused" ? "schedule.paused" : "schedule.resumed",
+                },
+              ],
+              { expectedSchedules: [existing], schedules: [schedule] }
+            );
+            return schedule;
+          })
+        )
       );
 
     const register = (input: RegisterScheduleInput) =>
-      Effect.gen(function* () {
-        const cadence = yield* validateCadence(input.cadence);
-        const misfire = input.misfire ?? "run-once";
-        const overlap = input.overlap ?? "skip";
-        yield* validatePolicies(cadence, overlap, misfire);
-        const now = yield* Clock.currentTimeMillis;
-        const existing = yield* store.getSchedule(input.id);
-        const previous = yield* store.getCursor(input.id);
-        const schedule: Schedule = {
-          cadence,
-          createdAt: existing?.createdAt ?? now,
-          id: input.id,
-          misfire,
-          overlap,
-          state: input.state ?? existing?.state ?? "active",
-          target: input.target,
-        };
-        const keepsCursor =
-          existing !== undefined &&
-          previous !== undefined &&
-          sameJson(existing.cadence, cadence);
-        const cursor: ScheduleCursor = {
-          ...previous,
-          nextDueAt: firstDue(cadence, now),
-          scheduleId: input.id,
-        };
-        yield* commit(now, [{ schedule, type: "schedule.registered" }], {
-          ...(keepsCursor ? {} : { cursors: [cursor] }),
-          schedules: [schedule],
-        });
-        failures.delete(input.id);
-        return schedule;
-      });
+      retryingScheduleConflicts(
+        Effect.gen(function* () {
+          const cadence = yield* validateCadence(input.cadence);
+          const misfire = input.misfire ?? "run-once";
+          const overlap = input.overlap ?? "skip";
+          yield* validatePolicies(cadence, overlap, misfire);
+          const now = yield* Clock.currentTimeMillis;
+          const existing = yield* store.getSchedule(input.id);
+          const previous = yield* store.getCursor(input.id);
+          const schedule: Schedule = {
+            cadence,
+            createdAt: existing?.createdAt ?? now,
+            id: input.id,
+            misfire,
+            overlap,
+            state: input.state ?? existing?.state ?? "active",
+            target: input.target,
+          };
+          const keepsCursor =
+            existing !== undefined &&
+            previous !== undefined &&
+            sameJson(existing.cadence, cadence);
+          const cursor: ScheduleCursor = {
+            ...previous,
+            nextDueAt: firstDue(cadence, now),
+            scheduleId: input.id,
+          };
+          yield* commit(now, [{ schedule, type: "schedule.registered" }], {
+            ...(keepsCursor ? {} : { cursors: [cursor] }),
+            ...(existing === undefined
+              ? {}
+              : { expectedSchedules: [existing] }),
+            schedules: [schedule],
+          });
+          failures.delete(input.id);
+          return schedule;
+        })
+      );
 
     const triggerNow = (id: ScheduleId) =>
       Effect.gen(function* () {
@@ -320,9 +336,11 @@ const makeScheduler = (options: SchedulerOptions) =>
       register: (input) => changed(register(input)),
       resume: (id) => setState(id, "active"),
       subscribe: Stream.fromPubSub(hub, { scoped: true }),
-      tick: Effect.map(
-        locked(evaluateAll((error) => Effect.fail(error), false)),
-        (result) => result.decided
+      tick: changed(
+        Effect.map(
+          evaluateAll((error) => Effect.fail(error), false),
+          (result) => result.decided
+        )
       ),
       triggerNow: (id) => changed(triggerNow(id)),
       unregister: (id) => changed(unregister(id)),

@@ -102,12 +102,32 @@ const makeQueue = (options: QueueOptions) =>
     const settlement = makeSettlement(ledger);
     const recovery = makeRecovery(ledger, settlement, capacity, self);
 
-    for (const pool of [
-      ...(yield* store.listPools),
-      ...(options.pools ?? []),
-    ]) {
+    const persistedPools = new Map<string, ConcurrencyPool>();
+    for (const pool of yield* store.listPools) {
+      const valid = yield* checkPool(pool);
+      persistedPools.set(valid.name, valid);
+      capacity.pools.set(valid.name, valid);
+    }
+    for (const pool of options.pools ?? []) {
       capacity.pools.set(pool.name, yield* checkPool(pool));
     }
+
+    const syncPersistedPools = Effect.map(store.listPools, (pools) => {
+      for (const pool of pools) {
+        if (!validLimit(pool.limit)) {
+          continue;
+        }
+        const known = persistedPools.get(pool.name);
+        if (
+          known === undefined ||
+          known.limit !== pool.limit ||
+          known.state !== pool.state
+        ) {
+          persistedPools.set(pool.name, pool);
+          capacity.pools.set(pool.name, pool);
+        }
+      }
+    });
 
     const { locked, mutate, nudge, releaseStaleSlots } = yield* makeDispatcher({
       capacity,
@@ -131,7 +151,9 @@ const makeQueue = (options: QueueOptions) =>
           from,
           intervalMs: syncIntervalMs,
           onChange: Effect.gen(function* () {
-            const stale = yield* mutate(releaseStaleSlots);
+            const stale = yield* mutate(
+              Effect.zipRight(syncPersistedPools, releaseStaleSlots)
+            );
             yield* Effect.sync(() => waiters.notify("unknown"));
             yield* Fiber.interruptAll(stale);
           }),
@@ -361,6 +383,7 @@ const makeQueue = (options: QueueOptions) =>
         yield* checkPool(pool);
         const now = yield* Clock.currentTimeMillis;
         yield* commit(now, { facts: [], write: { pools: [pool] } });
+        persistedPools.set(pool.name, pool);
         capacity.pools.set(pool.name, pool);
       });
 
