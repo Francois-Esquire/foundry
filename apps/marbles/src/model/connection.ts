@@ -65,9 +65,16 @@ export interface WorkspaceConfig {
     readonly source: MonitorSpec;
     readonly trigger: Trigger;
   }[];
+  readonly observers: readonly ObserverEntry[];
   readonly root: string;
   readonly schedules: readonly Schedule[];
   readonly source: string | null;
+}
+
+export interface ObserverEntry {
+  readonly name: string;
+  readonly source: string;
+  readonly types?: readonly string[];
 }
 
 export interface DispatchOptions {

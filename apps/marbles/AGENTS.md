@@ -58,7 +58,11 @@ Five buckets, each importing only what sits below it:
   (`withWorkspaceDatabase` in `database/managed.ts`). Each manager has the plain operation as a
   method, usable on the engine directly, and `scoped(frame)` for the view a
   step body gets, which adds replay, cancellation, and cleanup on top; new
-  manager behavior goes in the plain method. The engine owns its registry
+  manager behavior goes in the plain method. `lib/managers/runs.ts` is
+  how a run is read (`RunView`: the stored Run first, then the execution
+  record) and launched from a step body, each launch kept in the run's
+  ledger by its place and definition, so a body that runs again gets the
+  same run back. The engine owns its registry
   and is told what can run through `define`, `schedule`, `monitor`, and `task`. Every launch goes through
   `lib/launcher.ts`, which owns queue admission, host tasks, and live runs.
   `lib/executions.ts` owns durable execution records and retention; they
@@ -251,7 +255,9 @@ Five buckets, each importing only what sits below it:
 - `src/authoring/` owns definition instance methods and runtime routing as
   well as the module-authoring sugar; it collects into the `catalog` in
   `authoring/catalog.ts`, which is private to Marbles, and may import
-  `lib/`, never the reverse. `Engine.execute` runs direct definitions
+  `lib/`, never the reverse. `authoring/runs.ts` is the read-only
+  `runs` word, bound per load as `tasks` is; it never starts an engine to
+  answer a read. `Engine.execute` runs direct definitions
   through the same orchestration as named launches; calls inside a step
   become dynamic children in that run. `createEngine` in `src/create.ts`
   is the one place the Marbles defaults and what `--dry-run` echoes are

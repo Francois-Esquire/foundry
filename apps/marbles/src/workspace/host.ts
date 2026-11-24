@@ -464,6 +464,7 @@ function hosted(
             trigger,
           })
         ),
+        observers: catalog.observerEntries(),
         root: workspace.root,
         schedules: [...catalog.schedules.values()],
         source: config,

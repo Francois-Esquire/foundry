@@ -2,6 +2,7 @@ import { step, workflow } from "~/authoring/builder";
 import { models } from "~/authoring/models";
 import { observe } from "~/authoring/observe";
 import { agent, artifact, sandbox, workspace } from "~/authoring/resources";
+import { runsOfLoad } from "~/authoring/runs";
 import { inLoad } from "~/authoring/runtime";
 import { tasksOfLoad } from "~/authoring/tasks";
 import { monitor, schedule } from "~/authoring/triggers";
@@ -40,6 +41,9 @@ export function libraryOfLoad(
     Object.entries(library).map(([key, value]) => {
       if (key === "tasks") {
         return [key, tasksOfLoad(load)];
+      }
+      if (key === "runs") {
+        return [key, runsOfLoad(load)];
       }
       if (value === models) {
         return [key, { available: bind(models.available, load) }];

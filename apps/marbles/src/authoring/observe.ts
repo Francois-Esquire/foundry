@@ -14,6 +14,7 @@ import type {
 import { declaringCatalog } from "~/authoring/runtime";
 import type { Fact, Handler, Observable } from "~/lib/events/source";
 import { SOURCE, sourceKey } from "~/lib/events/source";
+import type { ArtifactShareEvent } from "~/lib/resources";
 
 export function observe<T extends Fact>(
   source: Observable<T>,
@@ -27,8 +28,8 @@ export function observe(
 ): Observer;
 export function observe(
   source: typeof artifact,
-  handler: Handler<ArtifactEvent>,
-  options?: ObserveOptions<ArtifactEvent>
+  handler: Handler<ArtifactEvent | ArtifactShareEvent>,
+  options?: ObserveOptions<ArtifactEvent | ArtifactShareEvent>
 ): Observer;
 export function observe(
   source: typeof sandbox,
