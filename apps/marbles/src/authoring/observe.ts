@@ -1,7 +1,6 @@
 import type { SessionChangeEvent } from "@foundry/agents/schema";
 import type { ArtifactEvent } from "@foundry/artifacts";
 import type { SandboxEvent } from "@foundry/sandbox/store";
-import type { RunEvent } from "@foundry/workflows/schema";
 import type { WorkspaceEvent } from "@foundry/workspaces/schema";
 import type { workflow } from "~/authoring/builder";
 import { bindingAt, callSite } from "~/authoring/identity";
@@ -15,6 +14,7 @@ import { declaringCatalog } from "~/authoring/runtime";
 import type { Fact, Handler, Observable } from "~/lib/events/source";
 import { SOURCE, sourceKey } from "~/lib/events/source";
 import type { ArtifactShareEvent } from "~/lib/resources";
+import type { RunEvent } from "~/lib/workflow-runs";
 
 export function observe<T extends Fact>(
   source: Observable<T>,

@@ -226,7 +226,7 @@ The watcher exits with code 0 on completion, 1 on failure or cancellation,
 and 130 when interrupted. Interrupting the watcher does not cancel the run.
 If the owner disappears without recording an ending, the watcher reads the
 run's Execution Run from the Marbles database before it gives up. A run
-that is parked or queued, or running under a live owner, is still being
+that is suspended or queued, or running under a live owner, is still being
 handed over, and the watcher keeps following it to its new owner's ending.
 A run recorded as completed, failed or cancelled ends the watch with that
 status. Otherwise, or without a database, the watcher reports that the run
@@ -270,11 +270,11 @@ a client's reload, starts the next generation. It must load every
 registered workspace; when one does not load, the error is shown on that
 workspace and the running generation carries on as it was. Once it has
 loaded, it takes over at once: schedules and monitors carry on from where
-they were, by their key, and the runs waiting in a queue or parked on a
+they were, by their key, and the runs waiting in a queue or suspended on a
 question move to it. The previous generation starts nothing new; it
 finishes the runs it has running, whole, then exits, and with none it
-exits at once; a run of it that parks on a question meanwhile moves to the
-current generation as it parks, which answers it. Each schedule tick and
+exits at once; a run of it that suspends on a question meanwhile moves to the
+current generation as it suspends, which answers it. Each schedule tick and
 each task change is handled by one generation only. A generation that dies
 is replaced after a pause that doubles from 1 second up to 30 while
 replacements keep failing, and the next one's start puts its runs right.

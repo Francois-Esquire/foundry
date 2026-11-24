@@ -78,6 +78,19 @@ export class Telemetry {
     }
   }
 
+  restore(state: TelemetryState): void {
+    this.#metrics.clear();
+    for (const [key, value] of Object.entries(state.metrics.values)) {
+      this.#metrics.set(key, value);
+    }
+    this.#metricsUpdatedAt = state.metrics.updatedAt;
+    this.#logs.splice(
+      0,
+      this.#logs.length,
+      ...state.logs.slice(-this.#logCapacity)
+    );
+  }
+
   snapshot(): TelemetryState {
     return {
       logs: [...this.#logs],

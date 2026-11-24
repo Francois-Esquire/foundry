@@ -1,5 +1,4 @@
 import type { ChannelEvent } from "@foundry/workflows/channels";
-import type { Orchestrator } from "@foundry/workflows/orchestrator";
 
 import {
   FEED_INPUT_KIND,
@@ -11,6 +10,12 @@ import {
   readAnswer,
 } from "~/lib/feed/entry";
 import type { FeedPublisher, FeedSource } from "~/lib/feed/publish";
+import type { WorkflowQueue } from "~/lib/workflow-queue";
+
+export type FeedQueue = Pick<
+  WorkflowQueue,
+  "cancelRun" | "on" | "resolve" | "suspension" | "suspensions"
+>;
 
 interface OpenQuestion {
   readonly question: FeedQuestionPayload;
@@ -45,10 +50,23 @@ export class QuestionMovingError extends Error {
   }
 }
 
+const MOVED: ReadonlySet<string> = new Set([
+  "RunMovedError",
+  "StaleSuspensionRevisionError",
+]);
+
+function refusalName(error: unknown): string | undefined {
+  if (!(error instanceof Error)) {
+    return;
+  }
+  return "_tag" in error && typeof error._tag === "string"
+    ? error._tag
+    : error.name;
+}
+
 export function movedAway(error: unknown, id: string): unknown {
-  return error instanceof Error &&
-    (error.name === "StaleSuspensionRevisionError" ||
-      error.name === "RunMovedError")
+  const name = refusalName(error);
+  return name !== undefined && MOVED.has(name)
     ? new QuestionMovingError(id)
     : error;
 }
@@ -56,10 +74,10 @@ export function movedAway(error: unknown, id: string): unknown {
 export function feedRouter(options: {
   readonly askable: boolean;
   readonly feed: FeedPublisher;
-  readonly orchestrator: Orchestrator;
   readonly print: (line: string) => void;
+  readonly queue: FeedQueue;
 }): FeedRouter {
-  const { askable, feed, orchestrator, print } = options;
+  const { askable, feed, print, queue } = options;
   const open = new Map<string, OpenQuestion>();
   let retired = false;
   const cancelled = new Map<string, string>();
@@ -97,7 +115,7 @@ export function feedRouter(options: {
             status: "cancelled",
           })
           .catch(warn(title)),
-        orchestrator
+        queue
           .cancelRun(question.source.runId)
           .catch((error: unknown) => print(`[feed] ${String(error)}`)),
       ]);
@@ -111,12 +129,8 @@ export function feedRouter(options: {
   }
 
   async function adopt(definition: string, runId: string): Promise<void> {
-    const pending = await orchestrator.listSuspensions({
-      kind: FEED_INPUT_KIND,
-      runId,
-      status: "pending",
-    });
-    for (const suspension of pending.items) {
+    const pending = await queue.suspensions({ kind: FEED_INPUT_KIND, runId });
+    for (const suspension of pending) {
       const question = feedQuestionSchema.safeParse(suspension.request);
       if (!question.success) {
         continue;
@@ -149,9 +163,7 @@ export function feedRouter(options: {
       if (choices.length > 0 && !choices.includes(choice)) {
         throw new Error(`Choose one of: ${choices.join(", ")}`);
       }
-      const suspension = await orchestrator.getSuspension(
-        question.suspensionId
-      );
+      const suspension = await queue.suspension(question.suspensionId);
       if (retired || open.get(entryId) !== question) {
         throw new QuestionMovingError(entryId);
       }
@@ -159,7 +171,7 @@ export function feedRouter(options: {
         open.delete(entryId);
         throw new Error("This question is no longer waiting for an answer.");
       }
-      await orchestrator
+      await queue
         .resolve(
           suspension.id,
           note === undefined ? choice : { choice, note },
@@ -213,8 +225,8 @@ export function feedRouter(options: {
       const refresh = () => {
         writes.push(adopt(definition, runId).catch(warn("question")));
       };
-      const unsubscribe = orchestrator.on("suspended", (payload) => {
-        if (payload.runId === runId) {
+      const unsubscribe = queue.on("suspended", (suspended) => {
+        if (suspended === runId) {
           refresh();
         }
       });

@@ -1,19 +1,18 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Config } from "@foundry/lib/config";
 import { thisProcess } from "@foundry/lib/process-identity";
-import { ExecutionCoordinator } from "@foundry/workflows";
-import { contributeQueueConfig } from "@foundry/workflows/config";
-import { Orchestrator } from "@foundry/workflows/orchestrator";
+import { makeMemoryQueueStore } from "@foundry/queue/store/memory";
 import type { StepContext } from "@foundry/workflows/step";
 import { Workflow } from "@foundry/workflows/workflow";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { step } from "~/authoring/index";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
 import { feedRouter } from "~/lib/feed/route";
+import { WorkflowQueue } from "~/lib/workflow-queue";
 import { testEngine } from "./helpers/engine";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -24,18 +23,14 @@ afterEach(async () => {
   }
 });
 
-async function twoOrchestrators() {
-  const store = new ExecutionCoordinator();
-  const queue = `handover-${crypto.randomUUID()}`;
+function twoQueues() {
+  const store = Effect.runSync(makeMemoryQueueStore);
   const done: string[] = [];
-  const make = async (label: string) => {
-    const config = new Config();
-    contributeQueueConfig(config, { concurrency: 1, defaultName: queue });
-    const orchestrator = new Orchestrator({ config, store });
-    await orchestrator.setup();
-    orchestrator.register("job", (input: null) =>
+  const make = (label: string) => {
+    const queue = new WorkflowQueue(store);
+    queue.register("job", (input) =>
       Workflow.create({
-        execute: async (_value: null, run: StepContext<null>) => {
+        execute: async (_value: unknown, run: StepContext<unknown>) => {
           const answer = await run.suspend({
             kind: "marbles.feed.input",
             name: "q",
@@ -49,58 +44,60 @@ async function twoOrchestrators() {
         name: "job",
       })
     );
-    await orchestrator.start();
-    cleanups.push(() => orchestrator.stop());
-    return orchestrator;
+    cleanups.push(() => queue.stop());
+    return queue;
   };
-  return { done, first: await make("OLD"), second: await make("NEW") };
+  return { done, first: make("OLD"), second: make("NEW") };
 }
 
-async function parked(orchestrator: Orchestrator, runId: string) {
+async function suspended(queue: WorkflowQueue, runId: string) {
   return await vi.waitFor(async () => {
-    const [pending] = (
-      await orchestrator.listSuspensions({ runId, status: "pending" })
-    ).items;
+    const [pending] = await queue.suspensions({ runId });
     expect(pending).toBeDefined();
     return pending;
   });
 }
 
-function gatedRouter(orchestrator: Orchestrator) {
+const launch = (queue: WorkflowQueue) =>
+  queue.run("job", null, { runId: `rn-${crypto.randomUUID()}` });
+
+function gatedRouter(queue: WorkflowQueue) {
   const entered = Promise.withResolvers<void>();
   const gate = Promise.withResolvers<void>();
   const router = feedRouter({
     askable: true,
     feed: { publishInput: () => Promise.resolve("entry") } as never,
-    orchestrator: {
-      getSuspension: async (id: string) => {
-        const read = await orchestrator.getSuspension(id);
+    print: () => undefined,
+    queue: {
+      cancelRun: (runId) => queue.cancelRun(runId),
+      on: (signal, listener) => queue.on(signal, listener),
+      resolve: (id, value, options) => queue.resolve(id, value, options),
+      suspension: async (id) => {
+        const read = await queue.suspension(id);
         entered.resolve();
         await gate.promise;
         return read;
       },
-      listSuspensions: orchestrator.listSuspensions.bind(orchestrator),
-      resolve: orchestrator.resolve.bind(orchestrator),
-    } as never,
-    print: () => undefined,
+      suspensions: (query) => queue.suspensions(query),
+    },
   });
   return { entered: entered.promise, open: gate.resolve, router };
 }
 
-function plainRouter(orchestrator: Orchestrator) {
+function plainRouter(queue: WorkflowQueue) {
   return feedRouter({
     askable: true,
     feed: { publishInput: () => Promise.resolve("entry") } as never,
-    orchestrator,
     print: () => undefined,
+    queue,
   });
 }
 
 describe("an answer that meets a handover", () => {
   it("is refused by the engine that retired while it read the question, and applied once by the one that took the run", async () => {
-    const { done, first, second } = await twoOrchestrators();
-    const run = await first.run("job", null);
-    await parked(first, run.id);
+    const { done, first, second } = twoQueues();
+    const run = await launch(first);
+    await suspended(first, run.id);
     const old = gatedRouter(first);
     await old.router.adopt("job", run.id);
     const answering = old.router.answer("entry", "yes");
@@ -120,9 +117,9 @@ describe("an answer that meets a handover", () => {
   });
 
   it("is refused as stale when another engine took the run over while it read, though nothing retired here", async () => {
-    const { done, first, second } = await twoOrchestrators();
-    const run = await first.run("job", null);
-    await parked(first, run.id);
+    const { done, first, second } = twoQueues();
+    const run = await launch(first);
+    await suspended(first, run.id);
     const old = gatedRouter(first);
     await old.router.adopt("job", run.id);
     const answering = old.router.answer("entry", "yes");

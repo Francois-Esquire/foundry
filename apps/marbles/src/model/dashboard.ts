@@ -1,7 +1,7 @@
-import type { RunRecord } from "@foundry/workflows/schema";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { DefinitionOptions } from "~/lib/inputs";
 import type { LiveWork } from "~/lib/step-work";
+import type { RunRecord } from "~/lib/workflow-runs";
 import type { JsonValue } from "~/model/json";
 import type { LogEntry, SetupLogEntry } from "~/model/log";
 import type { InputAttention, RunStatus } from "~/model/run-status";

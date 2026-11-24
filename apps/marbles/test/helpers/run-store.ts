@@ -1,11 +1,11 @@
-import { ExecutionCoordinator } from "@foundry/workflows";
-import type { RunRecord } from "@foundry/workflows/schema";
-import type { WorkflowStore } from "@foundry/workflows/store";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RecordedScope } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
 import { ANY_STORED_RUN } from "~/lib/run-store";
 import { NotStorableError } from "~/lib/state/json";
+import type { RunRecord } from "~/lib/workflow-runs";
+import { readRun } from "~/lib/workflow-runs";
+import { putRun } from "./queue-runs";
 
 export interface RunStoreFixture {
   close(): Promise<void>;
@@ -17,27 +17,6 @@ const SCOPE: RecordedScope = {
   literals: { flow: { n: 1 } },
   session: { id: "run-session" },
 };
-
-export async function putRun(
-  workflows: WorkflowStore,
-  id: string,
-  status?: "complete" | "running" | "suspended"
-): Promise<void> {
-  const coordinator = new ExecutionCoordinator({ store: workflows });
-  const [queue] = await coordinator.listQueues();
-  const queueId =
-    queue?.id ??
-    (await coordinator.ensureQueue({ id: "qu-1", name: "marbles" })).id;
-  if ((await coordinator.getRun(id)) === null) {
-    await coordinator.createRun({ id, input: null, queueId, step: "flow" });
-  }
-  if (status !== undefined) {
-    if (status === "complete") {
-      await coordinator.updateRun(id, { status: "running" });
-    }
-    await coordinator.updateRun(id, { status });
-  }
-}
 
 export function describeRunStore(
   name: string,
@@ -95,17 +74,16 @@ export function describeRunStore(
       });
     });
 
-    it("keeps nothing of a commit a transaction rolls back", async () => {
+    it("keeps nothing of a commit that fails as it is filed", async () => {
       const runs = await store();
-      const workflows = await runs.open(() => SCOPE);
-      await expect(
-        workflows.transaction?.(async (view) => {
-          await putRun(view, "rn-1");
-          throw new Error("rolled back");
-        })
-      ).rejects.toThrow("rolled back");
-      expect(await workflows.getRun("rn-1")).toBeNull();
-      expect(await runs.recorded("rn-1")).toEqual({ ledger: {} });
+      const workflows = await runs.open((runId) =>
+        runId === "rn-2" ? { ...SCOPE, ledger: { cost: Number.NaN } } : SCOPE
+      );
+      await putRun(workflows, "rn-1");
+      await expect(putRun(workflows, "rn-2")).rejects.toThrow(NotStorableError);
+      expect(await readRun(workflows, "rn-2")).toBeNull();
+      expect(await runs.recorded("rn-2")).toEqual({ ledger: {} });
+      expect((await runs.recorded("rn-1")).session).toBe("run-session");
     });
 
     it("claims a Run only while the Run as stored satisfies the claim's condition", async () => {
@@ -113,13 +91,13 @@ export function describeRunStore(
       const workflows = await runs.open(() => undefined);
       await putRun(workflows, "rn-1", "suspended");
       await runs.release();
-      const parked = (stored: RunRecord | null) =>
+      const suspended = (stored: RunRecord | null) =>
         stored?.status === "suspended";
 
       await putRun(workflows, "rn-1", "running");
       await runs.release();
-      expect(await runs.claim("rn-1", parked)).toBe(false);
-      expect(await runs.claim("rn-missing", parked)).toBe(false);
+      expect(await runs.claim("rn-1", suspended)).toBe(false);
+      expect(await runs.claim("rn-missing", suspended)).toBe(false);
       const seen: (string | null)[] = [];
       expect(
         await runs.claim("rn-1", (stored) => {
@@ -146,7 +124,7 @@ export function describeRunStore(
         await expect(putRun(workflows, "rn-1")).rejects.toThrow(
           NotStorableError
         );
-        expect(await workflows.getRun("rn-1")).toBeNull();
+        expect(await readRun(workflows, "rn-1")).toBeNull();
         expect(await runs.recorded("rn-1")).toEqual({ ledger: {} });
       }
     });
@@ -189,8 +167,8 @@ export function describeRunStore(
       await runs.remove("rn-1");
       await runs.remove("rn-unknown");
 
-      expect(await workflows.getRun("rn-1")).toBeNull();
-      expect(await workflows.getRun("rn-2")).not.toBeNull();
+      expect(await readRun(workflows, "rn-1")).toBeNull();
+      expect(await readRun(workflows, "rn-2")).not.toBeNull();
       expect(await runs.recorded("rn-1")).toEqual({ ledger: {} });
       expect((await runs.recorded("rn-2")).session).toBe("run-session");
     });
@@ -202,7 +180,7 @@ export function describeRunStore(
       await expect(runs.claim("rn-1", ANY_STORED_RUN)).rejects.toThrow();
       await expect(runs.recorded("rn-1")).rejects.toThrow();
       if (runs.durable) {
-        await expect(workflows.getRun("rn-1")).rejects.toThrow();
+        await expect(readRun(workflows, "rn-1")).rejects.toThrow();
       }
     });
 
@@ -210,11 +188,10 @@ export function describeRunStore(
       const runs = await store();
       const workflows = await runs.open(() => SCOPE);
       let landed = false;
-      const putting = workflows
-        .transaction?.((view) => putRun(view, "rn-1"))
-        .then(() => {
-          landed = true;
-        });
+      const putting = putRun(workflows, "rn-1").then(() => {
+        landed = true;
+      });
+      await new Promise((resolve) => setImmediate(resolve));
       await runs.close();
       expect(landed).toBe(true);
       await putting;
@@ -251,7 +228,7 @@ export function describeRunStore(
         await expect(putRun(workflows, "rn-1", "running")).rejects.toThrow(
           "is not held by this engine"
         );
-        expect((await workflows.getRun("rn-1"))?.status).toBe("suspended");
+        expect((await readRun(workflows, "rn-1"))?.status).toBe("suspended");
         expect(await first.claim("rn-1", ANY_STORED_RUN)).toBe(false);
       }
     );
@@ -268,12 +245,12 @@ export function describeRunStore(
         await expect(putRun(workflows, "rn-1", "running")).rejects.toThrow(
           "is not held by this engine"
         );
-        expect((await workflows.getRun("rn-1"))?.status).toBe("suspended");
+        expect((await readRun(workflows, "rn-1"))?.status).toBe("suspended");
         expect(await second.claim("rn-1", ANY_STORED_RUN)).toBe(true);
         await second.release("rn-1");
         expect(await first.claim("rn-1", ANY_STORED_RUN)).toBe(true);
         await putRun(workflows, "rn-1", "running");
-        expect((await workflows.getRun("rn-1"))?.status).toBe("running");
+        expect((await readRun(workflows, "rn-1"))?.status).toBe("running");
       }
     );
 

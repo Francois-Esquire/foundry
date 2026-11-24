@@ -87,7 +87,7 @@ it("writes a run when it is queued, before it starts, and when it settles", asyn
   expect((await stored(second.id)).status).toBe("complete");
 });
 
-it("never changes a settled run: late progress, parks, resumes and observations are dropped", async () => {
+it("never changes a settled run: late progress, suspends, resumes and observations are dropped", async () => {
   const executions = new Executions({
     store: new MemoryExecutionStore(),
     warn: () => undefined,
@@ -707,7 +707,7 @@ it("counts each removal once when two engines prune the same runs at once", asyn
   });
 });
 
-it("parks a workflow's Execution Run with its Run, in one write, and warns of nothing", async () => {
+it("suspends a workflow's Execution Run with its Run, in one write, and warns of nothing", async () => {
   const state = join(fixture.root, "state");
   const lines: string[] = [];
   const opened = await initializeDatabase(stateDatabase(state));
@@ -715,12 +715,12 @@ it("parks a workflow's Execution Run with its Run, in one write, and warns of no
     database: opened.database,
     scope: "test",
   });
-  const parks: boolean[] = [];
+  const suspends: boolean[] = [];
   const transition = store.transition.bind(store);
   store.transition = async (runId, change) => {
     const written = await transition(runId, change);
     if (change.status === "suspended") {
-      parks.push(written.applied);
+      suspends.push(written.applied);
     }
     return written;
   };
@@ -740,14 +740,14 @@ it("parks a workflow's Execution Run with its Run, in one write, and warns of no
   await vi.waitFor(() =>
     expect(engine.executions.get(id)?.status).toBe("suspended")
   );
-  const parked = engine.executions.get(id);
+  const suspended = engine.executions.get(id);
   await vi.waitFor(async () =>
     expect(await storedExecution(state, id)).toMatchObject({
-      revision: parked?.revision,
+      revision: suspended?.revision,
       status: "suspended",
     })
   );
-  expect(parks).toEqual([false]);
+  expect(suspends).toEqual([false]);
   expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
   await engine.dispose();
   opened.close();
@@ -761,7 +761,7 @@ async function storedOf(
   return stored && parseStored(stored);
 }
 
-it("parks into the store the engine was handed, and writes no Execution Run to a database it keeps none in", async () => {
+it("suspends into the store the engine was handed, and writes no Execution Run to a database it keeps none in", async () => {
   const state = join(fixture.root, "state");
   const store = new MemoryExecutionStore();
   const engine = engineWith({ askable: true, executionStore: store, state });

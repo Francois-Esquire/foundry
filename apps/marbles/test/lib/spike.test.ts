@@ -120,7 +120,7 @@ describe("spike: children driven from the parent body", () => {
     expect(ran).toEqual(["root", "a", "b", "root", "b"]);
   });
 
-  it("parallel: a suspension parks the run and finished siblings skip on resume", async () => {
+  it("parallel: a suspension suspends the run and finished siblings skip on resume", async () => {
     const ran: string[] = [];
     let settleA: Promise<unknown> | undefined;
     const a = leaf("a", async () => {

@@ -1,14 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type {
-  WorkflowStore,
-  WorkflowStoreWrite,
-} from "@foundry/workflows/store";
-import type { WorkflowTransaction } from "@foundry/workflows/store/sqlite";
-import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
+import type { QueueStoreService, QueueWrite } from "@foundry/queue/store";
+import type { QueueTransaction } from "@foundry/queue/store/sqlite";
+import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { and, eq } from "drizzle-orm";
+import { Effect } from "effect";
 import { z } from "zod";
 import { removeShares } from "~/database/associations";
-import { aroundCalls, asBusy } from "~/database/busy";
+import { asBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
 import { followExecution, readExecution } from "~/database/executions";
 import { inList } from "~/database/lists";
@@ -23,7 +21,7 @@ import {
   sameOwnerColumns,
 } from "~/database/owner";
 import { marblesWorkflowRuns } from "~/database/tables";
-import { RecordsGate } from "~/lib/events/records";
+import { causingRun, RecordsGate } from "~/lib/events/records";
 import { RUNS, sourceKey } from "~/lib/events/source";
 import type { RecordedScope } from "~/lib/run-scope";
 import type {
@@ -32,7 +30,13 @@ import type {
   RunStore,
   StoredScope,
 } from "~/lib/run-store";
-import { filedRuns, removalOf } from "~/lib/run-store";
+import {
+  filedRuns,
+  gatedQueueStore,
+  ownedQueueWrite,
+  removalOf,
+} from "~/lib/run-store";
+import { readRun, runEventsOf, runStoreEffect } from "~/lib/workflow-runs";
 
 const RUNS_KEY = sourceKey(RUNS) ?? "runs";
 
@@ -89,7 +93,7 @@ export class DatabaseRunStore implements RunStore {
   }
 
   async #ownerOf(
-    database: StoreDatabase | WorkflowTransaction,
+    database: StoreDatabase | QueueTransaction,
     runId: string
   ): Promise<OwnerColumns | undefined> {
     const [row] = await database
@@ -110,10 +114,10 @@ export class DatabaseRunStore implements RunStore {
     held: boolean
   ): Promise<boolean | typeof CHANGED> {
     return this.#database.transaction(async (transaction) => {
-      const stored = await new SqliteWorkflowStore({
-        database: transaction,
-        scope: this.#scope,
-      }).getRun(runId);
+      const stored = await readRun(
+        makeSqliteQueueStore({ database: transaction, scope: this.#scope }),
+        runId
+      );
       const execution = await readExecution(transaction, this.#scope, runId);
       if (!when(stored, execution)) {
         return false;
@@ -148,31 +152,42 @@ export class DatabaseRunStore implements RunStore {
   open(
     recorded: (runId: string) => RecordedScope | undefined,
     follows?: RunFollower
-  ): Promise<WorkflowStore> {
-    return this.#call(() =>
-      Promise.resolve(
-        aroundCalls(
-          this.#changes.causing(
-            new SqliteWorkflowStore({
-              database: this.#database,
-              onCommit: async (transaction, write) => {
-                await this.#file(transaction, write, recorded);
-                await this.#follow(transaction, write, follows);
-                await this.#changes.record(transaction, RUNS_KEY, write.events);
-                await removeShares(
-                  transaction,
-                  "run",
-                  this.#scope,
-                  write.deleteRuns ?? []
-                );
-              },
-              scope: this.#scope,
-            })
-          ),
-          (call) => this.#call(call)
-        )
-      )
-    );
+  ): Promise<QueueStoreService> {
+    const causes = new WeakMap<QueueWrite, string | null>();
+    const store = makeSqliteQueueStore({
+      database: this.#database,
+      onCommit: async (transaction, write) => {
+        await this.#file(transaction, write, recorded);
+        await this.#follow(transaction, write, follows);
+        await this.#changes.record(
+          transaction,
+          RUNS_KEY,
+          runEventsOf(write.events ?? []),
+          causes.get(write) ?? null
+        );
+        await removeShares(
+          transaction,
+          "run",
+          this.#scope,
+          write.deleteRuns ?? []
+        );
+      },
+      scope: this.#scope,
+    });
+    return this.#call(() => {
+      const gated = gatedQueueStore(store, (call) => this.#call(call));
+      return Promise.resolve({
+        ...gated,
+        commit: (write: QueueWrite) => {
+          const cause = causingRun();
+          return Effect.suspend(() => {
+            const owned = ownedQueueWrite(write);
+            causes.set(owned, cause);
+            return gated.commit(owned);
+          });
+        },
+      });
+    });
   }
 
   recorded(runId: string): Promise<StoredScope> {
@@ -218,13 +233,22 @@ export class DatabaseRunStore implements RunStore {
   remove(runId: string): Promise<void> {
     return this.#call(() =>
       this.#database.transaction(async (transaction) => {
-        const workflows = new SqliteWorkflowStore({
+        const queue = makeSqliteQueueStore({
           database: transaction,
           scope: this.#scope,
         });
-        const removal = await removalOf(workflows, runId);
-        await workflows.commit(removal);
-        await transaction.delete(marblesWorkflowRuns).where(this.#run(runId));
+        const removal = await runStoreEffect(removalOf(queue, runId));
+        await runStoreEffect(queue.commit(removal));
+        await transaction
+          .delete(marblesWorkflowRuns)
+          .where(
+            and(
+              eq(marblesWorkflowRuns.scope, this.#scope),
+              inList(marblesWorkflowRuns.runId, [
+                ...new Set([runId, ...(removal.deleteRuns ?? [])]),
+              ])
+            )
+          );
         await removeShares(
           transaction,
           "run",
@@ -236,8 +260,8 @@ export class DatabaseRunStore implements RunStore {
   }
 
   async #file(
-    transaction: WorkflowTransaction,
-    write: WorkflowStoreWrite,
+    transaction: QueueTransaction,
+    write: QueueWrite,
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
@@ -290,14 +314,17 @@ export class DatabaseRunStore implements RunStore {
   }
 
   async #follow(
-    transaction: WorkflowTransaction,
-    write: WorkflowStoreWrite,
+    transaction: QueueTransaction,
+    write: QueueWrite,
     follows: RunFollower | undefined
   ): Promise<void> {
-    for (const run of follows === undefined ? [] : (write.putRuns ?? [])) {
-      const change = follows?.(run.id, run.status);
+    if (follows === undefined) {
+      return;
+    }
+    for (const { runId, status } of filedRuns(write, () => undefined)) {
+      const change = follows(runId, status);
       if (change !== undefined) {
-        await followExecution(transaction, this.#scope, run.id, change);
+        await followExecution(transaction, this.#scope, runId, change);
       }
     }
   }
@@ -330,25 +357,15 @@ export class DatabaseRunStore implements RunStore {
   }
 }
 
-export async function unheldParkedRuns(
+export async function unheldSuspendedRuns(
   database: StoreDatabase,
   scope: string
 ): Promise<readonly string[]> {
-  const store = new SqliteWorkflowStore({ database, scope });
-  const parked: string[] = [];
-  let after: number | undefined;
-  do {
-    const page = await asBusy(() =>
-      store.listRuns({
-        limit: 200,
-        status: ["suspended"],
-        ...(after === undefined ? {} : { after }),
-      })
-    );
-    parked.push(...page.items.map((run) => run.id));
-    after = page.next;
-  } while (after !== undefined);
-  if (parked.length === 0) {
+  const store = makeSqliteQueueStore({ database, scope });
+  const suspended = (
+    await asBusy(() => runStoreEffect(store.listRuns({ state: "suspended" })))
+  ).map((run) => run.id);
+  if (suspended.length === 0) {
     return [];
   }
   const rows = await asBusy(() =>
@@ -362,12 +379,12 @@ export async function unheldParkedRuns(
       .where(
         and(
           eq(marblesWorkflowRuns.scope, scope),
-          inList(marblesWorkflowRuns.runId, parked)
+          inList(marblesWorkflowRuns.runId, suspended)
         )
       )
   );
   const held = new Set(
     rows.filter((row) => heldBy(row) !== null).map((row) => row.runId)
   );
-  return parked.filter((runId) => !held.has(runId));
+  return suspended.filter((runId) => !held.has(runId));
 }

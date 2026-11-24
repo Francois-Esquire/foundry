@@ -230,7 +230,7 @@ describe("an engine that has begun to retire", () => {
     await ended;
   });
 
-  it("hands over a child queued behind a busy queue whose parent parked before retirement began", async () => {
+  it("hands over a child queued behind a busy queue whose parent suspended before retirement began", async () => {
     const engine = engineHere();
     const busyGate = Promise.withResolvers<void>();
     const childLaunched = Promise.withResolvers<string>();

@@ -1,5 +1,4 @@
 import { isSuspendSignal } from "@foundry/workflows/executable";
-import type { RunExecutionContext } from "@foundry/workflows/orchestrator";
 import type { StepContext, StepSpec } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
 import type { RetryPolicy } from "@foundry/workflows/types";
@@ -26,6 +25,7 @@ import {
 } from "./run-scope";
 import { parseEvery } from "./schedule";
 import { notJson, validate } from "./schema";
+import type { RunExecution } from "./workflow-queue";
 
 type Input = Readonly<Record<string, unknown>>;
 
@@ -303,7 +303,7 @@ function asRunWork<T>(runId: string, bindings: Bindings, work: () => T): T {
 
 export type DefinitionFactory = (
   input: unknown,
-  execution?: RunExecutionContext
+  execution?: RunExecution
 ) => Promise<Step<unknown, unknown>>;
 
 export function factoryFor(

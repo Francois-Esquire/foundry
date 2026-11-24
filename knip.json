@@ -28,7 +28,7 @@
         "@ai-sdk/openai-compatible",
         "@ai-sdk/provider-utils",
         "@noble/hashes",
-        "effect",
+        "croner",
         "evlog",
         "ignore"
       ],

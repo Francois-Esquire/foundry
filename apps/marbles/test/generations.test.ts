@@ -58,7 +58,7 @@ function moduleText(
     asking = false,
     broken = false,
     holding = false,
-    parking = false,
+    suspending = false,
     strict = false,
     ticking = false,
   } = {}
@@ -117,7 +117,7 @@ schedule(scheduledAsk).every("1s");`
 });
 schedule(scheduledHold).every("1s");`
       : "",
-    parking
+    suspending
       ? `export const scheduledLate = step("scheduled-late").do(async ({ ask }) => {
   note("scheduled-late");
   while (!existsSync(${JSON.stringify(join(fixture.gates, "scheduled-late"))})) {
@@ -349,7 +349,7 @@ async function scheduleTick(
   return rows[0];
 }
 
-async function parkedRun(
+async function suspendedRun(
   fixture: Pick<Fixture, "machine">,
   scope: string,
   name: string
@@ -430,7 +430,7 @@ describe("engine generations", () => {
     fixture.client.close();
   }, 120_000);
 
-  it("hands a parked run to the new generation, which resumes it when answered", async () => {
+  it("hands a suspended run to the new generation, which resumes it when answered", async () => {
     const fixture = await setUp();
     const first = fixture.summary.pid ?? 0;
     const workspace = fixture.client.workspace(fixture.summary);
@@ -719,7 +719,7 @@ describe("engine generations", () => {
     fixture.client.close();
   }, 120_000);
 
-  it("hands a run that parks after the switch to the current generation, and answers it there", async () => {
+  it("hands a run that suspends after the switch to the current generation, and answers it there", async () => {
     const fixture = await setUp();
     const first = fixture.summary.pid ?? 0;
     const workspace = fixture.client.workspace(fixture.summary);
@@ -1043,7 +1043,7 @@ describe("engine generations", () => {
     process.env.MARBLES_TEST_RELEASE_ADOPT = release;
     try {
       const files = generationFiles(testHome({ providers: false }));
-      const parking = (name: string) =>
+      const suspending = (name: string) =>
         `export const ${name} = step(${JSON.stringify(name)}).do(async ({ ask }) => {
   note(${JSON.stringify(name)});
   while (!existsSync(${JSON.stringify(join(files.gates, name))})) {
@@ -1060,8 +1060,8 @@ describe("engine generations", () => {
           'import { appendFileSync, existsSync } from "node:fs";',
           'import { step } from "@foundry.sh/marbles";',
           `const note = (what) => appendFileSync(${JSON.stringify(files.log)}, what + " " + process.pid + "\\n");`,
-          parking("parkOne"),
-          parking("parkTwo"),
+          suspending("suspendOne"),
+          suspending("suspendTwo"),
           "",
         ].join("\n"),
         {
@@ -1080,12 +1080,12 @@ describe("engine generations", () => {
       const { id } = fixture.summary;
       const first = fixture.summary.pid ?? 0;
       const workspace = fixture.client.workspace(fixture.summary);
-      await workspace.actions.launch("parkOne", {});
-      await whenLogged(fixture, `parkOne ${String(first)}`);
+      await workspace.actions.launch("suspendOne", {});
+      await whenLogged(fixture, `suspendOne ${String(first)}`);
       await fixture.client.reload(id);
       const second = await readyOn(fixture, (pid) => pid !== first);
-      await workspace.actions.launch("parkTwo", {});
-      await whenLogged(fixture, `parkTwo ${String(second)}`);
+      await workspace.actions.launch("suspendTwo", {});
+      await whenLogged(fixture, `suspendTwo ${String(second)}`);
       await fixture.client.reload(id);
       const third = await readyOn(
         fixture,
@@ -1093,7 +1093,7 @@ describe("engine generations", () => {
       );
 
       writeFileSync(stall, "");
-      open("parkOne", fixture);
+      open("suspendOne", fixture);
       const stalled = await vi.waitFor(
         () => {
           const line = lines.find((each) => each.includes("adopt stalls "));
@@ -1102,8 +1102,8 @@ describe("engine generations", () => {
         },
         { interval: 50, timeout: 30_000 }
       );
-      open("parkTwo", fixture);
-      await whenLogged(fixture, `asking-parkTwo ${String(second)}`);
+      open("suspendTwo", fixture);
+      await whenLogged(fixture, `asking-suspendTwo ${String(second)}`);
       await new Promise((resolve) => setTimeout(resolve, 1000));
       clock.advance(30_000);
       await vi.waitFor(
@@ -1119,14 +1119,14 @@ describe("engine generations", () => {
       await vi.waitFor(
         () =>
           expect(
-            lines.some((line) => line.includes("[run] parkTwo taken over")),
+            lines.some((line) => line.includes("[run] suspendTwo taken over")),
             lines.join("\n")
           ).toBe(true),
         { interval: 50, timeout: 30_000 }
       );
-      const two = await openEntry(workspace, "parkTwo?");
+      const two = await openEntry(workspace, "suspendTwo?");
       await workspace.actions.answer(two, "yes");
-      await whenLogged(fixture, `answered-parkTwo ${String(third)}`);
+      await whenLogged(fixture, `answered-suspendTwo ${String(third)}`);
 
       const now = Date.now.bind(Date);
       const later = vi
@@ -1144,19 +1144,21 @@ describe("engine generations", () => {
         () =>
           expect(
             lines.some((line) =>
-              line.includes(`[run] parkOne taken over ${stalled}`)
+              line.includes(`[run] suspendOne taken over ${stalled}`)
             ),
             lines.join("\n")
           ).toBe(true),
         { interval: 50, timeout: 30_000 }
       );
-      const one = await openEntry(workspace, "parkOne?");
+      const one = await openEntry(workspace, "suspendOne?");
       await workspace.actions.answer(one, "yes");
-      await whenLogged(fixture, `answered-parkOne ${String(third)}`);
+      await whenLogged(fixture, `answered-suspendOne ${String(third)}`);
       expect(asked(stalled), lines.join("\n")).toBe(1);
       expect(
-        logged(fixture).filter((line) => line.startsWith("answered-parkOne "))
-      ).toEqual([`answered-parkOne ${String(third)}`]);
+        logged(fixture).filter((line) =>
+          line.startsWith("answered-suspendOne ")
+        )
+      ).toEqual([`answered-suspendOne ${String(third)}`]);
       fixture.client.close();
     } finally {
       delete process.env.MARBLES_TEST_STALL_ADOPT;
@@ -1823,13 +1825,13 @@ describe("engine generations", () => {
     next.close();
   }, 180_000);
 
-  it("when the daemon crashes, the orphaned generation lets go of a scheduled run parked on a question and exits, and the next daemon's generation answers it", async () => {
+  it("when the daemon crashes, the orphaned generation lets go of a scheduled run suspended on a question and exits, and the next daemon's generation answers it", async () => {
     const { child, fixture } = await crashableDaemon({ asking: true });
     const client = await connect({ layout: fixture.machine, start: false });
     const summary = await client.attach(fixture.source);
     const first = summary.pid ?? 0;
     await whenLogged(fixture, `scheduled-ask ${String(first)}`);
-    const parked = await parkedRun(fixture, summary.id, "scheduled-ask");
+    const suspended = await suspendedRun(fixture, summary.id, "scheduled-ask");
     await crash(child);
     client.close();
     await gone(first, 60_000);
@@ -1849,12 +1851,12 @@ describe("engine generations", () => {
       { client: next },
       (pid) => pid !== first && pid > 0
     );
-    await answerRun(restarted, next.workspace(summary), parked);
+    await answerRun(restarted, next.workspace(summary), suspended);
     await vi.waitFor(
       async () =>
         expect(
           (await executions(fixture, summary.id)).find(
-            (row) => row.id === parked
+            (row) => row.id === suspended
           )?.status
         ).toBe("complete"),
       { interval: 200, timeout: 60_000 }
@@ -1915,8 +1917,8 @@ describe("engine generations", () => {
     });
   }, 180_000);
 
-  it("when the daemon crashes, a scheduled run that parks while the orphaned generation drains stays parked, and the next daemon's generation answers it", async () => {
-    const { child, fixture } = await crashableDaemon({ parking: true });
+  it("when the daemon crashes, a scheduled run that suspends while the orphaned generation drains stays suspended, and the next daemon's generation answers it", async () => {
+    const { child, fixture } = await crashableDaemon({ suspending: true });
     const client = await connect({ layout: fixture.machine, start: false });
     const summary = await client.attach(fixture.source);
     const first = summary.pid ?? 0;
@@ -1926,7 +1928,7 @@ describe("engine generations", () => {
     expect(processAlive(first)).toBe(true);
     open("scheduled-late", fixture);
     await gone(first, 60_000);
-    const parked = await parkedRun(fixture, summary.id, "scheduled-late");
+    const suspended = await suspendedRun(fixture, summary.id, "scheduled-late");
     expect(await scheduleTick(fixture, summary.id, "scheduled-late")).toEqual({
       lastStatus: null,
       ownerPid: null,
@@ -1942,12 +1944,12 @@ describe("engine generations", () => {
       { client: next },
       (pid) => pid !== first && pid > 0
     );
-    await answerRun(restarted, next.workspace(summary), parked);
+    await answerRun(restarted, next.workspace(summary), suspended);
     await vi.waitFor(
       async () =>
         expect(
           (await executions(fixture, summary.id)).find(
-            (row) => row.id === parked
+            (row) => row.id === suspended
           )?.status
         ).toBe("complete"),
       { interval: 200, timeout: 60_000 }
@@ -1958,12 +1960,12 @@ describe("engine generations", () => {
     next.close();
   }, 180_000);
 
-  it("when the daemon crashes, the schedule whose parked run the orphan let go fires again under the next daemon while that run waits, as when its generation dies, and its answer writes no history", async () => {
+  it("when the daemon crashes, the schedule whose suspended run the orphan let go fires again under the next daemon while that run waits, as when its generation dies, and its answer writes no history", async () => {
     const { child, fixture } = await crashableDaemon({ asking: true });
     const client = await connect({ layout: fixture.machine, start: false });
     const summary = await client.attach(fixture.source);
     const first = summary.pid ?? 0;
-    const parked = await parkedRun(fixture, summary.id, "scheduled-ask");
+    const suspended = await suspendedRun(fixture, summary.id, "scheduled-ask");
     await crash(child);
     client.close();
     await gone(first, 60_000);
@@ -1992,12 +1994,12 @@ describe("engine generations", () => {
         ).toEqual(["suspended", "suspended"]),
       { interval: 100, timeout: 30_000 }
     );
-    await answerRun(restarted, next.workspace(summary), parked);
+    await answerRun(restarted, next.workspace(summary), suspended);
     await vi.waitFor(
       async () =>
         expect(
           (await executions(fixture, summary.id)).find(
-            (row) => row.id === parked
+            (row) => row.id === suspended
           )?.status
         ).toBe("complete"),
       { interval: 200, timeout: 60_000 }
@@ -2010,7 +2012,7 @@ describe("engine generations", () => {
     next.close();
   }, 180_000);
 
-  it("cancels a scheduled run parked on a question when the daemon stops", async () => {
+  it("cancels a scheduled run suspended on a question when the daemon stops", async () => {
     const fixture = generationFiles(testHome({ providers: false }));
     const { client, summary } = await startSwitchingWorkspace(
       fixture,
@@ -2019,7 +2021,7 @@ describe("engine generations", () => {
       (started) => daemons.push(started)
     );
     const first = summary.pid ?? 0;
-    await parkedRun(fixture, summary.id, "scheduled-ask");
+    await suspendedRun(fixture, summary.id, "scheduled-ask");
     client.close();
     await daemons.pop()?.close();
     expect(processAlive(first)).toBe(false);

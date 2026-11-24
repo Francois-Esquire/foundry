@@ -207,7 +207,7 @@ describe("taking over an Execution Run another process left", () => {
     const store = watchedExecutions();
     await orphan(store, { id: "rn-running", owner: gone(), status: "running" });
     await orphan(store, {
-      id: "rn-parked",
+      id: "rn-suspended",
       owner: gone(),
       status: "suspended",
     });
@@ -222,7 +222,7 @@ describe("taking over an Execution Run another process left", () => {
       readmit: () => false,
     });
     expect(executions.get("rn-running")?.status).toBe("interrupted");
-    expect(await executions.cancelOrphan("rn-parked")).toBe(true);
+    expect(await executions.cancelOrphan("rn-suspended")).toBe(true);
     expect(await executions.withdraw("rn-queued")).toBe(true);
     expect(executions.get("rn-queued")?.status).toBe("cancelled");
     expect(watch.asked.length).toBeGreaterThan(0);

@@ -750,8 +750,8 @@ step("triage").do(async () => {
 source: `tasks` (`tasks.changed`, one per write, holding each task it put
 or removed with its record `before` and `after`, and the dependency edges
 it added and removed), `workflow` (each Run's `run.queued`, `run.started`,
-`run.parked`, `run.resumed`, `run.completed`, `run.failed`,
-`run.cancelled`, `run.updated`, `run.removed`), `artifact`
+`run.suspended`, `run.resumed`, `run.completed`, `run.failed`,
+`run.cancelled`, `run.updated`), `artifact`
 (`artifact.created`, `artifact.written`, ..., and `artifact.shared` and
 `artifact.unshared` when this workspace shows one of its artifacts in
 another workspace or stops, with that workspace's id in `workspace`),

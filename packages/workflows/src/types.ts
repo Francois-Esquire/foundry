@@ -1,4 +1,12 @@
-export type { ErrorShape, QueueStatus, RunStatus } from "./schema";
+export type { ErrorShape } from "./schema";
+
+export type RunStatus =
+  | "queued"
+  | "running"
+  | "suspended"
+  | "complete"
+  | "failed"
+  | "cancelled";
 
 export type Duration = number | string;
 
