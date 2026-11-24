@@ -17,7 +17,7 @@ instructions and tools, so describe comparisons across providers as comparisons
 of complete setups.
 
 Use a fresh session per trial. For code-writing tasks, create a fresh checkout
-or [sandbox](/marbles/foundation/workspaces-and-sandboxes) and run the same
+or [sandbox](/marbles/concepts/workspaces-and-artifacts) and run the same
 verification commands afterward. Keep expected answers and the grader outside
 the candidate's accessible files when testing whether it can solve a task.
 
@@ -34,7 +34,7 @@ the candidate's accessible files when testing whether it can solve a task.
 Keep errors in the denominator. Distinguish a provider outage from a wrong
 answer, but do not silently discard failed trials. A repair attempt is another
 trial with its own cost; an automatic workflow retry can hide that distinction.
-The [durability guide](/marbles/foundation/durability) explains retry and replay.
+The [durability guide](/marbles/concepts/durability) explains retry and replay.
 
 Repeat cases when responses vary. Compare per-case regressions as well as the
 overall score. Save transcripts and candidate revisions so a person can

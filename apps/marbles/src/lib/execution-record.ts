@@ -275,7 +275,9 @@ export function executionOf(
     ...(links.source === undefined ? {} : { source: links.source }),
     status,
     timestamps: {
-      queuedAt: iso(job.createdAt),
+      queuedAt: iso(
+        run.state.kind === "queued" ? run.state.queuedAt : job.createdAt
+      ),
       ...(settledAt === undefined ? {} : { settledAt: iso(settledAt) }),
       ...(run.startedAt === undefined ? {} : { startedAt: iso(run.startedAt) }),
       updatedAt,

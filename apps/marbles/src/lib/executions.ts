@@ -181,6 +181,7 @@ export class Executions implements ExecutionRuns {
     if (queue === undefined) {
       return;
     }
+    const existing = new Set(this.#records.keys());
     const [gaps, annexes, jobs, runs] = await Promise.all([
       this.#store.gaps(),
       this.#store.list(),
@@ -200,7 +201,7 @@ export class Executions implements ExecutionRuns {
         this.#learn(job, run);
       }
     }
-    for (const id of [...this.#records.keys()]) {
+    for (const id of existing) {
       if (!seen.has(id)) {
         this.#forget(id);
       }

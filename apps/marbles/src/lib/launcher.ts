@@ -139,6 +139,7 @@ export class Launcher {
   readonly #contexts = new Map<string, AsyncResource>();
   readonly #endings = new Map<string, TaskEnding>();
   readonly #reasons = new Map<string, string>();
+  readonly #settlingTasks = new Set<string>();
   readonly #live = new Map<string, Promise<void>>();
   readonly #launching = new Set<Promise<void>>();
   readonly #dispatching = new Set<string>();
@@ -333,6 +334,10 @@ export class Launcher {
   }
 
   #settleTask(id: string): void {
+    if (this.#settlingTasks.has(id)) {
+      return;
+    }
+    this.#settlingTasks.add(id);
     this.executions
       .settled(id)
       .then((settled) => {
@@ -354,7 +359,14 @@ export class Launcher {
           this.#pay(id, new Error(reason));
         }
       })
-      .catch((error: unknown) => this.#pay(id, error));
+      .catch((error: unknown) => {
+        this.#endings.delete(id);
+        this.#inputs.delete(id);
+        this.#contexts.delete(id);
+        this.#reasons.delete(id);
+        this.#pay(id, error);
+      })
+      .finally(() => this.#settlingTasks.delete(id));
   }
 
   #endedWith(run: ExecutionRun): string {
@@ -639,6 +651,7 @@ export class Launcher {
         kind: "bailed",
       };
     }
+    this.#settleTask(id);
     await this.#refreshed(id);
     const input =
       this.#inputs.has(id) && this.#inputs.get(id) === undefined

@@ -19,17 +19,17 @@ module; the `export` lets your own program take it too.
 
 ## 1. From the CLI
 
-Save the module as `.foundry/marbles/count.ts` and roll it from the project
+Save the module as `.foundry/marbles/count.ts` and run it from the project
 root:
 
 ```sh
-marbles roll count --input '{"extension":".ts"}'
+marbles run count --input '{"extension":".ts"}'
 ```
 
-`roll` attaches the workspace to the Marbles process, starting it when none
+`marbles run` attaches the workspace to the Marbles process, starting it when none
 runs, runs `count` in its current engine generation, prints the step's status lines
 and its result as JSON, and exits. The workspace stays hosted;
-`marbles stop` ends the process. See the [CLI reference](/marbles/reference/cli).
+`marbles daemon stop` ends the process. See the [CLI reference](/marbles/reference/cli).
 
 ## 2. From your own program
 
@@ -52,7 +52,7 @@ using the package’s `/workspace` entry.
 
 An MCP client, usually an agent, starts the Marbles MCP server with
 `marbles mcp` over STDIO and names the source. The server starts nothing,
-so the workspace must already be hosted: run `marbles attach` first. This
+so the workspace must already be hosted: run `marbles daemon attach` first. This
 program plays that client:
 
 <include>./_example/mcp-client.ts</include>
@@ -66,7 +66,7 @@ the same run's output until it ends.
 The run belongs to the Marbles process, not to the MCP connection. Closing
 the client leaves the workspace hosted, its schedules and monitors running,
 and any dispatched run going. Without a process that hosts the workspace,
-`dispatch_workflow` returns an error that names `marbles attach`. The [MCP reference](/marbles/reference/mcp)
+`dispatch_workflow` returns an error that names `marbles daemon attach`. The [MCP reference](/marbles/reference/mcp)
 lists every tool, including the task tools.
 
 ## What changes between them

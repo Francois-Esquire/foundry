@@ -34,7 +34,7 @@ prototype({ name: "design-wireframe" });
 Save it as `.foundry/marbles/wireframe.ts`, then run:
 
 ```sh
-marbles roll design-wireframe --input '{"brief":"Wireframe a support queue for an on-call engineer. Show ownership, severity, and time waiting. Include empty and loading states. Keep the current product navigation. Explain the information order."}'
+marbles run design-wireframe --input '{"brief":"Wireframe a support queue for an on-call engineer. Show ownership, severity, and time waiting. Include empty and loading states. Keep the current product navigation. Explain the information order."}'
 ```
 
 The step requires an authenticated CLI provider. Its result is text; it does

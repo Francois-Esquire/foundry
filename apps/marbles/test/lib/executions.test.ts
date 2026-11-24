@@ -10,6 +10,7 @@ import { Effect, Layer } from "effect";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
+import { executionOf } from "~/lib/execution-record";
 import { MemoryExecutionStore } from "~/lib/execution-store";
 import { Executions } from "~/lib/executions";
 import type { Factory } from "~/lib/run-queue";
@@ -268,6 +269,76 @@ it("rejects a wait on a run whose job another queue cancelled and removed", asyn
     await here.dispose();
     await elsewhere.dispose();
   }
+});
+
+it("keeps a live run learned while load() is snapshotting the store", async () => {
+  const store = Layer.succeed(QueueStore, Effect.runSync(makeMemoryQueueStore));
+  const queue = createQueueClient({ store });
+  const executions = new Executions({
+    store: new MemoryExecutionStore(),
+    warn: () => undefined,
+  });
+  const paused = gate();
+  const resume = gate();
+  let gated = false;
+  executions.attach({
+    ...queue,
+    instanceId: randomUUID(),
+    listRuns: async (filter) => {
+      const runs = await queue.listRuns(filter);
+      if (!gated) {
+        gated = true;
+        paused.open();
+        await resume.opened;
+      }
+      return runs;
+    },
+  });
+  try {
+    await queue.register("held", () => ({ kind: "complete", output: null }));
+    await queue.configurePool({ limit: 1, name: "held", state: "paused" });
+    const loading = executions.load();
+    await paused.opened;
+    await queue.submit({
+      handler: { name: "held" },
+      pool: "held",
+      runId: "rn-arrived",
+    });
+    await until(() => executions.get("rn-arrived") !== undefined);
+    const waiting = executions.settled("rn-arrived");
+    resume.open();
+    await loading;
+    expect(executions.get("rn-arrived")?.status).toBe("queued");
+    await queue.cancel("rn-arrived", "done");
+    expect((await waiting).status).toBe("cancelled");
+  } finally {
+    executions.detach();
+    await queue.dispose();
+  }
+});
+
+it("uses run.state.queuedAt for queued retries instead of job.createdAt", () => {
+  const record = executionOf(
+    {
+      createdAt: 1000,
+      handler: { name: "work" },
+      id: "jb-1",
+      input: null,
+      links: {},
+      policy: {},
+      pool: "default",
+      state: { kind: "pending" },
+    },
+    {
+      attempt: 2,
+      id: "rn-2",
+      jobId: "jb-1",
+      pool: "default",
+      revision: 1,
+      state: { availableAt: 5000, kind: "queued", queuedAt: 4000 },
+    }
+  );
+  expect(record.timestamps.queuedAt).toBe(new Date(4000).toISOString());
 });
 
 it("cancels a queued run without starting it", async () => {
