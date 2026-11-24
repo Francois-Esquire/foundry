@@ -145,7 +145,7 @@ and defines them.
 | `git` | Chooses the Git runner, such as one that echoes commands. |
 | `worktrees` | Sets the default checkout directory, otherwise `Engine.worktreesFor(state)`. |
 | `dry` | Runs sandbox agent requests in the host process. |
-| `queues` | Sets how many runs each queue runs at once, as `{ [DEFAULT_QUEUE]: { concurrency: 4 } }`. Every step and workflow run waits in `DEFAULT_QUEUE` (`"marbles"`). Without it the engine runs one at a time; `concurrency` is a positive integer or `Infinity`. An engine you build does not read the source's [`queue()`](/marbles/reference/api#exports), which sets the CLI's hosted engines, eight by default. |
+| `queues` | Sets how many runs each queue runs at once, as `{ [DEFAULT_QUEUE]: { concurrency: 4 } }`. Every step and workflow run waits in `DEFAULT_QUEUE` (`"marbles"`). Without it the engine runs one at a time; `concurrency` is a positive integer or `Infinity`. An engine you build does not read the source's [`queue()`](/marbles/reference/api#exports), which sets the CLI's hosted engines, four by default. |
 | `runs` | Keeps workflow Runs, what each run's scope recorded, and which engine owns each. |
 | `executionStore` | Keeps every run's Execution Run, its observations, and what pruning removed. |
 | `triggers` | Keeps each schedule's and monitor's last tick and each monitor's state. |

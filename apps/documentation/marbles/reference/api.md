@@ -954,7 +954,7 @@ integer or Infinity`, and a call without `concurrency` throws a
 throws `queue(): the workspace's queue is set already`. It configures the
 workspace's default queue, `marbles`, where runs of its steps and
 workflows wait for a place. A hosted workspace and a plain script's default
-engine run eight at once without it. An [`Engine`](/marbles/reference/engine)
+engine run four at once without it. An [`Engine`](/marbles/reference/engine)
 you build yourself does not read `queue()`; it runs one at a time unless
 its `queues` option says otherwise. A run parked on a question gives its place up, so parked runs do
 not count against the bound.
