@@ -1,6 +1,6 @@
 ---
 title: Durability
-description: How Marbles records work, owns agent execution, retries failures, and resumes parked runs.
+description: How Marbles records work, owns agent execution, retries failures, and resumes suspended runs.
 ---
 
 Durability means retaining completed work and enough state to continue
@@ -14,8 +14,8 @@ and [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/a
 You get the execution machinery with the CLI; no separate queue or retry
 service is needed for local use.
 
-Retries are available when configured on a step. Restart recovery adopts
-parked runs; it does not resume work interrupted mid-execution. The CLI
+Retries are available when configured on a step. Suspended runs resume after a
+restart once answered; work interrupted mid-execution does not resume. The CLI
 persists state by default, while `--dry-run` keeps its state in memory.
 
 ## What the run remembers
@@ -23,14 +23,14 @@ persists state by default, while `--dry-run` keeps its state in memory.
 | Part | Guarantee |
 | --- | --- |
 | Finished step | Its recorded result is reused when the same run continues. A new launch executes fresh work. |
-| Waiting question or pause | The parked run is saved. The current engine generation adopts it with the same source and state, after a restart or a switch; a dashboard answers it. |
+| Waiting question or pause | The suspended run is saved. A dashboard answers it, after a restart or a switch, and the current engine generation resumes it with the same source and state. |
 | Managed operations | Recorded sessions, answers, and artifact writes are matched by step path and call position during replay. |
 | Agent conversation | Messages live in the session store. A session reference can continue that conversation in another run. |
 | Artifact | A declared output has stable identity and content versions, independent of a temporary checkout. |
 | Failed attempt | The runtime applies the step's retry policy, if configured. An exhausted policy leaves a failed run. |
 
 A run's state is committed to the Marbles database as it changes: when it
-starts, parks, resumes and settles. A committed state contains the finished results available at that point; Marbles
+starts, suspends, resumes and settles. A committed state contains the completed results available at that point; Marbles
 does not checkpoint every instruction or every completed child to disk.
 
 ## Agent execution belongs to a step
@@ -57,11 +57,11 @@ reconnect it to the work already done:
 | `agents.session(...)` | Reopens the recorded session at that call position, with its transcript. |
 | `session.generate(...)` or `session.stream(...)` | Sends a turn to that session again if execution reaches the call. Session continuity does not cache each explicit turn. |
 | `agentInstance.generate(...)` or `.stream(...)` | Reuses a recorded completed one-shot reply when available; an unfinished turn can execute again. |
-| `ask.*` | Reads the recorded answer, or parks at an unanswered question. |
+| `ask.*` | Reads the recorded answer, or suspends at an unanswered question. |
 | Managed artifact write | Returns its recorded version instead of creating another version at that position. |
 | Command, raw filesystem write, or `fetch` | Can execute again. The run does not make arbitrary external effects happen exactly once. |
 
-Keep step keys and managed call order stable while a run is parked. Put
+Keep step keys and managed call order stable while a run is suspended. Put
 non-repeatable work in a preceding child step, and put an approval at the
 start of its own step. The [approval chapter](/marbles/use-cases/software-factory/development/approve)
 shows this arrangement. Return JSON data and durable references such as
@@ -108,18 +108,18 @@ errors warrant another attempt. See the [builder options](/marbles/reference/api
 
 ## Recovery after a restart
 
-The engine generation hosting a workspace adopts a saved parked run when
-its definition is still registered and its claim on it is free: its
-previous owner is gone, or was a generation that retired and let it go,
-at the switch or the moment it parked afterwards. Keep the workspace path
-and state stores stable. The generation rebuilds the workflow tree, restores its recorded inputs,
-and waits for the answer or resume action, which a dashboard gives. Workflow
+A saved suspended run belongs to no engine generation: any generation
+hosting the workspace can answer it, and the current one resumes it once
+it is answered, when its definition is still registered. Keep the
+workspace path and state stores stable. The generation rebuilds the
+workflow tree from the run's checkpoint and recorded inputs, and replays
+the answers given so far. Workflow
 setup must therefore stay free of work that should only happen once.
 
 A run interrupted mid-body is not automatically resumed. If the Marbles
 database records its Run as running or queued, Marbles leaves it orphaned
-rather than adopting it. Launching the automation again creates a new run, which can
-repeat earlier effects. See [state and adoption rules](/marbles/reference/state#what-survives-a-restart).
+rather than resuming it. Launching the automation again creates a new run, which can
+repeat earlier effects. See [state and recovery rules](/marbles/reference/state#what-survives-a-restart).
 
 ## Design work that can repeat safely
 

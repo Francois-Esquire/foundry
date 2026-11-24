@@ -188,7 +188,6 @@ describe("taking over an Execution Run another process left", () => {
     watch.asked.length = 0;
 
     await executions.recover({
-      adopted: new Set(),
       fileStatus: () => undefined,
       readmit: () => false,
     });

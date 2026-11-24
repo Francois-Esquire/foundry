@@ -39,7 +39,7 @@ can read [`usage`](/marbles/foundation/usage).
 The structure is predictable. Steps run in the order the workflow says.
 Commands report their exit codes. A person approves the exact commit before
 anything is pushed. Completed step results are reused when a run continues,
-and a run parked on a question survives a restart.
+and a run suspended on a question survives a restart.
 
 The agents' work is not. The same issue can produce a different plan, a
 different change, and different review findings on each run. The number of

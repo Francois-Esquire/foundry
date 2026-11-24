@@ -16,11 +16,11 @@ import {
   DAEMON_METHODS,
   GENERATION_METHODS,
   GENERATION_NOTIFICATIONS,
+  handedParamsSchema,
   hostParamsSchema,
   isWorkspaceMethod,
   liveRunsSchema,
   queuedParamsSchema,
-  releasedParamsSchema,
   retireParamsSchema,
   startParamsSchema,
   workspaceIdSchema,
@@ -190,7 +190,6 @@ function loadResult(load: WorkspaceLoad): WorkspaceLoadResult {
 interface Ticking {
   readonly cancel: AbortController;
   readonly done: Promise<void>;
-  readonly letGo: AbortController;
   readonly stop: AbortController;
 }
 
@@ -221,21 +220,20 @@ async function main(): Promise<void> {
   const tick = (host: WorkspaceHost): void => {
     const stop = new AbortController();
     const cancel = new AbortController();
-    const letGo = new AbortController();
     const done = (async () => {
       host.setStatus(
         (await host.engine.schedules()).length === 0
           ? "Ready · no triggers configured"
           : "Watching triggers"
       );
-      await host.run(stop.signal, cancel.signal, letGo.signal);
+      await host.run(stop.signal, cancel.signal);
     })().catch((error: unknown) =>
       notify(GENERATION_NOTIFICATIONS.line, {
         line: `[schedule] ${String(error)}`,
         root: host.root,
       })
     );
-    const loop = { cancel, done, letGo, stop };
+    const loop = { cancel, done, stop };
     ticking.set(host.id, loop);
     loops.add(loop);
     done.finally(() => loops.delete(loop)).catch(() => undefined);
@@ -389,9 +387,6 @@ async function main(): Promise<void> {
         onHanded(runId) {
           notify(GENERATION_NOTIFICATIONS.handed, { id: each.id, runId });
         },
-        onLetGo(runId) {
-          notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
-        },
       })
     );
     retiring = (async () => {
@@ -407,12 +402,12 @@ async function main(): Promise<void> {
     await Promise.all(handing);
   };
 
-  const adopt = async (raw: unknown): Promise<boolean> => {
-    const { id, runId } = releasedParamsSchema.parse(raw);
+  const takeHanded = async (raw: unknown): Promise<boolean> => {
+    const { id, runId } = handedParamsSchema.parse(raw);
     if (retiring !== undefined || stopping !== undefined) {
       return false;
     }
-    return await workspaces().get(id).engine.adopt(runId);
+    return await workspaces().get(id).engine.takeHanded(runId);
   };
 
   const takeQueued = async (raw: unknown): Promise<QueuedTake> => {
@@ -447,9 +442,6 @@ async function main(): Promise<void> {
     await Promise.allSettled(
       (hosted?.list() ?? []).map((each) => each.engine.stop())
     );
-    for (const loop of loops) {
-      loop.letGo.abort();
-    }
     await leave(false);
   };
 
@@ -476,8 +468,8 @@ async function main(): Promise<void> {
           return unhost(raw);
         case GENERATION_METHODS.retire:
           return retire(raw);
-        case GENERATION_METHODS.adopt:
-          return adopt(raw);
+        case GENERATION_METHODS.takeHanded:
+          return takeHanded(raw);
         case GENERATION_METHODS.takeQueued:
           return takeQueued(raw);
         case GENERATION_METHODS.liveWork:

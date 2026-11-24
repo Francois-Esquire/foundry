@@ -354,8 +354,8 @@ publish.parallel({ a: x({}), b: y({}) }); // children together
   `a workflow can only be the root of a run`.
 
 In a parallel group the first failure fails the run; the siblings are
-aborted and awaited before the failure is reported. A sibling that parks on
-a question parks the parent with it while the others finish.
+aborted and awaited before the failure is reported. A sibling that suspends on
+a question suspends the parent with it while the others finish.
 
 ## Context
 
@@ -492,7 +492,7 @@ const region = await ask.question({
 `approval` is a hard block: the run shows as blocked until someone
 decides. `question` is input: the step waits, siblings keep going. Both
 need a process that can show them: an engine generation of the Marbles
-process parks the run for a dashboard to answer, while `--dry-run` cancels it at the ask. `choices` gives a pick list
+process suspends the run for a dashboard to answer, while `--dry-run` cancels it at the ask. `choices` gives a pick list
 of at most nine; without it the answer is free text. Both are identified
 by position in the body; `key` is optional, for updating one entry across
 steps.
@@ -661,10 +661,10 @@ by new commands and sessions. Session options can select a different host
 | Situation | Rule |
 | --- | --- |
 | Continue the same run | Reuse completed step results. |
-| Resume a parked step | Replay its unfinished body from the top. Recorded managed operations are matched by call order. |
+| Resume a suspended step | Replay its unfinished body from the top. Recorded managed operations are matched by call order. |
 | Retry a failed attempt | Apply that step's policy with fresh managed operations; completed children keep their results. |
 | Launch again | Create a new run and execute fresh work. |
-| Restart the host | Adopt eligible parked runs. Interrupted queued or running work is not adopted. |
+| Restart the host | Keep suspended runs answerable and resume each once answered. Interrupted queued or running work is not resumed. |
 | Rebuild workflow setup | Recreate the tree; recovered nodes retain their recorded literal input. |
 
 Keep managed call order stable. Branch on recorded input when it controls
@@ -676,7 +676,7 @@ step, with non-repeatable work in a completed child or after the answer.
 The CLI saves snapshots at suspension, resumption, and settlement. Newer
 progress may not reach disk before a crash. The [durability guide](/marbles/foundation/durability)
 describes each operation; [state](/marbles/reference/state#what-survives-a-restart)
-lists adoption conditions.
+lists the recovery conditions.
 
 Pausing or cancelling signals owned operations. Custom work must honor
 `signal`; a step cannot settle until its attempt stops. The dashboard
@@ -905,7 +905,7 @@ Do not write modules that depend on these.
 - Race, branch, and loops between steps. Only series and parallel.
 - A built-in model provider. No `provider` or `model` means the first installed CLI.
 - Recovery of a step that was mid-body when the process stopped. A step
-  parked on an `ask` or a pause does survive a quit, a crash, or a kill.
+  suspended on an `ask` or a pause does survive a quit, a crash, or a kill.
 - Scheduling a tree with children without wrapping it in `workflow`.
 - Remote deployment commands, a remote dashboard, or distributed workers.
 

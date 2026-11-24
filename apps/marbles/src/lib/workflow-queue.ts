@@ -1,10 +1,10 @@
 import type { JsonValue } from "@foundry/lib/json";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type {
   ErrorShape,
   Suspension as QueuedSuspension,
   QueueEvent,
   Run,
-  RunHandler,
   RunId,
   SuspensionId,
 } from "@foundry/queue";
@@ -14,21 +14,19 @@ import type { ChannelMessage } from "@foundry/workflows/channels";
 import type { Runnable } from "@foundry/workflows/definitions";
 import type { BaseContext } from "@foundry/workflows/executable";
 import { parseSuspensionOccurrenceKey } from "@foundry/workflows/executable";
-import {
-  restoreWorkflow,
-  workflowHandler,
-} from "@foundry/workflows/queue-handler";
+import { runResultOf, workflowHandler } from "@foundry/workflows/queue-handler";
 import type { Step } from "@foundry/workflows/step";
 import {
   Workflow,
   type WorkflowResult,
   type WorkflowState,
 } from "@foundry/workflows/workflow";
-import { Effect, Layer } from "effect";
+import { Layer } from "effect";
 import { storableJson } from "~/lib/state/json";
 import { isRunId, surfaced } from "~/lib/workflow-runs";
 
 export interface RunExecution {
+  readonly resolutions?: ReadonlyMap<string, JsonValue>;
   readonly runId: string;
 }
 
@@ -48,8 +46,6 @@ export type RunFactory<
 ) => Runnable<I, O, X> | Promise<Runnable<I, O, X>>;
 
 export interface HeldWorkflow {
-  abort(reason?: unknown): void;
-  cancel(reason?: string): Promise<void>;
   result(): Promise<WorkflowResult<unknown>>;
   readonly root: {
     readonly path: readonly string[];
@@ -57,24 +53,6 @@ export interface HeldWorkflow {
     subscribe(signal?: AbortSignal): ReadableStream<ChannelMessage>;
   };
   readonly state: WorkflowState;
-  readonly status: WorkflowState["status"];
-}
-
-interface Definition {
-  adopt(
-    input: unknown,
-    runId: string,
-    checkpoint: JsonValue | undefined
-  ): Promise<HeldWorkflow>;
-  forget(runId: string): void;
-  open(input: unknown, runId: string): Promise<HeldWorkflow>;
-  readonly registered: Promise<void>;
-}
-
-export interface LiveRun {
-  readonly id: string;
-  result(): Promise<WorkflowResult<unknown>>;
-  readonly workflow: HeldWorkflow;
 }
 
 export interface Suspension {
@@ -88,36 +66,39 @@ export interface Suspension {
 }
 
 export interface RunOptions {
+  readonly parentRunId?: string;
   readonly runId: string;
   readonly signal?: AbortSignal;
   readonly triggerId?: string;
 }
 
-type RunSignal = "resumed" | "suspended";
-
-interface Held {
-  readonly definition: Definition;
-  readonly settled: PromiseWithResolvers<WorkflowResult<unknown>>;
-  readonly workflow: HeldWorkflow;
+export interface Attempts {
+  prepare(name: string, runId: string): Promise<void>;
+  started(runId: string, workflow: HeldWorkflow): void;
 }
 
-const TERMINAL: ReadonlySet<string> = new Set([
+type RunSignal = "suspended";
+
+interface Definition {
+  first(input: unknown, runId: string): Promise<void>;
+  forget(runId: string): void;
+  readonly registered: Promise<void>;
+}
+
+const SIGNALS: Partial<Record<QueueEvent["type"], RunSignal>> = {
+  "run.suspended": "suspended",
+};
+
+const UNWATCHED: Attempts = {
+  prepare: () => Promise.resolve(),
+  started: () => undefined,
+};
+
+const SETTLED_JOBS: ReadonlySet<string> = new Set([
   "complete",
   "failed",
   "cancelled",
 ]);
-
-const SETTLING: ReadonlySet<QueueEvent["type"]> = new Set([
-  "run.cancelled",
-  "run.completed",
-  "run.failed",
-  "run.interrupted",
-]);
-
-const SIGNALS: Partial<Record<QueueEvent["type"], RunSignal>> = {
-  "run.resumed": "resumed",
-  "run.suspended": "suspended",
-};
 
 const suspensionOf = (suspension: QueuedSuspension): Suspension => ({
   id: suspension.id,
@@ -129,23 +110,6 @@ const suspensionOf = (suspension: QueuedSuspension): Suspension => ({
   stepPath: parseSuspensionOccurrenceKey(suspension.key)?.stepPath ?? [],
 });
 
-const outcomeOf = ({ state }: Run): WorkflowResult<unknown> => {
-  switch (state.kind) {
-    case "complete":
-      return { status: "complete", value: state.output };
-    case "failed":
-      return { error: new Error(state.error.message), status: "failed" };
-    case "interrupted":
-      return { error: new Error(state.reason), status: "failed" };
-    case "cancelled":
-      return state.reason === undefined
-        ? { status: "cancelled" }
-        : { reason: state.reason, status: "cancelled" };
-    default:
-      return { status: "cancelled" };
-  }
-};
-
 const requireRunId = (id: string): RunId => {
   if (!isRunId(id)) {
     throw new TypeError(`"${id}" is not a run id; run ids start with "rn-"`);
@@ -155,27 +119,28 @@ const requireRunId = (id: string): RunId => {
 
 const isSuspensionId = (id: string): id is SuspensionId => id.startsWith("su-");
 
-const hostTurn = Effect.async<void>((resume) => {
-  const turn = setImmediate(() => resume(Effect.void));
-  return Effect.sync(() => clearImmediate(turn));
-});
-
 const surfacing = <T>(call: Promise<T>): Promise<T> =>
   call.catch((error: unknown) => Promise.reject(surfaced(error)));
 
+const latest = (runs: readonly Run[]): Run | undefined =>
+  runs.reduce<Run | undefined>(
+    (last, run) =>
+      last === undefined || run.attempt > last.attempt ? run : last,
+    undefined
+  );
+
 export class WorkflowQueue {
+  readonly #attached = new Map<string, HeldWorkflow>();
+  readonly #attempts: Attempts;
   readonly #client: QueueClient;
   readonly #definitions = new Map<string, Definition>();
-  readonly #held = new Map<string, Held>();
   readonly #listeners = new Map<RunSignal, Set<(runId: string) => void>>([
-    ["resumed", new Set()],
     ["suspended", new Set()],
   ]);
-  readonly #store: QueueStoreService;
   readonly #unsubscribe: () => void;
 
-  constructor(store: QueueStoreService) {
-    this.#store = store;
+  constructor(store: QueueStoreService, attempts: Attempts = UNWATCHED) {
+    this.#attempts = attempts;
     this.#client = createQueueClient({
       defaultLimit: Number.POSITIVE_INFINITY,
       store: Layer.succeed(QueueStore, store),
@@ -190,38 +155,53 @@ export class WorkflowQueue {
     if (this.#definitions.has(name)) {
       throw new Error(`"${name}" is already registered`);
     }
-    const live = new Map<string, Workflow<I, O, X>>();
-    const materialize = async (input: unknown, runId: string) => {
-      const made = await factory(input, { runId });
+    const attempts = this.#attempts;
+    const first = new Map<string, Workflow<I, O, X>>();
+    const materialize = async (
+      input: unknown,
+      runId: string,
+      resolutions?: ReadonlyMap<string, JsonValue>
+    ) => {
+      const made = await factory(input, {
+        runId,
+        ...(resolutions === undefined ? {} : { resolutions }),
+      });
       const workflow =
         made.kind === "step" ? Workflow.attach(made, made.input) : made;
       workflow.setRunId(runId);
-      live.set(runId, workflow);
       return workflow;
     };
-    const handler = workflowHandler<I, O, X>(async (input, { run }) => {
-      const held = live.get(run.id);
-      if (held !== undefined) {
-        return held;
-      }
-      const workflow = await materialize(input, run.id);
-      this.#hold(run.id, definition, workflow);
-      return workflow;
-    });
-    const registered = this.#client.register(name, this.#admitted(handler));
-    registered.catch(() => undefined);
-    const definition: Definition = {
-      adopt: async (input, runId, checkpoint) => {
-        const workflow = await materialize(input, runId);
-        await restoreWorkflow(workflow, checkpoint);
-        await workflow.seedState({ status: "suspended" });
-        return workflow;
+    const handler = workflowHandler<I, O, X>(
+      async (input, { run }) => {
+        const ready = first.get(run.id);
+        if (ready !== undefined) {
+          first.delete(run.id);
+          return ready;
+        }
+        await attempts.prepare(name, run.id);
+        return await materialize(input, run.id, await this.#resolved(run.id));
       },
-      forget: (runId) => live.delete(runId),
-      open: materialize,
+      {
+        onFinish: (runId, workflow) => {
+          if (this.#attached.get(runId) === workflow) {
+            this.#attached.delete(runId);
+          }
+        },
+        onStart: (runId, workflow) => {
+          this.#attached.set(runId, workflow);
+          attempts.started(runId, workflow);
+        },
+      }
+    );
+    const registered = this.#client.register(name, handler);
+    registered.catch(() => undefined);
+    this.#definitions.set(name, {
+      first: async (input, runId) => {
+        first.set(runId, await materialize(input, runId));
+      },
+      forget: (runId) => first.delete(runId),
       registered,
-    };
-    this.#definitions.set(name, definition);
+    });
   }
 
   on(signal: RunSignal, listener: (runId: string) => void): () => void {
@@ -230,11 +210,11 @@ export class WorkflowQueue {
     return () => listeners?.delete(listener);
   }
 
-  async run(
-    name: string,
-    input: unknown,
-    options: RunOptions
-  ): Promise<LiveRun> {
+  attached(runId: string): HeldWorkflow | undefined {
+    return this.#attached.get(runId);
+  }
+
+  async run(name: string, input: unknown, options: RunOptions): Promise<void> {
     const runId = requireRunId(options.runId);
     const withdrawn = () => {
       if (options.signal?.aborted) {
@@ -244,65 +224,69 @@ export class WorkflowQueue {
       }
     };
     withdrawn();
-    if (this.#held.has(runId)) {
-      throw new Error(`Run ${runId} already exists`);
-    }
     const stored = storableJson(`the input of run ${runId}`, input ?? null);
-    const definition = this.#definition(name);
-    await definition.registered;
-    const workflow = await definition.open(input, runId);
-    if (this.#held.has(runId)) {
-      throw new Error(`Run ${runId} already exists`);
+    const definition = this.#definitions.get(name);
+    if (definition === undefined) {
+      throw new Error(`Definition "${name}" is not registered`);
     }
-    const live = this.#hold(runId, definition, workflow);
+    await definition.registered;
+    await definition.first(input, runId);
     try {
       withdrawn();
+      await this.#submit(name, stored, options);
     } catch (error) {
-      this.forget(runId);
+      definition.forget(runId);
       throw error;
     }
-    try {
-      await surfacing(
-        this.#client.submit({
-          handler: { name },
-          input: stored,
-          links:
-            options.triggerId === undefined
-              ? {}
-              : { triggerId: options.triggerId },
-          runId,
-        })
-      );
-    } catch (error) {
-      this.forget(runId);
-      throw error;
-    }
-    return live;
   }
 
-  async adopt(runId: string): Promise<LiveRun | null> {
+  async #submit(
+    name: string,
+    input: JsonValue,
+    options: RunOptions
+  ): Promise<void> {
+    await surfacing(
+      this.#client.submit({
+        handler: { name },
+        input,
+        links: {
+          ...(options.parentRunId !== undefined && isRunId(options.parentRunId)
+            ? { parentRunId: options.parentRunId }
+            : {}),
+          ...(options.triggerId === undefined
+            ? {}
+            : { triggerId: options.triggerId }),
+        },
+        runId: requireRunId(options.runId),
+      })
+    );
+  }
+
+  async settled(runId: string): Promise<WorkflowResult<unknown>> {
+    const run = await surfacing(this.#client.getRun(requireRunId(runId)));
+    if (run === undefined) {
+      throw new Error(`Run ${runId} is not stored`);
+    }
+    const job = await surfacing(this.#client.awaitJob(run.jobId));
+    const last = latest(
+      await surfacing(this.#client.listRuns({ jobId: job.id }))
+    );
+    return last === undefined ? { status: "cancelled" } : runResultOf(last);
+  }
+
+  async hasSettled(runId: string): Promise<boolean> {
     const run = isRunId(runId)
       ? await surfacing(this.#client.getRun(runId))
       : undefined;
     const job = run && (await surfacing(this.#client.getJob(run.jobId)));
-    if (run === undefined || job === undefined) {
-      return null;
-    }
-    if (run.state.kind !== "suspended") {
-      throw new Error(
-        `Run ${runId} is ${run.state.kind}, not suspended; only a suspended run is taken on after start`
-      );
-    }
-    const definition = this.#definition(job.handler.name);
-    await definition.registered;
-    await surfacing(this.#client.adopt(run.id));
-    const workflow = await definition.adopt(job.input, runId, run.checkpoint);
-    return this.#hold(runId, definition, workflow);
+    return job === undefined || SETTLED_JOBS.has(job.state.kind);
   }
 
-  forget(runId: string): void {
-    this.#held.get(runId)?.definition.forget(runId);
-    this.#held.delete(runId);
+  async stateOf(runId: string): Promise<Run["state"]["kind"] | undefined> {
+    const run = isRunId(runId)
+      ? await surfacing(this.#client.getRun(runId))
+      : undefined;
+    return run?.state.kind;
   }
 
   async cancelRun(runId: string, reason?: string): Promise<void> {
@@ -354,6 +338,10 @@ export class WorkflowQueue {
     await surfacing(this.#client.resolveSuspension(id, value, options));
   }
 
+  async retire(successor: ProcessIdentity): Promise<void> {
+    await surfacing(this.#client.retire(successor));
+  }
+
   drain(): Promise<void> {
     return this.#client.drain();
   }
@@ -363,77 +351,26 @@ export class WorkflowQueue {
     await this.#client.dispose();
   }
 
-  #admitted(handler: RunHandler): RunHandler {
-    return (context) =>
-      Effect.zipRight(hostTurn, this.#store.getRun(context.run.id)).pipe(
-        Effect.mapError(
-          (error): ErrorShape => ({ message: String(error), name: "store" })
-        ),
-        Effect.flatMap((run) =>
-          run?.state.kind === "running" ? handler(context) : Effect.interrupt
-        )
-      );
-  }
-
-  #definition(name: string): Definition {
-    const definition = this.#definitions.get(name);
-    if (definition === undefined) {
-      throw new Error(`Definition "${name}" is not registered`);
-    }
-    return definition;
-  }
-
-  #hold(
-    runId: string,
-    definition: Definition,
-    workflow: HeldWorkflow
-  ): LiveRun {
-    const held: Held = {
-      definition,
-      settled: Promise.withResolvers<WorkflowResult<unknown>>(),
-      workflow,
-    };
-    this.#held.set(runId, held);
-    return { id: runId, result: () => held.settled.promise, workflow };
+  async #resolved(runId: RunId): Promise<ReadonlyMap<string, JsonValue>> {
+    const resolved = await surfacing(
+      this.#client.listSuspensions({ runId, state: "resolved" })
+    );
+    return new Map(
+      resolved.flatMap((suspension) =>
+        suspension.state.kind === "resolved"
+          ? [[suspension.key, suspension.state.value] as const]
+          : []
+      )
+    );
   }
 
   #observe(event: QueueEvent): void {
-    if (!("run" in event)) {
-      return;
-    }
-    const { run } = event;
     const signal = SIGNALS[event.type];
-    if (signal !== undefined) {
-      for (const listener of this.#listeners.get(signal) ?? []) {
-        listener(run.id);
-      }
+    if (signal === undefined || !("run" in event)) {
       return;
     }
-    const held = this.#held.get(run.id);
-    if (!SETTLING.has(event.type) || held === undefined) {
-      return;
+    for (const listener of this.#listeners.get(signal) ?? []) {
+      listener(event.run.id);
     }
-    this.forget(run.id);
-    const { settled, workflow } = held;
-    if (event.type === "run.failed" || event.type === "run.interrupted") {
-      const outcome = outcomeOf(run);
-      if (!TERMINAL.has(workflow.status)) {
-        workflow.abort(outcome.status === "failed" ? outcome.error : undefined);
-      }
-      settled.resolve(outcome);
-      return;
-    }
-    if (TERMINAL.has(workflow.status)) {
-      workflow.result().then(settled.resolve, settled.reject);
-      return;
-    }
-    const outcome = outcomeOf(run);
-    if (outcome.status !== "cancelled") {
-      workflow.abort(outcome.status === "failed" ? outcome.error : undefined);
-      settled.resolve(outcome);
-      return;
-    }
-    const resolve = () => settled.resolve(outcome);
-    workflow.cancel(outcome.reason).then(resolve, resolve);
   }
 }

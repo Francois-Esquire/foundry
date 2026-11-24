@@ -98,7 +98,7 @@ describe("Queue lifecycle", () => {
     expect(result.other?.state.kind).toBe("cancelled");
   });
 
-  test("resolving a suspension checks its expected revision, adopting its run moves the revision on, and only a settled job can be removed with its runs and suspensions", async () => {
+  test("resolving a suspension checks its expected revision, and only a settled job can be removed with its runs and suspensions", async () => {
     const result = await testQueue((queue) =>
       Effect.gen(function* () {
         yield* queue.register("work", approval);
@@ -114,21 +114,14 @@ describe("Queue lifecycle", () => {
           })
         );
         const open = yield* Effect.flip(queue.removeJob(job.id));
-        yield* queue.adopt(suspension.runId);
-        const readBeforeAdoption = yield* Effect.flip(
-          queue.resolveSuspension(suspension.id, "yes", {
-            expectedRevision: suspension.revision,
-          })
-        );
         yield* queue.resolveSuspension(suspension.id, "yes", {
-          expectedRevision: suspension.revision + 1,
+          expectedRevision: suspension.revision,
         });
         yield* awaitJob(queue, job.id);
         yield* queue.removeJob(job.id);
         return {
           job: yield* queue.getJob(job.id),
           open,
-          readBeforeAdoption,
           runs: yield* queue.listRuns({ jobId: job.id }),
           stale,
           suspension: yield* queue.getSuspension(suspension.id),
@@ -136,7 +129,6 @@ describe("Queue lifecycle", () => {
       })
     );
     expect(result.stale._tag).toBe("StaleSuspensionRevisionError");
-    expect(result.readBeforeAdoption._tag).toBe("StaleSuspensionRevisionError");
     expect(result.open._tag).toBe("JobNotSettledError");
     expect(result.job).toBeUndefined();
     expect(result.runs).toEqual([]);
@@ -339,7 +331,7 @@ describe("Queue lifecycle", () => {
     });
   });
 
-  test("retiring refuses new top-level work, admits children of running parents, and hands queued runs to a successor", async () => {
+  test("retiring refuses new top-level work, runs the children of its running parents itself, and hands queued runs to a successor", async () => {
     const result = await testQueue(
       (queue) =>
         Effect.gen(function* () {
@@ -365,10 +357,16 @@ describe("Queue lifecycle", () => {
           const refused = yield* Effect.flip(queue.submit({ handler }));
           yield* Deferred.succeed(gate, undefined);
           const settled = yield* awaitJob(queue, parent.id);
+          const child =
+            settled.state.kind === "complete" ? settled.state.output : null;
+          const childJob =
+            typeof child === "string"
+              ? yield* queue.awaitJob(child as JobId)
+              : undefined;
           yield* flush;
           return {
-            child:
-              settled.state.kind === "complete" ? settled.state.output : null,
+            child,
+            childJob,
             handedOver,
             queued: yield* queue.listRuns({ jobId: queued.id }),
             refused,
@@ -378,6 +376,7 @@ describe("Queue lifecycle", () => {
     );
     expect(result.refused._tag).toBe("QueueRetiringError");
     expect(typeof result.child).toBe("string");
+    expect(result.childJob?.state.kind).toBe("complete");
     expect(result.handedOver).toEqual(result.queued.map((run) => run.id));
     expect(result.queued[0]?.state).toMatchObject({
       kind: "queued",

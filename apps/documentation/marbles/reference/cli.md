@@ -8,7 +8,7 @@ These commands use the standalone `marbles` executable. See
 
 A launch uses the bundled [Workflows runtime](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
 and local persistent stores. `roll` creates a new run; it does not resume a
-previous failed run. The engine generation hosting a workspace adopts parked
+previous failed run. The engine generation hosting a workspace resumes suspended
 work under the [durability rules](/marbles/foundation/durability#recovery-after-a-restart).
 
 One Marbles process per state root, which is one per machine by default,
@@ -125,9 +125,9 @@ marbles: "greet" input: name: Invalid input: expected string, received undefined
 `--input` that is not JSON is a usage error naming the flag.
 
 `roll` itself cannot answer a question. Through the Marbles process a run
-that reaches `ask.approval` or `ask.question` parks with its question open
+that reaches `ask.approval` or `ask.question` suspends with its question open
 on the Feed, and `roll` waits until a dashboard answers it; Ctrl+C leaves
-the run parked. Under `--dry-run` nobody can answer: the run is cancelled at
+the run suspended. Under `--dry-run` nobody can answer: the run is cancelled at
 the ask, the CLI prints
 `marbles: run "<name>" was cancelled: "<title>" is waiting for an answer`
 and exits 1, and everything before the ask ran. Launch such runs from the
@@ -312,8 +312,8 @@ the Catalog does not aggregate every invocation of a reusable step definition.
 
 ### Pause, resume, and steer
 
-Pause parks the selected step and everything under it. Resume, with or
-without a prompt, replays the parked bodies from the top; a prompt leads the
+Pause suspends the selected step and everything under it. Resume, with or
+without a prompt, replays the suspended bodies from the top; a prompt leads the
 first turn of the agent session each step had open. Steer hands a prompt to
 the agent turn running in the step; the turn stops, the prompt becomes the
 next message, and the step's `generate` resolves with the steered reply.
@@ -346,14 +346,15 @@ inline.
 
 Quitting the dashboard detaches it, as the quit dialog says. The Marbles
 process keeps hosting the workspace: triggers keep firing, running steps
-continue, and a run parked on a question waits on the Feed for the next
+continue, and a run suspended on a question waits on the Feed for the next
 dashboard. `marbles stop` ends the process and every workspace it hosts,
 draining running work first (30 seconds for each engine generation to
 answer and as long again to exit, then it and its process group are
 killed, once its pid is proved to be the process the daemon spawned), and
 returns once the process has exited. A run
-parked on a question or a pause survives a stop and is adopted when its
-workspace is hosted again, as long as the step is still registered. When
+suspended on a question or a pause survives a stop and resumes once it is
+answered after its workspace is hosted again, as long as the step is still
+registered. When
 `detach` removes the last workspace while a dashboard is open, the dashboard
 shows that workspace stopped and follows none until one is attached again.
 
@@ -369,9 +370,9 @@ registered workspace first; one that does not load, a source that throws
 when imported, is an error on that workspace (the header keeps `ready`
 and shows it), and the running generation carries on as it was until a
 later edit loads. Once the next generation has loaded, it takes over at
-once: triggers carry on by their key, queued and parked runs move to it,
+once: triggers carry on by their key, queued and suspended runs move to it,
 and the previous generation starts nothing new, finishes its running runs,
-whole, and exits. A run of it that parks on a question meanwhile moves to
+whole, and exits. A run of it that suspends on a question meanwhile moves to
 the current generation at once, which answers it. A generation that
 crashes is replaced on its own, after a pause that doubles from 1 second
 up to 30 while replacements keep failing, and its runs are put right by
@@ -379,7 +380,7 @@ the next one's start.
 
 Under `--dry-run` the workspace runs in the dashboard's own process, so
 quitting stops triggers and cancels queued and running runs; nothing is
-written, so parked runs are cancelled too. Custom code in a step body must
+written, so suspended runs are cancelled too. Custom code in a step body must
 honour the context's `signal` to stop external work; cancellation cannot
 undo side effects.
 

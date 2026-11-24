@@ -230,11 +230,9 @@ export class Launcher {
   }
 
   async recover(options: {
-    readonly adopted: ReadonlySet<string>;
     readonly fileStatus: (run: ExecutionRun) => string | undefined;
   }): Promise<void> {
     const readmitted = await this.executions.recover({
-      adopted: options.adopted,
       fileStatus: options.fileStatus,
       readmit: (run) =>
         (this.#options.recoverQueued ||
@@ -460,6 +458,13 @@ export class Launcher {
       return;
     }
     if (await this.executions.cancelOrphan(id)) {
+      if (run?.kind === "workflow") {
+        await this.#options.workflows.cancel(id).catch((error: unknown) => {
+          this.#options.print(
+            `[run] ${id} cancelled, but its queued Run was not: ${String(error)}`
+          );
+        });
+      }
       return;
     }
     if (run?.kind === "task") {
@@ -498,13 +503,17 @@ export class Launcher {
     }
     this.#abortHalted();
     await Promise.all(this.#withdrawing.splice(0));
+    await this.dispatched();
+    this.#abortHalted();
+    this.#stopHandingOver();
+  }
+
+  async dispatched(): Promise<void> {
     await Promise.all(
       [...this.#live.values()].map((live) =>
         live.kind === "workflow" ? live.dispatched : undefined
       )
     );
-    this.#abortHalted();
-    this.#stopHandingOver();
   }
 
   #abortHalted(): void {

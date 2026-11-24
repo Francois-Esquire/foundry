@@ -471,23 +471,24 @@ describe("a write the recorder hands a store", () => {
   }, 60_000);
 });
 
-describe("a Run commit the owner check refuses", () => {
-  it("records no fact: a RunMovedError rolls the facts back with the change", async () => {
+describe("a Run commit its recording refuses", () => {
+  it("records no fact: the refusal rolls the facts back with the change", async () => {
     const state = machine.workspace();
     const scope = basename(state);
     const { database } = machine.database;
     const owner = new DatabaseRunStore({ database, scope });
     const other = new DatabaseRunStore({ database, scope });
     const owned = await owner.open(() => undefined);
-    const run = { id: "rn-moved" } as const;
+    const run = { id: "rn-refused" } as const;
     await putRun(owned, run.id, undefined, { step: "s" });
     const before = await machine.changes(state);
     expect(before.map((change) => change.type)).toEqual(["run.queued"]);
 
-    const elsewhere = await other.open(() => undefined);
-    await expect(putRun(elsewhere, run.id, "running")).rejects.toThrow(
-      "is not held by this engine any more"
-    );
+    const elsewhere = await other.open(() => ({
+      ledger: { cost: Number.NaN },
+      session: { id: "run-session" },
+    }));
+    await expect(putRun(elsewhere, run.id, "running")).rejects.toThrow();
 
     expect(await machine.changes(state)).toEqual(before);
     expect((await readRun(owned, run.id))?.status).toBe("queued");

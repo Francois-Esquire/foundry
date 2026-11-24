@@ -265,7 +265,7 @@ const makeQueue = (options: QueueOptions) =>
             attempt: 1,
             jobId: job.id,
             now,
-            ...(capacity.admission.retiring ? {} : { owner: self }),
+            owner: self,
             pool: job.pool,
           },
           input.runId
@@ -284,29 +284,6 @@ const makeQueue = (options: QueueOptions) =>
         }
         yield* settlement.fail(yield* requireJob(run.jobId), run, error, false);
         return (yield* store.getRun(id)) ?? run;
-      });
-
-    const adopt = (id: RunId) =>
-      Effect.gen(function* () {
-        const run = yield* requireRun(id);
-        if (run.state.kind !== "suspended") {
-          return run;
-        }
-        const pending = yield* store.listSuspensions({
-          runId: id,
-          state: "pending",
-        });
-        const now = yield* Clock.currentTimeMillis;
-        yield* commit(now, {
-          facts: [],
-          write: {
-            suspensions: pending.map((suspension) => ({
-              ...suspension,
-              revision: suspension.revision + 1,
-            })),
-          },
-        });
-        return run;
       });
 
     const pendingSuspension = (suspensionId: SuspensionId) =>
@@ -440,7 +417,6 @@ const makeQueue = (options: QueueOptions) =>
 
     return Queue.of({
       abandon: (id, error) => mutate(abandon(id, error)),
-      adopt: (id) => mutate(adopt(id)),
       awaitJob: awaitingJob(store, changes),
       cancel,
       cancelSuspension: (suspensionId, reason) =>

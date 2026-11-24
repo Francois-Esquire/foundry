@@ -259,7 +259,8 @@ it("exits when a shutdown outlives its deadline", async () => {
       source,
       `import { writeFileSync } from "node:fs";
 import { step, workflow } from "@foundry.sh/marbles";
-const spin = step("spinner").do(() => {
+const spin = step("spinner").do(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 200));
   writeFileSync(${JSON.stringify(spinning)}, "");
   const end = Date.now() + 15_000;
   while (Date.now() < end) {}

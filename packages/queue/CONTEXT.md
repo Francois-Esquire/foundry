@@ -99,9 +99,9 @@ retried if their policy allows; queued ones are adopted.
 _Avoid_: restart, resync
 
 **Adoption**:
-Taking over a run another queue left: a queued run during recovery, or a
-suspended run, whose pending suspensions move to a new revision so a
-resolution read before the takeover is refused as stale.
+Taking over a queued run whose owner is gone, during recovery. A suspended
+run is never adopted: any queue may resolve its suspension, and the run
+resumes unowned.
 _Avoid_: steal, claim
 
 **Abandonment**:
@@ -110,9 +110,9 @@ _Avoid_: kill, reap
 
 **Retirement**:
 A queue closing admission for good while its running work finishes
-untouched. A retiring queue starts no queued run. Children of its running
-runs are still admitted, unowned, and the queued runs it owns are handed
-over to a successor or left unowned.
+untouched. Children of its running runs are still admitted, owned by it,
+and it starts them; it starts no other queued run. The queued runs it owned
+when it retired are handed over to a successor or left unowned.
 _Avoid_: shutdown, decommission
 
 **Hand-over**:

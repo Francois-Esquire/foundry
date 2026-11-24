@@ -81,7 +81,7 @@ host `compaction` settings. See [Agent sessions](/marbles/reference/agent-sessio
 ## A question cancels the run
 
 `roll` and headless `run` cannot answer workflow questions. Through the
-Marbles process the run parks with its question on the Feed, and `roll`
+Marbles process the run suspends with its question on the Feed, and `roll`
 waits; open `marbles` to answer it. Under `--dry-run` the run is cancelled
 at the ask. Work before the ask has already run; launching again can repeat
 it.
@@ -106,10 +106,10 @@ also explains one-shot agent calls and artifact writes.
 
 ## A run did not resume
 
-Only parked runs are adopted after restart. Keep the workspace path, state
-root, and registered definitions available; the current engine generation
-adopts them when it starts, or as soon as a retiring one lets one go, and
-the question waits on the Feed for a dashboard.
+Only suspended runs resume after a restart. Keep the workspace path, state
+root, and registered definitions available; the question waits on the
+Feed for a dashboard, and once it is answered the current engine
+generation resumes the run.
 Runs interrupted while actively executing appear orphaned. See
 [recovery conditions](/marbles/reference/state#what-survives-a-restart).
 

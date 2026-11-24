@@ -306,6 +306,7 @@ async function executions(
   readonly {
     readonly id: string;
     readonly name: string;
+    readonly ownerPid: number;
     readonly status: string;
   }[]
 > {
@@ -315,6 +316,7 @@ async function executions(
         .select({
           id: marblesExecutions.id,
           name: marblesExecutions.name,
+          ownerPid: marblesExecutions.ownerPid,
           status: marblesExecutions.status,
         })
         .from(marblesExecutions)
@@ -723,27 +725,29 @@ describe("engine generations", () => {
     expect(
       logged(fixture).filter((line) => line.startsWith("answered-late "))
     ).toEqual([`answered-late ${String(second)}`]);
+    await vi.waitFor(
+      async () => {
+        const rows = await executions(fixture, fixture.summary.id);
+        expect(rows.find((row) => row.name === "late")).toMatchObject({
+          ownerPid: second,
+          status: "complete",
+        });
+      },
+      { interval: 200, timeout: 30_000 }
+    );
     await gone(first);
     fixture.client.close();
   }, 150_000);
 
-  it("replaces a candidate that fails to start after the previous one retired, once its source can start", async () => {
+  it("keeps a run suspended across switches to code it no longer fits, and finishes it on the current generation once answered", async () => {
     const fixture = await setUp();
     const first = fixture.summary.pid ?? 0;
     const workspace = fixture.client.workspace(fixture.summary);
     await workspace.actions.launch("picky", { n: 1 });
     await openEntry(workspace, "Picky?");
-    writeFileSync(fixture.source, moduleText(fixture, 1, { strict: true }));
-    await vi.waitFor(
-      async () => {
-        const [summary] = await fixture.client.workspaces();
-        expect(summary?.state).toBe("failed");
-      },
-      { interval: 200, timeout: 60_000 }
-    );
+    const strict = await switchFrom(fixture, first, 1, { strict: true });
     await gone(first);
-    writeFileSync(fixture.source, moduleText(fixture, 2));
-    const recovered = await readyOn(fixture, (pid) => pid !== first);
+    const fitting = await switchFrom(fixture, strict, 2);
     const entry = await openEntry(workspace, "Picky?");
     await workspace.actions.answer(entry, "yes");
     await vi.waitFor(
@@ -755,7 +759,7 @@ describe("engine generations", () => {
       },
       { interval: 200, timeout: 30_000 }
     );
-    expect((await workspace.roll("where")).value).toBe(recovered);
+    expect((await workspace.roll("where")).value).toBe(fitting);
     fixture.client.close();
   }, 180_000);
 
@@ -1022,139 +1026,6 @@ describe("engine generations", () => {
     expect(await stored(fixture, brokenId)).toBe(true);
     client.close();
   }, 150_000);
-
-  it("offers no run again while its adoption is outstanding past the deadline, lets the workspace's next hand-over through, and adopts it once when the late adoption lands", async () => {
-    const clock = handClock();
-    const lines: string[] = [];
-    const scratch = testHome({ providers: false }).path;
-    const stall = join(scratch, "stall-adopt");
-    const release = join(scratch, "release-adopt");
-    process.env.MARBLES_TEST_STALL_ADOPT = stall;
-    process.env.MARBLES_TEST_RELEASE_ADOPT = release;
-    try {
-      const files = generationFiles(testHome({ providers: false }));
-      const suspending = (name: string) =>
-        `export const ${name} = step(${JSON.stringify(name)}).do(async ({ ask }) => {
-  note(${JSON.stringify(name)});
-  while (!existsSync(${JSON.stringify(join(files.gates, name))})) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  note(${JSON.stringify(`asking-${name}`)});
-  const answer = await ask.question({ title: ${JSON.stringify(`${name}?`)}, choices: ["yes", "no"] });
-  note(${JSON.stringify(`answered-${name}`)});
-  return answer;
-});`;
-      const fixture = await startSwitchingWorkspace(
-        files,
-        [
-          'import { appendFileSync, existsSync } from "node:fs";',
-          'import { step } from "@foundry.sh/marbles";',
-          `const note = (what) => appendFileSync(${JSON.stringify(files.log)}, what + " " + process.pid + "\\n");`,
-          suspending("suspendOne"),
-          suspending("suspendTwo"),
-          "",
-        ].join("\n"),
-        {
-          clock,
-          generationEntry: join(
-            import.meta.dirname,
-            "helpers",
-            "generation-stalling-adopt.ts"
-          ),
-          print: (line) => lines.push(line),
-        },
-        (started) => daemons.push(started)
-      );
-      const asked = (runId: string) =>
-        lines.filter((line) => line.endsWith(`adopt asked ${runId}`)).length;
-      const { id } = fixture.summary;
-      const first = fixture.summary.pid ?? 0;
-      const workspace = fixture.client.workspace(fixture.summary);
-      await workspace.actions.launch("suspendOne", {});
-      await whenLogged(fixture, `suspendOne ${String(first)}`);
-      await fixture.client.reload(id);
-      const second = await readyOn(fixture, (pid) => pid !== first);
-      await workspace.actions.launch("suspendTwo", {});
-      await whenLogged(fixture, `suspendTwo ${String(second)}`);
-      await fixture.client.reload(id);
-      const third = await readyOn(
-        fixture,
-        (pid) => pid !== first && pid !== second
-      );
-
-      writeFileSync(stall, "");
-      open("suspendOne", fixture);
-      const stalled = await vi.waitFor(
-        () => {
-          const line = lines.find((each) => each.includes("adopt stalls "));
-          expect(line, lines.join("\n")).toBeDefined();
-          return line?.split("adopt stalls ")[1] ?? "";
-        },
-        { interval: 50, timeout: 30_000 }
-      );
-      open("suspendTwo", fixture);
-      await whenLogged(fixture, `asking-suspendTwo ${String(second)}`);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      clock.advance(30_000);
-      await vi.waitFor(
-        () =>
-          expect(
-            lines.some((line) =>
-              line.includes(`adopting run ${stalled} timed out`)
-            ),
-            lines.join("\n")
-          ).toBe(true),
-        { interval: 50, timeout: 10_000 }
-      );
-      await vi.waitFor(
-        () =>
-          expect(
-            lines.some((line) => line.includes("[run] suspendTwo taken over")),
-            lines.join("\n")
-          ).toBe(true),
-        { interval: 50, timeout: 30_000 }
-      );
-      const two = await openEntry(workspace, "suspendTwo?");
-      await workspace.actions.answer(two, "yes");
-      await whenLogged(fixture, `answered-suspendTwo ${String(third)}`);
-
-      const now = Date.now.bind(Date);
-      const later = vi
-        .spyOn(Date, "now")
-        .mockImplementation(() => now() + 60_000);
-      try {
-        await fixture.daemon.sweepNow();
-      } finally {
-        later.mockRestore();
-      }
-      expect(asked(stalled), lines.join("\n")).toBe(1);
-
-      writeFileSync(release, "");
-      await vi.waitFor(
-        () =>
-          expect(
-            lines.some((line) =>
-              line.includes(`[run] suspendOne taken over ${stalled}`)
-            ),
-            lines.join("\n")
-          ).toBe(true),
-        { interval: 50, timeout: 30_000 }
-      );
-      const one = await openEntry(workspace, "suspendOne?");
-      await workspace.actions.answer(one, "yes");
-      await whenLogged(fixture, `answered-suspendOne ${String(third)}`);
-      expect(asked(stalled), lines.join("\n")).toBe(1);
-      expect(
-        logged(fixture).filter((line) =>
-          line.startsWith("answered-suspendOne ")
-        )
-      ).toEqual([`answered-suspendOne ${String(third)}`]);
-      fixture.client.close();
-    } finally {
-      delete process.env.MARBLES_TEST_STALL_ADOPT;
-      delete process.env.MARBLES_TEST_RELEASE_ADOPT;
-    }
-  }, 240_000);
 
   it("runs a queued run on the current generation that its retired one handed over only after the current one started", async () => {
     const marker = join(testHome({ providers: false }).path, "fail-handover");
@@ -2321,29 +2192,6 @@ describe("engine generations", () => {
         alive: true,
       });
     }
-    fixture.client.close();
-  }, 150_000);
-
-  it("hands a released run to the current generation from the database when the notice is lost", async () => {
-    const fixture = await setUp({
-      daemon: {
-        generationEntry: join(
-          import.meta.dirname,
-          "helpers",
-          "generation-dropping-released.ts"
-        ),
-      },
-    });
-    const first = fixture.summary.pid ?? 0;
-    const workspace = fixture.client.workspace(fixture.summary);
-    await workspace.actions.launch("late", {});
-    await whenLogged(fixture, `late ${String(first)}`);
-    const second = await switchFrom(fixture, first, 1);
-    open("late", fixture);
-    const entry = await openEntry(workspace, "Late?");
-    await workspace.actions.answer(entry, "yes");
-    await whenLogged(fixture, `answered-late ${String(second)}`);
-    await gone(first);
     fixture.client.close();
   }, 150_000);
 

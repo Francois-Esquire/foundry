@@ -141,6 +141,23 @@ it("lets a run in again after delivery starts, on an engine that accepts launche
   expect(launched).toHaveLength(1);
 });
 
+async function rewriteRecord(
+  id: string,
+  patch: Partial<ExecutionRun>
+): Promise<void> {
+  const record = await storedExecution(state, id);
+  if (!record) {
+    throw new Error(`${id} is not stored`);
+  }
+  await withExecutions(state, async (store) => {
+    await seedExecution(store, {
+      ...record,
+      ...patch,
+      revision: record.revision + 1,
+    });
+  });
+}
+
 async function suspendedThenOrphaned(): Promise<string> {
   const definition = {
     fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
@@ -221,7 +238,7 @@ it("leaves a suspended run alone while a live process owns it", async () => {
   });
 });
 
-it("leaves a suspended run alone while another process is adopting it", async () => {
+it("leaves a suspended run alone while another process holds its claim", async () => {
   await leftBehind({
     id: "rn-adopting",
     kind: "workflow",
@@ -242,87 +259,6 @@ it("leaves a suspended run alone while another process is adopting it", async ()
   }
   await engine.cancel("rn-adopting");
   expect(engine.executions.get("rn-adopting")?.status).toBe("cancelled");
-});
-
-function defineProbe(engine: Engine): void {
-  engine.define({
-    fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
-    kind: "step",
-    name: "probe",
-  });
-}
-
-async function rewriteRecord(
-  id: string,
-  patch: Partial<ExecutionRun>
-): Promise<void> {
-  const record = await storedExecution(state, id);
-  if (!record) {
-    throw new Error(`${id} is not stored`);
-  }
-  await withExecutions(state, async (store) => {
-    await seedExecution(store, {
-      ...record,
-      ...patch,
-      revision: record.revision + 1,
-    });
-  });
-}
-
-it("records suspended a run it adopts whose process exited before its record saw the suspension", async () => {
-  const id = await suspendedThenOrphaned();
-  await rewriteRecord(id, { status: "running" });
-  const engine = engineWith({ askable: true });
-  defineProbe(engine);
-  await engine.start();
-
-  expect(engine.scopes.has(id)).toBe(true);
-  expect(engine.executions.get(id)).toMatchObject({
-    owner: thisProcess(),
-    status: "suspended",
-  });
-});
-
-it("leaves a suspended run it cannot adopt suspended for a process that can, even when its record said running", async () => {
-  const id = await suspendedThenOrphaned();
-  await rewriteRecord(id, { status: "running" });
-  const dead = (await storedExecution(state, id))?.owner.pid;
-  const engine = engineWith({ askable: true });
-  await engine.start();
-
-  expect(engine.executions.get(id)).toMatchObject({
-    owner: { pid: dead, started: null },
-    status: "suspended",
-  });
-  await engine.dispose();
-
-  const next = engineWith({ askable: true });
-  defineProbe(next);
-  await next.start();
-  expect(next.scopes.has(id)).toBe(true);
-  expect(next.executions.get(id)?.status).toBe("suspended");
-});
-
-it("gives a suspended run saved before Execution Runs existed a record when it is adopted", async () => {
-  const id = await suspendedThenOrphaned();
-  await withExecutions(state, (store) => store.remove(id));
-  const engine = engineWith({ askable: true });
-  defineProbe(engine);
-  await engine.start();
-
-  expect(engine.executions.list().map((run) => run.id)).toContain(id);
-  expect(engine.executions.get(id)).toMatchObject({
-    kind: "workflow",
-    name: "probe",
-    owner: thisProcess(),
-    status: "suspended",
-  });
-  await engine.cancel(id);
-  await vi.waitFor(() =>
-    expect(engine.executions.get(id)?.status).toBe("cancelled")
-  );
-  expect(await engine.executions.prune([id], () => "scope")).toHaveLength(1);
-  expect((await engine.runs()).map((run) => run.id)).not.toContain(id);
 });
 
 it("never readmits a queued run under a name now registered as the other kind", async () => {

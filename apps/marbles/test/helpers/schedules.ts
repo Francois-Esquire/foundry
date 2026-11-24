@@ -11,7 +11,7 @@ export interface RunningScheduler {
 
 export function startScheduler(
   engine: ScheduledEngine,
-  options: { readonly cancel?: AbortSignal; readonly letGo?: AbortSignal } = {}
+  options: { readonly cancel?: AbortSignal } = {}
 ): RunningScheduler {
   const controller = new AbortController();
   const lines: string[] = [];

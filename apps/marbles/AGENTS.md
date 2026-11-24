@@ -86,9 +86,26 @@ Five buckets, each importing only what sits below it:
   configuration reads it when the engine starts (`refresh`), not when it
   is built.
   `lib/workflow-queue.ts` runs workflow Runs on `@foundry/queue` through
-  `@foundry/workflows/queue-handler`, holding each live workflow across
-  suspend and resume; `lib/workflow-runs.ts` projects the queue's Jobs and
-  Runs into `RunRecord`s and its events into `RUNS` facts.
+  `@foundry/workflows/queue-handler`. It materializes a fresh workflow for
+  every attempt, from the run's checkpoint and the resolutions of its
+  suspensions, and holds it only while that attempt runs (`onStart` to
+  `onFinish`); a run is followed to its end through `awaitJob` and
+  `runResultOf`. Only the first attempt of a run this engine submits is
+  built before the submit, so a launch whose input its schema refuses fails
+  before any Run exists. A run scope is opened per attempt
+  (`RunScopes.open`), from the scope of the attempt before it or, in a
+  process that never ran the run, from what the run store recorded. A
+  pause is a suspension named by how many of its step's pauses were
+  answered before it; the prompt it is resumed with is that suspension's
+  resolution, handed to the step's next session turn once (the count
+  taken is kept in the run's ledger). `lib/queued-workflows.ts` is an
+  engine's workflow Runs while it runs: the queue, the Feed router, the
+  followed runs and their listing, built once the engine's run store is
+  open; `lib/engine-definitions.ts` is what the engine can run and how each
+  is registered on that queue, and `lib/engine-setup.ts` builds the
+  engine's stores, context, agents manager and bindings.
+  `lib/workflow-runs.ts` projects the queue's Jobs and Runs into
+  `RunRecord`s and its events into `RUNS` facts.
   `lib/schedule-loop.ts` runs `@foundry/scheduling`'s scheduler over the
   trigger store's schedule store while a host runs (`run`), registering
   every declared and agent-created schedule (`registration` in
@@ -101,11 +118,16 @@ Five buckets, each importing only what sits below it:
   until the launch its detector asked for is started. A roll
   (`rollSchedule`) launches and awaits a schedule's target directly and
   records no occurrence.
-  `lib/held-runs.ts` follows held workflow runs to their end;
-  `lib/run-store.ts` is where their Runs are kept (`RunStore`, in memory
-  by default), and `lib/run-recovery.ts` is the one rule for which suspended
-  Runs a starting engine adopts and which Runs a gone process left it
-  closes out. `lib/crash-recovery.ts` is the one entry point that puts
+  `lib/held-runs.ts` follows workflow runs to their end: it observes each
+  attempt that runs here, and settles a run when its Job settles,
+  whichever engine ran its last attempt. An engine whose queue starts a
+  resumed run it does not follow takes up its Execution Run then
+  (`takeUp`), and follows it. `lib/run-store.ts` is where their Runs are
+  kept (`RunStore`, in memory by default), and `lib/run-recovery.ts` is the
+  one rule for which Runs a gone process left a starting engine closes
+  out. A suspended run needs no owner: any engine may answer it, and its
+  questions are open in the Feed from the engine that asked them, or from
+  an askable engine that starts while the run is suspended. `lib/crash-recovery.ts` is the one entry point that puts
   right what a crash left, run once per start after the launcher settles
   the Execution Runs of exited processes and before the host schedules
   anything; each part's rule is its own package's or module's, and it
@@ -220,9 +242,10 @@ Five buckets, each importing only what sits below it:
   view of them a dry run reads through to. `runs.ts` is a workspace's workflow Runs: `@foundry/queue`'s
   `SqliteQueueStore` scoped by the workspace id, whose `onCommit` hook
   files beside each Run it puts Marbles' row in `marbles_workflow_runs`,
-  what the run's scope recorded and the engine that owns it, so a suspended
-  run is adopted by the next process that can answer it; a claim on a Run
-  is a transaction on that row, not a lock file. Each run's output stays
+  what the run's scope recorded and the engine that last wrote it, so a
+  later attempt in another process opens its scope from it; a claim on a
+  Run, which closing out a gone process's Run takes, is a transaction on
+  that row, not a lock file. Each run's output stays
   a log file on disk, `<state>/<id>/output/<run>.jsonl`. `triggers.ts`
   is a workspace's trigger state: each monitor's state by the trigger's
   key (`marbles_monitor_states`), and `@foundry/scheduling`'s
@@ -365,34 +388,26 @@ Five buckets, each importing only what sits below it:
   source), a reload, or a generation that died starts a candidate: it
   loads every registered workspace up to engines not yet started, else
   nothing switches; then the current one retires (`Engine.retire`: no
-  occurrence, delivery or queued run starts there again, its queued runs are
-  handed to the candidate and its suspended runs let go) and finishes its
-  running runs before it exits, and the candidate starts, taking over the
-  suspended and queued work; the candidate is current from the moment it has
-  loaded, before the previous one is told to go, and only a current
-  generation that is not retiring is replaced when it exits. A run of a
-  retired generation that suspends later is let go as it suspends and taken
-  over by the current one (`Engine.adopt`, over `WorkflowQueue.adopt`,
-  which moves the run's pending suspensions to a new revision). The retiring
-  engine stops answering a suspended run before it gives up its claim. A
-  failed release is retried with backoff while the engine lives. A
-  failed adoption clears the local scope, suspended queue handle and router
-  entry, and gives up the claim through the same retry path. Taking the
-  claim again cancels any pending retry for the previous attempt. The daemon also
-  sweeps the database for suspended runs no live engine holds and offers
-  them to the current generation. An answer is applied only by the engine
-  that holds the run when it is written: the router resolves at the
-  revision it read, and the run store refuses a commit to a Run another
-  engine owns (`RunMovedError`); either refusal is a `QuestionMovingError`
-  the daemon retries elsewhere. A generation that was current and died is
+  occurrence or delivery starts there again, its queued runs are handed to
+  the candidate, and its run queue retires, so it starts nothing but the
+  children of its running runs) and finishes its running runs untouched
+  before it exits, and the candidate starts, taking over the queued work;
+  the candidate is current from the moment it has loaded, before the
+  previous one is told to go, and only a current generation that is not
+  retiring is replaced when it exits. A suspended run is nobody's to hand
+  over: any generation answers it, the resolved run is unowned in the
+  queue, and the live generation that is not retiring starts it and takes
+  up its Execution Run (`Engine.takeHanded` is the hand-over of queued
+  Execution Runs only). A retiring generation does not wait for its
+  suspended runs. A generation that was current and died is
   replaced after a bounded backoff, and only a candidate that does not
   load has its fingerprint refused. A generation whose daemon is gone (a
   crash) is out of any daemon's reach: it schedules and delivers no more, lets
   in its queued runs and finishes them with its running ones on the code
-  it loaded, then lets go of its suspended runs, which stay in the store, and
-  exits; a schedule's occurrence whose run it let go stays open, so the
-  schedule dispatches again only once that run ends, and the sweep offers that
-  run to the current generation. The next daemon
+  it loaded, leaves its suspended runs in the store, and exits; a
+  schedule's occurrence whose run is suspended stays open, so the schedule
+  dispatches again only once that run ends, wherever it is answered. The
+  next daemon
   records it retiring while its
   process is alive, and leaves its running and queued runs to it, since
   their owner is alive;
@@ -411,9 +426,10 @@ Five buckets, each importing only what sits below it:
   that starts the turn. `BackgroundRuns` reads and cancels workflow runs
   through the engine's run and execution records when the host did not
   start them.
-  Commands about a run go to the generation whose process owns it, answers
-  and activity stops to the one holding them, the rest to the current
-  one. Snapshots gather the live runs and step work of retiring generations
+  Commands about a run go to the generation whose process owns its
+  Execution Run, answers and activity stops to each hosting generation in
+  turn until one takes it (any of them can answer a run's question), the
+  rest to the current one. Snapshots gather the live runs and step work of retiring generations
   before the current host builds the view (the tables beside `RUN_METHODS`
   in `daemon.ts`); every signal to a generation first proves its pid and start. The rest is the wire protocol (`protocol.ts`,
   `channel.ts`); the client (`client.ts`), which joins the running daemon

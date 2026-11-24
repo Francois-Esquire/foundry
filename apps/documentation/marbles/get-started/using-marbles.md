@@ -151,7 +151,7 @@ the supplied body to the Feed with a reference to that version. Use
 `artifact(...).write(...)` for saved state that needs no Feed announcement.
 
 Use the dashboard for work that asks questions. A `roll` or an unattended
-loop cannot answer: the run parks on the Feed until a dashboard does, or is
+loop cannot answer: the run suspends on the Feed until a dashboard does, or is
 cancelled under `--dry-run`. [Contexts](/marbles/foundation/contexts)
 explains these operations; [human approval](/marbles/use-cases/software-factory/development/approve)
 puts them together.

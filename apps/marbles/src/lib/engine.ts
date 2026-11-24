@@ -1,11 +1,6 @@
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import {
-  createAgentAuthorizer,
-  createInMemoryAgentAuthorizer,
-} from "@foundry/agents/authorization";
 import type { SessionStore } from "@foundry/agents/store";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
 import {
@@ -18,7 +13,6 @@ import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
 import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
 import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
-import type { QueueStoreService } from "@foundry/queue/store";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import type { TaskStore } from "@foundry/tasks";
@@ -27,17 +21,26 @@ import type { BaseContext } from "@foundry/workflows/executable";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
-import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { Bindings } from "~/lib/bindings";
+import { callingRun } from "~/lib/calling-run";
 import { harnessOf } from "~/lib/cli-harnesses";
-import { commandRunner } from "~/lib/command";
 import {
   CrashRecovery,
   type RecoveryLog,
   type RecoveryReport,
 } from "~/lib/crash-recovery";
 import type { AnyDefinition } from "~/lib/definition";
-import { environmentSnapshot } from "~/lib/environment";
+import { EngineDefinitions } from "~/lib/engine-definitions";
+import {
+  agentsOf,
+  bindingsOf,
+  contextOf,
+  interactionsOf,
+  recordedIn,
+  sessionListing,
+  storedScopes,
+  storesOf,
+} from "~/lib/engine-setup";
 import type { ObserveOptions } from "~/lib/events/delivery";
 import { Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
@@ -46,22 +49,17 @@ import type { Fact, Handler, Source } from "~/lib/events/source";
 import type { ExecutionContext } from "~/lib/execution-context";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import type { ExecutionStore } from "~/lib/execution-store";
-import { MemoryExecutionStore } from "~/lib/execution-store";
 import type {
   ExecutionRun,
   ExecutionRuns,
   QueueSettings,
 } from "~/lib/executions";
 import { Executions } from "~/lib/executions";
-import { selectExecutor } from "~/lib/executor";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedPublisher } from "~/lib/feed/publish";
 import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
-import type { FeedRouter } from "~/lib/feed/route";
-import { feedRouter, movedAway, QuestionMovingError } from "~/lib/feed/route";
-import { HeldRuns } from "~/lib/held-runs";
 import type {
   DispatchedRun,
   Launched,
@@ -69,54 +67,38 @@ import type {
   QueuedTake,
 } from "~/lib/launcher";
 import { Launcher } from "~/lib/launcher";
-import { createLog, type LogLevel, type LogOrigin } from "~/lib/log";
-import { AgentsManager } from "~/lib/managers/agents";
+import type { LogLevel, LogOrigin } from "~/lib/log";
+import type { AgentsManager } from "~/lib/managers/agents";
 import { ArtifactsManager } from "~/lib/managers/artifacts";
 import type { RunQuery, RunsSource, RunView } from "~/lib/managers/runs";
-import { engineRuns, scopedRuns } from "~/lib/managers/runs";
+import { engineRuns } from "~/lib/managers/runs";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
-import { skillResolver } from "~/lib/managers/skills";
 import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
 import { localCatalogue, WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
+import { QueuedWorkflows } from "~/lib/queued-workflows";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
-import { Registry } from "~/lib/registry";
-import { RunListing } from "~/lib/run-listing";
-import {
-  adoptSuspendedRun,
-  adoptSuspendedRuns,
-  workflowStatuses,
-} from "~/lib/run-recovery";
-import type { ReadonlyRunScopes, RecordedScope } from "~/lib/run-scope";
-import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
+import { workflowStatuses } from "~/lib/run-recovery";
+import type { ReadonlyRunScopes } from "~/lib/run-scope";
+import { RunScopes } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
-import { MemoryRunStore, TERMINAL_RUN_STATUSES } from "~/lib/run-store";
+import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type { ActivityStore } from "~/lib/sandbox/activities";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
-import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
-import { HarnessInteractions } from "~/lib/sandbox/interactions";
+import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { removeRunOutput } from "~/lib/state/output";
 import type { StepInput } from "~/lib/step-work";
 import type { TaskDefinition } from "~/lib/tasks";
-import { factoryFor } from "~/lib/tree";
 import type { TriggerStore } from "~/lib/trigger-store";
-import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
 import type { UsageRecords } from "~/lib/usage";
 import { UsageLedger, withRecovered } from "~/lib/usage";
-import type {
-  ReconciledRun,
-  RunRecorded,
-  SessionListing,
-} from "~/lib/usage-evidence";
-import { listsSessions, UsageEvidence } from "~/lib/usage-evidence";
+import type { ReconciledRun } from "~/lib/usage-evidence";
+import { UsageEvidence } from "~/lib/usage-evidence";
 import type { UsageStore } from "~/lib/usage-store";
-import { MemoryUsageStore } from "~/lib/usage-store";
-import type { Factory, LiveRun } from "~/lib/workflow-queue";
-import { WorkflowQueue } from "~/lib/workflow-queue";
+import type { Factory } from "~/lib/workflow-queue";
 import type { RunRecord } from "~/lib/workflow-runs";
-import { readRun } from "~/lib/workflow-runs";
 
 export interface EngineOptions {
   readonly activityStore?: ActivityStore;
@@ -157,86 +139,7 @@ export interface EngineOptions {
   readonly worktrees?: string;
 }
 
-function contextOf(
-  options: EngineOptions,
-  spawned: string | undefined,
-  currentModels: () => ModelManager | undefined
-): ExecutionContext {
-  return {
-    cwd: options.cwd ?? options.root,
-    environment: options.environment ?? environmentSnapshot(),
-    get models() {
-      return currentModels();
-    },
-    ...(spawned === undefined ? {} : { spawned }),
-    workspaceId: options.workspaceId,
-  };
-}
-
-function sessionListing(
-  sessions: SessionStore,
-  usage: UsageStore
-): { readonly stamps?: SessionListing } {
-  if (listsSessions(sessions)) {
-    return { stamps: () => sessions.stamps() };
-  }
-  const outlives = !(
-    sessions instanceof InMemorySessionStore ||
-    usage instanceof MemoryUsageStore
-  );
-  return outlives ? { stamps: "unavailable" } : {};
-}
-
-function storesOf(options: EngineOptions): {
-  readonly automations: AutomationStore;
-  readonly executions: ExecutionStore;
-  readonly runs: RunStore;
-  readonly triggers: TriggerStore;
-  readonly usage: UsageStore;
-} {
-  return {
-    automations: options.automationStore ?? new MemoryAutomationStore(),
-    executions: options.executionStore ?? new MemoryExecutionStore(),
-    runs: options.runs ?? new MemoryRunStore(),
-    triggers: options.triggers ?? new MemoryTriggerStore(),
-    usage: options.usageStore ?? new MemoryUsageStore(),
-  };
-}
-
-function recordedIn(
-  scopes: ReadonlyRunScopes,
-  runs: RunStore
-): (runId: string) => Promise<RunRecorded> {
-  return async (runId) => {
-    const scope = scopes.get(runId);
-    if (scope) {
-      return { ledger: scope.ledger.toJSON(), session: scope.session.id };
-    }
-    try {
-      return await runs.recorded(runId);
-    } catch {
-      return "unreadable";
-    }
-  };
-}
-
 const RETIRED_POLL_MS = 250;
-const RELEASE_RETRY_MS = 1000;
-const RELEASE_RETRY_MAX_MS = 30_000;
-
-interface OwedRelease {
-  readonly released?: () => void;
-  said: boolean;
-  timer?: ReturnType<typeof setTimeout>;
-}
-
-interface Running {
-  readonly held: HeldRuns;
-  readonly listing: RunListing;
-  readonly queue: WorkflowQueue;
-  readonly router: FeedRouter;
-  readonly store: QueueStoreService;
-}
 
 // biome-ignore lint/performance/noBarrelFile: Preserve the existing engine error export after moving run tracking.
 export { RunEndedError } from "~/lib/held-runs";
@@ -269,10 +172,10 @@ export class Engine {
   readonly #askable: boolean;
   readonly #evidence: UsageEvidence;
   readonly #publisher: FeedPublisher;
+  readonly #feedEntries: Pick<ArtifactSubstrate, "get">;
   readonly #print: (line: string) => void;
-  readonly #registry = new Registry();
-  readonly #scopes = new RunScopes();
-  readonly #extra = new Map<string, (queue: WorkflowQueue) => void>();
+  readonly #definitions: EngineDefinitions;
+  readonly #scopes: RunScopes;
   readonly #executions: Executions;
   readonly #crashRecovery: CrashRecovery;
   readonly #recoveryLog: RecoveryLog | undefined;
@@ -284,31 +187,23 @@ export class Engine {
   readonly #automationStore: AutomationStore;
   readonly #executionStore: ExecutionStore;
   readonly #delivery: Delivery;
-  readonly #directNames = new WeakMap<AnyDefinition, string>();
-  readonly #directDefinitions = new Map<string, AnyDefinition>();
   readonly #runsSource: RunsSource = {
     execution: (runId) => this.executions.get(runId),
     executions: () => this.executions.list(),
     launch: (definition, input) => this.launchDefinition(definition, input),
-    nameOf: (name) => this.#directDefinitions.get(name)?.name ?? name,
+    nameOf: (name) => this.#definitions.nameOf(name),
     resultOf: (runId) => this.#resultOf(runId),
-    stored: async (runId) => {
-      const store = this.#running?.store;
-      const record = store && (await readRun(store, runId));
-      return record ? this.#asHeld(record) : undefined;
-    },
+    stored: async (runId) => await this.#running?.record(runId),
     storedAll: () =>
       this.#running === undefined ? Promise.resolve([]) : this.runs(),
   };
-  #running: Running | undefined;
+  #running: QueuedWorkflows | undefined;
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
   #stopping: Promise<void> | undefined;
   #cancelStopping: (() => Promise<void>) | undefined;
   #retiring = false;
-  readonly #letGo = new Set<string>();
-  readonly #owed = new Map<string, OwedRelease>();
-  #released = false;
+  readonly #handed = new Set<string>();
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
   readonly #unwatchRecords: () => void;
@@ -335,7 +230,6 @@ export class Engine {
     const { models, root, sessions, workspaceId } = options;
     const { spawned, state } = Engine.persistence(options);
     const print = options.print ?? (() => undefined);
-    const home = options.home ?? homedir();
     const askable = options.askable ?? false;
     const { containers } = options;
     this.models = models;
@@ -362,11 +256,18 @@ export class Engine {
       options.providers?.watch((problem) => print(`[providers] ${problem}`)) ??
       (() => undefined);
     this.root = root;
-    this.scopes = this.#scopes;
-    this.sessions = sessions;
-    this.state = state;
     const { automations, executions, runs, triggers, usage } =
       storesOf(options);
+    this.#scopes = new RunScopes(storedScopes(runs));
+    this.scopes = this.#scopes;
+    this.#definitions = new EngineDefinitions({
+      bindings: () => this.bindings,
+      launcher: () => this.#launcher,
+      running: () => this.#running,
+      scopes: this.#scopes,
+    });
+    this.sessions = sessions;
+    this.state = state;
     this.#automationStore = automations;
     this.#executionStore = executions;
     this.triggers = triggers;
@@ -400,10 +301,10 @@ export class Engine {
       sandbox: (container, signal) => this.sandboxes.adopt(container, signal),
       workflows: {
         cancel: async (id) => {
-          await this.#live().queue.cancelRun(id);
+          await this.#live().cancel(id);
         },
         dispatch: (run, input, signal) => this.#dispatch(run, input, signal),
-        has: (name) => this.#registered(name),
+        has: (name) => this.#definitions.registered(name),
       },
     });
     this.#records = options.records ?? new MemoryWorkspaceRecords();
@@ -425,6 +326,7 @@ export class Engine {
       root,
     });
     this.feed = feedReader(options.artifacts);
+    this.#feedEntries = options.artifacts;
     this.activities = new HarnessActivities({
       feed: this.#publisher,
       ...(options.activityStore ? { store: options.activityStore } : {}),
@@ -432,21 +334,11 @@ export class Engine {
     this.#recoveryLog = options.recoveryLog;
     this.#crashRecovery = this.#recoveryOf(options, print, runs);
     this.automations = new AutomationService({
-      allowHttp: configuredMonitorUrl(this.#registry),
-      registry: this.#registry,
+      allowHttp: configuredMonitorUrl(this.#definitions.registry),
+      registry: this.#definitions.registry,
       store: automations,
     });
-    this.interactions = new HarnessInteractions({
-      askable,
-      feed: this.#publisher,
-      policy: options.grants
-        ? createAgentAuthorizer({
-            grants: new StoredAgentGrantRepository(options.grants),
-          })
-        : createInMemoryAgentAuthorizer().authorizer,
-      sessions,
-      ...(options.approvals ? { approvals: options.approvals } : {}),
-    });
+    this.interactions = interactionsOf(options, this.#publisher);
     const sandboxes = new SandboxesManager({
       containers:
         typeof containers === "function"
@@ -455,37 +347,14 @@ export class Engine {
       root,
     });
     this.sandboxes = sandboxes;
-    this.agents = new AgentsManager({
+    this.agents = agentsOf(options, {
       activities: this.activities,
       automations: this.automations,
-      containerOf: (sandbox) => sandboxes.containerOf(sandbox),
       context: this.context,
-      defaultExecutor: () => selectExecutor(models),
-      dry: options.dry ?? false,
-      executionOf: (provider) => options.providers?.executionOf(provider),
-      ...(options.providers
-        ? {
-            instanceOf: (provider: string) =>
-              options.providers?.identityOf(provider),
-          }
-        : {}),
-      cwd: this.context.cwd,
-      implementationOf: (provider) =>
-        options.providers
-          ?.list()
-          .find(
-            (entry) => entry.id === provider && entry.position !== undefined
-          )?.plugin,
+      executions: this.#executions,
       interactions: this.interactions,
-      models,
-      observe: (runId, observation) =>
-        this.#executions.observe(runId, observation),
-      requireProviders: () => options.providers?.require(),
-      sessions,
-      skills: skillResolver({ home, workspace: root }),
-      undefinedProvider: (id) => options.providers?.undefinedProvider(id),
-      usage: { ledger: this.usage, workspaceId },
-      warn: (message) => print(`[agents] ${message}`),
+      sandboxes,
+      usage: this.usage,
     });
     this.artifacts = new ArtifactsManager({
       artifacts: options.artifacts,
@@ -499,48 +368,17 @@ export class Engine {
       root,
       worktreeHome: this.worktrees,
     });
-    this.bindings = {
-      agents: (args) => this.agents.scoped(args),
-      artifacts: (args) => this.artifacts.scoped(args),
+    this.bindings = bindingsOf(options, {
+      agents: this.agents,
+      artifacts: this.artifacts,
+      catalogue,
       context: this.context,
-      exec: ({ frame, scope, write }) =>
-        commandRunner({
-          cwd: () => workingDirectory(scope.cwd),
-          dry: options.dry ?? false,
-          environment: this.context.environment,
-          print,
-          ...(this.context.spawned === undefined
-            ? {}
-            : { spawned: this.context.spawned }),
-          signal: () => frame.signal,
-          work: frame.work,
-          write,
-        }),
-      host: { catalogue, triggers: this.triggers },
-      log: createLog((level, message) =>
-        options.log
-          ? options.log(level, message, { kind: "step" })
-          : print(message)
-      ),
-      root,
-      runs: (args) =>
-        args === undefined
-          ? engineRuns(this.#runsSource)
-          : scopedRuns(this.#runsSource, args),
-      sandboxes: (args) => this.sandboxes.scoped(args),
-      setupLog: (run) =>
-        createLog((level, message) =>
-          options.log
-            ? options.log(level, message, {
-                kind: "setup",
-                runId: run.id,
-                workflow: run.workflow,
-              })
-            : print(message)
-        ),
-      turns: (args) => this.agents.turns(args),
-      workspaces: (args) => this.workspaces.scoped(args),
-    };
+      print,
+      runs: this.#runsSource,
+      sandboxes: this.sandboxes,
+      triggers: this.triggers,
+      workspaces: this.workspaces,
+    });
   }
 
   async #removeRun(run: ExecutionRun): Promise<void> {
@@ -551,7 +389,7 @@ export class Engine {
       removeRunOutput(this.state, run.id);
     }
     await this.#runs.remove(run.id);
-    this.#running?.listing.remove(run.id);
+    this.#running?.unlisted(run.id);
   }
 
   get harnesses(): readonly string[] {
@@ -565,41 +403,23 @@ export class Engine {
   }
 
   define(definition: AnyDefinition): void {
-    if (definition.name !== undefined) {
-      this.#claim(definition.name, { definitions: false, label: "define" });
-    }
-    this.#registry.define(definition);
-    if (definition.name !== undefined) {
-      this.#adopt(definition.name);
-    }
-  }
-
-  #adopt(name: string): void {
-    const definition = this.#registry.definitions.get(name);
-    if (definition && this.#running) {
-      this.#running.queue.register(
-        name,
-        factoryFor(definition, () => this.bindings, this.#scopes)
-      );
-    }
+    this.#definitions.define(definition);
   }
 
   has(name: string): boolean {
-    return this.#registry.definitions.has(name);
+    return this.#definitions.registry.definitions.has(name);
   }
 
   definitions(): readonly DefinitionEntry[] {
-    return this.#registry.entries();
+    return this.#definitions.registry.entries();
   }
 
   schedule(record: Schedule): void {
-    this.#registry.schedule(record);
+    this.#definitions.registry.schedule(record);
   }
 
   monitor(record: MonitorRecord): void {
-    this.#claim(record.key, { definitions: false, label: "monitor" });
-    this.#registry.monitor(record);
-    this.#adopt(record.key);
+    this.#definitions.monitor(record);
   }
 
   observe<T extends Fact>(
@@ -617,7 +437,7 @@ export class Engine {
   }
 
   monitors(): ReadonlyMap<string, MonitorRecord> {
-    return this.#registry.monitors;
+    return this.#definitions.registry.monitors;
   }
 
   register<I, O, X extends BaseContext = BaseContext>(
@@ -627,44 +447,11 @@ export class Engine {
     if (this.#phase !== "new") {
       throw new Error(`register("${name}"): the engine has already started`);
     }
-    this.#claim(name, { definitions: true, label: "register" });
-    this.#extra.set(name, (queue) =>
-      queue.register(name, (input) => factory(input as I))
-    );
+    this.#definitions.register(name, factory);
   }
 
   task<I, O>(definition: TaskDefinition<I, O>): void {
-    this.#claim(definition.name, { definitions: true, label: "task" });
-    this.#launcher.task(definition as TaskDefinition);
-  }
-
-  #claim(
-    name: string,
-    claim: { readonly definitions: boolean; readonly label: string }
-  ): void {
-    if (
-      this.#launcher.has(name) ||
-      this.#extra.has(name) ||
-      (claim.definitions && this.#registry.definitions.has(name))
-    ) {
-      throw new Error(`${claim.label}("${name}"): already registered`);
-    }
-  }
-
-  #registered(name: string): boolean {
-    return this.#registry.definitions.has(name) || this.#extra.has(name);
-  }
-
-  #registerAll(queue: WorkflowQueue): void {
-    for (const [name, definition] of this.#registry.definitions) {
-      queue.register(
-        name,
-        factoryFor(definition, () => this.bindings, this.#scopes)
-      );
-    }
-    for (const register of this.#extra.values()) {
-      register(queue);
-    }
+    this.#definitions.task(definition);
   }
 
   #recoveryOf(
@@ -704,8 +491,7 @@ export class Engine {
     const feed = this.#publisher;
     const print = this.#print;
     await this.#listModels();
-    let queue: WorkflowQueue | undefined;
-    let adopted: ReadonlyMap<string, RecordedScope> = new Map();
+    let running: QueuedWorkflows | undefined;
     try {
       await this.activities.load();
       await this.#executions.load();
@@ -713,82 +499,38 @@ export class Engine {
         (runId) => this.#scopes.get(runId)?.recorded(),
         (runId, status) => this.#executions.follows(runId, status)
       );
-      adopted = await adoptSuspendedRuns({
-        askable,
-        print,
-        registered: (name) => this.#registered(name),
-        runs: this.#runs,
-        settled: (runId) => this.#executions.storedSettled(runId),
-        store,
-      });
-      for (const [runId, scope] of adopted) {
-        this.#scopes.recover(runId, scope);
-      }
       const statuses = await workflowStatuses(store, this.#executions.list());
-
-      queue = new WorkflowQueue(store);
-      this.#registerAll(queue);
-      const router = feedRouter({ askable, feed, print, queue });
-      const held = new HeldRuns({
+      running = await QueuedWorkflows.open({
+        askable,
+        durable: this.#runs.durable,
         executions: this.#executions,
+        feed,
+        feedEntries: this.#feedEntries,
+        follow: (runId, dispatched) => this.#launcher.follow(runId, dispatched),
         print,
-        queue,
-        router,
+        registered: (name) => this.#definitions.registered(name),
         scopes: this.#scopes,
         state,
+        store,
       });
-      const recovered: {
-        createdAt: number;
-        name: string;
-        dispatched: LiveRun;
-      }[] = [];
-
-      for (const runId of adopted.keys()) {
-        const record = await readRun(store, runId);
-        const dispatched =
-          record?.status === "suspended" ? await queue.adopt(runId) : null;
-        if (!(dispatched && record)) {
-          this.#scopes.forget(runId);
-          await this.#runs.release(runId);
-          continue;
-        }
-        print(`[run] ${record.step} recovered ${runId}`);
-        recovered.push({
-          createdAt: record.timestamps.createdAt,
-          dispatched,
-          name: record.step,
-        });
-        await router.adopt(record.step, runId);
-      }
       await this.interactions.restore();
       await feed
         .cancelAbandoned()
         .catch((error: unknown) => print(`[feed] ${String(error)}`));
-      const listing = new RunListing(store);
-      await listing.load();
-      for (const { dispatched } of recovered) {
-        listing.add(dispatched.id);
-      }
-      this.#running = { held, listing, queue, router, store };
-      for (const { createdAt, name, dispatched } of recovered) {
-        await this.#executions
-          .adoptSuspended({ createdAt, id: dispatched.id, name })
-          .catch((error: unknown) =>
-            print(
-              `[state] run ${dispatched.id} has no record: ${String(error)}`
-            )
-          );
-        this.#launcher.follow(dispatched.id, held.follow(name, dispatched));
-      }
+      this.#running = running;
+      this.#definitions.registerAll(running);
       await this.#delivery.start();
       this.#phase = "started";
-      await this.#recover(
-        new Set(recovered.map(({ dispatched }) => dispatched.id)),
-        statuses
-      );
-      const recovery = await this.#crashRecovery.recover({ queue, store });
+      await this.#launcher.recover({
+        fileStatus: (run) =>
+          run.kind === "workflow" ? statuses.get(run.id) : undefined,
+      });
+      const recovery = await this.#crashRecovery.recover({
+        queue: running.queue,
+        store,
+      });
       for (const runId of recovery.closed) {
-        listing.add(runId);
+        running.listed(runId);
       }
       this.#lastRecovery = recovery.report;
       await this.#recoveryLog
@@ -803,7 +545,7 @@ export class Engine {
         try {
           await this.#delivery.stop();
           await this.#launcher.halt(true);
-          await queue?.stop();
+          await running?.stop();
           await this.#launcher.settled();
         } finally {
           for (const scope of this.#scopes) {
@@ -812,9 +554,6 @@ export class Engine {
           }
         }
       } finally {
-        for (const runId of adopted.keys()) {
-          this.#scopes.forget(runId);
-        }
         this.#running = undefined;
         await this.#runs.release().catch(() => undefined);
       }
@@ -823,43 +562,15 @@ export class Engine {
     return this;
   }
 
-  #recover(
-    adopted: ReadonlySet<string>,
-    statuses: ReadonlyMap<string, string>
-  ): Promise<void> {
-    return this.#launcher.recover({
-      adopted,
-      fileStatus: (run) =>
-        run.kind === "workflow" ? statuses.get(run.id) : undefined,
-    });
-  }
-
-  async #dispatch(
+  #dispatch(
     run: ExecutionRun,
     input: unknown,
     signal: AbortSignal
   ): Promise<DispatchedRun> {
-    const { queue } = this.#live();
-    const { correlation } = run;
-    let dispatched: LiveRun;
-    try {
-      dispatched = await queue.run(run.name, input, {
-        runId: run.id,
-        signal,
-        ...("triggerId" in correlation
-          ? { triggerId: correlation.triggerId }
-          : {}),
-      });
-    } catch (error) {
-      await this.#scopes.settle(run.id);
-      throw error;
-    }
-    const { held, listing } = this.#live();
-    listing.add(run.id);
-    return held.follow(run.name, dispatched);
+    return this.#live().dispatch(run, input, signal, callingRun());
   }
 
-  #live(): Running {
+  #live(): QueuedWorkflows {
     if (!this.#running) {
       throw new Error("the engine has not started");
     }
@@ -878,7 +589,7 @@ export class Engine {
     if (await this.interactions.answer(entryId, answer)) {
       return;
     }
-    return this.#live().router.answer(entryId, answer);
+    return this.#live().answer(entryId, answer);
   }
 
   cancel(runId: string): Promise<void> {
@@ -909,45 +620,8 @@ export class Engine {
     return this.scopes.get(runId)?.pause(stepId, reason) ?? false;
   }
 
-  async resume(runId: string, stepId: string, prompt?: string): Promise<void> {
-    const { queue } = this.#live();
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
-    if (this.#retiring || this.#letGo.has(runId)) {
-      throw new QuestionMovingError(runId);
-    }
-    const scope = this.#scopeOf(runId);
-    const pending = await queue.suspensions({ kind: PAUSE_KIND, runId });
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
-    if (this.#retiring || this.#letGo.has(runId)) {
-      throw new QuestionMovingError(runId);
-    }
-    const below = stepId.split(".").slice(1).join(".");
-    const under = (path: string, wanted: string) =>
-      path === wanted || (wanted !== "" && path.startsWith(`${wanted}.`));
-    const suspended = pending.filter(
-      (item) =>
-        under(item.stepPath.join("."), stepId) ||
-        under(item.stepPath.slice(1).join("."), below)
-    );
-    if (suspended.length === 0) {
-      throw new Error(`"${stepId}" is not paused`);
-    }
-    const trimmed = prompt?.trim() || undefined;
-    for (const suspension of suspended) {
-      const frame = scope.frames.get(suspension.stepPath.join("."));
-      if (frame && trimmed !== undefined) {
-        frame.resumePrompt = trimmed;
-      }
-      await queue
-        .resolve(
-          suspension.id,
-          { prompt: trimmed ?? null },
-          { expectedRevision: suspension.revision }
-        )
-        .catch((error: unknown) => {
-          throw movedAway(error, runId);
-        });
-    }
+  resume(runId: string, stepId: string, prompt?: string): Promise<void> {
+    return this.#live().resume(runId, stepId, prompt);
   }
 
   async run<O>(
@@ -971,39 +645,15 @@ export class Engine {
     } else if (this.#phase === "starting") {
       await this.#starting;
     }
-    return await this.launch<O>(this.#directName(definition), input);
+    return await this.launch<O>(
+      this.#definitions.directName(definition, this.#live()),
+      input
+    );
   }
 
   async execute<O>(definition: AnyDefinition, input: unknown): Promise<O> {
     const launched = await this.launchDefinition<O>(definition, input);
     return launched.result;
-  }
-
-  #directName(definition: AnyDefinition): string {
-    const known = this.#directNames.get(definition);
-    if (known !== undefined) {
-      return known;
-    }
-    const { queue } = this.#live();
-    const declared = definition.name;
-    const registered =
-      declared !== undefined &&
-      this.#registry.definitions.get(declared) === definition
-        ? declared
-        : undefined;
-    const name = registered ?? `direct-${crypto.randomUUID()}`;
-    if (registered === undefined) {
-      const register = (target: WorkflowQueue) =>
-        target.register(
-          name,
-          factoryFor(definition, () => this.bindings, this.#scopes, name)
-        );
-      this.#extra.set(name, register);
-      register(queue);
-      this.#directDefinitions.set(name, definition);
-    }
-    this.#directNames.set(definition, name);
-    return name;
   }
 
   readRun(runId: string): Promise<RunView | null> {
@@ -1036,7 +686,7 @@ export class Engine {
       const ended = timestamps.completedAt ?? timestamps.failedAt;
       const unwritten =
         TERMINAL_RUN_STATUSES.has(record.status) &&
-        this.#live().held.workflow(record.id) !== undefined;
+        this.#live().following(record.id);
       return {
         active:
           record.status === "queued" ||
@@ -1061,23 +711,8 @@ export class Engine {
     return this.#lastRecovery;
   }
 
-  async runs(): Promise<readonly RunRecord[]> {
-    const { listing } = this.#live();
-    return (await listing.list()).map((record) => this.#asHeld(record));
-  }
-
-  #asHeld(record: RunRecord): RunRecord {
-    const current = this.#running?.held.workflow(record.id)?.state;
-    if (current === undefined) {
-      return record;
-    }
-    const begun = !(record.status === "running" && current.status === "queued");
-    return {
-      ...record,
-      metadata: { ...record.metadata, workflow: current },
-      snapshot: current.tree ?? record.snapshot,
-      status: begun ? record.status : "queued",
-    };
+  runs(): Promise<readonly RunRecord[]> {
+    return this.#live().records();
   }
 
   schedules(): Promise<readonly Schedule[]> {
@@ -1094,10 +729,7 @@ export class Engine {
 
   async retire(
     successor: ProcessIdentity,
-    options: {
-      readonly onHanded?: (runId: string) => void;
-      readonly onLetGo?: (runId: string) => void;
-    } = {}
+    options: { readonly onHanded?: (runId: string) => void } = {}
   ): Promise<{ readonly ended: Promise<void> }> {
     const running = this.#running;
     if (running === undefined) {
@@ -1105,42 +737,32 @@ export class Engine {
     }
     this.#retiring = true;
     this.#launcher.beginRetiring();
-    running.router.retire();
     await this.#delivery.stop({ grace: 0 }).catch((error: unknown) => {
       this.#print(
         `[engine] the delivery claim was not given up as this engine retires: ${String(error)}`
       );
     });
-    const handedLate = (late: string) => options.onHanded?.(late);
+    const handedLate = (late: string) => {
+      this.#handed.add(late);
+      options.onHanded?.(late);
+    };
     for (const runId of await this.#launcher.handOver(successor, handedLate)) {
-      this.#letGo.add(runId);
+      this.#handed.add(runId);
     }
-    running.queue.on("suspended", (runId) => {
-      if (
-        this.#letGo.has(runId) ||
-        running.held.workflow(runId) === undefined
-      ) {
-        return;
-      }
-      this.#giveBack(running, runId, () => options.onLetGo?.(runId)).catch(
-        (error: unknown) =>
-          this.#print(
-            `[run] ${runId} let go, and not reported: ${String(error)}`
-          )
+    const queueRetired = this.#launcher
+      .dispatched()
+      .then(() => running.retire(successor))
+      .catch((error: unknown) =>
+        this.#print(`[engine] the run queue did not retire: ${String(error)}`)
       );
-    });
-    for (const runId of running.held.withStatus(["suspended"])) {
-      if (!this.#letGo.has(runId)) {
-        await this.#giveBack(running, runId);
-      }
-    }
     const left = () =>
       this.#executions
         .list()
         .some(
           (run) =>
             !(
-              this.#letGo.has(run.id) ||
+              this.#handed.has(run.id) ||
+              run.status === "suspended" ||
               SETTLED_EXECUTION_STATUSES.has(run.status)
             ) && sameProcess(run.owner, thisProcess())
         );
@@ -1154,7 +776,9 @@ export class Engine {
       };
       look();
     });
-    return { ended: runsEnded };
+    return {
+      ended: Promise.all([queueRetired, runsEnded]).then(() => undefined),
+    };
   }
 
   async takeQueued(runId: string, owner: ProcessIdentity): Promise<QueuedTake> {
@@ -1168,152 +792,15 @@ export class Engine {
     return await this.#launcher.takeOrphaned(runId, owner);
   }
 
-  async adopt(runId: string): Promise<boolean> {
-    const running = this.#running;
-    const away = () =>
-      this.#running !== running || this.#phase !== "started" || this.#retiring;
-    if (running === undefined || away()) {
+  async takeHanded(runId: string): Promise<boolean> {
+    if (
+      this.#running === undefined ||
+      this.#phase !== "started" ||
+      this.#retiring
+    ) {
       return false;
     }
-    const handed = await this.#launcher.takeHanded(runId);
-    if (handed !== undefined) {
-      return handed;
-    }
-    const record = await readRun(running.store, runId);
-    if (record?.status !== "suspended" || away()) {
-      return false;
-    }
-    const owed = this.#forgive(runId);
-    let scope: Awaited<ReturnType<typeof adoptSuspendedRun>>;
-    try {
-      scope = await adoptSuspendedRun(record, {
-        askable: this.#askable,
-        print: () => undefined,
-        registered: (name) => this.#registered(name),
-        runs: this.#runs,
-        settled: (id) => this.#executions.storedSettled(id),
-        store: running.store,
-      });
-    } catch (error) {
-      if (owed !== undefined) {
-        await this.#giveBack(running, runId, owed.released);
-      }
-      throw error;
-    }
-    if (scope === undefined) {
-      if (owed !== undefined) {
-        await this.#giveBack(running, runId, owed.released);
-      }
-      return false;
-    }
-    this.#scopes.recover(runId, scope);
-    this.#letGo.delete(runId);
-    let dispatched: LiveRun | null;
-    try {
-      if (away()) {
-        throw new Error("this engine began to retire");
-      }
-      if (!(await this.#executions.takeReleased(runId))) {
-        throw new Error("its execution run is not suspended");
-      }
-      if (away()) {
-        throw new Error("this engine began to retire");
-      }
-      dispatched = await running.queue.adopt(runId);
-      if (dispatched === null) {
-        throw new Error("it is no longer suspended in the store");
-      }
-      if (away()) {
-        throw new Error("this engine began to retire");
-      }
-      await running.router.adopt(record.step, runId);
-      if (away()) {
-        throw new Error("this engine began to retire");
-      }
-    } catch (error) {
-      this.#scopes.forget(runId);
-      running.queue.forget(runId);
-      await this.#giveBack(running, runId);
-      if (away()) {
-        this.#print(
-          `[run] ${record.step} ${runId} given back: this engine began to retire as it took it over`
-        );
-        return false;
-      }
-      throw new Error(`run ${runId} was not taken over: ${String(error)}`, {
-        cause: error,
-      });
-    }
-    this.#print(`[run] ${record.step} taken over ${runId}`);
-    running.listing.add(runId);
-    this.#launcher.follow(runId, running.held.follow(record.step, dispatched));
-    return true;
-  }
-
-  async #giveBack(
-    running: Running,
-    runId: string,
-    released?: () => void
-  ): Promise<void> {
-    this.#letGo.add(runId);
-    running.router.letGo(runId);
-    const before = this.#forgive(runId);
-    const tell = released ?? before?.released;
-    const owed: OwedRelease = {
-      ...(tell === undefined ? {} : { released: tell }),
-      said: false,
-    };
-    this.#owed.set(runId, owed);
-    await this.#release(runId, owed, RELEASE_RETRY_MS);
-  }
-
-  #forgive(runId: string): OwedRelease | undefined {
-    const owed = this.#owed.get(runId);
-    if (owed !== undefined) {
-      clearTimeout(owed.timer);
-      this.#owed.delete(runId);
-    }
-    return owed;
-  }
-
-  async #release(
-    runId: string,
-    owed: OwedRelease,
-    delay: number
-  ): Promise<void> {
-    if (this.#owed.get(runId) !== owed) {
-      return;
-    }
-    try {
-      await this.#runs.release(runId);
-    } catch (error) {
-      if (this.#owed.get(runId) !== owed) {
-        return;
-      }
-      if (this.#released) {
-        this.#owed.delete(runId);
-        return;
-      }
-      if (!owed.said) {
-        owed.said = true;
-        this.#print(
-          `[run] ${runId} not let go: ${String(error)}; it stays claimed here, unanswered, and is tried again`
-        );
-      }
-      owed.timer = setTimeout(() => {
-        this.#release(
-          runId,
-          owed,
-          Math.min(delay * 2, RELEASE_RETRY_MAX_MS)
-        ).catch(() => undefined);
-      }, delay);
-      owed.timer.unref?.();
-      return;
-    }
-    if (this.#owed.get(runId) === owed) {
-      this.#owed.delete(runId);
-      owed.released?.();
-    }
+    return (await this.#launcher.takeHanded(runId)) ?? false;
   }
 
   stop(options?: { readonly cancel?: boolean }): Promise<void> {
@@ -1341,21 +828,11 @@ export class Engine {
     return this.#cancelStopping().then(() => stopping);
   }
 
-  async #stop(
-    { held, queue, router }: Running,
-    cancel: boolean
-  ): Promise<void> {
+  async #stop(running: QueuedWorkflows, cancel: boolean): Promise<void> {
     let cancelling = cancel;
     let halted = false;
     let ended = false;
-    const cancelHeld = async (): Promise<void> => {
-      const doomed = this.#runs.durable
-        ? ["queued", "running"]
-        : ["queued", "running", "suspended"];
-      await Promise.all(
-        held.withStatus(doomed).map((runId) => queue.cancelRun(runId))
-      );
-    };
+    const cancelHeld = () => running.cancelHeld();
     this.#cancelStopping = async () => {
       if (cancelling || ended) {
         return;
@@ -1372,29 +849,23 @@ export class Engine {
       }
       await this.#delivery.stop();
       await this.interactions.close();
-      if (!this.#runs.durable) {
-        await router.cancelOpen();
-      }
+      await running.cancelQuestions();
       await this.#launcher.halt(cancel);
       halted = true;
       if (cancelling) {
         await cancelHeld();
       }
       await this.#executions.drained();
-      await queue.drain();
+      await running.drain();
       await this.#launcher.settled();
-      await held.settle();
+      await running.settle();
     } finally {
       ended = true;
       try {
-        await queue.stop();
+        await running.stop();
         await this.#executions.flush();
         await this.#executions.retrySettlements();
       } finally {
-        this.#released = true;
-        for (const runId of [...this.#owed.keys()]) {
-          this.#forgive(runId);
-        }
         await this.#runs.release();
       }
     }
@@ -1404,7 +875,7 @@ export class Engine {
     runId: string,
     signal?: AbortSignal
   ): ReadableStream<ChannelMessage> | undefined {
-    return this.#running?.held.workflow(runId)?.root.subscribe(signal);
+    return this.#running?.stream(runId, signal);
   }
 
   async #listModels(): Promise<void> {

@@ -72,7 +72,7 @@ describe("an engine that has begun to retire", () => {
     expect(started).toEqual(["active"]);
   });
 
-  it("refuses to resume a paused run once retirement began, before that run is let go", async () => {
+  it("answers a paused run once retirement began, and leaves the resumed run to a live engine", async () => {
     const engine = engineHere();
     const entered = Promise.withResolvers<void>();
     const observing = Promise.withResolvers<void>();
@@ -102,12 +102,17 @@ describe("an engine that has begun to retire", () => {
     await new Tasks({ store: engine.taskStore }).create({ title: "held" });
     await entered.promise;
     const retiring = engine.retire(successor());
-    await expect(engine.resume(run.id, "paused")).rejects.toMatchObject({
-      name: "QuestionMovingError",
-    });
-    expect(resumed).toEqual(["entered"]);
     observing.resolve();
-    await retiring;
+    await (await retiring).ended;
+    await engine.resume(run.id, "paused");
+    expect(engine.executions.get(run.id)?.status).toBe("suspended");
+    await vi.waitFor(async () =>
+      expect(
+        (await engine.runs()).find((each) => each.id === run.id)?.status
+      ).toBe("queued")
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(resumed).toEqual(["entered"]);
   });
 
   it("hands its queued runs over without waiting for an observer, and ends once its runs have, the observer still running", async () => {

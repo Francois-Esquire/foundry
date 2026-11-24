@@ -16,6 +16,7 @@ import {
 import type { Schedule } from "~/lib/triggers";
 
 const REFUSED = /^refused-(\d+)-/;
+const SUSPENDED_POLL_MS = 250;
 
 const refusedJob = (key: string) => `refused-${String(Date.now())}-${key}`;
 
@@ -26,7 +27,6 @@ export function refusedAt(jobId: string): number | undefined {
 
 export interface DispatcherOptions {
   readonly cancel: AbortSignal;
-  readonly letGo?: AbortSignal;
   readonly print: (line: string) => void;
 }
 
@@ -84,19 +84,19 @@ export class ScheduleDispatcher {
 
   async drain(): Promise<void> {
     this.stop();
-    const { letGo } = this.#options;
-    const released = Promise.withResolvers<void>();
-    const release = () => released.resolve();
-    letGo?.addEventListener("abort", release, { once: true });
-    try {
-      while (this.#open.size > 0 && letGo?.aborted !== true) {
-        await Promise.race([
-          Promise.allSettled([...this.#open.values()]),
-          released.promise,
-        ]);
+    for (;;) {
+      const running = [...this.#open]
+        .filter(
+          ([id]) => this.#engine.executions.get(id)?.status !== "suspended"
+        )
+        .map(([, ending]) => ending);
+      if (running.length === 0) {
+        return;
       }
-    } finally {
-      letGo?.removeEventListener("abort", release);
+      await Promise.race([
+        Promise.allSettled(running),
+        new Promise((resolve) => setTimeout(resolve, SUSPENDED_POLL_MS)),
+      ]);
     }
   }
 

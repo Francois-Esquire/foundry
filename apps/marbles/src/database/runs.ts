@@ -40,16 +40,6 @@ import { readRun, runEventsOf, runStoreEffect } from "~/lib/workflow-runs";
 
 const RUNS_KEY = sourceKey(RUNS) ?? "runs";
 
-class RunMovedError extends Error {
-  override readonly name = "RunMovedError";
-
-  constructor(runId: string) {
-    super(
-      `run ${runId} is not held by this engine any more; the engine that holds it changes it`
-    );
-  }
-}
-
 export interface DatabaseRunStoreOptions {
   readonly changes?: ChangeRecorder;
   readonly database: StoreDatabase;
@@ -68,7 +58,6 @@ export class DatabaseRunStore implements RunStore {
   readonly #scope: string;
   readonly #changes: ChangeRecorder;
   readonly #owner = randomUUID();
-  readonly #letGo = new Set<string>();
   readonly #gate = new RecordsGate("the run store is closed");
 
   constructor(options: DatabaseRunStoreOptions) {
@@ -78,18 +67,14 @@ export class DatabaseRunStore implements RunStore {
   }
 
   claim(runId: string, when: ClaimCondition): Promise<boolean> {
-    return this.#call(async () => {
-      const claimed: boolean = await claimJudged<boolean, boolean>(
+    return this.#call(() =>
+      claimJudged<boolean, boolean>(
         () => this.#ownerOf(this.#database, runId),
         (seen) => seen !== undefined && this.#heldElsewhere(seen),
         (seen, held) => this.#claimIn(runId, when, seen, held),
         false
-      );
-      if (claimed) {
-        this.#letGo.delete(runId);
-      }
-      return claimed;
-    });
+      )
+    );
   }
 
   async #ownerOf(
@@ -211,9 +196,6 @@ export class DatabaseRunStore implements RunStore {
   }
 
   release(runId?: string): Promise<void> {
-    if (runId !== undefined) {
-      this.#letGo.add(runId);
-    }
     return this.#call(async () => {
       await this.#database
         .update(marblesWorkflowRuns)
@@ -265,17 +247,6 @@ export class DatabaseRunStore implements RunStore {
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
     for (const { runId, scope, settled } of filedRuns(write, recorded)) {
-      if (this.#letGo.has(runId)) {
-        throw new RunMovedError(runId);
-      }
-      const held = await this.#ownerOf(transaction, runId);
-      if (
-        held !== undefined &&
-        held.ownerId !== null &&
-        held.ownerId !== this.#owner
-      ) {
-        throw new RunMovedError(runId);
-      }
       const owner = settled ? NO_OWNER : this.#owned();
       const recording =
         scope === undefined
@@ -355,36 +326,4 @@ export class DatabaseRunStore implements RunStore {
   #call<T>(call: () => Promise<T>): Promise<T> {
     return this.#gate.run(() => asBusy(call));
   }
-}
-
-export async function unheldSuspendedRuns(
-  database: StoreDatabase,
-  scope: string
-): Promise<readonly string[]> {
-  const store = makeSqliteQueueStore({ database, scope });
-  const suspended = (
-    await asBusy(() => runStoreEffect(store.listRuns({ state: "suspended" })))
-  ).map((run) => run.id);
-  if (suspended.length === 0) {
-    return [];
-  }
-  const rows = await asBusy(() =>
-    database
-      .select({
-        ownerPid: marblesWorkflowRuns.ownerPid,
-        ownerStarted: marblesWorkflowRuns.ownerStarted,
-        runId: marblesWorkflowRuns.runId,
-      })
-      .from(marblesWorkflowRuns)
-      .where(
-        and(
-          eq(marblesWorkflowRuns.scope, scope),
-          inList(marblesWorkflowRuns.runId, suspended)
-        )
-      )
-  );
-  const held = new Set(
-    rows.filter((row) => heldBy(row) !== null).map((row) => row.runId)
-  );
-  return suspended.filter((runId) => !held.has(runId));
 }

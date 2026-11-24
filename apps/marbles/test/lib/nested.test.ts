@@ -143,7 +143,7 @@ it("nested questions recover in the parent run after a restart", async () => {
   }
 });
 
-it("parallel nested calls resume without restarting a sibling still running", async () => {
+it("parallel nested calls resume from the checkpoint, running again a sibling the suspension cut off", async () => {
   let finish!: () => void;
   const gate = new Promise<void>((resolve) => {
     finish = resolve;
@@ -166,7 +166,7 @@ it("parallel nested calls resume without restarting a sibling still running", as
     await engine.answer(pending.id, "yes");
     finish();
     await expect(launched.result).resolves.toEqual(["slow", "yes"]);
-    expect(calls).toBe(1);
+    expect(calls).toBe(2);
   } finally {
     finish();
   }

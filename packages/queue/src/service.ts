@@ -74,7 +74,6 @@ export interface QueueService {
     id: RunId,
     error: ErrorShape
   ) => Effect.Effect<Run, QueueError>;
-  readonly adopt: (id: RunId) => Effect.Effect<Run, QueueError>;
   readonly awaitJob: (id: JobId) => Effect.Effect<Job, QueueError>;
   readonly cancel: (
     id: JobId | RunId,

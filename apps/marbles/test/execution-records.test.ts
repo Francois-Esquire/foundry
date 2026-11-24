@@ -55,14 +55,14 @@ it("shows a run it takes over with the observations another engine recorded", as
     updatedAt: at(),
   });
 
-  expect(await second.takeReleased(run.id)).toBe(true);
+  expect(await second.takeUp(run.id)).toBe(true);
 
   const taken = second.get(run.id);
   expect(taken?.observations.map(({ id }) => id)).toEqual(["ob-1"]);
   const stored = (await store.get(run.id))?.value as { revision?: number };
   expect(taken).toMatchObject({
     revision: stored.revision,
-    status: "suspended",
+    status: "running",
   });
 });
 

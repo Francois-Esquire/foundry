@@ -51,7 +51,7 @@ export class Capacity {
   hasRoom(name: PoolName): boolean {
     const pool = this.poolOf(name);
     return (
-      !(this.admission.paused || this.admission.retiring) &&
+      !this.admission.paused &&
       pool.state === "active" &&
       this.activeIn(pool.name) < pool.limit
     );
@@ -60,7 +60,8 @@ export class Capacity {
   owns(run: Run): boolean {
     return (
       run.state.kind === "queued" &&
-      (run.state.owner === undefined || this.pins(run))
+      (this.pins(run) ||
+        (run.state.owner === undefined && !this.admission.retiring))
     );
   }
 

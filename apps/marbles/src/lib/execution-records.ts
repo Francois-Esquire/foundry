@@ -434,18 +434,22 @@ export class ExecutionRecords {
     });
   }
 
-  async takeReleased(id: string): Promise<boolean> {
+  async takeUp(id: string): Promise<boolean> {
     const written = await this.#persist(() =>
       this.#store.transaction(async (view): Promise<Written> => {
         const stored = this.#parse(await view.get(id));
-        if (stored?.status !== "suspended") {
+        const free =
+          stored?.status === "suspended" ||
+          (stored?.status === "running" &&
+            sameProcess(stored.owner, thisProcess()));
+        if (!(stored && free)) {
           return { applied: false, record: stored };
         }
         return await view.transition(id, {
-          from: ["suspended"],
+          from: [stored.status],
           newOwner: thisProcess(),
           owner: stored.owner,
-          status: "suspended",
+          status: "running",
           updatedAt: now(),
         });
       })
@@ -624,7 +628,6 @@ export class ExecutionRecords {
   }
 
   async recover(options: {
-    readonly adopted: ReadonlySet<string>;
     readonly fileStatus?: (run: ExecutionRun) => string | undefined;
     readonly readmit: (run: ExecutionRun) => boolean;
   }): Promise<readonly ExecutionRun[]> {
@@ -632,8 +635,7 @@ export class ExecutionRecords {
     const orphans = this.list().filter(
       (run) =>
         !SETTLED_EXECUTION_STATUSES.has(run.status) &&
-        (options.adopted.has(run.id) ||
-          isGone(run.owner) ||
+        (isGone(run.owner) ||
           (run.status === "queued" && sameProcess(run.owner, thisProcess())))
     );
     for (const orphan of orphans) {
@@ -907,25 +909,12 @@ function recovered(
   options: Parameters<ExecutionRecords["recover"]>[0],
   judgedGone: boolean
 ): { readonly change: LifecycleChange; readonly readmit: boolean } | undefined {
-  const ours = options.adopted.has(run.id);
-  if (SETTLED_EXECUTION_STATUSES.has(run.status) || !(ours || judgedGone)) {
+  if (SETTLED_EXECUTION_STATUSES.has(run.status) || !judgedGone) {
     return;
   }
   const at = now();
   const from = [run.status];
   const { owner } = run;
-  if (ours) {
-    return {
-      change: {
-        from,
-        newOwner: thisProcess(),
-        owner,
-        status: run.status === "running" ? "suspended" : run.status,
-        updatedAt: at,
-      },
-      readmit: false,
-    };
-  }
   if (run.status === "queued") {
     return options.readmit(run)
       ? {

@@ -15,7 +15,6 @@ const SETTLE_POLL_MS = 1000;
 
 export interface ScheduleLoopOptions {
   readonly cancel?: AbortSignal;
-  readonly letGo?: AbortSignal;
   readonly print: (line: string) => void;
   readonly signal: AbortSignal;
 }
@@ -43,7 +42,6 @@ export async function runScheduler(
   const store = await engine.triggers.schedules();
   const dispatcher = new ScheduleDispatcher(engine, {
     cancel: options.cancel ?? signal,
-    ...(options.letGo === undefined ? {} : { letGo: options.letGo }),
     print,
   });
   const stop = () => dispatcher.stop();

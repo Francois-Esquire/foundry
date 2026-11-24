@@ -950,10 +950,7 @@ describe("delivery lifecycle", () => {
     await tasks.create({ title: "Before" });
     await vi.waitFor(() => expect(calls).toEqual(["old:Before"]));
 
-    const letGo: string[] = [];
-    await older.retire(thisProcess(), {
-      onLetGo: (runId) => letGo.push(runId),
-    });
+    await older.retire(thisProcess());
     const key = { name: "notify", source: "tasks" };
     expect(
       await olderRecords.log.fail(key, {
@@ -976,7 +973,6 @@ describe("delivery lifecycle", () => {
       timeout: DELIVERY_POLL_MS * 5,
     });
     expect(calls).toEqual(["old:Before", "new:After"]);
-    expect(letGo).toEqual([]);
     expect((await places(state))[0]).toMatchObject({
       failures: 0,
       name: "notify",

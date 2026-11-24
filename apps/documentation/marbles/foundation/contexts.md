@@ -83,11 +83,11 @@ A separately constructed client does not automatically gain Marbles' bindings.
 
 `ask.approval(...)` waits for a decision, and `ask.question(...)` waits for
 input. The dashboard presents these requests and returns the person's answer
-to the callback. A waiting step is **parked** until it can continue.
+to the callback. A waiting step is **suspended** until it can continue.
 
 Use the dashboard for work that asks questions. `roll` and headless `run`
-cannot answer: through the Marbles process the run parks until a dashboard
-answers, and under `--dry-run` it is cancelled at the ask. How a parked
+cannot answer: through the Marbles process the run suspends until a dashboard
+answers, and under `--dry-run` it is cancelled at the ask. How a suspended
 body continues, including after a restart, is explained later in
 [Durability](/marbles/foundation/durability).
 

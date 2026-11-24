@@ -136,6 +136,15 @@ export class Executions extends ExecutionRecords implements ExecutionRuns {
     this.#lane(run.queue).active.add(id);
   }
 
+  override async takeUp(id: string): Promise<boolean> {
+    const taken = await super.takeUp(id);
+    const run = taken ? this.get(id) : undefined;
+    if (run) {
+      this.#lane(run.queue).active.add(id);
+    }
+    return taken;
+  }
+
   async withdraw(id: string): Promise<boolean> {
     const run = this.get(id);
     if (run?.status !== "queued") {

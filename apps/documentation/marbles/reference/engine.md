@@ -162,10 +162,10 @@ workspace's tasks, is described [below](#tasks).
 
 [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
 provides the orchestrator and step execution. Marbles adds run-owned
-sessions, resources, and the saved ledger used when a parked run replays.
+sessions, resources, and the saved ledger used when a suspended run replays.
 The [durability contract](/marbles/foundation/durability) still applies when
 you embed the engine; the library's broader recovery APIs do not change
-Marbles' adoption rules.
+Marbles' recovery rules.
 
 The example above deliberately keeps everything in memory. Supplying
 `state` enables run persistence, the default persistent trigger store, and
@@ -173,8 +173,8 @@ The example above deliberately keeps everything in memory. Supplying
 provide a persistent session store and artifact store with durable bytes
 separately. Persisting run records alone cannot retain agent transcripts
 or report files. Set `askable: true` only when the host can present and
-answer questions. Define the same named work before `start()` so parked
-runs can be adopted.
+answer questions. Define the same named work before `start()` so suspended
+runs can resume.
 
 ## Tasks
 
@@ -284,7 +284,7 @@ try {
     artifacts: marbles.artifacts,
     askable: false, // true when something in this process can answer `ask`
     prepare(engine) {
-      // Before the engine starts, which is what adopts parked runs.
+      // Before the engine starts, which is what puts suspended runs' questions on the Feed.
       if (engine.state !== undefined) {
         claim = claimProcess(engine.state, { config: source, host: "worker" });
       }
@@ -330,12 +330,12 @@ source is relative to, which is the workspace's root without one. `cwd`
 sets where the workspace's runs start and its commands run, the root when
 omitted. Claim the workspace's state directory
 (`engine.state`, which is `<state>/<workspace-id>`) inside `prepare`, so
-the engine starts only once the claim holds, and two programs hosting the
-same workspace themselves never adopt the same parked runs. The Marbles
-process claims no workspace directory: its engine generations take each
-parked run by a claim on its row in the Marbles database instead, and one
-of them hosting the workspace while your program does is not refused by
-the lock. A live
+the engine starts only once the claim holds, and two programs never host
+the same workspace at once. The Marbles process claims no workspace
+directory: its engine generations share the workspace's runs through the
+Marbles database instead, where any of them can answer a suspended run, and
+one of them hosting the workspace while your program does is not refused
+by the lock. A live
 holder throws `ProcessHeldError`, naming who has it; a lock left by an
 exited process is taken over. Pass `dry: true` to persist nothing.
 `watchSource(configPath, { onChange, signal })` polls the

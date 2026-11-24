@@ -20,7 +20,7 @@ process's environment and permissions.
 | Git command through workspace helpers | Print the command. |
 | Context `exec` or sandbox command | Print the command; return exit 0 with empty output. |
 | Run, session, trigger, grant, and artifact writes | Keep them in memory for this process. |
-| Parked run at quit | Cancel it. |
+| Suspended run at quit | Cancel it. |
 
 An empty successful command result cannot exercise failure handling or
 code that expects real command output.
@@ -56,8 +56,8 @@ across your machine.
 ## Continuity has boundaries
 
 State is saved to disk. Run history, trigger observations, sessions, and artifacts
-survive separate invocations. A run parked on a question or a pause survives a quit, a crash, or a kill, and is
-adopted by the next dashboard that can answer it. A run that was mid-body when
+survive separate invocations. A run suspended on a question or a pause survives a quit, a crash, or a kill, and
+resumes once a later dashboard answers it. A run that was mid-body when
 its process stopped is not resumed. Its last saved snapshot remains, but
 newer progress may not have reached disk; `status` marks saved running
 records orphaned. Cancellation stops what Marbles opened and cannot

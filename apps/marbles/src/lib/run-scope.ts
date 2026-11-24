@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
+import { parseSuspensionOccurrenceKey } from "@foundry/workflows/executable";
 import type { Step } from "@foundry/workflows/step";
 import type { Bindings, HostBindings } from "./bindings";
 import type { AnyDefinition } from "./definition";
@@ -57,6 +58,43 @@ export interface RecordedScope {
   readonly session: SessionRef;
 }
 
+export type Resolutions = ReadonlyMap<string, unknown>;
+
+function pauseAnswers(
+  resolutions: Resolutions
+): ReadonlyMap<string, readonly unknown[]> {
+  const indexed = new Map<string, [number, unknown][]>();
+  for (const [key, value] of resolutions) {
+    const parsed = parseSuspensionOccurrenceKey(key);
+    const index = parsed?.name.startsWith(`${PAUSE_KIND}:`)
+      ? Number(parsed.name.slice(PAUSE_KIND.length + 1))
+      : Number.NaN;
+    if (parsed === undefined || !Number.isSafeInteger(index)) {
+      continue;
+    }
+    const frame = parsed.stepPath.join(".");
+    indexed.set(frame, [...(indexed.get(frame) ?? []), [index, value]]);
+  }
+  return new Map(
+    [...indexed].map(([frame, answers]) => [
+      frame,
+      answers.sort(([one], [other]) => one - other).map(([, value]) => value),
+    ])
+  );
+}
+
+function promptOf(answer: unknown): string | undefined {
+  if (typeof answer !== "object" || answer === null) {
+    return;
+  }
+  const prompt: unknown = Reflect.get(answer, "prompt");
+  return typeof prompt === "string" && prompt !== "" ? prompt : undefined;
+}
+
+export type StoredScopes = (
+  runId: string
+) => Promise<RecordedScope | undefined>;
+
 export class RunScope {
   readonly controller = new AbortController();
   readonly cwd: string;
@@ -66,15 +104,19 @@ export class RunScope {
   readonly ledger: Ledger;
   readonly literals = new Map<string, Literal>();
   readonly session: SessionRef;
+  readonly #answers: ReadonlyMap<string, readonly unknown[]>;
+  #ended: Promise<void> | undefined;
   #root: Step | undefined;
 
   constructor(
     id: string,
     cwd: string,
     host: HostBindings = {},
-    previous?: RecordedScope
+    previous?: RecordedScope,
+    resolutions: Resolutions = new Map()
   ) {
     this.id = id;
+    this.#answers = pauseAnswers(resolutions);
     this.cwd = cwd;
     this.host = host;
     this.ledger = new Ledger(previous?.ledger);
@@ -229,6 +271,33 @@ export class RunScope {
     return frames.length > 0;
   }
 
+  pauseName(frame: Frame): string {
+    return `${PAUSE_KIND}:${String(this.#answers.get(frame.key)?.length ?? 0)}`;
+  }
+
+  offerResumePrompt(frame: Frame): void {
+    const answers = this.#answers.get(frame.key) ?? [];
+    const taken = this.ledger.get<number>(this.#resumeKey(frame)) ?? 0;
+    frame.resumePrompt =
+      answers.length > taken ? promptOf(answers.at(-1)) : undefined;
+  }
+
+  takeResumePrompt(frame: Frame): string | undefined {
+    const prompt = frame.resumePrompt;
+    frame.resumePrompt = undefined;
+    if (prompt !== undefined) {
+      this.ledger.set(
+        this.#resumeKey(frame),
+        this.#answers.get(frame.key)?.length ?? 0
+      );
+    }
+    return prompt;
+  }
+
+  #resumeKey(frame: Frame): string {
+    return `${PAUSE_KIND}:${frame.key}`;
+  }
+
   subtree(stepId: string): readonly Frame[] {
     const prefix = `${stepId}.`;
     return [...this.frames.values()].filter(
@@ -265,6 +334,17 @@ export class RunScope {
     return { key: Ledger.key(frame.path, kind, occurrence), occurrence };
   }
 
+  end(): Promise<void> {
+    this.#ended ??= (async () => {
+      this.abort(new Error(`run ${this.id}'s attempt ended`));
+      await Promise.allSettled(
+        [...this.frames.values()].flatMap((frame) => frame.detached)
+      );
+      await this.settle();
+    })();
+    return this.#ended;
+  }
+
   async settle(): Promise<void> {
     for (const frame of [...this.frames.values()].reverse()) {
       for (const handle of [...frame.opened].reverse()) {
@@ -285,29 +365,27 @@ export interface ReadonlyRunScopes extends Iterable<RunScope> {
 
 export class RunScopes implements ReadonlyRunScopes {
   readonly #live = new Map<string, RunScope>();
-  readonly #recovered = new Map<string, RecordedScope>();
+  readonly #stored: StoredScopes;
 
-  recover(runId: string, state: RecordedScope): void {
-    this.#recovered.set(runId, state);
+  constructor(stored: StoredScopes = () => Promise.resolve(undefined)) {
+    this.#stored = stored;
   }
 
   async open(
     id: string,
     cwd: string,
     host: HostBindings | undefined,
-    build: (scope: RunScope) => Promise<Step>
+    build: (scope: RunScope) => Promise<Step>,
+    resolutions?: Resolutions
   ): Promise<Step> {
-    const previous = this.#recovered.get(id);
-    this.#recovered.delete(id);
-    const scope = new RunScope(id, cwd, host, previous);
+    const previous = this.#live.get(id);
+    await previous?.end();
+    const recorded = (await this.#stored(id)) ?? previous?.recorded();
+    const scope = new RunScope(id, cwd, host, recorded, resolutions);
     const root = await build(scope);
     scope.attach(root);
     this.#live.set(id, scope);
     return root;
-  }
-
-  forget(runId: string): void {
-    this.#recovered.delete(runId);
   }
 
   get(runId: string): RunScope | undefined {

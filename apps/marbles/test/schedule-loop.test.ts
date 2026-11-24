@@ -264,28 +264,24 @@ describe("the schedule loop", { timeout: 20_000 }, () => {
     expect(engine.executions.get(jobId)?.status).toBe("cancelled");
   });
 
-  it("stops waiting for the runs it started once let go, leaving them running", async () => {
-    const started = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    step("hold").do(async () => {
-      started.resolve();
-      await release.promise;
-    });
-    const engine = await engineWith(every("hold", 50));
-    const letGo = new AbortController();
+  it("stops waiting for a run it started once that run is suspended, leaving it suspended", async () => {
+    step("hold").do(({ ask }) => ask.question({ title: "Go on?" }));
+    const engine = await startEngine({ askable: true, print: () => undefined });
+    engines.push(engine);
+    engine.schedule(every("hold", 50));
     const cancel = new AbortController();
-    const scheduler = startScheduler(engine, {
-      cancel: cancel.signal,
-      letGo: letGo.signal,
-    });
-    await started.promise;
-    letGo.abort();
+    const scheduler = startScheduler(engine, { cancel: cancel.signal });
+    const jobOf = async () => {
+      const [occurrence] = await occurrencesOf(engine, "hold");
+      return occurrence?.state.kind === "dispatched"
+        ? occurrence.state.jobId
+        : "";
+    };
+    await vi.waitFor(async () =>
+      expect(engine.executions.get(await jobOf())?.status).toBe("suspended")
+    );
     await scheduler.stop();
-    const [occurrence] = await occurrencesOf(engine, "hold");
-    const jobId =
-      occurrence?.state.kind === "dispatched" ? occurrence.state.jobId : "";
-    expect(engine.executions.get(jobId)?.status).toBe("running");
-    release.resolve();
+    expect(engine.executions.get(await jobOf())?.status).toBe("suspended");
   });
 
   it("starts a monitor's launch once its detector ended, and polls again a delay after the detector", async () => {

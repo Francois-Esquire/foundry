@@ -194,7 +194,6 @@ it.each([
     await executions.load();
 
     await executions.recover({
-      adopted: new Set(),
       fileStatus: () => file,
       readmit: () => false,
     });
@@ -224,7 +223,6 @@ it("readmits a queued run only once its new owner is on disk", async () => {
   store.transaction = () => Promise.reject(new Error("disk full"));
 
   const readmitted = await executions.recover({
-    adopted: new Set(),
     readmit: () => true,
   });
 
@@ -249,9 +247,7 @@ it("lets one of two engines taking over an exited process's queued run admit it"
     await executions.load();
   }
   const readmitted = await Promise.all(
-    engines.map((executions) =>
-      executions.recover({ adopted: new Set(), readmit: () => true })
-    )
+    engines.map((executions) => executions.recover({ readmit: () => true }))
   );
   expect(readmitted.flat().map((run) => run.id)).toEqual(["rn-queued"]);
 });

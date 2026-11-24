@@ -18,7 +18,7 @@ Create `.foundry/marbles/_factory/approve.ts`:
 
 </details>
 
-The ask happens before the decision write. If the run parks, Marbles can
+The ask happens before the decision write. If the run suspends, Marbles can
 replay that step with the recorded answer. Earlier implementation and
 verification results stay in the issue's artifact.
 
