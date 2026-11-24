@@ -279,13 +279,13 @@ export class Worktree extends Git {
   }
 }
 
-export interface GitCapable {
+export interface GitCapabilities {
   readonly git: Git;
 }
 
 export function git(
   options: GitOptions = {}
-): WorkspaceExtension<never, unknown, Partial<GitCapable>> {
+): WorkspaceExtension<never, unknown, Partial<GitCapabilities>> {
   return {
     applies: (registration) => Git.isRepository(registration.source.path),
     attach: ({ registration }) => ({
@@ -356,7 +356,7 @@ function parsePorcelainV2Entry(
   if (token.startsWith("? ")) {
     return {
       consumedNext: false,
-      file: { index: "?", path: token.slice(2), working_dir: "?" },
+      file: { index: "?", path: token.slice(2), worktree: "?" },
     };
   }
   const [kind] = token;
@@ -372,7 +372,7 @@ function parsePorcelainV2Entry(
       from: consumedNext ? nextToken : undefined,
       index: token[2] ?? ".",
       path,
-      working_dir: token[3] ?? ".",
+      worktree: token[3] ?? ".",
     },
   };
 }
@@ -440,7 +440,7 @@ interface RawFileStatus {
   readonly from?: string | undefined;
   readonly index: string;
   readonly path: string;
-  readonly working_dir: string;
+  readonly worktree: string;
 }
 
 function confine(
@@ -471,11 +471,11 @@ function confine(
 
   for (const file of files) {
     const staged = isChanged(file.index);
-    const unstaged = isChanged(file.working_dir);
+    const unstaged = isChanged(file.worktree);
     record(file.path, {
       staged,
       unstaged,
-      untracked: file.index === "?" && file.working_dir === "?",
+      untracked: file.index === "?" && file.worktree === "?",
     });
     if (file.from === undefined) {
       continue;

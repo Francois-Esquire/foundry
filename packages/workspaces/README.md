@@ -13,7 +13,7 @@ The root remains on `WorkspaceSource`; actual file contents are read from storag
 Saves accept `expectedDigest` for the version last read.
 
 File classification, kinds, and their constants live in `@foundry/lib/file-classification`.
-Package constants live in `@foundry/workspaces/constants`; Node watcher constants stay under `src/node/constants.ts`.
+`DIRECTORY_SOURCE` is exported from `@foundry/workspaces`; internal ignore constants live in `src/constants.ts` and `src/node/constants.ts`.
 
 The root `Workspace` class owns identity, the catalog, reconciliation, and
 the serialization guarantee. It delegates byte access to a composed

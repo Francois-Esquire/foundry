@@ -127,7 +127,10 @@ export class Workspace {
       return notRegular(entry);
     }
     if (!this.#adapter.readFile) {
-      throw new WorkspaceSourceUnsupportedError(this.source.kind);
+      throw new WorkspaceSourceUnsupportedError(
+        this.source.kind,
+        "reading files"
+      );
     }
     return this.#adapter.readFile(entry);
   }
@@ -140,14 +143,20 @@ export class Workspace {
         return notRegular(file);
       }
       if (!this.#adapter.writeFile) {
-        throw new WorkspaceSourceUnsupportedError(this.source.kind);
+        throw new WorkspaceSourceUnsupportedError(
+          this.source.kind,
+          "writing files"
+        );
       }
       return this.#write(
         file.path,
         command.text,
         (bytes) => {
           if (!this.#adapter.writeFile) {
-            throw new WorkspaceSourceUnsupportedError(this.source.kind);
+            throw new WorkspaceSourceUnsupportedError(
+              this.source.kind,
+              "writing files"
+            );
           }
           return this.#adapter.writeFile(file, bytes, command.expectedDigest);
         },
@@ -163,14 +172,20 @@ export class Workspace {
         return { kind: "failed", reason: "Invalid relative storage path" };
       }
       if (!this.#adapter.insertFile) {
-        throw new WorkspaceSourceUnsupportedError(this.source.kind);
+        throw new WorkspaceSourceUnsupportedError(
+          this.source.kind,
+          "creating files"
+        );
       }
       return this.#write(
         command.path,
         command.text,
         (bytes) => {
           if (!this.#adapter.insertFile) {
-            throw new WorkspaceSourceUnsupportedError(this.source.kind);
+            throw new WorkspaceSourceUnsupportedError(
+              this.source.kind,
+              "creating files"
+            );
           }
           return this.#adapter.insertFile(command.path, bytes);
         },

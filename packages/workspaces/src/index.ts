@@ -8,7 +8,7 @@ export type {
 export { WorkspaceCatalog } from "./catalog";
 export { DIRECTORY_SOURCE } from "./constants";
 export type {
-  DirectoryCapable,
+  DirectoryCapabilities,
   DirectoryOptions,
   DirectoryRef,
 } from "./directory";

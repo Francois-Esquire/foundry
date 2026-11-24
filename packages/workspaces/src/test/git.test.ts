@@ -16,7 +16,7 @@ import { WorkspaceCatalog } from "../catalog";
 import { Workspace } from "../instance";
 import { directorySource } from "../node";
 import type { GitPathStatus } from "../node/git";
-import { Git, git as gitLayer, Worktree } from "../node/git";
+import { Git, git as gitExtension, Worktree } from "../node/git";
 import { MemoryWorkspaceStore } from "../store/memory";
 import { hostWorkspace, seed } from "../testing/records";
 import { interceptCommits } from "./helpers/commits";
@@ -393,7 +393,7 @@ describe("Git.isRepository and Git.open", () => {
 describe("git extension", () => {
   it("applies to a directory Workspace inside a working tree and reads live status", async () => {
     const root = await makeRepository({ "README.md": "hello" });
-    const system = directorySystem().extend(gitLayer());
+    const system = directorySystem().extend(gitExtension());
     const added = await system.load({ path: root });
 
     await writeFile(join(root, "README.md"), "changed outside the workspace");
@@ -414,7 +414,7 @@ describe("git extension", () => {
 
   it("does not apply to an ordinary directory", async () => {
     const root = await makeDirectory({ "README.md": "hello" });
-    const system = directorySystem().extend(gitLayer());
+    const system = directorySystem().extend(gitExtension());
     const added = await system.load({ path: root });
 
     expect(added.git).toBeUndefined();
@@ -424,7 +424,7 @@ describe("git extension", () => {
     const root = await makeRepository({ "README.md": "hello" });
     const runs: string[][] = [];
     const system = directorySystem().extend(
-      gitLayer({
+      gitExtension({
         run: (cwd, args) => {
           runs.push([cwd, ...args]);
           return Promise.resolve("");
@@ -509,7 +509,7 @@ describe("git extension", () => {
   it("does not write while answering", async () => {
     const root = await makeRepository({ "README.md": "hello" });
     const store = new MemoryWorkspaceStore();
-    const system = directorySystem({ store }).extend(gitLayer());
+    const system = directorySystem({ store }).extend(gitExtension());
     const added = await system.load({ path: root });
     const { intercept } = interceptCommits(store);
 

@@ -83,7 +83,7 @@ export function batches<T>(items: readonly T[], size: number): T[][] {
 }
 
 export function excluded(column: SQLiteColumn): SQL {
-  return sql.raw(`excluded."${column.name}"`);
+  return sql.raw(`excluded."${column.name.replaceAll('"', '""')}"`);
 }
 
 export function replacing(

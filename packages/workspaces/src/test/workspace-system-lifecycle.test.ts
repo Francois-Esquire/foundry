@@ -623,4 +623,55 @@ describe("lifecycle", () => {
       missingUnionAttach.name,
     ]).toHaveLength(3);
   });
+
+  it("names the unsupported operation when a source adapter omits file I/O", async () => {
+    const system = new WorkspaceSystem().extend({
+      applies: (registration) => registration.source.kind === "readonly-index",
+      identify: ({ id }: { readonly id: string }) => ({
+        name: id,
+        source: { kind: "readonly-index", path: `idx:${id}`, sourceId: null },
+      }),
+      name: "readonly-index",
+      ref: "id",
+      source: () => ({
+        scan: () =>
+          Promise.resolve([
+            {
+              bytes: 2,
+              digest: "0".repeat(64),
+              extension: "md",
+              kind: "document",
+              mime: "text/markdown",
+              name: "note.md",
+              path: "note.md",
+              type: "file",
+            },
+          ]),
+      }),
+    });
+
+    const workspace = await system.load({ id: "one" });
+    const [file] = await workspace.files();
+    if (!file) {
+      throw new Error("expected indexed file");
+    }
+
+    await expect(workspace.read(file.id)).rejects.toThrow(
+      'Workspace source "readonly-index" does not support reading files'
+    );
+    await expect(
+      workspace.save({
+        expectedDigest: file.digest,
+        fileId: file.id,
+        text: "next",
+      })
+    ).rejects.toThrow(
+      'Workspace source "readonly-index" does not support writing files'
+    );
+    await expect(
+      workspace.createFile({ path: "fresh.md", text: "hi" })
+    ).rejects.toThrow(
+      'Workspace source "readonly-index" does not support creating files'
+    );
+  });
 });

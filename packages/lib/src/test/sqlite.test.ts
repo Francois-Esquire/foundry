@@ -139,6 +139,12 @@ describe("upsert helpers", () => {
     expect(dialect.sqlToQuery(excluded(items.count)).sql).toBe(
       'excluded."item_count"'
     );
+    const quoted = sqliteTable("quoted", {
+      weird: text('a"b').notNull(),
+    });
+    expect(dialect.sqlToQuery(excluded(quoted.weird)).sql).toBe(
+      'excluded."a""b"'
+    );
   });
 
   test("replacing maps every column outside the preserved columns to its excluded value", () => {

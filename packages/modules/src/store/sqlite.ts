@@ -2,6 +2,7 @@ import type { ContentId } from "@foundry/artifacts";
 import {
   assertScope,
   batches,
+  describeNumber,
   replacing,
   SQLITE_MAX_PARAMETERS,
   type SqliteDatabase,
@@ -662,7 +663,7 @@ function checkComposite(value: object, at: string, ancestors: Set<object>) {
 
 function describe(value: unknown): string {
   if (typeof value === "number") {
-    return Object.is(value, -0) ? "-0" : String(value);
+    return describeNumber(value);
   }
   if (typeof value === "string") {
     return JSON.stringify(value);

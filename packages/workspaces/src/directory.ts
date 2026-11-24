@@ -44,7 +44,7 @@ export interface DirectoryOptions<Ref extends object = DirectoryRef> {
   readonly source?: string;
 }
 
-export interface DirectoryCapable {
+export interface DirectoryCapabilities {
   readonly root: string;
 }
 
@@ -196,7 +196,7 @@ export function directorySource<Ref extends object = DirectoryRef>(
 
 export function directory<Ref extends object = DirectoryRef>(
   options: DirectoryOptions<Ref>
-): WorkspaceExtension<Ref, DirectoryCapable> {
+): WorkspaceExtension<Ref, DirectoryCapabilities> {
   const { filesystem } = options;
   const kind = options.source ?? DIRECTORY_SOURCE;
   return {
@@ -276,10 +276,11 @@ async function locateConfined(
 ): Promise<
   { readonly kind: "ok"; readonly resolved: string } | ResolveFailure
 > {
+  const target = expect.expectedType === "directory" ? "directory" : "File";
   if (relativePath !== "" && !isStoragePath(relativePath)) {
     return failure(
       "escape",
-      `Refusing a File path that escapes its Workspace root: ${relativePath}`
+      `Refusing a ${target} path that escapes its Workspace root: ${relativePath}`
     );
   }
 
@@ -330,7 +331,7 @@ async function locateConfined(
   if (!isFilesystemPathWithin(root, resolved, filesystem.separator)) {
     return failure(
       "escape",
-      `Refusing a File that resolves outside its Workspace root: ${relativePath}`
+      `Refusing a ${target} that resolves outside its Workspace root: ${relativePath}`
     );
   }
   return { kind: "ok", resolved };
