@@ -136,10 +136,13 @@ export class WorkspaceSystem<
     return workspace as Workspace & CapOf<Exts> & FloorFor<Exts, R>;
   }
 
-  #openEntry(workspaceId: WorkspaceId): Promise<OpenedWorkspace<Exts>> {
+  #openEntry(
+    workspaceId: WorkspaceId,
+    precomposed?: ComposedWorkspace<Exts>
+  ): Promise<OpenedWorkspace<Exts>> {
     const closing = this.#closing.get(workspaceId);
     if (closing) {
-      return closing.then(() => this.#openEntry(workspaceId));
+      return closing.then(() => this.#openEntry(workspaceId, precomposed));
     }
     const running = this.#opened.get(workspaceId);
     if (running) {
@@ -152,30 +155,7 @@ export class WorkspaceSystem<
       if (!registration) {
         throw new WorkspaceNotFoundError(workspaceId);
       }
-      const composed = await this.#compose(registration);
-      const stop = await this.#start(composed);
-      return {
-        sourceOwner: composed.sourceOwner,
-        stop,
-        workspace: composed.workspace,
-      };
-    });
-  }
-
-  #openComposed(
-    workspaceId: WorkspaceId,
-    composed: ComposedWorkspace<Exts>
-  ): Promise<OpenedWorkspace<Exts>> {
-    const closing = this.#closing.get(workspaceId);
-    if (closing) {
-      return closing.then(() => this.#openComposed(workspaceId, composed));
-    }
-    const running = this.#opened.get(workspaceId);
-    if (running) {
-      return running;
-    }
-
-    return this.#trackOpening(workspaceId, async () => {
+      const composed = precomposed ?? (await this.#compose(registration));
       const stop = await this.#start(composed);
       return {
         sourceOwner: composed.sourceOwner,
@@ -189,7 +169,7 @@ export class WorkspaceSystem<
     workspaceId: WorkspaceId,
     run: () => Promise<OpenedWorkspace<Exts>>
   ): Promise<OpenedWorkspace<Exts>> {
-    const opening = run();
+    const opening = Promise.resolve().then(run);
     this.#opened.set(workspaceId, opening);
     opening.catch(() => {
       if (this.#opened.get(workspaceId) === opening) {
@@ -279,7 +259,7 @@ export class WorkspaceSystem<
         throw new WorkspaceNotFoundError(workspaceId);
       }
       const composed = await this.#compose(registration, expectedFloor);
-      entry = await this.#openComposed(workspaceId, composed);
+      entry = await this.#openEntry(workspaceId, composed);
     }
     if (entry.sourceOwner !== expectedFloor) {
       throw new WorkspaceSourceUnsupportedError(entry.workspace.source.kind);

@@ -482,12 +482,60 @@ describe("lifecycle", () => {
     const closing = system.close(first.id);
     await secondGate.entered.promise;
     const duringClose = system.load({ beta: "same" });
+    // Let load({ beta }) complete findWorkspaceByPath and reach the #closing wait.
+    await new Promise((resolve) => setTimeout(resolve, 10));
     secondGate.release.resolve();
     await closing;
     await expect(duringClose).rejects.toBeInstanceOf(
       WorkspaceSourceUnsupportedError
     );
     expect(starts).toEqual(["alpha", "alpha"]);
+
+    // 3. Removing a workspace while a cold same-floor load is paused in applies() must not revive it.
+    const removeGate: Gate = {
+      entered: Promise.withResolvers<void>(),
+      release: Promise.withResolvers<void>(),
+    };
+    appliesGate = removeGate;
+    const reviving = system.load({ alpha: "same" });
+    await removeGate.entered.promise;
+    await first.remove();
+    removeGate.release.resolve();
+    await expect(reviving).rejects.toBeInstanceOf(WorkspaceNotFoundError);
+    await expect(system.open(first.id)).rejects.toBeInstanceOf(
+      WorkspaceNotFoundError
+    );
+
+    // 4. A synchronous start() hook that requests close(id) stops the workspace cleanly.
+    let closeRequested: Promise<void> | undefined;
+    let stopped = 0;
+    const selfClosing = new WorkspaceSystem().extend({
+      applies: () => true,
+      attach: () => ({
+        start(workspace) {
+          closeRequested = selfClosing.close(workspace.id);
+        },
+        stop() {
+          stopped += 1;
+        },
+      }),
+      identify: ({ id }: { readonly id: string }) => ({
+        name: id,
+        source: { kind: "self", path: `self:${id}`, sourceId: null },
+      }),
+      name: "self",
+      ref: "id",
+      source: () => ({ scan: () => Promise.resolve([]) }),
+    });
+    const once = await selfClosing.load({ id: "one" });
+    await closeRequested;
+    expect(stopped).toBe(1);
+    // Cold same-floor reload also honors synchronous close() from start().
+    closeRequested = undefined;
+    await selfClosing.load({ id: "one" });
+    await closeRequested;
+    expect(stopped).toBe(2);
+    expect(once.id).toBeTruthy();
 
     const missingRequired: WorkspaceExtension<
       never,
