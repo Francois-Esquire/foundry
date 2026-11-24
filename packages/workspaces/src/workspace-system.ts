@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import { WorkspaceCatalog } from "./catalog";
@@ -48,8 +49,11 @@ interface MatchedExtensions {
 }
 
 interface StartingWorkspace {
+  aborting?: Promise<void>;
+  active: boolean;
   readonly cleanups: (() => Promise<void> | void)[];
   closed: boolean;
+  readonly workspaceId: WorkspaceId;
 }
 
 interface OpenedWorkspace<Extensions extends readonly AnyWorkspaceExtension[]> {
@@ -70,7 +74,7 @@ export class WorkspaceSystem<
     Promise<OpenedWorkspace<Extensions>>
   >();
   readonly #queues = new KeyedQueue();
-  readonly #starting = new Map<WorkspaceId, StartingWorkspace>();
+  readonly #startupContext = new AsyncLocalStorage<StartingWorkspace>();
 
   constructor(options: WorkspaceSystemOptions = {}) {
     this.#context = {
@@ -107,14 +111,14 @@ export class WorkspaceSystem<
   }
 
   async close(workspaceId: WorkspaceId): Promise<void> {
+    const starting = this.#startupContext.getStore();
+    if (starting?.active === true && starting.workspaceId === workspaceId) {
+      await this.#abortStartup(workspaceId, starting);
+      return;
+    }
     const closing = this.#closing.get(workspaceId);
     if (closing) {
       return closing;
-    }
-    const starting = this.#starting.get(workspaceId);
-    if (starting) {
-      await this.#abortStartup(workspaceId, starting);
-      return;
     }
     const running = this.#opened.get(workspaceId);
     if (!running) {
@@ -126,8 +130,12 @@ export class WorkspaceSystem<
         () => undefined
       )
       .finally(() => {
-        this.#opened.delete(workspaceId);
-        this.#closing.delete(workspaceId);
+        if (this.#opened.get(workspaceId) === running) {
+          this.#opened.delete(workspaceId);
+        }
+        if (this.#closing.get(workspaceId) === stopping) {
+          this.#closing.delete(workspaceId);
+        }
       });
     this.#closing.set(workspaceId, stopping);
     await stopping;
@@ -137,13 +145,20 @@ export class WorkspaceSystem<
     workspaceId: WorkspaceId,
     starting: StartingWorkspace
   ): Promise<void> {
+    if (starting.aborting) {
+      return starting.aborting;
+    }
     starting.closed = true;
-    this.#starting.delete(workspaceId);
     this.#opened.delete(workspaceId);
     const stopping = this.#settleCleanups(starting.cleanups).finally(() => {
-      this.#closing.delete(workspaceId);
+      if (this.#closing.get(workspaceId) === stopping) {
+        this.#closing.delete(workspaceId);
+      }
     });
-    this.#closing.set(workspaceId, stopping);
+    starting.aborting = stopping;
+    if (!this.#closing.has(workspaceId)) {
+      this.#closing.set(workspaceId, stopping);
+    }
     return stopping;
   }
 
@@ -409,45 +424,49 @@ export class WorkspaceSystem<
     if (this.#closing.has(workspace.id)) {
       return () => Promise.resolve();
     }
-    const state: StartingWorkspace = { cleanups: [], closed: false };
+    const state: StartingWorkspace = {
+      active: true,
+      cleanups: [],
+      closed: false,
+      workspaceId: workspace.id,
+    };
     const { cleanups } = state;
-    this.#starting.set(workspace.id, state);
     try {
-      if (adapter.watch) {
-        const subscription = await observe(
-          (changed, failed) =>
-            adapter.watch
-              ? adapter.watch(changed, failed)
-              : Promise.resolve(undefined),
-          () => workspace[RECONCILE](),
-          (error) => {
-            this.#safeReport(error);
+      await this.#startupContext.run(state, async () => {
+        if (adapter.watch) {
+          const subscription = await observe(
+            (changed, failed) =>
+              adapter.watch
+                ? adapter.watch(changed, failed)
+                : Promise.resolve(undefined),
+            () => workspace[RECONCILE](),
+            (error) => {
+              this.#safeReport(error);
+            }
+          );
+          if (subscription && state.closed) {
+            await subscription.close();
+          } else if (subscription) {
+            cleanups.push(() => subscription.close());
           }
-        );
-        if (subscription && state.closed) {
-          await subscription.close();
-        } else if (subscription) {
-          cleanups.push(() => subscription.close());
         }
-      }
-      for (const hook of hooks) {
-        if (state.closed) {
-          break;
+        for (const hook of hooks) {
+          if (state.closed || this.#closing.has(workspace.id)) {
+            break;
+          }
+          if (hook.stop) {
+            cleanups.push(() => hook.stop?.(workspace));
+          }
+          await hook.start?.(workspace);
         }
-        if (hook.stop) {
-          cleanups.push(() => hook.stop?.(workspace));
-        }
-        await hook.start?.(workspace);
-      }
+      });
     } catch (startupError) {
       for (const cleanupError of await runCleanups(cleanups)) {
         this.#safeReport(cleanupError);
       }
       throw startupError;
     } finally {
-      if (this.#starting.get(workspace.id) === state) {
-        this.#starting.delete(workspace.id);
-      }
+      state.active = false;
     }
 
     return () => this.#settleCleanups(cleanups);

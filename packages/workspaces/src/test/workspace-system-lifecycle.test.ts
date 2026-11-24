@@ -742,6 +742,91 @@ describe("lifecycle", () => {
     expect(starts).toBe(1);
   });
 
+  it("waits for a paused async start hook before running stop on an external close", async () => {
+    const events: string[] = [];
+    let resource: { closed: boolean } | undefined;
+    let startGate:
+      | {
+          readonly entered: ReturnType<typeof Promise.withResolvers<void>>;
+          readonly release: ReturnType<typeof Promise.withResolvers<void>>;
+        }
+      | undefined;
+
+    const system = new WorkspaceSystem()
+      .extend(memExtension())
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          async start() {
+            events.push("first:start:enter");
+            const gate = startGate;
+            if (gate) {
+              startGate = undefined;
+              gate.entered.resolve();
+              await gate.release.promise;
+            }
+            resource = { closed: false };
+            events.push("first:start:acquired");
+          },
+          stop() {
+            events.push(
+              resource ? "first:stop:cleaned" : "first:stop:too-early"
+            );
+            if (resource) {
+              resource.closed = true;
+            }
+          },
+        }),
+        name: "first",
+      })
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          start() {
+            events.push("second:start");
+          },
+          stop() {
+            events.push("second:stop");
+          },
+        }),
+        name: "second",
+      });
+
+    const first = await system.load({ mem: "external-close" });
+    await system.close(first.id);
+    events.length = 0;
+    resource = undefined;
+
+    const gate = {
+      entered: Promise.withResolvers<void>(),
+      release: Promise.withResolvers<void>(),
+    };
+    startGate = gate;
+    const reopening = system.open(first.id);
+    await gate.entered.promise;
+
+    let closeSettled = false;
+    const closing = system.close(first.id).finally(() => {
+      closeSettled = true;
+    });
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    expect(closeSettled).toBe(false);
+    expect(events).toEqual(["first:start:enter"]);
+
+    gate.release.resolve();
+    await Promise.all([reopening, closing]);
+
+    expect(closeSettled).toBe(true);
+    expect(resource).toEqual({ closed: true });
+    expect(events).toEqual([
+      "first:start:enter",
+      "first:start:acquired",
+      "first:stop:cleaned",
+    ]);
+  });
+
   it("attaches once when two cold loads race for the same closed workspace", async () => {
     let attaches = 0;
     const system = new WorkspaceSystem().extend(memExtension()).extend({
