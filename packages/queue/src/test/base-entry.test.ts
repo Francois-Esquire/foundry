@@ -23,6 +23,7 @@ describe("@foundry/queue runtime seams", () => {
         "./client",
         "./store",
         "./store/memory",
+        "./testing/store",
       ])
     ).not.toThrow();
   });

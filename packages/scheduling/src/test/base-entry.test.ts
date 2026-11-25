@@ -24,6 +24,7 @@ describe("@foundry/scheduling runtime seams", () => {
         "./queue",
         "./store",
         "./store/memory",
+        "./testing/store",
       ])
     ).not.toThrow();
   });

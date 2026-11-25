@@ -1,6 +1,3 @@
-import { createTables } from "@foundry/lib/testing/sqlite";
-import { createClient } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
 import { Deferred, Effect, Fiber, Layer, type Scope } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import type { QueueEvent, RunOutcome } from "../domain";
@@ -9,27 +6,12 @@ import type { QueueOptions, QueueService } from "../service";
 import type { QueueWrite } from "../store/index";
 import {
   makeSqliteQueueStore,
-  type QueueDatabase,
   SqliteQueueStore,
   type SqliteQueueStoreOptions,
 } from "../store/sqlite";
-import { queueTables } from "../store/tables";
+import { closeDatabases, openDatabase } from "./helpers/sqlite";
 
-const clients: ReturnType<typeof createClient>[] = [];
-
-afterEach(() => {
-  for (const client of clients.splice(0)) {
-    client.close();
-  }
-});
-
-const openDatabase = async (): Promise<QueueDatabase> => {
-  const client = createClient({ url: ":memory:" });
-  clients.push(client);
-  const database = drizzle(client);
-  await createTables(database, queueTables);
-  return database;
-};
+afterEach(closeDatabases);
 
 const handler = { name: "work" } as const;
 
@@ -88,15 +70,13 @@ describe("SqliteQueueStore", () => {
     const reopened = makeSqliteQueueStore({ database, scope: "alpha" });
     const read = await Effect.runPromise(
       Effect.all({
-        byKey: reopened.listJobs({ idempotencyKey: "once" }),
         job: reopened.getJob(job.id),
         pools: reopened.listPools,
-        runs: reopened.listRuns({ jobId: job.id, state: "complete" }),
+        runs: reopened.listRuns(),
       })
     );
     expect(read.job).toEqual(job);
-    expect(read.byKey.map((found) => found.id)).toEqual([job.id]);
-    expect(read.runs).toHaveLength(1);
+    expect(read.runs.map((run) => run.jobId)).toEqual([job.id]);
     expect(read.pools).toEqual([
       { limit: Number.POSITIVE_INFINITY, name: "wide", state: "paused" },
     ]);
@@ -149,7 +129,7 @@ describe("SqliteQueueStore", () => {
     expect(after).toEqual([[], []]);
   });
 
-  test("a commit expecting a revision the store does not hold writes nothing and is refused as a conflict", async () => {
+  test("a commit refused as a conflict never calls onCommit", async () => {
     const database = await openDatabase();
     let committed = 0;
     const store = makeSqliteQueueStore({
@@ -167,23 +147,18 @@ describe("SqliteQueueStore", () => {
       revision: 0,
       state: { availableAt: 0, kind: "queued", queuedAt: 0 },
     } as const;
-    const outcome = await Effect.runPromise(
+    const stale = await Effect.runPromise(
       Effect.gen(function* () {
-        yield* store.commit({
-          expected: { runs: [{ id: run.id, revision: null }] },
-          runs: [run],
-        });
-        const stale = yield* Effect.flip(
+        yield* store.commit({ runs: [run] });
+        return yield* Effect.flip(
           store.commit({
             expected: { runs: [{ id: run.id, revision: null }] },
             runs: [{ ...run, revision: 1 }],
           })
         );
-        return { stale, stored: yield* store.getRun(run.id) };
       })
     );
-    expect(outcome.stale._tag).toBe("WriteConflictError");
-    expect(outcome.stored?.revision).toBe(0);
+    expect(stale._tag).toBe("WriteConflictError");
     expect(committed).toBe(1);
   });
 
