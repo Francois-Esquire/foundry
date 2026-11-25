@@ -1,5 +1,5 @@
-import type { ModelManager, ProviderPolicy } from "./manager";
-import { heldProviders } from "./manager";
+import type { Models, ProviderPolicy } from "./models";
+import { heldProviders } from "./models";
 import type { Provider } from "./provider";
 
 export interface AirplaneMode {
@@ -15,7 +15,7 @@ const POLICY: ProviderPolicy = {
   id: "airplane",
 };
 
-export function airplaneMode(models: ModelManager): AirplaneMode {
+export function airplaneMode(models: Models): AirplaneMode {
   let lift: (() => void) | undefined;
   const offline = new Set<Provider>();
 
@@ -26,7 +26,11 @@ export function airplaneMode(models: ModelManager): AirplaneMode {
         offline: value,
         provider: provider.id,
       });
-      if (!heard) {
+      if (
+        !heard &&
+        typeof process !== "undefined" &&
+        typeof process.emitWarning === "function"
+      ) {
         process.emitWarning(
           `Provider "${provider.id}" failed to go ${value ? "offline" : "online"}: ${String(error)}`,
           { code: "FOUNDRY_MODELS_OFFLINE_FAILED" }

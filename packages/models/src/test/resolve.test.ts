@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ModelManager } from "../manager";
+import { Models } from "../models";
 import { formatSelection } from "../selection";
 import type { ProviderModelDefinition } from "../types";
 import { fakeProvider } from "./helpers/model";
@@ -25,7 +25,7 @@ function codexBeforeVercel() {
   });
   return {
     codex,
-    models: new ModelManager({ providers: [codex, vercel] }),
+    models: new Models({ providers: [codex, vercel] }),
     vercel,
   };
 }
@@ -289,7 +289,7 @@ describe("open per kind", () => {
         { id: "m", kind: "music", modelId: "wire-m" },
       ],
     });
-    const models = new ModelManager({ providers: [media] });
+    const models = new Models({ providers: [media] });
     models.resolve("embedding", "e").open();
     models.resolve("image", "i").open();
     models.resolve("speech", "s").open();
@@ -311,7 +311,7 @@ describe("open per kind", () => {
       kinds: [],
       models: [{ id: "i", kind: "image", modelId: "wire-i" }],
     });
-    const models = new ModelManager({ providers: [bare] });
+    const models = new Models({ providers: [bare] });
     expect(() => models.resolve("image", "i").open()).toThrow(
       "does not support image models"
     );
@@ -331,7 +331,7 @@ describe("open per kind", () => {
         },
       ],
     });
-    const model = new ModelManager({ providers: [sized] })
+    const model = new Models({ providers: [sized] })
       .resolve("text", "big")
       .open({ workingDirectory: "/repo" });
     expect(model.limits).toEqual({ contextWindow: 1000, maxOutputTokens: 100 });
@@ -341,7 +341,7 @@ describe("open per kind", () => {
     const failing = fakeProvider("failing");
     failing.dispose = () => Promise.reject(new Error("stuck"));
     const fine = fakeProvider("fine");
-    await new ModelManager({ providers: [failing, fine] }).dispose();
+    await new Models({ providers: [failing, fine] }).dispose();
     expect(fine.disposed).toBe(1);
   });
 });
@@ -381,7 +381,7 @@ describe("review regressions", () => {
         { id: "x", kind: "video", modelId: "x-video" },
       ],
     });
-    const models = new ModelManager({ providers: [both] });
+    const models = new Models({ providers: [both] });
     for (const selection of ["x", "a/x", { model: "x", provider: "a" }]) {
       expect(models.resolve("video", selection).definition.modelId).toBe(
         "x-video"

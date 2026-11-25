@@ -8,7 +8,7 @@ import { blobFiles } from "@foundry/artifacts/node";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { showArgv } from "@foundry/lib/argv";
 import type { Provider } from "@foundry/models";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { DEFAULT_POOL } from "@foundry/queue";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
@@ -204,10 +204,10 @@ function pluginsFor({
 }
 
 function modelsFor(options: CreateEngineOptions): {
-  readonly models: ModelManager;
+  readonly models: Models;
   readonly providers: ProviderConfiguration;
 } {
-  const models = new ModelManager();
+  const models = new Models();
   const echo = (provider: Provider) => echoInstance(provider, options.print);
   const fixed =
     options.dry && options.providers

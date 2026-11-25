@@ -1,4 +1,4 @@
-import type { StreamPart } from "@foundry/agents/harness";
+import type { StreamPart } from "@foundry/core/agents";
 import { executePiTool } from "./pi-tools";
 import { type DriverRun, type ReportTool, record } from "./shared";
 

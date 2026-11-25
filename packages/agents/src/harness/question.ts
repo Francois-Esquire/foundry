@@ -1,14 +1,17 @@
+import type {
+  HarnessQuestionToolSettings as CoreHarnessQuestionToolSettings,
+  HarnessQuestionCallback,
+  HarnessQuestionRequest,
+  HarnessQuestionResult,
+} from "@foundry/core/agents";
+import { markHarnessQuestionExecutor } from "@foundry/core/agents";
 import type { Tool } from "ai";
 import { tool } from "ai";
 import { z } from "zod";
 
-import { raceAbort } from "./abortable";
-
-import type {
-  HarnessQuestionCallback,
-  HarnessQuestionRequest,
-  HarnessQuestionResult,
-} from "./turn-driver";
+export type { HarnessQuestionToolSettings } from "@foundry/core/agents";
+// biome-ignore lint/performance/noBarrelFile: Preserve @foundry/agents/harness question predicate re-export.
+export { isHarnessQuestionTool } from "@foundry/core/agents";
 
 const questionsSchema = z.object({
   questions: z
@@ -40,21 +43,8 @@ const questionsSchema = z.object({
     ),
 });
 
-const questionExecutors = new WeakSet<NonNullable<Tool["execute"]>>();
-
-export function isHarnessQuestionTool(candidate: Tool): boolean {
-  return (
-    candidate.execute !== undefined && questionExecutors.has(candidate.execute)
-  );
-}
-
-export interface HarnessQuestionToolSettings {
-  question?: HarnessQuestionCallback;
-  sessionId: string;
-}
-
 export function createHarnessQuestionTool(
-  settings: HarnessQuestionToolSettings
+  settings: CoreHarnessQuestionToolSettings
 ): Tool {
   const question = createHarnessQuestionCallback(settings);
   const result = tool({
@@ -70,13 +60,13 @@ export function createHarnessQuestionTool(
       }),
     inputSchema: questionsSchema,
   });
-  questionExecutors.add(result.execute);
+  markHarnessQuestionExecutor(result.execute);
   return result;
 }
 
 type QuestionOutcome = "requested" | "answered" | "declined" | "interrupted";
 
-interface QuestionCallbackSettings extends HarnessQuestionToolSettings {
+interface QuestionCallbackSettings extends CoreHarnessQuestionToolSettings {
   record?: (
     request: HarnessQuestionRequest,
     outcome: QuestionOutcome,
@@ -189,6 +179,25 @@ async function waitForAnswer(
     }
     // biome-ignore lint/style/useErrorCause: Original exceptions may contain secrets and must not reach host event logs.
     throw new Error("Host question handler failed.");
+  }
+}
+
+async function raceAbort<T>(
+  pending: Promise<T>,
+  signal: AbortSignal
+): Promise<T> {
+  signal.throwIfAborted();
+  let abort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+  });
+  try {
+    return await Promise.race([pending, aborted]);
+  } finally {
+    if (abort) {
+      signal.removeEventListener("abort", abort);
+    }
   }
 }
 

@@ -17,7 +17,7 @@ import type { Skill } from "@foundry/agents/skills";
 import type { SessionStore } from "@foundry/agents/store";
 import { composeTools } from "@foundry/agents/tools/compose";
 import { canonicalizeJson } from "@foundry/lib/json";
-import type { ModelManager, ModelSelection, Resolution } from "@foundry/models";
+import type { ModelSelection, Models, Resolution } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
 import type { Container } from "@foundry/sandbox/container/containers";
@@ -87,7 +87,7 @@ export interface AgentsDeps {
   readonly implementationOf?: (provider: string) => string | undefined;
   readonly instanceOf?: (provider: string) => string | undefined;
   readonly interactions: HarnessInteractions;
-  readonly models: ModelManager;
+  readonly models: Models;
   readonly observe?: (runId: string, observation: ExecutionObservation) => void;
   readonly requireProviders?: () => void;
   readonly sessions: SessionStore;
@@ -364,7 +364,7 @@ function heldText(
 export function policed(
   session: HarnessSession,
   resolution: Resolution<"text">,
-  models: ModelManager,
+  models: Models,
   site: SessionSite
 ): HarnessSession {
   const recheck = () => {
@@ -1064,7 +1064,7 @@ export class AgentsManager implements Agents {
     this.#deps = deps;
   }
 
-  get models(): ModelManager {
+  get models(): Models {
     return this.#deps.models;
   }
 

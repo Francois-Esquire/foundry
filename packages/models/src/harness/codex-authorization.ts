@@ -1,4 +1,4 @@
-import type { HarnessPermissionProfile } from "@foundry/agents/harness";
+import type { HarnessPermissionProfile } from "@foundry/core/agents";
 import type { AppServerConnection } from "./app-server";
 import type { CodexDriverOptions } from "./codex";
 export async function authenticate(

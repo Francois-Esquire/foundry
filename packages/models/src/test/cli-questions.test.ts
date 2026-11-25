@@ -1,11 +1,11 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
-import type { HarnessQuestionCallback } from "@foundry/agents/harness";
-import { createHarnessQuestionTool } from "@foundry/agents/harness";
+import type { HarnessQuestionCallback } from "@foundry/core/agents";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import { describe, expect, it, vi } from "vitest";
 import { createClaudeCodeDriver } from "../harness/claude-code";
 import { createCodexDriver } from "../harness/codex";
 import { collect, FakeAppServer, runOptions } from "./helpers/cli";
+import { createTestQuestionTool as createHarnessQuestionTool } from "./helpers/question";
 
 const claudeInput = {
   answers: { "Which database?": "fabricated model answer" },

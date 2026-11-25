@@ -23,11 +23,11 @@ import {
   Engine,
   InMemoryArtifactStore,
   InMemorySessionStore,
-  ModelManager,
+  Models,
 } from "@foundry.sh/marbles/lib";
 
 const engine = new Engine({
-  models: new ModelManager(),
+  models: new Models(),
   sessions: new InMemorySessionStore(),
   // Called at the first sandbox; `createContainers` over your runtime.
   containers: () => Promise.reject(new Error("no sandbox runtime here")),
@@ -252,7 +252,7 @@ built from another copy of the same class is a different type. Besides
 
 | Instance | Exports | Underlying library |
 | --- | --- | --- |
-| `models` | `ModelManager`, `claudeCodeProvider`, `codexProvider`, `piProvider` | [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md) |
+| `models` | `Models`, `claudeCodeProvider`, `codexProvider`, `piProvider` | [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md) |
 | `sessions` | `InMemorySessionStore` | [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md); the published `Engine` given `state` keeps them in the [Marbles database](/marbles/reference/state#sessions). |
 | `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` | [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) |
 | `containers` | `createContainers`, `MemoryContainerStore` | [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) |

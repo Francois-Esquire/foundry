@@ -1,13 +1,14 @@
+import type {
+  HarnessActivityEvent,
+  HarnessCapabilities,
+  HarnessPermissionProfile,
+  HarnessQuestionCallback,
+  HarnessToolEvent,
+} from "@foundry/core/agents";
 import type { ApprovalResolution } from "@foundry/lib/config/authorization";
 import type { Output, ToolSet } from "ai";
 import type { ModelRoute } from "../agents/model";
 import type { AgentAuthorizer } from "../authorization/authorization";
-import type { Capability, ToolSource } from "../authorization/capability";
-import type {
-  HarnessActivity,
-  HarnessActivityEvent,
-  HarnessToolEvent,
-} from "../schema";
 import type {
   AgentApprovalRequest,
   SessionInput,
@@ -16,107 +17,25 @@ import type {
 import type { SessionMessage } from "../session/types";
 import type { SessionStore } from "../store";
 import type { TurnOptions } from "./session-harness";
-import type { StreamPart } from "./stream-transform";
 
 export type {
   HarnessActivity,
   HarnessActivityEvent,
+  HarnessCapabilities,
+  HarnessPermissionCallback,
+  HarnessPermissionProfile,
+  HarnessPermissionRequest,
+  HarnessPermissionResult,
+  HarnessQuestion,
+  HarnessQuestionCallback,
+  HarnessQuestionRequest,
+  HarnessQuestionResult,
+  HarnessResponseFormat,
   HarnessToolEvent,
-} from "../schema";
-
-export interface HarnessPermissionProfile {
-  allowedTools: readonly string[];
-  disallowedTools: readonly string[];
-  maxSteps: number;
-  mode: "scheduled" | "attended";
-  unresolved: "ask" | "deny";
-}
-
-export function validateHarnessProfile(
-  profile: Pick<HarnessPermissionProfile, "maxSteps">
-): void {
-  if (!Number.isSafeInteger(profile.maxSteps) || profile.maxSteps < 1) {
-    throw new Error("Harness maxSteps must be a positive safe integer.");
-  }
-}
-
-export interface HarnessPermissionRequest {
-  activityId?: string;
-  capability?: Capability;
-  input: unknown;
-  sessionId: string;
-  signal: AbortSignal;
-  source?: ToolSource;
-  suggestions?: unknown;
-  title?: string;
-  toolCallId: string;
-  toolName: string;
-}
-
-export type HarnessPermissionResult =
-  | { behavior: "allow"; updatedInput?: unknown }
-  | { behavior: "deny"; message: string };
-
-export type HarnessPermissionCallback = (
-  request: HarnessPermissionRequest
-) => Promise<HarnessPermissionResult>;
-
-export interface HarnessQuestion {
-  header?: string;
-  id: string;
-  multiSelect?: boolean;
-  options?: { label: string; description?: string }[];
-  question: string;
-}
-
-export interface HarnessQuestionRequest {
-  activityId?: string;
-  questions: HarnessQuestion[];
-  sessionId: string;
-  signal: AbortSignal;
-  toolCallId: string;
-}
-
-export type HarnessQuestionResult =
-  | { outcome: "answered"; answers: Record<string, string[]> }
-  | { outcome: "declined"; reason: string };
-
-export type HarnessQuestionCallback = (
-  request: HarnessQuestionRequest
-) => Promise<HarnessQuestionResult>;
-
-export interface HarnessCapabilities {
-  interruption: boolean;
-  steering: boolean;
-}
-
-export type HarnessResponseFormat = Extract<
-  Awaited<Output.Output["responseFormat"]>,
-  { type: "json" }
->;
-
-export interface HarnessTurnDriver {
-  capabilities: HarnessCapabilities;
-  close?: () => Promise<void>;
-  id: string;
-  interrupt?: () => Promise<void>;
-  run(options: {
-    input: SessionInput;
-    sessionId: string;
-    nativeSessionId?: string;
-    signal: AbortSignal;
-    profile: HarnessPermissionProfile;
-    permission: HarnessPermissionCallback;
-    question: HarnessQuestionCallback;
-    tools?: ToolSet;
-    onActivity: (activity: HarnessActivity) => Promise<void>;
-    onToolEvent: (event: HarnessToolEvent) => Promise<void>;
-    onSessionId: (nativeSessionId: string) => Promise<void>;
-    responseFormat?: HarnessResponseFormat;
-  }): Promise<AsyncIterable<StreamPart>>;
-  steer?: (input: string) => Promise<void>;
-  stopActivity?: (id: string) => Promise<void>;
-}
+  HarnessTurnDriver,
+} from "@foundry/core/agents";
+// biome-ignore lint/performance/noBarrelFile: Preserve @foundry/agents/harness turn-driver helper re-export.
+export { validateHarnessProfile } from "@foundry/core/agents";
 
 export interface HarnessSession {
   readonly capabilities: HarnessCapabilities;

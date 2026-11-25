@@ -1,5 +1,5 @@
 import type { Provider } from "@foundry/models";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import { isCliHarness } from "~/lib/cli-harnesses";
 import { CLI_PROVIDER_FACTS } from "~/lib/harnesses";
@@ -34,9 +34,9 @@ export function mockModels(
   executors: readonly TurnExecutorRef[],
   reply: Reply,
   options: MockOptions = {}
-): ModelManager {
+): Models {
   const byProvider = Map.groupBy(executors, ({ provider }) => provider);
-  return new ModelManager({
+  return new Models({
     providers: [...byProvider.values()].map((group) =>
       mockProvider(group, reply, options)
     ),
@@ -46,6 +46,6 @@ export function mockModels(
 export function echoModels(
   executors: readonly TurnExecutorRef[],
   print: Print
-): ModelManager {
+): Models {
   return mockModels(executors, echoReply(print));
 }

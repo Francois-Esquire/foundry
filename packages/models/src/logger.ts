@@ -1,8 +1,5 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
-import type {
-  ObserveTurn,
-  TurnObservation,
-} from "@foundry/agents/agents/model";
+import type { ObserveTurn, TurnObservation } from "@foundry/core/agents";
 import type { TelemetryOptions } from "ai";
 import type { AuditActor, AuditInput, LoggerConfig } from "evlog";
 
@@ -58,7 +55,7 @@ export function isModelObservabilityEnabled(): boolean {
   return enabled;
 }
 
-export type { TurnObservation } from "@foundry/agents/agents/model";
+export type { TurnObservation } from "@foundry/core/agents";
 
 export function beginTurnObservation(
   context: Record<string, unknown> = {}

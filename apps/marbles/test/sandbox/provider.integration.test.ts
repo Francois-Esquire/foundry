@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { gatewayProvider } from "@foundry/models/gateway";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
@@ -41,7 +41,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       "claude-code": "sonnet",
       codex: "gpt-5.5",
     }[harness];
-    const models = new ModelManager({
+    const models = new Models({
       providers:
         harness === "builtin"
           ? [

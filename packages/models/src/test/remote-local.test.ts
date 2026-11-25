@@ -11,7 +11,7 @@ import type {
 import { RemoteLocalProvider } from "../local/remote/provider";
 import { runLocalWorker } from "../local/remote/worker";
 import type { LocalProviderSurface } from "../local/surface";
-import { ModelManager } from "../manager";
+import { Models } from "../models";
 
 const WORKER_EXITED_CRASHED_PATTERN = /worker exited: crashed/;
 const WORKER_EXITED_PATTERN = /worker exited/;
@@ -212,7 +212,7 @@ describe("remote-local bridge", () => {
 describe("as a provider instance", () => {
   it("serves its own resolved models through the bridge", async () => {
     const { provider } = makeBridge();
-    const manager = new ModelManager({ providers: [provider] });
+    const manager = new Models({ providers: [provider] });
     const result = await manager
       .resolve("text", { provider: provider.id })
       .open()

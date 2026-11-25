@@ -1,7 +1,7 @@
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
-import { ModelManager } from "../manager";
+import { Models } from "../models";
 
 interface Settings {
   codexPath?: string;
@@ -81,7 +81,7 @@ describe("codexModels", () => {
       ],
     });
     const rows = await codexModels({ binPath, env });
-    const manager = new ModelManager({
+    const manager = new Models({
       providers: [
         codexProvider({ config: { available: true }, env, models: [...rows] }),
       ],

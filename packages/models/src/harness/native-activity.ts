@@ -1,4 +1,4 @@
-import type { HarnessActivity } from "@foundry/agents/harness";
+import type { HarnessActivity } from "@foundry/core/agents";
 import { type DriverRun, record } from "./shared";
 
 type ActivityStatus = HarnessActivity["status"];

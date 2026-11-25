@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FAL_DEFAULT_MODELS } from "../fal/catalog";
 import { falProvider } from "../fal/provider";
-import { ModelManager } from "../manager";
+import { Models } from "../models";
 import { operationsOf } from "../provider";
 import type { CapabilityFact, OperationName } from "../types";
 
@@ -166,13 +166,13 @@ describe("facts on the shipped FAL catalog", () => {
   });
 
   it("resolves segmentation only with a key", () => {
-    const keyed = new ModelManager({
+    const keyed = new Models({
       providers: [falProvider({ config: { apiKey: "fal_key" } })],
     });
     expect(keyed.resolve("segmentation", "fal-ai/sam-3/image").provider).toBe(
       "fal"
     );
-    const bare = new ModelManager({ providers: [falProvider()] });
+    const bare = new Models({ providers: [falProvider()] });
     expect(() =>
       bare.resolve("segmentation", "fal/fal-ai/sam-3/image")
     ).toThrow('Provider "fal" is unavailable');

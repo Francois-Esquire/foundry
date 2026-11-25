@@ -5,7 +5,7 @@ import {
 } from "@foundry/agents/authorization";
 import type { SessionStore } from "@foundry/agents/store";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import type { ModelManager } from "@foundry/models";
+import type { Models } from "@foundry/models";
 import type { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
 import { MemoryAutomationStore } from "~/lib/automation/store";
@@ -45,7 +45,7 @@ import { MemoryUsageStore } from "~/lib/usage-store";
 export function contextOf(
   options: EngineOptions,
   spawned: string | undefined,
-  currentModels: () => ModelManager | undefined
+  currentModels: () => Models | undefined
 ): ExecutionContext {
   return {
     cwd: options.cwd ?? options.root,

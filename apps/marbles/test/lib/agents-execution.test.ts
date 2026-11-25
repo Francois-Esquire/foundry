@@ -1,5 +1,5 @@
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { beforeEach, expect, it, vi } from "vitest";
 import { CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";
@@ -98,7 +98,7 @@ it("passes the resolved wire ID to a guest while keeping the model selection", a
     settings: { binPath: "/configured/codex" },
   });
   const settings = await open(
-    deps(() => execution, new ModelManager({ providers: [provider] })),
+    deps(() => execution, new Models({ providers: [provider] })),
     { ...coder, model: "sol" }
   );
   expect(settings).toMatchObject({

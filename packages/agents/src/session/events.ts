@@ -1,3 +1,4 @@
+import type { AgentApprovalRequest } from "@foundry/core/agents";
 import type {
   InferGenerateOutput,
   InferStreamOutput,
@@ -6,29 +7,13 @@ import type {
   ToolSet,
 } from "ai";
 
-import type { Capability } from "../authorization/capability";
 import type {
   HarnessActivityEvent,
   HarnessToolEvent,
 } from "../harness/turn-driver";
-import type {
-  SessionMessage,
-  SessionPart,
-  SessionUsage,
-  ToolProvenance,
-} from "./types";
+import type { SessionMessage, SessionUsage, ToolProvenance } from "./types";
 
-export interface AgentApprovalRequest {
-  activityId?: string;
-  agentGeneration?: number;
-  agentId?: string;
-  approvalId: string;
-  capability: Capability;
-  input: unknown;
-  signature?: string;
-  toolCallId: string;
-  toolName: string;
-}
+export type { AgentApprovalRequest, SessionInput } from "@foundry/core/agents";
 
 export interface AgentApprovalResponse {
   approvalId: string;
@@ -83,8 +68,6 @@ export interface StreamHandlers {
     preliminary?: boolean;
   }) => void;
 }
-
-export type SessionInput = string | { parts: SessionPart[] };
 
 export interface SessionStream<OUTPUT extends Output.Output = never>
   extends AsyncIterable<SessionEvent> {

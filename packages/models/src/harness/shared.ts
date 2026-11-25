@@ -1,8 +1,8 @@
 import type {
   HarnessToolEvent,
   HarnessTurnDriver,
-} from "@foundry/agents/harness";
-import type { SessionInput } from "@foundry/agents/session";
+  SessionInput,
+} from "@foundry/core/agents";
 
 export type DriverRun = Parameters<HarnessTurnDriver["run"]>[0];
 

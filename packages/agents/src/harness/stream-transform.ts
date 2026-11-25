@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { StreamPart } from "@foundry/core/agents";
 import type {
   InferGenerateOutput,
   InferStreamOutput,
@@ -26,36 +27,20 @@ import type {
   SessionMessage,
   SessionPart,
   SessionUsage,
-  ToolProvenance,
 } from "../session/types";
 
 import { createEventQueue } from "./event-queue";
-import type { HarnessActivityEvent, HarnessToolEvent } from "./turn-driver";
+
+export type { HarnessStreamPart, StreamPart } from "@foundry/core/agents";
 
 type SdkStreamPart = TextStreamPart<ToolSet>;
 
-type RegisteredToolCallPart = Extract<SdkStreamPart, { type: "tool-call" }> & {
-  provenance?: ToolProvenance;
-};
+type RegisteredToolCallPart = Extract<StreamPart, { type: "tool-call" }>;
 
 type RegisteredApprovalRequestPart = Extract<
-  SdkStreamPart,
+  StreamPart,
   { type: "tool-approval-request" }
-> &
-  Partial<
-    Pick<AgentApprovalRequest, "agentGeneration" | "agentId" | "capability">
-  >;
-
-export type HarnessStreamPart =
-  | { type: "harness-activity"; event: HarnessActivityEvent }
-  | { type: "harness-tool"; event: HarnessToolEvent }
-  | ({ type: "harness-approval-request" } & AgentApprovalRequest);
-
-export type StreamPart =
-  | Exclude<SdkStreamPart, { type: "tool-call" | "tool-approval-request" }>
-  | RegisteredToolCallPart
-  | RegisteredApprovalRequestPart
-  | HarnessStreamPart;
+>;
 
 export type StreamSource =
   | AsyncIterable<StreamPart>

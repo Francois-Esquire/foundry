@@ -9,7 +9,7 @@ export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 export { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 export type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
 export type { Provider } from "@foundry/models";
-export { ModelManager } from "@foundry/models";
+export { Models } from "@foundry/models";
 export { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
 export { vercelProvider } from "@foundry/models/vercel";
 export type { Containers } from "@foundry/sandbox/container/containers";

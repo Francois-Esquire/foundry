@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import type {
   ModelKind,
-  ModelManager,
+  Models,
   Provider,
   ProviderModelDefinition,
 } from "@foundry/models";
@@ -73,7 +73,7 @@ export interface ProviderConfigurationOptions {
   readonly echo?: (instance: Provider) => Provider;
   readonly environment: Readonly<Record<string, string>>;
   readonly fixed?: readonly Provider[];
-  readonly models: ModelManager;
+  readonly models: Models;
   readonly plugins: readonly ProviderPlugin[];
   readonly readOnly?: boolean;
   readonly store?: ProviderStore;

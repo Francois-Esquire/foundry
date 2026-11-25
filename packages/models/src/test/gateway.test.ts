@@ -47,7 +47,7 @@ const models = [
   { id: "served/chat", kind: "text" as const, modelId: "served/chat" },
   { id: "served/embed", kind: "embedding" as const, modelId: "served/embed" },
 ];
-const { ModelManager } = await import("../manager");
+const { Models } = await import("../models");
 
 beforeEach(() => {
   chatCalls.length = 0;
@@ -82,7 +82,7 @@ describe("gatewayProvider", () => {
   });
 
   it("through the manager, the first row of each kind resolves to its wire id", () => {
-    const manager = new ModelManager({
+    const manager = new Models({
       providers: [
         gatewayProvider({
           config: { apiKey: "k", baseURL: "http://gw" },

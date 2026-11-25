@@ -392,7 +392,7 @@ step(123);
       `
 import { packedWorkflow } from "./marbles.config";
 import { step } from "@foundry.sh/marbles";
-import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, WorkspaceSystem, directory, git, nodeObserver, piProvider } from "@foundry.sh/marbles/lib";
+import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, Models, WorkspaceSystem, directory, git, nodeObserver, piProvider } from "@foundry.sh/marbles/lib";
 import { claimProcess, readProcess } from "@foundry.sh/marbles/process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -402,7 +402,7 @@ const root = ".";
 const instances = {
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
-  models: new ModelManager({ providers: [piProvider()] }),
+  models: new Models({ providers: [piProvider()] }),
   sessions: new InMemorySessionStore(),
   workspaces: new WorkspaceSystem().extend(directory({ observer: nodeObserver }), git()),
 };
@@ -468,7 +468,7 @@ console.log(String(review), "|", String(prompts.codex\`Use \${ref.skill("review"
       join(consumer, "embedded.ts"),
       `
 import { Tasks } from "@foundry.sh/marbles";
-import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, ModelManager, Sessions } from "@foundry.sh/marbles/engine";
+import { ArtifactManager, Engine, InMemoryArtifactStore, InMemorySessionStore, Models, Sessions } from "@foundry.sh/marbles/engine";
 import type { SessionStore, SessionStoreWrite } from "@foundry.sh/marbles/engine";
 import { openWorkspaceRecords, type WorkspaceRecords } from "@foundry.sh/marbles/workspace";
 import { existsSync, mkdtempSync } from "node:fs";
@@ -490,7 +490,7 @@ await written.appendMessage({ parts: [{ text: "hi", type: "text" }], role: "user
 const engine = new Engine({
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
-  models: new ModelManager(),
+  models: new Models(),
   pools: { system: { limit: Number.POSITIVE_INFINITY } },
   root: ".",
   sessions,
@@ -515,7 +515,7 @@ const state = mkdtempSync(join(tmpdir(), "marbles-embedded-"));
 const persisted = () => new Engine({
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
-  models: new ModelManager(),
+  models: new Models(),
   root: ".",
   sessions: new InMemorySessionStore(),
   state,
@@ -532,7 +532,7 @@ const records: WorkspaceRecords = openWorkspaceRecords({ state: stateRoot, works
 const own = new Engine({
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
-  models: new ModelManager(),
+  models: new Models(),
   records,
   root: ".",
   sessions: new InMemorySessionStore(),

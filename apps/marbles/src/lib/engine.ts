@@ -4,7 +4,7 @@ import type { SessionStore } from "@foundry/agents/store";
 import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
 import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
-import type { ModelManager } from "@foundry/models";
+import type { Models } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
 import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
@@ -108,7 +108,7 @@ export interface EngineOptions {
   readonly handlerTimeout?: number;
   readonly home?: string;
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
-  readonly models: ModelManager;
+  readonly models: Models;
   readonly pools?: Readonly<Record<string, PoolConfig>>;
   readonly print?: (line: string) => void;
   readonly providers?: ProviderConfiguration;
@@ -140,7 +140,7 @@ export class Engine {
   readonly executions: ExecutionRuns;
   readonly feed: FeedReader;
   readonly interactions: HarnessInteractions;
-  readonly models: ModelManager;
+  readonly models: Models;
   readonly airplane: AirplaneMode;
   readonly providers: ProviderConfiguration | undefined;
   readonly root: string;

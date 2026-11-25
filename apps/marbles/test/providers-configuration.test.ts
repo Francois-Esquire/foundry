@@ -1,5 +1,5 @@
 import type { Provider } from "@foundry/models";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { environmentSnapshot } from "~/lib/environment";
@@ -184,7 +184,7 @@ function configuration(
   environment: Record<string, string> = { PATH: "/bin" },
   options: Partial<ProviderConfigurationOptions> = {}
 ) {
-  const models = new ModelManager();
+  const models = new Models();
   const config = new ProviderConfiguration({
     environment,
     models,
@@ -196,7 +196,7 @@ function configuration(
   return { config, models };
 }
 
-const ids = (models: ModelManager) => models.providers.map((p) => p.id);
+const ids = (models: Models) => models.providers.map((p) => p.id);
 
 beforeEach(() => {
   store = new TestStore();
@@ -948,7 +948,7 @@ it("never repeats a value a plugin's settings schema quotes", async () => {
   });
   const config = new ProviderConfiguration({
     environment: {},
-    models: new ModelManager(),
+    models: new Models(),
     plugins: [strict],
     store,
   });
@@ -985,7 +985,7 @@ it("disables an entry that cannot load, and refuses to enable it again", async (
 });
 
 it("keeps a read-only engine's edits in memory and writes nothing", async () => {
-  const models = new ModelManager();
+  const models = new Models();
   const config = new ProviderConfiguration({
     environment: { PATH: "/bin" },
     models,
@@ -1183,7 +1183,7 @@ describe("instance identity", () => {
     }
     const config = new ProviderConfiguration({
       environment: env,
-      models: new ModelManager(),
+      models: new Models(),
       plugins: FIRST_PARTY,
       store: kept,
     });
@@ -1294,7 +1294,7 @@ describe("instance identity", () => {
       });
       const config = new ProviderConfiguration({
         environment: {},
-        models: new ModelManager(),
+        models: new Models(),
         plugins: [defaulted],
         store,
       });
@@ -1314,7 +1314,7 @@ it("refuses an entry with a host-supplied provider's id, and keeps its state whe
     models: [{ id: "m", kind: "text", modelId: "m" }],
     offline: false,
   } as unknown as Provider;
-  const models = new ModelManager();
+  const models = new Models();
   const config = new ProviderConfiguration({
     environment: {},
     fixed: [host],
@@ -1349,7 +1349,7 @@ it("tells a configured instance with no execution from a host-supplied one", asy
   const fixed = new ProviderConfiguration({
     environment: {},
     fixed: [],
-    models: new ModelManager(),
+    models: new Models(),
     plugins: PLUGINS,
   });
   expect(fixed.executionOf("codex")).toBeUndefined();
@@ -1648,7 +1648,7 @@ it("keeps Pi's configured default with a supplied catalog", async () => {
   });
   try {
     expect(provider.defaults).toEqual({ text });
-    const models = new ModelManager({ providers: [provider] });
+    const models = new Models({ providers: [provider] });
     expect(models.resolve("text", { provider: piPlugin.id }).model).toBe(text);
   } finally {
     await provider.dispose?.();

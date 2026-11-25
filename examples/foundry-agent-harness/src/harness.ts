@@ -11,7 +11,7 @@ import {
   Engine,
   InMemoryArtifactStore,
   InMemorySessionStore,
-  ModelManager,
+  Models,
 } from "@foundry.sh/marbles/lib";
 import { file, Glob } from "bun";
 import { initLogger } from "evlog";
@@ -92,7 +92,7 @@ const engine = new Engine({
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   askable: false,
   containers: () => Promise.reject(new Error("no sandbox runtime here")),
-  models: new ModelManager({
+  models: new Models({
     providers: [
       claudeCodeProvider({
         config: {

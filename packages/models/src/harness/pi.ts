@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import type { HarnessTurnDriver, StreamPart } from "@foundry/agents/harness";
-import { validateHarnessProfile } from "@foundry/agents/harness";
+import type { HarnessTurnDriver, StreamPart } from "@foundry/core/agents";
+import { validateHarnessProfile } from "@foundry/core/agents";
 import type { CliProcess } from "./app-server";
 import { createPiEvents } from "./pi-events";
 import { PiRpc } from "./pi-rpc";

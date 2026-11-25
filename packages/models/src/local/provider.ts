@@ -641,7 +641,7 @@ export function toFloat32(input: TranscribeInput): Float32Array {
   if (input instanceof ArrayBuffer) {
     return new Float32Array(input);
   }
-  if (Buffer.isBuffer(input)) {
+  if (input instanceof Uint8Array) {
     return new Float32Array(
       input.buffer,
       input.byteOffset,
