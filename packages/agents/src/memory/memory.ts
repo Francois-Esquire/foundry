@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import type { MemoryStore } from "./store";
 
-import { InMemoryMemoryStore, MEMORY_TYPES } from "./store";
+import { LocalMemoryStore, MEMORY_TYPES } from "./store";
 
 const memoryTypeSchema = z.enum(MEMORY_TYPES);
 
@@ -17,7 +17,7 @@ export class Memory {
   readonly #resolveSourceId: MemoryOptions["resolveSourceId"];
 
   constructor(options: MemoryOptions = {}) {
-    this.store = options.store ?? new InMemoryMemoryStore();
+    this.store = options.store ?? new LocalMemoryStore();
     this.#resolveSourceId = options.resolveSourceId;
   }
 

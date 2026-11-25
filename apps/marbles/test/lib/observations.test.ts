@@ -11,7 +11,7 @@ import type {
   SessionStream,
   SessionUsage,
 } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
@@ -427,7 +427,7 @@ function cliHarness(
     route: { harness: "codex", id: "gpt-5", provider: "codex" },
     sessionId: "cli",
     steer: () => Promise.resolve(),
-    store: new InMemorySessionStore(),
+    store: new MemorySessionStore(),
     stream: ((_input, options) => {
       const { message: settled, usage: reported } = turn(options);
       const usageOf = reported ?? Promise.reject(new Error("no usage"));

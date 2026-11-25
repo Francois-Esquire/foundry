@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { SessionMessage } from "@foundry/agents/session";
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Artifacts } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import type { SQL } from "drizzle-orm";
@@ -649,7 +649,7 @@ it("a transcript that failed to read is read again at the same stamp, keeps only
   let reads = 0;
   let stamp: string | null = "unchanged";
   let fail = false;
-  const sessions = new InMemorySessionStore();
+  const sessions = new MemorySessionStore();
   await new Sessions({ store: sessions }).createSession({ id: "s" });
   const evidence = new UsageEvidence({
     recordedOf: () =>
@@ -751,7 +751,7 @@ it("an unreadable or missing transcript a settled run names is owned by nothing:
   });
   const evidence = new UsageEvidence({
     recordedOf: () => Promise.resolve("unreadable"),
-    sessions: new InMemorySessionStore(),
+    sessions: new MemorySessionStore(),
   });
   const run2: ReconciledRun = {
     active: false,
@@ -982,7 +982,7 @@ it("a saved marker's own attribution goes to the recovered leaf, which replaces 
 });
 
 it("attributes a run's turn only on per-turn proof, a one-turn call's message, never on the session it was filed under or the run's window", async () => {
-  const sessions = new InMemorySessionStore();
+  const sessions = new MemorySessionStore();
   const written = new Sessions({ store: sessions });
   expect(
     ledgerNames({
@@ -1829,7 +1829,7 @@ it("a store that cannot list sessions and outlives the process says every total 
 it("a session store or a ledger kept in memory loses nothing a restart could hide from the other, so neither warns", async () => {
   const helper = agent({ name: "helper", prompt: "Help." });
   const inMemorySessions = await started({
-    sessions: new InMemorySessionStore(),
+    sessions: new MemorySessionStore(),
     state,
   });
   await (await inMemorySessions.agents.session(helper)).generate("saved");

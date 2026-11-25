@@ -6,7 +6,7 @@ import type {
   HarnessSession,
 } from "@foundry/agents/harness";
 import type { SessionMessage } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { Container } from "@foundry/sandbox";
 import type { ToolSet } from "ai";
 import { tool as createTool } from "ai";
@@ -60,7 +60,7 @@ function settings(): SandboxSessionSettings {
     provider: "provider",
     sessionId: "parent",
     signal: new AbortController().signal,
-    store: new InMemorySessionStore(),
+    store: new MemorySessionStore(),
     write: () => undefined,
   };
 }
@@ -88,7 +88,7 @@ function child(
     route: { id: "model", provider: "provider" },
     sessionId: "child",
     steer: async () => undefined,
-    store: new InMemorySessionStore(),
+    store: new MemorySessionStore(),
     stream: () => {
       throw new Error("unused");
     },

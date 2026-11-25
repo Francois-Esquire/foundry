@@ -1,6 +1,6 @@
 import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type { HarnessTurnDriver } from "@foundry/agents/harness";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { Container } from "@foundry/sandbox";
 import { beforeEach, expect, it, vi } from "vitest";
 import { codex as codexPlugin } from "~/lib/providers/codex";
@@ -65,7 +65,7 @@ function open(execution?: Execution, wireModelId?: string) {
     provider: "work-codex",
     sessionId: "session",
     signal: new AbortController().signal,
-    store: new InMemorySessionStore(),
+    store: new MemorySessionStore(),
     ...(wireModelId === undefined ? {} : { wireModelId }),
     write: () => undefined,
   });

@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Artifacts } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createContainers } from "@foundry/sandbox/node";
@@ -60,7 +60,7 @@ export function testInstances(
         options.reply ?? (({ prompt }) => prompt),
         options.hold === undefined ? {} : { hold: options.hold }
       ),
-    sessions: options.sessions ?? new InMemorySessionStore(),
+    sessions: options.sessions ?? new MemorySessionStore(),
     workspaces: options.workspaces ?? workspaces().extend(git(gitOptions)),
   };
 }

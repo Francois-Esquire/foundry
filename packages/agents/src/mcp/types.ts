@@ -1,7 +1,8 @@
-import type { OAuthClientProvider } from "@ai-sdk/mcp";
-import type { McpServerDefinition as CoreMcpServerDefinition } from "@foundry/core/agents";
-
-import type { SpawnStdio } from "./stdio";
+import type { MCPTransport, OAuthClientProvider } from "@ai-sdk/mcp";
+import type {
+  McpServerDefinition as CoreMcpServerDefinition,
+  McpStdioTransportConfig,
+} from "@foundry/core/agents";
 
 export type McpServerDefinition = CoreMcpServerDefinition<OAuthClientProvider>;
 export type {
@@ -12,8 +13,17 @@ export type {
   McpResourceContent,
   McpServerState,
   McpServerSummary,
-  McpStdioTransportConfig,
 } from "@foundry/core/agents";
+
+export interface StdioTransportHooks {
+  onExit?: (code: number | null, signal: string | null) => void;
+  onStderr?: (line: string) => void;
+}
+
+export type SpawnStdio = (
+  config: McpStdioTransportConfig,
+  hooks: StdioTransportHooks
+) => MCPTransport;
 
 interface McpElicitationRequest {
   message: string;
@@ -41,4 +51,4 @@ export interface McpClientOptions {
   spawnStdio?: SpawnStdio;
 }
 
-export type McpManagerOptions = McpClientOptions;
+export type McpClientsOptions = McpClientOptions;

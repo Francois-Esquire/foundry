@@ -9,7 +9,7 @@ import type {
 import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { SessionHarness } from "../../harness/session-harness";
 import { Sessions } from "../../session/sessions";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   textStreamResult,
@@ -46,7 +46,7 @@ describe("SessionHarness — session identity", () => {
       policy: { byKind: { "tool.call": "ask" }, global: "ask" },
     });
     const requests: AgentAuthorizationRequest[] = [];
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const harness = new SessionHarness({
       instructions: "x",
       model: createScriptedMockModel({
@@ -78,7 +78,7 @@ describe("SessionHarness — session identity", () => {
   });
 
   it("adopts an id the host already filed without creating the session again", async () => {
-    const inner = new InMemorySessionStore();
+    const inner = new MemorySessionStore();
     const filed = await new Sessions({ store: inner }).createSession({
       id: "filed",
       title: "host",

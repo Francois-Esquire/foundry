@@ -1,5 +1,5 @@
 import { Sessions } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
 import type { DashboardSnapshot } from "~/cli/state/dashboard-model";
@@ -169,7 +169,7 @@ test("two turns of the same agent and model in one step each carry their own ide
 });
 
 test("a question from a child session waits on the turn that delegated it, not on the other turn in the step, and is answered from there", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const sessions = new Sessions({ store });
   await sessions.createSession({ id: "run-session" });
   for (const parent of ["parent-a", "parent-b"]) {

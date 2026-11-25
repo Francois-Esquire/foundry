@@ -392,7 +392,7 @@ step(123);
       `
 import { packedWorkflow } from "./marbles.config";
 import { step } from "@foundry.sh/marbles";
-import { ArtifactManager, Engine, MemoryArtifactStore, InMemorySessionStore, Models, WorkspaceSystem, directory, git, nodeObserver, piProvider } from "@foundry.sh/marbles/lib";
+import { ArtifactManager, Engine, MemoryArtifactStore, MemorySessionStore, Models, WorkspaceSystem, directory, git, nodeObserver, piProvider } from "@foundry.sh/marbles/lib";
 import { claimProcess, readProcess } from "@foundry.sh/marbles/process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -403,7 +403,7 @@ const instances = {
   artifacts: new ArtifactManager({ store: new MemoryArtifactStore() }),
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
   models: new Models({ providers: [piProvider()] }),
-  sessions: new InMemorySessionStore(),
+  sessions: new MemorySessionStore(),
   workspaces: new WorkspaceSystem().extend(directory({ observer: nodeObserver }), git()),
 };
 const engine = new Engine({ ...instances, root, workspaceId: "host" });
@@ -468,14 +468,14 @@ console.log(String(review), "|", String(prompts.codex\`Use \${ref.skill("review"
       join(consumer, "embedded.ts"),
       `
 import { Tasks } from "@foundry.sh/marbles";
-import { ArtifactManager, Engine, MemoryArtifactStore, InMemorySessionStore, Models, Sessions } from "@foundry.sh/marbles/engine";
+import { ArtifactManager, Engine, MemoryArtifactStore, MemorySessionStore, Models, Sessions } from "@foundry.sh/marbles/engine";
 import type { SessionStore, SessionStoreWrite } from "@foundry.sh/marbles/engine";
 import { openWorkspaceRecords, type WorkspaceRecords } from "@foundry.sh/marbles/workspace";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // A host can wrap the store it hands the engine and still write sessions.
-const inner = new InMemorySessionStore();
+const inner = new MemorySessionStore();
 const sessions: SessionStore = {
   commit: (write: SessionStoreWrite) => inner.commit(write),
   getMessage: (id) => inner.getMessage(id),
@@ -517,7 +517,7 @@ const persisted = () => new Engine({
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
   models: new Models(),
   root: ".",
-  sessions: new InMemorySessionStore(),
+  sessions: new MemorySessionStore(),
   state,
   workspaceId: "embedded",
 });
@@ -535,7 +535,7 @@ const own = new Engine({
   models: new Models(),
   records,
   root: ".",
-  sessions: new InMemorySessionStore(),
+  sessions: new MemorySessionStore(),
   workspaceId: "own",
 });
 await new Tasks({ store: own.taskStore }).create({ title: "In the host's records" });

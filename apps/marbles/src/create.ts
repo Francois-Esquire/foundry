@@ -1,7 +1,7 @@
 import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { ArtifactSubstrate } from "@foundry/artifacts";
 import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
@@ -281,7 +281,7 @@ function recordsFor(
     };
   }
   if (state === undefined) {
-    return { sessions: new InMemorySessionStore() };
+    return { sessions: new MemorySessionStore() };
   }
   const own = defaultWorkspaceDatabase(state, root, workspaceId);
   return {

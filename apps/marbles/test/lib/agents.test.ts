@@ -2,7 +2,7 @@ import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type { HarnessSession } from "@foundry/agents/harness";
 import type { SessionEvent } from "@foundry/agents/session";
 import { Sessions } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Models } from "@foundry/models";
 import { airplaneMode } from "@foundry/models/airplane";
 import { NoObjectGeneratedError, Output } from "ai";
@@ -50,7 +50,7 @@ function deps(warnings: string[] = []): AgentsDeps {
     dry: false,
     interactions: host.interactions,
     models,
-    sessions: new InMemorySessionStore(),
+    sessions: new MemorySessionStore(),
     skills: () => Promise.resolve([]),
     warn: (message: string) => {
       warnings.push(message);

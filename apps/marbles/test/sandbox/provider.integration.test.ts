@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Models } from "@foundry/models";
 import { gatewayProvider } from "@foundry/models/gateway";
 import { createContainers } from "@foundry/sandbox/node";
@@ -34,7 +34,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       runtime,
       store: new MemoryContainerStore(),
     });
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const provider = harness === "builtin" ? "gateway" : harness;
     const modelId = {
       builtin: "openai/gpt-5-mini",

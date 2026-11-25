@@ -69,4 +69,62 @@ describe("TodoStore", () => {
     store.complete(store.items[0]?.id ?? "");
     expect(firstSnapshot).not.toBe(captured);
   });
+
+  it("supports once, repeated registrations, off/removeListener, and removeAllListeners", () => {
+    const store = new TodoStore();
+    const onceAdded = vi.fn();
+    const repeated = vi.fn();
+
+    store.once("todo.added", onceAdded);
+    store.on("todo.added", repeated);
+    store.on("todo.added", repeated);
+
+    store.add("one");
+    store.add("two");
+
+    expect(onceAdded).toHaveBeenCalledTimes(1);
+    expect(repeated).toHaveBeenCalledTimes(4);
+
+    store.off("todo.added", repeated);
+    store.add("three");
+    expect(repeated).toHaveBeenCalledTimes(5);
+
+    store.removeListener("todo.added", repeated);
+    store.add("four");
+    expect(repeated).toHaveBeenCalledTimes(5);
+
+    const onChanged = vi.fn();
+    store.on("changed", onChanged);
+    store.removeAllListeners("changed");
+    store.add("five");
+    expect(onChanged).not.toHaveBeenCalled();
+
+    const onReset = vi.fn();
+    store.on("todo.reset", onReset);
+    store.removeAllListeners();
+    store.reset();
+    expect(onReset).not.toHaveBeenCalled();
+  });
+
+  it("fires once listeners only once across recursive emits and binds `this` to the TodoStore", () => {
+    const store = new TodoStore();
+    let recursed = false;
+    let boundThis: unknown;
+    const onceListener = vi.fn(function (this: unknown) {
+      boundThis = this;
+    });
+
+    store.on("todo.added", () => {
+      if (!recursed) {
+        recursed = true;
+        store.add("inner");
+      }
+    });
+    store.once("todo.added", onceListener);
+
+    store.add("outer");
+
+    expect(onceListener).toHaveBeenCalledTimes(1);
+    expect(boundThis).toBe(store);
+  });
 });

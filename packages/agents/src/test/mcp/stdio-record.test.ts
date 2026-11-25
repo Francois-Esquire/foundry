@@ -12,7 +12,7 @@ import {
   SPAWN_RECORD_ENV,
 } from "@foundry/lib/node/spawn-record";
 import { afterEach, expect, it, vi } from "vitest";
-import { spawnStdioTransport } from "../../mcp/stdio";
+import { spawnStdioTransport } from "../../node";
 
 afterEach(() => {
   vi.unstubAllEnvs();

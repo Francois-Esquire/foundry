@@ -9,8 +9,8 @@ import {
   ArtifactManager,
   claudeCodeProvider,
   Engine,
-  InMemorySessionStore,
   MemoryArtifactStore,
+  MemorySessionStore,
   Models,
 } from "@foundry.sh/marbles/lib";
 import { file, Glob } from "bun";
@@ -112,7 +112,7 @@ const engine = new Engine({
     ],
   }),
   root,
-  sessions: new InMemorySessionStore(),
+  sessions: new MemorySessionStore(),
   workspaceId: "foundry-agent-harness",
 });
 

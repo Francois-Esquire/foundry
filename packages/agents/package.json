@@ -6,13 +6,21 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    "./agents/*": {
-      "types": "./src/agents/*.ts",
-      "import": "./src/agents/*.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
     },
-    "./tools/*": {
-      "types": "./src/tools/*.ts",
-      "import": "./src/tools/*.ts"
+    "./agents": {
+      "types": "./src/agents/index.ts",
+      "import": "./src/agents/index.ts"
+    },
+    "./tools": {
+      "types": "./src/tools/index.ts",
+      "import": "./src/tools/index.ts"
+    },
+    "./node": {
+      "types": "./src/node/index.ts",
+      "import": "./src/node/index.ts"
     },
     "./harness": {
       "types": "./src/harness/index.ts",

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { Output } from "ai";
 
 import type { SessionInput, SessionStream } from "../session/events";
@@ -33,7 +32,7 @@ export function createDriverSession(
   driver: HarnessTurnDriver
 ): HarnessSession {
   validateHarnessProfile(settings.profile);
-  const sessionId = settings.sessionId || randomUUID();
+  const sessionId = settings.sessionId || crypto.randomUUID();
   const gate = createTurnGate("Harness");
   const lifetime = new AbortController();
   const sessions = new Sessions({ store: settings.store });

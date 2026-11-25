@@ -1,4 +1,4 @@
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Models } from "@foundry/models";
 import { beforeEach, expect, it, vi } from "vitest";
 import { CODEX } from "~/lib/harnesses";
@@ -49,7 +49,7 @@ function deps(
     cwd: process.cwd(),
     interactions: host.interactions,
     models,
-    sessions: new InMemorySessionStore(),
+    sessions: new MemorySessionStore(),
     skills: () => Promise.resolve([]),
     warn: () => undefined,
   };

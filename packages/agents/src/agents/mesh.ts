@@ -9,7 +9,7 @@ import { lastTextValue } from "./last-text";
 import type { AgentCompatibilityRegistry, AgentEntry } from "./registry";
 
 export const HUMAN = Symbol.for("mesh.human");
-export type Human = typeof HUMAN;
+type Human = typeof HUMAN;
 
 export type NodeId = string | Human;
 
@@ -289,8 +289,7 @@ export function createMesh(opts?: MeshOptions): Mesh {
   return new Mesh(opts);
 }
 
-export const keyOf = (id: NodeId): string =>
-  typeof id === "symbol" ? "@human" : id;
+const keyOf = (id: NodeId): string => (typeof id === "symbol" ? "@human" : id);
 
 const ESCAPED_IN_ID = /[%:]/g;
 

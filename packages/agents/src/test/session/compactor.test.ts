@@ -17,7 +17,7 @@ import type {
   SessionRole,
 } from "../../session/types";
 import type { SessionStore } from "../../store";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { textGenerateResult } from "../helpers/mock-language-model";
 import { sessionStoreKinds } from "../helpers/session-stores";
 
@@ -90,7 +90,7 @@ const capability = { kind: "mcp.tool", serverId: "s", tool: "danger" } as const;
 
 describe("renderTranscript", () => {
   test("renders a pruned transcript: roles + tools, reasoning dropped", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     const session = await sessions.createSession();
     await sessions.appendMessage({
@@ -141,7 +141,7 @@ describe("createModelSummarizer", () => {
 
 describe("compact", () => {
   test("summarizes messages before the marker and persists via the store", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     const summarizer = fakeSummarizer();
     const { sessionId, ids } = await seed(store, ["m1", "m2", "m3", "m4"]);
@@ -160,7 +160,7 @@ describe("compact", () => {
   });
 
   test("is a no-op when nothing precedes the marker", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const summarizer = fakeSummarizer();
     const { sessionId, ids } = await seed(store, ["m1", "m2"]);
 
@@ -169,7 +169,7 @@ describe("compact", () => {
   });
 
   test("repeat compaction folds the prior summary into the new one", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     const summarizer = fakeSummarizer();
     const { sessionId, ids } = await seed(store, ["m1", "m2", "m3", "m4"]);
@@ -201,7 +201,7 @@ describe("compact", () => {
   });
 
   test("real summarizer over a simulated model", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     let generateCalls = 0;
     const model = new MockLanguageModelV4({
@@ -333,7 +333,7 @@ describe("selectMarker", () => {
 
 describe("maybeCompact", () => {
   test("no-op when the active context is under the limit", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const summarizer = fakeSummarizer();
     const { sessionId } = await seed(store, ["m1", "m2"]);
 
@@ -348,7 +348,7 @@ describe("maybeCompact", () => {
   });
 
   test("folds older history once the active context exceeds the limit", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const summarizer = fakeSummarizer();
     const { sessionId } = await seedRoles(store, [
       ["user", "u1"],
@@ -371,5 +371,63 @@ describe("maybeCompact", () => {
     const active = await new Sessions({ store }).activeMessages(sessionId);
     expect(active.map((m) => m.role)).toEqual(["summary", "user", "assistant"]);
     expect(active.map(labelOf)).toEqual(["SUMMARY", "u2", "a2"]);
+  });
+
+  test("rejects compaction when cyclic structure, ArrayBuffer bytes, Date props, or RegExp lastIndex mutate mid-summary", async () => {
+    const cycleA: Record<string, unknown> = {};
+    cycleA.self = cycleA;
+    const cycleBInner: Record<string, unknown> = {};
+    cycleBInner.self = cycleBInner;
+    const cycleB: Record<string, unknown> = { self: cycleBInner };
+
+    const dateA = new Date(1000);
+    const dateB = Object.assign(new Date(1000), { extra: 1 });
+
+    const regexA = /foo/g;
+    const regexB = /foo/g;
+    regexB.lastIndex = 2;
+
+    const bufA = new Uint8Array([1, 2, 3]).buffer;
+    const bufB = new Uint8Array([1, 2, 4]).buffer;
+
+    const pairs: [unknown, unknown][] = [
+      [cycleA, cycleB],
+      [dateA, dateB],
+      [regexA, regexB],
+      [bufA, bufB],
+    ];
+
+    for (const [before, after] of pairs) {
+      let currentValue = before;
+      const baseMessages = (value: unknown) => [
+        mk("m1", "user", [
+          {
+            input: value,
+            name: "probe",
+            toolCallId: "tc-1",
+            type: "tool_call",
+          },
+        ]),
+        mk("m2", "user"),
+      ];
+      const store: MemorySessionStore = Object.assign(
+        new MemorySessionStore(),
+        {
+          listMessages: async () => baseMessages(currentValue),
+        }
+      );
+      const result = await compact(
+        store,
+        {
+          summarize: async () => {
+            currentValue = after;
+            return "summary";
+          },
+        },
+        "s1",
+        "m2"
+      );
+      expect(result).toBeNull();
+    }
   });
 });

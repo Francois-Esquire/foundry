@@ -1,11 +1,12 @@
-import type { AgentSpec } from "@foundry/agents/agents/index";
-import { createAgentPreset } from "@foundry/agents/agents/index";
+import type { AgentSpec } from "@foundry/agents/agents";
+import { createAgentPreset } from "@foundry/agents/agents";
 import type {
   HarnessSession,
   SessionHarness,
   TurnOptions,
 } from "@foundry/agents/harness";
-import { McpClient } from "@foundry/agents/mcp";
+import type { McpClient } from "@foundry/agents/mcp";
+import { createNodeMcpClient } from "@foundry/agents/node";
 import type {
   SessionInput,
   SessionMessage,
@@ -15,7 +16,7 @@ import type {
 import { Sessions } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import type { SessionStore } from "@foundry/agents/store";
-import { composeTools } from "@foundry/agents/tools/compose";
+import { composeTools } from "@foundry/agents/tools";
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { ModelSelection, Models, Resolution } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
@@ -586,8 +587,8 @@ async function connectServers(
       `agent "${definition.id}" names one MCP server id more than once`
     );
   }
-  const clients = servers.map(
-    (server) => new McpClient({ ...server, enabled: true })
+  const clients = servers.map((server) =>
+    createNodeMcpClient({ ...server, enabled: true })
   );
   for (const client of clients) {
     site.retain(client);

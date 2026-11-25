@@ -39,7 +39,7 @@ export interface MemoryStore {
 
 const DEFAULT_SEARCH_LIMIT = 10;
 
-export class InMemoryMemoryStore implements MemoryStore {
+export class LocalMemoryStore implements MemoryStore {
   #rows: MemoryRecord[] = [];
 
   create(input: CreateMemoryInput): Promise<MemoryRecord> {

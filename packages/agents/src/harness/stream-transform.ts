@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { StreamPart } from "@foundry/core/agents";
 import type {
   InferGenerateOutput,
@@ -511,7 +510,7 @@ function assembleMessage(
   const now = Date.now();
   return {
     createdAt: now,
-    id: randomUUID(),
+    id: crypto.randomUUID(),
     metadata,
     parts,
     role: "assistant",

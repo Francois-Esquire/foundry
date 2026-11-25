@@ -2,7 +2,7 @@ import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import { SessionHarness } from "@foundry/agents/harness";
 import type { SessionEvent, SessionMessage } from "@foundry/agents/session";
 import type { SessionStore } from "@foundry/agents/store";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
@@ -41,7 +41,7 @@ function model() {
 }
 
 function refusingStore(): SessionStore {
-  const inner = new InMemorySessionStore();
+  const inner = new MemorySessionStore();
   const refusing = (store: SessionStore): SessionStore => ({
     commit: (write) =>
       write.putMessages?.some((message) => message.role === "assistant")
@@ -141,7 +141,7 @@ describe("a replayed turn", () => {
 
 it("refuses steering while a finished turn records its usage", async () => {
   const harness = new SessionHarness(
-    { instructions: "x", model: model(), store: new InMemorySessionStore() },
+    { instructions: "x", model: model(), store: new MemorySessionStore() },
     { sessionId: "s" }
   );
   const work = new StepWork("review");

@@ -6,7 +6,7 @@ import type { Capability } from "../../authorization/capability";
 import { SessionHarness } from "../../harness/session-harness";
 import type { SessionEvent } from "../../session/events";
 import { Sessions } from "../../session/sessions";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   textStreamResult,
@@ -29,7 +29,7 @@ const capability: Capability = {
 };
 
 async function seedPendingApproval(
-  store: InMemorySessionStore,
+  store: MemorySessionStore,
   sessionId: string
 ) {
   const sessions = new Sessions({ store });
@@ -63,7 +63,7 @@ async function seedPendingApproval(
 
 describe("SessionHarness — approval responses", () => {
   it("routes a tool_approval_response input to a tool-role message and actually executes the approved tool", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     await seedPendingApproval(store, "s1");
 
     const execute = vi.fn(async ({ target }: { target: string }) =>
@@ -124,7 +124,7 @@ describe("SessionHarness — approval responses", () => {
   });
 
   it("rejects an approval response with no matching request, before touching the model or the store", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     await sessions.createSession({ id: "s2" });
     let modelCalled = false;
@@ -158,7 +158,7 @@ describe("SessionHarness — approval responses", () => {
   });
 
   it("rejects a duplicate response for an already-resolved approval", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     await seedPendingApproval(store, "s3");
     await sessions.appendMessage({

@@ -4,7 +4,7 @@ import type { Message, SendEvent } from "../../agents/mesh";
 import { createMesh, Edge, HUMAN, Mesh, Node } from "../../agents/mesh";
 import type { AgentEntry } from "../../agents/registry";
 import { createAgentCompatibilityRegistry } from "../../agents/registry";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 
 function mockAgent(...deltas: string[]): AgentEntry {
   return {
@@ -329,7 +329,7 @@ describe("Mesh (node and edge management)", () => {
   });
 
   it("send persists messages to the store when present", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const mesh = new Mesh({ store });
     mesh.registerNode(agentNode("alice", mockAgent("hello back")));
     mesh.registerNode(agentNode("bob"));
@@ -346,7 +346,7 @@ describe("Mesh (node and edge management)", () => {
   });
 
   it("send persists without agent (single message, user role)", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const mesh = new Mesh({ store });
     mesh.registerNode(agentNode("alice"));
     mesh.registerNode(agentNode("bob"));
@@ -360,7 +360,7 @@ describe("Mesh (node and edge management)", () => {
   });
 
   it("send reuses the same session per edge", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const mesh = new Mesh({ store });
     mesh.registerNode(agentNode("alice", mockAgent("reply")));
     mesh.registerNode(agentNode("bob"));
@@ -374,7 +374,7 @@ describe("Mesh (node and edge management)", () => {
   });
 
   it("send creates separate sessions per edge", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const mesh = new Mesh({ store });
     mesh.registerNode(agentNode("alice", mockAgent("hi")));
     mesh.registerNode(agentNode("bob", mockAgent("hey")));
@@ -390,7 +390,7 @@ describe("Mesh (node and edge management)", () => {
   });
 
   it("persists under the edge id when endpoints hold the separator or %", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const mesh = new Mesh({ store });
     for (const id of ["50%::off", "c", "a::b", "a", "b::c"]) {
       mesh.registerNode(agentNode(id));
@@ -614,7 +614,7 @@ describe("Mesh (agent registration and tools)", () => {
   });
 
   it("createMesh({ store }) wires the store into mesh", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const mesh = createMesh({ store });
     mesh.register("alice", { agent: mockAgent("hi"), role: "a" });
     mesh.register("bob", { agent: mockAgent(), role: "b" });

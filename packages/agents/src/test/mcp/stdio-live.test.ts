@@ -3,9 +3,10 @@ import type { Tool, ToolExecutionOptions } from "ai";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { metaOf } from "../../harness/types";
-import { McpClient } from "../../mcp/client";
-import { sdkStdioTransport, spawnStdioTransport } from "../../mcp/stdio";
+import type { McpClient } from "../../mcp/client";
 import type { McpClientOptions, McpLogMessage } from "../../mcp/types";
+import { createNodeMcpClient, spawnStdioTransport } from "../../node";
+import { sdkStdioTransport } from "../../node/mcp-stdio";
 
 const NOT_CONNECTED_PATTERN = /not connected/u;
 
@@ -47,7 +48,7 @@ async function textOf(tool: Executable, input: unknown): Promise<string> {
 
 const clients: McpClient[] = [];
 async function connect(opts: McpClientOptions = {}): Promise<McpClient> {
-  const client = new McpClient(server, opts);
+  const client = createNodeMcpClient(server, opts);
   clients.push(client);
   await client.connect();
   return client;
@@ -77,7 +78,7 @@ describe("stdio MCP server (live subprocess)", () => {
   });
 
   it("reports a server whose command dies as failed without throwing", async () => {
-    const client = new McpClient({
+    const client = createNodeMcpClient({
       id: "dead",
       transport: {
         args: ["-e", "process.exit(1)"],
@@ -254,7 +255,7 @@ describe("stdio MCP server (live subprocess)", () => {
   });
 
   it("rejects resource calls while not connected", async () => {
-    const client = new McpClient(server);
+    const client = createNodeMcpClient(server);
     await expect(client.listResources()).rejects.toThrow(NOT_CONNECTED_PATTERN);
   });
 });

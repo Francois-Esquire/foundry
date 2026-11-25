@@ -5,7 +5,7 @@ import {
 } from "@foundry/agents/authorization";
 import { resolveHarnessApproval } from "@foundry/agents/harness";
 import { Sessions } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { Container } from "@foundry/sandbox";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
@@ -125,7 +125,7 @@ async function session(
   overrides: Partial<SandboxSessionOptions> = {},
   context: {
     observe?: Parameters<typeof createSandboxSession>[0]["observe"];
-    store?: InMemorySessionStore;
+    store?: MemorySessionStore;
     signal?: AbortSignal;
     write?: (value: unknown) => void;
   } = {}
@@ -150,7 +150,7 @@ async function session(
     provider: "gateway",
     sessionId: "session",
     signal: context.signal ?? signal,
-    store: context.store ?? new InMemorySessionStore(),
+    store: context.store ?? new MemorySessionStore(),
     write: context.write ?? (() => undefined),
   });
 }
@@ -160,7 +160,7 @@ describe("built-in sandbox session factory", () => {
     "honours %s compaction for over-budget retained history",
     async (mode) => {
       guest();
-      const store = new InMemorySessionStore();
+      const store = new MemorySessionStore();
       const sessions = new Sessions({ store });
       await sessions.createSession({ id: "session" });
       for (const role of ["user", "assistant"] as const) {
@@ -226,7 +226,7 @@ describe("built-in sandbox session factory", () => {
           provider: "claude-code",
           sessionId: "session",
           signal,
-          store: new InMemorySessionStore(),
+          store: new MemorySessionStore(),
           write: () => undefined,
         })
       ).rejects.toThrow("manage their own compaction");
@@ -304,7 +304,7 @@ describe("built-in sandbox session factory", () => {
   it("waits for an attended approval, executes once, and remembers the grant", async () => {
     const fake = guest();
     const authority = createInMemoryAgentAuthorizer();
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const onApprovalRequest = vi.fn();
     const write = vi.fn();
     let answer!: (value: { approved: boolean; lifetime: "persistent" }) => void;
@@ -364,7 +364,7 @@ describe("built-in sandbox session factory", () => {
   it("scheduled asks refuse the effect and a deferred grant enables a later run", async () => {
     const fake = guest();
     const authority = createInMemoryAgentAuthorizer();
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const approve = vi.fn(() => new Promise<never>(() => undefined));
     const options = { authority: { approve, policy: authority.authorizer } };
     const harness = await session(

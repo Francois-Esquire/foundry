@@ -83,7 +83,7 @@ The composition layer. Start here.
 
 ```typescript
 type SessionHarnessSettings = AgentHarnessSettings & {
-  store?: SessionStore; // default: InMemorySessionStore
+  store?: SessionStore; // default: MemorySessionStore
   compaction?: CompactionSettings; // auto-fold history when the window fills
   registry?: AgentCompatibilityRegistry; // default: a fresh one
   mesh?: Mesh; // default: createMesh({ registry, store })
@@ -156,7 +156,7 @@ type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
 
 `toolsContext` is handed to every tool unchanged — the same object, not a copy,
 so a host may freeze or brand it. The harness attaches its `policy` beside it
-(read back with `getPolicy` from `@foundry/agents/tools/context`) rather than
+(read back with `getPolicy` from `@foundry/agents/tools`) rather than
 writing a field onto it.
 
 ```typescript
@@ -176,7 +176,7 @@ what `SessionHarness` does. `generate` returns the SDK result as is.
 `tools` is the whole tool surface, as one AI SDK `ToolSet`. Compose it yourself
 from whatever sources apply — `registry.tools` from a skill registry,
 `createTodos().tools`, MCP tools — and join their instructions the same way.
-`composeTools` from `@foundry/agents/tools/compose` merges maps and throws on a
+`composeTools` from `@foundry/agents/tools` merges maps and throws on a
 duplicate name.
 
 ### Tagging a tool
@@ -261,7 +261,7 @@ history before it — and builds each change as one atomic `commit`:
 ```typescript
 import { Sessions } from "@foundry/agents/session";
 
-const sessions = new Sessions({ store }); // default: an InMemorySessionStore
+const sessions = new Sessions({ store }); // default: a MemorySessionStore
 await sessions.createSession({ id: "s" });
 await sessions.appendMessage({ parts, role: "user", sessionId: "s" });
 await sessions.summarize({ messageId, sessionId: "s", summary: { parts } });
@@ -337,7 +337,7 @@ A transaction's `work` may read and commit through its `view` across any
 sessions, any number of times. A plain `commit` from outside queues behind it;
 if `work` throws, none of its commits stay; reads through `view` see its own
 commits. A call to the store itself from inside `work` is refused at once
-with a `ReentrantCallError`; use the view. Values crossing the seam are detached. `InMemorySessionStore`
+with a `ReentrantCallError`; use the view. Values crossing the seam are detached. `MemorySessionStore`
 (`@foundry/agents/store/memory`)
 is the default. A persistent store proves it behaves the same by running
 the conformance suite. `open` returns fresh, empty storage as a store per
@@ -407,7 +407,7 @@ writes. Every store does the same with a write: it takes its own copy when
 | Path                            | Holds                                                     |
 | ------------------------------- | --------------------------------------------------------- |
 | `@foundry/agents/store`         | `SessionStore` and `SessionStoreWrite`. The rule every store takes events by, `ownedEvents`, is in `@foundry/lib/plain-json`. |
-| `@foundry/agents/store/memory`  | `InMemorySessionStore`, the default `Sessions` uses.      |
+| `@foundry/agents/store/memory`  | `MemorySessionStore`, the default `Sessions` uses.        |
 | `@foundry/agents/store/sqlite`  | `SqliteSessionStore`, over a host's Drizzle database, and `capturedSessionWrite`, the copy its `commit` takes. |
 | `@foundry/agents/store/tables`  | Its Drizzle tables: `agent_sessions`, `agent_messages`.   |
 | `@foundry/agents/testing/store` | `describeSessionStore`, the suite every store passes.     |
@@ -695,7 +695,7 @@ the loaders together. Bundles stay in memory — the registry holds no paths.
 
 ---
 
-## `@foundry/agents/agents/*`
+## `@foundry/agents/agents`
 
 The primitives everything above composes. Reach for these when the harness is
 more than you need, or when you are building multi-agent topology.

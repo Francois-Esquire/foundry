@@ -4,7 +4,7 @@ import {
   createInMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
 import type { SessionStore } from "@foundry/agents/store";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { Models } from "@foundry/models";
 import type { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
@@ -66,8 +66,7 @@ export function sessionListing(
     return { stamps: () => sessions.stamps() };
   }
   const outlives = !(
-    sessions instanceof InMemorySessionStore ||
-    usage instanceof MemoryUsageStore
+    sessions instanceof MemorySessionStore || usage instanceof MemoryUsageStore
   );
   return outlives ? { stamps: "unavailable" } : {};
 }

@@ -1,8 +1,8 @@
 import {
   ArtifactManager,
   Engine,
-  InMemorySessionStore,
   MemoryArtifactStore,
+  MemorySessionStore,
   Models,
 } from "@foundry.sh/marbles/lib";
 import { count } from "./count";
@@ -22,7 +22,7 @@ export async function countFiles(
     containers: () => Promise.reject(new Error("no sandbox runtime here")),
     models: new Models(),
     root,
-    sessions: new InMemorySessionStore(),
+    sessions: new MemorySessionStore(),
     workspaceId: "count-example",
   });
   engine.define(count);

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { metaOf } from "../../harness/types";
 import { McpClient } from "../../mcp/client";
-import { McpManager } from "../../mcp/manager";
+import { McpClients } from "../../mcp/clients";
 
 const { createMCPClient } = vi.hoisted(() => ({ createMCPClient: vi.fn() }));
 vi.mock("@ai-sdk/mcp", () => ({
@@ -47,11 +47,11 @@ beforeEach(() => {
   spawnStdio.mockClear();
 });
 
-describe("McpManager", () => {
+describe("McpClients", () => {
   it("rejects collisions across namespaced server tools", async () => {
     createMCPClient.mockResolvedValueOnce(fakeClient(["b__search"]).client);
     createMCPClient.mockResolvedValueOnce(fakeClient(["search"]).client);
-    await using mcp = new McpManager();
+    await using mcp = new McpClients();
     mcp.define(remote("a", "http://a/mcp"));
     mcp.define(remote("a__b", "http://b/mcp"));
     await expect(mcp.tools()).rejects.toThrow(
@@ -60,7 +60,7 @@ describe("McpManager", () => {
   });
   it("connects an enabled definition on define and prefixes its tools", async () => {
     createMCPClient.mockResolvedValueOnce(fakeClient(["search"]).client);
-    const mcp = new McpManager();
+    const mcp = new McpClients();
 
     mcp.define(remote("github", "http://gh/mcp"));
     const tools = await mcp.tools();
@@ -77,7 +77,7 @@ describe("McpManager", () => {
   });
 
   it("registers a disabled definition without connecting", async () => {
-    const mcp = new McpManager();
+    const mcp = new McpClients();
     mcp.define(remote("off", "http://off/mcp", false));
 
     expect(await mcp.tools()).toEqual({});
@@ -89,7 +89,7 @@ describe("McpManager", () => {
   it("enable connects and disable closes", async () => {
     const a = fakeClient(["a"]);
     createMCPClient.mockResolvedValueOnce(a.client);
-    const mcp = new McpManager();
+    const mcp = new McpClients();
     mcp.define(remote("a", "http://a/mcp", false));
 
     await mcp.enable("a");
@@ -104,7 +104,7 @@ describe("McpManager", () => {
 
   it("pools: repeated tools() never reconnects", async () => {
     createMCPClient.mockResolvedValueOnce(fakeClient(["a"]).client);
-    const mcp = new McpManager();
+    const mcp = new McpClients();
     mcp.define(remote("a", "http://a/mcp"));
 
     const first = await mcp.tools();
@@ -120,7 +120,7 @@ describe("McpManager", () => {
     createMCPClient
       .mockResolvedValueOnce(v1.client)
       .mockResolvedValueOnce(v2.client);
-    const mcp = new McpManager();
+    const mcp = new McpClients();
 
     mcp.define(remote("a", "http://a/mcp"));
     await mcp.tools();
@@ -133,7 +133,7 @@ describe("McpManager", () => {
 
   it("keeps the connection when only metadata changes", async () => {
     createMCPClient.mockResolvedValueOnce(fakeClient(["a"]).client);
-    const mcp = new McpManager();
+    const mcp = new McpClients();
 
     mcp.define({ ...remote("a", "http://a/mcp"), name: "A" });
     await mcp.tools();
@@ -150,7 +150,7 @@ describe("McpManager", () => {
     createMCPClient
       .mockResolvedValueOnce(v1.client)
       .mockResolvedValueOnce(v2.client);
-    const mcp = new McpManager({ spawnStdio });
+    const mcp = new McpClients({ spawnStdio });
     const local = (token: string) => ({
       enabled: true,
       id: "local",
@@ -177,7 +177,7 @@ describe("McpManager", () => {
   it("closes and drops a removed definition", async () => {
     const a = fakeClient(["a"]);
     createMCPClient.mockResolvedValueOnce(a.client);
-    const mcp = new McpManager();
+    const mcp = new McpClients();
     mcp.define(remote("a", "http://a/mcp"));
     await mcp.tools();
 
@@ -192,7 +192,7 @@ describe("McpManager", () => {
     createMCPClient
       .mockRejectedValueOnce(new Error("refused"))
       .mockResolvedValueOnce(fakeClient(["b"]).client);
-    const mcp = new McpManager();
+    const mcp = new McpClients();
     const failed = vi.fn();
     mcp.on("status", (c) => {
       if (c.status === "failed") {
@@ -218,7 +218,7 @@ describe("McpManager", () => {
       createMCPClient
         .mockRejectedValueOnce(new Error("refused"))
         .mockResolvedValueOnce(fakeClient(["a"]).client);
-      const mcp = new McpManager({ retryCooldownMs: 1000 });
+      const mcp = new McpClients({ retryCooldownMs: 1000 });
       mcp.define(remote("a", "http://a/mcp"));
 
       await mcp.tools();
@@ -241,7 +241,7 @@ describe("McpManager", () => {
 
   it("redefining a failed client unchanged leaves it to its cooldown", async () => {
     createMCPClient.mockRejectedValue(new Error("refused"));
-    const mcp = new McpManager({ retryCooldownMs: 60_000 });
+    const mcp = new McpClients({ retryCooldownMs: 60_000 });
     mcp.define(remote("a", "http://a/mcp"));
     await mcp.tools();
     expect(createMCPClient).toHaveBeenCalledTimes(1);
@@ -256,7 +256,7 @@ describe("McpManager", () => {
     createMCPClient
       .mockRejectedValueOnce(new Error("refused"))
       .mockResolvedValueOnce(fakeClient(["a"]).client);
-    const mcp = new McpManager({ retryCooldownMs: 60_000 });
+    const mcp = new McpClients({ retryCooldownMs: 60_000 });
     mcp.define(remote("a", "http://a/mcp"));
     await mcp.tools();
 
@@ -269,7 +269,7 @@ describe("McpManager", () => {
 
   it("redacts resolved environment values from errors and summaries", async () => {
     createMCPClient.mockRejectedValueOnce(new Error("bad secret-token"));
-    const mcp = new McpManager({ spawnStdio });
+    const mcp = new McpClients({ spawnStdio });
     mcp.define({
       enabled: true,
       id: "local",
@@ -306,7 +306,7 @@ describe("McpManager", () => {
       onElicitationRequest: vi.fn(),
       tools: () => Promise.reject(new Error("list failed")),
     });
-    const mcp = new McpManager();
+    const mcp = new McpClients();
     mcp.define(remote("bad", "http://bad/mcp"));
     await mcp.tools();
 
@@ -321,7 +321,7 @@ describe("McpManager", () => {
     createMCPClient
       .mockResolvedValueOnce(a.client)
       .mockResolvedValueOnce(b.client);
-    const mcp = new McpManager();
+    const mcp = new McpClients();
     mcp.define(remote("a", "http://a/mcp"));
     mcp.define(remote("b", "http://b/mcp"));
     await mcp.tools();
@@ -335,7 +335,7 @@ describe("McpManager", () => {
 
   it("forwards client events and stops after remove", async () => {
     createMCPClient.mockResolvedValueOnce(fakeClient(["a"]).client);
-    const mcp = new McpManager();
+    const mcp = new McpClients();
     const statuses: string[] = [];
     mcp.on("status", (c) => statuses.push(`${c.id}:${c.status}`));
     mcp.define(remote("a", "http://a/mcp"));
@@ -407,9 +407,24 @@ describe("McpClient transports", () => {
     );
   });
 
-  it("connect() on a disabled definition still connects; the manager's tools() ignores it", async () => {
+  it("fails cleanly with an explicit Node adapter error when a stdio server connects without spawnStdio", async () => {
+    const client = new McpClient({
+      id: "local",
+      transport: { command: "npx", kind: "stdio" },
+    });
+
+    await client.connect();
+
+    expect(client.status).toBe("failed");
+    expect(client.error).toContain("spawnStdioTransport");
+    expect(client.error).toContain("createNodeMcpClient");
+    expect(client.error).toContain("@foundry/agents/node");
+    expect(createMCPClient).not.toHaveBeenCalled();
+  });
+
+  it("connect() on a disabled definition still connects; McpClients tools() ignores it", async () => {
     createMCPClient.mockResolvedValueOnce(fakeClient(["a"]).client);
-    const mcp = new McpManager();
+    const mcp = new McpClients();
     const client = mcp.define(remote("a", "http://a/mcp", false));
 
     await client.connect();

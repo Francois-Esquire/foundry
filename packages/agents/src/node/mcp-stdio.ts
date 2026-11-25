@@ -9,19 +9,9 @@ import {
   spawnRecordEnvironment,
 } from "@foundry/lib/node/spawn-record";
 
-import type { McpStdioTransportConfig } from "./types";
+import type { SpawnStdio } from "../mcp/types";
 
 const TRAILING_CARRIAGE_RETURN_PATTERN = /\r$/u;
-
-interface StdioTransportHooks {
-  onExit?: (code: number | null, signal: string | null) => void;
-  onStderr?: (line: string) => void;
-}
-
-export type SpawnStdio = (
-  config: McpStdioTransportConfig,
-  hooks: StdioTransportHooks
-) => MCPTransport;
 
 const INHERITED_ENV =
   process.platform === "win32"

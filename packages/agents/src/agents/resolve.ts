@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { ToolSet } from "ai";
 
 import type { AgentAuthorizer } from "../authorization/authorization";
@@ -183,7 +182,8 @@ function configureAgent(
   defaults: AgentHarnessSettings,
   context: AgentPresetContext
 ): AgentHarnessSettings {
-  const sessionId = context.sessionId || defaults.sessionId || randomUUID();
+  const sessionId =
+    context.sessionId || defaults.sessionId || crypto.randomUUID();
   return {
     ...defaults,
     ...spec.settings,

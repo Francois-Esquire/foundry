@@ -5,5 +5,5 @@ export type {
   ObserveTurn,
   TurnObservation,
 } from "@foundry/core/agents";
-// biome-ignore lint/performance/noBarrelFile: Preserve the @foundry/agents/agents/model public subpath compatibility.
+// biome-ignore lint/performance/noBarrelFile: Re-export canonical model contracts for internal agent modules.
 export { routeOf } from "@foundry/core/agents";
