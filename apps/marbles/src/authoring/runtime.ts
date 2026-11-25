@@ -536,11 +536,16 @@ export interface Launching {
 }
 
 export function launchingRuntime(word: string): Promise<Launching> {
+  let own: Owner | undefined;
   let hosting: Answer | undefined;
   try {
+    own = owner();
     hosting = answering();
   } catch (error) {
     return Promise.reject(error);
+  }
+  if (own !== undefined && "load" in own) {
+    return Promise.reject(hostless(word, hosting, "launch"));
   }
   if (hosting?.runtime !== undefined) {
     return Promise.resolve({ declared: undefined, runtime: hosting.runtime });

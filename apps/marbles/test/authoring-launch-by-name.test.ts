@@ -461,6 +461,47 @@ describe("step.launch(name) bound to a load", () => {
     await a.engine.dispose();
     releaseEngine(a.engine);
     await expect(a.words.step.launch("shared-name")).rejects.toThrow(RELEASED);
-    await expect(b.words.step.launch("shared-name")).resolves.toMatchObject({});
+    const stillB = await b.words.step.launch<string>("shared-name");
+    await expect(stillB.result).resolves.toBe("from b");
+  });
+
+  it("refuses by-name launch while a reload is still running over a live host", async () => {
+    const firstCatalog = new Catalog();
+    await loadInto(
+      "reload-ws",
+      firstCatalog,
+      (load) => {
+        const words = libraryOfLoad(library, load) as typeof library;
+        words.step("old-step").do(() => "old");
+        return Promise.resolve();
+      },
+      { dry: false }
+    );
+    const engine = testEngine({
+      pools: { default: { limit: 4 } },
+      print: () => undefined,
+      workspaceId: "reload-ws",
+    });
+    declareCatalog(engine, firstCatalog);
+    engines.push(engine);
+    setHost(engine, firstCatalog);
+    await engine.start();
+
+    const nextCatalog = new Catalog();
+    await loadInto(
+      "reload-ws",
+      nextCatalog,
+      async (load) => {
+        const words = libraryOfLoad(library, load) as typeof library;
+        words.step("fresh-step").do(() => "fresh");
+        await expect(words.step.launch("old-step")).rejects.toThrow(
+          "not available while its source loads"
+        );
+        await expect(words.step.launch("fresh-step")).rejects.toThrow(
+          "not available while its source loads"
+        );
+      },
+      { dry: false }
+    );
   });
 });

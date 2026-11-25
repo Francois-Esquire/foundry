@@ -420,9 +420,6 @@ export async function launchNamed(
       .then(quiet);
   }
   const { declared, runtime } = await launchingRuntime(`${kind}.launch()`);
-  if (runtime.disposed) {
-    throw new Error("engine is stopping");
-  }
   const definition = launchable(
     kind,
     name,

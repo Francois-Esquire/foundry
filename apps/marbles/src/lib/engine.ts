@@ -178,7 +178,7 @@ export class Engine {
     executions: () => this.executions.list(),
     launch: (definition, input, options) =>
       this.launchDefinition(definition, input, options),
-    named: (name) => this.#definitions.registry.launchable(name),
+    named: (name) => this.definition(name),
     nameOf: (name) => this.#definitions.nameOf(name),
     resultOf: (runId) => this.#resultOf(runId),
     stored: async (runId) => await this.#running?.record(runId),
