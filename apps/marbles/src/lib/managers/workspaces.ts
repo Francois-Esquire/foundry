@@ -12,9 +12,9 @@ import type { ManagerArgs } from "../bindings";
 import { current } from "../run-scope";
 import type {
   LoadedWorkspace,
+  ScopedWorkspaces,
   WorkspaceDefinition,
   WorkspaceHandle,
-  Workspaces,
 } from "../types";
 
 export type LocalWorkspaces = WorkspaceRuntime<
@@ -139,7 +139,7 @@ function handle(
   return target as unknown as WorkspaceHandle;
 }
 
-export class WorkspacesManager implements Workspaces {
+export class WorkspacesManager implements ScopedWorkspaces {
   readonly #deps: WorkspacesDeps;
   readonly current: WorkspaceHandle;
 
@@ -189,7 +189,7 @@ export class WorkspacesManager implements Workspaces {
     );
   }
 
-  scoped(_args?: ManagerArgs): Workspaces {
+  scoped(_args?: ManagerArgs): ScopedWorkspaces {
     return { current: this.current, load: (ref) => this.load(ref) };
   }
 

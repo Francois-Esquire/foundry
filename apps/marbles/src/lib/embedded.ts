@@ -4,7 +4,7 @@ export { Sessions } from "@foundry/agents/session";
 export type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 export { MemorySessionStore } from "@foundry/agents/store/memory";
 export type { ArtifactSubstrate } from "@foundry/artifacts";
-export { Artifacts as ArtifactManager } from "@foundry/artifacts";
+export { Artifacts } from "@foundry/artifacts";
 export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 export { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 export type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";

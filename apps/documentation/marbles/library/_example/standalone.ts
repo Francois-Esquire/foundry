@@ -1,5 +1,5 @@
 import {
-  ArtifactManager,
+  Artifacts,
   Engine,
   MemoryArtifactStore,
   MemorySessionStore,
@@ -17,7 +17,7 @@ export async function countFiles(
   extension: string
 ): Promise<CountResult> {
   const engine = new Engine({
-    artifacts: new ArtifactManager({ store: new MemoryArtifactStore() }),
+    artifacts: new Artifacts({ store: new MemoryArtifactStore() }),
     askable: false,
     containers: () => Promise.reject(new Error("no sandbox runtime here")),
     models: new Models(),

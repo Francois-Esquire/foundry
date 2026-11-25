@@ -79,7 +79,6 @@ export type {
   ArtifactDefinition,
   ArtifactInstance,
   ArtifactRef,
-  Artifacts,
   ArtifactVersion,
   ArtifactWriteOptions,
   Ask,
@@ -97,6 +96,8 @@ export type {
   SandboxInstance,
   SandboxResources,
   SandboxSpec,
+  ScopedArtifacts,
+  ScopedWorkspaces,
   Session,
   SessionOptions,
   SessionRef,
@@ -107,7 +108,6 @@ export type {
   WorkspaceDefinition,
   WorkspaceHandle,
   WorkspaceInstance,
-  Workspaces,
 } from "~/lib/types";
 export { step, workflow } from "./builder";
 export type { MarblesConfig, PoolConfig } from "./config";

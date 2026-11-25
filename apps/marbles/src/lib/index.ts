@@ -5,7 +5,7 @@ export { piProvider } from "@foundry/models/node/pi";
 export { createContainers } from "@foundry/sandbox/node";
 export { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 export type { ChannelMessage } from "@foundry/workflows/channels";
-export { Workspaces as WorkspaceSystem } from "@foundry/workspaces";
+export { Workspaces } from "@foundry/workspaces";
 export { directory } from "@foundry/workspaces/node";
 export { git } from "@foundry/workspaces/node/git";
 export { nodeObserver } from "@foundry/workspaces/node/watch";
@@ -90,19 +90,19 @@ export type {
   AgentRoute,
   Agents,
   ArtifactDefinition,
-  Artifacts,
   Context,
   DeferredAgent,
   SandboxDefinition,
   Sandboxes,
   SandboxHandle,
   SandboxSpec,
+  ScopedArtifacts,
+  ScopedWorkspaces,
   Session,
   SessionOptions,
   SessionRef,
   WorkspaceDefinition,
   WorkspaceHandle,
-  Workspaces,
 } from "./types";
 export type {
   DirectUsageFact,
