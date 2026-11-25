@@ -553,6 +553,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       "engine",
       "generation",
       "index",
+      "initialize",
       "lib",
       "prebuilt",
       "process",

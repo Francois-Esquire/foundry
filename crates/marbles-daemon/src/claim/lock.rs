@@ -7,7 +7,8 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize, Serializer};
 
-use super::files::{RemoveOnDrop, ctime_ms, remove_if_present, write_atomic};
+use super::files::ctime_ms;
+use crate::atomic_file::{RemoveOnDrop, remove_if_present, write_atomic};
 use crate::identity::{ProcessIdentity, is_gone, may_be_same_process, this_process};
 
 const LOCK_MODE: u32 = 0o600;

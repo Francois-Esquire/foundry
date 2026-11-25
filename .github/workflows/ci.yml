@@ -161,9 +161,39 @@ jobs:
         with:
           turbo-cache: docs
 
+  rust-daemon:
+    name: Rust daemon
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Cache Cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+      - name: Check formatting and Clippy
+        run: bun run daemon:check
+      - name: Run Rust daemon tests
+        run: bun run daemon:test
+      - name: Build the Rust daemon
+        run: bun run daemon:build
+      - name: Run cross-language contract tests
+        run: bun run daemon:test:interop
+      - name: Run Marbles parity tests against the Rust daemon
+        env:
+          MARBLES_DAEMON_BIN: ${{ github.workspace }}/target/debug/marbles-daemon
+        run: bun run --cwd apps/marbles test test/rust-daemon.test.ts test/daemon-cli.test.ts test/client.test.ts
+
   verify:
     name: Verify
-    needs: [validate, test-spyglass, test, release, docs]
+    needs: [validate, test-spyglass, test, release, docs, rust-daemon]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

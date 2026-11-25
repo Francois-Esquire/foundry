@@ -106,3 +106,10 @@ _Avoid_: reaper, garbage collection
 The daemon replacing itself when its own executable bytes change on disk,
 transitioning cleanly through initialization while letting retiring work finish.
 _Avoid_: hot-reload, auto-update, respawn
+
+**Spawn record**:
+A small private JSON file, named for a generation's pid, written into the
+directory `MARBLES_SPAWN_RECORD` names so a crashed owner's children can be
+found and stopped. It holds the pid, its proved start, and that the child leads
+its own process group.
+_Avoid_: pidfile, lockfile

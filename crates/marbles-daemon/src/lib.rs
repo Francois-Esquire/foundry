@@ -1,3 +1,4 @@
+mod atomic_file;
 pub mod channel;
 pub mod claim;
 pub mod endpoint;

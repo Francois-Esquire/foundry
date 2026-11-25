@@ -362,7 +362,14 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
   };
   const commandsOf = (id: string) =>
     job(id).steps.flatMap(({ run }) => (run ? [run] : []));
-  const work = ["docs", "release", "test", "test-spyglass", "validate"];
+  const work = [
+    "docs",
+    "release",
+    "rust-daemon",
+    "test",
+    "test-spyglass",
+    "validate",
+  ];
   expect(Object.keys(ci.jobs).sort()).toEqual([...work, "verify"].sort());
   for (const id of Object.keys(ci.jobs)) {
     expect(job(id).permissions).toBeUndefined();

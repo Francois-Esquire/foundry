@@ -12,10 +12,10 @@ use std::time::SystemTime;
 
 use thiserror::Error;
 
-use self::files::remove_if_present;
 use self::lock::{FileLock, LockAttempt, describe_holder, lock_owner, try_lock};
 pub use self::record::{ProcessHost, RecordedProcess};
 use crate::Layout;
+use crate::atomic_file::remove_if_present;
 use crate::identity::is_gone;
 use crate::timestamp::iso_timestamp;
 

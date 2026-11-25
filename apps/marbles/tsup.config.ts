@@ -72,6 +72,7 @@ export default defineConfig({
     engine: "src/entries/embedded.ts",
     generation: "src/process/generation.ts",
     index: "src/authoring/index.ts",
+    initialize: "src/process/initialize.ts",
     lib: "src/entries/lib.ts",
     prebuilt: "src/authoring/prebuilt.ts",
     process: "src/process/index.ts",

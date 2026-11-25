@@ -1,12 +1,13 @@
 use std::fs::{self, Permissions};
 use std::io;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
+use crate::atomic_file::remove_if_present;
 use crate::channel::{self, ChannelEvent, ChannelHandle};
 
 pub const SOCKET_MODE: u32 = 0o600;
@@ -23,15 +24,18 @@ pub struct EndpointError {
 pub struct Endpoint {
     listener: UnixListener,
     socket: PathBuf,
+    identity: Option<(u64, u64)>,
 }
 
 impl Endpoint {
     pub fn bind(socket: &Path) -> Result<Self, EndpointError> {
         remove_if_present(socket).map_err(failed("remove the stale socket", socket))?;
         let listener = UnixListener::bind(socket).map_err(failed("listen on", socket))?;
+        let identity = socket_identity(socket);
         let endpoint = Self {
             listener,
             socket: socket.to_owned(),
+            identity,
         };
         match fs::set_permissions(socket, Permissions::from_mode(SOCKET_MODE)) {
             Ok(()) => Ok(endpoint),
@@ -52,22 +56,30 @@ impl Endpoint {
     }
 
     pub fn close(self) {
+        let identity = self.identity;
         let socket = self.abandon();
-        let _ = remove_if_present(&socket);
+        if same_socket(&socket, identity) {
+            let _ = remove_if_present(&socket);
+        }
     }
 
     pub fn abandon(self) -> PathBuf {
-        let Self { listener, socket } = self;
+        let Self {
+            listener, socket, ..
+        } = self;
         drop(listener);
         socket
     }
 }
 
-fn remove_if_present(path: &Path) -> io::Result<()> {
-    match fs::remove_file(path) {
-        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
-        _ => Ok(()),
-    }
+fn socket_identity(path: &Path) -> Option<(u64, u64)> {
+    fs::symlink_metadata(path)
+        .ok()
+        .map(|metadata| (metadata.dev(), metadata.ino()))
+}
+
+fn same_socket(path: &Path, expected: Option<(u64, u64)>) -> bool {
+    expected.is_some() && socket_identity(path) == expected
 }
 
 fn failed(action: &'static str, path: &Path) -> impl FnOnce(io::Error) -> EndpointError {
@@ -161,5 +173,20 @@ mod tests {
             fs::read_to_string(&socket).ok().as_deref(),
             Some("successor")
         );
+    }
+
+    #[tokio::test]
+    async fn closing_spares_a_replaced_socket() {
+        let dir = short_dir();
+        let socket = dir.path().join("s.sock");
+        let endpoint = Endpoint::bind(&socket).expect("the endpoint");
+        fs::remove_file(&socket).expect("the successor removes the socket");
+        let successor = Endpoint::bind(&socket).expect("the successor endpoint");
+
+        endpoint.close();
+
+        assert!(socket.exists());
+        assert!(UnixStream::connect(&socket).await.is_ok());
+        successor.close();
     }
 }

@@ -11,7 +11,7 @@
     "test": {
       "dependsOn": ["build"],
       "outputs": [],
-      "env": ["MARBLES_TEST_RUNS"]
+      "env": ["MARBLES_TEST_RUNS", "MARBLES_DAEMON_BIN"]
     },
     "test:integration": {
       "dependsOn": ["^build"],

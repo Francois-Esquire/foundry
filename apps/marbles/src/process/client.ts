@@ -35,6 +35,7 @@ import {
   workspaceSummarySchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
+import { spawnDetachedRustDaemon } from "~/process/rust-daemon";
 import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { version } from "../../package.json";
 
@@ -198,8 +199,14 @@ export function daemonAlive(layout: Layout): boolean {
   return status?.alive === true && status.host === "daemon";
 }
 
-function startDetachedDaemon(options: ConnectOptions): void {
+async function startDetachedDaemon(options: ConnectOptions): Promise<void> {
   const { layout } = options;
+  if (
+    options.cliEntry === undefined &&
+    (await spawnDetachedRustDaemon(layout))
+  ) {
+    return;
+  }
   mkdirSync(dirname(layout.state), { recursive: true });
   mkdirSync(layout.state, { mode: STATE_MODE, recursive: true });
   const log = openSync(join(layout.state, LOG_FILE), "a");
@@ -384,7 +391,7 @@ async function dialUntil(
       return channel;
     }
     if (!(started || daemonAlive(layout))) {
-      startDetachedDaemon(options);
+      await startDetachedDaemon(options);
       started = true;
     }
     if (Date.now() > deadline) {

@@ -396,7 +396,10 @@ Five buckets, each importing only what sits below it:
   (`daemon.ts`) that claims `locks/process` at the state root, listens on
   the layout's Unix socket, and hosts every registered workspace in one
   engine subprocess, a generation (`generation.ts`, the only module that
-  imports `workspace/`), each numbered in `marbles_generations`
+  imports `workspace/`; `initialize.ts` is the one-shot entry the Rust
+  daemon runs to initialize state, and `rust-daemon.ts` locates and spawns
+  that daemon from an explicit `MARBLES_DAEMON_BIN` or a sibling
+  executable), each numbered in `marbles_generations`
   (`database/generations.ts`). A change of what the current generation
   loaded (its fingerprint: the installation and every workspace's
   source), a reload, or a generation that died starts a candidate: it

@@ -4,7 +4,8 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use marbles_daemon::generation::{StdioMode, SubprocessLauncher};
+use marbles_daemon::claim::ClaimError;
+use marbles_daemon::generation::{SPAWN_RECORD_ENV, StdioMode, SubprocessLauncher};
 use marbles_daemon::lifecycle::{
     self, DaemonExit, DaemonOptions, StartError as DaemonStartError, SubprocessInitializer,
 };
@@ -16,6 +17,7 @@ use tokio::runtime;
 #[cfg(unix)]
 use tokio::signal::unix::{Signal, SignalKind, signal};
 
+const EXIT_CLAIM_HELD: u8 = 75;
 const GENERATIONS_LOG: &str = "generations.log";
 const NO_SELF_RECYCLE: &str = "--no-self-recycle";
 const GENERATION_CMD: &str = "--generation-cmd";
@@ -75,8 +77,17 @@ fn main() -> ExitCode {
         Ok(RunOutcome::Recycle(plan)) => recycle_into(&plan),
         Err(error) => {
             eprintln!("marbles-daemon: {error}");
-            ExitCode::FAILURE
+            ExitCode::from(exit_code_for(&error))
         }
+    }
+}
+
+fn exit_code_for(error: &StartError) -> u8 {
+    match error {
+        StartError::Daemon(DaemonStartError::Claim(ClaimError::AlreadyHeld { .. })) => {
+            EXIT_CLAIM_HELD
+        }
+        _ => 1,
     }
 }
 
@@ -169,9 +180,13 @@ async fn run(
                 None if self_recycling => StdioMode::LogFile(layout.state.join(GENERATIONS_LOG)),
                 None => StdioMode::Piped,
             };
-            options.with_launcher(
-                SubprocessLauncher::new(program, overrides.generation_args).with_stdio_mode(stdio),
-            )
+            let launcher =
+                SubprocessLauncher::new(program, overrides.generation_args).with_stdio_mode(stdio);
+            let launcher = match spawn_record_dir() {
+                Some(dir) => launcher.with_spawn_record_dir(dir),
+                None => launcher,
+            };
+            options.with_launcher(launcher)
         }
         None => options,
     };
@@ -187,7 +202,10 @@ async fn run(
         Some(root) => options.with_installation(root),
         None => options,
     };
-    let daemon = lifecycle::start(options).await?;
+    let daemon = tokio::select! {
+        started = lifecycle::start(options) => started?,
+        () = stops.received() => return Ok(DaemonExit::Stopped),
+    };
     Ok(tokio::select! {
         exit = daemon.wait_exit() => exit,
         () = stops.received() => {
@@ -195,6 +213,12 @@ async fn run(
             DaemonExit::Stopped
         }
     })
+}
+
+fn spawn_record_dir() -> Option<PathBuf> {
+    env::var_os(SPAWN_RECORD_ENV)
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
 }
 
 fn self_recycle_watch(overrides: &Overrides) -> Option<BinaryWatch> {

@@ -1,14 +1,16 @@
 use std::collections::VecDeque;
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io;
 #[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::PathBuf;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use serde_json::json;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
@@ -16,16 +18,21 @@ use tokio::task::JoinHandle;
 
 use super::launcher::{GenerationExit, GenerationLauncher, SpawnSpec, SpawnedGeneration};
 use super::output::OutputLines;
-use crate::identity::{ProcessIdentity, read_start};
+use crate::atomic_file::write_atomic;
+use crate::claim::STATE_MODE;
+use crate::identity::{ProcessIdentity, pid_exists, read_start};
 use crate::protocol::MAX_LINE_BYTES;
 
 pub const STDERR_TAIL: usize = 20;
+pub const SPAWN_RECORD_ENV: &str = "MARBLES_SPAWN_RECORD";
 pub const SPAWN_RECOVERY_ENV: &str = "MARBLES_SPAWN_RECOVERY";
 
 const LINE_CAPACITY: usize = 256;
 const READ_CHUNK_BYTES: usize = 64 * 1024;
 #[cfg(unix)]
 const LOG_MODE: u32 = 0o600;
+#[cfg(unix)]
+const RECORD_MODE: u32 = 0o600;
 const READER_GRACE: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -35,11 +42,13 @@ pub enum StdioMode {
     LogFile(PathBuf),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct SubprocessLauncher {
     program: OsString,
     base_args: Vec<OsString>,
     stdio: StdioMode,
+    spawn_record_dir: Option<PathBuf>,
+    record_reported: Arc<AtomicBool>,
 }
 
 type Tail = Arc<Mutex<VecDeque<String>>>;
@@ -53,11 +62,36 @@ impl SubprocessLauncher {
             program: program.into(),
             base_args: base_args.into_iter().map(Into::into).collect(),
             stdio: StdioMode::Piped,
+            spawn_record_dir: None,
+            record_reported: Arc::default(),
         }
     }
 
     pub fn with_stdio_mode(self, stdio: StdioMode) -> Self {
         Self { stdio, ..self }
+    }
+
+    pub fn with_spawn_record_dir(self, dir: impl Into<PathBuf>) -> Self {
+        Self {
+            spawn_record_dir: Some(dir.into()),
+            ..self
+        }
+    }
+
+    fn record_spawned(&self, identity: &ProcessIdentity) {
+        let Some(dir) = self.spawn_record_dir.as_deref() else {
+            return;
+        };
+        let Err(error) = record_spawned_into(dir, identity) else {
+            return;
+        };
+        if !self.record_reported.swap(true, Ordering::Relaxed) {
+            eprintln!(
+                "could not record process {} in {}: {error}",
+                identity.pid,
+                dir.display()
+            );
+        }
     }
 
     fn outputs(&self) -> io::Result<(Stdio, Stdio)> {
@@ -109,6 +143,9 @@ impl GenerationLauncher for SubprocessLauncher {
             pid,
             started: read_start(pid).known(),
         });
+        if let Some(identity) = spawned_as.as_ref() {
+            self.record_spawned(identity);
+        }
         let (lines, received) = mpsc::channel(LINE_CAPACITY);
         let tail: Tail = Arc::default();
         let readers = [
@@ -229,6 +266,62 @@ fn described(status: ExitStatus) -> String {
         .map_or_else(|| "exit unknown".to_owned(), |code| format!("exit {code}"))
 }
 
+fn record_spawned_into(dir: &Path, identity: &ProcessIdentity) -> io::Result<()> {
+    let Some(started) = identity.started.as_deref() else {
+        if pid_exists(identity.pid) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "it is not listed, yet a signal reaches it",
+            ));
+        }
+        return Ok(());
+    };
+    prepare_record_dir(dir)?;
+    let path = dir.join(format!("{}.json", identity.pid));
+    let payload = json!({
+        "group": true,
+        "pid": identity.pid,
+        "started": started,
+    })
+    .to_string();
+    #[cfg(unix)]
+    let mode = Some(RECORD_MODE);
+    #[cfg(not(unix))]
+    let mode = None;
+    write_atomic(&path, payload.as_bytes(), mode)
+}
+
+fn prepare_record_dir(dir: &Path) -> io::Result<()> {
+    let mut builder = DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    builder.mode(STATE_MODE);
+    builder.create(dir)?;
+    #[cfg(unix)]
+    {
+        let meta = fs::symlink_metadata(dir)?;
+        if meta.file_type().is_symlink() || !meta.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "spawn record directory is not a private directory",
+            ));
+        }
+        if meta.uid() != rustix::process::getuid().as_raw() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "spawn record directory belongs to another user",
+            ));
+        }
+        if meta.permissions().mode() & 0o077 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "spawn record directory is open to group or others",
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::process::ExitStatusExt;
@@ -287,5 +380,108 @@ mod tests {
             .expect("the exit is reported promptly")
             .expect("an exit");
         assert!(exit.clean);
+    }
+
+    #[test]
+    fn spawn_records_write_private_json_for_a_recorded_generation() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let records = dir.path().join("records");
+        let identity = ProcessIdentity {
+            pid: 4242,
+            started: Some("ps:2026-11-25T00:00:00Z".to_owned()),
+        };
+
+        record_spawned_into(&records, &identity).expect("spawn record written");
+
+        let path = records.join("4242.json");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("the record file"))
+                .expect("valid json");
+        assert_eq!(
+            parsed,
+            json!({
+                "group": true,
+                "pid": 4242,
+                "started": "ps:2026-11-25T00:00:00Z",
+            })
+        );
+        #[cfg(unix)]
+        {
+            assert_eq!(
+                fs::metadata(&records)
+                    .expect("record dir")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+            assert_eq!(
+                fs::metadata(&path)
+                    .expect("record file")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn a_symlinked_record_directory_is_refused() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let real = dir.path().join("real");
+        fs::create_dir(&real).expect("the real directory");
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).expect("the symlink");
+
+        let error = prepare_record_dir(&link).expect_err("a symlink is refused");
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn a_record_directory_open_to_group_or_others_is_refused() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let open = dir.path().join("open");
+        fs::create_dir(&open).expect("the directory");
+        fs::set_permissions(&open, fs::Permissions::from_mode(0o755)).expect("the mode");
+
+        let error = prepare_record_dir(&open).expect_err("an open directory is refused");
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn a_live_process_without_a_start_is_reported_and_a_gone_one_is_not() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let live = ProcessIdentity {
+            pid: std::process::id(),
+            started: None,
+        };
+        let gone = ProcessIdentity {
+            pid: u32::MAX - 1,
+            started: None,
+        };
+
+        let error = record_spawned_into(dir.path(), &live).expect_err("a live pid is reported");
+
+        assert!(error.to_string().contains("yet a signal reaches it"));
+        assert!(record_spawned_into(dir.path(), &gone).is_ok());
+    }
+
+    #[test]
+    fn a_launcher_reports_a_failed_record_once() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let launcher = SubprocessLauncher::new("true", Vec::<OsString>::new())
+            .with_spawn_record_dir(dir.path());
+        let live = ProcessIdentity {
+            pid: std::process::id(),
+            started: None,
+        };
+
+        launcher.record_spawned(&live);
+        launcher.record_spawned(&live);
+
+        assert!(launcher.record_reported.load(Ordering::Relaxed));
     }
 }

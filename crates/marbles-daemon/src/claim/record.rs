@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use super::files::write_atomic;
+use crate::atomic_file::write_atomic;
 
 const SCHEMA_VERSION: u32 = 1;
 
