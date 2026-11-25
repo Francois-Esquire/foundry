@@ -13,7 +13,7 @@ import {
 import { createRequire } from "node:module";
 import { connect as connectSocket, createServer } from "node:net";
 import { join } from "node:path";
-import { processAlive } from "@foundry/lib/process-identity";
+import { processAlive } from "@foundry/lib/node/process-identity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readDatabase } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";

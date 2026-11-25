@@ -246,7 +246,7 @@ mod typescript {
     const READ_RUST_CLAIM: &str = r#"
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { lockOwner } from "@foundry/lib/file-lock";
+import { lockOwner } from "@foundry/lib/node/file-lock";
 import { readProcess } from "./src/process/instance.ts";
 const state = process.env.MARBLES_STATE;
 const lock = join(state, "locks", "process");
