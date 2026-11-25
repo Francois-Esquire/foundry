@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { McpClient } from "@foundry/agents/mcp";
 import { defineSkill } from "@foundry/agents/skills";
-import { usage } from "@foundry/usage";
+import { usage } from "@foundry/usage/node";
 import { defineProvider, window } from "@foundry/usage/provider";
 import { Output } from "ai";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";

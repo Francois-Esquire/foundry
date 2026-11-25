@@ -19,7 +19,7 @@ const fake = vi.hoisted(() => {
   return { accounts, usage: { add: vi.fn(), initialize, query, use: vi.fn() } };
 });
 
-vi.mock("@foundry/usage", () => ({ usage: fake.usage }));
+vi.mock("@foundry/usage/node", () => ({ usage: fake.usage }));
 vi.mock("bun", () => ({ plugin: vi.fn() }));
 
 const UNKNOWN_ACCOUNT = /No usage account/;
