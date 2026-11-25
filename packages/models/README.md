@@ -132,7 +132,7 @@ uses the discovered catalog.
 | `/local` | `LocalProvider` and `configureCache`: on-device transformers-js |
 | `/local/remote` | `forkLocalWorker`: the worker process and its IPC transport |
 | `/local/remote/provider` | `RemoteLocalProvider`: the local surface over that transport |
-| `/live`, `/live/node` | Live interactions, browser and Node |
+| `/live`, `/node/live` | Live interactions, browser and Node |
 | `/catalog/*` | Catalog adapters, and models.dev read at run time |
 | `/embeddings/*` | Chunking, embedding, and ranking |
 | `/model-option`, `/cost` | Pure leaves; see below |

@@ -205,22 +205,61 @@ describe("@foundry/lib/testing/seam export names", () => {
 export interface WorkspaceSystem {}
 export type InMemoryThing = string;
 export function createInMemoryStore() {}
+export const { DestructuredManager } = { DestructuredManager: 1 };
+export const [ArrayedSystem] = [1];
+export * as NamespacedManager from "./other";
 export const MemoryFooStore = 1;
 export interface WorkspaceFileSystem {}
 export const nodeFileSystem = 1;
 class PrivateManager {}
 export { PrivateManager as ExposedSystem };
 `,
+        "other.ts": "export const ok = 1;\n",
+        "plain.js": "export class ScriptManager {}\n",
         "test/helper.ts": "export class HelperManager {}\n",
         "testing/store.ts": "export class SuiteSystem {}\n",
       }
     );
     const violations = auditExportNames(packagesDir);
-    expect(violations).toHaveLength(5);
+    expect(violations).toHaveLength(9);
     expect(violations.join("\n")).toContain('"ArtifactManager"');
     expect(violations.join("\n")).toContain('"WorkspaceSystem"');
     expect(violations.join("\n")).toContain('"InMemoryThing"');
     expect(violations.join("\n")).toContain('"createInMemoryStore"');
     expect(violations.join("\n")).toContain('"ExposedSystem"');
+    expect(violations.join("\n")).toContain('"DestructuredManager"');
+    expect(violations.join("\n")).toContain('"ArrayedSystem"');
+    expect(violations.join("\n")).toContain('"NamespacedManager"');
+    expect(violations.join("\n")).toContain('"ScriptManager"');
+  });
+});
+
+describe("@foundry/lib/testing/seam portableSubpaths", () => {
+  it("excludes only ./node, ./node/*, and ./testing/* other than ./testing/store", () => {
+    const dir = mkdtempSync(join(tmpdir(), "seam-subpaths-"));
+    tempDirs.push(dir);
+    const target = { default: "./x.ts" };
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        exports: {
+          ".": target,
+          "./adapters/node/helper": target,
+          "./live/node": target,
+          "./node": target,
+          "./node/live": target,
+          "./testing": target,
+          "./testing/seam": target,
+          "./testing/store": target,
+        },
+        name: "@foundry/fixture",
+      })
+    );
+    expect(portableSubpaths(dir)).toEqual([
+      ".",
+      "./adapters/node/helper",
+      "./live/node",
+      "./testing/store",
+    ]);
   });
 });

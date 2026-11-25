@@ -48,9 +48,9 @@ Domain packages follow a canonical subpath layout so callers gain consistent **l
 | `./store/tables` | Drizzle schema tables | Drizzle |
 | `./testing/store` | Shared store conformance suite | Portable test helper |
 | `./node` | OS, filesystem, git, watcher, and child-process **adapters** plus Node convenience factories | Node / Bun |
-| `./node/*` | Further Node-bound **adapters**, such as `@foundry/models/node/claude-code` and `@foundry/models/node/local` | Node / Bun |
+| `./node/*` | Further Node-bound **adapters**, such as `@foundry/models/node/claude-code`, `@foundry/models/node/live`, and `@foundry/models/node/local` | Node / Bun |
 
-A subpath that reaches `node:*` built-ins or unguarded Node/Bun globals, directly or transitively, lives at `./node` or `./node/*`. Every other subpath, plus `./testing/store`, must be Web-standard. This holds for provider and harness **adapters** too: there is no allowlist of Node-bound subpaths outside `./node`.
+A subpath that reaches `node:*` built-ins or unguarded Node/Bun globals, directly or transitively, lives at `./node` or `./node/*`. Every other subpath, plus `./testing/store`, must be Web-standard; only `./node`, `./node/*`, and `./testing` helpers other than `./testing/store` may use Node. Node-bound subpaths are recognised by the exact `./node` or `./node/` prefix, not by a `/node` segment elsewhere in the key. This holds for provider and harness **adapters** too: there is no allowlist of Node-bound subpaths outside `./node`.
 
 Only subpaths that carry real **implementation** are added; packages do not declare empty stubs.
 

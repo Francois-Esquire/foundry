@@ -18,7 +18,7 @@
       "types": "./dist/src/live/index.d.ts",
       "import": "./src/live/index.ts"
     },
-    "./live/node": {
+    "./node/live": {
       "types": "./dist/src/live/node/index.d.ts",
       "import": "./src/live/node/index.ts"
     },

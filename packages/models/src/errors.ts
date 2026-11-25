@@ -137,7 +137,7 @@ export const modelErrors = defineErrorCatalog("models", {
     status: 409,
   },
   WEBRTC_UNAVAILABLE: {
-    fix: "Run the session in a process where @foundry/models/live/node can install its runtime, or in a browser that provides WebRTC natively.",
+    fix: "Run the session in a process where @foundry/models/node/live can install its runtime, or in a browser that provides WebRTC natively.",
     message: ({ symbol }: { symbol: string }) =>
       `No WebRTC runtime could supply "${symbol}".`,
     status: 503,

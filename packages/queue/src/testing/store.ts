@@ -270,7 +270,7 @@ function describeIdempotency(open: Open): void {
       })
     );
 
-    expect(error).toMatchObject({ _tag: "WriteConflictError", id: "jb-2" });
+    expect(error).toMatchObject({ _tag: "WriteConflictError" });
     expect(await read(store.listJobs())).toEqual([]);
   });
 

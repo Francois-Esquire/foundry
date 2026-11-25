@@ -503,12 +503,20 @@ export function assertWebStandardExports(
   }
 }
 
+function isNodeExportKey(subpath: string): boolean {
+  return subpath === "./node" || subpath.startsWith("./node/");
+}
+
 export function portableSubpaths(packageDir: string): string[] {
   const { exports = {} } = readManifest(resolve(packageDir));
   return Object.keys(exports).filter(
     (subpath) =>
       subpath === "./testing/store" ||
-      !(isNodeSubpath(subpath) || subpath.startsWith("./testing/"))
+      !(
+        isNodeExportKey(subpath) ||
+        subpath === "./testing" ||
+        subpath.startsWith("./testing/")
+      )
   );
 }
 
@@ -685,8 +693,9 @@ const FORBIDDEN_EXPORT_NAMES: readonly {
   { pattern: /InMemory/, reason: "name in-memory adapters Memory*" },
 ];
 
-const SOURCE_FILE_PATTERN = /\.tsx?$/;
-const DECLARATION_FILE_PATTERN = /\.d\.ts$/;
+const SOURCE_FILE_PATTERN = /\.[cm]?[jt]sx?$/;
+const DECLARATION_FILE_PATTERN = /\.d\.[cm]?ts$/;
+const JS_FILE_PATTERN = /\.[cm]?jsx?$/;
 const NON_PUBLIC_SOURCE_DIRS = new Set(["node_modules", "test", "testing"]);
 
 function sourceFiles(dir: string): string[] {
@@ -716,17 +725,37 @@ function hasExportModifier(node: ts.Node): boolean {
   );
 }
 
+function scriptKindOf(file: string): ts.ScriptKind {
+  const jsx = file.endsWith("x");
+  if (JS_FILE_PATTERN.test(file)) {
+    return jsx ? ts.ScriptKind.JSX : ts.ScriptKind.JS;
+  }
+  return jsx ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+}
+
+function bindingNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name)) {
+    return [name.text];
+  }
+  return name.elements.flatMap((element) =>
+    ts.isBindingElement(element) ? bindingNames(element.name) : []
+  );
+}
+
 function exportDeclarationNames(statement: ts.ExportDeclaration): string[] {
   const { exportClause } = statement;
-  return exportClause && ts.isNamedExports(exportClause)
-    ? exportClause.elements.map((element) => element.name.text)
+  if (exportClause && ts.isNamedExports(exportClause)) {
+    return exportClause.elements.map((element) => element.name.text);
+  }
+  return exportClause && ts.isNamespaceExport(exportClause)
+    ? [exportClause.name.text]
     : [];
 }
 
 function exportedDeclarationNames(statement: ts.Statement): string[] {
   if (ts.isVariableStatement(statement)) {
     return statement.declarationList.declarations.flatMap((declaration) =>
-      ts.isIdentifier(declaration.name) ? [declaration.name.text] : []
+      bindingNames(declaration.name)
     );
   }
   if (
@@ -766,7 +795,7 @@ export function auditExportNames(packagesDir: string): string[] {
         readFileSync(file, "utf8"),
         ts.ScriptTarget.Latest,
         true,
-        file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+        scriptKindOf(file)
       );
       for (const name of exportedNames(sourceFile)) {
         for (const { pattern, reason } of FORBIDDEN_EXPORT_NAMES) {

@@ -26,7 +26,7 @@ export type {
   LiveTarget,
 } from "../types";
 export type { LiveRecording, RecordedSegment } from "./record";
-// biome-ignore lint/performance/noBarrelFile: Preserve the declared @foundry/models/live/node runtime compatibility API.
+// biome-ignore lint/performance/noBarrelFile: Preserve the declared @foundry/models/node/live runtime compatibility API.
 export { installWebRtc, peerConnection } from "./runtime";
 
 export type LiveTrack = MediaStreamTrack;
