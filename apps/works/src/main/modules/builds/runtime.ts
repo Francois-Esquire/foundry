@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { withConfirmedModuleContainerCleanup } from "@foundry/modules/platform/container-cleanup";
+import { withConfirmedModuleContainerCleanup } from "@foundry/modules/platform";
 import {
   type Container,
   createContainers,

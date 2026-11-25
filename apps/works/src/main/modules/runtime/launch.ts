@@ -1,15 +1,13 @@
-import type { ModuleVersion } from "@foundry/modules/domain";
 import {
   isStrictModuleManifest,
-  moduleSettingRequests,
-} from "@foundry/modules/manifest";
-import type { ModuleProgramLaunch } from "@foundry/modules/platform/contracts";
-import {
   type ModuleSettingsHostPolicy,
   type ModuleSettingValues,
+  type ModuleVersion,
+  moduleSettingRequests,
   resolveModuleSettings,
   withModuleSettingDefaults,
-} from "@foundry/modules/settings";
+} from "@foundry/modules";
+import type { ModuleProgramLaunch } from "@foundry/modules/platform";
 import { ModuleRuntimeError } from "./controller";
 
 export const WORKS_MODULE_SETTINGS: {

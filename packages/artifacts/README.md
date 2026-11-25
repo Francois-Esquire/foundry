@@ -108,7 +108,7 @@ do not change persisted types. Duplicate registrations fail; registries are inde
 Handlers are caller-supplied values. They may be async functions or objects with
 host-specific operations; matching never invokes them. Application hosts own
 domain registrations; `@foundry/modules` owns Module runtime resolution.
-Module constants live in `@foundry/modules/constants`.
+Module constants live in `@foundry/modules`.
 
 ## Working model
 

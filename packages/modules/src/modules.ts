@@ -112,53 +112,53 @@ export interface DeleteModuleInput {
   readonly moduleId: ModuleId;
 }
 
-export interface ModuleRegistryOptions {
+export interface ModulesOptions {
   readonly artifactOfContent?: (
     contentId: ContentId
   ) => Promise<ArtifactId | null>;
   readonly store?: ModuleStore;
 }
 
-export type ModuleRegistryCommand = Exclude<
-  keyof ModuleRegistry,
+export type ModuleCommand = Exclude<
+  keyof Modules,
   "durability" | "transaction"
 >;
 
-export type ModuleRegistryUnit<Command extends ModuleRegistryCommand> = Pick<
-  ModuleRegistry,
+export type ModuleUnit<Command extends ModuleCommand> = Pick<
+  Modules,
   Command
 > & {
   readonly durability?: ModuleStoreDurability;
   transaction<T>(
     work: (
-      registry: Pick<ModuleRegistry, Command>,
+      registry: Pick<Modules, Command>,
       effects: CommitEffects
     ) => Promise<T>
   ): Promise<T>;
 };
 
-export type ModuleCommands = ModuleRegistryUnit<ModuleRegistryCommand>;
+export type ModuleCommands = ModuleUnit<ModuleCommand>;
 
 const REENTRY =
-  "ModuleRegistry was called from inside its own transaction; use the registry passed to the transaction's work instead";
+  "Modules was called from inside its own transaction; use the registry passed to the transaction's work instead";
 
 const NESTED =
-  "ModuleRegistry.transaction was called on a registry bound to a transaction, and transactions do not nest; use the registry passed to the transaction's work instead";
+  "Modules.transaction was called on a registry bound to a transaction, and transactions do not nest; use the registry passed to the transaction's work instead";
 
 const SETTLED =
-  "ModuleRegistry transaction has settled; register an effect while its work runs";
+  "Modules transaction has settled; register an effect while its work runs";
 
-const BOUND = new WeakSet<ModuleRegistry>();
+const BOUND = new WeakSet<Modules>();
 
 const STORE_PAGE_LIMIT = 500;
 
-export class ModuleRegistry {
+export class Modules {
   readonly durability: ModuleStoreDurability;
   readonly #store: ModuleStore;
-  readonly #artifactOfContent: ModuleRegistryOptions["artifactOfContent"];
+  readonly #artifactOfContent: ModulesOptions["artifactOfContent"];
   readonly #turns = new Turns(REENTRY);
 
-  constructor(options: ModuleRegistryOptions = {}) {
+  constructor(options: ModulesOptions = {}) {
     this.#store = options.store ?? new MemoryModuleStore();
     this.#artifactOfContent = options.artifactOfContent;
     this.durability = this.#store.durability ?? "commit";
@@ -167,9 +167,9 @@ export class ModuleRegistry {
   static #boundTo(
     view: ModuleStore,
     durability: ModuleStoreDurability,
-    artifactOfContent: ModuleRegistryOptions["artifactOfContent"]
-  ): ModuleRegistry {
-    const registry = new ModuleRegistry({
+    artifactOfContent: ModulesOptions["artifactOfContent"]
+  ): Modules {
+    const registry = new Modules({
       store: withoutTransaction(view, durability),
       ...(artifactOfContent === undefined ? {} : { artifactOfContent }),
     });
@@ -178,7 +178,7 @@ export class ModuleRegistry {
   }
 
   async transaction<T>(
-    work: (registry: ModuleRegistry, effects: CommitEffects) => Promise<T>
+    work: (registry: Modules, effects: CommitEffects) => Promise<T>
   ): Promise<T> {
     if (BOUND.has(this)) {
       throw new ReentrantCallError(NESTED);
@@ -198,7 +198,7 @@ export class ModuleRegistry {
     try {
       result = await this.#exclusive((store) =>
         work(
-          ModuleRegistry.#boundTo(
+          Modules.#boundTo(
             store,
             rollsBack ? "host" : this.durability,
             this.#artifactOfContent
@@ -212,7 +212,7 @@ export class ModuleRegistry {
         await runAfterCommit(callbacks).catch((effectError: unknown) => {
           throw new AggregateError(
             [error, effectError],
-            "ModuleRegistry transaction work failed after its commits landed, and so did their effects"
+            "Modules transaction work failed after its commits landed, and so did their effects"
           );
         });
       }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { ModuleCapabilityRequest } from "../manifest";
-import type { ModuleCommands } from "../registry";
+import type { ModuleCommands } from "../modules";
 import { ModuleGatewayContractError } from "./catalog";
 import { loadRuntimeGatewayContext } from "./runtime-context";
 import type {

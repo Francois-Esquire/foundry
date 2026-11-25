@@ -4,9 +4,12 @@ import { join } from "node:path";
 import { Artifacts } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { interceptCommits } from "@foundry/artifacts/testing";
-import { MODULE_MIME } from "@foundry/modules/constants";
-import { defineModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
-import { encodeModulePackage } from "@foundry/modules/package";
+import {
+  defineModuleVersion,
+  encodeModulePackage,
+  MODULE_MIME,
+  moduleIdSchema,
+} from "@foundry/modules";
 import { afterEach, describe, expect, it } from "vitest";
 import { createModuleLibrary, openModuleLibrary } from "~/main/modules/library";
 import { fakeClient, openFakeVault } from "../helpers/fake-api";

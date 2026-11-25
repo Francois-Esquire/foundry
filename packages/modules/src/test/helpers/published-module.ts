@@ -9,10 +9,10 @@ import type {
   ModuleGateway,
   ModuleGatewayClose,
 } from "../../gateway/types";
+import { Modules } from "../../modules";
 import type { ModuleInstallationFiles } from "../../platform/files";
 import { createModuleProgramSupervisor } from "../../platform/program-supervisor";
 import { createModuleProjects } from "../../projects";
-import { ModuleRegistry } from "../../registry";
 import { createModuleVersions } from "../../version";
 
 export const WEATHER = "host.weather.read";
@@ -65,13 +65,13 @@ export async function publishedModule(
   options: {
     readonly files?: ModuleInstallationFiles;
     readonly stopRetainedContainer?: (containerId: string) => Promise<void>;
-    readonly registry?: ModuleRegistry;
+    readonly registry?: Modules;
   } = {}
 ) {
   const artifacts = new Artifacts({ store: new MemoryArtifactStore() });
   const store =
     options.registry ??
-    new ModuleRegistry({
+    new Modules({
       artifactOfContent: async (contentId) =>
         (await artifacts.getContent(contentId))?.artifactId ?? null,
     });

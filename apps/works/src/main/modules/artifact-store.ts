@@ -1,11 +1,14 @@
 import type { ArtifactCursor, ArtifactResolved } from "@foundry/artifacts";
 import { nodeArtifacts } from "@foundry/artifacts/node";
 import type { ArtifactStore } from "@foundry/artifacts/store";
-import { MODULE_MIME } from "@foundry/modules/constants";
-import { type Module, moduleIdSchema } from "@foundry/modules/domain";
-import { ModuleStoreConflictError } from "@foundry/modules/errors";
-import { parseModuleManifest } from "@foundry/modules/manifest";
-import type { ModuleRegistryUnit } from "@foundry/modules/registry";
+import {
+  MODULE_MIME,
+  type Module,
+  ModuleStoreConflictError,
+  type ModuleUnit,
+  moduleIdSchema,
+  parseModuleManifest,
+} from "@foundry/modules";
 
 export function createModulePersistence(store: ArtifactStore) {
   const artifacts = nodeArtifacts({ store });
@@ -39,7 +42,7 @@ export function createModulePersistence(store: ArtifactStore) {
     );
     return artifact ? { artifactId: artifact.id, id } : null;
   }
-  const modules: ModuleRegistryUnit<
+  const modules: ModuleUnit<
     "loadModule" | "loadRetainedManifest" | "registerModule" | "retainManifest"
   > = {
     loadModule,

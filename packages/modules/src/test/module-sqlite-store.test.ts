@@ -6,7 +6,7 @@ import type { z } from "zod";
 
 import type { InstallationId, ModuleId } from "../domain";
 import type { ModuleManifest } from "../manifest";
-import { ModuleRegistry } from "../registry";
+import { Modules } from "../modules";
 import type {
   Installation,
   InstallationGrant,
@@ -193,7 +193,7 @@ describe("SqliteModuleStore", () => {
         ).rejects.toThrow(`cannot store ${field}`);
       }
       await expect(
-        new ModuleRegistry({ store }).registerModule({
+        new Modules({ store }).registerModule({
           module: module(bad("via registry")),
         })
       ).rejects.toThrow(RangeError);
@@ -421,7 +421,7 @@ describe("SqliteModuleStore", () => {
       },
       scope: "host",
     });
-    const registered = await new ModuleRegistry({ store }).registerModule({
+    const registered = await new Modules({ store }).registerModule({
       module: module("a"),
     });
 
@@ -531,7 +531,7 @@ describe("SqliteModuleStore", () => {
       scope: "s",
     });
 
-    const registered = await new ModuleRegistry({ store }).registerModule({
+    const registered = await new Modules({ store }).registerModule({
       module: module("a"),
     });
 
@@ -767,8 +767,8 @@ describe("SqliteModuleStore", () => {
     };
 
     const results = await Promise.allSettled([
-      new ModuleRegistry({ store }).createInstallation(input),
-      new ModuleRegistry({ store }).createInstallation(input),
+      new Modules({ store }).createInstallation(input),
+      new Modules({ store }).createInstallation(input),
     ]);
     expect(results.map((result) => result.status)).toEqual([
       "fulfilled",

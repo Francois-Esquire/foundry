@@ -3,12 +3,12 @@ import type { Installation, ModuleVersion } from "../domain";
 import { ModuleStoreConflictError } from "../errors";
 import type { ModuleCapabilityProvider } from "../gateway/types";
 import { isStrictModuleManifest, moduleSettingRequests } from "../manifest";
+import type { ModuleCommands } from "../modules";
 import {
   type ActivationCompatibilityFact,
   type ActivationPreflight,
   preflightModuleActivation,
 } from "../preflight";
-import type { ModuleCommands } from "../registry";
 import {
   type ModuleSettingsHostPolicy,
   type ModuleSettingValues,

@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { moduleIdSchema } from "../domain";
 import { ModuleCrossStoreError, ModuleStoreConflictError } from "../errors";
+import { Modules, type ModuleUnit } from "../modules";
 import { createModuleProjects, ModuleProjectError } from "../projects";
-import { ModuleRegistry, type ModuleRegistryUnit } from "../registry";
 import { MODULE_SOURCE_LIMITS, ModuleSourceAdmissionError } from "../source";
 import { failingArtifacts } from "./helpers/failing-artifacts";
 import { faultyRegistry } from "./helpers/faulty-registry";
@@ -26,7 +26,7 @@ const source = {
 
 async function fixture() {
   const artifacts = new Artifacts({ store: new MemoryArtifactStore() });
-  const store = new ModuleRegistry();
+  const store = new Modules();
   const projects = createModuleProjects({ artifacts, store });
   const project = await projects.create({ id, name: "Notes", source });
   return { artifacts, project, projects, store };
@@ -70,7 +70,7 @@ describe("Module projects", () => {
   describe("across the Artifact and registry writes", () => {
     it("registers nothing when the Artifact write fails, and a retry creates the Module", async () => {
       const failing = failingArtifacts();
-      const store = new ModuleRegistry();
+      const store = new Modules();
       const projects = createModuleProjects({
         artifacts: failing.artifacts,
         store,
@@ -91,7 +91,7 @@ describe("Module projects", () => {
       const artifacts = new Artifacts({
         store: new MemoryArtifactStore(),
       });
-      const registry = new ModuleRegistry();
+      const registry = new Modules();
       const registryDown: { refuse: boolean } = { refuse: true };
       const store = faultyRegistry(registry, (commands) => ({
         registerModule: (input) =>
@@ -119,7 +119,7 @@ describe("Module projects", () => {
       const artifacts = new Artifacts({
         store: new MemoryArtifactStore(),
       });
-      const store = new ModuleRegistry();
+      const store = new Modules();
       const projects = createModuleProjects({ artifacts, store });
       await expect(
         artifacts.transaction(async () => {
@@ -141,16 +141,16 @@ describe("Module projects", () => {
       const artifacts = new Artifacts({
         store: new MemoryArtifactStore(),
       });
-      const registry = new ModuleRegistry();
+      const registry = new Modules();
       const store = {
         ...faultyRegistry(registry, () => ({})),
         async transaction<T>(
-          work: Parameters<ModuleRegistry["transaction"]>[0]
+          work: Parameters<Modules["transaction"]>[0]
         ): Promise<T> {
           await registry.transaction(work);
           throw new Error("acknowledgment lost after the commit");
         },
-      } as ModuleRegistryUnit<"loadModule" | "registerModule">;
+      } as ModuleUnit<"loadModule" | "registerModule">;
       const projects = createModuleProjects({ artifacts, store });
 
       const created = await projects.create({ id, name: "Notes", source });
@@ -170,7 +170,7 @@ describe("Module projects", () => {
       const artifacts = new Artifacts({
         store: new MemoryArtifactStore(),
       });
-      const registry = new ModuleRegistry();
+      const registry = new Modules();
       const unreadable: { on: boolean } = { on: false };
       const store = faultyRegistry(registry, (commands) => ({
         loadModule: (moduleId) =>
@@ -205,7 +205,7 @@ describe("Module projects", () => {
       const artifacts = new Artifacts({
         store: new MemoryArtifactStore(),
       });
-      const store = new ModuleRegistry();
+      const store = new Modules();
       await store.registerModule({
         module: { artifactId: artifactIdSchema.parse("gone"), id },
       });

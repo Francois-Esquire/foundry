@@ -6,15 +6,17 @@ import type { ArtifactStore } from "@foundry/artifacts/store";
 import {
   type InstallationId,
   installationIdSchema,
-} from "@foundry/modules/domain";
-import { createModuleCheckouts } from "@foundry/modules/node/checkouts";
-import { createModuleInstallationFiles } from "@foundry/modules/node/installation-files";
+  Modules,
+} from "@foundry/modules";
+import {
+  createModuleCheckouts,
+  createModuleInstallationFiles,
+} from "@foundry/modules/node";
 import {
   createModuleInstallations,
+  createModulePlatform,
   ModuleActivationRefusedError,
-} from "@foundry/modules/platform/installations";
-import { createModuleSystem } from "@foundry/modules/platform/system";
-import { ModuleRegistry } from "@foundry/modules/registry";
+} from "@foundry/modules/platform";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { moduleDirectory } from "../local-library";
@@ -30,7 +32,7 @@ export async function createModuleRuntime(
     "@foundry/sandbox/container/microsandbox-runtime"
   );
   const artifacts = new Artifacts({ store: artifactStore });
-  const store = new ModuleRegistry({
+  const store = new Modules({
     artifactOfContent: async (contentId) =>
       (await artifacts.getContent(contentId))?.artifactId ?? null,
   });
@@ -59,7 +61,7 @@ export async function createModuleRuntime(
     }
     return directory;
   }
-  const system = createModuleSystem({
+  const system = createModulePlatform({
     artifacts,
     checkouts: createModuleCheckouts({ artifacts, root: checkoutsRoot }),
     containerRuntime: runtime,

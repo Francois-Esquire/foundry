@@ -10,7 +10,7 @@ import {
   type ModuleAccessRequest,
   moduleAccessRequests,
 } from "./grants";
-import type { InstallationGrant, ModuleRegistryUnit } from "./registry";
+import type { InstallationGrant, ModuleUnit } from "./modules";
 
 export class ModuleAccessError extends Error {
   override readonly name = "ModuleAccessError";
@@ -49,7 +49,7 @@ export interface CreateModuleAccessOptions {
   readonly store: AccessRegistry;
 }
 
-export type AccessRegistry = ModuleRegistryUnit<
+export type AccessRegistry = ModuleUnit<
   "loadGatewayContext" | "replaceInstallationGrants" | "revokeInstallationGrant"
 >;
 

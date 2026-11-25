@@ -24,8 +24,8 @@ import {
   parseModuleManifestSourceText,
   validateModuleManifestBuild,
 } from "./manifest";
+import type { ModuleUnit } from "./modules";
 import { unsupportedModuleRequirements } from "./preflight";
-import type { ModuleRegistryUnit } from "./registry";
 import { admitModuleSource } from "./source";
 
 const SOURCE_PREFIX = "source/";
@@ -94,7 +94,7 @@ export class ModuleProjectError extends Error {
 
 export function createModuleProjects(options: {
   readonly artifacts: ArtifactSubstrate;
-  readonly store: ModuleRegistryUnit<"loadModule" | "registerModule">;
+  readonly store: ModuleUnit<"loadModule" | "registerModule">;
 }): ModuleProjects {
   const { artifacts, store } = options;
 

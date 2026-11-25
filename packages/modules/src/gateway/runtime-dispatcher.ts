@@ -2,7 +2,7 @@ import { withAbort } from "@foundry/lib/abort";
 import { isGranted, resolveCapabilityDigest } from "../grants";
 import type { ModuleCapabilityRequest } from "../manifest";
 import { capabilityIdentity } from "../manifest";
-import type { ModuleCommands, ModuleGatewayContext } from "../registry";
+import type { ModuleCommands, ModuleGatewayContext } from "../modules";
 import { ModuleGatewayContractError } from "./catalog";
 import { admitRuntimeContext } from "./runtime-context";
 import type {

@@ -1,5 +1,5 @@
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import type { ModuleVersion } from "@foundry/modules/domain";
+import type { ModuleVersion } from "@foundry/modules";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vitest";
 import { router } from "~/main/api";

@@ -1,10 +1,12 @@
 import { contentIdSchema } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import { MODULE_MIME } from "@foundry/modules/constants";
-import { moduleIdSchema } from "@foundry/modules/domain";
-import { ModuleStoreConflictError } from "@foundry/modules/errors";
-import type { ModuleManifest } from "@foundry/modules/manifest";
-import { createModuleProjects } from "@foundry/modules/projects";
+import {
+  createModuleProjects,
+  MODULE_MIME,
+  type ModuleManifest,
+  ModuleStoreConflictError,
+  moduleIdSchema,
+} from "@foundry/modules";
 import { describe, expect, it } from "vitest";
 import { createModulePersistence } from "~/main/modules/artifact-store";
 

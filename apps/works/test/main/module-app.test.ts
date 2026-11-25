@@ -1,5 +1,5 @@
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import type { ModuleVersion } from "@foundry/modules/domain";
+import type { ModuleVersion } from "@foundry/modules";
 import { expect, it, vi } from "vitest";
 import { ModuleBuilds } from "~/main/modules/builds/controller";
 import { createModuleLibrary } from "~/main/modules/library";

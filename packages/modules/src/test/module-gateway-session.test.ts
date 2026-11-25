@@ -15,7 +15,7 @@ import type {
   ModuleTransport,
 } from "../gateway/types";
 import { ModuleGatewayError } from "../gateway/types";
-import { ModuleRegistry } from "../registry";
+import { Modules } from "../modules";
 import { moduleFixture } from "./helpers/module-fixture";
 
 const manifest = {
@@ -406,7 +406,7 @@ async function createFixture() {
     manifest,
     module,
   });
-  const store = new ModuleRegistry();
+  const store = new Modules();
   await store.registerModule({ module });
   const installation = createDisabledInstallation({
     id: installationIdSchema.parse("installation-1"),

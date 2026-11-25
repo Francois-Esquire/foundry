@@ -8,7 +8,7 @@ import {
 import { installationIdSchema } from "../domain";
 import { ModuleStoreConflictError } from "../errors";
 import { ensureInstallation } from "../management";
-import { ModuleRegistry } from "../registry";
+import { Modules } from "../modules";
 import type { ModuleStore } from "../store";
 import { MemoryModuleStore } from "../store/memory";
 import { SqliteModuleStore } from "../store/sqlite";
@@ -27,7 +27,7 @@ const installationId = installationIdSchema.parse("forecast-installation");
 
 async function fixture(
   capabilities = [weatherRequest(["Oslo"])],
-  registry?: ModuleRegistry
+  registry?: Modules
 ) {
   const module = await publishedModule(
     registry === undefined ? {} : { registry }
@@ -48,7 +48,7 @@ async function fixture(
   return { ...module, access, installation, invocations, version };
 }
 
-function failingAfterRevokeWrite(registry: ModuleRegistry): AccessRegistry {
+function failingAfterRevokeWrite(registry: Modules): AccessRegistry {
   return {
     loadGatewayContext: (id) => registry.loadGatewayContext(id),
     replaceInstallationGrants: (input) =>
@@ -284,10 +284,7 @@ describe("Module access", () => {
             return result;
           },
         };
-        const fixed = await fixture(
-          undefined,
-          new ModuleRegistry({ store: watched })
-        );
+        const fixed = await fixture(undefined, new Modules({ store: watched }));
         await fixed.access.approve({
           capability: WEATHER,
           installation: fixed.installation,
@@ -345,7 +342,7 @@ describe("Module access", () => {
       const database = await sqliteDatabases.open();
       await database
         .transaction(async (transaction) => {
-          const registry = new ModuleRegistry({
+          const registry = new Modules({
             store: new SqliteModuleStore({ database: transaction, scope: "s" }),
           });
           expect(registry.durability).toBe("host");

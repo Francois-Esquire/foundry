@@ -7,9 +7,9 @@ import {
   ModuleStoreConflictError,
   ModuleStoreNotFoundError,
 } from "../../errors";
-import type { InstallationGrant, ModuleRegistry } from "../../registry";
+import type { InstallationGrant, Modules } from "../../modules";
 
-export interface ModuleRegistryHarness {
+export interface ModulesHarness {
   readonly alternateVersion: ModuleVersion;
   readonly containerId: string;
   readonly dispose?: () => void | Promise<void>;
@@ -18,8 +18,8 @@ export interface ModuleRegistryHarness {
     readonly version: ModuleVersion;
     readonly now: Date;
   };
-  readonly reopen: () => Promise<ModuleRegistry>;
-  readonly store: ModuleRegistry;
+  readonly reopen: () => Promise<Modules>;
+  readonly store: Modules;
 }
 
 const NESTED_REFUSAL =
@@ -48,11 +48,11 @@ const FILES = {
   version: 2,
 } as const;
 
-export function describeModuleRegistry(
+export function describeModules(
   name: string,
-  createHarness: () => Promise<ModuleRegistryHarness>
+  createHarness: () => Promise<ModulesHarness>
 ): void {
-  describe(`${name} ModuleRegistry rules`, () => {
+  describe(`${name} Modules rules`, () => {
     it("refuses a transaction on the registry a transaction handed its work, at once", async () => {
       const harness = await createHarness();
       try {

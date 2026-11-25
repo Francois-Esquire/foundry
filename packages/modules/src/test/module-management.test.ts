@@ -5,9 +5,9 @@ import { defineModule, installationIdSchema, moduleIdSchema } from "../domain";
 import { ModuleCrossStoreError, ModuleStoreConflictError } from "../errors";
 import { createModuleGateway } from "../gateway/module-gateway";
 import { createModuleManagement } from "../management";
+import { Modules } from "../modules";
 import { createModuleProgramSupervisor } from "../platform/program-supervisor";
 import { createModuleProjects } from "../projects";
-import { ModuleRegistry } from "../registry";
 import { createModuleVersions } from "../version";
 import { failingArtifacts } from "./helpers/failing-artifacts";
 import {
@@ -32,7 +32,7 @@ async function fixture() {
       },
     },
   });
-  const store = new ModuleRegistry({
+  const store = new Modules({
     artifactOfContent: async (contentId) =>
       (await artifacts.getContent(contentId))?.artifactId ?? null,
   });
@@ -232,7 +232,7 @@ describe("Module management", () => {
   it("archives before retiring: a failed Artifact write leaves the Module registered, and a retry completes", async () => {
     const failing = failingArtifacts();
     failing.fail = false;
-    const store = new ModuleRegistry();
+    const store = new Modules();
     const projects = createModuleProjects({
       artifacts: failing.artifacts,
       store,
@@ -271,7 +271,7 @@ describe("Module management", () => {
   it("archives again harmlessly when the registry step failed, and a retry completes", async () => {
     const { management, module, artifacts, store } = await fixture();
     const retire = vi
-      .spyOn(ModuleRegistry.prototype, "deleteModule")
+      .spyOn(Modules.prototype, "deleteModule")
       .mockRejectedValueOnce(new Error("registry unavailable"));
     await expect(
       management.deleteModule({ moduleId: module.id })

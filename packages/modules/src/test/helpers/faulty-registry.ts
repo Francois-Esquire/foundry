@@ -1,14 +1,14 @@
-import type { ModuleRegistry, ModuleRegistryUnit } from "../../registry";
+import type { Modules, ModuleUnit } from "../../modules";
 
 type Commands = Pick<
-  ModuleRegistry,
+  Modules,
   "loadModule" | "registerModule" | "retainManifest"
 >;
 
 export function faultyRegistry(
-  registry: ModuleRegistry,
+  registry: Modules,
   faults: (commands: Commands) => Partial<Commands>
-): ModuleRegistryUnit<keyof Commands> {
+): ModuleUnit<keyof Commands> {
   const over = (target: Commands): Commands => {
     const commands: Commands = {
       loadModule: (id) => target.loadModule(id),

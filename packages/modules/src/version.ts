@@ -13,8 +13,8 @@ import {
   ModuleManifestValidationError,
   parseModuleManifestSourceText,
 } from "./manifest";
+import type { ModuleCommands } from "./modules";
 import { page } from "./page";
-import type { ModuleCommands } from "./registry";
 
 export const MODULE_CONTENT_MANIFEST_PATH = `source/${MODULE_MANIFEST_SOURCE_PATH}`;
 

@@ -1,4 +1,4 @@
-import type { ModuleCommands, ModuleGatewayContext } from "../registry";
+import type { ModuleCommands, ModuleGatewayContext } from "../modules";
 import type { ModuleRuntimeIdentity } from "./types";
 import { ModuleGatewayError } from "./types";
 
@@ -32,7 +32,7 @@ export async function admitRuntimeContext(
   return context;
 }
 
-export function staleRuntime(
+function staleRuntime(
   runtime: ModuleRuntimeIdentity,
   detail: string
 ): ModuleGatewayError {

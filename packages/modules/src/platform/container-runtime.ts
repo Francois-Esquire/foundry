@@ -7,7 +7,7 @@ import type {
 import type { InstallationId } from "../domain";
 import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "../errors";
 import { approvedNetworkDestinations } from "../grants";
-import type { ModuleCommands } from "../registry";
+import type { ModuleCommands } from "../modules";
 import type {
   ModuleProgramResources,
   ModuleProgramRuntimeAdapter,

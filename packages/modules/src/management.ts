@@ -10,15 +10,15 @@ import type {
 } from "./domain";
 import { installationIdSchema } from "./domain";
 import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "./errors";
+import type {
+  ModuleCommands,
+  ModuleGatewayContext,
+  ModuleUnit,
+} from "./modules";
 import { importModulePackage } from "./package";
 import type { ModuleProgramSupervisor } from "./platform/contracts";
 import type { ModuleProjects } from "./projects";
 import { createModuleProjects } from "./projects";
-import type {
-  ModuleCommands,
-  ModuleGatewayContext,
-  ModuleRegistryUnit,
-} from "./registry";
 import { createModuleVersions } from "./version";
 
 export interface ModuleView {
@@ -58,9 +58,7 @@ export interface ModuleManagement extends ModuleProjects {
 }
 
 export function ensureInstallation(input: {
-  readonly store: ModuleRegistryUnit<
-    "createInstallation" | "loadGatewayContext"
-  >;
+  readonly store: ModuleUnit<"createInstallation" | "loadGatewayContext">;
   readonly installationId: InstallationId;
   readonly version: ModuleVersion;
   readonly now: Date;

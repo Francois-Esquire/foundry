@@ -6,7 +6,7 @@ import type {
   ModuleGatewaySession,
   ModuleRuntimeIdentity,
 } from "../gateway/types";
-import type { ModuleCommands } from "../registry";
+import type { ModuleCommands } from "../modules";
 import type { ModuleVersions } from "../version";
 import { validateModuleActivation } from "./activation";
 import type {

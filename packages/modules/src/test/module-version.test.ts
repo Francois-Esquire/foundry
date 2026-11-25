@@ -13,7 +13,7 @@ import {
   ModuleManifestValidationError,
   parseModuleManifest,
 } from "../manifest";
-import { ModuleRegistry } from "../registry";
+import { Modules } from "../modules";
 import {
   createModuleVersions,
   MODULE_CONTENT_MANIFEST_PATH,
@@ -49,7 +49,7 @@ async function fixture(entries: FileInputs = built(), tag = "1.0.0") {
     artifact,
     id: moduleIdSchema.parse("module-1"),
   });
-  const store = new ModuleRegistry();
+  const store = new Modules();
   await store.registerModule({ module });
   const versions = createModuleVersions({ artifacts, store });
   let latest: Content = artifact.content;

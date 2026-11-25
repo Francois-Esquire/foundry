@@ -10,8 +10,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, defineModuleVersion, moduleIdSchema } from "../domain";
 import { ModuleCrossStoreError } from "../errors";
+import { Modules } from "../modules";
 import { encodeModulePackage, importModulePackage } from "../package";
-import { ModuleRegistry } from "../registry";
 import { createModuleVersions, MODULE_CONTENT_MANIFEST_PATH } from "../version";
 import { failingArtifacts } from "./helpers/failing-artifacts";
 import { faultyRegistry } from "./helpers/faulty-registry";
@@ -72,11 +72,11 @@ function importPackage(artifacts: Artifacts, text: string) {
   return importModulePackage({
     artifacts,
     encoded: text,
-    modules: new ModuleRegistry(),
+    modules: new Modules(),
   });
 }
 
-function rejectingModules(registry: ModuleRegistry, refusing: { on: boolean }) {
+function rejectingModules(registry: Modules, refusing: { on: boolean }) {
   return faultyRegistry(registry, (commands) => ({
     retainManifest: (input) =>
       refusing.on
@@ -139,7 +139,7 @@ describe("Module Package", () => {
     const artifacts = new Artifacts({
       store: new MemoryArtifactStore(),
     });
-    const modules = new ModuleRegistry();
+    const modules = new Modules();
 
     await expect(
       importModulePackage({
@@ -179,7 +179,7 @@ describe("Module Package", () => {
   it("round-trips one version as a frozen, tagged Content on the target", async () => {
     const source = await fixture();
     const target = new Artifacts({ store: new MemoryArtifactStore() });
-    const modules = new ModuleRegistry();
+    const modules = new Modules();
 
     const imported = await importModulePackage({
       artifacts: target,
@@ -225,7 +225,7 @@ describe("Module Package", () => {
   it("retains nothing when the Content embeds the manifest it was packaged with", async () => {
     const source = await fixture(withEmbeddedManifest(VALID_MANIFEST));
     const target = new Artifacts({ store: new MemoryArtifactStore() });
-    const modules = new ModuleRegistry();
+    const modules = new Modules();
 
     const imported = await importModulePackage({
       artifacts: target,
@@ -263,7 +263,7 @@ describe("Module Package", () => {
       const target = new Artifacts({
         store: new MemoryArtifactStore(),
       });
-      const modules = new ModuleRegistry();
+      const modules = new Modules();
 
       const imported = await importModulePackage({
         artifacts: target,
@@ -285,7 +285,7 @@ describe("Module Package", () => {
   it("retains a strict output-only manifest and resolves it", async () => {
     const source = await fixture(undefined, STRICT_MANIFEST);
     const target = new Artifacts({ store: new MemoryArtifactStore() });
-    const modules = new ModuleRegistry();
+    const modules = new Modules();
 
     const imported = await importModulePackage({
       artifacts: target,
@@ -301,7 +301,7 @@ describe("Module Package", () => {
   it("rejects a package whose embedded manifest source disagrees, before persisting", async () => {
     const source = await fixture();
     const target = new Artifacts({ store: new MemoryArtifactStore() });
-    const modules = new ModuleRegistry();
+    const modules = new Modules();
 
     await expect(
       importModulePackage({
@@ -645,7 +645,7 @@ describe("Module Package", () => {
 
     it("an Artifact another Module owns", async () => {
       const target = await moduleFixture({ artifactId: "shared-artifact" });
-      const registry = new ModuleRegistry();
+      const registry = new Modules();
       const owner = defineModule({
         artifact: target.artifact,
         id: moduleIdSchema.parse("owner"),
@@ -674,7 +674,7 @@ describe("Module Package", () => {
       const target = new Artifacts({
         store: new MemoryArtifactStore(),
       });
-      const registry = new ModuleRegistry();
+      const registry = new Modules();
       const elsewhere = await moduleFixture();
       await registry.registerModule({
         module: defineModule({
@@ -698,7 +698,7 @@ describe("Module Package", () => {
 
     it("a call inside a caller's Artifact transaction", async () => {
       const target = await moduleFixture({ artifactId: "shared-artifact" });
-      const registry = new ModuleRegistry();
+      const registry = new Modules();
       const before = await state(target.system, "shared-artifact");
       const encodedPackage = await sharedArtifactPackage("joined");
 
@@ -723,7 +723,7 @@ describe("Module Package", () => {
     const artifacts = new Artifacts({
       store: new MemoryArtifactStore(),
     });
-    const registry = new ModuleRegistry();
+    const registry = new Modules();
     const refusing = { on: true };
     const modules = rejectingModules(registry, refusing);
     const text = await encoded(source);
@@ -748,7 +748,7 @@ describe("Module Package", () => {
   it("registers nothing when the Artifact write fails, and a retry completes the import", async () => {
     const source = await fixture();
     const failing = failingArtifacts();
-    const registry = new ModuleRegistry();
+    const registry = new Modules();
     const text = await encoded(source);
     await expect(
       importModulePackage({

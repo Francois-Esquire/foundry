@@ -1,7 +1,7 @@
 import type { Installation, InstallationId } from "../domain";
 import { MAX_START_ATTEMPTS } from "../domain";
 import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "../errors";
-import type { ModuleCommands } from "../registry";
+import type { ModuleCommands } from "../modules";
 import type { ModuleProgramLaunch, ModuleProgramSupervisor } from "./contracts";
 import { ModuleProgramSupervisorError } from "./program-supervisor-errors";
 

@@ -9,12 +9,12 @@ import {
   moduleIdSchema,
 } from "../domain";
 import { ModuleStoreConflictError } from "../errors";
-import { ModuleRegistry, type ModuleRegistryOptions } from "../registry";
+import { Modules, type ModulesOptions } from "../modules";
 import type { ModuleStore } from "../store";
 import { MemoryModuleStore } from "../store/memory";
 import { SqliteModuleStore } from "../store/sqlite";
 import { moduleFixture, VALID_MANIFEST } from "./helpers/module-fixture";
-import { describeModuleRegistry } from "./helpers/registry-conformance";
+import { describeModules } from "./helpers/registry-conformance";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 interface StoreRun {
@@ -64,10 +64,10 @@ const RUNS: readonly StoreRun[] = [
 for (const run of RUNS) {
   let opened: Awaited<ReturnType<StoreRun["open"]>> | undefined;
   async function freshRegistry(
-    options: Omit<ModuleRegistryOptions, "store"> = {}
-  ): Promise<ModuleRegistry> {
+    options: Omit<ModulesOptions, "store"> = {}
+  ): Promise<Modules> {
     opened = await run.open();
-    return new ModuleRegistry({ ...options, store: opened.store });
+    return new Modules({ ...options, store: opened.store });
   }
 
   async function fixture() {
@@ -102,7 +102,7 @@ for (const run of RUNS) {
     return { alternateVersion, installation, module, store, version };
   }
 
-  describeModuleRegistry(run.name, async () => {
+  describeModules(run.name, async () => {
     const { installation, version, alternateVersion, store } = await fixture();
     const reopen = opened?.reopen;
     return {
@@ -114,14 +114,12 @@ for (const run of RUNS) {
         version,
       },
       reopen: async () =>
-        reopen === undefined
-          ? store
-          : new ModuleRegistry({ store: await reopen() }),
+        reopen === undefined ? store : new Modules({ store: await reopen() }),
       store,
     };
   });
 
-  describe(`ModuleRegistry over ${run.name}`, () => {
+  describe(`Modules over ${run.name}`, () => {
     it("with artifactOfContent, refuses a version whose Content is unknown or another Artifact's", async () => {
       const { artifact, content } = await moduleFixture();
       const other = await moduleFixture();
@@ -303,7 +301,7 @@ function withoutTransaction(store: ModuleStore): ModuleStore {
   };
 }
 
-describe("ModuleRegistry over a store without transaction", () => {
+describe("Modules over a store without transaction", () => {
   async function registered() {
     const { artifact, content } = await moduleFixture();
     const module = defineModule({
@@ -316,7 +314,7 @@ describe("ModuleRegistry over a store without transaction", () => {
       manifest: VALID_MANIFEST,
       module,
     });
-    const registry = new ModuleRegistry({
+    const registry = new Modules({
       store: withoutTransaction(new MemoryModuleStore()),
     });
     await registry.registerModule({ module });
@@ -365,7 +363,7 @@ describe("ModuleRegistry over a store without transaction", () => {
     });
 
     expect(outcome).toContain(
-      "ModuleRegistry was called from inside its own transaction; use the registry passed to the transaction's work instead"
+      "Modules was called from inside its own transaction; use the registry passed to the transaction's work instead"
     );
     expect((await registry.listInstallations()).items).toHaveLength(1);
   });

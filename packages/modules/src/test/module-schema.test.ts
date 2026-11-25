@@ -8,7 +8,7 @@ import {
   moduleIdSchema,
 } from "../domain";
 import { parseModuleManifest } from "../manifest";
-import { ModuleRegistry } from "../registry";
+import { Modules } from "../modules";
 import {
   installationGrantSchema,
   installationSchema,
@@ -37,7 +37,7 @@ async function storedRecords() {
     manifest: VALID_MANIFEST,
     module,
   });
-  const store = new ModuleRegistry();
+  const store = new Modules();
   await store.registerModule({ module });
   await store.retainManifest({
     contentId: content.id,
@@ -84,7 +84,7 @@ async function storedRecords() {
 }
 
 describe("Module record schemas", () => {
-  it("describe every field of the records a ModuleRegistry returns", async () => {
+  it("describe every field of the records a Modules returns", async () => {
     const { context, modules, retained } = await storedRecords();
 
     expect(modules.items).toHaveLength(1);

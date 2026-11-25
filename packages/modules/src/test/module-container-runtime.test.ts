@@ -16,11 +16,11 @@ import { describe, expect, it, vi } from "vitest";
 import { defineModule, installationIdSchema, moduleIdSchema } from "../domain";
 import { ModuleStoreConflictError } from "../errors";
 import { NETWORK_GRANT } from "../grants";
+import { Modules } from "../modules";
 import { createModuleCheckouts } from "../node/checkouts";
-import { createModuleSystem } from "../node/system";
+import { createNodeModulePlatform } from "../node/platform";
 import { createContainerModuleProgramRuntime } from "../platform/container-runtime";
 import { ModuleRuntimeCleanupError } from "../platform/contracts";
-import { ModuleRegistry } from "../registry";
 import { createModuleVersions } from "../version";
 import {
   moduleFixture,
@@ -41,7 +41,7 @@ async function fixture(manifest: object = VALID_MANIFEST) {
     },
   });
   const module = defineModule({ artifact, id: moduleIdSchema.parse("notes") });
-  const store = new ModuleRegistry();
+  const store = new Modules();
   await store.registerModule({ module });
   const version = await createModuleVersions({ artifacts, store }).load({
     contentId: content.id,
@@ -151,7 +151,7 @@ describe("Module container runtime", () => {
       const closed = new Promise<void>((resolve) => {
         resolveClosed = resolve;
       });
-      const system = createModuleSystem({
+      const system = createNodeModulePlatform({
         artifacts: f.artifacts,
         checkoutsRoot: f.checkoutsRoot,
         containerRuntime: f.native,
