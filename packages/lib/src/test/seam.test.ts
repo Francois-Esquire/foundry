@@ -68,11 +68,15 @@ describe("@foundry/lib/testing/seam", () => {
     writeFileSync(
       join(dir, "src-helper.ts"),
       `import { readFileSync } from "node:fs";
+import { join as bareJoin } from "path";
 import { thisProcess } from "@foundry/lib/node/process-identity";
-export const guarded = typeof process !== "undefined" && process.env.OK === "1";
+export const guardedAnd = typeof process !== "undefined" && process.env.OK === "1";
+export const guardedTernary = typeof process === "undefined" ? "" : process.env.OK;
+export const unsafePolarity = typeof process === "undefined" && process.env.BAD === "1";
+export const unsafeElse = typeof process !== "undefined" ? "" : process.env.ALSO_BAD;
 export const unguarded = process.env.SECRET;
 export const buf = Buffer.from("x");
-export { readFileSync, thisProcess };
+export { bareJoin, readFileSync, thisProcess };
 `
     );
     writeFileSync(
@@ -94,7 +98,8 @@ export { readFileSync, thisProcess };
     expect(violations).toEqual(
       expect.arrayContaining([
         expect.stringContaining('wildcard export "./*"'),
-        expect.stringContaining('forbidden node:* import "node:fs"'),
+        expect.stringContaining('forbidden Node built-in import "node:fs"'),
+        expect.stringContaining('forbidden Node built-in import "path"'),
         expect.stringContaining(
           'forbidden /node subpath import "@foundry/lib/node/process-identity"'
         ),
@@ -108,7 +113,7 @@ export { readFileSync, thisProcess };
     );
     expect(
       violations.filter((entry) => entry.includes('"process"'))
-    ).toHaveLength(1);
+    ).toHaveLength(3);
     expect(() => assertWebStandardExports(dir, ["."])).toThrow(
       "Web-standard export seam violations:"
     );

@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { isBuiltin } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 
@@ -101,42 +102,126 @@ function isNodeSubpath(specifier: string): boolean {
   );
 }
 
-function hasTypeofGuard(expr: ts.Expression, name: string): boolean {
-  let guarded = false;
-  const walk = (node: ts.Node): void => {
-    if (guarded) {
-      return;
+type GuardState = "defined" | "undefined";
+
+function unwrapParens(expr: ts.Expression): ts.Expression {
+  let cur = expr;
+  while (ts.isParenthesizedExpression(cur)) {
+    cur = cur.expression;
+  }
+  return cur;
+}
+
+function isTypeofTarget(expr: ts.Expression, name: string): boolean {
+  const inner = unwrapParens(expr);
+  return (
+    ts.isTypeOfExpression(inner) &&
+    ts.isIdentifier(inner.expression) &&
+    inner.expression.text === name
+  );
+}
+
+function typeofComparisonState(
+  expr: ts.BinaryExpression,
+  name: string
+): GuardState | null {
+  const op = expr.operatorToken.kind;
+  const isEqualOp =
+    op === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+    op === ts.SyntaxKind.EqualsEqualsToken;
+  const isNotEqualOp =
+    op === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+    op === ts.SyntaxKind.ExclamationEqualsToken;
+  if (!(isEqualOp || isNotEqualOp)) {
+    return null;
+  }
+  const left = unwrapParens(expr.left);
+  const right = unwrapParens(expr.right);
+  let literal: string | null = null;
+  if (isTypeofTarget(left, name) && ts.isStringLiteralLike(right)) {
+    literal = right.text;
+  } else if (isTypeofTarget(right, name) && ts.isStringLiteralLike(left)) {
+    literal = left.text;
+  }
+  if (literal === null) {
+    return null;
+  }
+  if (literal === "undefined") {
+    return isNotEqualOp ? "defined" : "undefined";
+  }
+  return isEqualOp ? "defined" : null;
+}
+
+function provesState(
+  expr: ts.Expression,
+  name: string,
+  target: GuardState
+): boolean {
+  const inner = unwrapParens(expr);
+  if (
+    ts.isPrefixUnaryExpression(inner) &&
+    inner.operator === ts.SyntaxKind.ExclamationToken
+  ) {
+    return provesState(
+      inner.operand,
+      name,
+      target === "defined" ? "undefined" : "defined"
+    );
+  }
+  if (ts.isBinaryExpression(inner)) {
+    const compared = typeofComparisonState(inner, name);
+    if (compared !== null) {
+      return compared === target;
     }
     if (
-      ts.isTypeOfExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === name
+      target === "defined" &&
+      inner.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
     ) {
-      guarded = true;
-      return;
+      return (
+        provesState(inner.left, name, "defined") ||
+        provesState(inner.right, name, "defined")
+      );
     }
-    ts.forEachChild(node, walk);
-  };
-  walk(expr);
-  return guarded;
+    if (
+      target === "undefined" &&
+      inner.operatorToken.kind === ts.SyntaxKind.BarBarToken
+    ) {
+      return (
+        provesState(inner.left, name, "undefined") &&
+        provesState(inner.right, name, "undefined")
+      );
+    }
+  }
+  return false;
 }
 
 function isGuardedBranch(cur: ts.Node, prev: ts.Node, name: string): boolean {
   if (ts.isTypeOfExpression(cur)) {
     return true;
   }
-  if (
-    ts.isBinaryExpression(cur) &&
-    (cur.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
-      cur.operatorToken.kind === ts.SyntaxKind.BarBarToken)
-  ) {
-    return cur.right === prev && hasTypeofGuard(cur.left, name);
+  if (ts.isBinaryExpression(cur) && cur.right === prev) {
+    if (cur.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      return provesState(cur.left, name, "defined");
+    }
+    if (cur.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
+      return provesState(cur.left, name, "undefined");
+    }
   }
   if (ts.isConditionalExpression(cur)) {
-    return cur.condition !== prev && hasTypeofGuard(cur.condition, name);
+    if (cur.whenTrue === prev) {
+      return provesState(cur.condition, name, "defined");
+    }
+    if (cur.whenFalse === prev) {
+      return provesState(cur.condition, name, "undefined");
+    }
   }
   if (ts.isIfStatement(cur)) {
-    return cur.expression !== prev && hasTypeofGuard(cur.expression, name);
+    if (cur.thenStatement === prev) {
+      return provesState(cur.expression, name, "defined");
+    }
+    if (cur.elseStatement === prev) {
+      return provesState(cur.expression, name, "undefined");
+    }
   }
   return false;
 }
@@ -289,8 +374,8 @@ function inspectSpecifier(
   workspace: ReadonlyMap<string, string>,
   violations: string[]
 ): string | null {
-  if (specifier.startsWith("node:")) {
-    violations.push(`${label}: forbidden node:* import "${specifier}"`);
+  if (specifier.startsWith("node:") || isBuiltin(specifier)) {
+    violations.push(`${label}: forbidden Node built-in import "${specifier}"`);
     return null;
   }
   if (isNodeSubpath(specifier)) {

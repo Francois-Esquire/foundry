@@ -108,10 +108,11 @@ function equalOwnProperties(a: object, b: object, seen: SeenPairs): boolean {
   if (keysA.length !== keysB.length) {
     return false;
   }
+  const keysBSet = new Set(keysB);
   const left = a as Record<string | symbol, unknown>;
   const right = b as Record<string | symbol, unknown>;
   for (const key of keysA) {
-    if (!Object.hasOwn(b, key)) {
+    if (!keysBSet.has(key)) {
       return false;
     }
     if (!isEqual(left[key], right[key], seen)) {
@@ -119,6 +120,38 @@ function equalOwnProperties(a: object, b: object, seen: SeenPairs): boolean {
     }
   }
   return true;
+}
+
+function equalBoxedPrimitive(a: object, b: object): boolean | null {
+  if (a instanceof Number) {
+    return b instanceof Number && Object.is(a.valueOf(), b.valueOf());
+  }
+  if (a instanceof String) {
+    return b instanceof String && a.valueOf() === b.valueOf();
+  }
+  if (a instanceof Boolean) {
+    return b instanceof Boolean && a.valueOf() === b.valueOf();
+  }
+  const tag = Object.prototype.toString.call(a);
+  if (tag === "[object BigInt]" || tag === "[object Symbol]") {
+    return (
+      Object.prototype.toString.call(b) === tag &&
+      Object.is(a.valueOf(), b.valueOf())
+    );
+  }
+  return null;
+}
+
+function equalError(a: Error, b: Error, seen: SeenPairs): boolean {
+  if (a.name !== b.name || a.message !== b.message) {
+    return false;
+  }
+  const aHasCause = "cause" in a;
+  const bHasCause = "cause" in b;
+  if (aHasCause !== bHasCause) {
+    return false;
+  }
+  return !aHasCause || isEqual(a.cause, b.cause, seen);
 }
 
 function equalBuiltinContent(a: object, b: object, seen: SeenPairs): boolean {
@@ -132,6 +165,9 @@ function equalBuiltinContent(a: object, b: object, seen: SeenPairs): boolean {
       a.flags === b.flags &&
       a.lastIndex === b.lastIndex
     );
+  }
+  if (a instanceof Error) {
+    return b instanceof Error && equalError(a, b, seen);
   }
   if (a instanceof ArrayBuffer) {
     return (
@@ -148,7 +184,8 @@ function equalBuiltinContent(a: object, b: object, seen: SeenPairs): boolean {
   if (a instanceof Map) {
     return b instanceof Map && equalMaps(a, b, seen);
   }
-  return true;
+  const boxed = equalBoxedPrimitive(a, b);
+  return boxed ?? true;
 }
 
 function isEqual(a: unknown, b: unknown, seen: SeenPairs): boolean {

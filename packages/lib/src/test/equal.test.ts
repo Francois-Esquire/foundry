@@ -164,4 +164,42 @@ describe("isDeepStrictEqual", () => {
     expect(isDeepStrictEqual(setA, setC)).toBe(false);
     expect(isDeepStrictEqual(setA, new Set([{ a: 1 }]))).toBe(false);
   });
+
+  it("stays symmetric when non-enumerable properties shadow enumerable keys", () => {
+    const a = { x: 1 };
+    const b: Record<string, unknown> = { y: 2 };
+    Object.defineProperty(b, "x", { enumerable: false, value: 1 });
+    expect(isDeepStrictEqual(a, b)).toBe(false);
+    expect(isDeepStrictEqual(b, a)).toBe(false);
+  });
+
+  it("compares Error instances and boxed primitives by their internal values", () => {
+    expect(isDeepStrictEqual(new Error("a"), new Error("a"))).toBe(true);
+    expect(isDeepStrictEqual(new Error("a"), new Error("b"))).toBe(false);
+    expect(
+      isDeepStrictEqual(
+        new Error("a", { cause: 1 }),
+        new Error("a", { cause: 2 })
+      )
+    ).toBe(false);
+    expect(
+      isDeepStrictEqual(
+        new Error("a", { cause: 1 }),
+        new Error("a", { cause: 1 })
+      )
+    ).toBe(true);
+
+    // biome-ignore lint/style/useConsistentBuiltinInstantiation: Testing boxed primitive equality.
+    expect(isDeepStrictEqual(new Number(1), new Number(1))).toBe(true);
+    // biome-ignore lint/style/useConsistentBuiltinInstantiation: Testing boxed primitive equality.
+    expect(isDeepStrictEqual(new Number(1), new Number(2))).toBe(false);
+    // biome-ignore lint/style/useConsistentBuiltinInstantiation: Testing boxed primitive equality.
+    expect(isDeepStrictEqual(new String("a"), new String("b"))).toBe(false);
+    // biome-ignore lint/style/useConsistentBuiltinInstantiation: Testing boxed primitive equality.
+    expect(isDeepStrictEqual(new Boolean(true), new Boolean(false))).toBe(
+      false
+    );
+    expect(isDeepStrictEqual(new Object(1n), new Object(2n))).toBe(false);
+    expect(isDeepStrictEqual(new Object(1n), new Object(1n))).toBe(true);
+  });
 });
