@@ -107,4 +107,84 @@ describe("Module persistence over Artifact metadata", () => {
       manifestOf("/first")
     );
   });
+
+  it("joins nested artifacts and modules calls into an open transaction and sees uncommitted writes", async () => {
+    const persistence = createModulePersistence(new MemoryArtifactStore());
+    const id = moduleIdSchema.parse("joined");
+
+    const seen = await persistence.artifacts.transaction(async () => {
+      const created = await persistence.artifacts.create({
+        name: "Joined",
+        type: MODULE_MIME,
+      });
+      await persistence.modules.registerModule({
+        module: { artifactId: created.id, id },
+      });
+      return {
+        artifact: await persistence.artifacts.get(created.id),
+        module: await persistence.modules.loadModule(id),
+      };
+    });
+
+    expect(seen.artifact?.metadata.moduleId).toBe(id);
+    expect(seen.module).toEqual({
+      artifactId: seen.artifact?.id,
+      id,
+    });
+    expect(await persistence.modules.loadModule(id)).toEqual(seen.module);
+  });
+
+  it("rolls back the whole transaction when a joined call fails, even if the callback catches it", async () => {
+    const persistence = createModulePersistence(new MemoryArtifactStore());
+    const created = await persistence.artifacts.create({
+      name: "Before",
+      type: MODULE_MIME,
+    });
+    const id = moduleIdSchema.parse("rolled-back");
+    let caught: unknown;
+
+    await expect(
+      persistence.artifacts.transaction(async () => {
+        await persistence.artifacts.rename(created.id, "After");
+        try {
+          await persistence.modules.registerModule({
+            module: {
+              artifactId: "missing-artifact" as never,
+              id,
+            },
+          });
+        } catch (error) {
+          caught = error;
+        }
+      })
+    ).rejects.toBeInstanceOf(ModuleStoreConflictError);
+
+    expect(caught).toBeInstanceOf(ModuleStoreConflictError);
+    expect((await persistence.artifacts.get(created.id))?.name).toBe("Before");
+    expect(await persistence.modules.loadModule(id)).toBeNull();
+  });
+
+  it("does not join work scheduled during a transaction after it settles", async () => {
+    const persistence = createModulePersistence(new MemoryArtifactStore());
+    const created = await persistence.artifacts.create({
+      name: "Initial",
+      type: MODULE_MIME,
+    });
+    let delayed: Promise<unknown> | undefined;
+
+    await persistence.artifacts.transaction(async () => {
+      await persistence.artifacts.rename(created.id, "InTransaction");
+      delayed = new Promise<void>((resolve) => {
+        setTimeout(resolve, 10);
+      }).then(() => persistence.artifacts.rename(created.id, "AfterSettle"));
+    });
+
+    expect((await persistence.artifacts.get(created.id))?.name).toBe(
+      "InTransaction"
+    );
+    await delayed;
+    expect((await persistence.artifacts.get(created.id))?.name).toBe(
+      "AfterSettle"
+    );
+  });
 });

@@ -95,7 +95,7 @@ describe("Artifact package public surface", () => {
     expectTypeOf<ReferenceInput>().toExtend<FileInput>();
     expect(isReferenceInput({ blobId: "b" } as FileInput)).toBe(true);
     expect(isReferenceInput({ bytes: "x" })).toBe(false);
-    const change = new ArtifactChange(new MemoryArtifactStore(), {});
+    const change = ArtifactChange.begin(new MemoryArtifactStore(), {});
     const limits = { maxFileBytes: 64, maxTreeBytes: 64 };
     const transaction = new ArtifactTransaction(
       change,

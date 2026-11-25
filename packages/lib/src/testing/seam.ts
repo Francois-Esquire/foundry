@@ -298,10 +298,18 @@ function inspectSpecifier(
     return null;
   }
   if (specifier.startsWith(".")) {
-    return resolveRelative(file, specifier);
+    const resolved = resolveRelative(file, specifier);
+    if (resolved === null) {
+      violations.push(`${label}: unresolved relative import "${specifier}"`);
+    }
+    return resolved;
   }
   if (specifier.startsWith("@foundry/")) {
-    return resolveWorkspaceEntry(specifier, workspace);
+    const resolved = resolveWorkspaceEntry(specifier, workspace);
+    if (resolved === null) {
+      violations.push(`${label}: unresolved workspace import "${specifier}"`);
+    }
+    return resolved;
   }
   return null;
 }

@@ -253,7 +253,7 @@ describe.each(STORE_KINDS)("%s store: Artifacts blob objects", (kind) => {
     const blob = required(
       await store.getBlob(file(required(original.content)).blobId)
     );
-    const change = new ArtifactChange(store, {});
+    const change = ArtifactChange.begin(store, {});
     await expect(
       change.putBlob({ ...blob, path: "elsewhere" } as unknown as Blob)
     ).rejects.toThrow("Invalid blob");

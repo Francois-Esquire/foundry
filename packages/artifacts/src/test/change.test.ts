@@ -38,7 +38,7 @@ describe.each(STORE_KINDS)("%s store: Artifact change rules", (kind) => {
         (await artifacts.create({ name: "B", type: "text/plain" })).id
       )
     );
-    const change = new ArtifactChange(store, {});
+    const change = ArtifactChange.begin(store, {});
     await expect(
       change.putArtifact({ ...other, contentId: content.id })
     ).rejects.toThrow("own Content");
@@ -47,7 +47,7 @@ describe.each(STORE_KINDS)("%s store: Artifact change rules", (kind) => {
 
   it("refuses Content without its Artifact", async () => {
     const { artifact, content, store } = await seeded(kind);
-    const change = new ArtifactChange(store, {});
+    const change = ArtifactChange.begin(store, {});
     await change.deleteArtifact(artifact.id);
     await expect(change.putContent(content)).rejects.toThrow(
       "requires an Artifact"
@@ -56,7 +56,7 @@ describe.each(STORE_KINDS)("%s store: Artifact change rules", (kind) => {
 
   it("deletes an Artifact's Contents with it, including ones this change put", async () => {
     const { artifact, content, store } = await seeded(kind);
-    const change = new ArtifactChange(store, {});
+    const change = ArtifactChange.begin(store, {});
     const added = { ...content, id: crypto.randomUUID() } as typeof content;
     await change.putContent(added);
     await change.deleteArtifact(artifact.id);
@@ -70,7 +70,7 @@ describe.each(STORE_KINDS)("%s store: Artifact change rules", (kind) => {
 
   it("refuses to delete the active Content", async () => {
     const { content, store } = await seeded(kind);
-    const change = new ArtifactChange(store, {});
+    const change = ArtifactChange.begin(store, {});
     await expect(change.deleteContent(content.id)).rejects.toThrow(
       "active Content"
     );
@@ -88,7 +88,7 @@ describe.each(STORE_KINDS)("%s store: Artifact change rules", (kind) => {
         path,
       }) as Blob;
     await store.commit({ putBlobs: [backed(crypto.randomUUID())] });
-    const change = new ArtifactChange(store, {});
+    const change = ArtifactChange.begin(store, {});
     await expect(change.putBlob(backed(crypto.randomUUID()))).rejects.toThrow(
       "another blob"
     );
@@ -96,7 +96,7 @@ describe.each(STORE_KINDS)("%s store: Artifact change rules", (kind) => {
 
   it("reads its own writes and leaves the store alone until written", async () => {
     const { artifact, store } = await seeded(kind);
-    const change = new ArtifactChange(store, {});
+    const change = ArtifactChange.begin(store, {});
     await change.putArtifact({ ...artifact, name: "Renamed" });
     expect((await change.getArtifact(artifact.id))?.name).toBe("Renamed");
     expect((await store.getArtifact(artifact.id))?.name).toBe("A");
@@ -106,7 +106,7 @@ describe.each(STORE_KINDS)("%s store: Artifact change rules", (kind) => {
 
   it("rejects writes when read-only and every call once settled", async () => {
     const { artifact, store } = await seeded(kind);
-    const reading = new ArtifactChange(store, { readOnly: true });
+    const reading = ArtifactChange.begin(store, { readOnly: true });
     await expect(reading.putArtifact(artifact)).rejects.toThrow("read-only");
     reading.settle();
     await expect(reading.getArtifact(artifact.id)).rejects.toThrow("settled");
@@ -157,7 +157,7 @@ describe.each(STORE_KINDS)("%s store: Artifact change listings", (kind) => {
     ];
     const store = await openStore(kind);
     await store.commit({ putArtifacts: stored });
-    const change = new ArtifactChange(store, {});
+    const change = ArtifactChange.begin(store, {});
     const [, , renamed, archived, deleted] = stored;
     await change.putArtifact({ ...required(renamed), name: "Keep renamed" });
     await change.putArtifact({
@@ -173,7 +173,7 @@ describe.each(STORE_KINDS)("%s store: Artifact change listings", (kind) => {
     const committed = await openStore(kind);
     await committed.commit({ putArtifacts: stored });
     await committed.commit(required(change.write()));
-    const after = new ArtifactChange(committed, { readOnly: true });
+    const after = ArtifactChange.begin(committed, { readOnly: true });
 
     for (const filter of [
       {},

@@ -10,6 +10,9 @@ import {
 
 const LIB_DIR = resolve(import.meta.dirname, "../..");
 const CORE_DIR = resolve(LIB_DIR, "../core");
+const PROMPTS_DIR = resolve(LIB_DIR, "../prompts");
+const TASKS_DIR = resolve(LIB_DIR, "../tasks");
+const WORKFLOWS_DIR = resolve(LIB_DIR, "../workflows");
 
 const tempDirs: string[] = [];
 
@@ -44,6 +47,21 @@ describe("@foundry/lib/testing/seam", () => {
     ).not.toThrow();
   });
 
+  it("passes on @foundry/prompts, @foundry/tasks, and @foundry/workflows portable subpaths", () => {
+    expect(() => assertWebStandardExports(PROMPTS_DIR, ["."])).not.toThrow();
+    expect(() =>
+      assertWebStandardExports(TASKS_DIR, [".", "./store", "./store/memory"])
+    ).not.toThrow();
+    expect(() =>
+      assertWebStandardExports(WORKFLOWS_DIR, [
+        ".",
+        "./workflow",
+        "./step",
+        "./queue-handler",
+      ])
+    ).not.toThrow();
+  });
+
   it("flags wildcard exports, node:* imports, /node subpaths, and unguarded globals while ignoring typeof guards", () => {
     const dir = mkdtempSync(join(tmpdir(), "seam-audit-"));
     tempDirs.push(dir);
@@ -57,7 +75,10 @@ export const buf = Buffer.from("x");
 export { readFileSync, thisProcess };
 `
     );
-    writeFileSync(join(dir, "index.ts"), `export * from "./src-helper";\n`);
+    writeFileSync(
+      join(dir, "index.ts"),
+      `export * from "./src-helper";\nexport * from "./missing-file";\nexport * from "@foundry/core/does-not-exist";\n`
+    );
     writeFileSync(
       join(dir, "package.json"),
       JSON.stringify({
@@ -79,6 +100,10 @@ export { readFileSync, thisProcess };
         ),
         expect.stringContaining('unguarded Node/Bun global "process"'),
         expect.stringContaining('unguarded Node/Bun global "Buffer"'),
+        expect.stringContaining('unresolved relative import "./missing-file"'),
+        expect.stringContaining(
+          'unresolved workspace import "@foundry/core/does-not-exist"'
+        ),
       ])
     );
     expect(

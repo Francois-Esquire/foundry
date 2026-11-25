@@ -126,7 +126,7 @@ export class Artifacts implements ArtifactSubstrate {
     try {
       try {
         result = await this.#exclusive(async (store) => {
-          const change = new ArtifactChange(store, {});
+          const change = ArtifactChange.begin(store, {});
           try {
             const transaction = new ArtifactTransaction(
               change,
@@ -430,7 +430,7 @@ export class Artifacts implements ArtifactSubstrate {
       return Promise.reject(refused);
     }
     return this.#exclusive(async (store) => {
-      const change = new ArtifactChange(store, { readOnly: true });
+      const change = ArtifactChange.begin(store, { readOnly: true });
       try {
         return await operation(
           new ArtifactTransaction(
@@ -616,7 +616,7 @@ export class Artifacts implements ArtifactSubstrate {
     check: (artifacts: ArtifactTransaction) => Promise<unknown>,
     staging: BlobStaging
   ): Promise<void> {
-    const change = new ArtifactChange(store, { readOnly: true });
+    const change = ArtifactChange.begin(store, { readOnly: true });
     try {
       await check(
         new ArtifactTransaction(

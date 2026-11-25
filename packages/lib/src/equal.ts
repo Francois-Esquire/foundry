@@ -182,6 +182,6 @@ function isEqual(a: unknown, b: unknown, seen: SeenPairs): boolean {
   }
 }
 
-export function deepStrictEqual(a: unknown, b: unknown): boolean {
+export function isDeepStrictEqual(a: unknown, b: unknown): boolean {
   return isEqual(a, b, { left: new Map(), right: new Map() });
 }

@@ -1,4 +1,4 @@
-import { deepStrictEqual } from "@foundry/lib/equal";
+import { isDeepStrictEqual } from "@foundry/lib/equal";
 import type { LanguageModel, ModelMessage } from "ai";
 
 import { generateText, pruneMessages } from "ai";
@@ -111,7 +111,7 @@ export async function compact(
     view: SessionStore
   ): Promise<SummarizeResult | null> => {
     const current = foldSet(await view.listMessages(sessionId), messageId);
-    if (!deepStrictEqual(current, fold)) {
+    if (!isDeepStrictEqual(current, fold)) {
       return null;
     }
     return await new Sessions({ store: view }).summarize({

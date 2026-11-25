@@ -1,5 +1,7 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
+import { asyncScope } from "@foundry/lib/async-scope";
 import { KeyedQueue } from "@foundry/lib/keyed-queue";
+import { ReentrantCallError } from "@foundry/lib/turns";
 import { WorkspaceCatalog } from "./catalog";
 import {
   InvalidWorkspaceInputError,
@@ -54,6 +56,16 @@ interface StartingWorkspace {
   closed: boolean;
   readonly workspace: Workspace;
 }
+
+interface StartupScopeEntry {
+  readonly id: WorkspaceId;
+  readonly owner: object;
+}
+
+const startupScope = asyncScope<StartupScopeEntry>();
+
+const STARTUP_CLOSE_REENTRY =
+  "[workspaces] Workspaces.close() was called from inside its own start() hook; call workspace.close() or workspace.remove() on the hook's workspace handle instead";
 
 interface OpenedWorkspace<Extensions extends readonly AnyWorkspaceExtension[]> {
   readonly sourceOwner: AnyWorkspaceExtension;
@@ -115,13 +127,19 @@ export class Workspaces<
 
   async #close(workspaceId: WorkspaceId, from?: Workspace): Promise<void> {
     const activeStartup = this.#starting.get(workspaceId);
-    if (
-      activeStartup?.active === true &&
-      from !== undefined &&
-      activeStartup.workspace === from
-    ) {
-      await this.#abortStartup(workspaceId, activeStartup);
-      return;
+    if (activeStartup?.active === true) {
+      if (from !== undefined && activeStartup.workspace === from) {
+        await this.#abortStartup(workspaceId, activeStartup);
+        return;
+      }
+      const currentStartup = startupScope.get();
+      if (
+        currentStartup !== undefined &&
+        currentStartup.owner === this &&
+        currentStartup.id === workspaceId
+      ) {
+        throw new ReentrantCallError(STARTUP_CLOSE_REENTRY);
+      }
     }
     const closing = this.#closing.get(workspaceId);
     if (closing) {
@@ -464,7 +482,9 @@ export class Workspaces<
         if (hook.stop) {
           cleanups.push(() => hook.stop?.(workspace));
         }
-        await hook.start?.(workspace);
+        await startupScope.run({ id: workspace.id, owner: this }, () =>
+          hook.start?.(workspace)
+        );
       }
     } catch (startupError) {
       for (const cleanupError of await runCleanups(cleanups)) {

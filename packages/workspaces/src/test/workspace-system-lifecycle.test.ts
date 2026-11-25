@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { StorageSubscription } from "@foundry/core/storage";
+import { ReentrantCallError } from "@foundry/lib/turns";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   InvalidWorkspaceInputError,
@@ -567,7 +568,7 @@ describe("lifecycle", () => {
       applies: () => true,
       attach: () => ({
         start(workspace) {
-          closeRequested = selfClosing.close(workspace.id);
+          closeRequested = workspace.close();
         },
         stop() {
           stopped += 1;
@@ -841,6 +842,29 @@ describe("lifecycle", () => {
     await expect(removing.open(removed.id)).rejects.toBeInstanceOf(
       WorkspaceNotFoundError
     );
+  });
+
+  it("rejects bare Workspaces.close(id) called inside a start hook with ReentrantCallError", async () => {
+    const events: string[] = [];
+    const system = new Workspaces().extend(memExtension()).extend({
+      applies: () => true,
+      attach: () => ({
+        async start(workspace) {
+          events.push("start");
+          await Promise.resolve();
+          await system.close(workspace.id);
+        },
+        stop() {
+          events.push("stop");
+        },
+      }),
+      name: "bare-closer",
+    });
+
+    await expect(system.load({ mem: "bare-reentry" })).rejects.toBeInstanceOf(
+      ReentrantCallError
+    );
+    expect(events).toEqual(["start", "stop"]);
   });
 
   it("skips startup hooks when close arrives before start begins", async () => {

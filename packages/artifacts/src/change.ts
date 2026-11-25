@@ -40,58 +40,36 @@ interface ChangeState {
   readonly store: ArtifactStore;
 }
 
-const SCOPED = Symbol("ArtifactChange.scoped");
-
-interface ScopedInit {
-  readonly parent: ArtifactChange;
-  readonly state: ChangeState;
-  readonly [SCOPED]: true;
-}
-
-function isScopedInit(value: unknown): value is ScopedInit {
-  return typeof value === "object" && value !== null && SCOPED in value;
-}
-
 export class ArtifactChange {
   readonly readOnly: boolean;
   readonly #state: ChangeState;
   readonly #parent: ArtifactChange | undefined;
   #writes = 0;
 
-  constructor(
-    store: ArtifactStore,
-    options: { readonly readOnly?: boolean } = {}
-  ) {
-    if (isScopedInit(store)) {
-      this.#state = store.state;
-      this.#parent = store.parent;
-    } else {
-      this.#state = {
-        active: true,
-        artifacts: new Map(),
-        blobs: new Map(),
-        contents: new Map(),
-        events: [],
-        failure: undefined,
-        readOnly: options.readOnly ?? false,
-        store,
-      };
-      this.#parent = undefined;
-    }
-    this.readOnly = this.#state.readOnly;
+  private constructor(state: ChangeState, parent?: ArtifactChange) {
+    this.#state = state;
+    this.#parent = parent;
+    this.readOnly = state.readOnly;
   }
 
-  #scoped(): ArtifactChange {
-    const init: ScopedInit = {
-      [SCOPED]: true,
-      parent: this,
-      state: this.#state,
-    };
-    return new ArtifactChange(init as unknown as ArtifactStore);
+  static begin(
+    store: ArtifactStore,
+    options: { readonly readOnly?: boolean } = {}
+  ): ArtifactChange {
+    return new ArtifactChange({
+      active: true,
+      artifacts: new Map(),
+      blobs: new Map(),
+      contents: new Map(),
+      events: [],
+      failure: undefined,
+      readOnly: options.readOnly ?? false,
+      store,
+    });
   }
 
   async operation<T>(work: (change: ArtifactChange) => Promise<T>): Promise<T> {
-    const scoped = this.#scoped();
+    const scoped = new ArtifactChange(this.#state, this);
     try {
       return await work(scoped);
     } catch (error) {
