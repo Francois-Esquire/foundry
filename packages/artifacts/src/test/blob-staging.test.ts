@@ -8,9 +8,9 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { lockHolder } from "@foundry/lib/file-lock";
+import { lockHolder } from "@foundry/lib/node/file-lock";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import { Artifacts } from "../artifacts";
 import type { BlobFiles } from "../blob";
 import { MAX_STAGING_STREAMS } from "../blob-staging";
 import { CHUNK_BYTES } from "../constants";
@@ -23,13 +23,12 @@ import {
   InvalidArtifactInputError,
   StaleContentError,
 } from "../errors";
-import { ArtifactManager } from "../manager";
 import { blobFiles, JsonArtifactStore } from "../node";
 import { STAGING_ABANDONED_AFTER_MS } from "../node/staging";
 import type { ContentId } from "../ref";
 import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ref";
 import type { ArtifactStore } from "../store";
-import { InMemoryArtifactStore } from "../store/memory";
+import { MemoryArtifactStore } from "../store/memory";
 import type { ArtifactResolved, Content, FileInput } from "../substrate";
 import { interceptCommits } from "../testing";
 import { required } from "./helpers/required";
@@ -146,7 +145,7 @@ async function storage(kind: StoreKind) {
       readonly store?: ArtifactStore;
     } = {}
   ) =>
-    new ArtifactManager({
+    new Artifacts({
       ...(options.files === null
         ? {}
         : { files: options.files ?? blobFiles(blobs) }),
@@ -267,7 +266,7 @@ describe.each(STORE_KINDS)("%s store: staged blob bytes", (kind) => {
       artifactId: seed.id,
       changes: { put: { "file.txt": { source: gate.source } } },
     });
-    let copy: Awaited<ReturnType<ArtifactManager["create"]>> | undefined;
+    let copy: Awaited<ReturnType<Artifacts["create"]>> | undefined;
     try {
       expect(await within(gate.waiting)).toBe("resolved");
       const copying = other.create({
@@ -1162,7 +1161,7 @@ describe.each(["memory", "json"] as const)(
   }
 );
 
-class FailingLookups extends InMemoryArtifactStore {
+class FailingLookups extends MemoryArtifactStore {
   failNext: boolean;
 
   constructor() {
@@ -1181,7 +1180,7 @@ class FailingLookups extends InMemoryArtifactStore {
 
 describe("A Content-named change's reservation", () => {
   async function pending(store: ArtifactStore) {
-    const artifacts = new ArtifactManager({ store });
+    const artifacts = new Artifacts({ store });
     const [streamed, other] = await Promise.all(
       ["Streamed", "Other"].map((name) =>
         artifacts.create({
@@ -1229,7 +1228,7 @@ describe("A Content-named change's reservation", () => {
 
   it("is released when its lookup finds no Content, so later changes proceed", async () => {
     const { artifacts, gate, other, streaming } = await pending(
-      new InMemoryArtifactStore()
+      new MemoryArtifactStore()
     );
     try {
       await expect(
@@ -1245,8 +1244,8 @@ describe("A Content-named change's reservation", () => {
   });
 
   it("is not taken, and nothing is read for it, when no stream is pending", async () => {
-    const store = new InMemoryArtifactStore();
-    const artifacts = new ArtifactManager({ store });
+    const store = new MemoryArtifactStore();
+    const artifacts = new Artifacts({ store });
     const created = await artifacts.create({
       entries: { "f.txt": { bytes: "x" } },
       name: "Idle",
@@ -1269,7 +1268,7 @@ describe.each(STORE_KINDS)("%s store: ordering re-checks", (kind) => {
     });
     return { artifacts, created };
   }
-  const later = (artifacts: ArtifactManager, id: ArtifactResolved["id"]) =>
+  const later = (artifacts: Artifacts, id: ArtifactResolved["id"]) =>
     within(
       artifacts.write({
         artifactId: id,

@@ -10,8 +10,9 @@ the scheduler was paused or down. The terms are defined in
 
 ```ts
 import { Queue } from "@foundry/queue";
-import { MemoryScheduleStore, Scheduler } from "@foundry/scheduling";
+import { Scheduler } from "@foundry/scheduling";
 import { QueueDispatchLayer } from "@foundry/scheduling/queue";
+import { MemoryScheduleStore } from "@foundry/scheduling/store/memory";
 import { Effect, Layer } from "effect";
 
 const live = Scheduler.layer().pipe(
@@ -44,11 +45,15 @@ away, and it accepts only overlap `skip` and misfire `run-once`.
 
 `ScheduleDispatch.status(jobId)` returns `{ kind: "open" }` or
 `{ kind: "settled", outcome, settledAt }`. `Scheduler.layer(options)`
-takes `identity` and `instanceId` (the claim owner, a fresh UUID per
-scheduler), `isOwnerGone`, `retryDelayMs` (1000) and `maxRetryDelayMs`
+takes `identity` (a portable runtime identity by default) and `instanceId`
+(the claim owner, a fresh UUID per scheduler), `isOwnerGone` (`() => false`
+by default in portable runtimes), `retryDelayMs` (1000) and `maxRetryDelayMs`
 (60 000) for per-schedule failure backoff, `settlePollMs` (5000),
 `syncIntervalMs` (off) to notice schedules another writer stored, and
 `maxOccurrencesPerSchedule` (100) to prune settled and skipped occurrences.
+Node and Bun hosts can use `@foundry/scheduling/node` (`nodeSchedulerOptions`,
+`nodeSchedulerLayer`, `createNodeSchedulerClient`) to wire OS `thisProcess()`
+identity and `isGone` liveness defaults automatically.
 The sync interval is off by default, unlike the queue's 500 ms: a scheduler
 already wakes for its own changes, at every due time it knows, and every
 `settlePollMs` while dispatched work is open, and claims keep peers from
@@ -76,6 +81,7 @@ pure helpers `nextDue`, `dueOccurrences`, `validateCadence`, and
 | `./store/tables` | Drizzle tables `scheduling_schedules`, `scheduling_cursors`, `scheduling_occurrences` |
 | `./queue` | `QueueDispatchLayer`, the adapter onto `@foundry/queue` and the only module that imports it |
 | `./client` | `createSchedulerClient({ dispatch })`, a Promise wrapper |
+| `./node` | `nodeSchedulerOptions()`, `nodeSchedulerLayer()`, and `createNodeSchedulerClient()` with Node/Bun OS process identity (`thisProcess()`) and liveness (`isGone`) defaults |
 
 Marbles hosts its schedules and monitor polling on this package: its
 schedule loop runs a `Scheduler` over `SqliteScheduleStore`, with a

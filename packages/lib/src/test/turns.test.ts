@@ -1,7 +1,29 @@
 import { describe, expect, test } from "vitest";
+import { createPassThroughAsyncScope } from "../async-scope";
+import { createNodeAsyncScope } from "../node/async-scope";
 import { ReentrantCallError, Turns } from "../turns";
 
 const advice = "use the view you were given";
+
+describe("AsyncScope", () => {
+  test("pass-through scope runs work without propagating ambient state", () => {
+    const scope = createPassThroughAsyncScope<string>();
+    expect(scope.get()).toBeUndefined();
+    const seen = scope.run("active", () => scope.get());
+    expect(seen).toBeUndefined();
+  });
+
+  test("node scope propagates ambient state across async boundaries", async () => {
+    const scope = createNodeAsyncScope<string>();
+    expect(scope.get()).toBeUndefined();
+    const seen = await scope.run("active", async () => {
+      await Promise.resolve();
+      return scope.get();
+    });
+    expect(seen).toBe("active");
+    expect(scope.get()).toBeUndefined();
+  });
+});
 
 describe("Turns", () => {
   test("runs operations one at a time, in call order, past a failure", async () => {
@@ -84,5 +106,52 @@ describe("Turns", () => {
 
     expect(order).toEqual(["first", "concurrent"]);
     await expect(later).resolves.toBe("later");
+  });
+
+  test("serializes operations in call order with createPassThroughAsyncScope()", async () => {
+    const turns = new Turns(advice, createPassThroughAsyncScope());
+    const order: string[] = [];
+    const step = (name: string, fail = false) =>
+      turns.run(async () => {
+        order.push(`${name} start`);
+        await Promise.resolve();
+        order.push(`${name} end`);
+        if (fail) {
+          throw new Error(name);
+        }
+        return name;
+      });
+
+    const results = await Promise.allSettled([
+      step("a"),
+      step("b", true),
+      step("c"),
+    ]);
+
+    expect(results.map((result) => result.status)).toEqual([
+      "fulfilled",
+      "rejected",
+      "fulfilled",
+    ]);
+    expect(order).toEqual([
+      "a start",
+      "a end",
+      "b start",
+      "b end",
+      "c start",
+      "c end",
+    ]);
+  });
+
+  test("queues a non-awaited inner call instead of rejecting when using createPassThroughAsyncScope()", async () => {
+    const turns = new Turns(advice, createPassThroughAsyncScope());
+    let queued: Promise<string> | undefined;
+
+    await turns.run(async () => {
+      queued = turns.run(() => Promise.resolve("after-outer"));
+      await Promise.resolve();
+    });
+
+    await expect(queued).resolves.toBe("after-outer");
   });
 });

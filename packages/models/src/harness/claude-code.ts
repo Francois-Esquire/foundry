@@ -1,5 +1,5 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
-import type { HarnessTurnDriver } from "@foundry/agents/harness";
+import type { HarnessTurnDriver } from "@foundry/core/agents";
 import type {
   ClaudeCodeQueryController,
   ClaudeCodeSettings,

@@ -10,8 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
-import { thisProcess } from "@foundry/lib/process-identity";
-import { SPAWN_RECOVERY_ENV } from "@foundry/lib/spawn-record";
+import { thisProcess } from "@foundry/lib/node/process-identity";
+import { SPAWN_RECOVERY_ENV } from "@foundry/lib/node/spawn-record";
 import { afterEach, expect, it, vi } from "vitest";
 import { claudeCodeProvider } from "../claude-code";
 import { codexProvider } from "../codex";

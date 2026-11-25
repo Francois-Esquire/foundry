@@ -11,7 +11,7 @@ import {
   type ModuleCapabilityRequest,
   type StrictModuleManifest,
 } from "./manifest";
-import type { InstallationGrant } from "./registry";
+import type { InstallationGrant } from "./modules";
 
 export const NETWORK_GRANT = Object.freeze({
   capability: "network",

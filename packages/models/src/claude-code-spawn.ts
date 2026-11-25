@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
-import { recordGroup } from "@foundry/lib/spawn-record";
+import { recordGroup } from "@foundry/lib/node/spawn-record";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 
 type SpawnHook = NonNullable<ClaudeCodeSettings["spawnClaudeCodeProcess"]>;

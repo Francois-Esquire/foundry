@@ -4,7 +4,7 @@ import {
   type ProcessState,
   processState,
   thisProcess,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import type { ContainerRow } from "@foundry/sandbox/store";
 
 export function containerHolder(): string {

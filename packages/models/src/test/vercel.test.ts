@@ -18,7 +18,7 @@ vi.mock("ai", () => ({
 }));
 
 const { vercelModels, vercelProvider } = await import("../vercel");
-const { ModelManager } = await import("../manager");
+const { Models } = await import("../models");
 
 const FAKE_MODEL = { modelId: "any", provider: "vercel" };
 
@@ -158,7 +158,7 @@ describe("vercelProvider", () => {
   });
 
   it("resolves explicitly supplied models and defaults through the manager", () => {
-    const manager = new ModelManager({
+    const manager = new Models({
       providers: [
         vercelProvider({
           config: { apiKey: "k" },

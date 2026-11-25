@@ -1,8 +1,8 @@
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname } from "node:path";
-import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
-import { acquireFileLock } from "@foundry/lib/file-lock";
+import { hasErrorCode, writeFileAtomic } from "@foundry/lib/node/atomic-file";
+import { acquireFileLock } from "@foundry/lib/node/file-lock";
 import { Turns } from "@foundry/lib/turns";
 import { ownedListQuery } from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
@@ -15,7 +15,7 @@ import type {
   BlobListing,
   BlobReferences,
 } from "../store";
-import { InMemoryArtifactStore } from "../store/memory";
+import { MemoryArtifactStore } from "../store/memory";
 import { ownedWrite } from "../store/owned";
 
 const FORMAT_VERSION = 1;
@@ -31,7 +31,7 @@ export interface JsonArtifactStoreOptions {
 export class JsonArtifactStore implements ArtifactStore {
   readonly #path: string;
   readonly #lockTimeoutMs: number;
-  #memory: InMemoryArtifactStore | undefined;
+  #memory: MemoryArtifactStore | undefined;
   #version: string | undefined;
   readonly #turns = new Turns(REENTRY);
 
@@ -53,10 +53,10 @@ export class JsonArtifactStore implements ArtifactStore {
   transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
     return this.#locked(async () => {
       const base = await this.#current();
-      let staged: Promise<InMemoryArtifactStore> | undefined;
+      let staged: Promise<MemoryArtifactStore> | undefined;
       let open = true;
       const read = <R>(
-        take: (records: InMemoryArtifactStore) => Promise<R>
+        take: (records: MemoryArtifactStore) => Promise<R>
       ): Promise<R> =>
         open
           ? (staged ?? Promise.resolve(base)).then(take)
@@ -72,7 +72,7 @@ export class JsonArtifactStore implements ArtifactStore {
           if (open) {
             staged ??= base
               .records()
-              .then((records) => new InMemoryArtifactStore({ records }));
+              .then((records) => new MemoryArtifactStore({ records }));
           }
           return read((records) => records.commit(copy));
         },
@@ -156,7 +156,7 @@ export class JsonArtifactStore implements ArtifactStore {
     });
   }
 
-  async #save(next: InMemoryArtifactStore): Promise<void> {
+  async #save(next: MemoryArtifactStore): Promise<void> {
     await writeFileAtomic(this.#path, encodeRecords(await next.records()), {
       fsync: true,
       mode: 0o600,
@@ -166,14 +166,14 @@ export class JsonArtifactStore implements ArtifactStore {
     this.#version = version;
   }
 
-  async #current(): Promise<InMemoryArtifactStore> {
+  async #current(): Promise<MemoryArtifactStore> {
     const version = await fileVersion(this.#path);
     if (this.#memory && version === this.#version) {
       return this.#memory;
     }
     const text =
       version === undefined ? undefined : await readFile(this.#path, "utf8");
-    this.#memory = new InMemoryArtifactStore(
+    this.#memory = new MemoryArtifactStore(
       text === undefined ? {} : { records: decodeRecords(text) }
     );
     this.#version = version;

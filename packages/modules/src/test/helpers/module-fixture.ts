@@ -1,7 +1,7 @@
 import type { EntryInputs, FileInputs } from "@foundry/artifacts";
 
-import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { Artifacts, artifactIdSchema } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 
 import { MODULE_MIME } from "../../constants";
 
@@ -49,7 +49,7 @@ export async function moduleFixture(
 ) {
   counter += 1;
   const files = options.files ?? PROGRAM_FILES;
-  const system = new ArtifactManager({ store: new InMemoryArtifactStore() });
+  const system = new Artifacts({ store: new MemoryArtifactStore() });
   const artifact = await system.create({
     entries: files,
     freeze: { tag: options.tag ?? "1.0.0" },

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
+import { sameProcess, thisProcess } from "@foundry/lib/node/process-identity";
 import type { TaskStore } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";

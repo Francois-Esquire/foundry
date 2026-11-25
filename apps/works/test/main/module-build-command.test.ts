@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import type { Writable } from "node:stream";
-import { ProcessController } from "@foundry/sandbox/process-controller";
-import type { SandboxExecOptions } from "@foundry/sandbox/types";
+import type { SandboxExecOptions } from "@foundry/sandbox";
+import { ProcessController } from "@foundry/sandbox/node";
 import { expect, it } from "vitest";
 import { runBuildCommand } from "~/main/modules/builds/runtime";
 

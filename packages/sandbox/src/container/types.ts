@@ -1,4 +1,24 @@
-import type { Storage } from "@foundry/core/storage";
+import type { Storage, StorageObserver } from "@foundry/core/storage";
+import type { ContainerRow } from "../schema";
+import type { ContainerStore } from "../store/index";
+import type {
+  Sandbox,
+  SandboxCommand,
+  SandboxDirectoryEntry,
+  SandboxExecOptions,
+  SandboxExecResult,
+  SandboxFilesystemFacet,
+  SandboxPipedProcess,
+  SandboxPortsFacet,
+  SandboxProcessesFacet,
+  SandboxResourceLimits,
+  SandboxServicesFacet,
+  SandboxShell,
+  SandboxShellFacet,
+  SandboxShellOptions,
+  SandboxVolumesFacet,
+} from "../types";
+import type { ContainerSandboxConstraints } from "./constraints";
 
 export interface ContainerNetworkAllowlist {
   readonly destinations: readonly {
@@ -12,17 +32,6 @@ export type ContainerNetwork =
   | "disabled"
   | "unrestricted"
   | ContainerNetworkAllowlist;
-
-import type {
-  SandboxCommand,
-  SandboxDirectoryEntry,
-  SandboxExecOptions,
-  SandboxExecResult,
-  SandboxPipedProcess,
-  SandboxResourceLimits,
-  SandboxShell,
-  SandboxShellOptions,
-} from "../types";
 
 export type PullPolicy = "missing" | "always" | "never";
 
@@ -198,4 +207,63 @@ export interface ContainerProcess {
 
 export interface ContainerSandboxDeps<TNative = unknown> {
   runtime?: ContainerRuntime<TNative>;
+}
+
+export interface ContainerFacets extends Sandbox {
+  readonly files: SandboxFilesystemFacet & Storage & StorageObserver;
+  readonly ports: SandboxPortsFacet;
+  readonly processes: SandboxProcessesFacet;
+  readonly services: SandboxServicesFacet;
+  readonly shell: SandboxShellFacet;
+  readonly volumes?: SandboxVolumesFacet;
+}
+
+export interface CreateContainersOptions {
+  readonly allowedMountRoots?: readonly string[];
+  readonly config?: ContainerConfig;
+  readonly holder?: string;
+  readonly instanceLabel: string;
+  readonly mountTargetRoot?: string;
+  readonly report?: (line: string) => void;
+  readonly runtime: ContainerRuntime;
+  readonly store?: ContainerStore;
+}
+
+export interface Containers {
+  list(): Promise<readonly ContainerRow[]>;
+  open(id: string, signal?: AbortSignal): Promise<Container>;
+  recover(
+    left: (row: ContainerRow) => boolean | Promise<boolean>,
+    signal?: AbortSignal
+  ): Promise<ContainerRecovery>;
+  remove(id: string): Promise<void>;
+  restart(
+    id: string,
+    spec?: ContainerSandboxConstraints,
+    signal?: AbortSignal
+  ): Promise<void>;
+  shutdown(): Promise<void>;
+  start(
+    spec: ContainerSandboxConstraints,
+    signal?: AbortSignal
+  ): Promise<Container>;
+  sweep(signal?: AbortSignal): Promise<ContainerSweep>;
+}
+
+export type ContainerSweep = readonly string[] & {
+  readonly passedOver: readonly string[];
+};
+
+export interface ContainerRecovery {
+  readonly conflicts: readonly string[];
+  readonly kept: readonly string[];
+  readonly passedOver: readonly string[];
+  readonly removed: readonly string[];
+  readonly swept: readonly string[];
+}
+
+export interface Container extends ContainerFacets {
+  close(): Promise<void>;
+  readonly id: string;
+  readonly row: ContainerRow;
 }

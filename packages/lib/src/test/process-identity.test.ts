@@ -9,6 +9,7 @@ import {
   isGone,
   isProcessIdentity,
   lookProcesses,
+  nodeStartedAt,
   ownerOf,
   type ProcessLookup,
   processState,
@@ -19,16 +20,19 @@ import {
   psStart,
   type SeenProcess,
   sameProcess,
-  startedAt,
   thisProcess,
-} from "../process-identity";
+} from "../node/process-identity";
+import { neverGone, portableProcess, startedAt } from "../process-identity";
 import { anotherStart } from "../testing/process-identity";
 
 const LONG_AGO = anotherStart();
 
 it("reads this process once, as the system says it started", () => {
   const self = thisProcess();
-  expect(self).toEqual({ pid: process.pid, started: startedAt(process.pid) });
+  expect(self).toEqual({
+    pid: process.pid,
+    started: nodeStartedAt(process.pid),
+  });
   expect(thisProcess()).toBe(self);
   expect(isGone(self)).toBe(false);
 });
@@ -42,7 +46,7 @@ it("takes a live pid that started at another time for gone, and one that exited"
   const child = spawn("sleep", ["30"], { stdio: "ignore" });
   try {
     const pid = child.pid ?? 0;
-    const started = startedAt(pid);
+    const started = nodeStartedAt(pid);
     expect(typeof started).toBe("string");
     expect(isGone({ pid, started: started ?? null })).toBe(false);
     expect(
@@ -181,7 +185,7 @@ it.skipIf(process.platform === "linux")(
       const script = join(dir, "check.ts");
       writeFileSync(
         script,
-        `const { isGone } = await import(${JSON.stringify(join(SRC, "process-identity.ts"))});
+        `const { isGone } = await import(${JSON.stringify(join(SRC, "node", "process-identity.ts"))});
 const { writeFileSync } = await import("node:fs");
 const before = isGone({ pid: ${String(pid)}, started: "ps:Sun Nov 15 12:00:00 2026" });
 writeFileSync(${JSON.stringify(seen)}, "Sun Nov 15 12:01:00 2026");
@@ -421,4 +425,47 @@ it("takes a group's id for another's when a process with the leader's pid runs w
       true
     )
   ).toBe(true);
+});
+
+it("pure startedAt, portableProcess, and neverGone work without Node OS APIs, and node/process-identity performs no I/O at import time", () => {
+  const running = madeUp(true, { pgid: 1, started: AT });
+  expect(startedAt(4_200_600, running)).toBe(AT);
+  expect(startedAt(4_200_601, madeUp(false, "absent"))).toBeNull();
+  const portable = portableProcess();
+  expect(portable.pid).toBe(0);
+  expect(typeof portable.started).toBe("string");
+  expect(portableProcess()).toBe(portable);
+  expect(neverGone()).toBe(false);
+  expect(neverGone(portable)).toBe(false);
+
+  const dir = mkdtempSync(join(tmpdir(), "identity-lazy-"));
+  try {
+    const marker = join(dir, "ps-called");
+    writeFileSync(
+      join(dir, "ps"),
+      `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexec /bin/ps "$@"\n`,
+      { mode: 0o700 }
+    );
+    const script = join(dir, "import-only.ts");
+    writeFileSync(
+      script,
+      `import { existsSync } from "node:fs";
+const mod = await import(${JSON.stringify(join(SRC, "node", "process-identity.ts"))});
+const calledOnImport = existsSync(${JSON.stringify(marker)});
+const self = mod.thisProcess();
+console.log(JSON.stringify({ calledOnImport, pid: self.pid }));`
+    );
+    const output = execFileSync("bun", [script], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` },
+    });
+    const parsed = JSON.parse(output.trim()) as {
+      calledOnImport: boolean;
+      pid: number;
+    };
+    expect(parsed.calledOnImport).toBe(false);
+    expect(parsed.pid).toBeGreaterThan(0);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });

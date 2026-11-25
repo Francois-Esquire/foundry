@@ -26,7 +26,7 @@ for await (const line of console) {
 }
 `;
 
-export interface HostEvent {
+interface HostEvent {
   readonly code?: number;
   readonly event: "close" | "frame" | "listening" | "open";
   readonly frame?: Record<string, unknown>;

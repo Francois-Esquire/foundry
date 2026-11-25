@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import type { HarnessTurnDriver } from "@foundry/agents/harness";
+import type { HarnessTurnDriver } from "@foundry/core/agents";
 
 type Run = Parameters<HarnessTurnDriver["run"]>[0];
 

@@ -216,8 +216,6 @@ describe("Modules boundary", () => {
       "@foundry/lib/ordering",
       "@foundry/lib/pagination",
       "@foundry/lib/turns",
-      "node:async_hooks",
-      "typescript",
       "zod",
     ]);
     for (const specifier of MODULE_ALLOWED_PACKAGE_IMPORTS) {
@@ -242,9 +240,7 @@ describe("Modules boundary", () => {
   it("admits platform's Sandbox type sources by exact specifier only", () => {
     const platformFile = join(MODULES_SRC, "platform/container-runtime.ts");
     expect(MODULE_PLATFORM_ALLOWED_PACKAGE_IMPORTS).toEqual([
-      "@foundry/sandbox/container/constraints",
-      "@foundry/sandbox/container/containers",
-      "@foundry/sandbox/container/types",
+      "@foundry/sandbox",
     ]);
     for (const specifier of MODULE_PLATFORM_ALLOWED_PACKAGE_IMPORTS) {
       expect(isModuleAllowedImport(specifier)).toBe(false);
@@ -257,12 +253,12 @@ describe("Modules boundary", () => {
       );
     }
     for (const specifier of [
-      "@foundry/sandbox",
-      "@foundry/sandbox/container",
-      "@foundry/sandbox/container/microsandbox-runtime",
+      "@foundry/sandbox/node",
+      "@foundry/sandbox/node/microsandbox",
       "@foundry/sandbox/store/memory",
       "@foundry/sandbox/testing",
-      "@foundry/sandbox/types",
+      "@foundry/sandbox/tools",
+      "@foundry/sandbox/virtual",
     ]) {
       expect(isModuleAllowedImport(specifier, platformFile)).toBe(false);
     }
@@ -277,7 +273,7 @@ describe("Modules boundary", () => {
     for (const specifier of MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS) {
       expect(isModuleAllowedImport(specifier)).toBe(false);
       expect(
-        isModuleAllowedImport(specifier, join(MODULES_SRC, "registry.ts"))
+        isModuleAllowedImport(specifier, join(MODULES_SRC, "modules.ts"))
       ).toBe(false);
       expect(
         isModuleAllowedImport(specifier, join(MODULES_SRC, "store/memory.ts"))
@@ -351,23 +347,35 @@ describe("Modules boundary", () => {
     expect(violations).toEqual([]);
   });
 
-  it("publishes deep source paths through one wildcard and no role barrels", () => {
+  it("publishes explicit canonical subpaths with no wildcard exports", () => {
     const packageJson = JSON.parse(
       readFileSync(join(REPO_ROOT, "packages/modules/package.json"), "utf8")
-    ) as { exports: Record<string, unknown> };
-    expect(Object.keys(packageJson.exports).sort()).toEqual([
-      "./*",
-      "./package.json",
-    ]);
-    const barrels = [
-      "index.ts",
-      "gateway/index.ts",
-      "node/index.ts",
-      "platform/index.ts",
-      "template/index.ts",
-      "testing/index.ts",
-    ].filter((path) => existsSync(join(MODULES_SRC, path)));
-    expect(barrels).toEqual([]);
+    ) as {
+      exports: Record<
+        string,
+        string | { readonly import?: string; readonly default?: string }
+      >;
+    };
+    const subpaths = Object.keys(packageJson.exports);
+    expect(subpaths.filter((key) => key.includes("*"))).toEqual([]);
+    for (const canonical of [
+      ".",
+      "./store",
+      "./store/memory",
+      "./store/sqlite",
+      "./store/tables",
+      "./testing/store",
+      "./node",
+    ]) {
+      expect(subpaths).toContain(canonical);
+    }
+    for (const target of Object.values(packageJson.exports)) {
+      const entry = typeof target === "string" ? target : target.import;
+      expect(entry).toBeDefined();
+      expect(
+        existsSync(join(REPO_ROOT, "packages/modules", entry as string))
+      ).toBe(true);
+    }
   });
 
   it("keeps portable filesystem contracts independent of Node adapters", () => {

@@ -1,4 +1,4 @@
-import type { StreamPart } from "@foundry/agents/harness";
+import type { StreamPart } from "@foundry/core/agents";
 import { createNativeActivities } from "./native-activity";
 import { type DriverRun, record, toolReporter } from "./shared";
 

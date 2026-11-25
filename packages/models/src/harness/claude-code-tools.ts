@@ -2,7 +2,7 @@ import {
   type HarnessPermissionRequest,
   type HarnessPermissionResult,
   isHarnessQuestionTool,
-} from "@foundry/agents/harness";
+} from "@foundry/core/agents";
 import type {
   CanUseTool,
   ClaudeCodeSettings,

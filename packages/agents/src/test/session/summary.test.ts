@@ -4,12 +4,12 @@ import type { Summarizer } from "../../session/compactor";
 import { Sessions } from "../../session/sessions";
 import { createSummaryStore, summarizeSession } from "../../session/summary";
 import type { SessionPart, SessionRole } from "../../session/types";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 
 const text = (t: string): SessionPart[] => [{ text: t, type: "text" }];
 
 async function seedRoles(
-  store: InMemorySessionStore,
+  store: MemorySessionStore,
   sessionId: string,
   items: [SessionRole, string][]
 ): Promise<void> {
@@ -22,7 +22,7 @@ async function seedRoles(
 
 describe("summarizeSession", () => {
   test("reads the subject session, summarizes it, and upserts the digest", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     await seedRoles(store, "subj-1", [
       ["user", "hi"],
       ["assistant", "hello"],
@@ -42,7 +42,7 @@ describe("summarizeSession", () => {
   });
 
   test("rolling overwrite: a later summarization replaces the prior digest in place", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     await seedRoles(store, "subj-1", [
       ["user", "hi"],
       ["assistant", "hello"],
@@ -70,7 +70,7 @@ describe("summarizeSession", () => {
   });
 
   test("disjointness: the produced Summary carries exactly subjectSessionId + digestText", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     await seedRoles(store, "subj-1", [["user", "hi"]]);
     const summarizer: Summarizer = {
       summarize: () => Promise.resolve("DIGEST v1"),

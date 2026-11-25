@@ -5,7 +5,6 @@ import type { ToolSet } from "ai";
 import type { Capability } from "../authorization/capability";
 import { tagTool } from "../harness/types";
 import { McpEmitter } from "./emitter";
-import { spawnStdioTransport } from "./stdio";
 import type {
   McpClientOptions,
   McpClientStatus,
@@ -18,6 +17,7 @@ import type {
   McpServerDefinition,
   McpServerState,
   McpServerSummary,
+  SpawnStdio,
 } from "./types";
 
 export interface McpClientEvents {
@@ -167,7 +167,7 @@ function toTaggedTools(server: McpServerDefinition, raw: ToolSet): ToolSet {
 }
 
 export class McpClient extends McpEmitter<McpClientEvents> {
-  readonly #spawnStdio: NonNullable<McpClientOptions["spawnStdio"]>;
+  readonly #spawnStdio: SpawnStdio | undefined;
   readonly #retryCooldownMs: number;
   #definition: McpServerDefinition;
   #status: McpClientStatus = "off";
@@ -183,7 +183,7 @@ export class McpClient extends McpEmitter<McpClientEvents> {
   constructor(definition: McpServerDefinition, options: McpClientOptions = {}) {
     super();
     this.#definition = definition;
-    this.#spawnStdio = options.spawnStdio ?? spawnStdioTransport;
+    this.#spawnStdio = options.spawnStdio;
     this.#retryCooldownMs =
       options.retryCooldownMs ?? DEFAULT_RETRY_COOLDOWN_MS;
   }
@@ -427,6 +427,11 @@ export class McpClient extends McpEmitter<McpClientEvents> {
       let stdio: MCPTransport | undefined;
       let transportConfig: MCPClientConfig["transport"];
       if (transport.kind === "stdio") {
+        if (!this.#spawnStdio) {
+          throw new Error(
+            `MCP server "${this.id}" uses stdio transport, which requires a spawnStdio adapter; in Node pass spawnStdioTransport or use createNodeMcpClient from "@foundry/agents/node".`
+          );
+        }
         stdio = this.#spawnStdio(transport, {
           onExit: (code, signal) => {
             this.#onStdioExit(code, signal);

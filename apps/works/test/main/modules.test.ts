@@ -1,12 +1,15 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { Artifacts } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { interceptCommits } from "@foundry/artifacts/testing";
-import { MODULE_MIME } from "@foundry/modules/constants";
-import { defineModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
-import { encodeModulePackage } from "@foundry/modules/package";
+import {
+  defineModuleVersion,
+  encodeModulePackage,
+  MODULE_MIME,
+  moduleIdSchema,
+} from "@foundry/modules";
 import { afterEach, describe, expect, it } from "vitest";
 import { createModuleLibrary, openModuleLibrary } from "~/main/modules/library";
 import { fakeClient, openFakeVault } from "../helpers/fake-api";
@@ -26,7 +29,7 @@ async function temporaryLibrary() {
 
 describe("Module library", () => {
   it("rolls back registration with authored Content when persistence fails", async () => {
-    const store = interceptCommits(new InMemoryArtifactStore(), () =>
+    const store = interceptCommits(new MemoryArtifactStore(), () =>
       Promise.reject(new Error("Disk full"))
     );
     const library = createModuleLibrary(store);
@@ -35,7 +38,7 @@ describe("Module library", () => {
   });
 
   it("imports an output-only release idempotently and reopens its identity", async () => {
-    const manager = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const manager = new Artifacts({ store: new MemoryArtifactStore() });
     const bytes = new TextEncoder().encode("export {};");
     const artifact = await manager.create({
       entries: { "outputs/program.js": { bytes } },
@@ -86,10 +89,10 @@ describe("Module library", () => {
   });
 
   it("rejects malformed persisted Module identity", async () => {
-    const store = new InMemoryArtifactStore();
+    const store = new MemoryArtifactStore();
     const library = createModuleLibrary(store);
     const module = await library.create("Corrupt registration");
-    const manager = new ArtifactManager({ store });
+    const manager = new Artifacts({ store });
     const [artifact] = (await manager.list()).items;
     if (!artifact) {
       throw new Error("Expected artifact");
@@ -133,7 +136,7 @@ describe("Module library", () => {
   });
 
   it("rejects invalid imports and blank names through the router", async () => {
-    const library = createModuleLibrary(new InMemoryArtifactStore());
+    const library = createModuleLibrary(new MemoryArtifactStore());
     const client = fakeClient(await openFakeVault(), library);
     await expect(
       client.modules.importPackage({ encoded: "{}" })

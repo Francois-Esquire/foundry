@@ -2,7 +2,7 @@ import {
   isGone,
   type ProcessState,
   processState,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import { readStoredObservers } from "~/database/changes";
 import {
   type GenerationRecord,

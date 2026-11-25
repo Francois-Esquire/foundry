@@ -1,3 +1,11 @@
+import type {
+  HarnessActivity as CoreHarnessActivity,
+  HarnessActivityEvent as CoreHarnessActivityEvent,
+  HarnessToolEvent as CoreHarnessToolEvent,
+  SessionPart as CoreSessionPart,
+  ToolEffectLocation as CoreToolEffectLocation,
+  ToolProvenance as CoreToolProvenance,
+} from "@foundry/core/agents";
 import { z } from "zod";
 
 import { capabilitySchema, toolSourceSchema } from "./authorization/schema";
@@ -242,3 +250,22 @@ export const sessionChangeEventSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export type SessionChangeEvent = z.infer<typeof sessionChangeEventSchema>;
+
+type AssertEqual<A, B> = [A] extends [B]
+  ? [B] extends [A]
+    ? true
+    : false
+  : false;
+
+type AssertAllTrue<Checks extends readonly true[]> = Checks;
+
+type _CoreAgentContracts = AssertAllTrue<
+  [
+    AssertEqual<ToolEffectLocation, CoreToolEffectLocation>,
+    AssertEqual<HarnessActivity, CoreHarnessActivity>,
+    AssertEqual<HarnessActivityEvent, CoreHarnessActivityEvent>,
+    AssertEqual<HarnessToolEvent, CoreHarnessToolEvent>,
+    AssertEqual<ToolProvenance, CoreToolProvenance>,
+    AssertEqual<SessionPart, CoreSessionPart>,
+  ]
+>;

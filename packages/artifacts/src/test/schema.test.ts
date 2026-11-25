@@ -3,9 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FileNode, StorageNode } from "@foundry/core/storage";
 import { describe, expect, expectTypeOf, onTestFinished, test } from "vitest";
-
+import { Artifacts } from "../artifacts";
 import { CHUNK_BYTES } from "../constants";
-import { ArtifactManager } from "../manager";
 import { blobFiles } from "../node";
 import type { BlobId } from "../ref";
 import type { ContentTree, StoredFile } from "../schema";
@@ -16,7 +15,7 @@ import {
   contentMetadataSchema,
   contentTreeSchema,
 } from "../schema";
-import { InMemoryArtifactStore } from "../store/memory";
+import { MemoryArtifactStore } from "../store/memory";
 
 function withOwnProto<T extends object>(fields: T, value: unknown): T {
   return Object.defineProperty({ ...fields }, "__proto__", {
@@ -35,14 +34,14 @@ function ownProto(value: object | undefined): unknown {
 }
 
 async function storedRecords(withFiles: boolean) {
-  const store = new InMemoryArtifactStore();
+  const store = new MemoryArtifactStore();
   let files: ReturnType<typeof blobFiles> | undefined;
   if (withFiles) {
     const root = await mkdtemp(join(tmpdir(), "artifact-schema-"));
     onTestFinished(() => rm(root, { force: true, recursive: true }));
     files = blobFiles(join(root, "blobs"));
   }
-  const artifacts = new ArtifactManager({
+  const artifacts = new Artifacts({
     store,
     ...(files ? { files } : {}),
   });
@@ -87,8 +86,8 @@ describe("Artifact record schema", () => {
   });
 
   test("keeps failure fields beyond code and message", async () => {
-    const store = new InMemoryArtifactStore();
-    const artifacts = new ArtifactManager({ store });
+    const store = new MemoryArtifactStore();
+    const artifacts = new Artifacts({ store });
     const created = await artifacts.create({
       entries: { "a.txt": { bytes: "a" } },
       name: "A",
@@ -108,8 +107,8 @@ describe("Artifact record schema", () => {
   });
 
   test("returns own __proto__ keys the store keeps", async () => {
-    const store = new InMemoryArtifactStore();
-    const artifacts = new ArtifactManager({ store });
+    const store = new MemoryArtifactStore();
+    const artifacts = new Artifacts({ store });
     const created = await artifacts.create({
       entries: withOwnProto(
         { "index.html": { bytes: "<h1>Hi</h1>", mime: "text/html" } },

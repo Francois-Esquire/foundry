@@ -8,28 +8,28 @@ export function errorCode(error: unknown): string {
   return error instanceof Error ? error.name : "unknown";
 }
 
-export class WorkspaceSystemError extends Error {
+export class WorkspaceError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = new.target.name;
   }
 }
 
-export class InvalidWorkspaceInputError extends WorkspaceSystemError {}
+export class InvalidWorkspaceInputError extends WorkspaceError {}
 
-export class WorkspaceNotFoundError extends WorkspaceSystemError {
+export class WorkspaceNotFoundError extends WorkspaceError {
   constructor(workspaceId: string) {
     super(`Workspace not found: ${workspaceId}`);
   }
 }
 
-export class WorkspaceFileNotFoundError extends WorkspaceSystemError {
+export class WorkspaceFileNotFoundError extends WorkspaceError {
   constructor(workspaceId: string, fileId: string) {
     super(`File ${fileId} does not belong to Workspace ${workspaceId}`);
   }
 }
 
-export class WorkspaceSourceUnavailableError extends WorkspaceSystemError {
+export class WorkspaceSourceUnavailableError extends WorkspaceError {
   readonly issue: WorkspaceSourceIssue;
 
   constructor(
@@ -53,9 +53,9 @@ export function rootIssueFor(cause: unknown): WorkspaceSourceIssue {
     : sourceIssueFor(cause);
 }
 
-export class WorkspacePersistenceError extends WorkspaceSystemError {}
+export class WorkspacePersistenceError extends WorkspaceError {}
 
-export class WorkspaceSourceUnsupportedError extends WorkspaceSystemError {
+export class WorkspaceSourceUnsupportedError extends WorkspaceError {
   constructor(source: string, operation?: string) {
     super(
       operation

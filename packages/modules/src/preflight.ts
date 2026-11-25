@@ -9,7 +9,7 @@ import {
   isStrictModuleManifest,
   moduleSettingRequests,
 } from "./manifest";
-import type { InstallationGrant } from "./registry";
+import type { InstallationGrant } from "./modules";
 import type { ModuleSettingsHostPolicy, ModuleSettingValues } from "./settings";
 import { resolveModuleSettings } from "./settings";
 

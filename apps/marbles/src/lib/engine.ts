@@ -1,15 +1,15 @@
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { SessionStore } from "@foundry/agents/store";
-import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
 import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
-import type { ModelManager } from "@foundry/models";
+import type { Models } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
 import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
 import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
-import type { Containers } from "@foundry/sandbox/container/containers";
+import type { Containers } from "@foundry/sandbox";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import type { TaskStore } from "@foundry/tasks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
@@ -63,8 +63,8 @@ import { ArtifactsManager } from "~/lib/managers/artifacts";
 import type { RunQuery, RunsSource, RunView } from "~/lib/managers/runs";
 import { engineRuns } from "~/lib/managers/runs";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
-import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
-import { localCatalogue, WorkspacesManager } from "~/lib/managers/workspaces";
+import type { GitOptions, LocalWorkspaces } from "~/lib/managers/workspaces";
+import { localWorkspaces, WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import { QueuedWorkflows } from "~/lib/queued-workflows";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
@@ -108,7 +108,7 @@ export interface EngineOptions {
   readonly handlerTimeout?: number;
   readonly home?: string;
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
-  readonly models: ModelManager;
+  readonly models: Models;
   readonly pools?: Readonly<Record<string, PoolConfig>>;
   readonly print?: (line: string) => void;
   readonly providers?: ProviderConfiguration;
@@ -123,7 +123,7 @@ export interface EngineOptions {
   readonly triggers?: TriggerStore;
   readonly usageStore?: UsageStore;
   readonly workspaceId: string;
-  readonly workspaces?: Catalogue;
+  readonly workspaces?: LocalWorkspaces;
   readonly worktrees?: string;
 }
 
@@ -140,7 +140,7 @@ export class Engine {
   readonly executions: ExecutionRuns;
   readonly feed: FeedReader;
   readonly interactions: HarnessInteractions;
-  readonly models: ModelManager;
+  readonly models: Models;
   readonly airplane: AirplaneMode;
   readonly providers: ProviderConfiguration | undefined;
   readonly root: string;
@@ -302,7 +302,7 @@ export class Engine {
     });
     this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
-    const catalogue = options.workspaces ?? localCatalogue(options.git ?? {});
+    const catalogue = options.workspaces ?? localWorkspaces(options.git ?? {});
     this.#askable = askable;
     this.#print = print;
     this.#publisher = feedPublisher(options.artifacts, {

@@ -2,17 +2,17 @@ export type { SessionEvent } from "@foundry/agents/session";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for embedded hosts.
 export { Sessions } from "@foundry/agents/session";
 export type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
-export { InMemorySessionStore } from "@foundry/agents/store/memory";
-export type { Artifacts } from "@foundry/artifacts";
-export { ArtifactManager } from "@foundry/artifacts";
+export { MemorySessionStore } from "@foundry/agents/store/memory";
+export type { ArtifactSubstrate } from "@foundry/artifacts";
+export { Artifacts as ArtifactManager } from "@foundry/artifacts";
 export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
-export { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+export { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 export type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
 export type { Provider } from "@foundry/models";
-export { ModelManager } from "@foundry/models";
+export { Models } from "@foundry/models";
 export { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
 export { vercelProvider } from "@foundry/models/vercel";
-export type { Containers } from "@foundry/sandbox/container/containers";
+export type { Containers } from "@foundry/sandbox";
 export type { AutomationRecord } from "./automation/service";
 export type {
   AutomationStore,

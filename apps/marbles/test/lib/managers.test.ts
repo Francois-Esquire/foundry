@@ -4,15 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineSkill } from "@foundry/agents/skills";
 import type { ArtifactId, ContentId } from "@foundry/artifacts";
-import { ArtifactManager } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import { createContainers } from "@foundry/sandbox/container/containers";
+import { Artifacts } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { git } from "@foundry/workspaces/git";
-import { directory } from "@foundry/workspaces/node";
-import { nodeObserver } from "@foundry/workspaces/node/watch";
+import { workspaces as createWorkspaces } from "@foundry/workspaces/node";
+import { git } from "@foundry/workspaces/node/git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { skills } from "~/authoring/resources";
 import { echoGit } from "~/create";
@@ -235,10 +233,7 @@ describe("skills.load folders", () => {
 describe("workspaces", () => {
   it("exposes the config directory as current, with files and git", async () => {
     const repo = await seedRepository();
-    const catalogue = new WorkspaceSystem().extend(
-      directory({ observer: nodeObserver }),
-      git()
-    );
+    const catalogue = createWorkspaces().extend(git());
     try {
       const manager = new WorkspacesManager({ catalogue, root: repo });
       const a = args(repo);
@@ -274,10 +269,7 @@ describe("workspaces", () => {
 
   it("cuts every worktree under the marbles-owned home when the caller names none", async () => {
     const repo = await seedRepository();
-    const catalogue = new WorkspaceSystem().extend(
-      directory({ observer: nodeObserver }),
-      git()
-    );
+    const catalogue = createWorkspaces().extend(git());
     const worktreeHome = join(tmp, "state", "worktrees");
     try {
       const workspaces = new WorkspacesManager({
@@ -313,10 +305,7 @@ describe("workspaces", () => {
     const repo = await seedRepository();
     const printed: string[] = [];
     const gitOptions = { run: echoGit((line) => printed.push(line)) };
-    const catalogue = new WorkspaceSystem().extend(
-      directory({ observer: nodeObserver }),
-      git(gitOptions)
-    );
+    const catalogue = createWorkspaces().extend(git(gitOptions));
     try {
       const workspaces = new WorkspacesManager({
         catalogue,
@@ -333,10 +322,7 @@ describe("workspaces", () => {
   });
 
   it("refuses git outside a repository with a clear message", () => {
-    const catalogue = new WorkspaceSystem().extend(
-      directory({ observer: nodeObserver }),
-      git()
-    );
+    const catalogue = createWorkspaces().extend(git());
     const workspaces = new WorkspacesManager({ catalogue, root: tmp }).scoped(
       args()
     );
@@ -346,7 +332,7 @@ describe("workspaces", () => {
 
 describe("artifacts", () => {
   it("keeps a declared artifact's identity and adds a version per write", async () => {
-    const system = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const system = new Artifacts({ store: new MemoryArtifactStore() });
     const manager = new ArtifactsManager({
       artifacts: system,
       workspaceId: "ws",
@@ -392,7 +378,7 @@ describe("artifacts", () => {
   });
 
   it("reads the latest version, from the real store under a dry run", async () => {
-    const real = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const real = new Artifacts({ store: new MemoryArtifactStore() });
     const memory = {
       id: "artifact#1",
       kind: "artifact",
@@ -409,7 +395,7 @@ describe("artifacts", () => {
     await expect(kept?.text("missing.json")).resolves.toBeUndefined();
 
     const dry = new ArtifactsManager({
-      artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+      artifacts: new Artifacts({ store: new MemoryArtifactStore() }),
       readThrough: real,
       workspaceId: "ws",
     });
@@ -425,7 +411,7 @@ describe("artifacts", () => {
 
   it("reads versions back, records who wrote them, and changes only some files", async () => {
     const manager = new ArtifactsManager({
-      artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+      artifacts: new Artifacts({ store: new MemoryArtifactStore() }),
       workspaceId: "ws",
     });
     const site = {

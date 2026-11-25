@@ -1,5 +1,5 @@
 import { readdirSync } from "node:fs";
-import { SPAWN_RECOVERY_ENV } from "@foundry/lib/spawn-record";
+import { SPAWN_RECOVERY_ENV } from "@foundry/lib/node/spawn-record";
 import { afterEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";

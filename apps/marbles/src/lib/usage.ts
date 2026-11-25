@@ -8,7 +8,7 @@ import type {
   SessionMessage,
   SessionUsage,
 } from "@foundry/agents/session";
-import type { ModelCosts, ModelManager } from "@foundry/models";
+import type { ModelCosts, Models } from "@foundry/models";
 import { costFromUsage } from "@foundry/models";
 import { enrichFromModelsDev } from "@foundry/models/catalog/models-dev";
 import { loadedModelsDev } from "@foundry/models/catalog/models-dev-source";
@@ -89,7 +89,7 @@ export type PriceLookup = (
   model: string
 ) => PriceBasis | undefined;
 
-export function catalogPrices(models: ModelManager): PriceLookup {
+export function catalogPrices(models: Models): PriceLookup {
   return (provider, model) => {
     const row = models.providers
       .find((entry) => entry.id === provider)

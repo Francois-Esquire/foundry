@@ -1,21 +1,23 @@
 import { createHash } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import type { ArtifactStore } from "@foundry/artifacts/store";
 import {
   type InstallationId,
   installationIdSchema,
-} from "@foundry/modules/domain";
-import { createModuleCheckouts } from "@foundry/modules/node/checkouts";
-import { createModuleInstallationFiles } from "@foundry/modules/node/installation-files";
+  Modules,
+} from "@foundry/modules";
+import {
+  createModuleCheckouts,
+  createModuleInstallationFiles,
+} from "@foundry/modules/node";
 import {
   createModuleInstallations,
+  createModulePlatform,
   ModuleActivationRefusedError,
-} from "@foundry/modules/platform/installations";
-import { createModuleSystem } from "@foundry/modules/platform/system";
-import { ModuleRegistry } from "@foundry/modules/registry";
-import { createContainers } from "@foundry/sandbox/container/containers";
+} from "@foundry/modules/platform";
+import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { moduleDirectory } from "../local-library";
 import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
@@ -27,10 +29,10 @@ export async function createModuleRuntime(
   artifactStore: ArtifactStore
 ): Promise<ModuleRuntime> {
   const { createMicrosandboxRuntime } = await import(
-    "@foundry/sandbox/container/microsandbox-runtime"
+    "@foundry/sandbox/node/microsandbox"
   );
-  const artifacts = new ArtifactManager({ store: artifactStore });
-  const store = new ModuleRegistry({
+  const artifacts = new Artifacts({ store: artifactStore });
+  const store = new Modules({
     artifactOfContent: async (contentId) =>
       (await artifacts.getContent(contentId))?.artifactId ?? null,
   });
@@ -59,7 +61,7 @@ export async function createModuleRuntime(
     }
     return directory;
   }
-  const system = createModuleSystem({
+  const system = createModulePlatform({
     artifacts,
     checkouts: createModuleCheckouts({ artifacts, root: checkoutsRoot }),
     containerRuntime: runtime,

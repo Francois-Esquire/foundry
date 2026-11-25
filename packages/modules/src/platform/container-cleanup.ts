@@ -1,8 +1,4 @@
-import type {
-  Container,
-  Containers,
-} from "@foundry/sandbox/container/containers";
-import type { ContainerRuntime } from "@foundry/sandbox/container/types";
+import type { Container, ContainerRuntime, Containers } from "@foundry/sandbox";
 
 export function withConfirmedModuleContainerCleanup(
   containers: Containers,

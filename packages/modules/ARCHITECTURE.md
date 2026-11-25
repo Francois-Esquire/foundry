@@ -3,7 +3,7 @@
 `@foundry/modules` owns Module-domain values and host contracts. It depends on
 `@foundry/artifacts` for versioned files. Its Template role composes workspaces from a
 structural `ModuleBase` it defines itself. Its platform role owns runtime
-orchestration. It keeps Module records through `ModuleRegistry` over a `ModuleStore`,
+orchestration. It keeps Module records through `Modules` over a `ModuleStore`,
 with an in-memory and a SQLite store; database connections, migrations and sandbox
 backends remain outside the package.
 
@@ -56,7 +56,7 @@ The package owns:
 - Module, version, Installation, Manifest, and Grant values;
 - version resolution from pinned Content, including retained-manifest precedence;
 - domain validation and activation preflight;
-- `ModuleRegistry`, which holds every rule of the Module records, and the
+- `Modules`, which holds every rule of the Module records, and the
   `ModuleStore` seam it commits through, with in-memory and SQLite stores and the
   SQLite table definitions;
 - Module Package encoding, validation, and import;
@@ -74,10 +74,10 @@ The package owns:
   checkouts and Installation files; and
 - the store conformance suite and boundary tests.
 
-The package publishes one wildcard export: `@foundry/modules/<path>` resolves to
-`src/<path>.ts`, and there are no barrel entry points. Top-level modules hold the
-domain, registry, store seam, version, package, preflight, project, management, and source-capture
-APIs; `gateway/`, `node/`, `platform/`, `template/`, and `testing/` hold the roles.
+The package publishes explicit canonical subpaths with no wildcard exports: `.` is the
+100% Web-standard domain root (`src/index.ts`), `./store`, `./store/memory`,
+`./store/sqlite`, `./store/tables`, `./testing/store`, and `./node` follow ADR-0001, and
+`./gateway`, `./platform`, `./sdk`, and `./template` expose the package roles.
 Only `node/` may import `node:fs/promises`, `node:path`, `node:crypto`, and
 `node:events`. SDK source is internal; Template composition injects its emitted form
 into generated workspaces as local `@foundry/module-sdk`. `src/sdk/emit.ts` compiles
@@ -104,7 +104,7 @@ offers, and how it describes them, is outside this package.
 
 ### Registry and stores
 
-`ModuleRegistry` holds every rule of the Module records: Module and Artifact
+`Modules` holds every rule of the Module records: Module and Artifact
 identity, retained-manifest ownership, Installation creation, generations,
 transitions, Grant sets, and Module retirement. Each command is one read-modify-write
 ending in one `commit`, inside the store's `transaction` when the store has one, so
@@ -127,16 +127,15 @@ run and how their proposals reach a user. It delegates source validation and per
 workspace upgrades, activation workflows, and URL projections on top of the shared
 management operations.
 
-`createModuleSystem` composes the package's management, Gateway, dispatcher, runtime,
+`createModulePlatform` composes the package's management, Gateway, dispatcher, runtime,
 supervisor, and recovery from injected infrastructure. The platform role imports
-Sandbox container types only, type-only and from exact deep paths
-(`@foundry/sandbox/container/containers`, `/types`, and `/constraints`); it neither
-constructs a backend nor installs one.
+Sandbox container types only, type-only and from the root `@foundry/sandbox`
+entry; it neither constructs a backend nor installs one.
 The host retains ownership of the shared container registry's lifetime.
 
 `ModuleCheckouts` and `ModuleInstallationFiles` live in the portable platform role.
 Node adapters implement disk permissions, immutable checkout publication, quotas,
-legacy migration, and database backup. `createModuleSystem` in the Node role supplies
+legacy migration, and database backup. `createNodeModulePlatform` in the Node role supplies
 those implementations from explicit roots and an injected snapshot driver.
 Source capture uses Core filesystem types; `node/source` supplies disk reads.
 
@@ -287,7 +286,7 @@ protocol as public failure codes; provider details remain host-side.
 The package does not persist Invocation evidence. Any durable audit record belongs to a
 separate owner until the public store contract and current implementation say otherwise.
 The runtime dispatcher's optional `observe` hook (`observeInvocation` on
-`createModuleSystem`) reports each admitted invocation's start and outcome, fail-soft,
+`createModulePlatform`) reports each admitted invocation's start and outcome, fail-soft,
 so that owner can record it.
 
 ## Module Package flow
@@ -314,7 +313,7 @@ identity, and Module identity carry the version's meaning across stores. The pre
 ## Changing the package
 
 1. Update the term in [GLOSSARY.md](GLOSSARY.md) if identity or meaning changes.
-2. Change a rule in `ModuleRegistry`, never in a store; change the `ModuleStore` seam
+2. Change a rule in `Modules`, never in a store; change the `ModuleStore` seam
    before its stores.
 3. Update `describeModuleStore` for behavior every store must share, and the registry
    rules in `src/test/helpers/registry-conformance.ts` for every rule.

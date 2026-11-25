@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { mkdir, open, readdir, realpath, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
+import { hasErrorCode, writeFileAtomic } from "@foundry/lib/node/atomic-file";
 
 import type { BlobFiles } from "../blob";
 import { stagingArea } from "./staging";

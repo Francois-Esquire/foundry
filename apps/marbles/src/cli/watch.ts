@@ -1,5 +1,5 @@
 import { setTimeout } from "node:timers/promises";
-import { isGone } from "@foundry/lib/process-identity";
+import { isGone } from "@foundry/lib/node/process-identity";
 import { asBusy } from "~/database/busy";
 import { executionScopes, readExecution } from "~/database/executions";
 import { readDatabase } from "~/database/open";

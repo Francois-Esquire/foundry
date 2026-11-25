@@ -16,6 +16,11 @@
       "import": "./src/client.ts",
       "default": "./src/client.ts"
     },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./src/node.ts",
+      "default": "./src/node.ts"
+    },
     "./store": {
       "types": "./dist/store/index.d.ts",
       "import": "./src/store/index.ts",

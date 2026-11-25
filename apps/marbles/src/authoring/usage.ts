@@ -1,4 +1,4 @@
-import { usage } from "@foundry/usage";
+import { usage } from "@foundry/usage/node";
 
 let initialized: Promise<void> | undefined;
 

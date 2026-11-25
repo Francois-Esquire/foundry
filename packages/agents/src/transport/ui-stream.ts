@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { LanguageModelUsage, UIMessageChunk } from "ai";
 
 import type { SessionStream } from "../session/events";
@@ -99,7 +98,7 @@ function* projectTextDelta(
     runs.reasoningId = null;
   }
   if (runs.textId === null) {
-    runs.textId = randomUUID();
+    runs.textId = crypto.randomUUID();
     yield { id: runs.textId, type: "text-start" };
   }
   yield { delta: event.delta, id: runs.textId, type: "text-delta" };
@@ -114,7 +113,7 @@ function* projectReasoningDelta(
     runs.textId = null;
   }
   if (runs.reasoningId === null) {
-    runs.reasoningId = randomUUID();
+    runs.reasoningId = crypto.randomUUID();
     yield { id: runs.reasoningId, type: "reasoning-start" };
   }
   yield { delta: event.delta, id: runs.reasoningId, type: "reasoning-delta" };

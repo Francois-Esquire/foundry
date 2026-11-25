@@ -3,20 +3,20 @@ import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 
 import {
-  createInMemoryConversationStore,
+  createMemoryConversationStore,
   defaultThread,
 } from "../../tools/context";
 
 const m = (text: string): ModelMessage => ({ content: text, role: "user" });
 
-describe("createInMemoryConversationStore", () => {
+describe("createMemoryConversationStore", () => {
   it("returns [] for an unseen address", () => {
-    const store = createInMemoryConversationStore();
+    const store = createMemoryConversationStore();
     expect(store.load("space-1", "planning", "main")).toEqual([]);
   });
 
   it("appends and concatenates messages on round-trip", () => {
-    const store = createInMemoryConversationStore();
+    const store = createMemoryConversationStore();
     store.append("space-1", "planning", "main", [m("a"), m("b")]);
     store.append("space-1", "planning", "main", [m("c")]);
     expect(store.load("space-1", "planning", "main")).toEqual([
@@ -27,7 +27,7 @@ describe("createInMemoryConversationStore", () => {
   });
 
   it("isolates by space, agent, and thread", () => {
-    const store = createInMemoryConversationStore();
+    const store = createMemoryConversationStore();
     store.append("space-1", "planning", "main", [m("p-main")]);
     store.append("space-1", "planning", "fork", [m("p-fork")]);
     store.append("space-1", "explorer", "main", [m("e-main")]);
@@ -42,7 +42,7 @@ describe("createInMemoryConversationStore", () => {
   });
 
   it("keeps addresses apart when a part contains the separator", () => {
-    const store = createInMemoryConversationStore();
+    const store = createMemoryConversationStore();
     store.append("space", "planning-main", "x", [m("first")]);
     store.append("space-planning", "main", "x", [m("second")]);
     store.append("space", "planning", "main-x", [m("third")]);
@@ -53,7 +53,7 @@ describe("createInMemoryConversationStore", () => {
   });
 
   it("ignores empty append (no allocation, no entry)", () => {
-    const store = createInMemoryConversationStore();
+    const store = createMemoryConversationStore();
     store.append("space-1", "planning", "main", []);
     expect(store.load("space-1", "planning", "main")).toEqual([]);
   });

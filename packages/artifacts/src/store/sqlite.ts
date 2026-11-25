@@ -487,7 +487,7 @@ function writeRows(scope: string, write: ArtifactStoreWrite): WriteRows {
     ),
     blobs: putBlobs.map((blob) => ({
       byteLength: blob.byteLength,
-      bytes: blob.bytes === undefined ? null : Buffer.from(blob.bytes),
+      bytes: blob.bytes === undefined ? null : new Uint8Array(blob.bytes),
       chunks: blob.chunks ?? null,
       createdAt: blob.createdAt,
       digest: blob.digest,
@@ -596,10 +596,11 @@ function codeUnitText(text: string): string {
   return units;
 }
 
-function codeUnitOrder(id: string): Buffer {
-  const bytes = Buffer.alloc(id.length * 2);
+function codeUnitOrder(id: string): Uint8Array {
+  const bytes = new Uint8Array(id.length * 2);
+  const view = new DataView(bytes.buffer);
   for (let index = 0; index < id.length; index += 1) {
-    bytes.writeUInt16BE(id.charCodeAt(index), index * 2);
+    view.setUint16(index * 2, id.charCodeAt(index), false);
   }
   return bytes;
 }

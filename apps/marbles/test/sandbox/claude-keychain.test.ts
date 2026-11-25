@@ -5,8 +5,8 @@ const calls = vi.hoisted(
   () => [] as { args: string[]; env?: Record<string, string>; file: string }[]
 );
 
-vi.mock("@foundry/lib/spawn-record", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@foundry/lib/spawn-record")>()),
+vi.mock("@foundry/lib/node/spawn-record", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@foundry/lib/node/spawn-record")>()),
   execFileRecorded: (
     file: string,
     args: string[],

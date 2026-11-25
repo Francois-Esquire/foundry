@@ -1,21 +1,21 @@
 import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import type { Artifacts } from "@foundry/artifacts";
-import { ArtifactManager } from "@foundry/artifacts";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { showArgv } from "@foundry/lib/argv";
 import type { Provider } from "@foundry/models";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { DEFAULT_POOL } from "@foundry/queue";
-import type { Containers } from "@foundry/sandbox/container/containers";
-import { createContainers } from "@foundry/sandbox/container/containers";
+import type { Containers } from "@foundry/sandbox";
+import { createContainers } from "@foundry/sandbox/node";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
-import type { GitRun } from "@foundry/workspaces/git";
+import type { GitRun } from "@foundry/workspaces/node/git";
 import { Catalog, catalog as unhosted } from "~/authoring/catalog";
 import { DatabaseActivityStore } from "~/database/activities";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
@@ -57,7 +57,7 @@ import type { PoolConfig } from "~/lib/execution-record";
 import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
-import { localCatalogue } from "~/lib/managers/workspaces";
+import { localWorkspaces } from "~/lib/managers/workspaces";
 import { echoInstance } from "~/lib/models/echo";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
 import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
@@ -136,8 +136,8 @@ export function readTriggers(
   return { automations, registry };
 }
 
-function artifactsInMemory(): Artifacts {
-  return new ArtifactManager({ store: new InMemoryArtifactStore() });
+function artifactsInMemory(): ArtifactSubstrate {
+  return new Artifacts({ store: new MemoryArtifactStore() });
 }
 
 function artifactsFor(
@@ -176,7 +176,7 @@ function artifactsFor(
           state: options.stateRoot ?? layout().state,
         });
   return {
-    artifacts: new ArtifactManager({
+    artifacts: new Artifacts({
       ...(dir === undefined
         ? {}
         : { files: blobFiles(artifactBlobs(dir, workspaceId)) }),
@@ -204,10 +204,10 @@ function pluginsFor({
 }
 
 function modelsFor(options: CreateEngineOptions): {
-  readonly models: ModelManager;
+  readonly models: Models;
   readonly providers: ProviderConfiguration;
 } {
-  const models = new ModelManager();
+  const models = new Models();
   const echo = (provider: Provider) => echoInstance(provider, options.print);
   const fixed =
     options.dry && options.providers
@@ -281,7 +281,7 @@ function recordsFor(
     };
   }
   if (state === undefined) {
-    return { sessions: new InMemorySessionStore() };
+    return { sessions: new MemorySessionStore() };
   }
   const own = defaultWorkspaceDatabase(state, root, workspaceId);
   return {
@@ -361,7 +361,7 @@ function containersFor(
   const runtime = () =>
     dry
       ? Promise.resolve(createFakeContainerRuntime({ exec: echoExec(print) }))
-      : import("@foundry/sandbox/container/microsandbox-runtime").then(
+      : import("@foundry/sandbox/node/microsandbox").then(
           ({ createMicrosandboxRuntime }) => createMicrosandboxRuntime()
         );
   return async () => {
@@ -436,7 +436,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
     workspaceId,
     ...(stores === undefined
       ? {}
-      : { workspaces: localCatalogue(git, stores.workspaces) }),
+      : { workspaces: localWorkspaces(git, stores.workspaces) }),
     worktrees,
   };
   const engine = engineOver(engineOptions, own, links);

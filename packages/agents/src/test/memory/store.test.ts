@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { Memory } from "../../memory/memory";
-import { InMemoryMemoryStore } from "../../memory/store";
+import { LocalMemoryStore } from "../../memory/store";
 
-describe("InMemoryMemoryStore", () => {
+describe("LocalMemoryStore", () => {
   it("creates records with defaults and finds them by keyword", async () => {
-    const store = new InMemoryMemoryStore();
+    const store = new LocalMemoryStore();
     const created = await store.create({ content: "user prefers vitest" });
     expect(created.type).toBe("memory");
     expect(created.tags).toEqual([]);
@@ -20,7 +20,7 @@ describe("InMemoryMemoryStore", () => {
   });
 
   it("filters by type and honors limit", async () => {
-    const store = new InMemoryMemoryStore();
+    const store = new LocalMemoryStore();
     await store.create({ content: "alpha fact", type: "fact" });
     await store.create({ content: "alpha note", type: "note" });
     await store.create({ content: "alpha note two", type: "note" });
@@ -33,7 +33,7 @@ describe("InMemoryMemoryStore", () => {
   });
 
   it("deletes by id", async () => {
-    const store = new InMemoryMemoryStore();
+    const store = new LocalMemoryStore();
     const created = await store.create({ content: "temp" });
     await store.delete(created.id);
     const page = await store.search({ query: "temp" });
@@ -50,7 +50,7 @@ describe("Memory", () => {
 
   it("threads resolved provenance into create", async () => {
     const seen: (string | undefined)[] = [];
-    const store = new InMemoryMemoryStore();
+    const store = new LocalMemoryStore();
     const create = store.create.bind(store);
     store.create = (input) => {
       seen.push(input.sourceId);

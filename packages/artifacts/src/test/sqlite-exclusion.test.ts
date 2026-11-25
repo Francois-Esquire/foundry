@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, describe, expect, test } from "vitest";
 
-import { ArtifactManager } from "../manager";
+import { Artifacts } from "../artifacts";
 import { blobFiles } from "../node";
 import type { ArtifactId } from "../ref";
 import type { Artifact } from "../schema";
@@ -148,7 +148,7 @@ describe("a streamed change over SQLite", () => {
     const database = await files.open();
     const root = await mkdtemp(join(tmpdir(), "artifact-sqlite-stream-"));
     roots.push(root);
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       files: blobFiles(join(root, "blobs")),
       store: new SqliteArtifactStore({ database, scope: "s" }),
     });

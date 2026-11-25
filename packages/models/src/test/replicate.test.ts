@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { ModelManager } from "../manager";
+import { Models } from "../models";
 import { operationsOf } from "../provider";
 import { REPLICATE_DEFAULT_MODELS, replicateProvider } from "../replicate";
 
 function withToken(apiToken?: string) {
-  return new ModelManager({
+  return new Models({
     providers: [
       replicateProvider(apiToken === undefined ? {} : { config: { apiToken } }),
     ],

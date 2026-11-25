@@ -6,8 +6,8 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { acquireFileLock, lockContents, tryFileLock } from "../file-lock";
-import { processAlive } from "../process-identity";
+import { acquireFileLock, lockContents, tryFileLock } from "../node/file-lock";
+import { processAlive } from "../node/process-identity";
 
 const faults = vi.hoisted(() => ({
   beforeRead: undefined as

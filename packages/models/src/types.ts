@@ -192,4 +192,4 @@ export interface TranscribeOptions {
   returnTimestamps?: boolean;
 }
 
-export type TranscribeInput = Float32Array | ArrayBuffer | Buffer;
+export type TranscribeInput = Float32Array | ArrayBuffer | Uint8Array;

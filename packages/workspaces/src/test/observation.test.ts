@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { observe, polling } from "../observation";
 import type { ObservedFacts, WorkspaceChange } from "../types";
 
-import { WorkspaceSystem } from "../workspace-system";
+import { Workspaces } from "../workspaces";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -20,7 +20,7 @@ function fixture() {
     nextScan = undefined;
     return pending ? pending() : Promise.resolve(entries);
   });
-  const system = new WorkspaceSystem().extend({
+  const system = new Workspaces().extend({
     applies: () => true,
     identify: () => ({
       name: "test",

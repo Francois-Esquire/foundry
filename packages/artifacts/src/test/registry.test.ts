@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ArtifactManager } from "../manager";
+import { Artifacts } from "../artifacts";
 import { resolveReference } from "../references";
 import type { ArtifactBase } from "../registry";
 import { createRegistry } from "../registry";
@@ -82,7 +82,7 @@ describe.each(STORE_KINDS)("%s store: Artifact registry", (kind) => {
   });
 
   it("resolves in-memory build output and leaves async execution to its host", async () => {
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(kind),
     });
     const artifact = await artifacts.create({

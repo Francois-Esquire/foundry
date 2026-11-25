@@ -11,7 +11,7 @@ import { SessionHarness } from "../../harness/session-harness";
 import { toolAuthorizationContext } from "../../harness/tool-compiler";
 import { tagTool } from "../../harness/types";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { fakeAuthorizer } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
@@ -67,7 +67,7 @@ describe("SessionHarness — mesh tool attribution", () => {
         model,
         policy,
         sessionId: "s1",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
       },
       { sessionId: "s1" }
     );

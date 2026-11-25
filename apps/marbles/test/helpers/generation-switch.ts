@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { processAlive } from "@foundry/lib/process-identity";
+import { processAlive } from "@foundry/lib/node/process-identity";
 import { expect, onTestFinished, vi } from "vitest";
 import type { Layout } from "~/layout";
 import type { WorkspaceSummary } from "~/model/connection";

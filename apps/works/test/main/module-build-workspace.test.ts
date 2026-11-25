@@ -1,4 +1,4 @@
-import type { SandboxDirectoryEntry } from "@foundry/sandbox/types";
+import type { SandboxDirectoryEntry } from "@foundry/sandbox";
 import { expect, it } from "vitest";
 import { auditBuildWorkspace } from "~/main/modules/builds/workspace";
 

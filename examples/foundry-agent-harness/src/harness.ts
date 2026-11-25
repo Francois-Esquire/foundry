@@ -9,9 +9,9 @@ import {
   ArtifactManager,
   claudeCodeProvider,
   Engine,
-  InMemoryArtifactStore,
-  InMemorySessionStore,
-  ModelManager,
+  MemoryArtifactStore,
+  MemorySessionStore,
+  Models,
 } from "@foundry.sh/marbles/lib";
 import { file, Glob } from "bun";
 import { initLogger } from "evlog";
@@ -89,10 +89,10 @@ const worker = agent({
 const notes = artifact({ name: "Agent harness notes", type: "text/markdown" });
 
 const engine = new Engine({
-  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+  artifacts: new ArtifactManager({ store: new MemoryArtifactStore() }),
   askable: false,
   containers: () => Promise.reject(new Error("no sandbox runtime here")),
-  models: new ModelManager({
+  models: new Models({
     providers: [
       claudeCodeProvider({
         config: {
@@ -112,7 +112,7 @@ const engine = new Engine({
     ],
   }),
   root,
-  sessions: new InMemorySessionStore(),
+  sessions: new MemorySessionStore(),
   workspaceId: "foundry-agent-harness",
 });
 

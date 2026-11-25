@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { lockHolder } from "@foundry/lib/file-lock";
+import { lockHolder } from "@foundry/lib/node/file-lock";
 import { sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IncompatibleDatabaseError, MIGRATIONS } from "~/database/migrate";

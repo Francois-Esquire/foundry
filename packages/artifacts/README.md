@@ -3,10 +3,10 @@
 Package constants live in `@foundry/artifacts/constants`. General MIME helpers live in `@foundry/lib/mime`.
 
 `@foundry/artifacts` defines the shared Artifact vocabulary and the
-[`Artifacts`](src/substrate.ts) contract. An Artifact keeps stable product identity
-while its active Content changes. `ArtifactManager` owns behavior and every rule, and accepts an
+[`ArtifactSubstrate`](src/substrate.ts) contract. An Artifact keeps stable product identity
+while its active Content changes. `Artifacts` owns behavior and every rule, and accepts an
 `ArtifactStore` from `@foundry/artifacts/store`. It defaults to
-`InMemoryArtifactStore` from `@foundry/artifacts/store/memory`; a host may supply a
+`MemoryArtifactStore` from `@foundry/artifacts/store/memory`; a host may supply a
 persistent store.
 
 Content extends the shared `StorageTree` vocabulary with `blobId` on file entries.
@@ -31,15 +31,15 @@ contribute to the digest.
 
 ## Use the contract
 
-Accept `Artifacts`, or the smallest `Pick<Artifacts, ...>` your code needs. Let the host
+Accept `ArtifactSubstrate`, or the smallest `Pick<ArtifactSubstrate, ...>` your code needs. Let the host
 provide the implementation.
 
 ```ts
-import type { Artifacts } from "@foundry/artifacts";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
 
 import { HTML_MIME } from "@foundry/lib/mime";
 
-export function createPage(artifacts: Artifacts) {
+export function createPage(artifacts: ArtifactSubstrate) {
   return artifacts.create({
     name: "Home",
     type: HTML_MIME,
@@ -55,13 +55,13 @@ export function createPage(artifacts: Artifacts) {
 ```
 
 The returned `ArtifactResolved` contains the Artifact and its active Content.
-Create a manager over the in-memory store, the default:
+Create an `Artifacts` instance over the in-memory store, the default:
 
 ```ts
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 
 export function createArtifacts() {
-  return new ArtifactManager();
+  return new Artifacts();
 }
 ```
 
@@ -108,7 +108,7 @@ do not change persisted types. Duplicate registrations fail; registries are inde
 Handlers are caller-supplied values. They may be async functions or objects with
 host-specific operations; matching never invokes them. Application hosts own
 domain registrations; `@foundry/modules` owns Module runtime resolution.
-Module constants live in `@foundry/modules/constants`.
+Module constants live in `@foundry/modules`.
 
 ## Working model
 
@@ -168,15 +168,17 @@ await artifacts.transaction(async (transaction) => {
 });
 ```
 
-While a transaction's callback runs, any other call on the same manager joins it, from
-however deep in the call stack. Reads see its uncommitted writes, and a nested
-`transaction` commits with the outer one. Joined calls are not savepoints: if one fails
-and the callback still returns, the whole transaction rolls back with
-`TransactionRolledBackError` (its `cause` is the failure). So does an operation on the
-callback's own handle that is refused after writing part of the change; one refused
-before writing anything leaves the transaction to go on. Work scheduled during the
-callback but run after it returns starts its own transaction, once the callback's
-transaction has settled.
+`Artifacts` uses one explicit-handle transaction semantics everywhere: always pass and use the
+`ArtifactOperations` handle given to `transaction(work)` for every read and write in that unit.
+Reads on that handle see uncommitted writes from the same transaction, and an operation on the
+handle that is refused after writing part of the change rolls the whole transaction back with
+`TransactionRolledBackError` (its `cause` is the failure), even if caught; one refused before
+writing anything leaves the transaction to go on. Calling the outer `Artifacts` instance while
+a transaction's callback is running rejects immediately with `ReentrantCallError` on Node and
+Bun (via `@foundry/lib/async-scope`); on runtimes without `AsyncLocalStorage`, that guard is
+best-effort and an outer-handle call inside `transaction(work)` degrades to waiting/hanging until
+the transaction settles. Work scheduled during the callback that runs after it returns starts
+its own transaction once the callback's transaction settles.
 
 The callback's second argument is a transaction-scoped effects handle:
 `effects.afterCommit(async () => ...)` registers work with the outermost commit.
@@ -208,10 +210,10 @@ each operation.
 
 ```ts
 import { artifactFileSystem } from "@foundry/artifacts/node";
-import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { directory, Workspaces } from "@foundry/workspaces";
 
 const filesystem = artifactFileSystem({ artifacts, root });
-const workspaces = new WorkspaceSystem({ store }).extend(
+const workspaces = new Workspaces({ store }).extend(
   directory({ filesystem }),
 );
 const ws = await workspaces.load({ artifactId });
@@ -234,8 +236,8 @@ Options narrow and hook the filesystem. `includes(artifact)` limits which Artifa
 get a directory; others are never written to disk and are refused. `mutation`
 runs inside each write's own transaction: it may refuse by throwing, stamp Content
 metadata into the same write, and learn the committed Content through `committed`.
-That runs after the outermost transaction commits, so a write joined to an enclosing
-transaction that rolls back reports nothing; a throwing `committed` is logged.
+`committed` runs after that transaction commits (never when it rolls back);
+a throwing `committed` is logged.
 `synchronize` wraps each write of polled disk edits, for example in a host run.
 Disk content that differs from what was last applied is copied to
 `<root>/.conflicts/<directory>/<time>-<id>/` before anything overwrites it, and
@@ -247,7 +249,7 @@ process can tell stale bytes from a real disk edit.
 paths from one frozen Content in a directory of the caller's choosing, outside the
 filesystem's directories. Hosts use them for a selected release's files.
 
-Use `blobFiles(root)` as `ArtifactManager`'s optional `files` capability to store blob
+Use `blobFiles(root)` as `Artifacts`'s optional `files` capability to store blob
 bytes in files. Those backing files remain separate from editable directories.
 Changed bytes are staged before record commit. A rewritten object's previous
 backing file and every unreferenced blob are removed after commit. Each operation
@@ -340,11 +342,11 @@ It is interim: `SqliteArtifactStore` (below) is its replacement. Pair it with
 | Path                                  | Holds                                                         |
 | ------------------------------------- | ------------------------------------------------------------- |
 | `@foundry/artifacts/store`            | `ArtifactStore`, its write and listing types.                 |
-| `@foundry/artifacts/store/memory`     | `InMemoryArtifactStore`, the default the manager uses.        |
+| `@foundry/artifacts/store/memory`     | `MemoryArtifactStore`, the default `Artifacts` uses.          |
 | `@foundry/artifacts/store/sqlite`     | `SqliteArtifactStore`, over a host's Drizzle database.        |
 | `@foundry/artifacts/store/tables`     | The Drizzle tables it uses.                                   |
 | `@foundry/artifacts/testing/store`    | `describeArtifactStore`, the suite every store passes.        |
-| `@foundry/artifacts/node`             | `JsonArtifactStore` (interim) and `blobFiles`.                |
+| `@foundry/artifacts/node`             | `JsonArtifactStore` (interim), `blobFiles`, and `artifactFileSystem`. |
 
 `SqliteArtifactStore` takes the host's database and never opens one. The host
 composes the tables from `./store/tables` into its own schema and owns the
@@ -355,7 +357,7 @@ store keeps records only: blob bytes stay inline in a blob record or in the
 files `blobFiles` publishes, whose names the records hold.
 
 ```ts
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 
@@ -367,7 +369,7 @@ const store = new SqliteArtifactStore({
     await transaction.insert(changes).values({ write: summarize(write) });
   },
 });
-const artifacts = new ArtifactManager({ files: blobFiles(blobRoot), store });
+const artifacts = new Artifacts({ files: blobFiles(blobRoot), store });
 ```
 
 The tables are `artifacts`, `artifact_contents` and `artifact_blobs`, one row per
@@ -493,7 +495,7 @@ it wrote anything leaves the transaction as it was, and the operation may catch 
 refusal and go on. One refused after it wrote part of the change (a `create` whose first
 Content refuses, say) leaves the transaction unable to commit: it rejects with
 `TransactionRolledBackError`, keeping no record and no event, whatever the operation
-caught, as a failed joined call does.
+caught.
 
 `transaction(work)` runs `work` in one database transaction over a view; each commit
 through the view is a savepoint, and the view refuses calls once `work` settles. In this
@@ -615,8 +617,8 @@ Known limits:
 
 The store takes calls in turns through `Turns` from `@foundry/lib/turns`, as the memory
 and JSON stores do, and refuses a call from inside its own transaction or hook with a
-`ReentrantCallError` saying to use the view or the transaction instead. It needs
-`AsyncLocalStorage` from `node:async_hooks`: Node, Bun or Deno.
+`ReentrantCallError` saying to use the view or the transaction instead (via
+`@foundry/lib/async-scope` on Node and Bun).
 
 ## Development
 
@@ -629,9 +631,9 @@ bun run check packages/artifacts
 bun run build --filter=@foundry/artifacts
 ```
 
-Package tests own manager, blob, and directory behavior. The store conformance
-suite in `@foundry/artifacts/testing/store` and the manager suite in
-`@foundry/artifacts/testing/manager` also support host-provided store implementations.
+Package tests own `Artifacts`, blob, and directory behavior. The store conformance
+suite in `@foundry/artifacts/testing/store` and the `Artifacts` suite in
+`@foundry/artifacts/testing/artifacts` also support host-provided store implementations.
 `@foundry/artifacts/testing` holds test doubles: `interceptCommits` wraps a store's
 commits for fault injection. Hosts own their persistence and
 migration tests. Lib owns encoding and pagination helper tests.

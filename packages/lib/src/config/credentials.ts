@@ -1,11 +1,16 @@
-import { EventEmitter } from "node:events";
-
+import { TypedEmitter } from "../emitter";
 import type { CredentialsChangePayload } from "./types";
 
 // biome-ignore lint/suspicious/noEmptyInterface: Consumers extend this interface through declaration merging.
 export interface CredentialsVault {}
 
-export class Credentials extends EventEmitter {
+export interface CredentialsEventMap {
+  changed: [payload: CredentialsChangePayload<CredentialsVault>];
+  // biome-ignore lint/suspicious/noExplicitAny: Preserve EventEmitter compatibility for custom event names.
+  [key: string]: any[];
+}
+
+export class Credentials extends TypedEmitter<CredentialsEventMap> {
   #vault: CredentialsVault;
 
   constructor(initial?: CredentialsVault) {

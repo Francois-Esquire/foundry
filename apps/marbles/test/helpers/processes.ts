@@ -17,7 +17,7 @@ import {
   lookProcesses,
   processAlive,
   processState,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import {
   notPrivate,
   recordSpawned,

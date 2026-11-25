@@ -4,13 +4,13 @@ import { join } from "node:path";
 import type { StorageTree } from "@foundry/core/storage";
 
 import type { ContentId } from "../ref";
-import type { Artifacts } from "../substrate";
+import type { ArtifactSubstrate } from "../substrate";
 import { lstatOrNull } from "./fs";
 import { materialize } from "./materialize";
 import { diffDirectory } from "./scan";
 
 export interface ContentProjection {
-  readonly artifacts: Pick<Artifacts, "getContent" | "readFileRange">;
+  readonly artifacts: Pick<ArtifactSubstrate, "getContent" | "readFileRange">;
   readonly contentId: ContentId;
   readonly include: (path: string) => boolean;
 }

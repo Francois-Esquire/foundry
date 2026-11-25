@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { GenerationRecords, readLiveGenerations } from "~/database/generations";
@@ -49,7 +49,7 @@ async function host(options: TestEngineOptions) {
 }
 
 async function twoGenerations() {
-  const sessions = new InMemorySessionStore();
+  const sessions = new MemorySessionStore();
   const reply: TestEngineOptions["reply"] = ({ executor, prompt }) =>
     `${executor.provider}|${prompt}`;
   const old = await host({
@@ -124,7 +124,7 @@ describe("a queued agent dispatch taken by another generation", () => {
   });
 
   it("continues a session an earlier dispatch left", async () => {
-    const sessions = new InMemorySessionStore();
+    const sessions = new MemorySessionStore();
     const first = await host({ sessions });
     const before = await first.jobs.start({
       agent: "helper",
@@ -258,7 +258,7 @@ describe("a run this host did not start but its engine owns", () => {
   });
 
   it("reports the failure of a run that failed", async () => {
-    const sessions = new InMemorySessionStore();
+    const sessions = new MemorySessionStore();
     const old = await host({ hold: () => true, sessions });
     const next = await host({
       reply: () => {

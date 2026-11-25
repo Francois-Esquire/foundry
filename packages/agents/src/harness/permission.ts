@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { ApprovalResolution } from "@foundry/lib/config/authorization";
 import type {
   AgentAuthorizationDecision,
@@ -133,7 +132,7 @@ async function recordApprovalRequest(
     activityId: request.activityId,
     agentGeneration: settings.agentGeneration,
     agentId: settings.agentId,
-    approvalId: randomUUID(),
+    approvalId: crypto.randomUUID(),
     capability: auth.capability,
     input: summarizeHarnessInput(request.input),
     toolCallId: request.toolCallId,

@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
+import { Artifacts, artifactIdSchema } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
@@ -43,7 +43,7 @@ async function machine() {
   await touchWorkspace(state, one, null);
   await touchWorkspace(state, two, null);
   const opened = await initializeDatabase(stateDatabase(state));
-  const notes = await new ArtifactManager({
+  const notes = await new Artifacts({
     files: blobFiles(artifactBlobs(artifacts, one.id)),
     store: new SqliteArtifactStore({
       database: opened.database,
@@ -171,7 +171,7 @@ describe("the resource commands", () => {
   it("link an artifact whose id is a path name of its own under an escaped name, never outside", async () => {
     const { artifacts, context, one, state } = await machine();
     const opened = await initializeDatabase(stateDatabase(state));
-    await new ArtifactManager({
+    await new Artifacts({
       files: blobFiles(artifactBlobs(artifacts, one.id)),
       store: new SqliteArtifactStore({
         database: opened.database,

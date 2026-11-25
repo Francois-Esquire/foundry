@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { ModelManager } from "@foundry/models";
+import type { Models } from "@foundry/models";
 import type { TaskStore } from "@foundry/tasks";
 import type { Catalog } from "~/authoring/catalog";
 import { catalog } from "~/authoring/catalog";
@@ -454,7 +454,7 @@ function activeHost(): InstanceRuntime | undefined {
   return answering()?.runtime;
 }
 
-export function hostModels(): ModelManager | undefined {
+export function hostModels(): Models | undefined {
   const context = activeContext();
   if (
     context !== undefined &&

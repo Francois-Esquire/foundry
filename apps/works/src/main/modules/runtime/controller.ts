@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ModuleVersion } from "@foundry/modules/domain";
+import type { ModuleVersion } from "@foundry/modules";
 import { AsyncIteratorClass } from "@orpc/server";
 import type { ModuleSession } from "~/shared/modules";
 import type { ModuleLibrary } from "../library";

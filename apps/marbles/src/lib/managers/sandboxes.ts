@@ -1,12 +1,14 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
-import { CONTAINER_SANDBOX_CONSTRAINTS_FORMAT } from "@foundry/sandbox/container/constants";
-import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
 import type {
   Container,
+  ContainerSandboxConstraints,
   Containers,
-} from "@foundry/sandbox/container/containers";
+} from "@foundry/sandbox";
+import {
+  CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
+  DEFAULT_SANDBOX_WORKING_DIRECTORY,
+} from "@foundry/sandbox";
 
 import type { ManagerArgs } from "../bindings";
 import { workingDirectory } from "../run-scope";

@@ -1,5 +1,4 @@
-import { EventEmitter } from "node:events";
-
+import { TypedEmitter } from "../emitter";
 import type { LeafChange } from "./helpers";
 import {
   deepMergeClearUndefined,
@@ -30,7 +29,7 @@ export interface ReactiveStoreEventMap<T> {
   [key: string]: any[];
 }
 
-export class ReactiveStore<T extends object> extends EventEmitter<
+export class ReactiveStore<T extends object> extends TypedEmitter<
   ReactiveStoreEventMap<T>
 > {
   protected _initial: T;

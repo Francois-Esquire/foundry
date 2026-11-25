@@ -1,5 +1,5 @@
 import { MessageChannel, type MessagePort } from "node:worker_threads";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/message-port";
 import { RPCHandler } from "@orpc/server/message-port";
@@ -24,7 +24,7 @@ function portClient(vault: Vault): WorksClient {
   ports.push(port1, port2);
   new RPCHandler(router).upgrade(port2, {
     context: {
-      modules: createModuleLibrary(new InMemoryArtifactStore()),
+      modules: createModuleLibrary(new MemoryArtifactStore()),
       vault,
     },
   });

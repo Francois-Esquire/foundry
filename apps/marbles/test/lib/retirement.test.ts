@@ -1,4 +1,4 @@
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { Tasks } from "@foundry/tasks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";

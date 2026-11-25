@@ -1,6 +1,6 @@
 import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
 import type { JsonValue } from "@foundry/lib/json";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { portableProcess } from "@foundry/lib/process-identity";
 import {
   Clock,
   Context,
@@ -79,7 +79,7 @@ const makeQueue = (options: QueueOptions) =>
     const waiters = new JobWaiters();
     const self = yield* Effect.acquireRelease(
       Effect.sync(() =>
-        openInstance(options.identity ?? thisProcess(), options.instanceId)
+        openInstance(options.identity ?? portableProcess(), options.instanceId)
       ),
       (instance) => Effect.sync(() => closeInstance(instance))
     );
@@ -100,7 +100,13 @@ const makeQueue = (options: QueueOptions) =>
     const capacity = new Capacity(defaultPool.limit, self);
     const handlers = new Map<string, RunHandler>();
     const settlement = makeSettlement(ledger);
-    const recovery = makeRecovery(ledger, settlement, capacity, self);
+    const recovery = makeRecovery(
+      ledger,
+      settlement,
+      capacity,
+      self,
+      options.isOwnerGone
+    );
 
     const persistedPools = new Map<string, ConcurrencyPool>();
     for (const pool of yield* store.listPools) {

@@ -4,7 +4,7 @@ import {
   hasErrorCode,
   syncDirectory,
   writeFileAtomic,
-} from "@foundry/lib/atomic-file";
+} from "@foundry/lib/node/atomic-file";
 
 import type { BlobStagingArea } from "../blob";
 

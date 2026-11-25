@@ -9,7 +9,7 @@ import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { spawnRecordedCli } from "../claude-code-spawn";
 import { claudeCodeCallCost } from "../cost";
-import { ModelManager } from "../manager";
+import { Models } from "../models";
 
 const VERSION_DIGIT_PATTERN = /\d/;
 
@@ -196,7 +196,7 @@ it.each([0, -1, 1.5, 101, Number.MAX_SAFE_INTEGER + 1])(
 );
 
 it("refuses native limits for a provider that does not support them", () => {
-  const manager = new ModelManager({
+  const manager = new Models({
     providers: [
       {
         ...claudeCodeProvider({

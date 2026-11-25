@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";

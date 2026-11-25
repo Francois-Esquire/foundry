@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { SessionHarness } from "../../harness/session-harness";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { fakeAuthorizer } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
@@ -12,7 +12,7 @@ import {
 } from "../helpers/mock-language-model";
 
 function harnessWithTool(output: unknown) {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const harness = new SessionHarness(
     {
       instructions: "x",
@@ -97,7 +97,7 @@ describe("what a session keeps of a turn's values", () => {
   });
 
   it("keeps a structured output in its JSON form", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const harness = new SessionHarness(
       {
         instructions: "x",
@@ -122,7 +122,7 @@ describe("what a session keeps of a turn's values", () => {
   });
 
   it("rejects a structured output with no JSON form and keeps the reply", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const harness = new SessionHarness(
       {
         instructions: "x",

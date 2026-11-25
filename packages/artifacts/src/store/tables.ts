@@ -19,7 +19,7 @@ export const artifacts = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     id: text("id").$type<ArtifactId>().notNull(),
     idLower: text("id_lower").notNull(),
-    idOrder: blob("id_order", { mode: "buffer" }).notNull(),
+    idOrder: blob("id_order", { mode: "buffer" }).$type<Uint8Array>().notNull(),
     metadata: text("metadata", { mode: "json" })
       .$type<ArtifactMetadata>()
       .notNull(),
@@ -76,7 +76,7 @@ export const artifactBlobs = sqliteTable(
   "artifact_blobs",
   {
     byteLength: integer("byte_length").notNull(),
-    bytes: blob("bytes", { mode: "buffer" }),
+    bytes: blob("bytes", { mode: "buffer" }).$type<Uint8Array>(),
     chunks: text("chunks", { mode: "json" }).$type<readonly BlobId[]>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     digest: text("digest").notNull(),

@@ -1,4 +1,4 @@
-import type { SandboxFilesystemFacet } from "@foundry/sandbox/types";
+import type { SandboxFilesystemFacet } from "@foundry/sandbox";
 
 const DERIVED_PACKAGE = /^packages\/[^/]+\/(?:generated|dist)(?:\/|$)/u;
 function derived(path: string) {

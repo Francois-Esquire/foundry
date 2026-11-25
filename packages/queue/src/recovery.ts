@@ -1,5 +1,5 @@
 import { instanceGone, sameInstance } from "@foundry/lib/instance-identity";
-import { isGone } from "@foundry/lib/process-identity";
+import { neverGone, type ProcessIdentity } from "@foundry/lib/process-identity";
 import { Clock, Effect } from "effect";
 import type { Capacity } from "./capacity";
 import type { QueueOwner, RecoverySummary, Run, RunId } from "./domain";
@@ -22,7 +22,8 @@ export const makeRecovery = (
   ledger: Ledger,
   settlement: Settlement,
   capacity: Capacity,
-  self: QueueOwner
+  self: QueueOwner,
+  defaultIsOwnerGone: (owner: ProcessIdentity) => boolean = neverGone
 ) => {
   const { commit, requireJob, store } = ledger;
 
@@ -70,7 +71,7 @@ export const makeRecovery = (
 
   const recover = (options: RecoverOptions = {}) =>
     Effect.gen(function* () {
-      const processGone = options.isOwnerGone ?? isGone;
+      const processGone = options.isOwnerGone ?? defaultIsOwnerGone;
       const gone: Gone = (owner) => instanceGone(owner, self, processGone);
       const interrupted = yield* interruptAbandoned(gone);
       const adopted = yield* adoptQueued(gone);

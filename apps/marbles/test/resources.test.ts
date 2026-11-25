@@ -2,7 +2,7 @@ import { existsSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { Sessions } from "@foundry/agents/session";
 import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
-import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
+import { Artifacts, artifactIdSchema } from "@foundry/artifacts";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
@@ -53,14 +53,14 @@ async function machine() {
   }
   const opened = await initializeDatabase(stateDatabase(state));
   const { database } = opened;
-  const notes = await new ArtifactManager({
+  const notes = await new Artifacts({
     store: new SqliteArtifactStore({ database, scope: "ws1" }),
   }).create({
     entries: { "notes.md": { bytes: "# Notes\n", mime: "text/markdown" } },
     name: "notes",
     type: "text/markdown",
   });
-  await new ArtifactManager({
+  await new Artifacts({
     store: new SqliteArtifactStore({ database, scope: "ws2" }),
   }).create({
     entries: { "plan.md": { bytes: "# Plan\n", mime: "text/markdown" } },
@@ -242,7 +242,7 @@ describe("the resource views", () => {
     const opened = await initializeDatabase(stateDatabase(state));
     try {
       const { database } = opened;
-      const artifacts = new ArtifactManager({
+      const artifacts = new Artifacts({
         store: workspaceStores(database, "ws1").artifacts,
       });
       await artifacts.delete(artifactIdSchema.parse(artifact.id));
@@ -351,7 +351,7 @@ describe("the resource views", () => {
             })
           ),
       });
-      const artifacts = new ArtifactManager({
+      const artifacts = new Artifacts({
         store: workspaceStores(database, "ws1").artifacts,
       });
       const sharing = paused.share(artifact, "ws2");

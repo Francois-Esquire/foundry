@@ -9,7 +9,7 @@ import { SessionHarness } from "../../harness/session-harness";
 import type { StreamPart } from "../../harness/stream-transform";
 import { transformStream } from "../../harness/stream-transform";
 import type { HarnessTurnDriver } from "../../harness/turn-driver";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import type { StreamResult } from "../helpers/mock-language-model";
 import { routed } from "../helpers/mock-language-model";
 import { finish, textDelta, toolCall, usage } from "../helpers/stream-parts";
@@ -50,7 +50,7 @@ function harnessAnswering(...texts: string[]) {
       return Promise.resolve(deltas(...texts));
     },
   });
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const harness = new SessionHarness(
     {
       instructions: "x",
@@ -157,7 +157,7 @@ describe("structured output", () => {
           unresolved: "deny",
         },
         sessionId: "d",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
       },
       driver
     );

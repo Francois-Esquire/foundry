@@ -15,15 +15,14 @@ export type {
 export { directory, directorySource } from "./directory";
 export {
   InvalidWorkspaceInputError,
+  WorkspaceError,
   WorkspaceFileNotFoundError,
   WorkspaceNotFoundError,
   WorkspacePersistenceError,
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
-  WorkspaceSystemError,
 } from "./errors";
 export { Workspace } from "./instance";
-export type { GitPathStatus, GitSnapshot } from "./node/git";
 export { polling } from "./observation";
 export { scanDirectory } from "./scanner";
 export type { WorkspaceStore, WorkspaceStoreWrite } from "./store";
@@ -33,6 +32,8 @@ export type {
   CreateFileCommand,
   FileContentResult,
   FileTextSnapshot,
+  GitPathStatus,
+  GitSnapshot,
   ObservedFacts,
   RefOf,
   ResolvedSource,
@@ -62,5 +63,5 @@ export type {
   WorkspaceView,
   WriteOutcome,
 } from "./types";
-export type { WorkspaceSystemOptions } from "./workspace-system";
-export { WorkspaceSystem } from "./workspace-system";
+export type { WorkspacesOptions } from "./workspaces";
+export { Workspaces } from "./workspaces";

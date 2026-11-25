@@ -1,4 +1,4 @@
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import type { ProcessIdentity } from "@foundry/lib/node/process-identity";
 import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StoreDatabase } from "~/database/open";
@@ -9,8 +9,9 @@ import { testMachine } from "./helpers/records";
 
 const watch = vi.hoisted(() => ({ asked: [] as boolean[], open: false }));
 
-vi.mock("@foundry/lib/process-identity", async (actual) => {
-  const real = await actual<typeof import("@foundry/lib/process-identity")>();
+vi.mock("@foundry/lib/node/process-identity", async (actual) => {
+  const real =
+    await actual<typeof import("@foundry/lib/node/process-identity")>();
   return {
     ...real,
     isGone: (owner: ProcessIdentity) => {

@@ -1,11 +1,7 @@
 import { StringDecoder } from "node:string_decoder";
-import type {
-  Container,
-  Containers,
-} from "@foundry/sandbox/container/containers";
-import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
-import { prepareSandboxProcess } from "@foundry/sandbox/process";
+import type { Container, Containers } from "@foundry/sandbox";
+import { createContainers, prepareSandboxProcess } from "@foundry/sandbox/node";
+import { createMicrosandboxRuntime } from "@foundry/sandbox/node/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { beforeAll, describe, expect, it } from "vitest";
 import { prepareGuest } from "~/lib/sandbox/prepare";

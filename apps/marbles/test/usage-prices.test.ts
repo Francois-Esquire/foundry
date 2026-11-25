@@ -1,6 +1,6 @@
 import type { SessionMessage } from "@foundry/agents/session";
 import type { Provider, ProviderModelDefinition } from "@foundry/models";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
@@ -20,7 +20,7 @@ const ROW: ProviderModelDefinition = {
   vendor: "openai",
 };
 
-function manager(row: ProviderModelDefinition): ModelManager {
+function manager(row: ProviderModelDefinition): Models {
   const provider: Provider = {
     available: true,
     id: "codex",
@@ -30,7 +30,7 @@ function manager(row: ProviderModelDefinition): ModelManager {
     models: [row],
     offline: false,
   };
-  return new ModelManager({ providers: [provider] });
+  return new Models({ providers: [provider] });
 }
 
 const message: SessionMessage = {
@@ -196,7 +196,7 @@ it("an engine that started offline is priced after Airplane Mode is turned on an
 async function claudeCode(
   costs: readonly number[],
   defaultSettings: ClaudeCodeSettings = {}
-): Promise<ModelManager> {
+): Promise<Models> {
   let call = 0;
   vi.doMock("ai-sdk-provider-claude-code", async (original) => ({
     ...(await original<object>()),
@@ -237,7 +237,7 @@ async function claudeCode(
     }),
   }));
   const { claudeCodeProvider } = await import("@foundry/models/claude-code");
-  return new ModelManager({
+  return new Models({
     providers: [
       claudeCodeProvider({
         config: { available: true },
@@ -256,7 +256,7 @@ async function claudeCode(
   });
 }
 
-async function twoTurns(models: () => Promise<ModelManager>) {
+async function twoTurns(models: () => Promise<Models>) {
   vi.stubEnv("FOUNDRY_MODELS_DEV_URL", "");
   vi.resetModules();
   const built = await models();

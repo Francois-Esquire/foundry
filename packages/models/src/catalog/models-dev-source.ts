@@ -71,7 +71,10 @@ function start(url: string): Attempt {
 }
 
 export function holdModelsDev(): ModelsDevHold {
-  const url = process.env.FOUNDRY_MODELS_DEV_URL ?? SOURCE;
+  const url =
+    (typeof process === "undefined"
+      ? undefined
+      : process.env.FOUNDRY_MODELS_DEV_URL) ?? SOURCE;
   if (loaded || !url) {
     return { loaded: Promise.resolve(loaded), release: () => undefined };
   }

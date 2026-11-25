@@ -4,9 +4,9 @@ import type { SessionMessage, SessionRecord } from "../schema";
 import type { SessionStore, SessionStoreWrite } from "./index";
 
 const REENTRY =
-  "InMemorySessionStore was called from inside its own transaction; use the view passed to the transaction's work instead";
+  "MemorySessionStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
-export class InMemorySessionStore implements SessionStore {
+export class MemorySessionStore implements SessionStore {
   readonly #sessions = new Map<string, SessionRecord>();
   readonly #messages = new Map<string, readonly SessionMessage[]>();
   readonly #owners = new Map<string, string>();
@@ -59,13 +59,13 @@ export class InMemorySessionStore implements SessionStore {
     });
   }
 
-  #draft(): InMemorySessionStore {
-    const draft = new InMemorySessionStore();
+  #draft(): MemorySessionStore {
+    const draft = new MemorySessionStore();
     draft.#adopt(this);
     return draft;
   }
 
-  #adopt(source: InMemorySessionStore): void {
+  #adopt(source: MemorySessionStore): void {
     replaceEntries(this.#sessions, source.#sessions);
     replaceEntries(this.#messages, source.#messages);
     replaceEntries(this.#owners, source.#owners);

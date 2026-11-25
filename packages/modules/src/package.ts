@@ -1,7 +1,7 @@
 import type {
   Artifact,
   ArtifactOperations,
-  Artifacts,
+  ArtifactSubstrate,
   Content,
   EntryInputs,
 } from "@foundry/artifacts";
@@ -33,7 +33,7 @@ import {
 import { ModuleStoreConflictError } from "./errors";
 import type { ModuleManifest } from "./manifest";
 import { parseModuleManifestSourceText } from "./manifest";
-import type { ModuleRegistryUnit } from "./registry";
+import type { ModuleUnit } from "./modules";
 import { MODULE_CONTENT_MANIFEST_PATH } from "./version";
 
 const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
@@ -152,7 +152,7 @@ export async function encodeModulePackage(input: {
   return encoded;
 }
 
-export type ModulePackageArtifacts = Pick<Artifacts, "transaction">;
+export type ModulePackageArtifacts = Pick<ArtifactSubstrate, "transaction">;
 
 type ModulePackageOperations = Pick<
   ArtifactOperations,
@@ -167,7 +167,7 @@ type ModulePackageOperations = Pick<
 
 export async function importModulePackage(input: {
   readonly artifacts: ModulePackageArtifacts;
-  readonly modules: ModuleRegistryUnit<
+  readonly modules: ModuleUnit<
     "loadModule" | "registerModule" | "retainManifest"
   >;
   readonly encoded: string;

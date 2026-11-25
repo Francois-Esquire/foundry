@@ -11,15 +11,15 @@ import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 
-import { holdsLock } from "@foundry/lib/file-lock";
+import { holdsLock } from "@foundry/lib/node/file-lock";
 import {
   compareStarts,
   isGone,
   lookProcesses,
   type ProcessIdentity,
   sameProcess,
-  startedAt as startOf,
-} from "@foundry/lib/process-identity";
+  nodeStartedAt as startOf,
+} from "@foundry/lib/node/process-identity";
 import {
   queuedRuns,
   queuedRunsOwnedBy,

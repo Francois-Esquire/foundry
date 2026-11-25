@@ -15,11 +15,8 @@ import type {
   RunOutcome,
   SuspensionId,
 } from "@foundry/queue";
-import {
-  createQueueClient,
-  type QueueClient,
-  type QueueHandlerContext,
-} from "@foundry/queue/client";
+import type { QueueClient, QueueHandlerContext } from "@foundry/queue/client";
+import { createNodeQueueClient } from "@foundry/queue/node";
 import { QueueStore, type QueueStoreService } from "@foundry/queue/store";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import type { Runnable } from "@foundry/workflows/definitions";
@@ -167,7 +164,7 @@ export class RunQueue {
 
   constructor(store: QueueStoreService, options: RunQueueOptions = {}) {
     this.#attempts = options.attempts ?? UNWATCHED;
-    this.#client = createQueueClient({
+    this.#client = createNodeQueueClient({
       instanceId: this.instanceId,
       ...(options.pools === undefined ? {} : { pools: options.pools }),
       store: Layer.succeed(QueueStore, store),

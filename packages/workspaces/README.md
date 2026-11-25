@@ -27,14 +27,14 @@ extension requires caller-supplied storage: `directory({ filesystem })`.
 `@foundry/core/storage`. Storage owns its path separator; catalog paths
 remain POSIX. Digests use Web Crypto.
 
-For Node disk access, import the default directory adapter from `/node`:
+For Node disk access, import the default directory adapter or `workspaces()` factory from `/node`:
 
 ```ts
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { git } from "@foundry/workspaces/git";
+import { Workspaces } from "@foundry/workspaces";
 import { directory } from "@foundry/workspaces/node";
+import { git } from "@foundry/workspaces/node/git";
 
-const workspaces = new WorkspaceSystem().extend(directory()).extend(git());
+const workspaces = new Workspaces().extend(directory()).extend(git());
 const page = await workspaces.list({ limit: 20 }); // opens only this page
 const next =
   page.nextCursor === undefined
@@ -87,7 +87,7 @@ enforces nothing else. `MemoryWorkspaceStore` (on
 persist elsewhere:
 
 ```ts
-const workspaces = new WorkspaceSystem({ store, onError: log });
+const workspaces = new Workspaces({ store, onError: log });
 ```
 
 The system drives a catalog over that store, and the catalog owns every rule:
@@ -103,7 +103,7 @@ store without it, a second system can still interleave.
 | Path                                | Holds                                                               |
 | ----------------------------------- | ------------------------------------------------------------------- |
 | `@foundry/workspaces/store`         | `WorkspaceStore` and its write types.                               |
-| `@foundry/workspaces/store/memory`  | `MemoryWorkspaceStore`, the default `WorkspaceSystem` uses.         |
+| `@foundry/workspaces/store/memory`  | `MemoryWorkspaceStore`, the default `Workspaces` uses.              |
 | `@foundry/workspaces/store/sqlite`  | `SqliteWorkspaceStore`, over a host's Drizzle database.             |
 | `@foundry/workspaces/store/tables`  | The Drizzle tables it uses: `workspaces`, `workspace_entries`.      |
 | `@foundry/workspaces/testing/store` | `describeWorkspaceStore`, the suite every store passes.             |
@@ -182,7 +182,7 @@ host chooses, first in every key. Marbles passes its workspace id. A store
 reads and writes only its own scope.
 
 ```ts
-import { WorkspaceSystem } from "@foundry/workspaces";
+import { Workspaces } from "@foundry/workspaces";
 import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
 
 const store = new SqliteWorkspaceStore({
@@ -193,7 +193,7 @@ const store = new SqliteWorkspaceStore({
     await recordChange(transaction, write);
   },
 });
-const workspaces = new WorkspaceSystem({ store, onError: log });
+const workspaces = new Workspaces({ store, onError: log });
 ```
 
 The tables hold each record field for field. A `Date` is integer epoch
@@ -308,7 +308,7 @@ unsubscribe, cancel pending work, and await the running observation.
 ```ts
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 
-const workspaces = new WorkspaceSystem().extend(
+const workspaces = new Workspaces().extend(
   directory({ observer: nodeObserver }),
 );
 // ...
@@ -367,10 +367,10 @@ refresh scans after it was asked — it never joins a scan already in flight —
 and an instance reopened while its predecessor's work is still running waits
 behind it.
 
-`@foundry/workspaces/node` also exports `directorySource` with default disk
-storage and `nodeFileSystem`.
+`@foundry/workspaces/node` also exports `workspaces()` (pre-wired with `directory({ observer: nodeObserver })`), `directorySource` with default disk
+storage, and `nodeFileSystem`.
 
-Git is opt-in on `@foundry/workspaces/git`: the `git()` extension, plus
+Git is opt-in on `@foundry/workspaces/node/git`: the `git()` extension, plus
 `Git.at(root)`, `Git.open(root)`, `Git.isRepository(root)`, and worktrees on
 the resulting `Git`.
 

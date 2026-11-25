@@ -2,7 +2,7 @@ import { generateId } from "ai";
 
 import type { SessionChangeEvent } from "../schema";
 import type { SessionStore } from "../store";
-import { InMemorySessionStore } from "../store/memory";
+import { MemorySessionStore } from "../store/memory";
 import { metadataFault, partsFault } from "../store/message-shape";
 import { keptValue } from "./serialize";
 import type {
@@ -68,7 +68,7 @@ export class Sessions {
   #tail: Promise<unknown> = Promise.resolve();
 
   constructor(options: SessionsOptions = {}) {
-    this.#store = options.store ?? new InMemorySessionStore();
+    this.#store = options.store ?? new MemorySessionStore();
   }
 
   getSession(id: string): Promise<SessionRecord | null> {

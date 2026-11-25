@@ -14,9 +14,7 @@ its own. Nothing here limits work, blocks it, or acts on a value.
 ## Usage
 
 ```ts
-import { usage } from "@foundry/usage";
-import { anthropic } from "@foundry/usage/providers/anthropic";
-import { openai } from "@foundry/usage/providers/openai";
+import { anthropic, openai, usage } from "@foundry/usage/node";
 
 await usage.initialize(); // adds and returns the signed-in default accounts
 
@@ -75,8 +73,10 @@ claude.details?.anthropic?.extraUsage;
   (Claude Code about 1.8 s, Codex about 1.1 s), so a caller decides how often
   to ask, and holds the last snapshot itself if it wants one.
 - `usage.use(provider)` registers a provider so `initialize` knows it. The
-  package entry registers `anthropic` and `openai`; nothing else happens on
-  import.
+  Web-standard root entry (`@foundry/usage`) exports `createUsage` and types
+  with zero import-time side effects; `@foundry/usage/node` exports the
+  pre-wired `usage` singleton, `createNodeUsage`, and the local CLI providers
+  `anthropic` and `openai`.
 
 A workflow step that waits out a weekly window:
 
@@ -295,7 +295,7 @@ import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { usage } from "@foundry/usage";
+import { usage } from "@foundry/usage/node";
 import {
   consumptionOf,
   credits,

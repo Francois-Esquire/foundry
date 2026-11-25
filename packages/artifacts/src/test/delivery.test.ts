@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-
+import { Artifacts } from "../artifacts";
 import { fileResponse } from "../delivery";
-import { ArtifactManager } from "../manager";
 import { required } from "./helpers/required";
 import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 
 async function fixture(kind: StoreKind) {
-  const artifacts = new ArtifactManager({ store: await openStore(kind) });
+  const artifacts = new Artifacts({ store: await openStore(kind) });
   const artifact = await artifacts.create({
     entries: {
       "assets/clip.mp4": { bytes: "0123456789", mime: "video/mp4" },

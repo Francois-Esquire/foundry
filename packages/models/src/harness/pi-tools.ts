@@ -1,4 +1,4 @@
-import { isHarnessQuestionTool } from "@foundry/agents/harness";
+import { isHarnessQuestionTool } from "@foundry/core/agents";
 import { asSchema, type Tool } from "ai";
 import { z } from "zod";
 import type { DriverRun, ReportTool } from "./shared";

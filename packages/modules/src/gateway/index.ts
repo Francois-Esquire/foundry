@@ -1,0 +1,63 @@
+// biome-ignore lint/performance/noBarrelFile: Public Gateway role entry point for @foundry/modules/gateway.
+export {
+  createModuleCapabilityCatalog,
+  ModuleGatewayContractError,
+} from "./catalog";
+export {
+  generateModuleGatewayClient,
+  MODULE_GATEWAY_GENERATED_PATH,
+  ModuleGatewayGenerationError,
+} from "./generator";
+export {
+  type CreateModuleGatewayOptions,
+  createModuleGateway,
+} from "./module-gateway";
+export {
+  type CreateModuleGatewayRuntimeDispatcherOptions,
+  createModuleGatewayRuntimeDispatcher,
+} from "./runtime-dispatcher";
+export {
+  type ModuleCapabilityCatalog,
+  type ModuleCapabilityDescriptor,
+  type ModuleCapabilityInvocationContext,
+  type ModuleCapabilityMode,
+  type ModuleCapabilityProvider,
+  type ModuleCapabilityRegistration,
+  type ModuleCapabilitySchema,
+  type ModuleConstraintsPrincipal,
+  type ModuleGateway,
+  type ModuleGatewayBinding,
+  type ModuleGatewayCancelFrame,
+  type ModuleGatewayCatalogChangedFrame,
+  type ModuleGatewayCatalogSnapshotFrame,
+  type ModuleGatewayClose,
+  type ModuleGatewayCloseCode,
+  type ModuleGatewayCompleteFrame,
+  type ModuleGatewayDevelopmentBinding,
+  type ModuleGatewayDispatchResult,
+  ModuleGatewayError,
+  type ModuleGatewayFailureCode,
+  type ModuleGatewayFailureFrame,
+  type ModuleGatewayHeartbeatFrame,
+  type ModuleGatewayHelloFrame,
+  type ModuleGatewayHostFrame,
+  type ModuleGatewayInvocationEnd,
+  type ModuleGatewayInvocationFrame,
+  type ModuleGatewayInvocationRecord,
+  type ModuleGatewayNextFrame,
+  type ModuleGatewayProgramFrame,
+  type ModuleGatewayReadyFrame,
+  type ModuleGatewayResultFrame,
+  type ModuleGatewayRuntimeBinding,
+  type ModuleGatewayRuntimeDispatcher,
+  type ModuleGatewaySession,
+  type ModuleGatewaySessionMode,
+  type ModuleGatewayShutdownFrame,
+  type ModulePrincipal,
+  type ModuleRuntimeIdentity,
+  type ModuleStreamCapabilityDescriptor,
+  type ModuleStreamCapabilityRegistration,
+  type ModuleTransport,
+  type ModuleUnaryCapabilityDescriptor,
+  type ModuleUnaryCapabilityRegistration,
+} from "./types";

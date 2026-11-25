@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { createQueueClient } from "@foundry/queue/client";
 import { QueueStore } from "@foundry/queue/store";
 import { makeMemoryQueueStore } from "@foundry/queue/store/memory";
-import type { Container } from "@foundry/sandbox/container/containers";
+import type { Container } from "@foundry/sandbox";
 import { Step } from "@foundry/workflows/step";
 import { Workflow } from "@foundry/workflows/workflow";
 import { Effect, Layer } from "effect";

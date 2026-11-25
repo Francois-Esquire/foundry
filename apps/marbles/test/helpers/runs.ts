@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { isGone, type ProcessLookup } from "@foundry/lib/process-identity";
+import { isGone, type ProcessLookup } from "@foundry/lib/node/process-identity";
 import {
   notPrivate,
   SPAWN_OWNER_ENV,

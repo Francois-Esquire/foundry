@@ -1,5 +1,4 @@
-import { EventEmitter } from "node:events";
-
+import { TypedEmitter } from "@foundry/lib/emitter";
 import { tool } from "ai";
 import { z } from "zod";
 
@@ -32,7 +31,7 @@ const todoInputSchema = z.object({
   id: z.string().optional(),
 });
 
-export class TodoStore extends EventEmitter<TodoEventMap> {
+export class TodoStore extends TypedEmitter<TodoEventMap> {
   readonly #todos: TodoItem[] = [];
 
   constructor(todos: TodoItem[] = []) {

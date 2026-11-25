@@ -1,11 +1,11 @@
-import { MAX_EDIT_RESULT_CHARS } from "@foundry/sandbox/tools/constants";
-import { sandboxToolDefinitions } from "@foundry/sandbox/tools/definitions";
-import type { SandboxToolEvent } from "@foundry/sandbox/tools/guards";
-import { SandboxRateLimitError } from "@foundry/sandbox/tools/guards";
+import type { SandboxToolEvent } from "@foundry/sandbox/tools";
 import {
   createSandboxToolkit,
   createSandboxToolSchemas,
-} from "@foundry/sandbox/tools/toolkit";
+  MAX_EDIT_RESULT_CHARS,
+  SandboxRateLimitError,
+  sandboxToolDefinitions,
+} from "@foundry/sandbox/tools";
 import { describe, expect, it } from "vitest";
 
 import type { FakeSandboxOptions } from "./helpers/fake-sandbox";

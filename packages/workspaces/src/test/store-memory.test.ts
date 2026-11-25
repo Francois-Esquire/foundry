@@ -7,7 +7,7 @@ import { directory } from "../node";
 import { MemoryWorkspaceStore } from "../store/memory";
 import { hostWorkspace, newRoot, seed } from "../testing/records";
 import { describeWorkspaceStore } from "../testing/store";
-import { WorkspaceSystem } from "../workspace-system";
+import { Workspaces } from "../workspaces";
 
 describeWorkspaceStore(
   "memory",
@@ -35,10 +35,10 @@ describe("MemoryWorkspaceStore transactions", () => {
   });
 });
 
-describe("WorkspaceSystem construction", () => {
+describe("Workspaces construction", () => {
   it("opens only the requested page and retains the catalog total", async () => {
     const store = new MemoryWorkspaceStore();
-    const system = new WorkspaceSystem({ store }).extend(directory());
+    const system = new Workspaces({ store }).extend(directory());
     const first = hostWorkspace({
       createdAt: new Date(1),
       path: newRoot("first"),
@@ -62,14 +62,14 @@ describe("WorkspaceSystem construction", () => {
     await system.closeAll();
   });
   it("runs the whole lifecycle with no store and no database setup", async () => {
-    const zeroConfig = new WorkspaceSystem();
+    const zeroConfig = new Workspaces();
 
     expect((await zeroConfig.list()).items).toEqual([]);
   });
 
   it("reads through an injected store instead of its own default", async () => {
     const store = new MemoryWorkspaceStore();
-    const system = new WorkspaceSystem({ store }).extend(directory());
+    const system = new Workspaces({ store }).extend(directory());
     const workspace = hostWorkspace({ path: newRoot("injected") });
     await seed(store, workspace);
 
@@ -136,8 +136,9 @@ describe("@foundry/workspaces store paths", () => {
 
 const IMPORTS_DRIZZLE = /from "drizzle-orm/;
 const IMPORTS_LIBSQL = /from "@libsql\/client"/;
+const IMPORTS_NODE = /from "node:/;
 
-describe("@foundry/workspaces SQLite dependencies", () => {
+describe("@foundry/workspaces runtime boundaries", () => {
   it("keeps Drizzle an optional peer, used only on the SQLite paths", () => {
     expect(manifestPeerIsOptional("drizzle-orm")).toBe(true);
     expect(importers(IMPORTS_DRIZZLE)).toEqual([
@@ -148,6 +149,12 @@ describe("@foundry/workspaces SQLite dependencies", () => {
 
   it("never opens a connection outside its tests", () => {
     expect(importers(IMPORTS_LIBSQL)).toEqual([]);
+  });
+
+  it("keeps node:* imports exclusively under node/", () => {
+    expect(
+      importers(IMPORTS_NODE).filter((path) => !path.startsWith("node/"))
+    ).toEqual([]);
   });
 });
 

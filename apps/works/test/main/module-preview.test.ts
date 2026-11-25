@@ -1,5 +1,5 @@
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import type { ModuleVersion } from "@foundry/modules/domain";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import type { ModuleVersion } from "@foundry/modules";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vitest";
 import { router } from "~/main/api";
@@ -17,7 +17,7 @@ import { openFakeVault } from "../helpers/fake-api";
 import { moduleReleasePackage } from "../helpers/module-release";
 
 async function fixture() {
-  const library = createModuleLibrary(new InMemoryArtifactStore());
+  const library = createModuleLibrary(new MemoryArtifactStore());
   const { encoded } = await moduleReleasePackage();
   const imported = await library.importPackage(encoded);
   const release = (await library.details(imported.id))?.releases[0];

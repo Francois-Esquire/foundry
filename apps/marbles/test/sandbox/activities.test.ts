@@ -5,7 +5,7 @@ import type {
   HarnessActivityEvent,
   HarnessSession,
 } from "@foundry/agents/harness";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { DatabaseActivityStore } from "~/database/activities";
 import { initializeDatabase } from "~/database/open";
@@ -45,7 +45,7 @@ function session(): HarnessSession {
       throw new Error("unsupported");
     },
     stopActivity: vi.fn(async () => undefined),
-    store: new InMemorySessionStore(),
+    store: new MemorySessionStore(),
     stream: () => {
       throw new Error("unused");
     },

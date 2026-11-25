@@ -279,10 +279,20 @@
       "name": "@foundry/core",
       "version": "0.1.0",
       "devDependencies": {
+        "@ai-sdk/provider": "4.0.7",
         "@foundry/tsconfig": "workspace:*",
         "@types/bun": "1.3.14",
+        "ai": "7.0.58",
         "typescript": "^6.0.3",
       },
+      "peerDependencies": {
+        "@ai-sdk/provider": "4.0.7",
+        "ai": "7.0.58",
+      },
+      "optionalPeers": [
+        "@ai-sdk/provider",
+        "ai",
+      ],
     },
     "packages/lib": {
       "name": "@foundry/lib",
@@ -323,7 +333,7 @@
         "@browser-ai/transformers-js": "3.0.0",
         "@chonkiejs/core": "^0.0.11",
         "@fal-ai/client": "1.11.0-alpha.2",
-        "@foundry/agents": "workspace:*",
+        "@foundry/core": "workspace:*",
         "@foundry/lib": "workspace:*",
         "@huggingface/transformers": "^4.2.0",
         "@kreuzberg/tree-sitter-language-pack": "^1.10.9",

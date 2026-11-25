@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { AuthorizationSubject } from "../config/authorization";
 import { GrantClaimError } from "../config/authorization";
-import { FileGrantRepository } from "../config/authorization/file";
+import { FileGrantRepository } from "../node/authorization/file";
 import type { TestCapability } from "./helpers/authorization-support";
 import {
   fsRead,

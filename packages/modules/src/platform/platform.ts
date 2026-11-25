@@ -1,6 +1,5 @@
-import type { Artifacts } from "@foundry/artifacts";
-import type { Containers } from "@foundry/sandbox/container/containers";
-import type { ContainerRuntime } from "@foundry/sandbox/container/types";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
+import type { ContainerRuntime, Containers } from "@foundry/sandbox";
 
 import type { InstallationId } from "../domain";
 import { createModuleGateway } from "../gateway/module-gateway";
@@ -10,7 +9,7 @@ import type {
   ModuleGatewayInvocationRecord,
 } from "../gateway/types";
 import { createModuleManagement } from "../management";
-import type { ModuleCommands } from "../registry";
+import type { ModuleCommands } from "../modules";
 import { createModuleVersions } from "../version";
 import { withConfirmedModuleContainerCleanup } from "./container-cleanup";
 import type { CreateContainerModuleProgramRuntimeOptions } from "./container-runtime";
@@ -19,8 +18,8 @@ import type { ModuleCheckouts, ModuleInstallationFiles } from "./files";
 import { createModuleProgramSupervisor } from "./program-supervisor";
 import { createModuleRuntimeRecovery } from "./runtime-recovery";
 
-export interface CreateModuleSystemOptions {
-  readonly artifacts: Artifacts;
+export interface CreateModulePlatformOptions {
+  readonly artifacts: ArtifactSubstrate;
   readonly checkouts: ModuleCheckouts;
   readonly containerRuntime: Pick<
     ContainerRuntime,
@@ -36,7 +35,7 @@ export interface CreateModuleSystemOptions {
   readonly transport: CreateContainerModuleProgramRuntimeOptions["transport"];
 }
 
-export function createModuleSystem(options: CreateModuleSystemOptions) {
+export function createModulePlatform(options: CreateModulePlatformOptions) {
   const { artifacts, store, files } = options;
   const containers = withConfirmedModuleContainerCleanup(
     options.containers,
@@ -81,4 +80,4 @@ export function createModuleSystem(options: CreateModuleSystemOptions) {
   });
 }
 
-export type ModuleSystem = ReturnType<typeof createModuleSystem>;
+export type ModulePlatform = ReturnType<typeof createModulePlatform>;

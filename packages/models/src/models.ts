@@ -1,4 +1,4 @@
-import { EventEmitter } from "node:events";
+import { TypedEmitter } from "@foundry/lib/emitter";
 import { EvlogError } from "evlog";
 import type { ModelCost } from "evlog/ai";
 import { modelErrors } from "./errors";
@@ -11,6 +11,14 @@ import type { ModelSelection } from "./selection";
 import type { ModelKind, ProviderModelDefinition } from "./types";
 import { MODEL_KINDS } from "./types";
 
+// biome-ignore lint/suspicious/noExplicitAny: Preserve EventEmitter compatibility for custom listener signatures.
+export type ModelsEventListener<Args extends any[] = any[]> = (
+  this: unknown,
+  ...args: Args
+) => void;
+
+export class ModelsEventEmitter extends TypedEmitter {}
+
 const UNRESOLVED = new Set<string>([
   modelErrors.MODEL_KIND_MISMATCH.code,
   modelErrors.MODEL_NOT_FOUND.code,
@@ -21,7 +29,7 @@ const UNRESOLVED = new Set<string>([
   modelErrors.SELECTION_AMBIGUOUS.code,
 ]);
 
-export interface ModelManagerOptions {
+export interface ModelsOptions {
   providers?: readonly Provider[];
 }
 
@@ -30,7 +38,7 @@ export interface ProviderPolicy {
   readonly id: string;
 }
 
-export class ModelManager {
+export class Models {
   private readonly _providers = new Map<string, Provider>();
   private readonly leaseCounts = new Map<Provider, number>();
   private readonly leaving = new Set<Provider>();
@@ -77,9 +85,9 @@ export class ModelManager {
     },
   };
 
-  readonly events = new EventEmitter();
+  readonly events = new ModelsEventEmitter();
 
-  constructor(options: ModelManagerOptions = {}) {
+  constructor(options: ModelsOptions = {}) {
     this.setProviders(options.providers ?? []);
     held.set(this, () =>
       [...this._providers.values(), ...this.leaving].map((provider) =>
@@ -351,9 +359,9 @@ export class ModelManager {
   }
 }
 
-const held = new WeakMap<ModelManager, () => readonly Provider[]>();
+const held = new WeakMap<Models, () => readonly Provider[]>();
 
-export function heldProviders(models: ModelManager): readonly Provider[] {
+export function heldProviders(models: Models): readonly Provider[] {
   return held.get(models)?.() ?? [];
 }
 

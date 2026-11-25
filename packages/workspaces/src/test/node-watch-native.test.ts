@@ -2,17 +2,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { directory } from "../node";
-import { nodeObserver } from "../node/watch";
+import { workspaces } from "../node";
 import type { WorkspaceChange } from "../types";
-
-import { WorkspaceSystem } from "../workspace-system";
 
 it("reconciles an external disk write and does not duplicate a save", async () => {
   const root = await mkdtemp(join(tmpdir(), "workspace-watch-"));
-  const system = new WorkspaceSystem().extend(
-    directory({ observer: nodeObserver })
-  );
+  const system = workspaces();
   try {
     const workspace = await system.load({ path: root });
     const changed = vi.fn<(change: WorkspaceChange) => void>();

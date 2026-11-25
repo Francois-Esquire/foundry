@@ -1,13 +1,13 @@
-import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
 import type {
   Container,
+  ContainerSandboxConstraints,
   Containers,
-} from "@foundry/sandbox/container/containers";
+} from "@foundry/sandbox";
 
 import type { InstallationId } from "../domain";
 import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "../errors";
 import { approvedNetworkDestinations } from "../grants";
-import type { ModuleCommands } from "../registry";
+import type { ModuleCommands } from "../modules";
 import type {
   ModuleProgramResources,
   ModuleProgramRuntimeAdapter,

@@ -1,9 +1,9 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import type { FileLockHolder } from "@foundry/lib/file-lock";
-import { tryFileLock } from "@foundry/lib/file-lock";
-import { isGone } from "@foundry/lib/process-identity";
+import type { FileLockHolder } from "@foundry/lib/node/file-lock";
+import { tryFileLock } from "@foundry/lib/node/file-lock";
+import { isGone } from "@foundry/lib/node/process-identity";
 
 export const PROCESS_LOCK = "process";
 

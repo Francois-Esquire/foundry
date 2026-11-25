@@ -1,5 +1,4 @@
-import { isDeepStrictEqual } from "node:util";
-
+import { isDeepStrictEqual } from "@foundry/lib/equal";
 import type { LanguageModel, ModelMessage } from "ai";
 
 import { generateText, pruneMessages } from "ai";

@@ -1,9 +1,9 @@
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { globToRegExp } from "@foundry/lib/glob";
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { git } from "@foundry/workspaces/git";
+import { Workspaces } from "@foundry/workspaces";
 import { directory } from "@foundry/workspaces/node";
+import { git } from "@foundry/workspaces/node/git";
 import {
   schedule as declareSchedule,
   monitor,
@@ -17,7 +17,7 @@ import { defaultWorkspaceTriggers } from "~/database/managed";
 import type { AnyDefinition } from "~/lib/definition";
 import type { EngineOptions } from "~/lib/engine";
 import { createLog } from "~/lib/log";
-import type { Catalogue } from "~/lib/managers/workspaces";
+import type { LocalWorkspaces } from "~/lib/managers/workspaces";
 import type {
   Change,
   DetectorOptions,
@@ -46,7 +46,7 @@ const KEY_PATTERN = /^[a-z0-9-]+-[0-9a-f]{6}$/;
 const WRAP_PATTERN = /wrap it in a named workflow/;
 const REQUEST_PATTERN = /only an http or https source sends a request/;
 
-const catalogues: Catalogue[] = [];
+const catalogues: LocalWorkspaces[] = [];
 
 afterEach(async () => {
   catalog.reset();
@@ -61,7 +61,7 @@ let hosted: MonitorHost & { readonly triggers: TriggerStore } & Pick<
 function hostIn(root: string, state?: string) {
   const lines: string[] = [];
   const log = createLog((_level, message) => lines.push(message));
-  const catalogue = new WorkspaceSystem().extend(directory(), git());
+  const catalogue = new Workspaces().extend(directory(), git());
   catalogues.push(catalogue);
   const stateOption = state === undefined ? {} : { state };
   const triggers =

@@ -62,6 +62,9 @@
     "packages/models": {
       "entry": ["src/local/remote/worker-entry.ts"]
     },
+    "packages/modules": {
+      "entry": ["src/sdk/generator-core.ts"]
+    },
     "examples/*": {
       "entry": ["stories/**/*.stories.tsx"],
       "ignore": [

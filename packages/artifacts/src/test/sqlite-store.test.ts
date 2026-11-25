@@ -3,12 +3,12 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import type { z } from "zod";
 
-import { ArtifactManager } from "../manager";
+import { Artifacts } from "../artifacts";
 import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, Blob, Content } from "../schema";
 import { artifactSchema, contentSchema } from "../schema";
 import type { ArtifactStoreWrite } from "../store";
-import { InMemoryArtifactStore } from "../store/memory";
+import { MemoryArtifactStore } from "../store/memory";
 import { SqliteArtifactStore } from "../store/sqlite";
 import {
   artifactBlobChunks,
@@ -284,7 +284,7 @@ describe("SqliteArtifactStore", () => {
       const store = await storeOn();
       const metadata = { deep: value } as Artifact["metadata"];
       const write = { putArtifacts: [artifactRecord("a", { metadata })] };
-      const memoryRefusal = await new InMemoryArtifactStore()
+      const memoryRefusal = await new MemoryArtifactStore()
         .commit(write)
         .catch((error: unknown) => (error as Error).name);
       await expect(store.commit(write)).rejects.toMatchObject({
@@ -469,7 +469,7 @@ describe("SqliteArtifactStore", () => {
       },
       scope: "host",
     });
-    const created = await new ArtifactManager({ store }).create({
+    const created = await new Artifacts({ store }).create({
       name: "A",
       type: "text/plain",
     });
@@ -513,7 +513,7 @@ describe("SqliteArtifactStore", () => {
       },
       scope: "s",
     });
-    const created = await new ArtifactManager({ store }).create({
+    const created = await new Artifacts({ store }).create({
       name: "A",
       type: "text/plain",
     });
@@ -538,7 +538,7 @@ describe("SqliteArtifactStore", () => {
     });
 
     await expect(
-      new ArtifactManager({ store }).create({ name: "A", type: "text/plain" })
+      new Artifacts({ store }).create({ name: "A", type: "text/plain" })
     ).rejects.toThrow("host refused");
     expect(await everything(store)).toEqual({
       artifacts: [],
@@ -572,7 +572,7 @@ describe("SqliteArtifactStore", () => {
 
   test("a file database keeps its records for the next connection", async () => {
     const first = await files.open();
-    const manager = new ArtifactManager({
+    const manager = new Artifacts({
       store: new SqliteArtifactStore({ database: first, scope: "s" }),
     });
     const created = await manager.create({
@@ -580,7 +580,7 @@ describe("SqliteArtifactStore", () => {
       name: "A",
       type: "text/plain",
     });
-    const reopened = new ArtifactManager({
+    const reopened = new Artifacts({
       store: new SqliteArtifactStore({
         database: await files.reopen(first),
         scope: "s",
@@ -1006,7 +1006,7 @@ describe("what onCommit learns of a change", () => {
         )
       );
     };
-    return { manager: new ArtifactManager({ store }), shapes, store, writes };
+    return { manager: new Artifacts({ store }), shapes, store, writes };
   }
 
   test("each operation is one write of whole records put and ids deleted", async () => {

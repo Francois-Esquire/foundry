@@ -11,12 +11,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { type ProcessTable, stopOrphans } from "../orphans";
+import { type ProcessTable, stopOrphans } from "../node/orphans";
 import {
+  nodeStartedAt,
   type ProcessIdentity,
   type SeenProcess,
-  startedAt,
-} from "../process-identity";
+} from "../node/process-identity";
 import {
   forgetRecord,
   recordChild,
@@ -24,7 +24,7 @@ import {
   SPAWN_RECOVERY_ENV,
   type SpawnRecord,
   writePrivate,
-} from "../spawn-record";
+} from "../node/spawn-record";
 import { anotherStart } from "../testing/process-identity";
 import { stopLeftover } from "./helpers/leftovers";
 import { pidWritten } from "./helpers/pid-file";
@@ -57,7 +57,7 @@ function sleeper(detached = false): {
   const child = spawn("sleep", ["60"], { detached, stdio: "ignore" });
   started.push(child);
   const { pid } = child;
-  const when = pid === undefined ? undefined : startedAt(pid);
+  const when = pid === undefined ? undefined : nodeStartedAt(pid);
   if (pid === undefined || typeof when !== "string") {
     throw new Error("the sleep did not start");
   }
@@ -130,7 +130,7 @@ it("never signals a record without an owner, nor this process", async () => {
   const dir = scratch();
   const lasting = sleeper();
   record(dir, { ...lasting.identity, group: false });
-  const self = startedAt(process.pid);
+  const self = nodeStartedAt(process.pid);
   if (typeof self !== "string") {
     throw new Error("no start time for this process");
   }
@@ -193,7 +193,7 @@ it("kills one that ignores SIGTERM, and keeps the record of one that will not go
   started.push(stubborn);
   await new Promise((settle) => setTimeout(settle, 300));
   const pid = stubborn.pid ?? 0;
-  const when = startedAt(pid);
+  const when = nodeStartedAt(pid);
   if (typeof when !== "string") {
     throw new Error("no start time");
   }
@@ -281,9 +281,9 @@ it("records the owner of a child on its recovery record, and removes it once the
   const path = recordPath(dir, child.pid ?? 0);
   expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
     group: false,
-    owner: { pid: process.pid, started: startedAt(process.pid) },
+    owner: { pid: process.pid, started: nodeStartedAt(process.pid) },
     pid: child.pid,
-    started: startedAt(child.pid ?? 0),
+    started: nodeStartedAt(child.pid ?? 0),
   });
   await kill(child);
   expect(existsSync(path)).toBe(false);
@@ -310,8 +310,8 @@ async function stubbornGroup(dir: string): Promise<{
   );
   started.push(leader);
   const pid = await pidWritten(ready);
-  const helperStart = startedAt(pid);
-  const leaderStart = startedAt(leader.pid ?? 0);
+  const helperStart = nodeStartedAt(pid);
+  const leaderStart = nodeStartedAt(leader.pid ?? 0);
   if (typeof helperStart !== "string" || typeof leaderStart !== "string") {
     throw new Error("the group did not start");
   }
@@ -340,7 +340,7 @@ it("stops a whole group whose member ignores SIGTERM, and forgets it only once n
   const stop = await stopOrphans(dir, { graceMs: 300, killMs: 2000 });
 
   expect(stop).toEqual({ problems: [], stopped: [group.identity.pid] });
-  expect(startedAt(group.helper.pid)).toBeNull();
+  expect(nodeStartedAt(group.helper.pid)).toBeNull();
   expect(existsSync(recordPath(dir, group.identity.pid))).toBe(false);
 });
 
@@ -360,7 +360,7 @@ it("finishes a group a stop cut short after its leader exited, by the members it
   const stop = await stopOrphans(dir, { graceMs: 300, killMs: 2000 });
 
   expect(stop).toEqual({ problems: [], stopped: [group.identity.pid] });
-  expect(startedAt(group.helper.pid)).toBeNull();
+  expect(nodeStartedAt(group.helper.pid)).toBeNull();
   expect(existsSync(recordPath(dir, group.identity.pid))).toBe(false);
 });
 
@@ -378,7 +378,7 @@ it("keeps the record of a group whose leader is gone and whose members it cannot
   expect(stop.problems).toEqual([
     `group ${String(group.identity.pid)}'s leader is gone and its 1 remaining member(s) cannot be proved its; not signalled, pending, its record kept`,
   ]);
-  expect(startedAt(group.helper.pid)).toBe(group.helper.started);
+  expect(nodeStartedAt(group.helper.pid)).toBe(group.helper.started);
   expect(existsSync(recordPath(dir, group.identity.pid))).toBe(true);
 });
 

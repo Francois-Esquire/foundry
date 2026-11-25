@@ -2,19 +2,14 @@ import { realpath, stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { isAbsolute, relative, resolve } from "node:path";
 
-import type { Storage, StorageObserver } from "@foundry/core/storage";
 import { SandboxError } from "../errors";
 import { sandboxFromAdapter } from "../sandbox";
 import type {
-  Sandbox,
-  SandboxFilesystemFacet,
-  SandboxPortsFacet,
   SandboxProcessesFacet,
   SandboxProcessStatus,
   SandboxService,
   SandboxServiceExit,
   SandboxServicesFacet,
-  SandboxShellFacet,
   SandboxShellOptions,
   SandboxStartServiceInput,
   SandboxVolumesFacet,
@@ -22,7 +17,13 @@ import type {
 import { CONTAINER_PORTABLE_ID_PATTERN } from "./constants";
 import type { ContainerSandboxMount } from "./constraints";
 import { isTcpPort } from "./ports";
-import type { ContainerMountSpec, ContainerSandbox } from "./types";
+import type {
+  ContainerFacets,
+  ContainerMountSpec,
+  ContainerSandbox,
+} from "./types";
+
+export type { ContainerFacets } from "./types";
 
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DEFAULT_TERMINATION_GRACE_MS = 5000;
@@ -35,15 +36,6 @@ interface ContainerState {
     { readonly spec: ContainerMountSpec; mounted: boolean }
   >;
   readonly services: Map<string, SandboxService>;
-}
-
-export interface ContainerFacets extends Sandbox {
-  readonly files: SandboxFilesystemFacet & Storage & StorageObserver;
-  readonly ports: SandboxPortsFacet;
-  readonly processes: SandboxProcessesFacet;
-  readonly services: SandboxServicesFacet;
-  readonly shell: SandboxShellFacet;
-  readonly volumes?: SandboxVolumesFacet;
 }
 
 export function containerFacets(

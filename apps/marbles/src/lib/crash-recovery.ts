@@ -1,7 +1,7 @@
-import type { Artifacts } from "@foundry/artifacts";
-import { stopOrphans } from "@foundry/lib/orphans";
-import { removeByHand } from "@foundry/sandbox/container/constants";
-import type { Containers } from "@foundry/sandbox/container/containers";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
+import { stopOrphans } from "@foundry/lib/node/orphans";
+import type { Containers } from "@foundry/sandbox";
+import { removeByHand } from "@foundry/sandbox";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { z } from "zod";
 
@@ -47,7 +47,7 @@ export interface RecoveryLog {
 
 export interface CrashRecoveryOptions {
   readonly activities: HarnessActivities;
-  readonly artifacts: Pick<Artifacts, "recover">;
+  readonly artifacts: Pick<ArtifactSubstrate, "recover">;
   readonly containerRows?: Pick<ContainerStore, "list">;
   readonly containers: () => Promise<Pick<Containers, "recover">>;
   readonly executions: () => readonly ExecutionRun[];

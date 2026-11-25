@@ -1,8 +1,9 @@
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { Deferred, Effect, TestClock, TestContext } from "effect";
 import { describe, expect, test } from "vitest";
 import { createQueueClient } from "../client";
 import type { JobId, RunOutcome } from "../domain";
+import { nodeQueueOptions } from "../node";
 import type { RunContext } from "../service";
 import {
   awaitJob,
@@ -477,7 +478,7 @@ describe("Queue lifecycle", () => {
           yield* flush;
           return yield* queue.listRuns({ jobId: later.id });
         }),
-      { defaultLimit: 1 }
+      nodeQueueOptions({ defaultLimit: 1 })
     );
     expect(runs.map((run) => run.state)).toMatchObject([
       { kind: "queued", owner: self },

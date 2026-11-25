@@ -67,7 +67,7 @@ export interface ParsedImport {
   readonly typeOnly: boolean;
 }
 
-export function parseImports(path: string, source: string): ParsedImport[] {
+function parseImports(path: string, source: string): ParsedImport[] {
   const sourceFile = ts.createSourceFile(
     path,
     source,

@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
-import { hasErrorCode } from "@foundry/lib/atomic-file";
+import { hasErrorCode } from "@foundry/lib/node/atomic-file";
 import { CHILD_CWD } from "./worker-runtime";
 
 const NOT_A_REPOSITORY = /not a git repository/i;

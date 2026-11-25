@@ -8,7 +8,7 @@ import {
 import { createHarnessPermission } from "@foundry/agents/harness";
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStore } from "@foundry/agents/store";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
@@ -36,7 +36,7 @@ afterEach(async () => {
 
 async function fixture(approvals?: DeferredApprovalStore) {
   const feed = openFeed(undefined, { id: "test", root: "/workspace" });
-  const sessions = new InMemorySessionStore();
+  const sessions = new MemorySessionStore();
   await new Sessions({ store: sessions }).createSession({ id: "session-1" });
   const policy = createInMemoryAgentAuthorizer().authorizer;
   const bridge = new HarnessInteractions({

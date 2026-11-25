@@ -7,12 +7,10 @@ import { describe, expect, it } from "vitest";
 import packageJson from "../../package.json";
 // biome-ignore lint/performance/noNamespaceImport: This test inspects the complete public export surface.
 import * as authorization from "../config/authorization";
-import { addressDigest } from "../config/authorization/digest";
-import { FileGrantRepository } from "../config/authorization/file";
+import { addressDigest } from "../node/authorization/digest";
+import { FileGrantRepository } from "../node/authorization/file";
 
 const SUSPEND_CALL_PATTERN = /\bsuspend\s*[(:]/;
-
-const NODE_BOUND = ["digest.ts", "file.ts"];
 
 const AUTHORIZATION_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -104,23 +102,23 @@ describe("@foundry/lib/config/authorization boundaries", () => {
     ).toEqual([]);
   });
 
-  it("stays renderer-importable — no node builtin reachable from the barrel", () => {
-    const offenders = sourceFiles()
-      .filter((file) => !NODE_BOUND.some((name) => file.endsWith(`/${name}`)))
-      .filter((file) => readFileSync(file, "utf8").includes('from "node:'));
+  it("stays renderer-importable — no node builtin in any authorization module", () => {
+    const offenders = sourceFiles().filter((file) =>
+      readFileSync(file, "utf8").includes('from "node:')
+    );
 
     expect(offenders).toEqual([]);
   });
 
-  it("keeps the node-bound modules off the barrel", () => {
+  it("keeps the node-bound modules under ./node/authorization and off the barrel", () => {
     expect(Object.keys(authorization)).not.toContain("addressDigest");
     expect(Object.keys(authorization)).not.toContain("FileGrantRepository");
     expect(addressDigest).toBeTypeOf("function");
     expect(FileGrantRepository).toBeTypeOf("function");
+    expect(packageJson.exports).toHaveProperty("./node/authorization/digest");
+    expect(packageJson.exports).toHaveProperty("./node/authorization/file");
     const barrel = readFileSync(join(AUTHORIZATION_DIR, "index.ts"), "utf8");
-    for (const name of NODE_BOUND) {
-      expect(barrel).not.toContain(`"./${name.replace(".ts", "")}"`);
-    }
+    expect(barrel).not.toContain("node/authorization");
   });
 
   it("owns no suspend port — authorization decides, execution waits", () => {

@@ -1,11 +1,11 @@
 import { normalizeMessageMetadata, Sessions } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { expect, it } from "vitest";
 import { assertGuestSessionState } from "~/lib/sandbox/session-state";
 import { durableSessions } from "../helpers/durable-sessions";
 
 it("adopts a fresh session and preserves same-instance native resume", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const sessions = new Sessions({ store });
   await assertGuestSessionState(store, "conversation", "codex", "guest-1");
   await sessions.appendMessage({
@@ -29,7 +29,7 @@ it("adopts a fresh session and preserves same-instance native resume", async () 
 });
 
 it("refuses a replacement guest before a persisted native thread can resume", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const sessions = new Sessions({ store });
   await assertGuestSessionState(
     store,
@@ -58,7 +58,7 @@ it("refuses a replacement guest before a persisted native thread can resume", as
 });
 
 it("refuses native mappings without an environment marker", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const sessions = new Sessions({ store });
   await sessions.createSession({ id: "conversation" });
   await sessions.appendMessage({
@@ -79,7 +79,7 @@ it("refuses native mappings without an environment marker", async () => {
 });
 
 it("permits replacement before native history exists and keeps harness markers separate", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const sessions = new Sessions({ store });
   await assertGuestSessionState(store, "conversation", "codex", "guest-1");
   await assertGuestSessionState(store, "conversation", "codex", "guest-2");

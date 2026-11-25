@@ -21,7 +21,7 @@ import { SessionHarness } from "../../harness/session-harness";
 import type { ToolEffectPort } from "../../harness/types";
 import { tagTool } from "../../harness/types";
 import type { Skill } from "../../skills/types";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { fakeAuthorizer } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
@@ -83,7 +83,7 @@ describe("resolveAgent", () => {
       mesh,
       model: fakeModel,
       skills,
-      store: new InMemorySessionStore(),
+      store: new MemorySessionStore(),
     };
     const spec: AgentSpec = {
       id: "researcher",
@@ -128,7 +128,7 @@ describe("createAgentPreset", () => {
     "retains one-off Session correlation without creating history or joining the mesh, factory: %s",
     async (factory) => {
       const requests: AgentAuthorizationRequest[] = [];
-      const { store, writes } = recordingStore(new InMemorySessionStore());
+      const { store, writes } = recordingStore(new MemorySessionStore());
       const mesh = createMesh();
       const observe = vi.fn(() => null);
       const spec: AgentSpec = {
@@ -203,10 +203,10 @@ describe("createAgentPreset", () => {
   it.each([false, true])(
     "retains factory Session defaults and applies invocation overrides: %s",
     async (override) => {
-      const store = new InMemorySessionStore();
+      const store = new MemorySessionStore();
       const registry = createAgentCompatibilityRegistry();
       const mesh = createMesh({ registry });
-      const overrideStore = new InMemorySessionStore();
+      const overrideStore = new MemorySessionStore();
       const overrideRegistry = createAgentCompatibilityRegistry();
       const overrideMesh = createMesh({ registry: overrideRegistry });
       const observe = vi.fn(() => null);
@@ -255,7 +255,7 @@ describe("createAgentPreset", () => {
   it.each([true, false])(
     "resolves Session compaction settings, enabled: %s",
     async (enabled) => {
-      const store = new InMemorySessionStore();
+      const store = new MemorySessionStore();
       const summarize = vi.fn(() => Promise.resolve("RECAP"));
       const preset = createAgentPreset(
         {
@@ -324,7 +324,7 @@ describe("createAgentPreset", () => {
   });
 
   it("binds domain context in both harnesses without constructing a Session for an operation", async () => {
-    const { store, writes } = recordingStore(new InMemorySessionStore());
+    const { store, writes } = recordingStore(new MemorySessionStore());
     const filed = () =>
       writes.filter(
         (write) =>
@@ -430,7 +430,7 @@ describe("createAgentPreset", () => {
   it.each([false, true])(
     "retains context overrides and the resolved Session identity, domain callback: %s",
     async (callback) => {
-      const store = new InMemorySessionStore();
+      const store = new MemorySessionStore();
       const contexts: unknown[] = [];
       const model = createScriptedMockModel({
         stream: [
@@ -493,7 +493,7 @@ describe("createAgentPreset", () => {
   it("createAgent and createSession share base tools, policy, prompt, and model; createSession adds store + mesh", async () => {
     const requests: AgentAuthorizationRequest[] = [];
     const policy = trackingPolicy(requests);
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const mesh = createMesh();
     const surface: AgentSurface = {
       mesh,

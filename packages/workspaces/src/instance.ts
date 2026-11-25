@@ -98,6 +98,10 @@ export class Workspace {
     return renamed;
   }
 
+  close(): Promise<void> {
+    return this.#context.close(this.id, this);
+  }
+
   async remove(): Promise<void> {
     await this.#serialize(async () => {
       const result = await this.#context.catalog.remove(this.id);
@@ -105,7 +109,7 @@ export class Workspace {
         throw new WorkspaceNotFoundError(this.id);
       }
     });
-    await this.#context.close(this.id);
+    await this.#context.close(this.id, this);
   }
 
   async files(): Promise<readonly WorkspaceFile[]> {

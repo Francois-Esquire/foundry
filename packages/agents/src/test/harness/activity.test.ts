@@ -13,11 +13,11 @@ import type {
 } from "../../harness/turn-driver";
 import { toModelMessages } from "../../session/converter";
 import { Sessions } from "../../session/sessions";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { textDelta } from "../helpers/stream-parts";
 
 it("persists background activity across turns, rejects late progress, and reconstructs without model content", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const activity: HarnessActivity = {
     id: "process-1:task-1",
     kind: "task",
@@ -82,7 +82,7 @@ it("persists background activity across turns, rejects late progress, and recons
 });
 
 it("marks lost activity unknown and preserves native late terminal updates", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   let publish: ((activity: HarnessActivity) => Promise<void>) | undefined;
   const activity: HarnessActivity = {
     id: "p:child",
@@ -132,7 +132,7 @@ it("marks lost activity unknown and preserves native late terminal updates", asy
 });
 
 it("serializes concurrent recorders for the same native session", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const sessions = new Sessions({ store });
   await sessions.createSession({ id: "session" });
   const config = {
@@ -168,7 +168,7 @@ it("serializes concurrent recorders for the same native session", async () => {
 it.each([undefined, "native-child"])(
   "attributes nested native activities and requests before durable recording (%s)",
   async (nativeId) => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const requests: (string | undefined)[] = [];
     const session = createDriverSession(
       {
@@ -247,7 +247,7 @@ it.each([undefined, "native-child"])(
 );
 
 it("continues delivering idle native questions after the prior turn signal aborts", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const turn = new AbortController();
   let question: HarnessQuestionCallback | undefined;
   const session = createDriverSession(
@@ -292,7 +292,7 @@ it("continues delivering idle native questions after the prior turn signal abort
 });
 
 it("never makes the host delegation root its own parent when closing loaded history", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const sessions = new Sessions({ store });
   await sessions.createSession({ id: "child-session" });
   await createHarnessActivityRecorder({
@@ -345,7 +345,7 @@ it("never makes the host delegation root its own parent when closing loaded hist
 });
 
 it("preserves external completion during close and rejects stale loss of one-shot work", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const session = createDriverSession(
     {
       agentId: "coder",
@@ -403,7 +403,7 @@ it("preserves external completion during close and rejects stale loss of one-sho
 });
 
 it("checks canonical activity state before native stop after external completion", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const stops: string[] = [];
   const activity: HarnessActivity = {
     actions: ["stop"],

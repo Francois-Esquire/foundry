@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentAuthorizer } from "../../authorization/authorization";
 import {
-  createInMemoryConversationStore,
+  createMemoryConversationStore,
   createToolContext,
   getConversationStore,
   getPolicy,
@@ -21,7 +21,7 @@ describe("createToolContext (engine-free base)", () => {
   });
 
   it("threads conversations + space through the options bag", () => {
-    const conversations = createInMemoryConversationStore();
+    const conversations = createMemoryConversationStore();
     const ctx = createToolContext({ conversations, space: "boot-1" });
     expect(ctx.conversations).toBe(conversations);
     expect(ctx.space).toBe("boot-1");
@@ -40,7 +40,7 @@ describe("createToolContext (engine-free base)", () => {
   });
 
   it("getConversationStore / getSpace read off an opaque tool context", () => {
-    const conversations = createInMemoryConversationStore();
+    const conversations = createMemoryConversationStore();
     const opaque: unknown = createToolContext({
       conversations,
       space: "boot-9",
@@ -68,7 +68,7 @@ describe("createToolContext — attaching a policy to a host's own context", () 
   });
 
   it("leaves the host's own shape entirely alone — it owns what goes on it", () => {
-    const conversations = createInMemoryConversationStore();
+    const conversations = createMemoryConversationStore();
     const policy = fakePolicy();
     const base = { conversations, engine: "the-engine", space: "host-space" };
 
