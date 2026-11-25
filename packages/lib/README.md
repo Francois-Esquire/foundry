@@ -12,10 +12,9 @@ Import shared helpers directly from their owning module:
 - `@foundry/lib/mime`: shared MIME constants and text MIME detection.
 - `@foundry/lib/file-classification`: filename classification, `FileClassification`, `FileKind`, `FILE_KINDS`, and `CLASSIFICATION_VERSION`.
 - `@foundry/lib/emitter`: portable Web-standard `TypedEmitter` with Node `EventEmitter` semantics (recursive `once` safety, receiver `this` binding, LIFO removal, unhandled `"error"` throw).
-- `@foundry/lib/equal`: portable `isDeepStrictEqual` supporting cycles, built-in objects (`Date`, `RegExp`, `ArrayBuffer`, typed views, `Map`, `Set`), `NaN`, and signed zero.
 - `@foundry/lib/async-scope`: conditional `AsyncScope<T>` primitive (`"node"` / `"bun"` → `AsyncLocalStorage`, `"default"` → pass-through) for best-effort diagnostics and guards.
 - `@foundry/lib/process-identity` & `@foundry/lib/instance-identity`: pure process/instance identity types, parsers, comparators, `portableProcess`, and `neverGone`. OS/Node queries (`thisProcess`, `isGone`, `nodeStartedAt`, `processAlive`, `lookProcesses`, `groupMembers`, `nodeInstanceGone`) live under `@foundry/lib/node/process-identity` and `@foundry/lib/node/instance-identity`.
-- `@foundry/lib/node/*`: Node/Bun-only filesystem, locking, process-tracking, and authorization helpers (`atomic-file`, `file-lock`, `orphans`, `spawn-record`, `async-scope`, `process-identity`, `instance-identity`, `authorization/file`, `authorization/digest`).
+- `@foundry/lib/node/*`: Node/Bun-only filesystem, locking, process-tracking, and authorization helpers (`atomic-file`, `file-lock`, `orphans`, `spawn-record`, `async-scope`, `process-identity`, `instance-identity`, `authorization/file`).
 - `@foundry/lib/sqlite`: shared Drizzle SQLite database/transaction types, value-storability guards, batching, upsert helpers, and record fault errors.
 - `@foundry/lib/testing/seam`: `auditWebStandardExports` and `assertWebStandardExports` for verifying Web-standard package export graphs.
 - `@foundry/lib/testing/sqlite`: test helper `createTables` for materializing Drizzle SQLite tables in tests.
@@ -242,7 +241,7 @@ deliberate escape hatch so untyped callers still compile.
 
 ---
 
-## `@foundry/lib/config/authorization`
+## `@foundry/lib/authorization`
 
 One mechanism, no host vocabulary. It never learns that a Capability might be a
 filesystem read or an MCP tool: a host declares its own Subject and Capability
@@ -366,11 +365,7 @@ id, so a re-authored agent preset does not inherit the old one's authority.
 `CapabilityAddress.version` is the capability **schema** version: bumping it
 means the shape of what is granted changed, so prior grants must not carry over.
 
-`encodeAddress` produces the stable string key. `addressDigest` — a 128-bit
-index for storage that cannot hold the structured address — lives at
-`@foundry/lib/node/authorization/digest`, deliberately **off** the barrel: it
-needs `node:crypto`, and the barrel is renderer-importable. See
-[Renderer safety](#renderer-safety).
+`encodeAddress` produces the stable string key.
 
 ### Grants and repositories
 
@@ -469,15 +464,15 @@ durability must buffer internally.
 
 ### Renderer safety
 
-`@foundry/lib/config/authorization` is renderer-importable and must stay that way —
+`@foundry/lib/authorization` is renderer-importable and must stay that way —
 an approval UI reaches the vocabulary through it, and an unbundled ESM graph
 evaluates every re-export on the way in. **Nothing on that barrel may import a
 node builtin, directly or transitively.** A `node:crypto` import anywhere in the
 graph throws in a browser before any of it runs, whether or not the function is
 ever called.
 
-That is the whole reason `digest.ts` and `file.ts` sit off the barrel under
-`@foundry/lib/node/authorization/*` — imports a renderer cannot make by
+That is the whole reason `file.ts` sits off the barrel under
+`@foundry/lib/node/authorization/file` — imports a renderer cannot make by
 accident.
 
 ### Why both live here

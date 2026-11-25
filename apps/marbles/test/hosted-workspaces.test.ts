@@ -6,7 +6,6 @@ import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { readLastRecovery } from "~/database/recoveries";
 import { recordedWorkspaces } from "~/database/workspaces";
-import { SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { testHome } from "./helpers/home";
 
 const SRC = resolve("src");
@@ -669,7 +668,7 @@ process.exit(0);
     execFileSync("bun", ["--no-env-file", script], {
       cwd: root,
       encoding: "utf8",
-      env: { ...home.env, [SPAWN_RECOVERY_ENV]: spawned },
+      env: home.env,
       timeout: 90_000,
     })
       .trim()

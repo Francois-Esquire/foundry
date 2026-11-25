@@ -1,4 +1,4 @@
-import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
+import type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
 import { eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";

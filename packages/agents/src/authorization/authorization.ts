@@ -9,13 +9,13 @@ import type {
   GrantLifetime,
   GrantRepository,
   GrantSpecification,
-} from "@foundry/lib/config/authorization";
+} from "@foundry/lib/authorization";
 
 import {
   authorizationAddress,
   createAuthorizer,
   createMemoryGrantRepository,
-} from "@foundry/lib/config/authorization";
+} from "@foundry/lib/authorization";
 
 import type { Capability, CapabilityKind } from "./capability";
 

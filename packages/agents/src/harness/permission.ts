@@ -3,7 +3,7 @@ import type {
   HarnessPermissionRequest,
 } from "@foundry/core/agents";
 import { validateHarnessProfile } from "@foundry/core/agents";
-import type { ApprovalResolution } from "@foundry/lib/config/authorization";
+import type { ApprovalResolution } from "@foundry/lib/authorization";
 import type {
   AgentAuthorizationDecision,
   AgentAuthorizationRequest,

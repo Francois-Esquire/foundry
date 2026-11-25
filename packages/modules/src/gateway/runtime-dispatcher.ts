@@ -1,4 +1,4 @@
-import { withAbort } from "@foundry/lib/abort";
+import { withAbort } from "../abort";
 import { isGranted, resolveCapabilityDigest } from "../grants";
 import type { ModuleCapabilityRequest } from "../manifest";
 import { capabilityIdentity } from "../manifest";

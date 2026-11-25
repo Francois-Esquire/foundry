@@ -6,13 +6,13 @@ import type {
   AuthorizationSubject,
   CertificateRepository,
   GrantRepository,
-} from "../config/authorization";
+} from "../authorization";
 import {
   CertificateVersionError,
   certificateForProfile,
   createMemoryCertificateRepository,
   createMemoryGrantRepository,
-} from "../config/authorization";
+} from "../authorization";
 import type { TestCapability } from "./helpers/authorization-support";
 import {
   fsRead,

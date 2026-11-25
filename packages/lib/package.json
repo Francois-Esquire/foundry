@@ -6,16 +6,6 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    "./abort": {
-      "types": "./dist/abort.d.ts",
-      "import": "./src/abort.ts",
-      "default": "./src/abort.ts"
-    },
-    "./argv": {
-      "types": "./dist/argv.d.ts",
-      "import": "./src/argv.ts",
-      "default": "./src/argv.ts"
-    },
     "./async-scope": {
       "types": "./dist/async-scope.d.ts",
       "node": "./src/node/async-scope.ts",
@@ -27,15 +17,15 @@
       "import": "./src/config/config.ts",
       "default": "./src/config/config.ts"
     },
-    "./config/authorization": {
-      "types": "./dist/config/authorization/index.d.ts",
-      "import": "./src/config/authorization/index.ts",
-      "default": "./src/config/authorization/index.ts"
+    "./authorization": {
+      "types": "./dist/authorization/index.d.ts",
+      "import": "./src/authorization/index.ts",
+      "default": "./src/authorization/index.ts"
     },
-    "./config/authorization/document": {
-      "types": "./dist/config/authorization/document.d.ts",
-      "import": "./src/config/authorization/document.ts",
-      "default": "./src/config/authorization/document.ts"
+    "./authorization/document": {
+      "types": "./dist/authorization/document.d.ts",
+      "import": "./src/authorization/document.ts",
+      "default": "./src/authorization/document.ts"
     },
     "./config/credentials": {
       "types": "./dist/config/credentials.d.ts",
@@ -66,11 +56,6 @@
       "types": "./dist/encoding.d.ts",
       "import": "./src/encoding.ts",
       "default": "./src/encoding.ts"
-    },
-    "./equal": {
-      "types": "./dist/equal.d.ts",
-      "import": "./src/equal.ts",
-      "default": "./src/equal.ts"
     },
     "./exactly": {
       "types": "./dist/exactly.d.ts",
@@ -121,11 +106,6 @@
       "types": "./dist/node/atomic-file.d.ts",
       "import": "./src/node/atomic-file.ts",
       "default": "./src/node/atomic-file.ts"
-    },
-    "./node/authorization/digest": {
-      "types": "./dist/node/authorization/digest.d.ts",
-      "import": "./src/node/authorization/digest.ts",
-      "default": "./src/node/authorization/digest.ts"
     },
     "./node/authorization/file": {
       "types": "./dist/node/authorization/file.d.ts",

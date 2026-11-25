@@ -468,9 +468,11 @@ there when it starts, and records there each command a step runs on the
 host (`exec`). Processes the bundled models, agents and usage packages
 start (the Claude Code and Codex CLIs, MCP servers over stdio, usage
 probes) are recorded only
-where `MARBLES_SPAWN_RECOVERY` in the process environment says. A host
-that passes `spawned` should set that variable to the same directory too,
-or those processes are not stopped after a crash.
+where `configureSpawnRecovery(directory)` from
+`@foundry/lib/node/spawn-record` says, in the process that starts them. A
+host that passes `spawned` should call it with the same directory too, or
+those processes are not stopped after a crash. The Marbles process does so
+in each engine generation it spawns.
 
 ## Loading workspace source
 

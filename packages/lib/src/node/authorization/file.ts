@@ -1,12 +1,12 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import type { AuthorizationSubject } from "../../config/authorization/address";
+import type { AuthorizationSubject } from "../../authorization/address";
 import type {
   DocumentGrantRepositoryOptions,
   GrantDocumentStorage,
-} from "../../config/authorization/document";
-import { DocumentGrantRepository } from "../../config/authorization/document";
+} from "../../authorization/document";
+import { DocumentGrantRepository } from "../../authorization/document";
 import { KeyedQueue } from "../../keyed-queue";
 import { hasErrorCode, writeFileAtomic } from "../atomic-file";
 import { acquireFileLock, FileLockTimeoutError } from "../file-lock";

@@ -9,11 +9,7 @@ import { writeDatabase } from "~/database/open";
 import { readLastRecovery } from "~/database/recoveries";
 import { stateDatabase } from "~/layout";
 import { runStoreEffect } from "~/lib/workflow-runs";
-import {
-  SPAWN_RECOVERY_ENV,
-  type SpawnRecord,
-  startedAt,
-} from "~/process/spawned";
+import { type SpawnRecord, startedAt } from "~/process/spawned";
 import { testEngine } from "./helpers/engine";
 import { type TestHome, testHome } from "./helpers/home";
 import { readStoredRuns } from "./helpers/stored-runs";
@@ -45,7 +41,7 @@ const engine = testEngine({
     // Dies right after this point of recovery, as a crash would.
     if (killOn && line.startsWith(killOn)) process.kill(process.pid, "SIGKILL");
   },
-  spawned: process.env.${SPAWN_RECOVERY_ENV},
+  spawned: ${JSON.stringify(home.layout.spawned)},
   state: ${JSON.stringify(state)},
 });
 await engine.start();
@@ -67,15 +63,11 @@ process.exit(0);
   return script;
 }
 
-function phaseEnv(home: TestHome): Record<string, string> {
-  return { ...home.env, [SPAWN_RECOVERY_ENV]: home.layout.spawned };
-}
-
 function run(home: TestHome, script: string): Record<string, unknown> {
   const output = execFileSync("bun", [script], {
     cwd: resolve("."),
     encoding: "utf8",
-    env: phaseEnv(home),
+    env: home.env,
     timeout: PROCESS_TIMEOUT,
   });
   return JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
@@ -86,7 +78,7 @@ function runKilled(home: TestHome, script: string, killOn: string): unknown {
     execFileSync("bun", [script], {
       cwd: resolve("."),
       encoding: "utf8",
-      env: { ...phaseEnv(home), MARBLES_TEST_KILL_ON: killOn },
+      env: { ...home.env, MARBLES_TEST_KILL_ON: killOn },
       stdio: "pipe",
       timeout: PROCESS_TIMEOUT,
     });
@@ -162,7 +154,7 @@ await new Promise(() => undefined);`
   );
   const host = spawn("bun", [crash], {
     cwd: resolve("."),
-    env: phaseEnv(home),
+    env: home.env,
     stdio: ["ignore", "pipe", "inherit"],
   });
   home.track(host.pid, false);

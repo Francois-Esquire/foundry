@@ -27,7 +27,7 @@ import {
   workspaceIdSchema,
 } from "~/process/protocol";
 import { envFilesLoaded } from "~/process/runtime";
-import { SPAWN_RECOVERY_ENV } from "~/process/spawned";
+import { configureSpawnRecovery } from "~/process/spawned";
 import { dispatchSchema } from "~/workspace/dispatch";
 import type { GenerationHost, WorkspaceHost } from "~/workspace/host";
 import type { StagedWorkspaces, WorkspaceLoad } from "~/workspace/hosted";
@@ -45,6 +45,7 @@ interface GenerationArgs {
   readonly artifacts: string;
   readonly dry: boolean;
   readonly socket: string;
+  readonly spawned: string;
   readonly state: string;
   readonly token: string;
 }
@@ -70,11 +71,12 @@ function parseArgs(argv: readonly string[]): GenerationArgs {
     }
     return value;
   };
-  const { artifacts, state } = layout();
+  const { artifacts, spawned, state } = layout();
   return {
     artifacts,
     dry,
     socket: required("socket"),
+    spawned,
     state,
     token: required("token"),
   };
@@ -269,6 +271,7 @@ async function main(): Promise<void> {
   };
 
   const open = async (): Promise<HostedWorkspaces> => {
+    configureSpawnRecovery(args.dry ? undefined : args.spawned);
     hosted ??= await HostedWorkspaces.open({
       artifacts: args.artifacts,
       askable: true,
@@ -286,9 +289,7 @@ async function main(): Promise<void> {
           root,
         });
       },
-      ...(process.env[SPAWN_RECOVERY_ENV]
-        ? { spawned: process.env[SPAWN_RECOVERY_ENV] }
-        : {}),
+      spawned: args.spawned,
       state: args.state,
     });
     return hosted;

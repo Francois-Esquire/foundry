@@ -40,7 +40,7 @@ export class RecordedStdioTransport extends StdioClientTransport {
 
   override async start(): Promise<void> {
     await super.start();
-    recordSpawned(this.pid ?? undefined, false, this.#env);
+    recordSpawned(this.pid ?? undefined, false, { env: this.#env });
   }
 }
 
@@ -60,7 +60,7 @@ export async function rawMcpSession(
   if (pid === undefined) {
     throw new Error(`could not start ${command}`);
   }
-  recordSpawned(pid, true, inherited);
+  recordSpawned(pid, true, { env: inherited });
   let stdout = "";
   let stderr = "";
   let buffered = "";

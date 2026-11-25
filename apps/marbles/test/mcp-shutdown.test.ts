@@ -168,28 +168,6 @@ it("shuts down in order when the relay passes on SIGHUP", async () => {
   }
 }, 30_000);
 
-it("removes the server's recovery record once the server exits", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-record-"));
-  const recovery = await mkdtemp(join(tmpdir(), "marbles-mcp-recovery-"));
-  let started: Started | undefined;
-  try {
-    started = await start(root, "", {
-      env: { MARBLES_SPAWN_RECOVERY: recovery },
-    });
-    const { server, session } = started;
-    const record = join(recovery, `${String(server)}.json`);
-    expect(existsSync(record)).toBe(true);
-    const ended = await within(session.close(), 10_000, "the exit");
-    expect(ended.code, ended.stderr).toBe(0);
-    expect(existsSync(record)).toBe(false);
-  } finally {
-    kill(started?.relay);
-    kill(started?.server);
-    await rm(root, { force: true, recursive: true });
-    await rm(recovery, { force: true, recursive: true });
-  }
-}, 30_000);
-
 it("shuts down in order when the protocol output fails", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-epipe-"));
   const home = testHome();

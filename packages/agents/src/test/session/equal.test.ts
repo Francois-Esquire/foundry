@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDeepStrictEqual } from "../equal";
+import { isDeepStrictEqual } from "../../session/equal";
 
 const RE_ABC_GLOBAL = /abc/g;
 const RE_ABC_GLOBAL_COPY = /abc/g;

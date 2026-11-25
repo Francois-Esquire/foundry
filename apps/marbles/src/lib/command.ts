@@ -1,10 +1,7 @@
 import { execFile } from "node:child_process";
 import type { Writable } from "node:stream";
-import { showArgv } from "@foundry/lib/argv";
-import {
-  recordChild,
-  SPAWN_RECOVERY_ENV,
-} from "@foundry/lib/node/spawn-record";
+import { recordChild } from "@foundry/lib/node/spawn-record";
+import { showArgv } from "./argv";
 
 import { StepInputError, type StepWork } from "./step-work";
 import type { SandboxHandle, SandboxInstance } from "./types";
@@ -99,9 +96,7 @@ function onHost(
     recordChild(
       child,
       false,
-      site.spawned === undefined
-        ? process.env
-        : { ...process.env, [SPAWN_RECOVERY_ENV]: site.spawned }
+      site.spawned === undefined ? {} : { recoveryDir: site.spawned }
     );
   }).finally(() => ended?.());
 }

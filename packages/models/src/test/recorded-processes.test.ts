@@ -11,8 +11,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { thisProcess } from "@foundry/lib/node/process-identity";
-import { SPAWN_RECOVERY_ENV } from "@foundry/lib/node/spawn-record";
-import { afterEach, expect, it, vi } from "vitest";
+import { configureSpawnRecovery } from "@foundry/lib/node/spawn-record";
+import { afterEach, expect, it } from "vitest";
 import { claudeCodeProvider } from "../node/claude-code";
 import { codexProvider } from "../node/codex";
 import { silentExecutable } from "./helpers/env-dump";
@@ -23,7 +23,7 @@ const CALL = {
 const made: string[] = [];
 
 afterEach(() => {
-  vi.unstubAllEnvs();
+  configureSpawnRecovery(undefined);
   for (const dir of made.splice(0)) {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -50,7 +50,7 @@ wait();
 `
   );
   chmodSync(bin, 0o755);
-  vi.stubEnv(SPAWN_RECOVERY_ENV, records);
+  configureSpawnRecovery(records);
   const provider = claudeCodeProvider({
     config: { defaultSettings: { pathToClaudeCodeExecutable: bin } },
     env: { HOME: process.env.HOME ?? "", PATH: process.env.PATH ?? "" },
@@ -88,7 +88,7 @@ it("records the Codex app-server a call starts, once, and forgets it once it exi
   const records = join(dir, "spawned");
   const cli = silentExecutable();
   made.push(dirname(cli.bin));
-  vi.stubEnv(SPAWN_RECOVERY_ENV, records);
+  configureSpawnRecovery(records);
   const provider = codexProvider({
     config: { available: true, binPath: cli.bin },
     env: { HOME: process.env.HOME ?? "", PATH: process.env.PATH ?? "" },

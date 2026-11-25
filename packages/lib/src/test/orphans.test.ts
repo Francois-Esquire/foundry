@@ -21,7 +21,6 @@ import {
   forgetRecord,
   recordChild,
   recordPath,
-  SPAWN_RECOVERY_ENV,
   type SpawnRecord,
   writePrivate,
 } from "../node/spawn-record";
@@ -277,7 +276,7 @@ it("records the owner of a child on its recovery record, and removes it once the
   const dir = scratch();
   const child = spawn("sleep", ["60"], { stdio: "ignore" });
   started.push(child);
-  recordChild(child, false, { [SPAWN_RECOVERY_ENV]: dir });
+  recordChild(child, false, { recoveryDir: dir });
   const path = recordPath(dir, child.pid ?? 0);
   expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
     group: false,

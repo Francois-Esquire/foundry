@@ -1,5 +1,4 @@
 import { readdirSync } from "node:fs";
-import { SPAWN_RECOVERY_ENV } from "@foundry/lib/node/spawn-record";
 import { afterEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
@@ -11,8 +10,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-it("records a command a step runs in the spawned directory the engine was given, with none named in the environment", async () => {
-  vi.stubEnv(SPAWN_RECOVERY_ENV, "");
+it("records a command a step runs in the spawned directory the engine was given", async () => {
   const spawned = temporaryDirectory("marbles-spawned-");
   step("listing").do(async ({ exec }) => {
     const { stdout } = await exec([

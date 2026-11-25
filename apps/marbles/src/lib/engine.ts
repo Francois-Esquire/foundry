@@ -2,7 +2,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { SessionStore } from "@foundry/agents/store";
 import type { ArtifactSubstrate } from "@foundry/artifacts";
-import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
+import type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type { Models } from "@foundry/models";
 import type { AirplaneMode } from "@foundry/models/airplane";

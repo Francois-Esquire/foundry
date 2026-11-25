@@ -6,7 +6,7 @@ import type {
   HarnessToolEvent,
   ModelRoute,
 } from "@foundry/core/agents";
-import type { ApprovalResolution } from "@foundry/lib/config/authorization";
+import type { ApprovalResolution } from "@foundry/lib/authorization";
 import type { Output, ToolSet } from "ai";
 import type { AgentAuthorizer } from "../authorization/authorization";
 import type { SessionMessage } from "../schema";

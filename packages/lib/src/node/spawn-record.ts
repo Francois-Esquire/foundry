@@ -38,9 +38,32 @@ export interface SpawnRecord {
   readonly started: string;
 }
 
-export const SPAWN_RECORD_ENV = "MARBLES_SPAWN_RECORD";
-export const SPAWN_RECOVERY_ENV = "MARBLES_SPAWN_RECOVERY";
-export const SPAWN_OWNER_ENV = "MARBLES_SPAWN_OWNER";
+export const SPAWN_RECORD_ENV = "FOUNDRY_TEST_SPAWN_RECORD";
+export const SPAWN_OWNER_ENV = "FOUNDRY_TEST_SPAWN_OWNER";
+
+export interface SpawnRecordOptions {
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly lookup?: ProcessLookup;
+  readonly recoveryDir?: string | null;
+}
+
+let configuredRecoveryDir: string | undefined;
+
+export function configureSpawnRecovery(directory: string | undefined): void {
+  configuredRecoveryDir = named(directory);
+}
+
+export function spawnRecoveryDirectory(): string | undefined {
+  return configuredRecoveryDir;
+}
+
+function recoveryOf(
+  recoveryDir: string | null | undefined
+): string | undefined {
+  return recoveryDir === null
+    ? undefined
+    : named(recoveryDir ?? configuredRecoveryDir);
+}
 
 const CREATE =
   // biome-ignore lint/suspicious/noBitwiseOperators: open(2) takes its flags as one bit set.
@@ -55,7 +78,7 @@ export function spawnRecordEnvironment(
   env: Readonly<Record<string, string | undefined>> = process.env
 ): Record<string, string> {
   const carried: Record<string, string> = {};
-  for (const name of [SPAWN_RECORD_ENV, SPAWN_RECOVERY_ENV, SPAWN_OWNER_ENV]) {
+  for (const name of [SPAWN_RECORD_ENV, SPAWN_OWNER_ENV]) {
     const value = env[name];
     if (value !== undefined && value !== "") {
       carried[name] = value;
@@ -91,20 +114,19 @@ export function notPrivate(
 export function recordSpawned(
   pid: number | undefined,
   group: boolean,
-  env: Readonly<Record<string, string | undefined>> = process.env,
-  lookup?: ProcessLookup
+  options: SpawnRecordOptions = {}
 ): void {
-  recordInto(pid, group, env, lookup);
+  recordInto(pid, group, options);
 }
 
 function recordInto(
   pid: number | undefined,
   group: boolean,
-  env: Readonly<Record<string, string | undefined>>,
-  lookup: ProcessLookup = RECORD_LOOKUP
+  options: SpawnRecordOptions
 ): string | undefined {
+  const { env = process.env, lookup = RECORD_LOOKUP } = options;
   const all = named(env[SPAWN_RECORD_ENV]);
-  const recovery = named(env[SPAWN_RECOVERY_ENV]);
+  const recovery = recoveryOf(options.recoveryDir);
   if ((all === undefined && recovery === undefined) || pid === undefined) {
     return;
   }
@@ -123,10 +145,10 @@ function recordInto(
 export function recordChild(
   child: Pick<ChildProcess, "once" | "pid">,
   group = false,
-  env: Readonly<Record<string, string | undefined>> = process.env
+  options: SpawnRecordOptions = {}
 ): void {
-  const started = recordInto(child.pid, group, env);
-  const recovery = named(env[SPAWN_RECOVERY_ENV]);
+  const started = recordInto(child.pid, group, options);
+  const recovery = recoveryOf(options.recoveryDir);
   const { pid } = child;
   if (recovery !== undefined && pid !== undefined && started !== undefined) {
     child.once("exit", () => {
@@ -159,6 +181,7 @@ export interface RecordGroupOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly graceMs?: number;
   readonly killMs?: number;
+  readonly recoveryDir?: string | null;
   readonly signal?: AbortSignal;
   readonly system?: ProcessGroupOps;
 }
@@ -182,13 +205,12 @@ export function recordGroup(
   child: Pick<ChildProcess, "exitCode" | "once" | "pid" | "signalCode">,
   options: RecordGroupOptions = {}
 ): () => Promise<GroupStopResult> {
-  const env = options.env ?? process.env;
   const { pid } = child;
-  const started = recordInto(pid, true, env);
+  const started = recordInto(pid, true, options);
   if (pid === undefined) {
     return () => Promise.resolve({ emptied: true, saved: true });
   }
-  const recovery = named(env[SPAWN_RECOVERY_ENV]);
+  const recovery = recoveryOf(options.recoveryDir);
   const system = options.system ?? PROCESS_GROUP_OPS;
   const record = recovery === undefined ? undefined : recordPath(recovery, pid);
   let reaped = false;

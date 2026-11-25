@@ -20,7 +20,6 @@ import {
   type ProcessGroupOps,
   recordGroup,
   recordPath,
-  SPAWN_RECOVERY_ENV,
   type SpawnRecord,
   writePrivate,
 } from "../node/spawn-record";
@@ -85,7 +84,7 @@ it("stops the whole group when its call aborts, and forgets it once it is empty"
   const control = new AbortController();
   const { child, dir, sleep, stop } = await group("wait", (spawned, at) =>
     recordGroup(spawned, {
-      env: { [SPAWN_RECOVERY_ENV]: join(at, "records") },
+      recoveryDir: join(at, "records"),
       signal: control.signal,
     })
   );
@@ -99,7 +98,7 @@ it("stops the whole group when its call aborts, and forgets it once it is empty"
 it("stops what the leader left in its group when it exits on its own", async () => {
   const { child, dir, sleep, stop } = await group("exit 0", (spawned, at) =>
     recordGroup(spawned, {
-      env: { [SPAWN_RECOVERY_ENV]: join(at, "records") },
+      recoveryDir: join(at, "records"),
     })
   );
   if (child.exitCode === null) {
@@ -115,9 +114,9 @@ it("keeps the record of a group that would not empty, its members written before
   let recordedAtTerm: SpawnRecord | undefined;
   const { child, dir, sleep, stop } = await group("wait", (spawned, at) =>
     recordGroup(spawned, {
-      env: { [SPAWN_RECOVERY_ENV]: join(at, "records") },
       graceMs: 30,
       killMs: 30,
+      recoveryDir: join(at, "records"),
       system: {
         kill: (_target, signal) => {
           signalled.push(signal);
@@ -298,9 +297,9 @@ it("tries writing the members again once, and saves them when the second write g
     },
   };
   const stop = recordGroup(child, {
-    env: { [SPAWN_RECOVERY_ENV]: dir },
     graceMs: 0,
     killMs: 0,
+    recoveryDir: dir,
     system,
   });
   exit();
@@ -339,9 +338,9 @@ it("reports members it could not save, says so, and stops its group all the same
     },
   };
   const stop = recordGroup(child, {
-    env: { [SPAWN_RECOVERY_ENV]: dir },
     graceMs: 0,
     killMs: 0,
+    recoveryDir: dir,
     system,
   });
   exit();
@@ -373,9 +372,9 @@ it("keeps the record of a group the listing shows empty while a signal still rea
     sleep: () => Promise.resolve(),
   };
   const stop = recordGroup(child, {
-    env: { [SPAWN_RECOVERY_ENV]: dir },
     graceMs: 0,
     killMs: 0,
+    recoveryDir: dir,
     system,
   });
   exit();

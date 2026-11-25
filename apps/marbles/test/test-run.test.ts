@@ -110,13 +110,13 @@ const gone = (pid: number) =>
 
 const FAST = { graceMs: 300, killMs: 2000 };
 
-it("records a process Marbles starts only where MARBLES_SPAWN_RECORD points", async () => {
+it("records a process Marbles starts only where FOUNDRY_TEST_SPAWN_RECORD points", async () => {
   const records = temporaryDirectory("rec-");
   const pid = await sleeper({});
   try {
-    recordSpawned(pid, true, {});
+    recordSpawned(pid, true, { env: {} });
     expect(readdirSync(records)).toEqual([]);
-    recordSpawned(pid, true, { [SPAWN_RECORD_ENV]: records });
+    recordSpawned(pid, true, { env: { [SPAWN_RECORD_ENV]: records } });
     expect(
       JSON.parse(readFileSync(join(records, `${String(pid)}.json`), "utf8"))
     ).toEqual({ group: true, pid, started: startedAt(pid) });

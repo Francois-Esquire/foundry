@@ -1,4 +1,4 @@
-export type ArgvSegment =
+type ArgvSegment =
   | { readonly kind: "text"; readonly text: string }
   | { readonly kind: "placeholder"; readonly name: string };
 

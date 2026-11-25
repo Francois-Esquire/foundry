@@ -27,7 +27,6 @@ import {
   recordSpawned,
   SPAWN_OWNER_ENV,
   SPAWN_RECORD_ENV,
-  SPAWN_RECOVERY_ENV,
   writePrivate,
 } from "../node/spawn-record";
 
@@ -49,13 +48,13 @@ function scratch(): string {
 
 it("does nothing when no directory is named", () => {
   const spawned = vi.spyOn(process.stderr, "write");
-  recordSpawned(process.pid, false, {});
+  recordSpawned(process.pid, false, { env: {} });
   expect(spawned).not.toHaveBeenCalled();
 });
 
 it("writes a private record of the process, making the directory private if it is missing", () => {
   const dir = join(scratch(), "a", "b");
-  recordSpawned(process.pid, true, { [SPAWN_RECORD_ENV]: dir });
+  recordSpawned(process.pid, true, { env: { [SPAWN_RECORD_ENV]: dir } });
   const path = join(dir, `${String(process.pid)}.json`);
   expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
     group: true,
@@ -75,10 +74,10 @@ it("refuses a directory open to others, and a path that is not a directory, with
   writeFileSync(file, "a file");
   const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
   expect(() =>
-    recordSpawned(process.pid, false, { [SPAWN_RECORD_ENV]: shared })
+    recordSpawned(process.pid, false, { env: { [SPAWN_RECORD_ENV]: shared } })
   ).not.toThrow();
   expect(() =>
-    recordSpawned(process.pid, false, { [SPAWN_RECORD_ENV]: file })
+    recordSpawned(process.pid, false, { env: { [SPAWN_RECORD_ENV]: file } })
   ).not.toThrow();
   expect(readdirSync(shared)).toEqual([]);
   expect(readFileSync(file, "utf8")).toBe("a file");
@@ -91,7 +90,7 @@ it("never writes through a link planted where the record goes", () => {
   writeFileSync(victim, "untouched");
   symlinkSync(victim, join(dir, `${String(process.pid)}.json`));
   symlinkSync(victim, join(dir, `${String(process.pid)}.json.new`));
-  recordSpawned(process.pid, false, { [SPAWN_RECORD_ENV]: dir });
+  recordSpawned(process.pid, false, { env: { [SPAWN_RECORD_ENV]: dir } });
   expect(readFileSync(victim, "utf8")).toBe("untouched");
   const path = join(dir, `${String(process.pid)}.json`);
   expect(lstatSync(path).isFile()).toBe(true);
@@ -116,7 +115,7 @@ it("records nothing for a child that has already gone", async () => {
   const dir = scratch();
   const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
   await new Promise((settle) => child.once("exit", settle));
-  recordSpawned(child.pid, false, { [SPAWN_RECORD_ENV]: dir });
+  recordSpawned(child.pid, false, { env: { [SPAWN_RECORD_ENV]: dir } });
   expect(readdirSync(dir)).toEqual([]);
 });
 
@@ -199,7 +198,7 @@ it("forgets a record only if what it removes names the process that is gone, whe
 it("keeps, as a child exits, a recovery record that names another process", async () => {
   const dir = scratch();
   const child = spawn("sleep", ["60"], { stdio: "ignore" });
-  recordChild(child, false, { [SPAWN_RECOVERY_ENV]: dir });
+  recordChild(child, false, { recoveryDir: dir });
   const path = recordPath(dir, child.pid ?? 0);
   const other = {
     ...JSON.parse(readFileSync(path, "utf8")),
@@ -216,7 +215,7 @@ it("keeps, as a child exits, a recovery record that names another process", asyn
 it("reports, and keeps, the recovery record of an exited child it cannot remove", async () => {
   const dir = scratch();
   const child = spawn("sleep", ["60"], { stdio: "ignore" });
-  recordChild(child, false, { [SPAWN_RECOVERY_ENV]: dir });
+  recordChild(child, false, { recoveryDir: dir });
   const path = recordPath(dir, child.pid ?? 0);
   const stderr = vi
     .spyOn(process.stderr, "write")
@@ -244,12 +243,10 @@ it("reports, and writes no record of, a process the listing leaves out while a s
     .mockImplementation(() => true);
   let written = "";
   try {
-    fresh.recordSpawned(
-      4_200_190,
-      false,
-      { [SPAWN_RECORD_ENV]: dir },
-      { alive: () => true, look: () => new Map() }
-    );
+    fresh.recordSpawned(4_200_190, false, {
+      env: { [SPAWN_RECORD_ENV]: dir },
+      lookup: { alive: () => true, look: () => new Map() },
+    });
   } finally {
     written = stderr.mock.calls.flat().join("");
     stderr.mockRestore();

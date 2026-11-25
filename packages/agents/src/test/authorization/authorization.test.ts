@@ -1,4 +1,4 @@
-import { encodeAddress } from "@foundry/lib/config/authorization";
+import { encodeAddress } from "@foundry/lib/authorization";
 import { describe, expect, it } from "vitest";
 import {
   AGENT_ASK_BY_DEFAULT,

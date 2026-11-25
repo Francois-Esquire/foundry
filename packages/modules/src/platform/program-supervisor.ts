@@ -1,6 +1,6 @@
 import type { ContentId } from "@foundry/artifacts";
-import { withAbort } from "@foundry/lib/abort";
 import { KeyedQueue } from "@foundry/lib/keyed-queue";
+import { withAbort } from "../abort";
 import type { Installation, InstallationId, ModuleVersion } from "../domain";
 import type {
   ModuleGateway,

@@ -1,4 +1,4 @@
-import { KeyedQueue } from "../../keyed-queue";
+import { KeyedQueue } from "../keyed-queue";
 import type {
   AuthorizationAddress,
   AuthorizationAddressing,

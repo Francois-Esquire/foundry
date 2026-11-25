@@ -7,11 +7,11 @@ import type {
   AuthorizationSubject,
   Authorizer,
   GrantRepository,
-} from "../config/authorization";
+} from "../authorization";
 import {
   createAuthorizer,
   createMemoryGrantRepository,
-} from "../config/authorization";
+} from "../authorization";
 import type {
   TestCapability,
   TestCapabilityKind,

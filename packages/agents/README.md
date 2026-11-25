@@ -623,7 +623,7 @@ toModelMessages(messages)     // session records → AI SDK ModelMessages
 ## `@foundry/agents/authorization`
 
 The gate. This module owns what a capability _is_; the mechanism — the
-Authorizer, Grants, Policy tiers — lives in `@foundry/lib/config/authorization`
+Authorizer, Grants, Policy tiers — lives in `@foundry/lib/authorization`
 and knows no agent vocabulary.
 
 ```typescript

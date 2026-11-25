@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { Exactly } from "../../exactly";
+import type { Exactly } from "../exactly";
 import type {
   AuthorizationAddress,
   AuthorizationAddressing,

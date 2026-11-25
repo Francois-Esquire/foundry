@@ -8,7 +8,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { recordPath } from "@foundry/lib/node/spawn-record";
+import {
+  configureSpawnRecovery,
+  recordPath,
+} from "@foundry/lib/node/spawn-record";
 import { Models } from "@foundry/models";
 import { expect, it, vi } from "vitest";
 import { initializeDatabase } from "~/database/open";
@@ -124,7 +127,7 @@ it("records the owned Claude Code listing process and stops it when aborted", as
   const records = join(root, "records");
   mkdirSync(home);
   mkdirSync(records, { mode: 0o700 });
-  vi.stubEnv("MARBLES_SPAWN_RECOVERY", records);
+  configureSpawnRecovery(records);
   writeFileSync(join(home, "models.json"), JSON.stringify("hang"));
   const pidFile = join(home, "listing.pid");
   const controller = new AbortController();
@@ -153,7 +156,7 @@ it("records the owned Claude Code listing process and stops it when aborted", as
     expect(() => process.kill(pid, 0)).toThrow();
   } finally {
     controller.abort();
-    vi.unstubAllEnvs();
+    configureSpawnRecovery(undefined);
     rmSync(root, { force: true, recursive: true });
   }
 });
