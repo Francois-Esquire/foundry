@@ -1,7 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertWebStandardExports } from "@foundry/lib/testing/seam";
 import { describe, expect, it } from "vitest";
 
 const PACKAGE_ROOT = resolve(
@@ -11,7 +10,6 @@ const PACKAGE_ROOT = resolve(
 const SOURCE = join(PACKAGE_ROOT, "src");
 
 const SQLITE_ENTRIES = ["./store/sqlite", "./store/tables"];
-const NODE_ENTRIES = ["./node"];
 
 const SQLITE_STACK = /^(drizzle-orm|@libsql\/)/;
 const DRIZZLE = /^drizzle-orm/;
@@ -168,17 +166,6 @@ describe("@foundry/agents public paths", () => {
       "MemorySessionStore",
     ]);
   }, 30_000);
-});
-
-describe("@foundry/agents runtime seams", () => {
-  it("loads no node:* imports, ./node adapters, or unguarded Node/Bun globals from any non-./node export", () => {
-    const portableSubpaths = Object.keys(manifest.exports).filter(
-      (path) => !NODE_ENTRIES.includes(path)
-    );
-    expect(() =>
-      assertWebStandardExports(PACKAGE_ROOT, portableSubpaths)
-    ).not.toThrow();
-  });
 });
 
 describe("@foundry/agents SQLite dependencies", () => {

@@ -23,7 +23,7 @@ Dependency direction is strictly acyclic across tiers (`Primitives` ← `Tools /
 - **Documented exemptions**: Collective, Effect, or DSL nouns keep their natural singular names: `Queue`, `Scheduler`, `Workflow`, `Step`.
 - **No `*Manager` or `*System` in `packages/*`**: Both suffixes obscure **depth** and encourage shallow pass-through wrappers. `*Manager` is reserved exclusively for host facades under `apps/*/src/lib/managers/`.
 - **`*FileSystem` is allowed**: `*System` is rejected, but `*FileSystem` (`WorkspaceFileSystem`, `ArtifactFileSystem`, `nodeFileSystem`) names a platform concept and is the one permitted suffix.
-- **In-memory adapters**: Name in-memory **adapters** `Memory<Name>` (stores `Memory<Domain>Store`, factories `createMemory<Name>`); the `InMemory` prefix is not used for exports in `packages/*`.
+- **In-memory adapters**: Name in-memory **adapters** `Memory<Name>` (stores `Memory<Domain>Store`, Promise/plain factories `createMemory<Name>`, Effect-returning factories `makeMemory<Name>`); the `InMemory` prefix is not used for exports in `packages/*`. Similarly, SQLite store factories use `createSqlite<Name>` (or `Sqlite<Domain>Store` classes) for Promise/plain APIs and `makeSqlite<Name>` for Effect-returning factories (`queue`, `scheduling`).
 - **Artifacts port**: The storage/substrate port **interface** for `@foundry/artifacts` is `ArtifactSubstrate` so `Artifacts` unambiguously names the concrete domain **module**.
 
 ## 3. Web-standard `.` root and canonical Domain subpath anatomy
@@ -51,6 +51,12 @@ Domain packages follow a canonical subpath layout so callers gain consistent **l
 | `./node/*` | Further Node-bound **adapters**, such as `@foundry/models/node/claude-code`, `@foundry/models/node/live`, and `@foundry/models/node/local` | Node / Bun |
 
 A subpath that reaches `node:*` built-ins or unguarded Node/Bun globals, directly or transitively, lives at `./node` or `./node/*`. Every other subpath, plus `./testing/store`, must be Web-standard; only `./node`, `./node/*`, and `./testing` helpers other than `./testing/store` may use Node. Node-bound subpaths are recognised by the exact `./node` or `./node/` prefix, not by a `/node` segment elsewhere in the key. This holds for provider and harness **adapters** too: there is no allowlist of Node-bound subpaths outside `./node`.
+
+Source layout mirrors the declared `exports` map:
+
+- Root `.` is served by `src/index.ts`.
+- Export key `./a/b` is served by `src/a/b.ts` (or `src/a/b/index.ts` for multi-file directory entries such as `./store` or `./node`), with private implementation files in sibling `src/a/b/`.
+- All Node-bound implementation files live under `src/node/` (or `src/node.ts` for single-file Node adapters). Non-`node/` production files never import from `src/node/**`.
 
 Only subpaths that carry real **implementation** are added; packages do not declare empty stubs.
 

@@ -1,6 +1,9 @@
 import { resolve } from "node:path";
 import { isGone, thisProcess } from "@foundry/lib/node/process-identity";
-import { assertWebStandardExports } from "@foundry/lib/testing/seam";
+import {
+  assertWebStandardExports,
+  portableSubpaths,
+} from "@foundry/lib/testing/seam";
 import { Effect, Layer, TestContext } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -18,13 +21,7 @@ const PACKAGE_DIR = resolve(import.meta.dirname, "../..");
 describe("@foundry/queue runtime seams", () => {
   it("loads no node:* imports, ./node adapters, or unguarded Node/Bun globals from portable subpaths", () => {
     expect(() =>
-      assertWebStandardExports(PACKAGE_DIR, [
-        ".",
-        "./client",
-        "./store",
-        "./store/memory",
-        "./testing/store",
-      ])
+      assertWebStandardExports(PACKAGE_DIR, portableSubpaths(PACKAGE_DIR))
     ).not.toThrow();
   });
 
