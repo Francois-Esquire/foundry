@@ -109,7 +109,7 @@ workflow("checks", () => verdict.parallel({ lint: lint(), tests: tests() }));
 `verdict(...)` and `verdict.series(...)` run children in key order.
 `.parallel(...)` runs them together. If one parallel child fails, Marbles
 aborts the siblings and waits for them before reporting the failure. A
-sibling that parks on a question parks the parent while the others finish.
+sibling that suspends on a question suspends the parent while the others finish.
 
 Data flows from children to their parent, never between siblings. Locking
 the same definition under two siblings runs it twice. When two siblings
@@ -192,8 +192,7 @@ its own.
 before the run ends. Keep `id` to read the run later with `runs.get(id)`,
 or await `result` for its output. An unawaited `result` never raises an
 unhandled rejection. Input that fails the schema rejects the `enqueue`
-call when the queue has room to start the run; a run that waits in the
-queue reports the failure through `result` instead.
+call before the run is queued.
 
 ### Enqueue once per key
 

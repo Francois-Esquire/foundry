@@ -80,13 +80,13 @@ const count = await launched.result;
 
 `run(name, input)` and `execute(definition, input)` wait for the result
 instead. Register a definition with `define` to launch it by name.
-`launch(name, input, { source })` starts at most one run per name and
-`source`. An authored `enqueue(input, { key })`, `step.enqueue(name, input,
-{ key })`, and `marbles enqueue --key` pass their key as that `source`. This
-entry's `LaunchOptions` is not `@foundry.sh/marbles`' `EnqueueOptions`,
-which holds only `key`. The
+`launch(name, input, { idempotencyKey })` (or `{ source }`) starts at most one run per key.
+An authored `enqueue(input, { key })`, `step.enqueue(name, input, { key })`,
+and `marbles enqueue --key` derive a shared `idempotencyKey` from the definition
+name and key (without setting `source`). This entry's `LaunchOptions` is not
+`@foundry.sh/marbles`' `EnqueueOptions`, which holds only `key`. The
 [MCP tools](/marbles/reference/mcp#tools) use `launch` for workflows and one
-registered agent-dispatch step, exposing the handle's `id` as `runId` for both.
+registered agent-dispatch step, exposing the handle's `id` as `id` for both.
 
 The host must keep the engine alive while work executes, handle a rejected
 result promise, and stop/dispose the engine on shutdown. A persisted engine

@@ -9,8 +9,10 @@ import {
 } from "~/access/workspace";
 import type { Flags } from "~/cli/args";
 import { recordedWorkspaces } from "~/database/workspaces";
+import { ToolRefusal } from "~/mcp/errors";
 import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
-import { createMcpServer, type McpServerOptions } from "~/mcp/server";
+import type { McpServerOptions } from "~/mcp/resources";
+import { createMcpServer } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
 import type { OpenedWorkspace } from "~/workspace/open";
 import { findWorkspace, recordedWorkspace } from "~/workspace/open";
@@ -71,14 +73,16 @@ function serveWorkspace(flags: Flags): Served {
       return opened;
     }
     if (flags.dry) {
-      throw new Error(
+      throw new ToolRefusal(
+        "not_found",
         `only workspace "${own.id}" is available under --dry-run`
       );
     }
     const found = await recordedWorkspace(flags, id);
     if (found === undefined) {
-      throw new Error(
-        `no workspace "${id}" is recorded under ${resolve(flags.state)}; list_workspaces names them`
+      throw new ToolRefusal(
+        "not_found",
+        `no workspace "${id}" is recorded under ${resolve(flags.state)}; list (resource: workspaces) names them`
       );
     }
     return found;

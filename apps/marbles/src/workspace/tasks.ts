@@ -31,6 +31,16 @@ const RUN: {
     }
     return task;
   },
+  inspect: async (tasks, { depth, id }) => {
+    const task = await tasks.getWithRelations(
+      id,
+      depth === undefined ? {} : { depth }
+    );
+    if (task === null) {
+      throw new TaskError("not_found", `Task ${id} not found`);
+    }
+    return task;
+  },
   list: (tasks, { query }) => tasks.list(query),
   ready: (tasks, { query }) => tasks.ready(query),
 };
@@ -74,6 +84,10 @@ export const taskCommandSchema: z.ZodType<TaskCommand> = z.discriminatedUnion(
     depthOptionsSchema.extend({
       id: z.string().min(1),
       kind: z.literal("get"),
+    }),
+    depthOptionsSchema.extend({
+      id: z.string().min(1),
+      kind: z.literal("inspect"),
     }),
     z.strictObject({ kind: z.literal("list"), query: taskQuerySchema }),
     z.strictObject({ kind: z.literal("ready"), query: readyQuerySchema }),

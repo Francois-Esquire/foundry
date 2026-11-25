@@ -90,15 +90,46 @@ export interface DispatchOptions {
   readonly timeoutMs?: number;
 }
 
+type RunInfoStatus = TerminalStatus | "queued" | "running" | "suspended";
+
 export interface RunInfo {
+  endedAt?: string;
   error?: string;
   readonly kind: "agent" | "workflow";
   readonly name: string;
   output?: unknown;
+  queuedAt?: string;
   readonly runId: string;
   readonly session?: SessionRef;
-  readonly status: TerminalStatus | "queued" | "running" | "suspended";
+  startedAt?: string;
+  readonly status: RunInfoStatus;
   text?: string;
+}
+
+export interface RunSummary {
+  readonly endedAt?: string;
+  readonly error?: string;
+  readonly id: string;
+  readonly kind: "agent" | "workflow";
+  readonly name: string;
+  readonly queuedAt: string;
+  readonly session?: SessionRef;
+  readonly startedAt?: string;
+  readonly status: RunInfoStatus;
+}
+
+export interface RunListQuery {
+  readonly cursor?: number;
+  readonly kind?: "agent" | "workflow";
+  readonly limit?: number;
+  readonly name?: string;
+  readonly status?: readonly RunInfoStatus[];
+}
+
+export interface RunPage {
+  readonly items: readonly RunSummary[];
+  readonly nextCursor?: number;
+  readonly total: number;
 }
 
 export type DispatchInfo = Pick<
@@ -129,6 +160,7 @@ export interface WorkspaceConnection {
   ): Promise<DispatchInfo>;
   getRun(runId: string): Promise<RunInfo>;
   readonly id: string;
+  listRuns(query?: RunListQuery): Promise<RunPage>;
   roll(name: string, input?: unknown): Promise<RollResult>;
   readonly root: string;
   snapshot(): Promise<DashboardSnapshot>;

@@ -21,7 +21,11 @@ export type TaskRunner = <K extends TaskCommandKind>(
 ) => Promise<TaskCommandResult<K>>;
 
 export class NotHostedError extends Error {
-  override readonly name = "NotHostedError";
+  override readonly name: string = "NotHostedError";
+}
+
+export class NotReadyError extends NotHostedError {
+  override readonly name = "NotReadyError";
 }
 
 export class RecordsHeldError extends Error {
@@ -138,12 +142,14 @@ export async function withRunningWorkspace<T>(
       );
     }
     if (summary.state === "starting" || summary.state === "reloading") {
-      throw new NotHostedError(
+      throw new NotReadyError(
         `workspace ${id} is ${summary.state} in the Marbles process; retry once it is ready`
       );
     }
     if (summary.state !== "ready") {
-      throw new NotHostedError(
+      const Refusal =
+        summary.state === "stopped" ? NotHostedError : NotReadyError;
+      throw new Refusal(
         `workspace ${id} is ${summary.state} in the Marbles process${summary.error ? `: ${summary.error}` : ""}; ${ATTACH_HINT}`
       );
     }

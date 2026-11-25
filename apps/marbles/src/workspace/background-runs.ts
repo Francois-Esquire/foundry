@@ -6,10 +6,12 @@ import type { Output } from "ai";
 import type { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import type { ExecutionRun } from "~/lib/execution-record";
+import type { ExecutionStatus } from "~/lib/execution-statuses";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import { AGENT_DEFINITION, AGENT_PROMPT } from "~/lib/handles";
 import { idempotencyKeyOf } from "~/lib/launcher";
 import { buildDefinition } from "~/lib/managers/agents";
+import type { RunView } from "~/lib/managers/runs";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type {
   AgentDefinition,
@@ -26,9 +28,14 @@ import type {
   DispatchOptions,
   EnqueueOptions,
   RunInfo,
+  RunListQuery,
+  RunPage,
+  RunSummary,
 } from "~/model/connection";
 
 const AGENT_DISPATCH = "agent-dispatch";
+const DEFAULT_RUN_PAGE = 50;
+const MAX_RUN_PAGE = 200;
 
 async function dispatched(
   declared: AgentLike<Output.Output>,
@@ -60,6 +67,43 @@ function runStatus(status: RunStatus): RunInfo["status"] {
   return status === "complete" ? "completed" : status;
 }
 
+function listedStatus(status: ExecutionStatus): RunInfo["status"] {
+  return runStatus(status === "interrupted" ? "failed" : status);
+}
+
+function matching(query: RunListQuery): (run: RunSummary) => boolean {
+  return (run) =>
+    (query.kind === undefined || run.kind === query.kind) &&
+    (query.name === undefined || run.name === query.name) &&
+    (query.status === undefined || query.status.includes(run.status));
+}
+
+function isoOf(at: number | null | undefined): string | undefined {
+  return at === null || at === undefined
+    ? undefined
+    : new Date(at).toISOString();
+}
+
+function snapshotTimes(
+  status: RunStatus,
+  stored: RunRecord | undefined,
+  execution: ExecutionRun | undefined
+): Pick<RunInfo, "endedAt" | "queuedAt" | "startedAt"> {
+  const queuedAt =
+    execution?.timestamps.queuedAt ?? isoOf(stored?.timestamps.createdAt);
+  const startedAt =
+    execution?.timestamps.startedAt ?? isoOf(stored?.timestamps.startedAt);
+  const endedAt = TERMINAL_RUN_STATUSES.has(status)
+    ? (isoOf(stored?.timestamps.completedAt ?? stored?.timestamps.failedAt) ??
+      execution?.timestamps.settledAt)
+    : undefined;
+  return {
+    ...(endedAt === undefined ? {} : { endedAt }),
+    ...(queuedAt === undefined ? {} : { queuedAt }),
+    ...(startedAt === undefined ? {} : { startedAt }),
+  };
+}
+
 type RunDetails = Omit<RunInfo, "status">;
 
 interface Held {
@@ -86,15 +130,37 @@ function sessionOf(input: unknown): SessionRef | undefined {
     : (session as SessionRef);
 }
 
-function identity(runId: string, name: string, input: unknown): RunDetails {
+function correlationSession(
+  correlation: Readonly<Record<string, string>> | undefined
+): SessionRef | undefined {
+  const raw = correlation?.agentSession;
+  if (raw === undefined) {
+    return undefined;
+  }
+  try {
+    return sessionOf({ session: JSON.parse(raw) as unknown });
+  } catch {
+    return undefined;
+  }
+}
+
+function identity(
+  runId: string,
+  name: string,
+  input: unknown,
+  correlation?: Readonly<Record<string, string>>
+): RunDetails {
   if (name !== AGENT_DISPATCH) {
     return { kind: "workflow", name, runId };
   }
-  const session = sessionOf(input);
+  const session = sessionOf(input) ?? correlationSession(correlation);
   return {
     kind: "agent",
     name:
-      named(field(input, "agentId")) ?? named(field(input, "agent")) ?? name,
+      named(field(input, "agentId")) ??
+      named(field(input, "agent")) ??
+      named(correlation?.agentId) ??
+      name,
     runId,
     ...(session === undefined ? {} : { session }),
   };
@@ -125,7 +191,8 @@ function storedDetails(
   const record = identity(
     runId,
     stored?.step ?? execution?.name ?? "",
-    stored?.input ?? execution?.input
+    stored?.input ?? execution?.input,
+    execution?.correlation
   );
   const status = stored?.status ?? execution?.status ?? "queued";
   if (stored?.status === "complete") {
@@ -381,11 +448,20 @@ export class BackgroundRuns {
     }
     this.#sessions.set(session.ref.id, session);
     try {
-      const launched = await this.#engine.launch<AgentResult>(AGENT_DISPATCH, {
-        ...options,
-        agentId: agent.id,
-        session: session.ref,
-      });
+      const launched = await this.#engine.launch<AgentResult>(
+        AGENT_DISPATCH,
+        {
+          ...options,
+          agentId: agent.id,
+          session: session.ref,
+        },
+        {
+          correlation: {
+            agentId: agent.id,
+            agentSession: JSON.stringify(session.ref),
+          },
+        }
+      );
       return await this.#track(
         launched,
         { kind: "agent", name: agent.id, session: session.ref },
@@ -434,13 +510,60 @@ export class BackgroundRuns {
   }
 
   async get(runId: string): Promise<RunInfo> {
-    const { completion, record, status } = await this.#lookup(runId);
+    const { completion, record, status, times } = await this.#lookup(runId);
     if (TERMINAL_RUN_STATUSES.has(status)) {
       await completion;
     }
     return {
       ...record,
+      ...times,
       status: runStatus(status),
+    };
+  }
+
+  async list(query: RunListQuery = {}): Promise<RunPage> {
+    const runs = [...(await this.#engine.readRuns())]
+      .reverse()
+      .filter((view) => view.kind === "workflow")
+      .map((view) => this.#summary(view))
+      .filter(matching(query));
+    const cursor = query.cursor ?? 0;
+    const end =
+      cursor + Math.min(query.limit ?? DEFAULT_RUN_PAGE, MAX_RUN_PAGE);
+    return {
+      items: runs.slice(cursor, end),
+      ...(end < runs.length ? { nextCursor: end } : {}),
+      total: runs.length,
+    };
+  }
+
+  #summary(view: RunView): RunSummary {
+    const known =
+      this.#held.get(view.id)?.record ??
+      (view.input === undefined ? this.#identities.get(view.id) : undefined);
+    const { kind, name, session } =
+      known ??
+      identity(
+        view.id,
+        view.name,
+        view.input,
+        this.#engine.executions.get(view.id)?.correlation
+      );
+    const status = listedStatus(view.status);
+    const terminal =
+      status === "completed" || status === "failed" || status === "cancelled";
+    return {
+      ...(terminal && view.endedAt !== undefined
+        ? { endedAt: view.endedAt }
+        : {}),
+      ...(terminal && view.error !== undefined ? { error: view.error } : {}),
+      id: view.id,
+      kind,
+      name,
+      queuedAt: view.queuedAt,
+      ...(session === undefined ? {} : { session }),
+      ...(view.startedAt === undefined ? {} : { startedAt: view.startedAt }),
+      status,
     };
   }
 
@@ -456,10 +579,12 @@ export class BackgroundRuns {
     if (status === undefined) {
       throw new Error(`no engine run "${runId}"`);
     }
+    const normalized = status === "interrupted" ? ("failed" as const) : status;
     return {
       completion: held?.completion ?? SETTLED,
       record,
-      status: status === "interrupted" ? ("failed" as const) : status,
+      status: normalized,
+      times: snapshotTimes(normalized, stored, execution),
     };
   }
 

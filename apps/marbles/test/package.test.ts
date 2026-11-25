@@ -718,8 +718,8 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
     expect(listed).toMatchObject({
       result: {
         tools: expect.arrayContaining([
-          expect.objectContaining({ name: "dispatch_workflow" }),
-          expect.objectContaining({ name: "list_tasks" }),
+          expect.objectContaining({ name: "enqueue_workflow" }),
+          expect.objectContaining({ name: "list" }),
         ]),
       },
     });

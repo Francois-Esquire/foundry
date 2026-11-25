@@ -66,8 +66,8 @@ one before it, so writing them in order keeps types flowing forward.
    result takes it as a child: `review({ branch: implement({}, { task }) })`.
    Siblings never talk to each other. A tree with children cannot be
    scheduled directly; wrap it: `workflow("weekly", tree)`. A workflow is a
-   definition too: `weekly({})` locks it, which is what a monitor handler
-   returns to launch it. A workflow is only ever a root, never a child.
+   definition too: `weekly({})` locks it, which can be returned by a monitor
+   handler or locked as a child inside another workflow.
 6. **Add triggers last.** `schedule(weekly).at({ weekday: "fri", hour: 16 })`,
    `schedule(review({}, { target: "packages" })).every("6h")`,
    `monitor("docs/**/*.md").do(…)`, `monitor("https://…").every("5m").do(…)`.
@@ -135,7 +135,7 @@ why they exist lets you design around them instead of hitting them.
   launches only what its handler *returns as a lock*: `ship({}, { task })`
   or `nightly({})`. A bare definition returned is ignored.
 - **An `ask` needs the dashboard.** Only a process that can show the question
-  parks the run: a worker of the Marbles process parks it for a dashboard to
+  suspends the run: a worker of the Marbles process suspends it for a dashboard to
   answer, while `--dry-run` cancels it at the ask instead.
   Design flows with approvals to be launched from the dashboard, or by a
   schedule or monitor while the dashboard is open.

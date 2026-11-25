@@ -275,7 +275,7 @@ workflow("spin").do(() => spin({}));`
     expect(attached.status, attached.stderr).toBe(0);
     started = await start(root, "", { args: ["--source", source], home });
     const { relay, server, session } = started;
-    const dispatched = await call(session, "dispatch_workflow", {
+    const dispatched = await call(session, "enqueue_workflow", {
       name: "spin",
     });
     const text = (dispatched.content ?? [])

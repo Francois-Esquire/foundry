@@ -117,24 +117,27 @@ export class Tasks {
     return expandAll(index.get(parent.id) ?? [], depth, index);
   }
 
+  async getWithRelations(
+    id: string,
+    options: DepthOptions = {}
+  ): Promise<(TaskNode & TaskRelations) | null> {
+    const depth = requireDepth(options.depth);
+    const snapshot = await this.#snapshot();
+    const task = snapshot.tasks.find((item) => item.id === id);
+    if (task === undefined) {
+      return null;
+    }
+    const node =
+      depth === 0
+        ? withTags(task)
+        : expand(task, depth, childrenOf(snapshot.tasks));
+    return { ...node, ...relationsOf(snapshot, task.id) };
+  }
+
   async dependencies(id: string): Promise<TaskRelations> {
     const snapshot = await this.#snapshot();
     const task = requireTask(snapshot.tasks, id);
-    const byId = new Map(snapshot.tasks.map((item) => [item.id, item]));
-    const pick = (ids: readonly TaskId[]): readonly Task[] =>
-      ordered(ids.flatMap((item) => byId.get(item) ?? []));
-    return {
-      dependents: pick(
-        snapshot.dependencies
-          .filter((edge) => edge.dependsOnId === task.id)
-          .map((edge) => edge.taskId)
-      ),
-      dependsOn: pick(
-        snapshot.dependencies
-          .filter((edge) => edge.taskId === task.id)
-          .map((edge) => edge.dependsOnId)
-      ),
-    };
+    return relationsOf(snapshot, task.id);
   }
 
   change(change: TaskChange): Promise<TaskChangeResult> {
@@ -398,6 +401,24 @@ function expandAll(
   index: ChildrenIndex
 ): readonly TaskNode[] {
   return tasks.map((task) => expand(task, depth, index));
+}
+
+function relationsOf(snapshot: TaskSnapshot, id: TaskId): TaskRelations {
+  const byId = new Map(snapshot.tasks.map((item) => [item.id, item]));
+  const pick = (ids: readonly TaskId[]): readonly Task[] =>
+    ordered(ids.flatMap((item) => byId.get(item) ?? []));
+  return {
+    dependents: pick(
+      snapshot.dependencies
+        .filter((edge) => edge.dependsOnId === id)
+        .map((edge) => edge.taskId)
+    ),
+    dependsOn: pick(
+      snapshot.dependencies
+        .filter((edge) => edge.taskId === id)
+        .map((edge) => edge.dependsOnId)
+    ),
+  };
 }
 
 function latestInstant(snapshot: TaskSnapshot): number {

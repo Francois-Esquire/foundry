@@ -22,6 +22,7 @@ import {
   liveRunsSchema,
   queuedParamsSchema,
   retireParamsSchema,
+  runListQuerySchema,
   startParamsSchema,
   workspaceIdSchema,
 } from "~/process/protocol";
@@ -130,6 +131,8 @@ function call(
         text(p.name, "name"),
         p.input as Parameters<typeof host.actions.launch>[1]
       );
+    case "listRuns":
+      return host.listRuns(runListQuerySchema.parse(p.query ?? {}));
     case "pause":
       return runs.pause(text(p.runId, "runId"), text(p.stepId, "stepId"));
     case "resume":

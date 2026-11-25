@@ -184,7 +184,12 @@ describe("a task command the database refuses", { timeout: 60_000 }, () => {
     }
     const client = await mcp(home);
     expect(
-      toolError(await client.callTool({ arguments: {}, name: "list_tasks" }))
+      toolError(
+        await client.callTool({
+          arguments: { resource: "tasks" },
+          name: "list",
+        })
+      )
     ).toMatch(NEWER);
     expect(toolError(await change(client, "Refused"))).toMatch(NEWER);
   });

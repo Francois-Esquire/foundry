@@ -287,13 +287,13 @@ publish.parallel({ a: x({}), b: y({}) }); // children together
 - One definition can be locked many times; each lock is its own node.
 - `.parallel` is the only combinator besides the default series. There is no
   race, branch, or loop yet. A workflow is a definition too: `weekly({})`
-  locks it. A workflow lock is only ever the root of a run, launched,
-  scheduled, or returned by a monitor. As a child in another tree it throws
-  `a workflow can only be the root of a run`.
+  locks it as a root, a trigger target, or a nested child inside another
+  workflow tree (direct or indirect cycles are rejected, and `$workflow` is
+  reserved as a child key).
 
 In a parallel group the first failure fails the run; the siblings are
-aborted and awaited before the failure is reported. A sibling that parks on
-a question parks the parent with it while the others finish.
+aborted and awaited before the failure is reported. A sibling that suspends on
+a question suspends the parent with it while the others finish.
 
 ## Context
 

@@ -86,7 +86,7 @@ the file must not do work. Attaching (the dashboard, `run`, `enqueue`, and
 ### Enqueue and watch a background run
 
 `marbles enqueue`, and the [MCP server](/marbles/reference/mcp)'s
-`dispatch_workflow` and `dispatch_agent`, return a run ID without waiting
+`enqueue_workflow` and `dispatch_agent`, return a run ID without waiting
 for the run. Keep the ID from `enqueue`'s stdout and wait for the run with
 `watch`:
 

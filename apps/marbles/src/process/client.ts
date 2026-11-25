@@ -12,6 +12,7 @@ import type {
   DispatchOptions,
   RollResult,
   RunInfo,
+  RunPage,
   WorkspaceConfig,
   WorkspaceConnection,
   WorkspaceSummary,
@@ -532,6 +533,8 @@ function remoteWorkspace(
       }),
     getRun: (runId) => call<RunInfo>(WORKSPACE_METHODS.getRun, { runId }),
     id,
+    listRuns: (query = {}) =>
+      call<RunPage>(WORKSPACE_METHODS.listRuns, { query }),
     roll: (name, input) =>
       call<RollResult>(WORKSPACE_METHODS.roll, { input, name }),
     root,

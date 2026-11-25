@@ -126,28 +126,53 @@ From this checkout, without a build, run `bun --no-env-file
 under `cwd`. The server reads and writes that workspace's stored state and
 drives the Marbles process when one runs. It never starts the process,
 never attaches the workspace, and runs none of its source, under
-`--dry-run` too. The task tools
+`--dry-run` too. Workspaces and tasks
 work without a process, and without a source, for this workspace and any
 workspace recorded under the state root, even one whose checkout is gone:
 the Marbles process that hosts the workspace
-answers, or the server opens the stored tasks for the call. `list_config`, the dispatch
-tools, `get_run`, and `cancel_run` need the Marbles process to host the workspace,
-and return an error that names `marbles daemon attach` without one. Its engine
+answers, or the server opens the stored tasks for the call. Definitions,
+runs, a workspace's configuration, `enqueue_workflow`, `dispatch_agent`, and
+`cancel_run` need the Marbles process to host the workspace, and return an
+error that names `marbles daemon attach` without one. Its engine
 generation loads the workspace's source modules, and an edit brings up the next generation.
 
-The server offers `list_workspaces`, `list_config`, `dispatch_workflow`,
-`dispatch_agent`, `get_run`, and `cancel_run`, plus the task tools
-`list_tasks`, `ready_tasks`, `get_task`, `task_dependencies`, and
-`change_tasks`. Every tool but
-`list_workspaces` takes an optional `workspace` id, from `list_workspaces`,
-to address another workspace the process hosts instead of the server's own.
-`list_config` returns workflow and step names with input schemas, agent
-IDs and model routes, and declared schedules and monitors. `dispatch_workflow`
-takes `name` and optional `input`, launches in the background, and returns
-a real engine `runId` with its current engine status.
-Schedules and monitors are listed but are not polled by this server.
+The server offers six tools: `list`, `get`, `enqueue_workflow`,
+`dispatch_agent`, `cancel_run`, and `change_tasks`. Each takes an optional
+`workspace` id, from `list` with `resource: "workspaces"`, to address another
+workspace the process hosts instead of the server's own; `list` of
+workspaces and `get` of a workspace refuse it.
 
-`dispatch_agent` starts an agent in the background and returns a `runId`,
+`list` takes a `resource`, `workspaces`, `definitions`, `tasks`, or `runs`,
+and returns `{ items, total, nextCursor? }`; pass `nextCursor` back as
+`cursor` for the next page (runs cursors page the current newest-first list,
+so offsets can shift if new runs arrive between pages). Its `filter` takes
+only the keys its resource names: `kind` and `name` for definitions; `status`,
+`parentId`, `tags`, and `ready: true` (open tasks nothing holds back) for
+tasks; `status` (`queued`, `running`, `suspended`, `completed`, `failed`, or
+`cancelled`), `name`, and `kind` (`agent` or `workflow`) for runs, newest
+first. `depth` expands subtasks. `get` takes a `resource`, `workspace`,
+`definition`, `task`, or `run`, and an `id`, and returns `{ item }`. A
+workspace's summary is read without a process; its `definitions`, `agents`,
+`schedules`, `monitors`, and `observers` come once it is hosted and ready. A
+task's `dependsOn` and `dependents` are read only when `fields` asks for them.
+Both tools take `fields`, the top-level fields to return; the identity field,
+`id`, or `name` for a definition, is always kept. A task's `updatedAt` is the
+`expectedUpdatedAt` token for `change_tasks`. Tool refusals return `isError:
+true` with `{ "error": { "code", "message" } }` (such as `not_hosted`,
+`not_ready`, `not_found`, `invalid_fields`, `invalid_filter`, or
+`invalid_argument`); root-schema input validation failures are returned by the
+MCP SDK as `isError: true` plain validation text before the handler runs.
+
+`enqueue_workflow` takes `name`, optional `input`, and an optional nonblank
+`key`, launches the step or workflow in the background, and returns its run
+`id` with its current engine status. A second call with the same `name` and
+`key` in the workspace returns the run already queued under it. Read a
+definition's input schema with `get` (`resource: "definition"`) or `list`
+(`resource: "definitions"`, `fields: ["inputSchema"]`). Schedules and monitors
+are listed by `get` but are not addressable by `enqueue_workflow` or polled by
+this server.
+
+`dispatch_agent` starts an agent in the background and returns a run `id`,
 `session`, and current status immediately after session setup. It accepts:
 
 - `prompt`: the task to perform.
@@ -180,15 +205,15 @@ For example, call `dispatch_agent` with:
 }
 ```
 
-Both dispatch commands return acknowledgements with run metadata only, even
-when status is already `completed`. Read final results through `get_run`.
-Poll `get_run` with
-`{ "runId": "the-returned-run-id" }` for status, final `text`/`output`, or
-an `error`. Status follows the engine: `queued`, `running`, `suspended`,
-`completed`, `failed`, or `cancelled`. `cancel_run` takes the same run ID and requests cancellation.
+Both launch tools return acknowledgements with run metadata only, even
+when status is already `completed`. Read final results through `get` with
+`{ "resource": "run", "id": "the-returned-run-id" }` for status, final
+`text`/`output`, or an `error`, or follow a run live with `marbles watch
+<id>`. Status follows the engine: `queued`, `running`, `suspended`,
+`completed`, `failed`, or `cancelled`. `cancel_run` takes the same `id` and requests cancellation.
 Dispatched runs belong to the engine generation that started them, so
 closing the MCP connection ends only the server and leaves them running.
-`get_run` reads the run's stored records, so any server for the same
+`get` reads the run's stored records, so any server for the same
 workspace finds it, and a later generation still finds it after a source
 reload or `marbles daemon stop`, once a Marbles process hosts the workspace
 again. Its saved output stays watchable.
@@ -258,8 +283,8 @@ Marbles process that hosts the workspace keeps hosting it, and several MCP
 clients can use one process at once. Set `FOUNDRY_HOME` to use a separate
 Foundry home (each home has its own process). Under `--dry-run` the server
 joins no process, lists only its own workspace, keeps its tasks in memory
-for the session, and writes nothing. `list_config`, the dispatch tools,
-`get_run`, and `cancel_run` then return an error. A dry run of a workflow
+for the session, and writes nothing. Whatever needs the Marbles process
+then returns a `not_hosted` error. A dry run of a workflow
 goes through `marbles run <name> --dry-run`.
 
 ### Dashboard
@@ -420,13 +445,16 @@ Execution Run statuses and can load in a renderer.
 
 Hosts register work with `engine.task` and launch it with `engine.launch` or
 `engine.run`. Every launch is a job of the engine's `@foundry/queue` from the
-moment it is launched, in a named FIFO queue (a concurrency pool) with
-configurable concurrency and no length limit; a long-lived task belongs in a
-queue of its own whose concurrency is `Infinity`, so it never holds a bounded
-one. `engine.executions` reads and follows the runs and their model-turn,
-tool-call and host observations. Task sessions and borrowed sandbox
-handles stop with the task; closing a borrowed handle leaves its container with
-its owner.
+moment it is launched, in a named FIFO concurrency pool with a configurable
+limit and no length limit; a long-lived task belongs in a pool of its own whose
+limit is `Infinity`, so it never holds a bounded one. Source files configure
+pools with `export default defineConfig({ pools: { review: 2 }, pool: "review" })`.
+Pool limits are positive integers or `Infinity`. Hosted and script engines use
+limit 4 in `default`; raw engines use 1. Awaiting an enqueued run holds the
+caller's place; use `.run()` inline or separate pools. `engine.executions` reads
+and follows the runs and their model-turn, tool-call and host observations. Task
+sessions and borrowed sandbox handles stop with the task; closing a borrowed
+handle leaves its container with its owner.
 
 An engine built with `dry: true`, through any entry (`Engine`,
 `hostWorkspace`, the CLI), keeps everything in memory: it writes nothing
@@ -475,8 +503,3 @@ exit gives them back.
 | Host or develop Marbles | [Embedding](https://francois-esquire.github.io/foundry/marbles/reference/engine/) and [Contributing](https://francois-esquire.github.io/foundry/marbles/contributing/) |
 
 For terminal UI development, see the [stories guide](stories/README.md).
-
-Source files configure pools with `export default defineConfig({ pools: { review: 2 }, pool: "review" })`.
-Pool limits are positive integers or `Infinity`. Hosted and script engines use
-limit 4 in `default`; raw engines use 1. Awaiting a launched run holds the
-caller's place; use `.run()` inline or separate pools.

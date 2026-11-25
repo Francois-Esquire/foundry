@@ -56,11 +56,14 @@ it("dispatches adversarial-review over STDIO MCP and reads both axes back", asyn
     let last: z.output<typeof run> | undefined;
     await vi.waitFor(
       async () => {
-        last = run.parse(
+        last = z.object({ item: run }).parse(
           payload(
-            await client.callTool({ arguments: { runId }, name: "get_run" })
+            await client.callTool({
+              arguments: { id: runId, resource: "run" },
+              name: "get",
+            })
           )
-        );
+        ).item;
         expect(["completed", "failed", "cancelled"]).toContain(last.status);
       },
       { interval: 100, timeout: 30_000 }
@@ -68,20 +71,23 @@ it("dispatches adversarial-review over STDIO MCP and reads both axes back", asyn
     return last;
   };
   const dispatch = async (input: unknown) =>
-    z.object({ runId: z.string() }).parse(
+    z.object({ id: z.string() }).parse(
       payload(
         await client.callTool({
           arguments: { input, name: "adversarial-review" },
-          name: "dispatch_workflow",
+          name: "enqueue_workflow",
         })
       )
-    ).runId;
+    ).id;
 
   try {
     await client.connect(transport);
     const config = await client.callTool({
-      arguments: {},
-      name: "list_config",
+      arguments: {
+        filter: { name: "adversarial-review" },
+        resource: "definitions",
+      },
+      name: "list",
     });
     expect(JSON.stringify(payload(config))).toContain('"adversarial-review"');
 

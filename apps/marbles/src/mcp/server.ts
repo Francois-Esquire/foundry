@@ -1,112 +1,143 @@
+import {
+  MAX_OPERATIONS_PER_CHANGE,
+  taskChangeResultSchema,
+  taskOperationSchema,
+} from "@foundry/tasks";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { registerTaskTools, type TaskCommandRunner } from "~/mcp/tasks";
-import type { WorkspaceConnection, WorkspaceSummary } from "~/model/connection";
+import { answered } from "~/mcp/errors";
+import {
+  getInput,
+  listInput,
+  type McpServerOptions,
+  resources,
+  runItem,
+  WORKSPACE_INPUT,
+} from "~/mcp/resources";
+import type { DispatchInfo, WorkspaceConnection } from "~/model/connection";
 import { dispatchSchema } from "~/workspace/dispatch";
 import { version } from "../../package.json";
-
-export interface McpServerOptions {
-  hosted<T>(
-    id: string,
-    work: (workspace: WorkspaceConnection) => Promise<T>
-  ): Promise<T>;
-  readonly id: string;
-  readonly tasks: TaskCommandRunner;
-  workspaces(): Promise<readonly WorkspaceSummary[]>;
-}
-
-function result(value: unknown): CallToolResult {
-  return {
-    content: [{ text: JSON.stringify(value ?? null), type: "text" }],
-  };
-}
-
-const WORKSPACE_INPUT = z
-  .string()
-  .min(1)
-  .optional()
-  .describe(
-    "A workspace id from list_workspaces; this server's workspace when omitted."
-  );
 
 const NEEDS_HOST =
   "Needs a running Marbles process that hosts the workspace (marbles daemon attach); this server starts none.";
 
+const OFFLINE =
+  "workspaces and tasks are read from stored state without a running Marbles process; definitions and runs need one.";
+
+const listOutput = z.looseObject({
+  items: z.array(z.record(z.string(), z.unknown())),
+  nextCursor: z.int().min(0).optional(),
+  total: z.int().min(0),
+});
+
+const getOutput = z.looseObject({
+  item: z.record(z.string(), z.unknown()),
+});
+
+function launched({ runId, ...run }: DispatchInfo): Record<string, unknown> {
+  return { id: runId, ...run };
+}
+
 export function createMcpServer(options: McpServerOptions): McpServer {
-  const { hosted, tasks, workspaces } = options;
   const on = <T>(
     id: string | undefined,
     work: (workspace: WorkspaceConnection) => Promise<T>
-  ): Promise<T> => hosted(id ?? options.id, work);
+  ): Promise<T> => options.hosted(id ?? options.id, work);
+  const read = resources(options);
 
   const server = new McpServer({ name: "marbles", version });
   server.registerTool(
-    "list_workspaces",
+    "list",
     {
       annotations: { readOnlyHint: true },
-      description:
-        "List every workspace the Marbles process hosts, with its id, root, source, and state; without a running process, the workspaces kept under the state root, each stopped. Pass an id as `workspace` to another tool to address it instead of this server's own.",
+      description: `List one resource of a Marbles workspace: workspaces (every workspace the Marbles process hosts, or those kept under the state root, each stopped), definitions (launchable workflows and steps), tasks (oldest first; filter.ready true lists what is next), or runs (agent and workflow runs, newest first). filter takes only the keys its resource names; fields picks top-level fields and always keeps the identity field. Paginated: pass the returned nextCursor as cursor (runs cursors are offsets into the current newest-first list). A task's updatedAt is the expectedUpdatedAt token for change_tasks. ${OFFLINE} Refusals return {error: {code, message}}.`,
+      inputSchema: listInput,
+      outputSchema: listOutput,
     },
-    async () => result(await workspaces())
+    (input) => answered(() => read.list(input))
   );
   server.registerTool(
-    "list_config",
+    "get",
     {
       annotations: { readOnlyHint: true },
-      description: `List the loaded Marbles source, launchable definitions with input schemas, agents, and declared triggers. ${NEEDS_HOST}`,
-      inputSchema: { workspace: WORKSPACE_INPUT },
+      description: `Read one resource by id: workspace (its summary, and when hosted and ready its definitions, agents, schedules, monitors and observers; id defaults to this server's workspace), definition (by name, with its input schema), task (with depth levels of subtasks; ask for dependsOn or dependents in fields to read its dependencies), or run (status, session, final text or output, error). fields picks top-level fields and always keeps the identity field. ${OFFLINE} Refusals return {error: {code, message}}.`,
+      inputSchema: getInput,
+      outputSchema: getOutput,
     },
-    async ({ workspace: id }) =>
-      result(await on(id, (workspace) => workspace.describe()))
+    (input) => answered(() => read.get(input))
   );
   server.registerTool(
-    "dispatch_workflow",
+    "enqueue_workflow",
     {
-      description: `Start a named Marbles workflow or step in the background and return its runId. Final output is available through get_run. Use marbles watch <runId> to follow output until completion. Use list_config for names and input schemas. This can perform the actions defined by the source. ${NEEDS_HOST}`,
+      description: `Start a named Marbles workflow or step in the background and return its run id and status; schedule and monitor keys are not addressable. Passing the same name and key again in this workspace returns the run already queued under it instead of starting another. Read status and final output with get (resource: run), or follow it live with marbles watch <id>. list (resource: definitions) names what can start; read input schemas with get (resource: definition) or list (resource: definitions, fields: ["inputSchema"]). This can perform the actions defined by the source. ${NEEDS_HOST}`,
       inputSchema: {
         input: z.unknown().optional(),
+        key: z
+          .string()
+          .min(1)
+          .refine((value) => value.trim().length > 0, "key must not be blank")
+          .optional(),
         name: z.string().min(1),
         workspace: WORKSPACE_INPUT,
       },
     },
-    async ({ name, input, workspace: id }) =>
-      result(
-        await on(id, (workspace) => workspace.dispatchWorkflow(name, input))
+    ({ input, key, name, workspace: id }) =>
+      answered(async () =>
+        launched(
+          await on(id, (workspace) =>
+            workspace.dispatchWorkflow(
+              name,
+              input,
+              key === undefined ? undefined : { key }
+            )
+          )
+        )
       )
   );
   server.registerTool(
     "dispatch_agent",
     {
-      description: `Start an agent in the background and return its runId and session. Final output is available through get_run. Use an agent ID from list_config, or omit agent for an ad hoc agent. Use marbles watch <runId> to follow output until completion, or get_run to read status. ${NEEDS_HOST}`,
+      description: `Start an agent in the background and return its run id and session. Use an agent ID from get (resource: workspace, fields: ["agents"]), or omit agent for an ad hoc agent; pass the returned session to continue it. Read status and final text with get (resource: run), or follow it live with marbles watch <id>. ${NEEDS_HOST}`,
       inputSchema: { ...dispatchSchema.shape, workspace: WORKSPACE_INPUT },
     },
-    async ({ workspace: id, ...dispatch }) =>
-      result(await on(id, (workspace) => workspace.dispatchAgent(dispatch)))
-  );
-  server.registerTool(
-    "get_run",
-    {
-      annotations: { readOnlyHint: true },
-      description: `Read an agent or workflow run's status, session, final text/output, or error by runId. ${NEEDS_HOST}`,
-      inputSchema: { runId: z.string().min(1), workspace: WORKSPACE_INPUT },
-    },
-    async ({ runId, workspace: id }) =>
-      result(await on(id, (workspace) => workspace.getRun(runId)))
+    ({ workspace: id, ...dispatch }) =>
+      answered(async () =>
+        launched(await on(id, (workspace) => workspace.dispatchAgent(dispatch)))
+      )
   );
   server.registerTool(
     "cancel_run",
     {
-      description: `Cancel an agent or workflow run. Poll get_run until cancellation finishes. ${NEEDS_HOST}`,
-      inputSchema: { runId: z.string().min(1), workspace: WORKSPACE_INPUT },
+      description: `Cancel an agent or workflow run by id and return the run as get (resource: run) reads it. Read it again with get until cancellation finishes. ${NEEDS_HOST}`,
+      inputSchema: { id: z.string().min(1), workspace: WORKSPACE_INPUT },
     },
-    async ({ runId, workspace: id }) =>
-      result(await on(id, (workspace) => workspace.cancelRun(runId)))
+    ({ id: runId, workspace: id }) =>
+      answered(async () =>
+        runItem(await on(id, (workspace) => workspace.cancelRun(runId)))
+      )
   );
-  registerTaskTools(
-    server,
-    (command, id) => tasks(command, id ?? options.id),
-    WORKSPACE_INPUT
+  server.registerTool(
+    "change_tasks",
+    {
+      annotations: { destructiveHint: false, readOnlyHint: false },
+      description:
+        "Apply one atomic batch of task operations: task.create (key, input, optional parent), task.update (a patch: title, description and tags replace what is stored; metadata sets each key given and a null value removes it), task.set_status (open, active, completed, cancelled; requireReady refuses with not_ready unless the task is ready as the batch stands at that operation; later operations in the batch are not rechecked), task.move (parent null for root), dependency.add, dependency.remove. Refer to existing tasks by {id} and to tasks created earlier in the batch by {key}. Pass expectedUpdatedAt to refuse a change if the task moved on. Every operation applies or none does; a refusal returns {error: {code, message}}.",
+      inputSchema: z.strictObject({
+        operations: z
+          .array(taskOperationSchema)
+          .min(1)
+          .max(MAX_OPERATIONS_PER_CHANGE),
+        workspace: WORKSPACE_INPUT,
+      }),
+      outputSchema: taskChangeResultSchema,
+    },
+    ({ workspace, ...change }) =>
+      answered(async () => ({
+        ...(await options.tasks(
+          { change, kind: "change" },
+          workspace ?? options.id
+        )),
+      }))
   );
   return server;
 }
