@@ -69,14 +69,14 @@ dashboard and leaves the workspace hosted.
 
 ## Questions and approvals
 
-A step that calls `ask.approval(...)` or `ask.question(...)` parks its run.
+A step that calls `ask.approval(...)` or `ask.question(...)` suspends its run.
 The question appears in the Feed. Press a number to pick a choice, or `a`
 to type an answer; an approval takes an optional note. The run continues
 from the step that asked.
 
-A parked run survives a quit, a stop, and a crash. The next dashboard on
+A suspended run survives a quit, a stop, and a crash. The next dashboard on
 that workspace sees the question. `marbles run` and piped `marbles` cannot answer,
-so launch work that asks questions from the dashboard, or leave it parked
+so launch work that asks questions from the dashboard, or leave it suspended
 until you open one. [Durability](/marbles/concepts/durability) explains how
 the step continues.
 
@@ -117,9 +117,9 @@ cancelled. Stopping the watcher does not cancel the run. See
 ## From an MCP client
 
 `marbles mcp` serves the workspace to an MCP client over stdio. Another
-agent can read and change tasks, list the loaded configuration, start a
-named workflow with `dispatch_workflow`, or start agent work with
-`dispatch_agent`. Both dispatch tools return a `runId` without waiting.
+agent can read and change tasks, list the loaded configuration, enqueue a
+named workflow with `enqueue_workflow`, or start agent work with
+`dispatch_agent`. Both dispatch tools return a run `id` without waiting.
 Dispatching needs the workspace hosted first, with `marbles daemon attach`.
 
 An MCP client that creates tasks feeds [the outer

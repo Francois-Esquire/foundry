@@ -598,10 +598,10 @@ export interface Resources {
   list(input: ListInput): Promise<Record<string, unknown>>;
 }
 
-function outdatedDaemon(cause: Error): ToolRefusal {
+function outdatedDaemon(method: string, cause: Error): ToolRefusal {
   return new ToolRefusal(
     "daemon_outdated",
-    'the running Marbles process predates the "listRuns" method this MCP server needs; restart it with `marbles daemon stop` and then `marbles daemon start`',
+    `the running Marbles process predates the "${method}" method this MCP server needs; restart it with \`marbles daemon stop\` and then \`marbles daemon start\``,
     { cause }
   );
 }
@@ -656,7 +656,7 @@ export function resources(options: McpServerOptions): Resources {
               error instanceof Error &&
               error.message === 'no workspace method "listRuns"'
             ) {
-              throw outdatedDaemon(error);
+              throw outdatedDaemon("listRuns", error);
             }
             throw error;
           }
@@ -702,17 +702,29 @@ export function resources(options: McpServerOptions): Resources {
     return { ...item, ...configOf(config) };
   };
 
-  const taskItem = (
+  const taskItem = async (
     request: Extract<GetRequest, { resource: "task" }>
-  ): Promise<object> =>
-    tasks(
-      {
-        id: request.id,
-        kind: request.relations ? "inspect" : "get",
-        ...(request.depth === undefined ? {} : { depth: request.depth }),
-      },
-      request.workspace
-    );
+  ): Promise<object> => {
+    try {
+      return await tasks(
+        {
+          id: request.id,
+          kind: request.relations ? "inspect" : "get",
+          ...(request.depth === undefined ? {} : { depth: request.depth }),
+        },
+        request.workspace
+      );
+    } catch (error) {
+      if (
+        request.relations &&
+        error instanceof Error &&
+        (error.name === "ZodError" || error.message.includes("inspect"))
+      ) {
+        throw outdatedDaemon("tasks inspect", error);
+      }
+      throw error;
+    }
+  };
 
   const read = async (request: GetRequest): Promise<object> => {
     switch (request.resource) {

@@ -705,3 +705,39 @@ it("does not pair a running status with a final timestamp when a workflow settle
     await jobs.close();
   }
 });
+
+it("does not pair a running status with endedAt when a workflow settles mid-list", async () => {
+  const engine = testEngine();
+  engines.push(engine);
+  const { promise, resolve: release } = Promise.withResolvers<string>();
+  engine.define({ fn: () => promise, kind: "step", name: "slow" });
+  const jobs = new BackgroundRuns(engine, new Catalog());
+  await engine.start();
+  const started = await jobs.startWorkflow("slow", {});
+  try {
+    await vi.waitFor(async () =>
+      expect((await jobs.get(started.runId)).status).toBe("running")
+    );
+    const originalRuns = engine.runs.bind(engine);
+    const runsSpy = vi
+      .spyOn(engine, "runs")
+      .mockImplementationOnce(async () => {
+        const snapshot = await originalRuns();
+        release("done");
+        await vi.waitFor(async () =>
+          expect(
+            (await originalRuns()).find((r) => r.id === started.runId)?.status
+          ).toBe("complete")
+        );
+        return snapshot;
+      });
+    const page = await jobs.list();
+    runsSpy.mockRestore();
+    const item = page.items.find((entry) => entry.id === started.runId);
+    expect(item?.status).toBe("running");
+    expect(item?.endedAt).toBeUndefined();
+  } finally {
+    release("done");
+    await jobs.close();
+  }
+});

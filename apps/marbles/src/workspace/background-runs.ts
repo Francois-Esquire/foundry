@@ -549,16 +549,21 @@ export class BackgroundRuns {
         view.input,
         this.#engine.executions.get(view.id)?.correlation
       );
+    const status = listedStatus(view.status);
+    const terminal =
+      status === "completed" || status === "failed" || status === "cancelled";
     return {
-      ...(view.endedAt === undefined ? {} : { endedAt: view.endedAt }),
-      ...(view.error === undefined ? {} : { error: view.error }),
+      ...(terminal && view.endedAt !== undefined
+        ? { endedAt: view.endedAt }
+        : {}),
+      ...(terminal && view.error !== undefined ? { error: view.error } : {}),
       id: view.id,
       kind,
       name,
       queuedAt: view.queuedAt,
       ...(session === undefined ? {} : { session }),
       ...(view.startedAt === undefined ? {} : { startedAt: view.startedAt }),
-      status: listedStatus(view.status),
+      status,
     };
   }
 

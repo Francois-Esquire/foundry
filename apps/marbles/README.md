@@ -445,13 +445,16 @@ Execution Run statuses and can load in a renderer.
 
 Hosts register work with `engine.task` and launch it with `engine.launch` or
 `engine.run`. Every launch is a job of the engine's `@foundry/queue` from the
-moment it is launched, in a named FIFO queue (a concurrency pool) with
-configurable concurrency and no length limit; a long-lived task belongs in a
-queue of its own whose concurrency is `Infinity`, so it never holds a bounded
-one. `engine.executions` reads and follows the runs and their model-turn,
-tool-call and host observations. Task sessions and borrowed sandbox
-handles stop with the task; closing a borrowed handle leaves its container with
-its owner.
+moment it is launched, in a named FIFO concurrency pool with a configurable
+limit and no length limit; a long-lived task belongs in a pool of its own whose
+limit is `Infinity`, so it never holds a bounded one. Source files configure
+pools with `export default defineConfig({ pools: { review: 2 }, pool: "review" })`.
+Pool limits are positive integers or `Infinity`. Hosted and script engines use
+limit 4 in `default`; raw engines use 1. Awaiting an enqueued run holds the
+caller's place; use `.run()` inline or separate pools. `engine.executions` reads
+and follows the runs and their model-turn, tool-call and host observations. Task
+sessions and borrowed sandbox handles stop with the task; closing a borrowed
+handle leaves its container with its owner.
 
 An engine built with `dry: true`, through any entry (`Engine`,
 `hostWorkspace`, the CLI), keeps everything in memory: it writes nothing
@@ -500,8 +503,3 @@ exit gives them back.
 | Host or develop Marbles | [Embedding](https://francois-esquire.github.io/foundry/marbles/reference/engine/) and [Contributing](https://francois-esquire.github.io/foundry/marbles/contributing/) |
 
 For terminal UI development, see the [stories guide](stories/README.md).
-
-Source files configure pools with `export default defineConfig({ pools: { review: 2 }, pool: "review" })`.
-Pool limits are positive integers or `Infinity`. Hosted and script engines use
-limit 4 in `default`; raw engines use 1. Awaiting a launched run holds the
-caller's place; use `.run()` inline or separate pools.

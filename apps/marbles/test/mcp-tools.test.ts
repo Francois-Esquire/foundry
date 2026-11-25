@@ -883,3 +883,30 @@ it("answers every tool's refusal as {error: {code, message}}, keeping the dry-ru
     });
   }
 });
+
+it("reports daemon_outdated when get task with relations hits an older daemon rejecting inspect", async () => {
+  const connected = await connectMcp({
+    hosted: () => Promise.reject(new Error("unused")),
+    tasks: (command) => {
+      if (command.kind === "inspect") {
+        const error = new Error(
+          'Invalid discriminator value. Expected "list" | "get" | "dependencies" | "change", received "inspect"'
+        );
+        error.name = "ZodError";
+        return Promise.reject(error);
+      }
+      return Promise.reject(new Error("unexpected"));
+    },
+    workspaces: () => Promise.resolve(SUMMARIES),
+  });
+  open.push(connected);
+  const answer = refused(
+    await connected.call("get", {
+      fields: ["dependsOn"],
+      id: "t-1",
+      resource: "task",
+    })
+  );
+  expect(answer.code).toBe("daemon_outdated");
+  expect(answer.message).toContain("tasks inspect");
+});

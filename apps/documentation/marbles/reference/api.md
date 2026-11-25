@@ -265,8 +265,7 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
 - **`enqueue` admits a separate run** on the engine and resolves with
   `Enqueued<O>`, `{ id, result }`, before the run ends; `result` settles
   with its output or error and never raises an unhandled rejection. Input
-  the schema refuses rejects the call when the run can start at once,
-  and rejects `result` when the run waited in the queue. Inside a step body
+  the schema refuses rejects the `enqueue` call before the run is queued. Inside a step body
   it enqueues a top-level run of the same engine and records it in the
   step's ledger: a body that runs again after a question or a resume gets
   the same run back for the same definition at the same call position, and
@@ -889,8 +888,7 @@ artifactId, workspace }`, with the other workspace's id in `workspace`),
 `session.messages.appended`). Every fact is `{ type, id, at, ... }` with
 the ids of what it is about; read the object by id for anything more.
 `options.types` hands the observer only facts of those types. It returns
-the observer's identity, `{ kind: "observer", name, source }`. `marbles
-list`, MCP `list_config`, and the engine's `describe()` list each declared
+the observer's identity, `{ kind: "observer", name, source }`. `marbles list`, MCP `get` (`resource: "workspace"`), and the engine's `describe()` list each declared
 observer with its name, source, and `types`; `list` prints
 `[observer] <name> ← <source> <types>`, where the `workflow` source reads
 `runs`.

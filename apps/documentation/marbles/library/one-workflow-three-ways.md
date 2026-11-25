@@ -57,8 +57,8 @@ program plays that client:
 
 <include>./_example/mcp-client.ts</include>
 
-`dispatch_workflow` returns a `runId` straight away; it is an
-acknowledgement, not the result. `get_run` reads the run's status and, once
+`enqueue_workflow` returns a run `id` straight away; it is an
+acknowledgement, not the result. `get` (`resource: "run"`) reads the run's status and, once
 it settles, its `output`. A run waiting on a person reports `suspended`, so
 the loop stops there too. From a terminal, `marbles watch <runId>` follows
 the same run's output until it ends.
@@ -66,7 +66,7 @@ the same run's output until it ends.
 The run belongs to the Marbles process, not to the MCP connection. Closing
 the client leaves the workspace hosted, its schedules and monitors running,
 and any dispatched run going. Without a process that hosts the workspace,
-`dispatch_workflow` returns an error that names `marbles daemon attach`. The [MCP reference](/marbles/reference/mcp)
+`enqueue_workflow` returns a refusal that names `marbles daemon attach`. The [MCP reference](/marbles/reference/mcp)
 lists every tool, including the task tools.
 
 ## What changes between them
@@ -77,4 +77,4 @@ lists every tool, including the task tools.
 | Run history on disk | Yes, under the state root | Only if you pass `state` | Yes, under the state root |
 | Schedules and monitors | Run in the current generation | Only if you drive them | Run in the current generation |
 | Who answers questions | The dashboard's Feed | Your program, with `askable: true` | The dashboard's Feed |
-| Waits for the result | Yes | `run` yes, `launch` no | No; poll `get_run` |
+| Waits for the result | Yes | `run` yes, `launch` no | No; poll `get` (`resource: "run"`) |
