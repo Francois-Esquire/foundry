@@ -71,20 +71,23 @@ async function queuedEnd(
 ): Promise<EndRecord | undefined> {
   let told = false;
   for (;;) {
-    const scopes = await asBusy(() =>
-      readDatabase(stateDatabase(state), (database) =>
-        executionScopes(database, runId)
-      )
+    const found = await asBusy(() =>
+      readDatabase(stateDatabase(state), async (database) => {
+        const scopes = await executionScopes(database, runId);
+        const [scope] = scopes;
+        if (scope === undefined || scopes.length !== 1) {
+          return { found: false as const };
+        }
+        return {
+          found: true as const,
+          record: await readExecution(database, scope, runId),
+        };
+      })
     );
-    const [scope] = scopes ?? [];
-    if (scope === undefined || scopes?.length !== 1) {
+    if (!found?.found) {
       return;
     }
-    const record = await asBusy(() =>
-      readDatabase(stateDatabase(state), (database) =>
-        readExecution(database, scope, runId)
-      )
-    );
+    const { record } = found;
     if (
       record?.status === "queued" &&
       record.owner !== undefined &&

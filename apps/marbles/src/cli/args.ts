@@ -766,6 +766,9 @@ function parseFlags(argv: readonly string[]): Scanned {
       positional.push(word, value);
       continue;
     }
+    if (command !== undefined && Object.hasOwn(MOVED, command)) {
+      knownCommand(command);
+    }
     throw new UsageError(`${scope}unknown option ${word}`);
   }
 

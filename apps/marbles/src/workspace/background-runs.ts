@@ -333,6 +333,9 @@ export class BackgroundRuns {
     { key }: EnqueueOptions = {}
   ): Promise<DispatchInfo> {
     this.#closing.signal.throwIfAborted();
+    if (key !== undefined && key.trim() === "") {
+      throw new TypeError("key must not be blank");
+    }
     if (!this.definitions().some((entry) => entry.name === name)) {
       throw new Error(`no workflow or step named "${name}"`);
     }

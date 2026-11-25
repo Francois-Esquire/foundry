@@ -305,6 +305,10 @@ it("refuses a command line that cannot run, before anything else happens", () =>
       'unknown command "relink"; relink is now marbles artifacts relink',
     ],
     [
+      ["relink", "--all"],
+      'unknown command "relink"; relink is now marbles artifacts relink',
+    ],
+    [
       ["settings", "themes"],
       'unknown command "settings"; settings is now marbles theme',
     ],

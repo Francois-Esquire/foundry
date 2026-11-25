@@ -349,7 +349,7 @@ export function runDefinition(
 
 function quiet(launched: Launched<unknown>): Launched<unknown> {
   launched.result.catch(() => undefined);
-  return launched;
+  return { id: launched.id, result: launched.result };
 }
 
 export function enqueueDefinition(
