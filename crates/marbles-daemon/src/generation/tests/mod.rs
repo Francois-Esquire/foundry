@@ -1,8 +1,11 @@
+mod failures;
 mod mock;
 mod registration;
 mod routing;
+mod sweeping;
 mod switching;
 mod teardown;
+mod watching;
 
 use std::fs;
 use std::time::Duration;
@@ -51,6 +54,10 @@ fn timings() -> TimingConfig {
         handover_retry: Duration::from_millis(10),
         held_wait: Duration::from_secs(2),
         live_work_wait: Duration::from_millis(200),
+        source_poll: Duration::from_secs(3600),
+        switch_debounce: Duration::from_millis(10),
+        sweep: Duration::from_secs(3600),
+        reoffer: Duration::from_secs(30),
     }
 }
 

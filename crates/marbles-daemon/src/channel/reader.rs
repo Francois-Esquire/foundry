@@ -43,16 +43,20 @@ async fn deliver(
     pushed: PushedLines,
 ) -> Option<LineTooLong> {
     for line in pushed.lines.into_iter().flatten() {
-        let event = match decode(&line) {
+        let (event, notification) = match decode(&line) {
             Ok(WireMessage::Response(response)) => {
                 handle.settle(response);
                 continue;
             }
-            Ok(WireMessage::Request(request)) => ChannelEvent::Request(request),
-            Ok(WireMessage::Notification(notification)) => ChannelEvent::Notification(notification),
+            Ok(WireMessage::Request(request)) => (ChannelEvent::Request(request), false),
+            Ok(WireMessage::Notification(notification)) => {
+                (ChannelEvent::Notification(notification), true)
+            }
             Err(_) => continue,
         };
-        let _ = events.send(event).await;
+        if events.send(event).await.is_ok() && notification {
+            handle.note_notification();
+        }
     }
     pushed.overflow
 }

@@ -3,12 +3,12 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+use crate::fingerprint::is_module_path;
 use crate::layout::normalize;
 
 const ID_HEX_DIGITS: usize = 12;
 const AUTHORING_DIR: &str = "marbles";
 const AUTHORING_PARENT: &str = ".foundry";
-const MODULE_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Placement {
@@ -45,13 +45,22 @@ pub(super) fn locate(source: &str, root: Option<&str>) -> Result<Placement, Stri
             placed.display()
         )
     })?;
-    let root = canonical.display().to_string();
-    let source = config_path.display().to_string();
+    let root = utf8(&canonical)?;
+    let source = utf8(&config_path)?;
     Ok(Placement {
         id: workspace_id(&root),
         config: found.then(|| source.clone()),
         root,
         source,
+    })
+}
+
+fn utf8(path: &Path) -> Result<String, String> {
+    path.to_str().map(str::to_owned).ok_or_else(|| {
+        format!(
+            "the path {} is not valid UTF-8, so it cannot be registered",
+            path.display()
+        )
     })
 }
 
@@ -86,12 +95,6 @@ fn source_root(path: &Path) -> PathBuf {
         None if is_directory => path.to_owned(),
         None => containing.to_owned(),
     }
-}
-
-fn is_module_path(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| MODULE_EXTENSIONS.contains(&extension))
 }
 
 #[cfg(test)]

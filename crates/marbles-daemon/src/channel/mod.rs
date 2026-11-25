@@ -7,11 +7,12 @@ mod writer;
 use std::future::Future;
 use std::io;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use self::pending::Pending;
 use self::writer::Outbound;
@@ -58,6 +59,8 @@ pub enum ChannelEvent {
 pub struct ChannelHandle {
     pending: Arc<Pending>,
     outbound: mpsc::UnboundedSender<Outbound>,
+    closing: Arc<watch::Sender<bool>>,
+    seen_notifications: Arc<AtomicU64>,
 }
 
 pub fn open<T>(transport: T) -> (ChannelHandle, mpsc::Receiver<ChannelEvent>)
@@ -68,11 +71,14 @@ where
     let (outbound, queued) = mpsc::unbounded_channel();
     let (events, received) = mpsc::channel(EVENT_CAPACITY);
     let (written, writer_done) = oneshot::channel();
+    let (closing, closed) = watch::channel(false);
     let handle = ChannelHandle {
         pending: Arc::new(Pending::default()),
         outbound,
+        closing: Arc::new(closing),
+        seen_notifications: Arc::new(AtomicU64::new(0)),
     };
-    tokio::spawn(writer::write_frames(write_half, queued, written));
+    tokio::spawn(writer::write_frames(write_half, queued, written, closed));
     tokio::spawn(reader::read_frames(
         read_half,
         handle.clone(),
@@ -123,6 +129,15 @@ impl ChannelHandle {
         if self.pending.close() {
             let _ = self.outbound.send(Outbound::Close);
         }
+        self.closing.send_replace(true);
+    }
+
+    pub fn seen_notifications(&self) -> u64 {
+        self.seen_notifications.load(Ordering::Acquire)
+    }
+
+    fn note_notification(&self) {
+        self.seen_notifications.fetch_add(1, Ordering::Release);
     }
 
     pub fn is_closed(&self) -> bool {

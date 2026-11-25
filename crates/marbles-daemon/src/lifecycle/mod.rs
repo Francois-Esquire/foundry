@@ -1,7 +1,6 @@
 mod actor;
 mod initializer;
 mod link;
-mod output;
 mod route;
 #[cfg(test)]
 mod tests;
@@ -16,19 +15,20 @@ use tokio::task::JoinError;
 
 use self::actor::{Actor, Command, DaemonEvent};
 pub use self::initializer::{
-    InitError, Initialization, InitializeTrigger, Initializer, NoopInitializer,
+    INITIALIZE_TRIGGER_ENV, InitError, Initialization, InitializeTrigger, Initializer,
+    NoopInitializer, SubprocessInitializer,
 };
 use self::link::LifecycleLink;
-pub use self::output::{OutputSink, StdoutSink};
 use crate::Layout;
 use crate::claim::{ClaimError, ProcessClaim};
 use crate::endpoint::{Endpoint, EndpointError};
-use crate::generation::{
-    GenerationLauncher, NoRunOwnerResolver, ReadObserver, RunOwnerResolver, Supervisor,
-    SupervisorParts, TimingConfig,
-};
+#[cfg(test)]
+use crate::generation::ReadObserver;
+use crate::generation::{GenerationLauncher, Supervisor, SupervisorParts, TimingConfig};
+pub use crate::output::{OutputSink, StdoutSink};
 use crate::protocol::{HelloResult, PROTOCOL_VERSION, WorkspaceSummary};
 use crate::recycle::{BinaryWatch, RecycleTarget};
+use crate::store::{StateStore, StoreError};
 
 pub const CLAIM_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 pub const BINARY_POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -61,6 +61,8 @@ pub enum StartError {
     Endpoint(#[from] EndpointError),
     #[error("the claim could not be taken: {0}")]
     Claiming(#[source] JoinError),
+    #[error("the Marbles state could not be read: {0}")]
+    Store(#[source] StoreError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -80,9 +82,12 @@ pub struct DaemonOptions {
     pub binary_watch: Option<BinaryWatch>,
     pub binary_poll_interval: Duration,
     pub launcher: Option<Arc<dyn GenerationLauncher>>,
-    pub run_owners: Arc<dyn RunOwnerResolver>,
+    #[cfg(test)]
     pub reads: Option<Arc<dyn ReadObserver>>,
     pub timings: TimingConfig,
+    pub store: Option<StateStore>,
+    pub open_database: bool,
+    pub installation: Option<PathBuf>,
 }
 
 impl DaemonOptions {
@@ -96,9 +101,33 @@ impl DaemonOptions {
             binary_watch: None,
             binary_poll_interval: BINARY_POLL_INTERVAL,
             launcher: None,
-            run_owners: Arc::new(NoRunOwnerResolver),
+            #[cfg(test)]
             reads: None,
             timings: TimingConfig::default(),
+            store: None,
+            open_database: false,
+            installation: None,
+        }
+    }
+
+    pub fn with_store(self, store: StateStore) -> Self {
+        Self {
+            store: Some(store),
+            ..self
+        }
+    }
+
+    pub fn with_database(self) -> Self {
+        Self {
+            open_database: true,
+            ..self
+        }
+    }
+
+    pub fn with_installation(self, installation: impl Into<PathBuf>) -> Self {
+        Self {
+            installation: Some(installation.into()),
+            ..self
         }
     }
 
@@ -144,13 +173,7 @@ impl DaemonOptions {
         }
     }
 
-    pub fn with_run_owners(self, run_owners: impl RunOwnerResolver) -> Self {
-        Self {
-            run_owners: Arc::new(run_owners),
-            ..self
-        }
-    }
-
+    #[cfg(test)]
     pub fn with_read_observer(self, reads: impl ReadObserver) -> Self {
         Self {
             reads: Some(Arc::new(reads)),
@@ -188,9 +211,12 @@ pub async fn start(options: DaemonOptions) -> Result<DaemonHandle, StartError> {
         binary_watch,
         binary_poll_interval,
         launcher,
-        run_owners,
+        #[cfg(test)]
         reads,
         timings,
+        store,
+        open_database,
+        installation,
     } = options;
     let (phase, observed) = watch::channel(LifecyclePhase::Starting);
     let (exit, exited) = watch::channel(None);
@@ -200,6 +226,13 @@ pub async fn start(options: DaemonOptions) -> Result<DaemonHandle, StartError> {
         release(claim).await;
         return Err(StartError::Initialize(error));
     }
+    let (store, store_notice) = match open_store(store, open_database, &layout).await {
+        Ok(opened) => opened,
+        Err(error) => {
+            release(claim).await;
+            return Err(StartError::Store(error));
+        }
+    };
     let endpoint = match Endpoint::bind(&layout.socket) {
         Ok(endpoint) => endpoint,
         Err(error) => {
@@ -218,19 +251,22 @@ pub async fn start(options: DaemonOptions) -> Result<DaemonHandle, StartError> {
         protocol: PROTOCOL_VERSION,
         started_at: started.started_at.clone(),
         state: layout.state.display().to_string(),
-        version,
+        version: version.clone(),
     };
     output.line(&format!(
         "[marbles] pid {} · {}",
         started.pid,
         started.socket.display()
     ));
+    if let Some(notice) = store_notice {
+        output.line(&notice);
+    }
     let (mailbox, received) = mpsc::channel(MAILBOX_CAPACITY);
     let supervision = launcher.map(|launcher| {
         let (publications, published) = mpsc::unbounded_channel();
         let supervisor = Supervisor::new(SupervisorParts {
             launcher,
-            run_owners,
+            #[cfg(test)]
             reads,
             timings,
             layout: layout.clone(),
@@ -239,9 +275,28 @@ pub async fn start(options: DaemonOptions) -> Result<DaemonHandle, StartError> {
                 events: mailbox.clone(),
                 publications,
             }),
+            store: store.clone(),
+            installation,
+            version,
         });
         (supervisor, published)
     });
+    let booted = match &supervision {
+        Some((supervisor, _)) => supervisor.boot().await,
+        None => Ok(false),
+    };
+    let rehosting = match booted {
+        Ok(rehosting) => rehosting,
+        Err(error) => {
+            endpoint.close();
+            release(claim).await;
+            return Err(StartError::Store(error));
+        }
+    };
+    let rehost = supervision
+        .as_ref()
+        .filter(|_| rehosting)
+        .map(|(supervisor, _)| supervisor.clone());
     phase.send_replace(LifecyclePhase::Running);
     let actor = Actor::new(actor::Parts {
         hello,
@@ -259,7 +314,12 @@ pub async fn start(options: DaemonOptions) -> Result<DaemonHandle, StartError> {
     tokio::spawn(actor.run(actor::Intervals {
         claim_check: claim_check_interval,
         binary_poll: binary_poll_interval,
+        source_poll: timings.source_poll,
+        sweep: timings.sweep,
     }));
+    if let Some(supervisor) = rehost {
+        supervisor.host_registered();
+    }
     Ok(DaemonHandle {
         started,
         mailbox,
@@ -294,6 +354,18 @@ impl DaemonHandle {
         let (reply, answered) = oneshot::channel();
         self.command(Command::ProcessChange(reply)).await;
         answered.await.unwrap_or(Err(ProcessChangeError::Stopping))
+    }
+
+    pub async fn poll_now(&self) -> bool {
+        let (reply, answered) = oneshot::channel();
+        self.command(Command::PollNow(reply)).await;
+        answered.await.unwrap_or(false)
+    }
+
+    pub async fn sweep_now(&self) {
+        let (reply, answered) = oneshot::channel();
+        self.command(Command::SweepNow(reply)).await;
+        let _ = answered.await;
     }
 
     pub async fn publish_workspace(&self, summary: WorkspaceSummary) {
@@ -336,6 +408,33 @@ async fn take_claim(layout: &Layout, version: &str) -> Result<ProcessClaim, Star
         .await
         .map_err(StartError::Claiming)?
         .map_err(StartError::from)
+}
+
+async fn open_store(
+    given: Option<StateStore>,
+    open_database: bool,
+    layout: &Layout,
+) -> Result<(StateStore, Option<String>), StoreError> {
+    if let Some(store) = given {
+        return Ok((store, None));
+    }
+    let mut notice = None;
+    if open_database {
+        let at = layout.clone();
+        let opened = tokio::task::spawn_blocking(move || StateStore::open_existing_sqlite(&at))
+            .await
+            .map_err(StoreError::failed)??;
+        match opened {
+            Some(opened) => return Ok((opened, None)),
+            None => {
+                notice = Some(format!(
+                    "[marbles] no state database at {} yet; using in-memory state store",
+                    layout.database.display()
+                ));
+            }
+        }
+    }
+    Ok((StateStore::in_memory_within(layout.state.clone())?, notice))
 }
 
 async fn release(claim: ProcessClaim) {

@@ -1,25 +1,15 @@
-use std::future::Future;
-use std::pin::Pin;
 use std::time::Duration;
 
-use crate::identity::ProcessIdentity;
-use crate::protocol::{GENERATION_STOP_TIMEOUT, ReadNotificationParams};
+use crate::protocol::GENERATION_STOP_TIMEOUT;
+#[cfg(test)]
+use crate::protocol::ReadNotificationParams;
 
-pub type OwnerLookup<'a> = Pin<Box<dyn Future<Output = Option<ProcessIdentity>> + Send + 'a>>;
+pub const SOURCE_POLL_INTERVAL: Duration = Duration::from_secs(1);
+pub const SWITCH_DEBOUNCE: Duration = Duration::from_millis(500);
+pub const SWEEP_INTERVAL: Duration = Duration::from_secs(2);
+pub const REOFFER_INTERVAL: Duration = Duration::from_secs(30);
 
-pub trait RunOwnerResolver: Send + Sync + 'static {
-    fn owner_of(&self, workspace_id: &str, run_id: &str) -> OwnerLookup<'_>;
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NoRunOwnerResolver;
-
-impl RunOwnerResolver for NoRunOwnerResolver {
-    fn owner_of(&self, _workspace_id: &str, _run_id: &str) -> OwnerLookup<'_> {
-        Box::pin(async { None })
-    }
-}
-
+#[cfg(test)]
 pub trait ReadObserver: Send + Sync + 'static {
     fn read(&self, generation: u64, read: &ReadNotificationParams);
 }
@@ -35,6 +25,10 @@ pub struct TimingConfig {
     pub handover_retry: Duration,
     pub held_wait: Duration,
     pub live_work_wait: Duration,
+    pub source_poll: Duration,
+    pub switch_debounce: Duration,
+    pub sweep: Duration,
+    pub reoffer: Duration,
 }
 
 impl Default for TimingConfig {
@@ -49,6 +43,10 @@ impl Default for TimingConfig {
             handover_retry: Duration::from_millis(200),
             held_wait: Duration::from_secs(30),
             live_work_wait: Duration::from_secs(2),
+            source_poll: SOURCE_POLL_INTERVAL,
+            switch_debounce: SWITCH_DEBOUNCE,
+            sweep: SWEEP_INTERVAL,
+            reoffer: REOFFER_INTERVAL,
         }
     }
 }

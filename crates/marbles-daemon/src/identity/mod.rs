@@ -17,7 +17,7 @@ pub use state::{
     read_start, this_process,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProcessIdentity {
     pub pid: u32,
     #[serde(deserialize_with = "Option::deserialize")]

@@ -74,7 +74,7 @@ async fn shutting_down_stops_every_live_generation() {
 }
 
 #[tokio::test]
-async fn recycling_orphans_generations_without_stopping_them() {
+async fn recycling_releases_generations_without_stopping_them() {
     let world = World::default();
     let bin = tempfile::tempdir().expect("a binary directory");
     let binary = bin.path().join("marbles-daemon");
@@ -105,7 +105,7 @@ async fn recycling_orphans_generations_without_stopping_them() {
 }
 
 #[tokio::test]
-async fn recycling_mid_switch_never_stops_the_retiring_generation() {
+async fn a_recycle_waits_for_a_switch_in_flight_and_then_releases_the_current_generation() {
     let world = World::default();
     world.plan(
         1,
@@ -141,19 +141,21 @@ async fn recycling_mid_switch_never_stops_the_retiring_generation() {
 
     let exit = within(daemon.handle.wait_exit()).await;
     assert!(matches!(exit, DaemonExit::Recycle(_)));
-    daemon.exited(1).await;
     daemon.exited(2).await;
     let _ = within(reloading).await;
-    for number in [1, 2] {
-        assert_eq!(
-            world.exit_of(number).map(|exit| exit.reason),
-            Some("it was orphaned".to_owned())
-        );
-        assert!(!world.methods(number).contains(&"stop".to_owned()));
-    }
-    assert!(!daemon.printed.has_containing("stopping it"));
-    assert!(!daemon.printed.has_containing("killing it"));
-    assert!(!daemon.printed.has_containing("is not sent"));
+    let lines = daemon.printed.lines();
+    let current = lines
+        .iter()
+        .position(|line| line == "[marbles] engine generation 2 is current");
+    let recycling = lines
+        .iter()
+        .position(|line| line.starts_with("[marbles] binary changed"));
+    assert!(current.is_some_and(|current| recycling.is_some_and(|recycling| current < recycling)));
+    assert_eq!(
+        world.exit_of(2).map(|exit| exit.reason),
+        Some("it was orphaned".to_owned())
+    );
+    assert!(!world.methods(2).contains(&"stop".to_owned()));
 }
 
 fn install(path: &std::path::Path, bytes: &[u8]) {

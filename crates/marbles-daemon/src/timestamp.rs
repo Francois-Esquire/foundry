@@ -4,7 +4,7 @@ const SECONDS_PER_DAY: u64 = 86_400;
 const DAYS_PER_ERA: u64 = 146_097;
 const EPOCH_SHIFT_DAYS: u64 = 719_468;
 
-pub(super) fn iso_timestamp(at: SystemTime) -> String {
+pub(crate) fn iso_timestamp(at: SystemTime) -> String {
     let since_epoch = at.duration_since(UNIX_EPOCH).unwrap_or_default();
     let seconds = since_epoch.as_secs();
     let (year, month, day) = civil_date(seconds / SECONDS_PER_DAY);

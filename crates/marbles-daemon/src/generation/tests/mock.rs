@@ -29,6 +29,7 @@ pub(super) enum Answer {
 pub(super) struct Plan {
     pub(super) fail_load: BTreeMap<String, String>,
     pub(super) fail_start: Option<String>,
+    pub(super) reads_before_load: Vec<(String, String)>,
     pub(super) linger_when_retired: bool,
     pub(super) answers: HashMap<String, VecDeque<Answer>>,
 }
@@ -56,6 +57,12 @@ impl Plan {
             fail_start: Some(error.to_owned()),
             ..self
         }
+    }
+
+    pub(super) fn reading_before_load(mut self, root: &str, file: &str) -> Self {
+        self.reads_before_load
+            .push((root.to_owned(), file.to_owned()));
+        self
     }
 
     pub(super) fn failing_load(mut self, root: &str, error: &str) -> Self {
@@ -89,7 +96,9 @@ pub(super) struct Seen {
 
 #[derive(Default)]
 struct WorldState {
-    registry: Vec<String>,
+    known: Vec<String>,
+    spawn_failures: usize,
+    spawn_attempts: usize,
     log: Vec<(u64, String)>,
     plans: HashMap<u64, Plan>,
     seen: BTreeMap<u64, Seen>,
@@ -105,8 +114,8 @@ impl World {
 
     pub(super) fn register_root(&self, root: &str) {
         let mut world = self.lock();
-        if !world.registry.iter().any(|known| known == root) {
-            world.registry.push(root.to_owned());
+        if !world.known.iter().any(|known| known == root) {
+            world.known.push(root.to_owned());
         }
     }
 
@@ -116,6 +125,14 @@ impl World {
 
     pub(super) fn spawned(&self) -> usize {
         self.lock().seen.len()
+    }
+
+    pub(super) fn fail_spawns(&self, times: usize) {
+        self.lock().spawn_failures = times;
+    }
+
+    pub(super) fn spawn_attempts(&self) -> usize {
+        self.lock().spawn_attempts
     }
 
     pub(super) fn methods(&self, number: u64) -> Vec<String> {
@@ -202,18 +219,29 @@ impl World {
     fn reply(&self, number: u64, request: &Request) -> Reply {
         self.record(number, request);
         let mut world = self.lock();
-        let registry = world.registry.clone();
+        let known = world.known.clone();
         let plan = world.plans.entry(number).or_default();
         let method = request.method.as_str();
         let params = request.params.clone().unwrap_or(Value::Null);
         let answer = match method.parse::<GenerationMethod>() {
-            Ok(GenerationMethod::Load) => Answer::Value(json!({
-                "identity": identity(number),
-                "loads": loads(&registry, &plan.fail_load),
-            })),
+            Ok(GenerationMethod::Load) => {
+                let reads: Vec<Value> = plan
+                    .reads_before_load
+                    .iter()
+                    .map(|(root, file)| json!({ "file": file, "readAt": u64::MAX, "root": root }))
+                    .collect();
+                let response = Response::ok(
+                    request.id,
+                    json!({
+                        "identity": identity(number),
+                        "loads": loads(&known, &plan.fail_load),
+                    }),
+                );
+                return Reply::Notified(reads, response);
+            }
             Ok(GenerationMethod::Start) => match &plan.fail_start {
                 Some(error) => Answer::Fail(error.clone()),
-                None => Answer::Value(json!({ "loads": loads(&registry, &BTreeMap::new()) })),
+                None => Answer::Value(json!({ "loads": loads(&known, &BTreeMap::new()) })),
             },
             Ok(GenerationMethod::Host) => {
                 let root = params["root"].as_str().unwrap_or_default().to_owned();
@@ -223,7 +251,7 @@ impl World {
                     "root": root,
                 }))
             }
-            Ok(GenerationMethod::Unhost) => Answer::Value(Value::Null),
+            Ok(GenerationMethod::Unhost) => plan.next_answer(method, Answer::Value(Value::Null)),
             Ok(GenerationMethod::Stop) => return Reply::Exit(Response::empty(request.id)),
             Ok(GenerationMethod::Retire) if !plan.linger_when_retired => {
                 return Reply::Exit(Response::empty(request.id));
@@ -253,6 +281,7 @@ impl World {
 
 enum Reply {
     Respond(Response),
+    Notified(Vec<Value>, Response),
     Exit(Response),
     Silent,
 }
@@ -268,8 +297,8 @@ pub(super) fn mock_pid(number: u64) -> u32 {
     MOCK_PID_BASE + u32::try_from(number).unwrap_or(0)
 }
 
-fn loads(registry: &[String], failing: &BTreeMap<String, String>) -> Vec<Value> {
-    registry
+fn loads(known: &[String], failing: &BTreeMap<String, String>) -> Vec<Value> {
+    known
         .iter()
         .map(|root| match failing.get(root) {
             Some(error) => json!({ "error": error, "root": root }),
@@ -290,6 +319,11 @@ impl GenerationLauncher for MockLauncher {
         let (controls, controlled) = mpsc::unbounded_channel();
         {
             let mut world = self.world.lock();
+            world.spawn_attempts += 1;
+            if world.spawn_failures > 0 {
+                world.spawn_failures -= 1;
+                return Err(io::Error::other("the process table is full"));
+            }
             let seen = world.seen.entry(spec.number).or_default();
             seen.token = Some(spec.token.clone());
             seen.controls = Some(controls);
@@ -342,6 +376,14 @@ async fn serve(
             event = events.recv() => match event {
                 Some(ChannelEvent::Request(request)) => match world.reply(spec.number, &request) {
                     Reply::Respond(response) => {
+                        let _ = channel.respond(response);
+                    }
+                    Reply::Notified(reads, response) => {
+                        for read in reads {
+                            if let Ok(method) = NonEmptyString::try_from("read".to_owned()) {
+                                let _ = channel.notify(method, Some(read));
+                            }
+                        }
                         let _ = channel.respond(response);
                     }
                     Reply::Exit(response) => {

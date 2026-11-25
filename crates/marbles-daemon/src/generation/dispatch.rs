@@ -1,16 +1,12 @@
 use serde_json::{Map, Value};
 use tokio::time::Instant;
 
-use super::hosted::Hosted;
-use super::link::Publication;
-use super::supervisor::{Supervisor, is_retiring, params_of, reply_of, within};
+use super::supervisor::{Supervisor, is_retiring, params_of, within};
 use super::switch::Setups;
-use super::workspace::{Placement, locate};
 use crate::identity::{ProcessIdentity, is_gone, may_be_same_process};
 use crate::protocol::{
-    AttachParams, DaemonRequest, GenerationMethod, HostParams, HostResult, SetupDraftParams,
-    WireError, WorkspaceMethod, WorkspaceRoute, WorkspaceState, WorkspaceSummary,
-    is_valid_live_runs,
+    AttachParams, DaemonRequest, GenerationMethod, SetupDraftParams, WireError, WorkspaceMethod,
+    WorkspaceRoute, WorkspaceState, WorkspaceSummary, is_valid_live_runs,
 };
 
 const MOVING_RETRY_FACTOR: u32 = 10;
@@ -43,10 +39,8 @@ impl SupervisedRequest {
     }
 }
 
-enum DetachStart {
-    Absent,
-    Pending,
-    Begun(Vec<u64>),
+fn no_host(id: &str) -> WireError {
+    WireError::new(format!("no engine generation hosts workspace {id} now"))
 }
 
 enum Owned {
@@ -91,253 +85,12 @@ impl Supervisor {
         }
     }
 
-    fn summary_of(&self, id: &str) -> Result<WorkspaceSummary, WireError> {
+    pub(super) fn summary_of(&self, id: &str) -> Result<WorkspaceSummary, WireError> {
         self.lock()
             .hosted
             .get(id)
             .map(|hosted| hosted.summary.clone())
             .ok_or_else(|| unhosted(id))
-    }
-
-    async fn attach(&self, params: AttachParams) -> Result<WorkspaceSummary, WireError> {
-        let placement = locate(
-            params.source.as_str(),
-            params.root.as_ref().map(|root| root.as_str()),
-        )
-        .map_err(WireError::new)?;
-        let setup = params.setup;
-        loop {
-            let turn = self.take_turn().await;
-            self.refuse_while_stopping()?;
-            let existing = self.lock().hosted.get(&placement.id).cloned();
-            match existing {
-                Some(existing) if existing.detaching => {
-                    drop(turn);
-                    self.detached(&placement.id).await;
-                }
-                Some(existing) if existing.summary.state != WorkspaceState::Stopped => {
-                    if let Some(summary) = self
-                        .attach_again(&existing, &placement, setup.clone())
-                        .await?
-                    {
-                        return Ok(summary);
-                    }
-                    return self.host_new(&placement, setup).await;
-                }
-                _ => return self.host_new(&placement, setup).await,
-            }
-        }
-    }
-
-    async fn attach_again(
-        &self,
-        existing: &Hosted,
-        placement: &Placement,
-        setup: Option<SetupDraftParams>,
-    ) -> Result<Option<WorkspaceSummary>, WireError> {
-        let id = &placement.id;
-        if existing.source != placement.source {
-            return Err(WireError::new(format!(
-                "workspace {id} is hosted from {}; detach it first",
-                existing.source
-            )));
-        }
-        if setup.is_none() && existing.summary.state != WorkspaceState::Failed {
-            return Ok(Some(existing.summary.clone()));
-        }
-        let hosted_now = self
-            .lock()
-            .generations
-            .current()
-            .is_some_and(|current| current.hosts.contains(id));
-        if !hosted_now && setup.is_none() {
-            return Ok(None);
-        }
-        self.run_switch(
-            &format!("workspace {id} attached again"),
-            setups_for(id, setup),
-        )
-        .await?;
-        self.summary_of(id).map(Some)
-    }
-
-    async fn host_new(
-        &self,
-        placement: &Placement,
-        setup: Option<SetupDraftParams>,
-    ) -> Result<WorkspaceSummary, WireError> {
-        let id = &placement.id;
-        let entry = Hosted::starting(placement, setup.clone());
-        let target = {
-            let mut state = self.lock();
-            self.link()
-                .publish(Publication::Workspace(entry.summary.clone()));
-            state.hosted.insert(id.clone(), entry);
-            state.generations.current
-        };
-        let Some(target) = target else {
-            let switched = self
-                .run_switch(&format!("workspace {id} attached"), setups_for(id, setup))
-                .await;
-            let summary = self.summary_of(id);
-            return match (switched, summary) {
-                (Err(error), _) | (Ok(()), Err(error)) => {
-                    self.unregister(id);
-                    Err(error)
-                }
-                (Ok(()), Ok(summary)) if summary.state == WorkspaceState::Failed => {
-                    self.unregister(id);
-                    Err(WireError::new(
-                        summary
-                            .error
-                            .unwrap_or_else(|| "the workspace did not load".to_owned()),
-                    ))
-                }
-                (Ok(()), Ok(summary)) => Ok(summary),
-            };
-        };
-        let host = HostParams {
-            config: placement.config.clone(),
-            root: placement.root.clone(),
-            setup,
-        };
-        let hosted = within(
-            self.timings().ready_timeout,
-            "starting the workspace",
-            self.ask(target, GenerationMethod::Host, params_of(&host)),
-        )
-        .await
-        .and_then(|reply| reply_of::<HostResult>("the host result", reply));
-        let mut state = self.lock();
-        if let Err(error) = hosted {
-            self.update(
-                &mut state,
-                id,
-                WorkspaceState::Failed,
-                Some(error.message.clone()),
-                None,
-            );
-            drop(state);
-            self.unregister(id);
-            return Err(error);
-        }
-        let pid = state
-            .generations
-            .get(target)
-            .and_then(|generation| generation.shown_pid());
-        if let Some(generation) = state.generations.get_mut(target) {
-            generation.hosts.insert(id.clone());
-        }
-        if let Some(hosted) = state.hosted.get_mut(id) {
-            hosted.setup = None;
-        }
-        self.update(&mut state, id, WorkspaceState::Ready, None, pid);
-        state
-            .hosted
-            .get(id)
-            .map(|hosted| hosted.summary.clone())
-            .ok_or_else(|| unhosted(id))
-    }
-
-    fn unregister(&self, id: &str) {
-        if self.lock().hosted.remove(id).is_some() {
-            self.link().publish(Publication::Withdrawn(id.to_owned()));
-        }
-        self.changed();
-    }
-
-    async fn detached(&self, id: &str) {
-        self.settle(|state| {
-            (!state.hosted.get(id).is_some_and(|hosted| hosted.detaching)).then_some(())
-        })
-        .await;
-    }
-
-    async fn detach(&self, id: &str) -> Result<(), WireError> {
-        let begun = {
-            let _turn = self.take_turn().await;
-            self.begin_detach(id)
-        };
-        let hosting = match begun {
-            DetachStart::Absent => return Ok(()),
-            DetachStart::Pending => {
-                self.detached(id).await;
-                return Ok(());
-            }
-            DetachStart::Begun(hosting) => hosting,
-        };
-        let drained = self.drain_everywhere(id, &hosting).await;
-        let _turn = self.take_turn().await;
-        let mut state = self.lock();
-        if let Some(hosted) = state.hosted.get_mut(id) {
-            hosted.detaching = false;
-        }
-        match drained {
-            Ok(()) => {
-                self.update(&mut state, id, WorkspaceState::Stopped, None, None);
-                state.hosted.remove(id);
-                self.link().publish(Publication::Withdrawn(id.to_owned()));
-            }
-            Err(ref error) => {
-                let why = format!(
-                    "detach failed: {}; attach it again to load it afresh",
-                    error.message
-                );
-                self.update(&mut state, id, WorkspaceState::Failed, Some(why), None);
-            }
-        }
-        drop(state);
-        self.changed();
-        drained
-    }
-
-    fn begin_detach(&self, id: &str) -> DetachStart {
-        let mut state = self.lock();
-        let Some(hosted) = state.hosted.get_mut(id) else {
-            return DetachStart::Absent;
-        };
-        if hosted.detaching {
-            return DetachStart::Pending;
-        }
-        hosted.detaching = true;
-        let hosting = state.generations.hosts_of(id);
-        let numbers: Vec<String> = hosting.iter().map(u64::to_string).collect();
-        let plural = if hosting.len() == 1 { "" } else { "s" };
-        let waiting = format!(
-            "detaching: waiting for engine generation{plural} {} to finish its work",
-            numbers.join(", ")
-        );
-        self.update(&mut state, id, WorkspaceState::Stopped, Some(waiting), None);
-        DetachStart::Begun(hosting)
-    }
-
-    async fn drain_everywhere(&self, id: &str, hosting: &[u64]) -> Result<(), WireError> {
-        for &number in hosting {
-            self.print(&format!(
-                "[{id}] detaching · waiting for engine generation {number} to finish its work"
-            ));
-            let unhosted = self
-                .ask(number, GenerationMethod::Unhost, Some(id_params(id)))
-                .await;
-            if let Err(error) = unhosted {
-                let going = {
-                    let state = self.lock();
-                    state.stopping
-                        || state
-                            .generations
-                            .get(number)
-                            .and_then(|generation| generation.open_channel())
-                            .is_none()
-                };
-                if !going {
-                    return Err(error);
-                }
-            }
-            if let Some(generation) = self.lock().generations.get_mut(number) {
-                generation.hosts.remove(id);
-            }
-        }
-        Ok(())
     }
 
     async fn workspace_call(
@@ -401,7 +154,7 @@ impl Supervisor {
         run_id: &str,
         acting: bool,
     ) -> Result<Option<u64>, WireError> {
-        let Some(owner) = self.run_owners().owner_of(id, run_id).await else {
+        let Some(owner) = self.store().read_run_owner(id, run_id).await.ok().flatten() else {
             return Ok(None);
         };
         let found = {
@@ -430,12 +183,11 @@ impl Supervisor {
         params: &Map<String, Value>,
     ) -> Result<Option<Value>, WireError> {
         let deadline = self.deadline();
+        let mut swept = false;
         loop {
             let hosts = self.lock().generations.hosts_of(id);
             if hosts.is_empty() {
-                return Err(WireError::new(format!(
-                    "no engine generation hosts workspace {id} now"
-                )));
+                return Err(no_host(id));
             }
             let mut errors = Vec::new();
             for number in hosts {
@@ -448,19 +200,22 @@ impl Supervisor {
                 }
             }
             let moving = errors.iter().any(is_retiring);
-            let Some(first) = errors
+            let first = errors
                 .iter()
                 .find(|error| !is_retiring(error))
                 .or_else(|| errors.first())
                 .cloned()
-            else {
-                continue;
-            };
+                .unwrap_or_else(|| no_host(id));
             let left = deadline.saturating_duration_since(Instant::now());
-            if !moving || left.is_zero() {
+            if left.is_zero() || !(moving || !swept) {
                 return Err(first);
             }
-            self.next_change(left.min(self.moving_retry())).await;
+            if moving {
+                self.next_change(left.min(self.moving_retry())).await;
+            } else {
+                swept = true;
+                self.sweep(Some(vec![id.to_owned()]), true).await;
+            }
         }
     }
 
@@ -610,17 +365,17 @@ impl Supervisor {
     }
 }
 
-fn setups_for(id: &str, setup: Option<SetupDraftParams>) -> Setups {
+pub(super) fn setups_for(id: &str, setup: Option<SetupDraftParams>) -> Setups {
     setup
         .map(|setup| Setups::from([(id.to_owned(), setup)]))
         .unwrap_or_default()
 }
 
-fn id_params(id: &str) -> Value {
+pub(super) fn id_params(id: &str) -> Value {
     Value::Object(Map::from_iter([("id".to_owned(), Value::from(id))]))
 }
 
-fn unhosted(id: &str) -> WireError {
+pub(super) fn unhosted(id: &str) -> WireError {
     WireError::new(format!("no workspace \"{id}\" is hosted"))
 }
 

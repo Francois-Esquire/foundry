@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -8,30 +9,41 @@ use serde_json::Value;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use super::generations::{Generation, GenerationRole, Generations};
 use super::hosted::Hosted;
 use super::launcher::{GenerationExit, GenerationLauncher, SpawnSpec, registration_token};
 use super::link::{DaemonLink, Publication};
-use super::registry::{Generation, GenerationRole, Generations};
-use super::seams::{ReadObserver, RunOwnerResolver, TimingConfig};
+use super::poll::Watching;
+use super::records::HostRecords;
+use super::sweep::Sweeping;
+#[cfg(test)]
+use super::timings::ReadObserver;
+use super::timings::TimingConfig;
 use crate::Layout;
 use crate::channel::{ChannelError, ChannelHandle, CloseReason};
-use crate::lifecycle::OutputSink;
+use crate::fingerprint::{Fingerprint, ignored_paths};
+use crate::output::OutputSink;
 use crate::protocol::{
     GenerationNotification, HandedParams, LineNotificationParams, NonEmptyString, Notification,
     ReadNotificationParams, Request, Response, WireError, WorkspaceLoadResult, WorkspaceState,
 };
+use crate::store::{GenerationState, StateStore, Stored};
 
 const RETIRING_ERROR: &str = "EngineRetiringError";
+const READ_FLUSH_LIMIT: Duration = Duration::from_secs(5);
 const STOPPING: &str = "the Marbles process is stopping; retry once it has exited";
 
 pub(crate) struct SupervisorParts {
     pub(crate) launcher: Arc<dyn GenerationLauncher>,
-    pub(crate) run_owners: Arc<dyn RunOwnerResolver>,
+    #[cfg(test)]
     pub(crate) reads: Option<Arc<dyn ReadObserver>>,
     pub(crate) timings: TimingConfig,
     pub(crate) layout: Layout,
     pub(crate) output: Arc<dyn OutputSink>,
     pub(crate) link: Arc<dyn DaemonLink>,
+    pub(crate) store: StateStore,
+    pub(crate) installation: Option<PathBuf>,
+    pub(crate) version: String,
 }
 
 #[derive(Clone)]
@@ -42,7 +54,11 @@ pub(crate) struct Supervisor {
 struct Inner {
     state: Mutex<State>,
     turn: tokio::sync::Mutex<()>,
+    poll_gate: tokio::sync::Mutex<()>,
+    sweep_gate: tokio::sync::Mutex<()>,
+    hosts_gate: tokio::sync::Mutex<()>,
     changes: watch::Sender<u64>,
+    ignored: Arc<HashSet<PathBuf>>,
     parts: SupervisorParts,
 }
 
@@ -50,11 +66,18 @@ pub(super) struct State {
     pub(super) generations: Generations,
     pub(super) hosted: BTreeMap<String, Hosted>,
     pub(super) stopping: bool,
-    pub(super) orphaned: bool,
+    pub(super) released_for_recycle: bool,
     pub(super) replace_delay: Duration,
-    pub(super) replacement: Option<JoinHandle<()>>,
+    pub(super) switch_timer: Option<JoinHandle<()>>,
+    pub(super) switch_forced: bool,
+    pub(super) switch_pending: bool,
+    pub(super) switch_epoch: u64,
+    pub(super) switching: bool,
     pub(super) offering: HashSet<(String, String)>,
     pub(super) live_unread: HashSet<(String, u64)>,
+    pub(super) watching: Watching,
+    pub(super) sweeping: Sweeping,
+    pub(super) records: HostRecords,
 }
 
 impl Supervisor {
@@ -63,20 +86,71 @@ impl Supervisor {
             generations: Generations::default(),
             hosted: BTreeMap::new(),
             stopping: false,
-            orphaned: false,
+            released_for_recycle: false,
             replace_delay: parts.timings.replace_min,
-            replacement: None,
+            switch_timer: None,
+            switch_forced: false,
+            switch_pending: false,
+            switch_epoch: 0,
+            switching: false,
             offering: HashSet::new(),
             live_unread: HashSet::new(),
+            watching: Watching::default(),
+            sweeping: Sweeping::default(),
+            records: HostRecords::new(parts.timings.replace_min),
         };
         Self {
             inner: Arc::new(Inner {
                 state: Mutex::new(state),
                 turn: tokio::sync::Mutex::new(()),
+                poll_gate: tokio::sync::Mutex::new(()),
+                sweep_gate: tokio::sync::Mutex::new(()),
+                hosts_gate: tokio::sync::Mutex::new(()),
                 changes: watch::channel(0).0,
+                ignored: Arc::new(ignored_paths(&parts.layout)),
                 parts,
             }),
         }
+    }
+
+    pub(super) fn poll_gate(&self) -> &tokio::sync::Mutex<()> {
+        &self.inner.poll_gate
+    }
+
+    pub(super) fn sweep_gate(&self) -> &tokio::sync::Mutex<()> {
+        &self.inner.sweep_gate
+    }
+
+    pub(super) fn hosts_gate(&self) -> &tokio::sync::Mutex<()> {
+        &self.inner.hosts_gate
+    }
+
+    pub(super) fn store(&self) -> &StateStore {
+        &self.inner.parts.store
+    }
+
+    pub(super) fn layout(&self) -> &Layout {
+        &self.inner.parts.layout
+    }
+
+    pub(super) fn ignored(&self) -> Arc<HashSet<PathBuf>> {
+        Arc::clone(&self.inner.ignored)
+    }
+
+    pub(super) fn installation(&self) -> (Option<PathBuf>, String) {
+        (
+            self.inner.parts.installation.clone(),
+            self.inner.parts.version.clone(),
+        )
+    }
+
+    pub(super) fn recorded(&self, stored: Stored<()>, failure: Option<String>) {
+        let this = self.clone();
+        tokio::spawn(async move {
+            if let (Err(error), Some(failure)) = (stored.await, failure) {
+                this.print(&format!("[marbles] {failure}: {error}"));
+            }
+        });
     }
 
     pub(super) fn lock(&self) -> MutexGuard<'_, State> {
@@ -96,10 +170,6 @@ impl Supervisor {
 
     pub(super) fn link(&self) -> &dyn DaemonLink {
         self.inner.parts.link.as_ref()
-    }
-
-    pub(super) fn run_owners(&self) -> &dyn RunOwnerResolver {
-        self.inner.parts.run_owners.as_ref()
     }
 
     pub(super) fn print(&self, line: &str) {
@@ -194,23 +264,49 @@ impl Supervisor {
         }
     }
 
+    pub(super) fn seen_notifications(&self, number: u64) -> u64 {
+        self.lock()
+            .generations
+            .get(number)
+            .and_then(|generation| generation.channel.as_ref())
+            .map_or(0, ChannelHandle::seen_notifications)
+    }
+
+    pub(super) async fn flush_reads(&self, number: u64, required: u64) {
+        let settled = self.settle(|state| {
+            state
+                .generations
+                .get(number)
+                .is_none_or(|generation| {
+                    !generation.is_live()
+                        || (generation.processed_notifications >= required
+                            && generation.in_flight_reads == 0)
+                })
+                .then_some(())
+        });
+        let _ = tokio::time::timeout(READ_FLUSH_LIMIT, settled).await;
+    }
+
+    pub(crate) fn is_switching(&self) -> bool {
+        self.lock().switching
+    }
+
     pub(super) async fn exit_of(&self, number: u64) -> String {
         self.settle(|state| state.generations.exit_reason(number))
             .await
     }
 
-    pub(super) async fn spawn_generation(&self) -> Result<u64, WireError> {
+    pub(super) async fn spawn_generation(
+        &self,
+        number: u64,
+        fingerprint: Fingerprint,
+    ) -> Result<(), WireError> {
         let token = registration_token().map_err(|error| {
             WireError::new(format!("a registration token could not be made: {error}"))
         })?;
-        let number = {
-            let mut state = self.lock();
-            let number = state.generations.next_number();
-            state
-                .generations
-                .insert(Generation::candidate(number, token.clone(), None, None));
-            number
-        };
+        self.lock()
+            .generations
+            .insert(Generation::candidate(number, token.clone(), fingerprint));
         let spec = SpawnSpec {
             number,
             token,
@@ -226,11 +322,27 @@ impl Supervisor {
             Ok(spawned) => spawned,
             Err(error) => {
                 self.lock().generations.remove(number);
-                return Err(WireError::new(format!(
-                    "the engine generation did not start: {error}"
-                )));
+                let why = format!("the engine generation did not start: {error}");
+                self.recorded(
+                    self.store()
+                        .mark_generation(number, GenerationState::Failed, Some(&why)),
+                    None,
+                );
+                return Err(WireError::new(why));
             }
         };
+        if let Some(spawned_as) = &spawned.spawned_as {
+            self.recorded(
+                self.store().record_generation_spawned(
+                    number,
+                    spawned_as.pid,
+                    spawned_as.started.as_deref(),
+                ),
+                Some(format!(
+                    "engine generation {number} was not recorded spawned"
+                )),
+            );
+        }
         let mut lines = spawned.lines;
         let stopping = {
             let mut state = self.lock();
@@ -259,48 +371,74 @@ impl Supervisor {
             self.stop_generation(number).await;
             return Err(WireError::new(STOPPING));
         }
-        Ok(number)
+        Ok(())
     }
 
     fn on_exit(&self, number: u64, exit: GenerationExit) {
-        let mut state = self.lock();
-        let Some(generation) = state.generations.get_mut(number) else {
-            return;
-        };
-        if generation.exit.is_some() {
-            return;
-        }
-        generation.exit = Some(exit.clone());
-        generation.channel = None;
-        generation.start_settled = true;
-        let role = generation.role;
-        let hosts = generation.hosts.clone();
-        let since = generation.became_current_at;
-        if !state.stopping {
-            if state.generations.is_current(number) && role == GenerationRole::Current {
-                state.generations.current = None;
-                self.print(&format!(
-                    "[marbles] engine generation {number} exited: {}",
-                    exit.reason
-                ));
-                for id in &hosts {
-                    self.update(
+        let mut lines = Vec::new();
+        {
+            let mut state = self.lock();
+            let Some(generation) = state.generations.get_mut(number) else {
+                return;
+            };
+            if generation.exit.is_some() {
+                return;
+            }
+            generation.exit = Some(exit.clone());
+            generation.channel = None;
+            generation.start_settled = true;
+            let role = generation.role;
+            let ended = if role == GenerationRole::Candidate && !exit.clean {
+                GenerationState::Failed
+            } else {
+                GenerationState::Exited
+            };
+            let why = (!exit.clean).then_some(exit.reason.as_str());
+            self.recorded(
+                self.store().mark_generation(number, ended, why),
+                Some(format!("generation {number}")),
+            );
+            let hosts = generation.hosts.clone();
+            let since = generation.became_current_at;
+            if !state.stopping {
+                if state.generations.is_current(number) && role == GenerationRole::Current {
+                    state.generations.current = None;
+                    lines.push(format!(
+                        "[marbles] engine generation {number} exited: {}",
+                        exit.reason
+                    ));
+                    for id in &hosts {
+                        self.update(
+                            &mut state,
+                            id,
+                            WorkspaceState::Failed,
+                            Some(exit.reason.clone()),
+                            None,
+                        );
+                    }
+                    lines.push(self.replace_current(
                         &mut state,
-                        id,
-                        WorkspaceState::Failed,
-                        Some(exit.reason.clone()),
-                        None,
+                        "the engine generation exited",
+                        since,
+                    ));
+                } else if role == GenerationRole::Retiring && !exit.clean {
+                    lines.push(format!(
+                        "[marbles] retired engine generation {number} died: {}",
+                        exit.reason
+                    ));
+                    let debounce = self.timings().switch_debounce;
+                    self.schedule_switch(
+                        &mut state,
+                        "a retired engine generation died",
+                        debounce,
+                        true,
                     );
                 }
-                self.replace_current(&mut state, "the engine generation exited", since);
-            } else if role == GenerationRole::Retiring && !exit.clean {
-                self.print(&format!(
-                    "[marbles] retired engine generation {number} died: {}",
-                    exit.reason
-                ));
             }
         }
-        drop(state);
+        for line in lines {
+            self.print(&line);
+        }
         self.changed();
     }
 
@@ -345,6 +483,14 @@ impl Supervisor {
     }
 
     pub(crate) fn notified(&self, number: u64, notification: Notification) {
+        self.handle_notification(number, notification);
+        if let Some(generation) = self.lock().generations.get_mut(number) {
+            generation.processed_notifications += 1;
+        }
+        self.changed();
+    }
+
+    fn handle_notification(&self, number: u64, notification: Notification) {
         let Ok(method) = notification
             .method
             .as_str()
@@ -365,11 +511,12 @@ impl Supervisor {
                 }
             }
             GenerationNotification::Read => {
-                let observer = self.inner.parts.reads.as_ref();
-                if let (Some(observer), Some(read)) =
-                    (observer, parsed::<ReadNotificationParams>(params))
-                {
-                    observer.read(number, &read);
+                if let Some(read) = parsed::<ReadNotificationParams>(params) {
+                    #[cfg(test)]
+                    if let Some(observer) = self.inner.parts.reads.as_ref() {
+                        observer.read(number, &read);
+                    }
+                    self.read_by(number, read);
                 }
             }
         }
@@ -380,11 +527,7 @@ impl Supervisor {
             self.print(&format!("[generation {number}] {}", line.line));
             return;
         };
-        let id = self.lock().loaded_id(&WorkspaceLoadResult {
-            error: None,
-            id: None,
-            root,
-        });
+        let id = self.lock().id_at(&root);
         self.forward_line(id, line.line);
     }
 
@@ -403,13 +546,15 @@ impl Supervisor {
 }
 
 impl State {
+    pub(super) fn id_at(&self, root: &str) -> Option<String> {
+        self.hosted
+            .values()
+            .find(|hosted| hosted.is_at(root))
+            .map(|hosted| hosted.summary.id.clone())
+    }
+
     pub(super) fn loaded_id(&self, load: &WorkspaceLoadResult) -> Option<String> {
-        load.id.clone().or_else(|| {
-            self.hosted
-                .values()
-                .find(|hosted| hosted.is_at(&load.root))
-                .map(|hosted| hosted.summary.id.clone())
-        })
+        load.id.clone().or_else(|| self.id_at(&load.root))
     }
 }
 

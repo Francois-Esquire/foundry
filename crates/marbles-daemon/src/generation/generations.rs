@@ -5,6 +5,7 @@ use tokio::time::Instant;
 
 use super::launcher::GenerationExit;
 use crate::channel::ChannelHandle;
+use crate::fingerprint::Fingerprint;
 use crate::identity::ProcessIdentity;
 use crate::protocol::NonEmptyString;
 
@@ -25,30 +26,31 @@ pub(super) struct Generation {
     pub(super) spawned_as: Option<ProcessIdentity>,
     pub(super) channel: Option<ChannelHandle>,
     pub(super) hosts: BTreeSet<String>,
+    pub(super) fingerprint: Fingerprint,
     pub(super) became_current_at: Option<Instant>,
     pub(super) start_settled: bool,
     pub(super) exit: Option<GenerationExit>,
+    pub(super) processed_notifications: u64,
+    pub(super) in_flight_reads: usize,
 }
 
 impl Generation {
-    pub(super) fn candidate(
-        number: u64,
-        token: NonEmptyString,
-        pid: Option<u32>,
-        spawned_as: Option<ProcessIdentity>,
-    ) -> Self {
+    pub(super) fn candidate(number: u64, token: NonEmptyString, fingerprint: Fingerprint) -> Self {
         Self {
             number,
             token,
             role: GenerationRole::Candidate,
-            pid,
+            pid: None,
             identity: None,
-            spawned_as,
+            spawned_as: None,
             channel: None,
             hosts: BTreeSet::new(),
+            fingerprint,
             became_current_at: None,
             start_settled: false,
             exit: None,
+            processed_notifications: 0,
+            in_flight_reads: 0,
         }
     }
 
@@ -81,15 +83,9 @@ impl Generation {
 pub(super) struct Generations {
     by_number: BTreeMap<u64, Generation>,
     pub(super) current: Option<u64>,
-    last_number: u64,
 }
 
 impl Generations {
-    pub(super) fn next_number(&mut self) -> u64 {
-        self.last_number += 1;
-        self.last_number
-    }
-
     pub(super) fn insert(&mut self, generation: Generation) {
         self.by_number.insert(generation.number, generation);
     }
@@ -193,6 +189,10 @@ mod tests {
         NonEmptyString::try_from(text.to_owned()).expect("a token")
     }
 
+    fn blank() -> Fingerprint {
+        Fingerprint::of("", std::collections::BTreeMap::new())
+    }
+
     fn table() -> Generations {
         let mut generations = Generations::default();
         for (number, role) in [
@@ -202,7 +202,7 @@ mod tests {
             (4, GenerationRole::Candidate),
         ] {
             let mut generation =
-                Generation::candidate(number, token(&format!("t{number}")), None, None);
+                Generation::candidate(number, token(&format!("t{number}")), blank());
             generation.role = role;
             generation.hosts.insert("w1".to_owned());
             generations.insert(generation);
@@ -251,7 +251,8 @@ mod tests {
             pid: 7,
             started: Some("ps:b".to_owned()),
         };
-        let mut generation = Generation::candidate(1, token("t"), Some(7), Some(read.clone()));
+        let mut generation = Generation::candidate(1, token("t"), blank());
+        generation.spawned_as = Some(read.clone());
         generation.identity = Some(reported.clone());
 
         assert_eq!(generation.provable_identity(), Some(read));

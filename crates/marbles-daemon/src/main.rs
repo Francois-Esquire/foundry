@@ -4,17 +4,26 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use marbles_daemon::generation::SubprocessLauncher;
-use marbles_daemon::lifecycle::{self, DaemonExit, DaemonOptions, StartError as DaemonStartError};
+use marbles_daemon::generation::{StdioMode, SubprocessLauncher};
+use marbles_daemon::lifecycle::{
+    self, DaemonExit, DaemonOptions, StartError as DaemonStartError, SubprocessInitializer,
+};
 use marbles_daemon::recycle::{self, BinaryDigest, BinaryWatch, RECYCLED_FROM, RecyclePlan};
 use marbles_daemon::{Layout, LayoutError};
 use thiserror::Error;
 use tokio::runtime;
-use tokio::signal::unix::{SignalKind, signal};
 
+#[cfg(unix)]
+use tokio::signal::unix::{Signal, SignalKind, signal};
+
+const GENERATIONS_LOG: &str = "generations.log";
 const NO_SELF_RECYCLE: &str = "--no-self-recycle";
 const GENERATION_CMD: &str = "--generation-cmd";
 const GENERATION_ARG: &str = "--generation-arg";
+const GENERATION_LOG: &str = "--generation-log";
+const INIT_CMD: &str = "--init-cmd";
+const INIT_ARG: &str = "--init-arg";
+const INSTALLATION_ROOT: &str = "--installation-root";
 
 #[derive(Debug, Error)]
 enum StartError {
@@ -36,8 +45,8 @@ enum StartError {
     UnreadableDigest,
     #[error("unknown argument {}", .0.to_string_lossy())]
     UnknownArgument(OsString),
-    #[error("{GENERATION_ARG} needs {GENERATION_CMD}")]
-    GenerationArgWithoutCommand,
+    #[error("{0} needs {1}")]
+    WithoutCommand(&'static str, &'static str),
 }
 
 #[derive(Debug, Default)]
@@ -48,6 +57,10 @@ struct Overrides {
     no_self_recycle: bool,
     generation_cmd: Option<OsString>,
     generation_args: Vec<OsString>,
+    generation_log: Option<PathBuf>,
+    init_cmd: Option<OsString>,
+    init_args: Vec<OsString>,
+    installation_root: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -70,6 +83,10 @@ fn main() -> ExitCode {
 fn serve() -> Result<RunOutcome, StartError> {
     let args: Vec<OsString> = env::args_os().skip(1).collect();
     let overrides = parse_args(args.iter().cloned())?;
+    #[cfg(unix)]
+    if overrides.recycled_from.is_some() {
+        reap_leftover_children();
+    }
     let binary_watch = self_recycle_watch(&overrides);
     let runtime = runtime::Builder::new_current_thread()
         .enable_all()
@@ -83,6 +100,50 @@ fn serve() -> Result<RunOutcome, StartError> {
     })
 }
 
+#[cfg(unix)]
+fn reap_leftover_children() {
+    use rustix::process::{WaitOptions, wait};
+
+    while let Ok(Some(_)) = wait(WaitOptions::NOHANG) {}
+}
+
+#[cfg(unix)]
+struct StopSignals {
+    interrupt: Signal,
+    terminate: Signal,
+}
+
+#[cfg(unix)]
+impl StopSignals {
+    fn listen() -> Result<Self, StartError> {
+        Ok(Self {
+            interrupt: signal(SignalKind::interrupt()).map_err(StartError::Signals)?,
+            terminate: signal(SignalKind::terminate()).map_err(StartError::Signals)?,
+        })
+    }
+
+    async fn received(&mut self) {
+        tokio::select! {
+            _ = self.interrupt.recv() => {}
+            _ = self.terminate.recv() => {}
+        }
+    }
+}
+
+#[cfg(not(unix))]
+struct StopSignals;
+
+#[cfg(not(unix))]
+impl StopSignals {
+    fn listen() -> Result<Self, StartError> {
+        Ok(Self)
+    }
+
+    async fn received(&mut self) {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
 async fn run(
     overrides: Overrides,
     binary_watch: Option<BinaryWatch>,
@@ -94,27 +155,42 @@ async fn run(
     let version = overrides
         .version
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
-    let mut interrupt = signal(SignalKind::interrupt()).map_err(StartError::Signals)?;
-    let mut terminate = signal(SignalKind::terminate()).map_err(StartError::Signals)?;
-    let options = DaemonOptions::new(layout, version);
+    let mut stops = StopSignals::listen()?;
+    let self_recycling = !overrides.no_self_recycle;
+    let options = DaemonOptions::new(layout.clone(), version).with_database();
     let options = match binary_watch {
         Some(binary_watch) => options.with_binary_watch(binary_watch),
         None => options,
     };
     let options = match overrides.generation_cmd {
         Some(program) => {
-            options.with_launcher(SubprocessLauncher::new(program, overrides.generation_args))
+            let stdio = match overrides.generation_log {
+                Some(log) => StdioMode::LogFile(log),
+                None if self_recycling => StdioMode::LogFile(layout.state.join(GENERATIONS_LOG)),
+                None => StdioMode::Piped,
+            };
+            options.with_launcher(
+                SubprocessLauncher::new(program, overrides.generation_args).with_stdio_mode(stdio),
+            )
         }
+        None => options,
+    };
+    let options = match overrides.init_cmd {
+        Some(program) => options.with_initializer(SubprocessInitializer {
+            program: PathBuf::from(program),
+            args: overrides.init_args,
+            layout,
+        }),
+        None => options,
+    };
+    let options = match overrides.installation_root {
+        Some(root) => options.with_installation(root),
         None => options,
     };
     let daemon = lifecycle::start(options).await?;
     Ok(tokio::select! {
         exit = daemon.wait_exit() => exit,
-        _ = interrupt.recv() => {
-            daemon.shutdown().await;
-            DaemonExit::Stopped
-        }
-        _ = terminate.recv() => {
+        () = stops.received() => {
             daemon.shutdown().await;
             DaemonExit::Stopped
         }
@@ -181,12 +257,32 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Overrides, Sta
                 .next()
                 .ok_or(StartError::MissingValue(GENERATION_ARG))?;
             overrides.generation_args.push(value);
+        } else if arg == GENERATION_LOG {
+            overrides.generation_log = Some(PathBuf::from(value_of(GENERATION_LOG, args.next())?));
+        } else if arg == INIT_CMD {
+            overrides.init_cmd = Some(value_of(INIT_CMD, args.next())?);
+        } else if arg == INIT_ARG {
+            let value = args.next().ok_or(StartError::MissingValue(INIT_ARG))?;
+            overrides.init_args.push(value);
+        } else if arg == INSTALLATION_ROOT {
+            overrides.installation_root =
+                Some(PathBuf::from(value_of(INSTALLATION_ROOT, args.next())?));
         } else {
             return Err(StartError::UnknownArgument(arg));
         }
     }
-    if overrides.generation_cmd.is_none() && !overrides.generation_args.is_empty() {
-        return Err(StartError::GenerationArgWithoutCommand);
+    if overrides.generation_cmd.is_none()
+        && (!overrides.generation_args.is_empty() || overrides.generation_log.is_some())
+    {
+        let flag = if overrides.generation_args.is_empty() {
+            GENERATION_LOG
+        } else {
+            GENERATION_ARG
+        };
+        return Err(StartError::WithoutCommand(flag, GENERATION_CMD));
+    }
+    if overrides.init_cmd.is_none() && !overrides.init_args.is_empty() {
+        return Err(StartError::WithoutCommand(INIT_ARG, INIT_CMD));
     }
     Ok(overrides)
 }
@@ -276,11 +372,50 @@ mod tests {
         );
         assert!(matches!(
             parsed(&[GENERATION_ARG, "x"]),
-            Err(StartError::GenerationArgWithoutCommand)
+            Err(StartError::WithoutCommand(GENERATION_ARG, GENERATION_CMD))
         ));
         assert!(matches!(
             parsed(&[GENERATION_CMD, ""]),
             Err(StartError::EmptyValue(GENERATION_CMD))
+        ));
+    }
+
+    #[test]
+    fn an_initializer_log_and_installation_can_be_named() {
+        let overrides = parsed(&[
+            INIT_CMD,
+            "bun",
+            INIT_ARG,
+            "/opt/marbles/dist/initialize.js",
+            GENERATION_CMD,
+            "bun",
+            GENERATION_LOG,
+            "/var/log/generations.log",
+            INSTALLATION_ROOT,
+            "/opt/marbles",
+        ])
+        .expect("the overrides");
+
+        assert_eq!(overrides.init_cmd, Some(OsString::from("bun")));
+        assert_eq!(
+            overrides.init_args,
+            [OsString::from("/opt/marbles/dist/initialize.js")]
+        );
+        assert_eq!(
+            overrides.generation_log,
+            Some(PathBuf::from("/var/log/generations.log"))
+        );
+        assert_eq!(
+            overrides.installation_root,
+            Some(PathBuf::from("/opt/marbles"))
+        );
+        assert!(matches!(
+            parsed(&[INIT_ARG, "x"]),
+            Err(StartError::WithoutCommand(INIT_ARG, INIT_CMD))
+        ));
+        assert!(matches!(
+            parsed(&[GENERATION_LOG, "/tmp/log"]),
+            Err(StartError::WithoutCommand(GENERATION_LOG, GENERATION_CMD))
         ));
     }
 

@@ -24,6 +24,12 @@ The machine-local directory holding the daemon's socket, database, process
 claim, and recovery records, resolved under Foundry home.
 _Avoid_: data dir, cache dir
 
+**State store**:
+The daemon's record of registered workspaces, numbered generations and the
+queued runs it sweeps. It is the state root's database once initialization has
+made one, and is held in memory otherwise.
+_Avoid_: repository, registry, db
+
 ### Generations
 
 **Generation**:
@@ -83,6 +89,18 @@ _Avoid_: plugin, adapter, backend
 A digest of the hosted installation and every hosted workspace's source tree
 and out-of-tree read files, used to decide when to spawn a new generation.
 _Avoid_: checksum, hash, snapshot
+
+**Refused fingerprint**:
+The fingerprint of a candidate that did not load, together with the outside
+files the previous generation read. While the sources still match it, no new
+candidate is started, so a broken edit does not reload in a loop.
+_Avoid_: blocklist, failed hash
+
+**Sweep**:
+The periodic pass that records gone retiring generations as exited, hands
+over queued runs the current generation owns but has not taken, and offers
+adoption of queued runs whose owner is proved gone.
+_Avoid_: reaper, garbage collection
 
 **Recycle**:
 The daemon replacing itself when its own executable bytes change on disk,

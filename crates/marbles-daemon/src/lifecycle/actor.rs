@@ -24,6 +24,7 @@ use crate::protocol::{
 use crate::recycle::{BinaryChange, BinaryWatch, RecycleTarget};
 
 const CLOSE_GRACE: Duration = Duration::from_secs(2);
+const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 
 type ChangeReply = oneshot::Sender<Result<(), ProcessChangeError>>;
 type ClientId = u64;
@@ -35,6 +36,8 @@ pub(super) enum Command {
     ProcessChange(ChangeReply),
     PublishWorkspace(WorkspaceSummary),
     PublishLine { workspace: String, line: String },
+    PollNow(oneshot::Sender<bool>),
+    SweepNow(oneshot::Sender<()>),
 }
 
 #[derive(Debug)]
@@ -50,6 +53,8 @@ pub(super) enum DaemonEvent {
 pub(super) struct Intervals {
     pub(super) claim_check: Duration,
     pub(super) binary_poll: Duration,
+    pub(super) source_poll: Duration,
+    pub(super) sweep: Duration,
 }
 
 pub(super) struct Parts {
@@ -110,6 +115,8 @@ pub(super) struct Actor {
     initializing: Option<Initializing>,
     queued_changes: Vec<ChangeReply>,
     stopping: Option<Stopping>,
+    pending_recycle: Option<RecycleTarget>,
+    accept_after: Option<Instant>,
 }
 
 impl Actor {
@@ -137,13 +144,17 @@ impl Actor {
             initializing: None,
             queued_changes: Vec::new(),
             stopping: None,
+            pending_recycle: None,
+            accept_after: None,
         }
     }
 
     pub(super) async fn run(mut self, intervals: Intervals) {
         let mut watchdog = ticker(intervals.claim_check);
         let mut binary_ticker = ticker(intervals.binary_poll);
-        while !self.drained() {
+        let mut source_ticker = ticker(intervals.source_poll);
+        let mut sweep_ticker = ticker(intervals.sweep);
+        while !self.finished() {
             let deadline = self
                 .stopping
                 .as_ref()
@@ -154,18 +165,24 @@ impl Actor {
                     None => break,
                 },
                 Some(publication) = published(self.published.as_mut()) => self.published(publication),
-                accepted = accept(self.endpoint.as_ref()) => self.admit(accepted),
+                accepted = accept(self.endpoint.as_ref(), self.accept_after) => self.admit(accepted),
                 _ = watchdog.tick(), if self.stopping.is_none() => self.check_claim(),
-                _ = binary_ticker.tick(), if self.binary_watch.is_some() && self.stopping.is_none() => {
-                    self.poll_binary();
+                _ = binary_ticker.tick(), if self.watches_binary() => {
+                    if self.pending_recycle.is_some() {
+                        self.maybe_recycle();
+                    } else {
+                        self.poll_binary();
+                    }
                 }
+                _ = source_ticker.tick(), if self.supervises() => self.poll_sources(),
+                _ = sweep_ticker.tick(), if self.supervises() => self.sweep_queues(),
                 () = overdue(deadline) => break,
             }
         }
         self.finish().await;
     }
 
-    fn drained(&self) -> bool {
+    fn finished(&self) -> bool {
         self.stopping
             .as_ref()
             .is_some_and(|stopping| stopping.deadline.is_some())
@@ -189,7 +206,50 @@ impl Actor {
             Command::ProcessChange(reply) => self.change_process(reply),
             Command::PublishWorkspace(summary) => self.publish_workspace(summary),
             Command::PublishLine { workspace, line } => self.publish_line(&workspace, &line),
+            Command::PollNow(reply) => self.poll_now(reply),
+            Command::SweepNow(reply) => self.sweep_now(reply),
         }
+    }
+
+    fn watches_binary(&self) -> bool {
+        self.stopping.is_none() && (self.binary_watch.is_some() || self.pending_recycle.is_some())
+    }
+
+    fn supervises(&self) -> bool {
+        self.supervisor.is_some() && self.stopping.is_none()
+    }
+
+    fn poll_sources(&self) {
+        if let Some(supervisor) = &self.supervisor {
+            supervisor.poll_tick();
+        }
+    }
+
+    fn sweep_queues(&self) {
+        if let Some(supervisor) = &self.supervisor {
+            supervisor.sweep_tick();
+        }
+    }
+
+    fn poll_now(&self, reply: oneshot::Sender<bool>) {
+        let Some(supervisor) = self.supervisor.clone() else {
+            let _ = reply.send(false);
+            return;
+        };
+        tokio::spawn(async move {
+            let _ = reply.send(supervisor.poll_now().await);
+        });
+    }
+
+    fn sweep_now(&self, reply: oneshot::Sender<()>) {
+        let Some(supervisor) = self.supervisor.clone() else {
+            let _ = reply.send(());
+            return;
+        };
+        tokio::spawn(async move {
+            supervisor.sweep_now().await;
+            let _ = reply.send(());
+        });
     }
 
     fn admit(&mut self, accepted: io::Result<(ChannelHandle, mpsc::Receiver<ChannelEvent>)>) {
@@ -197,9 +257,11 @@ impl Actor {
             Ok(accepted) => accepted,
             Err(error) => {
                 self.print(&format!("[marbles] could not accept a connection: {error}"));
+                self.accept_after = Some(Instant::now() + ACCEPT_BACKOFF);
                 return;
             }
         };
+        self.accept_after = None;
         let id = self.next_client;
         self.next_client += 1;
         self.clients.insert(
@@ -398,6 +460,21 @@ impl Actor {
             let queued = std::mem::take(&mut self.queued_changes);
             self.initialize(queued);
         }
+        self.maybe_recycle();
+    }
+
+    fn maybe_recycle(&mut self) {
+        let busy = self.initializing.is_some()
+            || self
+                .supervisor
+                .as_ref()
+                .is_some_and(Supervisor::is_switching);
+        if busy {
+            return;
+        }
+        if let Some(target) = self.pending_recycle.take() {
+            self.stop(StopReason::Recycle(target));
+        }
     }
 
     fn check_claim(&mut self) {
@@ -449,7 +526,10 @@ impl Actor {
             return;
         }
         match change {
-            BinaryChange::Ready(target) => self.stop(StopReason::Recycle(target)),
+            BinaryChange::Ready(target) => {
+                self.pending_recycle = Some(target);
+                self.maybe_recycle();
+            }
             BinaryChange::Unchanged | BinaryChange::Pending => self.binary_watch = Some(watch),
         }
     }
@@ -493,7 +573,7 @@ impl Actor {
                 });
             }
             Some(supervisor) => {
-                supervisor.orphan();
+                supervisor.release_for_recycle();
                 self.close_down();
             }
             None => self.close_down(),
@@ -556,8 +636,11 @@ impl Actor {
 
     async fn finish(mut self) {
         self.mailbox.close();
-        if let Some(Initializing { task, .. }) = self.initializing.take() {
-            let _ = tokio::time::timeout(CLOSE_GRACE, task).await;
+        if let Some(Initializing { mut task, .. }) = self.initializing.take() {
+            if tokio::time::timeout(CLOSE_GRACE, &mut task).await.is_err() {
+                task.abort();
+                let _ = task.await;
+            }
         }
         if let Some(check) = self.claim_check.take() {
             let _ = check.await;
@@ -593,7 +676,11 @@ fn ticker(period: Duration) -> Interval {
 
 async fn accept(
     endpoint: Option<&Endpoint>,
+    after: Option<Instant>,
 ) -> io::Result<(ChannelHandle, mpsc::Receiver<ChannelEvent>)> {
+    if let Some(after) = after {
+        tokio::time::sleep_until(after).await;
+    }
     match endpoint {
         Some(endpoint) => endpoint.accept().await,
         None => std::future::pending().await,

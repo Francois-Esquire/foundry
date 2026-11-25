@@ -3,7 +3,6 @@ mod lock;
 mod record;
 #[cfg(test)]
 mod tests;
-mod timestamp;
 
 use std::fs::{self, DirBuilder, Permissions};
 use std::io;
@@ -16,9 +15,9 @@ use thiserror::Error;
 use self::files::remove_if_present;
 use self::lock::{FileLock, LockAttempt, describe_holder, lock_owner, try_lock};
 pub use self::record::{ProcessHost, RecordedProcess};
-use self::timestamp::iso_timestamp;
 use crate::Layout;
 use crate::identity::is_gone;
+use crate::timestamp::iso_timestamp;
 
 pub const STATE_MODE: u32 = 0o700;
 

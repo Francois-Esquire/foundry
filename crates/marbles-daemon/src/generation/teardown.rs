@@ -9,9 +9,10 @@ impl Supervisor {
         let live = {
             let mut state = self.lock();
             state.stopping = true;
-            if let Some(pending) = state.replacement.take() {
+            if let Some(pending) = state.switch_timer.take() {
                 pending.abort();
             }
+            state.records.cancel();
             state.generations.live()
         };
         self.changed();
@@ -32,14 +33,15 @@ impl Supervisor {
         }
     }
 
-    pub(crate) fn orphan(&self) {
+    pub(crate) fn release_for_recycle(&self) {
         let channels = {
             let mut state = self.lock();
             state.stopping = true;
-            state.orphaned = true;
-            if let Some(pending) = state.replacement.take() {
+            state.released_for_recycle = true;
+            if let Some(pending) = state.switch_timer.take() {
                 pending.abort();
             }
+            state.records.cancel();
             state.generations.channels()
         };
         for channel in channels {
@@ -52,7 +54,7 @@ impl Supervisor {
         let channel = {
             let state = self.lock();
             match state.generations.get(number) {
-                Some(generation) if generation.is_live() && !state.orphaned => {
+                Some(generation) if generation.is_live() && !state.released_for_recycle => {
                     generation.open_channel()
                 }
                 _ => return,
@@ -106,7 +108,7 @@ impl Supervisor {
         let known = {
             let state = self.lock();
             match state.generations.get(number) {
-                Some(generation) if generation.is_live() && !state.orphaned => {
+                Some(generation) if generation.is_live() && !state.released_for_recycle => {
                     generation.provable_identity()
                 }
                 _ => return false,

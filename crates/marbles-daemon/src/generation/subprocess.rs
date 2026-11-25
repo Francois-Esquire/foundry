@@ -1,8 +1,13 @@
 use std::collections::VecDeque;
 use std::ffi::OsString;
+use std::fs::{self, File, OpenOptions};
 use std::io;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
@@ -19,11 +24,22 @@ pub const SPAWN_RECOVERY_ENV: &str = "MARBLES_SPAWN_RECOVERY";
 
 const LINE_CAPACITY: usize = 256;
 const READ_CHUNK_BYTES: usize = 64 * 1024;
+#[cfg(unix)]
+const LOG_MODE: u32 = 0o600;
+const READER_GRACE: Duration = Duration::from_millis(500);
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum StdioMode {
+    #[default]
+    Piped,
+    LogFile(PathBuf),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubprocessLauncher {
     program: OsString,
     base_args: Vec<OsString>,
+    stdio: StdioMode,
 }
 
 type Tail = Arc<Mutex<VecDeque<String>>>;
@@ -36,10 +52,36 @@ impl SubprocessLauncher {
         Self {
             program: program.into(),
             base_args: base_args.into_iter().map(Into::into).collect(),
+            stdio: StdioMode::Piped,
         }
     }
 
-    fn command(&self, spec: &SpawnSpec) -> Command {
+    pub fn with_stdio_mode(self, stdio: StdioMode) -> Self {
+        Self { stdio, ..self }
+    }
+
+    fn outputs(&self) -> io::Result<(Stdio, Stdio)> {
+        match &self.stdio {
+            StdioMode::Piped => Ok((Stdio::piped(), Stdio::piped())),
+            StdioMode::LogFile(path) => {
+                if let Some(parent) = path
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                {
+                    fs::create_dir_all(parent)?;
+                }
+                let mut options = OpenOptions::new();
+                options.create(true).append(true);
+                #[cfg(unix)]
+                options.mode(LOG_MODE);
+                let log: File = options.open(path)?;
+                Ok((Stdio::from(log.try_clone()?), Stdio::from(log)))
+            }
+        }
+    }
+
+    fn command(&self, spec: &SpawnSpec) -> io::Result<Command> {
+        let (stdout, stderr) = self.outputs()?;
         let mut command = Command::new(&self.program);
         command
             .args(&self.base_args)
@@ -51,17 +93,17 @@ impl SubprocessLauncher {
             .env("FOUNDRY_HOME", &spec.layout.home)
             .env(SPAWN_RECOVERY_ENV, &spec.layout.spawned)
             .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(stdout)
+            .stderr(stderr);
         #[cfg(unix)]
         command.process_group(0);
-        command
+        Ok(command)
     }
 }
 
 impl GenerationLauncher for SubprocessLauncher {
     fn spawn(&self, spec: SpawnSpec) -> Result<SpawnedGeneration, io::Error> {
-        let mut child = self.command(&spec).spawn()?;
+        let mut child = self.command(&spec)?.spawn()?;
         let pid = child.id();
         let spawned_as = pid.map(|pid| ProcessIdentity {
             pid,
@@ -129,8 +171,17 @@ async fn watch_exit(
     exit: oneshot::Sender<GenerationExit>,
 ) {
     let status = child.wait().await;
-    for reader in readers.into_iter().flatten() {
-        let _ = reader.await;
+    let mut readers: Vec<JoinHandle<()>> = readers.into_iter().flatten().collect();
+    let settled = tokio::time::timeout(READER_GRACE, async {
+        for reader in &mut readers {
+            let _ = reader.await;
+        }
+    })
+    .await;
+    if settled.is_err() {
+        for reader in &readers {
+            reader.abort();
+        }
     }
     let tail: Vec<String> = tail
         .lock()
@@ -182,6 +233,7 @@ fn described(status: ExitStatus) -> String {
 mod tests {
     use std::os::unix::process::ExitStatusExt;
 
+    use super::super::launcher::registration_token;
     use super::*;
 
     #[test]
@@ -210,5 +262,30 @@ mod tests {
             exit_of(Ok(ExitStatus::from_raw(9)), &[]).reason,
             "exit signal 9"
         );
+    }
+
+    #[tokio::test]
+    async fn a_grandchild_holding_the_pipes_does_not_delay_the_exit_report() {
+        let home = crate::test_support::home();
+        std::fs::create_dir_all(&home.layout.state).expect("the state root");
+        let launcher = SubprocessLauncher::new("/bin/sh", ["-c", "sleep 30 & exit 0"]);
+        let spec = SpawnSpec {
+            number: 1,
+            token: registration_token().expect("a token"),
+            socket: home.layout.socket.clone(),
+            layout: home.layout.clone(),
+        };
+
+        let spawned = launcher.spawn(spec).expect("the shell spawns");
+        let pid = spawned.pid.expect("a pid");
+        let exit = tokio::time::timeout(Duration::from_secs(2), spawned.exited).await;
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", "--", &format!("-{pid}")])
+            .status();
+
+        let exit = exit
+            .expect("the exit is reported promptly")
+            .expect("an exit");
+        assert!(exit.clean);
     }
 }

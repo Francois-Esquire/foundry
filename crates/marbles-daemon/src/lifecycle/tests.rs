@@ -1,6 +1,7 @@
 use std::fs;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -35,6 +36,15 @@ struct Recording {
     seen: Arc<Mutex<Vec<Seen>>>,
     failing: Option<InitializeTrigger>,
     gate: Option<Arc<Semaphore>>,
+    dropped: Option<Arc<AtomicBool>>,
+}
+
+struct DropFlag(Arc<AtomicBool>);
+
+impl Drop for DropFlag {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
 }
 
 impl Recording {
@@ -44,6 +54,7 @@ impl Recording {
             seen: Arc::default(),
             failing: None,
             gate: None,
+            dropped: None,
         }
     }
 
@@ -57,6 +68,13 @@ impl Recording {
     fn gated(self, gate: &Arc<Semaphore>) -> Self {
         Self {
             gate: Some(Arc::clone(gate)),
+            ..self
+        }
+    }
+
+    fn dropping_into(self, dropped: &Arc<AtomicBool>) -> Self {
+        Self {
+            dropped: Some(Arc::clone(dropped)),
             ..self
         }
     }
@@ -84,6 +102,9 @@ impl Initializer for Recording {
                 .gate
                 .as_ref()
                 .filter(|_| trigger == InitializeTrigger::ProcessChange);
+            let _cancelled = gate
+                .and(self.dropped.as_ref())
+                .map(|dropped| DropFlag(Arc::clone(dropped)));
             if let Some(gate) = gate {
                 let _ = gate.acquire().await.map(|permit| permit.forget());
             }
@@ -647,4 +668,78 @@ async fn an_untouched_binary_keeps_the_daemon_running() {
         printed.lines().last().map(String::as_str),
         Some("[marbles] stopping")
     );
+}
+
+#[tokio::test]
+async fn shutting_down_cancels_a_stuck_initializer_before_releasing_the_claim() {
+    let home = home();
+    let gate = Arc::new(Semaphore::new(0));
+    let dropped = Arc::new(AtomicBool::new(false));
+    let initializer = Recording::new(&home.layout)
+        .gated(&gate)
+        .dropping_into(&dropped);
+    let daemon =
+        started(options(&home.layout, &Printed::default()).with_initializer(initializer)).await;
+    let changing = tokio::spawn({
+        let daemon = daemon.clone();
+        async move { daemon.trigger_process_change().await }
+    });
+    wait_for_phase(&daemon, LifecyclePhase::Initializing).await;
+    assert!(!dropped.load(Ordering::SeqCst));
+
+    within(daemon.shutdown()).await;
+
+    assert!(
+        dropped.load(Ordering::SeqCst),
+        "the initializer should be cancelled"
+    );
+    assert_eq!(
+        within(changing).await.expect("the change should answer"),
+        Err(ProcessChangeError::Stopping)
+    );
+    assert_cleaned_up(&home.layout);
+}
+
+#[tokio::test]
+async fn a_changed_binary_waits_for_an_initialization_in_flight_before_recycling() {
+    let home = home();
+    let gate = Arc::new(Semaphore::new(0));
+    let initializer = Recording::new(&home.layout).gated(&gate);
+    let binary = WatchedBinary::new();
+    let daemon = started(
+        binary.watched(options(&home.layout, &Printed::default()).with_initializer(initializer)),
+    )
+    .await;
+    let changing = tokio::spawn({
+        let daemon = daemon.clone();
+        async move { daemon.trigger_process_change().await }
+    });
+    wait_for_phase(&daemon, LifecyclePhase::Initializing).await;
+
+    let target = binary.upgrade();
+    tokio::time::sleep(QUICK_POLL * 20).await;
+
+    assert_eq!(daemon.phase(), LifecyclePhase::Initializing);
+    gate.add_permits(1);
+    assert_eq!(within(changing).await.expect("the change answers"), Ok(()));
+    assert_eq!(
+        within(daemon.wait_exit()).await,
+        DaemonExit::Recycle(target)
+    );
+    assert_eq!(daemon.phase(), LifecyclePhase::Stopped);
+    assert_cleaned_up(&home.layout);
+}
+
+#[tokio::test]
+async fn a_missing_database_is_reported_and_state_is_kept_in_memory() {
+    let home = home();
+    let printed = Printed::default();
+
+    let daemon = started(options(&home.layout, &printed).with_database()).await;
+
+    assert!(printed.has(&format!(
+        "[marbles] no state database at {} yet; using in-memory state store",
+        home.layout.database.display()
+    )));
+    within(daemon.shutdown()).await;
 }

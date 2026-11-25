@@ -4,18 +4,22 @@ use serde_json::json;
 
 use super::mock::{Answer, Plan};
 use super::*;
-use crate::generation::{OwnerLookup, ReadObserver, RunOwnerResolver};
+use crate::generation::ReadObserver;
 use crate::identity::{ProcessIdentity, this_process};
 use crate::protocol::{ClientNotification, GenerationMethod, ReadNotificationParams};
+use crate::store::StateStore;
 
-#[derive(Clone)]
-struct Owners(ProcessIdentity);
-
-impl RunOwnerResolver for Owners {
-    fn owner_of(&self, _workspace_id: &str, run_id: &str) -> OwnerLookup<'_> {
-        let owner = (run_id == "r1").then(|| self.0.clone());
-        Box::pin(async move { owner })
-    }
+async fn store_with_run(repo: &Repo, owner: &ProcessIdentity) -> StateStore {
+    let store = StateStore::in_memory().expect("a memory store");
+    let body = json!({
+        "id": "r1",
+        "state": { "kind": "queued", "queuedAt": 1, "availableAt": 1, "owner": owner },
+    });
+    store
+        .put_queue_run(&repo.id, &body)
+        .await
+        .expect("the queued run");
+    store
 }
 
 #[derive(Clone, Default)]
@@ -169,9 +173,10 @@ async fn run_calls_go_to_the_generation_that_owns_the_run() {
         pid: mock_pid(1),
         started: Some("mock:1".to_owned()),
     };
-    let daemon = daemon_with(&world, |options| options.with_run_owners(Owners(owner))).await;
-    let client = daemon.client().await;
     let repo = repo();
+    let store = store_with_run(&repo, &owner).await;
+    let daemon = daemon_with(&world, |options| options.with_store(store)).await;
+    let client = daemon.client().await;
     retiring_first(&daemon, &client, &repo).await;
 
     let owned = ask(
@@ -198,9 +203,10 @@ async fn a_run_owned_by_a_live_stranger_refuses_changes_but_can_be_read() {
     let world = World::default();
     let stranger = this_process();
     let pid = stranger.pid;
-    let daemon = daemon_with(&world, |options| options.with_run_owners(Owners(stranger))).await;
-    let client = daemon.client().await;
     let repo = repo();
+    let store = store_with_run(&repo, &stranger).await;
+    let daemon = daemon_with(&world, |options| options.with_store(store)).await;
+    let client = daemon.client().await;
     daemon.attach(&client, &repo).await.expect("the attach");
 
     let refused = ask(

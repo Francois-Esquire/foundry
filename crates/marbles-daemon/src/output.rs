@@ -1,3 +1,5 @@
+use std::io::{self, Write};
+
 pub trait OutputSink: Send + Sync + 'static {
     fn line(&self, line: &str);
 }
@@ -7,6 +9,6 @@ pub struct StdoutSink;
 
 impl OutputSink for StdoutSink {
     fn line(&self, line: &str) {
-        println!("{line}");
+        let _ = writeln!(io::stdout().lock(), "{line}");
     }
 }

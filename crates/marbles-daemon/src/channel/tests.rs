@@ -287,3 +287,39 @@ async fn closing_twice_emits_one_closed_event() {
     ));
     assert!(within(opened.events.recv()).await.is_none());
 }
+
+#[tokio::test]
+async fn closing_interrupts_a_write_to_a_peer_that_never_reads() {
+    let (ours, _theirs) = tokio::io::duplex(64);
+    let (handle, mut events) = open(ours);
+    let oversized = "x".repeat(16 * 1024);
+
+    handle
+        .notify(ClientNotification::Line, Some(json!({ "line": oversized })))
+        .expect("the notification should queue");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    handle.close();
+
+    let closed = tokio::time::timeout(Duration::from_secs(1), events.recv())
+        .await
+        .expect("closing should not wait on a stalled peer");
+    assert!(matches!(
+        closed,
+        Some(ChannelEvent::Closed(CloseReason::Local))
+    ));
+}
+
+#[tokio::test]
+async fn a_response_settles_after_the_notifications_that_preceded_it() {
+    let mut opened = opened();
+    let pending = opened.handle.request(DaemonMethod::Hello, None);
+    assert_eq!(opened.handle.seen_notifications(), 0);
+
+    opened
+        .peer
+        .send("{\"method\":\"line\"}\n{\"method\":\"line\"}\n{\"id\":0}\n")
+        .await;
+
+    assert_eq!(within(pending).await, Ok(None));
+    assert!(opened.handle.seen_notifications() >= 2);
+}

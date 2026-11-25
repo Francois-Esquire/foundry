@@ -93,6 +93,13 @@ console.log(JSON.stringify({ hello, stopped, workspaces }));
             next_line(&mut printed),
             format!("[marbles] pid {pid} · {}", socket.display())
         );
+        assert_eq!(
+            next_line(&mut printed),
+            format!(
+                "[marbles] no state database at {} yet; using in-memory state store",
+                state.join("marbles.db").display()
+            )
+        );
 
         let output = Command::new("bun")
             .args(["-e", TALK_TO_THE_RUST_DAEMON])
