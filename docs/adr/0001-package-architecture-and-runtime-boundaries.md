@@ -19,7 +19,7 @@ Dependency direction is strictly acyclic across tiers (`Primitives` ← `Tools /
 
 ## 2. Naming standard
 
-- **Domain entry points**: Primary concrete domain **modules** use plural domain nouns: `Workspaces`, `Artifacts`, `Tasks`, `Modules`, `Sessions`, `Sandboxes`.
+- **Domain entry points**: Primary concrete domain **modules** use plural domain nouns: `Workspaces`, `Artifacts`, `Tasks`, `Modules`, `Sessions`, and `Containers` (in `@foundry/sandbox/node`, alongside the portable `Sandbox` interface in `@foundry/sandbox`).
 - **Documented exemptions**: Collective, Effect, or DSL nouns keep their natural singular names: `Queue`, `Scheduler`, `Workflow`, `Step`.
 - **No `*Manager` or `*System` in `packages/*`**: Both suffixes obscure **depth** and encourage shallow pass-through wrappers. `*Manager` is reserved exclusively for host facades under `apps/*/src/lib/managers/`.
 - **In-memory store adapters**: Name in-memory **adapters** `Memory<Domain>Store` (never `InMemory*Store`).
@@ -70,4 +70,3 @@ Runtime **seams** and tier rules are enforced through package-level Vitest suite
 
 - Every domain's core **module** and `Memory<Domain>Store` **adapter** run unmodified in browsers, edge workers, Convex functions, Vitest, and Node/Bun.
 - Node-specific wiring concentrates in `./node` **adapters** and host composition roots (`apps/*`), improving **locality** and keeping domain **interfaces** small and deep.
-- Existing packages that still violate these **seams** are tracked explicitly in the shrinking allowlist and migrated incrementally without regressing clean packages.

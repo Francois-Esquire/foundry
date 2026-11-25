@@ -57,6 +57,11 @@
       "import": "./src/digest.ts",
       "default": "./src/digest.ts"
     },
+    "./emitter": {
+      "types": "./dist/emitter.d.ts",
+      "import": "./src/emitter.ts",
+      "default": "./src/emitter.ts"
+    },
     "./encoding": {
       "types": "./dist/encoding.d.ts",
       "import": "./src/encoding.ts",
@@ -187,6 +192,11 @@
       "import": "./src/testing/process-identity.ts",
       "default": "./src/testing/process-identity.ts"
     },
+    "./testing/seam": {
+      "types": "./dist/testing/seam.d.ts",
+      "import": "./src/testing/seam.ts",
+      "default": "./src/testing/seam.ts"
+    },
     "./testing/sqlite": {
       "types": "./dist/testing/sqlite.d.ts",
       "import": "./src/testing/sqlite.ts",
@@ -224,11 +234,15 @@
   },
   "peerDependencies": {
     "drizzle-orm": "^0.45.4",
+    "typescript": "^6.0.3",
     "unique-names-generator": "^4.7.1",
     "zod": "^4.4.3"
   },
   "peerDependenciesMeta": {
     "drizzle-orm": {
+      "optional": true
+    },
+    "typescript": {
       "optional": true
     },
     "unique-names-generator": {

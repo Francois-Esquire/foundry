@@ -1,6 +1,6 @@
 import {
+  nodeStartedAt,
   type ProcessIdentity,
-  startedAt,
 } from "@foundry/lib/node/process-identity";
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { type Occurrence, occurrenceId } from "@foundry/scheduling";
@@ -77,7 +77,10 @@ export async function seedRuns(
         ...(run.owner === null
           ? {}
           : {
-              owner: { pid: run.owner, started: startedAt(run.owner) ?? null },
+              owner: {
+                pid: run.owner,
+                started: nodeStartedAt(run.owner) ?? null,
+              },
             }),
         step: "guides",
       });
@@ -117,7 +120,7 @@ function occurrenceOf({
         kind: "claimed" as const,
         lease: {
           claimedAt: 1,
-          owner: { pid: owner, started: startedAt(owner) ?? null },
+          owner: { pid: owner, started: nodeStartedAt(owner) ?? null },
         },
       },
     };

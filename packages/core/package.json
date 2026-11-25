@@ -11,10 +11,20 @@
       "import": "./src/agents/index.ts",
       "default": "./src/agents/index.ts"
     },
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./src/*.ts",
-      "default": "./src/*.ts"
+    "./pagination": {
+      "types": "./dist/pagination.d.ts",
+      "import": "./src/pagination.ts",
+      "default": "./src/pagination.ts"
+    },
+    "./storage": {
+      "types": "./dist/storage.d.ts",
+      "import": "./src/storage.ts",
+      "default": "./src/storage.ts"
+    },
+    "./testing/storage": {
+      "types": "./dist/testing/storage.d.ts",
+      "import": "./src/testing/storage.ts",
+      "default": "./src/testing/storage.ts"
     }
   },
   "files": [

@@ -1,4 +1,4 @@
-import { type EventListener, ListenerMap } from "./emitter";
+import { TypedEmitter } from "../emitter";
 import type { CredentialsChangePayload } from "./types";
 
 // biome-ignore lint/suspicious/noEmptyInterface: Consumers extend this interface through declaration merging.
@@ -10,66 +10,12 @@ export interface CredentialsEventMap {
   [key: string]: any[];
 }
 
-export class Credentials {
+export class Credentials extends TypedEmitter<CredentialsEventMap> {
   #vault: CredentialsVault;
-  readonly #listeners = new ListenerMap();
 
   constructor(initial?: CredentialsVault) {
+    super();
     this.#vault = { ...initial };
-  }
-
-  on<K extends keyof CredentialsEventMap & string>(
-    event: K,
-    listener: (...args: CredentialsEventMap[K]) => void
-  ): this {
-    this.#listeners.on(event, listener as EventListener);
-    return this;
-  }
-
-  addListener<K extends keyof CredentialsEventMap & string>(
-    event: K,
-    listener: (...args: CredentialsEventMap[K]) => void
-  ): this {
-    return this.on(event, listener);
-  }
-
-  once<K extends keyof CredentialsEventMap & string>(
-    event: K,
-    listener: (...args: CredentialsEventMap[K]) => void
-  ): this {
-    this.#listeners.on(event, listener as EventListener, true);
-    return this;
-  }
-
-  off<K extends keyof CredentialsEventMap & string>(
-    event: K,
-    listener: (...args: CredentialsEventMap[K]) => void
-  ): this {
-    this.#listeners.off(event, listener as EventListener);
-    return this;
-  }
-
-  removeListener<K extends keyof CredentialsEventMap & string>(
-    event: K,
-    listener: (...args: CredentialsEventMap[K]) => void
-  ): this {
-    return this.off(event, listener);
-  }
-
-  removeAllListeners(event?: string): this {
-    this.#listeners.removeAll(event);
-    return this;
-  }
-
-  listenerCount(event: string): number {
-    return this.#listeners.count(event);
-  }
-
-  emit<K extends keyof CredentialsEventMap & string>(
-    event: K,
-    ...args: CredentialsEventMap[K]
-  ): boolean {
-    return this.#listeners.emit(event, this, args);
   }
 
   get(): Readonly<CredentialsVault> {

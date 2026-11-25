@@ -16,7 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { startedAt } from "../node/process-identity";
+import { nodeStartedAt } from "../node/process-identity";
 import {
   execFileRecorded,
   forgetRecord,
@@ -60,7 +60,7 @@ it("writes a private record of the process, making the directory private if it i
   expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
     group: true,
     pid: process.pid,
-    started: startedAt(process.pid),
+    started: nodeStartedAt(process.pid),
   });
   expect(notPrivate(dir, "directory")).toBeUndefined();
   expect(notPrivate(path, "file")).toBeUndefined();

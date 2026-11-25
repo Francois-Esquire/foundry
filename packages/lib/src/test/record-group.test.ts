@@ -11,8 +11,8 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
   groupMembers,
+  nodeStartedAt,
   type SeenProcess,
-  startedAt,
   thisProcess,
 } from "../node/process-identity";
 import {
@@ -57,7 +57,7 @@ async function group(
   );
   const stop = record(child, dir);
   const sleep = await pidWritten(join(dir, "pid"));
-  const started = startedAt(sleep);
+  const started = nodeStartedAt(sleep);
   if (typeof started === "string") {
     leftovers.push({ pid: sleep, started });
   }
@@ -73,7 +73,7 @@ function records(dir: string): string[] {
 
 async function goneSoon(pid: number): Promise<boolean> {
   for (let i = 0; i < 200; i += 1) {
-    if (startedAt(pid) === null) {
+    if (nodeStartedAt(pid) === null) {
       return true;
     }
     await new Promise((done) => setTimeout(done, 20));
@@ -138,8 +138,8 @@ it("keeps the record of a group that would not empty, its members written before
   expect((await stop()).emptied).toBe(false);
   expect(recordedAtTerm?.members).toEqual(
     expect.arrayContaining([
-      { pid: child.pid, started: startedAt(child.pid ?? 0) },
-      { pid: sleep, started: startedAt(sleep) },
+      { pid: child.pid, started: nodeStartedAt(child.pid ?? 0) },
+      { pid: sleep, started: nodeStartedAt(sleep) },
     ])
   );
   expect(recordedAtTerm?.owner).toEqual(thisProcess());

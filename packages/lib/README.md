@@ -11,10 +11,12 @@ Import shared helpers directly from their owning module:
 - `@foundry/lib/pagination`: page limits, page construction, and complete traversal through `collectPages`.
 - `@foundry/lib/mime`: shared MIME constants and text MIME detection.
 - `@foundry/lib/file-classification`: filename classification, `FileClassification`, `FileKind`, `FILE_KINDS`, and `CLASSIFICATION_VERSION`.
+- `@foundry/lib/emitter`: portable Web-standard `TypedEmitter` with Node `EventEmitter` semantics (recursive `once` safety, receiver `this` binding, LIFO removal, unhandled `"error"` throw).
 - `@foundry/lib/async-scope`: conditional `AsyncScope<T>` primitive (`"node"` / `"bun"` → `AsyncLocalStorage`, `"default"` → pass-through) for best-effort diagnostics and guards.
-- `@foundry/lib/process-identity` & `@foundry/lib/instance-identity`: pure process/instance identity types, parsers, and comparators. OS/Node queries (`thisProcess`, `isGone`, `processAlive`, `lookProcesses`, `groupMembers`, Node `instanceGone`) live under `@foundry/lib/node/process-identity` and `@foundry/lib/node/instance-identity`.
+- `@foundry/lib/process-identity` & `@foundry/lib/instance-identity`: pure process/instance identity types, parsers, comparators, `portableProcess`, and `neverGone`. OS/Node queries (`thisProcess`, `isGone`, `nodeStartedAt`, `processAlive`, `lookProcesses`, `groupMembers`, `nodeInstanceGone`) live under `@foundry/lib/node/process-identity` and `@foundry/lib/node/instance-identity`.
 - `@foundry/lib/node/*`: Node/Bun-only filesystem, locking, process-tracking, and authorization helpers (`atomic-file`, `file-lock`, `orphans`, `spawn-record`, `async-scope`, `process-identity`, `instance-identity`, `authorization/file`, `authorization/digest`).
 - `@foundry/lib/sqlite`: shared Drizzle SQLite database/transaction types, value-storability guards, batching, upsert helpers, and record fault errors.
+- `@foundry/lib/testing/seam`: `auditWebStandardExports` and `assertWebStandardExports` for verifying Web-standard package export graphs.
 - `@foundry/lib/testing/sqlite`: test helper `createTables` for materializing Drizzle SQLite tables in tests.
 
 These modules have no third-party dependencies or filesystem I/O, except the SQLite helpers which require the optional `drizzle-orm` peer. Storage contracts and structural validation live in `@foundry/core/storage`.

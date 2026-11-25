@@ -246,6 +246,20 @@ export function isProcessIdentity(value: unknown): value is ProcessIdentity {
   );
 }
 
+let portable: ProcessIdentity | undefined;
+
+export function portableProcess(): ProcessIdentity {
+  portable ??= Object.freeze({
+    pid: 0,
+    started: new Date().toISOString(),
+  });
+  return portable;
+}
+
+export function neverGone(_owner?: ProcessIdentity): boolean {
+  return false;
+}
+
 function kindOf(started: string): string {
   if (started.startsWith(LINUX)) {
     return LINUX;

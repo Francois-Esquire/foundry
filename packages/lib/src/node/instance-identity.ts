@@ -12,7 +12,7 @@ export {
   sameInstance,
 } from "../instance-identity";
 
-export function instanceGone(
+export function nodeInstanceGone(
   owner: InstanceIdentity,
   self: InstanceIdentity,
   processGone: (owner: ProcessIdentity) => boolean = isGone

@@ -1,7 +1,7 @@
-import { startedAt } from "../../node/process-identity";
+import { nodeStartedAt } from "../../node/process-identity";
 
 export function stopLeftover(pid: number, started: string): void {
-  if (startedAt(pid) === started) {
+  if (nodeStartedAt(pid) === started) {
     signalOwn(pid, "SIGKILL");
   }
 }

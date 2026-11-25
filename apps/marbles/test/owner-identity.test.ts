@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import {
+  nodeStartedAt,
   type ProcessIdentity,
-  startedAt,
   thisProcess,
 } from "@foundry/lib/node/process-identity";
 import { anotherStart } from "@foundry/lib/testing/process-identity";
@@ -33,7 +33,7 @@ function liveProcess(): ProcessIdentity {
   home.track(child.pid, false);
   children.push(child);
   const pid = child.pid ?? 0;
-  const started = startedAt(pid);
+  const started = nodeStartedAt(pid);
   if (typeof started !== "string") {
     throw new Error("no start time for the sleep");
   }

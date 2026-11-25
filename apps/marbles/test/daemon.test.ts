@@ -14,8 +14,8 @@ import { connect as connectSocket, createServer } from "node:net";
 import { join } from "node:path";
 import {
   type lookProcesses,
+  nodeStartedAt,
   processAlive,
-  startedAt,
 } from "@foundry/lib/node/process-identity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fileIdentity, queuedFiles } from "~/database/client";
@@ -845,7 +845,7 @@ export const hold = step("hold").do(async () => {
     if (pid === undefined) {
       throw new Error("the generation has no pid");
     }
-    const real = startedAt(pid);
+    const real = nodeStartedAt(pid);
     if (typeof real !== "string") {
       throw new Error("the generation's start cannot be read");
     }
@@ -955,7 +955,7 @@ ${greeter("greet")}`
     const [row] = rows ?? [];
     expect(row?.state).toBe("loading");
     expect(row?.started).not.toBeNull();
-    expect(row?.started).toBe(startedAt(row?.pid ?? 0));
+    expect(row?.started).toBe(nodeStartedAt(row?.pid ?? 0));
     writeFileSync(loaded, "");
     expect((await attaching).state).toBe("ready");
     client.close();

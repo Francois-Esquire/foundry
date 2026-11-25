@@ -147,7 +147,7 @@ const LOOKUP: ProcessLookup = {
   look: (pids) => lookProcesses(pids),
 };
 
-export function startedAt(
+export function nodeStartedAt(
   pid: number,
   lookup: ProcessLookup = LOOKUP
 ): string | null | undefined {
@@ -158,7 +158,7 @@ let self: ProcessIdentity | undefined;
 
 export function thisProcess(): ProcessIdentity {
   if (self === undefined || self.started === null) {
-    const started = startedAt(process.pid);
+    const started = nodeStartedAt(process.pid);
     if (self === undefined) {
       self = Object.freeze({
         pid: process.pid,

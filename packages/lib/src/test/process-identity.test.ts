@@ -9,6 +9,7 @@ import {
   isGone,
   isProcessIdentity,
   lookProcesses,
+  nodeStartedAt,
   ownerOf,
   type ProcessLookup,
   processState,
@@ -19,17 +20,19 @@ import {
   psStart,
   type SeenProcess,
   sameProcess,
-  startedAt,
   thisProcess,
 } from "../node/process-identity";
-import { startedAt as pureStartedAt } from "../process-identity";
+import { neverGone, portableProcess, startedAt } from "../process-identity";
 import { anotherStart } from "../testing/process-identity";
 
 const LONG_AGO = anotherStart();
 
 it("reads this process once, as the system says it started", () => {
   const self = thisProcess();
-  expect(self).toEqual({ pid: process.pid, started: startedAt(process.pid) });
+  expect(self).toEqual({
+    pid: process.pid,
+    started: nodeStartedAt(process.pid),
+  });
   expect(thisProcess()).toBe(self);
   expect(isGone(self)).toBe(false);
 });
@@ -43,7 +46,7 @@ it("takes a live pid that started at another time for gone, and one that exited"
   const child = spawn("sleep", ["30"], { stdio: "ignore" });
   try {
     const pid = child.pid ?? 0;
-    const started = startedAt(pid);
+    const started = nodeStartedAt(pid);
     expect(typeof started).toBe("string");
     expect(isGone({ pid, started: started ?? null })).toBe(false);
     expect(
@@ -424,10 +427,16 @@ it("takes a group's id for another's when a process with the leader's pid runs w
   ).toBe(true);
 });
 
-it("pure startedAt works with an explicit lookup and node/process-identity performs no I/O at import time", () => {
+it("pure startedAt, portableProcess, and neverGone work without Node OS APIs, and node/process-identity performs no I/O at import time", () => {
   const running = madeUp(true, { pgid: 1, started: AT });
-  expect(pureStartedAt(4_200_600, running)).toBe(AT);
-  expect(pureStartedAt(4_200_601, madeUp(false, "absent"))).toBeNull();
+  expect(startedAt(4_200_600, running)).toBe(AT);
+  expect(startedAt(4_200_601, madeUp(false, "absent"))).toBeNull();
+  const portable = portableProcess();
+  expect(portable.pid).toBe(0);
+  expect(typeof portable.started).toBe("string");
+  expect(portableProcess()).toBe(portable);
+  expect(neverGone()).toBe(false);
+  expect(neverGone(portable)).toBe(false);
 
   const dir = mkdtempSync(join(tmpdir(), "identity-lazy-"));
   try {
