@@ -306,7 +306,13 @@ Five buckets, each importing only what sits below it:
   `authoring/catalog.ts`, which is private to Marbles, and may import
   `lib/`, never the reverse. `authoring/runs.ts` is the read-only
   `runs` word, bound per load as `tasks` is; it never starts an engine to
-  answer a read. `Engine.execute` runs direct definitions
+  answer a read. `step.launch(name)` and `workflow.launch(name)` look the
+  name up in the answering engine's registry (`Engine.definition`, which
+  leaves out monitors) and launch that very definition as its own
+  `.launch` would, so keys, replay and pool limits are shared; each
+  refuses the other kind, a load still running, and, in a script no
+  workspace hosts, finds what the script declared in the catalog.
+  `Engine.execute` runs direct definitions
   through the same orchestration as named launches; calls inside a step
   become dynamic children in that run. `createEngine` in `src/create.ts`
   is the one place the Marbles defaults and what `--dry-run` echoes are

@@ -24,7 +24,7 @@ import {
   type RecoveryLog,
   type RecoveryReport,
 } from "~/lib/crash-recovery";
-import type { AnyDefinition } from "~/lib/definition";
+import type { AnyDefinition, NamedDefinition } from "~/lib/definition";
 import { EngineDefinitions } from "~/lib/engine-definitions";
 import {
   agentsOf,
@@ -178,6 +178,7 @@ export class Engine {
     executions: () => this.executions.list(),
     launch: (definition, input, options) =>
       this.launchDefinition(definition, input, options),
+    named: (name) => this.#definitions.registry.launchable(name),
     nameOf: (name) => this.#definitions.nameOf(name),
     resultOf: (runId) => this.#resultOf(runId),
     stored: async (runId) => await this.#running?.record(runId),
@@ -391,6 +392,10 @@ export class Engine {
 
   has(name: string): boolean {
     return this.#definitions.registry.definitions.has(name);
+  }
+
+  definition(name: string): NamedDefinition | undefined {
+    return this.#definitions.registry.launchable(name);
   }
 
   definitions(): readonly DefinitionEntry[] {

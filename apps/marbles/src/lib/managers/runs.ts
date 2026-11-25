@@ -1,7 +1,7 @@
 import { current } from "~/lib/run-scope";
 import type { RunRecord } from "~/lib/workflow-runs";
 import type { ManagerArgs } from "../bindings";
-import type { AnyDefinition } from "../definition";
+import type { AnyDefinition, NamedDefinition } from "../definition";
 import type { ExecutionRun } from "../execution-record";
 import type { ExecutionStatus } from "../execution-statuses";
 import { DEFINITION_IDENTITY } from "../handles";
@@ -33,6 +33,7 @@ export interface Runs {
     options?: DefinitionLaunch
   ): Promise<Launched<unknown>>;
   list(query?: RunQuery): Promise<readonly RunView[]>;
+  named(name: string): NamedDefinition | undefined;
 }
 
 export interface RunsSource {
@@ -43,6 +44,7 @@ export interface RunsSource {
     input: unknown,
     options?: DefinitionLaunch
   ): Promise<Launched<unknown>>;
+  named(name: string): NamedDefinition | undefined;
   nameOf(name: string): string;
   resultOf(runId: string): Promise<unknown>;
   stored(runId: string): Promise<RunRecord | undefined>;
@@ -149,6 +151,7 @@ export function engineRuns(source: RunsSource): Runs {
         })
         .sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
     },
+    named: (name) => source.named(name),
   };
 }
 
