@@ -1,9 +1,8 @@
 import { describe, expect, test } from "vitest";
-
+import type { SessionPart, SessionRole } from "../../schema";
 import type { Summarizer } from "../../session/compactor";
 import { Sessions } from "../../session/sessions";
 import { createSummaryStore, summarizeSession } from "../../session/summary";
-import type { SessionPart, SessionRole } from "../../session/types";
 import { MemorySessionStore } from "../../store/memory";
 
 const text = (t: string): SessionPart[] => [{ text: t, type: "text" }];

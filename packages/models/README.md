@@ -63,7 +63,7 @@ interface Provider {
 ```
 
 The model methods are the AI SDK's own `ProviderV4` shape and take the **wire**
-id. Resolving a catalog id to a wire id is the manager's job. Adding a provider
+id. Resolving a catalog id to a wire id is the `Models` registry's job. Adding a provider
 is writing one of these:
 
 ```typescript
@@ -86,8 +86,8 @@ models.setProviders([...models.providers, vertex]);
 Each built-in factory is its own subpath, so a host bundles only what it
 configures: `vercelProvider` (`@foundry/models/vercel`), `gatewayProvider`
 (`/gateway`), `falProvider` (`/fal`), `replicateProvider` (`/replicate`),
-`claudeCodeProvider` (`/claude-code`), `codexProvider` (`/codex`), and
-`piProvider` (`/pi`). Each takes `id` and `models`, so one factory can build
+`claudeCodeProvider` (`/node/claude-code`), `codexProvider` (`/node/codex`), and
+`piProvider` (`/node/pi`). Each takes `id` and `models`, so one factory can build
 several instances; all but FAL and Replicate also take `defaults`. The root
 entry exports no provider. `gatewayProvider` has no models of its own and
 requires `models`. `gatewayModels(config)` reads them from the server's
@@ -99,7 +99,7 @@ token when supplied. It preserves response order for the language,
 embedding, and image models the adapter supports. It also normalizes
 token prices, cache rates, and pricing tiers. Pass those rows or an
 explicit catalog to `vercelProvider`. Without a configured default,
-the manager uses the first row of the requested kind.
+`Models` uses the first row of the requested kind.
 
 For Codex, `codexModels({ binPath, env, signal? })` lists models through the
 configured CLI's app-server and closes the listing client afterward. The
@@ -128,10 +128,10 @@ uses the discovered catalog.
 
 | Subpath | What it holds |
 | --- | --- |
-| `/airplane` | `airplaneMode`: the offline-only policy for one manager |
-| `/local` | `LocalProvider` and `configureCache`: on-device transformers-js |
-| `/local/remote` | `forkLocalWorker`: the worker process and its IPC transport |
-| `/local/remote/provider` | `RemoteLocalProvider`: the local surface over that transport |
+| `/airplane` | `airplaneMode`: the offline-only policy for one `Models` registry |
+| `/node/local` | `LocalProvider` and `configureCache`: on-device transformers-js |
+| `/node/local/remote` | `forkLocalWorker`: the worker process and its IPC transport |
+| `/node/local/remote/provider` | `RemoteLocalProvider`: the local surface over that transport |
 | `/live`, `/node/live` | Live interactions, browser and Node |
 | `/catalog/*` | Catalog adapters, and models.dev read at run time |
 | `/embeddings/*` | Chunking, embedding, and ranking |
@@ -157,24 +157,24 @@ differ for on-device rows, whose short ids (`text`, `embed`) hosts persist.
 Live access is the exception: `grant(id, operation)` takes the catalog id and
 returns a token or a proxy, never a key.
 
-## The manager
+## `Models`
 
 ```typescript
 new Models({ providers? });
-manager.providers; // the set, in preference order, as guarded views
-manager.setProviders(providers); // replace the set; leavers are disposed once released
-manager.resolve(kind, selection?); // Resolution: check, hold, open, release
-manager.restrict(policy); // install a ProviderPolicy; returns the remover
-await manager.dispose(); // release every instance, leased ones included
-manager.events; // providers-changed, policies-changed, provider-retired, …
+models.providers; // the set, in preference order, as guarded views
+models.setProviders(providers); // replace the set; leavers are disposed once released
+models.resolve(kind, selection?); // Resolution: check, hold, open, release
+models.restrict(policy); // install a ProviderPolicy; returns the remover
+await models.dispose(); // release every instance, leased ones included
+models.events; // providers-changed, policies-changed, provider-retired, …
 ```
 
-Order is preference. Every view the manager hands out, and every model or
+Order is preference. Every view the `Models` registry hands out, and every model or
 live access opened through one, consults the installed policies on each call;
 a call in flight on an instance a new policy refuses is aborted.
 
-**Airplane Mode** is one such policy. `airplaneMode(manager).set(true)` admits
-only providers with `offline: true`, and tells every instance the manager
+**Airplane Mode** is one such policy. `airplaneMode(models).set(true)` admits
+only providers with `offline: true`, and tells every instance the registry
 still holds, leased ones that left the set included, to `setOffline(true)`.
 It is off when created and never persisted.
 
@@ -200,14 +200,14 @@ the figure from its own price table on any login, so it is an estimate.
 `beginTurnObservation()` opens one wide event per turn; `observeAgentTurn` is
 the same thing in the shape an agent surface takes (`observe`), so the harness
 wraps the model and settles the event itself. `configureModelObservability`
-wires the drain; the manager keeps its cost map current from the catalogs.
+wires the drain; `Models` keeps its cost map current from the catalogs.
 Errors are a defined catalog (`modelErrors`), so callers branch on the code.
 
 ## Notes
 
 - Types resolve from `dist/`. Build this package before a consumer typechecks
   against a changed public API.
-- `/local` loads transformers-js; the root entry never does.
+- `/node/local` loads transformers-js; the root entry never does.
 
 ## Local checks
 

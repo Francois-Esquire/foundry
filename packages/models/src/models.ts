@@ -2,14 +2,14 @@ import { TypedEmitter } from "@foundry/lib/emitter";
 import { EvlogError } from "evlog";
 import type { ModelCost } from "evlog/ai";
 import { modelErrors } from "./errors";
-import { configureModelObservability } from "./logger";
+import type { ModelKind, ProviderModelDefinition } from "./model-definition";
+import { MODEL_KINDS } from "./model-definition";
+import { configureModelObservability } from "./observability";
 import type { Provider } from "./provider";
 import { catalogRow, servesKind } from "./provider";
 import type { Host, Resolution } from "./resolution";
 import { guarded, instanceOf, resolution } from "./resolution";
 import type { ModelSelection } from "./selection";
-import type { ModelKind, ProviderModelDefinition } from "./types";
-import { MODEL_KINDS } from "./types";
 
 // biome-ignore lint/suspicious/noExplicitAny: Preserve EventEmitter compatibility for custom listener signatures.
 export type ModelsEventListener<Args extends any[] = any[]> = (

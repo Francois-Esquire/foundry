@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { WorkspaceFileSystem } from "../file-system";
 import { nodeFileSystem } from "../node";
 import { MemoryWorkspaceStore } from "../store/memory";
 import { fileRecord, hostWorkspace, seed } from "../testing/records";
-import type { WorkspaceFileSystem } from "../types";
 import { sha256Hex } from "./helpers/digest";
 import { directoryWorkspaces } from "./helpers/directory-workspaces";
 import { makeRoot, roots } from "./helpers/temp-roots";
@@ -23,8 +23,8 @@ function entryStats(kind: "file" | "directory") {
 describe("read", () => {
   it("returns current source text without changing the File row", async () => {
     const root = await makeRoot({ "README.md": "first" });
-    const system = directoryWorkspaces();
-    const added = await system.load({ path: root });
+    const workspaces = directoryWorkspaces();
+    const added = await workspaces.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -50,8 +50,8 @@ describe("read", () => {
     const outside = await mkdtemp(join(tmpdir(), "foundry-workspace-out-"));
     roots.push(outside);
     await writeFile(join(outside, "secret.txt"), "classified");
-    const system = directoryWorkspaces();
-    const added = await system.load({ path: root });
+    const workspaces = directoryWorkspaces();
+    const added = await workspaces.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -71,8 +71,8 @@ describe("read", () => {
     roots.push(outside);
     await mkdir(join(outside, "pkg"), { recursive: true });
     await writeFile(join(outside, "pkg", "notes.md"), "classified");
-    const system = directoryWorkspaces();
-    const added = await system.load({ path: root });
+    const workspaces = directoryWorkspaces();
+    const added = await workspaces.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -124,8 +124,8 @@ describe("read", () => {
 
   it("reports a File that disappeared since reconciliation as stale", async () => {
     const root = await makeRoot({ "README.md": "first" });
-    const system = directoryWorkspaces();
-    const added = await system.load({ path: root });
+    const workspaces = directoryWorkspaces();
+    const added = await workspaces.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -141,8 +141,8 @@ describe("read", () => {
   it("reads back a File the source spells differently from its stored path", async () => {
     const decomposed = `cafe${String.fromCodePoint(0x03_01)}.md`;
     const root = await makeRoot({ [decomposed]: "beans" });
-    const system = directoryWorkspaces();
-    const added = await system.load({ path: root });
+    const workspaces = directoryWorkspaces();
+    const added = await workspaces.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -243,8 +243,8 @@ describe("read", () => {
 
   it("separates a Workspace whose source is gone from one missing File", async () => {
     const root = await makeRoot({ "other.md": "second", "README.md": "first" });
-    const system = directoryWorkspaces();
-    const added = await system.load({ path: root });
+    const workspaces = directoryWorkspaces();
+    const added = await workspaces.load({ path: root });
     const [first, second] = await added.files();
     if (!(first && second)) {
       throw new Error("expected two Files");
@@ -263,8 +263,8 @@ describe("read", () => {
   it("reports bytes that are not valid UTF-8 as binary without a NUL to warn it", async () => {
     const root = await makeRoot({});
     await writeFile(join(root, "broken.txt"), Buffer.from([0xc3, 0x28]));
-    const system = directoryWorkspaces();
-    const added = await system.load({ path: root });
+    const workspaces = directoryWorkspaces();
+    const added = await workspaces.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -282,8 +282,8 @@ describe("read", () => {
   it("reports undecodable bytes as binary rather than corrupting them", async () => {
     const root = await makeRoot({});
     await writeFile(join(root, "blob.bin"), Buffer.from([0xff, 0xfe, 0x00, 1]));
-    const system = directoryWorkspaces();
-    const added = await system.load({ path: root });
+    const workspaces = directoryWorkspaces();
+    const added = await workspaces.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");

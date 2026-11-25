@@ -3,11 +3,11 @@ import { join } from "node:path";
 
 import type { StorageTree } from "@foundry/core/storage";
 
-import type { ContentId } from "../ref";
+import type { ContentId } from "../ids";
 import type { ArtifactSubstrate } from "../substrate";
+import { diffDirectory } from "./directory-diff";
 import { lstatOrNull } from "./fs";
 import { materialize } from "./materialize";
-import { diffDirectory } from "./scan";
 
 export interface ContentProjection {
   readonly artifacts: Pick<ArtifactSubstrate, "getContent" | "readFileRange">;

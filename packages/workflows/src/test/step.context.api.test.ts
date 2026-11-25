@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { BaseContext, SuspendSignal } from "../executable";
-import { isSuspendSignal } from "../executable";
+import type { BaseContext, SuspendSignal } from "../slices/executable";
+import { isSuspendSignal } from "../slices/executable";
 import type { StepContext, StepSpec } from "../step";
 
 import { Step } from "../step";

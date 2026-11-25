@@ -1,21 +1,21 @@
+import type {
+  HarnessPermissionCallback,
+  HarnessPermissionRequest,
+} from "@foundry/core/agents";
+import { validateHarnessProfile } from "@foundry/core/agents";
 import type { ApprovalResolution } from "@foundry/lib/config/authorization";
 import type {
   AgentAuthorizationDecision,
   AgentAuthorizationRequest,
 } from "../authorization/authorization";
+import type { SessionMessage, SessionPart } from "../schema";
 import { validateApprovalResponse } from "../session/converter";
 import type { AgentApprovalRequest } from "../session/events";
 import { Sessions } from "../session/sessions";
-import type { SessionMessage, SessionPart } from "../session/types";
 import { raceAbort } from "./abortable";
+import type { HarnessAuthoritySettings } from "./harness-session";
 import { harnessProfileDecision } from "./permission-profile";
 import { toolAuthorizationRequest } from "./tool-compiler";
-import type {
-  HarnessAuthoritySettings,
-  HarnessPermissionCallback,
-  HarnessPermissionRequest,
-} from "./turn-driver";
-import { validateHarnessProfile } from "./turn-driver";
 
 const SECRET_ASSIGNMENT =
   /\b(api[_-]?key|token|password|passwd|secret|authorization)(["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)/gi;

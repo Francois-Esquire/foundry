@@ -1,5 +1,5 @@
-import type { Blob, BlobFiles, BlobSource } from "./blob";
 import type {
+  BlobFiles,
   ByteInput,
   ReferenceInput,
   StagedBytes,
@@ -9,8 +9,9 @@ import { BlobStaging, checkSize } from "./blob-staging";
 import type { ArtifactChange } from "./change";
 import { CHUNK_BYTES } from "./constants";
 import { InvalidArtifactInputError } from "./errors";
-import type { BlobId } from "./ref";
-import { blobIdSchema } from "./ref";
+import type { BlobId } from "./ids";
+import { blobIdSchema } from "./ids";
+import type { Blob, BlobSource } from "./schema";
 
 export type { ByteInput, ReferenceInput } from "./blob-staging";
 // biome-ignore lint/performance/noBarrelFile: A compatibility re-export at the path consumers imported it from.

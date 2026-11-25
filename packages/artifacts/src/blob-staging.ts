@@ -1,11 +1,28 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-import type { BlobFiles, BlobStagingArea } from "./blob";
 import { CHUNK_BYTES } from "./constants";
 import { FileTooLargeError, InvalidArtifactInputError } from "./errors";
-import type { BlobId } from "./ref";
+import type { BlobId } from "./ids";
 import type { EntryInput, EntryInputs, FileInput } from "./substrate";
+
+export interface BlobFiles {
+  list(): AsyncIterable<string>;
+  publish(bytes: Uint8Array): Promise<string>;
+  read(
+    path: string,
+    range: { readonly start: number; readonly end: number }
+  ): AsyncIterable<Uint8Array>;
+  remove(path: string): Promise<void>;
+  readonly staging?: BlobStagingArea;
+}
+
+export interface BlobStagingArea {
+  abandon(): Promise<void>;
+  discard(staged: string): Promise<void>;
+  promote(staged: string): Promise<string>;
+  stage(bytes: Uint8Array): Promise<string>;
+}
 
 export type ReferenceInput =
   | Extract<FileInput, { readonly blobId: unknown }>

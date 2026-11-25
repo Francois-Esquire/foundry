@@ -11,23 +11,23 @@ import type {
 import { Data, Effect, Either, Fiber, Stream } from "effect";
 import { z } from "zod";
 import type { Runnable } from "./definitions";
-import {
-  type BaseContext,
-  isSuspendSignal,
-  type SuspendSignal,
-  suspensionOccurrenceKey,
-} from "./executable";
-import { errorToShape } from "./helpers";
-import { workflowEffectAccessKey } from "./internal/workflow-effect-access";
+import { errorToShape } from "./effect-interop";
 import { isJsonValue, isPlainRecord } from "./json-value";
 import {
   SnapshotStateSchema,
   WorkflowSnapshotSchema,
   WorkflowTelemetrySchema,
 } from "./schema";
-import type { SnapshotState, StepSnapshot } from "./snapshot";
+import {
+  type BaseContext,
+  isSuspendSignal,
+  type SuspendSignal,
+  suspensionOccurrenceKey,
+} from "./slices/executable";
+import type { SnapshotState, StepSnapshot } from "./slices/snapshot";
 import { type Bail, isBail } from "./types";
 import { Workflow, type WorkflowResult, type WorkflowState } from "./workflow";
+import { workflowEffectAccessKey } from "./workflow-effect-access";
 
 export const WorkflowCheckpointSchema = z.object({
   steps: SnapshotStateSchema.shape.steps,

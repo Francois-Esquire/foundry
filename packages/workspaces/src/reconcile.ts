@@ -1,10 +1,6 @@
-import type {
-  ObservedFacts,
-  WorkspaceCatalogChange,
-  WorkspaceEntry,
-  WorkspaceEntryId,
-  WorkspaceId,
-} from "./types";
+import type { WorkspaceCatalogChange } from "./catalog";
+import type { WorkspaceEntry, WorkspaceEntryId, WorkspaceId } from "./schema";
+import type { ObservedFacts } from "./source-adapter";
 
 export function diffCatalog(input: {
   readonly workspaceId: WorkspaceId;

@@ -3,10 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
-
-import type { SuspensionRequest, SuspensionState } from "../channels";
 import type { Factory, RunExecutionContext, Runnable } from "../definitions";
-import type { BaseContext } from "../executable";
 import type { JsonValue } from "../index";
 import {
   isJsonValue,
@@ -22,7 +19,13 @@ import type {
   WorkflowHandlerOptions,
   WorkflowRunFactory,
 } from "../queue-handler";
-import type { StepSnapshot, StepStatus, WorkflowSnapshot } from "../snapshot";
+import type { SuspensionRequest, SuspensionState } from "../slices/channels";
+import type { BaseContext } from "../slices/executable";
+import type {
+  StepSnapshot,
+  StepStatus,
+  WorkflowSnapshot,
+} from "../slices/snapshot";
 import type { StepContext, StepSpec } from "../step";
 import type {
   AfterFailureStepHook,
@@ -90,9 +93,9 @@ describe("public surface", () => {
   test("value exports remain defined", async () => {
     const [snapshotPublic, channelsPublic, executablePublic] =
       await Promise.all([
-        import("../snapshot-public"),
-        import("../channels-public"),
-        import("../executable-public"),
+        import("../snapshot"),
+        import("../channels"),
+        import("../executable"),
       ]);
     expect(Step).toBeDefined();
     expect(Workflow).toBeDefined();

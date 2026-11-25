@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-
+import type { SessionPart } from "../schema";
 import {
   sessionMessageSchema,
   sessionPartSchema,
@@ -7,7 +7,6 @@ import {
   summarySchema,
 } from "../schema";
 import { Sessions } from "../session/sessions";
-import type { SessionPart } from "../session/types";
 import { MemorySessionStore } from "../store/memory";
 
 const everyPart: SessionPart[] = [

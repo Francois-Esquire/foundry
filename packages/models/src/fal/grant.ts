@@ -1,8 +1,9 @@
 import { parseEndpointId } from "@fal-ai/client";
+import type { OperationName } from "../capability";
 import { modelErrors } from "../errors";
 import type { LiveAccess } from "../live/types";
+import type { ProviderModelDefinition } from "../model-definition";
 import { operationsOf } from "../provider";
-import type { OperationName, ProviderModelDefinition } from "../types";
 import type { FalRuntime } from "./client";
 
 const FAL_REST_URL = "https://rest.fal.ai";

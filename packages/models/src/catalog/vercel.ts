@@ -5,7 +5,7 @@ import type {
   ModelCostTier,
   ModelKind,
   ProviderModelDefinition,
-} from "../types";
+} from "../model-definition";
 import { tokenLimits } from "./limits";
 
 const TIER = z.object({

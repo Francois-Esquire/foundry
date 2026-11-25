@@ -1,11 +1,11 @@
-import type { WorkspaceStore } from "../store";
 import type {
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceFile,
   WorkspaceId,
   WorkspaceRegistration,
-} from "../types";
+} from "../schema";
+import type { WorkspaceStore } from "../store";
 
 export function newRoot(label: string): string {
   return `/src/${crypto.randomUUID()}/${label}`;
@@ -48,7 +48,7 @@ export function hostWorkspace(
   };
 }
 
-export function artifactWorkspace(
+export function otherSourceWorkspace(
   artifactId: string,
   path: string
 ): WorkspaceRegistration {

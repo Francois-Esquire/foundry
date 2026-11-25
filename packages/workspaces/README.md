@@ -1,6 +1,6 @@
 # @foundry/workspaces
 
-The Workspace system. A Workspace is the durable registration of one
+The `Workspaces` package. A Workspace is the durable registration of one
 authoritative source; an entry is one included path within it. The source owns
 current bytes — the package owns identity, inclusion, and the last
 successfully reconciled inventory.
@@ -13,13 +13,13 @@ The root remains on `WorkspaceSource`; actual file contents are read from storag
 Saves accept `expectedDigest` for the version last read.
 
 File classification, kinds, and their constants live in `@foundry/lib/file-classification`.
-`DIRECTORY_SOURCE` is exported from `@foundry/workspaces`; internal ignore constants live in `src/constants.ts` and `src/node/constants.ts`.
+`DIRECTORY_SOURCE` is exported from `@foundry/workspaces` and defined in `src/directory.ts`, the baseline ignore patterns in `src/traverse.ts`.
 
 The root `Workspace` class owns identity, the catalog, reconciliation, and
 the serialization guarantee. It delegates byte access to a composed
 `WorkspaceSourceAdapter`. Every source and capability is a `WorkspaceExtension`
 that supplies a source adapter and/or attaches capabilities and lifecycle hooks
-when the system opens an instance.
+when `Workspaces` opens an instance.
 
 The root entry has no Node runtime imports or default storage. Its directory
 extension requires caller-supplied storage: `directory({ filesystem })`.
@@ -58,7 +58,7 @@ await ws.remove(); // forgets the registration and closes the instance
 await workspaces.closeAll();
 ```
 
-Subscribe to committed catalog changes on the system:
+Subscribe to committed catalog changes on `Workspaces`:
 
 ```ts
 const unsubscribe = workspaces.on("change", ({ action, entry }) => {
@@ -74,8 +74,8 @@ is published by the catalog the moment it commits. Removal forgets catalog
 entries without deleting source files. Unchanged observations emit nothing.
 Delivery is in-process, with no replay; listeners receive detached payloads
 and their failures go to `onError` (default: `console.error`) rather than
-failing committed operations. Closing an instance does not unsubscribe system
-listeners. Changes made outside this system are observed on the next refresh.
+failing committed operations. Closing an instance does not unsubscribe
+`Workspaces` listeners. Changes made outside this `Workspaces` are observed on the next refresh.
 Enable storage observation to refresh automatically.
 
 ## Persistence
@@ -90,15 +90,15 @@ persist elsewhere:
 const workspaces = new Workspaces({ store, onError: log });
 ```
 
-The system drives a catalog over that store, and the catalog owns every rule:
+`Workspaces` drives a catalog over that store, and the catalog owns every rule:
 one Workspace per canonical root and per source reference, entries owned by
 their Workspace, a valid tree after every change, and each change applied
 whole or refused. A store implementation therefore only persists; those rules
-come with the system. Catalog mutations and per-Workspace observations, saves,
+come with `Workspaces`. Catalog mutations and per-Workspace observations, saves,
 and removals each run one at a time in-process. Each catalog mutation reads
-and commits inside the store's optional `transaction`, so a second system over
+and commits inside the store's optional `transaction`, so a second `Workspaces` over
 the same store cannot write between them; both stores here offer one. Over a
-store without it, a second system can still interleave.
+store without it, a second `Workspaces` can still interleave.
 
 | Path                                | Holds                                                               |
 | ----------------------------------- | ------------------------------------------------------------------- |
@@ -231,7 +231,7 @@ transaction holds the write lock while it reads: Drizzle's libSQL driver
 begins every transaction with `BEGIN IMMEDIATE` and offers no deferred
 (read-only) transaction through the database type the store accepts.
 
-Two systems over one `SqliteWorkspaceStore` are kept apart. In this process
+Two `Workspaces` over one `SqliteWorkspaceStore` are kept apart. In this process
 the store's calls take turns, so one made while a transaction runs waits
 for it. Across connections, each transaction takes SQLite's write lock at
 its first statement. A write from another process then waits for as long
@@ -330,11 +330,11 @@ registration order so later attachments can read earlier capabilities.
 A record no source extension claims is refused at open with
 `WorkspaceSourceUnsupportedError`.
 
-The system is the source of every Workspace. A source extension also names the
+`Workspaces` is the source of every Workspace. A source extension also names the
 ref `load` accepts (`ref: "path"`) and turns it into a registration
 (`identify`); `load` dispatches on the key. Every extension carries three types
-the system accumulates through `extend` — the ref, what `load(ref)` returns,
-and what every opened Workspace carries — so a composed system's `load`,
+`Workspaces` accumulates through `extend` — the ref, what `load(ref)` returns,
+and what every opened Workspace carries — so a composed `Workspaces`'s `load`,
 `open`, and `list` are typed by exactly the extensions it holds. An extension
 whose `applies` can return `false` contributes its capabilities as optional;
 only one whose `applies` always returns `true` (or that declares

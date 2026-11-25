@@ -1,0 +1,208 @@
+import type { ProviderModelDefinition } from "../model-definition";
+
+export const FAL_DEFAULT_MODELS: ProviderModelDefinition[] = [
+  {
+    id: "fal-ai/flux/dev",
+    kind: "image",
+    label: "FLUX.1 [dev]",
+    modelId: "fal-ai/flux/dev",
+    operations: [
+      {
+        delivery: "whole",
+        inputs: ["direction"],
+        mode: "request",
+        operation: "generate-image",
+        outputs: ["image/jpeg"],
+        required: ["direction"],
+      },
+    ],
+    vendor: "Black Forest Labs",
+  },
+  {
+    id: "fal-ai/flux-2/klein/realtime",
+    kind: "image",
+    label: "FLUX.2 [klein] realtime",
+    modelId: "fal-ai/flux-2/klein/realtime",
+    operations: [
+      {
+        delivery: "result-per-input",
+        inputs: ["direction", "frame"],
+        mode: "live",
+        operation: "generate-image",
+        outputs: ["image/jpeg"],
+        required: ["frame"],
+      },
+    ],
+    vendor: "Black Forest Labs",
+  },
+  {
+    id: "fal-ai/fast-lcm-diffusion/image-to-image",
+    kind: "image",
+    label: "Fast LCM image-to-image",
+    modelId: "fal-ai/fast-lcm-diffusion/image-to-image",
+    operations: [
+      {
+        delivery: "result-per-input",
+        inputs: ["direction", "frame"],
+        mode: "live",
+        operation: "generate-image",
+        outputs: ["image/jpeg"],
+        required: ["direction", "frame"],
+      },
+    ],
+  },
+  {
+    id: "fal-ai/minimax/video-01",
+    kind: "video",
+    label: "MiniMax Video 01",
+    modelId: "fal-ai/minimax/video-01",
+    operations: [
+      {
+        delivery: "whole",
+        inputs: ["direction"],
+        mode: "request",
+        operation: "generate-video",
+        outputs: ["video/mp4"],
+        required: ["direction"],
+      },
+    ],
+    vendor: "MiniMax",
+  },
+  {
+    id: "decart/lucy-2-5/realtime",
+    kind: "video",
+    label: "Lucy 2.5 realtime",
+    modelId: "decart/lucy-2-5/realtime",
+    operations: [
+      {
+        delivery: "continuous",
+        inputs: ["direction", "feed"],
+        mode: "live",
+        operation: "generate-video",
+        outputs: ["video/webm"],
+        required: ["direction", "feed"],
+      },
+    ],
+    vendor: "Decart",
+  },
+  {
+    id: "minimax/h3-max/director",
+    kind: "video",
+    label: "MiniMax H3 Max Director",
+    modelId: "minimax/h3-max/director",
+    operations: [
+      {
+        delivery: "continuous",
+        inputs: ["direction"],
+        mode: "live",
+        operation: "generate-video",
+        outputs: ["video/webm"],
+        required: ["direction"],
+      },
+    ],
+    vendor: "MiniMax",
+  },
+  {
+    id: "fal-ai/minimax/speech-02-hd",
+    kind: "speech",
+    label: "MiniMax Speech 02 HD",
+    modelId: "fal-ai/minimax/speech-02-hd",
+    operations: [
+      {
+        delivery: "whole",
+        inputs: ["source-text"],
+        mode: "request",
+        operation: "generate-speech",
+        outputs: ["audio/mpeg"],
+        required: ["source-text"],
+      },
+    ],
+    vendor: "MiniMax",
+  },
+  {
+    id: "fal-ai/wizper",
+    kind: "transcription",
+    label: "Wizper (Whisper v3)",
+    modelId: "wizper",
+    operations: [
+      {
+        delivery: "whole",
+        inputs: ["source-audio", "source-video"],
+        mode: "request",
+        operation: "transcribe",
+        outputs: ["text/plain"],
+        required: ["source-audio"],
+      },
+    ],
+  },
+  {
+    id: "fal-ai/sam-3/image",
+    kind: "segmentation",
+    label: "SAM 3 image",
+    modelId: "fal-ai/sam-3/image",
+    operations: [
+      {
+        delivery: "whole",
+        inputs: ["source-image", "segmentation-prompt"],
+        mode: "request",
+        operation: "segment-image",
+        outputs: ["application/json"],
+        required: ["source-image", "segmentation-prompt"],
+      },
+    ],
+    vendor: "Meta",
+  },
+  {
+    id: "fal-ai/sam-3-1/video",
+    kind: "segmentation",
+    label: "SAM 3.1 video",
+    modelId: "fal-ai/sam-3-1/video",
+    operations: [
+      {
+        delivery: "whole",
+        inputs: ["source-video", "segmentation-prompt"],
+        mode: "request",
+        operation: "segment-video",
+        outputs: ["application/json"],
+        required: ["source-video", "segmentation-prompt"],
+      },
+    ],
+    vendor: "Meta",
+  },
+  {
+    id: "fal-ai/elevenlabs/music",
+    kind: "music",
+    label: "ElevenLabs Music",
+    limits: { maxDurationSeconds: 600 },
+    modelId: "fal-ai/elevenlabs/music",
+    operations: [
+      {
+        delivery: "whole",
+        inputs: ["direction"],
+        mode: "request",
+        operation: "generate-music",
+        outputs: ["audio/mpeg"],
+        required: ["direction"],
+      },
+    ],
+    vendor: "ElevenLabs",
+  },
+  {
+    id: "fal-ai/elevenlabs/sound-effects/v2",
+    kind: "sound",
+    label: "ElevenLabs Sound Effects v2",
+    limits: { maxDurationSeconds: 22 },
+    modelId: "fal-ai/elevenlabs/sound-effects/v2",
+    operations: [
+      {
+        delivery: "whole",
+        inputs: ["direction"],
+        mode: "request",
+        operation: "generate-sound-effect",
+        outputs: ["audio/mpeg"],
+        required: ["direction"],
+      },
+    ],
+    vendor: "ElevenLabs",
+  },
+];

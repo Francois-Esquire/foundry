@@ -4,8 +4,8 @@ import {
   OpenAICompatibleImageModel,
 } from "@ai-sdk/openai-compatible";
 import { withoutTrailingSlash } from "@ai-sdk/provider-utils";
+import type { ModelKind, ProviderModelDefinition } from "./model-definition";
 import type { Provider } from "./provider";
-import type { ModelKind, ProviderModelDefinition } from "./types";
 
 export interface GatewayProviderConfig {
   apiKey?: string;

@@ -9,17 +9,18 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, describe, expect, it, test, vi } from "vitest";
+import type { WorkspaceChange } from "../catalog";
 import { directory } from "../node";
 import { MemoryWorkspaceStore } from "../store/memory";
-import type { WorkspaceChange } from "../types";
+import { hostWorkspace, newRoot, seed } from "../testing/records";
 import { Workspaces } from "../workspaces";
 import { interceptCommits } from "./helpers/commits";
 import { sha256Hex } from "./helpers/digest";
 
 function harness() {
   const store = new MemoryWorkspaceStore();
-  return { store, system: new Workspaces({ store }).extend(directory()) };
+  return { store, workspaces: new Workspaces({ store }).extend(directory()) };
 }
 
 describe("Workspaces public operations", () => {
@@ -45,9 +46,9 @@ describe("Workspaces public operations", () => {
   }
 
   test("publishes committed entry changes and preserves deleted descriptors", async () => {
-    const { system, store } = harness();
+    const { workspaces, store } = harness();
     const events: WorkspaceChange[] = [];
-    const stop = system.on("change", (change) => {
+    const stop = workspaces.on("change", (change) => {
       events.push(change);
     });
     const root = await sourceDirectory({
@@ -56,11 +57,11 @@ describe("Workspaces public operations", () => {
     });
     await mkdir(join(root, "empty"));
     await symlink("missing", join(root, "link"));
-    const workspace = await system.load({ path: root });
+    const workspace = await workspaces.load({ path: root });
     const initial = await workspace.entries();
     expect(events).toEqual(initial.map((entry) => ({ action: "add", entry })));
     events.length = 0;
-    await system.load({ path: root });
+    await workspaces.load({ path: root });
     await workspace.refresh();
     expect(events).toEqual([]);
 
@@ -96,15 +97,15 @@ describe("Workspaces public operations", () => {
   });
 
   test("save publishes once and no-op, conflict, and failed scans publish nothing", async () => {
-    const { system } = harness();
+    const { workspaces } = harness();
     const root = await sourceDirectory({ "file.txt": "first" });
-    const workspace = await system.load({ path: root });
+    const workspace = await workspaces.load({ path: root });
     const [file] = await workspace.files();
     if (!file) {
       throw new Error("Expected file");
     }
     const events: WorkspaceChange[] = [];
-    const stop = system.on("change", (change) => {
+    const stop = workspaces.on("change", (change) => {
       events.push(change);
     });
     const result = await workspace.save({
@@ -141,15 +142,15 @@ describe("Workspaces public operations", () => {
   });
 
   test("removal waits for a save and deletes its committed descriptor", async () => {
-    const { system, store } = harness();
+    const { workspaces, store } = harness();
     const root = await sourceDirectory({ "file.txt": "first" });
-    const workspace = await system.load({ path: root });
+    const workspace = await workspaces.load({ path: root });
     const [file] = await workspace.files();
     if (!file) {
       throw new Error("Expected file");
     }
     const events: WorkspaceChange[] = [];
-    const stop = system.on("change", (change) => {
+    const stop = workspaces.on("change", (change) => {
       events.push(change);
     });
     const started = Promise.withResolvers<undefined>();
@@ -180,28 +181,28 @@ describe("Workspaces public operations", () => {
   });
 
   test("unsubscribe stops future notifications", async () => {
-    const { system } = harness();
+    const { workspaces } = harness();
     const events: WorkspaceChange[] = [];
-    const stop = system.on("change", (change) => {
+    const stop = workspaces.on("change", (change) => {
       events.push(change);
     });
     stop();
-    await system.load({
+    await workspaces.load({
       path: await sourceDirectory({ "file.txt": "one" }),
     });
     expect(events).toEqual([]);
   });
 
   test("waits for reconciliation when a saved file's catalog update fails", async () => {
-    const { system, store } = harness();
+    const { workspaces, store } = harness();
     const root = await sourceDirectory({ "file.txt": "first" });
-    const workspace = await system.load({ path: root });
+    const workspace = await workspaces.load({ path: root });
     const [file] = await workspace.files();
     if (!file) {
       throw new Error("Expected file");
     }
     const events: WorkspaceChange[] = [];
-    const stop = system.on("change", (change) => {
+    const stop = workspaces.on("change", (change) => {
       events.push(change);
     });
     const observation = interceptCommits(store);
@@ -226,13 +227,13 @@ describe("Workspaces public operations", () => {
   });
 
   test("adds a directory and catalogs every included File", async () => {
-    const { system } = harness();
+    const { workspaces } = harness();
     const root = await sourceDirectory({
       "README.md": "hello",
       "src/deep/app.ts": "const a = 1;\n",
     });
 
-    const added = await system.load({ path: root });
+    const added = await workspaces.load({ path: root });
 
     expect(await added.summary()).toMatchObject({
       fileCount: 2,
@@ -242,32 +243,34 @@ describe("Workspaces public operations", () => {
       "README.md",
       "src/deep/app.ts",
     ]);
-    expect(await (await system.open(added.id)).summary()).toEqual(
+    expect(await (await workspaces.open(added.id)).summary()).toEqual(
       await added.summary()
     );
-    expect((await system.list()).items.map((w) => w.id)).toContain(added.id);
+    expect((await workspaces.list()).items.map((w) => w.id)).toContain(
+      added.id
+    );
   });
 
   test("resolves a duplicate add to the Workspace already registered", async () => {
-    const { system } = harness();
+    const { workspaces } = harness();
     const root = await sourceDirectory({ "README.md": "hello" });
 
-    const first = await system.load({ path: root });
+    const first = await workspaces.load({ path: root });
 
-    expect((await system.load({ path: root })).id).toBe(first.id);
+    expect((await workspaces.load({ path: root })).id).toBe(first.id);
     expect(
-      (await system.list()).items.filter((w) => w.id === first.id)
+      (await workspaces.list()).items.filter((w) => w.id === first.id)
     ).toHaveLength(1);
   });
 
   test("reconciles edits, arrivals, a unique move, and departures", async () => {
-    const { system } = harness();
+    const { workspaces } = harness();
     const root = await sourceDirectory({
       "drop.md": "temporary",
       "README.md": "first",
       "src/notes.md": "one of a kind",
     });
-    const added = await system.load({ path: root });
+    const added = await workspaces.load({ path: root });
     const before = await added.files();
     const moved = before.find((file) => file.path === "src/notes.md");
     const edited = before.find((file) => file.path === "README.md");
@@ -297,9 +300,9 @@ describe("Workspaces public operations", () => {
   });
 
   test("returns the prior catalog beside an unavailable source", async () => {
-    const { system } = harness();
+    const { workspaces } = harness();
     const root = await sourceDirectory({ "README.md": "hello" });
-    const added = await system.load({ path: root });
+    const added = await workspaces.load({ path: root });
     const before = await added.files();
 
     await rm(root, { force: true, recursive: true });
@@ -311,12 +314,12 @@ describe("Workspaces public operations", () => {
   });
 
   test("removes a Workspace and its Files without touching the source", async () => {
-    const { system, store } = harness();
+    const { workspaces, store } = harness();
     const root = await sourceDirectory({
       "README.md": "hello",
       "src/app.ts": "1",
     });
-    const added = await system.load({ path: root });
+    const added = await workspaces.load({ path: root });
 
     await added.remove();
 
@@ -327,9 +330,9 @@ describe("Workspaces public operations", () => {
   });
 
   test("reads the source's current text, not the catalogued facts", async () => {
-    const { system } = harness();
+    const { workspaces } = harness();
     const root = await sourceDirectory({ "README.md": "first" });
-    const added = await system.load({ path: root });
+    const added = await workspaces.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -349,9 +352,9 @@ describe("Workspaces public operations", () => {
   });
 
   test("saves a host File and converges catalog, source, and version", async () => {
-    const { system, store } = harness();
+    const { workspaces, store } = harness();
     const root = await sourceDirectory({ "notes.md": "before" });
-    const added = await system.load({ path: root });
+    const added = await workspaces.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -388,9 +391,9 @@ describe("Workspaces public operations", () => {
   });
 
   test("returns a conflict with the current snapshot and leaves the source unchanged", async () => {
-    const { system } = harness();
+    const { workspaces } = harness();
     const root = await sourceDirectory({ "notes.md": "mine" });
-    const added = await system.load({ path: root });
+    const added = await workspaces.load({ path: root });
     const [file] = await added.files();
     if (!file) {
       throw new Error("expected one File");
@@ -409,5 +412,49 @@ describe("Workspaces public operations", () => {
       kind: "conflict",
     });
     expect(await readFile(join(root, "notes.md"), "utf8")).toBe("theirs");
+  });
+});
+
+describe("Workspaces construction", () => {
+  it("opens only the requested page and retains the catalog total", async () => {
+    const store = new MemoryWorkspaceStore();
+    const workspaces = new Workspaces({ store }).extend(directory());
+    const first = hostWorkspace({
+      createdAt: new Date(1),
+      path: newRoot("first"),
+    });
+    const second = hostWorkspace({
+      createdAt: new Date(2),
+      path: newRoot("second"),
+    });
+    await seed(store, first);
+    await seed(store, second);
+    const open = vi.spyOn(workspaces, "open");
+    const page = await workspaces.list({ limit: 1 });
+    expect(page.total).toBe(2);
+    expect(page.nextCursor).toBe(1);
+    expect(page.items.map((workspace) => workspace.id)).toEqual([first.id]);
+    expect(open).toHaveBeenCalledExactlyOnceWith(first.id);
+    const next = await workspaces.list({ cursor: page.nextCursor, limit: 1 });
+    expect(next.total).toBe(2);
+    expect(next.nextCursor).toBeUndefined();
+    expect(next.items.map((workspace) => workspace.id)).toEqual([second.id]);
+    await workspaces.closeAll();
+  });
+  it("runs the whole lifecycle with no store and no database setup", async () => {
+    const zeroConfig = new Workspaces();
+
+    expect((await zeroConfig.list()).items).toEqual([]);
+  });
+
+  it("reads through an injected store instead of its own default", async () => {
+    const store = new MemoryWorkspaceStore();
+    const workspaces = new Workspaces({ store }).extend(directory());
+    const workspace = hostWorkspace({ path: newRoot("injected") });
+    await seed(store, workspace);
+
+    expect((await workspaces.list()).items.map((w) => w.id)).toEqual([
+      workspace.id,
+    ]);
   });
 });

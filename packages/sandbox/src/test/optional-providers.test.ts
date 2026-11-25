@@ -45,7 +45,7 @@ import { sandboxFromAdapter } from "./src/index.ts";
 import { createSandboxToolkit } from "./src/tools/index.ts";
 import { createContainers, prepareSandboxProcess } from "./src/node/index.ts";
 import { MemoryContainerStore } from "./src/store/memory.ts";
-import "./src/testing.ts";
+import "./src/testing/fake-container-runtime.ts";
 for (const peer of ["just-bash", "microsandbox"]) {
   assert.throws(() => Bun.resolveSync(peer, process.cwd()));
 }

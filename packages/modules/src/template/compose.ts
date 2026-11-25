@@ -6,6 +6,7 @@ import {
 import type { ModuleSdkPack } from "../sdk";
 import { assertModuleSdkPack } from "../sdk";
 import { formatJson, isRecord, parseJsonRecord } from "./json";
+import type { ModuleProjectIdentity } from "./scaffold";
 import {
   APP_DEPENDENCIES,
   APP_DEV_DEPENDENCIES,
@@ -23,15 +24,11 @@ import {
   WORKSPACE_SCRIPTS,
 } from "./scaffold";
 
+export type { ModuleProjectIdentity } from "./scaffold";
+
 export const MODULE_TEMPLATE_COMPOSER_GENERATION = 13;
 export const MODULE_TEMPLATE_COMPOSER_VERSION =
   `foundry.module-template/${MODULE_TEMPLATE_COMPOSER_GENERATION}` as const;
-
-export interface ModuleProjectIdentity {
-  readonly displayName: string;
-  readonly id: string;
-  readonly packageName: string;
-}
 
 export interface ModuleBase {
   readonly files: Readonly<Record<string, string>>;

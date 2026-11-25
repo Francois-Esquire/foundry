@@ -9,18 +9,15 @@ import {
   Scope as ScopeMod,
   SubscriptionRef,
 } from "effect";
-
-import type { SuspensionState } from "./channels";
-import { compileWorkflowDefinition } from "./definition-compiler";
-import { DefinitionAuthoringError } from "./definition-errors";
-import type { WorkflowDefinitionPlan } from "./definition-plan";
+import { compileWorkflowDefinition } from "./definition/compiler";
+import type { WorkflowDefinitionPlan } from "./definition/plan";
 import {
   definitionBindingFor,
   definitionMaterializer,
   definitionRuntimeSeed,
   describeWorkflowDefinition,
   WorkflowPlanBuilder,
-} from "./definition-plan";
+} from "./definition/plan";
 import type {
   DefinitionBinding,
   DefinitionContext,
@@ -28,23 +25,25 @@ import type {
   DefinitionGraphBuilder,
   Factory,
 } from "./definitions";
-import type { BaseContext } from "./executable";
-import { isSuspendSignal } from "./executable";
-import { errorToShape, resolveInput, runEffectPromise } from "./helpers";
-import type { WorkflowEffectAccess } from "./internal/workflow-effect-access";
-import { workflowEffectAccessKey } from "./internal/workflow-effect-access";
+import { DefinitionAuthoringError } from "./definitions";
+import { errorToShape, resolveInput, runEffectPromise } from "./effect-interop";
 import type { ErrorShape } from "./schema";
+import type { SuspensionState } from "./slices/channels";
+import type { BaseContext } from "./slices/executable";
+import { isSuspendSignal } from "./slices/executable";
 import type {
   SnapshotState,
   WorkflowSnapshot,
   WorkflowStepNode,
-} from "./snapshot";
+} from "./slices/snapshot";
 import type { StepSpec } from "./step";
 import { isStepBailError, Step } from "./step";
 import type { LogSink, TelemetryLogEntry, TelemetryState } from "./telemetry";
 import { noopSink, Telemetry } from "./telemetry";
 import type { Bail, RunStatus } from "./types";
 import { isBail } from "./types";
+import type { WorkflowEffectAccess } from "./workflow-effect-access";
+import { workflowEffectAccessKey } from "./workflow-effect-access";
 
 export function deriveWorkflowTree<I, O, X extends BaseContext>(
   step: Step<I, O, X>,

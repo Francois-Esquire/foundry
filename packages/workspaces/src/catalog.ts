@@ -1,16 +1,25 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { storageTree } from "@foundry/core/storage";
 import { nextWorkspaceObservation } from "./observation";
-import type { WorkspaceStore } from "./store";
 import type {
-  WorkspaceCatalogChange,
-  WorkspaceChange,
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceEvent,
   WorkspaceId,
   WorkspaceRegistration,
-} from "./types";
+} from "./schema";
+import type { WorkspaceStore } from "./store";
+
+export interface WorkspaceChange {
+  readonly action: "add" | "change" | "delete";
+  readonly entry: WorkspaceEntry;
+}
+
+export interface WorkspaceCatalogChange {
+  readonly deleted: readonly WorkspaceEntry[];
+  readonly inserted: readonly WorkspaceEntry[];
+  readonly updated: readonly WorkspaceEntry[];
+}
 
 export type CommitCreateResult =
   | { readonly kind: "committed" }

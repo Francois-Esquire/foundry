@@ -1,8 +1,8 @@
 import { basename, join } from "node:path";
 
 import { quantities, type Work } from "../../consumption";
-import { historyFiles, jsonLines, mapLimit } from "../local";
-import { count, record, text } from "../values";
+import { historyFiles, jsonLines, mapLimit } from "../machine";
+import { count, record, text } from "../payload";
 
 const SYNTHETIC_MODEL = "<synthetic>";
 const USAGE_MARKER = '"usage"';

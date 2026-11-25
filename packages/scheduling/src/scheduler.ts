@@ -32,7 +32,7 @@ import {
   type Evaluation,
   makeEvaluator,
   sameJson,
-} from "./evaluate";
+} from "./evaluator";
 import { ScheduleStore } from "./store/index";
 
 export interface SchedulerOptions {

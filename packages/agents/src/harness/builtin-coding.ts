@@ -1,11 +1,11 @@
+import { validateHarnessProfile } from "@foundry/core/agents";
 import type { Instructions, Output } from "ai";
 import { stepCountIs } from "ai";
-import type { TurnContext } from "../agents/loop-agent";
 import type { SessionInput } from "../session/events";
+import type { HarnessSession } from "./harness-session";
+import type { TurnContext } from "./loop-agent";
 import type { SessionHarnessSettings, TurnOptions } from "./session-harness";
 import { SessionHarness } from "./session-harness";
-import type { HarnessSession } from "./turn-driver";
-import { validateHarnessProfile } from "./turn-driver";
 import { createTurnGate } from "./turn-gate";
 
 export const CODING_INSTRUCTIONS =

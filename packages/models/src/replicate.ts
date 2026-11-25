@@ -1,8 +1,8 @@
 import { createReplicate } from "@ai-sdk/replicate";
 import { modelErrors } from "./errors";
+import type { ProviderModelDefinition } from "./model-definition";
 import type { Provider } from "./provider";
 import { vendorClient } from "./provider";
-import type { ProviderModelDefinition } from "./types";
 
 export interface ReplicateProviderConfig {
   apiToken?: string;

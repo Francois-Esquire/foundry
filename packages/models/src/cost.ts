@@ -1,4 +1,4 @@
-import type { ModelCosts, ModelCostTier } from "./types";
+import type { ModelCosts, ModelCostTier } from "./model-definition";
 
 const PER_MILLION = 1_000_000;
 

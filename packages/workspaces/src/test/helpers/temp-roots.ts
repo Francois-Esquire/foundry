@@ -27,6 +27,6 @@ export async function makeRoot(
   return await nodeFileSystem.realpath(root);
 }
 
-export function systemOver(store: WorkspaceStore) {
+export function workspacesOver(store: WorkspaceStore) {
   return directoryWorkspaces({ store });
 }

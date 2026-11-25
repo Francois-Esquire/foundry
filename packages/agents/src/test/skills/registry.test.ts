@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { Skill } from "../../skills/registry";
 import { createSkillRegistry } from "../../skills/registry";
-import type { Skill } from "../../skills/types";
 
 const opts = { context: undefined, messages: [], toolCallId: "test" };
 

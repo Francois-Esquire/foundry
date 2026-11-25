@@ -124,3 +124,11 @@ export const taskStoreWriteSchema = z
   })
   .readonly();
 export type TaskStoreWrite = z.infer<typeof taskStoreWriteSchema>;
+
+export function taskId(value: string): TaskId {
+  return value as TaskId;
+}
+
+export function edgeKey(edge: TaskDependency): string {
+  return JSON.stringify([edge.taskId, edge.dependsOnId]);
+}

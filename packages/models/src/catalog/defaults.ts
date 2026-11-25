@@ -1,4 +1,4 @@
-import type { ProviderModelDefinition } from "../types";
+import type { ProviderModelDefinition } from "../model-definition";
 
 export const VERCEL_DEFAULT_MODELS: ProviderModelDefinition[] = [
   {

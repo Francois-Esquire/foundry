@@ -3,15 +3,14 @@ import type { CommitEffects } from "@foundry/core/storage";
 import { runAfterCommit } from "@foundry/core/storage";
 import { asyncScope } from "@foundry/lib/async-scope";
 import { ReentrantCallError } from "@foundry/lib/turns";
-
-import type { BlobFiles } from "./blob";
 import { readBlob, requireBlob } from "./blob-repository";
+import type { BlobFiles } from "./blob-staging";
 import { abandonStaging, BlobStaging, StagingTurns } from "./blob-staging";
 import { ArtifactChange } from "./change";
 import { MAX_FILE_BYTES, MAX_TREE_BYTES } from "./constants";
 import { ArtifactApplicationError, TransactionRolledBackError } from "./errors";
+import type { ArtifactId, BlobId, ContentId } from "./ids";
 import type { ArtifactCursor } from "./listing";
-import type { ArtifactId, BlobId, ContentId } from "./ref";
 import type { ArtifactStore, ArtifactStoreWrite } from "./store";
 import { MemoryArtifactStore } from "./store/memory";
 import type {

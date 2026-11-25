@@ -48,10 +48,10 @@ vi.mock("@fal-ai/client", () => ({
 }));
 
 const { connectFalSocket, falSocketTransport } = await import(
-  "../../live/fal-socket"
+  "../../live/fal/socket"
 );
 const { connectFalWebRtc, falWebRtcTransport } = await import(
-  "../../live/fal-webrtc"
+  "../../live/fal/webrtc"
 );
 
 function handlers(): TransportHandlers & { closes: string[] } {

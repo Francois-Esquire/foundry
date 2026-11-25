@@ -24,10 +24,9 @@ import {
 } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
-
+import type { ArtifactId, BlobId, ContentId } from "../ids";
 import type { ArtifactCursor } from "../listing";
 import { ownedListQuery } from "../listing";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, Blob, Content } from "../schema";
 import type {
   ArtifactListing,

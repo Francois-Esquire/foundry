@@ -1,11 +1,8 @@
+import type { HarnessTurnDriver } from "@foundry/core/agents";
 import { describe, expect, it, vi } from "vitest";
-
 import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { createDriverSession } from "../../harness/driver-session";
-import type {
-  DriverSessionSettings,
-  HarnessTurnDriver,
-} from "../../harness/turn-driver";
+import type { DriverSessionSettings } from "../../harness/harness-session";
 import type { SessionEvent } from "../../session/events";
 import { Sessions } from "../../session/sessions";
 import type { SessionStore } from "../../store";

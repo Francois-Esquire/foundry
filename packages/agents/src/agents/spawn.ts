@@ -2,9 +2,8 @@ import type { ToolLoopAgent } from "ai";
 
 import { tool } from "ai";
 import { z } from "zod";
-
+import type { SessionRecord } from "../schema";
 import { Sessions } from "../session/sessions";
-import type { SessionRecord } from "../session/types";
 import type { SessionStore } from "../store";
 import { collapseFinalText } from "./last-text";
 import type { AgentCompatibilityProjection, AgentEntry } from "./registry";

@@ -1,7 +1,6 @@
-import type { Summary } from "../schema";
+import type { SessionMessage, Summary } from "../schema";
 import type { SessionStore } from "../store";
 import type { Summarizer } from "./compactor";
-import type { SessionMessage } from "./types";
 
 export type { Summary } from "../schema";
 

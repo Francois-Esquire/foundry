@@ -8,13 +8,6 @@ import { byCodeUnit } from "@foundry/lib/ordering";
 import { FilePointerError } from "./errors";
 import type { ContentMetadata, ContentState } from "./schema";
 
-export type {
-  ArtifactLifecycleStatus,
-  ArtifactMetadata,
-  ContentMetadata,
-  ContentState,
-} from "./schema";
-
 export function isUsableContent<T extends { readonly state: ContentState }>(
   content: T | null | undefined
 ): content is T & { readonly state: "ready" | "frozen" } {

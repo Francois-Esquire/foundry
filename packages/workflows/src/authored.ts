@@ -4,8 +4,8 @@ import type {
   DefinitionGraphBuilder,
   RunExecutionContext,
 } from "./definitions";
-import type { BaseContext } from "./executable";
 import type { JsonValue } from "./json-value";
+import type { BaseContext } from "./slices/executable";
 import type { StepContext } from "./step";
 
 import { Step } from "./step";

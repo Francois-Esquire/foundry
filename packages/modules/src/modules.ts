@@ -21,8 +21,8 @@ import type {
   InstallationGrant,
   RetainedManifest,
   StoredInstallation,
-} from "./schema";
-import { grantCapabilitiesProblem } from "./schema";
+} from "./records";
+import { grantCapabilitiesProblem } from "./records";
 import type {
   ModuleStore,
   ModuleStoreDurability,
@@ -33,7 +33,7 @@ import type {
 import { plainCopy } from "./store/captured";
 import { MemoryModuleStore } from "./store/memory";
 
-export type { InstallationGrant, RetainedManifest } from "./schema";
+export type { InstallationGrant, RetainedManifest } from "./records";
 
 export type ModuleGatewayContext = StoredInstallation;
 

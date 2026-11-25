@@ -2,16 +2,16 @@ import type { JsonValue } from "@foundry/lib/json";
 import type { Run, RunOutcome } from "@foundry/queue";
 import { Effect, TestClock } from "effect";
 import { describe, expect, test } from "vitest";
-import type { ChannelMessage } from "../channels";
-import {
-  parseSuspensionOccurrenceKey,
-  suspensionOccurrenceKey,
-} from "../executable";
 import {
   runResultOf,
   WorkflowCheckpointSchema,
   workflowHandler,
 } from "../queue-handler";
+import type { ChannelMessage } from "../slices/channels";
+import {
+  parseSuspensionOccurrenceKey,
+  suspensionOccurrenceKey,
+} from "../slices/executable";
 import { Step, type StepContext } from "../step";
 import { bail } from "../types";
 import { Workflow } from "../workflow";

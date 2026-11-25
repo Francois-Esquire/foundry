@@ -1,16 +1,15 @@
+import type {
+  HarnessActivity,
+  HarnessQuestionCallback,
+  HarnessTurnDriver,
+} from "@foundry/core/agents";
 import { expect, it } from "vitest";
-
 import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import {
   createHarnessActivityRecorder,
   reduceHarnessActivities,
 } from "../../harness/activity";
 import { createDriverSession } from "../../harness/driver-session";
-import type {
-  HarnessActivity,
-  HarnessQuestionCallback,
-  HarnessTurnDriver,
-} from "../../harness/turn-driver";
 import { toModelMessages } from "../../session/converter";
 import { Sessions } from "../../session/sessions";
 import { MemorySessionStore } from "../../store/memory";

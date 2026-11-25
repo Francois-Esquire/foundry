@@ -10,13 +10,13 @@ import type {
   StampedOutput,
 } from "../../authored";
 import type { RunExecutionContext } from "../../definitions";
-import type { BaseContext } from "../../executable";
 import {
   type WorkflowCheckpoint,
   WorkflowCheckpointSchema,
   type WorkflowRunFactory,
   workflowHandler,
 } from "../../queue-handler";
+import type { BaseContext } from "../../slices/executable";
 
 export interface JournalFrame {
   readonly kind: "log" | "output";

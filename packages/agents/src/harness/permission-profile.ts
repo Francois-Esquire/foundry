@@ -1,7 +1,7 @@
 import type {
   HarnessPermissionProfile,
   HarnessPermissionRequest,
-} from "./turn-driver";
+} from "@foundry/core/agents";
 
 const SHELL_CONTROL = /[;&|<>`\r\n$\\]/u;
 const WILDCARD = /\*+/gu;

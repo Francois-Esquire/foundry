@@ -5,22 +5,22 @@ import {
   WorkspacePersistenceError,
   WorkspaceSourceUnavailableError,
 } from "../errors";
+import type { WorkspaceFileSystem } from "../file-system";
 import { nodeFileSystem } from "../node";
 import type { WorkspaceStore } from "../store";
 import { MemoryWorkspaceStore } from "../store/memory";
 import { fileRecord } from "../testing/records";
-import type { WorkspaceFileSystem } from "../types";
 import { directoryWorkspaces } from "./helpers/directory-workspaces";
-import { makeRoot, systemOver } from "./helpers/temp-roots";
+import { makeRoot, workspacesOver } from "./helpers/temp-roots";
 
 describe("reconciliation", () => {
   async function opened(tree: Record<string, string>) {
     const root = await makeRoot(tree);
     const store = new MemoryWorkspaceStore();
-    const system = systemOver(store);
-    const added = await system.load({ path: root });
+    const workspaces = workspacesOver(store);
+    const added = await workspaces.load({ path: root });
     const files = await added.files();
-    return { added, files, id: added.id, root, store, system };
+    return { added, files, id: added.id, root, store, workspaces };
   }
 
   function idsByPath(entries: readonly { path: string; id: string }[]) {
@@ -165,11 +165,11 @@ describe("reconciliation", () => {
 
   it("never matches a move across Workspace ownership", async () => {
     const store = new MemoryWorkspaceStore();
-    const system = systemOver(store);
+    const workspaces = workspacesOver(store);
     const left = await makeRoot({ "twin.md": "identical bytes" });
     const right = await makeRoot({ "other.md": "unrelated" });
-    const leftWorkspace = await system.load({ path: left });
-    const rightWorkspace = await system.load({ path: right });
+    const leftWorkspace = await workspaces.load({ path: left });
+    const rightWorkspace = await workspaces.load({ path: right });
     const [leftFile] = await leftWorkspace.files();
 
     await writeFile(join(right, "twin.md"), "identical bytes");
@@ -181,10 +181,12 @@ describe("reconciliation", () => {
   });
 
   it("reconciles an add of a root that is already registered", async () => {
-    const { root, system, id, files } = await opened({ "README.md": "first" });
+    const { root, workspaces, id, files } = await opened({
+      "README.md": "first",
+    });
     await writeFile(join(root, "second.md"), "more");
 
-    const again = await system.load({ path: root });
+    const again = await workspaces.load({ path: root });
 
     expect(again.id).toBe(id);
     expect((await again.summary()).fileCount).toBe(2);
@@ -217,7 +219,7 @@ describe("reconciliation", () => {
 
     expect(await workspace.files()).toEqual(files);
     expect(await workspace.summary()).toEqual(
-      await (await systemOver(store).open(id)).summary()
+      await (await workspacesOver(store).open(id)).summary()
     );
     expect((await offline.list()).items.map((w) => w.id)).toEqual([id]);
     expect(reached).toEqual([]);
@@ -304,13 +306,13 @@ describe("reconciliation", () => {
       listEntries: (workspaceId) => store.listEntries(workspaceId),
       listWorkspaces: (input) => store.listWorkspaces(input),
     };
-    const system = directoryWorkspaces({ store: holding });
+    const workspaces = directoryWorkspaces({ store: holding });
 
-    const before = await system.open(id);
+    const before = await workspaces.open(id);
     const inFlight = before.refresh();
     await committing.promise;
-    await system.close(id);
-    const after = await system.open(id);
+    await workspaces.close(id);
+    const after = await workspaces.open(id);
     expect(after).not.toBe(before);
     const reopened = after.refresh();
     await new Promise((resolve) => setTimeout(resolve, 50));

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Artifacts } from "../artifacts";
 import { ArtifactChange } from "../change";
+import { artifactIdSchema } from "../ids";
 import type { ListArtifactsInput } from "../index";
-import { artifactIdSchema } from "../ref";
 import type { Artifact, Blob } from "../schema";
 import { required } from "./helpers/required";
 import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";

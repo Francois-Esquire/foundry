@@ -4,7 +4,8 @@ import type {
   StorageSubscription,
 } from "@foundry/core/storage";
 import { polling } from "../observation";
-import { SKIP } from "./constants";
+
+const SKIP = /(^|[\\/])(node_modules|\.git)([\\/]|$)/;
 
 export const nodeObserver: StorageObserver = {
   async watch(root, changed, failed) {

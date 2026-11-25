@@ -4,8 +4,8 @@ import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/node/atomic-file";
 import { acquireFileLock } from "@foundry/lib/node/file-lock";
 import { Turns } from "@foundry/lib/turns";
+import type { ArtifactId, BlobId, ContentId } from "../ids";
 import { ownedListQuery } from "../listing";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
 import type {
   ArtifactListing,

@@ -15,8 +15,10 @@ import {
   sourceIssueFor,
   WorkspaceSourceUnavailableError,
 } from "./errors";
+import type { WorkspaceFileSystem } from "./file-system";
+import type { ObservedFacts } from "./source-adapter";
+import type { WalkedEntry } from "./traverse";
 import { walkEntries } from "./traverse";
-import type { ObservedFacts, WalkedEntry, WorkspaceFileSystem } from "./types";
 
 export async function canonicalizeRoot(
   filesystem: Pick<StorageReader, "lstat" | "realpath">,

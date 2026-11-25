@@ -8,7 +8,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 import { ARTIFACT_STATUSES, CONTENT_STATES } from "../constants";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
+import type { ArtifactId, BlobId, ContentId } from "../ids";
 import type { ArtifactMetadata, ContentMetadata, ContentTree } from "../schema";
 
 export const artifacts = sqliteTable(

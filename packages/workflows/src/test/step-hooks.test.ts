@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
-import { isSuspendSignal } from "../executable";
-import type { StepSnapshot } from "../snapshot";
+import { isSuspendSignal } from "../slices/executable";
+import type { StepSnapshot } from "../slices/snapshot";
 import { withStepHooks } from "../step-hooks";
 
 const NON_EMPTY_PATTERN = /non-empty/;

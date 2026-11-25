@@ -1,5 +1,4 @@
 import {
-  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -15,7 +14,10 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
 import { WorkspaceFileNotFoundError, WorkspaceNotFoundError } from "../errors";
+import type { WorkspaceFileSystem } from "../file-system";
 import { nodeFileSystem } from "../node";
+import type { WorkspaceId } from "../schema";
+import type { SaveFileResult } from "../source-adapter";
 import type { WorkspaceStore } from "../store";
 import { MemoryWorkspaceStore } from "../store/memory";
 import {
@@ -23,11 +25,6 @@ import {
   hostWorkspace,
   newWorkspaceEntryId,
 } from "../testing/records";
-import type {
-  SaveFileResult,
-  WorkspaceFileSystem,
-  WorkspaceId,
-} from "../types";
 import { sha256Hex } from "./helpers/digest";
 import { directoryWorkspaces } from "./helpers/directory-workspaces";
 
@@ -105,10 +102,10 @@ async function opened(
 ) {
   const root = await makeRoot(tree);
   const store = new MemoryWorkspaceStore();
-  const system = directoryWorkspaces({ filesystem, store });
-  const workspace = await system.load({ path: root });
+  const workspaces = directoryWorkspaces({ filesystem, store });
+  const workspace = await workspaces.load({ path: root });
   const files = await workspace.files();
-  return { files, id: workspace.id, root, store, system, workspace };
+  return { files, id: workspace.id, root, store, workspace, workspaces };
 }
 
 function one<T>(items: readonly T[]): T {
@@ -241,11 +238,11 @@ describe("save", () => {
   });
 
   it("throws for an unknown Workspace or File", async () => {
-    const { system, workspace } = await opened({ "a.txt": "x" });
+    const { workspaces, workspace } = await opened({ "a.txt": "x" });
 
-    await expect(system.open("missing" as WorkspaceId)).rejects.toBeInstanceOf(
-      WorkspaceNotFoundError
-    );
+    await expect(
+      workspaces.open("missing" as WorkspaceId)
+    ).rejects.toBeInstanceOf(WorkspaceNotFoundError);
     await expect(
       workspace.save({
         expectedDigest: digestOf("x"),
@@ -508,8 +505,8 @@ describe("catalog observation after write", () => {
     const root = await makeRoot({ "README.md": "first" });
     const inner = new MemoryWorkspaceStore();
     const faulty = faultyStore(inner);
-    const system = directoryWorkspaces({ filesystem, store: faulty.store });
-    const workspace = await system.load({ path: root });
+    const workspaces = directoryWorkspaces({ filesystem, store: faulty.store });
+    const workspace = await workspaces.load({ path: root });
     const file = one(await workspace.files());
     faulty.arm("commit");
 
@@ -545,8 +542,8 @@ describe("catalog observation after write", () => {
   it("returns saved/refresh-required when the catalog refuses the update", async () => {
     const root = await makeRoot({ "README.md": "first" });
     const faulty = faultyStore(new MemoryWorkspaceStore());
-    const system = directoryWorkspaces({ store: faulty.store });
-    const workspace = await system.load({ path: root });
+    const workspaces = directoryWorkspaces({ store: faulty.store });
+    const workspace = await workspaces.load({ path: root });
     const file = one(await workspace.files());
     faulty.arm("missing-row");
 
@@ -584,9 +581,9 @@ describe("catalog observation after write", () => {
     const registered = await setup.load({ path: root });
     const file = one(await registered.files());
 
-    const system = directoryWorkspaces({ filesystem: slowScan, store });
-    const observation = (await system.open(registered.id)).refresh();
-    const save = (await system.open(registered.id)).save({
+    const workspaces = directoryWorkspaces({ filesystem: slowScan, store });
+    const observation = (await workspaces.open(registered.id)).refresh();
+    const save = (await workspaces.open(registered.id)).save({
       expectedDigest: digestOf("first"),
       fileId: file.id,
       text: "second",
@@ -601,51 +598,5 @@ describe("catalog observation after write", () => {
       digest: digestOf("second"),
     });
     expect(await readFile(join(root, "README.md"), "utf8")).toBe("second");
-  });
-});
-
-describe("nodeFileSystem.replaceFile", () => {
-  it("replaces bytes exactly and preserves the existing permission bits", async () => {
-    const root = await makeRoot({ "mode.txt": "before" });
-    const target = join(root, "mode.txt");
-    await chmod(target, 0o600);
-
-    await nodeFileSystem.replaceFile(target, new TextEncoder().encode("after"));
-
-    expect(await readFile(target, "utf8")).toBe("after");
-    // biome-ignore lint/suspicious/noBitwiseOperators: Filesystem permissions are a bit mask.
-    expect((await lstat(target)).mode & 0o7777).toBe(0o600);
-    expect(await readdir(root)).toEqual(["mode.txt"]);
-  });
-
-  it("throws for a missing target and creates nothing", async () => {
-    const root = await makeRoot({});
-
-    await expect(
-      nodeFileSystem.replaceFile(
-        join(root, "absent.txt"),
-        new TextEncoder().encode("x")
-      )
-    ).rejects.toMatchObject({ code: "ENOENT" });
-    expect(await readdir(root)).toEqual([]);
-  });
-
-  it("leaves the original bytes and no temp file when the directory refuses the write", async () => {
-    const root = await makeRoot({ "locked/inner.txt": "original" });
-    const dir = join(root, "locked");
-    await chmod(dir, 0o500);
-
-    try {
-      await expect(
-        nodeFileSystem.replaceFile(
-          join(dir, "inner.txt"),
-          new TextEncoder().encode("draft")
-        )
-      ).rejects.toMatchObject({ code: "EACCES" });
-      expect(await readFile(join(dir, "inner.txt"), "utf8")).toBe("original");
-      expect(await readdir(dir)).toEqual(["inner.txt"]);
-    } finally {
-      await chmod(dir, 0o700);
-    }
   });
 });

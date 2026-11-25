@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { SessionMessage, SessionPart } from "../../schema";
 import { sessionChangeEventSchema } from "../../schema";
 import type {
   CreateMessageInput,
@@ -14,7 +15,6 @@ import {
   patchSessionRecord,
   Sessions,
 } from "../../session/sessions";
-import type { SessionMessage, SessionPart } from "../../session/types";
 import type { SessionStore } from "../../store";
 import { MemorySessionStore } from "../../store/memory";
 import { recordingStore } from "../helpers/recording-store";

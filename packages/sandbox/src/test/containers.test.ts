@@ -3,24 +3,24 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ContainerSandboxConstraints } from "../container/constraints";
 import {
-  CONTAINER_ENVIRONMENT_ID_LABEL,
   CONTAINER_ID_LABEL,
   CONTAINER_INSTANCE_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
-  CONTAINER_RUNTIME_SCOPE_LABEL,
-  CONTAINER_STORE_LABEL,
-} from "../container/constants";
-import type { ContainerSandboxConstraints } from "../container/constraints";
-import { createContainers } from "../container/containers";
-import type { ContainerRow } from "../schema";
-import { sandboxEventSchema } from "../schema";
-import type { ContainerStore, ContainerStoreWrite } from "../store/index";
-import { MemoryContainerStore } from "../store/memory";
-import { SqliteContainerStore } from "../store/sqlite";
-import { createFakeContainerRuntime } from "../testing";
-import { libsqlDatabases } from "./helpers/sqlite";
+} from "../container/defaults";
+import { createContainers } from "../node/containers";
+import { createFakeContainerRuntime } from "../testing/fake-container-runtime";
+import {
+  CONTAINER_SPEC,
+  CONTAINER_STORES,
+  fixture,
+  gatedStore,
+  newStore,
+  puts,
+  useStore,
+} from "./helpers/containers-fixture";
 
 const MISSING_HYPERVISOR_ERROR = /no hypervisor/;
 const MISSING_CONTAINER_ERROR = /does not exist/;
@@ -32,1633 +32,622 @@ const LIVE_CONTAINER_ERROR = /live/;
 const SHUTDOWN_ERROR = /shut down/;
 const FILES_MOUNT_PATH = /\/foundry\/files/;
 
-const SPEC: ContainerSandboxConstraints = {
-  format: "foundry.sandbox.container/1",
-  image: "docker.io/oven/bun:1",
-  ports: [3000],
-};
-
-const databases = {
-  file: libsqlDatabases("file"),
-  memory: libsqlDatabases("memory"),
-};
-
-function sqliteStore(location: keyof typeof databases): ContainerStore {
-  const ready = databases[location]
-    .open()
-    .then((database) => new SqliteContainerStore({ database, scope: "s" }));
-  return {
-    commit: async (write) => await (await ready).commit(write),
-    get: async (id) => await (await ready).get(id),
-    identity: async () => await (await ready).identity(),
-    list: async () => await (await ready).list(),
-    async transaction(work) {
-      const store = await ready;
-      if (store.transaction === undefined) {
-        throw new Error("the SQLite store offers a transaction");
-      }
-      return await store.transaction(work);
-    },
-  };
-}
-
-const STORES: [string, () => ContainerStore][] = [
-  ["the memory store", () => new MemoryContainerStore()],
-  ["the SQLite store in memory", () => sqliteStore("memory")],
-  ["the SQLite store on a file", () => sqliteStore("file")],
-];
-
-let newStore: () => ContainerStore = () => new MemoryContainerStore();
-
-function fixture(instanceLabel = "instance-a") {
-  const runtime = createFakeContainerRuntime();
-  const store = newStore();
-  const containers = createContainers({ instanceLabel, runtime, store });
-  return { containers, runtime, store };
-}
-
-function gatedStore({ transactional = false } = {}) {
-  const inner = newStore();
-  const writes: ContainerStoreWrite[] = [];
-  let gate:
-    | { matches: (write: ContainerStoreWrite) => boolean; open: Promise<void> }
-    | undefined;
-  let held = (): void => undefined;
-  const gated = (target: ContainerStore): ContainerStore => ({
-    async commit(write) {
-      writes.push(write);
-      const current = gate;
-      if (current?.matches(write)) {
-        gate = undefined;
-        held();
-        await current.open;
-      }
-      await target.commit(write);
-    },
-    get: async (id) => await target.get(id),
-    identity: async () => await target.identity(),
-    list: async () => await target.list(),
-  });
-  const store: ContainerStore = transactional
-    ? {
-        ...gated(inner),
-        transaction<T>(work: (view: ContainerStore) => Promise<T>) {
-          if (inner.transaction === undefined) {
-            throw new Error("the store under test offers a transaction");
-          }
-          return inner.transaction((view) => work(gated(view)));
-        },
-      }
-    : gated(inner);
-  return {
-    hold(matches: (write: ContainerStoreWrite) => boolean) {
-      let release = (): void => undefined;
-      const open = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const caught = new Promise<void>((resolve) => {
-        held = resolve;
-      });
-      gate = { matches, open };
-      return { caught, release };
-    },
-    store,
-    writes,
-  };
-}
-
-function puts(writes: readonly ContainerStoreWrite[]): Partial<ContainerRow>[] {
-  return writes.flatMap((write) =>
-    (write.putContainers ?? []).map(({ nativeId, status }) => ({
-      nativeId,
-      status,
-    }))
-  );
-}
-
-describe.each(STORES)("containers registry over %s", (_name, open) => {
+describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
   beforeEach(() => {
-    newStore = open;
+    useStore(open);
   });
 
-  it("resolves every spec over the registry's config defaults", async () => {
-    const runtime = createFakeContainerRuntime();
-    const containers = createContainers({
-      config: {
+  describe("creation and opening", () => {
+    it("resolves every spec over the containers' config defaults", async () => {
+      const runtime = createFakeContainerRuntime();
+      const containers = createContainers({
+        config: {
+          env: { NODE_ENV: "production", TZ: "UTC" },
+          image: "docker.io/library/alpine:3",
+          labels: { team: "core" },
+          network: "unrestricted",
+          pull: "never",
+        },
+        instanceLabel: "defaults",
+        runtime,
+        store: newStore(),
+      });
+
+      const inherited = await containers.start({
+        format: "foundry.sandbox.container/1",
+      });
+      expect(runtime.instances[0]?.spec).toMatchObject({
+        disableNetwork: false,
         env: { NODE_ENV: "production", TZ: "UTC" },
         image: "docker.io/library/alpine:3",
         labels: { team: "core" },
         network: "unrestricted",
         pull: "never",
-      },
-      instanceLabel: "defaults",
-      runtime,
-      store: newStore(),
-    });
-
-    const inherited = await containers.start({
-      format: "foundry.sandbox.container/1",
-    });
-    expect(runtime.instances[0]?.spec).toMatchObject({
-      disableNetwork: false,
-      env: { NODE_ENV: "production", TZ: "UTC" },
-      image: "docker.io/library/alpine:3",
-      labels: { team: "core" },
-      network: "unrestricted",
-      pull: "never",
-    });
-
-    const own = await containers.start({
-      format: "foundry.sandbox.container/1",
-      image: "docker.io/oven/bun:1",
-      labels: { team: "edge" },
-      network: "disabled",
-      publicEnvironment: { NODE_ENV: "test" },
-    });
-    expect(runtime.instances[1]?.spec).toMatchObject({
-      disableNetwork: true,
-      env: { NODE_ENV: "test", TZ: "UTC" },
-      image: "docker.io/oven/bun:1",
-      labels: { team: "edge" },
-      network: "disabled",
-      pull: "never",
-    });
-
-    await inherited.close();
-    await own.close();
-  });
-
-  it("start inserts a row, boots a labeled VM, and hands back a ready sandbox", async () => {
-    const { runtime, store, containers } = fixture();
-    const c = await containers.start(SPEC);
-
-    const row = await store.get(c.id);
-    expect(row).toMatchObject({
-      id: c.id,
-      nativeId: `${c.id}-1`,
-      status: "running",
-    });
-    expect(JSON.parse(row?.spec ?? "")).toEqual(SPEC);
-    expect(runtime.instances[0]?.spec.labels).toMatchObject({
-      [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
-      [CONTAINER_INSTANCE_LABEL]: "instance-a",
-      [CONTAINER_ID_LABEL]: c.id,
-    });
-    expect(runtime.instances[0]?.spec.image).toBe("docker.io/oven/bun:1");
-    expect(c.volumes).toBeUndefined();
-    expect(c).not.toHaveProperty("native");
-    await c.commands.exec(["echo", "hi"]);
-    expect(runtime.instances[0]?.commands).toContainEqual(["echo", "hi"]);
-    await c.close();
-  });
-
-  it("open on a live row shares the sandbox; the last close stops the VM", async () => {
-    const { runtime, store, containers } = fixture();
-    const first = await containers.start(SPEC);
-    const second = await containers.open(first.id);
-    expect(second.files).toBe(first.files);
-    expect(runtime.instances).toHaveLength(1);
-
-    await first.close();
-    await first.close();
-    expect(runtime.instances[0]?.removed).toBe(false);
-    expect((await store.get(first.id))?.status).toBe("running");
-
-    await second.close();
-    expect(runtime.instances[0]?.removed).toBe(true);
-    expect((await store.get(first.id))?.status).toBe("stopped");
-    expect(await containers.list()).toHaveLength(1);
-  });
-
-  it("open restarts a stopped row under the same id with the next native name", async () => {
-    const { runtime, store, containers } = fixture();
-    const first = await containers.start(SPEC);
-    await first.close();
-
-    const again = await containers.open(first.id);
-    expect(again.id).toBe(first.id);
-    expect(again.files).not.toBe(first.files);
-    expect(runtime.instances.map((i) => i.id)).toEqual([
-      `${first.id}-1`,
-      `${first.id}-2`,
-    ]);
-    expect((await store.get(first.id))?.nativeId).toBe(`${first.id}-2`);
-    await again.close();
-  });
-
-  it("open after a process restart removes the old native and boots anew", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const before = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const c = await before.start(SPEC);
-    const after = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const reopened = await after.open(c.id);
-    expect(runtime.instances[0]?.removed).toBe(true);
-    expect(runtime.instances[1]?.id).toBe(`${c.id}-2`);
-    expect(reopened.row.status).toBe("running");
-    await reopened.close();
-  });
-
-  it("concurrent opens on one stopped row share a single start", async () => {
-    const { runtime, containers } = fixture();
-    const c = await containers.start(SPEC);
-    await c.close();
-    const [a, b] = await Promise.all([
-      containers.open(c.id),
-      containers.open(c.id),
-    ]);
-    expect(a.files).toBe(b.files);
-    expect(runtime.instances).toHaveLength(2);
-    await a.close();
-    expect(runtime.instances[1]?.removed).toBe(false);
-    await b.close();
-    expect(runtime.instances[1]?.removed).toBe(true);
-  });
-
-  it("open during the last close waits for the stop, then boots anew", async () => {
-    const { runtime, store, containers } = fixture();
-    const c = await containers.start(SPEC);
-    const [vm] = runtime.instances;
-    if (vm === undefined) {
-      throw new Error("no VM booted");
-    }
-    const remove = vm.remove.bind(vm);
-    let finishRemove = (): void => undefined;
-    vm.remove = () =>
-      new Promise<void>((resolve, reject) => {
-        finishRemove = () => {
-          remove().then(resolve, reject);
-        };
       });
 
-    const closing = c.close();
-    const reopening = containers.open(c.id);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(runtime.instances).toHaveLength(1);
-    finishRemove();
-    const reopened = await reopening;
-    await closing;
+      const own = await containers.start({
+        format: "foundry.sandbox.container/1",
+        image: "docker.io/oven/bun:1",
+        labels: { team: "edge" },
+        network: "disabled",
+        publicEnvironment: { NODE_ENV: "test" },
+      });
+      expect(runtime.instances[1]?.spec).toMatchObject({
+        disableNetwork: true,
+        env: { NODE_ENV: "test", TZ: "UTC" },
+        image: "docker.io/oven/bun:1",
+        labels: { team: "edge" },
+        network: "disabled",
+        pull: "never",
+      });
 
-    expect(runtime.instances.map((i) => i.removed)).toEqual([true, false]);
-    expect(reopened.row.status).toBe("running");
-    expect((await store.get(c.id))?.status).toBe("running");
-    await reopened.close();
-    expect((await store.get(c.id))?.status).toBe("stopped");
-  });
-
-  it("restart replaces the VM under open handles, with a new spec when given", async () => {
-    const { store, writes } = gatedStore({ transactional: true });
-    const runtime = createFakeContainerRuntime();
-    const containers = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const a = await containers.start(SPEC);
-    const b = await containers.open(a.id);
-    const before = a.files;
-    writes.length = 0;
-
-    await containers.restart(a.id, { ...SPEC, ports: [3000, 5173] });
-
-    expect(puts(writes)).toEqual([
-      { nativeId: `${a.id}-1`, status: "restarting" },
-      { nativeId: `${a.id}-2`, status: "restarting" },
-      { nativeId: `${a.id}-2`, status: "running" },
-    ]);
-    expect(runtime.instances[0]?.removed).toBe(true);
-    expect(runtime.instances[1]?.id).toBe(`${a.id}-2`);
-    expect(runtime.instances[1]?.spec.ports.map((p) => p.guestPort)).toEqual([
-      3000, 5173,
-    ]);
-    expect(a.files).not.toBe(before);
-    expect(a.files).toBe(b.files);
-    expect(JSON.parse((await store.get(a.id))?.spec ?? "")).toMatchObject({
-      ports: [3000, 5173],
+      await inherited.close();
+      await own.close();
     });
 
-    await containers.restart(a.id);
-    expect(runtime.instances[2]?.id).toBe(`${a.id}-3`);
-    await a.close();
-    expect(runtime.instances[2]?.removed).toBe(false);
-    await b.close();
-    expect(runtime.instances[2]?.removed).toBe(true);
-    expect((await store.get(a.id))?.status).toBe("stopped");
-  });
+    it("start inserts a row, boots a labeled VM, and hands back a ready sandbox", async () => {
+      const { runtime, store, containers } = fixture();
+      const c = await containers.start(CONTAINER_SPEC);
 
-  it("restart on a row not live here only records the new spec for the next open", async () => {
-    const { runtime, store, containers } = fixture();
-    const c = await containers.start(SPEC);
-    await c.close();
-    await containers.restart(c.id, {
-      ...SPEC,
-      image: "docker.io/library/node:22",
-    });
-    expect(runtime.instances).toHaveLength(1);
-    expect((await store.get(c.id))?.status).toBe("stopped");
-    const reopened = await containers.open(c.id);
-    expect(runtime.instances[1]?.spec.image).toBe("docker.io/library/node:22");
-    await reopened.close();
-  });
-
-  it("boots attached by default and detached only when the spec says so", async () => {
-    const { runtime, containers } = fixture();
-    const attached = await containers.start(SPEC);
-    const detached = await containers.start({ ...SPEC, detached: true });
-    expect(runtime.instances.map((i) => i.spec.detached)).toEqual([
-      false,
-      true,
-    ]);
-    await attached.close();
-    await detached.close();
-  });
-
-  it("marks the row failed when the VM will not boot", async () => {
-    const runtime = createFakeContainerRuntime();
-    runtime.create = () => Promise.reject(new Error("no hypervisor"));
-    const store = newStore();
-    const containers = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    await expect(containers.start(SPEC)).rejects.toThrow(
-      MISSING_HYPERVISOR_ERROR
-    );
-    const [row] = await containers.list();
-    expect(row?.status).toBe("failed");
-  });
-
-  it("rejects an unknown id and an invalid spec", async () => {
-    const { containers } = fixture();
-    await expect(containers.open("nope")).rejects.toThrow(
-      MISSING_CONTAINER_ERROR
-    );
-    await expect(
-      containers.start({ ...SPEC, ports: [3000, 3000] })
-    ).rejects.toThrow(INVALID_SPEC_ERROR);
-  });
-
-  it("sweep stops VMs with our labels and no row, ignoring other instances and the harness", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const other = createContainers({
-      instanceLabel: "instance-b",
-      runtime,
-      store: newStore(),
-    });
-    const mine = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-
-    const kept = await mine.start(SPEC);
-    const orphan = await mine.start(SPEC);
-    await store.commit({ deleteContainers: [orphan.id] });
-    const foreign = await other.start(SPEC);
-    await runtime.create({
-      cpus: 1,
-      detached: false,
-      disableNetwork: false,
-      env: {},
-      image: "x",
-      labels: {
-        [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
-        [CONTAINER_RUNTIME_SCOPE_LABEL]: "scope",
-        [CONTAINER_ENVIRONMENT_ID_LABEL]: "harness-vm",
-      },
-      memoryMib: 1,
-      mounts: [],
-      name: "harness-vm",
-      ports: [],
-      pull: "missing",
-      workdir: "/w",
-    });
-
-    expect(await mine.sweep()).toEqual([`${orphan.id}-1`]);
-    const byName = new Map(runtime.instances.map((i) => [i.id, i.removed]));
-    expect(byName.get(`${kept.id}-1`)).toBe(false);
-    expect(byName.get(`${orphan.id}-1`)).toBe(true);
-    expect(byName.get(`${foreign.id}-1`)).toBe(false);
-    expect(byName.get("harness-vm")).toBe(false);
-    await kept.close();
-    await foreign.close();
-  });
-
-  it("recover removes the rows a gone process left, with their VMs, and sweeps VMs with no row, once", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const running = await gone.start(SPEC);
-    const vanished = await gone.start(SPEC);
-    const unrowed = await gone.start(SPEC);
-    await runtime.stopResource(`${vanished.id}-1`);
-    await runtime.removeResource(`${vanished.id}-1`);
-    await store.commit({ deleteContainers: [unrowed.id] });
-
-    const next = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const mine = await next.start(SPEC);
-    const asked: string[] = [];
-    const recovered = await next.recover((row) => {
-      asked.push(row.id);
-      return row.id !== mine.id;
-    });
-
-    expect(asked).toEqual([running.id, vanished.id]);
-    expect(recovered).toEqual({
-      conflicts: [],
-      kept: [],
-      passedOver: [],
-      removed: [running.id, vanished.id],
-      swept: [`${unrowed.id}-1`],
-    });
-    expect((await store.list()).map((row) => row.id)).toEqual([mine.id]);
-    const byName = new Map(runtime.instances.map((i) => [i.id, i.removed]));
-    expect(byName.get(`${running.id}-1`)).toBe(true);
-    expect(byName.get(`${unrowed.id}-1`)).toBe(true);
-    expect(byName.get(`${mine.id}-1`)).toBe(false);
-
-    expect(await next.recover(() => true)).toEqual({
-      conflicts: [],
-      kept: [],
-      passedOver: [],
-      removed: [],
-      swept: [],
-    });
-    expect((await store.list()).map((row) => row.id)).toEqual([mine.id]);
-    await mine.close();
-    await next.shutdown();
-  });
-
-  it("removes every VM of a row it deletes, so a start cut short after the delete leaves none for the next to miss", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const left = await gone.start(SPEC);
-    const row = await store.get(left.id);
-    if (row === undefined) {
-      throw new Error("no row");
-    }
-    await store.commit({
-      putContainers: [{ ...row, nativeId: `${left.id}-2`, status: "starting" }],
-    });
-
-    const next = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const dies = new AbortController();
-    await expect(
-      next.recover(() => {
-        dies.abort();
-        return true;
-      }, dies.signal)
-    ).rejects.toThrow("cancelled");
-
-    expect(await store.list()).toEqual([]);
-    expect(
-      runtime.instances.find((i) => i.id === `${left.id}-1`)?.removed
-    ).toBe(true);
-    await next.shutdown();
-  });
-
-  it("remove deletes a row only with every VM labelled with its id", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const left = await gone.start(SPEC);
-    const row = await store.get(left.id);
-    if (row === undefined) {
-      throw new Error("no row");
-    }
-    await store.commit({
-      putContainers: [{ ...row, nativeId: `${left.id}-2`, status: "starting" }],
-    });
-    const next = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-
-    await runtime.stopResource(`${left.id}-1`);
-    const stop = runtime.stopResource.bind(runtime);
-    runtime.stopResource = (name) =>
-      name === `${left.id}-1`
-        ? Promise.reject(new Error("already stopped"))
-        : stop(name);
-
-    await next.remove(left.id);
-
-    expect(await store.list()).toEqual([]);
-    expect(
-      runtime.instances.find((i) => i.id === `${left.id}-1`)?.removed
-    ).toBe(true);
-    await next.shutdown();
-  });
-
-  it("never removes a VM another row records, whatever its label says: the row is kept, removing, and the conflict named", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const left = await gone.start(SPEC);
-    const other = await gone.start(SPEC);
-    const vm = `${left.id}-1`;
-    const leftRow = await store.get(left.id);
-    const otherRow = await store.get(other.id);
-    if (leftRow === undefined || otherRow === undefined) {
-      throw new Error("no rows");
-    }
-    await store.commit({
-      putContainers: [
-        { ...leftRow, nativeId: `${left.id}-2` },
-        { ...otherRow, holder: "alive", nativeId: vm, status: "running" },
-      ],
-    });
-
-    const next = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const recovered = await next.recover((row) => row.id === left.id);
-
-    expect(recovered).toEqual({
-      conflicts: [vm],
-      kept: [left.id],
-      passedOver: [],
-      removed: [],
-      swept: [],
-    });
-    const instance = runtime.instances.find((i) => i.id === vm);
-    expect(instance?.removed).toBe(false);
-    expect(instance?.stopped).toBe(false);
-    expect(await store.get(left.id)).toMatchObject({ status: "removing" });
-    expect(await store.get(other.id)).toMatchObject({
-      nativeId: vm,
-      status: "running",
-    });
-    await expect(next.remove(left.id)).rejects.toThrow(vm);
-
-    await store.commit({ deleteContainers: [left.id] });
-    expect(await next.sweep()).not.toContain(vm);
-    expect(instance?.removed).toBe(false);
-    await next.shutdown();
-  });
-
-  it("asks afresh, right before each VM it removes, whether another row records it", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const left = await gone.start(SPEC);
-    const other = await gone.start(SPEC);
-    const row = await store.get(left.id);
-    const otherRow = await store.get(other.id);
-    if (row === undefined || otherRow === undefined) {
-      throw new Error("no rows");
-    }
-    await store.commit({
-      putContainers: [{ ...row, nativeId: `${left.id}-2`, status: "starting" }],
-    });
-    await runtime.create({
-      cpus: 1,
-      detached: false,
-      disableNetwork: false,
-      env: {},
-      image: "x",
-      labels: {
+      const row = await store.get(c.id);
+      expect(row).toMatchObject({
+        id: c.id,
+        nativeId: `${c.id}-1`,
+        status: "running",
+      });
+      expect(JSON.parse(row?.spec ?? "")).toEqual(CONTAINER_SPEC);
+      expect(runtime.instances[0]?.spec.labels).toMatchObject({
         [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
         [CONTAINER_INSTANCE_LABEL]: "instance-a",
-        [CONTAINER_ID_LABEL]: left.id,
-      },
-      memoryMib: 1,
-      mounts: [],
-      name: `${left.id}-2`,
-      ports: [],
-      pull: "missing",
-      workdir: "/w",
-    });
-    const names = [`${left.id}-1`, `${left.id}-2`];
-    const stop = runtime.stopResource.bind(runtime);
-    let claimed: string | undefined;
-    runtime.stopResource = async (name) => {
-      if (claimed === undefined && names.includes(name)) {
-        claimed = names.find((each) => each !== name);
-        await store.commit({
-          putContainers: [
-            {
-              ...otherRow,
-              holder: "alive",
-              nativeId: claimed,
-              status: "running",
-            },
-          ],
-        });
-      }
-      await stop(name);
-    };
-    const next = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
+        [CONTAINER_ID_LABEL]: c.id,
+      });
+      expect(runtime.instances[0]?.spec.image).toBe("docker.io/oven/bun:1");
+      expect(c.volumes).toBeUndefined();
+      expect(c).not.toHaveProperty("native");
+      await c.commands.exec(["echo", "hi"]);
+      expect(runtime.instances[0]?.commands).toContainEqual(["echo", "hi"]);
+      await c.close();
     });
 
-    const recovered = await next.recover((each) => each.id === left.id);
+    it("open on a live row shares the sandbox; the last close stops the VM", async () => {
+      const { runtime, store, containers } = fixture();
+      const first = await containers.start(CONTAINER_SPEC);
+      const second = await containers.open(first.id);
+      expect(second.files).toBe(first.files);
+      expect(runtime.instances).toHaveLength(1);
 
-    expect(recovered).toMatchObject({
-      conflicts: [claimed],
-      kept: [left.id],
-      passedOver: [claimed],
-      removed: [],
-    });
-    const instance = runtime.instances.find((i) => i.id === claimed);
-    expect(instance?.removed).toBe(false);
-    expect(instance?.stopped).toBe(false);
-    await next.shutdown();
-  });
+      await first.close();
+      await first.close();
+      expect(runtime.instances[0]?.removed).toBe(false);
+      expect((await store.get(first.id))?.status).toBe("running");
 
-  it("never acts on a VM whose name is not its labelled row's own, nor writes a row recording another's", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
+      await second.close();
+      expect(runtime.instances[0]?.removed).toBe(true);
+      expect((await store.get(first.id))?.status).toBe("stopped");
+      expect(await containers.list()).toHaveLength(1);
     });
-    const left = await gone.start(SPEC);
-    const other = await gone.start(SPEC);
-    const list = runtime.listResources.bind(runtime);
-    runtime.listResources = async (query) => {
-      const listed = await list(query);
-      return {
-        ...listed,
-        resources: listed.resources.map((resource) =>
-          resource.name === `${other.id}-1`
-            ? {
-                ...resource,
-                labels: { ...resource.labels, [CONTAINER_ID_LABEL]: left.id },
-              }
-            : resource
-        ),
-      };
-    };
-    await store.commit({ deleteContainers: [other.id] });
-    const next = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const recovered = await next.recover((each) => each.id === left.id);
-    expect(recovered).toMatchObject({
-      conflicts: [`${other.id}-1`],
-      kept: [left.id],
-    });
-    expect(await next.sweep()).not.toContain(`${other.id}-1`);
-    const instance = runtime.instances.find((i) => i.id === `${other.id}-1`);
-    expect(instance?.removed).toBe(false);
 
-    const row = await store.get(left.id);
-    if (row === undefined) {
-      throw new Error("no row");
-    }
-    await store.commit({
-      putContainers: [{ ...row, nativeId: `${other.id}-1`, status: "stopped" }],
-    });
-    await expect(next.restart(left.id, SPEC)).rejects.toThrow(
-      "records the native name"
-    );
-    await next.shutdown();
-  });
+    it("open restarts a stopped row under the same id with the next native name", async () => {
+      const { runtime, store, containers } = fixture();
+      const first = await containers.start(CONTAINER_SPEC);
+      await first.close();
 
-  it("never removes a VM named as a row's own but labelled with another row's id: a conflict, left", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
+      const again = await containers.open(first.id);
+      expect(again.id).toBe(first.id);
+      expect(again.files).not.toBe(first.files);
+      expect(runtime.instances.map((i) => i.id)).toEqual([
+        `${first.id}-1`,
+        `${first.id}-2`,
+      ]);
+      expect((await store.get(first.id))?.nativeId).toBe(`${first.id}-2`);
+      await again.close();
     });
-    const left = await gone.start(SPEC);
-    const other = await gone.start(SPEC);
-    const list = runtime.listResources.bind(runtime);
-    runtime.listResources = async (query) => {
-      const listed = await list(query);
-      return {
-        ...listed,
-        resources: listed.resources.map((resource) =>
-          resource.name === `${left.id}-1`
-            ? {
-                ...resource,
-                labels: { ...resource.labels, [CONTAINER_ID_LABEL]: other.id },
-              }
-            : resource
-        ),
-      };
-    };
-    const next = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    expect(await next.recover((each) => each.id === left.id)).toMatchObject({
-      conflicts: [`${left.id}-1`],
-      kept: [left.id],
-      passedOver: [`${left.id}-1`],
-      removed: [],
-    });
-    const instance = runtime.instances.find((i) => i.id === `${left.id}-1`);
-    expect(instance?.removed).toBe(false);
-    expect(instance?.stopped).toBe(false);
-    await next.shutdown();
-  });
 
-  it("never abandons, nor reclaims, a previous VM that is not the reopened row's own", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const holder = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
+    it("open after a process restart removes the old native and boots anew", async () => {
+      const runtime = createFakeContainerRuntime();
+      const store = newStore();
+      const before = createContainers({
+        instanceLabel: "instance-a",
+        runtime,
+        store,
+      });
+      const c = await before.start(CONTAINER_SPEC);
+      const after = createContainers({
+        instanceLabel: "instance-a",
+        runtime,
+        store,
+      });
+      const reopened = await after.open(c.id);
+      expect(runtime.instances[0]?.removed).toBe(true);
+      expect(runtime.instances[1]?.id).toBe(`${c.id}-2`);
+      expect(reopened.row.status).toBe("running");
+      await reopened.close();
     });
-    const held = await holder.start(SPEC);
-    const heldName = held.row.nativeId ?? "";
-    const stray = "33333333-3333-4333-8333-333333333333";
-    await store.commit({
-      putContainers: [
-        {
-          createdAt: 1,
-          holder: "dead",
-          id: stray,
-          nativeId: heldName,
-          spec: JSON.stringify(SPEC),
-          status: "running",
-          updatedAt: 1,
-        },
-      ],
-    });
-    const stop = runtime.stopResource.bind(runtime);
-    let failed = false;
-    runtime.stopResource = (name) => {
-      if (!failed && name === heldName) {
-        failed = true;
-        return Promise.reject(new Error("transient"));
-      }
-      return stop(name);
-    };
-    const next = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const reopened = await next.open(stray);
-    await next.sweep();
-    await next.shutdown().catch(() => undefined);
-    const instance = runtime.instances.find((i) => i.id === heldName);
-    expect(instance?.removed).toBe(false);
-    expect(instance?.stopped).toBe(false);
-    expect(await store.get(held.id)).toMatchObject({ status: "running" });
-    await reopened.close().catch(() => undefined);
-    await held.close();
-    await holder.shutdown();
-  });
 
-  it("leaves, in a sweep, a VM with this instance's labels that no row's id labels", async () => {
-    const { runtime, containers } = fixture();
-    const instance = await runtime.create({
-      cpus: 1,
-      detached: false,
-      disableNetwork: true,
-      env: {},
-      image: "test-image",
-      labels: {
-        [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
-        [CONTAINER_INSTANCE_LABEL]: "instance-a",
-      },
-      memoryMib: 512,
-      mounts: [],
-      name: "unlabelled",
-      ports: [],
-      pull: "missing",
-      workdir: "/work",
+    it("boots attached by default and detached only when the spec says so", async () => {
+      const { runtime, containers } = fixture();
+      const attached = await containers.start(CONTAINER_SPEC);
+      const detached = await containers.start({
+        ...CONTAINER_SPEC,
+        detached: true,
+      });
+      expect(runtime.instances.map((i) => i.spec.detached)).toEqual([
+        false,
+        true,
+      ]);
+      await attached.close();
+      await detached.close();
     });
-    expect(await containers.sweep()).toEqual([]);
-    expect(instance.removed).toBe(false);
-    await containers.shutdown();
-  });
 
-  it("sweeps only VMs that carry its own store's identity: another store's live VM, under the same instance label, is passed over and named", async () => {
-    const runtime = createFakeContainerRuntime();
-    const ours = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store: newStore(),
+    it("marks the row failed when the VM will not boot", async () => {
+      const runtime = createFakeContainerRuntime();
+      runtime.create = () => Promise.reject(new Error("no hypervisor"));
+      const store = newStore();
+      const containers = createContainers({
+        instanceLabel: "instance-a",
+        runtime,
+        store,
+      });
+      await expect(containers.start(CONTAINER_SPEC)).rejects.toThrow(
+        MISSING_HYPERVISOR_ERROR
+      );
+      const [row] = await containers.list();
+      expect(row?.status).toBe("failed");
     });
-    const theirs = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store: new MemoryContainerStore(),
-    });
-    const held = await theirs.start(SPEC);
-    const name = held.row.nativeId ?? "";
-    const swept = await ours.sweep();
-    expect([...swept]).toEqual([]);
-    expect(swept.passedOver).toEqual([name]);
-    expect(runtime.instances.find((i) => i.id === name)?.removed).toBe(false);
-    const recovered = await ours.recover(() => true);
-    expect(recovered.passedOver).toEqual([name]);
-    await held.close();
-    await theirs.shutdown();
-    await ours.shutdown();
-  });
 
-  it("keeps the old VM of a reopened row to retry, and says so, when the inventory cannot be read", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const left = await gone.start(SPEC);
-    const lines: string[] = [];
-    const next = createContainers({
-      instanceLabel: "instance-a",
-      report: (line) => lines.push(line),
-      runtime,
-      store,
-    });
-    const list = runtime.listResources.bind(runtime);
-    let failing = true;
-    runtime.listResources = (query) => {
-      if (failing) {
-        failing = false;
-        return Promise.reject(new Error("inventory down"));
-      }
-      return list(query);
-    };
-    const reopened = await next.open(left.id);
-    expect(lines).toEqual([expect.stringContaining(`${left.id}-1`)]);
-    const old = runtime.instances.find((i) => i.id === `${left.id}-1`);
-    expect(old?.removed).toBe(false);
-    expect([...(await next.sweep())]).toEqual([`${left.id}-1`]);
-    expect(old?.removed).toBe(true);
-    await reopened.close();
-    await next.shutdown();
-  });
-
-  it("goes on, and boots, when its reporter throws", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const left = await gone.start(SPEC);
-    const next = createContainers({
-      instanceLabel: "instance-a",
-      report: () => {
-        throw new Error("the reporter broke");
-      },
-      runtime,
-      store,
-    });
-    const list = runtime.listResources.bind(runtime);
-    let failing = true;
-    runtime.listResources = (query) => {
-      if (failing) {
-        failing = false;
-        return Promise.reject(new Error("inventory down"));
-      }
-      return list(query);
-    };
-    const reopened = await next.open(left.id);
-    expect(await store.get(left.id)).toMatchObject({
-      nativeId: `${left.id}-2`,
-      status: "running",
-    });
-    expect([...(await next.sweep())]).toEqual([`${left.id}-1`]);
-    await reopened.close();
-    await next.shutdown();
-  });
-
-  it("names, in what it reports, a way to remove a running VM by hand", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const left = await gone.start(SPEC);
-    const list = runtime.listResources.bind(runtime);
-    runtime.listResources = async (query) => {
-      const listed = await list(query);
-      return {
-        ...listed,
-        resources: listed.resources.map((resource) => ({
-          ...resource,
-          labels: { ...resource.labels, [CONTAINER_STORE_LABEL]: "another" },
-        })),
-      };
-    };
-    const lines: string[] = [];
-    const next = createContainers({
-      instanceLabel: "instance-a",
-      report: (line) => lines.push(line),
-      runtime,
-      store,
-    });
-    const reopened = await next.open(left.id);
-    expect(lines).toEqual([expect.stringContaining(`msb rm -f ${left.id}-1`)]);
-    expect(lines[0]).toContain("node_modules/.bin/msb");
-    await reopened.close();
-    await next.shutdown();
-  });
-
-  it("keeps the row of a VM a recovery could not remove, removing, and the next recovery takes it over and removes it", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const left = await gone.start(SPEC);
-    const stop = runtime.stopResource.bind(runtime);
-    const runtimeDown: { now: boolean } = { now: true };
-    runtime.stopResource = async (name) => {
-      if (runtimeDown.now) {
-        throw new Error("runtime offline");
-      }
-      await stop(name);
-    };
-
-    const first = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    expect(await first.recover(() => true)).toEqual({
-      conflicts: [],
-      kept: [left.id],
-      passedOver: [],
-      removed: [],
-      swept: [],
-    });
-    expect(await store.get(left.id)).toMatchObject({ status: "removing" });
-    expect(runtime.instances[0]?.removed).toBe(false);
-
-    runtimeDown.now = false;
-    const second = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    expect(await second.recover(() => true)).toEqual({
-      conflicts: [],
-      kept: [],
-      passedOver: [],
-      removed: [left.id],
-      swept: [],
-    });
-    expect(await store.list()).toEqual([]);
-    expect(runtime.instances[0]?.removed).toBe(true);
-    await second.shutdown();
-  });
-
-  it("leaves a row to the registry that opened it while a recovery was judging it", async () => {
-    const runtime = createFakeContainerRuntime();
-    const store = newStore();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const row = await gone.start(SPEC);
-    const recovering = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const winner = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    let judged = (): void => undefined;
-    let go = (): void => undefined;
-    const asked = new Promise<void>((resolve) => {
-      judged = resolve;
-    });
-    const proceed = new Promise<void>((resolve) => {
-      go = resolve;
-    });
-    const recovery = recovering.recover(async () => {
-      judged();
-      await proceed;
-      return true;
-    });
-    await asked;
-    const opened = await winner.open(row.id);
-    go();
-
-    expect(await recovery).toEqual({
-      conflicts: [],
-      kept: [],
-      passedOver: [],
-      removed: [],
-      swept: [],
-    });
-    const live = runtime.instances.at(-1);
-    expect(live?.removed).toBe(false);
-    expect(await store.get(row.id)).toMatchObject({ status: "running" });
-    const holders: (string | undefined)[] = [];
-    await recovering.recover((seen) => {
-      holders.push(seen.holder);
-      return false;
-    });
-    expect(holders).toEqual([opened.row.holder]);
-    await opened.close();
-    await winner.shutdown();
-    await recovering.shutdown();
-  });
-
-  it.each(["created", "starting", "paused"] as const)(
-    "sweeps an orphan in the %s runtime state",
-    async (status) => {
-      const { runtime, containers, store } = fixture();
-      const id = globalThis.crypto.randomUUID();
-      const own = await store.identity();
-      try {
-        const instance = await runtime.create({
-          cpus: 1,
-          detached: false,
-          disableNetwork: true,
-          env: {},
-          image: "test-image",
-          labels: {
-            [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
-            [CONTAINER_INSTANCE_LABEL]: "instance-a",
-            [CONTAINER_ID_LABEL]: id,
-            [CONTAINER_STORE_LABEL]: own,
-          },
-          memoryMib: 512,
-          mounts: [],
-          name: `${id}-1`,
-          ports: [],
-          pull: "missing",
-          workdir: "/work",
-        });
-        instance.nativeStatus = status;
-        await expect(containers.sweep()).resolves.toEqual([instance.id]);
-        expect(instance.removed).toBe(true);
-        expect(instance.stopped).toBe(status !== "created");
-      } finally {
-        await containers.shutdown();
-      }
-    }
-  );
-
-  it("keeps the memory store when given none", async () => {
-    const containers = createContainers({
-      instanceLabel: "instance-a",
-      runtime: createFakeContainerRuntime(),
-    });
-    const c = await containers.start(SPEC);
-    expect((await containers.list()).map((row) => row.status)).toEqual([
-      "running",
-    ]);
-    await c.close();
-    expect((await containers.list())[0]?.status).toBe("stopped");
-  });
-
-  it("refuses to write back a row deleted under a live handle", async () => {
-    const { store, containers } = fixture();
-    const c = await containers.start(SPEC);
-    await store.commit({ deleteContainers: [c.id] });
-    await expect(c.close()).rejects.toThrow(MISSING_CONTAINER_ERROR);
-    expect(await store.get(c.id)).toBeUndefined();
-  });
-
-  it("commits a new row once, under its first native name, before the VM boots", async () => {
-    const { store, writes } = gatedStore();
-    const containers = createContainers({
-      instanceLabel: "instance-a",
-      runtime: createFakeContainerRuntime(),
-      store,
-    });
-    const c = await containers.start(SPEC);
-    expect(puts(writes)).toEqual([
-      { nativeId: `${c.id}-1`, status: "starting" },
-      { nativeId: `${c.id}-1`, status: "running" },
-    ]);
-    await c.close();
-    writes.length = 0;
-
-    const reopened = await containers.open(c.id);
-    expect(puts(writes)).toEqual([
-      { nativeId: `${c.id}-2`, status: "starting" },
-      { nativeId: `${c.id}-2`, status: "running" },
-    ]);
-    await reopened.close();
-  });
-
-  it("keeps a spec recorded while a reopen is writing its native name", async () => {
-    const { hold, store } = gatedStore();
-    const containers = createContainers({
-      instanceLabel: "instance-a",
-      runtime: createFakeContainerRuntime(),
-      store,
-    });
-    const c = await containers.start(SPEC);
-    await c.close();
-    const alpine = { ...SPEC, image: "docker.io/library/alpine:3" };
-
-    const gate = hold(
-      (write) => write.putContainers?.[0]?.nativeId === `${c.id}-2`
-    );
-    const reopening = containers.open(c.id);
-    await gate.caught;
-    const restarting = containers.restart(c.id, alpine);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    gate.release();
-    await restarting;
-    const reopened = await reopening;
-
-    expect(JSON.parse((await store.get(c.id))?.spec ?? "")).toMatchObject({
-      image: "docker.io/library/alpine:3",
-    });
-    expect((await store.get(c.id))?.nativeId).toBe(`${c.id}-2`);
-    await reopened.close();
-  });
-
-  it("keeps a spec another registry records while a reopen is writing", async () => {
-    const { hold, store } = gatedStore({ transactional: true });
-    const runtime = createFakeContainerRuntime();
-    const first = createContainers({ instanceLabel: "a", runtime, store });
-    const second = createContainers({ instanceLabel: "a", runtime, store });
-    const c = await first.start(SPEC);
-    await c.close();
-    const alpine = { ...SPEC, image: "docker.io/library/alpine:3" };
-
-    const gate = hold(
-      (write) => write.putContainers?.[0]?.nativeId === `${c.id}-2`
-    );
-    const reopening = first.open(c.id);
-    await gate.caught;
-    const restarting = second.restart(c.id, alpine);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    gate.release();
-    await restarting;
-    const reopened = await reopening;
-
-    expect(JSON.parse((await store.get(c.id))?.spec ?? "")).toMatchObject({
-      image: "docker.io/library/alpine:3",
-    });
-    expect((await store.get(c.id))?.nativeId).toBe(`${c.id}-2`);
-    await reopened.close();
-  });
-
-  it("boots two registries reopening one row under different native names", async () => {
-    const { store } = gatedStore({ transactional: true });
-    const runtime = createFakeContainerRuntime();
-    const first = createContainers({ instanceLabel: "a", runtime, store });
-    const second = createContainers({ instanceLabel: "a", runtime, store });
-    const c = await first.start(SPEC);
-    await c.close();
-
-    const handles = await Promise.all([first.open(c.id), second.open(c.id)]);
-    expect(runtime.instances.map((instance) => instance.id)).toEqual([
-      `${c.id}-1`,
-      `${c.id}-2`,
-      `${c.id}-3`,
-    ]);
-    await Promise.all(handles.map((handle) => handle.close()));
-  });
-
-  it("refuses a new row whose generated id is already taken", async () => {
-    const { store, containers } = fixture();
-    const first = await containers.start(SPEC);
-    await first.close();
-    const before = await store.get(first.id);
-    const uuid = vi
-      .spyOn(globalThis.crypto, "randomUUID")
-      .mockReturnValue(first.id as ReturnType<Crypto["randomUUID"]>);
-    try {
+    it("rejects an unknown id and an invalid spec", async () => {
+      const { containers } = fixture();
+      await expect(containers.open("nope")).rejects.toThrow(
+        MISSING_CONTAINER_ERROR
+      );
       await expect(
-        containers.start({ ...SPEC, image: "docker.io/library/alpine:3" })
-      ).rejects.toThrow(DUPLICATE_CONTAINER_ERROR);
-    } finally {
-      uuid.mockRestore();
-    }
-    expect(await store.get(first.id)).toEqual(before);
-    expect(await containers.list()).toHaveLength(1);
-  });
-
-  it("refuses an open that begins while the row is being removed", async () => {
-    const { hold, store } = gatedStore({ transactional: true });
-    const runtime = createFakeContainerRuntime();
-    const containers = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
+        containers.start({ ...CONTAINER_SPEC, ports: [3000, 3000] })
+      ).rejects.toThrow(INVALID_SPEC_ERROR);
     });
-    const c = await containers.start(SPEC);
-    await c.close();
-
-    const gate = hold(
-      (write) => write.deleteContainers?.includes(c.id) ?? false
-    );
-    const removing = containers.remove(c.id);
-    await gate.caught;
-    const opening = containers.open(c.id);
-    const restarting = containers.restart(c.id, SPEC);
-    gate.release();
-
-    await expect(opening).rejects.toThrow(REMOVING_CONTAINER_ERROR);
-    await expect(restarting).rejects.toThrow(REMOVING_CONTAINER_ERROR);
-    await removing;
-    expect(await store.get(c.id)).toBeUndefined();
-    expect(runtime.instances).toHaveLength(1);
   });
 
-  it("stops a restart whose last handle closes and leaves no VM behind", async () => {
-    const { hold, store } = gatedStore({ transactional: true });
-    const runtime = createFakeContainerRuntime();
-    const containers = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const c = await containers.start(SPEC);
-
-    const gate = hold(
-      (write) => write.putContainers?.[0]?.nativeId === `${c.id}-2`
-    );
-    const restarting = containers.restart(c.id);
-    await gate.caught;
-    const closing = c.close();
-    gate.release();
-
-    await expect(restarting).rejects.toThrow(CLOSED_DURING_RESTART_ERROR);
-    await closing;
-    expect(runtime.instances.every((instance) => instance.removed)).toBe(true);
-    expect((await store.get(c.id))?.status).toBe("stopped");
-  });
-
-  it("stops a restart whose last handle closes while it boots", async () => {
-    const { hold, store } = gatedStore({ transactional: true });
-    const runtime = createFakeContainerRuntime();
-    const containers = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const c = await containers.start(SPEC);
-
-    const gate = hold((write) => {
-      const row = write.putContainers?.[0];
-      return row?.nativeId === `${c.id}-2` && row.status === "running";
-    });
-    const restarting = containers.restart(c.id);
-    await gate.caught;
-    const closing = c.close();
-    gate.release();
-
-    await expect(restarting).rejects.toThrow(CLOSED_DURING_RESTART_ERROR);
-    await closing;
-    expect(runtime.instances).toHaveLength(2);
-    expect(runtime.instances.every((instance) => instance.removed)).toBe(true);
-    expect((await store.get(c.id))?.status).toBe("stopped");
-  });
-
-  it("boots the spec a queued restart left stored when given none", async () => {
-    const { runtime, store, containers } = fixture();
-    const c = await containers.start(SPEC);
-
-    await Promise.all([
-      containers.restart(c.id, { ...SPEC, ports: [5173] }),
-      containers.restart(c.id),
-    ]);
-
-    expect(runtime.instances).toHaveLength(3);
-    for (const instance of runtime.instances.slice(1)) {
-      expect(instance.spec.ports.map((p) => p.guestPort)).toEqual([5173]);
-    }
-    expect(JSON.parse((await store.get(c.id))?.spec ?? "")).toMatchObject({
-      ports: [5173],
-    });
-    await c.close();
-  });
-
-  it("remove deletes a closed row and refuses a live one", async () => {
-    const { runtime, store, containers } = fixture();
-    const c = await containers.start(SPEC);
-    await expect(containers.remove(c.id)).rejects.toThrow(LIVE_CONTAINER_ERROR);
-    await c.close();
-    await containers.remove(c.id);
-    expect(await store.get(c.id)).toBeUndefined();
-    expect(runtime.instances[0]?.removed).toBe(true);
-    await expect(containers.remove(c.id)).rejects.toThrow(
-      MISSING_CONTAINER_ERROR
-    );
-  });
-
-  it("shutdown stops everything and refuses further use", async () => {
-    const { runtime, store, containers } = fixture();
-    const a = await containers.start(SPEC);
-    const b = await containers.start(SPEC);
-    await containers.shutdown();
-    expect(runtime.instances.every((i) => i.removed)).toBe(true);
-    expect((await store.get(a.id))?.status).toBe("stopped");
-    expect((await store.get(b.id))?.status).toBe("stopped");
-    await expect(containers.open(a.id)).rejects.toThrow(SHUTDOWN_ERROR);
-    await a.close();
-  });
-
-  it("resolves mounts under the allowlist and target root, exposing volumes", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "foundry-containers-"));
-    const source = path.join(directory, "files", "installation-1");
-    await mkdir(source, { recursive: true });
-    try {
+  describe("restart", () => {
+    it("restart replaces the VM under open handles, with a new spec when given", async () => {
+      const { store, writes } = gatedStore({ transactional: true });
       const runtime = createFakeContainerRuntime();
       const containers = createContainers({
-        allowedMountRoots: [path.join(directory, "files")],
         instanceLabel: "instance-a",
-        mountTargetRoot: "/foundry/files",
         runtime,
-        store: newStore(),
+        store,
       });
-      const mount = {
-        access: "read-write" as const,
-        id: "files",
-        source,
-        target: "/foundry/files",
-      };
-      const spec: ContainerSandboxConstraints = {
-        format: "foundry.sandbox.container/1",
-        mounts: [mount],
-      };
-      const c = await containers.start(spec);
-      expect(runtime.instances[0]?.spec.mounts).toEqual([
-        {
-          id: "files",
-          readOnly: false,
-          source: await realpath(source),
-          target: "/foundry/files",
-        },
+      const a = await containers.start(CONTAINER_SPEC);
+      const b = await containers.open(a.id);
+      const before = a.files;
+      writes.length = 0;
+
+      await containers.restart(a.id, {
+        ...CONTAINER_SPEC,
+        ports: [3000, 5173],
+      });
+
+      expect(puts(writes)).toEqual([
+        { nativeId: `${a.id}-1`, status: "restarting" },
+        { nativeId: `${a.id}-2`, status: "restarting" },
+        { nativeId: `${a.id}-2`, status: "running" },
       ]);
-      expect(await c.volumes?.list()).toEqual([
-        { access: "read-write", id: "files", target: "/foundry/files" },
+      expect(runtime.instances[0]?.removed).toBe(true);
+      expect(runtime.instances[1]?.id).toBe(`${a.id}-2`);
+      expect(runtime.instances[1]?.spec.ports.map((p) => p.guestPort)).toEqual([
+        3000, 5173,
+      ]);
+      expect(a.files).not.toBe(before);
+      expect(a.files).toBe(b.files);
+      expect(JSON.parse((await store.get(a.id))?.spec ?? "")).toMatchObject({
+        ports: [3000, 5173],
+      });
+
+      await containers.restart(a.id);
+      expect(runtime.instances[2]?.id).toBe(`${a.id}-3`);
+      await a.close();
+      expect(runtime.instances[2]?.removed).toBe(false);
+      await b.close();
+      expect(runtime.instances[2]?.removed).toBe(true);
+      expect((await store.get(a.id))?.status).toBe("stopped");
+    });
+
+    it("restart on a row not live here only records the new spec for the next open", async () => {
+      const { runtime, store, containers } = fixture();
+      const c = await containers.start(CONTAINER_SPEC);
+      await c.close();
+      await containers.restart(c.id, {
+        ...CONTAINER_SPEC,
+        image: "docker.io/library/node:22",
+      });
+      expect(runtime.instances).toHaveLength(1);
+      expect((await store.get(c.id))?.status).toBe("stopped");
+      const reopened = await containers.open(c.id);
+      expect(runtime.instances[1]?.spec.image).toBe(
+        "docker.io/library/node:22"
+      );
+      await reopened.close();
+    });
+  });
+
+  describe("stored rows", () => {
+    it("keeps the memory store when given none", async () => {
+      const containers = createContainers({
+        instanceLabel: "instance-a",
+        runtime: createFakeContainerRuntime(),
+      });
+      const c = await containers.start(CONTAINER_SPEC);
+      expect((await containers.list()).map((row) => row.status)).toEqual([
+        "running",
       ]);
       await c.close();
+      expect((await containers.list())[0]?.status).toBe("stopped");
+    });
 
-      await expect(
-        containers.start({
-          ...spec,
-          mounts: [{ ...mount, target: "/elsewhere" }],
-        })
-      ).rejects.toThrow(FILES_MOUNT_PATH);
-    } finally {
-      await rm(directory, { force: true, recursive: true });
-    }
+    it("refuses to write back a row deleted under a live handle", async () => {
+      const { store, containers } = fixture();
+      const c = await containers.start(CONTAINER_SPEC);
+      await store.commit({ deleteContainers: [c.id] });
+      await expect(c.close()).rejects.toThrow(MISSING_CONTAINER_ERROR);
+      expect(await store.get(c.id)).toBeUndefined();
+    });
+
+    it("commits a new row once, under its first native name, before the VM boots", async () => {
+      const { store, writes } = gatedStore();
+      const containers = createContainers({
+        instanceLabel: "instance-a",
+        runtime: createFakeContainerRuntime(),
+        store,
+      });
+      const c = await containers.start(CONTAINER_SPEC);
+      expect(puts(writes)).toEqual([
+        { nativeId: `${c.id}-1`, status: "starting" },
+        { nativeId: `${c.id}-1`, status: "running" },
+      ]);
+      await c.close();
+      writes.length = 0;
+
+      const reopened = await containers.open(c.id);
+      expect(puts(writes)).toEqual([
+        { nativeId: `${c.id}-2`, status: "starting" },
+        { nativeId: `${c.id}-2`, status: "running" },
+      ]);
+      await reopened.close();
+    });
+  });
+
+  describe("removal and shutdown", () => {
+    it("remove deletes a closed row and refuses a live one", async () => {
+      const { runtime, store, containers } = fixture();
+      const c = await containers.start(CONTAINER_SPEC);
+      await expect(containers.remove(c.id)).rejects.toThrow(
+        LIVE_CONTAINER_ERROR
+      );
+      await c.close();
+      await containers.remove(c.id);
+      expect(await store.get(c.id)).toBeUndefined();
+      expect(runtime.instances[0]?.removed).toBe(true);
+      await expect(containers.remove(c.id)).rejects.toThrow(
+        MISSING_CONTAINER_ERROR
+      );
+    });
+
+    it("shutdown stops everything and refuses further use", async () => {
+      const { runtime, store, containers } = fixture();
+      const a = await containers.start(CONTAINER_SPEC);
+      const b = await containers.start(CONTAINER_SPEC);
+      await containers.shutdown();
+      expect(runtime.instances.every((i) => i.removed)).toBe(true);
+      expect((await store.get(a.id))?.status).toBe("stopped");
+      expect((await store.get(b.id))?.status).toBe("stopped");
+      await expect(containers.open(a.id)).rejects.toThrow(SHUTDOWN_ERROR);
+      await a.close();
+    });
+  });
+
+  describe("mounts", () => {
+    it("resolves mounts under the allowlist and target root, exposing volumes", async () => {
+      const directory = await mkdtemp(
+        path.join(tmpdir(), "foundry-containers-")
+      );
+      const source = path.join(directory, "files", "installation-1");
+      await mkdir(source, { recursive: true });
+      try {
+        const runtime = createFakeContainerRuntime();
+        const containers = createContainers({
+          allowedMountRoots: [path.join(directory, "files")],
+          instanceLabel: "instance-a",
+          mountTargetRoot: "/foundry/files",
+          runtime,
+          store: newStore(),
+        });
+        const mount = {
+          access: "read-write" as const,
+          id: "files",
+          source,
+          target: "/foundry/files",
+        };
+        const spec: ContainerSandboxConstraints = {
+          format: "foundry.sandbox.container/1",
+          mounts: [mount],
+        };
+        const c = await containers.start(spec);
+        expect(runtime.instances[0]?.spec.mounts).toEqual([
+          {
+            id: "files",
+            readOnly: false,
+            source: await realpath(source),
+            target: "/foundry/files",
+          },
+        ]);
+        expect(await c.volumes?.list()).toEqual([
+          { access: "read-write", id: "files", target: "/foundry/files" },
+        ]);
+        await c.close();
+
+        await expect(
+          containers.start({
+            ...spec,
+            mounts: [{ ...mount, target: "/elsewhere" }],
+          })
+        ).rejects.toThrow(FILES_MOUNT_PATH);
+      } finally {
+        await rm(directory, { force: true, recursive: true });
+      }
+    });
   });
 });
 
-function events(writes: readonly ContainerStoreWrite[]): [string, string][] {
-  return writes.flatMap((write) =>
-    (write.events ?? []).map((event): [string, string] => [
-      event.type,
-      event.containerId,
-    ])
-  );
-}
-
-describe.each(STORES)("containers registry events over %s", (_name, open) => {
+describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
   beforeEach(() => {
-    newStore = open;
+    useStore(open);
   });
 
-  it("carries sandbox.created in the insert, then started and stopped as the row enters running and stopped", async () => {
-    const { store, writes } = gatedStore({ transactional: true });
-    const containers = createContainers({
-      instanceLabel: "instance-a",
-      runtime: createFakeContainerRuntime(),
-      store,
+  describe("concurrent opens and closes", () => {
+    it("concurrent opens on one stopped row share a single start", async () => {
+      const { runtime, containers } = fixture();
+      const c = await containers.start(CONTAINER_SPEC);
+      await c.close();
+      const [a, b] = await Promise.all([
+        containers.open(c.id),
+        containers.open(c.id),
+      ]);
+      expect(a.files).toBe(b.files);
+      expect(runtime.instances).toHaveLength(2);
+      await a.close();
+      expect(runtime.instances[1]?.removed).toBe(false);
+      await b.close();
+      expect(runtime.instances[1]?.removed).toBe(true);
     });
-    const c = await containers.start(SPEC);
-    await containers.restart(c.id);
-    await c.close();
-    const reopened = await containers.open(c.id);
-    await reopened.close();
-    const again = await containers.open(c.id);
-    await containers.shutdown();
 
-    expect(events(writes)).toEqual([
-      ["sandbox.created", c.id],
-      ["sandbox.started", c.id],
-      ["sandbox.started", c.id],
-      ["sandbox.stopped", c.id],
-      ["sandbox.started", c.id],
-      ["sandbox.stopped", c.id],
-      ["sandbox.started", c.id],
-      ["sandbox.stopped", c.id],
-    ]);
-    const statuses: Record<string, string> = {
-      "sandbox.created": "starting",
-      "sandbox.started": "running",
-      "sandbox.stopped": "stopped",
-    };
-    for (const write of writes.filter((w) => w.events !== undefined)) {
-      expect(write.putContainers?.[0]?.status).toBe(
-        statuses[write.events?.[0]?.type ?? ""]
-      );
-    }
-    const [created] = writes.flatMap((write) => write.events ?? []);
-    expect(created).toEqual({
-      at: new Date(c.row.createdAt).toISOString(),
-      containerId: c.id,
-      id: expect.any(String),
-      type: "sandbox.created",
-    });
-    expect(again.id).toBe(c.id);
-  });
-
-  it("carries sandbox.started when a row recorded failed is reopened and comes up", async () => {
-    const runtime = createFakeContainerRuntime();
-    const create = runtime.create.bind(runtime);
-    const boot: { refuses: boolean } = { refuses: true };
-    runtime.create = (...args) =>
-      boot.refuses
-        ? Promise.reject(new Error("no hypervisor"))
-        : create(...args);
-    const { store, writes } = gatedStore({ transactional: true });
-    const containers = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    await expect(containers.start(SPEC)).rejects.toThrow(
-      MISSING_HYPERVISOR_ERROR
-    );
-    const [row] = await containers.list();
-    const id = row?.id ?? "";
-    boot.refuses = false;
-    const handle = await containers.open(id);
-    await handle.close();
-
-    expect(events(writes)).toEqual([
-      ["sandbox.created", id],
-      ["sandbox.failed", id],
-      ["sandbox.started", id],
-      ["sandbox.stopped", id],
-    ]);
-  });
-
-  it("carries sandbox.failed once, in the write that records the row failed", async () => {
-    const runtime = createFakeContainerRuntime();
-    runtime.create = () => Promise.reject(new Error("no hypervisor"));
-    const { store, writes } = gatedStore({ transactional: true });
-    const containers = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    await expect(containers.start(SPEC)).rejects.toThrow(
-      MISSING_HYPERVISOR_ERROR
-    );
-    const [row] = await containers.list();
-    const id = row?.id ?? "";
-    await expect(containers.open(id)).rejects.toThrow(MISSING_HYPERVISOR_ERROR);
-
-    expect(events(writes)).toEqual([
-      ["sandbox.created", id],
-      ["sandbox.failed", id],
-      ["sandbox.failed", id],
-    ]);
-    const failing = writes.filter(
-      (write) => write.events?.[0]?.type === "sandbox.failed"
-    );
-    expect(failing.map((write) => write.putContainers?.[0]?.status)).toEqual([
-      "failed",
-      "failed",
-    ]);
-    const emitted = writes.flatMap((write) => write.events ?? []);
-    const ids = emitted.map((e) => e.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    for (const event of emitted) {
-      expect(sandboxEventSchema.parse(event)).toStrictEqual(event);
-    }
-  });
-
-  it("carries sandbox.destroyed once for a row a recovery takes back, and nothing for a claim that changes only its holder", async () => {
-    const { store, writes } = gatedStore({ transactional: true });
-    const runtime = createFakeContainerRuntime();
-    const gone = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const left = await gone.start(SPEC);
-    const stop = runtime.stopResource.bind(runtime);
-    const runtimeDown: { now: boolean } = { now: true };
-    runtime.stopResource = async (name) => {
-      if (runtimeDown.now) {
-        throw new Error("runtime offline");
+    it("open during the last close waits for the stop, then boots anew", async () => {
+      const { runtime, store, containers } = fixture();
+      const c = await containers.start(CONTAINER_SPEC);
+      const [vm] = runtime.instances;
+      if (vm === undefined) {
+        throw new Error("no VM booted");
       }
-      await stop(name);
-    };
-    const recovery = writes.length;
+      const remove = vm.remove.bind(vm);
+      let finishRemove = (): void => undefined;
+      vm.remove = () =>
+        new Promise<void>((resolve, reject) => {
+          finishRemove = () => {
+            remove().then(resolve, reject);
+          };
+        });
 
-    await createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    }).recover(() => true);
-    expect(events(writes.slice(recovery))).toEqual([]);
-    runtimeDown.now = false;
-    const second = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
+      const closing = c.close();
+      const reopening = containers.open(c.id);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(runtime.instances).toHaveLength(1);
+      finishRemove();
+      const reopened = await reopening;
+      await closing;
+
+      expect(runtime.instances.map((i) => i.removed)).toEqual([true, false]);
+      expect(reopened.row.status).toBe("running");
+      expect((await store.get(c.id))?.status).toBe("running");
+      await reopened.close();
+      expect((await store.get(c.id))?.status).toBe("stopped");
     });
-    await second.recover(() => true);
-    await second.recover(() => true);
-
-    expect(events(writes.slice(recovery))).toEqual([
-      ["sandbox.destroyed", left.id],
-    ]);
-    const claims = writes
-      .slice(recovery)
-      .filter((write) => write.putContainers !== undefined);
-    expect(claims.map((write) => write.putContainers?.[0]?.status)).toEqual([
-      "removing",
-      "removing",
-    ]);
-    expect(claims.every((write) => write.events === undefined)).toBe(true);
-    await second.shutdown();
   });
 
-  it("carries sandbox.destroyed in the delete, and none when another registry deleted the row first", async () => {
-    const { store, writes } = gatedStore({ transactional: true });
-    const runtime = createFakeContainerRuntime();
-    const first = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const second = createContainers({
-      instanceLabel: "instance-a",
-      runtime,
-      store,
-    });
-    const c = await first.start(SPEC);
-    await c.close();
-    const removal = writes.length;
+  describe("writes racing a reopen", () => {
+    it("keeps a spec recorded while a reopen is writing its native name", async () => {
+      const { hold, store } = gatedStore();
+      const containers = createContainers({
+        instanceLabel: "instance-a",
+        runtime: createFakeContainerRuntime(),
+        store,
+      });
+      const c = await containers.start(CONTAINER_SPEC);
+      await c.close();
+      const alpine = { ...CONTAINER_SPEC, image: "docker.io/library/alpine:3" };
 
-    await Promise.all([first.remove(c.id), second.remove(c.id)]);
+      const gate = hold(
+        (write) => write.putContainers?.[0]?.nativeId === `${c.id}-2`
+      );
+      const reopening = containers.open(c.id);
+      await gate.caught;
+      const restarting = containers.restart(c.id, alpine);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      gate.release();
+      await restarting;
+      const reopened = await reopening;
 
-    expect(events(writes.slice(removal))).toEqual([
-      ["sandbox.destroyed", c.id],
-    ]);
-    expect(
-      writes
-        .slice(removal)
-        .filter((write) => write.deleteContainers !== undefined)
-    ).toHaveLength(1);
+      expect(JSON.parse((await store.get(c.id))?.spec ?? "")).toMatchObject({
+        image: "docker.io/library/alpine:3",
+      });
+      expect((await store.get(c.id))?.nativeId).toBe(`${c.id}-2`);
+      await reopened.close();
+    });
+
+    it("keeps a spec another Containers records while a reopen is writing", async () => {
+      const { hold, store } = gatedStore({ transactional: true });
+      const runtime = createFakeContainerRuntime();
+      const first = createContainers({ instanceLabel: "a", runtime, store });
+      const second = createContainers({ instanceLabel: "a", runtime, store });
+      const c = await first.start(CONTAINER_SPEC);
+      await c.close();
+      const alpine = { ...CONTAINER_SPEC, image: "docker.io/library/alpine:3" };
+
+      const gate = hold(
+        (write) => write.putContainers?.[0]?.nativeId === `${c.id}-2`
+      );
+      const reopening = first.open(c.id);
+      await gate.caught;
+      const restarting = second.restart(c.id, alpine);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      gate.release();
+      await restarting;
+      const reopened = await reopening;
+
+      expect(JSON.parse((await store.get(c.id))?.spec ?? "")).toMatchObject({
+        image: "docker.io/library/alpine:3",
+      });
+      expect((await store.get(c.id))?.nativeId).toBe(`${c.id}-2`);
+      await reopened.close();
+    });
+
+    it("boots two registries reopening one row under different native names", async () => {
+      const { store } = gatedStore({ transactional: true });
+      const runtime = createFakeContainerRuntime();
+      const first = createContainers({ instanceLabel: "a", runtime, store });
+      const second = createContainers({ instanceLabel: "a", runtime, store });
+      const c = await first.start(CONTAINER_SPEC);
+      await c.close();
+
+      const handles = await Promise.all([first.open(c.id), second.open(c.id)]);
+      expect(runtime.instances.map((instance) => instance.id)).toEqual([
+        `${c.id}-1`,
+        `${c.id}-2`,
+        `${c.id}-3`,
+      ]);
+      await Promise.all(handles.map((handle) => handle.close()));
+    });
+  });
+
+  describe("rows being created or removed", () => {
+    it("refuses a new row whose generated id is already taken", async () => {
+      const { store, containers } = fixture();
+      const first = await containers.start(CONTAINER_SPEC);
+      await first.close();
+      const before = await store.get(first.id);
+      const uuid = vi
+        .spyOn(globalThis.crypto, "randomUUID")
+        .mockReturnValue(first.id as ReturnType<Crypto["randomUUID"]>);
+      try {
+        await expect(
+          containers.start({
+            ...CONTAINER_SPEC,
+            image: "docker.io/library/alpine:3",
+          })
+        ).rejects.toThrow(DUPLICATE_CONTAINER_ERROR);
+      } finally {
+        uuid.mockRestore();
+      }
+      expect(await store.get(first.id)).toEqual(before);
+      expect(await containers.list()).toHaveLength(1);
+    });
+
+    it("refuses an open that begins while the row is being removed", async () => {
+      const { hold, store } = gatedStore({ transactional: true });
+      const runtime = createFakeContainerRuntime();
+      const containers = createContainers({
+        instanceLabel: "instance-a",
+        runtime,
+        store,
+      });
+      const c = await containers.start(CONTAINER_SPEC);
+      await c.close();
+
+      const gate = hold(
+        (write) => write.deleteContainers?.includes(c.id) ?? false
+      );
+      const removing = containers.remove(c.id);
+      await gate.caught;
+      const opening = containers.open(c.id);
+      const restarting = containers.restart(c.id, CONTAINER_SPEC);
+      gate.release();
+
+      await expect(opening).rejects.toThrow(REMOVING_CONTAINER_ERROR);
+      await expect(restarting).rejects.toThrow(REMOVING_CONTAINER_ERROR);
+      await removing;
+      expect(await store.get(c.id)).toBeUndefined();
+      expect(runtime.instances).toHaveLength(1);
+    });
+  });
+
+  describe("restarts racing a close", () => {
+    it("stops a restart whose last handle closes and leaves no VM behind", async () => {
+      const { hold, store } = gatedStore({ transactional: true });
+      const runtime = createFakeContainerRuntime();
+      const containers = createContainers({
+        instanceLabel: "instance-a",
+        runtime,
+        store,
+      });
+      const c = await containers.start(CONTAINER_SPEC);
+
+      const gate = hold(
+        (write) => write.putContainers?.[0]?.nativeId === `${c.id}-2`
+      );
+      const restarting = containers.restart(c.id);
+      await gate.caught;
+      const closing = c.close();
+      gate.release();
+
+      await expect(restarting).rejects.toThrow(CLOSED_DURING_RESTART_ERROR);
+      await closing;
+      expect(runtime.instances.every((instance) => instance.removed)).toBe(
+        true
+      );
+      expect((await store.get(c.id))?.status).toBe("stopped");
+    });
+
+    it("stops a restart whose last handle closes while it boots", async () => {
+      const { hold, store } = gatedStore({ transactional: true });
+      const runtime = createFakeContainerRuntime();
+      const containers = createContainers({
+        instanceLabel: "instance-a",
+        runtime,
+        store,
+      });
+      const c = await containers.start(CONTAINER_SPEC);
+
+      const gate = hold((write) => {
+        const row = write.putContainers?.[0];
+        return row?.nativeId === `${c.id}-2` && row.status === "running";
+      });
+      const restarting = containers.restart(c.id);
+      await gate.caught;
+      const closing = c.close();
+      gate.release();
+
+      await expect(restarting).rejects.toThrow(CLOSED_DURING_RESTART_ERROR);
+      await closing;
+      expect(runtime.instances).toHaveLength(2);
+      expect(runtime.instances.every((instance) => instance.removed)).toBe(
+        true
+      );
+      expect((await store.get(c.id))?.status).toBe("stopped");
+    });
+
+    it("boots the spec a queued restart left stored when given none", async () => {
+      const { runtime, store, containers } = fixture();
+      const c = await containers.start(CONTAINER_SPEC);
+
+      await Promise.all([
+        containers.restart(c.id, { ...CONTAINER_SPEC, ports: [5173] }),
+        containers.restart(c.id),
+      ]);
+
+      expect(runtime.instances).toHaveLength(3);
+      for (const instance of runtime.instances.slice(1)) {
+        expect(instance.spec.ports.map((p) => p.guestPort)).toEqual([5173]);
+      }
+      expect(JSON.parse((await store.get(c.id))?.spec ?? "")).toMatchObject({
+        ports: [5173],
+      });
+      await c.close();
+    });
   });
 });

@@ -2,7 +2,7 @@ import { TypedEmitter } from "@foundry/lib/emitter";
 import { tool } from "ai";
 import { z } from "zod";
 
-import { tagTools } from "../harness/types";
+import { tagTools } from "../harness/tool-registration";
 
 export interface TodoItem {
   description: string;

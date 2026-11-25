@@ -8,12 +8,13 @@ import {
   WorkspaceNotFoundError,
   WorkspaceSourceUnavailableError,
 } from "../errors";
+import type { WorkspaceFileSystem } from "../file-system";
 import { nodeFileSystem } from "../node";
+import type { WorkspaceId } from "../schema";
 import { MemoryWorkspaceStore } from "../store/memory";
-import type { WorkspaceFileSystem, WorkspaceId } from "../types";
 
 import { directoryWorkspaces } from "./helpers/directory-workspaces";
-import { makeRoot, roots, systemOver } from "./helpers/temp-roots";
+import { makeRoot, roots, workspacesOver } from "./helpers/temp-roots";
 
 const FOLDER_CONTENT_PROJECT_ANALYSIS_PATTERN =
   /folder|content|project|analysis/i;
@@ -24,9 +25,9 @@ describe("add({ path })", () => {
       "README.md": "hello",
       "src/app.ts": "const a = 1;\n",
     });
-    const system = directoryWorkspaces();
+    const workspaces = directoryWorkspaces();
 
-    const workspace = await system.load({ path: root });
+    const workspace = await workspaces.load({ path: root });
 
     expect(workspace.source).toEqual({
       kind: "host",
@@ -52,26 +53,26 @@ describe("add({ path })", () => {
     roots.push(linkParent);
     const alias = join(linkParent, "alias");
     await symlink(root, alias, "dir");
-    const system = directoryWorkspaces();
+    const workspaces = directoryWorkspaces();
 
-    const first = await system.load({ path: root });
+    const first = await workspaces.load({ path: root });
 
-    expect((await system.load({ path: root })).id).toBe(first.id);
-    expect((await system.load({ path: alias })).id).toBe(first.id);
-    expect((await system.list()).items).toHaveLength(1);
+    expect((await workspaces.load({ path: root })).id).toBe(first.id);
+    expect((await workspaces.load({ path: alias })).id).toBe(first.id);
+    expect((await workspaces.list()).items).toHaveLength(1);
   });
 
   it("resolves two concurrent adds of one root to a single durable Workspace", async () => {
     const root = await makeRoot({ "README.md": "hi" });
-    const system = directoryWorkspaces();
+    const workspaces = directoryWorkspaces();
 
     const [left, right] = await Promise.all([
-      system.load({ path: root }),
-      system.load({ path: root }),
+      workspaces.load({ path: root }),
+      workspaces.load({ path: root }),
     ]);
 
     expect(left.id).toBe(right.id);
-    expect((await system.list()).items).toHaveLength(1);
+    expect((await workspaces.list()).items).toHaveLength(1);
   });
 
   it("creates nothing when the first scan fails", async () => {
@@ -85,9 +86,9 @@ describe("add({ path })", () => {
           : nodeFileSystem.readFile(path);
       },
     };
-    const system = directoryWorkspaces({ filesystem: failing, store });
+    const workspaces = directoryWorkspaces({ filesystem: failing, store });
 
-    await expect(system.load({ path: root })).rejects.toBeInstanceOf(
+    await expect(workspaces.load({ path: root })).rejects.toBeInstanceOf(
       WorkspaceSourceUnavailableError
     );
     expect((await store.listWorkspaces()).items).toEqual([]);
@@ -95,30 +96,30 @@ describe("add({ path })", () => {
 
   it("refuses a selection that is not a readable directory", async () => {
     const root = await makeRoot({ "README.md": "hi" });
-    const system = directoryWorkspaces();
+    const workspaces = directoryWorkspaces();
 
     await expect(
-      system.load({ path: join(root, "README.md") })
+      workspaces.load({ path: join(root, "README.md") })
     ).rejects.toBeInstanceOf(InvalidWorkspaceInputError);
   });
 
   it("refuses a ref no registered extension names, at compile time and at runtime", async () => {
-    const system = directoryWorkspaces();
+    const workspaces = directoryWorkspaces();
 
     await expect(
       // @ts-expect-error -- `nope` is not a ref any registered extension accepts
-      system.load({ nope: "x" })
+      workspaces.load({ nope: "x" })
     ).rejects.toBeInstanceOf(InvalidWorkspaceInputError);
   });
 });
 
 describe("reload", () => {
-  it("serves the same catalog through a freshly constructed system", async () => {
+  it("serves the same catalog through a freshly constructed workspaces", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const store = new MemoryWorkspaceStore();
-    const added = await systemOver(store).load({ path: root });
+    const added = await workspacesOver(store).load({ path: root });
 
-    const reloaded = await systemOver(store).open(added.id);
+    const reloaded = await workspacesOver(store).open(added.id);
 
     expect(await reloaded.summary()).toEqual(await added.summary());
     expect((await reloaded.files()).map((f) => f.path)).toEqual(["README.md"]);
@@ -126,11 +127,11 @@ describe("reload", () => {
 
   it("reports an unknown Workspace and an unowned File by identity", async () => {
     const root = await makeRoot({ "README.md": "hello" });
-    const system = directoryWorkspaces();
-    const added = await system.load({ path: root });
+    const workspaces = directoryWorkspaces();
+    const added = await workspaces.load({ path: root });
     const absent = crypto.randomUUID() as WorkspaceId;
 
-    await expect(system.open(absent)).rejects.toBeInstanceOf(
+    await expect(workspaces.open(absent)).rejects.toBeInstanceOf(
       WorkspaceNotFoundError
     );
     await expect(added.read("not-a-file" as never)).rejects.toBeInstanceOf(
@@ -143,8 +144,8 @@ describe("Workspace registration identity and freshness", () => {
   it("keeps source authority trusted, renames without scanning, and records a no-change observation", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const store = new MemoryWorkspaceStore();
-    const system = directoryWorkspaces({ store });
-    const added = await system.load({ path: root });
+    const workspaces = directoryWorkspaces({ store });
+    const added = await workspaces.load({ path: root });
     const before = await added.registration();
 
     expect(await added.summary()).not.toHaveProperty("source");
@@ -180,8 +181,8 @@ describe("Workspace registration identity and freshness", () => {
 describe("published contracts", () => {
   it("carries the source kind as a label and never a root or reference", async () => {
     const root = await makeRoot({ "README.md": "hello" });
-    const system = directoryWorkspaces();
-    const added = await system.load({ path: root });
+    const workspaces = directoryWorkspaces();
+    const added = await workspaces.load({ path: root });
     const summary = await added.summary();
     const files = await added.files();
 

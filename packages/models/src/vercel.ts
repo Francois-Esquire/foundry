@@ -4,9 +4,9 @@ import {
   wrapLanguageModel,
 } from "ai";
 import { parseVercelRest } from "./catalog/vercel";
+import type { ModelKind, ProviderModelDefinition } from "./model-definition";
 import type { Provider } from "./provider";
 import { vendorClient } from "./provider";
-import type { ModelKind, ProviderModelDefinition } from "./types";
 
 export interface VercelProviderConfig {
   apiKey?: string;

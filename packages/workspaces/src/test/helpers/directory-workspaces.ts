@@ -1,6 +1,6 @@
+import type { WorkspaceFileSystem } from "../../file-system";
 import { directory } from "../../node";
 import type { WorkspaceStore } from "../../store";
-import type { WorkspaceFileSystem } from "../../types";
 
 import { Workspaces } from "../../workspaces";
 

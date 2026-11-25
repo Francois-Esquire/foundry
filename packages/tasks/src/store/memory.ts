@@ -1,6 +1,5 @@
 import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
-import { edgeKey } from "../edges";
 import type {
   Task,
   TaskDependency,
@@ -8,6 +7,7 @@ import type {
   TaskSnapshot,
   TaskStoreWrite,
 } from "../schema";
+import { edgeKey } from "../schema";
 import type { TaskStore } from "./index";
 
 const REENTRY =

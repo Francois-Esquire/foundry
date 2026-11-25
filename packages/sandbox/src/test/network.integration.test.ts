@@ -1,9 +1,9 @@
 import { expect, it } from "vitest";
-import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
 import {
   provisionContainerSandbox,
   startContainerSandbox,
-} from "../container/sandbox";
+} from "../node/container-sandbox";
+import { createMicrosandboxRuntime } from "../node/microsandbox";
 
 const request = (url: string) => [
   "bun",

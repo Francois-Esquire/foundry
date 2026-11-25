@@ -9,28 +9,32 @@ export type {
   DeliveryForm,
   InputForm,
   InteractionMode,
+  OperationName,
+} from "./capability";
+export type {
   Mask,
   Media,
   MediaInput,
   MediaModel,
   MediaOutput,
-  MediaPrice,
-  ModelCapabilities,
-  ModelCosts,
-  ModelCostTier,
-  ModelKind,
-  ModelLimits,
-  OperationName,
-  ProviderModelDefinition,
   SegmentationPrompt,
   Track,
   TranscribeInput,
   TranscribeOptions,
   TranscribeResult,
   TranscribeSegment,
-} from "./types";
+} from "./media";
+export type {
+  MediaPrice,
+  ModelCapabilities,
+  ModelCosts,
+  ModelCostTier,
+  ModelKind,
+  ModelLimits,
+  ProviderModelDefinition,
+} from "./model-definition";
 
-export { modelAudit } from "./audit";
+export { modelAudit } from "./observability";
 export type { CostBreakdown, CostUsageCounts } from "./cost";
 export { costFromUsage } from "./cost";
 export { modelErrors } from "./errors";
@@ -38,7 +42,7 @@ export type {
   AiLoggerSession,
   ModelObservabilityOptions,
   TurnObservation,
-} from "./logger";
+} from "./observability";
 export {
   beginTurnObservation,
   configureModelObservability,
@@ -47,7 +51,7 @@ export {
   recordAudit,
   SYSTEM_ACTOR,
   withAiLogger,
-} from "./logger";
+} from "./observability";
 export type {
   ModelsEventListener,
   ModelsOptions,

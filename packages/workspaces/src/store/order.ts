@@ -1,6 +1,6 @@
 import type { PageInput } from "@foundry/core/pagination";
 import { byCodeUnit } from "@foundry/lib/ordering";
-import type { WorkspaceEntry } from "../types";
+import type { WorkspaceEntry } from "../schema";
 
 export function byCodePoint(left: string, right: string): number {
   const length = Math.min(left.length, right.length);

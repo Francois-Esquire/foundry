@@ -2,10 +2,9 @@ import type { Chunk, EmbedFunction } from "@chonkiejs/core";
 
 import { SemanticChunker } from "@chonkiejs/core";
 import { embedMany } from "ai";
-
+import { resolveEmbeddingModel } from "./embed";
 import type { ChunkSource } from "./source";
 import { streamFrom } from "./source";
-import { resolveEmbeddingModel } from "./text";
 import type { EmbedSource } from "./types";
 
 export type { Chunk, EmbedFunction } from "@chonkiejs/core";

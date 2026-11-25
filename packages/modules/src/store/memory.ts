@@ -2,6 +2,7 @@ import type { ContentId } from "@foundry/artifacts";
 import { Turns } from "@foundry/lib/turns";
 
 import type { InstallationId, ModuleId } from "../domain";
+import { capturedQuery, capturedWrite, ownedQuery } from "./captured";
 import type {
   InstallationListQuery,
   ManifestListQuery,
@@ -14,9 +15,7 @@ import type {
   ModuleStoreWrite,
   StoredInstallation,
   StoredManifest,
-} from "../store";
-import { capturedQuery, capturedWrite } from "./captured";
-import { ownedQuery } from "./query";
+} from "./index";
 
 const REENTRY =
   "MemoryModuleStore was called from inside its own transaction; use the view passed to the transaction's work instead";

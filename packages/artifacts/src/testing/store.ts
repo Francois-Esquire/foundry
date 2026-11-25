@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { EventInput } from "../change";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
-import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ref";
+import type { ArtifactId, BlobId, ContentId } from "../ids";
+import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ids";
 import type { Artifact, ArtifactEvent, Blob, Content } from "../schema";
 import type {
   ArtifactListQuery,

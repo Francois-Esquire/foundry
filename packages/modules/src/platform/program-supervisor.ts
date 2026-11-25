@@ -9,15 +9,14 @@ import type {
 import type { ModuleCommands } from "../modules";
 import type { ModuleVersions } from "../version";
 import { validateModuleActivation } from "./activation";
+import { ModuleRuntimeCleanupError } from "./container-cleanup";
 import type {
   ModuleProgramLaunch,
   ModuleProgramRuntimeAdapter,
   ModuleProgramRuntimeHandle,
   ModuleProgramSupervisor,
 } from "./contracts";
-import { ModuleRuntimeCleanupError } from "./contracts";
 import type { ModuleInstallationFiles } from "./files";
-import { settledTransitionNotifier } from "./observation";
 import {
   ModuleProgramSupervisorError,
   startupFailureMessage,
@@ -941,4 +940,19 @@ async function attempt(
   } catch (error) {
     failures.push(error);
   }
+}
+
+function settledTransitionNotifier(
+  observer: ((installationId: InstallationId) => void) | undefined
+): (installationId: InstallationId) => void {
+  return (installationId) => {
+    try {
+      observer?.(installationId);
+    } catch (error) {
+      console.error(
+        `[modules] settled-transition observer failed for ${installationId}:`,
+        error
+      );
+    }
+  };
 }

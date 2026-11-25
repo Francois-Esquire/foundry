@@ -7,15 +7,11 @@ import type {
   SpeechModelV4,
   TranscriptionModelV4,
 } from "@ai-sdk/provider";
+import type { CapabilityFact, OperationName } from "./capability";
 import { modelErrors } from "./errors";
 import type { LiveAccess } from "./live/types";
-import type {
-  CapabilityFact,
-  MediaModel,
-  ModelKind,
-  OperationName,
-  ProviderModelDefinition,
-} from "./types";
+import type { MediaModel } from "./media";
+import type { ModelKind, ProviderModelDefinition } from "./model-definition";
 
 export type TurnLimit = "native" | "steps" | "unsupported";
 

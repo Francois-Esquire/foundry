@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { MODULE_SDK_EMITTED } from "../../sdk/emitted";
+import { MODULE_SDK_EMITTED } from "../../sdk/emitted.generated";
 
 export interface ModuleSdk {
   createGatewayClient(transport: unknown): GatewayClient;

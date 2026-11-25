@@ -6,9 +6,11 @@ import {
   createMemoryAgentAuthorizer,
 } from "../../authorization/authorization";
 import { describeCapability } from "../../authorization/capability";
-import { directToolEffectPort } from "../../harness/effect-port";
 import { compileTool } from "../../harness/tool-compiler";
-import { registrationsOf } from "../../harness/types";
+import {
+  directToolEffectPort,
+  registrationsOf,
+} from "../../harness/tool-registration";
 import type { FetchLike } from "../../tools/web-fetch";
 import {
   createWebFetchTools,

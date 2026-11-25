@@ -3,16 +3,12 @@ import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 
 import type { Capability } from "../../authorization/capability";
+import type { SessionMessage, SessionPart, SessionRole } from "../../schema";
 import {
   InvalidApprovalResponseError,
   toModelMessages,
   validateApprovalResponse,
 } from "../../session/converter";
-import type {
-  SessionMessage,
-  SessionPart,
-  SessionRole,
-} from "../../session/types";
 
 const capability: Capability = {
   kind: "mcp.tool",

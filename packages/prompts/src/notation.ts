@@ -1,9 +1,9 @@
 import type {
   ArgumentSelector,
   InvocationKind,
-  Notation,
-  NotationMatch,
-} from "./language";
+  PromptReference,
+  PromptReferenceKind,
+} from "./reference";
 import { invoked } from "./reference";
 
 const BOUNDARY_BEFORE = /[\s([{<"',;]/;
@@ -403,3 +403,25 @@ export const notation = {
   shellLine,
   variable,
 } as const;
+
+export type Surface = "message" | "template";
+
+export interface MatchContext {
+  readonly atStart: boolean;
+  knows(kind: PromptReferenceKind, name: string): boolean;
+}
+
+export interface NotationMatch {
+  readonly end: number;
+  readonly reference?: PromptReference;
+}
+
+export interface Notation {
+  readonly consumes: boolean;
+  readonly id: string;
+  readonly kind: PromptReferenceKind | "escape";
+  match(text: string, at: number, context: MatchContext): NotationMatch | null;
+  readonly position: "anywhere" | "start";
+  readonly surface: Surface;
+  write?(reference: PromptReference): string | null;
+}

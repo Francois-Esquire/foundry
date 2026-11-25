@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Span } from "../language";
+import type { Span } from "../spans";
 import { SpanSet } from "../spans";
 
 const SPAN_COUNT = 60;

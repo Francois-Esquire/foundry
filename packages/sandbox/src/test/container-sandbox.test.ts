@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createContainerSandbox,
   resolveContainerSpec,
-} from "../container/sandbox";
-import { createFakeContainerRuntime } from "../testing";
+} from "../node/container-sandbox";
+import { createFakeContainerRuntime } from "../testing/fake-container-runtime";
 
 const PORT_RANGE_ERROR = /1 through 65535/i;
 const DUPLICATE_PORT_ERROR = /must be unique/i;

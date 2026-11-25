@@ -6,7 +6,6 @@ import type {
 } from "@foundry/artifacts";
 import type { StorageTree } from "@foundry/core/storage";
 import { z } from "zod";
-import { MODULE_MIME } from "./constants";
 import type { ModuleManifest } from "./manifest";
 import {
   assertModuleManifestPaths,
@@ -14,7 +13,9 @@ import {
   ModuleManifestValidationError,
   parseModuleManifest,
 } from "./manifest";
-import type { Installation, Module } from "./schema";
+import type { Installation, Module } from "./records";
+
+export const MODULE_MIME = "application/vnd.foundry.module";
 
 export const installationIdSchema = z
   .string()
@@ -44,7 +45,7 @@ export const INSTALLATION_STATUSES = [
 
 export type InstallationStatus = (typeof INSTALLATION_STATUSES)[number];
 
-export type { Installation, Module } from "./schema";
+export type { Installation, Module } from "./records";
 
 export const MAX_START_ATTEMPTS = 3;
 

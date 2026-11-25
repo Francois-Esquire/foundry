@@ -1,18 +1,14 @@
-import type { Interpolated } from "./author";
-import { diagnose } from "./check";
+import type { Diagnostic } from "./diagnose";
+import { diagnose } from "./diagnose";
 import type { Dialect } from "./dialect";
-import type {
-  Diagnostic,
-  LocatedPromptReference,
-  PromptReference,
-  PromptSource,
-  ReferenceToken,
-  Span,
-  Surface,
-  Token,
-} from "./language";
+import type { Interpolated } from "./interpolate";
+import type { Surface } from "./notation";
+import type { ReferenceToken, Token } from "./parser";
 import { Parser } from "./parser";
+import type { LocatedPromptReference, PromptReference } from "./reference";
 import { nameOf } from "./reference";
+import type { PromptSource } from "./source";
+import type { Span } from "./spans";
 import { SpanSet } from "./spans";
 
 interface PromptFields {

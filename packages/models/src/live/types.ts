@@ -1,4 +1,5 @@
-import type { CapabilityFact, InputForm, Media, OperationName } from "../types";
+import type { CapabilityFact, InputForm, OperationName } from "../capability";
+import type { Media } from "../media";
 
 export type JsonValue =
   | string

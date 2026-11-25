@@ -7,7 +7,6 @@ import type { AgentAuthorizationRequest } from "../../authorization/authorizatio
 import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import type { CommandAuthorityDefinition } from "../../authorization/capability";
 import { classifyCommandCapability } from "../../authorization/capability";
-import { directToolEffectPort } from "../../harness/effect-port";
 import {
   compileRegistrations,
   compileTool,
@@ -20,8 +19,12 @@ import type {
   HarnessToolRegistration,
   RegisteredToolCall,
   ToolEffectPort,
-} from "../../harness/types";
-import { registrationsOf, tagTool } from "../../harness/types";
+} from "../../harness/tool-registration";
+import {
+  directToolEffectPort,
+  registrationsOf,
+  tagTool,
+} from "../../harness/tool-registration";
 import { fakeAuthorizer as fakePolicy } from "../helpers/authorizer";
 
 function callOptions(

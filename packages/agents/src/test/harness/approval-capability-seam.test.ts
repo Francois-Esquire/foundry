@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { SessionHarness } from "../../harness/session-harness";
-import { tagTool } from "../../harness/types";
+import { tagTool } from "../../harness/tool-registration";
 import type { SessionEvent } from "../../session/events";
 import { MemorySessionStore } from "../../store/memory";
 import {

@@ -5,15 +5,15 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ContainerSandboxConstraints } from "../container/constraints";
-import { createContainers } from "../container/containers";
+import { createContainers } from "../node/containers";
 import { MemoryContainerStore } from "../store/memory";
-import type { FakeContainerRuntimeOptions } from "../testing";
-import { createFakeContainerRuntime } from "../testing";
+import type { FakeContainerRuntimeOptions } from "../testing/fake-container-runtime";
+import { createFakeContainerRuntime } from "../testing/fake-container-runtime";
 import {
+  runSandboxContract,
   SANDBOX_ARGV_FIXTURE,
   SANDBOX_SHELL_FIXTURE,
-} from "./helpers/fixtures";
-import { runSandboxContract } from "./helpers/sandbox-contract";
+} from "./helpers/sandbox-contract";
 
 const BOUNDED_CONTRACT_ERROR = /bounded portable contract/i;
 const OWNERSHIP_ERROR = /does not belong/i;
@@ -310,7 +310,7 @@ describe("container scoped mounts", () => {
     }
   });
 
-  it("offers no volumes when the registry was given no mount roots", async () => {
+  it("offers no volumes when the Containers was given no mount roots", async () => {
     const { containers } = fixture();
     const container = await containers.start(SPEC);
     expect(container.volumes).toBeUndefined();

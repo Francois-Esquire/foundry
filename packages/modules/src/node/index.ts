@@ -26,4 +26,4 @@ export {
   type CreateModuleSelectedCheckoutsOptions,
   createModuleSelectedCheckouts,
 } from "./selected-checkouts";
-export { captureModuleWorkspaceSource } from "./source";
+export { captureModuleWorkspaceSource } from "./source-capture";

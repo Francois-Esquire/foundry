@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { SessionHarness } from "../../harness/session-harness";
-import { metaOf } from "../../harness/types";
+import { metaOf } from "../../harness/tool-registration";
 import { McpClient } from "../../mcp/client";
 import type { SessionEvent } from "../../session/events";
 import { Sessions } from "../../session/sessions";

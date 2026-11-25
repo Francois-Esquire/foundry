@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
-import type { BaseContext } from "../executable";
+import type { BaseContext } from "../slices/executable";
 
-import { Executable } from "../executable";
+import { Executable } from "../slices/executable";
 
 const SUSPENDSIGNAL_APPROVAL_NEEDS_HUMAN_PATTERN =
   /SuspendSignal|approval|needs human/;

@@ -1,6 +1,6 @@
 import type { EmbeddingModelV4 } from "@ai-sdk/provider";
 
-import type { AiLoggerSession } from "../logger";
+import type { AiLoggerSession } from "../observability";
 import type { ChunkStrategy } from "./chunk";
 
 export interface EmbedSource {

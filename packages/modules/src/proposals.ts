@@ -6,7 +6,7 @@ import {
   admitModuleSource,
   MODULE_SOURCE_LIMITS,
   type ModuleSourceLimits,
-} from "./source";
+} from "./source-admission";
 
 export type ModuleSourceChanges = Record<string, string | null>;
 

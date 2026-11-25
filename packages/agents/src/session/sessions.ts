@@ -1,19 +1,18 @@
 import { generateId } from "ai";
-
-import type { SessionChangeEvent } from "../schema";
-import type { SessionStore } from "../store";
-import { MemorySessionStore } from "../store/memory";
-import { metadataFault, partsFault } from "../store/message-shape";
-import { keptValue } from "./serialize";
 import type {
   MessageMetadata,
   MessageStatus,
+  SessionChangeEvent,
   SessionMessage,
   SessionPart,
   SessionRecord,
   SessionRole,
   SessionStatus,
-} from "./types";
+} from "../schema";
+import type { SessionStore } from "../store";
+import { MemorySessionStore } from "../store/memory";
+import { metadataFault, partsFault } from "../store/message-shape";
+import { keptValue } from "./serialize";
 
 export interface CreateSessionInput {
   id?: string;

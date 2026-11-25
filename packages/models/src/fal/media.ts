@@ -6,7 +6,7 @@ import type {
   MediaModel,
   MediaOutput,
   SegmentationPrompt,
-} from "../types";
+} from "../media";
 import type { FalRuntime } from "./client";
 
 type Payload = Record<string, unknown>;

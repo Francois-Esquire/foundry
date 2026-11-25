@@ -1,5 +1,18 @@
 // biome-ignore lint/performance/noBarrelFile: Public Web-standard package root for @foundry/sandbox.
-export { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "./constants";
+export {
+  type ContainerSandboxConstraints,
+  type ContainerSandboxMount,
+  containerSandboxConfigFromConstraints,
+  containerSandboxConstraintsSchema,
+} from "./container/constraints";
+export type {
+  Container,
+  ContainerFacets,
+  ContainerRecovery,
+  ContainerSweep,
+  Containers,
+  CreateContainersOptions,
+} from "./container/containers";
 export {
   ACTIVE_CONTAINER_RESOURCE_STATUSES,
   CONTAINER_ENVIRONMENT_ID_LABEL,
@@ -10,7 +23,6 @@ export {
   CONTAINER_OWNER_ID_LABEL,
   CONTAINER_OWNER_KIND_LABEL,
   CONTAINER_PORTABLE_ID_PATTERN,
-  CONTAINER_ROW_STATUSES,
   CONTAINER_RUNTIME_SCOPE_LABEL,
   CONTAINER_SANDBOX_BASE_LABEL,
   CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
@@ -22,18 +34,10 @@ export {
   INVENTORY_PAGE_LIMIT,
   MAX_INVENTORY_PAGES,
   removeByHand,
-} from "./container/constants";
-export {
-  type ContainerSandboxConstraints,
-  type ContainerSandboxMount,
-  containerSandboxConfigFromConstraints,
-  containerSandboxConstraintsSchema,
-} from "./container/constraints";
+} from "./container/defaults";
 export type {
-  Container,
   ContainerConfig,
   ContainerExecOptions,
-  ContainerFacets,
   ContainerInstance,
   ContainerInventoryPage,
   ContainerListResourcesQuery,
@@ -42,7 +46,6 @@ export type {
   ContainerNetworkAllowlist,
   ContainerPortMapping,
   ContainerProcess,
-  ContainerRecovery,
   ContainerResourceStatus,
   ContainerResourceSummary,
   ContainerRuntime,
@@ -50,33 +53,18 @@ export type {
   ContainerSandboxDeps,
   ContainerSpec,
   ContainerStatus,
-  ContainerSweep,
-  Containers,
-  CreateContainersOptions,
   PullPolicy,
-} from "./container/types";
+} from "./container/runtime";
 export {
   SandboxError,
   type SandboxErrorCode,
   type SandboxErrorOptions,
 } from "./errors";
 export {
+  DEFAULT_SANDBOX_WORKING_DIRECTORY,
   normalizeSandboxPath,
   normalizeSandboxWorkingDirectory,
 } from "./path";
-export {
-  assertNotAborted,
-  type SandboxAdapter,
-  sandboxFromAdapter,
-} from "./sandbox";
-export {
-  type ContainerRow,
-  type ContainerRowStatus,
-  containerRowSchema,
-  containerRowStatusSchema,
-  type SandboxEvent,
-  sandboxEventSchema,
-} from "./schema";
 export type {
   Sandbox,
   SandboxCapability,
@@ -115,4 +103,18 @@ export type {
   SandboxVolumeMount,
   SandboxVolumesFacet,
   SandboxWritable,
-} from "./types";
+} from "./sandbox";
+export {
+  assertNotAborted,
+  type SandboxAdapter,
+  sandboxFromAdapter,
+} from "./sandbox-adapter";
+export {
+  CONTAINER_ROW_STATUSES,
+  type ContainerRow,
+  type ContainerRowStatus,
+  containerRowSchema,
+  containerRowStatusSchema,
+  type SandboxEvent,
+  sandboxEventSchema,
+} from "./store/schema";

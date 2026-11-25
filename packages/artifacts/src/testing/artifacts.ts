@@ -725,7 +725,7 @@ export function describeArtifacts(
       return { created, reader, shared, writer };
     }
 
-    test("gets one state while another manager deletes the Artifact", async () => {
+    test("gets one state while another artifacts deletes the Artifact", async () => {
       const { created, reader, shared, writer } = await sharedStore();
       const paused = shared.pause("getArtifact");
       const read = reader.get(created.id);
@@ -738,7 +738,7 @@ export function describeArtifacts(
       expect(await reader.get(created.id)).toBeNull();
     });
 
-    test("lists one state while another manager deletes a listed Artifact", async () => {
+    test("lists one state while another artifacts deletes a listed Artifact", async () => {
       const { created, reader, shared, writer } = await sharedStore();
       const paused = shared.pause("listArtifacts");
       const read = reader.list();
@@ -754,7 +754,7 @@ export function describeArtifacts(
       expect((await reader.list()).items).toEqual([]);
     });
 
-    test("refuses at once a call on another manager from inside a transaction, even with that manager's own call waiting", async ({
+    test("refuses at once a call on another artifacts from inside a transaction, even with that artifacts's own call waiting", async ({
       skip,
     }) => {
       const store = await createStore();
@@ -810,7 +810,7 @@ export function describeArtifacts(
           artifacts.setMetadata(contentOf(created).id, { label }),
       ],
     ] as const) {
-      test(`refuses at once ${kind} to an Artifact another manager's own call to it waits on, from inside a transaction`, async ({
+      test(`refuses at once ${kind} to an Artifact another artifacts's own call to it waits on, from inside a transaction`, async ({
         skip,
       }) => {
         const store = await createStore();
@@ -859,7 +859,7 @@ export function describeArtifacts(
       return (await patchers[0].getContent(contentId))?.metadata;
     }
 
-    test("keeps concurrent read-modify-writes on one manager from interleaving", async () => {
+    test("keeps concurrent read-modify-writes on one artifacts from interleaving", async () => {
       const { created, shared, writer } = await sharedStore();
 
       expect(
@@ -880,7 +880,7 @@ export function describeArtifacts(
       ).toMatchObject({ first: 1, second: 2 });
     });
 
-    test("reads a file from one state while another manager rewrites it", async () => {
+    test("reads a file from one state while another artifacts rewrites it", async () => {
       const { created, reader, shared, writer } = await sharedStore();
       const contentId = contentOf(created).id;
       const paused = shared.pause("getContent");

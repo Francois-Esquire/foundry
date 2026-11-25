@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { ContainerSandboxConstraints } from "../container/constraints";
 import {
   CONTAINER_ID_LABEL,
   CONTAINER_INSTANCE_LABEL,
-} from "../container/constants";
-import type { ContainerSandboxConstraints } from "../container/constraints";
-import { createContainers } from "../container/containers";
-import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
+} from "../container/defaults";
+import { createContainers } from "../node/containers";
+import { createMicrosandboxRuntime } from "../node/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
 const SPEC: ContainerSandboxConstraints = {
@@ -15,7 +15,7 @@ const SPEC: ContainerSandboxConstraints = {
   ports: [3000],
 };
 
-describe("real MicroSandbox containers registry", () => {
+describe("real MicroSandbox Containers", () => {
   it("starts, restarts under open handles, closes, and sweeps orphans", async () => {
     const runtime = createMicrosandboxRuntime();
     if (!(await runtime.isInstalled())) {

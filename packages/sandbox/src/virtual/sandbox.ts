@@ -1,10 +1,9 @@
 import type { Storage, StorageObserver } from "@foundry/core/storage";
 import type { IFileSystem } from "just-bash";
 import { Bash } from "just-bash";
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "../constants";
-
 import { SandboxError } from "../errors";
 import {
+  DEFAULT_SANDBOX_WORKING_DIRECTORY,
   normalizeSandboxPath,
   normalizeSandboxWorkingDirectory,
 } from "../path";
@@ -16,7 +15,7 @@ import type {
   SandboxExecResult,
   SandboxFilesystemFacet,
   SandboxListOptions,
-} from "../types";
+} from "../sandbox";
 import { ObservableFileSystem } from "./filesystem";
 
 export interface VirtualSandboxOptions {

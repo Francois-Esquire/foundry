@@ -1,4 +1,4 @@
-import type { ProviderModelDefinition } from "../types";
+import type { ProviderModelDefinition } from "../model-definition";
 
 export interface CodexModelInfo {
   description?: string | null;

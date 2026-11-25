@@ -6,7 +6,7 @@ import type {
   HarnessToolRegistration,
   RegisteredToolCall,
   ToolEffectPort,
-} from "../../harness/types";
+} from "../../harness/tool-registration";
 import { fakeAuthorizer as fakePolicy } from "../helpers/authorizer";
 
 function fakeEffectPort(): {

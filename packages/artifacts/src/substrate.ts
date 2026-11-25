@@ -5,9 +5,8 @@ import type {
   FileRepresentation,
   StorageNode,
 } from "@foundry/core/storage";
-
+import type { ArtifactId, BlobId, ContentId } from "./ids";
 import type { ArtifactCursor } from "./listing";
-import type { ArtifactId, BlobId, ContentId } from "./ref";
 import type {
   Artifact,
   Content,

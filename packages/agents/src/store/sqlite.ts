@@ -14,9 +14,8 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 
 import type { SessionMessage, SessionRecord } from "../schema";
 import type { SessionStore, SessionStoreWrite } from "./index";
-import { messageOf, sessionOf } from "./sqlite-decode";
-import type { SessionRow, UnplacedMessageRow } from "./sqlite-rows";
-import { captured, owned } from "./sqlite-rows";
+import type { SessionRow, UnplacedMessageRow } from "./sqlite/rows";
+import { captured, messageOf, owned, sessionOf } from "./sqlite/rows";
 import { agentMessages, agentSessions } from "./tables";
 
 export type SessionDatabase = SqliteDatabase;

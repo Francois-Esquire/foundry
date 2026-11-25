@@ -9,7 +9,7 @@ import type {
 import { AgentHarness } from "../../harness/agent-harness";
 import { SessionHarness } from "../../harness/session-harness";
 import { toolAuthorizationContext } from "../../harness/tool-compiler";
-import { tagTool } from "../../harness/types";
+import { tagTool } from "../../harness/tool-registration";
 import type { SessionEvent } from "../../session/events";
 import { MemorySessionStore } from "../../store/memory";
 import { fakeAuthorizer } from "../helpers/authorizer";

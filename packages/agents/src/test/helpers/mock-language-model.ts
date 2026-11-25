@@ -1,7 +1,6 @@
+import type { AgentModel, ModelLimits, ModelRoute } from "@foundry/core/agents";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-
-import type { AgentModel, ModelLimits, ModelRoute } from "../../agents/model";
 
 type GenerateResult = Awaited<
   ReturnType<InstanceType<typeof MockLanguageModelV4>["doGenerate"]>

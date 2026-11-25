@@ -8,11 +8,11 @@ import type { InstallationId } from "../domain";
 import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "../errors";
 import { approvedNetworkDestinations } from "../grants";
 import type { ModuleCommands } from "../modules";
+import { rethrowAfterCleanup } from "./container-cleanup";
 import type {
   ModuleProgramResources,
   ModuleProgramRuntimeAdapter,
 } from "./contracts";
-import { rethrowAfterCleanup } from "./contracts";
 import type { ModuleCheckouts } from "./files";
 import type { CreateModuleProgramRuntimeOptions } from "./program-runtime";
 import {

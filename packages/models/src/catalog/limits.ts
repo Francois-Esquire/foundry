@@ -1,4 +1,4 @@
-import type { ModelLimits } from "../types";
+import type { ModelLimits } from "../model-definition";
 
 export function tokenLimits(
   maxInputTokens: number | null | undefined,

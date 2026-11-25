@@ -32,9 +32,9 @@
       "default": "./src/sdk/index.ts"
     },
     "./store": {
-      "types": "./dist/store.d.ts",
-      "import": "./src/store.ts",
-      "default": "./src/store.ts"
+      "types": "./dist/store/index.d.ts",
+      "import": "./src/store/index.ts",
+      "default": "./src/store/index.ts"
     },
     "./store/memory": {
       "types": "./dist/store/memory.d.ts",
@@ -72,7 +72,7 @@
     "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist .cache .turbo coverage",
     "emit-manifest-schema": "bun src/manifest-schema-emit.ts && biome format --write schema/foundry.module.schema.json",
-    "emit-sdk": "bun src/sdk/emit.ts && biome format --write src/sdk/emitted.ts src/sdk/generator-source.ts",
+    "emit-sdk": "bun src/sdk/emit.ts",
     "test": "vitest run --project unit",
     "test:coverage": "vitest run --project unit --coverage",
     "test:integration": "vitest run --project integration",

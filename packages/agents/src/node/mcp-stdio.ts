@@ -9,7 +9,9 @@ import {
   spawnRecordEnvironment,
 } from "@foundry/lib/node/spawn-record";
 
-import type { SpawnStdio } from "../mcp/types";
+import { McpClient } from "../mcp/client";
+import type { McpClientOptions, SpawnStdio } from "../mcp/client-options";
+import type { McpServerDefinition } from "../mcp/server-definition";
 
 const TRAILING_CARRIAGE_RETURN_PATTERN = /\r$/u;
 
@@ -168,4 +170,14 @@ function lineReader(each: (line: string) => void): (chunk: Buffer) => void {
     }
     rest = rest.slice(start);
   };
+}
+
+export function createNodeMcpClient(
+  definition: McpServerDefinition,
+  options: McpClientOptions = {}
+): McpClient {
+  return new McpClient(definition, {
+    spawnStdio: spawnStdioTransport,
+    ...options,
+  });
 }

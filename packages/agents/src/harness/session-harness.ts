@@ -1,14 +1,7 @@
+import type { AgentModel, ModelRoute } from "@foundry/core/agents";
 import type { ModelMessage, Output, ProviderMetadata } from "ai";
-
-import type {
-  LoopAgent,
-  TurnCallSettings,
-  TurnContext,
-} from "../agents/loop-agent";
-import { TURN_SETTINGS } from "../agents/loop-agent";
 import type { Mesh } from "../agents/mesh";
 import { createMesh } from "../agents/mesh";
-import type { AgentModel, ModelRoute } from "../agents/model";
 import type { AgentCompatibilityRegistry } from "../agents/registry";
 import { createAgentCompatibilityRegistry } from "../agents/registry";
 import type { AgentAuthorizer } from "../authorization/authorization";
@@ -16,6 +9,7 @@ import { effectiveLimit, resolveBudget } from "../contexts/budget";
 import { cacheDirectivesFor, mergeProviderOptions } from "../contexts/cache";
 import { estimatingCounter } from "../contexts/counter";
 import type { SessionWindowOptions, WindowModel } from "../contexts/types";
+import type { SessionMessage, SessionPart, SessionRole } from "../schema";
 import type { Summarizer } from "../session/compactor";
 import { maybeCompact } from "../session/compactor";
 import {
@@ -28,16 +22,13 @@ import type {
   StreamHandlers,
 } from "../session/events";
 import { Sessions } from "../session/sessions";
-import type {
-  SessionMessage,
-  SessionPart,
-  SessionRole,
-} from "../session/types";
 import type { SessionStore } from "../store";
 import { MemorySessionStore } from "../store/memory";
 import { composeTools } from "../tools/compose";
 import type { AgentHarnessSettings } from "./agent-harness";
 import { AgentHarness } from "./agent-harness";
+import type { LoopAgent, TurnCallSettings, TurnContext } from "./loop-agent";
+import { TURN_SETTINGS } from "./loop-agent";
 import type { StreamSource } from "./stream-transform";
 import { transformStream } from "./stream-transform";
 

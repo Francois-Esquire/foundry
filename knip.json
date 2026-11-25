@@ -60,7 +60,7 @@
       "ignore": ["marbles/**/_example/**"]
     },
     "packages/models": {
-      "entry": ["src/local/remote/worker-entry.ts"]
+      "entry": ["src/node/local/remote/worker-entry.ts"]
     },
     "packages/modules": {
       "entry": ["src/sdk/generator-core.ts"]

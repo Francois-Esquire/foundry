@@ -1,7 +1,7 @@
-import type { SuspensionState } from "./channels";
-import type { BaseContext, ExecutableConfig } from "./executable";
-import { isSuspendSignal } from "./executable";
-import type { StepSnapshot } from "./snapshot";
+import type { SuspensionState } from "./slices/channels";
+import type { BaseContext, ExecutableConfig } from "./slices/executable";
+import { isSuspendSignal } from "./slices/executable";
+import type { StepSnapshot } from "./slices/snapshot";
 import type { StepContext, StepSpec } from "./step";
 import { Step, StepBailError } from "./step";
 

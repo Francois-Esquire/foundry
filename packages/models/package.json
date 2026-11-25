@@ -11,44 +11,44 @@
       "import": "./src/index.ts"
     },
     "./fal": {
-      "types": "./dist/src/fal/provider.d.ts",
-      "import": "./src/fal/provider.ts"
+      "types": "./dist/src/fal.d.ts",
+      "import": "./src/fal.ts"
     },
     "./live": {
-      "types": "./dist/src/live/index.d.ts",
-      "import": "./src/live/index.ts"
+      "types": "./dist/src/live.d.ts",
+      "import": "./src/live.ts"
     },
     "./node/live": {
-      "types": "./dist/src/live/node/index.d.ts",
-      "import": "./src/live/node/index.ts"
+      "types": "./dist/src/node/live.d.ts",
+      "import": "./src/node/live.ts"
     },
     "./airplane": {
       "types": "./dist/src/airplane.d.ts",
       "import": "./src/airplane.ts"
     },
     "./node/claude-code": {
-      "types": "./dist/src/claude-code.d.ts",
-      "import": "./src/claude-code.ts"
+      "types": "./dist/src/node/claude-code.d.ts",
+      "import": "./src/node/claude-code.ts"
     },
     "./node/codex": {
-      "types": "./dist/src/codex.d.ts",
-      "import": "./src/codex.ts"
+      "types": "./dist/src/node/codex.d.ts",
+      "import": "./src/node/codex.ts"
     },
     "./node/pi": {
-      "types": "./dist/src/pi.d.ts",
-      "import": "./src/pi.ts"
+      "types": "./dist/src/node/pi.d.ts",
+      "import": "./src/node/pi.ts"
     },
     "./node/local": {
-      "types": "./dist/src/local/provider.d.ts",
-      "import": "./src/local/provider.ts"
+      "types": "./dist/src/node/local.d.ts",
+      "import": "./src/node/local.ts"
     },
     "./node/local/remote": {
-      "types": "./dist/src/local/remote/transport.d.ts",
-      "import": "./src/local/remote/transport.ts"
+      "types": "./dist/src/node/local/remote/transport.d.ts",
+      "import": "./src/node/local/remote/transport.ts"
     },
     "./node/local/remote/provider": {
-      "types": "./dist/src/local/remote/provider.d.ts",
-      "import": "./src/local/remote/provider.ts"
+      "types": "./dist/src/node/local/remote/provider.d.ts",
+      "import": "./src/node/local/remote/provider.ts"
     },
     "./gateway": {
       "types": "./dist/src/gateway.d.ts",

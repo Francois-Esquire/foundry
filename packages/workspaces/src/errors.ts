@@ -1,4 +1,4 @@
-import type { WorkspaceSourceIssue } from "./types";
+import type { WorkspaceSourceIssue } from "./source-adapter";
 
 export function errorCode(error: unknown): string {
   const code: unknown = (error as { code?: unknown } | null)?.code;

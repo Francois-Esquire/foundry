@@ -9,8 +9,12 @@ import type {
   Module,
   StoredInstallation,
   StoredManifest,
-} from "../schema";
-import type { ModuleStore, ModuleStorePage, ModuleStoreWrite } from "../store";
+} from "../records";
+import type {
+  ModuleStore,
+  ModuleStorePage,
+  ModuleStoreWrite,
+} from "../store/index";
 
 export type ScopedModuleStores = (scope: string) => ModuleStore;
 

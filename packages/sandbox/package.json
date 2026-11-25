@@ -17,9 +17,9 @@
       "default": "./src/node/index.ts"
     },
     "./node/microsandbox": {
-      "types": "./dist/container/microsandbox-runtime.d.ts",
-      "import": "./src/container/microsandbox-runtime.ts",
-      "default": "./src/container/microsandbox-runtime.ts"
+      "types": "./dist/node/microsandbox.d.ts",
+      "import": "./src/node/microsandbox.ts",
+      "default": "./src/node/microsandbox.ts"
     },
     "./store": {
       "types": "./dist/store/index.d.ts",
@@ -42,9 +42,9 @@
       "default": "./src/store/tables.ts"
     },
     "./testing": {
-      "types": "./dist/testing.d.ts",
-      "import": "./src/testing.ts",
-      "default": "./src/testing.ts"
+      "types": "./dist/testing/fake-container-runtime.d.ts",
+      "import": "./src/testing/fake-container-runtime.ts",
+      "default": "./src/testing/fake-container-runtime.ts"
     },
     "./testing/store": {
       "types": "./dist/testing/store.d.ts",

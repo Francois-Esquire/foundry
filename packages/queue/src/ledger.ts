@@ -13,8 +13,8 @@ import type {
   QueueStoreService,
   QueueWrite,
 } from "./store/index";
-import { changeOf, type JobWaiters } from "./sync";
 import type { Change } from "./transitions";
+import { changeOf, type JobWaiters } from "./watermark";
 
 const CONFLICT_RETRIES = 5;
 

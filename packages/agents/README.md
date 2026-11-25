@@ -701,14 +701,14 @@ The primitives everything above composes. Reach for these when the harness is
 more than you need, or when you are building multi-agent topology.
 
 ```typescript
-// ./agents/model
+// @foundry/core/agents
 interface AgentModel extends LanguageModelV4 {
   route?: { id: string; provider?: string; harness?: string };
   limits?: { contextWindow?: number; maxOutputTokens?: number };
 }
 type ObserveTurn = (turn: { sessionId; model: ModelRoute }) => TurnObservation | null;
 
-// ./agents/loop-agent
+// ./harness/loop-agent
 class LoopAgent extends ToolLoopAgent
 new LoopAgent(settings, { sessionId })
 ```
@@ -749,7 +749,7 @@ HUMAN              // the symbol for the human node
 // ./agents/spawn
 createSpawnTool(deps)   // undefined at the depth limit
 
-// ./agents/resolve
+// ./agents/preset
 createAgentPreset(spec, surface)   // → AgentPreset: createAgent(ctx) / createSession(ctx)
 resolveAgent(spec, surface, ctx?)  // → Promise<SessionHarness>, in one step
 ```

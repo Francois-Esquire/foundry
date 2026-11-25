@@ -5,8 +5,8 @@ import type { FileNode, StorageNode } from "@foundry/core/storage";
 import { describe, expect, expectTypeOf, onTestFinished, test } from "vitest";
 import { Artifacts } from "../artifacts";
 import { CHUNK_BYTES } from "../constants";
+import type { BlobId } from "../ids";
 import { blobFiles } from "../node";
-import type { BlobId } from "../ref";
 import type { ContentTree, StoredFile } from "../schema";
 import {
   artifactMetadataSchema,
@@ -155,7 +155,7 @@ describe("Artifact record schema", () => {
     expect(ownProto(content?.tree)).toStrictEqual({ type: "directory" });
   });
 
-  test("accepts a tree without a prototype, as the manager builds them", () => {
+  test("accepts a tree without a prototype, as `Artifacts` builds them", () => {
     const tree = Object.assign(Object.create(null) as object, {
       assets: { type: "directory" },
     });

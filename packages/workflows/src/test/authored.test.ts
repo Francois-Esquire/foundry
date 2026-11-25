@@ -24,7 +24,7 @@ import {
   unavailableEntries,
   unavailablePlan,
   unknownPlacementPlan,
-} from "./fixtures/authored";
+} from "./helpers/authored-catalog";
 
 describe("executable article plan", () => {
   test("is executable with no issues despite labels disagreeing with types", () => {

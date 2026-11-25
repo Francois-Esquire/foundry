@@ -3,16 +3,17 @@ export type {
   CommitChangeResult,
   CommitCreateResult,
   RemoveWorkspaceResult,
+  WorkspaceCatalogChange,
+  WorkspaceChange,
 } from "./catalog";
 // biome-ignore lint/performance/noBarrelFile: This is a declared package entry point; preserve its public exports.
 export { WorkspaceCatalog } from "./catalog";
-export { DIRECTORY_SOURCE } from "./constants";
 export type {
   DirectoryCapabilities,
   DirectoryOptions,
   DirectoryRef,
 } from "./directory";
-export { directory, directorySource } from "./directory";
+export { DIRECTORY_SOURCE, directory, directorySource } from "./directory";
 export {
   InvalidWorkspaceInputError,
   WorkspaceError,
@@ -22,46 +23,49 @@ export {
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
 } from "./errors";
-export { Workspace } from "./instance";
-export { polling } from "./observation";
-export { scanDirectory } from "./scanner";
-export type { WorkspaceStore, WorkspaceStoreWrite } from "./store";
 export type {
   AnyWorkspaceExtension,
   CapabilitiesOf,
-  CreateFileCommand,
+  RefOf,
+  SourceCapabilitiesFor,
+  WorkspaceAttachContext,
+  WorkspaceAttachment,
+  WorkspaceExtension,
+  WorkspaceIdentity,
+  WorkspaceLifecycle,
+} from "./extension";
+export type { ResolvedSource, WorkspaceFileSystem } from "./file-system";
+export { polling } from "./observation";
+export { scanDirectory } from "./scanner";
+export type {
+  WorkspaceEntry,
+  WorkspaceEntryId,
+  WorkspaceEvent,
+  WorkspaceFile,
+  WorkspaceId,
+  WorkspaceRegistration,
+  WorkspaceSource,
+} from "./schema";
+export type {
   FileContentResult,
   FileTextSnapshot,
   GitPathStatus,
   GitSnapshot,
   ObservedFacts,
-  RefOf,
-  ResolvedSource,
-  SaveFileCommand,
   SaveFileResult,
-  SourceCapabilitiesFor,
-  WorkspaceAttachContext,
-  WorkspaceAttachment,
-  WorkspaceCatalogChange,
-  WorkspaceChange,
-  WorkspaceContext,
-  WorkspaceEntry,
-  WorkspaceEntryId,
-  WorkspaceEvent,
-  WorkspaceExtension,
-  WorkspaceFile,
-  WorkspaceFileSystem,
-  WorkspaceId,
-  WorkspaceIdentity,
-  WorkspaceLifecycle,
-  WorkspaceRegistration,
-  WorkspaceSource,
   WorkspaceSourceAdapter,
   WorkspaceSourceIssue,
   WorkspaceSourceStatus,
+  WriteOutcome,
+} from "./source-adapter";
+export type { WorkspaceStore, WorkspaceStoreWrite } from "./store";
+export type {
+  CreateFileCommand,
+  SaveFileCommand,
+  WorkspaceContext,
   WorkspaceSummary,
   WorkspaceView,
-  WriteOutcome,
-} from "./types";
+} from "./workspace";
+export { Workspace } from "./workspace";
 export type { WorkspacesOptions } from "./workspaces";
 export { Workspaces } from "./workspaces";
