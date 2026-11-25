@@ -60,3 +60,6 @@ temp
 .worktrees/
 
 apps/marbles/src/database/migrations/
+
+# Rust / Cargo
+/target
