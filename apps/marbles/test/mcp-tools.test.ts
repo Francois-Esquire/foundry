@@ -910,3 +910,25 @@ it("reports daemon_outdated when get task with relations hits an older daemon re
   expect(answer.code).toBe("daemon_outdated");
   expect(answer.message).toContain("tasks inspect");
 });
+
+it("preserves TaskError not_found when get task with relations asks for task id 'inspect'", async () => {
+  const { TaskError } = await import("@foundry/tasks");
+  const connected = await connectMcp({
+    hosted: () => Promise.reject(new Error("unused")),
+    tasks: () =>
+      Promise.reject(new TaskError("not_found", "Task inspect not found")),
+    workspaces: () => Promise.resolve(SUMMARIES),
+  });
+  open.push(connected);
+  const answer = refused(
+    await connected.call("get", {
+      fields: ["dependsOn"],
+      id: "inspect",
+      resource: "task",
+    })
+  );
+  expect(answer).toEqual({
+    code: "not_found",
+    message: "[tasks] Task inspect not found",
+  });
+});

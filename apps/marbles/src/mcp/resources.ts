@@ -718,7 +718,7 @@ export function resources(options: McpServerOptions): Resources {
       if (
         request.relations &&
         error instanceof Error &&
-        (error.name === "ZodError" || error.message.includes("inspect"))
+        error.name === "ZodError"
       ) {
         throw outdatedDaemon("tasks inspect", error);
       }
