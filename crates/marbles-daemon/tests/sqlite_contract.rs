@@ -38,14 +38,27 @@ opened.close();
 
     const READ_BACK: &str = r#"
 import { join } from "node:path";
-import { queuedRuns } from "./src/database/executions.ts";
+import { queueRuns } from "@foundry/queue/store/tables";
+import { and, eq } from "drizzle-orm";
 import { readLiveGenerations } from "./src/database/generations.ts";
 import { readDatabase } from "./src/database/open.ts";
 import { recordedWorkspaces } from "./src/database/workspaces.ts";
 const state = process.env.MARBLES_STATE;
 const workspaces = await recordedWorkspaces(state);
 const generations = await readLiveGenerations(state);
-const queued = await readDatabase(join(state, "marbles.db"), (database) => queuedRuns(database, "w1"));
+const queued = await readDatabase(join(state, "marbles.db"), async (database) => {
+  const rows = await database
+    .select({ body: queueRuns.body })
+    .from(queueRuns)
+    .where(and(eq(queueRuns.scope, "w1"), eq(queueRuns.state, "queued")));
+  return rows
+    .map((row) => row.body)
+    .sort((a, b) => a.state.queuedAt - b.state.queuedAt)
+    .map((run) => ({
+      id: run.id,
+      owner: { pid: run.state.owner.pid, started: run.state.owner.started },
+    }));
+});
 console.log(JSON.stringify({ generations, queued, workspaces }));
 "#;
 
