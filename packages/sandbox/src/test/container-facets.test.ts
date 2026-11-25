@@ -310,7 +310,7 @@ describe("container scoped mounts", () => {
     }
   });
 
-  it("offers no volumes when the Containers was given no mount roots", async () => {
+  it("offers no volumes when the Containers instance was given no mount roots", async () => {
     const { containers } = fixture();
     const container = await containers.start(SPEC);
     expect(container.volumes).toBeUndefined();

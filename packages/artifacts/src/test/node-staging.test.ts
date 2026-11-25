@@ -596,7 +596,7 @@ describe.each(STORE_KINDS)("%s store: Staging bounds", (kind) => {
     }
   });
 
-  it("reads at most MAX_STAGING_STREAMS streams of one artifacts at once", async () => {
+  it("reads at most MAX_STAGING_STREAMS streams of one Artifacts instance at once", async () => {
     const { openArtifacts } = await storage(kind);
     const artifacts = openArtifacts();
     const gates = Array.from({ length: MAX_STAGING_STREAMS + 1 }, () =>

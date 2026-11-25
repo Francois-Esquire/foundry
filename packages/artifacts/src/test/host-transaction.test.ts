@@ -94,7 +94,7 @@ describe.each([
   ["memory", libsqlDatabases("memory")],
   ["file", libsqlDatabases("file")],
 ] as const)(
-  "a artifacts inside a host transaction (%s)",
+  "an Artifacts instance inside a host transaction (%s)",
   (_location, databases) => {
     test("leaves the file a change retired, so a host rollback still reads it", async () => {
       const { inHost, original, published, read, rewrite } =
@@ -323,7 +323,7 @@ describe("a store's durability", () => {
 });
 
 describe.each(STORE_KINDS)(
-  "a artifacts over a %s store's transaction view",
+  "an Artifacts instance over a %s store's transaction view",
   (kind) => {
     test("leaves the file a change retired when the transaction's work throws", async () => {
       const store = await openStore(kind);

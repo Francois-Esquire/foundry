@@ -182,7 +182,7 @@ describe.each(CONTAINER_STORES)("container events over %s", (_name, open) => {
       await second.shutdown();
     });
 
-    it("carries sandbox.destroyed in the delete, and none when another Containers deleted the row first", async () => {
+    it("carries sandbox.destroyed in the delete, and none when another Containers instance deleted the row first", async () => {
       const { store, writes } = gatedStore({ transactional: true });
       const runtime = createFakeContainerRuntime();
       const first = createContainers({

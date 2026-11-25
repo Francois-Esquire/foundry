@@ -114,7 +114,7 @@ describe("add({ path })", () => {
 });
 
 describe("reload", () => {
-  it("serves the same catalog through a freshly constructed workspaces", async () => {
+  it("serves the same catalog through a freshly constructed Workspaces instance", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const store = new MemoryWorkspaceStore();
     const added = await workspacesOver(store).load({ path: root });

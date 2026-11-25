@@ -1,11 +1,14 @@
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import {
+  type ChildScript,
+  startScript,
+} from "@foundry/lib/testing/child-script";
 
 import { describe, expect, it } from "vitest";
 
 import type { ContainerRow } from "../store/schema";
 import { SqliteContainerStore } from "../store/sqlite";
-import { type ChildScript, startScript } from "./helpers/child-script";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 const LOCKED = /locked|busy/i;

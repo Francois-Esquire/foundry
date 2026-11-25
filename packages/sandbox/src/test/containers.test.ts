@@ -480,7 +480,7 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
       await reopened.close();
     });
 
-    it("keeps a spec another Containers records while a reopen is writing", async () => {
+    it("keeps a spec another Containers instance records while a reopen is writing", async () => {
       const { hold, store } = gatedStore({ transactional: true });
       const runtime = createFakeContainerRuntime();
       const first = createContainers({ instanceLabel: "a", runtime, store });
