@@ -2,9 +2,17 @@ import type { FileNode, StorageNode } from "@foundry/core/storage";
 import { isStoragePath } from "@foundry/core/storage";
 import { z } from "zod";
 
-import { ARTIFACT_STATUSES, CONTENT_STATES } from "./constants";
 import { assertJsonMetadata } from "./content";
 import { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ids";
+
+export const ARTIFACT_STATUSES = ["draft", "published", "archived"] as const;
+
+export const CONTENT_STATES = [
+  "generating",
+  "ready",
+  "failed",
+  "frozen",
+] as const;
 
 const sha256DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const byteCountSchema = z.int().nonnegative();

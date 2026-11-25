@@ -1,14 +1,12 @@
 // biome-ignore lint/performance/noBarrelFile: Preserve the public package entry point shared with Agents.
 export { Artifacts, type ArtifactsOptions } from "./artifacts";
-export type { BlobFiles, BlobStagingArea } from "./blob-staging";
 export {
-  ARTIFACT_SOURCE,
-  ARTIFACT_STATUSES,
+  type BlobFiles,
+  type BlobStagingArea,
   CHUNK_BYTES,
-  CONTENT_STATES,
   MAX_FILE_BYTES,
   MAX_TREE_BYTES,
-} from "./constants";
+} from "./blob-staging";
 export {
   digestTree,
   filePointers,
@@ -48,7 +46,11 @@ export type {
   ContentTree,
   StoredFile,
 } from "./schema";
-export { validateBlob } from "./schema";
+export {
+  ARTIFACT_STATUSES,
+  CONTENT_STATES,
+  validateBlob,
+} from "./schema";
 export type {
   Artifact,
   ArtifactChangeCause,

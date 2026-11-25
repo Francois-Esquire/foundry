@@ -5,7 +5,7 @@ import { lockHolder } from "@foundry/lib/node/file-lock";
 import { expect, onTestFinished } from "vitest";
 import { Artifacts } from "../../artifacts";
 import type { BlobFiles } from "../../blob-staging";
-import { CHUNK_BYTES } from "../../constants";
+import { CHUNK_BYTES } from "../../blob-staging";
 import { blobFiles, JsonArtifactStore } from "../../node";
 import type { ArtifactStore } from "../../store";
 import { openStore, type StoreKind } from "./stores";

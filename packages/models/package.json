@@ -43,12 +43,8 @@
       "import": "./src/node/local.ts"
     },
     "./node/local/remote": {
-      "types": "./dist/src/node/local/remote/transport.d.ts",
-      "import": "./src/node/local/remote/transport.ts"
-    },
-    "./node/local/remote/provider": {
-      "types": "./dist/src/node/local/remote/provider.d.ts",
-      "import": "./src/node/local/remote/provider.ts"
+      "types": "./dist/src/node/local/remote.d.ts",
+      "import": "./src/node/local/remote.ts"
     },
     "./gateway": {
       "types": "./dist/src/gateway.d.ts",
@@ -62,33 +58,9 @@
       "types": "./dist/src/replicate.d.ts",
       "import": "./src/replicate.ts"
     },
-    "./model-option": {
-      "types": "./dist/src/model-option.d.ts",
-      "import": "./src/model-option.ts"
-    },
     "./cost": {
       "types": "./dist/src/cost.d.ts",
       "import": "./src/cost.ts"
-    },
-    "./catalog/claude-code": {
-      "types": "./dist/src/catalog/claude-code.d.ts",
-      "import": "./src/catalog/claude-code.ts"
-    },
-    "./catalog/codex": {
-      "types": "./dist/src/catalog/codex.d.ts",
-      "import": "./src/catalog/codex.ts"
-    },
-    "./catalog/defaults": {
-      "types": "./dist/src/catalog/defaults.d.ts",
-      "import": "./src/catalog/defaults.ts"
-    },
-    "./catalog/limits": {
-      "types": "./dist/src/catalog/limits.d.ts",
-      "import": "./src/catalog/limits.ts"
-    },
-    "./catalog/local": {
-      "types": "./dist/src/catalog/local.d.ts",
-      "import": "./src/catalog/local.ts"
     },
     "./catalog/models-dev": {
       "types": "./dist/src/catalog/models-dev.d.ts",
@@ -97,10 +69,6 @@
     "./catalog/models-dev-source": {
       "types": "./dist/src/catalog/models-dev-source.d.ts",
       "import": "./src/catalog/models-dev-source.ts"
-    },
-    "./catalog/vercel": {
-      "types": "./dist/src/catalog/vercel.d.ts",
-      "import": "./src/catalog/vercel.ts"
     },
     "./embeddings/chunk": {
       "types": "./dist/src/embeddings/chunk.d.ts",

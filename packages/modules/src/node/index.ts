@@ -1,11 +1,5 @@
 // biome-ignore lint/performance/noBarrelFile: Public Node entry point keeps filesystem and OS adapters out of portable imports.
 export {
-  ModuleApplicationRecovery,
-  type ModuleApplicationRecoveryOutcome,
-  type ModuleApplicationRecoveryPhase,
-  type ModuleApplicationRecoverySnapshot,
-} from "./application-recovery";
-export {
   createModuleCheckouts,
   ModuleCheckoutError,
   type ModuleCheckouts,

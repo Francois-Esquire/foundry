@@ -2,8 +2,8 @@ import { StorageApplicationError } from "@foundry/core/storage";
 import { ReentrantCallError } from "@foundry/lib/turns";
 import { describe, expect, it, vi } from "vitest";
 import { Artifacts } from "../artifacts";
+import { CHUNK_BYTES } from "../blob-staging";
 import { ArtifactChange } from "../change";
-import { CHUNK_BYTES } from "../constants";
 import {
   ArtifactApplicationError,
   StaleContentError,

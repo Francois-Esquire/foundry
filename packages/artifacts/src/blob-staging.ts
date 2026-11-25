@@ -1,10 +1,14 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-import { CHUNK_BYTES } from "./constants";
 import { FileTooLargeError, InvalidArtifactInputError } from "./errors";
 import type { BlobId } from "./ids";
 import type { EntryInput, EntryInputs, FileInput } from "./substrate";
+
+export const MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024;
+export const MAX_TREE_BYTES = 8 * 1024 * 1024 * 1024;
+
+export const CHUNK_BYTES = 8 * 1024 * 1024;
 
 export interface BlobFiles {
   list(): AsyncIterable<string>;

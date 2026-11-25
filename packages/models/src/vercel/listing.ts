@@ -4,9 +4,24 @@ import type {
   ModelCosts,
   ModelCostTier,
   ModelKind,
+  ModelLimits,
   ProviderModelDefinition,
 } from "../model-definition";
-import { tokenLimits } from "./limits";
+
+function tokenLimits(
+  maxInputTokens: number | null | undefined,
+  maxOutputTokens: number | null | undefined
+): ModelLimits | undefined {
+  const limits = {
+    ...(maxInputTokens === null || maxInputTokens === undefined
+      ? {}
+      : { maxInputTokens }),
+    ...(maxOutputTokens === null || maxOutputTokens === undefined
+      ? {}
+      : { maxOutputTokens }),
+  };
+  return Object.keys(limits).length > 0 ? limits : undefined;
+}
 
 const TIER = z.object({
   cost: z.string(),

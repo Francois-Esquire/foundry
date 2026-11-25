@@ -34,10 +34,6 @@
       "types": "./dist/queue-handler.d.ts",
       "import": "./src/queue-handler.ts"
     },
-    "./schema": {
-      "types": "./dist/schema.d.ts",
-      "import": "./src/schema.ts"
-    },
     "./snapshot": {
       "types": "./dist/snapshot.d.ts",
       "import": "./src/snapshot.ts"

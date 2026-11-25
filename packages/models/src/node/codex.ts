@@ -3,10 +3,10 @@ import { once } from "node:events";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { recordChild } from "@foundry/lib/node/spawn-record";
 import type { createCodexAppServer } from "ai-sdk-provider-codex-cli";
-import { fromCodexListing } from "../catalog/codex";
 import { modelErrors } from "../errors";
 import type { ModelKind, ProviderModelDefinition } from "../model-definition";
 import type { Provider } from "../provider";
+import { fromCodexListing } from "./codex/listing";
 import { environmentOverlay } from "./environment-overlay";
 
 export type {

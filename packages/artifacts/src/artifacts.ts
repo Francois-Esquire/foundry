@@ -5,9 +5,14 @@ import { asyncScope } from "@foundry/lib/async-scope";
 import { ReentrantCallError } from "@foundry/lib/turns";
 import { readBlob, requireBlob } from "./blob-repository";
 import type { BlobFiles } from "./blob-staging";
-import { abandonStaging, BlobStaging, StagingTurns } from "./blob-staging";
+import {
+  abandonStaging,
+  BlobStaging,
+  MAX_FILE_BYTES,
+  MAX_TREE_BYTES,
+  StagingTurns,
+} from "./blob-staging";
 import { ArtifactChange } from "./change";
-import { MAX_FILE_BYTES, MAX_TREE_BYTES } from "./constants";
 import { ArtifactApplicationError, TransactionRolledBackError } from "./errors";
 import type { ArtifactId, BlobId, ContentId } from "./ids";
 import type { ArtifactCursor } from "./listing";

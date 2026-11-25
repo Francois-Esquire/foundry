@@ -5,9 +5,8 @@ import type {
   StagedBytes,
   StagedChunk,
 } from "./blob-staging";
-import { BlobStaging, checkSize } from "./blob-staging";
+import { BlobStaging, CHUNK_BYTES, checkSize } from "./blob-staging";
 import type { ArtifactChange } from "./change";
-import { CHUNK_BYTES } from "./constants";
 import { InvalidArtifactInputError } from "./errors";
 import type { BlobId } from "./ids";
 import { blobIdSchema } from "./ids";

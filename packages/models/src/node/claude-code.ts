@@ -15,11 +15,11 @@ import type {
   Query,
   WarmQuery,
 } from "ai-sdk-provider-claude-code";
-import { fromClaudeCodeListing } from "../catalog/claude-code";
 import { CLAUDE_CODE_FRESH } from "../cost";
 import { deferredLanguageModel } from "../deferred-language-model";
 import type { ModelKind, ProviderModelDefinition } from "../model-definition";
 import type { Provider } from "../provider";
+import { fromClaudeCodeListing } from "./claude-code/listing";
 import { spawnRecordedCli, withCliStderr } from "./claude-code/spawn";
 import { liveEnvironmentOverlay } from "./environment-overlay";
 

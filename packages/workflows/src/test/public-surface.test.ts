@@ -81,7 +81,6 @@ const expectedExportKeys = [
   "./definitions",
   "./executable",
   "./queue-handler",
-  "./schema",
   "./snapshot",
   "./step",
   "./step-hooks",

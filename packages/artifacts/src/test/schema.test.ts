@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { FileNode, StorageNode } from "@foundry/core/storage";
 import { describe, expect, expectTypeOf, onTestFinished, test } from "vitest";
 import { Artifacts } from "../artifacts";
-import { CHUNK_BYTES } from "../constants";
+import { CHUNK_BYTES } from "../blob-staging";
 import type { BlobId } from "../ids";
 import { blobFiles } from "../node";
 import type { ContentTree, StoredFile } from "../schema";

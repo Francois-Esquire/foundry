@@ -1,6 +1,6 @@
 # `@foundry/artifacts`
 
-Package constants live in `@foundry/artifacts/constants`. General MIME helpers live in `@foundry/lib/mime`.
+General MIME helpers live in `@foundry/lib/mime`.
 
 `@foundry/artifacts` defines the shared Artifact vocabulary and the
 [`ArtifactSubstrate`](src/substrate.ts) contract. An Artifact keeps stable product identity

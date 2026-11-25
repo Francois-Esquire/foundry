@@ -130,12 +130,11 @@ uses the discovered catalog.
 | --- | --- |
 | `/airplane` | `airplaneMode`: the offline-only policy for one `Models` registry |
 | `/node/local` | `LocalProvider` and `configureCache`: on-device transformers-js |
-| `/node/local/remote` | `forkLocalWorker`: the worker process and its IPC transport |
-| `/node/local/remote/provider` | `RemoteLocalProvider`: the local surface over that transport |
+| `/node/local/remote` | `RemoteLocalProvider` and `forkLocalWorker`: the local surface and its worker IPC transport |
 | `/live`, `/node/live` | Live interactions, browser and Node |
-| `/catalog/*` | Catalog adapters, and models.dev read at run time |
+| `/catalog/models-dev`, `/catalog/models-dev-source` | models.dev read at run time |
 | `/embeddings/*` | Chunking, embedding, and ranking |
-| `/model-option`, `/cost` | Pure leaves; see below |
+| `/cost` | Pure leaf; see below |
 
 **models.dev at run time.** `holdModelsDev()` (`/catalog/models-dev-source`)
 starts fetching `https://models.dev/catalog.json`, or joins the fetch already
@@ -178,12 +177,12 @@ only providers with `offline: true`, and tells every instance the registry
 still holds, leased ones that left the set included, to `setOffline(true)`.
 It is off when created and never persisted.
 
-## `@foundry/models/model-option` · `/cost`
+## `@foundry/models/cost`
 
-Pure leaves a renderer can import without the Node-only runtime:
-`toModelOption(row)` flattens a catalog row for a picker; `costFromUsage(costs,
-usage)` prices a turn with cache and tiered rates. Use these subpaths for browser
-code; the root entry also imports registry and observability code.
+`costFromUsage(costs, usage)` prices a turn with cache and tiered rates; the
+subpath is a pure leaf a renderer can import without the Node-only runtime.
+`toModelOption(row)` flattens a catalog row for a picker and is exported from the
+root entry.
 
 `claudeCodeCallCost(providerMetadata)` returns what Claude Code reported a
 call cost (its `total_cost_usd`), only for a call that resumed no session.

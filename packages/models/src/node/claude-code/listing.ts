@@ -1,5 +1,5 @@
 import type { ModelInfo } from "ai-sdk-provider-claude-code";
-import type { ProviderModelDefinition } from "../model-definition";
+import type { ProviderModelDefinition } from "../../model-definition";
 
 export function fromClaudeCodeListing(
   models: readonly ModelInfo[]
