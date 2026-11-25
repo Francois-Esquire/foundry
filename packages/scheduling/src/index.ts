@@ -19,4 +19,3 @@ export {
   type SchedulerOptions,
   type SchedulerService,
 } from "./scheduler";
-export { MemoryScheduleStore } from "./store/memory";

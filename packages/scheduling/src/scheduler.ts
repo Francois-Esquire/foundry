@@ -1,9 +1,5 @@
 import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
-import {
-  isGone,
-  type ProcessIdentity,
-  thisProcess,
-} from "@foundry/lib/node/process-identity";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import {
   Clock,
   Context,
@@ -79,6 +75,18 @@ const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
 const DEFAULT_SETTLE_POLL_MS = 5000;
 const DEFAULT_MAX_OCCURRENCES = 100;
 
+let defaultIdentity: ProcessIdentity | undefined;
+
+const portableIdentity = (): ProcessIdentity => {
+  defaultIdentity ??= Object.freeze({
+    pid: 0,
+    started: new Date().toISOString(),
+  });
+  return defaultIdentity;
+};
+
+const neverGone = (): boolean => false;
+
 const earliest = (one: Instant | undefined, other: Instant | null) =>
   other === null ? one : Math.min(one ?? other, other);
 
@@ -94,7 +102,7 @@ const makeScheduler = (options: SchedulerOptions) =>
     const wake = yield* Effect.makeLatch(false);
     const self = yield* Effect.acquireRelease(
       Effect.sync(() =>
-        openInstance(options.identity ?? thisProcess(), options.instanceId)
+        openInstance(options.identity ?? portableIdentity(), options.instanceId)
       ),
       (instance) => Effect.sync(() => closeInstance(instance))
     );
@@ -129,7 +137,7 @@ const makeScheduler = (options: SchedulerOptions) =>
     const { evaluate, triggerNow: fireNow } = makeEvaluator({
       commit,
       dispatch,
-      isOwnerGone: options.isOwnerGone ?? isGone,
+      isOwnerGone: options.isOwnerGone ?? neverGone,
       maxOccurrencesPerSchedule:
         options.maxOccurrencesPerSchedule ?? DEFAULT_MAX_OCCURRENCES,
       self,

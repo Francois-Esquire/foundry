@@ -10,4 +10,3 @@ export type {
   RunHandler,
   SubmitJobInput,
 } from "./service";
-export { MemoryQueueStore } from "./store/memory";

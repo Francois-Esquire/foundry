@@ -51,14 +51,18 @@ run needs no hand-over or adoption: any queue may resolve its suspension, and th
 resumed run is unowned. `abandon(runId, error)` fails an open run that no fiber of this queue drives, without
 retrying it, for a run whose driver is gone.
 
-`Queue.layer(options)` takes `identity` (the OS process, `thisProcess()` by
+`Queue.layer(options)` takes `identity` (a portable runtime identity by
 default), `instanceId` (this queue's own name, a fresh UUID by default),
+`isOwnerGone` (`() => false` by default, so portable runtimes never falsely
+declare another process gone; `recover(options)` can override it per call),
 `defaultLimit` (the limit for a pool nobody configured, 1 by default),
 `pools`, and `syncIntervalMs` (500 by default; `Infinity` turns it off). It
 needs a `QueueStore`. Closing its scope stops admission and interrupts
 running fibers. Their runs stay `running` until `recover` interrupts them,
 from this process once the closed queue's instance is gone, or from another
-once its process is gone.
+once its process is gone. Node and Bun hosts can use `@foundry/queue/node`
+(`nodeQueueOptions`, `nodeQueueLayer`, `createNodeQueueClient`) to wire OS
+`thisProcess()` identity and `isGone` liveness defaults automatically.
 
 A submitted run is owned by the queue that submitted it. Retry runs and
 resumed runs are unowned: any live queue that is not retiring and has the
@@ -85,6 +89,7 @@ cancelled (aborting its `signal`), and wakes `awaitJob` callers.
 | `./store/sqlite` | `SqliteQueueStore({ database, scope, onCommit? })` on Drizzle |
 | `./store/tables` | Drizzle tables `queue_jobs`, `queue_runs`, `queue_suspensions`, `queue_pools`, `queue_watermarks` |
 | `./client` | `createQueueClient()`, a Promise wrapper for plain TypeScript callers; its `register` takes a handler that returns an outcome, a promise of one, or an Effect, and its `saveCheckpoint` can be awaited or yielded |
+| `./node` | `nodeQueueOptions()`, `nodeQueueLayer()`, and `createNodeQueueClient()` with Node/Bun OS process identity (`thisProcess()`) and liveness (`isGone`) defaults |
 
 The SQLite store's `onCommit(transaction, write)` runs inside the commit's
 transaction and receives the events it records, so an outbox writes them in
