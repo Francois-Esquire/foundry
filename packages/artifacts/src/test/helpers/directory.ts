@@ -1,7 +1,7 @@
 import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { directory, Workspaces } from "@foundry/workspaces";
 import { MemoryWorkspaceStore } from "@foundry/workspaces/store/memory";
 import { onTestFinished } from "vitest";
 import { ArtifactManager } from "../../manager";
@@ -29,7 +29,7 @@ export async function fixture(
   });
   const filesystem = artifactFileSystem({ artifacts, root, ...options });
   const catalog = new MemoryWorkspaceStore();
-  const system = new WorkspaceSystem({ store: catalog }).extend(
+  const system = new Workspaces({ store: catalog }).extend(
     directory({ filesystem, source: "artifact" })
   );
   onTestFinished(async () => {

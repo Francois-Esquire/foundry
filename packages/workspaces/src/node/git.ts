@@ -4,29 +4,14 @@ import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { errorCode } from "../errors";
-import type { WorkspaceExtension } from "../types";
+import type { GitPathStatus, GitSnapshot, WorkspaceExtension } from "../types";
+
+export type { GitPathStatus, GitSnapshot } from "../types";
 
 const WORKTREE_PREFIX_PATTERN = /^worktree /;
 const BRANCH_PREFIX_PATTERN = /^branch refs\/heads\//;
 const BRANCH_HEAD_PREFIX = "# branch.head ";
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
-
-export interface GitPathStatus {
-  readonly path: string;
-  readonly staged: boolean;
-  readonly unstaged: boolean;
-  readonly untracked: boolean;
-}
-
-export type GitSnapshot =
-  | { readonly kind: "none" }
-  | { readonly kind: "unavailable"; readonly reason: string }
-  | {
-      readonly kind: "repository";
-      readonly branch: string | null;
-      readonly detached: boolean;
-      readonly paths: readonly GitPathStatus[];
-    };
 
 export type GitRun = (cwd: string, args: readonly string[]) => Promise<string>;
 

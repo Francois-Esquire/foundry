@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { StorageSubscription } from "@foundry/core/storage";
@@ -18,7 +19,7 @@ import type {
   WorkspaceSourceAdapter,
   WriteOutcome,
 } from "../types";
-import { WorkspaceSystem } from "../workspace-system";
+import { Workspaces } from "../workspaces";
 import { directorySystem } from "./helpers/directory-system";
 import { makeRoot } from "./helpers/temp-roots";
 
@@ -158,7 +159,7 @@ describe("lifecycle", () => {
     const events: string[] = [];
     const reported: unknown[] = [];
     const store = new MemoryWorkspaceStore();
-    const system = new WorkspaceSystem({
+    const system = new Workspaces({
       onError: (error) => {
         reported.push(error);
       },
@@ -266,7 +267,7 @@ describe("lifecycle", () => {
     }
 
     const adapter = new StatefulAdapter();
-    const system = new WorkspaceSystem().extend({
+    const system = new Workspaces().extend({
       applies: () => true,
       identify: ({ stateful }: { readonly stateful: string }) => ({
         name: stateful,
@@ -348,7 +349,7 @@ describe("lifecycle", () => {
 
   it("finishes rollback and preserves startup error even when stop and onError both throw", async () => {
     const events: string[] = [];
-    const system = new WorkspaceSystem({
+    const system = new Workspaces({
       onError() {
         events.push("report");
         throw new Error("reporter boom");
@@ -437,7 +438,7 @@ describe("lifecycle", () => {
       commitResolved?.resolve();
       return result;
     };
-    const system = new WorkspaceSystem({ store })
+    const system = new Workspaces({ store })
       .extend({
         async applies(registration) {
           const gate = appliesGate;
@@ -562,7 +563,7 @@ describe("lifecycle", () => {
     // 4. A synchronous start() hook that requests close(id) stops the workspace cleanly.
     let closeRequested: Promise<void> | undefined;
     let stopped = 0;
-    const selfClosing = new WorkspaceSystem().extend({
+    const selfClosing = new Workspaces().extend({
       applies: () => true,
       attach: () => ({
         start(workspace) {
@@ -629,7 +630,7 @@ describe("lifecycle", () => {
   it("lets an async start hook close its own workspace without deadlocking", async () => {
     const events: string[] = [];
     let starts = 0;
-    const system = new WorkspaceSystem()
+    const system = new Workspaces()
       .extend(memExtension())
       .extend({
         applies: () => true,
@@ -674,26 +675,98 @@ describe("lifecycle", () => {
   it("lets an async start hook remove its own workspace without deadlocking", async () => {
     const store = new MemoryWorkspaceStore();
     let stopped = 0;
-    const system = new WorkspaceSystem({ store })
-      .extend(memExtension())
-      .extend({
-        applies: () => true,
-        attach: () => ({
-          async start(workspace) {
-            await workspace.remove();
-          },
-          stop() {
-            stopped += 1;
-          },
-        }),
-        name: "remover",
-      });
+    const system = new Workspaces({ store }).extend(memExtension()).extend({
+      applies: () => true,
+      attach: () => ({
+        async start(workspace) {
+          await workspace.remove();
+        },
+        stop() {
+          stopped += 1;
+        },
+      }),
+      name: "remover",
+    });
 
     const loaded = await system.load({ mem: "gone" });
 
     expect(stopped).toBe(1);
     expect((await store.listWorkspaces()).items).toEqual([]);
     await expect(system.open(loaded.id)).rejects.toBeInstanceOf(
+      WorkspaceNotFoundError
+    );
+  });
+
+  it("lets workspace.close() and workspace.remove() abort startup without async context", async () => {
+    const outsideAsyncContext = AsyncLocalStorage.snapshot();
+    const closeEvents: string[] = [];
+    const closing = new Workspaces()
+      .extend(memExtension())
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          async start(workspace) {
+            closeEvents.push("first:start");
+            await outsideAsyncContext(() => workspace.close());
+          },
+          stop() {
+            closeEvents.push("first:stop");
+          },
+        }),
+        name: "first",
+      })
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          start() {
+            closeEvents.push("second:start");
+          },
+          stop() {
+            closeEvents.push("second:stop");
+          },
+        }),
+        name: "second",
+      });
+
+    await closing.load({ mem: "detached-close" });
+    expect(closeEvents).toEqual(["first:start", "first:stop"]);
+
+    const bareEvents: string[] = [];
+    const bareClosing = new Workspaces().extend(memExtension()).extend({
+      applies: () => true,
+      attach: () => ({
+        async start(workspace) {
+          bareEvents.push("bare:start");
+          await outsideAsyncContext(() => bareClosing.close(workspace.id));
+        },
+        stop() {
+          bareEvents.push("bare:stop");
+        },
+      }),
+      name: "bare",
+    });
+    await bareClosing.load({ mem: "detached-bare-close" });
+    expect(bareEvents).toEqual(["bare:start", "bare:stop"]);
+
+    const store = new MemoryWorkspaceStore();
+    let stopped = 0;
+    const removing = new Workspaces({ store }).extend(memExtension()).extend({
+      applies: () => true,
+      attach: () => ({
+        async start(workspace) {
+          await outsideAsyncContext(() => workspace.remove());
+        },
+        stop() {
+          stopped += 1;
+        },
+      }),
+      name: "remover",
+    });
+
+    const removed = await removing.load({ mem: "detached-remove" });
+    expect(stopped).toBe(1);
+    expect((await store.listWorkspaces()).items).toEqual([]);
+    await expect(removing.open(removed.id)).rejects.toBeInstanceOf(
       WorkspaceNotFoundError
     );
   });
@@ -706,7 +779,7 @@ describe("lifecycle", () => {
         }
       | undefined;
     let starts = 0;
-    const system = new WorkspaceSystem().extend(memExtension()).extend({
+    const system = new Workspaces().extend(memExtension()).extend({
       applies: () => true,
       async attach() {
         const gate = attachGate;
@@ -752,7 +825,7 @@ describe("lifecycle", () => {
         }
       | undefined;
 
-    const system = new WorkspaceSystem()
+    const system = new Workspaces()
       .extend(memExtension())
       .extend({
         applies: () => true,
@@ -829,7 +902,7 @@ describe("lifecycle", () => {
 
   it("attaches once when two cold loads race for the same closed workspace", async () => {
     let attaches = 0;
-    const system = new WorkspaceSystem().extend(memExtension()).extend({
+    const system = new Workspaces().extend(memExtension()).extend({
       applies: () => true,
       attach: () => {
         attaches += 1;
@@ -853,7 +926,7 @@ describe("lifecycle", () => {
 
   it("skips an extension that declares a ref it cannot identify", async () => {
     const root = await makeRoot({ "README.md": "hello" });
-    const system = new WorkspaceSystem()
+    const system = new Workspaces()
       .extend({ applies: () => true, name: "lifecycle-only", ref: "path" })
       .extend(directory());
 
@@ -871,7 +944,7 @@ describe("lifecycle", () => {
         return this.greeting;
       }
     }
-    const system = new WorkspaceSystem().extend(memExtension()).extend({
+    const system = new Workspaces().extend(memExtension()).extend({
       applies: () => true,
       attach: () => ({ capabilities: new Greeter() }),
       name: "classy",
@@ -928,7 +1001,7 @@ describe("lifecycle", () => {
   });
 
   it("types a conditional extension's capabilities as optional", async () => {
-    const system = new WorkspaceSystem().extend(memExtension()).extend({
+    const system = new Workspaces().extend(memExtension()).extend({
       applies: (registration) => registration.source.kind === "x",
       attach: () => ({
         capabilities: { token: "t" } as { readonly token: string },
@@ -951,7 +1024,7 @@ describe("lifecycle", () => {
   });
 
   it("names the unsupported operation when a source adapter omits file I/O", async () => {
-    const system = new WorkspaceSystem().extend({
+    const system = new Workspaces().extend({
       applies: (registration) => registration.source.kind === "readonly-index",
       identify: ({ id }: { readonly id: string }) => ({
         name: id,

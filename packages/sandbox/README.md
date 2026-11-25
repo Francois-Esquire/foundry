@@ -362,9 +362,9 @@ The application composes Workspaces with a sandbox's storage. Neither package
 imports the other; both implement the Core contracts.
 
 ```typescript
-import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { directory, Workspaces } from "@foundry/workspaces";
 
-const system = new WorkspaceSystem().extend(
+const system = new Workspaces().extend(
   directory({ filesystem: container.files }),
 );
 try {

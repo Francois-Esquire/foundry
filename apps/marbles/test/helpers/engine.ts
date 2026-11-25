@@ -6,10 +6,8 @@ import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { git } from "@foundry/workspaces/git";
-import { directory } from "@foundry/workspaces/node";
-import { nodeObserver } from "@foundry/workspaces/node/watch";
+import { workspaces } from "@foundry/workspaces/node";
+import { git } from "@foundry/workspaces/node/git";
 import { catalog } from "~/authoring/catalog";
 import { declareCatalog, echoGit } from "~/create";
 import { Engine as DatabaseEngine } from "~/entries/engine";
@@ -64,12 +62,7 @@ export function testInstances(
         options.hold === undefined ? {} : { hold: options.hold }
       ),
     sessions: options.sessions ?? new InMemorySessionStore(),
-    workspaces:
-      options.workspaces ??
-      new WorkspaceSystem().extend(
-        directory({ observer: nodeObserver }),
-        git(gitOptions)
-      ),
+    workspaces: options.workspaces ?? workspaces().extend(git(gitOptions)),
   };
 }
 

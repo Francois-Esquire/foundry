@@ -15,7 +15,7 @@ import { createContainers } from "@foundry/sandbox/container/containers";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
-import type { GitRun } from "@foundry/workspaces/git";
+import type { GitRun } from "@foundry/workspaces/node/git";
 import { Catalog, catalog as unhosted } from "~/authoring/catalog";
 import { DatabaseActivityStore } from "~/database/activities";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
@@ -57,7 +57,7 @@ import type { PoolConfig } from "~/lib/execution-record";
 import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
-import { localCatalogue } from "~/lib/managers/workspaces";
+import { localWorkspaces } from "~/lib/managers/workspaces";
 import { echoInstance } from "~/lib/models/echo";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
 import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
@@ -436,7 +436,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
     workspaceId,
     ...(stores === undefined
       ? {}
-      : { workspaces: localCatalogue(git, stores.workspaces) }),
+      : { workspaces: localWorkspaces(git, stores.workspaces) }),
     worktrees,
   };
   const engine = engineOver(engineOptions, own, links);

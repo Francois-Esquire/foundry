@@ -7,7 +7,7 @@ import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { openDatabase } from "~/database/open";
 import { artifactBlobs, workspaceStores } from "~/database/stores";
 import { stateDatabase } from "~/layout";
-import { localCatalogue } from "~/lib/managers/workspaces";
+import { localWorkspaces } from "~/lib/managers/workspaces";
 
 const SCOPE = "ws";
 
@@ -43,7 +43,7 @@ const containers = createContainers({
   runtime: createFakeContainerRuntime(),
   store: stores.containers,
 });
-const catalogue = localCatalogue({}, stores.workspaces);
+const catalogue = localWorkspaces({}, stores.workspaces);
 process.stdout.write("ready\n");
 while (!existsSync(go)) {
   await new Promise((settle) => setTimeout(settle, 5));

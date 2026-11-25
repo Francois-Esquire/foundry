@@ -63,8 +63,8 @@ import { ArtifactsManager } from "~/lib/managers/artifacts";
 import type { RunQuery, RunsSource, RunView } from "~/lib/managers/runs";
 import { engineRuns } from "~/lib/managers/runs";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
-import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
-import { localCatalogue, WorkspacesManager } from "~/lib/managers/workspaces";
+import type { GitOptions, LocalWorkspaces } from "~/lib/managers/workspaces";
+import { localWorkspaces, WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import { QueuedWorkflows } from "~/lib/queued-workflows";
 import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
@@ -123,7 +123,7 @@ export interface EngineOptions {
   readonly triggers?: TriggerStore;
   readonly usageStore?: UsageStore;
   readonly workspaceId: string;
-  readonly workspaces?: Catalogue;
+  readonly workspaces?: LocalWorkspaces;
   readonly worktrees?: string;
 }
 
@@ -302,7 +302,7 @@ export class Engine {
     });
     this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
-    const catalogue = options.workspaces ?? localCatalogue(options.git ?? {});
+    const catalogue = options.workspaces ?? localWorkspaces(options.git ?? {});
     this.#askable = askable;
     this.#print = print;
     this.#publisher = feedPublisher(options.artifacts, {

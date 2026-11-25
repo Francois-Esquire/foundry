@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { MemoryWorkspaceStore } from "../store/memory";
 import type { ObservedFacts, WorkspaceChange } from "../types";
-import { WorkspaceSystem } from "../workspace-system";
+import { Workspaces } from "../workspaces";
 import { interceptCommits } from "./helpers/commits";
 
 function fixture() {
@@ -10,7 +10,7 @@ function fixture() {
   let entries: readonly ObservedFacts[] = [
     { name: "empty", path: "empty", type: "directory" },
   ];
-  const system = new WorkspaceSystem({
+  const system = new Workspaces({
     onError: (error) => {
       errors.push(error);
     },

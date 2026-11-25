@@ -208,10 +208,10 @@ each operation.
 
 ```ts
 import { artifactFileSystem } from "@foundry/artifacts/node";
-import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { directory, Workspaces } from "@foundry/workspaces";
 
 const filesystem = artifactFileSystem({ artifacts, root });
-const workspaces = new WorkspaceSystem({ store }).extend(
+const workspaces = new Workspaces({ store }).extend(
   directory({ filesystem }),
 );
 const ws = await workspaces.load({ artifactId });

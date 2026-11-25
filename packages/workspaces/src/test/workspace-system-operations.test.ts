@@ -13,16 +13,16 @@ import { afterAll, describe, expect, test } from "vitest";
 import { directory } from "../node";
 import { MemoryWorkspaceStore } from "../store/memory";
 import type { WorkspaceChange } from "../types";
-import { WorkspaceSystem } from "../workspace-system";
+import { Workspaces } from "../workspaces";
 import { interceptCommits } from "./helpers/commits";
 import { sha256Hex } from "./helpers/digest";
 
 function harness() {
   const store = new MemoryWorkspaceStore();
-  return { store, system: new WorkspaceSystem({ store }).extend(directory()) };
+  return { store, system: new Workspaces({ store }).extend(directory()) };
 }
 
-describe("WorkspaceSystem public operations", () => {
+describe("Workspaces public operations", () => {
   const sources: string[] = [];
 
   afterAll(async () => {

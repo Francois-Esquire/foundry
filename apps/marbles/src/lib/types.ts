@@ -33,7 +33,7 @@ import type {
   SandboxExecResult,
 } from "@foundry/sandbox/types";
 import type { Workspace as PackageWorkspace } from "@foundry/workspaces";
-import type { Git } from "@foundry/workspaces/git";
+import type { Git } from "@foundry/workspaces/node/git";
 import type {
   InferGenerateOutput,
   Output,

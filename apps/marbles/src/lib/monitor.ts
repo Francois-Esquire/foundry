@@ -9,7 +9,7 @@ import type { StepFn } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
 import type { Launch } from "~/lib/launch";
 import { launchTarget } from "~/lib/launch";
-import type { Catalogue } from "~/lib/managers/workspaces";
+import type { LocalWorkspaces } from "~/lib/managers/workspaces";
 import { current } from "~/lib/run-scope";
 import { isRecord, jsonData, storableJson } from "~/lib/state/json";
 import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
@@ -220,7 +220,7 @@ function storedFiles(state: unknown): Map<string, string> {
 }
 
 async function observeFiles(
-  catalogue: Catalogue,
+  catalogue: LocalWorkspaces,
   root: string,
   spec: { readonly glob: string },
   previous: unknown

@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import type { TurnOptions } from "@foundry/agents/harness";
 import type { SessionInput, SessionStream } from "@foundry/agents/session";
 import { PortablePrompt } from "@foundry/prompts";
-import type { Git } from "@foundry/workspaces/git";
+import type { Git } from "@foundry/workspaces/node/git";
 import type { Output } from "ai";
 
 import type { Bindings, ManagerArgs } from "~/lib/bindings";

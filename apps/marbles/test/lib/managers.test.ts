@@ -9,10 +9,8 @@ import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { git } from "@foundry/workspaces/git";
-import { directory } from "@foundry/workspaces/node";
-import { nodeObserver } from "@foundry/workspaces/node/watch";
+import { workspaces as createWorkspaces } from "@foundry/workspaces/node";
+import { git } from "@foundry/workspaces/node/git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { skills } from "~/authoring/resources";
 import { echoGit } from "~/create";
@@ -235,10 +233,7 @@ describe("skills.load folders", () => {
 describe("workspaces", () => {
   it("exposes the config directory as current, with files and git", async () => {
     const repo = await seedRepository();
-    const catalogue = new WorkspaceSystem().extend(
-      directory({ observer: nodeObserver }),
-      git()
-    );
+    const catalogue = createWorkspaces().extend(git());
     try {
       const manager = new WorkspacesManager({ catalogue, root: repo });
       const a = args(repo);
@@ -274,10 +269,7 @@ describe("workspaces", () => {
 
   it("cuts every worktree under the marbles-owned home when the caller names none", async () => {
     const repo = await seedRepository();
-    const catalogue = new WorkspaceSystem().extend(
-      directory({ observer: nodeObserver }),
-      git()
-    );
+    const catalogue = createWorkspaces().extend(git());
     const worktreeHome = join(tmp, "state", "worktrees");
     try {
       const workspaces = new WorkspacesManager({
@@ -313,10 +305,7 @@ describe("workspaces", () => {
     const repo = await seedRepository();
     const printed: string[] = [];
     const gitOptions = { run: echoGit((line) => printed.push(line)) };
-    const catalogue = new WorkspaceSystem().extend(
-      directory({ observer: nodeObserver }),
-      git(gitOptions)
-    );
+    const catalogue = createWorkspaces().extend(git(gitOptions));
     try {
       const workspaces = new WorkspacesManager({
         catalogue,
@@ -333,10 +322,7 @@ describe("workspaces", () => {
   });
 
   it("refuses git outside a repository with a clear message", () => {
-    const catalogue = new WorkspaceSystem().extend(
-      directory({ observer: nodeObserver }),
-      git()
-    );
+    const catalogue = createWorkspaces().extend(git());
     const workspaces = new WorkspacesManager({ catalogue, root: tmp }).scoped(
       args()
     );

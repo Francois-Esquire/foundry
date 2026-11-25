@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import { WorkspaceCatalog } from "./catalog";
@@ -27,7 +26,7 @@ import type {
   WorkspaceSourceAdapter,
 } from "./types";
 
-export interface WorkspaceSystemOptions {
+export interface WorkspacesOptions {
   readonly onError?: (error: unknown) => void;
   readonly store?: WorkspaceStore;
 }
@@ -53,6 +52,8 @@ interface StartingWorkspace {
   active: boolean;
   readonly cleanups: (() => Promise<void> | void)[];
   closed: boolean;
+  syncRunning: boolean;
+  readonly workspace: Workspace;
   readonly workspaceId: WorkspaceId;
 }
 
@@ -62,7 +63,7 @@ interface OpenedWorkspace<Extensions extends readonly AnyWorkspaceExtension[]> {
   readonly workspace: Workspace & CapabilitiesOf<Extensions>;
 }
 
-export class WorkspaceSystem<
+export class Workspaces<
   Extensions extends readonly AnyWorkspaceExtension[] = [],
 > {
   readonly #context: WorkspaceContext;
@@ -73,10 +74,10 @@ export class WorkspaceSystem<
     WorkspaceId,
     Promise<OpenedWorkspace<Extensions>>
   >();
+  readonly #starting = new Map<WorkspaceId, StartingWorkspace>();
   readonly #queues = new KeyedQueue();
-  readonly #startupContext = new AsyncLocalStorage<StartingWorkspace>();
 
-  constructor(options: WorkspaceSystemOptions = {}) {
+  constructor(options: WorkspacesOptions = {}) {
     this.#context = {
       catalog: new WorkspaceCatalog(
         options.store ?? new MemoryWorkspaceStore(),
@@ -84,7 +85,7 @@ export class WorkspaceSystem<
           this.#publish(changes);
         }
       ),
-      close: (workspaceId) => this.close(workspaceId),
+      close: (workspaceId, from) => this.#close(workspaceId, from),
       report: options.onError ?? reportError,
       serialize: (workspaceId, task) => this.#queues.run(workspaceId, task),
     };
@@ -99,7 +100,7 @@ export class WorkspaceSystem<
 
   extend<const More extends readonly AnyWorkspaceExtension[]>(
     ...extensions: More
-  ): WorkspaceSystem<[...Extensions, ...More]> {
+  ): Workspaces<[...Extensions, ...More]> {
     this.#extensions.push(...extensions);
     return this;
   }
@@ -110,10 +111,18 @@ export class WorkspaceSystem<
     return this.#openEntry(workspaceId).then((entry) => entry.workspace);
   }
 
-  async close(workspaceId: WorkspaceId): Promise<void> {
-    const starting = this.#startupContext.getStore();
-    if (starting?.active === true && starting.workspaceId === workspaceId) {
-      await this.#abortStartup(workspaceId, starting);
+  close(workspaceId: WorkspaceId): Promise<void> {
+    return this.#close(workspaceId);
+  }
+
+  async #close(workspaceId: WorkspaceId, from?: Workspace): Promise<void> {
+    const activeStartup = this.#starting.get(workspaceId);
+    if (
+      activeStartup?.active === true &&
+      (activeStartup.syncRunning ||
+        (from !== undefined && activeStartup.workspace === from))
+    ) {
+      await this.#abortStartup(workspaceId, activeStartup);
       return;
     }
     const closing = this.#closing.get(workspaceId);
@@ -428,38 +437,46 @@ export class WorkspaceSystem<
       active: true,
       cleanups: [],
       closed: false,
+      syncRunning: false,
+      workspace,
       workspaceId: workspace.id,
     };
     const { cleanups } = state;
+    this.#starting.set(workspace.id, state);
     try {
-      await this.#startupContext.run(state, async () => {
-        if (adapter.watch) {
-          const subscription = await observe(
-            (changed, failed) =>
-              adapter.watch
-                ? adapter.watch(changed, failed)
-                : Promise.resolve(undefined),
-            () => workspace[RECONCILE](),
-            (error) => {
-              this.#safeReport(error);
-            }
-          );
-          if (subscription && state.closed) {
-            await subscription.close();
-          } else if (subscription) {
-            cleanups.push(() => subscription.close());
+      if (adapter.watch) {
+        const subscription = await observe(
+          (changed, failed) =>
+            adapter.watch
+              ? adapter.watch(changed, failed)
+              : Promise.resolve(undefined),
+          () => workspace[RECONCILE](),
+          (error) => {
+            this.#safeReport(error);
           }
+        );
+        if (subscription && state.closed) {
+          await subscription.close();
+        } else if (subscription) {
+          cleanups.push(() => subscription.close());
         }
-        for (const hook of hooks) {
-          if (state.closed || this.#closing.has(workspace.id)) {
-            break;
-          }
-          if (hook.stop) {
-            cleanups.push(() => hook.stop?.(workspace));
-          }
-          await hook.start?.(workspace);
+      }
+      for (const hook of hooks) {
+        if (state.closed || this.#closing.has(workspace.id)) {
+          break;
         }
-      });
+        if (hook.stop) {
+          cleanups.push(() => hook.stop?.(workspace));
+        }
+        state.syncRunning = true;
+        let started: Promise<void> | void;
+        try {
+          started = hook.start?.(workspace);
+        } finally {
+          state.syncRunning = false;
+        }
+        await started;
+      }
     } catch (startupError) {
       for (const cleanupError of await runCleanups(cleanups)) {
         this.#safeReport(cleanupError);
@@ -467,6 +484,9 @@ export class WorkspaceSystem<
       throw startupError;
     } finally {
       state.active = false;
+      if (this.#starting.get(workspace.id) === state) {
+        this.#starting.delete(workspace.id);
+      }
     }
 
     return () => this.#settleCleanups(cleanups);

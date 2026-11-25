@@ -24,8 +24,15 @@ import {
   directorySource as storageDirectorySource,
 } from "../directory";
 import type { WorkspaceSourceAdapter } from "../types";
+import type { WorkspacesOptions } from "../workspaces";
+import { Workspaces } from "../workspaces";
+import { nodeObserver } from "./watch";
 
 export type DirectoryOptions = Partial<PortableDirectoryOptions>;
+
+export function workspaces(options?: WorkspacesOptions) {
+  return new Workspaces(options).extend(directory({ observer: nodeObserver }));
+}
 
 export function directory(options: DirectoryOptions = {}) {
   return storageDirectory({
