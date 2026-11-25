@@ -22,7 +22,8 @@ Dependency direction is strictly acyclic across tiers (`Primitives` ← `Tools /
 - **Domain entry points**: Primary concrete domain **modules** use plural domain nouns: `Workspaces`, `Artifacts`, `Tasks`, `Modules`, `Sessions`, and `Containers` (in `@foundry/sandbox/node`, alongside the portable `Sandbox` interface in `@foundry/sandbox`).
 - **Documented exemptions**: Collective, Effect, or DSL nouns keep their natural singular names: `Queue`, `Scheduler`, `Workflow`, `Step`.
 - **No `*Manager` or `*System` in `packages/*`**: Both suffixes obscure **depth** and encourage shallow pass-through wrappers. `*Manager` is reserved exclusively for host facades under `apps/*/src/lib/managers/`.
-- **In-memory store adapters**: Name in-memory **adapters** `Memory<Domain>Store` (never `InMemory*Store`).
+- **`*FileSystem` is allowed**: `*System` is rejected, but `*FileSystem` (`WorkspaceFileSystem`, `ArtifactFileSystem`, `nodeFileSystem`) names a platform concept and is the one permitted suffix.
+- **In-memory adapters**: Name in-memory **adapters** `Memory<Name>` (stores `Memory<Domain>Store`, factories `createMemory<Name>`); the `InMemory` prefix is not used for exports in `packages/*`.
 - **Artifacts port**: The storage/substrate port **interface** for `@foundry/artifacts` is `ArtifactSubstrate` so `Artifacts` unambiguously names the concrete domain **module**.
 
 ## 3. Web-standard `.` root and canonical Domain subpath anatomy
@@ -47,6 +48,9 @@ Domain packages follow a canonical subpath layout so callers gain consistent **l
 | `./store/tables` | Drizzle schema tables | Drizzle |
 | `./testing/store` | Shared store conformance suite | Portable test helper |
 | `./node` | OS, filesystem, git, watcher, and child-process **adapters** plus Node convenience factories | Node / Bun |
+| `./node/*` | Further Node-bound **adapters**, such as `@foundry/models/node/claude-code` and `@foundry/models/node/local` | Node / Bun |
+
+A subpath that reaches `node:*` built-ins or unguarded Node/Bun globals, directly or transitively, lives at `./node` or `./node/*`. Every other subpath, plus `./testing/store`, must be Web-standard. This holds for provider and harness **adapters** too: there is no allowlist of Node-bound subpaths outside `./node`.
 
 Only subpaths that carry real **implementation** are added; packages do not declare empty stubs.
 
@@ -58,7 +62,13 @@ Runtime-conditional `"node"` / `"bun"` vs. `"default"` exports—specifically `@
 
 ## 5. Enforcement
 
-Runtime **seams** and tier rules are enforced through package-level Vitest suites (such as browser/runtime-safety tests and manifest checks) alongside `bun run validate` (Biome/Ultracite, Sherif, TypeScript, and Knip). Every package migration removes `node:*` imports and unguarded runtime globals from `.` and `./store/memory` without reintroducing them.
+Runtime **seams**, tier rules, and naming rules are enforced by `@foundry/lib/testing/seam` through Vitest, alongside `bun run validate` (Biome/Ultracite, Sherif, TypeScript, and Knip):
+
+- `assertWebStandardExports(packageDir, portableSubpaths(packageDir))` runs in each package's `base-entry.test.ts`, so a new non-`./node` subpath is audited by default. `@foundry/core` cannot run its own copy without a dependency cycle (`lib` depends on `core`), so `@foundry/lib` audits it.
+- `assertPackageTiers(packagesDir)` fails when a package under `packages/*` is missing from `PACKAGE_TIERS`, when a dependency points to a higher tier (which covers Tools depending on Domains), when a package depends on a workspace package outside `packages/*` (other than `@foundry/tsconfig`), or when the dependency graph has a cycle. Same-tier edges are allowed.
+- `assertExportNames(packagesDir)` fails on exported `*Manager`, `*System` (except `*FileSystem`), and `InMemory*` names outside `test/` and `testing/`.
+
+Every package migration removes `node:*` imports and unguarded runtime globals from `.` and `./store/memory` without reintroducing them.
 
 ## Considered Options
 
