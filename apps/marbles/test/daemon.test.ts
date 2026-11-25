@@ -459,8 +459,8 @@ describe("the Marbles process", () => {
       .catch(() => undefined);
     const hello = await stopProcess({ layout: machine });
     expect(hello?.pid).toBe(again.pid);
-    expect(stopped).toBe(true);
     expect(readProcess(machine.state)?.alive).not.toBe(true);
+    await vi.waitFor(() => expect(stopped).toBe(true), { timeout: 5000 });
     expect(await stopProcess({ layout: machine })).toBeUndefined();
   }, 60_000);
 

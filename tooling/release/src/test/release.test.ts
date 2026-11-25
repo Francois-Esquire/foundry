@@ -362,14 +362,7 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
   };
   const commandsOf = (id: string) =>
     job(id).steps.flatMap(({ run }) => (run ? [run] : []));
-  const bunWork = [
-    "docs",
-    "release",
-    "rust-daemon",
-    "test",
-    "test-spyglass",
-    "validate",
-  ];
+  const bunWork = ["docs", "release", "test", "test-spyglass", "validate"];
   const work = ["build-binaries", "changes", ...bunWork].sort();
   expect(Object.keys(ci.jobs).sort()).toEqual([...work, "verify"].sort());
   for (const id of Object.keys(ci.jobs)) {
@@ -390,6 +383,25 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
     buildBinaries.steps.find(({ uses }) => uses?.startsWith("actions/cache@"))
       ?.if
   ).toBe("github.event_name == 'pull_request'");
+  expect(
+    buildBinaries.steps.find(({ run }) =>
+      run?.includes("cargo clippy --workspace --locked")
+    )?.if
+  ).toBe("matrix.name == 'linux-x64'");
+  expect(
+    buildBinaries.steps.find(
+      ({ run }) => run === "cargo test --workspace --locked"
+    )?.if
+  ).toBe("matrix.name == 'linux-x64'");
+  expect(
+    buildBinaries.steps.find(
+      ({ run }) => run === "cargo test --workspace --locked -- --ignored"
+    )?.if
+  ).toBe("matrix.name == 'linux-x64'");
+  expect(
+    buildBinaries.steps.find(({ uses }) => uses === "./.github/actions/setup")
+      ?.if
+  ).toBe("matrix.name == 'linux-x64'");
   expect(job("test").needs).toEqual(["changes", "build-binaries"]);
   expect(job("release").needs).toEqual(["changes", "build-binaries"]);
 
