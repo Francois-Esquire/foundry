@@ -1,6 +1,6 @@
 [package]
 name = "marbles-daemon"
-version = "0.0.4"
+version = "0.0.0"
 description = "Supervisor daemon for Marbles workspaces and engine generations"
 edition.workspace = true
 license.workspace = true

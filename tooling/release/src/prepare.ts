@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { GitHub, Manifest } from "release-please";
+import { DAEMON_DIRECTORY } from "./daemon";
 import { configureLibraryGroup } from "./library-group";
 import { discoverWorkspaces } from "./release";
 import { WorkspacePlugin } from "./workspace-plugin";
@@ -59,6 +60,8 @@ if (process.argv.includes("--dry-run")) {
     for (const release of releases) {
       if (release?.path === "tooling/vscode-extension") {
         extensions.push({ version: release.version.toString() });
+      } else if (release?.path === DAEMON_DIRECTORY) {
+        groups.set("marbles-daemon", release.version.toString());
       } else if (release) {
         groups.set(
           release.path.startsWith("packages/")

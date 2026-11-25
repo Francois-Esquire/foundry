@@ -18,6 +18,13 @@
       "versioning": "always-bump-patch",
       "prerelease": true
     },
+    "crates/marbles-daemon": {
+      "release-type": "rust",
+      "component": "marbles-daemon",
+      "initial-version": "0.1.0",
+      "versioning": "always-bump-patch",
+      "prerelease": true
+    },
     "tooling/vscode-extension": {
       "release-type": "node",
       "component": "vscode-extension",

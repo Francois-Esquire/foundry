@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { matchesGlob } from "node:path";
 import { rcompare, valid } from "semver";
+import { DAEMON_DIRECTORY, DAEMON_TARGETS, parseCargoVersion } from "./daemon";
 import { libraryGroup } from "./library-group";
 import {
   discoverWorkspaces,
@@ -19,6 +20,11 @@ const PUBLISH_PACKAGES: ReleasePackage[] = [
     component: "marbles",
     directory: "apps/marbles",
     name: "@foundry.sh/marbles",
+  },
+  {
+    component: "marbles-daemon",
+    directory: DAEMON_DIRECTORY,
+    name: "@foundry.sh/marbles-daemon",
   },
   {
     component: "spyglass",
@@ -118,6 +124,17 @@ export function selectReleaseGroup(
   releases: GitHubRelease[],
   version?: string
 ) {
+  if (target.component === "marbles-daemon") {
+    const selected = selectRelease(target, releases, version);
+    return DAEMON_TARGETS.map((daemonTarget) => ({
+      ...selected,
+      target: {
+        component: target.component,
+        directory: target.directory,
+        name: daemonTarget.name,
+      },
+    }));
+  }
   if (target.component !== "libraries") {
     return [{ ...selectRelease(target, releases, version), target }];
   }
@@ -232,6 +249,18 @@ function releasedPackages(
       cwd: root,
       encoding: "utf8",
     });
+  if (target.component === "marbles-daemon") {
+    const actual = parseCargoVersion(read(`${DAEMON_DIRECTORY}/Cargo.toml`));
+    if (actual !== version) {
+      throw new Error(
+        `Release must contain ${DAEMON_DIRECTORY} version ${version} (found ${actual})`
+      );
+    }
+    return DAEMON_TARGETS.map((daemonTarget) => ({
+      name: daemonTarget.name,
+      version,
+    }));
+  }
   if (target.component !== "libraries") {
     const manifest = JSON.parse(read(`${target.directory}/package.json`));
     validatePackageVersion(manifest, target, version);

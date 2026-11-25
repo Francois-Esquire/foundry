@@ -8,6 +8,7 @@ import {
   openSync,
   statSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { constants as osConstants } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,14 +24,32 @@ export const DAEMON_BIN_ENV = "MARBLES_DAEMON_BIN";
 
 const BINARY_NAME =
   process.platform === "win32" ? "marbles-daemon.exe" : "marbles-daemon";
+const DAEMON_PACKAGE_PREFIX = "@foundry.sh/marbles-daemon-";
+const SUPPORTED_PLATFORMS = new Set([
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-arm64",
+  "linux-x64",
+]);
 const LOG_FILE = "daemon.log";
 const SIGNAL_EXIT_BASE = 128;
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-export interface RustDaemonArgsOptions {
+export interface DaemonArgsOptions {
+  readonly generationEntry?: string;
   readonly layout: Layout;
   readonly selfRecycle?: boolean;
+}
+
+export function platformDaemonPackage(
+  platform: string = process.platform,
+  arch: string = process.arch
+): string | undefined {
+  const key = `${platform}-${arch}`;
+  return SUPPORTED_PLATFORMS.has(key)
+    ? `${DAEMON_PACKAGE_PREFIX}${key}`
+    : undefined;
 }
 
 function isSourceModule(): boolean {
@@ -53,6 +72,21 @@ function executableMtime(path: string): number | undefined {
     accessSync(path, constants.X_OK);
     const stat = statSync(path);
     return stat.isFile() ? stat.mtimeMs : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function installedPackageBinary(): string | undefined {
+  const pkg = platformDaemonPackage();
+  if (pkg === undefined) {
+    return undefined;
+  }
+  try {
+    const resolved = createRequire(import.meta.url).resolve(
+      `${pkg}/bin/${BINARY_NAME}`
+    );
+    return executableMtime(resolved) === undefined ? undefined : resolved;
   } catch {
     return undefined;
   }
@@ -87,15 +121,37 @@ export function resolveDaemonBinary(
     return configured;
   }
   const dir = dirname(fileURLToPath(import.meta.url));
-  const sibling = join(dir, BINARY_NAME);
-  if (executableMtime(sibling) !== undefined) {
-    return sibling;
+  const workspace = workspaceBinary(dir);
+  if (workspace !== undefined) {
+    return workspace;
   }
-  return workspaceBinary(dir);
+  const packaged = installedPackageBinary();
+  if (packaged !== undefined) {
+    return packaged;
+  }
+  const sibling = join(dir, BINARY_NAME);
+  return executableMtime(sibling) === undefined ? undefined : sibling;
 }
 
-export function rustDaemonArgs(options: RustDaemonArgsOptions): string[] {
-  const generation = entryPath("generation");
+export function requireDaemonBinary(env: Env = process.env): string {
+  const binary = resolveDaemonBinary(env);
+  if (binary !== undefined) {
+    return binary;
+  }
+  const pkg = platformDaemonPackage();
+  if (pkg !== undefined) {
+    throw new Error(
+      `marbles-daemon binary not found; install ${pkg}, build it with \`bun run daemon:build\`, or set ${DAEMON_BIN_ENV}`
+    );
+  }
+  throw new Error(
+    `marbles-daemon is not supported on ${process.platform}-${process.arch}; set ${DAEMON_BIN_ENV} to a compatible binary`
+  );
+}
+
+export function daemonArgs(options: DaemonArgsOptions): string[] {
+  const generation = options.generationEntry ?? entryPath("generation");
+  const defaultGeneration = entryPath("generation");
   const bin = runtime();
   const args = [
     "--home",
@@ -113,7 +169,7 @@ export function rustDaemonArgs(options: RustDaemonArgsOptions): string[] {
     "--generation-arg",
     generation,
     "--installation-root",
-    installationRoot(generation),
+    installationRoot(defaultGeneration),
   ];
   if (options.selfRecycle === false) {
     args.push("--no-self-recycle");
@@ -135,19 +191,16 @@ function spawned(child: ChildProcess): Promise<void> {
   });
 }
 
-export async function spawnDetachedRustDaemon(
+export async function spawnDetachedDaemon(
   layout: Layout,
   env: Env = process.env
-): Promise<boolean> {
-  const binary = resolveDaemonBinary(env);
-  if (binary === undefined) {
-    return false;
-  }
+): Promise<void> {
+  const binary = requireDaemonBinary(env);
   mkdirSync(dirname(layout.state), { recursive: true });
   mkdirSync(layout.state, { mode: STATE_MODE, recursive: true });
   const log = openSync(join(layout.state, LOG_FILE), "a");
   try {
-    const child = spawn(binary, rustDaemonArgs({ layout }), {
+    const child = spawn(binary, daemonArgs({ layout }), {
       detached: true,
       env: daemonEnv(layout, env),
       stdio: ["ignore", log, log],
@@ -159,7 +212,6 @@ export async function spawnDetachedRustDaemon(
   } finally {
     closeSync(log);
   }
-  return true;
 }
 
 interface Exit {
@@ -174,15 +226,12 @@ function closed(child: ChildProcess): Promise<Exit> {
   });
 }
 
-export async function runRustDaemon(options: {
+export async function runDaemonBinary(options: {
   readonly layout: Layout;
-}): Promise<boolean> {
-  const binary = resolveDaemonBinary();
-  if (binary === undefined) {
-    return false;
-  }
+}): Promise<void> {
+  const binary = requireDaemonBinary();
   const { layout } = options;
-  const child = spawn(binary, rustDaemonArgs({ layout }), {
+  const child = spawn(binary, daemonArgs({ layout }), {
     env: daemonEnv(layout, process.env),
     stdio: "inherit",
   });
@@ -216,5 +265,4 @@ export async function runRustDaemon(options: {
     process.off("SIGINT", forward);
     process.off("SIGTERM", forward);
   }
-  return true;
 }

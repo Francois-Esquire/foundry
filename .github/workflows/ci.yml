@@ -69,8 +69,81 @@ jobs:
         with:
           turbo-cache: test-spyglass-${{ matrix.shard }}
 
+  build-daemon:
+    name: Build daemon (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: darwin-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            musl: false
+            native: true
+          - name: darwin-x64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            musl: false
+            native: false
+          - name: linux-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            musl: true
+            native: true
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            musl: true
+            native: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install musl C compiler
+        if: matrix.musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Add Rust target
+        run: rustup target add "${{ matrix.target }}"
+      - name: Cache Cargo on pull requests
+        if: github.event_name == 'pull_request'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-daemon-release-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-daemon-release-${{ matrix.target }}-
+      - name: Build release daemon binary
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+        run: cargo build -p marbles-daemon --release --locked --target "${{ matrix.target }}"
+      - name: Verify release binary runs
+        if: matrix.native
+        run: '"target/${{ matrix.target }}/release/marbles-daemon" --help'
+      - name: Verify release binary is statically linked
+        if: matrix.musl
+        run: file "target/${{ matrix.target }}/release/marbles-daemon" | grep -qE "statically linked|static-pie linked"
+      - name: Stage release binary
+        run: |
+          mkdir -p ".cache/daemon-binaries/${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/marbles-daemon" ".cache/daemon-binaries/${{ matrix.target }}/marbles-daemon"
+          chmod 755 ".cache/daemon-binaries/${{ matrix.target }}/marbles-daemon"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: marbles-daemon-${{ matrix.target }}
+          path: .cache/daemon-binaries
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
   test:
     name: Test packages
+    needs: [build-daemon]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -81,14 +154,23 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           turbo-cache: test
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: marbles-daemon-x86_64-unknown-linux-musl
+          path: .cache/daemon-binaries
+      - name: Mark daemon binary executable
+        run: chmod 755 .cache/daemon-binaries/x86_64-unknown-linux-musl/marbles-daemon
       - name: Test affected packages
         if: github.event_name == 'pull_request'
         env:
+          MARBLES_DAEMON_BIN: ${{ github.workspace }}/.cache/daemon-binaries/x86_64-unknown-linux-musl/marbles-daemon
           TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
           TURBO_SCM_HEAD: ${{ github.sha }}
         run: bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always
       - name: Test all packages on main and manual runs
         if: github.event_name != 'pull_request'
+        env:
+          MARBLES_DAEMON_BIN: ${{ github.workspace }}/.cache/daemon-binaries/x86_64-unknown-linux-musl/marbles-daemon
         run: bun run test --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always
       - uses: ./.github/actions/save-turbo-cache
         if: always()
@@ -97,6 +179,7 @@ jobs:
 
   release:
     name: Release archives
+    needs: [build-daemon]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -108,6 +191,13 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: git merge-base --is-ancestor HEAD origin/main
       - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: marbles-daemon-*
+          merge-multiple: true
+          path: .cache/daemon-binaries
+      - name: Mark daemon binaries executable
+        run: chmod 755 .cache/daemon-binaries/*/marbles-daemon
       - name: Build packages
         run: bun run build
       - name: Test the packaged extension
@@ -127,6 +217,8 @@ jobs:
       - name: Check public packages
         run: bun run release:check
       - name: Pack and test public packages
+        env:
+          DAEMON_BINARIES_DIR: ${{ github.workspace }}/.cache/daemon-binaries
         run: bun run release:pack
       - name: Keep the tested archives of this commit for release
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -195,7 +287,7 @@ jobs:
 
   verify:
     name: Verify
-    needs: [validate, test-spyglass, test, release, docs, rust-daemon]
+    needs: [validate, build-daemon, test-spyglass, test, release, docs, rust-daemon]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

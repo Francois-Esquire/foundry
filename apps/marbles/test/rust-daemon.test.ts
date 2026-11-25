@@ -20,16 +20,17 @@ import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { type Layout, stateDatabase } from "~/layout";
 import type { WorkspaceState } from "~/model/connection";
 import { connect, stopProcess } from "~/process/client";
-import { ProcessHeldError, readProcess } from "~/process/instance";
-import { RemoteError } from "~/process/protocol";
+import { type Daemon, startDaemon } from "~/process/daemon";
 import {
   DAEMON_BIN_ENV,
+  platformDaemonPackage,
   resolveDaemonBinary,
-  runRustDaemon,
-} from "~/process/rust-daemon";
+  runDaemonBinary,
+} from "~/process/daemon-binary";
+import { ProcessHeldError, readProcess } from "~/process/instance";
+import { RemoteError } from "~/process/protocol";
 import { testHome } from "./helpers/home";
 import { readWorkspace } from "./helpers/registry";
-import { type RustDaemon, startRustDaemon } from "./helpers/rust-daemon";
 
 const zodPath = createRequire(import.meta.url).resolve("zod");
 const daemonBinary = resolveDaemonBinary();
@@ -77,7 +78,7 @@ async function storedTasks(machine: Layout, id: string) {
   });
 }
 
-const daemons: RustDaemon[] = [];
+const daemons: Daemon[] = [];
 
 async function daemonFor(
   setup: Pick<Fixture, "env" | "machine">,
@@ -86,8 +87,8 @@ async function daemonFor(
     readonly lines?: string[];
     readonly selfRecycle?: boolean;
   } = {}
-): Promise<RustDaemon> {
-  const daemon = await startRustDaemon({
+): Promise<Daemon> {
+  const daemon = await startDaemon({
     binary: options.binary ?? daemonBinary,
     env: setup.env,
     layout: setup.machine,
@@ -104,12 +105,7 @@ afterEach(async () => {
   await Promise.all(daemons.splice(0).map((daemon) => daemon.close()));
 });
 
-const describeParity =
-  daemonBinary === undefined && !process.env[DAEMON_BIN_ENV]
-    ? describe.skip
-    : describe;
-
-describeParity("Rust marbles-daemon parity with Bun engine generations", () => {
+describe("Rust marbles-daemon parity with Bun engine generations", () => {
   it("hosts workspaces in real Bun generations, rolls steps, selectively reloads on edit, and detaches", async () => {
     const setup = fixture();
     const otherRoot = join(setup.home, "other");
@@ -566,12 +562,47 @@ describe("explicit Rust daemon binary", () => {
     }
   });
 
-  it("validates MARBLES_DAEMON_BIN and resolves the workspace binary when built", () => {
-    expect(resolveDaemonBinary({})).toBe(daemonBinary);
-    expect(resolveDaemonBinary({ [DAEMON_BIN_ENV]: "" })).toBe(daemonBinary);
+  it("validates MARBLES_DAEMON_BIN, names supported platform packages, and resolves the workspace binary when built", () => {
+    expect(platformDaemonPackage("darwin", "arm64")).toBe(
+      "@foundry.sh/marbles-daemon-darwin-arm64"
+    );
+    expect(platformDaemonPackage("darwin", "x64")).toBe(
+      "@foundry.sh/marbles-daemon-darwin-x64"
+    );
+    expect(platformDaemonPackage("linux", "arm64")).toBe(
+      "@foundry.sh/marbles-daemon-linux-arm64"
+    );
+    expect(platformDaemonPackage("linux", "x64")).toBe(
+      "@foundry.sh/marbles-daemon-linux-x64"
+    );
+    expect(platformDaemonPackage("win32", "x64")).toBeUndefined();
+    const baseline = resolveDaemonBinary({});
+    expect(resolveDaemonBinary({ [DAEMON_BIN_ENV]: "" })).toBe(baseline);
     expect(() =>
       resolveDaemonBinary({ [DAEMON_BIN_ENV]: "/no/such/marbles-daemon" })
     ).toThrow(DAEMON_BIN_ENV);
+  });
+
+  it("starts and closes cleanly when the print callback throws", async () => {
+    const setup = fixture();
+    let printed = 0;
+    const daemon = await startDaemon({
+      binary: daemonBinary,
+      env: setup.env,
+      layout: setup.machine,
+      print: () => {
+        printed += 1;
+        throw new Error("print broke");
+      },
+      selfRecycle: false,
+    });
+    const { pid } = daemon;
+    expect(processAlive(pid)).toBe(true);
+    await daemon.close();
+    await daemon.closed;
+    expect(processAlive(pid)).toBe(false);
+    expect(existsSync(setup.machine.socket)).toBe(false);
+    expect(printed).toBeGreaterThan(0);
   });
 
   it("reports a daemon killed by a signal as a nonzero exit status", async () => {
@@ -582,7 +613,7 @@ describe("explicit Rust daemon binary", () => {
     vi.stubEnv(DAEMON_BIN_ENV, stub);
     const previous = process.exitCode;
     try {
-      expect(await runRustDaemon({ layout: setup.machine })).toBe(true);
+      await runDaemonBinary({ layout: setup.machine });
       expect(process.exitCode).toBe(137);
     } finally {
       process.exitCode = previous;

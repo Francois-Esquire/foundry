@@ -298,6 +298,55 @@ async fn unrecorded_hosts_are_written_again_after_a_backoff() {
 }
 
 #[tokio::test]
+async fn an_unrecorded_current_state_is_written_again_after_repeated_failures() {
+    let world = World::default();
+    let store = memory();
+    store
+        .fail_state_records(GenerationState::Current, 3)
+        .await
+        .expect("the fault");
+    let shared = store.clone();
+    let daemon = daemon_with(&world, |options| options.with_store(shared)).await;
+    let client = daemon.client().await;
+    let repo = repo();
+
+    daemon.attach(&client, &repo).await.expect("the attach");
+
+    hosting_recorded(&store, 1, std::slice::from_ref(&repo.id)).await;
+    let record = store.read_generation(1).await.expect("the generation");
+    assert_eq!(
+        record.map(|record| record.state),
+        Some(GenerationState::Current)
+    );
+    assert!(daemon.printed.has_containing("was not recorded current"));
+}
+
+#[tokio::test]
+async fn an_unrecorded_retiring_state_does_not_stop_the_switch() {
+    let world = World::default();
+    let store = memory();
+    store
+        .fail_state_records(GenerationState::Retiring, 1)
+        .await
+        .expect("the fault");
+    let shared = store.clone();
+    let daemon = daemon_with(&world, |options| options.with_store(shared)).await;
+    let client = daemon.client().await;
+    let repo = repo();
+    daemon.attach(&client, &repo).await.expect("the attach");
+
+    edit(&repo, "export const edited = 1;");
+    polled(&daemon).await;
+
+    current_on(&daemon, 2).await;
+    assert!(
+        daemon
+            .printed
+            .has_containing("engine generation 1 was not recorded retiring")
+    );
+}
+
+#[tokio::test]
 async fn a_failed_attach_keeps_a_registration_that_was_already_hosted() {
     let world = World::default();
     world.plan(1, Plan::default().failing_start("the engine broke"));

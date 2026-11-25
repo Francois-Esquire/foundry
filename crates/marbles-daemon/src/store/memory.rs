@@ -9,6 +9,7 @@ pub(super) struct MemoryStorage {
     generations: BTreeMap<u64, GenerationRecord>,
     runs: BTreeMap<(String, String), String>,
     hosting_failures: usize,
+    state_failure: Option<(GenerationState, usize)>,
 }
 
 impl Storage for MemoryStorage {
@@ -75,6 +76,14 @@ impl Storage for MemoryStorage {
         if matches!(change, GenerationChange::Hosting(_)) && self.hosting_failures > 0 {
             self.hosting_failures -= 1;
             return Err(StoreError::failed("the disk is full"));
+        }
+        if let GenerationChange::State { state, .. } = change {
+            if let Some((failing, left)) = self.state_failure.as_mut() {
+                if failing == state && *left > 0 {
+                    *left -= 1;
+                    return Err(StoreError::failed("the disk is full"));
+                }
+            }
         }
         let Some(generation) = self.generations.get_mut(&number) else {
             return Ok(());
@@ -146,5 +155,10 @@ impl Storage for MemoryStorage {
     #[cfg(test)]
     fn fail_hosting(&mut self, times: usize) {
         self.hosting_failures = times;
+    }
+
+    #[cfg(test)]
+    fn fail_state(&mut self, state: GenerationState, times: usize) {
+        self.state_failure = Some((state, times));
     }
 }

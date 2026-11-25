@@ -362,7 +362,7 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
   };
   const commandsOf = (id: string) =>
     job(id).steps.flatMap(({ run }) => (run ? [run] : []));
-  const work = [
+  const bunWork = [
     "docs",
     "release",
     "rust-daemon",
@@ -370,6 +370,7 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
     "test-spyglass",
     "validate",
   ];
+  const work = ["build-daemon", ...bunWork].sort();
   expect(Object.keys(ci.jobs).sort()).toEqual([...work, "verify"].sort());
   for (const id of Object.keys(ci.jobs)) {
     expect(job(id).permissions).toBeUndefined();
@@ -378,6 +379,14 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
     }
     expect(commandsOf(id)).not.toContain("bun run docs:typecheck");
   }
+
+  const buildDaemon = job("build-daemon");
+  expect(buildDaemon.strategy?.matrix?.include).toHaveLength(4);
+  expect(
+    buildDaemon.steps.find(({ uses }) => uses?.startsWith("actions/cache@"))?.if
+  ).toBe("github.event_name == 'pull_request'");
+  expect(job("test").needs).toEqual(["build-daemon"]);
+  expect(job("release").needs).toEqual(["build-daemon"]);
 
   const verify = job("verify");
   expect(verify.name).toBe("Verify");
@@ -399,7 +408,7 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
       ({ run }) => run === "bun install --frozen-lockfile"
     )
   ).toHaveLength(1);
-  for (const id of work) {
+  for (const id of bunWork) {
     expect(
       job(id).steps.filter(({ uses }) => uses === "./.github/actions/setup")
     ).toHaveLength(1);

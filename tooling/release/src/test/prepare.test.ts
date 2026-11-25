@@ -216,13 +216,18 @@ test("the extension's first release is 0.0.1 and later releases bump the patch a
   }
 });
 
-test("npm components are public, the extension is private, and libraries share a dormant version group", () => {
+test("npm components are public, the extension is private, the daemon is a Rust crate, and libraries share a dormant version group", () => {
   const config = JSON.parse(
     readFileSync(join(ROOT, "release-please-config.json"), "utf8")
   );
   const workspaces = discoverWorkspaces(ROOT);
   expect(Object.keys(config.packages)).toContain("apps/marbles");
+  expect(Object.keys(config.packages)).toContain("crates/marbles-daemon");
   for (const path of Object.keys(config.packages)) {
+    if (path === "crates/marbles-daemon") {
+      expect(config.packages[path]["release-type"]).toBe("rust");
+      continue;
+    }
     const workspace = workspaces.find(({ directory }) => directory === path);
     expect(workspace).toBeDefined();
     if (path === "tooling/vscode-extension") {
@@ -288,6 +293,92 @@ test("release preparation rejects a private workspace or library group", async (
     await expect(
       plugin.preconfigure({ [path]: strategy }, {}, {})
     ).rejects.toThrow("must be a public app or library workspace");
+  }
+  const daemonCommits = {};
+  await expect(
+    plugin.preconfigure(
+      { "crates/marbles-daemon": strategy },
+      daemonCommits,
+      {}
+    )
+  ).resolves.toHaveProperty("crates/marbles-daemon");
+});
+
+test("the Rust daemon's first release is 0.1.0, bumps patch independently, and updates root Cargo.lock", async () => {
+  const github = await GitHub.create({
+    defaultBranch: "main",
+    owner: "test",
+    repo: "test",
+  });
+  const reader = vi
+    .spyOn(github, "getFileContentsOnBranch")
+    .mockImplementation(async (path) => {
+      const parsedContent = readFileSync(join(ROOT, path), "utf8");
+      return {
+        content: Buffer.from(parsedContent).toString("base64"),
+        mode: "100644",
+        parsedContent,
+        sha: "a".repeat(40),
+      };
+    });
+  try {
+    const manifest = await Manifest.fromManifest(github, "main");
+    const configuration = manifest.repositoryConfig["crates/marbles-daemon"];
+    if (!configuration) {
+      throw new Error("Missing marbles-daemon release configuration");
+    }
+    expect(configuration.prerelease).toBe(true);
+    const strategy = await buildStrategy({
+      ...configuration,
+      github,
+      path: "crates/marbles-daemon",
+      targetBranch: "main",
+    });
+    expect(await strategy.getComponent()).toBe("marbles-daemon");
+    const commits = parseConventionalCommits([
+      {
+        message: "feat(marbles-daemon): add static musl release builds",
+        sha: "b".repeat(40),
+      },
+    ]);
+    const first = await strategy.buildReleasePullRequest(commits);
+    expect(first?.version?.toString()).toBe("0.1.0");
+    if (!first) {
+      throw new Error("Expected daemon release PR");
+    }
+    const [processed] = await new WorkspacePlugin(github, "main", {}, ROOT).run(
+      [
+        {
+          config: configuration,
+          path: "crates/marbles-daemon",
+          pullRequest: first,
+        },
+      ]
+    );
+    const paths = processed?.pullRequest.updates.map(({ path }) => path) ?? [];
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "crates/marbles-daemon/CHANGELOG.md",
+        "crates/marbles-daemon/Cargo.toml",
+        "Cargo.lock",
+      ])
+    );
+    expect(paths).not.toContain("crates/marbles-daemon/Cargo.lock");
+    const lockUpdate = processed?.pullRequest.updates.find(
+      ({ path }) => path === "Cargo.lock"
+    );
+    const updatedLock = lockUpdate?.updater.updateContent(
+      readFileSync(join(ROOT, "Cargo.lock"), "utf8")
+    );
+    expect(updatedLock).toContain('name = "marbles-daemon"\nversion = "0.1.0"');
+    const next = await strategy.buildReleasePullRequest(commits, {
+      notes: "alpha",
+      sha: "c".repeat(40),
+      tag: new TagName(Version.parse("0.1.0"), "marbles-daemon"),
+    });
+    expect(next?.version?.toString()).toBe("0.1.1");
+  } finally {
+    reader.mockRestore();
   }
 });
 

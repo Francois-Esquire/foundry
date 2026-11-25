@@ -272,7 +272,7 @@ await recordWorkspace(state, workspaceState(state, ${JSON.stringify(workspace)})
     expect((await readWorkspace(machine.state, workspace.id))?.id).toBe(
       workspace.id
     );
-    expect(lockHolder(processLock(machine.state))).toBe(process.pid);
+    expect(lockHolder(processLock(machine.state))).toBe(daemon.pid);
   });
 
   it("offers nothing to create at a missing source under --dry-run, and writes nothing", async () => {

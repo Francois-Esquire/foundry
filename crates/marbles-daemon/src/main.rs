@@ -53,6 +53,7 @@ enum StartError {
 
 #[derive(Debug, Default)]
 struct Overrides {
+    help: bool,
     home: Option<PathBuf>,
     version: Option<String>,
     recycled_from: Option<BinaryDigest>,
@@ -94,6 +95,10 @@ fn exit_code_for(error: &StartError) -> u8 {
 fn serve() -> Result<RunOutcome, StartError> {
     let args: Vec<OsString> = env::args_os().skip(1).collect();
     let overrides = parse_args(args.iter().cloned())?;
+    if overrides.help {
+        print_help();
+        return Ok(RunOutcome::Stopped);
+    }
     #[cfg(unix)]
     if overrides.recycled_from.is_some() {
         reap_leftover_children();
@@ -251,11 +256,21 @@ fn recycle_into(plan: &RecyclePlan) -> ExitCode {
     ExitCode::FAILURE
 }
 
+fn print_help() {
+    println!(
+        "marbles-daemon {}\n\nUsage: marbles-daemon [OPTIONS]\n\nOptions:\n  --home <PATH>\n  --version <VERSION>\n  --init-cmd <CMD> [--init-arg <ARG>...]\n  --generation-cmd <CMD> [--generation-arg <ARG>...] [--generation-log <PATH>]\n  --installation-root <PATH>\n  --no-self-recycle\n  -h, --help",
+        env!("CARGO_PKG_VERSION")
+    );
+}
+
 fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Overrides, StartError> {
     let mut overrides = Overrides::default();
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
-        if arg == "--home" {
+        if arg == "--help" || arg == "-h" {
+            overrides.help = true;
+            return Ok(overrides);
+        } else if arg == "--home" {
             overrides.home = Some(PathBuf::from(value_of("--home", args.next())?));
         } else if arg == "--version" {
             let version = value_of("--version", args.next())?;
@@ -355,6 +370,16 @@ mod tests {
             parsed(&[RECYCLED_FROM]),
             Err(StartError::MissingValue(RECYCLED_FROM))
         ));
+    }
+
+    #[test]
+    fn help_is_requested_by_either_flag() {
+        for flag in ["--help", "-h"] {
+            let overrides = parsed(&[flag]).expect("the overrides");
+
+            assert!(overrides.help);
+        }
+        assert!(!parsed(&[]).expect("the overrides").help);
     }
 
     #[test]

@@ -50,10 +50,9 @@ import {
   ProcessTimeoutError,
   stopProcess,
 } from "~/process/client";
-import { startDaemon } from "~/process/daemon";
+import { runDaemonBinary } from "~/process/daemon-binary";
 import { ProcessHeldError } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
-import { runRustDaemon } from "~/process/rust-daemon";
 import { readStatus } from "~/status/model";
 import { createStarter } from "~/workspace/create";
 import { LaunchInputError } from "~/workspace/host";
@@ -402,21 +401,7 @@ async function runUntilStopped(_args: Args, hosted: Hosted): Promise<void> {
 }
 
 async function runDaemon(): Promise<void> {
-  const machine = layout();
-  if (await runRustDaemon({ layout: machine })) {
-    return;
-  }
-  const daemon = await startDaemon({
-    layout: machine,
-    print,
-  });
-  const signal = interrupted();
-  try {
-    await Promise.race([signal.done, daemon.closed]);
-  } finally {
-    signal.release();
-    await daemon.close();
-  }
+  await runDaemonBinary({ layout: layout() });
 }
 
 async function attachWorkspace(args: ArgsOf<"daemon">): Promise<void> {

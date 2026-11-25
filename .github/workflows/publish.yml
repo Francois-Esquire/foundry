@@ -7,7 +7,7 @@ on:
         description: App or public library group to publish from an existing GitHub Release
         type: choice
         required: true
-        options: [marbles, spyglass, libraries]
+        options: [marbles, marbles-daemon, spyglass, libraries]
       version:
         description: Exact version; leave empty for the highest released version
         type: string

@@ -52,4 +52,7 @@ pub trait Storage: Send + 'static {
 
     #[cfg(test)]
     fn fail_hosting(&mut self, _times: usize) {}
+
+    #[cfg(test)]
+    fn fail_state(&mut self, _state: GenerationState, _times: usize) {}
 }

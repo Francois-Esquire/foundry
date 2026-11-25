@@ -2,7 +2,6 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import { connect as connectSocket, type Socket } from "node:net";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { TaskError } from "@foundry/tasks";
 
 import type { Layout } from "~/layout";
@@ -20,6 +19,7 @@ import type {
 import type { DashboardSnapshot } from "~/model/dashboard";
 import type { TaskOutcome } from "~/model/tasks";
 import { Channel, socketTransport } from "~/process/channel";
+import { spawnDetachedDaemon } from "~/process/daemon-binary";
 import { readProcess, STATE_MODE } from "~/process/instance";
 import {
   CLIENT_NOTIFICATIONS,
@@ -35,7 +35,6 @@ import {
   workspaceSummarySchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
-import { spawnDetachedRustDaemon } from "~/process/rust-daemon";
 import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { version } from "../../package.json";
 
@@ -151,15 +150,6 @@ const STOP_PROCESS_TIMEOUT_MS =
 const RETRY_MS = 100;
 const LOG_FILE = "daemon.log";
 
-function cliEntry(): string {
-  return fileURLToPath(
-    new URL(
-      import.meta.url.endsWith(".ts") ? "../cli.ts" : "./cli.js",
-      import.meta.url
-    )
-  );
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -201,10 +191,8 @@ export function daemonAlive(layout: Layout): boolean {
 
 async function startDetachedDaemon(options: ConnectOptions): Promise<void> {
   const { layout } = options;
-  if (
-    options.cliEntry === undefined &&
-    (await spawnDetachedRustDaemon(layout))
-  ) {
+  if (options.cliEntry === undefined) {
+    await spawnDetachedDaemon(layout);
     return;
   }
   mkdirSync(dirname(layout.state), { recursive: true });
@@ -212,15 +200,11 @@ async function startDetachedDaemon(options: ConnectOptions): Promise<void> {
   const log = openSync(join(layout.state, LOG_FILE), "a");
   let child: ChildProcess;
   try {
-    child = spawn(
-      runtime(),
-      [...RUNTIME_FLAGS, options.cliEntry ?? cliEntry(), "daemon"],
-      {
-        detached: true,
-        env: { ...process.env, FOUNDRY_HOME: layout.home },
-        stdio: ["ignore", log, log],
-      }
-    );
+    child = spawn(runtime(), [...RUNTIME_FLAGS, options.cliEntry, "daemon"], {
+      detached: true,
+      env: { ...process.env, FOUNDRY_HOME: layout.home },
+      stdio: ["ignore", log, log],
+    });
   } finally {
     closeSync(log);
   }

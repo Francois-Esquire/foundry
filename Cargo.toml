@@ -26,3 +26,7 @@ unsafe_code = "deny"
 all = { level = "warn", priority = -1 }
 dbg_macro = "warn"
 todo = "warn"
+
+[profile.release]
+lto = "thin"
+strip = true

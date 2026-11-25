@@ -8,6 +8,11 @@ import {
   type ReleaseArchives,
   verifyReleaseArchives,
 } from "./archives";
+import {
+  type BuiltDaemonPackage,
+  packDaemonPackages,
+  readDaemonVersion,
+} from "./daemon";
 
 interface Manifest {
   dependencies?: Record<string, string>;
@@ -100,19 +105,71 @@ export function publicWorkspaces(
   return ordered.filter(({ manifest }) => names.has(manifest.name));
 }
 
-export function packRelease(root: string, packages: Workspace[]): string[] {
+export interface PackReleaseOptions {
+  readonly daemonBinariesDir?: string;
+  readonly smokeTestDaemon?: boolean;
+}
+
+export function packDaemonRelease(
+  root: string,
+  binariesDir: string,
+  expectedVersion?: string,
+  smokeTest = true
+): string[] {
   const destination = join(root, ".cache/release");
   mkdirSync(destination, { recursive: true });
   for (const entry of globSync("packages/*/*.tgz", { cwd: destination })) {
     throw new Error(`Remove .cache/release before packing again: ${entry}`);
   }
+  const version = readDaemonVersion(root);
+  if (expectedVersion && version !== expectedVersion) {
+    throw new Error(
+      `marbles-daemon version must be ${expectedVersion} (found ${version})`
+    );
+  }
+  const artifacts = packDaemonPackages({
+    binariesDir,
+    destination,
+    root,
+    smokeTest,
+    version,
+  });
+  writeFileSync(
+    join(destination, "packages.json"),
+    `${JSON.stringify(artifacts, null, 2)}\n`
+  );
+  return artifacts.map(({ sha256 }) => sha256);
+}
+
+export function packRelease(
+  root: string,
+  packages: Workspace[],
+  options: PackReleaseOptions = {}
+): string[] {
+  const destination = join(root, ".cache/release");
+  mkdirSync(destination, { recursive: true });
+  for (const entry of globSync("packages/*/*.tgz", { cwd: destination })) {
+    throw new Error(`Remove .cache/release before packing again: ${entry}`);
+  }
+  const daemonArtifacts = options.daemonBinariesDir
+    ? packDaemonPackages({
+        binariesDir: options.daemonBinariesDir,
+        destination,
+        root,
+        smokeTest: options.smokeTestDaemon,
+      })
+    : [];
   const archives = packages.map((pkg, index) =>
     createReleaseArchives(
       join(root, pkg.directory),
-      join(destination, "packages", String(index).padStart(3, "0"))
+      join(
+        destination,
+        "packages",
+        String(daemonArtifacts.length + index).padStart(3, "0")
+      )
     )
   );
-  return verifyReleasePackages(root, packages, archives);
+  return verifyReleasePackages(root, packages, archives, daemonArtifacts);
 }
 
 function checkReleasedRanges(tarball: string, packages: Workspace[]): void {
@@ -139,7 +196,8 @@ function checkReleasedRanges(tarball: string, packages: Workspace[]): void {
 export function verifyReleasePackages(
   root: string,
   packages: Workspace[],
-  archives: ReleaseArchives[]
+  archives: ReleaseArchives[],
+  extraArtifacts: readonly BuiltDaemonPackage[] = []
 ): string[] {
   const destination = join(root, ".cache/release");
   const artifacts = packages.map((pkg, index) => {
@@ -171,8 +229,9 @@ export function verifyReleasePackages(
         .digest("hex"),
     };
   });
+  const allArtifacts = [...extraArtifacts, ...artifacts];
   const tarballs = Object.fromEntries(
-    artifacts.map(({ name, archive }) => [name, join(destination, archive)])
+    allArtifacts.map(({ name, archive }) => [name, join(destination, archive)])
   );
   for (const pkg of packages) {
     execFileSync("bun", ["run", "test:package"], {
@@ -185,7 +244,7 @@ export function verifyReleasePackages(
       stdio: "inherit",
     });
   }
-  for (const artifact of artifacts) {
+  for (const artifact of allArtifacts) {
     for (const [path, expected] of [
       [artifact.archive, artifact.sha256],
       [artifact.zip, artifact.zipSha256],
@@ -203,7 +262,7 @@ export function verifyReleasePackages(
   }
   writeFileSync(
     join(destination, "packages.json"),
-    `${JSON.stringify(artifacts, null, 2)}\n`
+    `${JSON.stringify(allArtifacts, null, 2)}\n`
   );
-  return artifacts.map(({ sha256 }) => sha256);
+  return allArtifacts.map(({ sha256 }) => sha256);
 }

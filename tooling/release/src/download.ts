@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { verifyReleaseArchives } from "./archives";
+import {
+  DAEMON_TARGETS,
+  readDaemonVersion,
+  verifyDaemonArchives,
+} from "./daemon";
 import { verifyReleasePackages, type Workspace } from "./release";
 import type { resolveGitHubRelease } from "./resolve";
 
@@ -213,4 +218,63 @@ export function downloadReleasePackages(
     };
   });
   return verifyReleasePackages(root, packages, archives);
+}
+
+export function downloadDaemonPackages(
+  root: string,
+  version: string,
+  releases: ReturnType<typeof resolveGitHubRelease>["releases"]
+): string[] {
+  const repository = requireRepository();
+  const actualVersion = readDaemonVersion(root);
+  if (actualVersion !== version) {
+    throw new Error(
+      `marbles-daemon version must be ${version} (found ${actualVersion})`
+    );
+  }
+  const destinationRoot = join(root, ".cache/release");
+  const archives = DAEMON_TARGETS.map((target, index) => {
+    const release = releases.find(({ name }) => name === target.name);
+    if (!release || release.version !== version) {
+      throw new Error(`Missing release for ${target.name}`);
+    }
+    const destination = join(
+      destinationRoot,
+      "packages",
+      String(index).padStart(3, "0")
+    );
+    mkdirSync(destination, { recursive: true });
+    const basename = `${target.name.replace("@", "").replace("/", "-")}-${version}`;
+    execFileSync(
+      "gh",
+      [
+        "release",
+        "download",
+        release.tag,
+        "--repo",
+        repository,
+        "--dir",
+        destination,
+        "--pattern",
+        `${basename}.tgz`,
+        "--pattern",
+        `${basename}.zip`,
+      ],
+      { stdio: "inherit" }
+    );
+    return {
+      tarball: join(destination, `${basename}.tgz`),
+      zip: join(destination, `${basename}.zip`),
+    };
+  });
+  const artifacts = verifyDaemonArchives({
+    archives,
+    destination: destinationRoot,
+    version,
+  });
+  writeFileSync(
+    join(destinationRoot, "packages.json"),
+    `${JSON.stringify(artifacts, null, 2)}\n`
+  );
+  return artifacts.map(({ sha256 }) => sha256);
 }

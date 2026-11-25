@@ -262,6 +262,14 @@ impl StateStore {
             Ok(())
         })
     }
+
+    #[cfg(test)]
+    pub(crate) fn fail_state_records(&self, state: GenerationState, times: usize) -> Stored<()> {
+        self.call(move |storage| {
+            storage.fail_state(state, times);
+            Ok(())
+        })
+    }
 }
 
 fn proved_gone(row: &GenerationRow) -> bool {

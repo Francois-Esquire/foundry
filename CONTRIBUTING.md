@@ -162,8 +162,15 @@ PRs merge.
 `always-update` refreshes open release PRs from `main` even when release notes
 are unchanged, so CI and release-tooling fixes reach those branches.
 
-- Marbles and Spyglass have independent versions, changelogs, and `marbles-vX.Y.Z`
-  / `spyglass-vX.Y.Z` tags.
+- Marbles, Spyglass, and the Rust `marbles-daemon` (`crates/marbles-daemon`)
+  have independent versions, changelogs, and `marbles-vX.Y.Z` /
+  `spyglass-vX.Y.Z` / `marbles-daemon-vX.Y.Z` tags.
+  `marbles-daemon` starts at `0.1.0` (`always-bump-patch`) and ships four
+  platform binary packages (`@foundry.sh/marbles-daemon-darwin-arm64`,
+  `@foundry.sh/marbles-daemon-darwin-x64`,
+  `@foundry.sh/marbles-daemon-linux-arm64`, and
+  `@foundry.sh/marbles-daemon-linux-x64`, with Linux binaries statically linked
+  via `musl`) attached to its single GitHub Release and published together.
 - All libraries under `packages/` share the version in their `package.json`
   files. They are currently private, with no library release PRs or publication.
 - When libraries become public, Release Please's built-in `linked-versions`
@@ -322,7 +329,7 @@ Before allowing publication:
 - Protect `main` with required checks and review of the release paths in
   `.github/CODEOWNERS`. Control administrator bypass deliberately. Workflows
   selected from other branches are not allowed to publish.
-- Restrict creation of `marbles-v*`, `spyglass-v*`, and public library component
+- Restrict creation of `marbles-v*`, `marbles-daemon-v*`, `spyglass-v*`, and public library component
   tags to the release identity; prevent tag updates and deletions. If using a dedicated GitHub App,
   scope it to this repository and grant its installation only the permissions
   needed for release PRs and tags.
@@ -347,7 +354,8 @@ Before allowing publication:
 | Allowed actions | Direct `npm publish` |
 
 Configure this publisher on each npm package. The account needs access to
-`@foundry.sh` for Marbles and Spyglass and `@foundry` for future public
+`@foundry.sh` for Marbles, the four `@foundry.sh/marbles-daemon-*` binary
+packages, and Spyglass, and `@foundry` for future public
 libraries. Verify initial-publication setup on npm before the first publish of
 a new package; adding a GitHub workflow does not reserve
 a package name or configure npm trust. Newly configured trust currently needs

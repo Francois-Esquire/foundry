@@ -81,6 +81,7 @@ export async function startSwitchingWorkspace(
   const daemon = await startDaemon({
     layout: fixture.machine,
     print: () => undefined,
+    selfRecycle: false,
     ...options,
   });
   if (track === undefined) {

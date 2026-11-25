@@ -268,6 +268,20 @@ async fn a_failed_initialization_aborts_startup_and_releases_the_claim() {
 }
 
 #[tokio::test]
+async fn a_socket_that_cannot_be_bound_aborts_startup_and_releases_the_claim() {
+    let mut home = home();
+    home.layout.socket = home.layout.state.join("missing").join("daemon.sock");
+    let printed = Printed::default();
+
+    let started = within(start(options(&home.layout, &printed))).await;
+
+    assert!(matches!(started, Err(StartError::Endpoint(_))));
+    assert!(!lock_path(&home.layout).exists());
+    assert!(!process_file(&home.layout).exists());
+    assert!(ProcessClaim::acquire(&home.layout, VERSION).is_ok());
+}
+
+#[tokio::test]
 async fn a_held_claim_refuses_a_second_daemon() {
     let home = home();
     let printed = Printed::default();

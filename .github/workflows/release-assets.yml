@@ -16,7 +16,7 @@ on:
       package:
         description: App or public library group whose release needs its CI-built archives
         type: choice
-        options: [marbles, spyglass, libraries]
+        options: [marbles, marbles-daemon, spyglass, libraries]
         default: marbles
       version:
         description: Existing release version, for example 0.0.1

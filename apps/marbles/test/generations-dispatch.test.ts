@@ -1,8 +1,12 @@
 import { join } from "node:path";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { eq } from "drizzle-orm";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
-import { GenerationRecords, readLiveGenerations } from "~/database/generations";
+import { readLiveGenerations } from "~/database/generations";
+import { readDatabase } from "~/database/open";
+import { marblesGenerations } from "~/database/tables";
+import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { CODEX } from "~/lib/harnesses";
 import type { DispatchInfo, DispatchOptions } from "~/model/connection";
@@ -311,24 +315,26 @@ describe("a dispatched run that moves between engine generations", () => {
     const generations = await readLiveGenerations(fixture.machine.state);
     const retired = generations.find((generation) => generation.pid === first);
     expect(retired?.state).toBe("retiring");
-    const mark = vi.spyOn(GenerationRecords.prototype, "mark");
-    onTestFinished(() => {
-      mark.mockRestore();
-    });
 
     openGate(1, fixture);
     expect((await holding).value).toBe(first);
     const exit = await vi.waitFor(
-      () => {
-        const recorded = mark.mock.calls.find(
-          ([number, state]) => number === retired?.number && state === "exited"
-        );
-        expect(recorded).toBeDefined();
+      async () => {
+        const [recorded] =
+          (await readDatabase(
+            stateDatabase(fixture.machine.state),
+            (database) =>
+              database
+                .select()
+                .from(marblesGenerations)
+                .where(eq(marblesGenerations.number, retired?.number ?? -1))
+          )) ?? [];
+        expect(recorded?.state).toBe("exited");
         return recorded;
       },
       { interval: 50, timeout: 30_000 }
     );
-    expect(exit?.[2]).toBeUndefined();
+    expect(exit?.error).toBeNull();
     expect((await workspace.getRun(started.runId)).status).toBe("running");
 
     openGate(2, fixture);

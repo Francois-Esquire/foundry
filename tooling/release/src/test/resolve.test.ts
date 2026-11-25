@@ -31,6 +31,12 @@ function release(
 test("only explicitly enabled packages can be selected for publication", () => {
   expect(resolvePackage("marbles").name).toBe("@foundry.sh/marbles");
   expect(resolvePackage("@foundry.sh/marbles").directory).toBe("apps/marbles");
+  expect(resolvePackage("marbles-daemon").name).toBe(
+    "@foundry.sh/marbles-daemon"
+  );
+  expect(resolvePackage("marbles-daemon").directory).toBe(
+    "crates/marbles-daemon"
+  );
   expect(resolvePackage("spyglass").directory).toBe("apps/spyglass");
   expect(resolvePackage("libraries").directory).toBe("packages");
   for (const input of [
@@ -229,4 +235,69 @@ test("library publication requires matching component releases for the whole pub
       release("models-v0.1.0"),
     ])
   ).toThrow("No published GitHub release");
+});
+
+test("marbles-daemon resolves all four platform packages from one GitHub release", () => {
+  const target = resolvePackage("marbles-daemon");
+  const group = selectReleaseGroup(
+    target,
+    [],
+    [
+      release("marbles-v0.0.4"),
+      release("marbles-daemon-v0.0.1"),
+      release("marbles-daemon-v0.0.2"),
+    ]
+  );
+  expect(
+    group.map(({ target: member, version, release: item }) => [
+      member.name,
+      version,
+      item.tag_name,
+    ])
+  ).toEqual([
+    [
+      "@foundry.sh/marbles-daemon-darwin-arm64",
+      "0.0.2",
+      "marbles-daemon-v0.0.2",
+    ],
+    ["@foundry.sh/marbles-daemon-darwin-x64", "0.0.2", "marbles-daemon-v0.0.2"],
+    [
+      "@foundry.sh/marbles-daemon-linux-arm64",
+      "0.0.2",
+      "marbles-daemon-v0.0.2",
+    ],
+    ["@foundry.sh/marbles-daemon-linux-x64", "0.0.2", "marbles-daemon-v0.0.2"],
+  ]);
+
+  const root = mkdtempSync(join(tmpdir(), "release-daemon-commit-"));
+  const git = (...args: string[]) =>
+    execFileSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+  try {
+    git("init", "--initial-branch=main");
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Release test");
+    git("config", "commit.gpgsign", "false");
+    mkdirSync(join(root, "crates/marbles-daemon"), { recursive: true });
+    writeFileSync(
+      join(root, "crates/marbles-daemon/Cargo.toml"),
+      '[package]\nname = "marbles-daemon"\nversion = "0.0.1"\n'
+    );
+    git("add", ".");
+    git("commit", "-m", "feat: daemon");
+    const sha = git("rev-parse", "HEAD");
+    git("update-ref", "refs/remotes/origin/main", sha);
+    git("-c", "tag.gpgsign=false", "tag", "marbles-daemon-v0.0.1");
+    expect(
+      resolveReleaseCommit(root, target, "marbles-daemon-v0.0.1", "0.0.1")
+    ).toBe(sha);
+    expect(() =>
+      resolveReleaseCommit(root, target, "marbles-daemon-v0.0.1", "0.0.2")
+    ).toThrow("crates/marbles-daemon version 0.0.2");
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
 });

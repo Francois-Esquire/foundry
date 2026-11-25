@@ -1,8 +1,4 @@
 import type { JsonValue } from "@foundry/lib/json";
-import {
-  type ProcessIdentity,
-  sameProcess,
-} from "@foundry/lib/process-identity";
 import type { Job, Run } from "@foundry/queue";
 import { queueJobs, queueRuns } from "@foundry/queue/store/tables";
 import { and, asc, eq, sql } from "drizzle-orm";
@@ -336,58 +332,5 @@ export async function readExecution(
     jobRow.body as Job,
     run,
     annex === undefined ? undefined : annexOf(annex)
-  );
-}
-
-async function queuedIn(
-  database: StoreDatabase,
-  scope: string
-): Promise<readonly Run[]> {
-  const rows = await asBusy(() =>
-    database
-      .select({ body: queueRuns.body })
-      .from(queueRuns)
-      .where(and(eq(queueRuns.scope, scope), eq(queueRuns.state, "queued")))
-  );
-  return rows
-    .map((row) => row.body)
-    .sort((one, other) =>
-      one.state.kind === "queued" && other.state.kind === "queued"
-        ? one.state.queuedAt - other.state.queuedAt
-        : 0
-    );
-}
-
-export async function queuedRunsOwnedBy(
-  database: StoreDatabase,
-  scope: string,
-  owner: ProcessIdentity
-): Promise<readonly string[]> {
-  return (await queuedRuns(database, scope))
-    .filter((run) => sameProcess(run.owner, owner))
-    .map((run) => run.id);
-}
-
-export async function queuedRuns(
-  database: StoreDatabase,
-  scope: string
-): Promise<
-  readonly {
-    readonly id: string;
-    readonly owner: ProcessIdentity;
-  }[]
-> {
-  return (await queuedIn(database, scope)).flatMap((run) =>
-    run.state.kind === "queued" && run.state.owner !== undefined
-      ? [
-          {
-            id: run.id,
-            owner: {
-              pid: run.state.owner.pid,
-              started: run.state.owner.started,
-            },
-          },
-        ]
-      : []
   );
 }
