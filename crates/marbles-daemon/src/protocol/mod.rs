@@ -8,6 +8,8 @@ mod non_empty_string;
 #[cfg(test)]
 mod test_json;
 
+use std::time::Duration;
+
 use thiserror::Error;
 
 pub use crate::identity::ProcessIdentity;
@@ -32,6 +34,8 @@ pub use non_empty_string::{EmptyString, NonEmptyString};
 pub const PROTOCOL_VERSION: u32 = 1;
 
 pub const MAX_LINE_BYTES: usize = 1024 * 1024;
+
+pub const GENERATION_STOP_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Error)]
 pub enum ProtocolError {

@@ -11,10 +11,12 @@ rust-version = "1.85"
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
+sha2 = "0.10"
+getrandom = "0.3"
 thiserror = "2"
 rustix = { version = "1", features = ["process"] }
 tempfile = "3"
-tokio = { version = "1", default-features = false, features = ["rt", "net", "io-util", "sync", "time", "macros", "signal"] }
+tokio = { version = "1", default-features = false, features = ["rt", "net", "io-util", "sync", "time", "macros", "signal", "process"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

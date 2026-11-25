@@ -1,5 +1,6 @@
 mod actor;
 mod initializer;
+mod link;
 mod output;
 mod route;
 #[cfg(test)]
@@ -17,13 +18,20 @@ use self::actor::{Actor, Command, DaemonEvent};
 pub use self::initializer::{
     InitError, Initialization, InitializeTrigger, Initializer, NoopInitializer,
 };
+use self::link::LifecycleLink;
 pub use self::output::{OutputSink, StdoutSink};
 use crate::Layout;
 use crate::claim::{ClaimError, ProcessClaim};
 use crate::endpoint::{Endpoint, EndpointError};
+use crate::generation::{
+    GenerationLauncher, NoRunOwnerResolver, ReadObserver, RunOwnerResolver, Supervisor,
+    SupervisorParts, TimingConfig,
+};
 use crate::protocol::{HelloResult, PROTOCOL_VERSION, WorkspaceSummary};
+use crate::recycle::{BinaryWatch, RecycleTarget};
 
 pub const CLAIM_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+pub const BINARY_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 const MAILBOX_CAPACITY: usize = 256;
 
@@ -35,6 +43,12 @@ pub enum LifecyclePhase {
     Recycling,
     Stopping,
     Stopped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DaemonExit {
+    Stopped,
+    Recycle(RecycleTarget),
 }
 
 #[derive(Debug, Error)]
@@ -63,6 +77,12 @@ pub struct DaemonOptions {
     pub initializer: Arc<dyn Initializer>,
     pub output: Arc<dyn OutputSink>,
     pub claim_check_interval: Duration,
+    pub binary_watch: Option<BinaryWatch>,
+    pub binary_poll_interval: Duration,
+    pub launcher: Option<Arc<dyn GenerationLauncher>>,
+    pub run_owners: Arc<dyn RunOwnerResolver>,
+    pub reads: Option<Arc<dyn ReadObserver>>,
+    pub timings: TimingConfig,
 }
 
 impl DaemonOptions {
@@ -73,6 +93,12 @@ impl DaemonOptions {
             initializer: Arc::new(NoopInitializer),
             output: Arc::new(StdoutSink),
             claim_check_interval: CLAIM_CHECK_INTERVAL,
+            binary_watch: None,
+            binary_poll_interval: BINARY_POLL_INTERVAL,
+            launcher: None,
+            run_owners: Arc::new(NoRunOwnerResolver),
+            reads: None,
+            timings: TimingConfig::default(),
         }
     }
 
@@ -96,6 +122,45 @@ impl DaemonOptions {
             ..self
         }
     }
+
+    pub fn with_binary_watch(self, binary_watch: BinaryWatch) -> Self {
+        Self {
+            binary_watch: Some(binary_watch),
+            ..self
+        }
+    }
+
+    pub fn with_binary_poll_interval(self, binary_poll_interval: Duration) -> Self {
+        Self {
+            binary_poll_interval,
+            ..self
+        }
+    }
+
+    pub fn with_launcher(self, launcher: impl GenerationLauncher) -> Self {
+        Self {
+            launcher: Some(Arc::new(launcher)),
+            ..self
+        }
+    }
+
+    pub fn with_run_owners(self, run_owners: impl RunOwnerResolver) -> Self {
+        Self {
+            run_owners: Arc::new(run_owners),
+            ..self
+        }
+    }
+
+    pub fn with_read_observer(self, reads: impl ReadObserver) -> Self {
+        Self {
+            reads: Some(Arc::new(reads)),
+            ..self
+        }
+    }
+
+    pub fn with_timings(self, timings: TimingConfig) -> Self {
+        Self { timings, ..self }
+    }
 }
 
 #[derive(Debug)]
@@ -110,6 +175,7 @@ pub struct DaemonHandle {
     started: Arc<Started>,
     mailbox: mpsc::Sender<DaemonEvent>,
     phase: watch::Receiver<LifecyclePhase>,
+    exit: watch::Receiver<Option<DaemonExit>>,
 }
 
 pub async fn start(options: DaemonOptions) -> Result<DaemonHandle, StartError> {
@@ -119,8 +185,15 @@ pub async fn start(options: DaemonOptions) -> Result<DaemonHandle, StartError> {
         initializer,
         output,
         claim_check_interval,
+        binary_watch,
+        binary_poll_interval,
+        launcher,
+        run_owners,
+        reads,
+        timings,
     } = options;
     let (phase, observed) = watch::channel(LifecyclePhase::Starting);
+    let (exit, exited) = watch::channel(None);
     let claim = take_claim(&layout, &version).await?;
     phase.send_replace(LifecyclePhase::Initializing);
     if let Err(error) = initializer.initialize(InitializeTrigger::Start).await {
@@ -153,6 +226,22 @@ pub async fn start(options: DaemonOptions) -> Result<DaemonHandle, StartError> {
         started.socket.display()
     ));
     let (mailbox, received) = mpsc::channel(MAILBOX_CAPACITY);
+    let supervision = launcher.map(|launcher| {
+        let (publications, published) = mpsc::unbounded_channel();
+        let supervisor = Supervisor::new(SupervisorParts {
+            launcher,
+            run_owners,
+            reads,
+            timings,
+            layout: layout.clone(),
+            output: Arc::clone(&output),
+            link: Arc::new(LifecycleLink {
+                events: mailbox.clone(),
+                publications,
+            }),
+        });
+        (supervisor, published)
+    });
     phase.send_replace(LifecyclePhase::Running);
     let actor = Actor::new(actor::Parts {
         hello,
@@ -161,14 +250,21 @@ pub async fn start(options: DaemonOptions) -> Result<DaemonHandle, StartError> {
         initializer,
         output,
         phase,
+        exit,
+        binary_watch,
         mailbox: received,
         events: mailbox.clone(),
+        supervision,
     });
-    tokio::spawn(actor.run(claim_check_interval));
+    tokio::spawn(actor.run(actor::Intervals {
+        claim_check: claim_check_interval,
+        binary_poll: binary_poll_interval,
+    }));
     Ok(DaemonHandle {
         started,
         mailbox,
         phase: observed,
+        exit: exited,
     })
 }
 
@@ -217,6 +313,15 @@ impl DaemonHandle {
         let _ = phase
             .wait_for(|phase| *phase == LifecyclePhase::Stopped)
             .await;
+    }
+
+    pub async fn wait_exit(&self) -> DaemonExit {
+        let mut exit = self.exit.clone();
+        let exited = exit.wait_for(Option::is_some).await;
+        exited
+            .ok()
+            .and_then(|exit| exit.clone())
+            .unwrap_or(DaemonExit::Stopped)
     }
 
     async fn command(&self, command: Command) {

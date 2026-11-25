@@ -14,6 +14,7 @@ pub(super) struct View<'a> {
     pub(super) hello: &'a HelloResult,
     pub(super) workspaces: &'a BTreeMap<String, WorkspaceSummary>,
     pub(super) stopping: bool,
+    pub(super) supervised: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -25,20 +26,44 @@ pub(super) enum Effect {
 }
 
 #[derive(Debug, PartialEq)]
-pub(super) struct Routed {
+pub(super) struct Reply {
     pub(super) response: Response,
     pub(super) effect: Effect,
+}
+
+#[derive(Debug, PartialEq)]
+pub(super) enum Routed {
+    Reply(Reply),
+    Supervise(u64, DaemonRequest),
 }
 
 pub(super) fn route(request: Request, view: &View<'_>) -> Routed {
     let id = request.id;
     if view.stopping && starts_work(&request) {
-        return refused(id, STOPPING);
+        return Routed::Reply(refused(id, STOPPING));
     }
     let request = match DaemonRequest::parse(request) {
         Ok(request) => request,
-        Err(error) => return refused(id, error.to_string()),
+        Err(error) => return Routed::Reply(refused(id, error.to_string())),
     };
+    if view.supervised && supervises(&request) {
+        return Routed::Supervise(id, request);
+    }
+    Routed::Reply(reply(id, request, view))
+}
+
+fn supervises(request: &DaemonRequest) -> bool {
+    matches!(
+        request,
+        DaemonRequest::Register(_)
+            | DaemonRequest::Attach(_)
+            | DaemonRequest::Detach(_)
+            | DaemonRequest::Reload(_)
+            | DaemonRequest::Workspace { .. }
+    )
+}
+
+fn reply(id: u64, request: DaemonRequest, view: &View<'_>) -> Reply {
     match request {
         DaemonRequest::Hello => encoded(id, view.hello),
         DaemonRequest::Workspaces => {
@@ -98,9 +123,9 @@ fn unserved(view: &View<'_>, workspace: &str, method: &str) -> String {
     }
 }
 
-fn encoded(id: u64, result: &impl serde::Serialize) -> Routed {
+fn encoded(id: u64, result: &impl serde::Serialize) -> Reply {
     match serde_json::to_value(result) {
-        Ok(result) => Routed {
+        Ok(result) => Reply {
             response: Response::ok(id, result),
             effect: Effect::Nothing,
         },
@@ -108,15 +133,15 @@ fn encoded(id: u64, result: &impl serde::Serialize) -> Routed {
     }
 }
 
-fn acknowledged(id: u64, effect: Effect) -> Routed {
-    Routed {
+fn acknowledged(id: u64, effect: Effect) -> Reply {
+    Reply {
         response: Response::empty(id),
         effect,
     }
 }
 
-fn refused(id: u64, message: impl Into<String>) -> Routed {
-    Routed {
+fn refused(id: u64, message: impl Into<String>) -> Reply {
+    Reply {
         response: Response::err(id, WireError::new(message)),
         effect: Effect::Nothing,
     }
@@ -154,7 +179,19 @@ mod tests {
         )])
     }
 
-    fn routed(method: &str, params: Option<Value>, stopping: bool) -> Routed {
+    fn routed(method: &str, params: Option<Value>, stopping: bool) -> Reply {
+        match routed_with(method, params, stopping, false) {
+            Routed::Reply(reply) => reply,
+            Routed::Supervise(..) => panic!("an unsupervised daemon answers itself"),
+        }
+    }
+
+    fn routed_with(
+        method: &str,
+        params: Option<Value>,
+        stopping: bool,
+        supervised: bool,
+    ) -> Routed {
         let hello = hello();
         let workspaces = hosted();
         let method = NonEmptyString::try_from(method.to_owned()).expect("a method");
@@ -169,11 +206,12 @@ mod tests {
                 hello: &hello,
                 workspaces: &workspaces,
                 stopping,
+                supervised,
             },
         )
     }
 
-    fn error_of(routed: &Routed) -> Option<&str> {
+    fn error_of(routed: &Reply) -> Option<&str> {
         routed
             .response
             .error
@@ -213,7 +251,7 @@ mod tests {
 
         assert_eq!(
             routed("subscribe", params(), false),
-            Routed {
+            Reply {
                 response: Response::empty(3),
                 effect: Effect::Subscribe("w1".to_owned()),
             }
@@ -224,7 +262,7 @@ mod tests {
         );
         assert_eq!(
             routed("shutdown", None, true),
-            Routed {
+            Reply {
                 response: Response::empty(3),
                 effect: Effect::Shutdown,
             }
@@ -300,6 +338,33 @@ mod tests {
             error_of(&routed("reload", Some(json!({ "id": "w1" })), false)),
             Some("workspace w1 has no running engine generation to answer \"reload\"")
         );
+    }
+
+    #[test]
+    fn a_supervised_daemon_hands_generation_work_to_its_supervisor() {
+        for (method, params) in [
+            ("register", json!({ "token": "t" })),
+            ("attach", json!({ "source": "/repo" })),
+            ("detach", json!({ "id": "w1" })),
+            ("reload", json!({ "id": "w1" })),
+            ("workspace.getRun", json!({ "id": "w1", "runId": "r1" })),
+        ] {
+            assert!(
+                matches!(
+                    routed_with(method, Some(params), false, true),
+                    Routed::Supervise(3, _)
+                ),
+                "{method}"
+            );
+        }
+        assert!(matches!(
+            routed_with("hello", None, false, true),
+            Routed::Reply(_)
+        ));
+        assert!(matches!(
+            routed_with("attach", Some(json!({ "source": "/repo" })), true, true),
+            Routed::Reply(reply) if error_of(&reply) == Some(STOPPING)
+        ));
     }
 
     #[test]

@@ -1,45 +1,26 @@
 use std::fs;
-use std::future::Future;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use serde_json::{Value, json};
+use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::sync::{Semaphore, mpsc};
+use tokio::sync::Semaphore;
 
 use super::*;
-use crate::channel::{self, ChannelError, ChannelEvent, ChannelHandle, CloseReason};
+use crate::channel::{ChannelError, CloseReason};
 use crate::endpoint::SOCKET_MODE;
-use crate::protocol::{
-    ClientNotification, DaemonMethod, NonEmptyString, Notification, WireError, WorkspaceState,
-};
+use crate::protocol::{ClientNotification, DaemonMethod, Notification, WireError, WorkspaceState};
+use crate::recycle::BinaryDigest;
+use crate::test_support::{Client, Printed, home, within};
 
-const PATIENCE: Duration = Duration::from_secs(10);
 const VERSION: &str = "9.9.9";
-
-#[derive(Clone, Default)]
-struct Printed(Arc<Mutex<Vec<String>>>);
-
-impl Printed {
-    fn lines(&self) -> Vec<String> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-    }
-}
-
-impl OutputSink for Printed {
-    fn line(&self, line: &str) {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(line.to_owned());
-    }
-}
+const RUNNING_BINARY: &[u8] = b"#!/bin/sh\necho running\n";
+const UPGRADED_BINARY: &[u8] = b"#!/bin/sh\necho runninG\n";
+const QUICK_POLL: Duration = Duration::from_millis(10);
+const QUICK_STABILITY: Duration = Duration::from_millis(20);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Seen {
@@ -114,20 +95,6 @@ impl Initializer for Recording {
     }
 }
 
-struct Home {
-    _dir: tempfile::TempDir,
-    layout: Layout,
-}
-
-fn home() -> Home {
-    let dir = tempfile::Builder::new()
-        .prefix("md")
-        .tempdir_in("/tmp")
-        .expect("a temporary home");
-    let layout = Layout::from_home(dir.path());
-    Home { _dir: dir, layout }
-}
-
 fn lock_path(layout: &Layout) -> PathBuf {
     layout.state.join("locks").join("process")
 }
@@ -140,53 +107,10 @@ fn options(layout: &Layout, printed: &Printed) -> DaemonOptions {
     DaemonOptions::new(layout.clone(), VERSION).with_output(printed.clone())
 }
 
-async fn within<T>(work: impl Future<Output = T>) -> T {
-    tokio::time::timeout(PATIENCE, work)
-        .await
-        .expect("the work should finish in time")
-}
-
 async fn started(options: DaemonOptions) -> DaemonHandle {
     within(start(options))
         .await
         .expect("the daemon should start")
-}
-
-struct Client {
-    channel: ChannelHandle,
-    events: mpsc::Receiver<ChannelEvent>,
-}
-
-impl Client {
-    async fn connect(socket: &Path) -> Self {
-        let stream = within(UnixStream::connect(socket))
-            .await
-            .expect("the daemon should accept");
-        let (channel, events) = channel::open(stream);
-        Self { channel, events }
-    }
-
-    async fn ask(
-        &self,
-        method: impl Into<NonEmptyString>,
-        params: Option<Value>,
-    ) -> Result<Option<Value>, ChannelError> {
-        within(self.channel.request(method, params)).await
-    }
-
-    async fn notification(&mut self) -> Notification {
-        match within(self.events.recv()).await {
-            Some(ChannelEvent::Notification(notification)) => notification,
-            other => panic!("expected a notification, got {other:?}"),
-        }
-    }
-
-    async fn closed(&mut self) -> CloseReason {
-        match within(self.events.recv()).await {
-            Some(ChannelEvent::Closed(reason)) => reason,
-            other => panic!("expected the connection to close, got {other:?}"),
-        }
-    }
 }
 
 async fn wait_for_phase(daemon: &DaemonHandle, phase: LifecyclePhase) {
@@ -205,6 +129,51 @@ fn assert_cleaned_up(layout: &Layout) {
         !process_file(layout).exists(),
         "the descriptor should be removed"
     );
+}
+
+struct WatchedBinary {
+    _dir: tempfile::TempDir,
+    path: PathBuf,
+}
+
+impl WatchedBinary {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().expect("a temporary binary directory");
+        let path = dir.path().join("marbles-daemon");
+        let binary = Self { _dir: dir, path };
+        binary.install(RUNNING_BINARY);
+        binary
+    }
+
+    fn install(&self, bytes: &[u8]) {
+        let staged = self.path.with_extension("staged");
+        fs::write(&staged, bytes).expect("the staged binary");
+        fs::set_permissions(&staged, fs::Permissions::from_mode(0o755)).expect("the mode");
+        fs::rename(&staged, &self.path).expect("the installed binary");
+    }
+
+    fn watched(&self, options: DaemonOptions) -> DaemonOptions {
+        let watch = BinaryWatch::for_path(self.path.clone(), QUICK_STABILITY).expect("the watch");
+        options
+            .with_binary_watch(watch)
+            .with_binary_poll_interval(QUICK_POLL)
+    }
+
+    fn upgrade(&self) -> RecycleTarget {
+        self.install(UPGRADED_BINARY);
+        RecycleTarget {
+            executable: self.path.clone(),
+            previous_digest: digest_of(RUNNING_BINARY),
+            new_digest: digest_of(UPGRADED_BINARY),
+        }
+    }
+}
+
+fn digest_of(bytes: &[u8]) -> BinaryDigest {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let path = dir.path().join("bytes");
+    fs::write(&path, bytes).expect("the bytes");
+    BinaryDigest::hash_file(&path).expect("the digest")
 }
 
 fn summary(state: WorkspaceState) -> WorkspaceSummary {
@@ -591,4 +560,91 @@ async fn stopping_during_a_process_change_refuses_it_and_never_resumes_running()
     within(stopping).await.expect("the shutdown should finish");
     assert_eq!(daemon.phase(), LifecyclePhase::Stopped);
     assert_cleaned_up(&home.layout);
+}
+
+#[tokio::test]
+async fn a_changed_binary_recycles_through_a_clean_teardown() {
+    let home = home();
+    let printed = Printed::default();
+    let binary = WatchedBinary::new();
+    let daemon = started(binary.watched(options(&home.layout, &printed))).await;
+    let stalled = within(UnixStream::connect(&home.layout.socket))
+        .await
+        .expect("a connection");
+    let (reader, mut writer) = stalled.into_split();
+    writer
+        .write_all(b"{\"id\":0,\"method\":\"subscribe\",\"params\":{\"id\":\"w1\"}}\n")
+        .await
+        .expect("the subscription");
+    let mut replies = BufReader::new(reader).lines();
+    assert_eq!(
+        within(replies.next_line()).await.ok().flatten().as_deref(),
+        Some("{\"id\":0}")
+    );
+    let flood = "x".repeat(64 * 1024);
+    for _ in 0..32 {
+        daemon.publish_line("w1", flood.as_str()).await;
+    }
+
+    let target = binary.upgrade();
+    wait_for_phase(&daemon, LifecyclePhase::Recycling).await;
+
+    assert!(printed.lines().contains(&format!(
+        "[marbles] binary changed ({} -> {}); recycling",
+        target.previous_digest.short_hex(),
+        target.new_digest.short_hex()
+    )));
+    assert!(!printed.lines().contains(&"[marbles] stopping".to_owned()));
+    assert_eq!(
+        within(daemon.trigger_process_change()).await,
+        Err(ProcessChangeError::Stopping)
+    );
+    drop(replies);
+    drop(writer);
+    assert_eq!(
+        within(daemon.wait_exit()).await,
+        DaemonExit::Recycle(target)
+    );
+    assert_eq!(daemon.phase(), LifecyclePhase::Stopped);
+    assert_cleaned_up(&home.layout);
+}
+
+#[tokio::test]
+async fn a_recycle_disconnects_clients_and_frees_the_state_root_for_the_successor() {
+    let home = home();
+    let binary = WatchedBinary::new();
+    let daemon = started(binary.watched(options(&home.layout, &Printed::default()))).await;
+    let mut client = Client::connect(&home.layout.socket).await;
+
+    let target = binary.upgrade();
+
+    assert!(matches!(client.closed().await, CloseReason::Eof));
+    assert_eq!(
+        within(daemon.wait_exit()).await,
+        DaemonExit::Recycle(target)
+    );
+    within(daemon.wait_closed()).await;
+    assert_cleaned_up(&home.layout);
+    let successor = started(options(&home.layout, &Printed::default())).await;
+    assert_eq!(successor.phase(), LifecyclePhase::Running);
+    within(successor.shutdown()).await;
+    assert_eq!(within(successor.wait_exit()).await, DaemonExit::Stopped);
+}
+
+#[tokio::test]
+async fn an_untouched_binary_keeps_the_daemon_running() {
+    let home = home();
+    let printed = Printed::default();
+    let binary = WatchedBinary::new();
+    let daemon = started(binary.watched(options(&home.layout, &printed))).await;
+
+    tokio::time::sleep(QUICK_POLL * 10).await;
+
+    assert_eq!(daemon.phase(), LifecyclePhase::Running);
+    within(daemon.shutdown()).await;
+    assert_eq!(within(daemon.wait_exit()).await, DaemonExit::Stopped);
+    assert_eq!(
+        printed.lines().last().map(String::as_str),
+        Some("[marbles] stopping")
+    );
 }

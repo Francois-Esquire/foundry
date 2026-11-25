@@ -6,21 +6,28 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, MissedTickBehavior};
+use tokio::time::{Instant, Interval, MissedTickBehavior};
 
-use super::route::{Effect, View, route};
+use super::route::{Effect, Reply, Routed, View, route};
 use super::{
-    InitError, InitializeTrigger, Initializer, LifecyclePhase, OutputSink, ProcessChangeError,
+    DaemonExit, InitError, InitializeTrigger, Initializer, LifecyclePhase, OutputSink,
+    ProcessChangeError,
 };
 use crate::channel::{ChannelEvent, ChannelHandle};
 use crate::claim::ProcessClaim;
 use crate::endpoint::Endpoint;
-use crate::protocol::{ClientNotification, HelloResult, Request, WorkspaceState, WorkspaceSummary};
+use crate::generation::{Publication, SupervisedRequest, Supervisor};
+use crate::protocol::{
+    ClientNotification, DaemonRequest, HelloResult, Request, Response, WorkspaceState,
+    WorkspaceSummary,
+};
+use crate::recycle::{BinaryChange, BinaryWatch, RecycleTarget};
 
 const CLOSE_GRACE: Duration = Duration::from_secs(2);
 
 type ChangeReply = oneshot::Sender<Result<(), ProcessChangeError>>;
 type ClientId = u64;
+type Supervision = (Supervisor, mpsc::UnboundedReceiver<Publication>);
 
 #[derive(Debug)]
 pub(super) enum Command {
@@ -36,6 +43,13 @@ pub(super) enum DaemonEvent {
     Channel(ClientId, ChannelEvent),
     ClaimChecked(bool),
     Initialized(Result<(), InitError>),
+    BinaryPolled(BinaryWatch, BinaryChange),
+    GenerationsStopped,
+}
+
+pub(super) struct Intervals {
+    pub(super) claim_check: Duration,
+    pub(super) binary_poll: Duration,
 }
 
 pub(super) struct Parts {
@@ -45,8 +59,11 @@ pub(super) struct Parts {
     pub(super) initializer: Arc<dyn Initializer>,
     pub(super) output: Arc<dyn OutputSink>,
     pub(super) phase: watch::Sender<LifecyclePhase>,
+    pub(super) exit: watch::Sender<Option<DaemonExit>>,
+    pub(super) binary_watch: Option<BinaryWatch>,
     pub(super) mailbox: mpsc::Receiver<DaemonEvent>,
     pub(super) events: mpsc::Sender<DaemonEvent>,
+    pub(super) supervision: Option<Supervision>,
 }
 
 struct Client {
@@ -60,7 +77,15 @@ struct Initializing {
 }
 
 struct Stopping {
-    deadline: Instant,
+    deadline: Option<Instant>,
+    exit: DaemonExit,
+    claim_lost: bool,
+}
+
+enum StopReason {
+    Requested,
+    ClaimLost,
+    Recycle(RecycleTarget),
 }
 
 pub(super) struct Actor {
@@ -71,9 +96,15 @@ pub(super) struct Actor {
     initializer: Arc<dyn Initializer>,
     output: Arc<dyn OutputSink>,
     phase: watch::Sender<LifecyclePhase>,
+    exit: watch::Sender<Option<DaemonExit>>,
+    binary_watch: Option<BinaryWatch>,
+    binary_poll: Option<JoinHandle<()>>,
     mailbox: mpsc::Receiver<DaemonEvent>,
     events: mpsc::Sender<DaemonEvent>,
     clients: HashMap<ClientId, Client>,
+    generations: HashMap<ClientId, u64>,
+    supervisor: Option<Supervisor>,
+    published: Option<mpsc::UnboundedReceiver<Publication>>,
     next_client: ClientId,
     workspaces: BTreeMap<String, WorkspaceSummary>,
     initializing: Option<Initializing>,
@@ -83,6 +114,7 @@ pub(super) struct Actor {
 
 impl Actor {
     pub(super) fn new(parts: Parts) -> Self {
+        let (supervisor, published) = parts.supervision.unzip();
         Self {
             hello: parts.hello,
             claim: Some(parts.claim),
@@ -91,9 +123,15 @@ impl Actor {
             initializer: parts.initializer,
             output: parts.output,
             phase: parts.phase,
+            exit: parts.exit,
+            binary_watch: parts.binary_watch,
+            binary_poll: None,
             mailbox: parts.mailbox,
             events: parts.events,
             clients: HashMap::new(),
+            generations: HashMap::new(),
+            supervisor,
+            published,
             next_client: 0,
             workspaces: BTreeMap::new(),
             initializing: None,
@@ -102,19 +140,25 @@ impl Actor {
         }
     }
 
-    pub(super) async fn run(mut self, claim_check_interval: Duration) {
-        let mut watchdog = tokio::time::interval(claim_check_interval);
-        watchdog.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        watchdog.reset();
+    pub(super) async fn run(mut self, intervals: Intervals) {
+        let mut watchdog = ticker(intervals.claim_check);
+        let mut binary_ticker = ticker(intervals.binary_poll);
         while !self.drained() {
-            let deadline = self.stopping.as_ref().map(|stopping| stopping.deadline);
+            let deadline = self
+                .stopping
+                .as_ref()
+                .and_then(|stopping| stopping.deadline);
             tokio::select! {
                 event = self.mailbox.recv() => match event {
                     Some(event) => self.handle(event),
                     None => break,
                 },
+                Some(publication) = published(self.published.as_mut()) => self.published(publication),
                 accepted = accept(self.endpoint.as_ref()) => self.admit(accepted),
                 _ = watchdog.tick(), if self.stopping.is_none() => self.check_claim(),
+                _ = binary_ticker.tick(), if self.binary_watch.is_some() && self.stopping.is_none() => {
+                    self.poll_binary();
+                }
                 () = overdue(deadline) => break,
             }
         }
@@ -122,7 +166,10 @@ impl Actor {
     }
 
     fn drained(&self) -> bool {
-        self.stopping.is_some() && self.clients.is_empty()
+        self.stopping
+            .as_ref()
+            .is_some_and(|stopping| stopping.deadline.is_some())
+            && self.clients.is_empty()
     }
 
     fn handle(&mut self, event: DaemonEvent) {
@@ -131,12 +178,14 @@ impl Actor {
             DaemonEvent::Channel(client, event) => self.hear(client, event),
             DaemonEvent::ClaimChecked(held) => self.claim_checked(held),
             DaemonEvent::Initialized(result) => self.initialized(result),
+            DaemonEvent::BinaryPolled(watch, change) => self.binary_polled(watch, change),
+            DaemonEvent::GenerationsStopped => self.close_down(),
         }
     }
 
     fn obey(&mut self, command: Command) {
         match command {
-            Command::Shutdown => self.stop(false),
+            Command::Shutdown => self.stop(StopReason::Requested),
             Command::ProcessChange(reply) => self.change_process(reply),
             Command::PublishWorkspace(summary) => self.publish_workspace(summary),
             Command::PublishLine { workspace, line } => self.publish_line(&workspace, &line),
@@ -171,6 +220,10 @@ impl Actor {
     }
 
     fn hear(&mut self, client: ClientId, event: ChannelEvent) {
+        if let Some(&number) = self.generations.get(&client) {
+            self.hear_generation(client, number, event);
+            return;
+        }
         match event {
             ChannelEvent::Request(request) => self.answer(client, request),
             ChannelEvent::Notification(_) => {}
@@ -183,6 +236,20 @@ impl Actor {
         }
     }
 
+    fn hear_generation(&mut self, client: ClientId, number: u64, event: ChannelEvent) {
+        let Some(supervisor) = &self.supervisor else {
+            return;
+        };
+        match event {
+            ChannelEvent::Request(request) => supervisor.refuse_request(number, &request),
+            ChannelEvent::Notification(notification) => supervisor.notified(number, notification),
+            ChannelEvent::Closed(reason) => {
+                self.generations.remove(&client);
+                supervisor.disconnected(number, &reason);
+            }
+        }
+    }
+
     fn answer(&mut self, client: ClientId, request: Request) {
         let routed = route(
             request,
@@ -190,12 +257,20 @@ impl Actor {
                 hello: &self.hello,
                 workspaces: &self.workspaces,
                 stopping: self.stopping.is_some(),
+                supervised: self.supervisor.is_some(),
             },
         );
+        match routed {
+            Routed::Reply(reply) => self.reply(client, reply),
+            Routed::Supervise(id, request) => self.supervise(client, id, request),
+        }
+    }
+
+    fn reply(&mut self, client: ClientId, reply: Reply) {
         let Some(asker) = self.clients.get_mut(&client) else {
             return;
         };
-        match &routed.effect {
+        match &reply.effect {
             Effect::Subscribe(workspace) => {
                 asker.subscriptions.insert(workspace.clone());
             }
@@ -204,9 +279,46 @@ impl Actor {
             }
             Effect::Nothing | Effect::Shutdown => {}
         }
-        let _ = asker.channel.respond(routed.response);
-        if routed.effect == Effect::Shutdown {
-            self.stop(false);
+        let _ = asker.channel.respond(reply.response);
+        if reply.effect == Effect::Shutdown {
+            self.stop(StopReason::Requested);
+        }
+    }
+
+    fn supervise(&mut self, client: ClientId, id: u64, request: DaemonRequest) {
+        let (Some(supervisor), Some(asker)) = (&self.supervisor, self.clients.get(&client)) else {
+            return;
+        };
+        let channel = asker.channel.clone();
+        let request = match SupervisedRequest::from_request(request) {
+            Ok(request) => request,
+            Err(DaemonRequest::Register(params)) => {
+                if let Some(number) = supervisor.register(id, &params.token, &channel) {
+                    self.clients.remove(&client);
+                    self.generations.insert(client, number);
+                }
+                return;
+            }
+            Err(_) => return,
+        };
+        let supervisor = supervisor.clone();
+        tokio::spawn(async move {
+            let response = match supervisor.answer(request).await {
+                Ok(Some(result)) => Response::ok(id, result),
+                Ok(None) => Response::empty(id),
+                Err(error) => Response::err(id, error),
+            };
+            let _ = channel.respond(response);
+        });
+    }
+
+    fn published(&mut self, publication: Publication) {
+        match publication {
+            Publication::Workspace(summary) => self.publish_workspace(summary),
+            Publication::Line { workspace, line } => self.publish_line(&workspace, &line),
+            Publication::Withdrawn(id) => {
+                self.workspaces.remove(&id);
+            }
         }
     }
 
@@ -311,20 +423,92 @@ impl Actor {
     fn claim_checked(&mut self, held: bool) {
         if !held && self.stopping.is_none() {
             self.print("[marbles] the claim at the state root is gone; stopping");
-            self.stop(true);
+            self.stop(StopReason::ClaimLost);
         }
     }
 
-    fn stop(&mut self, claim_lost: bool) {
+    fn poll_binary(&mut self) {
+        let Some(mut watch) = self.binary_watch.take() else {
+            return;
+        };
+        let mailbox = self.events.clone();
+        self.binary_poll = Some(tokio::spawn(async move {
+            let polled = tokio::task::spawn_blocking(move || {
+                let change = watch.poll();
+                (watch, change)
+            })
+            .await;
+            if let Ok((watch, change)) = polled {
+                let _ = mailbox.send(DaemonEvent::BinaryPolled(watch, change)).await;
+            }
+        }));
+    }
+
+    fn binary_polled(&mut self, watch: BinaryWatch, change: BinaryChange) {
         if self.stopping.is_some() {
             return;
         }
+        match change {
+            BinaryChange::Ready(target) => self.stop(StopReason::Recycle(target)),
+            BinaryChange::Unchanged | BinaryChange::Pending => self.binary_watch = Some(watch),
+        }
+    }
+
+    fn stop(&mut self, reason: StopReason) {
+        if self.stopping.is_some() {
+            return;
+        }
+        let claim_lost = matches!(reason, StopReason::ClaimLost);
+        let (phase, announcement, exit) = match reason {
+            StopReason::Requested | StopReason::ClaimLost => (
+                LifecyclePhase::Stopping,
+                "[marbles] stopping".to_owned(),
+                DaemonExit::Stopped,
+            ),
+            StopReason::Recycle(target) => (
+                LifecyclePhase::Recycling,
+                format!(
+                    "[marbles] binary changed ({} -> {}); recycling",
+                    target.previous_digest.short_hex(),
+                    target.new_digest.short_hex()
+                ),
+                DaemonExit::Recycle(target),
+            ),
+        };
+        let graceful = !matches!(exit, DaemonExit::Recycle(_));
         self.stopping = Some(Stopping {
-            deadline: Instant::now() + CLOSE_GRACE,
+            deadline: None,
+            exit,
+            claim_lost,
         });
-        self.phase.send_replace(LifecyclePhase::Stopping);
-        self.print("[marbles] stopping");
+        self.phase.send_replace(phase);
+        self.print(&announcement);
         self.refuse_process_changes();
+        match self.supervisor.clone() {
+            Some(supervisor) if graceful => {
+                let mailbox = self.events.clone();
+                tokio::spawn(async move {
+                    supervisor.shutdown().await;
+                    let _ = mailbox.send(DaemonEvent::GenerationsStopped).await;
+                });
+            }
+            Some(supervisor) => {
+                supervisor.orphan();
+                self.close_down();
+            }
+            None => self.close_down(),
+        }
+    }
+
+    fn close_down(&mut self) {
+        let Some(stopping) = self.stopping.as_mut() else {
+            return;
+        };
+        if stopping.deadline.is_some() {
+            return;
+        }
+        stopping.deadline = Some(Instant::now() + CLOSE_GRACE);
+        let claim_lost = stopping.claim_lost;
         self.stop_workspaces();
         for client in self.clients.values() {
             client.channel.close();
@@ -378,12 +562,20 @@ impl Actor {
         if let Some(check) = self.claim_check.take() {
             let _ = check.await;
         }
+        if let Some(poll) = self.binary_poll.take() {
+            let _ = poll.await;
+        }
         if let Some(endpoint) = self.endpoint.take() {
             endpoint.close();
         }
         if let Some(claim) = self.claim.take() {
             let _ = tokio::task::spawn_blocking(move || drop(claim)).await;
         }
+        let exit = self
+            .stopping
+            .take()
+            .map_or(DaemonExit::Stopped, |stopping| stopping.exit);
+        self.exit.send_replace(Some(exit));
         self.phase.send_replace(LifecyclePhase::Stopped);
     }
 
@@ -392,11 +584,27 @@ impl Actor {
     }
 }
 
+fn ticker(period: Duration) -> Interval {
+    let mut ticker = tokio::time::interval(period);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    ticker.reset();
+    ticker
+}
+
 async fn accept(
     endpoint: Option<&Endpoint>,
 ) -> io::Result<(ChannelHandle, mpsc::Receiver<ChannelEvent>)> {
     match endpoint {
         Some(endpoint) => endpoint.accept().await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn published(
+    published: Option<&mut mpsc::UnboundedReceiver<Publication>>,
+) -> Option<Publication> {
+    match published {
+        Some(published) => published.recv().await,
         None => std::future::pending().await,
     }
 }
