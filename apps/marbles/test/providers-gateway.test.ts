@@ -471,7 +471,7 @@ it("lists the gateway's models for definitions called outside a run", async () =
   } finally {
     machine.close();
   }
-  vi.stubEnv("FOUNDRY_HOME", home);
+  vi.stubEnv("FOUNDRY_ROOT", home);
   vi.stubEnv("GW_KEY", "secret");
   defineProvider(gatewayPlugin);
   try {

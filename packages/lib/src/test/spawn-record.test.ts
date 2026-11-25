@@ -27,6 +27,7 @@ import {
   recordSpawned,
   SPAWN_OWNER_ENV,
   SPAWN_RECORD_ENV,
+  spawnRecordEnvironment,
   writePrivate,
 } from "../node/spawn-record";
 
@@ -48,13 +49,16 @@ function scratch(): string {
 
 it("does nothing when no directory is named", () => {
   const spawned = vi.spyOn(process.stderr, "write");
-  recordSpawned(process.pid, false, { env: {} });
+  recordSpawned(process.pid, false, { env: {}, recovery: false });
   expect(spawned).not.toHaveBeenCalled();
 });
 
 it("writes a private record of the process, making the directory private if it is missing", () => {
   const dir = join(scratch(), "a", "b");
-  recordSpawned(process.pid, true, { env: { [SPAWN_RECORD_ENV]: dir } });
+  recordSpawned(process.pid, true, {
+    env: { [SPAWN_RECORD_ENV]: dir },
+    recovery: false,
+  });
   const path = join(dir, `${String(process.pid)}.json`);
   expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
     group: true,
@@ -74,10 +78,16 @@ it("refuses a directory open to others, and a path that is not a directory, with
   writeFileSync(file, "a file");
   const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
   expect(() =>
-    recordSpawned(process.pid, false, { env: { [SPAWN_RECORD_ENV]: shared } })
+    recordSpawned(process.pid, false, {
+      env: { [SPAWN_RECORD_ENV]: shared },
+      recovery: false,
+    })
   ).not.toThrow();
   expect(() =>
-    recordSpawned(process.pid, false, { env: { [SPAWN_RECORD_ENV]: file } })
+    recordSpawned(process.pid, false, {
+      env: { [SPAWN_RECORD_ENV]: file },
+      recovery: false,
+    })
   ).not.toThrow();
   expect(readdirSync(shared)).toEqual([]);
   expect(readFileSync(file, "utf8")).toBe("a file");
@@ -90,7 +100,10 @@ it("never writes through a link planted where the record goes", () => {
   writeFileSync(victim, "untouched");
   symlinkSync(victim, join(dir, `${String(process.pid)}.json`));
   symlinkSync(victim, join(dir, `${String(process.pid)}.json.new`));
-  recordSpawned(process.pid, false, { env: { [SPAWN_RECORD_ENV]: dir } });
+  recordSpawned(process.pid, false, {
+    env: { [SPAWN_RECORD_ENV]: dir },
+    recovery: false,
+  });
   expect(readFileSync(victim, "utf8")).toBe("untouched");
   const path = join(dir, `${String(process.pid)}.json`);
   expect(lstatSync(path).isFile()).toBe(true);
@@ -115,7 +128,10 @@ it("records nothing for a child that has already gone", async () => {
   const dir = scratch();
   const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
   await new Promise((settle) => child.once("exit", settle));
-  recordSpawned(child.pid, false, { env: { [SPAWN_RECORD_ENV]: dir } });
+  recordSpawned(child.pid, false, {
+    env: { [SPAWN_RECORD_ENV]: dir },
+    recovery: false,
+  });
   expect(readdirSync(dir)).toEqual([]);
 });
 
@@ -123,6 +139,12 @@ const PID = 4_200_090;
 const GONE = { group: false, pid: PID, started: "ps:Sun Nov 15 08:00:00 2026" };
 const SINCE = { ...GONE, started: "ps:Sun Nov 15 09:00:00 2026" };
 const NEWER = { ...GONE, started: "ps:Sun Nov 15 10:00:00 2026" };
+
+function recoveryRoot(): string {
+  const root = scratch();
+  vi.stubEnv("FOUNDRY_ROOT", root);
+  return join(root, "processes");
+}
 
 function startsIn(dir: string): string[] {
   return readdirSync(dir)
@@ -196,9 +218,9 @@ it("forgets a record only if what it removes names the process that is gone, whe
 });
 
 it("keeps, as a child exits, a recovery record that names another process", async () => {
-  const dir = scratch();
+  const dir = recoveryRoot();
   const child = spawn("sleep", ["60"], { stdio: "ignore" });
-  recordChild(child, false, { recoveryDir: dir });
+  recordChild(child);
   const path = recordPath(dir, child.pid ?? 0);
   const other = {
     ...JSON.parse(readFileSync(path, "utf8")),
@@ -213,9 +235,9 @@ it("keeps, as a child exits, a recovery record that names another process", asyn
 });
 
 it("reports, and keeps, the recovery record of an exited child it cannot remove", async () => {
-  const dir = scratch();
+  const dir = recoveryRoot();
   const child = spawn("sleep", ["60"], { stdio: "ignore" });
-  recordChild(child, false, { recoveryDir: dir });
+  recordChild(child);
   const path = recordPath(dir, child.pid ?? 0);
   const stderr = vi
     .spyOn(process.stderr, "write")
@@ -246,6 +268,7 @@ it("reports, and writes no record of, a process the listing leaves out while a s
     fresh.recordSpawned(4_200_190, false, {
       env: { [SPAWN_RECORD_ENV]: dir },
       lookup: { alive: () => true, look: () => new Map() },
+      recovery: false,
     });
   } finally {
     written = stderr.mock.calls.flat().join("");
@@ -253,4 +276,49 @@ it("reports, and writes no record of, a process the listing leaves out while a s
   }
   expect(readdirSync(dir)).toEqual([]);
   expect(written).toContain("not listed, yet a signal reaches it");
+});
+
+it("records for recovery under the root its environment names", () => {
+  const root = scratch();
+  recordSpawned(process.pid, false, {
+    env: { FOUNDRY_ROOT: `${root}/`, VITEST: "true" },
+  });
+  const path = recordPath(join(root, "processes"), process.pid);
+  expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+    owner: { pid: process.pid },
+    pid: process.pid,
+  });
+});
+
+it("records nothing for recovery when told not to, or under a test runner with no root", () => {
+  const root = scratch();
+  recordSpawned(process.pid, false, {
+    env: { FOUNDRY_ROOT: root },
+    recovery: false,
+  });
+  expect(readdirSync(root)).toEqual([]);
+  const lookup = vi.fn(() => new Map());
+  recordSpawned(process.pid, false, {
+    env: { VITEST: "true" },
+    lookup: { alive: () => true, look: lookup },
+  });
+  expect(lookup).not.toHaveBeenCalled();
+});
+
+it("records under the user's Foundry directory outside a test runner", async () => {
+  vi.resetModules();
+  const home = scratch();
+  vi.stubEnv("HOME", home);
+  const fresh = await import("../node/spawn-record");
+  fresh.recordSpawned(process.pid, false, { env: {} });
+  expect(readdirSync(join(home, ".foundry", "processes"))).toEqual([
+    `${String(process.pid)}.json`,
+  ]);
+});
+
+it("carries the Foundry root into a filtered child environment", () => {
+  expect(
+    spawnRecordEnvironment({ FOUNDRY_ROOT: "/srv/foundry", PATH: "/bin" })
+  ).toEqual({ FOUNDRY_ROOT: "/srv/foundry" });
+  expect(spawnRecordEnvironment({ FOUNDRY_ROOT: "" })).toEqual({});
 });

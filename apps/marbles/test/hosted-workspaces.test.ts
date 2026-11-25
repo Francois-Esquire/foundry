@@ -625,7 +625,7 @@ it("recovers each workspace on its own start, leaving what another workspace in 
 `
   );
   const b = await workspace(root, "beta");
-  const spawned = join(root, "spawned");
+  const { spawned } = home.layout;
   const state = join(root, "state");
   const script = join(root, "recovering.ts");
   await writeFile(

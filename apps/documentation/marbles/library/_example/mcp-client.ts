@@ -31,7 +31,7 @@ export async function countOverMcp(
               (entry): entry is [string, string] => entry[1] !== undefined
             )
           ),
-          FOUNDRY_HOME: options.home,
+          FOUNDRY_ROOT: options.home,
         };
   const client = new Client({ name: "count-example", version: "0.0.0" });
   await client.connect(

@@ -11,8 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { thisProcess } from "@foundry/lib/node/process-identity";
-import { configureSpawnRecovery } from "@foundry/lib/node/spawn-record";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { claudeCodeProvider } from "../node/claude-code";
 import { codexProvider } from "../node/codex";
 import { silentExecutable } from "./helpers/env-dump";
@@ -23,7 +22,7 @@ const CALL = {
 const made: string[] = [];
 
 afterEach(() => {
-  configureSpawnRecovery(undefined);
+  vi.unstubAllEnvs();
   for (const dir of made.splice(0)) {
     rmSync(dir, { force: true, recursive: true });
   }
@@ -37,7 +36,7 @@ function scratch(): string {
 
 it("records the CLI a call starts, forgets it once it exits, and keeps its stderr in the call's error", async () => {
   const dir = scratch();
-  const records = join(dir, "spawned");
+  const records = join(dir, "processes");
   const go = join(dir, "go");
   const bin = join(dir, "cli");
   writeFileSync(
@@ -50,7 +49,7 @@ wait();
 `
   );
   chmodSync(bin, 0o755);
-  configureSpawnRecovery(records);
+  vi.stubEnv("FOUNDRY_ROOT", dir);
   const provider = claudeCodeProvider({
     config: { defaultSettings: { pathToClaudeCodeExecutable: bin } },
     env: { HOME: process.env.HOME ?? "", PATH: process.env.PATH ?? "" },
@@ -85,10 +84,10 @@ wait();
 
 it("records the Codex app-server a call starts, once, and forgets it once it exits", async () => {
   const dir = scratch();
-  const records = join(dir, "spawned");
+  const records = join(dir, "processes");
   const cli = silentExecutable();
   made.push(dirname(cli.bin));
-  configureSpawnRecovery(records);
+  vi.stubEnv("FOUNDRY_ROOT", dir);
   const provider = codexProvider({
     config: { available: true, binPath: cli.bin },
     env: { HOME: process.env.HOME ?? "", PATH: process.env.PATH ?? "" },

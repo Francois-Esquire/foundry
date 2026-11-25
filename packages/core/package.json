@@ -16,6 +16,11 @@
       "import": "./src/pagination.ts",
       "default": "./src/pagination.ts"
     },
+    "./paths": {
+      "types": "./dist/paths.d.ts",
+      "import": "./src/paths.ts",
+      "default": "./src/paths.ts"
+    },
     "./storage": {
       "types": "./dist/storage.d.ts",
       "import": "./src/storage.ts",

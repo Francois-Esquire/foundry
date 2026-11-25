@@ -115,10 +115,10 @@ workspaces under the Foundry home; it needs neither the enqueuing process's
 working directory nor `--source`. It imports no authoring modules and
 starts no engine. Multiple watchers can follow the same run.
 
-Use the same `FOUNDRY_HOME` as the owner when it is moved:
+Use the same `FOUNDRY_ROOT` as the owner when it is moved:
 
 ```sh
-FOUNDRY_HOME=/path/to/home marbles watch <runId>
+FOUNDRY_ROOT=/path/to/home marbles watch <runId>
 ```
 
 Exit codes are 0 for completion, 1 for failure, cancellation, missing output,
@@ -200,8 +200,9 @@ from the dashboard, where the question can be answered as it comes.
 | `--dry-run` | Off | Host the workspace in this process, echo agent turns, git mutations, and sandbox commands instead of running them, and write no state: reading the Marbles database may create or update its SQLite side files (`marbles.db-shm`, `marbles.db-wal`), and nothing else is written. Never touches the Marbles process. `mcp` hosts nothing under it. `enqueue`, `init`, every `daemon` action, `theme <name>`, `artifacts relink`, and `share` and `unshare` under any resource refuse it before anything is opened or written. See [safety and limits](/marbles/reference/safety). |
 | `--recheck-providers` | Off | Show provider discovery again when opening the live dashboard in a terminal. Keeps any existing provider configuration. Only `marbles` with no command takes it, and not under `--dry-run`: anywhere else it fails with `--recheck-providers requires a live dashboard`. |
 
-`FOUNDRY_HOME` moves the whole home (default `~/.foundry`): the state root,
-the Marbles database, the artifact store, and the process socket under it.
+`FOUNDRY_ROOT` moves the whole home (default `~/.foundry`): the state root,
+the Marbles database, the artifact store, the process socket, and the
+process recovery records (`processes/`) under it.
 Nothing moves on its own, and no flag moves it. Each home has its own
 Marbles process. Workers inherit the environment of the Marbles process,
 not of the command that attached them.
@@ -341,7 +342,7 @@ moves to the first row still shown.
 ### Settings and local diagnostics
 
 Settings are global: `settings.json` at the state root
-(`~/.foundry/marbles/settings.json`, under `FOUNDRY_HOME` when set). A missing
+(`~/.foundry/marbles/settings.json`, under `FOUNDRY_ROOT` when set). A missing
 file or key uses the default theme, `dark`. A value Marbles does not know, or
 a file it cannot read, falls back to the default and is named in the Settings
 panel; Marbles does not overwrite a file it cannot read. Saving keeps keys it

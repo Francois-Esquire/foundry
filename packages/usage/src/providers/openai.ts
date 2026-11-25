@@ -35,7 +35,7 @@ const FOREIGN_AUTH = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_HOME"];
 const spawnCodex: SpawnCodex = (command, args, options) => {
   const child = nodeSpawn(command, args, {
     ...options,
-    env: { ...options.env, ...spawnRecordEnvironment() },
+    env: { ...spawnRecordEnvironment(), ...options.env },
     stdio: "pipe",
   });
   recordChild(child);

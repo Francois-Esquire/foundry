@@ -29,7 +29,7 @@ examples; create and choose directories appropriate for the account:
 ```sh
 cd /srv/my-project
 marbles list
-export FOUNDRY_HOME=/srv/foundry
+export FOUNDRY_ROOT=/srv/foundry
 marbles run inventory
 marbles </dev/null
 ```
@@ -57,7 +57,7 @@ it does not resume an interrupted running step. A scheduler that invokes
 relaunching.
 
 State is scoped to the canonical workspace path. Changing that path changes
-the workspace ID, even with the same `FOUNDRY_HOME`. Everything Marbles
+the workspace ID, even with the same `FOUNDRY_ROOT`. Everything Marbles
 keeps is under that home. Preserve it when continuity matters, and stop
 active processes before moving it. The run snapshots from
 [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),

@@ -27,7 +27,6 @@ import {
   workspaceIdSchema,
 } from "~/process/protocol";
 import { envFilesLoaded } from "~/process/runtime";
-import { configureSpawnRecovery } from "~/process/spawned";
 import { dispatchSchema } from "~/workspace/dispatch";
 import type { GenerationHost, WorkspaceHost } from "~/workspace/host";
 import type { StagedWorkspaces, WorkspaceLoad } from "~/workspace/hosted";
@@ -271,7 +270,6 @@ async function main(): Promise<void> {
   };
 
   const open = async (): Promise<HostedWorkspaces> => {
-    configureSpawnRecovery(args.dry ? undefined : args.spawned);
     hosted ??= await HostedWorkspaces.open({
       artifacts: args.artifacts,
       askable: true,
@@ -289,7 +287,7 @@ async function main(): Promise<void> {
           root,
         });
       },
-      spawned: args.spawned,
+      ...(args.dry ? {} : { spawned: args.spawned }),
       state: args.state,
     });
     return hosted;

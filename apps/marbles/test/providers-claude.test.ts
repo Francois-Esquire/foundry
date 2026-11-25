@@ -8,10 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  configureSpawnRecovery,
-  recordPath,
-} from "@foundry/lib/node/spawn-record";
+import { recordPath } from "@foundry/lib/node/spawn-record";
 import { Models } from "@foundry/models";
 import { expect, it, vi } from "vitest";
 import { initializeDatabase } from "~/database/open";
@@ -124,10 +121,9 @@ it("loads scoped Claude Code catalogs and uses the reported or configured defaul
 it("records the owned Claude Code listing process and stops it when aborted", async () => {
   const root = mkdtempSync(join(tmpdir(), "claude-abort-"));
   const home = join(root, "account");
-  const records = join(root, "records");
+  const records = join(root, "processes");
   mkdirSync(home);
-  mkdirSync(records, { mode: 0o700 });
-  configureSpawnRecovery(records);
+  vi.stubEnv("FOUNDRY_ROOT", root);
   writeFileSync(join(home, "models.json"), JSON.stringify("hang"));
   const pidFile = join(home, "listing.pid");
   const controller = new AbortController();
@@ -156,7 +152,7 @@ it("records the owned Claude Code listing process and stops it when aborted", as
     expect(() => process.kill(pid, 0)).toThrow();
   } finally {
     controller.abort();
-    configureSpawnRecovery(undefined);
+    vi.unstubAllEnvs();
     rmSync(root, { force: true, recursive: true });
   }
 });

@@ -471,7 +471,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         detached: true,
         env: {
           ...process.env,
-          FOUNDRY_HOME: layout.home,
+          FOUNDRY_ROOT: layout.home,
         },
         stdio: ["ignore", "pipe", "pipe"],
       }
@@ -533,7 +533,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       lines((line) => print(`${prefix} ${line}`))
     );
     generations.add(generation);
-    recordSpawned(child.pid, true, { recoveryDir: null });
+    recordSpawned(child.pid, true, { recovery: false });
     return generation;
   }
 

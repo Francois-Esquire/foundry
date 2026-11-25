@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@foundry/artifacts": "workspace:*",
+    "@foundry/core": "workspace:*",
     "@foundry/modules": "workspace:*",
     "@foundry/sandbox": "workspace:*",
     "@orpc/client": "1.15.4",

@@ -210,7 +210,7 @@ function startDetachedDaemon(options: ConnectOptions): void {
       [...RUNTIME_FLAGS, options.cliEntry ?? cliEntry(), "daemon"],
       {
         detached: true,
-        env: { ...process.env, FOUNDRY_HOME: layout.home },
+        env: { ...process.env, FOUNDRY_ROOT: layout.home },
         stdio: ["ignore", log, log],
       }
     );
@@ -218,7 +218,7 @@ function startDetachedDaemon(options: ConnectOptions): void {
     closeSync(log);
   }
   child.unref();
-  recordSpawned(child.pid, true, { recoveryDir: null });
+  recordSpawned(child.pid, true, { recovery: false });
 }
 
 interface Opened {

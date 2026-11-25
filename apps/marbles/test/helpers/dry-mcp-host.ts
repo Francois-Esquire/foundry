@@ -4,8 +4,8 @@ import { createMcpServer } from "~/mcp/server";
 import { hostWorkspace } from "~/workspace/host";
 
 const [source] = process.argv.slice(2);
-if (source === undefined || process.env.FOUNDRY_HOME === undefined) {
-  throw new Error("usage: FOUNDRY_HOME=<dir> bun dry-mcp-host.ts <source>");
+if (source === undefined || process.env.FOUNDRY_ROOT === undefined) {
+  throw new Error("usage: FOUNDRY_ROOT=<dir> bun dry-mcp-host.ts <source>");
 }
 const { artifacts, state } = layout();
 const host = await hostWorkspace({

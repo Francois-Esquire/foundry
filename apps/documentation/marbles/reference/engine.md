@@ -270,7 +270,7 @@ without the CLI: `hostWorkspace` finds the source, snapshots the process environ
 imports the modules, builds and starts the engine, and returns a
 `WorkspaceHost`: the `WorkspaceConnection` the dashboard, the CLI, and the
 MCP server are written against, plus the engine itself. `layout` decides
-where state and artifacts live (`FOUNDRY_HOME`, else `~/.foundry`).
+where state and artifacts live (`FOUNDRY_ROOT`, else `~/.foundry`).
 
 ```ts
 import type { ProcessInstance } from "@foundry.sh/marbles/process";

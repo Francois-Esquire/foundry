@@ -1,5 +1,10 @@
 import { homedir } from "node:os";
 import path from "node:path";
+import {
+  FOUNDRY_ROOT_DIR,
+  FOUNDRY_ROOT_ENV,
+  resolveFoundryPaths,
+} from "@foundry/core/paths";
 import { app, BrowserWindow } from "electron";
 import { registerRpcTransport } from "./api/transport";
 import { ModuleBuilds } from "./modules/builds/controller";
@@ -23,7 +28,12 @@ app
   .then(async () => {
     const vault = await openAppVault(app.getPath("userData"));
     const userData = app.getPath("userData");
-    const moduleRoot = path.join(homedir(), ".foundry", "modules");
+    const { modules: moduleRoot } = resolveFoundryPaths(
+      path.resolve(
+        process.env[FOUNDRY_ROOT_ENV] || path.join(homedir(), FOUNDRY_ROOT_DIR)
+      ),
+      path.sep
+    );
     const { library: modules, store } = await openLocalModuleLibrary(
       moduleRoot,
       userData

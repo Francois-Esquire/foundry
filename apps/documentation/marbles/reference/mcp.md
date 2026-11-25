@@ -66,7 +66,7 @@ starts the next generation, which takes over once it has loaded. The
 workspace's schedules and monitors run in the current generation, never in
 the server.
 
-The server also accepts `--dry-run`, and keeps everything under the Foundry home `FOUNDRY_HOME` names, as the [CLI](/marbles/reference/cli#flags) does.
+The server also accepts `--dry-run`, and keeps everything under the Foundry home `FOUNDRY_ROOT` names, as the [CLI](/marbles/reference/cli#flags) does.
 Diagnostics go to stderr; stdout carries MCP messages only. The server
 runs in a child process whose stdout is stderr, so whatever it and the
 processes it starts print to stdout goes to stderr too.
@@ -146,7 +146,7 @@ bun --no-env-file apps/marbles/src/cli.ts watch <runId>
 The watcher replays earlier output, follows new output, prints the result
 and terminal status, then exits. A run still waiting in its pool has no
 output yet; the watcher says so and waits for it to start. It needs no source path and can run from
-another working directory. If you set `FOUNDRY_HOME` for the MCP server,
+another working directory. If you set `FOUNDRY_ROOT` for the MCP server,
 set the same for the watcher. See [watching runs](/marbles/reference/cli#enqueue-and-watch-a-background-run)
 for exit codes and interruption behavior.
 

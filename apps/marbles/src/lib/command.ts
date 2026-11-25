@@ -96,7 +96,7 @@ function onHost(
     recordChild(
       child,
       false,
-      site.spawned === undefined ? {} : { recoveryDir: site.spawned }
+      site.spawned === undefined ? { recovery: false } : {}
     );
   }).finally(() => ended?.());
 }

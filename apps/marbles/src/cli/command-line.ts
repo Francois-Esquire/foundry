@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { setSpawnRecovery } from "@foundry/lib/node/spawn-record";
 import { ReentrantCallError } from "@foundry/lib/turns";
 import { TaskError } from "@foundry/tasks";
 import type { Hosted, TaskRunner } from "~/access/workspace";
@@ -114,7 +115,7 @@ Flags:
 One Marbles process per machine hosts every attached workspace, all in one engine
 process it replaces on a source edit, and keeps their triggers running after the dashboard
 closes; marbles, run and enqueue start it when none runs. Everything lives under the Foundry
-home ($FOUNDRY_HOME, else ~/.foundry): every workspace's record, tasks, agent sessions, runs,
+home ($FOUNDRY_ROOT, else ~/.foundry): every workspace's record, tasks, agent sessions, runs,
 providers and the rest in marbles/marbles.db; each workspace (the project above
 .foundry/marbles) gets marbles/<id>/ for its run output and worktrees; artifact files are
 under artifacts/. Each resource (run, session, artifact, sandbox) belongs to the workspace
@@ -709,6 +710,9 @@ export async function main(entry: string): Promise<void> {
     return;
   }
   const interactive = process.stdout.isTTY && process.stdin.isTTY;
+  if (args.dry) {
+    setSpawnRecovery(false);
+  }
   try {
     if (args.recheckProviders && !interactive) {
       throw new UsageError("--recheck-providers requires a terminal");
@@ -743,6 +747,9 @@ export async function main(entry: string): Promise<void> {
     process.stderr.write(`marbles: ${error.message}\n`);
     process.exitCode = 1;
   } finally {
+    if (args.dry) {
+      setSpawnRecovery(true);
+    }
     await disposeDefaultRuntime().catch((error: unknown) => {
       process.stderr.write(`marbles: ${String(error)}\n`);
     });

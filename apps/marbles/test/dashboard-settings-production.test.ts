@@ -139,7 +139,7 @@ let running: Promise<void> | undefined;
 async function useHome(providers: boolean) {
   dir = await mkdtemp(join(tmpdir(), "marbles-settings-production-"));
   const home = testHome({ providers });
-  vi.stubEnv("FOUNDRY_HOME", home.path);
+  vi.stubEnv("FOUNDRY_ROOT", home.path);
   vi.stubEnv(SPAWN_RECORD_ENV, home.env[SPAWN_RECORD_ENV]);
   ({ state } = home.layout);
   captured.updates.length = 0;

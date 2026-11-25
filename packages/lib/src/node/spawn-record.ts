@@ -16,7 +16,19 @@ import {
   rmSync,
   writeSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { homedir } from "node:os";
+import {
+  basename,
+  dirname,
+  join,
+  resolve as resolvePath,
+  sep,
+} from "node:path";
+import {
+  FOUNDRY_ROOT_DIR,
+  FOUNDRY_ROOT_ENV,
+  resolveFoundryPaths,
+} from "@foundry/core/paths";
 import {
   compareStarts,
   groupIdTaken,
@@ -44,25 +56,30 @@ export const SPAWN_OWNER_ENV = "FOUNDRY_TEST_SPAWN_OWNER";
 export interface SpawnRecordOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly lookup?: ProcessLookup;
-  readonly recoveryDir?: string | null;
+  readonly recovery?: boolean;
 }
 
-let configuredRecoveryDir: string | undefined;
+let recoveryEnabled = true;
 
-export function configureSpawnRecovery(directory: string | undefined): void {
-  configuredRecoveryDir = named(directory);
+export function setSpawnRecovery(enabled: boolean): void {
+  recoveryEnabled = enabled;
 }
 
-export function spawnRecoveryDirectory(): string | undefined {
-  return configuredRecoveryDir;
-}
-
-function recoveryOf(
-  recoveryDir: string | null | undefined
-): string | undefined {
-  return recoveryDir === null
-    ? undefined
-    : named(recoveryDir ?? configuredRecoveryDir);
+function recoveryOf({
+  env = process.env,
+  recovery = true,
+}: Pick<SpawnRecordOptions, "env" | "recovery">): string | undefined {
+  if (!(recovery && recoveryEnabled)) {
+    return;
+  }
+  let root = named(env[FOUNDRY_ROOT_ENV]);
+  if (root === undefined) {
+    if (named(env.VITEST) !== undefined) {
+      return;
+    }
+    root = join(homedir(), FOUNDRY_ROOT_DIR);
+  }
+  return resolveFoundryPaths(resolvePath(root), sep).processes;
 }
 
 const CREATE =
@@ -78,7 +95,7 @@ export function spawnRecordEnvironment(
   env: Readonly<Record<string, string | undefined>> = process.env
 ): Record<string, string> {
   const carried: Record<string, string> = {};
-  for (const name of [SPAWN_RECORD_ENV, SPAWN_OWNER_ENV]) {
+  for (const name of [SPAWN_RECORD_ENV, SPAWN_OWNER_ENV, FOUNDRY_ROOT_ENV]) {
     const value = env[name];
     if (value !== undefined && value !== "") {
       carried[name] = value;
@@ -126,7 +143,7 @@ function recordInto(
 ): string | undefined {
   const { env = process.env, lookup = RECORD_LOOKUP } = options;
   const all = named(env[SPAWN_RECORD_ENV]);
-  const recovery = recoveryOf(options.recoveryDir);
+  const recovery = recoveryOf(options);
   if ((all === undefined && recovery === undefined) || pid === undefined) {
     return;
   }
@@ -148,7 +165,7 @@ export function recordChild(
   options: SpawnRecordOptions = {}
 ): void {
   const started = recordInto(child.pid, group, options);
-  const recovery = recoveryOf(options.recoveryDir);
+  const recovery = recoveryOf(options);
   const { pid } = child;
   if (recovery !== undefined && pid !== undefined && started !== undefined) {
     child.once("exit", () => {
@@ -181,7 +198,7 @@ export interface RecordGroupOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly graceMs?: number;
   readonly killMs?: number;
-  readonly recoveryDir?: string | null;
+  readonly recovery?: boolean;
   readonly signal?: AbortSignal;
   readonly system?: ProcessGroupOps;
 }
@@ -210,7 +227,7 @@ export function recordGroup(
   if (pid === undefined) {
     return () => Promise.resolve({ emptied: true, saved: true });
   }
-  const recovery = recoveryOf(options.recoveryDir);
+  const recovery = recoveryOf(options);
   const system = options.system ?? PROCESS_GROUP_OPS;
   const record = recovery === undefined ? undefined : recordPath(recovery, pid);
   let reaped = false;
@@ -609,7 +626,7 @@ export function execFileRecorded(
         ...options,
         encoding: "utf8",
         ...(options.env
-          ? { env: { ...options.env, ...spawnRecordEnvironment() } }
+          ? { env: { ...spawnRecordEnvironment(), ...options.env } }
           : {}),
       },
       (error, stdout, stderr) => {

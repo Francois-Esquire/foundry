@@ -25,35 +25,35 @@ afterEach(async () => {
   await rm(state, { force: true, recursive: true });
 });
 
-function withFoundryHome(value: string | undefined, body: () => void): void {
-  const previous = process.env.FOUNDRY_HOME;
+function withFoundryRoot(value: string | undefined, body: () => void): void {
+  const previous = process.env.FOUNDRY_ROOT;
   if (value === undefined) {
-    delete process.env.FOUNDRY_HOME;
+    delete process.env.FOUNDRY_ROOT;
   } else {
-    process.env.FOUNDRY_HOME = value;
+    process.env.FOUNDRY_ROOT = value;
   }
   try {
     body();
   } finally {
     if (previous === undefined) {
-      delete process.env.FOUNDRY_HOME;
+      delete process.env.FOUNDRY_ROOT;
     } else {
-      process.env.FOUNDRY_HOME = previous;
+      process.env.FOUNDRY_ROOT = previous;
     }
   }
 }
 
 it("lives at the state root: ~/.foundry/marbles by default", () => {
-  withFoundryHome(undefined, () => {
+  withFoundryRoot(undefined, () => {
     expect(settingsPath(parseArgs([]).state)).toBe(
       join(homedir(), ".foundry", "marbles", "settings.json")
     );
   });
 });
 
-it("follows FOUNDRY_HOME", () => {
+it("follows FOUNDRY_ROOT", () => {
   const home = join(state, "home");
-  withFoundryHome(home, () => {
+  withFoundryRoot(home, () => {
     expect(settingsPath(parseArgs([]).state)).toBe(
       join(home, "marbles", "settings.json")
     );
@@ -89,7 +89,7 @@ it("falls back to the default theme for a value it does not know, and says why",
 it("lists all bundled themes and prints and saves the active theme from the CLI", () => {
   const cli = (...args: string[]) =>
     spawnSync([process.execPath, "src/cli.ts", "theme", ...args], {
-      env: { ...process.env, FOUNDRY_HOME: state },
+      env: { ...process.env, FOUNDRY_ROOT: state },
     });
   const listed = cli("list");
   expect(listed.exitCode).toBe(0);

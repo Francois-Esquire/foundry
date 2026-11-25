@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { parseArgs, UsageError } from "~/cli/args";
 
 function foundryHome(): string {
-  return process.env.FOUNDRY_HOME ?? join(homedir(), ".foundry");
+  return process.env.FOUNDRY_ROOT ?? join(homedir(), ".foundry");
 }
 
 describe("parseArgs", () => {

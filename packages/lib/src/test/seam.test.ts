@@ -33,6 +33,7 @@ describe("@foundry/lib/testing/seam", () => {
       assertWebStandardExports(CORE_DIR, [
         "./agents",
         "./pagination",
+        "./paths",
         "./storage",
         "./testing/storage",
       ])
