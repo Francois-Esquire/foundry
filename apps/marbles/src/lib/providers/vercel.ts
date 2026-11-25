@@ -1,4 +1,4 @@
-import { vercelModels, vercelProvider } from "@foundry/models/vercel";
+import { vercelModels, vercelProvider } from "@foundry/models/providers/vercel";
 import { z } from "zod";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
 

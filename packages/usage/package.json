@@ -17,6 +17,14 @@
     "./provider": {
       "types": "./src/provider.ts",
       "import": "./src/provider.ts"
+    },
+    "./providers/anthropic": {
+      "types": "./src/providers/anthropic.ts",
+      "import": "./src/providers/anthropic.ts"
+    },
+    "./providers/openai": {
+      "types": "./src/providers/openai.ts",
+      "import": "./src/providers/openai.ts"
     }
   },
   "scripts": {

@@ -18,12 +18,12 @@ vi.mock("@browser-ai/transformers-js", () => ({
   },
 }));
 
-vi.mock("../../node/local/download-trace", () => ({
+vi.mock("../../providers/local/download-trace", () => ({
   traceModelDownload: vi.fn(() => ({ finish: vi.fn(), track: vi.fn() })),
 }));
 
 const { LOCAL_DEFAULT_MODELS, LocalProvider } = await import(
-  "../../node/local"
+  "../../providers/local"
 );
 
 const upstreamId = (catalogId: string): string => {

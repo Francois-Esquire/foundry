@@ -1,6 +1,6 @@
-import type { Models, ProviderPolicy } from "./models";
-import { heldProviders } from "./models";
-import type { Provider } from "./provider";
+import type { Models, ProviderPolicy } from "../models";
+import { heldProviders } from "../models";
+import type { Provider } from "../provider";
 
 export interface AirplaneMode {
   dispose(): void;

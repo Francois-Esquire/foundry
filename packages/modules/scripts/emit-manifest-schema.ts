@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   MODULE_MANIFEST_SCHEMA_PATH,
   moduleManifestJsonSchema,
-} from "./manifest-schema";
+} from "../src/manifest-schema";
 
 await writeFile(
   path.join(

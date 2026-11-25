@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { VercelRestModel } from "../../vercel/listing";
+import type { VercelRestModel } from "../../providers/vercel/listing";
 
-import { fromVercelRest } from "../../vercel/listing";
+import { fromVercelRest } from "../../providers/vercel/listing";
 
 const TIERED: VercelRestModel = {
   context_window: 256_000,

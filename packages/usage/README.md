@@ -76,7 +76,9 @@ claude.details?.anthropic?.extraUsage;
   Web-standard root entry (`@foundry/usage`) exports `createUsage` and types
   with zero import-time side effects; `@foundry/usage/node` exports the
   pre-wired `usage` singleton, `createNodeUsage`, and the local CLI providers
-  `anthropic` and `openai`.
+  `anthropic` and `openai`. A host that wants one provider without the
+  other imports `@foundry/usage/providers/anthropic` or
+  `@foundry/usage/providers/openai`.
 
 A workflow step that waits out a weekly window:
 

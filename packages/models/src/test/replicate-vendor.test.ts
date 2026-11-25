@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { operationsOf } from "../provider";
-import { REPLICATE_DEFAULT_MODELS, replicateProvider } from "../replicate";
+import {
+  REPLICATE_DEFAULT_MODELS,
+  replicateProvider,
+} from "../providers/replicate";
 
 const TOKEN = process.env.REPLICATE_API_TOKEN;
 

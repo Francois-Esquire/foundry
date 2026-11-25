@@ -1,7 +1,7 @@
 import {
   claudeCodeModels,
   claudeCodeProvider,
-} from "@foundry/models/node/claude-code";
+} from "@foundry/models/providers/claude-code";
 import type { Bin } from "~/lib/providers/cli";
 import { BIN, guestOf, scopedCli } from "~/lib/providers/cli";
 import type { ProviderPlugin } from "~/lib/providers/plugins";

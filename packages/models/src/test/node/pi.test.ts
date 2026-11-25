@@ -2,8 +2,11 @@ import { jsonSchema, tool } from "ai";
 import type { PiSettings } from "ai-sdk-provider-pi";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
-import { type PiProviderConfig, piProvider } from "../../node/pi";
-import { createPiDriver, type PiDriverOptions } from "../../node/pi/driver";
+import { type PiProviderConfig, piProvider } from "../../providers/pi";
+import {
+  createPiDriver,
+  type PiDriverOptions,
+} from "../../providers/pi/driver";
 import { collect, runOptions } from "../helpers/fake-app-server";
 import { FakePi } from "../helpers/fake-pi";
 

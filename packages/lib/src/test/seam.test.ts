@@ -238,7 +238,7 @@ export { PrivateManager as ExposedSystem };
 });
 
 describe("@foundry/lib/testing/seam portableSubpaths", () => {
-  it("excludes only ./node, ./node/*, and ./testing/* other than ./testing/store", () => {
+  it("excludes only ./node, ./node/*, ./providers, ./providers/*, and ./testing/* other than ./testing/store", () => {
     const dir = mkdtempSync(join(tmpdir(), "seam-subpaths-"));
     tempDirs.push(dir);
     const target = { default: "./x.ts" };
@@ -248,9 +248,13 @@ describe("@foundry/lib/testing/seam portableSubpaths", () => {
         exports: {
           ".": target,
           "./adapters/node/helper": target,
+          "./adapters/providers/x": target,
           "./live/node": target,
           "./node": target,
           "./node/live": target,
+          "./provider": target,
+          "./providers": target,
+          "./providers/x": target,
           "./testing": target,
           "./testing/seam": target,
           "./testing/store": target,
@@ -261,7 +265,9 @@ describe("@foundry/lib/testing/seam portableSubpaths", () => {
     expect(portableSubpaths(dir)).toEqual([
       ".",
       "./adapters/node/helper",
+      "./adapters/providers/x",
       "./live/node",
+      "./provider",
       "./testing/store",
     ]);
   });

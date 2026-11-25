@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { FalEndpointClient } from "../../fal/client";
 import type { TransportHandlers } from "../../live/transport";
+import type { FalEndpointClient } from "../../providers/fal/client";
 
 import { target, token } from "../helpers/live-double";
 

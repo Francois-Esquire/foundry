@@ -18,12 +18,12 @@ import { createSandboxSession } from "../../src/lib/sandbox/session";
 import type { SandboxHandle } from "../../src/lib/types";
 
 const binding: { container: Container | undefined } = { container: undefined };
-vi.mock("@foundry/models/node/claude-code", () => ({
+vi.mock("@foundry/models/providers/claude-code", () => ({
   createClaudeCodeDriver: () => {
     throw new Error("CLI not expected");
   },
 }));
-vi.mock("@foundry/models/node/codex", () => ({
+vi.mock("@foundry/models/providers/codex", () => ({
   createCodexDriver: () => {
     throw new Error("CLI not expected");
   },

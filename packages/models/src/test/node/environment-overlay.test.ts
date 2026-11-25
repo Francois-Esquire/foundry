@@ -1,8 +1,8 @@
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { claudeCodeProvider } from "../../node/claude-code";
-import { codexProvider } from "../../node/codex";
-import { environmentOverlay } from "../../node/environment-overlay";
+import { claudeCodeProvider } from "../../providers/claude-code";
+import { codexProvider } from "../../providers/codex";
+import { environmentOverlay } from "../../providers/environment-overlay";
 import { envDumpExecutable } from "../helpers/env-dump";
 
 const CALL = {

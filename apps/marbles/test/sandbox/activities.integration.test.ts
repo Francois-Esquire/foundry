@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gatewayProvider } from "@foundry/models/gateway";
+import { gatewayProvider } from "@foundry/models/providers/gateway";
 import { afterEach, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { falProvider } from "../../fal";
-import type { FalFetch } from "../../fal/client";
 import type { ProviderModelDefinition } from "../../model-definition";
 import type { Provider } from "../../provider";
+import { falProvider } from "../../providers/fal";
+import type { FalFetch } from "../../providers/fal/client";
 
 const STATUS_401_PATTERN = /status 401/;
 const NO_CREDENTIALED_PROVIDER_PATTERN = /Provider "fal" is unavailable/;

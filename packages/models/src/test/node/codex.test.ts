@@ -30,8 +30,8 @@ vi.mock("ai-sdk-provider-codex-cli", () => ({ createCodexAppServer }));
 
 const CALL = { prompt: [] } as never;
 
-const { codexModels, codexProvider } = await import("../../node/codex");
-const { fromCodexListing } = await import("../../node/codex/listing");
+const { codexModels, codexProvider } = await import("../../providers/codex");
+const { fromCodexListing } = await import("../../providers/codex/listing");
 
 const env = Object.fromEntries(
   Object.entries(process.env).filter(

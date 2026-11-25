@@ -1,4 +1,4 @@
-import { modelErrors } from "../errors";
+import { modelErrors } from "../../errors";
 import type {
   Mask,
   Media,
@@ -6,7 +6,7 @@ import type {
   MediaModel,
   MediaOutput,
   SegmentationPrompt,
-} from "../media";
+} from "../../media";
 import type { FalRuntime } from "./client";
 
 type Payload = Record<string, unknown>;

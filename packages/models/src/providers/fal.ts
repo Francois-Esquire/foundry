@@ -1,14 +1,14 @@
 import { createFal } from "@ai-sdk/fal";
-import { modelErrors } from "./errors";
+import { modelErrors } from "../errors";
+import type { LiveAccess } from "../live/types";
+import type { ProviderModelDefinition } from "../model-definition";
+import type { Provider } from "../provider";
+import { vendorClient } from "../provider";
 import type { FalFetch, FalRuntime } from "./fal/client";
 import { buildFalRuntime } from "./fal/client";
 import { FAL_DEFAULT_MODELS } from "./fal/default-models";
 import { falGrant } from "./fal/grant";
 import { falMediaModel } from "./fal/media";
-import type { LiveAccess } from "./live/types";
-import type { ProviderModelDefinition } from "./model-definition";
-import type { Provider } from "./provider";
-import { vendorClient } from "./provider";
 
 export interface FalProviderConfig {
   apiKey?: string;

@@ -9,9 +9,9 @@ import {
   createClaudeCodeQueryController,
 } from "ai-sdk-provider-claude-code";
 import { describe, expect, it, vi } from "vitest";
-import { createClaudeCodeDriver } from "../../../node/claude-code/driver";
-import { createCodexDriver } from "../../../node/codex/driver";
-import { createNativeActivities } from "../../../node/harness/native-activity";
+import { createClaudeCodeDriver } from "../../../providers/claude-code/driver";
+import { createCodexDriver } from "../../../providers/codex/driver";
+import { createNativeActivities } from "../../../providers/harness/native-activity";
 import {
   collect,
   FakeAppServer,

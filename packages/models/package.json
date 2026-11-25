@@ -10,9 +10,9 @@
       "types": "./dist/src/index.d.ts",
       "import": "./src/index.ts"
     },
-    "./fal": {
-      "types": "./dist/src/fal.d.ts",
-      "import": "./src/fal.ts"
+    "./providers/fal": {
+      "types": "./dist/src/providers/fal.d.ts",
+      "import": "./src/providers/fal.ts"
     },
     "./live": {
       "types": "./dist/src/live.d.ts",
@@ -22,41 +22,41 @@
       "types": "./dist/src/node/live.d.ts",
       "import": "./src/node/live.ts"
     },
-    "./airplane": {
-      "types": "./dist/src/airplane.d.ts",
-      "import": "./src/airplane.ts"
+    "./providers/airplane": {
+      "types": "./dist/src/providers/airplane.d.ts",
+      "import": "./src/providers/airplane.ts"
     },
-    "./node/claude-code": {
-      "types": "./dist/src/node/claude-code.d.ts",
-      "import": "./src/node/claude-code.ts"
+    "./providers/claude-code": {
+      "types": "./dist/src/providers/claude-code.d.ts",
+      "import": "./src/providers/claude-code.ts"
     },
-    "./node/codex": {
-      "types": "./dist/src/node/codex.d.ts",
-      "import": "./src/node/codex.ts"
+    "./providers/codex": {
+      "types": "./dist/src/providers/codex.d.ts",
+      "import": "./src/providers/codex.ts"
     },
-    "./node/pi": {
-      "types": "./dist/src/node/pi.d.ts",
-      "import": "./src/node/pi.ts"
+    "./providers/pi": {
+      "types": "./dist/src/providers/pi.d.ts",
+      "import": "./src/providers/pi.ts"
     },
-    "./node/local": {
-      "types": "./dist/src/node/local.d.ts",
-      "import": "./src/node/local.ts"
+    "./providers/local": {
+      "types": "./dist/src/providers/local.d.ts",
+      "import": "./src/providers/local.ts"
     },
-    "./node/local/remote": {
-      "types": "./dist/src/node/local/remote.d.ts",
-      "import": "./src/node/local/remote.ts"
+    "./providers/local/remote": {
+      "types": "./dist/src/providers/local/remote.d.ts",
+      "import": "./src/providers/local/remote.ts"
     },
-    "./gateway": {
-      "types": "./dist/src/gateway.d.ts",
-      "import": "./src/gateway.ts"
+    "./providers/gateway": {
+      "types": "./dist/src/providers/gateway.d.ts",
+      "import": "./src/providers/gateway.ts"
     },
-    "./vercel": {
-      "types": "./dist/src/vercel.d.ts",
-      "import": "./src/vercel.ts"
+    "./providers/vercel": {
+      "types": "./dist/src/providers/vercel.d.ts",
+      "import": "./src/providers/vercel.ts"
     },
-    "./replicate": {
-      "types": "./dist/src/replicate.d.ts",
-      "import": "./src/replicate.ts"
+    "./providers/replicate": {
+      "types": "./dist/src/providers/replicate.d.ts",
+      "import": "./src/providers/replicate.ts"
     },
     "./cost": {
       "types": "./dist/src/cost.d.ts",

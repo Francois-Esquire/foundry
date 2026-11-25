@@ -19,7 +19,7 @@ export type GuestDriver = (
 export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
   "claude-code": async ({ guest, settings }) => {
     const { createClaudeCodeDriver } = await import(
-      "@foundry/models/node/claude-code"
+      "@foundry/models/providers/claude-code"
     );
     return createClaudeCodeDriver({
       agentId: settings.agentId,
@@ -46,7 +46,9 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
     });
   },
   codex: async ({ auth, guest, settings }) => {
-    const { createCodexDriver } = await import("@foundry/models/node/codex");
+    const { createCodexDriver } = await import(
+      "@foundry/models/providers/codex"
+    );
     return createCodexDriver({
       agentId: settings.agentId,
       binPath: guest.executable,
@@ -74,7 +76,7 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
     });
   },
   pi: async ({ guest, settings }) => {
-    const { createPiDriver } = await import("@foundry/models/node/pi");
+    const { createPiDriver } = await import("@foundry/models/providers/pi");
     return createPiDriver({
       agentId: settings.agentId,
       binPath: guest.executable,

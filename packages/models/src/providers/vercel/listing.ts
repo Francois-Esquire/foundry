@@ -6,7 +6,7 @@ import type {
   ModelKind,
   ModelLimits,
   ProviderModelDefinition,
-} from "../model-definition";
+} from "../../model-definition";
 
 function tokenLimits(
   maxInputTokens: number | null | undefined,

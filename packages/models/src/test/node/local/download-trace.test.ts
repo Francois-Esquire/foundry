@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-
-import { traceModelDownload } from "../../../node/local/download-trace";
 import { configureModelObservability } from "../../../observability";
+import { traceModelDownload } from "../../../providers/local/download-trace";
 
 afterEach(() => {
   configureModelObservability({ enabled: true });

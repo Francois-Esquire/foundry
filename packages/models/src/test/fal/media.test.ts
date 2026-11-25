@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { falProvider } from "../../fal";
-import type { FalEndpointClient, FalFetch, FalRuntime } from "../../fal/client";
-import { falMediaModel } from "../../fal/media";
 import type { MediaInput, SegmentationPrompt } from "../../media";
+import { falProvider } from "../../providers/fal";
+import type {
+  FalEndpointClient,
+  FalFetch,
+  FalRuntime,
+} from "../../providers/fal/client";
+import { falMediaModel } from "../../providers/fal/media";
 import MUSIC from "../fixtures/fal/music.json";
 import SEGMENT_IMAGE from "../fixtures/fal/segment-image.json";
 import SEGMENT_IMAGE_NO_METADATA from "../fixtures/fal/segment-image-no-metadata.json";

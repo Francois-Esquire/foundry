@@ -11,7 +11,7 @@ can do.
 
 ```typescript
 import { Models } from "@foundry/models";
-import { vercelModels, vercelProvider } from "@foundry/models/vercel";
+import { vercelModels, vercelProvider } from "@foundry/models/providers/vercel";
 
 const config = { apiKey };
 const models = new Models({
@@ -84,10 +84,10 @@ models.setProviders([...models.providers, vertex]);
 ```
 
 Each built-in factory is its own subpath, so a host bundles only what it
-configures: `vercelProvider` (`@foundry/models/vercel`), `gatewayProvider`
-(`/gateway`), `falProvider` (`/fal`), `replicateProvider` (`/replicate`),
-`claudeCodeProvider` (`/node/claude-code`), `codexProvider` (`/node/codex`), and
-`piProvider` (`/node/pi`). Each takes `id` and `models`, so one factory can build
+configures: `vercelProvider` (`@foundry/models/providers/vercel`), `gatewayProvider`
+(`/providers/gateway`), `falProvider` (`/providers/fal`), `replicateProvider` (`/providers/replicate`),
+`claudeCodeProvider` (`/providers/claude-code`), `codexProvider` (`/providers/codex`), and
+`piProvider` (`/providers/pi`). Each takes `id` and `models`, so one factory can build
 several instances; all but FAL and Replicate also take `defaults`. The root
 entry exports no provider. `gatewayProvider` has no models of its own and
 requires `models`. `gatewayModels(config)` reads them from the server's
@@ -128,9 +128,9 @@ uses the discovered catalog.
 
 | Subpath | What it holds |
 | --- | --- |
-| `/airplane` | `airplaneMode`: the offline-only policy for one `Models` registry |
-| `/node/local` | `LocalProvider` and `configureCache`: on-device transformers-js |
-| `/node/local/remote` | `RemoteLocalProvider` and `forkLocalWorker`: the local surface and its worker IPC transport |
+| `/providers/airplane` | `airplaneMode`: the offline-only policy for one `Models` registry |
+| `/providers/local` | `LocalProvider` and `configureCache`: on-device transformers-js |
+| `/providers/local/remote` | `RemoteLocalProvider` and `forkLocalWorker`: the local surface and its worker IPC transport |
 | `/live`, `/node/live` | Live interactions, browser and Node |
 | `/catalog/models-dev`, `/catalog/models-dev-source` | models.dev read at run time |
 | `/embeddings/*` | Chunking, embedding, and ranking |
@@ -206,7 +206,7 @@ Errors are a defined catalog (`modelErrors`), so callers branch on the code.
 
 - Types resolve from `dist/`. Build this package before a consumer typechecks
   against a changed public API.
-- `/node/local` loads transformers-js; the root entry never does.
+- `/providers/local` loads transformers-js; the root entry never does.
 
 ## Local checks
 
@@ -225,7 +225,7 @@ The model catalog is application data, not a dependency version catalog.
 
 ## Pi harness
 
-`@foundry/models/node/pi` exports `piProvider` and `createPiDriver`. Model calls use
+`@foundry/models/providers/pi` exports `piProvider` and `createPiDriver`. Model calls use
 [`ai-sdk-provider-pi`](https://github.com/ben-vargas/ai-sdk-provider-pi) 0.1.0,
 with AI SDK's `wrapLanguageModel` adapting its V3 model to the V4 contract.
 The provider embeds Pi 0.52.12. Sandbox sessions use the separately pinned
@@ -233,7 +233,7 @@ Pi 1.3.0 CLI over RPC. Models remains private at 0.1.0 when Marbles releases.
 
 ```ts
 import { Models } from "@foundry/models";
-import { piProvider } from "@foundry/models/node/pi";
+import { piProvider } from "@foundry/models/providers/pi";
 
 const provider = piProvider({
   config: { available: true, defaultSettings: { tools: "readOnly" } },

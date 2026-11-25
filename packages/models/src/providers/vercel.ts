@@ -3,9 +3,9 @@ import {
   extractReasoningMiddleware,
   wrapLanguageModel,
 } from "ai";
-import type { ModelKind, ProviderModelDefinition } from "./model-definition";
-import type { Provider } from "./provider";
-import { vendorClient } from "./provider";
+import type { ModelKind, ProviderModelDefinition } from "../model-definition";
+import type { Provider } from "../provider";
+import { vendorClient } from "../provider";
 import { parseVercelRest } from "./vercel/listing";
 
 export interface VercelProviderConfig {

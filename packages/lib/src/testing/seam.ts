@@ -507,6 +507,10 @@ function isNodeExportKey(subpath: string): boolean {
   return subpath === "./node" || subpath.startsWith("./node/");
 }
 
+function isProviderExportKey(subpath: string): boolean {
+  return subpath === "./providers" || subpath.startsWith("./providers/");
+}
+
 export function portableSubpaths(packageDir: string): string[] {
   const { exports = {} } = readManifest(resolve(packageDir));
   return Object.keys(exports).filter(
@@ -514,6 +518,7 @@ export function portableSubpaths(packageDir: string): string[] {
       subpath === "./testing/store" ||
       !(
         isNodeExportKey(subpath) ||
+        isProviderExportKey(subpath) ||
         subpath === "./testing" ||
         subpath.startsWith("./testing/")
       )

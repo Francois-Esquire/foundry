@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 
-import { MODULE_SDK_ENTRYPOINT } from "./entrypoint-source";
+import { MODULE_SDK_ENTRYPOINT } from "../src/sdk/entrypoint-source";
 
 export interface ModuleSdkEmit {
   readonly declarations: string;
@@ -17,8 +17,12 @@ export interface ModuleSdkEmit {
 const SDK_SOURCE_PATH = "/foundry/module-sdk/src/index.ts";
 const SDK_GENERATOR_SOURCE_PATH = "/foundry/module-sdk/src/generate.ts";
 const SDK_DIST_PATH = "/foundry/module-sdk/dist";
-const MODULE_SDK_GENERATOR_CORE = path.join(
+const SDK_AUTHORED_DIRECTORY = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
+  "../src/sdk"
+);
+const MODULE_SDK_GENERATOR_CORE = path.join(
+  SDK_AUTHORED_DIRECTORY,
   "generator-core.ts"
 );
 
@@ -143,9 +147,9 @@ export function renderModuleSdkGeneratorSource(source: string): string {
 if (process.argv[1] !== undefined && import.meta.url.startsWith("file:")) {
   const self = fileURLToPath(import.meta.url);
   if (path.resolve(process.argv[1]) === self) {
-    const output = path.join(path.dirname(self), "emitted.generated.ts");
+    const output = path.join(SDK_AUTHORED_DIRECTORY, "emitted.generated.ts");
     const generatorOutput = path.join(
-      path.dirname(self),
+      SDK_AUTHORED_DIRECTORY,
       "generator-entrypoint.generated.ts"
     );
     await Promise.all([

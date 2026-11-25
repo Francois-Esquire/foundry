@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import {
+  buildModuleSdkGeneratorSource,
+  emitModuleSdk,
+} from "../../scripts/emit-sdk";
 import { buildModuleSdkPack } from "../sdk";
-import { buildModuleSdkGeneratorSource, emitModuleSdk } from "../sdk/emit";
 import { MODULE_SDK_EMITTED } from "../sdk/emitted.generated";
 import { MODULE_SDK_GENERATOR_ENTRYPOINT } from "../sdk/generator-entrypoint.generated";
 

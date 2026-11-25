@@ -7,8 +7,8 @@ import { tool } from "ai";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createClaudeCodeDriver } from "../node/claude-code/driver";
-import { createCodexDriver } from "../node/codex/driver";
+import { createClaudeCodeDriver } from "../providers/claude-code/driver";
+import { createCodexDriver } from "../providers/codex/driver";
 import { collect, FakeAppServer, runOptions } from "./helpers/fake-app-server";
 
 describe("Claude Code native driver", () => {

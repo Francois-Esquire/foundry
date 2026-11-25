@@ -10,8 +10,8 @@ import { delimiter, join } from "node:path";
 
 import type { ModelKind, Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
-import { airplaneMode } from "@foundry/models/airplane";
-import { CLAUDE_CODE_DEFAULT_MODELS } from "@foundry/models/node/claude-code";
+import { airplaneMode } from "@foundry/models/providers/airplane";
+import { CLAUDE_CODE_DEFAULT_MODELS } from "@foundry/models/providers/claude-code";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CLAUDE_CODE, CODEX, PI, selectExecutor } from "~/lib/harnesses";

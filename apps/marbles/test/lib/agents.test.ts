@@ -4,7 +4,7 @@ import type { SessionEvent } from "@foundry/agents/session";
 import { Sessions } from "@foundry/agents/session";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Models } from "@foundry/models";
-import { airplaneMode } from "@foundry/models/airplane";
+import { airplaneMode } from "@foundry/models/providers/airplane";
 import { NoObjectGeneratedError, Output } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";

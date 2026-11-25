@@ -48,15 +48,18 @@ Domain packages follow a canonical subpath layout so callers gain consistent **l
 | `./store/tables` | Drizzle schema tables | Drizzle |
 | `./testing/store` | Shared store conformance suite | Portable test helper |
 | `./node` | OS, filesystem, git, watcher, and child-process **adapters** plus Node convenience factories | Node / Bun |
-| `./node/*` | Further Node-bound **adapters**, such as `@foundry/models/node/claude-code`, `@foundry/models/node/live`, and `@foundry/models/node/local` | Node / Bun |
+| `./node/*` | Further OS, filesystem, git, watcher, child-process, and host runtime **adapters**, such as `@foundry/models/node/live` | Node / Bun |
+| `./providers`, `./providers/*` | Opt-in provider-specific **adapters** and outputs (`models`, `usage`, `prompts`, and others) that hosts assemble selectively and `.` never imports | Any; may use Node / Bun |
 
-A subpath that reaches `node:*` built-ins or unguarded Node/Bun globals, directly or transitively, lives at `./node` or `./node/*`. Every other subpath, plus `./testing/store`, must be Web-standard; only `./node`, `./node/*`, and `./testing` helpers other than `./testing/store` may use Node. Node-bound subpaths are recognised by the exact `./node` or `./node/` prefix, not by a `/node` segment elsewhere in the key. This holds for provider and harness **adapters** too: there is no allowlist of Node-bound subpaths outside `./node`.
+`./node` and `./node/*` are strictly for OS, filesystem, git, watcher, child-process, and host runtime **adapters** and Node convenience factories. They are not where providers go: a provider-specific **adapter**, whether or not it needs Node, lives at `./providers/*`.
+
+The opt-in runtime subpaths exempt from mandatory Web-standard enforcement are `./node`, `./node/*`, `./providers`, `./providers/*`, and `./testing` helpers other than `./testing/store`. Every other subpath, plus `./testing/store`, must be Web-standard. Opt-in subpaths are recognised by their exact key or prefix, not by a `/node` or `/providers` segment elsewhere in the key.
 
 Source layout mirrors the declared `exports` map:
 
 - Root `.` is served by `src/index.ts`.
 - Export key `./a/b` is served by `src/a/b.ts` (or `src/a/b/index.ts` for multi-file directory entries such as `./store` or `./node`), with private implementation files in sibling `src/a/b/`.
-- All Node-bound implementation files live under `src/node/` (or `src/node.ts` for single-file Node adapters). Non-`node/` production files never import from `src/node/**`.
+- Node-bound public **adapters** sit where their export key puts them (`src/node/`, `src/node.ts`, or `src/providers/`). Private files imported only by `./node*` or `./providers/*` may live beside their importer. What is enforced is that no portable export reaches Node-bound code and that every export mirrors its source path.
 
 Only subpaths that carry real **implementation** are added; packages do not declare empty stubs.
 
@@ -70,7 +73,7 @@ Runtime-conditional `"node"` / `"bun"` vs. `"default"` exports—specifically `@
 
 Runtime **seams**, tier rules, and naming rules are enforced by `@foundry/lib/testing/seam` through Vitest, alongside `bun run validate` (Biome/Ultracite, Sherif, TypeScript, and Knip):
 
-- `assertWebStandardExports(packageDir, portableSubpaths(packageDir))` runs in each package's `base-entry.test.ts`, so a new non-`./node` subpath is audited by default. `@foundry/core` cannot run its own copy without a dependency cycle (`lib` depends on `core`), so `@foundry/lib` audits it.
+- `assertWebStandardExports(packageDir, portableSubpaths(packageDir))` runs in each package's `base-entry.test.ts`, so a new subpath that is not opt-in is audited by default. `@foundry/core` cannot run its own copy without a dependency cycle (`lib` depends on `core`), so `@foundry/lib` audits it.
 - `assertPackageTiers(packagesDir)` fails when a package under `packages/*` is missing from `PACKAGE_TIERS`, when a dependency points to a higher tier (which covers Tools depending on Domains), when a package depends on a workspace package outside `packages/*` (other than `@foundry/tsconfig`), or when the dependency graph has a cycle. Same-tier edges are allowed.
 - `assertExportNames(packagesDir)` fails on exported `*Manager`, `*System` (except `*FileSystem`), and `InMemory*` names outside `test/` and `testing/`.
 - `assertExportLayout(packagesDir)` fails on wildcard exports or any export key `./a/b` whose source target does not mirror `./src/a/b.ts` or `./src/a/b/index.ts` (and `.` → `./src/index.ts`).

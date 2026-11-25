@@ -2,8 +2,8 @@ import type { LanguageModelV4 } from "@ai-sdk/provider";
 import type { HarnessQuestionCallback } from "@foundry/core/agents";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import { describe, expect, it, vi } from "vitest";
-import { createClaudeCodeDriver } from "../../../node/claude-code/driver";
-import { createCodexDriver } from "../../../node/codex/driver";
+import { createClaudeCodeDriver } from "../../../providers/claude-code/driver";
+import { createCodexDriver } from "../../../providers/codex/driver";
 import {
   collect,
   FakeAppServer,

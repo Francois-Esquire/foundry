@@ -3,10 +3,10 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import type { CapabilityFact, OperationName } from "../../capability";
-import { falCredentialAccess, falProvider } from "../../fal";
-import { FAL_DEFAULT_MODELS } from "../../fal/default-models";
 import type { LiveAccess, LiveTarget } from "../../live/types";
 import { operationsOf } from "../../provider";
+import { falCredentialAccess, falProvider } from "../../providers/fal";
+import { FAL_DEFAULT_MODELS } from "../../providers/fal/default-models";
 
 const { FAL_KEY } = process.env;
 

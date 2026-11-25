@@ -86,12 +86,8 @@ function sourceFiles(root: string): string[] {
 function targetSourceFiles(): string[] {
   return TARGET_ROOTS.flatMap(sourceFiles).filter((path) => {
     const relativePath = relative(MODULES_SRC, path);
-    return (
-      !(
-        relativePath.startsWith("test/") || relativePath.startsWith("testing/")
-      ) &&
-      relativePath !== "sdk/emit.ts" &&
-      relativePath !== "manifest-schema-emit.ts"
+    return !(
+      relativePath.startsWith("test/") || relativePath.startsWith("testing/")
     );
   });
 }

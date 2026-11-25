@@ -12,8 +12,8 @@ import { dirname, join } from "node:path";
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { thisProcess } from "@foundry/lib/node/process-identity";
 import { afterEach, expect, it, vi } from "vitest";
-import { claudeCodeProvider } from "../node/claude-code";
-import { codexProvider } from "../node/codex";
+import { claudeCodeProvider } from "../providers/claude-code";
+import { codexProvider } from "../providers/codex";
 import { silentExecutable } from "./helpers/env-dump";
 
 const CALL = {

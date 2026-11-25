@@ -80,7 +80,7 @@ The package publishes explicit canonical subpaths with no wildcard exports: `.` 
 `./gateway`, `./platform`, `./sdk`, and `./template` expose the package roles.
 Only `node/` may import `node:fs/promises`, `node:path`, `node:crypto`, and
 `node:events`. SDK source is internal; Template composition injects its emitted form
-into generated workspaces as local `@foundry/module-sdk`. `src/sdk/emit.ts` compiles
+into generated workspaces as local `@foundry/module-sdk`. `scripts/emit-sdk.ts` compiles
 that source with `typescript` for the `emit-sdk` script and is never imported by a
 runtime module.
 

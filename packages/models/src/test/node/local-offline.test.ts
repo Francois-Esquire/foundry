@@ -37,7 +37,7 @@ vi.mock("@huggingface/transformers", () => ({
 }));
 
 const { configureCache, isLocalProvider, LocalProvider } = await import(
-  "../../node/local"
+  "../../providers/local"
 );
 
 beforeEach(() => {

@@ -1,4 +1,4 @@
-import type { ProviderModelDefinition } from "../model-definition";
+import type { ProviderModelDefinition } from "../../model-definition";
 
 export const FAL_DEFAULT_MODELS: ProviderModelDefinition[] = [
   {

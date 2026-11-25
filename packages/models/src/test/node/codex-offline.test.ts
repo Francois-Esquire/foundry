@@ -1,6 +1,6 @@
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { codexProvider } from "../../node/codex";
+import { codexProvider } from "../../providers/codex";
 import { silentExecutable } from "../helpers/env-dump";
 
 const CALL = {

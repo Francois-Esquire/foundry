@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 import type { CapabilityFact, OperationName } from "../../capability";
-import { falProvider } from "../../fal";
-import { FAL_DEFAULT_MODELS } from "../../fal/default-models";
 import { operationsOf } from "../../provider";
+import { falProvider } from "../../providers/fal";
+import { FAL_DEFAULT_MODELS } from "../../providers/fal/default-models";
 
 const { FAL_KEY } = process.env;
 const VIDEO_PATH = process.env.FAL_VENDOR_VIDEO;

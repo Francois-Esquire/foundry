@@ -10,8 +10,11 @@ export { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 export type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
 export type { Provider } from "@foundry/models";
 export { Models } from "@foundry/models";
-export { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
-export { vercelProvider } from "@foundry/models/vercel";
+export {
+  gatewayModels,
+  gatewayProvider,
+} from "@foundry/models/providers/gateway";
+export { vercelProvider } from "@foundry/models/providers/vercel";
 export type { Containers } from "@foundry/sandbox";
 export type { AutomationRecord } from "./automation/service";
 export type {

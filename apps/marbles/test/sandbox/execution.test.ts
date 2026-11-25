@@ -23,8 +23,8 @@ vi.mock("@foundry/agents/harness", async (importOriginal) => ({
     return { sessionId: "session" };
   },
 }));
-vi.mock("@foundry/models/node/codex", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@foundry/models/node/codex")>()),
+vi.mock("@foundry/models/providers/codex", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@foundry/models/providers/codex")>()),
   createCodexDriver: (options: unknown) => {
     seen.codex.push(options);
     return { first: "party" };

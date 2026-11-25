@@ -12,8 +12,8 @@ import type {
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { claudeCodeCallCost } from "../../cost";
 import { Models } from "../../models";
-import type { ClaudeCodeProviderConfig } from "../../node/claude-code";
-import { spawnRecordedCli } from "../../node/claude-code/spawn";
+import type { ClaudeCodeProviderConfig } from "../../providers/claude-code";
+import { spawnRecordedCli } from "../../providers/claude-code/spawn";
 
 const VERSION_DIGIT_PATTERN = /\d/;
 
@@ -24,7 +24,7 @@ const startup = vi.fn();
 vi.mock("ai-sdk-provider-claude-code", () => ({ createClaudeCode, startup }));
 
 const { CLAUDE_CODE_DEFAULT_MODELS, claudeCodeModels, claudeCodeProvider } =
-  await import("../../node/claude-code");
+  await import("../../providers/claude-code");
 const claudeCodeSdk = await vi.importActual<
   typeof import("ai-sdk-provider-claude-code")
 >("ai-sdk-provider-claude-code");

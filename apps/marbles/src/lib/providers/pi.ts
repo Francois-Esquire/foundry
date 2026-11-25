@@ -1,4 +1,4 @@
-import { PI_DEFAULT_MODELS, piProvider } from "@foundry/models/node/pi";
+import { PI_DEFAULT_MODELS, piProvider } from "@foundry/models/providers/pi";
 import type { Bin } from "~/lib/providers/cli";
 import { BIN, cli, guestOf } from "~/lib/providers/cli";
 import type { ProviderPlugin } from "~/lib/providers/plugins";

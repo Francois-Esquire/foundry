@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { CapabilityFact, OperationName } from "../../capability";
-import { falProvider } from "../../fal";
-import { FAL_DEFAULT_MODELS } from "../../fal/default-models";
 import { Models } from "../../models";
 import { operationsOf } from "../../provider";
+import { falProvider } from "../../providers/fal";
+import { FAL_DEFAULT_MODELS } from "../../providers/fal/default-models";
 
 const LIVE_ROWS = {
   h3: "minimax/h3-max/director",

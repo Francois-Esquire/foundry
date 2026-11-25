@@ -54,12 +54,12 @@ const mockTraceModelDownload = vi.fn(() => ({
   finish: mockTraceFinish,
   track: mockTraceTrack,
 }));
-vi.mock("../../node/local/download-trace", () => ({
+vi.mock("../../providers/local/download-trace", () => ({
   traceModelDownload: mockTraceModelDownload,
 }));
 
 const { LOCAL_DEFAULT_MODELS, LOCAL_DEFAULTS, LocalProvider } = await import(
-  "../../node/local"
+  "../../providers/local"
 );
 const { catalogRow } = await import("../../provider");
 

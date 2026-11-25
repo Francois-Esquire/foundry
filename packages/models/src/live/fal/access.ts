@@ -1,5 +1,5 @@
 import { createFalClient } from "@fal-ai/client";
-import type { FalEndpointClient } from "../../fal/client";
+import type { FalEndpointClient } from "../../providers/fal/client";
 import type { LiveAccess } from "../types";
 
 export type FalClientFactory = (

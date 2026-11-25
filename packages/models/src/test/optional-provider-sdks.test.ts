@@ -13,9 +13,9 @@ vi.mock("ai-sdk-provider-pi", () => {
 it("constructs and disposes unused providers without their SDKs", async () => {
   const [{ claudeCodeProvider }, { codexProvider }, { piProvider }] =
     await Promise.all([
-      import("../node/claude-code"),
-      import("../node/codex"),
-      import("../node/pi"),
+      import("../providers/claude-code"),
+      import("../providers/codex"),
+      import("../providers/pi"),
     ]);
   for (const provider of [
     claudeCodeProvider({ env: {} }),

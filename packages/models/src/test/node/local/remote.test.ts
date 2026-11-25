@@ -7,10 +7,10 @@ import type {
   WorkerReply,
   WorkerRequest,
   WorkerSideTransport,
-} from "../../../node/local/remote/protocol";
-import { RemoteLocalProvider } from "../../../node/local/remote/provider";
-import { runLocalWorker } from "../../../node/local/remote/worker";
-import type { LocalProviderSurface } from "../../../node/local/surface";
+} from "../../../providers/local/remote/protocol";
+import { RemoteLocalProvider } from "../../../providers/local/remote/provider";
+import { runLocalWorker } from "../../../providers/local/remote/worker";
+import type { LocalProviderSurface } from "../../../providers/local/surface";
 
 const WORKER_EXITED_CRASHED_PATTERN = /worker exited: crashed/;
 const WORKER_EXITED_PATTERN = /worker exited/;
