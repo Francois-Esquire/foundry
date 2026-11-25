@@ -21,7 +21,8 @@ import {
   sameProcess,
   startedAt,
   thisProcess,
-} from "../process-identity";
+} from "../node/process-identity";
+import { startedAt as pureStartedAt } from "../process-identity";
 import { anotherStart } from "../testing/process-identity";
 
 const LONG_AGO = anotherStart();
@@ -181,7 +182,7 @@ it.skipIf(process.platform === "linux")(
       const script = join(dir, "check.ts");
       writeFileSync(
         script,
-        `const { isGone } = await import(${JSON.stringify(join(SRC, "process-identity.ts"))});
+        `const { isGone } = await import(${JSON.stringify(join(SRC, "node", "process-identity.ts"))});
 const { writeFileSync } = await import("node:fs");
 const before = isGone({ pid: ${String(pid)}, started: "ps:Sun Nov 15 12:00:00 2026" });
 writeFileSync(${JSON.stringify(seen)}, "Sun Nov 15 12:01:00 2026");
@@ -421,4 +422,41 @@ it("takes a group's id for another's when a process with the leader's pid runs w
       true
     )
   ).toBe(true);
+});
+
+it("pure startedAt works with an explicit lookup and node/process-identity performs no I/O at import time", () => {
+  const running = madeUp(true, { pgid: 1, started: AT });
+  expect(pureStartedAt(4_200_600, running)).toBe(AT);
+  expect(pureStartedAt(4_200_601, madeUp(false, "absent"))).toBeNull();
+
+  const dir = mkdtempSync(join(tmpdir(), "identity-lazy-"));
+  try {
+    const marker = join(dir, "ps-called");
+    writeFileSync(
+      join(dir, "ps"),
+      `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexec /bin/ps "$@"\n`,
+      { mode: 0o700 }
+    );
+    const script = join(dir, "import-only.ts");
+    writeFileSync(
+      script,
+      `import { existsSync } from "node:fs";
+const mod = await import(${JSON.stringify(join(SRC, "node", "process-identity.ts"))});
+const calledOnImport = existsSync(${JSON.stringify(marker)});
+const self = mod.thisProcess();
+console.log(JSON.stringify({ calledOnImport, pid: self.pid }));`
+    );
+    const output = execFileSync("bun", [script], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` },
+    });
+    const parsed = JSON.parse(output.trim()) as {
+      calledOnImport: boolean;
+      pid: number;
+    };
+    expect(parsed.calledOnImport).toBe(false);
+    expect(parsed.pid).toBeGreaterThan(0);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });

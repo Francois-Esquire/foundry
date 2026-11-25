@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { holdsLock } from "@foundry/lib/file-lock";
+import { holdsLock } from "@foundry/lib/node/file-lock";
 
 import { and, asc, eq } from "drizzle-orm";
 import { IncompatibleDatabaseError } from "~/database/migrate";

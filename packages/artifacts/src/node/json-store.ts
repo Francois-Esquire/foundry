@@ -1,8 +1,8 @@
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname } from "node:path";
-import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
 import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
-import { acquireFileLock } from "@foundry/lib/file-lock";
+import { hasErrorCode, writeFileAtomic } from "@foundry/lib/node/atomic-file";
+import { acquireFileLock } from "@foundry/lib/node/file-lock";
 import { Turns } from "@foundry/lib/turns";
 import { ownedListQuery } from "../listing";
 import type { ArtifactId, BlobId, ContentId } from "../ref";

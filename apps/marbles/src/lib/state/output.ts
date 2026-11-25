@@ -15,7 +15,7 @@ import {
   isGone,
   type ProcessIdentity,
   thisProcess,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import type { ChannelChunk, ChannelMessage } from "@foundry/workflows/channels";
 import { z } from "zod";
 import { formatLogValues } from "~/lib/log";

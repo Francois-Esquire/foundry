@@ -1,5 +1,5 @@
 import { instanceGone, sameInstance } from "@foundry/lib/instance-identity";
-import { isGone } from "@foundry/lib/process-identity";
+import { isGone } from "@foundry/lib/node/process-identity";
 import { Clock, Effect } from "effect";
 import type { Capacity } from "./capacity";
 import type { QueueOwner, RecoverySummary, Run, RunId } from "./domain";

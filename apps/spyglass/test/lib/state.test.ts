@@ -12,8 +12,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { lockContents } from "@foundry/lib/file-lock";
-import { processAlive } from "@foundry/lib/process-identity";
+import { lockContents } from "@foundry/lib/node/file-lock";
+import { processAlive } from "@foundry/lib/node/process-identity";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { WorkspaceState } from "../../src/lib/state";
 import {

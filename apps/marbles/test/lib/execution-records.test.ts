@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { DatabaseExecutionStore } from "~/database/executions";

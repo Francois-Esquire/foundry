@@ -1,5 +1,5 @@
 import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { Deferred, Effect, Fiber, Ref, TestClock } from "effect";
 import { describe, expect, test } from "vitest";
 import { ScheduleStore } from "../store/index";

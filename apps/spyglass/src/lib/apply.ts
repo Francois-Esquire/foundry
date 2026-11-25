@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { isMissingPath, writeFileAtomicSync } from "@foundry/lib/atomic-file";
+import {
+  isMissingPath,
+  writeFileAtomicSync,
+} from "@foundry/lib/node/atomic-file";
 import type { Project, SourceFile } from "ts-morph";
 
 import { ts } from "ts-morph";

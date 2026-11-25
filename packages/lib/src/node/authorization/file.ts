@@ -1,15 +1,15 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import { hasErrorCode, writeFileAtomic } from "../../atomic-file";
-import { acquireFileLock, FileLockTimeoutError } from "../../file-lock";
-import { KeyedQueue } from "../../keyed-queue";
-import type { AuthorizationSubject } from "./address";
+import type { AuthorizationSubject } from "../../config/authorization/address";
 import type {
   DocumentGrantRepositoryOptions,
   GrantDocumentStorage,
-} from "./document";
-import { DocumentGrantRepository } from "./document";
+} from "../../config/authorization/document";
+import { DocumentGrantRepository } from "../../config/authorization/document";
+import { KeyedQueue } from "../../keyed-queue";
+import { hasErrorCode, writeFileAtomic } from "../atomic-file";
+import { acquireFileLock, FileLockTimeoutError } from "../file-lock";
 
 const DEFAULT_LOCK_WAIT_MS = 5000;
 const PRIVATE_FILE = 0o600;

@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { recordPath } from "@foundry/lib/spawn-record";
+import { recordPath } from "@foundry/lib/node/spawn-record";
 import { ModelManager } from "@foundry/models";
 import { expect, it, vi } from "vitest";
 import { initializeDatabase } from "~/database/open";

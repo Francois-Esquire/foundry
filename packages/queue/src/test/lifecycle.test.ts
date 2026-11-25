@@ -1,4 +1,4 @@
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { Deferred, Effect, TestClock, TestContext } from "effect";
 import { describe, expect, test } from "vitest";
 import { createQueueClient } from "../client";

@@ -1,6 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
+import { sameProcess, thisProcess } from "@foundry/lib/node/process-identity";
 import type { RunStatus } from "@foundry/workflows/types";
 import type { Output } from "ai";
 import type { Catalog } from "~/authoring/catalog";

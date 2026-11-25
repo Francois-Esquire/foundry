@@ -11,8 +11,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, normalize, resolve, sep } from "node:path";
-import { hasErrorCode } from "@foundry/lib/atomic-file";
-import { FileLockTimeoutError, tryFileLock } from "@foundry/lib/file-lock";
+import { hasErrorCode } from "@foundry/lib/node/atomic-file";
+import { FileLockTimeoutError, tryFileLock } from "@foundry/lib/node/file-lock";
 import type { ArtifactFile, ResourceView } from "~/database/resources";
 import { artifactBlobs } from "~/database/stores";
 import { workspaceLinks } from "~/layout";

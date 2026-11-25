@@ -45,7 +45,7 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
-const { isGone, startedAt } = await import("../process-identity");
+const { isGone, startedAt } = await import("../node/process-identity");
 
 const children: ReturnType<typeof spawn>[] = [];
 

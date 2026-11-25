@@ -16,9 +16,9 @@ const inject: {
 
 const STAGED = `${sep}.staging${sep}`;
 
-vi.mock("@foundry/lib/atomic-file", async (importOriginal) => {
+vi.mock("@foundry/lib/node/atomic-file", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@foundry/lib/atomic-file")>();
+    await importOriginal<typeof import("@foundry/lib/node/atomic-file")>();
   return {
     ...actual,
     syncDirectory: async (path: string) => {

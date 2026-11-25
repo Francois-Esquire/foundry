@@ -3,7 +3,7 @@ import {
   type ProcessIdentity,
   startedAt,
   thisProcess,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { afterEach, describe, expect, it } from "vitest";
 import { marblesDeliveryClaims } from "~/database/tables";

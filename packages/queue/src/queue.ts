@@ -1,6 +1,6 @@
 import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
 import type { JsonValue } from "@foundry/lib/json";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import {
   Clock,
   Context,

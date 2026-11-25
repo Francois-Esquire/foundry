@@ -1,5 +1,5 @@
 import type { JsonValue } from "@foundry/lib/json";
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import type { ProcessIdentity } from "@foundry/lib/node/process-identity";
 import type { Job, Links, Run } from "@foundry/queue";
 import { z } from "zod";
 import type { ExecutionStatus } from "./execution-statuses";

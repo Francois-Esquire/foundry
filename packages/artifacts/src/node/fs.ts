@@ -1,6 +1,6 @@
 import type { Stats } from "node:fs";
 import { lstat, open, rename, unlink } from "node:fs/promises";
-import { hasErrorCode } from "@foundry/lib/atomic-file";
+import { hasErrorCode } from "@foundry/lib/node/atomic-file";
 
 export async function lstatOrNull(path: string): Promise<Stats | null> {
   try {

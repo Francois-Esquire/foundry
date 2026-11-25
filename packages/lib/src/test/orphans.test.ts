@@ -11,12 +11,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { type ProcessTable, stopOrphans } from "../orphans";
+import { type ProcessTable, stopOrphans } from "../node/orphans";
 import {
   type ProcessIdentity,
   type SeenProcess,
   startedAt,
-} from "../process-identity";
+} from "../node/process-identity";
 import {
   forgetRecord,
   recordChild,
@@ -24,7 +24,7 @@ import {
   SPAWN_RECOVERY_ENV,
   type SpawnRecord,
   writePrivate,
-} from "../spawn-record";
+} from "../node/spawn-record";
 import { anotherStart } from "../testing/process-identity";
 import { stopLeftover } from "./helpers/leftovers";
 import { pidWritten } from "./helpers/pid-file";

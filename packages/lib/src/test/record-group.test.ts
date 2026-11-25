@@ -14,7 +14,7 @@ import {
   type SeenProcess,
   startedAt,
   thisProcess,
-} from "../process-identity";
+} from "../node/process-identity";
 import {
   type GroupStopResult,
   type GroupSystem,
@@ -23,7 +23,7 @@ import {
   SPAWN_RECOVERY_ENV,
   type SpawnRecord,
   writePrivate,
-} from "../spawn-record";
+} from "../node/spawn-record";
 import { signalOwn, stopLeftover } from "./helpers/leftovers";
 import { pidWritten } from "./helpers/pid-file";
 

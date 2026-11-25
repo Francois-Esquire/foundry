@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { lockHolder } from "@foundry/lib/file-lock";
+import { lockHolder } from "@foundry/lib/node/file-lock";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BlobFiles } from "../blob";

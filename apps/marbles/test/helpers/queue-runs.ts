@@ -2,7 +2,7 @@ import type { JsonValue } from "@foundry/lib/json";
 import {
   type ProcessIdentity,
   thisProcess,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import type {
   Job,
   QueueEvent,

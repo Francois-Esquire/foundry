@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   type ProcessIdentity,
   thisProcess,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import type { Job, JobId, Run, RunId } from "@foundry/queue";
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { Effect } from "effect";

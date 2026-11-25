@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";

@@ -1,5 +1,5 @@
 import type { JsonValue } from "@foundry/lib/json";
-import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
+import { sameProcess, thisProcess } from "@foundry/lib/node/process-identity";
 import type {
   ConcurrencyPool,
   Job,

@@ -732,7 +732,10 @@ export abstract class Step<
 
   /** @internal */
   static #assertSerializable(value: unknown, where: string): void {
-    if (process.env.NODE_ENV === "production") {
+    if (
+      typeof process !== "undefined" &&
+      process.env?.NODE_ENV === "production"
+    ) {
       return;
     }
     if (value === undefined) {

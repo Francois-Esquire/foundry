@@ -3,7 +3,7 @@ import {
   isGone,
   type ProcessIdentity,
   thisProcess,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import {
   Clock,
   Context,

@@ -4,7 +4,10 @@ import { StringDecoder } from "node:string_decoder";
 import type { JSONRPCMessage, MCPTransport } from "@ai-sdk/mcp";
 import { validateJSONRPCMessage } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
-import { recordChild, spawnRecordEnvironment } from "@foundry/lib/spawn-record";
+import {
+  recordChild,
+  spawnRecordEnvironment,
+} from "@foundry/lib/node/spawn-record";
 
 import type { McpStdioTransportConfig } from "./types";
 

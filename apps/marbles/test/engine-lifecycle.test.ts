@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { expect, it, vi } from "vitest";
 import type { Context } from "~/lib/types";
 import { testEngine, testInstances } from "./helpers/engine";

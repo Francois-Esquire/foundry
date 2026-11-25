@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream, fstatSync } from "node:fs";
 import { constants } from "node:os";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { recordChild } from "@foundry/lib/spawn-record";
+import { recordChild } from "@foundry/lib/node/spawn-record";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
 
 const SERVER = "MARBLES_MCP_SERVER";

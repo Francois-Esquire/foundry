@@ -14,7 +14,7 @@ import {
   lookProcesses,
   processAlive,
   processState,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { expect, it, vi } from "vitest";

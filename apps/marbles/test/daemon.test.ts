@@ -16,7 +16,7 @@ import {
   type lookProcesses,
   processAlive,
   startedAt,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import { readDatabase } from "~/database/open";
@@ -52,9 +52,9 @@ const TOKEN_ARGUMENT = /--token (\S+)/;
 const looking = vi.hoisted(() => ({
   fake: undefined as typeof lookProcesses | undefined,
 }));
-vi.mock("@foundry/lib/process-identity", async (importOriginal) => {
+vi.mock("@foundry/lib/node/process-identity", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@foundry/lib/process-identity")>();
+    await importOriginal<typeof import("@foundry/lib/node/process-identity")>();
   return {
     ...actual,
     lookProcesses: (pids: readonly number[]) =>

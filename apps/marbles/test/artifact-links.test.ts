@@ -12,7 +12,7 @@ import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import type { ArtifactStore } from "@foundry/artifacts/store";
 import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import { acquireFileLock } from "@foundry/lib/file-lock";
+import { acquireFileLock } from "@foundry/lib/node/file-lock";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";

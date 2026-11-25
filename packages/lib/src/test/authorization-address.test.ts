@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { authorizationAddress, encodeAddress } from "../config/authorization";
-import { addressDigest } from "../config/authorization/digest";
+import { addressDigest } from "../node/authorization/digest";
 
 const AUTHORIZATION_ADDRESS_HEX_PATTERN = /^[0-9a-f]{32}$/;
 

@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { writeFileAtomicSync } from "../atomic-file";
+import { writeFileAtomicSync } from "../node/atomic-file";
 
 vi.mock("node:fs", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs")>();

@@ -1,4 +1,4 @@
-import { isGone } from "@foundry/lib/process-identity";
+import { isGone } from "@foundry/lib/node/process-identity";
 import { desc, eq, inArray } from "drizzle-orm";
 
 import { asBusy } from "~/database/busy";

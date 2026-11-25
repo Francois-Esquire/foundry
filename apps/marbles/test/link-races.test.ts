@@ -2,8 +2,8 @@ import { promises as real } from "node:fs";
 import { join } from "node:path";
 import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
-import { tryFileLock } from "@foundry/lib/file-lock";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { tryFileLock } from "@foundry/lib/node/file-lock";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   followingCommits,

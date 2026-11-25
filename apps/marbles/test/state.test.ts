@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { lockContents } from "@foundry/lib/file-lock";
+import { lockContents } from "@foundry/lib/node/file-lock";
 import { Step } from "@foundry/workflows/step";
 import { describe, expect, it, vi } from "vitest";
 import { defaultWorkspaceTriggers } from "~/database/managed";

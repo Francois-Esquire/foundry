@@ -10,12 +10,12 @@ import type {
 } from "@foundry/artifacts";
 import { artifactIdSchema } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
-import { collectPages } from "@foundry/lib/pagination";
 import {
   isGone,
   type ProcessIdentity,
   thisProcess,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
+import { collectPages } from "@foundry/lib/pagination";
 import { z } from "zod";
 import {
   ASK_MODES,

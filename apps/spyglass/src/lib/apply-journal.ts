@@ -4,7 +4,7 @@ import {
   isMissingPath,
   syncDirectorySync,
   writeFileAtomic,
-} from "@foundry/lib/atomic-file";
+} from "@foundry/lib/node/atomic-file";
 import type { WorkspaceState } from "./state";
 
 const JOURNAL_MODE = 0o600;

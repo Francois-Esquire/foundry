@@ -1,5 +1,4 @@
-import { EventEmitter } from "node:events";
-
+import { type EventListener, ListenerMap } from "./emitter";
 import type { LeafChange } from "./helpers";
 import {
   deepMergeClearUndefined,
@@ -30,17 +29,69 @@ export interface ReactiveStoreEventMap<T> {
   [key: string]: any[];
 }
 
-export class ReactiveStore<T extends object> extends EventEmitter<
-  ReactiveStoreEventMap<T>
-> {
+export class ReactiveStore<T extends object> {
   protected _initial: T;
   protected _values: T;
   #relay: CommitRelay<T> | null = null;
+  readonly #listeners = new ListenerMap();
 
   constructor(initial: T = {} as T) {
-    super();
     this._initial = structuredClone(initial);
     this._values = structuredClone(initial);
+  }
+
+  on<K extends keyof ReactiveStoreEventMap<T> & string>(
+    event: K,
+    listener: (...args: ReactiveStoreEventMap<T>[K]) => void
+  ): this {
+    this.#listeners.on(event, listener as EventListener);
+    return this;
+  }
+
+  addListener<K extends keyof ReactiveStoreEventMap<T> & string>(
+    event: K,
+    listener: (...args: ReactiveStoreEventMap<T>[K]) => void
+  ): this {
+    return this.on(event, listener);
+  }
+
+  once<K extends keyof ReactiveStoreEventMap<T> & string>(
+    event: K,
+    listener: (...args: ReactiveStoreEventMap<T>[K]) => void
+  ): this {
+    this.#listeners.on(event, listener as EventListener, true);
+    return this;
+  }
+
+  off<K extends keyof ReactiveStoreEventMap<T> & string>(
+    event: K,
+    listener: (...args: ReactiveStoreEventMap<T>[K]) => void
+  ): this {
+    this.#listeners.off(event, listener as EventListener);
+    return this;
+  }
+
+  removeListener<K extends keyof ReactiveStoreEventMap<T> & string>(
+    event: K,
+    listener: (...args: ReactiveStoreEventMap<T>[K]) => void
+  ): this {
+    return this.off(event, listener);
+  }
+
+  removeAllListeners(event?: string): this {
+    this.#listeners.removeAll(event);
+    return this;
+  }
+
+  listenerCount(event: string): number {
+    return this.#listeners.count(event);
+  }
+
+  emit<K extends keyof ReactiveStoreEventMap<T> & string>(
+    event: K,
+    ...args: ReactiveStoreEventMap<T>[K]
+  ): boolean {
+    return this.#listeners.emit(event, this, args);
   }
 
   /** @internal */
