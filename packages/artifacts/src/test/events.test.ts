@@ -2,13 +2,13 @@ import { sql } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, test } from "vitest";
 import { ArtifactExistsError, TransactionRolledBackError } from "../errors";
-import type {
-  ArtifactEvent,
-  ArtifactId,
-  ArtifactOperations,
-  ContentId,
+import {
+  type ArtifactEvent,
+  type ArtifactId,
+  type ArtifactOperations,
+  Artifacts,
+  type ContentId,
 } from "../index";
-import { nodeArtifacts } from "../node";
 import { artifactEventSchema } from "../schema";
 import type { ArtifactDatabaseTransaction } from "../store/sqlite";
 import { SqliteArtifactStore } from "../store/sqlite";
@@ -48,7 +48,7 @@ async function hosted() {
   };
   return {
     commits,
-    manager: nodeArtifacts({ store }),
+    manager: new Artifacts({ store }),
     rows,
     store,
     typesOf,
@@ -405,7 +405,7 @@ describe("Artifacts change events", () => {
         manager.transaction(async (artifacts) => {
           await artifacts.archive(id);
           await artifacts.rename(id, "B");
-          await manager.patchArtifactMetadata(id, { joined: true });
+          await artifacts.patchArtifactMetadata(id, { updated: true });
         })
       )
     ).toStrictEqual([

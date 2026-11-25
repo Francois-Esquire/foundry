@@ -639,7 +639,7 @@ describe("lifecycle", () => {
             events.push("closer:start");
             starts += 1;
             if (starts === 1) {
-              await system.close(workspace.id);
+              await workspace.close();
             }
           },
           stop() {
@@ -731,23 +731,6 @@ describe("lifecycle", () => {
     await closing.load({ mem: "detached-close" });
     expect(closeEvents).toEqual(["first:start", "first:stop"]);
 
-    const bareEvents: string[] = [];
-    const bareClosing = new Workspaces().extend(memExtension()).extend({
-      applies: () => true,
-      attach: () => ({
-        async start(workspace) {
-          bareEvents.push("bare:start");
-          await outsideAsyncContext(() => bareClosing.close(workspace.id));
-        },
-        stop() {
-          bareEvents.push("bare:stop");
-        },
-      }),
-      name: "bare",
-    });
-    await bareClosing.load({ mem: "detached-bare-close" });
-    expect(bareEvents).toEqual(["bare:start", "bare:stop"]);
-
     const store = new MemoryWorkspaceStore();
     let stopped = 0;
     const removing = new Workspaces({ store }).extend(memExtension()).extend({
@@ -765,6 +748,95 @@ describe("lifecycle", () => {
 
     const removed = await removing.load({ mem: "detached-remove" });
     expect(stopped).toBe(1);
+    expect((await store.listWorkspaces()).items).toEqual([]);
+    await expect(removing.open(removed.id)).rejects.toBeInstanceOf(
+      WorkspaceNotFoundError
+    );
+  });
+
+  it("lets a start hook await async ticks before calling workspace.close() or workspace.remove()", async () => {
+    const closeEvents: string[] = [];
+    const closing = new Workspaces()
+      .extend(memExtension())
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          async start(workspace) {
+            closeEvents.push("first:start:before");
+            await Promise.resolve();
+            await new Promise<void>((resolve) => {
+              setTimeout(resolve, 10);
+            });
+            closeEvents.push("first:start:after");
+            await workspace.close();
+          },
+          stop() {
+            closeEvents.push("first:stop");
+          },
+        }),
+        name: "first",
+      })
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          start() {
+            closeEvents.push("second:start");
+          },
+          stop() {
+            closeEvents.push("second:stop");
+          },
+        }),
+        name: "second",
+      });
+
+    await closing.load({ mem: "post-await-close" });
+    expect(closeEvents).toEqual([
+      "first:start:before",
+      "first:start:after",
+      "first:stop",
+    ]);
+
+    const store = new MemoryWorkspaceStore();
+    const removeEvents: string[] = [];
+    const removing = new Workspaces({ store })
+      .extend(memExtension())
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          async start(workspace) {
+            removeEvents.push("remover:start:before");
+            await Promise.resolve();
+            await new Promise<void>((resolve) => {
+              setTimeout(resolve, 10);
+            });
+            removeEvents.push("remover:start:after");
+            await workspace.remove();
+          },
+          stop() {
+            removeEvents.push("remover:stop");
+          },
+        }),
+        name: "remover",
+      })
+      .extend({
+        applies: () => true,
+        attach: () => ({
+          start() {
+            removeEvents.push("after:start");
+          },
+          stop() {
+            removeEvents.push("after:stop");
+          },
+        }),
+        name: "after",
+      });
+
+    const removed = await removing.load({ mem: "post-await-remove" });
+    expect(removeEvents).toEqual([
+      "remover:start:before",
+      "remover:start:after",
+      "remover:stop",
+    ]);
     expect((await store.listWorkspaces()).items).toEqual([]);
     await expect(removing.open(removed.id)).rejects.toBeInstanceOf(
       WorkspaceNotFoundError
@@ -791,7 +863,7 @@ describe("lifecycle", () => {
         return {
           async start(workspace) {
             starts += 1;
-            await system.close(workspace.id);
+            await workspace.close();
           },
         };
       },

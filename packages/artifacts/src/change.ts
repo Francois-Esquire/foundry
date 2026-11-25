@@ -40,6 +40,18 @@ interface ChangeState {
   readonly store: ArtifactStore;
 }
 
+const SCOPED = Symbol("ArtifactChange.scoped");
+
+interface ScopedInit {
+  readonly parent: ArtifactChange;
+  readonly state: ChangeState;
+  readonly [SCOPED]: true;
+}
+
+function isScopedInit(value: unknown): value is ScopedInit {
+  return typeof value === "object" && value !== null && SCOPED in value;
+}
+
 export class ArtifactChange {
   readonly readOnly: boolean;
   readonly #state: ChangeState;
@@ -48,31 +60,38 @@ export class ArtifactChange {
 
   constructor(
     store: ArtifactStore,
-    options: { readonly readOnly?: boolean },
-    state?: ChangeState,
-    parent?: ArtifactChange
+    options: { readonly readOnly?: boolean } = {}
   ) {
-    this.#state = state ?? {
-      active: true,
-      artifacts: new Map(),
-      blobs: new Map(),
-      contents: new Map(),
-      events: [],
-      failure: undefined,
-      readOnly: options.readOnly ?? false,
-      store,
-    };
+    if (isScopedInit(store)) {
+      this.#state = store.state;
+      this.#parent = store.parent;
+    } else {
+      this.#state = {
+        active: true,
+        artifacts: new Map(),
+        blobs: new Map(),
+        contents: new Map(),
+        events: [],
+        failure: undefined,
+        readOnly: options.readOnly ?? false,
+        store,
+      };
+      this.#parent = undefined;
+    }
     this.readOnly = this.#state.readOnly;
-    this.#parent = parent;
+  }
+
+  #scoped(): ArtifactChange {
+    const init: ScopedInit = {
+      [SCOPED]: true,
+      parent: this,
+      state: this.#state,
+    };
+    return new ArtifactChange(init as unknown as ArtifactStore);
   }
 
   async operation<T>(work: (change: ArtifactChange) => Promise<T>): Promise<T> {
-    const scoped = new ArtifactChange(
-      this.#state.store,
-      { readOnly: this.readOnly },
-      this.#state,
-      this
-    );
+    const scoped = this.#scoped();
     try {
       return await work(scoped);
     } catch (error) {

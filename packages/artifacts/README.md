@@ -168,17 +168,17 @@ await artifacts.transaction(async (transaction) => {
 });
 ```
 
-When created with `nodeArtifacts()` from `@foundry/artifacts/node` (or when an explicit
-`transactionScope` option is supplied), any other call on the same `Artifacts` instance made
-while a transaction's callback runs joins that transaction, from however deep in the call stack.
-Reads see its uncommitted writes, and a nested `transaction` commits with the outer one. Joined
-calls are not savepoints: if one fails and the callback still returns, the whole transaction rolls
-back with `TransactionRolledBackError` (its `cause` is the failure). So does an operation on the
-callback's own handle that is refused after writing part of the change; one refused before writing
-anything leaves the transaction to go on. Work scheduled during the callback but run after it
-returns starts its own transaction, once the callback's transaction has settled. Portable
-`new Artifacts()` instances do not perform ambient joining — always use the explicit
-`ArtifactOperations` handle passed to the callback.
+`Artifacts` uses one explicit-handle transaction semantics everywhere: always pass and use the
+`ArtifactOperations` handle given to `transaction(work)` for every read and write in that unit.
+Reads on that handle see uncommitted writes from the same transaction, and an operation on the
+handle that is refused after writing part of the change rolls the whole transaction back with
+`TransactionRolledBackError` (its `cause` is the failure), even if caught; one refused before
+writing anything leaves the transaction to go on. Calling the outer `Artifacts` instance while
+a transaction's callback is running rejects immediately with `ReentrantCallError` on Node and
+Bun (via `@foundry/lib/async-scope`); on runtimes without `AsyncLocalStorage`, that guard is
+best-effort and an outer-handle call inside `transaction(work)` degrades to waiting/hanging until
+the transaction settles. Work scheduled during the callback that runs after it returns starts
+its own transaction once the callback's transaction settles.
 
 The callback's second argument is a transaction-scoped effects handle:
 `effects.afterCommit(async () => ...)` registers work with the outermost commit.
@@ -236,8 +236,8 @@ Options narrow and hook the filesystem. `includes(artifact)` limits which Artifa
 get a directory; others are never written to disk and are refused. `mutation`
 runs inside each write's own transaction: it may refuse by throwing, stamp Content
 metadata into the same write, and learn the committed Content through `committed`.
-That runs after the outermost transaction commits, so a write joined to an enclosing
-transaction that rolls back reports nothing; a throwing `committed` is logged.
+`committed` runs after that transaction commits (never when it rolls back);
+a throwing `committed` is logged.
 `synchronize` wraps each write of polled disk edits, for example in a host run.
 Disk content that differs from what was last applied is copied to
 `<root>/.conflicts/<directory>/<time>-<id>/` before anything overwrites it, and
@@ -346,7 +346,7 @@ It is interim: `SqliteArtifactStore` (below) is its replacement. Pair it with
 | `@foundry/artifacts/store/sqlite`     | `SqliteArtifactStore`, over a host's Drizzle database.        |
 | `@foundry/artifacts/store/tables`     | The Drizzle tables it uses.                                   |
 | `@foundry/artifacts/testing/store`    | `describeArtifactStore`, the suite every store passes.        |
-| `@foundry/artifacts/node`             | `nodeArtifacts`, `JsonArtifactStore` (interim), `blobFiles`, and `artifactFileSystem`. |
+| `@foundry/artifacts/node`             | `JsonArtifactStore` (interim), `blobFiles`, and `artifactFileSystem`. |
 
 `SqliteArtifactStore` takes the host's database and never opens one. The host
 composes the tables from `./store/tables` into its own schema and owns the
@@ -495,7 +495,7 @@ it wrote anything leaves the transaction as it was, and the operation may catch 
 refusal and go on. One refused after it wrote part of the change (a `create` whose first
 Content refuses, say) leaves the transaction unable to commit: it rejects with
 `TransactionRolledBackError`, keeping no record and no event, whatever the operation
-caught, as a failed joined call does.
+caught.
 
 `transaction(work)` runs `work` in one database transaction over a view; each commit
 through the view is a savepoint, and the view refuses calls once `work` settles. In this

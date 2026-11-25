@@ -52,9 +52,7 @@ interface StartingWorkspace {
   active: boolean;
   readonly cleanups: (() => Promise<void> | void)[];
   closed: boolean;
-  syncRunning: boolean;
   readonly workspace: Workspace;
-  readonly workspaceId: WorkspaceId;
 }
 
 interface OpenedWorkspace<Extensions extends readonly AnyWorkspaceExtension[]> {
@@ -119,8 +117,8 @@ export class Workspaces<
     const activeStartup = this.#starting.get(workspaceId);
     if (
       activeStartup?.active === true &&
-      (activeStartup.syncRunning ||
-        (from !== undefined && activeStartup.workspace === from))
+      from !== undefined &&
+      activeStartup.workspace === from
     ) {
       await this.#abortStartup(workspaceId, activeStartup);
       return;
@@ -437,9 +435,7 @@ export class Workspaces<
       active: true,
       cleanups: [],
       closed: false,
-      syncRunning: false,
       workspace,
-      workspaceId: workspace.id,
     };
     const { cleanups } = state;
     this.#starting.set(workspace.id, state);
@@ -468,14 +464,7 @@ export class Workspaces<
         if (hook.stop) {
           cleanups.push(() => hook.stop?.(workspace));
         }
-        state.syncRunning = true;
-        let started: Promise<void> | void;
-        try {
-          started = hook.start?.(workspace);
-        } finally {
-          state.syncRunning = false;
-        }
-        await started;
+        await hook.start?.(workspace);
       }
     } catch (startupError) {
       for (const cleanupError of await runCleanups(cleanups)) {

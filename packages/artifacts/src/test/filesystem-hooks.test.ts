@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { ReentrantCallError } from "@foundry/lib/turns";
 import { WorkspaceSourceUnavailableError } from "@foundry/workspaces";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Artifacts } from "../artifacts";
@@ -252,48 +253,31 @@ describe.each(STORE_KINDS)("%s store: mutation hooks", (storeKind) => {
     }
   );
 
-  it.each([
-    ["commits", false],
-    ["rolls back", true],
-  ])(
-    "report a write joined to an enclosing transaction only once that transaction %s",
-    async (_outcome, rollsBack) => {
-      const committed: ContentResolved[] = [];
-      const { artifact, artifacts, filesystem } = await fixture(
-        { "notes.md": { bytes: "before" } },
-        false,
-        {
-          mutation: () =>
-            Promise.resolve({
-              committed: (content) => committed.push(content),
-            }),
-        },
-        storeKind
-      );
-      const { path } = await filesystem.resolve({ artifactId: artifact.id });
-      let reportedInside: number | undefined;
-      const outer = artifacts.transaction(async () => {
+  it("rejects a filesystem write called inside an enclosing Artifacts transaction without reporting committed", async () => {
+    const committed: ContentResolved[] = [];
+    const { artifact, artifacts, filesystem } = await fixture(
+      { "notes.md": { bytes: "before" } },
+      false,
+      {
+        mutation: () =>
+          Promise.resolve({
+            committed: (content) => committed.push(content),
+          }),
+      },
+      storeKind
+    );
+    const { path } = await filesystem.resolve({ artifactId: artifact.id });
+    await expect(
+      artifacts.transaction(async () => {
         await filesystem.writeFile(
           join(path, "notes.md"),
           encoder.encode("after")
         );
-        reportedInside = committed.length;
-        if (rollsBack) {
-          throw new Error("outer failed");
-        }
-      });
-      if (rollsBack) {
-        await expect(outer).rejects.toThrow("outer failed");
-        expect(committed).toEqual([]);
-        expect(await text(artifacts, artifact.id, "notes.md")).toBe("before");
-      } else {
-        await outer;
-        expect(committed).toHaveLength(1);
-        expect(await text(artifacts, artifact.id, "notes.md")).toBe("after");
-      }
-      expect(reportedInside).toBe(0);
-    }
-  );
+      })
+    ).rejects.toBeInstanceOf(ReentrantCallError);
+    expect(committed).toEqual([]);
+    expect(await text(artifacts, artifact.id, "notes.md")).toBe("before");
+  });
 
   it("refuse a write by throwing, committing nothing", async () => {
     const { artifact, artifacts, load } = await fixture(

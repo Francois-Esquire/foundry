@@ -10,7 +10,6 @@ import {
   StaleContentError,
   TransactionRolledBackError,
 } from "../errors";
-import { nodeArtifacts } from "../node";
 import type { Content } from "../substrate";
 import { fixture, publishedFiles } from "./helpers/directory";
 import { required } from "./helpers/required";
@@ -436,29 +435,9 @@ describe.each(STORE_KINDS)(
 );
 
 describe.each(STORE_KINDS)("%s store: Artifacts transactions", (kind) => {
-  it("rejects ambient calls on portable Artifacts without a transactionScope while explicit ops succeed", async () => {
+  it("runs grouped reads and writes on the explicit handle and rejects outer-handle calls inside transaction()", async () => {
     const store = await openStore(kind);
     const artifacts = new Artifacts({ store });
-    await artifacts.transaction(async (scoped) => {
-      await scoped.create({
-        entries: { "a.txt": { bytes: "ok" } },
-        name: "Explicit",
-        type: "text/plain",
-      });
-      await expect(
-        artifacts.create({
-          entries: { "b.txt": { bytes: "ambient" } },
-          name: "Ambient",
-          type: "text/plain",
-        })
-      ).rejects.toBeInstanceOf(ReentrantCallError);
-    });
-    expect((await artifacts.list()).total).toBe(1);
-  });
-
-  it("joins calls made inside a transaction via nodeArtifacts: reads see its writes, nested transactions commit with it", async () => {
-    const store = await openStore(kind);
-    const artifacts = nodeArtifacts({ store });
     const created = await artifacts.create({
       entries: { "a.txt": { bytes: "before" } },
       name: "A",
@@ -466,30 +445,41 @@ describe.each(STORE_KINDS)("%s store: Artifacts transactions", (kind) => {
     });
     await artifacts.transaction(async (scoped) => {
       await scoped.patchArtifactMetadata(created.id, { step: 1 });
-      expect((await artifacts.get(created.id))?.metadata).toMatchObject({
+      expect((await scoped.get(created.id))?.metadata).toMatchObject({
         step: 1,
       });
-      await artifacts.transaction((nested) =>
-        nested.patchArtifactMetadata(created.id, { step: 2 })
-      );
-      await artifacts.write({
+      await scoped.write({
         artifactId: created.id,
         changes: { put: { "a.txt": { bytes: "after" } } },
       });
-      const range = await artifacts.readFileRange(
+      const range = await scoped.readFileRange(
         required(created.contentId),
         "a.txt",
         { start: 0 }
       );
       expect(await new Response(required(range).body).text()).toBe("after");
+      await expect(
+        artifacts.create({
+          entries: { "b.txt": { bytes: "outer" } },
+          name: "Outer",
+          type: "text/plain",
+        })
+      ).rejects.toBeInstanceOf(ReentrantCallError);
+      await expect(artifacts.get(created.id)).rejects.toBeInstanceOf(
+        ReentrantCallError
+      );
+      await expect(
+        artifacts.transaction(async () => undefined)
+      ).rejects.toBeInstanceOf(ReentrantCallError);
     });
+    expect((await artifacts.list()).total).toBe(1);
     expect((await artifacts.get(created.id))?.metadata).toMatchObject({
-      step: 2,
+      step: 1,
     });
   });
 
-  it("rolls joined calls back with the transaction they joined", async () => {
-    const artifacts = nodeArtifacts({
+  it("rolls explicit-handle writes back when the transaction throws", async () => {
+    const artifacts = new Artifacts({
       store: await openStore(kind),
     });
     const created = await artifacts.create({
@@ -498,8 +488,8 @@ describe.each(STORE_KINDS)("%s store: Artifacts transactions", (kind) => {
       type: "text/plain",
     });
     await expect(
-      artifacts.transaction(async () => {
-        await artifacts.patchArtifactMetadata(created.id, { step: 1 });
+      artifacts.transaction(async (scoped) => {
+        await scoped.patchArtifactMetadata(created.id, { step: 1 });
         throw new Error("abandoned");
       })
     ).rejects.toThrow("abandoned");
@@ -508,8 +498,8 @@ describe.each(STORE_KINDS)("%s store: Artifacts transactions", (kind) => {
     );
   });
 
-  it("rolls the whole transaction back when a joined write fails, even if the failure was caught", async () => {
-    const artifacts = nodeArtifacts({
+  it("rolls the whole transaction back when a partial write fails, even if the failure was caught", async () => {
+    const artifacts = new Artifacts({
       store: await openStore(kind),
     });
     const created = await artifacts.create({
@@ -517,26 +507,30 @@ describe.each(STORE_KINDS)("%s store: Artifacts transactions", (kind) => {
       name: "A",
       type: "text/plain",
     });
-    const failure = new Error("inner write failed");
-    const rolledBack = artifacts.transaction(async () => {
-      await artifacts.patchArtifactMetadata(created.id, { step: 1 });
-      await artifacts
-        .transaction(async (nested) => {
-          await nested.patchArtifactMetadata(created.id, { half: true });
-          throw failure;
+    let caught: unknown;
+    const rolledBack = artifacts.transaction(async (scoped) => {
+      await scoped.patchArtifactMetadata(created.id, { step: 1 });
+      await scoped
+        .create({
+          entries: { "a.txt": { bytes: "partial" } },
+          metadata: { entry: "missing.txt" },
+          name: "Partial",
+          type: "text/plain",
         })
-        .catch(() => undefined);
-      await artifacts.patchArtifactMetadata(created.id, { step: 2 });
+        .catch((error: unknown) => {
+          caught = error;
+        });
+      await scoped.patchArtifactMetadata(created.id, { step: 2 });
     });
     await expect(rolledBack).rejects.toBeInstanceOf(TransactionRolledBackError);
-    await expect(rolledBack).rejects.toMatchObject({ cause: failure });
+    await expect(rolledBack).rejects.toMatchObject({ cause: caught });
     const { metadata } = required(await artifacts.get(created.id));
     expect(metadata).not.toHaveProperty("step");
-    expect(metadata).not.toHaveProperty("half");
+    expect((await artifacts.list()).total).toBe(1);
   });
 
   it("starts its own transaction for work that outlives the one it was scheduled in", async () => {
-    const artifacts = nodeArtifacts({
+    const artifacts = new Artifacts({
       store: await openStore(kind),
     });
     const created = await artifacts.create({

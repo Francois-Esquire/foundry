@@ -1,5 +1,4 @@
 // biome-ignore lint/performance/noBarrelFile: Public Node entry point keeps filesystem code out of portable imports.
-export { nodeArtifacts } from "./artifacts";
 export { blobFiles } from "./blobs";
 export {
   ARTIFACT_CONFLICTS_DIRECTORY,
