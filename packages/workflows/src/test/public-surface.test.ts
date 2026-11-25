@@ -76,7 +76,6 @@ const packageJsonUrl = new URL("../../package.json", import.meta.url);
 const expectedExportKeys = [
   ".",
   "./approval",
-  "./authored",
   "./channels",
   "./definitions",
   "./executable",

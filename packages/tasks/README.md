@@ -151,9 +151,9 @@ answers true, then drops dependency edges in both directions. `inUse` is
 asked outside any store transaction, so it may use the store; the task, its
 token, and its children are checked again when the removal commits.
 
-`taskChangeSchema` on `@foundry/tasks/operations` validates a batch at an
-edge such as an MCP tool, and is bound to the hand-written `TaskChange` type
-so the two cannot drift.
+`taskChangeSchema` on `@foundry/tasks` validates a batch at an edge such as
+an MCP tool, and is bound to the hand-written `TaskChange` type so the two
+cannot drift.
 
 ## Errors
 
@@ -260,10 +260,10 @@ A `get` or delete by such a key finds nothing, as no row can hold one, and
 the constructor refuses such a `scope`. Metadata and tags are JSON, which
 escapes both, so they keep them.
 
-`@foundry/tasks/schema` defines every record that crosses the seam as a Zod
-schema: the task, the dependency edge, the snapshot, the write, and the
-event. Each record type is inferred from its schema. Nothing parses them on
-the way into or out of a store.
+Every record that crosses the seam has a Zod schema: the task, the
+dependency edge, the snapshot, the write, and the event. Each record type is
+inferred from its schema, and `@foundry/tasks` exports `taskSchema`. Nothing
+parses them on the way into or out of a store.
 
 Every write that changes something carries `events`, one `TaskEvent`, the
 change fact `Tasks` builds, so a host's `onCommit` records it in the same

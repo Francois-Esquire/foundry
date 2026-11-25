@@ -3,10 +3,7 @@ import { z } from "zod";
 
 export type TaskId = string & { readonly __brand: "TaskId" };
 
-export const taskIdSchema = z.string().min(1) as unknown as z.ZodType<
-  TaskId,
-  string
->;
+const taskIdSchema = z.string().min(1) as unknown as z.ZodType<TaskId, string>;
 
 export const TASK_STATUSES = [
   "open",
@@ -87,7 +84,7 @@ export type TaskDependency = z.infer<typeof taskDependencySchema>;
 
 const dependencies = z.array(taskDependencySchema).readonly();
 
-export const taskDeltaSchema = z
+const taskDeltaSchema = z
   .strictObject({
     after: storedTask.nullable(),
     before: storedTask.nullable(),

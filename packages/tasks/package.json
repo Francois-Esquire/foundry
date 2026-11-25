@@ -11,21 +11,6 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./availability": {
-      "types": "./dist/availability.d.ts",
-      "import": "./src/availability.ts",
-      "default": "./src/availability.ts"
-    },
-    "./operations": {
-      "types": "./dist/operations.d.ts",
-      "import": "./src/operations.ts",
-      "default": "./src/operations.ts"
-    },
-    "./schema": {
-      "types": "./dist/schema.d.ts",
-      "import": "./src/schema.ts",
-      "default": "./src/schema.ts"
-    },
     "./store": {
       "types": "./dist/store/index.d.ts",
       "import": "./src/store/index.ts",

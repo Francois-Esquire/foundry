@@ -14,10 +14,6 @@
       "types": "./dist/approval.d.ts",
       "import": "./src/approval.ts"
     },
-    "./authored": {
-      "types": "./dist/authored.d.ts",
-      "import": "./src/authored.ts"
-    },
     "./channels": {
       "types": "./dist/channels.d.ts",
       "import": "./src/channels.ts"
