@@ -60,7 +60,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist .cache .turbo coverage",
     "test": "vitest run",
     "test:watch": "vitest",

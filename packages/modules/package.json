@@ -69,7 +69,7 @@
     "!**/*.test.*"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist .cache .turbo coverage",
     "emit-manifest-schema": "bun src/manifest-schema-emit.ts && biome format --write schema/foundry.module.schema.json",
     "emit-sdk": "bun src/sdk/emit.ts && biome format --write src/sdk/emitted.ts src/sdk/generator-source.ts",
