@@ -370,7 +370,7 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
     "test-spyglass",
     "validate",
   ];
-  const work = ["build-daemon", ...bunWork].sort();
+  const work = ["build-binaries", "changes", ...bunWork].sort();
   expect(Object.keys(ci.jobs).sort()).toEqual([...work, "verify"].sort());
   for (const id of Object.keys(ci.jobs)) {
     expect(job(id).permissions).toBeUndefined();
@@ -380,20 +380,25 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
     expect(commandsOf(id)).not.toContain("bun run docs:typecheck");
   }
 
-  const buildDaemon = job("build-daemon");
-  expect(buildDaemon.strategy?.matrix?.include).toHaveLength(4);
+  const buildBinaries = job("build-binaries");
+  expect(buildBinaries.needs).toEqual(["changes"]);
+  expect(buildBinaries.if).toBe(
+    actionExpression("needs.changes.outputs.binaries == 'true'")
+  );
+  expect(buildBinaries.strategy?.matrix?.include).toHaveLength(4);
   expect(
-    buildDaemon.steps.find(({ uses }) => uses?.startsWith("actions/cache@"))?.if
+    buildBinaries.steps.find(({ uses }) => uses?.startsWith("actions/cache@"))
+      ?.if
   ).toBe("github.event_name == 'pull_request'");
-  expect(job("test").needs).toEqual(["build-daemon"]);
-  expect(job("release").needs).toEqual(["build-daemon"]);
+  expect(job("test").needs).toEqual(["changes", "build-binaries"]);
+  expect(job("release").needs).toEqual(["changes", "build-binaries"]);
 
   const verify = job("verify");
   expect(verify.name).toBe("Verify");
   expect(verify.if).toBe("always()");
   expect([...(verify.needs ?? [])].sort()).toEqual(work);
   expect(commandsOf("verify").join("\n")).toContain(
-    'all(.[]; .result == "success")'
+    'all(.[]; .result == "success" or .result == "skipped")'
   );
 
   const setup = YAML.parse(
