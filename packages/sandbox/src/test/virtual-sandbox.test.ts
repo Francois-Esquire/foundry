@@ -1,36 +1,36 @@
-import { createSandboxToolkit } from "@foundry/sandbox/tools/toolkit";
-import { createVirtualSystem } from "@foundry/sandbox/virtual/system";
+import { createSandboxToolkit } from "@foundry/sandbox/tools";
+import { createVirtualSandbox } from "@foundry/sandbox/virtual";
 import { describe, expect, it } from "vitest";
 
 import { runSandboxContract } from "./helpers/sandbox-contract";
 
 runSandboxContract({
-  create: () => ({ sandbox: createVirtualSystem() }),
-  label: "virtual system",
+  create: () => ({ sandbox: createVirtualSandbox() }),
+  label: "virtual sandbox",
 });
 
 const NO_OPTIONS = {};
 
-describe("createVirtualSystem", () => {
+describe("createVirtualSandbox", () => {
   it("starts with seeded files, resolved against the working directory", async () => {
-    const system = createVirtualSystem({
+    const sandbox = createVirtualSandbox({
       files: { "/etc/motd": "banner", "notes.md": "hello" },
     });
 
-    await expect(system.files.readFile("notes.md")).resolves.toEqual(
+    await expect(sandbox.files.readFile("notes.md")).resolves.toEqual(
       new TextEncoder().encode("hello")
     );
-    await expect(system.files.readFile("/etc/motd")).resolves.toEqual(
+    await expect(sandbox.files.readFile("/etc/motd")).resolves.toEqual(
       new TextEncoder().encode("banner")
     );
   });
 
   it("runs the simulated toolbox, not just a shell", async () => {
-    const system = createVirtualSystem({
+    const sandbox = createVirtualSandbox({
       files: { "src/a.ts": "const x = 1;\n// TODO fix\n", "src/b.txt": "no" },
     });
 
-    const grepped = await system.commands.exec([
+    const grepped = await sandbox.commands.exec([
       "grep",
       "-rn",
       "TODO",
@@ -39,56 +39,56 @@ describe("createVirtualSystem", () => {
     expect(grepped.exitCode).toBe(0);
     expect(grepped.stdout).toContain("a.ts:2");
 
-    const counted = await system.commands.exec("ls /workspace/src | wc -l");
+    const counted = await sandbox.commands.exec("ls /workspace/src | wc -l");
     expect(counted.exitCode).toBe(0);
     expect(counted.stdout.trim()).toBe("2");
   });
 
   it("keeps argv genuinely unparsed — a space is not a separator", async () => {
-    const system = createVirtualSystem();
+    const sandbox = createVirtualSandbox();
 
     await expect(
-      system.commands.exec(["printf", "%s", "one two"])
+      sandbox.commands.exec(["printf", "%s", "one two"])
     ).resolves.toMatchObject({ stdout: "one two" });
 
     await expect(
-      system.commands.exec(["printf", "%s", "$HOME"])
+      sandbox.commands.exec(["printf", "%s", "$HOME"])
     ).resolves.toMatchObject({ stdout: "$HOME" });
   });
 
   it("treats argv[0] as one command name, not a shell line", async () => {
-    const system = createVirtualSystem();
+    const sandbox = createVirtualSandbox();
 
-    const joined = await system.commands.exec(["echo first; echo second"]);
+    const joined = await sandbox.commands.exec(["echo first; echo second"]);
     expect(joined.exitCode).toBe(127);
     expect(joined.stdout).toBe("");
 
-    const quoted = await system.commands.exec(["it's"]);
+    const quoted = await sandbox.commands.exec(["it's"]);
     expect(quoted.exitCode).toBe(127);
     expect(quoted.stderr).toContain("it's");
   });
 
   it("carries environment variables into commands", async () => {
-    const system = createVirtualSystem({ environment: { GREETING: "hi" } });
+    const sandbox = createVirtualSandbox({ environment: { GREETING: "hi" } });
 
     await expect(
-      system.commands.exec("printf '%s' \"$GREETING\"")
+      sandbox.commands.exec("printf '%s' \"$GREETING\"")
     ).resolves.toMatchObject({ stdout: "hi" });
   });
 
   it("refuses an already-cancelled command", async () => {
-    const system = createVirtualSystem();
+    const sandbox = createVirtualSandbox();
     const controller = new AbortController();
     controller.abort();
 
     await expect(
-      system.commands.exec("echo hi", { signal: controller.signal })
+      sandbox.commands.exec("echo hi", { signal: controller.signal })
     ).rejects.toMatchObject({ code: "cancelled" });
   });
 
-  it("keeps two systems from seeing each other", async () => {
-    const first = createVirtualSystem({ files: { "only-here.txt": "a" } });
-    const second = createVirtualSystem();
+  it("keeps two sandboxes from seeing each other", async () => {
+    const first = createVirtualSandbox({ files: { "only-here.txt": "a" } });
+    const second = createVirtualSandbox();
 
     await expect(second.files.list("/workspace")).resolves.toEqual([]);
     await expect(first.files.list("/workspace")).resolves.toEqual([
@@ -97,12 +97,12 @@ describe("createVirtualSystem", () => {
   });
 });
 
-describe("the sandbox toolkit over a virtual system", () => {
+describe("the sandbox toolkit over a virtual sandbox", () => {
   it("reads, writes, edits, globs, greps, moves, and runs a command", async () => {
-    const system = createVirtualSystem({
+    const sandbox = createVirtualSandbox({
       files: { "src/app.ts": "const x = 1;\n// TODO fix\n" },
     });
-    const { tools } = createSandboxToolkit(system);
+    const { tools } = createSandboxToolkit(sandbox);
 
     await expect(
       tools.read.execute({ file_path: "src/app.ts" }, NO_OPTIONS)
@@ -156,8 +156,8 @@ describe("the sandbox toolkit over a virtual system", () => {
   });
 
   it("writes through bash and reads it back through the facet", async () => {
-    const system = createVirtualSystem();
-    const { tools } = createSandboxToolkit(system);
+    const sandbox = createVirtualSandbox();
+    const { tools } = createSandboxToolkit(sandbox);
 
     await tools.bash.execute(
       { command: "mkdir -p out && echo built > out/result.txt" },

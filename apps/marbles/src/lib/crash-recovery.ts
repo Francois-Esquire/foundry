@@ -1,7 +1,7 @@
 import type { ArtifactSubstrate } from "@foundry/artifacts";
 import { stopOrphans } from "@foundry/lib/node/orphans";
-import { removeByHand } from "@foundry/sandbox/container/constants";
-import type { Containers } from "@foundry/sandbox/container/containers";
+import type { Containers } from "@foundry/sandbox";
+import { removeByHand } from "@foundry/sandbox";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { z } from "zod";
 

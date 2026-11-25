@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileRecorded } from "@foundry/lib/node/spawn-record";
-import type { Container } from "@foundry/sandbox/container/containers";
+import type { Container } from "@foundry/sandbox";
 import { z } from "zod";
 import {
   CLI_HARNESSES,

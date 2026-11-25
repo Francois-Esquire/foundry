@@ -1,11 +1,8 @@
 import { createHash } from "node:crypto";
 import { withConfirmedModuleContainerCleanup } from "@foundry/modules/platform";
-import {
-  type Container,
-  createContainers,
-} from "@foundry/sandbox/container/containers";
+import type { Container, SandboxProcessesFacet } from "@foundry/sandbox";
+import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import type { SandboxProcessesFacet } from "@foundry/sandbox/types";
 import type { BuildRuntime } from "./controller";
 import { auditBuildWorkspace } from "./workspace";
 
@@ -20,7 +17,7 @@ export async function createBuildRuntime(
   userData: string
 ): Promise<BuildRuntime> {
   const { createMicrosandboxRuntime } = await import(
-    "@foundry/sandbox/container/microsandbox-runtime"
+    "@foundry/sandbox/node/microsandbox"
   );
   const runtime = createMicrosandboxRuntime();
   const containers = withConfirmedModuleContainerCleanup(

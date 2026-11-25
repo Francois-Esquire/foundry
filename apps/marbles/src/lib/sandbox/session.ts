@@ -13,7 +13,7 @@ import {
   createHarnessQuestionTool,
 } from "@foundry/agents/harness";
 import type { SessionStore } from "@foundry/agents/store";
-import type { Container } from "@foundry/sandbox/container/containers";
+import type { Container } from "@foundry/sandbox";
 import type { Tool, ToolSet } from "ai";
 import { type CliHarness, isCliHarness } from "~/lib/cli-harnesses";
 import type { RecordObservation } from "~/lib/observations";

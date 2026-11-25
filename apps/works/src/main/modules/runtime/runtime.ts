@@ -17,7 +17,7 @@ import {
   createModulePlatform,
   ModuleActivationRefusedError,
 } from "@foundry/modules/platform";
-import { createContainers } from "@foundry/sandbox/container/containers";
+import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { moduleDirectory } from "../local-library";
 import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
@@ -29,7 +29,7 @@ export async function createModuleRuntime(
   artifactStore: ArtifactStore
 ): Promise<ModuleRuntime> {
   const { createMicrosandboxRuntime } = await import(
-    "@foundry/sandbox/container/microsandbox-runtime"
+    "@foundry/sandbox/node/microsandbox"
   );
   const artifacts = new Artifacts({ store: artifactStore });
   const store = new Modules({

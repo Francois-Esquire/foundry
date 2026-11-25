@@ -4,10 +4,10 @@ One `Sandbox` interface over different backends — a microVM container or an in
 binds to all of them identically.
 
 Storage contracts come from the dependency-free `@foundry/core/storage`.
-The virtual system and container expose `files` implementing `Storage`, including strict
+The virtual sandbox and container expose `files` implementing `Storage`, including strict
 `readDirectory` and atomic `replaceFile`, over the same files used by commands.
 Zod is the only required external runtime dependency. Install `just-bash` for
-`/virtual/system` and `microsandbox` for `/container/microsandbox-runtime`. The package lists
+`@foundry/sandbox/virtual` and `microsandbox` for `@foundry/sandbox/node/microsandbox`. The package lists
 these peers as development dependencies to build and test its adapters.
 
 MicroSandbox is pinned to `0.6.18` in development and peer dependencies. Its
@@ -30,7 +30,7 @@ A container is a `Sandbox` with more on it: `processes`, `ports`, `services`, `s
 ### Give an agent tools over a sandbox
 
 ```typescript
-import { createSandboxToolkit } from "@foundry/sandbox/tools/toolkit";
+import { createSandboxToolkit } from "@foundry/sandbox/tools";
 
 const toolkit = createSandboxToolkit(sandbox, {
   limits: { maxOutputChars: 50_000, maxCallsPerMinute: 120 },
@@ -49,10 +49,10 @@ package depending on the SDK.
 ### Get a sandbox
 
 ```typescript
-import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
+import { createContainers } from "@foundry/sandbox/node";
+import { createMicrosandboxRuntime } from "@foundry/sandbox/node/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createVirtualSystem } from "@foundry/sandbox/virtual/system";
+import { createVirtualSandbox } from "@foundry/sandbox/virtual";
 
 const containers = createContainers({
   instanceLabel: "example",
@@ -66,7 +66,7 @@ const c = await containers.start({
 await c.commands.exec(["npm", "test"]);
 await c.close();
 
-const memory = createVirtualSystem({ files: { "notes.md": "hello" } });
+const memory = createVirtualSandbox({ files: { "notes.md": "hello" } });
 ```
 
 A virtual sandbox is a value; a container is a handle you `close()`.
@@ -105,9 +105,8 @@ output ceilings live on the tools (`SandboxToolLimits`).
 
 ## Portable contracts
 
-Import portable contracts from `@foundry/sandbox/types`, adapters from
-`@foundry/sandbox/sandbox`, errors from `@foundry/sandbox/errors`, and path
-helpers from `@foundry/sandbox/path`. These modules need no concrete backend.
+Import portable contracts, adapters, errors, constants, schemas, and path helpers from
+`@foundry/sandbox`. The root entry point is 100% Web-standard and needs no concrete backend.
 
 ```typescript
 interface SandboxFilesystemFacet {
@@ -143,8 +142,8 @@ sandboxFromAdapter(adapter); // a Sandbox over a backend's SandboxAdapter
 
 POSIX glob matching lives in `@foundry/lib/glob` (`globToRegExp`).
 
-Constants have scoped entry points: `@foundry/sandbox/constants`,
-`@foundry/sandbox/container/constants`, and `@foundry/sandbox/tools/constants`.
+Sandbox and container constants are exported from `@foundry/sandbox`; toolkit
+constants are exported from `@foundry/sandbox/tools`.
 
 ## Storage
 
@@ -157,7 +156,7 @@ first put (a row put again keeps its place). A store may offer
 `transaction(work)`, which keeps every write from any registry over the store
 out from between `work`'s reads and its commit; the registry runs each
 read-modify-write through it when offered, and serializes its own writes
-either way. `@foundry/sandbox/schema` defines `ContainerRow` as a Zod schema.
+either way. `@foundry/sandbox` defines `ContainerRow` as a Zod schema.
 
 A store reads a write once, when `commit` is called. Both stores here take
 its events by the event rule (see Change events) and the rest by one
@@ -184,7 +183,7 @@ a hooked one is also proven to hand its hook every kept commit's events
 once, in order, as they were when `commit` was called, and none for a
 commit that fails.
 
-`CONTAINER_ROW_STATUSES` lives in `@foundry/sandbox/container/constants`.
+`CONTAINER_ROW_STATUSES` lives in `@foundry/sandbox`.
 
 ### Change events
 
@@ -200,7 +199,7 @@ enumerable, arrays without holes, text, finite numbers other than `-0`,
 booleans and `null`) is refused whole with a `TypeError` naming it, through
 a transaction's view too. It is the rule the workflows and artifacts stores
 take their events by. The schema is
-`sandboxEventSchema` on `@foundry/sandbox/schema`, which also exports the
+`sandboxEventSchema` on `@foundry/sandbox`, which also exports the
 type, `SandboxEvent` (re-exported from `@foundry/sandbox/store`). Every event
 has `type`, `id` (unique to it, made once per registry call, before its
 transaction), `at` (an ISO time, the stamp of the row it changed)
@@ -240,7 +239,7 @@ assigns it when a row is first put, keeps it when the row is put again, and
 lists rows by it.
 
 ```ts
-import { createContainers } from "@foundry/sandbox/container/containers";
+import { createContainers } from "@foundry/sandbox/node";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 
 const store = new SqliteContainerStore({
@@ -381,12 +380,12 @@ its guest path. File and command operations then reach the same mounted bytes;
 the container's mounts and runtime policy define access. Workspace inclusion
 rules govern the catalog, not what guest commands may read inside the mount.
 
-## `@foundry/sandbox/virtual/system`
+## `@foundry/sandbox/virtual`
 
 An in-memory filesystem and shell interpreter. No process, no container, no disk.
 
 ```typescript
-createVirtualSystem(options?): VirtualSystem; // a Sandbox, plus `bash`
+createVirtualSandbox(options?): VirtualSandbox; // a Sandbox, plus `bash`
 ```
 
 The fastest way to exercise anything that takes a `Sandbox`.
@@ -406,7 +405,7 @@ environment variables are merged with the sandbox environment; the host's
 environment is not copied. Aborting launch or a running process reaps it.
 Closing the last container handle cancels its piped processes.
 
-`prepareSandboxProcess` from `@foundry/sandbox/process` returns a Node stream
+`prepareSandboxProcess` from `@foundry/sandbox/node` returns a Node stream
 handle immediately while an asynchronous spawn is pending. It buffers stdin
 with backpressure, retains an early kill, and forwards launch errors. Use this
 for synchronous child-process hooks. Portable contracts use structural streams
@@ -590,12 +589,12 @@ booted instance, and can fail installs, stops and removes.
 
 ### Entry points
 
-The `./*` export maps leaf modules to source and built declarations, matching
-Foundry's other packages. There is no root barrel. Imports from the sister
-repository's root, `/tools`, `/container`, and `/virtual` barrels must use the
-corresponding leaf module. For example, `createSandboxToolkit` comes from
-`@foundry/sandbox/tools/toolkit` and `createContainers` comes from
-`@foundry/sandbox/container/containers`.
+`@foundry/sandbox` publishes explicit canonical subpaths with no wildcard exports:
+`.` (Web-standard contracts, schemas, constants, and path helpers), `./tools`,
+`./virtual`, `./store`, `./store/memory`, `./store/sqlite`, `./store/tables`,
+`./testing`, `./testing/store`, `./node`, and `./node/microsandbox`.
+For example, `createSandboxToolkit` comes from `@foundry/sandbox/tools` and
+`createContainers` comes from `@foundry/sandbox/node`.
 
 Types resolve from `dist/*.d.ts`. Rebuild before a consumer typechecks
 against a changed public API.

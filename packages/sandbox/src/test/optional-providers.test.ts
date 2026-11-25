@@ -41,22 +41,29 @@ it("loads portable entries and container contracts with only core, lib, and Zod 
         "--no-install",
         "--eval",
         `import assert from "node:assert/strict";
-import { sandboxFromAdapter } from "./src/sandbox.ts";
-import { createSandboxToolkit } from "./src/tools/toolkit.ts";
-import { createContainers } from "./src/container/containers.ts";
+import { sandboxFromAdapter } from "./src/index.ts";
+import { createSandboxToolkit } from "./src/tools/index.ts";
+import { createContainers, prepareSandboxProcess } from "./src/node/index.ts";
+import { MemoryContainerStore } from "./src/store/memory.ts";
 import "./src/testing.ts";
 for (const peer of ["just-bash", "microsandbox"]) {
   assert.throws(() => Bun.resolveSync(peer, process.cwd()));
 }
 assert.equal(typeof sandboxFromAdapter, "function");
 assert.equal(typeof createSandboxToolkit, "function");
-assert.equal(typeof createContainers, "function");`,
+assert.equal(typeof createContainers, "function");
+assert.equal(typeof prepareSandboxProcess, "function");
+assert.equal(typeof MemoryContainerStore, "function");`,
       ],
       { cwd: root, timeout: 10_000 }
     );
 
     const program = ts.createProgram(
-      [join(root, "src/sandbox.ts"), join(root, "src/tools/toolkit.ts")],
+      [
+        join(root, "src/index.ts"),
+        join(root, "src/tools/index.ts"),
+        join(root, "src/store/memory.ts"),
+      ],
       {
         module: ts.ModuleKind.ESNext,
         moduleResolution: ts.ModuleResolutionKind.Bundler,

@@ -2,7 +2,7 @@
 export { claudeCodeProvider } from "@foundry/models/claude-code";
 export { codexProvider } from "@foundry/models/codex";
 export { piProvider } from "@foundry/models/pi";
-export { createContainers } from "@foundry/sandbox/container/containers";
+export { createContainers } from "@foundry/sandbox/node";
 export { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 export type { ChannelMessage } from "@foundry/workflows/channels";
 export { Workspaces as WorkspaceSystem } from "@foundry/workspaces";

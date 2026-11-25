@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
 import { Artifacts } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import { createContainers } from "@foundry/sandbox/container/containers";
+import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { workspaces } from "@foundry/workspaces/node";

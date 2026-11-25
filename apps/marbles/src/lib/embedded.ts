@@ -12,7 +12,7 @@ export type { Provider } from "@foundry/models";
 export { Models } from "@foundry/models";
 export { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
 export { vercelProvider } from "@foundry/models/vercel";
-export type { Containers } from "@foundry/sandbox/container/containers";
+export type { Containers } from "@foundry/sandbox";
 export type { AutomationRecord } from "./automation/service";
 export type {
   AutomationStore,

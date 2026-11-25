@@ -1,4 +1,3 @@
-import { Buffer } from "node:buffer";
 import { SandboxError } from "../errors";
 import { normalizeSandboxPath } from "../path";
 import type {
@@ -254,7 +253,7 @@ class ContainerSandboxHandle<TNative> implements ContainerSandbox<TNative> {
   }
 
   async readTextFile(path: string): Promise<string> {
-    return Buffer.from(await this.readFile(path)).toString("utf8");
+    return new TextDecoder().decode(await this.readFile(path));
   }
 
   async copyIn(files: Record<string, string | Uint8Array>): Promise<void> {

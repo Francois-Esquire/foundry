@@ -7,7 +7,7 @@ import type {
 } from "@foundry/agents/harness";
 import type { SessionMessage } from "@foundry/agents/session";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import type { Container } from "@foundry/sandbox/container/containers";
+import type { Container } from "@foundry/sandbox";
 import type { ToolSet } from "ai";
 import { tool as createTool } from "ai";
 import { expect, it, vi } from "vitest";

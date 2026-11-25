@@ -9,7 +9,7 @@ import type { AirplaneMode } from "@foundry/models/airplane";
 import { airplaneMode } from "@foundry/models/airplane";
 import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
 import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
-import type { Containers } from "@foundry/sandbox/container/containers";
+import type { Containers } from "@foundry/sandbox";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import type { TaskStore } from "@foundry/tasks";
 import type { ChannelMessage } from "@foundry/workflows/channels";

@@ -8,7 +8,7 @@ import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import type { QueueEvent, Run } from "@foundry/queue";
 import type { QueueStoreService, QueueWrite } from "@foundry/queue/store";
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
-import { createContainers } from "@foundry/sandbox/container/containers";
+import { createContainers } from "@foundry/sandbox/node";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";

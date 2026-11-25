@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
-import { createContainers } from "@foundry/sandbox/container/containers";
+import { createContainers } from "@foundry/sandbox/node";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { openDatabase } from "~/database/open";
 import { artifactBlobs, workspaceStores } from "~/database/stores";

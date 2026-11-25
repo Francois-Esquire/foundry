@@ -4,7 +4,7 @@ import type { ProcessIdentity } from "@foundry/lib/node/process-identity";
 import { sameProcess } from "@foundry/lib/node/process-identity";
 import type { Job, RecoverySummary, RunOutcome } from "@foundry/queue";
 import type { QueueHandlerContext } from "@foundry/queue/client";
-import type { Container } from "@foundry/sandbox/container/containers";
+import type { Container } from "@foundry/sandbox";
 import { asRun, callingRun } from "~/lib/calling-run";
 import type { ExecutionRun } from "~/lib/execution-record";
 import { DEFAULT_POOL, isTask, linksOf } from "~/lib/execution-record";

@@ -5,7 +5,7 @@ import type { Artifact, ArtifactCursor, ArtifactId } from "@foundry/artifacts";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
-import type { ContainerRow } from "@foundry/sandbox/schema";
+import type { ContainerRow } from "@foundry/sandbox";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import { DatabaseAssociationStore } from "~/database/associations";
 import { asBusy } from "~/database/busy";

@@ -6,7 +6,7 @@ import {
 import { resolveHarnessApproval } from "@foundry/agents/harness";
 import { Sessions } from "@foundry/agents/session";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import type { Container } from "@foundry/sandbox/container/containers";
+import type { Container } from "@foundry/sandbox";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";

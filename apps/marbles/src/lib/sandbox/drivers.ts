@@ -1,6 +1,6 @@
 import type { HarnessTurnDriver } from "@foundry/agents/harness";
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
-import { prepareSandboxProcess } from "@foundry/sandbox/process";
+import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox";
+import { prepareSandboxProcess } from "@foundry/sandbox/node";
 import type { CliHarness, GuestAuth } from "~/lib/cli-harnesses";
 import { codexSubscriptionTokens } from "./credentials";
 import type { PreparedGuest } from "./prepare";

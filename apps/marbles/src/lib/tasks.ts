@@ -1,5 +1,5 @@
 import type { JsonValue } from "@foundry/lib/json";
-import type { Container } from "@foundry/sandbox/container/containers";
+import type { Container } from "@foundry/sandbox";
 
 import type { ExecutionRun, HostObservation } from "~/lib/executions";
 import type { Agents, SandboxHandle } from "~/lib/types";

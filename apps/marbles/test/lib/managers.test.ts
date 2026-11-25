@@ -6,7 +6,7 @@ import { defineSkill } from "@foundry/agents/skills";
 import type { ArtifactId, ContentId } from "@foundry/artifacts";
 import { Artifacts } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import { createContainers } from "@foundry/sandbox/container/containers";
+import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { workspaces as createWorkspaces } from "@foundry/workspaces/node";

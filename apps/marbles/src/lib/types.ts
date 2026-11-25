@@ -25,13 +25,13 @@ import type {
   FileInput,
   FileResolved,
 } from "@foundry/artifacts";
-import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
-import type { Container } from "@foundry/sandbox/container/containers";
 import type {
+  Container,
+  ContainerSandboxConstraints,
   SandboxCommand,
   SandboxExecOptions,
   SandboxExecResult,
-} from "@foundry/sandbox/types";
+} from "@foundry/sandbox";
 import type { Workspace as PackageWorkspace } from "@foundry/workspaces";
 import type { Git } from "@foundry/workspaces/node/git";
 import type {

@@ -129,9 +129,8 @@ management operations.
 
 `createModulePlatform` composes the package's management, Gateway, dispatcher, runtime,
 supervisor, and recovery from injected infrastructure. The platform role imports
-Sandbox container types only, type-only and from exact deep paths
-(`@foundry/sandbox/container/containers`, `/types`, and `/constraints`); it neither
-constructs a backend nor installs one.
+Sandbox container types only, type-only and from the root `@foundry/sandbox`
+entry; it neither constructs a backend nor installs one.
 The host retains ownership of the shared container registry's lifetime.
 
 `ModuleCheckouts` and `ModuleInstallationFiles` live in the portable platform role.

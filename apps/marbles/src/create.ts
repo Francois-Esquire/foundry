@@ -10,8 +10,8 @@ import { showArgv } from "@foundry/lib/argv";
 import type { Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
 import { DEFAULT_POOL } from "@foundry/queue";
-import type { Containers } from "@foundry/sandbox/container/containers";
-import { createContainers } from "@foundry/sandbox/container/containers";
+import type { Containers } from "@foundry/sandbox";
+import { createContainers } from "@foundry/sandbox/node";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
@@ -361,7 +361,7 @@ function containersFor(
   const runtime = () =>
     dry
       ? Promise.resolve(createFakeContainerRuntime({ exec: echoExec(print) }))
-      : import("@foundry/sandbox/container/microsandbox-runtime").then(
+      : import("@foundry/sandbox/node/microsandbox").then(
           ({ createMicrosandboxRuntime }) => createMicrosandboxRuntime()
         );
   return async () => {

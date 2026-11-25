@@ -19,20 +19,20 @@ import type {
 } from "../types";
 import { ObservableFileSystem } from "./filesystem";
 
-export interface VirtualSystemOptions {
+export interface VirtualSandboxOptions {
   readonly environment?: Readonly<Record<string, string>>;
   readonly files?: Readonly<Record<string, string | Uint8Array>>;
   readonly workingDirectory?: string;
 }
 
-export interface VirtualSystem extends Sandbox {
+export interface VirtualSandbox extends Sandbox {
   readonly bash: Bash;
   readonly files: SandboxFilesystemFacet & Storage & StorageObserver;
 }
 
-export function createVirtualSystem(
-  options: VirtualSystemOptions = {}
-): VirtualSystem {
+export function createVirtualSandbox(
+  options: VirtualSandboxOptions = {}
+): VirtualSandbox {
   const workdir = normalizeSandboxWorkingDirectory(
     options.workingDirectory ?? DEFAULT_SANDBOX_WORKING_DIRECTORY
   );
@@ -40,7 +40,10 @@ export function createVirtualSystem(
   const bash = new Bash({
     cwd: workdir,
     defenseInDepth: {
-      enabled: process.versions.bun === undefined ? "auto" : false,
+      enabled:
+        typeof process !== "undefined" && process.versions?.bun !== undefined
+          ? false
+          : "auto",
     },
     fs,
     ...(options.environment === undefined
@@ -238,7 +241,10 @@ async function virtualExec(
   options?: SandboxExecOptions
 ): Promise<SandboxExecResult> {
   if (options?.signal?.aborted === true) {
-    throw new SandboxError("cancelled", "virtual system command was cancelled");
+    throw new SandboxError(
+      "cancelled",
+      "virtual sandbox command was cancelled"
+    );
   }
   const [line, args] = toExecArgs(command);
   if (line === "") {

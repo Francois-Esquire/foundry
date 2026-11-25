@@ -1,6 +1,5 @@
 import type { ArtifactSubstrate } from "@foundry/artifacts";
-import type { Containers } from "@foundry/sandbox/container/containers";
-import type { ContainerRuntime } from "@foundry/sandbox/container/types";
+import type { ContainerRuntime, Containers } from "@foundry/sandbox";
 
 import type { InstallationId } from "../domain";
 import { createModuleGateway } from "../gateway/module-gateway";

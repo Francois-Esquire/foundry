@@ -2,15 +2,11 @@ import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson } from "@foundry/lib/digest";
-import type {
-  Container,
-  Containers,
-} from "@foundry/sandbox/container/containers";
-import { createContainers } from "@foundry/sandbox/container/containers";
-import { SandboxError } from "@foundry/sandbox/errors";
+import type { Container, Containers, SandboxService } from "@foundry/sandbox";
+import { SandboxError } from "@foundry/sandbox";
+import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
-import type { SandboxService } from "@foundry/sandbox/types";
 import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, installationIdSchema, moduleIdSchema } from "../domain";
