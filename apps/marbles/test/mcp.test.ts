@@ -236,7 +236,7 @@ function toolAnswer(value: unknown): { isError: boolean; text: string } {
 }
 
 const DRY_REFUSAL =
-  "A dry run of a workflow goes through `marbles roll --dry-run`.";
+  "A dry run of a workflow goes through `marbles run <name> --dry-run`.";
 
 it("under --dry-run, loads no source, keeps tasks in memory, and refuses what needs a running instance", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-dry-"));
@@ -289,7 +289,7 @@ workflow("greeting").do(() => step("greet").do(() => "hello")({}));`
         await client.callTool({ arguments: args, name })
       );
       expect(refused.isError, name).toBe(true);
-      expect(refused.text, name).toContain("marbles attach");
+      expect(refused.text, name).toContain("marbles daemon attach");
       expect(refused.text, name).toContain(DRY_REFUSAL);
     }
     const created = await client.callTool({
@@ -571,7 +571,7 @@ schedule(tick).every("1s");`
       const refused = await client.callTool({ arguments: args, name });
       expect(refused.isError, name).toBe(true);
       expect(JSON.stringify(refused.content), name).toContain(
-        "`marbles attach` in its root hosts it"
+        "`marbles daemon attach` in its root hosts it"
       );
     }
     await new Promise((settle) => setTimeout(settle, 1500));
@@ -790,7 +790,14 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   try {
     const attached = spawnSync(
       "bun",
-      ["--no-env-file", resolve("src/cli.ts"), "attach", "--source", source],
+      [
+        "--no-env-file",
+        resolve("src/cli.ts"),
+        "daemon",
+        "attach",
+        "--source",
+        source,
+      ],
       { cwd: root, encoding: "utf8", env: home.env, timeout: 60_000 }
     );
     expect(attached.status, attached.stderr).toBe(0);

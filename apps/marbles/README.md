@@ -54,7 +54,7 @@ From that project's root:
 
 ```sh
 marbles list
-marbles roll inventory
+marbles run inventory
 ```
 
 The result contains the file count. This example needs no agent credentials
@@ -132,7 +132,7 @@ workspace recorded under the state root, even one whose checkout is gone:
 the Marbles process that hosts the workspace
 answers, or the server opens the stored tasks for the call. `list_config`, the dispatch
 tools, `get_run`, and `cancel_run` need the Marbles process to host the workspace,
-and return an error that names `marbles attach` without one. Its engine
+and return an error that names `marbles daemon attach` without one. Its engine
 generation loads the workspace's source modules, and an edit brings up the next generation.
 
 The server offers `list_workspaces`, `list_config`, `dispatch_workflow`,
@@ -190,12 +190,24 @@ Dispatched runs belong to the engine generation that started them, so
 closing the MCP connection ends only the server and leaves them running.
 `get_run` reads the run's stored records, so any server for the same
 workspace finds it, and a later generation still finds it after a source
-reload or `marbles stop`, once a Marbles process hosts the workspace
+reload or `marbles daemon stop`, once a Marbles process hosts the workspace
 again. Its saved output stays watchable.
 
-### Watch a run
+### Enqueue and watch a run
 
-After either MCP launch command returns, wait for the result in one CLI call:
+`marbles enqueue <name> [--input <json>] [--key <key>]` puts one step or
+workflow on the workspace's queue in the Marbles process, starting the
+process when none runs, and exits at once. Its run ID is the only line on
+stdout, so a script can keep it (`id=$(marbles enqueue build)`); a line on
+stderr says what was queued. `--key` enqueues the definition once per key,
+the key a definition's own `enqueue(input, { key })` and
+`step.enqueue(name, input, { key })` match too: a later enqueue with the same
+key prints the first run's ID, whatever became of it. `--dry-run` refuses
+`enqueue`, since a dry run has no queue to leave the run on. `marbles run
+<name>` runs it in the foreground instead and prints its result.
+
+After `marbles enqueue` or either MCP launch command returns, wait for the
+result in one CLI call:
 
 ```sh
 marbles watch <runId>
@@ -208,7 +220,8 @@ bun --no-env-file apps/marbles/src/cli.ts watch <runId>
 ```
 
 `watch` replays earlier output, follows new output, prints the result and
-terminal status, and exits. It reads saved output across workspaces under
+terminal status, and exits. A run still waiting in its queue has no output
+yet; `watch` says so and waits for it to start. It reads saved output across workspaces under
 the Foundry home, so it needs neither the original working directory nor
 `--source`. Give it the same `FOUNDRY_HOME` as the MCP server if you moved it.
 It never imports configuration or starts an engine. Multiple watchers can
@@ -247,14 +260,17 @@ Foundry home (each home has its own process). Under `--dry-run` the server
 joins no process, lists only its own workspace, keeps its tasks in memory
 for the session, and writes nothing. `list_config`, the dispatch tools,
 `get_run`, and `cancel_run` then return an error. A dry run of a workflow
-goes through `marbles roll --dry-run`.
+goes through `marbles run <name> --dry-run`.
 
 ### Dashboard
 
-`marbles` attaches the workspace to the Marbles process, which starts its
-schedules and monitors, and opens a dashboard on it; `marbles run </dev/null`
-attaches it and follows its status lines instead. Either way the triggers
-keep running after the command exits, until `marbles stop`. The dashboard
+`marbles`, with no command, attaches the workspace to the Marbles process,
+which starts its schedules and monitors, and opens a dashboard on it;
+`marbles </dev/null` attaches it and follows its status lines instead.
+Either way the triggers keep running after the command exits, until
+`marbles daemon stop`. `marbles run <name>` runs one step, workflow,
+schedule or monitor now, waits for it, prints its output and result, and
+exits; `marbles run` with no name opens nothing. The dashboard
 lists every workspace the process hosts (`w` moves between them) and can
 answer questions; a run that asks waits on the Feed for one, and is
 cancelled at the ask only under `--dry-run`. Source edits bring up the next
@@ -264,7 +280,7 @@ engine generation on their own.
 
 The Marbles process hosts every registered workspace in one engine
 subprocess, a generation, and keeps clients connected to itself, so a
-dashboard or `marbles run` follows its workspace across generations. An
+dashboard, or `marbles` with its output piped, follows its workspace across generations. An
 edit to any workspace's source, a change to the Marbles installation, or
 a client's reload, starts the next generation. It must load every
 registered workspace; when one does not load, the error is shown on that
@@ -308,7 +324,7 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
   artifacts/
     workspaces/<workspace-id>/blobs/   each artifact's bytes
 <workspace root>/
-  .marbles/artifacts/<id>/<path>       links to its own artifacts' files (`marbles relink`)
+  .marbles/artifacts/<id>/<path>       links to its own artifacts' files (`marbles artifacts relink`)
   .marbles/artifacts/@<owner>/<id>/<path>   links to those other workspaces share with it
 ```
 
@@ -322,16 +338,19 @@ secrets, which is why the database is its owner's only. The Marbles process
 creates the state root mode 0700 and tightens an existing one to that when
 it starts, claims `locks/process` at the state root and listens on `marbles.sock`
 beside it, so a second Marbles process for the same home is refused with
-the holder's pid. `marbles daemon` runs the process in the
-foreground for a service manager, and `marbles status` shows it and which
-workspaces it hosts. `--dry-run` hosts the workspace in the calling process
+the holder's pid. `marbles daemon` (or `marbles daemon start`) runs the
+process in the foreground for a service manager, `marbles daemon stop`
+stops it and every workspace it hosts, `marbles daemon attach` hosts this
+workspace in it and exits, and `marbles daemon detach` stops hosting it,
+so it is not started again at boot. `marbles status` shows the process and
+which workspaces it hosts. `--dry-run` hosts the workspace in the calling process
 instead, substitutes Marbles-owned operations, and avoids state writes;
 ordinary TypeScript and monitor I/O still execute. Each command decides
-what the flag means for it: `run`, `roll`, `list`, `tasks` and `mcp` have
-a dry mode, the listings, `settings themes`, `settings get`, `status`,
-`watch` and `help` only read, and `attach`, `daemon`, `detach`, `init`,
-`relink`, `settings set`, `share`, `stop` and `unshare` refuse it before
-anything is opened or written. Where there is
+what the flag means for it: the dashboard, `run`, `list`, `tasks` and
+`mcp` have a dry mode, the listings, `theme`, `theme list`, `status`,
+`watch` and `help` only read, and `enqueue`, `init`, every `daemon`
+action, `theme <name>`, `artifacts relink`, and `share` and `unshare`
+under any resource refuse it before anything is opened or written. Where there is
 no source, a dry run offers no starter: `marbles init`, without the flag,
 creates one. A dry run writes nothing under the Foundry home but SQLite's
 shared-memory index of a database that is already there
@@ -344,12 +363,14 @@ directory.
 
 Runs, sessions, artifacts and sandbox containers are kept in the
 Marbles database, each belonging to the workspace it was created in.
-`marbles share <kind> <id> <dir>` shows one of this workspace's resources in
-the workspace at `<dir>` as well (a sandbox container stays with the
-workspace that started it), and `marbles unshare` stops it; neither changes
-the resource. `marbles runs`, `sessions`, `artifacts` and `sandboxes`
-list what this workspace shows, its own and what is shared with
-it, and `--all` lists every workspace's; a run's steps are listed under it.
+Each kind of resource has its own command: `marbles runs`, `sessions`,
+`artifacts` and `sandboxes` (or `marbles runs list`, and so on) list what
+this workspace shows, its own and what is shared with it, and `--all`
+lists every workspace's; a run's steps are listed under it.
+`marbles runs share <id> <dir>` (likewise `sessions` and `artifacts`) shows
+one of this workspace's resources in the workspace at `<dir>` as well, and
+`unshare` stops it; neither changes the resource. A sandbox container
+stays with the workspace that started it, so `sandboxes` only lists.
 `marbles status` reads the same way. The dashboard's run and trigger lists
 show this workspace's own (live) and those shared with it, and `g` shows
 every workspace's; another workspace's runs and triggers are read only
@@ -362,7 +383,7 @@ resources a workspace shows: for now, one link per artifact file whose
 bytes a blob file holds, its own artifacts' under `artifacts/<id>/` and
 another workspace's under `artifacts/@<owner>/<id>/`, each name encoded so
 no two collide, case-insensitively too. Nothing reads them back.
-`marbles relink [--all]` makes them match the database: it removes the
+`marbles artifacts relink [--all]` makes them match the database: it removes the
 links Marbles made that no longer should be there and makes the missing
 ones, leaving anything else (a file, a link of your own) and reporting it.
 Before each change, the directory it is made in or removed from is checked
@@ -374,7 +395,7 @@ between a check and the change after it; nothing in the runtime closes
 that window. Once a workspace has links, they follow each artifact write
 after it lands, in the artifact's owner and every workspace it is shared
 with; a link that cannot be made is reported, never failing the write,
-and `relink` repairs it. A closing engine takes no new link work and
+and `marbles artifacts relink` repairs it. A closing engine takes no new link work and
 waits for the updates its writes queued; after five seconds it gives up
 those still waiting for a `.marbles/.lock` or their turn, reporting them
 for `relink`, and lets the one under way reach its next step, so it

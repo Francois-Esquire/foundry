@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -23,6 +24,7 @@ import { artifactBlobs } from "~/database/stores";
 import { resourceLinks, stateDatabase, workspaceLinks } from "~/layout";
 import { ResourceAssociationError } from "~/lib/resources";
 import { workspaceState } from "~/lib/state/workspace";
+import { cliArgs } from "./helpers/cli";
 import { touchWorkspace } from "./helpers/registry";
 import { seedRuns } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
@@ -225,5 +227,64 @@ describe("the resource commands", () => {
         context(two).context
       )
     ).rejects.toThrow(ResourceAssociationError);
+  });
+});
+
+describe("the resource commands from the CLI", { timeout: 120_000 }, () => {
+  it("list, share, unshare and relink under each resource's own noun", async () => {
+    const { home, notes, one, two } = await machine();
+    await writeFile(
+      join(one.root, "marbles.ts"),
+      'import "@foundry.sh/marbles";\n'
+    );
+    const marbles = (...args: string[]) =>
+      spawnSync(
+        "bun",
+        cliArgs(...args, "--source", join(one.root, "marbles.ts")),
+        {
+          cwd: one.root,
+          encoding: "utf8",
+          env: { ...process.env, FOUNDRY_HOME: home },
+          input: "",
+          timeout: 60_000,
+        }
+      );
+    const listed = marbles("artifacts");
+    expect(listed.status, listed.stderr).toBe(0);
+    expect(listed.stdout).toContain(`${notes.id}  notes`);
+    expect(marbles("artifacts", "list", "--all").stdout).toContain(notes.id);
+    expect(marbles("runs").stdout).toMatch(RUN_LINE);
+
+    const shared = marbles("artifacts", "share", notes.id, two.root);
+    expect(shared.status, shared.stderr).toBe(0);
+    expect(shared.stdout).toContain(
+      `shared with ${two.root}: artifact ${notes.id}`
+    );
+    const linked = join(
+      resourceLinks(two.root, "artifact"),
+      `@${linkName(one.id)}`,
+      linkName(notes.id)
+    );
+    expect(existsSync(linked)).toBe(true);
+
+    const relinked = marbles("artifacts", "relink");
+    expect(relinked.status, relinked.stderr).toBe(0);
+    expect(relinked.stdout).toContain(
+      `${resourceLinks(one.root, "artifact")}: 2 linked`
+    );
+
+    const unshared = marbles("artifacts", "unshare", notes.id, two.root);
+    expect(unshared.status, unshared.stderr).toBe(0);
+    expect(existsSync(linked)).toBe(false);
+
+    const missing = marbles("runs", "share", "rn-missing", two.root);
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain("no run rn-missing in this workspace");
+
+    for (const removed of ["share", "unshare", "relink"]) {
+      const refused = marbles(removed, "artifact", notes.id, two.root);
+      expect(refused.status, removed).toBe(1);
+      expect(refused.stderr).toContain(`unknown command "${removed}"`);
+    }
   });
 });

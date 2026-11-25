@@ -168,6 +168,18 @@ function outputPath(workspaceState: string, runId: string): string {
   return join(workspaceState, "output", `${runId}.jsonl`);
 }
 
+export function hasRunOutput(state: string, runId: string): boolean {
+  outputPath(state, runId);
+  return (
+    existsSync(state) &&
+    readdirSync(state, { withFileTypes: true }).some(
+      (entry) =>
+        entry.isDirectory() &&
+        existsSync(outputPath(join(state, entry.name), runId))
+    )
+  );
+}
+
 function findOutput(
   state: string,
   runId: string

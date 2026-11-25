@@ -1,12 +1,15 @@
+import { setTimeout } from "node:timers/promises";
 import { isGone } from "@foundry/lib/process-identity";
 import { asBusy } from "~/database/busy";
-import { readExecution } from "~/database/executions";
+import { executionScopes, readExecution } from "~/database/executions";
 import { readDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
 import type { ExecutionRun } from "~/lib/execution-record";
 import {
   type EndRecord,
+  hasRunOutput,
   type RunHolding,
+  RunOutputError,
   readRunOutput,
   type TerminalStatus,
 } from "~/lib/state/output";
@@ -58,6 +61,54 @@ function storedHolding(state: string, runId: string) {
     );
 }
 
+const QUEUED_POLL_MS = 250;
+
+async function queuedEnd(
+  state: string,
+  runId: string,
+  signal: AbortSignal | undefined,
+  queued: () => void
+): Promise<EndRecord | undefined> {
+  let told = false;
+  for (;;) {
+    const scopes = await asBusy(() =>
+      readDatabase(stateDatabase(state), (database) =>
+        executionScopes(database, runId)
+      )
+    );
+    const [scope] = scopes ?? [];
+    if (scope === undefined || scopes?.length !== 1) {
+      return;
+    }
+    const record = await asBusy(() =>
+      readDatabase(stateDatabase(state), (database) =>
+        readExecution(database, scope, runId)
+      )
+    );
+    if (
+      record?.status === "queued" &&
+      record.owner !== undefined &&
+      isGone(record.owner)
+    ) {
+      throw new RunOutputError(
+        `run "${runId}" waits in its queue, but the process that queued it is gone and no other holds it`
+      );
+    }
+    const holding = holdingOf(record);
+    if (holding.kind === "settled") {
+      return hasRunOutput(state, runId) ? undefined : holding.end;
+    }
+    if (record?.status !== "queued") {
+      return;
+    }
+    if (!told) {
+      queued();
+      told = true;
+    }
+    await setTimeout(QUEUED_POLL_MS, undefined, { signal });
+  }
+}
+
 export async function watchRun(
   state: string,
   runId: string,
@@ -74,6 +125,16 @@ export async function watchRun(
     write(`${text}\n`);
     newline = true;
   };
+  const ended = await queuedEnd(state, runId, signal, () =>
+    line(`[run] ${runId} waits in its queue`)
+  );
+  if (ended !== undefined) {
+    if (ended.error !== undefined) {
+      line(ended.error);
+    }
+    line(`[run] ${runId} ${ended.status}`);
+    return ended.status;
+  }
   for await (const record of readRunOutput(
     state,
     runId,

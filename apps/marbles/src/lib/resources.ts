@@ -13,10 +13,6 @@ const SHAREABLE: ReadonlySet<ResourceKind> = new Set([
   "artifact",
 ]);
 
-export function isResourceKind(value: string): value is ResourceKind {
-  return (RESOURCE_KINDS as readonly string[]).includes(value);
-}
-
 export interface ResourceRef {
   readonly id: string;
   readonly kind: ResourceKind;

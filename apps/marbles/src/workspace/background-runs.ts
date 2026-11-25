@@ -8,6 +8,7 @@ import type { Engine } from "~/lib/engine";
 import type { ExecutionRun } from "~/lib/execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import { AGENT_DEFINITION, AGENT_PROMPT } from "~/lib/handles";
+import { idempotencyKeyOf } from "~/lib/launcher";
 import { buildDefinition } from "~/lib/managers/agents";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type {
@@ -23,6 +24,7 @@ import type { RunRecord } from "~/lib/workflow-runs";
 import type {
   DispatchInfo,
   DispatchOptions,
+  EnqueueOptions,
   RunInfo,
 } from "~/model/connection";
 
@@ -325,12 +327,35 @@ export class BackgroundRuns {
       .filter((entry) => entry.name !== AGENT_DISPATCH);
   }
 
-  async startWorkflow(name: string, input: unknown): Promise<DispatchInfo> {
+  async startWorkflow(
+    name: string,
+    input: unknown,
+    { key }: EnqueueOptions = {}
+  ): Promise<DispatchInfo> {
     this.#closing.signal.throwIfAborted();
     if (!this.definitions().some((entry) => entry.name === name)) {
       throw new Error(`no workflow or step named "${name}"`);
     }
-    const launched = await this.#engine.launch(name, input);
+    const launched = await this.#engine.launch(
+      name,
+      input,
+      key === undefined
+        ? undefined
+        : { idempotencyKey: idempotencyKeyOf(name, key) }
+    );
+    if (
+      this.#held.has(launched.id) ||
+      (key !== undefined && launched.reused === true)
+    ) {
+      launched.result.catch(() => undefined);
+      const {
+        kind,
+        name: runName,
+        runId,
+        status,
+      } = await this.get(launched.id);
+      return { kind, name: runName, runId, status };
+    }
     return this.#track(
       launched,
       { kind: "workflow", name },

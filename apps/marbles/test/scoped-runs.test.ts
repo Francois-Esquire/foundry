@@ -18,7 +18,7 @@ function raw(value: string, identity?: string): AnyDefinition {
 function recording() {
   const launched: AnyDefinition[] = [];
   const source = {
-    launch: (definition: AnyDefinition) => {
+    enqueue: (definition: AnyDefinition) => {
       launched.push(definition);
       return Promise.resolve({
         id: `rn-${String(launched.length)}`,
@@ -36,20 +36,20 @@ function recording() {
 describe("a launch from a run body", () => {
   it("reuses the run recorded at its place for a definition the authoring words did not build", async () => {
     const { frame, launched, runs, scope } = recording();
-    const first = await runs.launch(raw("first"), {});
+    const first = await runs.enqueue(raw("first"), {});
     await scope.enter(frame);
-    const again = await runs.launch(raw("second"), {});
+    const again = await runs.enqueue(raw("second"), {});
     expect(again.id).toBe(first.id);
     expect(launched).toHaveLength(1);
   });
 
   it("launches anew when the definition built at its place differs, and reuses the same one", async () => {
     const { frame, launched, runs, scope } = recording();
-    const first = await runs.launch(raw("first", "catalog:a#1"), {});
+    const first = await runs.enqueue(raw("first", "catalog:a#1"), {});
     await scope.enter(frame);
-    const switched = await runs.launch(raw("second", "catalog:a#2"), {});
+    const switched = await runs.enqueue(raw("second", "catalog:a#2"), {});
     await scope.enter(frame);
-    const same = await runs.launch(raw("second", "catalog:a#2"), {});
+    const same = await runs.enqueue(raw("second", "catalog:a#2"), {});
     expect(switched.id).not.toBe(first.id);
     expect(same.id).toBe(switched.id);
     expect(launched).toHaveLength(2);

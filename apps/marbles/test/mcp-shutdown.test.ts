@@ -269,7 +269,7 @@ workflow("spin").do(() => spin({}));`
     );
     const attached = spawnSync(
       "bun",
-      [...cliArgs("attach"), "--source", source],
+      [...cliArgs("daemon", "attach"), "--source", source],
       { cwd: root, encoding: "utf8", env: home.env, timeout: 60_000 }
     );
     expect(attached.status, attached.stderr).toBe(0);

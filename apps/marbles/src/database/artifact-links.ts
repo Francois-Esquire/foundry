@@ -141,7 +141,7 @@ function artifactLinker(options: KeptLinksOptions): {
   };
   const failed = (what: string, error: unknown) =>
     report(
-      `[links] could not update ${what}; marbles relink repairs it: ${error instanceof Error ? error.message : String(error)}`
+      `[links] could not update ${what}; marbles artifacts relink repairs it: ${error instanceof Error ? error.message : String(error)}`
     );
   const follow = (touched: Touched) => {
     if (touched.artifacts.length === 0 && touched.blobs.length === 0) {

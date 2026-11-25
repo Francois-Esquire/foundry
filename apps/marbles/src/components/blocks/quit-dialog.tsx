@@ -10,8 +10,8 @@ function HostedNotice() {
         process, and running steps continue there.
       </Text>
       <Text>
-        Open marbles again to watch them; marbles stop ends the process and
-        every workspace it hosts.
+        Open marbles again to watch them; marbles daemon stop ends the process
+        and every workspace it hosts.
       </Text>
     </>
   );

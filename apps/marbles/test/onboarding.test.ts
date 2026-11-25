@@ -79,7 +79,7 @@ for (const starter of STARTERS) {
         starter.id === "design"
           ? ["--input", JSON.stringify({ brief: "A search screen" })]
           : [];
-      expect(cli(config, "roll", starter.name, ...input)).toContain("complete");
+      expect(cli(config, "run", starter.name, ...input)).toContain("complete");
     } finally {
       await rm(dir, { force: true, recursive: true });
     }

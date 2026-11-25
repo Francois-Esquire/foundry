@@ -328,7 +328,7 @@ it("fails a run through the Marbles process that asks for a saved provider the w
   await mkdir(join(dir, ".foundry", "marbles"), { recursive: true });
   await writeFile(join(dir, ".foundry", "marbles", "ask.ts"), ASKING);
   const roll = (name: string) => {
-    const result = spawnSync(process.execPath, cliArgs("roll", name), {
+    const result = spawnSync(process.execPath, cliArgs("run", name), {
       cwd: dir,
       encoding: "utf8",
       env: { ...home.env, PATH: "/usr/bin:/bin" },

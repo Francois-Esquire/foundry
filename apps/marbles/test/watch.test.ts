@@ -3,10 +3,15 @@ import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { thisProcess } from "@foundry/lib/process-identity";
+import type { Run } from "@foundry/queue";
+import { queueRuns } from "@foundry/queue/store/tables";
+import { eq } from "drizzle-orm";
 import { expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { watchRun } from "~/cli/watch";
+import { executionScopes } from "~/database/executions";
 import { initializeDatabase } from "~/database/open";
+import { marblesExecutions } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import {
   type OutputRecord,
@@ -436,3 +441,122 @@ it("reads what the adopter appended while the stored record was read before usin
     await rm(root, { force: true, recursive: true });
   }
 });
+
+it("waits out a run still in its queue under a live owner, then follows it once it starts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-watch-queued-"));
+  const opened = await storedRun(root, {
+    owner: thisProcess(),
+    status: "queued",
+  });
+  try {
+    let text = "";
+    const watching = watchRun(root, "rn-test", {
+      write: (chunk) => {
+        text += chunk;
+      },
+    });
+    await vi.waitFor(() =>
+      expect(text).toContain("[run] rn-test waits in its queue")
+    );
+    await seedExecution(
+      { database: opened.database, scope: "workspace" },
+      { id: "rn-test", name: "held", owner: thisProcess(), status: "running" }
+    );
+    const runner = new RunOutput(
+      join(root, "workspace"),
+      "rn-test",
+      "suspended",
+      () => undefined
+    );
+    runner.text("started at last");
+    runner.finish("completed", "done");
+    expect(await watching).toBe("completed");
+    expect(text).toContain("started at last");
+  } finally {
+    opened.close();
+    await rm(root, { force: true, recursive: true });
+  }
+}, 10_000);
+
+it("ends a watch on a queued run that settled before it ever started, with its stored status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-watch-queued-settled-"));
+  const opened = await storedRun(root, {
+    error: { code: "cancelled", message: "cancelled in its queue" },
+    owner: GONE,
+    status: "cancelled",
+  });
+  try {
+    let text = "";
+    expect(
+      await watchRun(root, "rn-test", {
+        write: (chunk) => {
+          text += chunk;
+        },
+      })
+    ).toBe("cancelled");
+    expect(text).toContain("[run] rn-test cancelled");
+  } finally {
+    opened.close();
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+it("refuses to wait on a queued run whose owner is gone", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-watch-queued-gone-"));
+  const opened = await storedRun(root, { owner: GONE, status: "queued" });
+  try {
+    await expect(
+      watchRun(root, "rn-test", { write: () => undefined })
+    ).rejects.toThrow(
+      'run "rn-test" waits in its queue, but the process that queued it is gone'
+    );
+  } finally {
+    opened.close();
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+it("finds an unowned fresh queued run without an execution annex and watches it start", async () => {
+  const root = await mkdtemp(join(tmpdir(), "marbles-watch-unowned-"));
+  const opened = await storedRun(root, { status: "queued" });
+  try {
+    const rows = await opened.database.select().from(queueRuns);
+    const run = rows.find((row) => row.id === "rn-test");
+    if (run?.body.state.kind !== "queued") {
+      throw new Error("expected a queued seed");
+    }
+    const { owner: _owner, ...state } = run.body.state;
+    await opened.database
+      .update(queueRuns)
+      .set({ body: { ...run.body, state } })
+      .where(eq(queueRuns.id, "rn-test" as Run["id"]));
+    expect(await opened.database.select().from(marblesExecutions)).toEqual([]);
+    expect(await executionScopes(opened.database, "rn-test")).toEqual([
+      "workspace",
+    ]);
+    let text = "";
+    const watching = watchRun(root, "rn-test", {
+      write: (chunk) => {
+        text += chunk;
+      },
+    });
+    await vi.waitFor(() => expect(text).toContain("waits in its queue"));
+    await seedExecution(
+      { database: opened.database, scope: "workspace" },
+      { id: "rn-test", name: "held", owner: thisProcess(), status: "running" }
+    );
+    const runner = new RunOutput(
+      join(root, "workspace"),
+      "rn-test",
+      "held",
+      () => undefined
+    );
+    runner.text("claimed");
+    runner.finish("completed", "done");
+    expect(await watching).toBe("completed");
+    expect(text).toContain("claimed");
+  } finally {
+    opened.close();
+    await rm(root, { force: true, recursive: true });
+  }
+}, 10_000);

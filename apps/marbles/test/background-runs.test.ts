@@ -4,10 +4,11 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve as resolvePath } from "node:path";
 import { ModelManager } from "@foundry/models";
+import { step } from "@foundry.sh/marbles";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, expect, it, vi } from "vitest";
-import { Catalog } from "~/authoring/catalog";
+import { catalog as authoringCatalog, Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import { RunQueue } from "~/lib/run-queue";
@@ -435,4 +436,61 @@ it.each(["workflow", "agent"] as const)(
       await jobs.close();
     }
   }
+);
+
+it.each(["running", "suspended"] as const)(
+  "closing a peer that enqueues a keyed %s run leaves its owner's run alone",
+  async (status) => {
+    const state = await mkdtemp(join(tmpdir(), "marbles-background-peer-"));
+    const release = Promise.withResolvers<void>();
+    step("peer-keyed").do(async ({ ask }) => {
+      if (status === "suspended") {
+        await ask.approval({ title: "Continue?" });
+      } else {
+        await release.promise;
+      }
+      return "done";
+    });
+    const owner = testEngine({ askable: true, state });
+    const peer = testEngine({ askable: true, state });
+    const ownJobs = new BackgroundRuns(owner, new Catalog());
+    const peerJobs = new BackgroundRuns(peer, new Catalog());
+    try {
+      await owner.start();
+      await peer.start();
+      const started = await ownJobs.startWorkflow(
+        "peer-keyed",
+        {},
+        { key: "shared" }
+      );
+      await vi.waitFor(async () =>
+        expect(
+          await ownJobs.get(started.runId),
+          "owner before peer enqueue"
+        ).toMatchObject({ status })
+      );
+      const joined = await peerJobs.startWorkflow(
+        "peer-keyed",
+        {},
+        { key: "shared" }
+      );
+      expect(joined.runId).toBe(started.runId);
+      expect(peer.executions.get(joined.runId)).toBeDefined();
+      await peerJobs.close();
+      expect(
+        (await ownJobs.get(started.runId)).status,
+        "owner after peer close"
+      ).toBe(status);
+      expect(
+        (await owner.runs()).find((run) => run.id === started.runId)?.status
+      ).toBe(status);
+    } finally {
+      release.resolve();
+      await owner.dispose();
+      await peer.dispose();
+      authoringCatalog.reset();
+      await rm(state, { force: true, recursive: true });
+    }
+  },
+  10_000
 );

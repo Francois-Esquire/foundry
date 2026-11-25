@@ -74,7 +74,7 @@ function holdLinks(root: string): Promise<() => Promise<void>> {
   return acquireFileLock(join(workspaceLinks(root), ".lock"));
 }
 
-const REPAIRS = /marbles relink repairs it/;
+const REPAIRS = /marbles artifacts relink repairs it/;
 
 function temporaries(root: string): string[] {
   return readdirSync(workspaceLinks(root), { recursive: true })

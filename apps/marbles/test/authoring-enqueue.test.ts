@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { thisProcess } from "@foundry/lib/process-identity";
-import type { RunView } from "@foundry.sh/marbles";
+import type { Enqueued, EnqueueOptions, RunView } from "@foundry.sh/marbles";
 import { observe, runs, step, tasks, workflow } from "@foundry.sh/marbles";
 import {
   afterAll,
@@ -10,6 +10,7 @@ import {
   beforeAll,
   describe,
   expect,
+  expectTypeOf,
   it,
   vi,
 } from "vitest";
@@ -95,7 +96,29 @@ async function answerOpen(engine: Engine): Promise<void> {
   await engine.answer(question?.id ?? "", "yes");
 }
 
-describe(".launch()", () => {
+describe(".enqueue()", () => {
+  it("is typed by the package's own Enqueued and EnqueueOptions, on a definition and on step and workflow by name", () => {
+    const leaf = step("typed-enqueue").do(() => "leaf");
+    expectTypeOf(leaf.enqueue).returns.toEqualTypeOf<
+      Promise<Enqueued<string>>
+    >();
+    expectTypeOf(leaf.enqueue)
+      .parameter(1)
+      .toEqualTypeOf<EnqueueOptions | undefined>();
+    expectTypeOf(step.enqueue<number>)
+      .parameter(2)
+      .toEqualTypeOf<EnqueueOptions | undefined>();
+    expectTypeOf(workflow.enqueue<number>).returns.toEqualTypeOf<
+      Promise<Enqueued<number>>
+    >();
+    expectTypeOf<EnqueueOptions>().toEqualTypeOf<{
+      readonly key?: string;
+    }>();
+    expect(Reflect.has(leaf, "launch")).toBe(false);
+    expect(Reflect.has(step, "launch")).toBe(false);
+    expect(Reflect.has(workflow, "launch")).toBe(false);
+  });
+
   it("admits a run from an observer and hands back its id at once, so the observer keeps its place while the run waits on a question", async () => {
     const review = step("held-review")
       .input(z.object({ title: z.string() }))
@@ -111,7 +134,7 @@ describe(".launch()", () => {
           if (delta.before !== null || delta.after === null) {
             continue;
           }
-          const { id } = await review.launch({ title: delta.after.title });
+          const { id } = await review.enqueue({ title: delta.after.title });
           await tasks.update(delta.after.id, { metadata: { run: id } });
           handed.push(delta.after.title);
         }
@@ -161,8 +184,8 @@ describe(".launch()", () => {
     const engine = host();
     await engine.start();
 
-    const named = await held.launch();
-    const unnamed = await anonymous.launch();
+    const named = await held.enqueue();
+    const unnamed = await anonymous.enqueue();
     expect(named.id).toMatch(RUN_ID);
     expect(unnamed.id).toMatch(RUN_ID);
     expect(engine.executions.get(named.id)?.status).toBe("running");
@@ -182,7 +205,7 @@ describe(".launch()", () => {
     try {
       const engine = host();
       await engine.start();
-      const { id } = await failing.launch();
+      const { id } = await failing.enqueue();
       await vi.waitFor(async () =>
         expect((await runs.get(id))?.status).toBe("failed")
       );
@@ -199,9 +222,9 @@ describe(".launch()", () => {
     const engine = host();
     await engine.start();
     await engine.retire({ pid: thisProcess().pid + 1, started: null });
-    await expect(leaf.launch()).rejects.toThrow(RETIRING);
+    await expect(leaf.enqueue()).rejects.toThrow(RETIRING);
     await engine.dispose();
-    await expect(engine.launchDefinition(leaf, {})).rejects.toThrow(STOPPING);
+    await expect(engine.enqueueDefinition(leaf, {})).rejects.toThrow(STOPPING);
   });
 
   it("from a step body launches a top-level run of that step's own engine, once per call however often the body runs again", async () => {
@@ -209,7 +232,7 @@ describe(".launch()", () => {
     const child = step("launched-child").do(() => "child");
     const parent = step("launching-parent").do(async ({ ask }) => {
       bodies += 1;
-      const launched = await child.launch();
+      const launched = await child.enqueue();
       await ask.question({ title: "Continue?" });
       return { child: launched.id, value: await launched.result };
     });
@@ -251,7 +274,7 @@ describe("runs", () => {
     );
     const engine = host();
     await engine.start();
-    const { id } = await greet.launch();
+    const { id } = await greet.enqueue();
 
     await vi.waitFor(() => expect(seen).toHaveLength(1));
     expect(seen[0]).toMatchObject({
@@ -305,20 +328,20 @@ describe("runs", () => {
     engines.push(engine);
     setHost(engine);
     await engine.start();
-    const { id, result } = await leaf.launch();
+    const { id, result } = await leaf.enqueue();
     await expect(result).resolves.toBe("dry");
     await expect(runs.get(id)).resolves.toMatchObject({ status: "complete" });
   });
 });
 
-describe(".launch() at its edges", () => {
+describe(".enqueue() at its edges", () => {
   it("launches again when a body that runs again reaches another definition at the same place", async () => {
     let bodies = 0;
     const first = step("first-choice").do(() => "first");
     const second = step("second-choice").do(() => "second");
     const chooser = step("chooser").do(async ({ ask }) => {
       bodies += 1;
-      const launched = await (bodies === 1 ? first : second).launch();
+      const launched = await (bodies === 1 ? first : second).enqueue();
       await ask.question({ title: "Again?" });
       return launched.id;
     });
@@ -347,7 +370,7 @@ describe(".launch() at its edges", () => {
     let bodies = 0;
     const chooser = step("closure-chooser").do(async ({ ask }) => {
       bodies += 1;
-      const launched = await (bodies === 1 ? first : second).launch();
+      const launched = await (bodies === 1 ? first : second).enqueue();
       await ask.question({ title: "Again?" });
       return launched.id;
     });
@@ -370,10 +393,10 @@ describe(".launch() at its edges", () => {
         switchBodies === 1
           ? await step()
               .do(() => "first-anon")
-              .launch()
+              .enqueue()
           : await step()
               .do(() => "second-anon")
-              .launch();
+              .enqueue();
       await ask.question({ title: "Switch?" });
       return launched.id;
     });
@@ -387,7 +410,7 @@ describe(".launch() at its edges", () => {
           sameRuns += 1;
           return "same-anon";
         })
-        .launch();
+        .enqueue();
       await ask.question({ title: "Repeat?" });
       return launched.id;
     });
@@ -427,11 +450,11 @@ describe(".launch() at its edges", () => {
       const engine = host();
       await engine.start();
       const wrong = { count: "many" } as unknown as { count: number };
-      await expect(typed.launch(wrong)).rejects.toThrow(SCHEMA);
+      await expect(typed.enqueue(wrong)).rejects.toThrow(SCHEMA);
 
-      const held = await hold.launch();
+      const held = await hold.enqueue();
       const before = (await runs.list()).length;
-      await expect(typed.launch(wrong)).rejects.toThrow(SCHEMA);
+      await expect(typed.enqueue(wrong)).rejects.toThrow(SCHEMA);
       expect(await runs.list()).toHaveLength(before);
       release.resolve();
       await held.result;
@@ -444,7 +467,7 @@ describe(".launch() at its edges", () => {
 
   it("refuses a launch and a read from a load whose host was disposed", async () => {
     const into = new Catalog();
-    let leaf: { launch(): Promise<unknown> } | undefined;
+    let leaf: { enqueue(): Promise<unknown> } | undefined;
     let reads: typeof runs | undefined;
     await loadInto(
       "launch-released",
@@ -467,13 +490,16 @@ describe(".launch() at its edges", () => {
     await engine.dispose();
     releaseEngine(engine);
 
-    await expect(leaf?.launch()).rejects.toThrow(RELEASED);
+    await expect(leaf?.enqueue()).rejects.toThrow(RELEASED);
     await expect(reads?.get("rn-1")).rejects.toThrow(RELEASED);
   });
 });
 
-interface Launchable {
-  launch(): Promise<{ readonly id: string; readonly result: Promise<unknown> }>;
+interface Enqueueable {
+  enqueue(): Promise<{
+    readonly id: string;
+    readonly result: Promise<unknown>;
+  }>;
 }
 
 function identityOf(definition: object): string | undefined {
@@ -492,14 +518,14 @@ function isolated(workspaceId: string): Engine {
   return engine;
 }
 
-async function replayedLaunch(
+async function replayedEnqueue(
   name: string,
-  pick: (body: number) => Launchable
+  pick: (body: number) => Enqueueable
 ): Promise<{ readonly bodies: number; readonly output: unknown }> {
   let bodies = 0;
   const chooser = step(name).do(async ({ ask }) => {
     bodies += 1;
-    const launched = await pick(bodies).launch();
+    const launched = await pick(bodies).enqueue();
     await ask.question({ title: "Again?" });
     return launched.id;
   });
@@ -514,7 +540,7 @@ async function replayedLaunch(
   return { bodies, output: (await engine.readRun(id))?.output };
 }
 
-describe("an unnamed .launch() on replay", () => {
+describe("an unnamed .enqueue() on replay", () => {
   it("tells apart definitions a factory loop builds and reuses the same one", async () => {
     const calls: string[] = [];
     function make(value: string) {
@@ -525,13 +551,13 @@ describe("an unnamed .launch() on replay", () => {
     }
     const built = ["a", "b", "c"].map(make);
     await expect(
-      replayedLaunch(
+      replayedEnqueue(
         "loop-switch",
-        (body) => built[body === 1 ? 0 : 2] as Launchable
+        (body) => built[body === 1 ? 0 : 2] as Enqueueable
       )
     ).resolves.toEqual({ bodies: 2, output: "c" });
     await expect(
-      replayedLaunch("loop-same", () => built[1] as Launchable)
+      replayedEnqueue("loop-same", () => built[1] as Enqueueable)
     ).resolves.toEqual({ bodies: 2, output: "b" });
     expect(calls).toEqual(["a", "c", "b"]);
   });
@@ -542,7 +568,7 @@ describe("an unnamed .launch() on replay", () => {
     const second = base.do(() => "second-do");
     expect(identityOf(first)).not.toBe(identityOf(second));
     await expect(
-      replayedLaunch("builder-switch", (body) => (body === 1 ? first : second))
+      replayedEnqueue("builder-switch", (body) => (body === 1 ? first : second))
     ).resolves.toEqual({ bodies: 2, output: "second-do" });
   });
 
@@ -552,14 +578,14 @@ describe("an unnamed .launch() on replay", () => {
     const wrapped = [sh("true"), sh("false")];
     expect(new Set([...pair, ...wrapped].map(identityOf)).size).toBe(4);
     await expect(
-      replayedLaunch("line-switch", (body) => pair[body === 1 ? 0 : 1])
+      replayedEnqueue("line-switch", (body) => pair[body === 1 ? 0 : 1])
     ).resolves.toEqual({ bodies: 2, output: 2 });
   });
 
   it("tells apart definitions a body builds one at a time on one line", async () => {
     const pick = (body: number) =>
       body === 1 ? step().do(() => 1) : step().do(() => 2);
-    await expect(replayedLaunch("column-switch", pick)).resolves.toEqual({
+    await expect(replayedEnqueue("column-switch", pick)).resolves.toEqual({
       bodies: 2,
       output: 2,
     });
@@ -568,7 +594,7 @@ describe("an unnamed .launch() on replay", () => {
   it("treats one place reached with other captured values as the same definition", async () => {
     const make = (value: string) => step().do(() => value);
     await expect(
-      replayedLaunch("captured-values", (body) =>
+      replayedEnqueue("captured-values", (body) =>
         make(body === 1 ? "kept" : "changed")
       )
     ).resolves.toEqual({ bodies: 2, output: "kept" });
@@ -591,7 +617,7 @@ describe("an unnamed .launch() on replay", () => {
     const parent = step("setup-then-launch").do(async ({ ask }) => {
       bodies += 1;
       await child.run();
-      const launched = await make("after-setup").launch();
+      const launched = await make("after-setup").enqueue();
       await ask.question({ title: "Again?" });
       return launched.id;
     });
@@ -669,7 +695,7 @@ describe("an unnamed .launch() on replay", () => {
     expect(ids.get("interleave-b")).toEqual([one, two]);
   });
 
-  it("restores a completed unnamed launch after a restart without running it again", async () => {
+  it("restores a completed unnamed enqueue after a restart without running it again", async () => {
     const root = await mkdtemp(join(tmpdir(), "marbles-launch-restart-"));
     try {
       const state = join(root, "state");
@@ -685,8 +711,8 @@ describe("an unnamed .launch() on replay", () => {
         const built = [make(1), make(2)];
         const parent = step("restart-launcher").do(async ({ ask }) => {
           parentCalls += 1;
-          const launched = await (built[1] as Launchable).launch();
-          await ask.approval({ title: "Keep the launched result?" });
+          const launched = await (built[1] as Enqueueable).enqueue();
+          await ask.approval({ title: "Keep the enqueued result?" });
           return { id: launched.id, value: await launched.result };
         });
         workflow("restart-launch", () => parent());

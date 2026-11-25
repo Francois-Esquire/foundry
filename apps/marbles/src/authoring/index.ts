@@ -52,7 +52,6 @@ export { dispose } from "~/authoring/runtime";
 export type { CommandResult, Exec, ExecOptions } from "~/lib/command";
 export { CommandError } from "~/lib/command";
 export type { LockedNode, StepConfig } from "~/lib/definition";
-export type { Launched } from "~/lib/launcher";
 export type { Log, LogLevel } from "~/lib/log";
 export type { RunQuery, RunView } from "~/lib/managers/runs";
 export type {
@@ -115,7 +114,8 @@ export type { MarblesConfig, PoolConfig } from "./config";
 export { defineConfig } from "./config";
 export type { AgentSpec, DefineAgent } from "./instances";
 export type {
-  LaunchOptions,
+  Enqueued,
+  EnqueueOptions,
   Runnable,
   StepDefinition,
   WorkflowDefinition,

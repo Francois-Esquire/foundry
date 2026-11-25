@@ -174,10 +174,10 @@ export class Engine {
   readonly #executionStore: ExecutionStore;
   readonly #delivery: Delivery;
   readonly #runsSource: RunsSource = {
+    enqueue: (definition, input, options) =>
+      this.enqueueDefinition(definition, input, options),
     execution: (runId) => this.executions.get(runId),
     executions: () => this.executions.list(),
-    launch: (definition, input, options) =>
-      this.launchDefinition(definition, input, options),
     named: (name) => this.definition(name),
     nameOf: (name) => this.#definitions.nameOf(name),
     resultOf: (runId) => this.#resultOf(runId),
@@ -604,14 +604,14 @@ export class Engine {
     return launched.result;
   }
 
-  async launchDefinition<O>(
+  async enqueueDefinition<O>(
     definition: AnyDefinition,
     input: unknown,
     options: DefinitionLaunch = {}
   ): Promise<Launched<O>> {
     const { key } = options;
     if (key !== undefined && (typeof key !== "string" || key.trim() === "")) {
-      throw new TypeError("launch(): a key must be a non-blank string");
+      throw new TypeError("enqueue(): a key must be a non-blank string");
     }
     if (this.disposed) {
       throw new Error("engine is stopping");
@@ -624,7 +624,7 @@ export class Engine {
     const declared = this.#definitions.declaredName(definition);
     if (key !== undefined && declared === undefined) {
       throw new Error(
-        `launch(): a key is matched by the definition's name, and ${definition.name === undefined ? "this definition has none" : `"${definition.name}" is not a definition this workspace declares`}; declare it by name in the workspace's source to launch it with a key`
+        `enqueue(): a key is matched by the definition's name, and ${definition.name === undefined ? "this definition has none" : `"${definition.name}" is not a definition this workspace declares`}; declare it by name in the workspace's source to enqueue it with a key`
       );
     }
     const name =
@@ -637,7 +637,7 @@ export class Engine {
   }
 
   async execute<O>(definition: AnyDefinition, input: unknown): Promise<O> {
-    const launched = await this.launchDefinition<O>(definition, input);
+    const launched = await this.enqueueDefinition<O>(definition, input);
     return launched.result;
   }
 

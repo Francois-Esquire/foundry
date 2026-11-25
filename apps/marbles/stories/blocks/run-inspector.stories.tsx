@@ -35,7 +35,7 @@ const liveLines: RunStreamView = {
   lines: [
     "Reading docs/cli.md (412 lines)",
     "The CLI reference lists 14 commands; src/cli/args.ts defines 15.",
-    "Missing: marbles relink",
+    "Missing: marbles artifacts relink",
     "Drafting a section for relink after resources.",
   ],
   live: true,

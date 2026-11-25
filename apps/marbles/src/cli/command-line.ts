@@ -70,49 +70,60 @@ const diagnose = (line: string) => {
 
 const USAGE = `marbles — programmable workspace automation
 
-  [run]                      open the dashboard; piped, attach this workspace and follow it
-  init [starter]             create a starter module (developer | design | product)
+Core:
+  marbles                     open the dashboard; piped, host this workspace and follow it
+  init [starter]              create a starter module (developer | design | product)
+  list                        steps, workflows, schedules and monitors with cadence, observers
+  run <name> [--input json]   run one step, workflow, schedule or monitor now, wait, print its result
+  enqueue <name> [--input json] [--key key]
+                              queue one step or workflow and print its run ID at once;
+                              --key enqueues it once per key, as enqueue(input, { key }) does
+  watch <runId>               replay a run's output, follow it live, and exit when it ends
+  tasks <action> [--json]     read or change this workspace's tasks (below)
+  status                      the Marbles process and every workspace it has run
   help, --help, -h            show this help
-  roll <name> [--input json] dispatch one workflow or schedule now, then exit
-  list                       workflows, schedules and monitors with cadence, observers
-  status                     the Marbles process and every workspace it has run
-  settings themes            list terminal themes
-  settings get theme         print the saved theme
-  settings set theme <name>  save a theme for every workspace
-  runs [--all]               workflow runs, each with its steps; --all: every workspace's
-  sessions [--all]           agent sessions: id, messages, updated, summary
-  artifacts [--all]          artifacts: id, name, type, status, updated
-  sandboxes [--all]          sandbox containers: id, status, created
-  share <kind> <id> <dir>    show one of this workspace's resources in the workspace at <dir> too
-  unshare <kind> <id> <dir>  stop showing it there; the resource itself stays
-  relink [--all]             rebuild .marbles/ links to this workspace's artifact files from the database
-  tasks <action> [--json]    read or change this workspace's tasks (below)
-  watch <runId>              replay output, follow it live, and exit when the run ends
-  mcp                        serve this workspace to an MCP client over stdio; starts and hosts nothing
-  daemon                     run the Marbles process in the foreground
-  stop                       stop the Marbles process and every workspace it hosts
-  attach                     host this workspace in the Marbles process and exit; it stays hosted
-  detach                     stop hosting this workspace; it is not started again at boot
 
-  --source <path>    authoring folder or module (default: ./.foundry/marbles)
-  --dry-run          echo every model turn and git mutation instead of running them
-  --recheck-providers  reopen provider setup for the interactive dashboard
+Resources (this workspace's own and shared; --all: every workspace's):
+  runs [list] [--all]         workflow runs, each with its steps
+  sessions [list] [--all]     agent sessions: id, messages, updated, summary
+  artifacts [list] [--all]    artifacts: id, name, type, status, updated
+  sandboxes [list] [--all]    sandbox containers: id, status, created
+  runs | sessions | artifacts share <id> <dir>
+                              show one of this workspace's resources in the workspace at <dir> too
+  runs | sessions | artifacts unshare <id> <dir>
+                              stop showing it there; the resource itself stays
+  artifacts relink [--all]    rebuild .marbles/ links to artifact files from the database
+
+System:
+  mcp                         serve this workspace to an MCP client over stdio; starts and hosts nothing
+  daemon [start]              run the Marbles process in the foreground
+  daemon stop                 stop the Marbles process and every workspace it hosts
+  daemon attach               host this workspace in the Marbles process and exit; it stays hosted
+  daemon detach               stop hosting this workspace; it is not started again at boot
+  theme                       print the saved terminal theme
+  theme list                  list terminal themes
+  theme <name>                save a theme for every workspace
+
+Flags:
+  --source <path>       authoring folder or module (default: ./.foundry/marbles)
+  --input <json>        input for run, enqueue, or tasks change
+  --key <key>           enqueue once per key
+  --dry-run             echo every model turn and git mutation instead of running them
+  --recheck-providers   reopen provider setup for the interactive dashboard
 
 One Marbles process per machine hosts every attached workspace, all in one engine
-process it replaces on a source edit, and keeps their triggers running after the dashboard closes; run and
-roll start it when none runs. Everything lives under the Foundry home
-($FOUNDRY_HOME, else ~/.foundry): every workspace's record, tasks, agent
-sessions, runs, providers and the rest in marbles/marbles.db; each workspace
-(the project above .foundry/marbles) gets marbles/<id>/ for its run output and
-worktrees; artifact files are under artifacts/. Each resource (run, session, artifact,
-sandbox) belongs to the workspace it was made in and can be shared with others;
-the listings show this workspace's own and shared resources, or with --all every
-workspace's. .marbles/ in a workspace holds links to its artifact files, rebuilt by
-relink from the database. --dry-run
-hosts the workspace in this process instead, persists nothing, and echoes every
-model turn and git mutation; custom code still runs. It writes nothing under the
-Foundry home but SQLite's shared-memory index of an existing database, which holds
-no data. attach, daemon, detach, init, relink, share, stop and unshare refuse it.
+process it replaces on a source edit, and keeps their triggers running after the dashboard
+closes; marbles, run and enqueue start it when none runs. Everything lives under the Foundry
+home ($FOUNDRY_HOME, else ~/.foundry): every workspace's record, tasks, agent sessions, runs,
+providers and the rest in marbles/marbles.db; each workspace (the project above
+.foundry/marbles) gets marbles/<id>/ for its run output and worktrees; artifact files are
+under artifacts/. Each resource (run, session, artifact, sandbox) belongs to the workspace
+it was made in and can be shared with others but sandboxes. .marbles/ in a workspace holds
+links to its artifact files, rebuilt by artifacts relink from the database. --dry-run hosts
+the workspace in this process instead, persists nothing, and echoes every model turn and git
+mutation; custom code still runs. It writes nothing under the Foundry home but SQLite's
+shared-memory index of an existing database, which holds no data. enqueue, init, daemon,
+theme <name>, and share, unshare and relink refuse it.
 
 
 Tasks, the workspace backlog (--json prints the result as JSON; --tag needs every tag given,
@@ -136,7 +147,9 @@ opens the tasks itself; tasks never starts the process or hosts the workspace.`;
 
 type DryRun = "dry mode" | "reads only" | { readonly refused: string };
 
-type Handler<A extends Flags> = { readonly dry: DryRun } & (
+type Handler<A extends Flags> = {
+  readonly dry: DryRun | ((args: A) => DryRun);
+} & (
   | { readonly needs: "nothing"; run(args: A): Promise<void> | void }
   | {
       readonly needs: "workspace";
@@ -200,25 +213,33 @@ function resourceContext(
   };
 }
 
-function listing<C extends "artifacts" | "runs" | "sandboxes" | "sessions">(
+type ResourceCommand = "artifacts" | "runs" | "sandboxes" | "sessions";
+
+function resource<C extends ResourceCommand>(
   kind: ResourceKind
 ): Handler<ArgsOf<C>> {
   return {
-    dry: "reads only",
+    dry: (args) =>
+      args.action === "list"
+        ? "reads only"
+        : {
+            refused:
+              args.action === "relink"
+                ? `${args.command} relink rebuilds links from the Marbles database`
+                : `${args.command} ${args.action} changes what the Marbles database keeps`,
+          },
     needs: "workspace",
-    run: (args, opened) =>
-      listResources(kind, args.all, resourceContext(args, opened)),
-  };
-}
-
-function association<C extends "share" | "unshare">(
-  change: C
-): Handler<ArgsOf<C>> {
-  return {
-    dry: { refused: `${change} changes what the Marbles database keeps` },
-    needs: "workspace",
-    run: (args, opened) =>
-      changeAssociation(change, args, resourceContext(args, opened)),
+    run: (args: ArgsOf<C>, opened) => {
+      const context = resourceContext(args, opened);
+      switch (args.action) {
+        case "list":
+          return listResources(kind, args.all, context);
+        case "relink":
+          return relink(args.all, context);
+        default:
+          return changeAssociation(args.action, args, context);
+      }
+    },
   };
 }
 
@@ -269,7 +290,7 @@ function inputFrom(json: string): unknown {
   }
 }
 
-async function roll(args: ArgsOf<"roll">, hosted: Hosted): Promise<void> {
+async function runNow(args: ArgsOf<"run">, hosted: Hosted): Promise<void> {
   const input: unknown =
     args.inputJson === undefined ? undefined : inputFrom(args.inputJson);
   const workspace = hosted.kind === "local" ? hosted.host : hosted.workspace;
@@ -282,6 +303,21 @@ async function roll(args: ArgsOf<"roll">, hosted: Hosted): Promise<void> {
   if ("value" in result) {
     print(JSON.stringify(result.value, null, 2));
   }
+}
+
+async function enqueue(args: ArgsOf<"enqueue">, hosted: Hosted): Promise<void> {
+  const input: unknown =
+    args.inputJson === undefined ? undefined : inputFrom(args.inputJson);
+  const workspace = hosted.kind === "local" ? hosted.host : hosted.workspace;
+  const queued = await workspace.dispatchWorkflow(
+    args.name,
+    input,
+    args.key === undefined ? {} : { key: args.key }
+  );
+  diagnose(
+    `[enqueue] ${queued.name} ${queued.status} ${queued.runId}; marbles watch ${queued.runId} follows it`
+  );
+  print(queued.runId);
 }
 
 async function runTasks(
@@ -378,7 +414,7 @@ async function runDaemon(): Promise<void> {
   }
 }
 
-async function attachWorkspace(args: ArgsOf<"attach">): Promise<void> {
+async function attachWorkspace(args: ArgsOf<"daemon">): Promise<void> {
   await attachToProcess(args, (hosted) => {
     if (hosted.kind === "remote") {
       print(
@@ -390,7 +426,7 @@ async function attachWorkspace(args: ArgsOf<"attach">): Promise<void> {
 }
 
 async function detachWorkspace(
-  args: ArgsOf<"detach">,
+  args: ArgsOf<"daemon">,
   opened: OpenedWorkspace
 ): Promise<void> {
   const { workspace } = opened;
@@ -439,6 +475,31 @@ async function stopDaemon(): Promise<void> {
   );
 }
 
+function daemonAction(args: ArgsOf<"daemon">): Promise<void> {
+  switch (args.action) {
+    case "start":
+      return runDaemon();
+    case "stop":
+      return stopDaemon();
+    case "attach":
+      return attachWorkspace(args);
+    case "detach":
+      return detachWorkspace(args, findWorkspace(args));
+    default:
+      throw new Error(
+        `no daemon action ${String(args.action satisfies never)}`
+      );
+  }
+}
+
+const DAEMON_REFUSALS: Readonly<Record<ArgsOf<"daemon">["action"], string>> = {
+  attach: "daemon attach hosts the workspace in the Marbles process",
+  detach:
+    "daemon detach changes the workspace's registration in the Marbles database",
+  start: "daemon runs the Marbles process",
+  stop: "daemon stop stops the Marbles process",
+};
+
 async function watch(args: ArgsOf<"watch">): Promise<void> {
   const controller = new AbortController();
   const interrupt = (): void => controller.abort();
@@ -481,8 +542,8 @@ async function serveMcp(args: ArgsOf<"mcp">): Promise<void> {
   await serveStdio(args);
 }
 
-function terminalSettings(args: ArgsOf<"settings">): void {
-  if (args.action === "themes") {
+function theme(args: ArgsOf<"theme">): void {
+  if (args.action === "list") {
     print(THEME_NAMES.join("\n"));
     return;
   }
@@ -506,24 +567,20 @@ function terminalSettings(args: ArgsOf<"settings">): void {
 }
 
 export const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
-  artifacts: listing("artifact"),
-  attach: {
-    dry: { refused: "attach hosts the workspace in the Marbles process" },
-    needs: "nothing",
-    run: attachWorkspace,
-  },
+  artifacts: resource("artifact"),
   daemon: {
-    dry: { refused: "daemon runs the Marbles process" },
+    dry: (args) => ({ refused: DAEMON_REFUSALS[args.action] }),
     needs: "nothing",
-    run: runDaemon,
+    run: daemonAction,
   },
-  detach: {
+  dashboard: { dry: "dry mode", needs: "connection", run: runUntilStopped },
+  enqueue: {
     dry: {
       refused:
-        "detach changes the workspace's registration in the Marbles database",
+        "enqueue leaves a run on the Marbles process's queue, which a dry run never reaches",
     },
-    needs: "workspace",
-    run: detachWorkspace,
+    needs: "connection",
+    run: enqueue,
   },
   help: { dry: "reads only", needs: "nothing", run: () => print(USAGE) },
   init: {
@@ -533,44 +590,34 @@ export const COMMANDS: { readonly [C in Command]: Handler<ArgsOf<C>> } = {
   },
   list: { dry: "dry mode", needs: "triggers", run: listTriggers },
   mcp: { dry: "dry mode", needs: "nothing", run: serveMcp },
-  relink: {
-    dry: { refused: "relink rebuilds links from the Marbles database" },
-    needs: "workspace",
-    run: (args, opened) => relink(args.all, resourceContext(args, opened)),
-  },
-  roll: { dry: "dry mode", needs: "connection", run: roll },
-  run: { dry: "dry mode", needs: "connection", run: runUntilStopped },
-  runs: listing("run"),
-  sandboxes: listing("sandbox"),
-  sessions: listing("session"),
-  settings: { dry: "reads only", needs: "nothing", run: terminalSettings },
-  share: association("share"),
+  run: { dry: "dry mode", needs: "connection", run: runNow },
+  runs: resource("run"),
+  sandboxes: resource("sandbox"),
+  sessions: resource("session"),
   status: { dry: "reads only", needs: "workspace", run: showStatus },
-  stop: {
-    dry: { refused: "stop stops the Marbles process" },
-    needs: "nothing",
-    run: stopDaemon,
-  },
   tasks: { dry: "dry mode", needs: "tasks", run: runTasks },
-  unshare: association("unshare"),
+  theme: {
+    dry: (args) =>
+      args.action === "set"
+        ? { refused: "theme <name> saves the theme" }
+        : "reads only",
+    needs: "nothing",
+    run: theme,
+  },
   watch: { dry: "reads only", needs: "nothing", run: watch },
 };
 
-export function dryRunRefusal(command: string): string | undefined {
-  const dry: unknown = Object.hasOwn(COMMANDS, command)
-    ? Reflect.get(COMMANDS[command as Command], "dry")
-    : undefined;
+function dryOf<C extends Command>(args: ArgsOf<C>): DryRun {
+  const handler: Handler<ArgsOf<C>> = COMMANDS[args.command as C];
+  return typeof handler.dry === "function" ? handler.dry(args) : handler.dry;
+}
+
+export function dryRunRefusal(args: Args): string | undefined {
+  const dry = dryOf(args);
   if (dry === "dry mode" || dry === "reads only") {
     return;
   }
-  const refused =
-    typeof dry === "object" &&
-    dry !== null &&
-    "refused" in dry &&
-    typeof dry.refused === "string"
-      ? dry.refused
-      : `${command} says nothing of a dry run`;
-  return `${refused}; it takes no --dry-run`;
+  return `${dry.refused}; it takes no --dry-run`;
 }
 
 async function printNewRuns(engine: Engine, restored: ReadonlySet<string>) {
@@ -649,7 +696,7 @@ export async function main(entry: string): Promise<void> {
   let args: Args;
   try {
     args = parseArgs(process.argv.slice(2));
-    const refusal = args.dry ? dryRunRefusal(args.command) : undefined;
+    const refusal = args.dry ? dryRunRefusal(args) : undefined;
     if (refusal !== undefined) {
       throw new UsageError(refusal);
     }
@@ -666,7 +713,11 @@ export async function main(entry: string): Promise<void> {
     if (args.recheckProviders && !interactive) {
       throw new UsageError("--recheck-providers requires a terminal");
     }
-    if (interactive && !args.dry && args.command === "roll") {
+    if (
+      interactive &&
+      !args.dry &&
+      (args.command === "run" || args.command === "enqueue")
+    ) {
       const { workspace } = findWorkspace(args);
       await setupProviders({
         confirm: askYes,
@@ -679,7 +730,7 @@ export async function main(entry: string): Promise<void> {
         },
       });
     }
-    if (interactive && args.command === "run") {
+    if (interactive && args.command === "dashboard") {
       const { runInteractive } = await import("~/cli/interactive");
       await runInteractive(args);
       return;

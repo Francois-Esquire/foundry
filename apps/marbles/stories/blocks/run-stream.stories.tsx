@@ -9,9 +9,9 @@ const size = { height: 18, width: 70 };
 const transcript = [
   "Reading docs/cli.md (412 lines)",
   "The CLI reference lists 14 commands; src/cli/args.ts defines 15.",
-  "Missing: marbles relink",
+  "Missing: marbles artifacts relink",
   "Drafting a section for relink after resources.",
-  "## marbles relink",
+  "## marbles artifacts relink",
   "",
   "Rebuilds each workspace's links under <root>/.marbles/ from the database.",
   "Checking the options table against parseArgs…",

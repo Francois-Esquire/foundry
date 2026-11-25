@@ -111,7 +111,7 @@ describe("connecting to the Marbles process", () => {
     const refused = connect({ layout: at, start: false });
     await expect(refused).rejects.toThrow(ProcessMismatchError);
     await expect(refused).rejects.toThrow("runs version 0.0.0-old");
-    await expect(refused).rejects.toThrow("marbles stop");
+    await expect(refused).rejects.toThrow("marbles daemon stop");
     expect(asked).toEqual(["hello"]);
 
     const agreed: string[][] = [];

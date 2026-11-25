@@ -1,4 +1,4 @@
-import { launchDefinition, runDefinition } from "~/authoring/instances";
+import { enqueueDefinition, runDefinition } from "~/authoring/instances";
 import { captureScope } from "~/authoring/runtime";
 import type {
   AnyDefinition,
@@ -8,7 +8,6 @@ import type {
   WorkflowRecord,
 } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
-import type { Launched } from "~/lib/launcher";
 import { inputKeysOf } from "~/lib/schema";
 
 type Children = Readonly<Record<string, LockedNode>>;
@@ -56,17 +55,22 @@ export interface Lockable<R, O> {
 
 type RunArgs<R> = Record<string, never> extends R ? [input?: R] : [input: R];
 
-export interface LaunchOptions {
+export interface EnqueueOptions {
   readonly key?: string;
 }
 
-type LaunchArgs<R> =
+export interface Enqueued<O> {
+  readonly id: string;
+  readonly result: Promise<O>;
+}
+
+type EnqueueArgs<R> =
   Record<string, never> extends R
-    ? [input?: R, options?: LaunchOptions]
-    : [input: R, options?: LaunchOptions];
+    ? [input?: R, options?: EnqueueOptions]
+    : [input: R, options?: EnqueueOptions];
 
 export interface Runnable<R, O> {
-  launch(...args: LaunchArgs<R>): Promise<Launched<O>>;
+  enqueue(...args: EnqueueArgs<R>): Promise<Enqueued<O>>;
   run(...input: RunArgs<R>): Promise<O>;
 }
 
@@ -158,10 +162,10 @@ export function lockable<D extends AnyDefinition>(
   }
   const scope = captureScope();
   Object.defineProperties(call, {
-    launch: {
+    enqueue: {
       configurable: true,
-      value: (input?: unknown, options?: LaunchOptions) =>
-        launchDefinition(definition, input ?? {}, scope, options),
+      value: (input?: unknown, options?: EnqueueOptions) =>
+        enqueueDefinition(definition, input ?? {}, scope, options),
     },
     run: {
       configurable: true,

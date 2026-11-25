@@ -22,7 +22,7 @@ export type InstanceRuntime = Pick<
   | "dispose"
   | "disposed"
   | "execute"
-  | "launchDefinition"
+  | "enqueueDefinition"
   | "models"
   | "readRun"
   | "readRuns"
@@ -499,12 +499,12 @@ export function ownRun(): Current | undefined {
 function hostless(
   word: string,
   hosting: Answer | undefined,
-  verb: "launch" | "read"
+  verb: "enqueue" | "read"
 ): Error {
   return new Error(
     hosting !== undefined || hostState === "loading"
       ? `${word}: the workspace's runs are not available while its source loads; ${verb} them in a step, an observe handler, or once the host has started`
-      : `${word}: the workspace host that held these runs was disposed; nothing was ${verb === "launch" ? "launched" : "read"}`
+      : `${word}: the workspace host that held these runs was disposed; nothing was ${verb === "enqueue" ? "enqueued" : "read"}`
   );
 }
 
@@ -530,12 +530,12 @@ export function scriptCatalog(): Catalog | undefined {
     : undefined;
 }
 
-export interface Launching {
+export interface Enqueuing {
   readonly declared: Catalog | undefined;
   readonly runtime: InstanceRuntime;
 }
 
-export function launchingRuntime(word: string): Promise<Launching> {
+export function enqueuingRuntime(word: string): Promise<Enqueuing> {
   let own: Owner | undefined;
   let hosting: Answer | undefined;
   try {
@@ -545,7 +545,7 @@ export function launchingRuntime(word: string): Promise<Launching> {
     return Promise.reject(error);
   }
   if (own !== undefined && "load" in own) {
-    return Promise.reject(hostless(word, hosting, "launch"));
+    return Promise.reject(hostless(word, hosting, "enqueue"));
   }
   if (hosting?.runtime !== undefined) {
     return Promise.resolve({ declared: undefined, runtime: hosting.runtime });
@@ -556,7 +556,7 @@ export function launchingRuntime(word: string): Promise<Launching> {
       runtime,
     }));
   }
-  return Promise.reject(hostless(word, hosting, "launch"));
+  return Promise.reject(hostless(word, hosting, "enqueue"));
 }
 
 export function setDefaultRuntime(

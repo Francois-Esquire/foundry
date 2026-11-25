@@ -306,10 +306,12 @@ Five buckets, each importing only what sits below it:
   `authoring/catalog.ts`, which is private to Marbles, and may import
   `lib/`, never the reverse. `authoring/runs.ts` is the read-only
   `runs` word, bound per load as `tasks` is; it never starts an engine to
-  answer a read. `step.launch(name)` and `workflow.launch(name)` look the
+  answer a read. A definition's `.enqueue(input?, { key }?)` launches it
+  through the engine and resolves once it is queued, with its run's id and
+  `result`. `step.enqueue(name)` and `workflow.enqueue(name)` look the
   name up in the answering engine's registry (`Engine.definition`, which
   leaves out monitors) and launch that very definition as its own
-  `.launch` would, so keys, replay and pool limits are shared; each
+  `.enqueue` would, so keys, replay and pool limits are shared; each
   refuses the other kind, a load still running, and, in a script no
   workspace hosts, finds what the script declared in the catalog.
   `Engine.execute` runs direct definitions
@@ -461,15 +463,21 @@ Five buckets, each importing only what sits below it:
   which runs `main` whenever it loads, imported by `bin/marbles` too),
   `src/cli/` (what only the CLI and its terminal UI use:
   `command-line.ts`, every command's handler, and what `--dry-run` means
-  for it, beside `main`; `args.ts`, which parses a command line
-  completely, before anything loads; `interactive.ts` and `app.tsx`, the
-  dashboard command and its renderer; `views/`, the screens; `state/`,
+  for each of its actions, beside `main`; `args.ts`, which parses a
+  command line completely, before anything loads: no command is the
+  dashboard, `run <name>` runs one thing now and waits, `enqueue <name>`
+  queues it on the Marbles process and prints its run ID, and `daemon`,
+  the resource nouns (`runs`, `sessions`, `artifacts`, `sandboxes`) and
+  `theme` each take their actions as a second word; `interactive.ts`
+  and `app.tsx`, the dashboard and its renderer; `views/`, the screens; `state/`,
   their models, reducers and hooks; `hooks/`, the shared React hooks;
-  `settings.ts`, the settings file; `watch.ts`, `marbles
-  watch`; the output of `marbles status` and the task commands,
-  `status/` and `tasks/`; and `resources/`, the resource listings, sharing, and
-  `relink`, which rebuilds each workspace's links under `<root>/.marbles/`
-  from the database; they are never read back), `src/components/`,
+  `settings.ts`, the settings file `marbles theme` reads and writes;
+  `watch.ts`, `marbles watch`, which waits out a run still in its queue
+  before it follows the run's output; the output of `marbles status` and
+  the task commands, `status/` and `tasks/`; and `resources/`, the
+  resource listings, sharing, and `marbles artifacts relink`, which
+  rebuilds each workspace's links under `<root>/.marbles/` from the
+  database; they are never read back), `src/components/`,
   `src/mcp/`, `src/status/`. The dashboard is a client of the process.
   `src/mcp/stdio.ts` is the `marbles mcp` server, which `cli.ts` loads
   only when that command runs. `src/mcp/relay.ts` runs it in a child

@@ -66,13 +66,13 @@ it("declares what a load's words make into that load's catalog, however late `.d
   expect([...into.schedules.keys()]).toEqual(["now"]);
 });
 
-it("binds `step.launch` and `workflow.launch` to the load too, and keeps `workflow` observable", () => {
+it("binds `step.enqueue` and `workflow.enqueue` to the load too, and keeps `workflow` observable", () => {
   const bound = libraryOfLoad(library, 1) as typeof library;
   for (const word of [bound.step, bound.workflow]) {
-    expect(word.launch).toBeTypeOf("function");
+    expect(word.enqueue).toBeTypeOf("function");
   }
-  expect(bound.step.launch).not.toBe(library.step.launch);
-  expect(bound.workflow.launch).not.toBe(library.workflow.launch);
+  expect(bound.step.enqueue).not.toBe(library.step.enqueue);
+  expect(bound.workflow.enqueue).not.toBe(library.workflow.enqueue);
   expect(Reflect.get(bound.workflow, SOURCE)).toBe(
     Reflect.get(library.workflow, SOURCE)
   );

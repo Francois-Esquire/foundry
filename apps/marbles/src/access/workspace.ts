@@ -28,7 +28,7 @@ export class RecordsHeldError extends Error {
   override readonly name = "RecordsHeldError";
 }
 
-const ATTACH_HINT = "`marbles attach` in its root hosts it";
+const ATTACH_HINT = "`marbles daemon attach` in its root hosts it";
 
 function withStoredTasks<T>(
   args: HostOptions,
@@ -119,7 +119,7 @@ export async function withRunningWorkspace<T>(
 ): Promise<T> {
   if (args.dry) {
     throw new NotHostedError(
-      `--dry-run joins no Marbles process, so no engine generation is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles roll --dry-run\`.`
+      `--dry-run joins no Marbles process, so no engine generation is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles run <name> --dry-run\`.`
     );
   }
   const client = await joinProcess();
