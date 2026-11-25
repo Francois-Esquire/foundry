@@ -6,7 +6,7 @@ import type { Git } from "@foundry/workspaces/git";
 import type { Output } from "ai";
 
 import type { Bindings, ManagerArgs } from "~/lib/bindings";
-import type { AnyDefinition } from "~/lib/definition";
+import type { AnyDefinition, NamedDefinition } from "~/lib/definition";
 import { AGENT_DEFINITION, AGENT_PROMPT, SANDBOX_HANDLE } from "~/lib/handles";
 import type { DefinitionLaunch, Launched } from "~/lib/launcher";
 import { deferredStream } from "~/lib/managers/agent-turns";
@@ -35,7 +35,14 @@ import type {
   WorkspaceInstance,
 } from "~/lib/types";
 import type { InstanceRuntime, Scope } from "./runtime";
-import { captureScope, instanceRoot, instanceRuntime, ownRun } from "./runtime";
+import {
+  captureScope,
+  instanceRoot,
+  instanceRuntime,
+  launchingRuntime,
+  ownRun,
+  scriptCatalog,
+} from "./runtime";
 
 function inRun(): { bindings: Bindings; args: ManagerArgs } | undefined {
   const store = current.getStore();
@@ -365,6 +372,60 @@ export function launchDefinition(
   return scope(instanceRuntime)
     .then((runtime) => runtime.launchDefinition(definition, input, options))
     .then(quiet);
+}
+
+type Kind = AnyDefinition["kind"];
+
+function launchable(
+  kind: Kind,
+  name: string,
+  found: NamedDefinition | undefined
+): NamedDefinition {
+  const word = `${kind}.launch(${JSON.stringify(name)})`;
+  if (found === undefined) {
+    throw new Error(
+      `${word}: this workspace declares no step or workflow named ${JSON.stringify(name)}`
+    );
+  }
+  if (found.kind !== kind) {
+    throw new Error(
+      `${word}: ${JSON.stringify(name)} is a ${found.kind}, not a ${kind}; use ${found.kind}.launch(${JSON.stringify(name)})`
+    );
+  }
+  return found;
+}
+
+export async function launchNamed(
+  kind: Kind,
+  name: unknown,
+  input: unknown,
+  options: DefinitionLaunch = {}
+): Promise<Launched<unknown>> {
+  if (typeof name !== "string" || name.trim() === "") {
+    throw new TypeError(
+      `${kind}.launch(): give it the name of a ${kind} the workspace declares`
+    );
+  }
+  const running = ownRun();
+  const runs = running?.bindings.runs;
+  if (running !== undefined && runs !== undefined) {
+    const scoped = runs({
+      frame: running.frame,
+      scope: running.scope,
+      write: running.write,
+    });
+    const found = scoped.named(name) ?? scriptCatalog()?.definitions.get(name);
+    return await scoped
+      .launch(launchable(kind, name, found), input, options)
+      .then(quiet);
+  }
+  const { declared, runtime } = await launchingRuntime(`${kind}.launch()`);
+  const definition = launchable(
+    kind,
+    name,
+    runtime.definition(name) ?? declared?.definitions.get(name)
+  );
+  return quiet(await runtime.launchDefinition(definition, input, options));
 }
 
 export function workspaceInstance(

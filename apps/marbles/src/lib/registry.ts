@@ -95,13 +95,17 @@ export class Registry {
     this.#monitors.set(key, record);
   }
 
+  launchable(name: string): NamedDefinition | undefined {
+    return this.#declared(name) ? this.#definitions.get(name) : undefined;
+  }
+
+  #declared(name: string): boolean {
+    return name !== AUTOMATION_MONITOR && !this.#monitors.has(name);
+  }
+
   entries(): readonly DefinitionEntry[] {
     return [...this.#definitions.values()]
-      .filter(
-        (definition) =>
-          definition.name !== AUTOMATION_MONITOR &&
-          !this.#monitors.has(definition.name)
-      )
+      .filter((definition) => this.#declared(definition.name))
       .map((definition) => {
         const schema = definition.input;
         const inputSchema = schema ? jsonSchemaOf(schema) : undefined;

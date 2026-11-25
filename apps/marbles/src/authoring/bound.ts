@@ -29,6 +29,13 @@ export const WORDS: ReadonlySet<unknown> = new Set([
 
 function bind(word: (...args: never[]) => unknown, load: number): unknown {
   const bound = (...args: never[]) => inLoad(load, () => word(...args));
+  const launch: unknown = Reflect.get(word, "launch");
+  if (typeof launch === "function") {
+    Object.defineProperty(bound, "launch", {
+      value: (...args: unknown[]) =>
+        inLoad(load, () => Reflect.apply(launch, word, args)),
+    });
+  }
   const source: unknown = Reflect.get(word, SOURCE);
   return typeof source === "symbol" ? observable(bound, source) : bound;
 }

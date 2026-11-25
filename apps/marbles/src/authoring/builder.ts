@@ -15,6 +15,7 @@ import type {
 import { isLockedNode } from "~/lib/definition";
 import { observable, RUNS } from "~/lib/events/source";
 import { DEFINITION_IDENTITY } from "~/lib/handles";
+import type { Launched } from "~/lib/launcher";
 import { setupCounters } from "~/lib/run-scope";
 import type { Input, Output } from "~/lib/schema";
 import { inputKeysOf } from "~/lib/schema";
@@ -22,7 +23,8 @@ import { timeoutMs } from "~/lib/tree";
 import type { Context } from "~/lib/types";
 import type { CallSite } from "./identity";
 import { bindingAt, callSite, canInfer, originOf } from "./identity";
-import type { StepDefinition, WorkflowDefinition } from "./lock";
+import { launchNamed } from "./instances";
+import type { LaunchOptions, StepDefinition, WorkflowDefinition } from "./lock";
 import { lockable } from "./lock";
 
 type Empty = Record<string, never>;
@@ -234,6 +236,13 @@ export function step(name?: string): StepBuilder {
   });
 }
 
+step.launch = <O = unknown>(
+  name: string,
+  input?: Record<string, unknown>,
+  options?: LaunchOptions
+): Promise<Launched<O>> =>
+  launchNamed("step", name, input ?? {}, options) as Promise<Launched<O>>;
+
 export class WorkflowBuilder<I = Empty, R = Empty> {
   readonly #name: string | undefined;
   readonly #site: CallSite | undefined;
@@ -343,5 +352,12 @@ export function workflow(
   }
   return finishWorkflow(identity, site, undefined, undefined, () => tree);
 }
+
+workflow.launch = <O = unknown>(
+  name: string,
+  input?: Record<string, unknown>,
+  options?: LaunchOptions
+): Promise<Launched<O>> =>
+  launchNamed("workflow", name, input ?? {}, options) as Promise<Launched<O>>;
 
 observable(workflow, RUNS);

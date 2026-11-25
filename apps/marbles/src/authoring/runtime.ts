@@ -18,6 +18,7 @@ export type InstanceRuntime = Pick<
   | "artifacts"
   | "bindings"
   | "context"
+  | "definition"
   | "dispose"
   | "disposed"
   | "execute"
@@ -495,6 +496,18 @@ export function ownRun(): Current | undefined {
   return store;
 }
 
+function hostless(
+  word: string,
+  hosting: Answer | undefined,
+  verb: "launch" | "read"
+): Error {
+  return new Error(
+    hosting !== undefined || hostState === "loading"
+      ? `${word}: the workspace's runs are not available while its source loads; ${verb} them in a step, an observe handler, or once the host has started`
+      : `${word}: the workspace host that held these runs was disposed; nothing was ${verb === "launch" ? "launched" : "read"}`
+  );
+}
+
 export function readingRuntime(word: string): Promise<InstanceRuntime | null> {
   let hosting: Answer | undefined;
   try {
@@ -508,13 +521,42 @@ export function readingRuntime(word: string): Promise<InstanceRuntime | null> {
   if (hosting === undefined && hostState === "unhosted") {
     return fallbacks.get(false) ?? Promise.resolve(null);
   }
-  return Promise.reject(
-    new Error(
-      hosting !== undefined || hostState === "loading"
-        ? `${word}: the workspace's runs are not available while its source loads; read them in a step, an observe handler, or once the host has started`
-        : `${word}: the workspace host that held these runs was disposed; nothing was read`
-    )
-  );
+  return Promise.reject(hostless(word, hosting, "read"));
+}
+
+export function scriptCatalog(): Catalog | undefined {
+  return hostState === "unhosted" && answering() === undefined
+    ? catalog
+    : undefined;
+}
+
+export interface Launching {
+  readonly declared: Catalog | undefined;
+  readonly runtime: InstanceRuntime;
+}
+
+export function launchingRuntime(word: string): Promise<Launching> {
+  let own: Owner | undefined;
+  let hosting: Answer | undefined;
+  try {
+    own = owner();
+    hosting = answering();
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  if (own !== undefined && "load" in own) {
+    return Promise.reject(hostless(word, hosting, "launch"));
+  }
+  if (hosting?.runtime !== undefined) {
+    return Promise.resolve({ declared: undefined, runtime: hosting.runtime });
+  }
+  if (hosting === undefined && hostState === "unhosted") {
+    return instanceRuntime().then((runtime) => ({
+      declared: catalog,
+      runtime,
+    }));
+  }
+  return Promise.reject(hostless(word, hosting, "launch"));
 }
 
 export function setDefaultRuntime(

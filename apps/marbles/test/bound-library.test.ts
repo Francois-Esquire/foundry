@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { libraryOfLoad, prebuiltOfLoad, WORDS } from "~/authoring/bound";
 import { Catalog } from "~/authoring/catalog";
 import { loadInto } from "~/authoring/runtime";
+import { SOURCE } from "~/lib/events/source";
 
 const library = await import("~/authoring");
 const prebuilt = await import("~/authoring/prebuilt");
@@ -63,4 +64,16 @@ it("declares what a load's words make into that load's catalog, however late `.d
   later?.();
   expect([...into.definitions.keys()]).toEqual(["now", "later"]);
   expect([...into.schedules.keys()]).toEqual(["now"]);
+});
+
+it("binds `step.launch` and `workflow.launch` to the load too, and keeps `workflow` observable", () => {
+  const bound = libraryOfLoad(library, 1) as typeof library;
+  for (const word of [bound.step, bound.workflow]) {
+    expect(word.launch).toBeTypeOf("function");
+  }
+  expect(bound.step.launch).not.toBe(library.step.launch);
+  expect(bound.workflow.launch).not.toBe(library.workflow.launch);
+  expect(Reflect.get(bound.workflow, SOURCE)).toBe(
+    Reflect.get(library.workflow, SOURCE)
+  );
 });
