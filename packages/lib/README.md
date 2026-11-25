@@ -12,6 +12,7 @@ Import shared helpers directly from their owning module:
 - `@foundry/lib/mime`: shared MIME constants and text MIME detection.
 - `@foundry/lib/file-classification`: filename classification, `FileClassification`, `FileKind`, `FILE_KINDS`, and `CLASSIFICATION_VERSION`.
 - `@foundry/lib/emitter`: portable Web-standard `TypedEmitter` with Node `EventEmitter` semantics (recursive `once` safety, receiver `this` binding, LIFO removal, unhandled `"error"` throw).
+- `@foundry/lib/equal`: portable `deepStrictEqual` supporting cycles, built-in objects (`Date`, `RegExp`, `ArrayBuffer`, typed views, `Map`, `Set`), `NaN`, and signed zero.
 - `@foundry/lib/async-scope`: conditional `AsyncScope<T>` primitive (`"node"` / `"bun"` → `AsyncLocalStorage`, `"default"` → pass-through) for best-effort diagnostics and guards.
 - `@foundry/lib/process-identity` & `@foundry/lib/instance-identity`: pure process/instance identity types, parsers, comparators, `portableProcess`, and `neverGone`. OS/Node queries (`thisProcess`, `isGone`, `nodeStartedAt`, `processAlive`, `lookProcesses`, `groupMembers`, `nodeInstanceGone`) live under `@foundry/lib/node/process-identity` and `@foundry/lib/node/instance-identity`.
 - `@foundry/lib/node/*`: Node/Bun-only filesystem, locking, process-tracking, and authorization helpers (`atomic-file`, `file-lock`, `orphans`, `spawn-record`, `async-scope`, `process-identity`, `instance-identity`, `authorization/file`, `authorization/digest`).

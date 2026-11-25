@@ -1,5 +1,5 @@
 import { instanceGone, sameInstance } from "@foundry/lib/instance-identity";
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import { neverGone, type ProcessIdentity } from "@foundry/lib/process-identity";
 import { Clock, Effect } from "effect";
 import type { Capacity } from "./capacity";
 import type { QueueOwner, RecoverySummary, Run, RunId } from "./domain";
@@ -9,8 +9,6 @@ import type { Settlement } from "./settlement";
 import { bump, claimOf } from "./transitions";
 
 type Gone = (owner: QueueOwner) => boolean;
-
-const neverGone = (): boolean => false;
 
 const unowned = (run: Run): Run => {
   if (run.state.kind !== "queued") {

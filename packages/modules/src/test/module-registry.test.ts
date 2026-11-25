@@ -363,7 +363,7 @@ describe("Modules over a store without transaction", () => {
     });
 
     expect(outcome).toContain(
-      "Modules was called from inside its own transaction; use the registry passed to the transaction's work instead"
+      "Modules was called from inside its own transaction; use the Modules instance passed to the transaction's work instead"
     );
     expect((await registry.listInstallations()).items).toHaveLength(1);
   });

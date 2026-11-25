@@ -140,10 +140,10 @@ export type ModuleUnit<Command extends ModuleCommand> = Pick<
 export type ModuleCommands = ModuleUnit<ModuleCommand>;
 
 const REENTRY =
-  "Modules was called from inside its own transaction; use the registry passed to the transaction's work instead";
+  "Modules was called from inside its own transaction; use the Modules instance passed to the transaction's work instead";
 
 const NESTED =
-  "Modules.transaction was called on a registry bound to a transaction, and transactions do not nest; use the registry passed to the transaction's work instead";
+  "Modules.transaction was called on a Modules instance bound to a transaction, and transactions do not nest; use the Modules instance passed to the transaction's work instead";
 
 const SETTLED =
   "Modules transaction has settled; register an effect while its work runs";

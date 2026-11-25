@@ -23,7 +23,7 @@ export interface ModulesHarness {
 }
 
 const NESTED_REFUSAL =
-  /ReentrantCallError: .*transactions do not nest; use the registry passed/;
+  /ReentrantCallError: .*transactions do not nest; use the Modules instance passed/;
 
 function settled(promise: Promise<unknown>): Promise<string> {
   return promise.then(

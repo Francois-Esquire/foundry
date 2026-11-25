@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { isGone, thisProcess } from "@foundry/lib/node/process-identity";
+import { assertWebStandardExports } from "@foundry/lib/testing/seam";
 import { Effect, Layer, Ref, TestClock } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -14,76 +13,20 @@ import { ScheduleStore } from "../store/index";
 import { MemoryScheduleStore } from "../store/memory";
 import { fakeDispatch, target, testScheduler } from "./helpers/scheduler";
 
-const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const IMPORT =
-  /(?:import|export)[^"']*?from\s+["']([^"']+)["']|import\(["']([^"']+)["']\)/g;
-const IMPORT_PATH = /from\s+["'][^"']+["']/g;
-const NODE_GLOBALS =
-  /\b(?:process|Buffer|Bun|__dirname|__filename|setImmediate)\b/;
-
-function graph(entry: string): {
-  files: string[];
-  packages: Set<string>;
-  sources: Map<string, string>;
-} {
-  const files: string[] = [];
-  const packages = new Set<string>();
-  const sources = new Map<string, string>();
-  const pending = [entry];
-  while (pending.length > 0) {
-    const file = pending.pop() as string;
-    if (files.includes(file)) {
-      continue;
-    }
-    files.push(file);
-    const raw = readFileSync(file, "utf8");
-    sources.set(relative(SRC, file), raw);
-    for (const match of raw.matchAll(IMPORT)) {
-      const targetSpecifier = match[1] ?? match[2] ?? "";
-      if (!targetSpecifier.startsWith(".")) {
-        packages.add(targetSpecifier);
-        continue;
-      }
-      const base = resolve(dirname(file), targetSpecifier);
-      const found = [`${base}.ts`, join(base, "index.ts")].find(existsSync);
-      if (found) {
-        pending.push(found);
-      }
-    }
-  }
-  return {
-    files: files.map((file) => relative(SRC, file)),
-    packages,
-    sources,
-  };
-}
+const PACKAGE_DIR = resolve(import.meta.dirname, "../..");
 
 describe("@foundry/scheduling runtime seams", () => {
-  for (const [label, entry, expectedFile] of [
-    ["base entry", "index.ts", "scheduler.ts"],
-    ["client entry", "client.ts", "client.ts"],
-    ["queue adapter entry", "queue.ts", "queue.ts"],
-    ["store entry", "store/index.ts", "store/index.ts"],
-    ["memory store entry", "store/memory.ts", "store/memory.ts"],
-  ] as const) {
-    it(`loads no node:* imports, @foundry/lib/node/* imports, or Node globals from the ${label}`, () => {
-      const { files, packages, sources } = graph(join(SRC, entry));
-      expect(files).not.toContain("node.ts");
-      expect([...packages].filter((name) => name.startsWith("node:"))).toEqual(
-        []
-      );
-      expect(
-        [...packages].filter((name) => name.startsWith("@foundry/lib/node"))
-      ).toEqual([]);
-      expect(files).toContain(expectedFile);
-      for (const [file, source] of sources) {
-        expect(
-          source.replace(IMPORT_PATH, ""),
-          `${file} should not reference Node globals`
-        ).not.toMatch(NODE_GLOBALS);
-      }
-    });
-  }
+  it("loads no node:* imports, ./node adapters, or unguarded Node/Bun globals from portable subpaths", () => {
+    expect(() =>
+      assertWebStandardExports(PACKAGE_DIR, [
+        ".",
+        "./client",
+        "./queue",
+        "./store",
+        "./store/memory",
+      ])
+    ).not.toThrow();
+  });
 
   it("defaults portable Scheduler.layer to conservative liveness for foreign owners", async () => {
     const foreign = { pid: 999_999, started: "foreign" } as const;

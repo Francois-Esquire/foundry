@@ -1,3 +1,4 @@
+import { TypedEmitter } from "@foundry/lib/emitter";
 import { EvlogError } from "evlog";
 import type { ModelCost } from "evlog/ai";
 import { modelErrors } from "./errors";
@@ -16,110 +17,7 @@ export type ModelsEventListener<Args extends any[] = any[]> = (
   ...args: Args
 ) => void;
 
-interface Registration {
-  fired: boolean;
-  readonly listener: ModelsEventListener;
-  readonly once: boolean;
-}
-
-export class ModelsEventEmitter {
-  readonly #events = new Map<string, Registration[]>();
-
-  on(event: string, listener: ModelsEventListener): this {
-    this.#add(event, listener, false);
-    return this;
-  }
-
-  addListener(event: string, listener: ModelsEventListener): this {
-    return this.on(event, listener);
-  }
-
-  once(event: string, listener: ModelsEventListener): this {
-    this.#add(event, listener, true);
-    return this;
-  }
-
-  off(event: string, listener: ModelsEventListener): this {
-    const entries = this.#events.get(event);
-    if (!entries) {
-      return this;
-    }
-    for (let i = entries.length - 1; i >= 0; i -= 1) {
-      if (entries[i]?.listener === listener) {
-        entries.splice(i, 1);
-        break;
-      }
-    }
-    if (entries.length === 0) {
-      this.#events.delete(event);
-    }
-    return this;
-  }
-
-  removeListener(event: string, listener: ModelsEventListener): this {
-    return this.off(event, listener);
-  }
-
-  removeAllListeners(event?: string): this {
-    if (event === undefined) {
-      this.#events.clear();
-    } else {
-      this.#events.delete(event);
-    }
-    return this;
-  }
-
-  listenerCount(event: string): number {
-    return this.#events.get(event)?.length ?? 0;
-  }
-
-  emit(event: string, ...args: unknown[]): boolean {
-    const entries = this.#events.get(event);
-    if (!entries || entries.length === 0) {
-      if (event === "error") {
-        const [err] = args;
-        throw err instanceof Error
-          ? err
-          : new Error(args.length > 0 ? String(err) : "Unhandled error.");
-      }
-      return false;
-    }
-    for (const entry of [...entries]) {
-      if (entry.once) {
-        if (entry.fired) {
-          continue;
-        }
-        entry.fired = true;
-        this.#removeEntry(event, entry);
-      }
-      entry.listener.apply(this, args);
-    }
-    return true;
-  }
-
-  #removeEntry(event: string, entry: Registration): void {
-    const current = this.#events.get(event);
-    if (!current) {
-      return;
-    }
-    const idx = current.indexOf(entry);
-    if (idx !== -1) {
-      current.splice(idx, 1);
-    }
-    if (current.length === 0) {
-      this.#events.delete(event);
-    }
-  }
-
-  #add(event: string, listener: ModelsEventListener, once: boolean): void {
-    let entries = this.#events.get(event);
-    if (!entries) {
-      entries = [];
-      this.#events.set(event, entries);
-    }
-    entries.push({ fired: false, listener, once });
-  }
-}
+export class ModelsEventEmitter extends TypedEmitter {}
 
 const UNRESOLVED = new Set<string>([
   modelErrors.MODEL_KIND_MISMATCH.code,

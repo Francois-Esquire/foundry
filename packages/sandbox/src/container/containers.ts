@@ -34,13 +34,7 @@ import type {
   CreateContainersOptions,
 } from "./types";
 
-export type {
-  Container,
-  ContainerRecovery,
-  ContainerSweep,
-  Containers,
-  CreateContainersOptions,
-} from "./types";
+export type { Containers, CreateContainersOptions } from "./types";
 
 type RowPatch = Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>;
 

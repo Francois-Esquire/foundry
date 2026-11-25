@@ -1,111 +1,8 @@
+import { TypedEmitter } from "@foundry/lib/emitter";
 import { tool } from "ai";
 import { z } from "zod";
 
 import { tagTools } from "../harness/types";
-
-type EventListener<Args extends unknown[]> = (...args: Args) => void;
-
-interface ListenerEntry {
-  fired: boolean;
-  readonly fn: (...args: unknown[]) => void;
-  readonly once: boolean;
-}
-
-class TypedEventEmitter<Events extends { [K in keyof Events]: unknown[] }> {
-  readonly #listeners = new Map<keyof Events, ListenerEntry[]>();
-
-  on<K extends keyof Events>(
-    event: K,
-    listener: EventListener<Events[K]>
-  ): this {
-    return this.#add(event, listener, false);
-  }
-
-  once<K extends keyof Events>(
-    event: K,
-    listener: EventListener<Events[K]>
-  ): this {
-    return this.#add(event, listener, true);
-  }
-
-  off<K extends keyof Events>(
-    event: K,
-    listener: EventListener<Events[K]>
-  ): this {
-    return this.removeListener(event, listener);
-  }
-
-  removeListener<K extends keyof Events>(
-    event: K,
-    listener: EventListener<Events[K]>
-  ): this {
-    const entries = this.#listeners.get(event);
-    if (!entries) {
-      return this;
-    }
-    for (let i = entries.length - 1; i >= 0; i -= 1) {
-      if (entries[i]?.fn === listener) {
-        entries.splice(i, 1);
-        break;
-      }
-    }
-    if (entries.length === 0) {
-      this.#listeners.delete(event);
-    }
-    return this;
-  }
-
-  removeAllListeners<K extends keyof Events>(event?: K): this {
-    if (event === undefined) {
-      this.#listeners.clear();
-    } else {
-      this.#listeners.delete(event);
-    }
-    return this;
-  }
-
-  emit<K extends keyof Events>(event: K, ...args: Events[K]): boolean {
-    const entries = this.#listeners.get(event);
-    if (!entries || entries.length === 0) {
-      return false;
-    }
-    for (const entry of [...entries]) {
-      if (entry.once) {
-        if (entry.fired) {
-          continue;
-        }
-        entry.fired = true;
-        const index = entries.indexOf(entry);
-        if (index !== -1) {
-          entries.splice(index, 1);
-        }
-        if (entries.length === 0) {
-          this.#listeners.delete(event);
-        }
-      }
-      entry.fn.apply(this, args);
-    }
-    return true;
-  }
-
-  #add<K extends keyof Events>(
-    event: K,
-    listener: EventListener<Events[K]>,
-    once: boolean
-  ): this {
-    let entries = this.#listeners.get(event);
-    if (!entries) {
-      entries = [];
-      this.#listeners.set(event, entries);
-    }
-    entries.push({
-      fired: false,
-      fn: listener as (...args: unknown[]) => void,
-      once,
-    });
-    return this;
-  }
-}
 
 export interface TodoItem {
   description: string;
@@ -134,7 +31,7 @@ const todoInputSchema = z.object({
   id: z.string().optional(),
 });
 
-export class TodoStore extends TypedEventEmitter<TodoEventMap> {
+export class TodoStore extends TypedEmitter<TodoEventMap> {
   readonly #todos: TodoItem[] = [];
 
   constructor(todos: TodoItem[] = []) {

@@ -8,6 +8,7 @@ import { markHarnessQuestionExecutor } from "@foundry/core/agents";
 import type { Tool } from "ai";
 import { tool } from "ai";
 import { z } from "zod";
+import { raceAbort } from "./abortable";
 
 export type { HarnessQuestionToolSettings } from "@foundry/core/agents";
 // biome-ignore lint/performance/noBarrelFile: Preserve @foundry/agents/harness question predicate re-export.
@@ -179,25 +180,6 @@ async function waitForAnswer(
     }
     // biome-ignore lint/style/useErrorCause: Original exceptions may contain secrets and must not reach host event logs.
     throw new Error("Host question handler failed.");
-  }
-}
-
-async function raceAbort<T>(
-  pending: Promise<T>,
-  signal: AbortSignal
-): Promise<T> {
-  signal.throwIfAborted();
-  let abort: (() => void) | undefined;
-  const aborted = new Promise<never>((_resolve, reject) => {
-    abort = () => reject(signal.reason);
-    signal.addEventListener("abort", abort, { once: true });
-  });
-  try {
-    return await Promise.race([pending, aborted]);
-  } finally {
-    if (abort) {
-      signal.removeEventListener("abort", abort);
-    }
   }
 }
 

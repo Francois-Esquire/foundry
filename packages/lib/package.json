@@ -67,6 +67,11 @@
       "import": "./src/encoding.ts",
       "default": "./src/encoding.ts"
     },
+    "./equal": {
+      "types": "./dist/equal.d.ts",
+      "import": "./src/equal.ts",
+      "default": "./src/equal.ts"
+    },
     "./exactly": {
       "types": "./dist/exactly.d.ts",
       "import": "./src/exactly.ts",

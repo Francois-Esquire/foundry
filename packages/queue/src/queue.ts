@@ -1,6 +1,6 @@
 import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
 import type { JsonValue } from "@foundry/lib/json";
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import { portableProcess } from "@foundry/lib/process-identity";
 import {
   Clock,
   Context,
@@ -66,16 +66,6 @@ const validLimit = (limit: number) =>
 
 const DEFAULT_SYNC_INTERVAL_MS = 500;
 
-let defaultIdentity: ProcessIdentity | undefined;
-
-const portableIdentity = (): ProcessIdentity => {
-  defaultIdentity ??= Object.freeze({
-    pid: 0,
-    started: new Date().toISOString(),
-  });
-  return defaultIdentity;
-};
-
 const delayOf = (delayMs: number | undefined) =>
   delayMs !== undefined && Number.isFinite(delayMs) ? Math.max(0, delayMs) : 0;
 
@@ -89,7 +79,7 @@ const makeQueue = (options: QueueOptions) =>
     const waiters = new JobWaiters();
     const self = yield* Effect.acquireRelease(
       Effect.sync(() =>
-        openInstance(options.identity ?? portableIdentity(), options.instanceId)
+        openInstance(options.identity ?? portableProcess(), options.instanceId)
       ),
       (instance) => Effect.sync(() => closeInstance(instance))
     );

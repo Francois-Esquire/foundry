@@ -50,5 +50,3 @@ export interface McpClientOptions {
   retryCooldownMs?: number;
   spawnStdio?: SpawnStdio;
 }
-
-export type McpClientsOptions = McpClientOptions;

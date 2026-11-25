@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { isGone, thisProcess } from "@foundry/lib/node/process-identity";
+import { assertWebStandardExports } from "@foundry/lib/testing/seam";
 import { Effect, Layer, TestContext } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -14,75 +13,19 @@ import { QueueStore } from "../store/index";
 import { makeMemoryQueueStore } from "../store/memory";
 import { flush, handler, sharedStore, withQueue } from "./helpers/queue";
 
-const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const IMPORT =
-  /(?:import|export)[^"']*?from\s+["']([^"']+)["']|import\(["']([^"']+)["']\)/g;
-const IMPORT_PATH = /from\s+["'][^"']+["']/g;
-const NODE_GLOBALS =
-  /\b(?:process|Buffer|Bun|__dirname|__filename|setImmediate)\b/;
-
-function graph(entry: string): {
-  files: string[];
-  packages: Set<string>;
-  sources: Map<string, string>;
-} {
-  const files: string[] = [];
-  const packages = new Set<string>();
-  const sources = new Map<string, string>();
-  const pending = [entry];
-  while (pending.length > 0) {
-    const file = pending.pop() as string;
-    if (files.includes(file)) {
-      continue;
-    }
-    files.push(file);
-    const raw = readFileSync(file, "utf8");
-    sources.set(relative(SRC, file), raw);
-    for (const match of raw.matchAll(IMPORT)) {
-      const target = match[1] ?? match[2] ?? "";
-      if (!target.startsWith(".")) {
-        packages.add(target);
-        continue;
-      }
-      const base = resolve(dirname(file), target);
-      const found = [`${base}.ts`, join(base, "index.ts")].find(existsSync);
-      if (found) {
-        pending.push(found);
-      }
-    }
-  }
-  return {
-    files: files.map((file) => relative(SRC, file)),
-    packages,
-    sources,
-  };
-}
+const PACKAGE_DIR = resolve(import.meta.dirname, "../..");
 
 describe("@foundry/queue runtime seams", () => {
-  for (const [label, entry, expectedFile] of [
-    ["base entry", "index.ts", "queue.ts"],
-    ["client entry", "client.ts", "client.ts"],
-    ["store entry", "store/index.ts", "store/index.ts"],
-    ["memory store entry", "store/memory.ts", "store/memory.ts"],
-  ] as const) {
-    it(`loads no node:* imports, @foundry/lib/node/* imports, or Node globals from the ${label}`, () => {
-      const { files, packages, sources } = graph(join(SRC, entry));
-      expect(files).not.toContain("node.ts");
-      expect([...packages].filter((name) => name.startsWith("node:"))).toEqual(
-        []
-      );
-      expect(
-        [...packages].filter((name) => name.startsWith("@foundry/lib/node"))
-      ).toEqual([]);
-      expect(files).toContain(expectedFile);
-      for (const [file, source] of sources) {
-        expect(
-          source.replace(IMPORT_PATH, ""),
-          `${file} should not reference Node globals`
-        ).not.toMatch(NODE_GLOBALS);
-      }
-    });
-  }
+  it("loads no node:* imports, ./node adapters, or unguarded Node/Bun globals from portable subpaths", () => {
+    expect(() =>
+      assertWebStandardExports(PACKAGE_DIR, [
+        ".",
+        "./client",
+        "./store",
+        "./store/memory",
+      ])
+    ).not.toThrow();
+  });
 
   it("defaults portable recovery to conservative liveness while honoring QueueOptions.isOwnerGone and per-call overrides", async () => {
     const store = await sharedStore();

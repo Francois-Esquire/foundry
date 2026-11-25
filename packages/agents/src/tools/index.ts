@@ -6,7 +6,7 @@ export type {
   ToolContextOptions,
 } from "./context";
 export {
-  createInMemoryConversationStore,
+  createMemoryConversationStore,
   createToolContext,
   defaultThread,
   getConversationStore,

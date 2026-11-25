@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
+import { assertWebStandardExports } from "@foundry/lib/testing/seam";
 import { describe, expect, it } from "vitest";
 
 const PACKAGE_ROOT = resolve(
@@ -12,14 +12,6 @@ const SOURCE = join(PACKAGE_ROOT, "src");
 
 const SQLITE_ENTRIES = ["./store/sqlite", "./store/tables"];
 const NODE_ENTRIES = ["./node"];
-const NODE_GLOBALS = new Set([
-  "process",
-  "Buffer",
-  "Bun",
-  "__dirname",
-  "__filename",
-  "setImmediate",
-]);
 
 const SQLITE_STACK = /^(drizzle-orm|@libsql\/)/;
 const DRIZZLE = /^drizzle-orm/;
@@ -53,36 +45,6 @@ function importsOf(file: string) {
       typeOnly: false,
     })),
   ];
-}
-
-function nodeGlobalReferences(file: string): string[] {
-  const sourceFile = ts.createSourceFile(
-    file,
-    readFileSync(file, "utf8"),
-    ts.ScriptTarget.Latest,
-    true
-  );
-  const hits: string[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isTypeNode(node)) {
-      return;
-    }
-    if (ts.isIdentifier(node) && NODE_GLOBALS.has(node.text)) {
-      const { parent } = node;
-      const isPropertyKey =
-        (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
-        (ts.isPropertyAssignment(parent) && parent.name === node) ||
-        (ts.isPropertySignature(parent) && parent.name === node) ||
-        (ts.isMethodDeclaration(parent) && parent.name === node) ||
-        (ts.isBindingElement(parent) && parent.propertyName === node);
-      if (!isPropertyKey) {
-        hits.push(node.text);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return hits;
 }
 
 function resolved(file: string, specifier: string): string {
@@ -210,41 +172,12 @@ describe("@foundry/agents public paths", () => {
 
 describe("@foundry/agents runtime seams", () => {
   it("loads no node:* imports, ./node adapters, or unguarded Node/Bun globals from any non-./node export", () => {
-    const entries = Object.entries(manifest.exports)
-      .filter(([path]) => !NODE_ENTRIES.includes(path))
-      .flatMap(([, target]) => entryFiles(target.import));
-    const graph = runtimeGraph(entries);
-
-    expect(graph).toContain(join(SOURCE, "index.ts"));
-    expect(graph).toContain(join(SOURCE, "store/memory.ts"));
-    expect(graph).toContain(join(SOURCE, "session/sessions.ts"));
-    expect(graph).toContain(join(SOURCE, "mcp/client.ts"));
-    expect(graph).toContain(join(SOURCE, "tools/todos.ts"));
-
-    const nodeFiles = graph
-      .map((file) => relative(SOURCE, file))
-      .filter((file) => file.startsWith("node/"));
-    expect(nodeFiles).toEqual([]);
-
-    const nodeImports = graph.flatMap((file) =>
-      importsOf(file)
-        .filter(
-          ({ specifier, typeOnly }) =>
-            !typeOnly &&
-            (specifier.startsWith("node:") ||
-              specifier.startsWith("@foundry/lib/node/"))
-        )
-        .map(({ specifier }) => `${relative(SOURCE, file)} loads ${specifier}`)
+    const portableSubpaths = Object.keys(manifest.exports).filter(
+      (path) => !NODE_ENTRIES.includes(path)
     );
-    expect(nodeImports).toEqual([]);
-
-    const globalViolations = graph.flatMap((file) => {
-      const refs = nodeGlobalReferences(file);
-      return refs.length > 0
-        ? [`${relative(SOURCE, file)} references ${refs.join(", ")}`]
-        : [];
-    });
-    expect(globalViolations).toEqual([]);
+    expect(() =>
+      assertWebStandardExports(PACKAGE_ROOT, portableSubpaths)
+    ).not.toThrow();
   });
 });
 

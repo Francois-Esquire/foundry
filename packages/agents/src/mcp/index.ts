@@ -3,7 +3,6 @@ export { McpClient } from "./client";
 export { McpClients } from "./clients";
 export type {
   McpClientOptions,
-  McpClientsOptions,
   McpServerDefinition,
   SpawnStdio,
   StdioTransportHooks,
