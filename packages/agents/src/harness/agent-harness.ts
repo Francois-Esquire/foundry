@@ -10,7 +10,7 @@ import { LoopAgent } from "../agents/loop-agent";
 import type { AgentModel, ModelRoute } from "../agents/model";
 import { routeOf } from "../agents/model";
 import type { AgentAuthorizer } from "../authorization/authorization";
-import { createInMemoryAgentAuthorizer } from "../authorization/authorization";
+import { createMemoryAgentAuthorizer } from "../authorization/authorization";
 import { createToolContext } from "../tools/context";
 import { directToolEffectPort } from "./effect-port";
 import type { StreamPart } from "./stream-transform";
@@ -21,7 +21,7 @@ import type { ToolEffectPort } from "./types";
 const DEFAULT_AGENT_ID = "agent";
 
 function defaultPermissiveAuthorizer(): AgentAuthorizer {
-  return createInMemoryAgentAuthorizer({
+  return createMemoryAgentAuthorizer({
     policy: { byKind: { "tool.call": "allow" }, global: "allow" },
   }).authorizer;
 }

@@ -26,8 +26,8 @@ const PUBLIC_VALUES = [
   "authorizationAddress",
   "certificateForProfile",
   "createAuthorizer",
-  "createInMemoryCertificateRepository",
-  "createInMemoryGrantRepository",
+  "createMemoryCertificateRepository",
+  "createMemoryGrantRepository",
   "encodeAddress",
   "resolvePolicy",
 ];
@@ -54,8 +54,8 @@ describe("@foundry/lib/config/authorization public surface", () => {
 
   it("exports the authorizer and its reference adapters as callables", () => {
     expect(authorization.createAuthorizer).toBeTypeOf("function");
-    expect(authorization.createInMemoryGrantRepository).toBeTypeOf("function");
-    expect(authorization.createInMemoryCertificateRepository).toBeTypeOf(
+    expect(authorization.createMemoryGrantRepository).toBeTypeOf("function");
+    expect(authorization.createMemoryCertificateRepository).toBeTypeOf(
       "function"
     );
   });

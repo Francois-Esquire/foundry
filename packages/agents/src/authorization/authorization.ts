@@ -14,7 +14,7 @@ import type {
 import {
   authorizationAddress,
   createAuthorizer,
-  createInMemoryGrantRepository,
+  createMemoryGrantRepository,
 } from "@foundry/lib/config/authorization";
 
 import type { Capability, CapabilityKind } from "./capability";
@@ -161,7 +161,7 @@ export function createAgentAuthorizer(
   });
 }
 
-export interface InMemoryAgentAuthorizer {
+export interface MemoryAgentAuthorizer {
   allow(
     subject: AgentSubject,
     capability: Capability,
@@ -172,11 +172,11 @@ export interface InMemoryAgentAuthorizer {
   revoke(subject: AgentSubject, capability: Capability): Promise<void>;
 }
 
-export function createInMemoryAgentAuthorizer(
+export function createMemoryAgentAuthorizer(
   options: Omit<CreateAgentAuthorizerOptions, "grants"> = {}
-): InMemoryAgentAuthorizer {
+): MemoryAgentAuthorizer {
   const now = options.now ?? Date.now;
-  const grants = createInMemoryGrantRepository<AgentSubject, Capability>({
+  const grants = createMemoryGrantRepository<AgentSubject, Capability>({
     now,
   });
   const authorizer = createAgentAuthorizer({ ...options, grants });

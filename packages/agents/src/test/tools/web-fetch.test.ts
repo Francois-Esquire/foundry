@@ -3,7 +3,7 @@ import type { ToolExecutionOptions } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import {
   agentSubject,
-  createInMemoryAgentAuthorizer,
+  createMemoryAgentAuthorizer,
 } from "../../authorization/authorization";
 import { describeCapability } from "../../authorization/capability";
 import { directToolEffectPort } from "../../harness/effect-port";
@@ -352,7 +352,7 @@ describe("createWebFetchTools — through the compiler", () => {
   it("a real per-domain AgentAuthorizer allows an allowlisted domain and fails closed on an unlisted one", async () => {
     const fetchImpl = vi.fn<FetchLike>().mockResolvedValue(textResponse("hi"));
     const { registration } = build(fetchImpl);
-    const policy = createInMemoryAgentAuthorizer({
+    const policy = createMemoryAgentAuthorizer({
       policy: { global: "deny" },
     });
     await policy.allow(agentSubject("a1"), {

@@ -17,7 +17,7 @@ import type {
   WriteOutcome,
 } from "../types";
 
-import { directorySystem } from "./helpers/directory-system";
+import { directoryWorkspaces } from "./helpers/directory-workspaces";
 
 const roots: string[] = [];
 
@@ -197,7 +197,7 @@ function seed(files: Files = TREE) {
   const trees = new FakeTrees();
   const id = trees.seed(files);
   const store = new MemoryWorkspaceStore();
-  const system = directorySystem({ store }).extend(fake(trees));
+  const system = directoryWorkspaces({ store }).extend(fake(trees));
   const add = () => {
     trees.require(id);
     return system.load({ fake: id });
@@ -277,7 +277,7 @@ describe.each([
     extension: "directory",
     open: async () => {
       const root = await makeRoot(TREE);
-      const system = directorySystem();
+      const system = directoryWorkspaces();
       return { added: await system.load({ path: root }), system };
     },
   },

@@ -25,7 +25,7 @@ export type {
   AgentGrantSpecification,
   AgentSubject,
   CreateAgentAuthorizerOptions,
-  InMemoryAgentAuthorizer,
+  MemoryAgentAuthorizer,
 } from "./authorization";
 export {
   AGENT_ASK_BY_DEFAULT,
@@ -36,7 +36,7 @@ export {
   agentFailClosedReason,
   agentSubject,
   createAgentAuthorizer,
-  createInMemoryAgentAuthorizer,
+  createMemoryAgentAuthorizer,
 } from "./authorization";
 export type {
   Capability,

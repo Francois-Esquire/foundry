@@ -29,7 +29,7 @@ import type {
   WorkspaceId,
 } from "../types";
 import { sha256Hex } from "./helpers/digest";
-import { directorySystem } from "./helpers/directory-system";
+import { directoryWorkspaces } from "./helpers/directory-workspaces";
 
 const roots: string[] = [];
 
@@ -105,7 +105,7 @@ async function opened(
 ) {
   const root = await makeRoot(tree);
   const store = new MemoryWorkspaceStore();
-  const system = directorySystem({ filesystem, store });
+  const system = directoryWorkspaces({ filesystem, store });
   const workspace = await system.load({ path: root });
   const files = await workspace.files();
   return { files, id: workspace.id, root, store, system, workspace };
@@ -400,7 +400,7 @@ describe("save refusals", () => {
 
   it("returns failed with unchanged bytes when the conflict-check read fails", async () => {
     const { root, store, id, files } = await opened({ "a.txt": "original" });
-    const denied = directorySystem({
+    const denied = directoryWorkspaces({
       filesystem: {
         ...nodeFileSystem,
         readFile: () =>
@@ -508,7 +508,7 @@ describe("catalog observation after write", () => {
     const root = await makeRoot({ "README.md": "first" });
     const inner = new MemoryWorkspaceStore();
     const faulty = faultyStore(inner);
-    const system = directorySystem({ filesystem, store: faulty.store });
+    const system = directoryWorkspaces({ filesystem, store: faulty.store });
     const workspace = await system.load({ path: root });
     const file = one(await workspace.files());
     faulty.arm("commit");
@@ -534,7 +534,7 @@ describe("catalog observation after write", () => {
     });
     expect(writes()).toBe(1);
 
-    const recovered = directorySystem({ filesystem, store: inner });
+    const recovered = directoryWorkspaces({ filesystem, store: inner });
     await (await recovered.open(workspace.id)).refresh();
     expect(one(await inner.listEntries(workspace.id))).toMatchObject({
       digest: digestOf("second"),
@@ -545,7 +545,7 @@ describe("catalog observation after write", () => {
   it("returns saved/refresh-required when the catalog refuses the update", async () => {
     const root = await makeRoot({ "README.md": "first" });
     const faulty = faultyStore(new MemoryWorkspaceStore());
-    const system = directorySystem({ store: faulty.store });
+    const system = directoryWorkspaces({ store: faulty.store });
     const workspace = await system.load({ path: root });
     const file = one(await workspace.files());
     faulty.arm("missing-row");
@@ -580,11 +580,11 @@ describe("catalog observation after write", () => {
         return nodeFileSystem.readFile(path);
       },
     };
-    const setup = directorySystem({ store });
+    const setup = directoryWorkspaces({ store });
     const registered = await setup.load({ path: root });
     const file = one(await registered.files());
 
-    const system = directorySystem({ filesystem: slowScan, store });
+    const system = directoryWorkspaces({ filesystem: slowScan, store });
     const observation = (await system.open(registered.id)).refresh();
     const save = (await system.open(registered.id)).save({
       expectedDigest: digestOf("first"),

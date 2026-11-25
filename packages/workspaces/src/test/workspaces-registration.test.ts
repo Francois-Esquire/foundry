@@ -12,7 +12,7 @@ import { nodeFileSystem } from "../node";
 import { MemoryWorkspaceStore } from "../store/memory";
 import type { WorkspaceFileSystem, WorkspaceId } from "../types";
 
-import { directorySystem } from "./helpers/directory-system";
+import { directoryWorkspaces } from "./helpers/directory-workspaces";
 import { makeRoot, roots, systemOver } from "./helpers/temp-roots";
 
 const FOLDER_CONTENT_PROJECT_ANALYSIS_PATTERN =
@@ -24,7 +24,7 @@ describe("add({ path })", () => {
       "README.md": "hello",
       "src/app.ts": "const a = 1;\n",
     });
-    const system = directorySystem();
+    const system = directoryWorkspaces();
 
     const workspace = await system.load({ path: root });
 
@@ -52,7 +52,7 @@ describe("add({ path })", () => {
     roots.push(linkParent);
     const alias = join(linkParent, "alias");
     await symlink(root, alias, "dir");
-    const system = directorySystem();
+    const system = directoryWorkspaces();
 
     const first = await system.load({ path: root });
 
@@ -63,7 +63,7 @@ describe("add({ path })", () => {
 
   it("resolves two concurrent adds of one root to a single durable Workspace", async () => {
     const root = await makeRoot({ "README.md": "hi" });
-    const system = directorySystem();
+    const system = directoryWorkspaces();
 
     const [left, right] = await Promise.all([
       system.load({ path: root }),
@@ -85,7 +85,7 @@ describe("add({ path })", () => {
           : nodeFileSystem.readFile(path);
       },
     };
-    const system = directorySystem({ filesystem: failing, store });
+    const system = directoryWorkspaces({ filesystem: failing, store });
 
     await expect(system.load({ path: root })).rejects.toBeInstanceOf(
       WorkspaceSourceUnavailableError
@@ -95,7 +95,7 @@ describe("add({ path })", () => {
 
   it("refuses a selection that is not a readable directory", async () => {
     const root = await makeRoot({ "README.md": "hi" });
-    const system = directorySystem();
+    const system = directoryWorkspaces();
 
     await expect(
       system.load({ path: join(root, "README.md") })
@@ -103,7 +103,7 @@ describe("add({ path })", () => {
   });
 
   it("refuses a ref no registered extension names, at compile time and at runtime", async () => {
-    const system = directorySystem();
+    const system = directoryWorkspaces();
 
     await expect(
       // @ts-expect-error -- `nope` is not a ref any registered extension accepts
@@ -126,7 +126,7 @@ describe("reload", () => {
 
   it("reports an unknown Workspace and an unowned File by identity", async () => {
     const root = await makeRoot({ "README.md": "hello" });
-    const system = directorySystem();
+    const system = directoryWorkspaces();
     const added = await system.load({ path: root });
     const absent = crypto.randomUUID() as WorkspaceId;
 
@@ -143,7 +143,7 @@ describe("Workspace registration identity and freshness", () => {
   it("keeps source authority trusted, renames without scanning, and records a no-change observation", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const store = new MemoryWorkspaceStore();
-    const system = directorySystem({ store });
+    const system = directoryWorkspaces({ store });
     const added = await system.load({ path: root });
     const before = await added.registration();
 
@@ -169,7 +169,7 @@ describe("Workspace registration identity and freshness", () => {
 
   it("refuses an empty name", async () => {
     const root = await makeRoot({ "README.md": "hello" });
-    const added = await directorySystem().load({ path: root });
+    const added = await directoryWorkspaces().load({ path: root });
 
     await expect(added.rename("   ")).rejects.toBeInstanceOf(
       InvalidWorkspaceInputError
@@ -180,7 +180,7 @@ describe("Workspace registration identity and freshness", () => {
 describe("published contracts", () => {
   it("carries the source kind as a label and never a root or reference", async () => {
     const root = await makeRoot({ "README.md": "hello" });
-    const system = directorySystem();
+    const system = directoryWorkspaces();
     const added = await system.load({ path: root });
     const summary = await added.summary();
     const files = await added.files();

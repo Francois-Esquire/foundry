@@ -3,7 +3,7 @@ import type { Tool } from "ai";
 import { tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { SessionHarness } from "../../harness/session-harness";
 import { metaOf } from "../../harness/types";
 import { McpClient } from "../../mcp/client";
@@ -68,7 +68,7 @@ describe("MCP registrations through the harness policy", () => {
     expect(metaOf(registration).source).toBe("mcp");
     expect(registration.description).toBe("does something dangerous");
 
-    const policy = createInMemoryAgentAuthorizer({
+    const policy = createMemoryAgentAuthorizer({
       policy: { global: "allow" },
     }).authorizer;
     const model = createScriptedMockModel({
@@ -101,7 +101,7 @@ describe("MCP registrations through the harness policy", () => {
     const execute = vi.fn(() => "should not run");
     const registration = await dangerousMcpRegistration(execute);
 
-    const policy = createInMemoryAgentAuthorizer({
+    const policy = createMemoryAgentAuthorizer({
       policy: { global: "deny" },
     }).authorizer;
     const model = createScriptedMockModel({
@@ -133,7 +133,7 @@ describe("MCP registrations through the harness policy", () => {
     const execute = vi.fn(({ target }: { target: string }) => `did ${target}`);
     const registration = await dangerousMcpRegistration(execute);
 
-    const policy = createInMemoryAgentAuthorizer({
+    const policy = createMemoryAgentAuthorizer({
       policy: { global: "ask" },
     }).authorizer;
     const model = createScriptedMockModel({

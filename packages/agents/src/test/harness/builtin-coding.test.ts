@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { createBuiltinCodingHarness } from "../../harness/builtin-coding";
 import {
   createScriptedMockModel,
@@ -21,7 +21,7 @@ function coding(
       compaction: { summarizer: { summarize: async () => "summary" } },
       maxSteps,
       model,
-      policy: createInMemoryAgentAuthorizer({
+      policy: createMemoryAgentAuthorizer({
         policy: { byKind: { "tool.call": "allow" }, global: "allow" },
       }).authorizer,
       tools: {
@@ -75,7 +75,7 @@ describe("built-in coding composition", () => {
         maxSteps: 8,
         model,
         permission,
-        policy: createInMemoryAgentAuthorizer({
+        policy: createMemoryAgentAuthorizer({
           policy: { byKind: { "tool.call": "deny" }, global: "deny" },
         }).authorizer,
         tools: {
@@ -123,7 +123,7 @@ describe("built-in coding composition", () => {
         compaction: { summarizer: { summarize: async () => "summary" } },
         maxSteps: 8,
         model,
-        policy: createInMemoryAgentAuthorizer({
+        policy: createMemoryAgentAuthorizer({
           policy: { byKind: { "tool.call": "deny" }, global: "deny" },
         }).authorizer,
         tools: {

@@ -17,7 +17,7 @@ import {
 } from "../node/process-identity";
 import {
   type GroupStopResult,
-  type GroupSystem,
+  type ProcessGroupOps,
   recordGroup,
   recordPath,
   SPAWN_RECOVERY_ENV,
@@ -187,7 +187,7 @@ it("sends no SIGKILL to a group id that went to another group during the grace p
     [4_200_041, { pgid, started: MADE_UP }],
   ]);
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(target, signal) {
       sent.push([target, signal]);
       if (signal === "SIGTERM") {
@@ -209,7 +209,7 @@ it("takes a group left only with exited, unreaped members (zombies) for empty", 
   const pgid = 4_200_050;
   const { child, exit } = madeUpChild(pgid);
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(target, signal) {
       sent.push([target, signal]);
       throw Object.assign(new Error("EPERM"), { code: "EPERM" });
@@ -228,7 +228,7 @@ it("sends nothing to a group id another process leads once the leader is reaped:
   const pgid = 4_200_060;
   const { child, exit } = madeUpChild(pgid);
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(target, signal) {
       sent.push([target, signal]);
     },
@@ -274,7 +274,7 @@ it("tries writing the members again once, and saves them when the second write g
     [4_200_071, { pgid, started: MADE_UP }],
   ]);
   const read: (readonly unknown[] | undefined)[] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(_target, signal) {
       if (signal === 0 && members.size === 0) {
         throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
@@ -320,7 +320,7 @@ it("reports members it could not save, says so, and stops its group all the same
     [4_200_081, { pgid, started: MADE_UP }],
   ]);
   let writes = 0;
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(target, signal) {
       if (signal === 0 && members.size === 0) {
         throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
@@ -364,7 +364,7 @@ it("keeps the record of a group the listing shows empty while a signal still rea
   const { child, exit } = madeUpChild(pgid);
   const reports: string[] = [];
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(target, signal) {
       sent.push([target, signal]);
     },
@@ -391,7 +391,7 @@ it("stops its own unreaped leader's group even when the group cannot be listed, 
   const pgid = 4_200_630;
   const reports: string[] = [];
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill: (target, signal) => {
       sent.push([target, signal]);
     },
@@ -432,7 +432,7 @@ it("does not take a leader whose exit has already happened for its own unreaped 
   const pgid = 4_200_710;
   const reports: string[] = [];
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill: (target, signal) => {
       sent.push([target, signal]);
     },

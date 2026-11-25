@@ -30,7 +30,7 @@ import type {
   WorkspaceId,
   WorkspaceRegistration,
 } from "../types";
-import { directorySystem } from "./helpers/directory-system";
+import { directoryWorkspaces } from "./helpers/directory-workspaces";
 import { libsqlDatabases } from "./helpers/sqlite";
 import { makeRoot } from "./helpers/temp-roots";
 
@@ -642,7 +642,7 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
     });
     await symlink("README.md", join(root, "readme-link"));
     const store = await storeOnMemory();
-    const workspace = await directorySystem({ store }).load({ path: root });
+    const workspace = await directoryWorkspaces({ store }).load({ path: root });
     const registration = await workspace.registration();
     const entries = await workspace.entries();
 

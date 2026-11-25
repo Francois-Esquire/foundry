@@ -10,8 +10,8 @@ import type {
 import {
   CertificateVersionError,
   certificateForProfile,
-  createInMemoryCertificateRepository,
-  createInMemoryGrantRepository,
+  createMemoryCertificateRepository,
+  createMemoryGrantRepository,
 } from "../config/authorization";
 import type { TestCapability } from "./helpers/authorization-support";
 import {
@@ -66,8 +66,8 @@ describe("profiles and certificates", () => {
 
   beforeEach(() => {
     clock = testClock();
-    grants = createInMemoryGrantRepository({ now: clock.now });
-    certificates = createInMemoryCertificateRepository({ addressing, grants });
+    grants = createMemoryGrantRepository({ now: clock.now });
+    certificates = createMemoryCertificateRepository({ addressing, grants });
   });
 
   describe("certificateForProfile", () => {
@@ -213,7 +213,7 @@ describe("profiles and certificates", () => {
             : grants.issue(input);
         },
       };
-      const repository = createInMemoryCertificateRepository({
+      const repository = createMemoryCertificateRepository({
         addressing,
         grants: failing,
       });
@@ -240,7 +240,7 @@ describe("profiles and certificates", () => {
           return grant;
         },
       };
-      const repository = createInMemoryCertificateRepository({
+      const repository = createMemoryCertificateRepository({
         addressing,
         grants: failing,
       });
@@ -274,7 +274,7 @@ describe("profiles and certificates", () => {
             : grants.revokeIssuance(issuanceKey);
         },
       };
-      const repository = createInMemoryCertificateRepository({
+      const repository = createMemoryCertificateRepository({
         addressing,
         grants: failing,
       });

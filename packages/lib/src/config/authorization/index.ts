@@ -44,12 +44,12 @@ export type {
 } from "./grant";
 export { GrantClaimError, GrantRevisionError } from "./grant";
 export type {
-  InMemoryCertificateRepositoryOptions,
-  InMemoryGrantRepositoryOptions,
+  MemoryCertificateRepositoryOptions,
+  MemoryGrantRepositoryOptions,
 } from "./memory";
 export {
-  createInMemoryCertificateRepository,
-  createInMemoryGrantRepository,
+  createMemoryCertificateRepository,
+  createMemoryGrantRepository,
 } from "./memory";
 export type {
   AuthorizationDenyRule,

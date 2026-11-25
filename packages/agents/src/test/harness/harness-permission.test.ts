@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   agentSubject,
-  createInMemoryAgentAuthorizer,
+  createMemoryAgentAuthorizer,
 } from "../../authorization/authorization";
 import {
   createHarnessPermission,
@@ -30,7 +30,7 @@ function request(
 }
 
 async function setup(mode: "scheduled" | "attended" = "scheduled") {
-  const authority = createInMemoryAgentAuthorizer();
+  const authority = createMemoryAgentAuthorizer();
   const store = new MemorySessionStore();
   const sessions = new Sessions({ store });
   await sessions.createSession({ id: "session-1" });
@@ -154,7 +154,7 @@ describe("native harness permission", () => {
 
   it("retains explicit denial reasons and does not ask", async () => {
     const { settings } = await setup("attended");
-    settings.policy = createInMemoryAgentAuthorizer({
+    settings.policy = createMemoryAgentAuthorizer({
       policy: { byKind: { "tool.call": "deny" }, global: "deny" },
     }).authorizer;
     settings.approve = vi.fn();
@@ -383,7 +383,7 @@ describe("native harness permission", () => {
         input: { command: "git push https://example.test/repo" },
       })
     ).toEqual({ behavior: "deny", message: "Denied by harness profile." });
-    settings.policy = createInMemoryAgentAuthorizer({
+    settings.policy = createMemoryAgentAuthorizer({
       policy: { byKind: { "tool.call": "deny" }, global: "deny" },
     }).authorizer;
     expect(

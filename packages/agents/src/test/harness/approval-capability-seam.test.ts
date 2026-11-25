@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { SessionHarness } from "../../harness/session-harness";
 import { tagTool } from "../../harness/types";
 import type { SessionEvent } from "../../session/events";
@@ -38,7 +38,7 @@ describe("stream-transform capability propagation", () => {
         source: "mcp",
       }),
     };
-    const policy = createInMemoryAgentAuthorizer({
+    const policy = createMemoryAgentAuthorizer({
       policy: { global: "ask" },
     }).authorizer;
 

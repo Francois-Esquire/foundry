@@ -636,14 +636,14 @@ type Capability =
 ```
 
 ```typescript
-const { authorizer } = createInMemoryAgentAuthorizer({
+const { authorizer } = createMemoryAgentAuthorizer({
   policy: { global: "ask", byKind: { "fs.read": "allow", "tool.call": "ask" } },
 });
 
 const harness = new AgentHarness({ model, policy: authorizer });
 ```
 
-`createInMemoryAgentAuthorizer` is the reference composition, with
+`createMemoryAgentAuthorizer` is the reference composition, with
 `allow`/`revoke` helpers over its Grant repository. A host with real storage
 calls `createAgentAuthorizer({ grants, policy })`; with no `policy` it falls
 back to `AGENT_ASK_BY_DEFAULT`, which asks for everything.

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import {
   createHarnessActivityRecorder,
   reduceHarnessActivities,
@@ -48,7 +48,7 @@ it("persists background activity across turns, rejects late progress, and recons
   const config = {
     agentId: "coder",
     model: { harness: "native", id: "model" },
-    policy: createInMemoryAgentAuthorizer().authorizer,
+    policy: createMemoryAgentAuthorizer().authorizer,
     profile: {
       allowedTools: [],
       disallowedTools: [],
@@ -95,7 +95,7 @@ it("marks lost activity unknown and preserves native late terminal updates", asy
     {
       agentId: "coder",
       model: { id: "model" },
-      policy: createInMemoryAgentAuthorizer().authorizer,
+      policy: createMemoryAgentAuthorizer().authorizer,
       profile: {
         allowedTools: [],
         disallowedTools: [],
@@ -178,7 +178,7 @@ it.each([undefined, "native-child"])(
           requests.push(request.activityId);
         },
         parentActivityId: "managed-child",
-        policy: createInMemoryAgentAuthorizer().authorizer,
+        policy: createMemoryAgentAuthorizer().authorizer,
         profile: {
           allowedTools: [],
           disallowedTools: [],
@@ -254,7 +254,7 @@ it("continues delivering idle native questions after the prior turn signal abort
     {
       agentId: "coder",
       model: { id: "model" },
-      policy: createInMemoryAgentAuthorizer().authorizer,
+      policy: createMemoryAgentAuthorizer().authorizer,
       profile: {
         allowedTools: [],
         disallowedTools: [],
@@ -312,7 +312,7 @@ it("never makes the host delegation root its own parent when closing loaded hist
       agentId: "coder",
       model: { id: "model" },
       parentActivityId: "managed-child",
-      policy: createInMemoryAgentAuthorizer().authorizer,
+      policy: createMemoryAgentAuthorizer().authorizer,
       profile: {
         allowedTools: [],
         disallowedTools: [],
@@ -350,7 +350,7 @@ it("preserves external completion during close and rejects stale loss of one-sho
     {
       agentId: "coder",
       model: { id: "model" },
-      policy: createInMemoryAgentAuthorizer().authorizer,
+      policy: createMemoryAgentAuthorizer().authorizer,
       profile: {
         allowedTools: [],
         disallowedTools: [],
@@ -417,7 +417,7 @@ it("checks canonical activity state before native stop after external completion
     {
       agentId: "coder",
       model: { id: "model" },
-      policy: createInMemoryAgentAuthorizer().authorizer,
+      policy: createMemoryAgentAuthorizer().authorizer,
       profile: {
         allowedTools: [],
         disallowedTools: [],

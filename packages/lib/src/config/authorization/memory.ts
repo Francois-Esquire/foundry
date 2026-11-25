@@ -20,14 +20,13 @@ import {
   revokeGrant,
 } from "./grant-state";
 
-export interface InMemoryGrantRepositoryOptions {
+export interface MemoryGrantRepositoryOptions {
   readonly now?: () => number;
 }
 
-export function createInMemoryGrantRepository<
-  S extends AuthorizationSubject,
-  C,
->(options: InMemoryGrantRepositoryOptions = {}): GrantRepository<S, C> {
+export function createMemoryGrantRepository<S extends AuthorizationSubject, C>(
+  options: MemoryGrantRepositoryOptions = {}
+): GrantRepository<S, C> {
   const { now = Date.now } = options;
   const stored = new Map<string, GrantEntry<S, C>>();
   const byAddress = new Map<string, Set<string>>();
@@ -115,7 +114,7 @@ export function createInMemoryGrantRepository<
   };
 }
 
-export interface InMemoryCertificateRepositoryOptions<
+export interface MemoryCertificateRepositoryOptions<
   S extends AuthorizationSubject,
   C,
 > {
@@ -123,11 +122,11 @@ export interface InMemoryCertificateRepositoryOptions<
   readonly grants: GrantRepository<S, C>;
 }
 
-export function createInMemoryCertificateRepository<
+export function createMemoryCertificateRepository<
   S extends AuthorizationSubject,
   C,
 >(
-  options: InMemoryCertificateRepositoryOptions<S, C>
+  options: MemoryCertificateRepositoryOptions<S, C>
 ): CertificateRepository<S, C> {
   const { grants, addressing } = options;
   const certificates = new Map<string, AuthorizationCertificate<S, C>>();

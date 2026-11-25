@@ -21,7 +21,7 @@ import {
   hostWorkspace,
   newRoot,
 } from "../testing/records";
-import { directorySystem } from "./helpers/directory-system";
+import { directoryWorkspaces } from "./helpers/directory-workspaces";
 import { makeRoot } from "./helpers/temp-roots";
 
 async function cataloged() {
@@ -31,7 +31,7 @@ async function cataloged() {
   });
   await symlink("README.md", join(root, "readme-link"));
   const store = new MemoryWorkspaceStore();
-  const workspace = await directorySystem({ store }).load({ path: root });
+  const workspace = await directoryWorkspaces({ store }).load({ path: root });
   const registration = await workspace.registration();
   return { registration, root, store, workspace };
 }

@@ -10,7 +10,7 @@ import type {
 } from "../config/authorization";
 import {
   createAuthorizer,
-  createInMemoryGrantRepository,
+  createMemoryGrantRepository,
 } from "../config/authorization";
 import type {
   TestCapability,
@@ -81,7 +81,7 @@ describe("the authorizer", () => {
 
   beforeEach(() => {
     clock = testClock();
-    grants = createInMemoryGrantRepository({ now: clock.now });
+    grants = createMemoryGrantRepository({ now: clock.now });
   });
 
   describe("precedence", () => {

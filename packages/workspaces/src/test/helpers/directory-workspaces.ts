@@ -4,7 +4,7 @@ import type { WorkspaceFileSystem } from "../../types";
 
 import { Workspaces } from "../../workspaces";
 
-export function directorySystem(
+export function directoryWorkspaces(
   options: { store?: WorkspaceStore; filesystem?: WorkspaceFileSystem } = {}
 ) {
   return new Workspaces(options.store ? { store: options.store } : {}).extend(

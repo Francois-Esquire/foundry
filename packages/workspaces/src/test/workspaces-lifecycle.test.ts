@@ -21,13 +21,13 @@ import type {
   WriteOutcome,
 } from "../types";
 import { Workspaces } from "../workspaces";
-import { directorySystem } from "./helpers/directory-system";
+import { directoryWorkspaces } from "./helpers/directory-workspaces";
 import { makeRoot } from "./helpers/temp-roots";
 
 describe("remove", () => {
   it("deletes the rows and leaves every source File in place", async () => {
     const root = await makeRoot({ "README.md": "hi", "src/app.ts": "1" });
-    const system = directorySystem();
+    const system = directoryWorkspaces();
     const added = await system.load({ path: root });
 
     await added.remove();
@@ -42,7 +42,7 @@ describe("remove", () => {
 
   it("removes a Workspace whose source is gone and reports a second removal", async () => {
     const root = await makeRoot({ "README.md": "hi" });
-    const system = directorySystem();
+    const system = directoryWorkspaces();
     const added = await system.load({ path: root });
     await rm(root, { recursive: true });
 
@@ -55,7 +55,7 @@ describe("remove", () => {
 describe("lifecycle", () => {
   it("opens one instance per id and shares it until closed", async () => {
     const root = await makeRoot({ "README.md": "hello" });
-    const system = directorySystem();
+    const system = directoryWorkspaces();
     const added = await system.load({ path: root });
 
     expect(await system.open(added.id)).toBe(added);
@@ -70,7 +70,7 @@ describe("lifecycle", () => {
   it("runs start once at open and stop once at close, through the chain", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const events: string[] = [];
-    const system = directorySystem().extend({
+    const system = directoryWorkspaces().extend({
       applies: () => true,
       attach: () => ({
         start() {
@@ -94,7 +94,7 @@ describe("lifecycle", () => {
 
   it("evicts a removed Workspace so a later open refuses it", async () => {
     const root = await makeRoot({ "README.md": "hello" });
-    const system = directorySystem();
+    const system = directoryWorkspaces();
     const added = await system.load({ path: root });
 
     await added.remove();
@@ -111,7 +111,7 @@ describe("lifecycle", () => {
       "foundry://abc.artifact"
     );
     await seed(store, record);
-    const system = directorySystem({ store });
+    const system = directoryWorkspaces({ store });
 
     await expect(system.open(record.id)).rejects.toThrow(
       new WorkspaceSourceUnsupportedError("artifact")
@@ -123,7 +123,7 @@ describe("lifecycle", () => {
 
   it("composes extensions in registration order and lets a later extension see earlier capabilities", async () => {
     const root = await makeRoot({ "README.md": "hello" });
-    const system = directorySystem().extend({
+    const system = directoryWorkspaces().extend({
       applies: (registration) => registration.source.kind === "host",
       attach: ({ capabilities }) => {
         if (typeof capabilities.root !== "string") {
@@ -143,7 +143,7 @@ describe("lifecycle", () => {
   it("commits nothing when attach throws during load", async () => {
     const root = await makeRoot({ "README.md": "hello" });
     const store = new MemoryWorkspaceStore();
-    const system = directorySystem({ store }).extend({
+    const system = directoryWorkspaces({ store }).extend({
       applies: () => true,
       attach: () => {
         throw new Error("attach failed");
@@ -217,7 +217,7 @@ describe("lifecycle", () => {
 
   it("rejects capability collisions with core Workspace members or earlier extensions", async () => {
     const root = await makeRoot({ "README.md": "hello" });
-    const colliding = directorySystem().extend({
+    const colliding = directoryWorkspaces().extend({
       applies: () => true,
       attach: () => ({ capabilities: { refresh: "nope" } }),
       name: "collider",
@@ -325,7 +325,7 @@ describe("lifecycle", () => {
     const root = await makeRoot({ "README.md": "hello" });
     let attaches = 0;
     let openedFromListener: Promise<unknown> | undefined;
-    const system = directorySystem().extend({
+    const system = directoryWorkspaces().extend({
       applies: () => true,
       attach: ({ registration }) => {
         attaches += 1;

@@ -6,7 +6,7 @@ import {
   agentCapabilityAddress,
   agentSubject,
   createAgentAuthorizer,
-  createInMemoryAgentAuthorizer,
+  createMemoryAgentAuthorizer,
 } from "../../authorization/authorization";
 import type { Capability } from "../../authorization/capability";
 
@@ -105,7 +105,7 @@ describe("agentAddressing", () => {
 
 describe("createAgentAuthorizer", () => {
   it("asks by default rather than allowing or silently denying", async () => {
-    const { authorizer } = createInMemoryAgentAuthorizer();
+    const { authorizer } = createMemoryAgentAuthorizer();
 
     await expect(
       authorizer.decide({
@@ -117,7 +117,7 @@ describe("createAgentAuthorizer", () => {
   });
 
   it("fails closed on tool.call under a blanket allow that never named it", async () => {
-    const { authorizer } = createInMemoryAgentAuthorizer({
+    const { authorizer } = createMemoryAgentAuthorizer({
       policy: { global: "allow" },
     });
 
@@ -134,7 +134,7 @@ describe("createAgentAuthorizer", () => {
   });
 
   it("lets the safe default reach a human for an unclassified tool", async () => {
-    const { authorizer } = createInMemoryAgentAuthorizer({
+    const { authorizer } = createMemoryAgentAuthorizer({
       policy: AGENT_ASK_BY_DEFAULT,
     });
 
@@ -144,7 +144,7 @@ describe("createAgentAuthorizer", () => {
   });
 
   it("allows from a Grant, and only for the Subject that holds it", async () => {
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     await policy.allow(CHAT, TOOL);
 
     await expect(
@@ -164,7 +164,7 @@ describe("createAgentAuthorizer", () => {
   });
 
   it("stops allowing once the Grant is revoked", async () => {
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     await policy.allow(CHAT, WEB);
     await policy.revoke(CHAT, WEB);
 
@@ -185,7 +185,7 @@ describe("createAgentAuthorizer", () => {
       kind: "domain.command",
       target: { projectId: "p1", scope: "s1" },
     };
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     await policy.allow(CHAT, granted);
 
     const neighbours: Capability[] = [
@@ -214,7 +214,7 @@ describe("createAgentAuthorizer", () => {
   });
 
   it("honors an exact deny over authority the Subject already holds", async () => {
-    const { grants } = createInMemoryAgentAuthorizer();
+    const { grants } = createMemoryAgentAuthorizer();
     const authorizer = createAgentAuthorizer({
       grants,
       policy: {
@@ -239,7 +239,7 @@ describe("createAgentAuthorizer", () => {
 
 describe("decide versus claim", () => {
   it("does not consume a one-shot Grant by deciding", async () => {
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     await policy.allow(CHAT, WEB, { kind: "once" });
     const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
 
@@ -254,7 +254,7 @@ describe("decide versus claim", () => {
   });
 
   it("spends the one-shot at the claim, then denies the next call", async () => {
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     await policy.allow(CHAT, WEB, { kind: "once" });
     const first = { capability: WEB, invocationId: "call-1", subject: CHAT };
 
@@ -269,7 +269,7 @@ describe("decide versus claim", () => {
   });
 
   it("lets the spending invocation replay its own claim", async () => {
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     await policy.allow(CHAT, WEB, { kind: "once" });
     const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
 
@@ -282,7 +282,7 @@ describe("decide versus claim", () => {
   });
 
   it("refuses a second invocation the same one-shot authority", async () => {
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     await policy.allow(CHAT, WEB, { kind: "once" });
     const first = { capability: WEB, invocationId: "call-1", subject: CHAT };
     const second = { capability: WEB, invocationId: "call-2", subject: CHAT };
@@ -296,7 +296,7 @@ describe("decide versus claim", () => {
   });
 
   it("denies at the effect boundary when authority was revoked mid-call", async () => {
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     await policy.allow(CHAT, WEB);
     const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
 
@@ -309,7 +309,7 @@ describe("decide versus claim", () => {
   });
 
   it("refuses an unresolved approval that reaches the effect boundary", async () => {
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
 
     const decision = await policy.authorizer.decide(request);
@@ -322,7 +322,7 @@ describe("decide versus claim", () => {
 
 describe("resolveApproval", () => {
   it("persists a preset-scoped Grant for an always answer", async () => {
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
 
     await policy.authorizer.resolveApproval(request, {
@@ -343,7 +343,7 @@ describe("resolveApproval", () => {
   });
 
   it("writes nothing durable for a once answer", async () => {
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
 
     await expect(
@@ -355,7 +355,7 @@ describe("resolveApproval", () => {
   });
 
   it("leaves no authority behind when the human refuses", async () => {
-    const policy = createInMemoryAgentAuthorizer();
+    const policy = createMemoryAgentAuthorizer();
     const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
 
     await expect(

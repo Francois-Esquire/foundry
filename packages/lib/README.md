@@ -270,7 +270,7 @@ any of them inheriting the others' concepts.
 ```typescript
 const authorizer = createAuthorizer({
   addressing, // your Subject + Capability → an address
-  grants: createInMemoryGrantRepository(),
+  grants: createMemoryGrantRepository(),
   policy: { global: "ask", byKind: { "fs.read": "allow" } },
   kindOf: (c) => c.kind, // which mode a Capability looks up under
   events: sink, // optional; synchronous, returns nothing
@@ -413,7 +413,7 @@ withdraws whatever that call published. An `issue` can store its Grant and then
 fail, so this reaches a Grant whose id the caller never learned. Like `revoke`,
 it succeeds when nothing is live under the key.
 
-`createInMemoryGrantRepository()` and `createInMemoryCertificateRepository()` are
+`createMemoryGrantRepository()` and `createMemoryCertificateRepository()` are
 the reference adapters.
 
 ### Profiles and certificates

@@ -10,7 +10,7 @@ import type { WorkspaceStore } from "../store";
 import { MemoryWorkspaceStore } from "../store/memory";
 import { fileRecord } from "../testing/records";
 import type { WorkspaceFileSystem } from "../types";
-import { directorySystem } from "./helpers/directory-system";
+import { directoryWorkspaces } from "./helpers/directory-workspaces";
 import { makeRoot, systemOver } from "./helpers/temp-roots";
 
 describe("reconciliation", () => {
@@ -141,7 +141,7 @@ describe("reconciliation", () => {
     };
 
     const view = await (
-      await directorySystem({ filesystem: failing, store }).open(id)
+      await directoryWorkspaces({ filesystem: failing, store }).open(id)
     ).refresh();
 
     expect(view.source).toEqual({
@@ -212,7 +212,7 @@ describe("reconciliation", () => {
       replaceFile: refusing("replaceFile"),
       separator: nodeFileSystem.separator,
     };
-    const offline = directorySystem({ filesystem: unreachable, store });
+    const offline = directoryWorkspaces({ filesystem: unreachable, store });
     const workspace = await offline.open(id);
 
     expect(await workspace.files()).toEqual(files);
@@ -258,7 +258,7 @@ describe("reconciliation", () => {
   it("never answers a refresh with a scan that began before it was asked", async () => {
     const { root, store, id } = await opened({ "README.md": "first" });
     const held = heldScan(root);
-    const workspace = await directorySystem({
+    const workspace = await directoryWorkspaces({
       filesystem: held.filesystem,
       store,
     }).open(id);
@@ -304,7 +304,7 @@ describe("reconciliation", () => {
       listEntries: (workspaceId) => store.listEntries(workspaceId),
       listWorkspaces: (input) => store.listWorkspaces(input),
     };
-    const system = directorySystem({ store: holding });
+    const system = directoryWorkspaces({ store: holding });
 
     const before = await system.open(id);
     const inFlight = before.refresh();
@@ -336,7 +336,7 @@ describe("reconciliation", () => {
         return nodeFileSystem.readDirectory(path);
       },
     };
-    const workspace = await directorySystem({
+    const workspace = await directoryWorkspaces({
       filesystem: counted,
       store,
     }).open(id);
@@ -364,7 +364,7 @@ describe("reconciliation", () => {
     };
 
     await expect(
-      directorySystem({ filesystem: failing, store }).load({ path: root })
+      directoryWorkspaces({ filesystem: failing, store }).load({ path: root })
     ).rejects.toBeInstanceOf(WorkspaceSourceUnavailableError);
     expect(await store.listEntries(id)).toEqual(
       files.map((file) => ({ ...file, workspaceId: id }))
@@ -391,7 +391,7 @@ describe("reconciliation", () => {
       listWorkspaces: (input) => store.listWorkspaces(input),
     };
 
-    const failure = await directorySystem({ store: refusing })
+    const failure = await directoryWorkspaces({ store: refusing })
       .open(id)
       .then((workspace) => workspace.refresh())
       .then(

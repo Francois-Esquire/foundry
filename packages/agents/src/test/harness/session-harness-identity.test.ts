@@ -6,7 +6,7 @@ import type {
   AgentAuthorizationRequest,
   AgentAuthorizer,
 } from "../../authorization/authorization";
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { SessionHarness } from "../../harness/session-harness";
 import { Sessions } from "../../session/sessions";
 import { MemorySessionStore } from "../../store/memory";
@@ -42,7 +42,7 @@ function probeTools() {
 
 describe("SessionHarness — session identity", () => {
   it("scopes the first tool call by a session id minted at construction, so a session approval can be granted", async () => {
-    const { authorizer } = createInMemoryAgentAuthorizer({
+    const { authorizer } = createMemoryAgentAuthorizer({
       policy: { byKind: { "tool.call": "ask" }, global: "ask" },
     });
     const requests: AgentAuthorizationRequest[] = [];

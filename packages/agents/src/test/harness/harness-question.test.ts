@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { createBuiltinCodingHarness } from "../../harness/builtin-coding";
 import { createDriverSession } from "../../harness/driver-session";
 import { createHarnessQuestionTool } from "../../harness/question";
@@ -33,7 +33,7 @@ function settings(): DriverSessionSettings {
   return {
     agentId: "coder",
     model: { harness: "native", id: "model" },
-    policy: createInMemoryAgentAuthorizer().authorizer,
+    policy: createMemoryAgentAuthorizer().authorizer,
     profile: {
       allowedTools: [],
       disallowedTools: [],
@@ -202,7 +202,7 @@ describe("harness questions", () => {
         compaction: { summarizer: { summarize: async () => "summary" } },
         maxSteps: 8,
         model,
-        policy: createInMemoryAgentAuthorizer({ policy: { global: "deny" } })
+        policy: createMemoryAgentAuthorizer({ policy: { global: "deny" } })
           .authorizer,
         tools: {
           ask_user: createHarnessQuestionTool({ sessionId: "builtin" }),
@@ -234,7 +234,7 @@ describe("harness questions", () => {
         compaction: { summarizer: { summarize: async () => "summary" } },
         maxSteps: 8,
         model,
-        policy: createInMemoryAgentAuthorizer({ policy: { global: "deny" } })
+        policy: createMemoryAgentAuthorizer({ policy: { global: "deny" } })
           .authorizer,
         tools: {
           ask_user: createHarnessQuestionTool({
@@ -274,7 +274,7 @@ describe("harness questions", () => {
         compaction: { summarizer: { summarize: async () => "summary" } },
         maxSteps: 8,
         model,
-        policy: createInMemoryAgentAuthorizer({ policy: { global: "deny" } })
+        policy: createMemoryAgentAuthorizer({ policy: { global: "deny" } })
           .authorizer,
         tools: {
           ask_user: createHarnessQuestionTool({
@@ -305,7 +305,7 @@ describe("harness questions", () => {
             textStreamResult("denied"),
           ],
         }),
-        policy: createInMemoryAgentAuthorizer({ policy: { global: "deny" } })
+        policy: createMemoryAgentAuthorizer({ policy: { global: "deny" } })
           .authorizer,
         tools: { ask_user: tool({ execute, inputSchema: z.object({}) }) },
       },

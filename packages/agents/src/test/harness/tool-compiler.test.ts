@@ -4,7 +4,7 @@ import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { AgentAuthorizationRequest } from "../../authorization/authorization";
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import type { CommandAuthorityDefinition } from "../../authorization/capability";
 import { classifyCommandCapability } from "../../authorization/capability";
 import { directToolEffectPort } from "../../harness/effect-port";
@@ -648,7 +648,7 @@ describe("tool-compiler — plain tool map", () => {
       tool: "legacy",
     });
 
-    const policy = createInMemoryAgentAuthorizer({
+    const policy = createMemoryAgentAuthorizer({
       policy: { global: "allow" },
     }).authorizer;
 

@@ -142,7 +142,7 @@ export function recordChild(
   }
 }
 
-export interface GroupSystem {
+export interface ProcessGroupOps {
   kill(target: number, signal: NodeJS.Signals | 0): void;
   members(pgid: number): ReadonlyMap<number, SeenProcess> | undefined;
   report?(line: string): void;
@@ -160,7 +160,7 @@ export interface RecordGroupOptions {
   readonly graceMs?: number;
   readonly killMs?: number;
   readonly signal?: AbortSignal;
-  readonly system?: GroupSystem;
+  readonly system?: ProcessGroupOps;
 }
 
 const GROUP_GRACE_MS = 2000;
@@ -172,7 +172,7 @@ const RECORD_LOOKUP: ProcessLookup = {
   look: (pids) => lookProcesses(pids),
 };
 
-const GROUP_SYSTEM: GroupSystem = {
+const PROCESS_GROUP_OPS: ProcessGroupOps = {
   kill: (target, signal) => process.kill(target, signal),
   members: groupMembers,
   sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
@@ -189,7 +189,7 @@ export function recordGroup(
     return () => Promise.resolve({ emptied: true, saved: true });
   }
   const recovery = named(env[SPAWN_RECOVERY_ENV]);
-  const system = options.system ?? GROUP_SYSTEM;
+  const system = options.system ?? PROCESS_GROUP_OPS;
   const record = recovery === undefined ? undefined : recordPath(recovery, pid);
   let reaped = false;
   const held = (): boolean =>
@@ -257,7 +257,7 @@ interface GroupStop {
 
 async function stopGroup(
   pgid: number,
-  system: GroupSystem,
+  system: ProcessGroupOps,
   stop: GroupStop
 ): Promise<boolean> {
   if (!groupSignal(system, pgid, 0)) {
@@ -296,7 +296,7 @@ async function stopGroup(
 function reproved(
   known: ReadonlyMap<number, SeenProcess> | undefined,
   pgid: number,
-  system: GroupSystem,
+  system: ProcessGroupOps,
   stop: GroupStop
 ): boolean | ReadonlyMap<number, SeenProcess> | undefined {
   const listedNow = system.members(pgid);
@@ -316,7 +316,7 @@ function reproved(
 }
 
 async function emptiedWithin(
-  system: GroupSystem,
+  system: ProcessGroupOps,
   pgid: number,
   ms: number
 ): Promise<boolean> {
@@ -337,7 +337,7 @@ function listing(
   listed: ReadonlyMap<number, SeenProcess> | undefined,
   known: ReadonlyMap<number, SeenProcess> | undefined,
   pgid: number,
-  system: GroupSystem,
+  system: ProcessGroupOps,
   stop: GroupStop
 ): boolean | undefined {
   if (reused(known, pgid, stop)) {
@@ -357,7 +357,7 @@ function listing(
   }
 }
 
-function reportUntold(system: GroupSystem, pgid: number): void {
+function reportUntold(system: ProcessGroupOps, pgid: number): void {
   (system.report ?? reportLine)(
     `group ${String(pgid)} is not listed but a signal still reaches it; not signalled, its recovery record kept for the next start`
   );
@@ -396,7 +396,7 @@ function saveMembers(
   pgid: number,
   path: string,
   members: ReadonlyMap<number, SeenProcess>,
-  system: GroupSystem
+  system: ProcessGroupOps
 ): boolean {
   let failure: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -436,7 +436,7 @@ function reportLine(line: string): void {
 }
 
 function groupSignal(
-  system: GroupSystem,
+  system: ProcessGroupOps,
   pgid: number,
   signal: NodeJS.Signals | 0
 ): boolean {
