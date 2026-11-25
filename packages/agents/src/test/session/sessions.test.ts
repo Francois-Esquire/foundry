@@ -16,7 +16,7 @@ import {
 } from "../../session/sessions";
 import type { SessionMessage, SessionPart } from "../../session/types";
 import type { SessionStore } from "../../store";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { recordingStore } from "../helpers/recording-store";
 import { sessionStoreKinds } from "../helpers/session-stores";
 
@@ -866,7 +866,7 @@ describe("messagesToSummarize", () => {
 
 describe("Sessions over a store holding a field set to undefined", () => {
   it("writes records back without it", async () => {
-    const inner = new InMemorySessionStore();
+    const inner = new MemorySessionStore();
     await inner.commit({
       putMessages: [
         {
@@ -925,7 +925,7 @@ describe("Sessions over a store holding a message it would not write now", () =>
       status: "complete",
       updatedAt: 1,
     } as unknown as SessionMessage;
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     await store.commit({
       putMessages: [legacy],
       putSessions: [
@@ -969,7 +969,7 @@ describe("Sessions over a store holding a message it would not write now", () =>
 
 describe("Sessions change events", () => {
   async function recorded() {
-    const { store, writes } = recordingStore(new InMemorySessionStore());
+    const { store, writes } = recordingStore(new MemorySessionStore());
     return { sessions: new Sessions({ store }), writes };
   }
 
@@ -1102,7 +1102,7 @@ describe("Sessions change events", () => {
   });
 
   it("keeps an event's id when the store runs the same work again", async () => {
-    const inner = new InMemorySessionStore();
+    const inner = new MemorySessionStore();
     const seen: string[] = [];
     const retrying: SessionStore = {
       commit: (write) => {

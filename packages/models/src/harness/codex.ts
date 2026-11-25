@@ -1,4 +1,4 @@
-import type { HarnessTurnDriver, StreamPart } from "@foundry/agents/harness";
+import type { HarnessTurnDriver, StreamPart } from "@foundry/core/agents";
 import { AppServerConnection, type CliProcess } from "./app-server";
 import {
   authenticate,

@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { Artifacts, EntryInputs } from "@foundry/artifacts";
+import type { ArtifactSubstrate, EntryInputs } from "@foundry/artifacts";
 import { contentIdSchema } from "@foundry/artifacts";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -180,7 +180,7 @@ describe("Module program checkouts", () => {
 
   it("refuses bytes that do not match the Content and publishes nothing", async () => {
     const { root, system, version } = await fixture();
-    const artifacts: Pick<Artifacts, "getContent" | "readFile"> = {
+    const artifacts: Pick<ArtifactSubstrate, "getContent" | "readFile"> = {
       getContent: (contentId) => system.getContent(contentId),
       readFile: async (contentId, filePath) => {
         const file = await system.readFile(contentId, filePath);

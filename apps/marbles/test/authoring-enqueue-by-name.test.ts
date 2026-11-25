@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { DEFAULT_POOL } from "@foundry/queue";
 import {
   monitor,

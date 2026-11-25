@@ -1,3 +1,5 @@
+// biome-ignore lint/performance/noBarrelFile: Preserve the public package entry point shared with Agents.
+export { Artifacts, type ArtifactsOptions } from "./artifacts";
 export type {
   Blob,
   BlobFiles,
@@ -6,7 +8,6 @@ export type {
   ContentTree,
   StoredFile,
 } from "./blob";
-// biome-ignore lint/performance/noBarrelFile: Preserve the public package entry point shared with Agents.
 export { validateBlob } from "./blob";
 export {
   ARTIFACT_SOURCE,
@@ -46,7 +47,6 @@ export {
 } from "./errors";
 export type { ArtifactCursor } from "./listing";
 export { artifactCursor, normalizeArtifactQuery } from "./listing";
-export { ArtifactManager, type ArtifactManagerOptions } from "./manager";
 export type { ArtifactId, BlobId, ContentId } from "./ref";
 export { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ref";
 export type {
@@ -60,7 +60,7 @@ export type {
   ArtifactObserver,
   ArtifactOperations,
   ArtifactResolved,
-  Artifacts,
+  ArtifactSubstrate,
   Content,
   ContentResolved,
   ContentSummary,

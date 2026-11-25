@@ -5,7 +5,7 @@ import type { Exec } from "./command";
 import type { ExecutionContext } from "./execution-context";
 import type { AgentTurns } from "./managers/agents";
 import type { Runs } from "./managers/runs";
-import type { Catalogue } from "./managers/workspaces";
+import type { LocalWorkspaces } from "./managers/workspaces";
 import type { Frame, RunScope } from "./run-scope";
 import type { Agents, Artifacts, Sandboxes, Workspaces } from "./types";
 
@@ -16,7 +16,7 @@ export interface ManagerArgs {
 }
 
 export interface HostBindings {
-  readonly catalogue?: Catalogue;
+  readonly catalogue?: LocalWorkspaces;
   readonly triggers?: TriggerStore;
 }
 

@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { expect, it, vi } from "vitest";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
@@ -52,7 +52,7 @@ it("loads the configured Codex accounts independently and honors model defaults"
       version: 1,
     },
   }));
-  const models = new ModelManager();
+  const models = new Models();
   const config = new ProviderConfiguration({
     environment: { CODEX_HOME: machineHome, PATH: "" },
     models,

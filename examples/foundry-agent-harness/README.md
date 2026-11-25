@@ -39,7 +39,7 @@ host with your tools, in the directory you start it from.
 
 | Piece | From Marbles |
 | --- | --- |
-| The host | `Engine` from `@foundry.sh/marbles/lib`, built from in-memory session and artifact stores and a `ModelManager` holding the Claude Code provider. |
+| The host | `Engine` from `@foundry.sh/marbles/lib`, built from in-memory session and artifact stores and a `Models` holding the Claude Code provider. |
 | The planner | `agent` with a structured `Output`, so the plan comes back as a typed list instead of text to parse. |
 | The to-do list | `tasks`: each planned task depends on the one before it, and the loop takes whatever `tasks.ready()` offers next. |
 | The worker | One `engine.agents.session` for every task. Its `onText`, `onToolCall`, and `onToolResult` handlers feed the screen as the turn runs. |

@@ -9,7 +9,7 @@ import { metaOf } from "../../harness/types";
 import { McpClient } from "../../mcp/client";
 import type { SessionEvent } from "../../session/events";
 import { Sessions } from "../../session/sessions";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   textStreamResult,
@@ -83,7 +83,7 @@ describe("MCP registrations through the harness policy", () => {
         model,
         policy,
         sessionId: "s",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: { s1__dangerous: registration },
       },
       { sessionId: "s" }
@@ -116,7 +116,7 @@ describe("MCP registrations through the harness policy", () => {
         model,
         policy,
         sessionId: "s",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: { s1__dangerous: registration },
       },
       { sessionId: "s" }
@@ -147,7 +147,7 @@ describe("MCP registrations through the harness policy", () => {
         model,
         policy,
         sessionId: "s",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: { s1__dangerous: registration },
       },
       { sessionId: "s" }
@@ -192,7 +192,7 @@ describe("MCP registrations through the harness policy", () => {
       throw new Error("expected one tool");
     }
 
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     await sessions.createSession({ id: "s" });
     await sessions.appendMessage({

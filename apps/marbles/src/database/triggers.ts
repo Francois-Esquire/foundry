@@ -1,4 +1,7 @@
-import { isGone, type ProcessIdentity } from "@foundry/lib/process-identity";
+import {
+  isGone,
+  type ProcessIdentity,
+} from "@foundry/lib/node/process-identity";
 import type { JobOutcome, Occurrence } from "@foundry/scheduling";
 import type { ScheduleStoreService } from "@foundry/scheduling/store";
 import { makeSqliteScheduleStore } from "@foundry/scheduling/store/sqlite";

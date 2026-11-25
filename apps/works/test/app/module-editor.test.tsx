@@ -1,5 +1,5 @@
 import "../helpers/mock-module-source";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 async function fixture() {
-  const library = createModuleLibrary(new InMemoryArtifactStore());
+  const library = createModuleLibrary(new MemoryArtifactStore());
   const module = await library.create("Editor test");
   const details = await library.details(module.id);
   if (!details?.binding) {

@@ -9,23 +9,33 @@ import {
   CONTAINER_RUNTIME_SCOPE_LABEL,
   CONTAINER_SANDBOX_BASE_LABEL,
   CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
-} from "@foundry/sandbox/container/constants";
-import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
-import { SandboxError } from "@foundry/sandbox/errors";
-import { normalizeSandboxPath } from "@foundry/sandbox/path";
-import { sandboxFromAdapter } from "@foundry/sandbox/sandbox";
+  normalizeSandboxPath,
+  SandboxError,
+  sandboxFromAdapter,
+} from "@foundry/sandbox";
+import {
+  createContainers,
+  ProcessController,
+  prepareSandboxProcess,
+} from "@foundry/sandbox/node";
+import { createMicrosandboxRuntime } from "@foundry/sandbox/node/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
+import { createSandboxToolkit } from "@foundry/sandbox/tools";
+import { createVirtualSandbox } from "@foundry/sandbox/virtual";
 import { expect, it } from "vitest";
 import packageJson from "../../package.json";
 
-it("loads portable and container functions through leaf exports", () => {
+it("loads portable, tool, virtual, and node functions through canonical exports", () => {
   for (const entry of [
     normalizeSandboxPath,
     MemoryContainerStore,
     SandboxError,
     sandboxFromAdapter,
+    createSandboxToolkit,
+    createVirtualSandbox,
     createContainers,
+    prepareSandboxProcess,
+    ProcessController,
     createMicrosandboxRuntime,
   ]) {
     expect(entry).toBeTypeOf("function");
@@ -47,43 +57,17 @@ it("exposes sandbox ownership labels and the persisted spec format", () => {
   );
 });
 
-it("resolves the store interface through its own entry", () => {
-  for (const target of Object.values(packageJson.exports["./store"])) {
-    expect(existsSync(resolve(import.meta.dirname, "../..", target))).toBe(
-      true
-    );
-  }
-});
-
-it("resolves source and built declarations for the public leaf modules", () => {
-  expect(Object.hasOwn(packageJson.exports, ".")).toBe(false);
-  for (const entry of [
-    "types",
-    "sandbox",
-    "errors",
-    "path",
-    "constants",
-    "schema",
-    "store/memory",
-    "store/sqlite",
-    "store/tables",
-    "testing/store",
-    "container/constants",
-    "container/constraints",
-    "container/containers",
-    "container/types",
-    "container/microsandbox-runtime",
-    "tools/toolkit",
-    "tools/definitions",
-    "tools/guards",
-    "virtual/system",
-    "testing",
-  ]) {
-    for (const target of Object.values(packageJson.exports["./*"])) {
+it("resolves source and built declarations for every explicit public export without wildcards", () => {
+  const entries = Object.entries(packageJson.exports);
+  expect(
+    entries.map(([key]) => key).filter((key) => key.includes("*"))
+  ).toEqual([]);
+  expect(Object.hasOwn(packageJson.exports, ".")).toBe(true);
+  for (const [, target] of entries) {
+    for (const filePath of Object.values(target)) {
       expect(
-        existsSync(
-          resolve(import.meta.dirname, "../..", target.replace("*", entry))
-        )
+        existsSync(resolve(import.meta.dirname, "../..", filePath)),
+        `${filePath} should exist`
       ).toBe(true);
     }
   }

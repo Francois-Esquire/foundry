@@ -16,7 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { startedAt } from "../process-identity";
+import { nodeStartedAt } from "../node/process-identity";
 import {
   execFileRecorded,
   forgetRecord,
@@ -29,7 +29,7 @@ import {
   SPAWN_RECORD_ENV,
   SPAWN_RECOVERY_ENV,
   writePrivate,
-} from "../spawn-record";
+} from "../node/spawn-record";
 
 const made: string[] = [];
 
@@ -60,7 +60,7 @@ it("writes a private record of the process, making the directory private if it i
   expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
     group: true,
     pid: process.pid,
-    started: startedAt(process.pid),
+    started: nodeStartedAt(process.pid),
   });
   expect(notPrivate(dir, "directory")).toBeUndefined();
   expect(notPrivate(path, "file")).toBeUndefined();
@@ -237,7 +237,7 @@ it("reports, and keeps, the recovery record of an exited child it cannot remove"
 
 it("reports, and writes no record of, a process the listing leaves out while a signal still reaches it", async () => {
   vi.resetModules();
-  const fresh = await import("../spawn-record");
+  const fresh = await import("../node/spawn-record");
   const dir = scratch();
   const stderr = vi
     .spyOn(process.stderr, "write")

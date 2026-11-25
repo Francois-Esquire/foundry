@@ -11,12 +11,12 @@ export const byteCountSchema = z.int().nonnegative();
 const nonBlankSchema = z.string().regex(/\S/);
 const nulFreeSchema = z.string().regex(/^[^\0]+$/);
 
-export const artifactLifecycleStatusSchema = z.enum(ARTIFACT_STATUSES);
+const artifactLifecycleStatusSchema = z.enum(ARTIFACT_STATUSES);
 export type ArtifactLifecycleStatus = z.infer<
   typeof artifactLifecycleStatusSchema
 >;
 
-export const contentStateSchema = z.enum(CONTENT_STATES);
+const contentStateSchema = z.enum(CONTENT_STATES);
 export type ContentState = z.infer<typeof contentStateSchema>;
 
 function checkedInPlace<T>(
@@ -98,7 +98,7 @@ export const contentMetadataSchema = jsonMetadataSchema(
 );
 export type ContentMetadata = z.infer<typeof contentMetadataSchema>;
 
-export const storedFileSchema = z
+const storedFileSchema = z
   .strictObject({
     blobId: blobIdSchema,
     bytes: byteCountSchema,
@@ -144,7 +144,7 @@ const chunksSourceSchema = z.strictObject({
   path: z.never().optional(),
 });
 
-export const blobSourceSchema = z
+const blobSourceSchema = z
   .union([bytesSourceSchema, pathSourceSchema, chunksSourceSchema])
   .readonly();
 export type BlobSource = z.infer<typeof blobSourceSchema>;
@@ -156,7 +156,7 @@ const blobFields = {
   id: blobIdSchema,
 };
 
-export const blobSchema = z
+const blobSchema = z
   .union([
     bytesSourceSchema.extend(blobFields),
     pathSourceSchema.extend(blobFields),

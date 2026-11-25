@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { GenerateTextResult, Output, StreamTextResult, ToolSet } from "ai";
 
 import type {
@@ -71,7 +70,7 @@ export class AgentHarness {
     this.policy = policy ?? defaultPermissiveAuthorizer();
     this.agentId = agentId ?? DEFAULT_AGENT_ID;
     this.agentGeneration = agentGeneration;
-    this.sessionId = sessionId || context?.sessionId || randomUUID();
+    this.sessionId = sessionId || context?.sessionId || crypto.randomUUID();
     const compiled = compileTools(tools ?? {}, {
       agentGeneration,
       agentId: this.agentId,

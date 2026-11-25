@@ -34,7 +34,7 @@ import type {
   SessionRole,
 } from "../session/types";
 import type { SessionStore } from "../store";
-import { InMemorySessionStore } from "../store/memory";
+import { MemorySessionStore } from "../store/memory";
 import { composeTools } from "../tools/compose";
 import type { AgentHarnessSettings } from "./agent-harness";
 import { AgentHarness } from "./agent-harness";
@@ -86,7 +86,7 @@ export class SessionHarness {
 
   constructor(settings: SessionHarnessSettings, context?: TurnContext) {
     const {
-      store = new InMemorySessionStore(),
+      store = new MemorySessionStore(),
       registry = createAgentCompatibilityRegistry(),
       mesh = createMesh({ registry, store }),
       nodeId = "primary",

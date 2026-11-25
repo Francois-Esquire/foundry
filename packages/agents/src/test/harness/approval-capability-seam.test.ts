@@ -5,7 +5,7 @@ import { createInMemoryAgentAuthorizer } from "../../authorization/authorization
 import { SessionHarness } from "../../harness/session-harness";
 import { tagTool } from "../../harness/types";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   toolCallStreamResult,
@@ -52,7 +52,7 @@ describe("stream-transform capability propagation", () => {
         model,
         policy,
         sessionId: "s1",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools,
       },
       { sessionId: "s1" }

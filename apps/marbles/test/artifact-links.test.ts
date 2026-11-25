@@ -8,11 +8,11 @@ import {
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
+import { Artifacts, artifactIdSchema } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import type { ArtifactStore } from "@foundry/artifacts/store";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import { acquireFileLock } from "@foundry/lib/file-lock";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { acquireFileLock } from "@foundry/lib/node/file-lock";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
@@ -152,7 +152,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     const { artifacts, machine, one, two } = await arranged();
     const { database } = machine.database;
     const lines: string[] = [];
-    const kept = new ArtifactManager({
+    const kept = new Artifacts({
       files: blobFiles(artifactBlobs(artifacts, one.id)),
       store: keepingLinks(workspaceStores(database, one.id).artifacts, {
         artifacts,
@@ -257,7 +257,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     const { artifacts, machine, one } = await arranged();
     const lines: string[] = [];
     const store = keeping(machine, artifacts, one, lines);
-    const kept = new ArtifactManager({
+    const kept = new Artifacts({
       files: blobFiles(artifactBlobs(artifacts, one.id)),
       store,
     });
@@ -299,7 +299,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     const store = keeping(machine, artifacts, one, lines);
     const release = await holdLinks(one.root);
     try {
-      await new ArtifactManager({
+      await new Artifacts({
         files: blobFiles(artifactBlobs(artifacts, one.id)),
         store,
       }).create({
@@ -343,7 +343,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     });
     const release = await holdLinks(one.root);
     try {
-      await new ArtifactManager({
+      await new Artifacts({
         files: blobFiles(artifactBlobs(artifacts, one.id)),
         store,
       }).create({
@@ -369,7 +369,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     const store = keeping(machine, artifacts, one, lines);
     const release = await holdLinks(one.root);
     try {
-      await new ArtifactManager({
+      await new Artifacts({
         files: blobFiles(artifactBlobs(artifacts, one.id)),
         store,
       }).create({
@@ -429,7 +429,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       }
     );
     hold = true;
-    await new ArtifactManager({
+    await new Artifacts({
       files: blobFiles(artifactBlobs(artifacts, one.id)),
       store,
     }).create({
@@ -455,7 +455,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     const { artifacts, machine, one } = await arranged();
     const lines: string[] = [];
     const store = keeping(machine, artifacts, one, lines);
-    const kept = new ArtifactManager({
+    const kept = new Artifacts({
       files: blobFiles(artifactBlobs(artifacts, one.id)),
       store,
     });
@@ -509,7 +509,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       const gate = new Promise<void>((resolve) => {
         land = resolve;
       });
-      const memory = new InMemoryArtifactStore();
+      const memory = new MemoryArtifactStore();
       const held = new Proxy(memory, {
         get(target, property) {
           const value: unknown = Reflect.get(target, property, target);
@@ -623,7 +623,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     );
     const plain = workspaceStores(database, one.id).artifacts;
     const id = artifactIdSchema.parse("artifact#plan");
-    await new ArtifactManager({
+    await new Artifacts({
       files: blobFiles(artifactBlobs(artifacts, one.id)),
       store: plain,
     }).create({
@@ -687,8 +687,8 @@ function manager(
   artifacts: string,
   owner: { readonly id: string },
   lines: string[]
-): ArtifactManager {
-  return new ArtifactManager({
+): Artifacts {
+  return new Artifacts({
     files: blobFiles(artifactBlobs(artifacts, owner.id)),
     store: keeping(machine, artifacts, owner, lines),
   });

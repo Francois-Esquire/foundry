@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
 import type { ModelKind, Provider } from "@foundry/models";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { airplaneMode } from "@foundry/models/airplane";
 import { CLAUDE_CODE_DEFAULT_MODELS } from "@foundry/models/claude-code";
 import { afterEach, describe, expect, it } from "vitest";
@@ -83,16 +83,16 @@ describe("default route", () => {
   });
 
   it("keeps a configured Claude Code default and otherwise follows the catalog order", () => {
-    const configured = new ModelManager({
+    const configured = new Models({
       providers: [serving("claude-code", { defaults: { text: "haiku" } })],
     });
     expect(selectExecutor(configured).model).toBe("haiku");
-    const plain = new ModelManager({ providers: [serving("claude-code")] });
+    const plain = new Models({ providers: [serving("claude-code")] });
     expect(selectExecutor(plain).model).toBe(CLAUDE_CODE_DEFAULT_MODELS[0]?.id);
   });
 
   it("lets the manager skip a provider its policy refuses", () => {
-    const models = new ModelManager({
+    const models = new Models({
       providers: [serving("claude-code"), serving("local", { offline: true })],
     });
     airplaneMode(models).set(true);
@@ -104,7 +104,7 @@ describe("default route", () => {
   });
 
   it("reports the refusal when the policy refuses every provider", () => {
-    const models = new ModelManager({ providers: [serving("claude-code")] });
+    const models = new Models({ providers: [serving("claude-code")] });
     airplaneMode(models).set(true);
     expect(() => selectExecutor(models)).toThrow(REFUSED);
   });

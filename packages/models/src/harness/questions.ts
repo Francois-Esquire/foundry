@@ -2,7 +2,7 @@ import type {
   HarnessPermissionResult,
   HarnessQuestion,
   HarnessQuestionResult,
-} from "@foundry/agents/harness";
+} from "@foundry/core/agents";
 import { z } from "zod";
 import type { DriverRun } from "./shared";
 

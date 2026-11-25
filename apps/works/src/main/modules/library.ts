@@ -7,20 +7,18 @@ import {
 import { JsonArtifactStore } from "@foundry/artifacts/node";
 import type { ArtifactStore } from "@foundry/artifacts/store";
 import {
+  assertSemverTag,
+  createModuleProjects,
+  createModuleVersions,
   defineModuleVersion,
+  importModulePackage,
+  isPortableRelativePath,
+  ModuleStoreConflictError,
   type ModuleVersion,
   moduleIdSchema,
-} from "@foundry/modules/domain";
-import { ModuleStoreConflictError } from "@foundry/modules/errors";
-import {
-  assertSemverTag,
-  isPortableRelativePath,
   parseModuleManifestSourceText,
   validateModuleManifestBuild,
-} from "@foundry/modules/manifest";
-import { importModulePackage } from "@foundry/modules/package";
-import { createModuleProjects } from "@foundry/modules/projects";
-import { createModuleVersions } from "@foundry/modules/version";
+} from "@foundry/modules";
 import type {
   ModuleDetails,
   ModuleSourceRevision,

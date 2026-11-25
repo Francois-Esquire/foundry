@@ -2,7 +2,7 @@ import type {
   ArtifactId,
   ArtifactOperations,
   ArtifactResolved,
-  Artifacts,
+  ArtifactSubstrate,
   ContentId,
   FileInputs,
 } from "@foundry/artifacts";
@@ -24,8 +24,8 @@ import {
   parseModuleManifestSourceText,
   validateModuleManifestBuild,
 } from "./manifest";
+import type { ModuleUnit } from "./modules";
 import { unsupportedModuleRequirements } from "./preflight";
-import type { ModuleRegistryUnit } from "./registry";
 import { admitModuleSource } from "./source";
 
 const SOURCE_PREFIX = "source/";
@@ -93,8 +93,8 @@ export class ModuleProjectError extends Error {
 }
 
 export function createModuleProjects(options: {
-  readonly artifacts: Artifacts;
-  readonly store: ModuleRegistryUnit<"loadModule" | "registerModule">;
+  readonly artifacts: ArtifactSubstrate;
+  readonly store: ModuleUnit<"loadModule" | "registerModule">;
 }): ModuleProjects {
   const { artifacts, store } = options;
 

@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import type { Enqueued, EnqueueOptions, RunView } from "@foundry.sh/marbles";
 import { observe, runs, step, tasks, workflow } from "@foundry.sh/marbles";
 import {

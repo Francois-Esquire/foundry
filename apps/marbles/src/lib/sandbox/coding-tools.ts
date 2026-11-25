@@ -1,9 +1,9 @@
 import { posix } from "node:path";
 
 import { tagTools } from "@foundry/agents/harness";
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
-import type { Container } from "@foundry/sandbox/container/containers";
-import { createSandboxToolkit } from "@foundry/sandbox/tools/toolkit";
+import type { Container } from "@foundry/sandbox";
+import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox";
+import { createSandboxToolkit } from "@foundry/sandbox/tools";
 import type { ToolSet } from "ai";
 
 export type CodingToolsContainer = Pick<Container, "files" | "commands">;

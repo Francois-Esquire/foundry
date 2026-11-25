@@ -1,5 +1,4 @@
-import { ModuleStoreConflictError } from "@foundry/modules/errors";
-import { ModulePackageError } from "@foundry/modules/package";
+import { ModulePackageError, ModuleStoreConflictError } from "@foundry/modules";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 import { base } from "../context";

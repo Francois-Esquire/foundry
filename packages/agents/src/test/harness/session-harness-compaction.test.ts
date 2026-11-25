@@ -3,7 +3,7 @@ import { SessionHarness } from "../../harness/session-harness";
 import type { Summarizer } from "../../session/compactor";
 import type { SessionEvent } from "../../session/events";
 import { Sessions } from "../../session/sessions";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   usageStreamResult,
@@ -48,7 +48,7 @@ const TIGHT = {
 
 describe("SessionHarness — auto compaction", () => {
   it("folds older history before a turn once over budget", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const summarizer = fakeSummarizer();
     const model = overBudgetModel();
     const harness = new SessionHarness(
@@ -87,7 +87,7 @@ describe("SessionHarness — auto compaction", () => {
   });
 
   it("never breaks the turn when the summarizer throws (best-effort)", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const summarizer: Summarizer = {
       summarize: () => Promise.reject(new Error("boom")),
     };
@@ -122,7 +122,7 @@ describe("SessionHarness — auto compaction", () => {
   });
 
   it("does nothing without a compaction config", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const harness = new SessionHarness(
       { instructions: "x", model: overBudgetModel(), store, tools: {} },
       { sessionId: "s" }

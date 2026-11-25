@@ -3,8 +3,7 @@ import type {
   HarnessActivity,
   HarnessPermissionRequest,
   HarnessQuestionRequest,
-} from "@foundry/agents/harness";
-import { createHarnessQuestionTool } from "@foundry/agents/harness";
+} from "@foundry/core/agents";
 import {
   type ClaudeCodeSettings,
   createClaudeCodeQueryController,
@@ -14,6 +13,7 @@ import { createClaudeCodeDriver } from "../harness/claude-code";
 import { createCodexDriver } from "../harness/codex";
 import { createNativeActivities } from "../harness/native-activity";
 import { collect, FakeAppServer, runOptions } from "./helpers/cli";
+import { createTestQuestionTool as createHarnessQuestionTool } from "./helpers/question";
 
 function fixture(generation = "process-1") {
   const events: HarnessActivity[] = [];

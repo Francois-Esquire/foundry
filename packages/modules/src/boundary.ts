@@ -26,15 +26,11 @@ export const MODULE_ALLOWED_PACKAGE_IMPORTS = [
   "@foundry/lib/ordering",
   "@foundry/lib/pagination",
   "@foundry/lib/turns",
-  "node:async_hooks",
-  "typescript",
   "zod",
 ] as const;
 
 export const MODULE_PLATFORM_ALLOWED_PACKAGE_IMPORTS = [
-  "@foundry/sandbox/container/constraints",
-  "@foundry/sandbox/container/containers",
-  "@foundry/sandbox/container/types",
+  "@foundry/sandbox",
 ] as const;
 
 export const MODULE_SQLITE_ALLOWED_PACKAGE_IMPORTS = [

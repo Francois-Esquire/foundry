@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Provider } from "@foundry/models";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { streamText } from "ai";
 import {
   afterAll,
@@ -175,9 +175,9 @@ function configuration(
   workspace?: string
 ): {
   readonly configuration: ProviderConfiguration;
-  readonly models: ModelManager;
+  readonly models: Models;
 } {
-  const models = new ModelManager();
+  const models = new Models();
   return {
     configuration: new ProviderConfiguration({
       environment: ENV,
@@ -210,7 +210,7 @@ function configureOnly(...plugins: string[]): Promise<void> {
   );
 }
 
-function routed(models: ModelManager, selection: string): string | undefined {
+function routed(models: Models, selection: string): string | undefined {
   try {
     return models.resolve("text", selection).model;
   } catch {

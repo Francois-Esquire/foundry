@@ -5,17 +5,17 @@ import type {
   ArtifactCursor,
   ArtifactId,
   ArtifactResolved,
-  Artifacts,
+  ArtifactSubstrate,
   FileInputs,
 } from "@foundry/artifacts";
 import { artifactIdSchema } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
-import { collectPages } from "@foundry/lib/pagination";
 import {
   isGone,
   type ProcessIdentity,
   thisProcess,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
+import { collectPages } from "@foundry/lib/pagination";
 import { z } from "zod";
 import {
   ASK_MODES,
@@ -92,7 +92,7 @@ const feedMetadataSchema = z.object({
 export type FeedMetadata = z.infer<typeof feedMetadataSchema>;
 
 export function listFeedArtifacts(
-  artifacts: Pick<Artifacts, "list">
+  artifacts: Pick<ArtifactSubstrate, "list">
 ): Promise<ArtifactResolved[]> {
   return collectPages((cursor: ArtifactCursor | undefined) =>
     artifacts.list({
@@ -111,7 +111,7 @@ export function feedMetadataOf(
 }
 
 export async function feedEntry(
-  artifacts: Pick<Artifacts, "get">,
+  artifacts: Pick<ArtifactSubstrate, "get">,
   id: string
 ): Promise<FeedMetadata | undefined> {
   const parsed = artifactIdSchema.safeParse(id);
@@ -122,7 +122,7 @@ export async function feedEntry(
 }
 
 export function feedPublisher(
-  artifacts: Pick<Artifacts, "create" | "get" | "list" | "write">,
+  artifacts: Pick<ArtifactSubstrate, "create" | "get" | "list" | "write">,
   workspace: FeedWorkspace,
   options: {
     readonly owner?: ProcessIdentity;

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { expect, it, vi } from "vitest";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
@@ -14,7 +14,7 @@ it("refreshes scoped Vercel catalogs and resolves the listed models and defaults
   const root = mkdtempSync(join(tmpdir(), "vercel-list-"));
   const database = await initializeDatabase(stateDatabase(root));
   const store = new DatabaseProviderStore({ database: database.database });
-  const models = new ModelManager();
+  const models = new Models();
   const machine = "https://machine.example/v1";
   const workspace = "https://workspace.example/v1";
   const configuration = new ProviderConfiguration({

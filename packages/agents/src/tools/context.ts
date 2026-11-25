@@ -18,7 +18,7 @@ export function defaultThread(): string {
   return DEFAULT_THREAD;
 }
 
-export function createInMemoryConversationStore(): ConversationStore {
+export function createMemoryConversationStore(): ConversationStore {
   const threads = new Map<string, ModelMessage[]>();
   const key = (space: string, agent: string, thread: string) =>
     JSON.stringify([space, agent, thread]);

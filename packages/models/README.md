@@ -10,11 +10,11 @@ can do.
 ## Quick start
 
 ```typescript
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { vercelModels, vercelProvider } from "@foundry/models/vercel";
 
 const config = { apiKey };
-const models = new ModelManager({
+const models = new Models({
   providers: [vercelProvider({ config, models: await vercelModels(config) })],
 });
 
@@ -160,7 +160,7 @@ returns a token or a proxy, never a key.
 ## The manager
 
 ```typescript
-new ModelManager({ providers? });
+new Models({ providers? });
 manager.providers; // the set, in preference order, as guarded views
 manager.setProviders(providers); // replace the set; leavers are disposed once released
 manager.resolve(kind, selection?); // Resolution: check, hold, open, release
@@ -233,13 +233,13 @@ The provider embeds Pi 0.52.12. Sandbox sessions use the separately pinned
 Pi 1.3.0 CLI over RPC. Models remains private at 0.1.0 when Marbles releases.
 
 ```ts
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { piProvider } from "@foundry/models/pi";
 
 const provider = piProvider({
   config: { available: true, defaultSettings: { tools: "readOnly" } },
 });
-const models = new ModelManager({ providers: [provider] });
+const models = new Models({ providers: [provider] });
 const route = models.resolve("text", "pi/anthropic/claude-sonnet-4-5");
 const model = route.open({ workingDirectory: "/path/to/project" });
 ```

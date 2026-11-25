@@ -45,7 +45,7 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
-const { isGone, startedAt } = await import("../process-identity");
+const { isGone, nodeStartedAt } = await import("../node/process-identity");
 
 const children: ReturnType<typeof spawn>[] = [];
 
@@ -60,17 +60,17 @@ it("does not take a live owner for gone when a read of its start leaves it out",
   const child = spawn("sleep", ["30"], { stdio: "ignore" });
   children.push(child);
   const pid = child.pid ?? 0;
-  const started = startedAt(pid);
+  const started = nodeStartedAt(pid);
   expect(typeof started).toBe("string");
   system.unread.add(pid);
-  expect(startedAt(pid)).toBeUndefined();
+  expect(nodeStartedAt(pid)).toBeUndefined();
   expect(isGone({ pid, started: started ?? null })).toBe(false);
 });
 
 it("still takes an owner for gone once its pid answers no signal", async () => {
   const child = spawn("sleep", ["30"], { stdio: "ignore" });
   const pid = child.pid ?? 0;
-  const started = startedAt(pid);
+  const started = nodeStartedAt(pid);
   const exited = new Promise((resolve) => child.once("exit", resolve));
   child.kill("SIGKILL");
   await exited;

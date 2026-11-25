@@ -8,7 +8,7 @@ import {
 } from "../schema";
 import { Sessions } from "../session/sessions";
 import type { SessionPart } from "../session/types";
-import { InMemorySessionStore } from "../store/memory";
+import { MemorySessionStore } from "../store/memory";
 
 const everyPart: SessionPart[] = [
   {
@@ -82,7 +82,7 @@ const everyPart: SessionPart[] = [
 
 describe("session record schemas", () => {
   it("accept the records the in-memory store writes", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     const parent = await sessions.createSession({ title: "parent" });
     const child = await sessions.createSession({

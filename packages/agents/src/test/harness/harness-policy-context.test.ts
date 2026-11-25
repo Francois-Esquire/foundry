@@ -7,7 +7,7 @@ import { agentSubject } from "../../authorization/authorization";
 import { AgentHarness } from "../../harness/agent-harness";
 import { SessionHarness } from "../../harness/session-harness";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { getPolicy } from "../../tools/context";
 import { fakeAuthorizer } from "../helpers/authorizer";
 import {
@@ -168,7 +168,7 @@ describe("SessionHarness — policy", () => {
       model: createScriptedMockModel({}),
       policy,
       sessionId: "s1",
-      store: new InMemorySessionStore(),
+      store: new MemorySessionStore(),
     });
 
     expect(harness.policy).toBe(policy);
@@ -183,7 +183,7 @@ describe("SessionHarness — policy", () => {
       model: probingModel(),
       policy,
       sessionId: "s1",
-      store: new InMemorySessionStore(),
+      store: new MemorySessionStore(),
       tools,
       toolsContext: callerContext,
     });
@@ -202,7 +202,7 @@ describe("SessionHarness — policy", () => {
       model: probingModel(),
       policy,
       sessionId: "s1",
-      store: new InMemorySessionStore(),
+      store: new MemorySessionStore(),
       tools,
     });
 

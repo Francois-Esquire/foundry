@@ -5,8 +5,8 @@ import type {
   ModuleGatewayRuntimeDispatcher,
   ModuleRuntimeIdentity,
 } from "../gateway/types";
+import type { ModuleCommands } from "../modules";
 import type { ActivationPreflight } from "../preflight";
-import type { ModuleCommands } from "../registry";
 import type {
   ModuleSettingsHostPolicy,
   ModuleSettingValues,

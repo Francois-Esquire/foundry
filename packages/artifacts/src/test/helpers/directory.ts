@@ -1,10 +1,10 @@
 import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { directory, Workspaces } from "@foundry/workspaces";
 import { MemoryWorkspaceStore } from "@foundry/workspaces/store/memory";
 import { onTestFinished } from "vitest";
-import { ArtifactManager } from "../../manager";
+import { Artifacts } from "../../artifacts";
 import {
   type ArtifactFileSystemOptions,
   artifactFileSystem,
@@ -23,13 +23,13 @@ export async function fixture(
     await mkdtemp(join(tmpdir(), "artifact-directory-"))
   );
   const store = await openStore(kind);
-  const artifacts = new ArtifactManager({
+  const artifacts = new Artifacts({
     store,
     ...(files ? { files: blobFiles(join(root, ".blobs")) } : {}),
   });
   const filesystem = artifactFileSystem({ artifacts, root, ...options });
   const catalog = new MemoryWorkspaceStore();
-  const system = new WorkspaceSystem({ store: catalog }).extend(
+  const system = new Workspaces({ store: catalog }).extend(
     directory({ filesystem, source: "artifact" })
   );
   onTestFinished(async () => {

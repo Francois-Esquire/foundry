@@ -1,4 +1,4 @@
-import type { Artifacts } from "@foundry/artifacts";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
 import type { ConcurrencyPool, Job } from "@foundry/queue";
 import type { QueueStoreService } from "@foundry/queue/store";
 import type { ChannelMessage } from "@foundry/workflows/channels";
@@ -24,7 +24,7 @@ export interface QueuedWorkflowsOptions {
   readonly durable: boolean;
   readonly executions: Pick<Executions, "progress">;
   readonly feed: FeedPublisher;
-  readonly feedEntries: Pick<Artifacts, "get">;
+  readonly feedEntries: Pick<ArtifactSubstrate, "get">;
   readonly follow: (runId: string, dispatched: DispatchedRun) => void;
   readonly pools: readonly ConcurrencyPool[];
   readonly print: (line: string) => void;

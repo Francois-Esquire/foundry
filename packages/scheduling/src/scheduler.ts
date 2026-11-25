@@ -1,8 +1,8 @@
 import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
 import {
-  isGone,
+  neverGone,
   type ProcessIdentity,
-  thisProcess,
+  portableProcess,
 } from "@foundry/lib/process-identity";
 import {
   Clock,
@@ -94,7 +94,7 @@ const makeScheduler = (options: SchedulerOptions) =>
     const wake = yield* Effect.makeLatch(false);
     const self = yield* Effect.acquireRelease(
       Effect.sync(() =>
-        openInstance(options.identity ?? thisProcess(), options.instanceId)
+        openInstance(options.identity ?? portableProcess(), options.instanceId)
       ),
       (instance) => Effect.sync(() => closeInstance(instance))
     );
@@ -129,7 +129,7 @@ const makeScheduler = (options: SchedulerOptions) =>
     const { evaluate, triggerNow: fireNow } = makeEvaluator({
       commit,
       dispatch,
-      isOwnerGone: options.isOwnerGone ?? isGone,
+      isOwnerGone: options.isOwnerGone ?? neverGone,
       maxOccurrencesPerSchedule:
         options.maxOccurrencesPerSchedule ?? DEFAULT_MAX_OCCURRENCES,
       self,

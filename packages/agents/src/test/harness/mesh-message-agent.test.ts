@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { LoopAgent } from "../../agents/loop-agent";
 import { SessionHarness } from "../../harness/session-harness";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   textStreamResult,
@@ -36,7 +36,7 @@ describe("SessionHarness — message_agent through the compiler", () => {
         model: primary,
         nodeId: "root",
         sessionId: "s",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
       },
       { sessionId: "s" }
     );

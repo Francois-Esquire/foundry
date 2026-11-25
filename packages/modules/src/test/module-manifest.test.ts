@@ -1,6 +1,6 @@
 import type { StorageTree } from "@foundry/core/storage";
 import { digestJson } from "@foundry/lib/digest";
-import { containerSandboxConstraintsSchema } from "@foundry/sandbox/container/constraints";
+import { containerSandboxConstraintsSchema } from "@foundry/sandbox";
 import { describe, expect, it } from "vitest";
 
 import {

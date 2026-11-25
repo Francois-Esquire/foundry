@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ArtifactManager } from "../manager";
+import { Artifacts } from "../artifacts";
 import { artifactIdSchema, contentIdSchema } from "../ref";
 import { resolveReference } from "../references";
 import type { Content } from "../substrate";
@@ -7,7 +7,7 @@ import { required } from "./helpers/required";
 import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 
 async function manager(kind: StoreKind) {
-  return new ArtifactManager({ store: await openStore(kind) });
+  return new Artifacts({ store: await openStore(kind) });
 }
 
 describe.each(STORE_KINDS)("%s store: Artifact references", (kind) => {

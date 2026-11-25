@@ -3,7 +3,7 @@ import { normalizeSandboxPath } from "../../path";
 import type { Sandbox } from "../../types";
 import { SANDBOX_ARGV_FIXTURE, SANDBOX_SHELL_FIXTURE } from "./fixtures";
 
-export interface SandboxContractFixture {
+interface SandboxContractFixture {
   dispose?(): Promise<void>;
   readonly sandbox: Sandbox;
 }

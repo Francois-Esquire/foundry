@@ -1,7 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
-import { recordChild } from "@foundry/lib/spawn-record";
+import { recordChild } from "@foundry/lib/node/spawn-record";
 import type { createCodexAppServer } from "ai-sdk-provider-codex-cli";
 import { fromCodexListing } from "./catalog/codex";
 import { environmentOverlay } from "./environment";

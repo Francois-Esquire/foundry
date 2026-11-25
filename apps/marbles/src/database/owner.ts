@@ -3,7 +3,7 @@ import {
   ownerOf,
   type ProcessIdentity,
   thisProcess,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 
 export function ownedHere(ownerId: string): {
   readonly ownerId: string;

@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { Page } from "@foundry/core/pagination";
 import { pageFromRows, pageLimit } from "@foundry/lib/pagination";
 
@@ -22,13 +21,6 @@ import type {
   ListContentsInput,
 } from "./substrate";
 
-interface RunningOperation {
-  readonly change: ArtifactChange;
-  writes: number;
-}
-
-const runningOperations = new AsyncLocalStorage<readonly RunningOperation[]>();
-
 export type EventInput = ArtifactEvent extends infer Event
   ? Event extends ArtifactEvent
     ? Omit<Event, "at" | "id">
@@ -37,31 +29,51 @@ export type EventInput = ArtifactEvent extends infer Event
 
 type Pending<Id, Row> = Map<Id, Row | null>;
 
+interface ChangeState {
+  active: boolean;
+  readonly artifacts: Pending<ArtifactId, Artifact>;
+  readonly blobs: Pending<BlobId, Blob>;
+  readonly contents: Pending<ContentId, Content>;
+  readonly events: ArtifactEvent[];
+  failure: { readonly error: unknown } | undefined;
+  readonly readOnly: boolean;
+  readonly store: ArtifactStore;
+}
+
 export class ArtifactChange {
   readonly readOnly: boolean;
-  readonly #store: ArtifactStore;
-  readonly #artifacts: Pending<ArtifactId, Artifact> = new Map();
-  readonly #blobs: Pending<BlobId, Blob> = new Map();
-  readonly #contents: Pending<ContentId, Content> = new Map();
-  readonly #events: ArtifactEvent[] = [];
-  #failure: { readonly error: unknown } | undefined;
-  #active: boolean;
+  readonly #state: ChangeState;
+  readonly #parent: ArtifactChange | undefined;
+  #writes = 0;
 
-  constructor(store: ArtifactStore, options: { readonly readOnly?: boolean }) {
-    this.#store = store;
-    this.readOnly = options.readOnly ?? false;
-    this.#active = true;
+  private constructor(state: ChangeState, parent?: ArtifactChange) {
+    this.#state = state;
+    this.#parent = parent;
+    this.readOnly = state.readOnly;
   }
 
-  async operation<T>(work: () => Promise<T>): Promise<T> {
-    const mine: RunningOperation = { change: this, writes: 0 };
+  static begin(
+    store: ArtifactStore,
+    options: { readonly readOnly?: boolean } = {}
+  ): ArtifactChange {
+    return new ArtifactChange({
+      active: true,
+      artifacts: new Map(),
+      blobs: new Map(),
+      contents: new Map(),
+      events: [],
+      failure: undefined,
+      readOnly: options.readOnly ?? false,
+      store,
+    });
+  }
+
+  async operation<T>(work: (change: ArtifactChange) => Promise<T>): Promise<T> {
+    const scoped = new ArtifactChange(this.#state, this);
     try {
-      return await runningOperations.run(
-        [...(runningOperations.getStore() ?? []), mine],
-        work
-      );
+      return await work(scoped);
     } catch (error) {
-      if (mine.writes > 0) {
+      if (scoped.#writes > 0) {
         this.fail(error);
       }
       throw error;
@@ -69,34 +81,26 @@ export class ArtifactChange {
   }
 
   operationWrites(): number {
-    const running = runningOperations.getStore() ?? [];
-    for (let index = running.length - 1; index >= 0; index -= 1) {
-      const operation = running[index];
-      if (operation?.change === this) {
-        return operation.writes;
-      }
-    }
-    return 0;
+    return this.#writes;
   }
 
   get failure(): { readonly error: unknown } | undefined {
-    return this.#failure;
+    return this.#state.failure;
   }
 
   fail(error: unknown): void {
-    this.#failure ??= { error };
+    this.#state.failure ??= { error };
   }
 
   #wrote(): void {
-    for (const running of runningOperations.getStore() ?? []) {
-      if (running.change === this) {
-        running.writes += 1;
-      }
+    this.#writes += 1;
+    if (this.#parent !== undefined) {
+      this.#parent.#wrote();
     }
   }
 
   settle(): void {
-    this.#active = false;
+    this.#state.active = false;
   }
 
   assertWritable(): void {
@@ -108,27 +112,29 @@ export class ArtifactChange {
 
   write(): ArtifactStoreWrite | undefined {
     if (
-      this.#artifacts.size === 0 &&
-      this.#blobs.size === 0 &&
-      this.#contents.size === 0 &&
-      this.#events.length === 0
+      this.#state.artifacts.size === 0 &&
+      this.#state.blobs.size === 0 &&
+      this.#state.contents.size === 0 &&
+      this.#state.events.length === 0
     ) {
       return;
     }
     return {
-      deleteArtifacts: deleted(this.#artifacts),
-      deleteBlobs: deleted(this.#blobs),
-      deleteContents: deleted(this.#contents),
-      ...(this.#events.length === 0 ? {} : { events: [...this.#events] }),
-      putArtifacts: kept(this.#artifacts),
-      putBlobs: kept(this.#blobs),
-      putContents: kept(this.#contents),
+      deleteArtifacts: deleted(this.#state.artifacts),
+      deleteBlobs: deleted(this.#state.blobs),
+      deleteContents: deleted(this.#state.contents),
+      ...(this.#state.events.length === 0
+        ? {}
+        : { events: [...this.#state.events] }),
+      putArtifacts: kept(this.#state.artifacts),
+      putBlobs: kept(this.#state.blobs),
+      putContents: kept(this.#state.contents),
     };
   }
 
   record(event: EventInput): void {
     this.assertWritable();
-    this.#events.push({
+    this.#state.events.push({
       ...event,
       at: new Date().toISOString(),
       id: crypto.randomUUID(),
@@ -137,7 +143,9 @@ export class ArtifactChange {
   }
 
   getArtifact(id: ArtifactId): Promise<Artifact | null> {
-    return this.#get(this.#artifacts, id, () => this.#store.getArtifact(id));
+    return this.#get(this.#state.artifacts, id, () =>
+      this.#state.store.getArtifact(id)
+    );
   }
 
   async listArtifacts(
@@ -153,8 +161,8 @@ export class ArtifactChange {
       ...(text === undefined ? {} : { text }),
       ...(input.type === undefined ? {} : { type: input.type }),
     };
-    const touched = [...this.#artifacts.keys()];
-    const stored = await this.#store.listArtifacts({
+    const touched = [...this.#state.artifacts.keys()];
+    const stored = await this.#state.store.listArtifacts({
       ...filter,
       ...(input.cursor === undefined ? {} : { after: input.cursor }),
       limit: limit + 1 + touched.length,
@@ -167,19 +175,19 @@ export class ArtifactChange {
         artifactCursor
       );
     }
-    const pending = kept(this.#artifacts).filter((artifact) =>
+    const pending = kept(this.#state.artifacts).filter((artifact) =>
       matchesArtifactFilter(artifact, filter)
     );
     let total = stored.total + pending.length;
     for (const id of touched) {
-      const before = await this.#store.getArtifact(id);
+      const before = await this.#state.store.getArtifact(id);
       if (before && matchesArtifactFilter(before, filter)) {
         total -= 1;
       }
     }
     const rows = [
       ...stored.artifacts.filter(
-        (artifact) => !this.#artifacts.has(artifact.id)
+        (artifact) => !this.#state.artifacts.has(artifact.id)
       ),
       ...pending
         .filter((artifact) => isAfterCursor(artifact, input.cursor))
@@ -198,21 +206,23 @@ export class ArtifactChange {
     ) {
       throw new Error("Artifact pointer must name its own Content");
     }
-    this.#artifacts.set(artifact.id, structuredClone(artifact));
+    this.#state.artifacts.set(artifact.id, structuredClone(artifact));
     this.#wrote();
   }
 
   async deleteArtifact(id: ArtifactId): Promise<void> {
     this.assertWritable();
     for (const content of await this.listContents(id)) {
-      this.#contents.set(content.id, null);
+      this.#state.contents.set(content.id, null);
     }
-    this.#artifacts.set(id, null);
+    this.#state.artifacts.set(id, null);
     this.#wrote();
   }
 
   getContent(id: ContentId): Promise<Content | null> {
-    return this.#get(this.#contents, id, () => this.#store.getContent(id));
+    return this.#get(this.#state.contents, id, () =>
+      this.#state.store.getContent(id)
+    );
   }
 
   async listContents(
@@ -222,7 +232,10 @@ export class ArtifactChange {
     this.#assertActive();
     const states =
       typeof input.state === "string" ? [input.state] : input.state;
-    return merged(await this.#store.listContents(artifactId), this.#contents)
+    return merged(
+      await this.#state.store.listContents(artifactId),
+      this.#state.contents
+    )
       .filter(
         (row) =>
           (artifactId === undefined || row.artifactId === artifactId) &&
@@ -237,7 +250,7 @@ export class ArtifactChange {
     if (!(await this.getArtifact(content.artifactId))) {
       throw new Error("Content requires an Artifact");
     }
-    this.#contents.set(content.id, structuredClone(content));
+    this.#state.contents.set(content.id, structuredClone(content));
     this.#wrote();
   }
 
@@ -250,23 +263,25 @@ export class ArtifactChange {
     ) {
       throw new Error("Cannot delete active Content");
     }
-    this.#contents.set(id, null);
+    this.#state.contents.set(id, null);
     this.#wrote();
   }
 
   getBlob(id: BlobId): Promise<Blob | null> {
-    return this.#get(this.#blobs, id, () => this.#store.getBlob(id));
+    return this.#get(this.#state.blobs, id, () =>
+      this.#state.store.getBlob(id)
+    );
   }
 
   async findBlob(digest: string): Promise<Blob | null> {
     this.#assertActive();
-    const stored = (await this.#store.findBlobs(digest)).find(
-      (blob) => !this.#blobs.has(blob.id)
+    const stored = (await this.#state.store.findBlobs(digest)).find(
+      (blob) => !this.#state.blobs.has(blob.id)
     );
     if (stored) {
       return stored;
     }
-    const pending = [...this.#blobs.values()].find(
+    const pending = [...this.#state.blobs.values()].find(
       (blob) => blob?.digest === digest
     );
     return pending ? structuredClone(pending) : null;
@@ -274,10 +289,10 @@ export class ArtifactChange {
 
   async listBlobs(): Promise<readonly BlobListing[]> {
     this.#assertActive();
-    const listed: BlobListing[] = (await this.#store.listBlobs()).filter(
-      (blob) => !this.#blobs.has(blob.id)
+    const listed: BlobListing[] = (await this.#state.store.listBlobs()).filter(
+      (blob) => !this.#state.blobs.has(blob.id)
     );
-    for (const blob of this.#blobs.values()) {
+    for (const blob of this.#state.blobs.values()) {
       if (blob) {
         listed.push({
           id: blob.id,
@@ -295,28 +310,30 @@ export class ArtifactChange {
     this.#assertActive();
     const skipped = (contentId: ContentId) =>
       except?.contentId === contentId ? except.path : undefined;
-    const stored = await this.#store.findReferences(id);
-    if (stored.blobIds.some((blobId) => !this.#blobs.has(blobId))) {
+    const stored = await this.#state.store.findReferences(id);
+    if (stored.blobIds.some((blobId) => !this.#state.blobs.has(blobId))) {
       return true;
     }
     for (const contentId of stored.contentIds) {
-      if (this.#contents.has(contentId)) {
+      if (this.#state.contents.has(contentId)) {
         continue;
       }
       if (skipped(contentId) === undefined) {
         return true;
       }
-      const content = await this.#store.getContent(contentId);
+      const content = await this.#state.store.getContent(contentId);
       if (content && namesBlob(content, id, skipped(contentId))) {
         return true;
       }
     }
-    for (const content of this.#contents.values()) {
+    for (const content of this.#state.contents.values()) {
       if (content && namesBlob(content, id, skipped(content.id))) {
         return true;
       }
     }
-    return [...this.#blobs.values()].some((blob) => blob?.chunks?.includes(id));
+    return [...this.#state.blobs.values()].some((blob) =>
+      blob?.chunks?.includes(id)
+    );
   }
 
   async putBlob(blob: Blob): Promise<void> {
@@ -330,13 +347,13 @@ export class ArtifactChange {
     ) {
       throw new Error("Blob backing path already belongs to another blob");
     }
-    this.#blobs.set(blob.id, structuredClone(blob));
+    this.#state.blobs.set(blob.id, structuredClone(blob));
     this.#wrote();
   }
 
   deleteBlob(id: BlobId): Promise<void> {
     this.assertWritable();
-    this.#blobs.set(id, null);
+    this.#state.blobs.set(id, null);
     this.#wrote();
     return Promise.resolve();
   }
@@ -354,7 +371,7 @@ export class ArtifactChange {
   }
 
   #assertActive(): void {
-    if (!this.#active) {
+    if (!this.#state.active) {
       throw new Error("Artifact transaction has settled");
     }
   }

@@ -6,7 +6,7 @@ import type {
   SpeechModelV4,
   TranscriptionModelV4,
 } from "@ai-sdk/provider";
-import type { AgentModel, ModelLimits } from "@foundry/agents/agents/model";
+import type { AgentModel, ModelLimits } from "@foundry/core/agents";
 import { modelErrors } from "./errors";
 import type { Provider, TurnLimit } from "./provider";
 import type { Route } from "./selection";

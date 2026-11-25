@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { connect as connectSocket, type Socket } from "node:net";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 
 import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";

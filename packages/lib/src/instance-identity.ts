@@ -1,4 +1,4 @@
-import { isGone, type ProcessIdentity, sameProcess } from "./process-identity";
+import { type ProcessIdentity, sameProcess } from "./process-identity";
 
 export interface InstanceIdentity extends ProcessIdentity {
   readonly instanceId?: string;
@@ -37,7 +37,7 @@ export function sameInstance(
 export function instanceGone(
   owner: InstanceIdentity,
   self: InstanceIdentity,
-  processGone: (owner: ProcessIdentity) => boolean = isGone
+  processGone: (owner: ProcessIdentity) => boolean
 ): boolean {
   if (owner.instanceId !== undefined && live.has(owner.instanceId)) {
     return false;

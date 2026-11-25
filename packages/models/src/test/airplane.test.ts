@@ -4,7 +4,7 @@ import type {
 } from "@ai-sdk/provider";
 import { describe, expect, it, vi } from "vitest";
 import { airplaneMode } from "../airplane";
-import { ModelManager } from "../manager";
+import { Models } from "../models";
 import type { Provider } from "../provider";
 
 const CALL = { prompt: [] } as unknown as LanguageModelV4CallOptions;
@@ -45,15 +45,15 @@ function stubborn(id: string, offline = false): Recorder {
 
 describe("airplaneMode", () => {
   it("refuses network providers in its own manager only", () => {
-    const here = new ModelManager({ providers: [stubborn("cloud")] });
-    const there = new ModelManager({ providers: [stubborn("cloud")] });
+    const here = new Models({ providers: [stubborn("cloud")] });
+    const there = new Models({ providers: [stubborn("cloud")] });
     airplaneMode(here).set(true);
     expect(() => here.resolve("text", "cloud/m")).toThrow(REFUSED);
     expect(there.resolve("text", "cloud/m").provider).toBe("cloud");
   });
 
   it("skips refused providers for an unqualified selection", () => {
-    const models = new ModelManager({
+    const models = new Models({
       providers: [stubborn("cloud"), stubborn("local", true)],
     });
     airplaneMode(models).set(true);
@@ -62,7 +62,7 @@ describe("airplaneMode", () => {
   });
 
   it("refuses the next call on a model opened before, and every check and hold", async () => {
-    const models = new ModelManager({ providers: [stubborn("cloud")] });
+    const models = new Models({ providers: [stubborn("cloud")] });
     const session = models.resolve("text", "cloud/m");
     const model = session.open();
     airplaneMode(models).set(true);
@@ -72,7 +72,7 @@ describe("airplaneMode", () => {
   });
 
   it("aborts calls and streams in flight even when the provider ignores the signal", async () => {
-    const models = new ModelManager({ providers: [stubborn("cloud")] });
+    const models = new Models({ providers: [stubborn("cloud")] });
     const model = models.resolve("text", "cloud/m").open();
     const pending = model.doGenerate(CALL);
     const { stream } = await model.doStream(CALL);
@@ -88,7 +88,7 @@ describe("airplaneMode", () => {
   it("tells every instance to go offline, including ones added later, and back online when lifted", () => {
     const first = stubborn("first");
     const later = stubborn("later");
-    const models = new ModelManager({ providers: [first] });
+    const models = new Models({ providers: [first] });
     const airplane = airplaneMode(models);
     airplane.set(true);
     models.setProviders([first, later]);
@@ -108,7 +108,7 @@ describe("airplaneMode", () => {
     const rejecting = stubborn("rejecting");
     rejecting.setOffline = () => Promise.reject(new Error("lost"));
     const after = stubborn("after");
-    const models = new ModelManager({
+    const models = new Models({
       providers: [throwing, rejecting, after],
     });
     const failures: string[] = [];
@@ -131,7 +131,7 @@ describe("airplaneMode", () => {
     throwing.setOffline = () => {
       throw new Error("stuck");
     };
-    airplaneMode(new ModelManager({ providers: [throwing] })).set(true);
+    airplaneMode(new Models({ providers: [throwing] })).set(true);
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('"throwing" failed to go offline'),
       { code: "FOUNDRY_MODELS_OFFLINE_FAILED" }
@@ -140,7 +140,7 @@ describe("airplaneMode", () => {
   });
 
   it("lifts its policy on dispose and announces policy changes", () => {
-    const models = new ModelManager({ providers: [stubborn("cloud")] });
+    const models = new Models({ providers: [stubborn("cloud")] });
     const changed = vi.fn();
     models.events.on("policies-changed", changed);
     const airplane = airplaneMode(models);
@@ -153,7 +153,7 @@ describe("airplaneMode", () => {
   });
 
   it("refuses a second policy with the same id", () => {
-    const models = new ModelManager();
+    const models = new Models();
     airplaneMode(models).set(true);
     expect(() => airplaneMode(models).set(true)).toThrow("already installed");
   });
@@ -183,7 +183,7 @@ describe("guarded models", () => {
       models: [{ id: "m", kind: "text", modelId: "m" }],
       offline: false,
     };
-    const model = new ModelManager({ providers: [classy] })
+    const model = new Models({ providers: [classy] })
       .resolve("text", "classy/m")
       .open();
     expect(model.supportedUrls).toEqual({ "private-m": [] });
@@ -216,7 +216,7 @@ describe("review regressions", () => {
         supportedUrls: {},
       }),
     };
-    const models = new ModelManager({ providers: [buffered] });
+    const models = new Models({ providers: [buffered] });
     const { stream } = await models
       .resolve("text", "cloud/m")
       .open()
@@ -240,7 +240,7 @@ describe("review regressions", () => {
       models: [{ id: "v", kind: "video", modelId: "v" }],
       videoModel: () => video as never,
     };
-    const models = new ModelManager({ providers: [studio] });
+    const models = new Models({ providers: [studio] });
     const model = models.resolve("video", "cloud/v").open() as unknown as {
       doStart(options: object): Promise<unknown>;
       doStatus(options: object): Promise<unknown>;
@@ -253,7 +253,7 @@ describe("review regressions", () => {
   });
 
   it("checks policies on open and hold even when already held", () => {
-    const models = new ModelManager({ providers: [stubborn("cloud")] });
+    const models = new Models({ providers: [stubborn("cloud")] });
     const session = models.resolve("text", "cloud/m");
     session.hold();
     airplaneMode(models).set(true);
@@ -262,7 +262,7 @@ describe("review regressions", () => {
   });
 
   it("names the refusing policy when nothing else can serve an empty selection", () => {
-    const models = new ModelManager({ providers: [stubborn("cloud")] });
+    const models = new Models({ providers: [stubborn("cloud")] });
     airplaneMode(models).set(true);
     expect(() => models.resolve("text")).toThrow(REFUSED);
   });
@@ -272,7 +272,7 @@ describe("review regressions", () => {
       Promise.resolve({ expiresAt: 0, kind: "token" as const, token: "t" })
     );
     const live: Provider = { ...stubborn("cloud"), grant };
-    const models = new ModelManager({ providers: [live] });
+    const models = new Models({ providers: [live] });
     airplaneMode(models).set(true);
     const [view] = models.providers;
     expect(() => view?.grant?.("m", "generate-video")).toThrow(REFUSED);
@@ -282,7 +282,7 @@ describe("review regressions", () => {
   it("cuts a grant pending when the policy is installed", async () => {
     const grant = vi.fn(() => new Promise<never>(() => undefined));
     const live: Provider = { ...stubborn("cloud"), grant };
-    const models = new ModelManager({ providers: [live] });
+    const models = new Models({ providers: [live] });
     const pending = models.providers[0]?.grant?.("m", "generate-video");
     airplaneMode(models).set(true);
     await expect(pending).rejects.toThrow(REFUSED);
@@ -290,7 +290,7 @@ describe("review regressions", () => {
 
   it("takes offline an instance that left while leased before it was turned on", () => {
     const leased = stubborn("leased");
-    const models = new ModelManager({ providers: [leased] });
+    const models = new Models({ providers: [leased] });
     const session = models.resolve("text", "leased/m");
     session.hold();
     models.setProviders([]);
@@ -305,7 +305,7 @@ describe("review regressions", () => {
   it("brings back a leased instance that left, and forgets one disposed", async () => {
     const leased = stubborn("leased");
     const gone = stubborn("gone");
-    const models = new ModelManager({ providers: [leased, gone] });
+    const models = new Models({ providers: [leased, gone] });
     const session = models.resolve("text", "leased/m");
     session.hold();
     const airplane = airplaneMode(models);
@@ -342,7 +342,7 @@ describe("guarded views", () => {
       ...stubborn("frozen"),
       languageModel: () => frozenModel(),
     };
-    const models = new ModelManager({ providers: [frozen] });
+    const models = new Models({ providers: [frozen] });
     const model = models.resolve("text", "frozen/m").open();
     expect(model.doGenerate).toBe(model.doGenerate);
     await expect(model.doGenerate(CALL)).resolves.toEqual({ content: [] });
@@ -365,7 +365,7 @@ describe("guarded views", () => {
       models: [{ id: "v", kind: "video", modelId: "v" }],
       videoModel: () => extra as never,
     };
-    const models = new ModelManager({ providers: [cloud] });
+    const models = new Models({ providers: [cloud] });
     const model = models.resolve("video", "cloud/v").open() as unknown as {
       describe(): string;
       preview(): Promise<string>;
@@ -379,13 +379,13 @@ describe("guarded views", () => {
 
   it("identifies providers by instance id: views are stable, not the supplied objects, and unwrap in any manager", () => {
     const cloud = stubborn("cloud");
-    const first = new ModelManager({ providers: [cloud] });
+    const first = new Models({ providers: [cloud] });
     const [view] = first.providers;
     expect(view).not.toBe(cloud);
     expect(view?.id).toBe("cloud");
     expect(first.providers[0]).toBe(view);
 
-    const second = new ModelManager({ providers: first.providers });
+    const second = new Models({ providers: first.providers });
     airplaneMode(first).set(true);
     expect(second.resolve("text", "cloud/m").provider).toBe("cloud");
   });

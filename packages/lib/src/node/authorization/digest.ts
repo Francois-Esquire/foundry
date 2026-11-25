@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 
-import type { AuthorizationAddress, AuthorizationSubject } from "./address";
-
-import { encodeAddress } from "./address";
+import type {
+  AuthorizationAddress,
+  AuthorizationSubject,
+} from "../../config/authorization/address";
+import { encodeAddress } from "../../config/authorization/address";
 
 export function addressDigest<S extends AuthorizationSubject>(
   address: AuthorizationAddress<S>

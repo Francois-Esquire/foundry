@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test, vi } from "vitest";
 
-import { ArtifactManager } from "../manager";
+import { Artifacts } from "../artifacts";
 import { blobFiles } from "../node";
 import type { ArtifactDatabase } from "../store/sqlite";
 import { SqliteArtifactStore } from "../store/sqlite";
@@ -33,7 +33,7 @@ async function setup(databases: LibsqlDatabases) {
   const root = await mkdtemp(join(tmpdir(), "artifact-host-"));
   roots.push(root);
   const files = blobFiles(root);
-  const durable = new ArtifactManager({
+  const durable = new Artifacts({
     files,
     store: new SqliteArtifactStore({ database, scope: "s" }),
   });
@@ -44,23 +44,23 @@ async function setup(databases: LibsqlDatabases) {
   });
   const published = () => publishedIn(root);
   const original = await published();
-  const read = async (manager: ArtifactManager = durable) => {
+  const read = async (manager: Artifacts = durable) => {
     const artifact = required(await manager.get(created.id));
     const file = await manager.readFile(required(artifact.contentId), "a.txt");
     return new TextDecoder().decode(required(file).blob);
   };
-  const rewrite = (manager: ArtifactManager) =>
+  const rewrite = (manager: Artifacts) =>
     manager.write({
       artifactId: created.id,
       changes: { put: { "a.txt": { bytes: "after" } } },
     });
   const inHost = async (
     outcome: "commit" | "rollback",
-    work: (joined: ArtifactManager) => Promise<unknown>
+    work: (joined: Artifacts) => Promise<unknown>
   ) => {
     try {
       await database.transaction(async (transaction) => {
-        const joined = new ArtifactManager({
+        const joined = new Artifacts({
           files,
           store: new SqliteArtifactStore({ database: transaction, scope: "s" }),
         });
@@ -153,7 +153,7 @@ describe.each([
         await setup(databases);
       try {
         await database.transaction(async (transaction) => {
-          const joined = new ArtifactManager({
+          const joined = new Artifacts({
             files,
             store: interceptCommits(
               new SqliteArtifactStore({ database: transaction, scope: "s" }),
@@ -179,7 +179,7 @@ describe("a durable recover while a host transaction on its database is open", (
     const databases = fileDatabases;
     const { database, files, inHost, original, published, read, rewrite } =
       await setup(databases);
-    const elsewhere = new ArtifactManager({
+    const elsewhere = new Artifacts({
       files,
       store: new SqliteArtifactStore({
         database: databases.connect(database),
@@ -217,7 +217,7 @@ describe.each(STORE_KINDS)(
       const root = await mkdtemp(join(tmpdir(), "artifact-queued-"));
       roots.push(root);
       const files = blobFiles(root);
-      const durable = new ArtifactManager({ files, store });
+      const durable = new Artifacts({ files, store });
       const created = await durable.create({
         entries: { "a.txt": { bytes: "before" } },
         name: "A",
@@ -228,7 +228,7 @@ describe.each(STORE_KINDS)(
       const proceed = Promise.withResolvers<void>();
       const transaction = required(store.transaction?.bind(store));
       const settled = transaction(async (view) => {
-        await new ArtifactManager({ files, store: view }).write({
+        await new Artifacts({ files, store: view }).write({
           artifactId: created.id,
           changes: { put: { "a.txt": { bytes: "after" } } },
         });
@@ -327,7 +327,7 @@ describe.each(STORE_KINDS)(
       const root = await mkdtemp(join(tmpdir(), "artifact-view-"));
       roots.push(root);
       const files = blobFiles(root);
-      const outer = new ArtifactManager({ files, store });
+      const outer = new Artifacts({ files, store });
       const created = await outer.create({
         entries: { "a.txt": { bytes: "before" } },
         name: "A",
@@ -337,7 +337,7 @@ describe.each(STORE_KINDS)(
 
       await expect(
         transaction(async (view) => {
-          const inner = new ArtifactManager({ files, store: view });
+          const inner = new Artifacts({ files, store: view });
           await inner.write({
             artifactId: created.id,
             changes: { put: { "a.txt": { bytes: "after" } } },

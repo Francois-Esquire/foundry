@@ -291,9 +291,26 @@ export interface WorkspaceFileSystem<
   tree?(root: string): Promise<StorageTree>;
 }
 
+export interface GitPathStatus {
+  readonly path: string;
+  readonly staged: boolean;
+  readonly unstaged: boolean;
+  readonly untracked: boolean;
+}
+
+export type GitSnapshot =
+  | { readonly kind: "none" }
+  | { readonly kind: "unavailable"; readonly reason: string }
+  | {
+      readonly kind: "repository";
+      readonly branch: string | null;
+      readonly detached: boolean;
+      readonly paths: readonly GitPathStatus[];
+    };
+
 export interface WorkspaceContext {
   readonly catalog: WorkspaceCatalog;
-  readonly close: (workspaceId: WorkspaceId) => Promise<void>;
+  readonly close: (workspaceId: WorkspaceId, from?: Workspace) => Promise<void>;
   readonly report: (error: unknown) => void;
   readonly serialize: <T>(
     workspaceId: WorkspaceId,

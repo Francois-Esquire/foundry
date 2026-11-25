@@ -9,6 +9,7 @@ export {
   type ArtifactFileStamp,
   type ArtifactFileSystem,
   type ArtifactFileSystemOptions,
+  type ArtifactRef,
   artifactFileSystem,
 } from "./filesystem";
 export { JsonArtifactStore, type JsonArtifactStoreOptions } from "./json-store";

@@ -3,7 +3,7 @@ import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve as resolvePath } from "node:path";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { step } from "@foundry.sh/marbles";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
@@ -269,7 +269,7 @@ it("runs multiple model/tool steps and stops at maxTurns", async () => {
       });
     },
   });
-  const models = new ModelManager({
+  const models = new Models({
     providers: [
       {
         available: true,

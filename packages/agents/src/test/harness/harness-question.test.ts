@@ -13,7 +13,7 @@ import type {
   HarnessQuestionResult,
   HarnessTurnDriver,
 } from "../../harness/turn-driver";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   textStreamResult,
@@ -42,7 +42,7 @@ function settings(): DriverSessionSettings {
       unresolved: "ask",
     },
     sessionId: "host-session",
-    store: new InMemorySessionStore(),
+    store: new MemorySessionStore(),
   };
 }
 

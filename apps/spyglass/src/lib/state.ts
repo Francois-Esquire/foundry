@@ -3,12 +3,15 @@ import { existsSync, mkdirSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { isMissingPath, writeFileAtomicSync } from "@foundry/lib/atomic-file";
-import type { FileLockHolder } from "@foundry/lib/file-lock";
-import { tryFileLock } from "@foundry/lib/file-lock";
+import {
+  isMissingPath,
+  writeFileAtomicSync,
+} from "@foundry/lib/node/atomic-file";
+import type { FileLockHolder } from "@foundry/lib/node/file-lock";
+import { tryFileLock } from "@foundry/lib/node/file-lock";
+import { processAlive } from "@foundry/lib/node/process-identity";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
-import { processAlive } from "@foundry/lib/process-identity";
 import { version } from "../../package.json" with { type: "json" };
 
 export interface WorkspaceState {

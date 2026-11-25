@@ -2,7 +2,7 @@
   "name": "@foundry/models",
   "version": "0.1.0",
   "private": true,
-  "description": "Unified model registry: remote providers, CLI harnesses, on-device models, and their catalogs behind one ModelManager.",
+  "description": "Unified model registry: remote providers, CLI harnesses, on-device models, and their catalogs behind one Models registry.",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -70,13 +70,69 @@
       "types": "./dist/src/cost.d.ts",
       "import": "./src/cost.ts"
     },
-    "./catalog/*": {
-      "types": "./dist/src/catalog/*.d.ts",
-      "import": "./src/catalog/*.ts"
+    "./catalog/claude-code": {
+      "types": "./dist/src/catalog/claude-code.d.ts",
+      "import": "./src/catalog/claude-code.ts"
     },
-    "./embeddings/*": {
-      "types": "./dist/src/embeddings/*.d.ts",
-      "import": "./src/embeddings/*.ts"
+    "./catalog/codex": {
+      "types": "./dist/src/catalog/codex.d.ts",
+      "import": "./src/catalog/codex.ts"
+    },
+    "./catalog/defaults": {
+      "types": "./dist/src/catalog/defaults.d.ts",
+      "import": "./src/catalog/defaults.ts"
+    },
+    "./catalog/limits": {
+      "types": "./dist/src/catalog/limits.d.ts",
+      "import": "./src/catalog/limits.ts"
+    },
+    "./catalog/local": {
+      "types": "./dist/src/catalog/local.d.ts",
+      "import": "./src/catalog/local.ts"
+    },
+    "./catalog/models-dev": {
+      "types": "./dist/src/catalog/models-dev.d.ts",
+      "import": "./src/catalog/models-dev.ts"
+    },
+    "./catalog/models-dev-source": {
+      "types": "./dist/src/catalog/models-dev-source.d.ts",
+      "import": "./src/catalog/models-dev-source.ts"
+    },
+    "./catalog/vercel": {
+      "types": "./dist/src/catalog/vercel.d.ts",
+      "import": "./src/catalog/vercel.ts"
+    },
+    "./embeddings/chunk": {
+      "types": "./dist/src/embeddings/chunk.d.ts",
+      "import": "./src/embeddings/chunk.ts"
+    },
+    "./embeddings/code": {
+      "types": "./dist/src/embeddings/code.d.ts",
+      "import": "./src/embeddings/code.ts"
+    },
+    "./embeddings/pipeline": {
+      "types": "./dist/src/embeddings/pipeline.d.ts",
+      "import": "./src/embeddings/pipeline.ts"
+    },
+    "./embeddings/recursive": {
+      "types": "./dist/src/embeddings/recursive.d.ts",
+      "import": "./src/embeddings/recursive.ts"
+    },
+    "./embeddings/semantic": {
+      "types": "./dist/src/embeddings/semantic.d.ts",
+      "import": "./src/embeddings/semantic.ts"
+    },
+    "./embeddings/source": {
+      "types": "./dist/src/embeddings/source.d.ts",
+      "import": "./src/embeddings/source.ts"
+    },
+    "./embeddings/text": {
+      "types": "./dist/src/embeddings/text.d.ts",
+      "import": "./src/embeddings/text.ts"
+    },
+    "./embeddings/types": {
+      "types": "./dist/src/embeddings/types.d.ts",
+      "import": "./src/embeddings/types.ts"
     }
   },
   "files": [
@@ -102,7 +158,7 @@
     "@browser-ai/transformers-js": "3.0.0",
     "@chonkiejs/core": "^0.0.11",
     "@fal-ai/client": "1.11.0-alpha.2",
-    "@foundry/agents": "workspace:*",
+    "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
     "@huggingface/transformers": "^4.2.0",
     "@kreuzberg/tree-sitter-language-pack": "^1.10.9",

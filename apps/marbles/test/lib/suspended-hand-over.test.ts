@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { catalog } from "~/authoring/catalog";
@@ -97,7 +97,7 @@ it("a retiring engine finishes its running run untouched, and the next engine an
 
 it("a run paused on a retiring engine, resumed there, runs on the next one with the prompt it was resumed with", async () => {
   const state = join(root, "state");
-  const sessions = new InMemorySessionStore();
+  const sessions = new MemorySessionStore();
   const prompts: string[] = [];
   const reply = ({ prompt }: { readonly prompt: string }) => {
     prompts.push(prompt);

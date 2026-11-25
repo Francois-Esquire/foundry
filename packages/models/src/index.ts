@@ -48,8 +48,12 @@ export {
   SYSTEM_ACTOR,
   withAiLogger,
 } from "./logger";
-export type { ModelManagerOptions, ProviderPolicy } from "./manager";
-export { ModelManager } from "./manager";
+export type {
+  ModelsEventListener,
+  ModelsOptions,
+  ProviderPolicy,
+} from "./models";
+export { Models, ModelsEventEmitter } from "./models";
 export type { CatalogRow, ModelOption } from "./model-option";
 export { toModelOption, vendorOf } from "./model-option";
 export type { KindModels, OpenOptions, Resolution } from "./resolution";

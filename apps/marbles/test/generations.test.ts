@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { processAlive } from "@foundry/lib/process-identity";
+import { processAlive } from "@foundry/lib/node/process-identity";
 import { queueRuns } from "@foundry/queue/store/tables";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";

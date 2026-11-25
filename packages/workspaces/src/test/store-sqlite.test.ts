@@ -635,7 +635,7 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
     expect(removals[0]?.events?.[0]?.id).not.toBe(removals[1]?.events?.[0]?.id);
   }, 60_000);
 
-  test("a WorkspaceSystem loads a real directory into SQLite and reads it back", async () => {
+  test("Workspaces loads a real directory into SQLite and reads it back", async () => {
     const root = await makeRoot({
       "docs/guide.md": "# Guide",
       "README.md": "hello",

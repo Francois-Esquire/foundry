@@ -4,8 +4,8 @@ import { dirname, join } from "node:path";
 
 import type { StorageNode, StorageTree } from "@foundry/core/storage";
 import { validateStorageTree } from "@foundry/core/storage";
-import { readJsonFile, writeFileAtomic } from "@foundry/lib/atomic-file";
 import { sha256Hex } from "@foundry/lib/digest";
+import { readJsonFile, writeFileAtomic } from "@foundry/lib/node/atomic-file";
 import type { ContentTree } from "../blob";
 import type { ArtifactId } from "../ref";
 import type { ArtifactOperations, ArtifactResolved } from "../substrate";
@@ -27,7 +27,7 @@ export interface ArtifactDiskConflict {
   readonly paths: readonly string[];
 }
 
-export interface AppliedDirectory {
+interface AppliedDirectory {
   readonly applied: StorageTree | undefined;
   readonly id: ArtifactId;
   readonly root: string;

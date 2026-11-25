@@ -11,7 +11,13 @@ Import shared helpers directly from their owning module:
 - `@foundry/lib/pagination`: page limits, page construction, and complete traversal through `collectPages`.
 - `@foundry/lib/mime`: shared MIME constants and text MIME detection.
 - `@foundry/lib/file-classification`: filename classification, `FileClassification`, `FileKind`, `FILE_KINDS`, and `CLASSIFICATION_VERSION`.
+- `@foundry/lib/emitter`: portable Web-standard `TypedEmitter` with Node `EventEmitter` semantics (recursive `once` safety, receiver `this` binding, LIFO removal, unhandled `"error"` throw).
+- `@foundry/lib/equal`: portable `isDeepStrictEqual` supporting cycles, built-in objects (`Date`, `RegExp`, `ArrayBuffer`, typed views, `Map`, `Set`), `NaN`, and signed zero.
+- `@foundry/lib/async-scope`: conditional `AsyncScope<T>` primitive (`"node"` / `"bun"` → `AsyncLocalStorage`, `"default"` → pass-through) for best-effort diagnostics and guards.
+- `@foundry/lib/process-identity` & `@foundry/lib/instance-identity`: pure process/instance identity types, parsers, comparators, `portableProcess`, and `neverGone`. OS/Node queries (`thisProcess`, `isGone`, `nodeStartedAt`, `processAlive`, `lookProcesses`, `groupMembers`, `nodeInstanceGone`) live under `@foundry/lib/node/process-identity` and `@foundry/lib/node/instance-identity`.
+- `@foundry/lib/node/*`: Node/Bun-only filesystem, locking, process-tracking, and authorization helpers (`atomic-file`, `file-lock`, `orphans`, `spawn-record`, `async-scope`, `process-identity`, `instance-identity`, `authorization/file`, `authorization/digest`).
 - `@foundry/lib/sqlite`: shared Drizzle SQLite database/transaction types, value-storability guards, batching, upsert helpers, and record fault errors.
+- `@foundry/lib/testing/seam`: `auditWebStandardExports` and `assertWebStandardExports` for verifying Web-standard package export graphs.
 - `@foundry/lib/testing/sqlite`: test helper `createTables` for materializing Drizzle SQLite tables in tests.
 
 These modules have no third-party dependencies or filesystem I/O, except the SQLite helpers which require the optional `drizzle-orm` peer. Storage contracts and structural validation live in `@foundry/core/storage`.
@@ -177,12 +183,14 @@ child's own `source` riding along.
 `Config`'s base class, and usable alone as the child in a `mount`.
 
 ```typescript
-class ReactiveStore<T extends object> extends EventEmitter {
+class ReactiveStore<T extends object> {
   get values(): Readonly<T>;
   get(path: string): unknown;
   set(path: string, value: unknown): void;
   patch(patch: DeepPartial<T>): void;
   reset(): void;
+  on(event: string, listener: (...args: unknown[]) => void): this;
+  off(event: string, listener: (...args: unknown[]) => void): this;
   attachRelay(relay: CommitRelay<T> | null): void;
 }
 ```
@@ -360,7 +368,7 @@ means the shape of what is granted changed, so prior grants must not carry over.
 
 `encodeAddress` produces the stable string key. `addressDigest` — a 128-bit
 index for storage that cannot hold the structured address — lives at
-`@foundry/lib/config/authorization/digest`, deliberately **off** the barrel: it
+`@foundry/lib/node/authorization/digest`, deliberately **off** the barrel: it
 needs `node:crypto`, and the barrel is renderer-importable. See
 [Renderer safety](#renderer-safety).
 
@@ -468,8 +476,8 @@ node builtin, directly or transitively.** A `node:crypto` import anywhere in the
 graph throws in a browser before any of it runs, whether or not the function is
 ever called.
 
-That is the whole reason `digest.ts` sits off the barrel at
-`@foundry/lib/config/authorization/digest` — an import a renderer cannot make by
+That is the whole reason `digest.ts` and `file.ts` sit off the barrel under
+`@foundry/lib/node/authorization/*` — imports a renderer cannot make by
 accident.
 
 ### Why both live here
@@ -481,11 +489,9 @@ is not configuration, and it does not read Config.
 
 ### Entry points
 
-Config lives inside `@foundry/lib` under `src/config/`. `@foundry/lib/config`
-resolves to `config.ts`; everything else is a subpath under it.
-
-The map is `"./config/authorization"` plus a `"./config/*"` wildcard over
-`src/config/`, so **every file in `src/config/` is importable**, including
-`helpers.ts`, which reads as internal.
+Every public subpath is declared explicitly in `package.json` `exports` (no
+`./*` wildcards). Pure Web-standard helpers live at top-level subpaths and under
+`./config/*`; Node/Bun-only adapters live under `./node/*`; `@foundry/lib/async-scope`
+uses conditional `"node"` / `"bun"` vs. `"default"` exports.
 Types resolve from `dist/`, not `src/`. Rebuild this package before a consumer
 typechecks against a changed public API.

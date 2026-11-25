@@ -1,4 +1,4 @@
-import { assertSemverTag } from "@foundry/modules/manifest";
+import { assertSemverTag } from "@foundry/modules";
 import { AsyncIteratorClass, EventPublisher } from "@orpc/server";
 import type { ModuleBuildEvent, ModuleSourceRevision } from "~/shared/modules";
 import type { ModuleLibrary } from "../library";

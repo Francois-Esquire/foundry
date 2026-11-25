@@ -1,13 +1,13 @@
-import { ArtifactManager } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { Artifacts } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { describe, expect, it } from "vitest";
 
 import { defineModule, defineModuleVersion, moduleIdSchema } from "../domain";
 import { ModuleCrossStoreError } from "../errors";
 import { createModuleManagement } from "../management";
+import { Modules } from "../modules";
 import { encodeModulePackage, importModulePackage } from "../package";
 import { createModuleProjects } from "../projects";
-import { ModuleRegistry } from "../registry";
 import { MemoryModuleStore } from "../store/memory";
 import { SqliteModuleStore } from "../store/sqlite";
 import { failingArtifacts } from "./helpers/failing-artifacts";
@@ -33,7 +33,7 @@ const STORES = [
 describe.each(STORES)("Create, import and delete over %s", (_name, open) => {
   it("complete on a retry after the Artifact write fails, and refuse a caller's Artifact transaction", async () => {
     const failing = failingArtifacts();
-    const registry = new ModuleRegistry({ store: await open() });
+    const registry = new Modules({ store: await open() });
     const projects = createModuleProjects({
       artifacts: failing.artifacts,
       store: registry,
@@ -72,7 +72,7 @@ describe.each(STORES)("Create, import and delete over %s", (_name, open) => {
 
   it("refuse an import onto another Module's Artifact, leaving it as it was, and land one that owns it", async () => {
     const target = await moduleFixture({ artifactId: "shared-artifact" });
-    const registry = new ModuleRegistry({ store: await open() });
+    const registry = new Modules({ store: await open() });
     await registry.registerModule({
       module: defineModule({
         artifact: target.artifact,
@@ -132,12 +132,12 @@ describe.each(STORES)("Create, import and delete over %s", (_name, open) => {
 
 describe("Artifacts on their own", () => {
   it("let a create run when no Artifact transaction is open", async () => {
-    const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+    const artifacts = new Artifacts({
+      store: new MemoryArtifactStore(),
     });
     const projects = createModuleProjects({
       artifacts,
-      store: new ModuleRegistry(),
+      store: new Modules(),
     });
     const created = await projects.create({
       id: moduleIdSchema.parse("plain"),

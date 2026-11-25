@@ -127,7 +127,7 @@ Custom callbacks must remain abortable and must not call the workflow `ask`
 suspension API. Custom authority stores retain responsibility for their own
 restart recovery; the default runtime persists its grants locally.
 
-Embedding hosts register network providers on the `ModelManager` they hand the
+Embedding hosts register network providers on the `Models` they hand the
 engine.
 These use the built-in coding loop with scoped guest tools, a step limit, and
 compaction. The existing OpenAI-compatible gateway provider also supports

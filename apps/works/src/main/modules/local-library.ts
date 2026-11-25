@@ -12,9 +12,9 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
-import { isPortableRelativePath } from "@foundry/modules/manifest";
-import { captureModuleWorkspaceSource } from "@foundry/modules/node/source";
-import { KeyedTurns } from "@foundry/modules/platform/turns";
+import { isPortableRelativePath } from "@foundry/modules";
+import { captureModuleWorkspaceSource } from "@foundry/modules/node";
+import { KeyedTurns } from "@foundry/modules/platform";
 import { z } from "zod";
 import type { ModuleDetails } from "~/shared/modules";
 import { createModuleLibrary, type ModuleLibrary } from "./library";

@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
@@ -116,7 +116,7 @@ describe("lib2 through the engine", () => {
   it("a run suspended on an approval survives a restart and replays with its ledger", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");
-    const sessions = new InMemorySessionStore();
+    const sessions = new MemorySessionStore();
     const reviewer = agent({ prompt: "Review." });
     const bodies: number[] = [];
     const define = () =>

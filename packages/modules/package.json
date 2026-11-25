@@ -6,12 +6,61 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./src/*.ts",
-      "default": "./src/*.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
-    "./package.json": "./package.json"
+    "./gateway": {
+      "types": "./dist/gateway/index.d.ts",
+      "import": "./src/gateway/index.ts",
+      "default": "./src/gateway/index.ts"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./src/node/index.ts",
+      "default": "./src/node/index.ts"
+    },
+    "./platform": {
+      "types": "./dist/platform/index.d.ts",
+      "import": "./src/platform/index.ts",
+      "default": "./src/platform/index.ts"
+    },
+    "./sdk": {
+      "types": "./dist/sdk/index.d.ts",
+      "import": "./src/sdk/index.ts",
+      "default": "./src/sdk/index.ts"
+    },
+    "./store": {
+      "types": "./dist/store.d.ts",
+      "import": "./src/store.ts",
+      "default": "./src/store.ts"
+    },
+    "./store/memory": {
+      "types": "./dist/store/memory.d.ts",
+      "import": "./src/store/memory.ts",
+      "default": "./src/store/memory.ts"
+    },
+    "./store/sqlite": {
+      "types": "./dist/store/sqlite.d.ts",
+      "import": "./src/store/sqlite.ts",
+      "default": "./src/store/sqlite.ts"
+    },
+    "./store/tables": {
+      "types": "./dist/store/tables.d.ts",
+      "import": "./src/store/tables.ts",
+      "default": "./src/store/tables.ts"
+    },
+    "./template": {
+      "types": "./dist/template/index.d.ts",
+      "import": "./src/template/index.ts",
+      "default": "./src/template/index.ts"
+    },
+    "./testing/store": {
+      "types": "./dist/testing/store.d.ts",
+      "import": "./src/testing/store.ts",
+      "default": "./src/testing/store.ts"
+    }
   },
   "files": [
     "./dist/**/*",

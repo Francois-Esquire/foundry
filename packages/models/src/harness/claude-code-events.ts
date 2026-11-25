@@ -2,7 +2,7 @@ import type {
   LanguageModelV4StreamPart,
   LanguageModelV4Usage,
 } from "@ai-sdk/provider";
-import type { StreamPart } from "@foundry/agents/harness";
+import type { StreamPart } from "@foundry/core/agents";
 import type { LanguageModelUsage } from "ai";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import type { ReportClaudeTool } from "./claude-code-tools";

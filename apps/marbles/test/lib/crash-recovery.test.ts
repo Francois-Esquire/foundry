@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { afterEach, expect, it } from "vitest";
 import { CrashRecovery } from "~/lib/crash-recovery";
 import { HarnessActivities } from "~/lib/sandbox/activities";
@@ -24,9 +24,9 @@ it("removes, at start, an artifact file no record names", async () => {
   const stray = join(dir, randomUUID());
   writeFileSync(stray, "bytes no record names");
   const engine = testEngine({
-    artifacts: new ArtifactManager({
+    artifacts: new Artifacts({
       files: blobFiles(dir),
-      store: new InMemoryArtifactStore(),
+      store: new MemoryArtifactStore(),
     }),
   });
   await engine.start();

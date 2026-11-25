@@ -2,7 +2,7 @@ import type { LanguageModelV4 } from "@ai-sdk/provider";
 import type {
   HarnessResponseFormat,
   HarnessToolEvent,
-} from "@foundry/agents/harness";
+} from "@foundry/core/agents";
 import { tool } from "ai";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import { describe, expect, it, vi } from "vitest";

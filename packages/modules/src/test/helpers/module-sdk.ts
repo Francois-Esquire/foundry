@@ -35,13 +35,13 @@ export interface GatewayClient {
   ): AsyncIterable<unknown>;
 }
 
-export interface ProgramSocket {
+interface ProgramSocket {
   close(code?: number, reason?: string): void;
   readonly readyState: number;
   send(data: string): unknown;
 }
 
-export interface ProgramGateway {
+interface ProgramGateway {
   readonly client: GatewayClient | undefined;
   readonly websocket: {
     open(socket: ProgramSocket): void;

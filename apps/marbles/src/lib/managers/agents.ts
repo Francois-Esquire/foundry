@@ -1,11 +1,12 @@
-import type { AgentSpec } from "@foundry/agents/agents/index";
-import { createAgentPreset } from "@foundry/agents/agents/index";
+import type { AgentSpec } from "@foundry/agents/agents";
+import { createAgentPreset } from "@foundry/agents/agents";
 import type {
   HarnessSession,
   SessionHarness,
   TurnOptions,
 } from "@foundry/agents/harness";
-import { McpClient } from "@foundry/agents/mcp";
+import type { McpClient } from "@foundry/agents/mcp";
+import { createNodeMcpClient } from "@foundry/agents/node";
 import type {
   SessionInput,
   SessionMessage,
@@ -15,12 +16,12 @@ import type {
 import { Sessions } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import type { SessionStore } from "@foundry/agents/store";
-import { composeTools } from "@foundry/agents/tools/compose";
+import { composeTools } from "@foundry/agents/tools";
 import { canonicalizeJson } from "@foundry/lib/json";
-import type { ModelManager, ModelSelection, Resolution } from "@foundry/models";
+import type { ModelSelection, Models, Resolution } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
-import type { Container } from "@foundry/sandbox/container/containers";
+import type { Container } from "@foundry/sandbox";
+import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox";
 import type { Output } from "ai";
 import type { AutomationService } from "~/lib/automation/service";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
@@ -87,7 +88,7 @@ export interface AgentsDeps {
   readonly implementationOf?: (provider: string) => string | undefined;
   readonly instanceOf?: (provider: string) => string | undefined;
   readonly interactions: HarnessInteractions;
-  readonly models: ModelManager;
+  readonly models: Models;
   readonly observe?: (runId: string, observation: ExecutionObservation) => void;
   readonly requireProviders?: () => void;
   readonly sessions: SessionStore;
@@ -364,7 +365,7 @@ function heldText(
 export function policed(
   session: HarnessSession,
   resolution: Resolution<"text">,
-  models: ModelManager,
+  models: Models,
   site: SessionSite
 ): HarnessSession {
   const recheck = () => {
@@ -586,8 +587,8 @@ async function connectServers(
       `agent "${definition.id}" names one MCP server id more than once`
     );
   }
-  const clients = servers.map(
-    (server) => new McpClient({ ...server, enabled: true })
+  const clients = servers.map((server) =>
+    createNodeMcpClient({ ...server, enabled: true })
   );
   for (const client of clients) {
     site.retain(client);
@@ -1064,7 +1065,7 @@ export class AgentsManager implements Agents {
     this.#deps = deps;
   }
 
-  get models(): ModelManager {
+  get models(): Models {
     return this.#deps.models;
   }
 

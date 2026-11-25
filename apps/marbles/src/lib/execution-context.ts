@@ -1,12 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { ModelManager } from "@foundry/models";
+import type { Models } from "@foundry/models";
 
 import { current } from "./run-scope";
 
 export interface ExecutionContext {
   readonly cwd: string;
   readonly environment: Readonly<Record<string, string>>;
-  readonly models?: ModelManager | undefined;
+  readonly models?: Models | undefined;
   readonly spawned?: string;
   readonly workspaceId: string;
 }

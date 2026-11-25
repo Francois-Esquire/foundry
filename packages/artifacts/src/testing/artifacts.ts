@@ -8,8 +8,8 @@ import type {
   StoredFile,
 } from "../index";
 import {
-  ArtifactManager,
   ArtifactNotFoundError,
+  Artifacts,
   ContentStateError,
   DuplicateTagError,
   FilePointerError,
@@ -109,18 +109,18 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, hung]).finally(() => clearTimeout(timer));
 }
 
-export function describeArtifactManager(
+export function describeArtifacts(
   name: string,
   createStore: () => ArtifactStore | Promise<ArtifactStore>
 ): void {
   async function harness() {
     const store = await createStore();
     const mutations: string[] = [];
-    const artifacts = new ArtifactManager({ store });
+    const artifacts = new Artifacts({ store });
     artifacts.observe((id) => mutations.push(id));
     return { artifacts, mutations, store };
   }
-  describe(`${name} Artifact manager`, () => {
+  describe(`${name} Artifacts`, () => {
     test("stores structural entries without blobs and removes directories recursively", async () => {
       const { artifacts, store } = await harness();
       const before = (await store.listBlobs()).length;
@@ -581,14 +581,14 @@ export function describeArtifactManager(
 
     test("enforces write fences between two managers over one store", async () => {
       const store = await createStore();
-      const one = new ArtifactManager({ store });
-      const other = new ArtifactManager({ store });
+      const one = new Artifacts({ store });
+      const other = new Artifacts({ store });
       const original = await one.create({
         entries: { "file.txt": { bytes: "start" } },
         name: "Shared",
         type: "text/plain",
       });
-      const write = (artifacts: ArtifactManager, bytes: string) =>
+      const write = (artifacts: Artifacts, bytes: string) =>
         artifacts.write({
           artifactId: original.id,
           changes: { put: { "file.txt": { bytes } } },
@@ -677,7 +677,7 @@ export function describeArtifactManager(
           await commit(write);
         }
       );
-      const artifacts = new ArtifactManager({ store });
+      const artifacts = new Artifacts({ store });
       const trigger = Promise.withResolvers<undefined>();
       let later: Promise<ArtifactResolved> | undefined;
       const outer = artifacts.transaction(async (transaction) => {
@@ -715,8 +715,8 @@ export function describeArtifactManager(
 
     async function sharedStore() {
       const shared = pausable(await createStore());
-      const reader = new ArtifactManager({ store: shared.store });
-      const writer = new ArtifactManager({ store: shared.store });
+      const reader = new Artifacts({ store: shared.store });
+      const writer = new Artifacts({ store: shared.store });
       const created = await writer.create({
         entries: { "file.txt": text("kept", "text/plain") },
         name: "Shared",
@@ -761,8 +761,8 @@ export function describeArtifactManager(
       if (!isTransactional(store)) {
         return skip();
       }
-      const first = new ArtifactManager({ store });
-      const second = new ArtifactManager({ store });
+      const first = new Artifacts({ store });
+      const second = new Artifacts({ store });
       const entered = Promise.withResolvers<undefined>();
       const proceed = Promise.withResolvers<undefined>();
       const outer = first.transaction(async () => {
@@ -790,11 +790,7 @@ export function describeArtifactManager(
     for (const [kind, call] of [
       [
         "a write with bytes",
-        (
-          artifacts: ArtifactManager,
-          created: ArtifactResolved,
-          label: string
-        ) =>
+        (artifacts: Artifacts, created: ArtifactResolved, label: string) =>
           artifacts.write({
             artifactId: created.id,
             changes: { put: { "file.txt": { bytes: label } } },
@@ -802,11 +798,7 @@ export function describeArtifactManager(
       ],
       [
         "a stream write",
-        (
-          artifacts: ArtifactManager,
-          created: ArtifactResolved,
-          label: string
-        ) =>
+        (artifacts: Artifacts, created: ArtifactResolved, label: string) =>
           artifacts.write({
             artifactId: created.id,
             changes: { put: { "file.txt": { source: streamOf(label) } } },
@@ -814,11 +806,8 @@ export function describeArtifactManager(
       ],
       [
         "a Content-named change",
-        (
-          artifacts: ArtifactManager,
-          created: ArtifactResolved,
-          label: string
-        ) => artifacts.setMetadata(contentOf(created).id, { label }),
+        (artifacts: Artifacts, created: ArtifactResolved, label: string) =>
+          artifacts.setMetadata(contentOf(created).id, { label }),
       ],
     ] as const) {
       test(`refuses at once ${kind} to an Artifact another manager's own call to it waits on, from inside a transaction`, async ({
@@ -828,8 +817,8 @@ export function describeArtifactManager(
         if (!isTransactional(store)) {
           return skip();
         }
-        const first = new ArtifactManager({ store });
-        const second = new ArtifactManager({ store });
+        const first = new Artifacts({ store });
+        const second = new Artifacts({ store });
         const created = await second.create({
           entries: { "file.txt": { bytes: "start" } },
           name: "Shared",
@@ -857,7 +846,7 @@ export function describeArtifactManager(
     async function patchConcurrently(
       shared: ReturnType<typeof pausable>,
       created: ArtifactResolved,
-      patchers: readonly [ArtifactManager, ArtifactManager]
+      patchers: readonly [Artifacts, Artifacts]
     ) {
       const contentId = contentOf(created).id;
       const paused = shared.pause("getContent");

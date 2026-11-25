@@ -1,8 +1,6 @@
 import type { Schedule as StoredSchedule } from "@foundry/scheduling";
-import {
-  createSchedulerClient,
-  type SchedulerClient,
-} from "@foundry/scheduling/client";
+import type { SchedulerClient } from "@foundry/scheduling/client";
+import { createNodeSchedulerClient } from "@foundry/scheduling/node";
 import { ScheduleStore } from "@foundry/scheduling/store";
 import { Layer } from "effect";
 import type { ScheduledEngine } from "~/lib/schedule";
@@ -46,7 +44,7 @@ export async function runScheduler(
   });
   const stop = () => dispatcher.stop();
   signal.addEventListener("abort", stop, { once: true });
-  const client = createSchedulerClient({
+  const client = createNodeSchedulerClient({
     dispatch: dispatcher.layer,
     settlePollMs: SETTLE_POLL_MS,
     store: Layer.succeed(ScheduleStore, store),

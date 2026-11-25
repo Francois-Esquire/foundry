@@ -14,9 +14,9 @@ import { connect as connectSocket, createServer } from "node:net";
 import { join } from "node:path";
 import {
   type lookProcesses,
+  nodeStartedAt,
   processAlive,
-  startedAt,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import { readDatabase } from "~/database/open";
@@ -52,9 +52,9 @@ const TOKEN_ARGUMENT = /--token (\S+)/;
 const looking = vi.hoisted(() => ({
   fake: undefined as typeof lookProcesses | undefined,
 }));
-vi.mock("@foundry/lib/process-identity", async (importOriginal) => {
+vi.mock("@foundry/lib/node/process-identity", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@foundry/lib/process-identity")>();
+    await importOriginal<typeof import("@foundry/lib/node/process-identity")>();
   return {
     ...actual,
     lookProcesses: (pids: readonly number[]) =>
@@ -845,7 +845,7 @@ export const hold = step("hold").do(async () => {
     if (pid === undefined) {
       throw new Error("the generation has no pid");
     }
-    const real = startedAt(pid);
+    const real = nodeStartedAt(pid);
     if (typeof real !== "string") {
       throw new Error("the generation's start cannot be read");
     }
@@ -955,7 +955,7 @@ ${greeter("greet")}`
     const [row] = rows ?? [];
     expect(row?.state).toBe("loading");
     expect(row?.started).not.toBeNull();
-    expect(row?.started).toBe(startedAt(row?.pid ?? 0));
+    expect(row?.started).toBe(nodeStartedAt(row?.pid ?? 0));
     writeFileSync(loaded, "");
     expect((await attaching).state).toBe("ready");
     client.close();

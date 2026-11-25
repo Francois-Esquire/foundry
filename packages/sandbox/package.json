@@ -6,17 +6,61 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./src/node/index.ts",
+      "default": "./src/node/index.ts"
+    },
+    "./node/microsandbox": {
+      "types": "./dist/container/microsandbox-runtime.d.ts",
+      "import": "./src/container/microsandbox-runtime.ts",
+      "default": "./src/container/microsandbox-runtime.ts"
+    },
     "./store": {
       "types": "./dist/store/index.d.ts",
       "import": "./src/store/index.ts",
       "default": "./src/store/index.ts"
     },
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./src/*.ts",
-      "default": "./src/*.ts"
+    "./store/memory": {
+      "types": "./dist/store/memory.d.ts",
+      "import": "./src/store/memory.ts",
+      "default": "./src/store/memory.ts"
     },
-    "./package.json": "./package.json"
+    "./store/sqlite": {
+      "types": "./dist/store/sqlite.d.ts",
+      "import": "./src/store/sqlite.ts",
+      "default": "./src/store/sqlite.ts"
+    },
+    "./store/tables": {
+      "types": "./dist/store/tables.d.ts",
+      "import": "./src/store/tables.ts",
+      "default": "./src/store/tables.ts"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./src/testing.ts",
+      "default": "./src/testing.ts"
+    },
+    "./testing/store": {
+      "types": "./dist/testing/store.d.ts",
+      "import": "./src/testing/store.ts",
+      "default": "./src/testing/store.ts"
+    },
+    "./tools": {
+      "types": "./dist/tools/index.d.ts",
+      "import": "./src/tools/index.ts",
+      "default": "./src/tools/index.ts"
+    },
+    "./virtual": {
+      "types": "./dist/virtual/sandbox.d.ts",
+      "import": "./src/virtual/sandbox.ts",
+      "default": "./src/virtual/sandbox.ts"
+    }
   },
   "files": [
     "./dist/**/*",

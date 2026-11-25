@@ -1,8 +1,11 @@
-import { ArtifactManager } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import { MODULE_MIME } from "@foundry/modules/constants";
-import { defineModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
-import { encodeModulePackage } from "@foundry/modules/package";
+import { Artifacts } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import {
+  defineModuleVersion,
+  encodeModulePackage,
+  MODULE_MIME,
+  moduleIdSchema,
+} from "@foundry/modules";
 
 export const PREVIEW_HTML =
   '<!doctype html><html><head><title>Preview fixture</title><style>body{font-family:system-ui,sans-serif;margin:24px}button{font:inherit}</style></head><body><h1>Running module view</h1><button id="count" type="button">Count: 0</button><p id="bridge"></p><script src="/view.js"></script></body></html>';
@@ -27,7 +30,7 @@ const program = `const server = Bun.serve({
 });`;
 
 export async function moduleReleasePackage() {
-  const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
+  const artifacts = new Artifacts({ store: new MemoryArtifactStore() });
   const bytes = new TextEncoder().encode(program);
   const artifact = await artifacts.create({
     entries: { "outputs/program.js": { bytes } },

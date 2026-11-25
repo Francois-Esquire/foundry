@@ -1,4 +1,4 @@
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { DatabaseProviderStore } from "~/database/providers";
 import { environmentSnapshot } from "~/lib/environment";
 import type { Proposal } from "~/lib/providers/configuration";
@@ -27,7 +27,7 @@ export async function discoverProviderSetup(options: DiscoveryOptions) {
   const configure = () =>
     new ProviderConfiguration({
       environment: environmentSnapshot(),
-      models: new ModelManager(),
+      models: new Models(),
       plugins,
       store: DatabaseProviderStore.forState(options.state),
       ...(options.workspace ? { workspace: options.workspace } : {}),

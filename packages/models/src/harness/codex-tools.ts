@@ -1,7 +1,7 @@
 import {
   type HarnessPermissionResult,
   isHarnessQuestionTool,
-} from "@foundry/agents/harness";
+} from "@foundry/core/agents";
 import { asSchema } from "ai";
 import type { AppServerConnection } from "./app-server";
 import { askQuestions, nativeQuestions } from "./questions";

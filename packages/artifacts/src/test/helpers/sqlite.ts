@@ -27,7 +27,7 @@ export const ARTIFACT_TABLES = [
 
 export type DatabaseLocation = "file" | "memory";
 
-export interface ConnectOptions {
+interface ConnectOptions {
   readonly busyTimeout?: number;
   readonly onQuery?: (query: string) => void;
 }

@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ArtifactManager } from "../manager";
+import { Artifacts } from "../artifacts";
 import { blobFiles } from "../node/blobs";
 import { projectionMatches, stageProjection } from "../node/projection";
 import { required } from "./helpers/required";
@@ -27,7 +27,7 @@ afterEach(async () => {
 async function setup(kind: StoreKind) {
   const root = await mkdtemp(join(tmpdir(), "artifact-projection-"));
   roots.push(root);
-  const artifacts = new ArtifactManager({
+  const artifacts = new Artifacts({
     files: blobFiles(join(root, "blobs")),
     store: await openStore(kind),
   });

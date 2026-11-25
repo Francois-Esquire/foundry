@@ -1,4 +1,4 @@
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { describe, expect, it, vi } from "vitest";
 import { ModuleBuilds } from "~/main/modules/builds/controller";
 import { createModuleLibrary } from "~/main/modules/library";
@@ -6,7 +6,7 @@ import { fakeClient, openFakeVault } from "../helpers/fake-api";
 import { buildResult, successfulBuildRuntime } from "../helpers/module-build";
 
 async function fixture() {
-  const library = createModuleLibrary(new InMemoryArtifactStore());
+  const library = createModuleLibrary(new MemoryArtifactStore());
   const module = await library.create("Editable starter");
   const details = await library.details(module.id);
   if (!details?.binding) {

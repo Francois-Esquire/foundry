@@ -1,15 +1,13 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { ArtifactManager } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import { createContainers } from "@foundry/sandbox/container/containers";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
+import { Artifacts } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { git } from "@foundry/workspaces/git";
-import { directory } from "@foundry/workspaces/node";
-import { nodeObserver } from "@foundry/workspaces/node/watch";
+import { workspaces } from "@foundry/workspaces/node";
+import { git } from "@foundry/workspaces/node/git";
 import { catalog } from "~/authoring/catalog";
 import { declareCatalog, echoGit } from "~/create";
 import { Engine as DatabaseEngine } from "~/entries/engine";
@@ -42,8 +40,7 @@ export function testInstances(
     options.git ?? (options.live ? {} : { run: echoGit(() => undefined) });
   return {
     artifacts:
-      options.artifacts ??
-      new ArtifactManager({ store: new InMemoryArtifactStore() }),
+      options.artifacts ?? new Artifacts({ store: new MemoryArtifactStore() }),
     containers:
       options.containers ??
       (() =>
@@ -63,13 +60,8 @@ export function testInstances(
         options.reply ?? (({ prompt }) => prompt),
         options.hold === undefined ? {} : { hold: options.hold }
       ),
-    sessions: options.sessions ?? new InMemorySessionStore(),
-    workspaces:
-      options.workspaces ??
-      new WorkspaceSystem().extend(
-        directory({ observer: nodeObserver }),
-        git(gitOptions)
-      ),
+    sessions: options.sessions ?? new MemorySessionStore(),
+    workspaces: options.workspaces ?? workspaces().extend(git(gitOptions)),
   };
 }
 

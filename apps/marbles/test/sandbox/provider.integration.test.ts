@@ -1,11 +1,11 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { ModelManager } from "@foundry/models";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
+import { Models } from "@foundry/models";
 import { gatewayProvider } from "@foundry/models/gateway";
-import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
+import { createContainers } from "@foundry/sandbox/node";
+import { createMicrosandboxRuntime } from "@foundry/sandbox/node/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { expect, it } from "vitest";
 import { AgentsManager } from "~/lib/managers/agents";
@@ -34,14 +34,14 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       runtime,
       store: new MemoryContainerStore(),
     });
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const provider = harness === "builtin" ? "gateway" : harness;
     const modelId = {
       builtin: "openai/gpt-5-mini",
       "claude-code": "sonnet",
       codex: "gpt-5.5",
     }[harness];
-    const models = new ModelManager({
+    const models = new Models({
       providers:
         harness === "builtin"
           ? [

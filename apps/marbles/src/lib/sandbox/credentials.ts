@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { execFileRecorded } from "@foundry/lib/spawn-record";
+import { execFileRecorded } from "@foundry/lib/node/spawn-record";
 import { z } from "zod";
 import type { CliHarness, GuestAuth } from "~/lib/cli-harnesses";
 

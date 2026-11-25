@@ -1,20 +1,22 @@
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
-import { SandboxError } from "@foundry/sandbox/errors";
-import { normalizeSandboxPath } from "@foundry/sandbox/path";
-import { sandboxFromAdapter } from "@foundry/sandbox/sandbox";
 import type {
   Sandbox,
   SandboxCommand,
   SandboxDirectoryEntry,
   SandboxExecOptions,
-} from "@foundry/sandbox/types";
+} from "@foundry/sandbox";
+import {
+  DEFAULT_SANDBOX_WORKING_DIRECTORY,
+  normalizeSandboxPath,
+  SandboxError,
+  sandboxFromAdapter,
+} from "@foundry/sandbox";
 
-export interface FakeSandboxCommandCall {
+interface FakeSandboxCommandCall {
   readonly command: SandboxCommand;
   readonly options?: SandboxExecOptions;
 }
 
-export interface FakeSandboxCommandScript {
+interface FakeSandboxCommandScript {
   readonly command: SandboxCommand;
   readonly exitCode?: number;
   readonly stderr?: string;

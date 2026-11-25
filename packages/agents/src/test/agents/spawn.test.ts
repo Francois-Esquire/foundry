@@ -8,7 +8,7 @@ import { createAgentCompatibilityRegistry } from "../../agents/registry";
 import type { RunAgent, SpawnDeps } from "../../agents/spawn";
 import { createSpawnTool } from "../../agents/spawn";
 import { Sessions } from "../../session/sessions";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 
 function uiTextRun(...texts: string[]) {
   const chunks: UIMessageChunk[] = texts.flatMap((t, i) => [
@@ -23,7 +23,7 @@ function uiTextRun(...texts: string[]) {
 
 describe("createSpawnTool", () => {
   it("case 1: foreground spawn mints a linked, depth-frozen child and returns only the collapsed artifact", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     const parent = await sessions.createSession();
     const registry = createAgentCompatibilityRegistry();
@@ -66,7 +66,7 @@ describe("createSpawnTool", () => {
   });
 
   it("case 2: delegation prompt is the only parent→child channel", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     const parent = await sessions.createSession();
     const registry = createAgentCompatibilityRegistry();
@@ -99,7 +99,7 @@ describe("createSpawnTool", () => {
   });
 
   it("case 3: unknown kind returns a modeled miss without throwing or minting a child", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     const parent = await sessions.createSession();
     const registry = createAgentCompatibilityRegistry();
@@ -131,7 +131,7 @@ describe("createSpawnTool", () => {
   });
 
   it("case 4: withholds the tool at max depth", () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const registry = createAgentCompatibilityRegistry();
     const runAgent: RunAgent = () => Promise.resolve(uiTextRun("final answer"));
 

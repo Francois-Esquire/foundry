@@ -1,7 +1,10 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { recordChild, spawnRecordEnvironment } from "@foundry/lib/spawn-record";
+import {
+  recordChild,
+  spawnRecordEnvironment,
+} from "@foundry/lib/node/spawn-record";
 
 import { consumptionOf, listPrices } from "../../consumption";
 import { defineProvider } from "../../provider";

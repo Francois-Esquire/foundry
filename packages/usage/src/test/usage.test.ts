@@ -451,18 +451,27 @@ describe("querying", () => {
   });
 });
 
-describe("the package entry", () => {
-  it("registers the built-in providers on the shared usage", async () => {
-    const [{ usage }, { anthropic }, { openai }] = await Promise.all([
-      import("../index"),
-      import("../providers/anthropic"),
-      import("../providers/openai"),
-    ]);
+describe("the package entries", () => {
+  it("keeps the root entry pure with createUsage and no pre-wired providers", async () => {
+    const root = await import("../index");
+    expect("usage" in root).toBe(false);
+    const instance = root.createUsage();
+    await expect(instance.initialize()).resolves.toEqual([]);
+  });
+
+  it("registers the built-in providers on the node entry", async () => {
+    const { anthropic, createNodeUsage, openai, usage } = await import(
+      "../node"
+    );
     expect(anthropic.id).toBe("anthropic");
     expectTypeOf(anthropic.id).toEqualTypeOf<"anthropic">();
     // @ts-expect-error: a login or a key, not both.
     expect(anthropic({ apiKey: "k", configDir: "~/x" }).name).toBe("anthropic");
     expect(() => usage.use(anthropic)).toThrow('"anthropic" is registered');
     expect(() => usage.use(openai)).toThrow('"openai" is registered');
+
+    const isolated = createNodeUsage();
+    expect(() => isolated.use(anthropic)).toThrow('"anthropic" is registered');
+    expect(() => isolated.use(openai)).toThrow('"openai" is registered');
   });
 });

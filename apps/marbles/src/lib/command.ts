@@ -1,7 +1,10 @@
 import { execFile } from "node:child_process";
 import type { Writable } from "node:stream";
 import { showArgv } from "@foundry/lib/argv";
-import { recordChild, SPAWN_RECOVERY_ENV } from "@foundry/lib/spawn-record";
+import {
+  recordChild,
+  SPAWN_RECOVERY_ENV,
+} from "@foundry/lib/node/spawn-record";
 
 import { StepInputError, type StepWork } from "./step-work";
 import type { SandboxHandle, SandboxInstance } from "./types";

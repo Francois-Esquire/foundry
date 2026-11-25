@@ -258,5 +258,3 @@ export const createUsage = (): Usage => {
     },
   };
 };
-
-export const usage: Usage = createUsage();

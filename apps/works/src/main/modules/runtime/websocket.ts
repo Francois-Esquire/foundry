@@ -1,4 +1,4 @@
-import type { ModuleTransport } from "@foundry/modules/gateway/types";
+import type { ModuleTransport } from "@foundry/modules/gateway";
 import { AsyncIteratorClass, EventPublisher } from "@orpc/server";
 
 export async function connectModuleSocket(input: {

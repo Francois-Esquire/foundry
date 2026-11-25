@@ -1,3 +1,6 @@
+export type { AgentToolConfig } from "./agent-tool";
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/agents public API.
+export { createAgentTool } from "./agent-tool";
 export type {
   AgentModel,
   ModelLimits,
@@ -13,13 +16,13 @@ export type {
   AgentPresetIdentity,
   AgentRegistry,
 } from "./registry";
-// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/agents public API.
 export {
   createAgentCompatibilityRegistry,
   createAgentRegistry,
   resolveAgentEntry,
 } from "./registry";
 export type {
+  AgentExecutionContext,
   AgentPreset,
   AgentPresetContext,
   AgentSessionContext,

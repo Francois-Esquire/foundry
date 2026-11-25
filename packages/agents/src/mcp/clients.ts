@@ -4,20 +4,20 @@ import type { McpClientEvents } from "./client";
 import { McpClient } from "./client";
 import { McpEmitter } from "./emitter";
 import type {
+  McpClientOptions,
   McpElicitationHandler,
-  McpManagerOptions,
   McpServerDefinition,
   McpServerState,
 } from "./types";
 
-export class McpManager extends McpEmitter<McpClientEvents> {
-  readonly #options: McpManagerOptions;
+export class McpClients extends McpEmitter<McpClientEvents> {
+  readonly #options: McpClientOptions;
   readonly #clients = new Map<string, McpClient>();
   readonly #unsubscribe = new Map<string, () => void>();
 
   elicit: McpElicitationHandler | undefined;
 
-  constructor(options: McpManagerOptions = {}) {
+  constructor(options: McpClientOptions = {}) {
     super();
     this.#options = options;
   }

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import type { Run } from "@foundry/queue";
 import { queueRuns } from "@foundry/queue/store/tables";
 import { eq } from "drizzle-orm";

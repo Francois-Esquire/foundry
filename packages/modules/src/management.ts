@@ -1,4 +1,4 @@
-import type { Artifacts, ContentId } from "@foundry/artifacts";
+import type { ArtifactSubstrate, ContentId } from "@foundry/artifacts";
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { assertOwnsArtifactCommit } from "./cross-store";
 import type {
@@ -10,15 +10,15 @@ import type {
 } from "./domain";
 import { installationIdSchema } from "./domain";
 import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "./errors";
+import type {
+  ModuleCommands,
+  ModuleGatewayContext,
+  ModuleUnit,
+} from "./modules";
 import { importModulePackage } from "./package";
 import type { ModuleProgramSupervisor } from "./platform/contracts";
 import type { ModuleProjects } from "./projects";
 import { createModuleProjects } from "./projects";
-import type {
-  ModuleCommands,
-  ModuleGatewayContext,
-  ModuleRegistryUnit,
-} from "./registry";
 import { createModuleVersions } from "./version";
 
 export interface ModuleView {
@@ -58,9 +58,7 @@ export interface ModuleManagement extends ModuleProjects {
 }
 
 export function ensureInstallation(input: {
-  readonly store: ModuleRegistryUnit<
-    "createInstallation" | "loadGatewayContext"
-  >;
+  readonly store: ModuleUnit<"createInstallation" | "loadGatewayContext">;
   readonly installationId: InstallationId;
   readonly version: ModuleVersion;
   readonly now: Date;
@@ -78,7 +76,7 @@ export function ensureInstallation(input: {
 }
 
 export function createModuleManagement(options: {
-  readonly artifacts: Artifacts;
+  readonly artifacts: ArtifactSubstrate;
   readonly store: ModuleCommands;
   readonly programs: Pick<ModuleProgramSupervisor, "selectVersion" | "delete">;
   readonly now?: () => Date;

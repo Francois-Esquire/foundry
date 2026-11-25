@@ -45,7 +45,7 @@ export type {
   SpendCap,
   Window,
 } from "@foundry/usage";
-export { usage } from "@foundry/usage";
+export { usage } from "@foundry/usage/node";
 export { bail } from "@foundry/workflows/types";
 export { Output } from "ai";
 export { dispose } from "~/authoring/runtime";

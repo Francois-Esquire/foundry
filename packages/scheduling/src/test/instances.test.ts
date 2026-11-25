@@ -1,7 +1,8 @@
 import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { Deferred, Effect, Fiber, Ref, TestClock } from "effect";
 import { describe, expect, test } from "vitest";
+import { nodeSchedulerOptions } from "../node";
 import { ScheduleStore } from "../store/index";
 import { makeMemoryScheduleStore } from "../store/memory";
 import {
@@ -79,7 +80,7 @@ describe("Scheduler instances and retention", () => {
             whilePeerLives,
           };
         }),
-      { settlePollMs: 500 }
+      nodeSchedulerOptions({ settlePollMs: 500 })
     );
     expect(result).toEqual({ afterPeerCloses: 1, whilePeerLives: 0 });
   });

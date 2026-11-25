@@ -8,8 +8,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { recordPath } from "@foundry/lib/spawn-record";
-import { ModelManager } from "@foundry/models";
+import { recordPath } from "@foundry/lib/node/spawn-record";
+import { Models } from "@foundry/models";
 import { expect, it, vi } from "vitest";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
@@ -25,7 +25,7 @@ it("loads scoped Claude Code catalogs and uses the reported or configured defaul
   const root = mkdtempSync(join(tmpdir(), "claude-list-"));
   const database = await initializeDatabase(stateDatabase(root));
   const store = new DatabaseProviderStore({ database: database.database });
-  const models = new ModelManager();
+  const models = new Models();
   const machine = join(root, "machine");
   const workspace = join(root, "workspace");
   mkdirSync(machine);

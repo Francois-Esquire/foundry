@@ -1,7 +1,7 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { Page } from "@foundry/core/pagination";
 import type { CommitEffects } from "@foundry/core/storage";
 import { runAfterCommit } from "@foundry/core/storage";
+import { asyncScope } from "@foundry/lib/async-scope";
 import { ReentrantCallError } from "@foundry/lib/turns";
 
 import type { BlobFiles } from "./blob";
@@ -13,14 +13,14 @@ import { ArtifactApplicationError, TransactionRolledBackError } from "./errors";
 import type { ArtifactCursor } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
 import type { ArtifactStore, ArtifactStoreWrite } from "./store";
-import { InMemoryArtifactStore } from "./store/memory";
+import { MemoryArtifactStore } from "./store/memory";
 import type {
   Artifact,
   ArtifactChangeCause,
   ArtifactObserver,
   ArtifactOperations,
   ArtifactResolved,
-  Artifacts,
+  ArtifactSubstrate,
   Content,
   ContentResolved,
   ContentSummary,
@@ -41,46 +41,40 @@ import {
   operationEffects,
 } from "./transaction";
 
-export interface ArtifactManagerOptions {
+export interface ArtifactsOptions {
   readonly files?: BlobFiles;
   readonly maxFileBytes?: number;
   readonly maxTreeBytes?: number;
   readonly store?: ArtifactStore;
 }
 
-interface TransactionScope {
-  readonly effects: CommitEffects;
-  failed?: { readonly error: unknown };
-  open: boolean;
-  readonly transaction: ArtifactTransaction;
-}
-
 interface StoreTurn {
   held: boolean;
+  readonly operation: boolean;
   readonly outer: StoreTurn | undefined;
+  readonly owner: Artifacts;
   readonly store: ArtifactStore;
 }
 
-const storeTurns = new AsyncLocalStorage<StoreTurn>();
+const storeTurns = asyncScope<StoreTurn>();
 
 const REENTRY =
-  "[artifacts] The Artifact store was called from inside its own transaction, through another manager over it; use the operations passed to that transaction's work instead";
+  "[artifacts] The Artifact store was called from inside its own transaction; use the operations passed to that transaction's work instead";
 
-export class ArtifactManager implements Artifacts {
+export class Artifacts implements ArtifactSubstrate {
   readonly #store: ArtifactStore;
   readonly #held: boolean;
   readonly #limits: TransactionLimits;
   readonly #bindings = new Set<(id: ArtifactId) => Promise<void>>();
   readonly #observers = new Set<ArtifactObserver>();
-  readonly #scope = new AsyncLocalStorage<TransactionScope>();
   #tail: Promise<unknown> = Promise.resolve();
   readonly #stagingTurns = new StagingTurns();
   #lookups = 0;
   #looked: Promise<void> = Promise.resolve();
   readonly #ordered = new Map<ArtifactId, Promise<void>>();
 
-  constructor(options: ArtifactManagerOptions = {}) {
-    this.#store = options.store ?? new InMemoryArtifactStore();
+  constructor(options: ArtifactsOptions = {}) {
+    this.#store = options.store ?? new MemoryArtifactStore();
     this.#held = this.#store.durability === "host";
     this.#limits = {
       ...(options.files ? { files: options.files } : {}),
@@ -109,15 +103,6 @@ export class ArtifactManager implements Artifacts {
       effects: CommitEffects
     ) => Promise<T>
   ): Promise<T> {
-    const joined = this.#joinedScope();
-    if (joined) {
-      try {
-        return await operation(joined.transaction, joined.effects);
-      } catch (error) {
-        joined.failed ??= { error };
-        throw error;
-      }
-    }
     const refused = this.#reentry();
     if (refused) {
       throw refused;
@@ -141,7 +126,7 @@ export class ArtifactManager implements Artifacts {
     try {
       try {
         result = await this.#exclusive(async (store) => {
-          const change = new ArtifactChange(store, {});
+          const change = ArtifactChange.begin(store, {});
           try {
             const transaction = new ArtifactTransaction(
               change,
@@ -149,25 +134,28 @@ export class ArtifactManager implements Artifacts {
               this.#limits,
               staging
             );
-            const scope: TransactionScope = {
-              effects: {
-                afterCommit: (callback) => {
-                  change.assertWritable();
-                  callbacks.push(callback);
-                },
+            const commitEffects: CommitEffects = {
+              afterCommit: (callback) => {
+                change.assertWritable();
+                callbacks.push(callback);
               },
-              open: true,
-              transaction,
+            };
+            const turn: StoreTurn = {
+              held: true,
+              operation: true,
+              outer: storeTurns.get(),
+              owner: this,
+              store: this.#store,
             };
             let value: T;
             try {
-              value = await this.#scope.run(scope, () =>
-                operation(transaction, scope.effects)
+              value = await storeTurns.run(turn, () =>
+                operation(transaction, commitEffects)
               );
             } finally {
-              scope.open = false;
+              turn.held = false;
             }
-            const failed = scope.failed ?? change.failure;
+            const failed = change.failure;
             if (failed) {
               throw new TransactionRolledBackError({ cause: failed.error });
             }
@@ -359,10 +347,6 @@ export class ArtifactManager implements Artifacts {
     path: string,
     range: { readonly start: number; readonly end?: number }
   ): Promise<FileRangeResolved | null> {
-    const joined = this.#joined();
-    if (joined) {
-      return joined.readFileRange(id, path, range);
-    }
     const located = await this.#read((artifacts) =>
       artifacts.locateFile(id, path)
     );
@@ -399,7 +383,7 @@ export class ArtifactManager implements Artifacts {
   async recover(): Promise<void> {
     if (this.#held) {
       throw new Error(
-        'ArtifactManager cannot recover over a store whose commits a host transaction may roll back (durability "host"): files its records stop naming may be named again. Run recover from a manager over the durable store, outside the host\'s transaction.'
+        'Artifacts cannot recover over a store whose commits a host transaction may roll back (durability "host"): files its records stop naming may be named again. Run recover from an Artifacts instance over the durable store, outside the host\'s transaction.'
       );
     }
     const refused = this.#reentry();
@@ -438,28 +422,15 @@ export class ArtifactManager implements Artifacts {
     } while (cursor);
   }
 
-  #joinedScope(): TransactionScope | undefined {
-    const scope = this.#scope.getStore();
-    return scope?.open ? scope : undefined;
-  }
-
-  #joined(): ArtifactTransaction | undefined {
-    return this.#joinedScope()?.transaction;
-  }
-
   #read<T>(
     operation: (artifacts: ArtifactTransaction) => Promise<T>
   ): Promise<T> {
-    const joined = this.#joined();
-    if (joined) {
-      return operation(joined);
-    }
     const refused = this.#reentry();
     if (refused) {
       return Promise.reject(refused);
     }
     return this.#exclusive(async (store) => {
-      const change = new ArtifactChange(store, { readOnly: true });
+      const change = ArtifactChange.begin(store, { readOnly: true });
       try {
         return await operation(
           new ArtifactTransaction(
@@ -499,10 +470,6 @@ export class ArtifactManager implements Artifacts {
     check: (artifacts: ArtifactTransaction) => Promise<unknown>,
     operation: (artifacts: ArtifactTransaction) => Promise<T>
   ): Promise<T> {
-    const joined = this.#joined();
-    if (joined) {
-      return this.transaction(() => operation(joined));
-    }
     const refused = this.#reentry();
     if (refused) {
       return Promise.reject(refused);
@@ -545,7 +512,7 @@ export class ArtifactManager implements Artifacts {
     if (refused) {
       return Promise.reject(refused);
     }
-    if (this.#lookups === 0 || this.#joined()) {
+    if (this.#lookups === 0) {
       return this.#register([id], streams, start);
     }
     return this.#looked.then(() => this.#register([id], streams, start));
@@ -560,7 +527,7 @@ export class ArtifactManager implements Artifacts {
     const held = [
       ...new Set(ids.filter((id): id is ArtifactId => id !== undefined)),
     ];
-    if (held.length === 0 || this.#joined()) {
+    if (held.length === 0) {
       return start(unheld);
     }
     const before = held.flatMap((id) => {
@@ -601,7 +568,7 @@ export class ArtifactManager implements Artifacts {
     if (refused) {
       return Promise.reject(refused);
     }
-    if (this.#joined() || (this.#ordered.size === 0 && this.#lookups === 0)) {
+    if (this.#ordered.size === 0 && this.#lookups === 0) {
       return start();
     }
     const earlier = this.#looked;
@@ -649,7 +616,7 @@ export class ArtifactManager implements Artifacts {
     check: (artifacts: ArtifactTransaction) => Promise<unknown>,
     staging: BlobStaging
   ): Promise<void> {
-    const change = new ArtifactChange(store, { readOnly: true });
+    const change = ArtifactChange.begin(store, { readOnly: true });
     try {
       await check(
         new ArtifactTransaction(
@@ -689,7 +656,9 @@ export class ArtifactManager implements Artifacts {
     return store.transaction(async (view) => {
       const turn: StoreTurn = {
         held: true,
-        outer: storeTurns.getStore(),
+        operation: false,
+        outer: storeTurns.get(),
+        owner: this,
         store,
       };
       try {
@@ -701,13 +670,17 @@ export class ArtifactManager implements Artifacts {
   }
 
   #reentry(): ReentrantCallError | undefined {
-    if (this.#scope.getStore() !== undefined) {
-      return;
-    }
-    for (let turn = storeTurns.getStore(); turn; turn = turn.outer) {
-      if (turn.held && turn.store === this.#store) {
-        return new ReentrantCallError(REENTRY);
+    for (let turn = storeTurns.get(); turn; turn = turn.outer) {
+      if (!turn.held || turn.store !== this.#store) {
+        continue;
       }
+      if (turn.owner === this) {
+        if (turn.operation) {
+          return new ReentrantCallError(REENTRY);
+        }
+        return;
+      }
+      return new ReentrantCallError(REENTRY);
     }
   }
 

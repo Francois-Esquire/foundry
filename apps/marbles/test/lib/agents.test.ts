@@ -2,8 +2,8 @@ import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type { HarnessSession } from "@foundry/agents/harness";
 import type { SessionEvent } from "@foundry/agents/session";
 import { Sessions } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { ModelManager } from "@foundry/models";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
+import { Models } from "@foundry/models";
 import { airplaneMode } from "@foundry/models/airplane";
 import { NoObjectGeneratedError, Output } from "ai";
 import { describe, expect, it } from "vitest";
@@ -50,7 +50,7 @@ function deps(warnings: string[] = []): AgentsDeps {
     dry: false,
     interactions: host.interactions,
     models,
-    sessions: new InMemorySessionStore(),
+    sessions: new MemorySessionStore(),
     skills: () => Promise.resolve([]),
     warn: (message: string) => {
       warnings.push(message);
@@ -109,7 +109,7 @@ describe("agents.session", () => {
 
   it("refuses an explicitly selected unavailable provider rather than routing elsewhere", async () => {
     const d = deps();
-    const models = new ModelManager({
+    const models = new Models({
       providers: d.models.providers
         .filter((provider) => provider.id === CLAUDE_CODE.provider)
         .map((provider) => ({ ...provider, available: false })),

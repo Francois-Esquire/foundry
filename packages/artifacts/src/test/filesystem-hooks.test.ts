@@ -9,11 +9,11 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { ReentrantCallError } from "@foundry/lib/turns";
 import { WorkspaceSourceUnavailableError } from "@foundry/workspaces";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import { Artifacts } from "../artifacts";
 import { ArtifactApplicationError } from "../errors";
-import { ArtifactManager } from "../manager";
 import {
   ARTIFACT_CONFLICTS_DIRECTORY,
   type ArtifactDiskConflict,
@@ -37,7 +37,7 @@ afterEach(async () => {
 });
 
 async function text(
-  artifacts: ArtifactManager,
+  artifacts: Artifacts,
   id: string,
   path: string
 ): Promise<string> {
@@ -52,7 +52,7 @@ describe.each(STORE_KINDS)(
     it("applies each commit without waiting on the store's own turn or lock", async () => {
       const root = await mkdtemp(join(tmpdir(), "artifact-json-fs-"));
       cleanups.push(() => rm(root, { force: true, recursive: true }));
-      const artifacts = new ArtifactManager({
+      const artifacts = new Artifacts({
         store: await openStore(storeKind),
       });
       const filesystem = artifactFileSystem({
@@ -165,7 +165,7 @@ describe.each(STORE_KINDS)("%s store: mutation hooks", (storeKind) => {
     );
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const commit: { fails: boolean } = { fails: false };
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: interceptCommits(await openStore(storeKind), (write, land) =>
         commit.fails ? Promise.reject(new Error("commit failed")) : land(write)
       ),
@@ -253,48 +253,31 @@ describe.each(STORE_KINDS)("%s store: mutation hooks", (storeKind) => {
     }
   );
 
-  it.each([
-    ["commits", false],
-    ["rolls back", true],
-  ])(
-    "report a write joined to an enclosing transaction only once that transaction %s",
-    async (_outcome, rollsBack) => {
-      const committed: ContentResolved[] = [];
-      const { artifact, artifacts, filesystem } = await fixture(
-        { "notes.md": { bytes: "before" } },
-        false,
-        {
-          mutation: () =>
-            Promise.resolve({
-              committed: (content) => committed.push(content),
-            }),
-        },
-        storeKind
-      );
-      const { path } = await filesystem.resolve({ artifactId: artifact.id });
-      let reportedInside: number | undefined;
-      const outer = artifacts.transaction(async () => {
+  it("rejects a filesystem write called inside an enclosing Artifacts transaction without reporting committed", async () => {
+    const committed: ContentResolved[] = [];
+    const { artifact, artifacts, filesystem } = await fixture(
+      { "notes.md": { bytes: "before" } },
+      false,
+      {
+        mutation: () =>
+          Promise.resolve({
+            committed: (content) => committed.push(content),
+          }),
+      },
+      storeKind
+    );
+    const { path } = await filesystem.resolve({ artifactId: artifact.id });
+    await expect(
+      artifacts.transaction(async () => {
         await filesystem.writeFile(
           join(path, "notes.md"),
           encoder.encode("after")
         );
-        reportedInside = committed.length;
-        if (rollsBack) {
-          throw new Error("outer failed");
-        }
-      });
-      if (rollsBack) {
-        await expect(outer).rejects.toThrow("outer failed");
-        expect(committed).toEqual([]);
-        expect(await text(artifacts, artifact.id, "notes.md")).toBe("before");
-      } else {
-        await outer;
-        expect(committed).toHaveLength(1);
-        expect(await text(artifacts, artifact.id, "notes.md")).toBe("after");
-      }
-      expect(reportedInside).toBe(0);
-    }
-  );
+      })
+    ).rejects.toBeInstanceOf(ReentrantCallError);
+    expect(committed).toEqual([]);
+    expect(await text(artifacts, artifact.id, "notes.md")).toBe("before");
+  });
 
   it("refuse a write by throwing, committing nothing", async () => {
     const { artifact, artifacts, load } = await fixture(
@@ -390,7 +373,7 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("are left in place by a commit that keeps the Content, and restored when removed", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-metadata-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(storeKind),
     });
     const conflicts: ArtifactDiskConflict[] = [];
@@ -467,7 +450,7 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("left by a previous process are kept before records are applied", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-restart-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
@@ -496,7 +479,7 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("are not found in files a previous process left from a committed version", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-stale-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
@@ -528,7 +511,7 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("are not found in files a previous process applied before an in-place write it never applied", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-unapplied-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
@@ -559,7 +542,7 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("forget what was applied for an Artifact deleted while the filesystem was closed", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-orphan-note-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(storeKind),
     });
     const files = join(root, "files");

@@ -1,15 +1,14 @@
 import { sql } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, test } from "vitest";
-
 import { ArtifactExistsError, TransactionRolledBackError } from "../errors";
-import type {
-  ArtifactEvent,
-  ArtifactId,
-  ArtifactOperations,
-  ContentId,
+import {
+  type ArtifactEvent,
+  type ArtifactId,
+  type ArtifactOperations,
+  Artifacts,
+  type ContentId,
 } from "../index";
-import { ArtifactManager } from "../manager";
 import { artifactEventSchema } from "../schema";
 import type { ArtifactDatabaseTransaction } from "../store/sqlite";
 import { SqliteArtifactStore } from "../store/sqlite";
@@ -49,7 +48,7 @@ async function hosted() {
   };
   return {
     commits,
-    manager: new ArtifactManager({ store }),
+    manager: new Artifacts({ store }),
     rows,
     store,
     typesOf,
@@ -58,7 +57,7 @@ async function hosted() {
 
 const TEXT = { name: "A", type: "text/plain" } as const;
 
-describe("ArtifactManager change events", () => {
+describe("Artifacts change events", () => {
   test("each event is plain JSON with its own id and an ISO time", async () => {
     const { manager, rows } = await hosted();
     const created = await manager.create(TEXT);
@@ -406,7 +405,7 @@ describe("ArtifactManager change events", () => {
         manager.transaction(async (artifacts) => {
           await artifacts.archive(id);
           await artifacts.rename(id, "B");
-          await manager.patchArtifactMetadata(id, { joined: true });
+          await artifacts.patchArtifactMetadata(id, { updated: true });
         })
       )
     ).toStrictEqual([
