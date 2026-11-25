@@ -30,14 +30,16 @@ export class EngineDefinitions {
   }
 
   define(definition: AnyDefinition, pool?: string): void {
-    if (pool !== undefined && definition.name !== undefined) {
-      this.#pools.set(definition.name, pool);
-    }
     if (definition.name !== undefined) {
       this.#claim(definition.name, { definitions: false, label: "define" });
     }
     this.registry.define(definition);
     if (definition.name !== undefined) {
+      if (pool === undefined) {
+        this.#pools.delete(definition.name);
+      } else {
+        this.#pools.set(definition.name, pool);
+      }
       this.#registerOnQueue(definition.name);
     }
   }

@@ -293,7 +293,7 @@ describe("a workflow locked inside another", () => {
 });
 
 describe("a nested workflow's run", () => {
-  function parkingTree() {
+  function suspendingTree() {
     const counts = { approve: 0, before: 0, prep: 0, setup: 0 };
     const before = step("before").do(() => {
       counts.before += 1;
@@ -323,8 +323,8 @@ describe("a nested workflow's run", () => {
     return counts;
   }
 
-  it("parks on an approval inside a nested workflow and goes on once it is answered", async () => {
-    const counts = parkingTree();
+  it("suspends on an approval inside a nested workflow and goes on once it is answered", async () => {
+    const counts = suspendingTree();
     const engine = await engineFor({ askable: true });
 
     const launched = await engine.launch<string>("release", {});
@@ -340,7 +340,7 @@ describe("a nested workflow's run", () => {
   it("is adopted by the next engine while suspended inside a nested workflow, and resumes there", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");
-    let counts = parkingTree();
+    let counts = suspendingTree();
     const feedOne = openFeed(feedRoot, { id: "ws", root });
     const one = await engineFor({
       artifacts: feedOne.artifacts,
@@ -359,7 +359,7 @@ describe("a nested workflow's run", () => {
     expect(counts).toEqual({ approve: 1, before: 1, prep: 1, setup: 1 });
 
     catalog.reset();
-    counts = parkingTree();
+    counts = suspendingTree();
     const lines: string[] = [];
     const feedTwo = openFeed(feedRoot, { id: "ws", root });
     const two = await engineFor({
@@ -377,7 +377,7 @@ describe("a nested workflow's run", () => {
       expect(run?.status).toBe("complete");
       expect(run?.output).toBe("report ready prepared: shipped");
     });
-    expect(counts).toMatchObject({ approve: 1, before: 0, prep: 0 });
+    expect(counts).toEqual({ approve: 1, before: 0, prep: 0, setup: 1 });
   });
 
   it("uses saved outputs from sequential synchronous children after restart", async () => {

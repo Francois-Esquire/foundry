@@ -265,13 +265,15 @@ export class Executions implements ExecutionRuns {
     if (queue === undefined) {
       return;
     }
-    const run = await queue.getRun(id);
+    const [stored, run] = await Promise.all([
+      this.#store.get(id),
+      queue.getRun(id),
+    ]);
     const job = run && (await queue.getJob(run.jobId));
     if (run === undefined || job === undefined) {
       this.#forget(id);
       return;
     }
-    const stored = await this.#store.get(id);
     if (
       stored !== undefined &&
       stored.revision > (this.#annexes.get(id)?.revision ?? -1)

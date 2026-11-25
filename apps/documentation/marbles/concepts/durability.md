@@ -57,7 +57,7 @@ Factory](/marbles/use-cases/software-factory/deliver) gates a push this way.
 | Failed attempt | The runtime applies the step's retry policy, if configured. An exhausted policy leaves a failed run. |
 
 A run's state is committed to the Marbles database as it changes: when it
-starts, parks, resumes and settles. A committed state contains the finished results available at that point; Marbles
+starts, suspends, resumes and settles. A committed state contains the finished results available at that point; Marbles
 does not checkpoint every instruction or every completed child to disk.
 
 ## Agent execution belongs to a step
@@ -84,7 +84,7 @@ reconnect it to the work already done:
 | `agents.session(...)` | Reopens the recorded session at that call position, with its transcript. |
 | `session.generate(...)` or `session.stream(...)` | Sends a turn to that session again if execution reaches the call. Session continuity does not cache each explicit turn. |
 | `agentInstance.generate(...)` or `.stream(...)` | Reuses a recorded completed one-shot reply when available; an unfinished turn can execute again. |
-| `ask.*` | Reads the recorded answer, or parks at an unanswered question. |
+| `ask.*` | Reads the recorded answer, or suspends at an unanswered question. |
 | Managed artifact write | Returns its recorded version instead of creating another version at that position. |
 | `definition.enqueue(...)`, `step.enqueue(name, ...)` | Returns the run it enqueued before, for the same definition at that position. Another definition is enqueued. With a `key`, a retried attempt gets the same run back too. |
 | Command, raw filesystem write, or `fetch` | Can execute again. The run does not make arbitrary external effects happen exactly once. |
@@ -197,7 +197,7 @@ including for inspection commands. Step bodies execute when launched.
 
 | Mode | Lifetime |
 | --- | --- |
-| `marbles run <name-or-key>` | Run one step, workflow, schedule, or monitor in the Marbles process's current engine generation, wait for it, and exit. A question parks the run until a dashboard answers it. |
+| `marbles run <name-or-key>` | Run one step, workflow, schedule, or monitor in the Marbles process's current engine generation, wait for it, and exit. A question suspends the run until a dashboard answers it. |
 | `marbles enqueue <name>` | Queue one step or workflow in the Marbles process, print its run ID, and exit without waiting. `marbles watch <runId>` follows it. |
 | `marbles` | Attach the workspace and open the dashboard on it: launches, answers, and every hosted workspace. |
 | `marbles` with piped input or output | Attach the workspace and follow its status lines with plain output. Cannot answer a question. |

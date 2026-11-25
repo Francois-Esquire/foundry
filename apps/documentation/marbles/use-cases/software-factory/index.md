@@ -14,7 +14,7 @@ The Software Factory takes a task from intake to a reviewed pull request.
 It introduces nothing new. Every piece is a marble from the earlier pages:
 a task backlog, an observer that dispatches ready work, steps that run in
 a worktree, a parallel check, an artifact of evidence, and an approval that
-parks until a person answers.
+suspends until a person answers.
 
 The factory is built from smaller factories. `factory-verify` is a whole
 workflow you can run on its own, and `factory-change` locks it under the

@@ -334,3 +334,63 @@ it.each(["stop", "dispose"] as const)(
     await expect(launched.result).resolves.toBe("done");
   }
 );
+
+it("graceful stop lets a draining in-run parent finish awaiting a nonlocal keyed child", async () => {
+  const release = Promise.withResolvers<void>();
+  const parentEntered = Promise.withResolvers<void>();
+  const state = machine.workspace();
+
+  const childA = step("remote-child").do(async () => {
+    await release.promise;
+    return "child-ok";
+  });
+  const owner = host(state);
+  await owner.start();
+  const childRun = await owner.launchDefinition<string>(
+    childA,
+    {},
+    { key: "drain-key" }
+  );
+
+  catalog.reset();
+  const childB = step("remote-child").do(() => "unused");
+  const parentB = step("draining-parent").do(async () => {
+    const joined = await childB.launch({}, { key: "drain-key" });
+    parentEntered.resolve();
+    return `parent:${await joined.result}`;
+  });
+  const peer = host(state);
+  await peer.start();
+  const parentRun = await peer.launchDefinition<string>(parentB, {});
+  await parentEntered.promise;
+
+  const stopping = peer.stop();
+  release.resolve();
+  await expect(childRun.result).resolves.toBe("child-ok");
+  await expect(parentRun.result).resolves.toBe("parent:child-ok");
+  await stopping;
+});
+
+it("stop() before start() does not poison later nonlocal result lookups", async () => {
+  const state = machine.workspace();
+  const childA = step("pre-stop-child").do(() => "ready");
+  const owner = host(state);
+  await owner.start();
+  await expect(
+    owner
+      .launchDefinition<string>(childA, {}, { key: "pre-stop" })
+      .then((run) => run.result)
+  ).resolves.toBe("ready");
+
+  catalog.reset();
+  const childB = step("pre-stop-child").do(() => "unused");
+  const peer = host(state);
+  await peer.stop();
+  await peer.start();
+  const joined = await peer.launchDefinition<string>(
+    childB,
+    {},
+    { key: "pre-stop" }
+  );
+  await expect(joined.result).resolves.toBe("ready");
+});

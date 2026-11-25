@@ -63,6 +63,12 @@ it("combines static configs and routes definitions to each file's pool", async (
     opened.runs.filter((run: { pool: string }) => run.pool === "review")
   ).toHaveLength(2);
   expect(
+    opened.runs.filter(
+      (run: { name: string; pool: string }) =>
+        run.name === "build" && run.pool === "build"
+    )
+  ).toHaveLength(1);
+  expect(
     opened.runs.some(
       (run: { pool: string; status: string }) =>
         run.pool === "review" && run.status === "queued"
@@ -121,6 +127,13 @@ it("validates pool limits, blank names, and resets per-file config", () => {
     ).toThrow();
   }
   expect(() => catalog.configure("bad.ts", { pools: { " ": 1 } })).toThrow();
+  expect(() =>
+    catalog.configure("bad.ts", { pools: { " review ": 1 } })
+  ).toThrow();
+  const shared = defineConfig({ pool: "shared", pools: { shared: 2 } });
+  catalog.configure("config.ts", shared);
+  catalog.configure("reexport.ts", shared);
+  expect(catalog.poolFor("reexport.ts:5")).toBe("shared");
   catalog.configure(
     "good.ts",
     defineConfig({ pool: "review", pools: { review: { limit: 2 } } })

@@ -149,8 +149,12 @@ export class Launcher {
   readonly #live = new Map<string, Promise<void>>();
   readonly #launching = new Set<Promise<void>>();
   readonly #dispatching = new Set<string>();
-  readonly #closed = Promise.withResolvers<never>();
-  #closedReason: Error | undefined;
+  readonly #waiters = new Set<{
+    readonly inRun: boolean;
+    readonly reject: (reason: Error) => void;
+  }>();
+  #closedExternal: Error | undefined;
+  #closedAll: Error | undefined;
   #queue: RunQueue | undefined;
   #retiring = false;
   #cancelling = false;
@@ -587,10 +591,21 @@ export class Launcher {
     }
   }
 
-  close(reason: Error): void {
-    this.#closedReason ??= reason;
-    this.#closed.promise.catch(() => undefined);
-    this.#closed.reject(this.#closedReason);
+  close(reason: Error, options?: { readonly externalOnly?: boolean }): void {
+    this.#closedExternal ??= reason;
+    if (!options?.externalOnly) {
+      this.#closedAll ??= reason;
+    }
+    const target = options?.externalOnly
+      ? this.#closedExternal
+      : this.#closedAll;
+    for (const waiter of [...this.#waiters]) {
+      if (options?.externalOnly && waiter.inRun) {
+        continue;
+      }
+      this.#waiters.delete(waiter);
+      waiter.reject(target ?? reason);
+    }
   }
 
   resultOf(id: string): Promise<unknown> {
@@ -598,21 +613,37 @@ export class Launcher {
     if (owed !== undefined) {
       return owed.promise;
     }
-    const result = this.#settledResult(id);
+    const inRun = this.#activeCaller() !== undefined;
+    const result = this.#settledResult(id, inRun);
     result.catch(() => undefined);
     return result;
   }
 
-  async #settledResult(id: string): Promise<unknown> {
-    if (this.#closedReason !== undefined) {
-      throw this.#closedReason;
+  async #settledResult(id: string, inRun: boolean): Promise<unknown> {
+    const closed = inRun
+      ? this.#closedAll
+      : (this.#closedAll ?? this.#closedExternal);
+    if (closed !== undefined) {
+      throw closed;
     }
-    const settled = await Promise.race([
-      this.#requireQueue().settled(id),
-      this.#closed.promise,
-    ]);
+    const aborted = Promise.withResolvers<never>();
+    aborted.promise.catch(() => undefined);
+    const waiter = { inRun, reject: aborted.reject };
+    this.#waiters.add(waiter);
+    let settled: Awaited<ReturnType<RunQueue["settled"]>>;
+    try {
+      settled = await Promise.race([
+        this.#requireQueue().settled(id),
+        aborted.promise,
+      ]);
+    } finally {
+      this.#waiters.delete(waiter);
+    }
     if (settled.status === "complete") {
       return settled.value;
+    }
+    if (settled.status === "failed" && settled.error instanceof Error) {
+      throw new Error(`run ${id} failed: ${settled.error.message}`);
     }
     const run = await this.executions.peek(id);
     throw new Error(run ? this.#endedWith(run) : `run ${id} ${settled.status}`);

@@ -276,8 +276,8 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   built for the module. A retiring or disposed engine refuses it. Read the
   run with [`runs`](#exports).
 - **`enqueue(input, { key })` enqueues once per key.** `EnqueueOptions` is
-  `{ key?: string }`. The key is the Execution Run's `source`, matched with
-  the definition's name in one database transaction, so any engine over the
+  `{ key?: string }`. The key is matched with the definition's name as an
+  idempotency key in one database transaction, so any engine over the
   same store finds it. An enqueue whose name and key match an existing run
   returns that run's `{ id, result }`, whatever its status (queued,
   running, suspended, complete, failed, or cancelled) and whatever input the
@@ -298,8 +298,8 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   EnqueueOptions) => Promise<Enqueued<O>>`. The name is looked up when the
   call runs, among the steps and workflows the hosting engine registered
   (`Engine.definition`, which leaves out monitors), and that definition is
-  enqueued as its own `.enqueue()` would be: the same key space, the same
-  ledger in a step body, and the same queue-slot rule. Input is checked by
+  enqueued as its own `.enqueue()` would be: the same key space and the
+  same ledger in a step body. Input is checked by
   the definition's schema, not by TypeScript. Each word refuses the other
   kind and names the call to use: `workflow.enqueue("build"): "build" is a
   step, not a workflow; use step.enqueue("build")`. An undeclared name, a
@@ -1048,7 +1048,6 @@ and `create(setup)` for the instance, and optionally `detect`, `list`,
 Do not write modules that depend on these.
 
 - Race, branch, and loops between steps. Only series and parallel.
-
 - A built-in model provider. No `provider` or `model` means the first installed CLI.
 - Recovery of a step that was mid-body when the process stopped. A step
   suspended on an `ask` or a pause does survive a quit, a crash, or a kill.

@@ -34,7 +34,11 @@ export interface DeclaredObserver {
 export class Catalog {
   readonly pools = new Map<
     string,
-    { readonly config: PoolConfig; readonly file: string }
+    {
+      readonly config: PoolConfig;
+      readonly file: string;
+      readonly source: object;
+    }
   >();
   readonly filePools = new Map<string, string>();
 
@@ -43,17 +47,19 @@ export class Catalog {
     if (config === undefined) {
       return;
     }
+    const source = value as object;
     for (const [name, pool] of Object.entries(config.pools ?? {})) {
       const previous = this.pools.get(name);
       if (
         previous !== undefined &&
+        previous.source !== source &&
         normalized(previous.file) !== normalized(file)
       ) {
         throw new Error(
           `pool "${name}" declared in both ${previous.file} and ${file}`
         );
       }
-      this.pools.set(name, { config: pool, file });
+      this.pools.set(name, { config: pool, file, source });
     }
     if (config.pool !== undefined) {
       this.filePools.set(normalized(file), config.pool);

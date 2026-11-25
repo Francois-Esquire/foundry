@@ -746,7 +746,6 @@ export class Engine {
   }
 
   stop(options?: { readonly cancel?: boolean }): Promise<void> {
-    this.#launcher.close(new Error("engine is stopping"));
     if (this.#phase === "starting") {
       return (
         this.#starting?.then(
@@ -760,6 +759,10 @@ export class Engine {
     }
     this.#phase = "stopping";
     const cancel = options?.cancel ?? false;
+    this.#launcher.close(
+      new Error("engine is stopping"),
+      cancel ? undefined : { externalOnly: true }
+    );
     const stopping = this.#stopping;
     if (stopping === undefined) {
       this.#stopping = this.#stop(this.#running, cancel);
@@ -775,6 +778,7 @@ export class Engine {
     let cancelling = cancel;
     let ended = false;
     const cancelAll = async () => {
+      this.#launcher.close(new Error("engine is stopping"));
       await this.#launcher.cancelPending();
       await running.cancelFollowed();
     };
@@ -800,6 +804,7 @@ export class Engine {
       await running.settle();
     } finally {
       ended = true;
+      this.#launcher.close(new Error("engine is stopping"));
       this.#executions.detach();
       await running.stop();
       await this.#executions.flush();

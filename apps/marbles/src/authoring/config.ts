@@ -21,7 +21,12 @@ const limitSchema = z.custom<number>(
     (n === Number.POSITIVE_INFINITY || (Number.isInteger(n) && n >= 1)),
   "a pool limit must be a positive integer or Infinity"
 );
-const nameSchema = z.string().trim().min(1);
+const nameSchema = z
+  .string()
+  .refine(
+    (value) => value.length > 0 && value.trim() === value,
+    "a pool name must be non-blank with no leading or trailing whitespace"
+  );
 const schema = z.strictObject({
   pool: nameSchema.optional(),
   pools: z
