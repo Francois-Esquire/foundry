@@ -1,8 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { accessSync, constants, existsSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { fileURLToPath } from "node:url";
 
 import type { Layout } from "~/layout";
 import { connect } from "~/process/client";
@@ -15,7 +12,6 @@ import {
 } from "~/process/rust-daemon";
 import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
 
-const BINARY_NAME = "marbles-daemon";
 const START_TIMEOUT_MS = 15_000;
 const PROBE_TIMEOUT_MS = 2000;
 const TERMINATE_GRACE_MS = 2000;
@@ -36,42 +32,6 @@ export interface RustDaemon {
   readonly closed: Promise<void>;
   readonly pid: number;
   readonly socket: string;
-}
-
-function executableMtime(path: string): number | undefined {
-  try {
-    accessSync(path, constants.X_OK);
-    const stat = statSync(path);
-    return stat.isFile() ? stat.mtimeMs : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-export function workspaceDaemonBinary(): string | undefined {
-  const configured = resolveDaemonBinary();
-  if (configured !== undefined) {
-    return configured;
-  }
-  const repoRoot = resolve(
-    dirname(fileURLToPath(import.meta.url)),
-    "..",
-    "..",
-    "..",
-    ".."
-  );
-  if (!existsSync(join(repoRoot, "crates", "marbles-daemon", "Cargo.toml"))) {
-    return undefined;
-  }
-  let best: { readonly mtime: number; readonly path: string } | undefined;
-  for (const profile of ["release", "debug"]) {
-    const path = join(repoRoot, "target", profile, BINARY_NAME);
-    const mtime = executableMtime(path);
-    if (mtime !== undefined && (best === undefined || mtime > best.mtime)) {
-      best = { mtime, path };
-    }
-  }
-  return best?.path;
 }
 
 function pipeLines(

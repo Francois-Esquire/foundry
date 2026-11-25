@@ -29,14 +29,10 @@ import {
 } from "~/process/rust-daemon";
 import { testHome } from "./helpers/home";
 import { readWorkspace } from "./helpers/registry";
-import {
-  type RustDaemon,
-  startRustDaemon,
-  workspaceDaemonBinary,
-} from "./helpers/rust-daemon";
+import { type RustDaemon, startRustDaemon } from "./helpers/rust-daemon";
 
 const zodPath = createRequire(import.meta.url).resolve("zod");
-const daemonBinary = workspaceDaemonBinary();
+const daemonBinary = resolveDaemonBinary();
 
 interface Fixture {
   readonly env: Record<string, string>;
@@ -567,9 +563,9 @@ describe("explicit Rust daemon binary", () => {
     }
   });
 
-  it("finds no daemon binary unless one is configured or installed beside the module", () => {
-    expect(resolveDaemonBinary({})).toBeUndefined();
-    expect(resolveDaemonBinary({ [DAEMON_BIN_ENV]: "" })).toBeUndefined();
+  it("validates MARBLES_DAEMON_BIN and resolves the workspace binary when built", () => {
+    expect(resolveDaemonBinary({})).toBe(daemonBinary);
+    expect(resolveDaemonBinary({ [DAEMON_BIN_ENV]: "" })).toBe(daemonBinary);
     expect(() =>
       resolveDaemonBinary({ [DAEMON_BIN_ENV]: "/no/such/marbles-daemon" })
     ).toThrow(DAEMON_BIN_ENV);

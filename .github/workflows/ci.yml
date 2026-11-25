@@ -178,6 +178,8 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
       - name: Check formatting and Clippy
         run: bun run daemon:check
       - name: Run Rust daemon tests

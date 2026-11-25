@@ -10,6 +10,11 @@
     },
     "test": {
       "dependsOn": ["build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../../crates/marbles-daemon/Cargo.toml",
+        "../../crates/marbles-daemon/src/**"
+      ],
       "outputs": [],
       "env": ["MARBLES_TEST_RUNS", "MARBLES_DAEMON_BIN"]
     },

@@ -3,12 +3,13 @@ import {
   accessSync,
   closeSync,
   constants,
+  existsSync,
   mkdirSync,
   openSync,
   statSync,
 } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { Layout } from "~/layout";
@@ -57,6 +58,22 @@ function executableMtime(path: string): number | undefined {
   }
 }
 
+function workspaceBinary(dir: string): string | undefined {
+  const repoRoot = resolve(dir, isSourceModule() ? "../../../.." : "../../..");
+  if (!existsSync(join(repoRoot, "crates", "marbles-daemon", "Cargo.toml"))) {
+    return undefined;
+  }
+  let best: { readonly mtime: number; readonly path: string } | undefined;
+  for (const profile of ["release", "debug"]) {
+    const path = join(repoRoot, "target", profile, BINARY_NAME);
+    const mtime = executableMtime(path);
+    if (mtime !== undefined && (best === undefined || mtime > best.mtime)) {
+      best = { mtime, path };
+    }
+  }
+  return best?.path;
+}
+
 export function resolveDaemonBinary(
   env: Env = process.env
 ): string | undefined {
@@ -69,8 +86,12 @@ export function resolveDaemonBinary(
     }
     return configured;
   }
-  const sibling = join(dirname(fileURLToPath(import.meta.url)), BINARY_NAME);
-  return executableMtime(sibling) === undefined ? undefined : sibling;
+  const dir = dirname(fileURLToPath(import.meta.url));
+  const sibling = join(dir, BINARY_NAME);
+  if (executableMtime(sibling) !== undefined) {
+    return sibling;
+  }
+  return workspaceBinary(dir);
 }
 
 export function rustDaemonArgs(options: RustDaemonArgsOptions): string[] {
