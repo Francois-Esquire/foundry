@@ -13,9 +13,20 @@ const NODE_GLOBALS = new Set([
 ]);
 const JS_EXT_PATTERN = /\.(?:mjs|cjs|js)$/;
 
+const DEPENDENCY_FIELDS = [
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "optionalDependencies",
+] as const;
+
 interface PackageManifest {
+  readonly dependencies?: Record<string, string>;
+  readonly devDependencies?: Record<string, string>;
   readonly exports?: Record<string, unknown>;
   readonly name?: string;
+  readonly optionalDependencies?: Record<string, string>;
+  readonly peerDependencies?: Record<string, string>;
 }
 
 function readManifest(packageDir: string): PackageManifest {
@@ -489,5 +500,290 @@ export function assertWebStandardExports(
     throw new Error(
       `Web-standard export seam violations:\n- ${violations.join("\n- ")}`
     );
+  }
+}
+
+export function portableSubpaths(packageDir: string): string[] {
+  const { exports = {} } = readManifest(resolve(packageDir));
+  return Object.keys(exports).filter(
+    (subpath) =>
+      subpath === "./testing/store" ||
+      !(isNodeSubpath(subpath) || subpath.startsWith("./testing/"))
+  );
+}
+
+export type PackageTier = "primitives" | "tools" | "domains";
+
+export const PACKAGE_TIERS: Readonly<Record<string, PackageTier>> = {
+  "@foundry/agents": "domains",
+  "@foundry/artifacts": "domains",
+  "@foundry/core": "primitives",
+  "@foundry/lib": "primitives",
+  "@foundry/models": "tools",
+  "@foundry/modules": "domains",
+  "@foundry/prompts": "tools",
+  "@foundry/queue": "domains",
+  "@foundry/sandbox": "domains",
+  "@foundry/scheduling": "domains",
+  "@foundry/tasks": "domains",
+  "@foundry/usage": "tools",
+  "@foundry/workflows": "domains",
+  "@foundry/workspaces": "domains",
+};
+
+const TIER_RANK: Readonly<Record<PackageTier, number>> = {
+  domains: 2,
+  primitives: 0,
+  tools: 1,
+};
+
+const UNTIERED_WORKSPACE_PACKAGES: ReadonlySet<string> = new Set([
+  "@foundry/tsconfig",
+]);
+
+function packageDirectories(packagesDir: string): string[] {
+  return readdirSync(packagesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .map((entry) => join(packagesDir, entry.name));
+}
+
+function foundryDependencies(manifest: PackageManifest): string[] {
+  const names = new Set<string>();
+  for (const field of DEPENDENCY_FIELDS) {
+    for (const name of Object.keys(manifest[field] ?? {})) {
+      if (
+        name.startsWith("@foundry/") &&
+        !UNTIERED_WORKSPACE_PACKAGES.has(name)
+      ) {
+        names.add(name);
+      }
+    }
+  }
+  return [...names].sort();
+}
+
+function findCycle(graph: ReadonlyMap<string, readonly string[]>): string[] {
+  const done = new Set<string>();
+  const path: string[] = [];
+  const visit = (name: string): string[] | null => {
+    const onPath = path.indexOf(name);
+    if (onPath >= 0) {
+      return [...path.slice(onPath), name];
+    }
+    if (done.has(name)) {
+      return null;
+    }
+    path.push(name);
+    for (const dependency of graph.get(name) ?? []) {
+      const cycle = visit(dependency);
+      if (cycle) {
+        return cycle;
+      }
+    }
+    path.pop();
+    done.add(name);
+    return null;
+  };
+  for (const name of graph.keys()) {
+    const cycle = visit(name);
+    if (cycle) {
+      return cycle;
+    }
+  }
+  return [];
+}
+
+function auditDependencyTiers(
+  name: string,
+  dependencies: readonly string[],
+  graph: ReadonlyMap<string, readonly string[]>,
+  tiers: Readonly<Record<string, PackageTier>>
+): string[] {
+  const tier = tiers[name];
+  const violations: string[] = [];
+  for (const dependency of dependencies) {
+    const dependencyTier = tiers[dependency];
+    if (!graph.has(dependency)) {
+      violations.push(`${name}: depends on ${dependency} outside packages/*`);
+    } else if (tier && dependencyTier === undefined) {
+      violations.push(`${name}: depends on unclassified ${dependency}`);
+    } else if (
+      tier &&
+      dependencyTier &&
+      TIER_RANK[dependencyTier] > TIER_RANK[tier]
+    ) {
+      violations.push(
+        `${name} (${tier}) must not depend on ${dependency} (${dependencyTier})`
+      );
+    }
+  }
+  return violations;
+}
+
+function readPackageGraph(
+  packagesDir: string,
+  violations: string[]
+): Map<string, string[]> {
+  const graph = new Map<string, string[]>();
+  for (const dir of packageDirectories(packagesDir)) {
+    const label = relative(resolve(packagesDir, ".."), dir);
+    if (!existsSync(join(dir, "package.json"))) {
+      violations.push(`${label}: missing package.json`);
+      continue;
+    }
+    const manifest = readManifest(dir);
+    graph.set(manifest.name ?? label, foundryDependencies(manifest));
+  }
+  return graph;
+}
+
+export function auditPackageTiers(
+  packagesDir: string,
+  tiers: Readonly<Record<string, PackageTier>> = PACKAGE_TIERS
+): string[] {
+  const violations: string[] = [];
+  const graph = readPackageGraph(resolve(packagesDir), violations);
+
+  for (const name of graph.keys()) {
+    if (!(name in tiers)) {
+      violations.push(`${name}: not classified in PACKAGE_TIERS`);
+    }
+  }
+  for (const name of Object.keys(tiers)) {
+    if (!graph.has(name)) {
+      violations.push(`${name}: classified in PACKAGE_TIERS but not found`);
+    }
+  }
+  for (const [name, dependencies] of graph) {
+    violations.push(...auditDependencyTiers(name, dependencies, graph, tiers));
+  }
+
+  const cycle = findCycle(graph);
+  if (cycle.length > 0) {
+    violations.push(`dependency cycle: ${cycle.join(" -> ")}`);
+  }
+
+  return violations;
+}
+
+export function assertPackageTiers(packagesDir: string): void {
+  const violations = auditPackageTiers(packagesDir);
+  if (violations.length > 0) {
+    throw new Error(`Package tier violations:\n- ${violations.join("\n- ")}`);
+  }
+}
+
+const FORBIDDEN_EXPORT_NAMES: readonly {
+  readonly pattern: RegExp;
+  readonly reason: string;
+}[] = [
+  { pattern: /Manager$/, reason: "*Manager is reserved for apps/*" },
+  {
+    pattern: /(?<!File)System$/,
+    reason: "*System obscures depth (only *FileSystem is allowed)",
+  },
+  { pattern: /InMemory/, reason: "name in-memory adapters Memory*" },
+];
+
+const SOURCE_FILE_PATTERN = /\.tsx?$/;
+const DECLARATION_FILE_PATTERN = /\.d\.ts$/;
+const NON_PUBLIC_SOURCE_DIRS = new Set(["node_modules", "test", "testing"]);
+
+function sourceFiles(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!NON_PUBLIC_SOURCE_DIRS.has(entry.name)) {
+        files.push(...sourceFiles(path));
+      }
+    } else if (
+      SOURCE_FILE_PATTERN.test(entry.name) &&
+      !DECLARATION_FILE_PATTERN.test(entry.name)
+    ) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+function hasExportModifier(node: ts.Node): boolean {
+  return (
+    ts.canHaveModifiers(node) &&
+    (ts.getModifiers(node) ?? []).some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+    )
+  );
+}
+
+function exportDeclarationNames(statement: ts.ExportDeclaration): string[] {
+  const { exportClause } = statement;
+  return exportClause && ts.isNamedExports(exportClause)
+    ? exportClause.elements.map((element) => element.name.text)
+    : [];
+}
+
+function exportedDeclarationNames(statement: ts.Statement): string[] {
+  if (ts.isVariableStatement(statement)) {
+    return statement.declarationList.declarations.flatMap((declaration) =>
+      ts.isIdentifier(declaration.name) ? [declaration.name.text] : []
+    );
+  }
+  if (
+    ts.isClassDeclaration(statement) ||
+    ts.isFunctionDeclaration(statement) ||
+    ts.isInterfaceDeclaration(statement) ||
+    ts.isTypeAliasDeclaration(statement) ||
+    ts.isEnumDeclaration(statement)
+  ) {
+    return statement.name ? [statement.name.text] : [];
+  }
+  return [];
+}
+
+function exportedNames(sourceFile: ts.SourceFile): string[] {
+  return sourceFile.statements.flatMap((statement) => {
+    if (ts.isExportDeclaration(statement)) {
+      return exportDeclarationNames(statement);
+    }
+    return hasExportModifier(statement)
+      ? exportedDeclarationNames(statement)
+      : [];
+  });
+}
+
+export function auditExportNames(packagesDir: string): string[] {
+  const root = resolve(packagesDir);
+  const violations: string[] = [];
+  for (const dir of packageDirectories(root)) {
+    const srcDir = join(dir, "src");
+    if (!existsSync(srcDir)) {
+      continue;
+    }
+    for (const file of sourceFiles(srcDir)) {
+      const sourceFile = ts.createSourceFile(
+        file,
+        readFileSync(file, "utf8"),
+        ts.ScriptTarget.Latest,
+        true,
+        file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+      );
+      for (const name of exportedNames(sourceFile)) {
+        for (const { pattern, reason } of FORBIDDEN_EXPORT_NAMES) {
+          if (pattern.test(name)) {
+            const label = relative(root, file).replaceAll("\\", "/");
+            violations.push(`${label}: exported name "${name}": ${reason}`);
+          }
+        }
+      }
+    }
+  }
+  return violations;
+}
+
+export function assertExportNames(packagesDir: string): void {
+  const violations = auditExportNames(packagesDir);
+  if (violations.length > 0) {
+    throw new Error(`Export naming violations:\n- ${violations.join("\n- ")}`);
   }
 }
