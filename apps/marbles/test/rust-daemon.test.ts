@@ -104,9 +104,12 @@ afterEach(async () => {
   await Promise.all(daemons.splice(0).map((daemon) => daemon.close()));
 });
 
-describe.skipIf(
-  daemonBinary === undefined && !process.env.CI && !process.env[DAEMON_BIN_ENV]
-)("Rust marbles-daemon parity with Bun engine generations", () => {
+const describeParity =
+  daemonBinary === undefined && !process.env[DAEMON_BIN_ENV]
+    ? describe.skip
+    : describe;
+
+describeParity("Rust marbles-daemon parity with Bun engine generations", () => {
   it("hosts workspaces in real Bun generations, rolls steps, selectively reloads on edit, and detaches", async () => {
     const setup = fixture();
     const otherRoot = join(setup.home, "other");
