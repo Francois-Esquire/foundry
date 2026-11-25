@@ -56,7 +56,11 @@ export function rootIssueFor(cause: unknown): WorkspaceSourceIssue {
 export class WorkspacePersistenceError extends WorkspaceSystemError {}
 
 export class WorkspaceSourceUnsupportedError extends WorkspaceSystemError {
-  constructor(source: string) {
-    super(`No registered Workspace layer claims the source "${source}"`);
+  constructor(source: string, operation?: string) {
+    super(
+      operation
+        ? `Workspace source "${source}" does not support ${operation}`
+        : `No registered Workspace extension claims the source "${source}"`
+    );
   }
 }

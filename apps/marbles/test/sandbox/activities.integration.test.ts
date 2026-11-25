@@ -10,7 +10,7 @@ import { DatabaseAutomationStore } from "~/database/automations";
 import { openDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
 import { AutomationService } from "~/lib/automation/service";
-import { tick } from "~/lib/schedule";
+import { rollSchedule } from "~/lib/schedule";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { declared } from "../helpers/engine";
 
@@ -235,7 +235,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         automations: await engine.automations.list(),
         definitions: engine.definitions(),
         feed: await engine.feed(),
-        lastFinish: new Map(),
         monitors: engine.monitors(),
         root,
         schedules: await engine.schedules(),
@@ -269,7 +268,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       if (!schedule) {
         throw new Error("Missing restored schedule");
       }
-      await tick(engine, schedule, { print: () => undefined });
+      await rollSchedule(engine, schedule, { print: () => undefined });
       expect(fired).toBe(1);
       expect(await readFile(join(root, "scheduled.txt"), "utf8")).toBe("ran");
       await restored.setEnabled(schedule.key, false);

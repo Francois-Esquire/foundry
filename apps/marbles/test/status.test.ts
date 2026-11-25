@@ -16,7 +16,7 @@ import { writeJson } from "~/lib/state/json";
 import { startedAt } from "~/process/spawned";
 import { readStatus } from "~/status/model";
 import { seedWorkspace } from "./helpers/registry";
-import { seedRuns, seedTicks } from "./helpers/stored-runs";
+import { seedRuns, seedSchedules } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
 async function layout() {
@@ -43,15 +43,11 @@ async function layout() {
   } finally {
     database.close();
   }
-  await seedTicks(state, "ws1", [
+  await seedSchedules(state, "ws1", [
     {
       key: "guides",
-      last: {
-        lastFinish: "2026-09-10T01:00:00.000Z",
-        lastStart: "2026-09-10T00:59:00.000Z",
-        lastStatus: "complete",
-        nextDue: "2026-09-10T01:30:00.000Z",
-      },
+      last: { outcome: "complete", settledAt: "2026-09-10T01:00:00.000Z" },
+      nextDue: "2026-09-10T01:30:00.000Z",
       owner: null,
     },
   ]);
@@ -268,9 +264,9 @@ describe("readStatus", () => {
     }
   });
 
-  it("reports a tick under way in a live process as running, and ignores a dead one's", async () => {
+  it("reports an occurrence claimed by a live process as running, and ignores a dead one's", async () => {
     const { state } = await layout();
-    await seedTicks(state, "ws1", [
+    await seedSchedules(state, "ws1", [
       { key: "fresh", owner: process.pid },
       { key: "stale", owner: spawnSync("true").pid },
     ]);
@@ -278,12 +274,13 @@ describe("readStatus", () => {
     expect(schedules).toEqual([
       expect.objectContaining({ name: "fresh", running: process.pid }),
       expect.objectContaining({ name: "guides", running: null }),
+      expect.objectContaining({ name: "stale", running: null }),
     ]);
   });
 
-  it("reports a trigger with a launch waiting as a monitor, as the dashboard does, history or not", async () => {
+  it("reports a stored monitor as a monitor, as the dashboard does, history or not", async () => {
     const { state } = await layout();
-    await seedTicks(state, "ws1", [{ key: "first", owner: null }]);
+    await seedSchedules(state, "ws1", [{ key: "first", kind: "monitor" }]);
     const database = await initializeDatabase(stateDatabase(state));
     try {
       for (const key of ["first", "guides"]) {
@@ -304,7 +301,7 @@ describe("readStatus", () => {
         lastStatus: null,
         name: "first",
       }),
-      expect.objectContaining({ kind: "monitor", name: "guides" }),
+      expect.objectContaining({ kind: null, name: "guides" }),
     ]);
   });
 
@@ -315,12 +312,10 @@ describe("readStatus", () => {
       { createdAt: 1, id: "rn-a", owner: dead, status: "running" },
       { createdAt: 2, id: "rn-b", owner: process.pid, status: "running" },
       { createdAt: 3, id: "rn-c", owner: null, status: "failed" },
-      { createdAt: 4, id: "rn-d", owner: null, status: "running" },
     ]);
 
     const recent = (await readStatus(state)).workspaces[0]?.runs.recent;
     expect(recent?.map((r) => [r.id, r.orphaned])).toEqual([
-      ["rn-d", true],
       ["rn-c", false],
       ["rn-b", false],
       ["rn-a", true],

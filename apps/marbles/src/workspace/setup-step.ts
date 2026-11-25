@@ -44,7 +44,8 @@ class WorkspaceSetupStep extends Step<SetupInput, void> {
 }
 
 export function registerSetupStep(engine: Engine): void {
-  engine.register(SETUP_STEP, new WorkspaceSetupStep().factory());
+  const factory = new WorkspaceSetupStep().factory();
+  engine.register(SETUP_STEP, (input: SetupInput) => factory(input));
 }
 
 function setupArticle({ configPath, draft, root }: SetupInput): string {

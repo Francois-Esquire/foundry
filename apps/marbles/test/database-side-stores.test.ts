@@ -238,7 +238,7 @@ describe("the stores an engine keeps beside its records", () => {
         workspaceId: "overlap",
       });
       const { options } = kept;
-      await options.triggers?.lastTick("tick");
+      await options.triggers?.monitorState("monitor");
       await options.records?.claimDelivery();
       for (const other of stores.filter((each) => each !== overlapping)) {
         await options[other]?.close();
@@ -260,7 +260,7 @@ describe("the stores an engine keeps beside its records", () => {
       state: join(scratch(), "own"),
       workspaceId: "own",
     });
-    await database.triggers.lastTick("tick");
+    await database.triggers.monitorState("monitor");
     let firstDone = false;
     const first = database.close().then(() => {
       firstDone = true;
@@ -307,7 +307,7 @@ describe("the stores an engine keeps beside its records", () => {
         "records cleanup failed",
       ]);
       await expect(database.usage.facts()).rejects.toThrow("closed");
-      await expect(database.triggers.lastTick("tick")).rejects.toThrow(
+      await expect(database.triggers.monitorState("monitor")).rejects.toThrow(
         "closed"
       );
     } finally {
@@ -341,7 +341,7 @@ describe("the stores an engine keeps beside its records", () => {
       root,
       "triggers"
     );
-    await triggers.lastTick("tick");
+    await triggers.monitorState("monitor");
     const first = triggers.close();
     const second = triggers.close();
     expect(second).toBe(first);

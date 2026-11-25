@@ -1,40 +1,36 @@
 #!/usr/bin/env bun
 import { existsSync, rmSync } from "node:fs";
 import { Engine } from "~/lib/engine";
-import { ExecutionRecords } from "~/lib/execution-records";
+import { RunQueue } from "~/lib/run-queue";
 
 const marker = process.env.MARBLES_TEST_FAIL_HANDOVER ?? "";
 const busy = process.env.MARBLES_TEST_FAIL_ORPHAN_TAKE;
-const { takeQueuedFrom } = ExecutionRecords.prototype;
-ExecutionRecords.prototype.takeQueuedFrom = function (
-  this: ExecutionRecords,
-  ...args: Parameters<ExecutionRecords["takeQueuedFrom"]>
+const { recover, retire } = RunQueue.prototype;
+RunQueue.prototype.retire = function (
+  this: RunQueue,
+  ...args: Parameters<RunQueue["retire"]>
 ) {
+  if (marker !== "" && existsSync(marker)) {
+    return Promise.reject(new Error("the test refuses this hand-over"));
+  }
+  return retire.apply(this, args);
+};
+RunQueue.prototype.recover = function (this: RunQueue) {
   if (busy !== undefined && existsSync(busy)) {
     rmSync(busy);
     return Promise.reject(new Error("injected SQLITE_BUSY during orphan take"));
   }
-  return takeQueuedFrom.apply(this, args);
-};
-const records = ExecutionRecords.prototype as unknown as {
-  handQueued: (...args: unknown[]) => Promise<boolean>;
-};
-const { handQueued } = records;
-records.handQueued = function (this: unknown, ...args: unknown[]) {
-  if (marker !== "" && existsSync(marker)) {
-    return Promise.reject(new Error("the test refuses this hand-over"));
-  }
-  return handQueued.apply(this, args);
+  return recover.apply(this);
 };
 if (process.env.MARBLES_TEST_DROP_HANDED === "1") {
-  const { retire } = Engine.prototype;
+  const { retire: retireEngine } = Engine.prototype;
   Engine.prototype.retire = function (
     this: Engine,
     successor: Parameters<Engine["retire"]>[0],
     options: Parameters<Engine["retire"]>[1] = {}
   ) {
     const { onHanded: _dropped, ...kept } = options;
-    return retire.call(this, successor, kept);
+    return retireEngine.call(this, successor, kept);
   } as Engine["retire"];
 }
 await import("~/process/generation");

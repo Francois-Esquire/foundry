@@ -52,7 +52,9 @@ export { dispose } from "~/authoring/runtime";
 export type { CommandResult, Exec, ExecOptions } from "~/lib/command";
 export { CommandError } from "~/lib/command";
 export type { LockedNode, StepConfig } from "~/lib/definition";
+export type { Launched } from "~/lib/launcher";
 export type { Log, LogLevel } from "~/lib/log";
+export type { RunQuery, RunView } from "~/lib/managers/runs";
 export type {
   Change,
   FileChange,
@@ -60,6 +62,7 @@ export type {
   MonitorContext,
   MonitorHandler,
 } from "~/lib/monitor";
+export type { ArtifactShareEvent } from "~/lib/resources";
 export type {
   CalendarSlot,
   Schedule,
@@ -113,6 +116,8 @@ export type { Runnable, StepDefinition, WorkflowDefinition } from "./lock";
 export { models } from "./models";
 export { observe } from "./observe";
 export { agent, artifact, sandbox, skills, workspace } from "./resources";
+export type { RunReads } from "./runs";
+export { runs } from "./runs";
 export { tasks } from "./tasks";
 export type { MonitorBuilder, ScheduleBuilder } from "./triggers";
 export { monitor, schedule } from "./triggers";

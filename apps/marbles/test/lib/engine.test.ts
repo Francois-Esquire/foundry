@@ -14,7 +14,7 @@ import { startEngine } from "../helpers/engine";
 import { openFeed } from "../helpers/feed";
 import { storedRun } from "../helpers/stored-runs";
 
-const NOT_RUNNING_PATTERN = /not running here/;
+const NOT_PAUSED_PATTERN = /is not paused/;
 const CANCELLED_PATTERN = /cancelled/;
 
 let root: string;
@@ -43,7 +43,7 @@ async function openEntry(
 }
 
 describe("lib2 through the engine", () => {
-  it("parks on an approval, resumes on the answer, and settles the run scope", async () => {
+  it("suspends on an approval, resumes on the answer, and settles the run scope", async () => {
     step("release").do(async ({ ask, report, run }) => {
       report.milestone({ title: "Ready to release" });
       const { approved, note } = await ask.approval({
@@ -113,7 +113,7 @@ describe("lib2 through the engine", () => {
     await engine.stop();
   });
 
-  it("a run parked on an approval survives a restart and replays with its ledger", async () => {
+  it("a run suspended on an approval survives a restart and replays with its ledger", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");
     const sessions = new InMemorySessionStore();
@@ -190,7 +190,6 @@ describe("lib2 through the engine", () => {
       root,
       state,
     });
-    expect(lines).toContain(`[run] release recovered ${launched.id}`);
     const stillOpen = (await feedTwo.read()).find(
       (entry) => entry.id === question.id
     );
@@ -213,6 +212,7 @@ describe("lib2 through the engine", () => {
       (entry) => (entry as unknown as { status: string }).status === "complete"
     );
     expect(done).toBeDefined();
+    expect(lines).toContain(`[run] release taken up ${launched.id}`);
     expect(bodies).toHaveLength(2);
     expect(two.scopes.has(launched.id)).toBe(false);
     expect((await storedRun(state, launched.id))?.status).toBe("complete");
@@ -220,7 +220,7 @@ describe("lib2 through the engine", () => {
     await second.dispose();
   });
 
-  it("a quit that cancels running work keeps a parked run for the next process", async () => {
+  it("a quit that cancels running work keeps a suspended run for the next process", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");
     let held: (() => void) | undefined;
@@ -251,8 +251,8 @@ describe("lib2 through the engine", () => {
       root,
       state,
     });
-    const parked = await one.launch<boolean>("release", {});
-    parked.result.catch(() => undefined);
+    const suspended = await one.launch<boolean>("release", {});
+    suspended.result.catch(() => undefined);
     const running = await one.launch<void>("linger", {});
     const lingered = running.result.catch((error: unknown) => error);
     const question = await openEntry(
@@ -270,7 +270,7 @@ describe("lib2 through the engine", () => {
       (await one.runs()).map((run) => [run.id, run.status])
     );
     expect(statuses.get(running.id)).toBe("cancelled");
-    expect(statuses.get(parked.id)).toBe("suspended");
+    expect(statuses.get(suspended.id)).toBe("suspended");
     expect(
       (await feedOne.read()).find((entry) => entry.id === question.id)?.input
         ?.status
@@ -289,8 +289,6 @@ describe("lib2 through the engine", () => {
       root,
       state,
     });
-    expect(lines).toContain(`[run] release recovered ${parked.id}`);
-    expect(lines).not.toContain(`[run] linger recovered ${running.id}`);
     await two.answer(question.id, "reject");
     const done = await openEntry(
       async () =>
@@ -300,15 +298,17 @@ describe("lib2 through the engine", () => {
         })) as never,
       (entry) => {
         const run = entry as unknown as { id: string; status: string };
-        return run.id === parked.id && run.status === "complete";
+        return run.id === suspended.id && run.status === "complete";
       }
     );
     expect(done).toBeDefined();
+    expect(lines).toContain(`[run] release taken up ${suspended.id}`);
+    expect(lines.join("\n")).not.toContain(running.id);
     await two.stop();
     await second.dispose();
   });
 
-  it("leaves a parked run alone when this process cannot answer or the step is gone", async () => {
+  it("leaves a suspended run and its question alone when this process cannot answer or the step is gone", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");
     step("release").do(
@@ -324,43 +324,46 @@ describe("lib2 through the engine", () => {
     });
     const launched = await one.launch<boolean>("release", {});
     launched.result.catch(() => undefined);
-    await openEntry(feedOne.read, (entry) => entry.input?.status === "open");
+    const question = await openEntry(
+      feedOne.read,
+      (entry) => entry.input?.status === "open"
+    );
     await one.stop();
+    const untouched = async () => {
+      expect((await storedRun(state, launched.id))?.status).toBe("suspended");
+      expect(
+        (await openFeed(feedRoot, { id: "ws", root }).read()).find(
+          (entry) => entry.id === question?.id
+        )?.input?.status
+      ).toBe("open");
+    };
 
     catalog.reset();
     step("release").do(
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
     );
-    const lines: string[] = [];
     const quiet = await startEngine({
       artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
-      print: (line) => lines.push(line),
+      print: () => undefined,
       root,
       state,
     });
-    expect((await quiet.runs()).map((run) => run.id)).not.toContain(
-      launched.id
-    );
-    expect(lines.join("\n")).toContain("nothing here can resume it");
     await quiet.stop();
+    await untouched();
 
     catalog.reset();
     step("ship").do(
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
     );
-    const renamed: string[] = [];
     const later = await startEngine({
       artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
       askable: true,
-      print: (line) => renamed.push(line),
+      print: () => undefined,
       root,
       state,
     });
-    expect((await later.runs()).map((run) => run.id)).not.toContain(
-      launched.id
-    );
-    expect(renamed.join("\n")).toContain("nothing here can resume it");
     await later.stop();
+    await untouched();
   });
 
   it("pauses a running step and resumes it with a prompt on the recorded session", async () => {
@@ -425,13 +428,13 @@ describe("lib2 through the engine", () => {
     expect(prompts).toHaveLength(2);
     expect(prompts[1]).toContain("focus on flaky ones\n\nlook at the tests");
     await expect(engine.resume(launched.id, "review", "again")).rejects.toThrow(
-      NOT_RUNNING_PATTERN
+      NOT_PAUSED_PATTERN
     );
     await engine.stop();
     await mock.dispose();
   });
 
-  it("pausing a workflow root parks its running child, and nothing runs after the cut turn", async () => {
+  it("pausing a workflow root suspends its running child, and nothing runs after the cut turn", async () => {
     const mock = bindMock(
       ({ prompt }) => `reply to ${prompt.split("\n").at(-1) ?? ""}`,
       { hold: ({ prompt }) => prompt.endsWith("count slowly"), root }
@@ -467,14 +470,14 @@ describe("lib2 through the engine", () => {
     const launched = await engine.launch<string>("flow", {});
     await started;
     expect(engine.pause(launched.id, "flow", "hold")).toBe(true);
-    const parked = await openEntry(
+    const suspended = await openEntry(
       async () =>
         (await engine.runs())
           .filter((run) => run.id === launched.id && run.status === "suspended")
           .map(() => ({})) as never,
       () => true
     );
-    expect(parked).toBeDefined();
+    expect(suspended).toBeDefined();
     expect(after).toEqual([]);
     await engine.resume(launched.id, "flow");
     await expect(launched.result).resolves.toBe("REPLY TO AGAIN");
@@ -535,74 +538,6 @@ describe("lib2 through the engine", () => {
     await expect(launched.result).resolves.toBe(true);
     expect((await read()).status).toBe("complete");
     await engine.stop();
-  });
-
-  it("adopting a parked run claims it until it settles, and no other engine takes it meanwhile", async () => {
-    const state = join(root, "state");
-    const feedRoot = join(root, "feed");
-    const define = () =>
-      step("release").do(
-        async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
-      );
-    define();
-    const one = await startEngine({
-      artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
-      askable: true,
-      print: () => undefined,
-      root,
-      state,
-    });
-    const launched = await one.launch<boolean>("release", {});
-    launched.result.catch(() => undefined);
-    const feedOne = openFeed(feedRoot, { id: "ws", root });
-    const question = await openEntry(
-      feedOne.read,
-      (entry) => entry.input?.status === "open"
-    );
-    await one.stop();
-
-    catalog.reset();
-    define();
-    const rebound = bindMock(() => "ok", { root });
-    const two = await startEngine({
-      ...rebound.instances,
-      artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
-      askable: true,
-      print: () => undefined,
-      root,
-      state,
-    });
-    expect(two.scopes.has(launched.id)).toBe(true);
-    expect((await storedRun(state, launched.id))?.owner).toBe(process.pid);
-
-    const three = await startEngine({
-      ...rebound.instances,
-      askable: true,
-      print: () => undefined,
-      root,
-      state,
-    });
-    expect(three.scopes.has(launched.id)).toBe(false);
-    expect((await three.runs()).map((run) => run.id)).not.toContain(
-      launched.id
-    );
-    await three.stop();
-    expect((await storedRun(state, launched.id))?.owner).toBe(process.pid);
-
-    if (!question) {
-      throw new Error("expected an open approval");
-    }
-    await two.answer(question.id, "approve");
-    await openEntry(
-      async () =>
-        (await two.runs())
-          .filter((run) => run.id === launched.id && run.status === "complete")
-          .map(() => ({})) as never,
-      () => true
-    );
-    expect((await storedRun(state, launched.id))?.owner).toBeNull();
-    await two.stop();
-    await rebound.dispose();
   });
 
   it("a recovered step runs with the input it was locked with, not a rebuilt one", async () => {
@@ -666,7 +601,7 @@ describe("lib2 through the engine", () => {
     await rebound.dispose();
   });
 
-  it("cancelling a parked run closes its question", async () => {
+  it("cancelling a suspended run closes its question", async () => {
     step("release").do(
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
     );
@@ -766,7 +701,7 @@ describe("lib2 through the engine", () => {
     await engine.stop();
   });
 
-  it("a parallel child that asks parks the run and its sibling finishes", async () => {
+  it("a parallel child that asks suspends the run and its sibling finishes", async () => {
     const sibling: string[] = [];
     const asks = step("asks").do(async ({ ask }) =>
       (await ask.approval({ title: "Go?" })).approved ? "yes" : "no"

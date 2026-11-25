@@ -38,24 +38,73 @@ describe("RunScopes", () => {
     expect(scopes.size).toBe(0);
   });
 
-  it("opens a recovered run with what it recorded, once", async () => {
-    const scopes = new RunScopes();
-    scopes.recover("run-1", {
-      ledger: { "marbles:root|ask|0": "yes" },
-      literals: { root: { n: 1 } },
-      session: { id: "session-1" },
-    });
+  it("opens each attempt with what its store recorded, ending the attempt before it", async () => {
+    const scopes = new RunScopes((runId) =>
+      Promise.resolve(
+        runId === "run-1"
+          ? {
+              ledger: { "marbles:root|ask|0": "yes" },
+              literals: { root: { n: 1 } },
+              session: { id: "session-1" },
+            }
+          : undefined
+      )
+    );
     await scopes.open("run-1", "/tmp", undefined, (scope) => {
       expect(scope.session.id).toBe("session-1");
       expect(scope.ledger.get("marbles:root|ask|0")).toBe("yes");
       expect(scope.literal(["root"], { n: 2 })).toEqual({ n: 1 });
+      scope.ledger.set("marbles:root|ask|1", "unfiled");
       return idle();
     });
-    await scopes.settle("run-1");
+    const first = scopes.get("run-1");
     await scopes.open("run-1", "/tmp", undefined, (scope) => {
-      expect(scope.session.id).not.toBe("session-1");
+      expect(first?.signal.aborted).toBe(true);
+      expect(scope.session.id).toBe("session-1");
+      expect(scope.ledger.get("marbles:root|ask|1")).toBeUndefined();
       return idle();
     });
+  });
+
+  it("opens an attempt of a run its store holds nothing for with what the attempt before it kept", async () => {
+    const scopes = new RunScopes();
+    let session = "";
+    await scopes.open("run-2", "/tmp", undefined, (scope) => {
+      session = scope.session.id;
+      scope.ledger.set("marbles:root|ask|0", "kept");
+      return idle();
+    });
+    await scopes.open("run-2", "/tmp", undefined, (scope) => {
+      expect(scope.session.id).toBe(session);
+      expect(scope.ledger.get("marbles:root|ask|0")).toBe("kept");
+      return idle();
+    });
+  });
+
+  it("offers each frame the prompt its latest pause was resumed with until a turn takes it", async () => {
+    const scopes = new RunScopes();
+    const pause = (index: number) =>
+      JSON.stringify([["root"], `marbles.pause:${String(index)}`, 0]);
+    await scopes.open(
+      "run-1",
+      "/tmp",
+      undefined,
+      (scope) => {
+        const frame = scope.frame(["root"]);
+        expect(scope.pauseName(frame)).toBe("marbles.pause:2");
+        scope.offerResumePrompt(frame);
+        scope.offerResumePrompt(frame);
+        expect(scope.takeResumePrompt(frame)).toBe("second");
+        expect(scope.takeResumePrompt(frame)).toBeUndefined();
+        scope.offerResumePrompt(frame);
+        expect(frame.resumePrompt).toBeUndefined();
+        return idle();
+      },
+      new Map([
+        [pause(1), { prompt: "second" }],
+        [pause(0), { prompt: "first" }],
+      ])
+    );
   });
 });
 
@@ -179,7 +228,7 @@ describe("Ledger", () => {
     expect(frame.signal.aborted).toBe(true);
   });
 
-  it("pause parks the subtree and a step entering under it parks at once", async () => {
+  it("pause suspends the subtree and a step entering under it suspends at once", async () => {
     const scope = new RunScope("run-subtree", "/tmp");
     const root = scope.frame(["flow"]);
     const child = scope.frame(["flow", "a"]);

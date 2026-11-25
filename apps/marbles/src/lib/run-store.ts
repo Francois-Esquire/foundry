@@ -1,41 +1,21 @@
-import { randomUUID } from "node:crypto";
-import type { RunRecord } from "@foundry/workflows/schema";
-import type {
-  WorkflowStore,
-  WorkflowStoreWrite,
-} from "@foundry/workflows/store";
-import { MemoryWorkflowStore } from "@foundry/workflows/store/memory";
+import { StoreError } from "@foundry/queue";
+import type { QueueStoreService, QueueWrite } from "@foundry/queue/store";
+import { makeMemoryQueueStore } from "@foundry/queue/store/memory";
+import { Effect } from "effect";
 
 import { RecordsGate } from "~/lib/events/records";
-import type { ExecutionRun } from "~/lib/execution-record";
-import type { LifecycleChange } from "~/lib/execution-store";
 import type { RecordedScope } from "~/lib/run-scope";
 import { storableJson } from "~/lib/state/json";
+import { commitEffect, runStoreEffect, storeEffect } from "~/lib/workflow-runs";
 
 export interface RunStore {
-  claim(runId: string, when: ClaimCondition): Promise<boolean>;
   close(): Promise<void>;
   readonly durable: boolean;
   open(
-    recorded: (runId: string) => RecordedScope | undefined,
-    follows?: RunFollower
-  ): Promise<WorkflowStore>;
+    recorded: (runId: string) => RecordedScope | undefined
+  ): Promise<QueueStoreService>;
   recorded(runId: string): Promise<StoredScope>;
-  release(runId?: string): Promise<void>;
-  remove(runId: string): Promise<void>;
 }
-
-export type RunFollower = (
-  runId: string,
-  status: string
-) => LifecycleChange | undefined;
-
-export type ClaimCondition = (
-  stored: RunRecord | null,
-  execution?: ExecutionRun | null
-) => boolean;
-
-export const ANY_STORED_RUN: ClaimCondition = () => true;
 
 export interface StoredScope {
   readonly ledger: Readonly<Record<string, unknown>>;
@@ -48,49 +28,20 @@ export type TerminalRunStatus = "complete" | "failed" | "cancelled";
 export const TERMINAL_RUN_STATUSES: ReadonlySet<string> =
   new Set<TerminalRunStatus>(["complete", "failed", "cancelled"]);
 
-export async function removalOf(
-  store: WorkflowStore,
-  runId: string
-): Promise<WorkflowStoreWrite> {
-  const run = await store.getRun(runId);
-  if (run === null) {
-    return {};
-  }
-  const suspensions: string[] = [];
-  let after: number | undefined;
-  do {
-    const page = await store.listSuspensions({
-      limit: 100,
-      runId,
-      ...(after === undefined ? {} : { after }),
-    });
-    suspensions.push(...page.items.map((suspension) => suspension.id));
-    after = page.next;
-  } while (after !== undefined);
-  const jobId = run.links?.jobId;
-  return {
-    ...(jobId === undefined ? {} : { deleteJobs: [jobId] }),
-    deleteRunFrames: [runId],
-    deleteRuns: [runId],
-    deleteSuspensions: suspensions,
-  };
+export interface FiledRun {
+  readonly runId: string;
+  readonly scope: RecordedScope;
 }
 
 export function filedRuns(
-  write: WorkflowStoreWrite,
+  write: QueueWrite,
   recorded: (runId: string) => RecordedScope | undefined
-): readonly {
-  readonly runId: string;
-  readonly scope?: RecordedScope;
-  readonly settled: boolean;
-}[] {
-  return (write.putRuns ?? []).map((run) => {
+): readonly FiledRun[] {
+  return (write.runs ?? []).flatMap((run) => {
     const scope = recorded(run.id);
-    return {
-      runId: run.id,
-      ...(scope === undefined ? {} : { scope: storedScope(run.id, scope) }),
-      settled: TERMINAL_RUN_STATUSES.has(run.status),
-    };
+    return scope === undefined
+      ? []
+      : [{ runId: run.id, scope: storedScope(run.id, scope) }];
   });
 }
 
@@ -115,29 +66,65 @@ function storedScope(runId: string, scope: RecordedScope): RecordedScope {
   };
 }
 
+const readEveryField = (_unread: Record<PropertyKey, never>) => undefined;
+
+export function ownedQueueWrite(write: QueueWrite): QueueWrite {
+  const {
+    deleteJobs,
+    deleteRuns,
+    deleteSuspensions,
+    events,
+    expected,
+    jobs,
+    pools,
+    runs,
+    suspensions,
+    ...unread
+  } = write;
+  readEveryField(unread);
+  return {
+    ...(deleteJobs === undefined ? {} : { deleteJobs }),
+    ...(deleteRuns === undefined ? {} : { deleteRuns }),
+    ...(deleteSuspensions === undefined ? {} : { deleteSuspensions }),
+    ...(events === undefined ? {} : { events }),
+    ...(expected === undefined ? {} : { expected }),
+    ...(jobs === undefined ? {} : { jobs }),
+    ...(pools === undefined ? {} : { pools }),
+    ...(runs === undefined ? {} : { runs }),
+    ...(suspensions === undefined ? {} : { suspensions }),
+  };
+}
+
+export function gatedQueueStore(
+  store: QueueStoreService,
+  around: <T>(call: () => Promise<T>) => Promise<T>
+): QueueStoreService {
+  const through = <A>(effect: Effect.Effect<A, StoreError>) =>
+    storeEffect(() => around(() => runStoreEffect(effect)));
+  return {
+    commit: (write) =>
+      commitEffect(() => around(() => runStoreEffect(store.commit(write)))),
+    getJob: (id) => through(store.getJob(id)),
+    getRun: (id) => through(store.getRun(id)),
+    getSuspension: (id) => through(store.getSuspension(id)),
+    listJobs: (filter) => through(store.listJobs(filter)),
+    listPools: Effect.suspend(() => through(store.listPools)),
+    listRuns: (filter) => through(store.listRuns(filter)),
+    listSuspensions: (filter) => through(store.listSuspensions(filter)),
+    watermark: Effect.suspend(() => through(store.watermark)),
+  };
+}
+
+interface Filed {
+  readonly deleted: readonly string[];
+  readonly runs: readonly FiledRun[];
+}
+
 export class MemoryRunStore implements RunStore {
   readonly durable = false;
   readonly #gate = new RecordsGate("the run store is closed");
-  readonly #owner = randomUUID();
-  readonly #owners = new Map<string, string>();
   readonly #scopes = new Map<string, RecordedScope>();
-  readonly #workflows = new MemoryWorkflowStore();
-
-  claim(runId: string, when: ClaimCondition): Promise<boolean> {
-    return this.#gate.run(() =>
-      this.#workflows.transaction(async (view) => {
-        if (!when(await view.getRun(runId))) {
-          return false;
-        }
-        const owner = this.#owners.get(runId);
-        if (owner !== undefined && owner !== this.#owner) {
-          return false;
-        }
-        this.#owners.set(runId, this.#owner);
-        return true;
-      })
-    );
-  }
+  readonly #queue = Effect.runSync(makeMemoryQueueStore);
 
   close(): Promise<void> {
     return this.#gate.close();
@@ -145,14 +132,30 @@ export class MemoryRunStore implements RunStore {
 
   open(
     recorded: (runId: string) => RecordedScope | undefined
-  ): Promise<WorkflowStore> {
-    return this.#gate.run(() =>
-      Promise.resolve(
-        this.#filing(this.#workflows, recorded, (filed) => this.#file(filed), {
-          through: (call) => this.#gate.run(call),
-        })
-      )
-    );
+  ): Promise<QueueStoreService> {
+    return this.#gate.run(() => {
+      const gated = gatedQueueStore(this.#queue, (call) =>
+        this.#gate.run(call)
+      );
+      return Promise.resolve({
+        ...gated,
+        commit: (write: QueueWrite) =>
+          Effect.suspend(() => {
+            const owned = ownedQueueWrite(write);
+            return Effect.flatMap(
+              Effect.try({
+                catch: (cause) => new StoreError({ cause }),
+                try: (): Filed => ({
+                  deleted: [...(owned.deleteRuns ?? [])],
+                  runs: filedRuns(owned, recorded),
+                }),
+              }),
+              (taken) =>
+                Effect.tap(gated.commit(owned), () => this.#file(taken))
+            );
+          }),
+      });
+    });
   }
 
   recorded(runId: string): Promise<StoredScope> {
@@ -172,113 +175,12 @@ export class MemoryRunStore implements RunStore {
     });
   }
 
-  release(runId?: string): Promise<void> {
-    return this.#gate.run(() => {
-      for (const [id, owner] of this.#owners) {
-        if (owner === this.#owner && (runId === undefined || id === runId)) {
-          this.#owners.delete(id);
-        }
-      }
-      return Promise.resolve();
-    });
-  }
-
-  remove(runId: string): Promise<void> {
-    return this.#gate.run(async () => {
-      await this.#workflows.transaction(async (view) =>
-        view.commit(await removalOf(view, runId))
-      );
-      this.#scopes.delete(runId);
-      this.#owners.delete(runId);
-    });
-  }
-
   #file({ deleted, runs }: Filed): void {
     for (const run of runs) {
-      if (run.scope !== undefined) {
-        this.#scopes.set(run.runId, run.scope);
-      }
-      if (run.settled) {
-        this.#owners.delete(run.runId);
-      } else {
-        this.#owners.set(run.runId, this.#owner);
-      }
+      this.#scopes.set(run.runId, run.scope);
     }
     for (const runId of deleted) {
       this.#scopes.delete(runId);
-      this.#owners.delete(runId);
     }
   }
-
-  #filing(
-    store: WorkflowStore,
-    recorded: (runId: string) => RecordedScope | undefined,
-    filed: (commit: Filed) => void,
-    {
-      through = (call) => call(),
-    }: {
-      readonly through?: <T>(call: () => Promise<T>) => Promise<T>;
-    } = {}
-  ): WorkflowStore {
-    const { transaction } = store;
-    return {
-      commit: (write) => {
-        let taken: Filed;
-        try {
-          taken = {
-            deleted: [...(write.deleteRuns ?? [])],
-            runs: filedRuns(write, recorded),
-          };
-        } catch (error) {
-          return Promise.reject(error);
-        }
-        return through(async () => {
-          await store.commit(write);
-          filed(taken);
-        });
-      },
-      ...(store.durability === undefined
-        ? {}
-        : { durability: store.durability }),
-      getJob: (id) => through(() => store.getJob(id)),
-      getQueue: (id) => through(() => store.getQueue(id)),
-      getRun: (id) => through(() => store.getRun(id)),
-      getSuspension: (id) => through(() => store.getSuspension(id)),
-      listFrames: (query) => through(() => store.listFrames(query)),
-      listJobs: (query) => through(() => store.listJobs(query)),
-      listQueues: () => through(() => store.listQueues()),
-      listRuns: (query) => through(() => store.listRuns(query)),
-      listSuspensions: (query) => through(() => store.listSuspensions(query)),
-      ...(transaction === undefined
-        ? {}
-        : {
-            transaction: <T>(
-              work: (view: WorkflowStore) => Promise<T>
-            ): Promise<T> =>
-              through(async () => {
-                const pending: Filed[] = [];
-                const result = await transaction.call<
-                  WorkflowStore,
-                  [(view: WorkflowStore) => Promise<T>],
-                  Promise<T>
-                >(store, (view) =>
-                  work(
-                    this.#filing(view, recorded, (commit) =>
-                      pending.push(commit)
-                    )
-                  )
-                );
-                for (const commit of pending) {
-                  filed(commit);
-                }
-                return result;
-              }),
-          }),
-    };
-  }
-}
-
-interface Filed {
-  readonly deleted: readonly string[];
-  readonly runs: ReturnType<typeof filedRuns>;
 }

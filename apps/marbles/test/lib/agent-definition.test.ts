@@ -776,7 +776,7 @@ describe("input", () => {
     ).rejects.toThrow(ANOTHER_INPUT);
   });
 
-  it("is kept with the session, so a parked run gives the function the same input", async () => {
+  it("is kept with the session, so a suspended run gives the function the same input", async () => {
     const deps = managerDeps();
     const a = args();
     const seen: unknown[] = [];

@@ -3,13 +3,10 @@ import { stopOrphans } from "@foundry/lib/orphans";
 import { removeByHand } from "@foundry/sandbox/container/constants";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { ContainerStore } from "@foundry/sandbox/store";
-import type { ExecutionCoordinator } from "@foundry/workflows";
 import { z } from "zod";
 
 import type { ExecutionRun } from "./execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
-import { closeAbandonedRuns } from "./run-recovery";
-import type { RunStore } from "./run-store";
 import type { HarnessActivities } from "./sandbox/activities";
 import { holderState, leftBehind } from "./sandbox/holders";
 
@@ -55,7 +52,6 @@ export interface CrashRecoveryOptions {
   readonly containers: () => Promise<Pick<Containers, "recover">>;
   readonly executions: () => readonly ExecutionRun[];
   readonly print: (line: string) => void;
-  readonly runs: RunStore;
   readonly spawned?: string;
 }
 
@@ -66,25 +62,17 @@ export class CrashRecovery {
     this.#options = options;
   }
 
-  async recover(
-    store: Pick<ExecutionCoordinator, "abandonRun" | "listRuns">
-  ): Promise<{
+  async recover(runs: () => Promise<readonly string[]>): Promise<{
     readonly closed: readonly string[];
     readonly report: RecoveryReport;
   }> {
-    const { activities, artifacts, print, runs } = this.#options;
+    const { activities, artifacts, print } = this.#options;
     let closed: readonly string[] = [];
     const steps: Taken[] = [
       await this.#step("processes", () => this.#processes()),
       await this.#step("containers", () => this.#containers()),
       await this.#step("runs", async () => {
-        closed = await closeAbandonedRuns({
-          execution: (runId) =>
-            this.#options.executions().find((run) => run.id === runId),
-          print,
-          runs,
-          store,
-        });
+        closed = await runs();
         return done(closed.length, "run(s) closed out");
       }),
       await this.#step("activities", async () =>

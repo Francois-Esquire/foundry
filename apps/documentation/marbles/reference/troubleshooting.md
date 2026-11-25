@@ -28,7 +28,7 @@ if needed. See [Installation](/marbles/get-started/installation).
   next engine generation on its own. A change that throws while loading
   keeps the previous load running, and the workspace shows the error; fix
   it, and the next edit loads. A header showing `failed` means no load of
-  the workspace runs: fix it, then open `marbles` (or run `roll`) again.
+  the workspace runs: fix it, then open `marbles` (or `marbles run <name>`) again.
 
 [Discovery rules](/marbles/reference/project#discovery-and-ignored-files)
 also explain how imported helper modules register work.
@@ -36,29 +36,31 @@ also explain how imported helper modules register work.
 ## Input is rejected or the launch form is JSON
 
 Pass valid JSON to `--input` with fields matching the input schema.
-`roll <definition>` uses that input; a schedule key already carries its
+`marbles run <definition>` uses that input; a schedule key already carries its
 configured input. The CLI's error lists fields and matching schedule keys.
 
 The dashboard uses structured fields when a schema exposes Standard JSON
 Schema. Other schemas remain valid for execution and use a JSON field.
 Install the schema library in the project containing the importing module.
 
-## A schedule does not fire
+## A schedule does not run
 
-`list` does not keep a clock running. `marbles`, `marbles run </dev/null`,
-and `roll` attach the workspace to the Marbles process, which keeps its
-schedules ticking until `marbles stop`; `marbles status` shows
-`marbles process: pid …` and `hosted: yes` when it does. `--dry-run` ticks
-only while the command runs. Check the cadence and host timezone, and inspect schedule history with
-`status`. A live process holding the same schedule key makes another tick
-skip. Different keys do not share that lock.
+`list` does not keep a clock running. `marbles`, `marbles </dev/null`,
+`marbles run <name>`, and `marbles enqueue <name>` attach the workspace to the Marbles process, which keeps its
+schedules running until `marbles daemon stop`; `marbles status` shows
+`marbles process: pid …` and `hosted: yes` when it does. `--dry-run`
+dispatches schedules only while the command runs. Check the cadence and host
+timezone, and inspect schedule history with `status`. An interval schedule
+waits for its previous run to settle, so a run still open or suspended holds
+its next occurrence back. An occurrence another live process claimed runs
+there, not here. Different keys are claimed separately.
 
 ## A monitor repeats or appears idle
 
 The first poll reports the current source as a change. Later polls require
 changed content. A failed handler leaves the prior observation in place,
 so it can receive the same change again. HTTP bodies containing changing
-timestamps may trigger every poll. See [monitor semantics](/marbles/foundation/triggers).
+timestamps may trigger every poll. See [monitor semantics](/marbles/concepts/monitoring-and-scheduling).
 
 ## An agent or sandbox cannot start
 
@@ -80,8 +82,8 @@ host `compaction` settings. See [Agent sessions](/marbles/reference/agent-sessio
 
 ## A question cancels the run
 
-`roll` and headless `run` cannot answer workflow questions. Through the
-Marbles process the run parks with its question on the Feed, and `roll`
+`marbles run` and piped `marbles` cannot answer workflow questions. Through the
+Marbles process the run suspends with its question on the Feed, and `marbles run`
 waits; open `marbles` to answer it. Under `--dry-run` the run is cancelled
 at the ask. Work before the ask has already run; launching again can repeat
 it.
@@ -93,23 +95,23 @@ but there is no default retry policy. Add `.config({ retry: { maxAttempts: 3 } }
 to the step that should retry, after making its effects safe to repeat.
 The limit includes the first attempt; `bail(error)` does not retry. A
 parent's policy does not configure its children, and the next schedule
-tick is a new run. See [retry policies](/marbles/foundation/durability#retry-a-failed-attempt).
+occurrence is a new run. See [retry policies](/marbles/concepts/durability#retry-a-failed-attempt).
 
 ## An agent turn repeated after answering a question
 
 A resumed body replays from the top. `agents.session` reopens its recorded
 conversation, but an explicit `session.generate` sends another turn if
 reached again. Put completed agent work in a preceding child step and ask
-in its own step, as in [Software Factory approval](/marbles/use-cases/software-factory/development/approve).
-The [replay table](/marbles/foundation/durability#replay-is-different-from-retry)
+in its own step, as in [Software Factory approval](/marbles/use-cases/software-factory/deliver).
+The [replay table](/marbles/concepts/durability#replay-is-different-from-retry)
 also explains one-shot agent calls and artifact writes.
 
 ## A run did not resume
 
-Only parked runs are adopted after restart. Keep the workspace path, state
-root, and registered definitions available; the current engine generation
-adopts them when it starts, or as soon as a retiring one lets one go, and
-the question waits on the Feed for a dashboard.
+Only suspended runs resume after a restart. Keep the workspace path, state
+root, and registered definitions available; the question waits on the
+Feed for a dashboard, and once it is answered the current engine
+generation resumes the run.
 Runs interrupted while actively executing appear orphaned. See
 [recovery conditions](/marbles/reference/state#what-survives-a-restart).
 

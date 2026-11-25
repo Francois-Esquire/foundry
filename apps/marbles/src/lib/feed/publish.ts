@@ -110,6 +110,17 @@ export function feedMetadataOf(
   return parsed.success ? parsed.data : undefined;
 }
 
+export async function feedEntry(
+  artifacts: Pick<Artifacts, "get">,
+  id: string
+): Promise<FeedMetadata | undefined> {
+  const parsed = artifactIdSchema.safeParse(id);
+  const artifact = parsed.success
+    ? await artifacts.get(parsed.data)
+    : undefined;
+  return artifact ? feedMetadataOf(artifact) : undefined;
+}
+
 export function feedPublisher(
   artifacts: Pick<Artifacts, "create" | "get" | "list" | "write">,
   workspace: FeedWorkspace,

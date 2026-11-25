@@ -5,7 +5,6 @@ export { piProvider } from "@foundry/models/pi";
 export { createContainers } from "@foundry/sandbox/container/containers";
 export { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 export type { ChannelMessage } from "@foundry/workflows/channels";
-export type { RunRecord } from "@foundry/workflows/schema";
 export { WorkspaceSystem } from "@foundry/workspaces";
 export { git } from "@foundry/workspaces/git";
 export { directory } from "@foundry/workspaces/node";
@@ -34,6 +33,7 @@ export {
   ConfigurationError,
   MemoryProviderStore,
 } from "~/lib/providers/store";
+export type { RunRecord } from "~/lib/workflow-runs";
 export type {
   AutomationRecord,
   AutomationService,

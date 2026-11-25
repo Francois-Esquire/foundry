@@ -34,7 +34,6 @@ test("a step definition that only ran inside another workflow says where its usa
   await launched.result;
   const snapshot = dashboardSnapshot(await engine.runs(), {
     definitions: engine.definitions(),
-    lastFinish: new Map(),
     monitors: engine.monitors(),
     root: process.cwd(),
     schedules: [],

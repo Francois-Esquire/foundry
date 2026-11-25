@@ -8,6 +8,7 @@ export type { WorkspaceRecords } from "~/lib/events/records";
 export type {
   DispatchInfo,
   DispatchOptions,
+  ObserverEntry,
   RollResult,
   RunControls,
   RunInfo,

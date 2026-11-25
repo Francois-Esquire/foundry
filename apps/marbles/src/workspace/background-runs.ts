@@ -1,7 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
-import type { RunRecord } from "@foundry/workflows/schema";
 import type { RunStatus } from "@foundry/workflows/types";
 import type { Output } from "ai";
 import type { Catalog } from "~/authoring/catalog";
@@ -20,6 +19,7 @@ import type {
   SessionOptions,
   SessionRef,
 } from "~/lib/types";
+import type { RunRecord } from "~/lib/workflow-runs";
 import type {
   DispatchInfo,
   DispatchOptions,
@@ -473,7 +473,7 @@ export class BackgroundRuns {
 
   #ownedHere(runId: string): boolean {
     const run = this.#engine.executions.get(runId);
-    return run === undefined || sameProcess(run.owner, thisProcess());
+    return run?.owner === undefined || sameProcess(run.owner, thisProcess());
   }
 
   async close(): Promise<void> {

@@ -1,503 +1,165 @@
+import { join } from "node:path";
+import { thisProcess } from "@foundry/lib/process-identity";
+import { expect, it, vi } from "vitest";
+import type { Engine } from "~/lib/engine";
 import {
-  type ProcessIdentity,
-  thisProcess,
-} from "@foundry/lib/process-identity";
-import { describe, expect, it, vi } from "vitest";
-import type { ExecutionView } from "~/lib/execution-store";
-import { MemoryExecutionStore } from "~/lib/execution-store";
-import { Executions } from "~/lib/executions";
-import { Launcher } from "~/lib/launcher";
-import { exitedPid } from "../helpers/executions";
+  executionFixture,
+  gate,
+  storedExecution,
+  until,
+} from "../helpers/executions";
 
-class GatedStore extends MemoryExecutionStore {
-  holding = false;
-  skip = 0;
-  counting = false;
-  failing: (index: number) => boolean = () => false;
-  #index = 0;
-  readonly entered = Promise.withResolvers<void>();
-  readonly gate = Promise.withResolvers<void>();
+const fixture = executionFixture();
 
-  override async transaction<T>(
-    work: (view: ExecutionView) => Promise<T>
-  ): Promise<T> {
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: the test sets it before the handover it gates.
-    if (this.holding && this.skip > 0) {
-      this.skip -= 1;
-      // biome-ignore lint/suspicious/noUnnecessaryConditions: the test sets it before the handover it gates.
-    } else if (this.holding) {
-      this.holding = false;
-      this.entered.resolve();
-      await this.gate.promise;
-    }
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: the test sets it before the writes it counts.
-    if (this.counting) {
-      const index = this.#index;
-      this.#index += 1;
-      if (this.failing(index)) {
-        throw new Error("injected handover write failure");
+function worker(engine: Engine, label: string, ran: string[]) {
+  const finish = gate();
+  engine.task<{ readonly n: number }, string>({
+    name: "work",
+    queue: "system",
+    run: async ({ n }) => {
+      ran.push(`${label}:${String(n)}`);
+      if (n === 1) {
+        await finish.opened;
       }
-    }
-    return await super.transaction(work);
-  }
-}
-
-function launcherOver(store: GatedStore, lines: string[] = []) {
-  const executions = new Executions({ store, warn: () => undefined });
-  const launcher = new Launcher({
-    agents: () => ({}) as never,
-    executions,
-    print: (line) => lines.push(line),
-    recoverQueued: false,
-    sandbox: () => ({}) as never,
-    workflows: {
-      cancel: () => Promise.resolve(),
-      dispatch: () => Promise.reject(new Error("no workflows here")),
-      has: () => false,
+      return label;
     },
   });
-  return { executions, launcher };
+  return finish;
 }
 
-async function queuedBehindOne(lines: string[] = []) {
-  const store = new GatedStore();
-  const { executions, launcher } = launcherOver(store, lines);
-  await executions.load();
-  const started: string[] = [];
-  const finish = Promise.withResolvers<void>();
-  launcher.task({
-    name: "first",
+it("hands its queued runs to the next engine, which runs them, while its running run finishes untouched", async () => {
+  const state = join(fixture.root, "state");
+  const ran: string[] = [];
+  const old = fixture.engine({ state });
+  const finish = worker(old, "old", ran);
+  await old.start();
+  const running = await old.launch<string>("work", { n: 1 });
+  await until(() => ran.length === 1);
+  const queued = await Promise.all(
+    [2, 3].map((n) => old.launch<string>("work", { n }))
+  );
+  const next = fixture.engine({ state });
+  worker(next, "next", ran);
+  await next.start();
+
+  const handed: string[] = [];
+  const { ended } = await old.retire(thisProcess(), {
+    onHanded: (runId) => handed.push(runId),
+  });
+  expect(handed.sort()).toEqual(queued.map((run) => run.id).sort());
+  for (const run of queued) {
+    await expect(run.result).rejects.toThrow(
+      "handed to the next engine generation"
+    );
+  }
+  await vi.waitFor(
+    async () => {
+      for (const run of queued) {
+        expect((await storedExecution(state, run.id))?.status).toBe("complete");
+      }
+    },
+    { timeout: 5000 }
+  );
+  expect(ran).toEqual(["old:1", "next:2", "next:3"]);
+  expect(old.executions.get(running.id)?.status).toBe("running");
+
+  finish.open();
+  expect(await running.result).toBe("old");
+  await ended;
+  expect((await storedExecution(state, running.id))?.status).toBe("complete");
+});
+
+it("refuses a top-level launch once it has begun to retire, as moving to the next engine", async () => {
+  const engine = fixture.engine();
+  engine.task({ name: "work", run: () => "done" });
+  await engine.start();
+  await engine.retire({ pid: thisProcess().pid + 1, started: null });
+  await expect(engine.launch("work", {})).rejects.toMatchObject({
+    message:
+      "work was not launched: this engine is retiring; launch it on the next engine generation",
+    name: "EngineRetiringError",
+  });
+});
+
+it("settles its callers' results when another engine cancels their runs, running or queued", async () => {
+  const state = join(fixture.root, "state");
+  const owner = fixture.engine({ state });
+  owner.task({
+    name: "hold",
+    run: async (_input, { signal }) => {
+      await new Promise((resolve) =>
+        signal.addEventListener("abort", resolve, { once: true })
+      );
+    },
+  });
+  await owner.start();
+  const other = fixture.engine({ state });
+  other.task({ name: "hold", run: () => undefined });
+  await other.start();
+  const running = await owner.launch("hold", {});
+  const queued = await owner.launch("hold", {});
+
+  await other.cancel(queued.id);
+  await other.cancel(running.id);
+
+  await expect(running.result).rejects.toThrow();
+  await expect(queued.result).rejects.toThrow();
+  expect(owner.executions.get(running.id)?.status).toBe("cancelled");
+  expect(owner.executions.get(queued.id)?.status).toBe("cancelled");
+});
+
+it("launches one run for a key launched twice at once, task or workflow", async () => {
+  const engine = fixture.engine();
+  const finish = gate();
+  engine.task({ name: "keyed-task", run: () => finish.opened });
+  engine.define({
+    fn: () => finish.opened,
+    kind: "step",
+    name: "keyed-flow",
+  });
+  await engine.start();
+  const launchTwice = (name: string) =>
+    Promise.all(
+      [0, 1].map(() => engine.launch(name, {}, { idempotencyKey: name }))
+    );
+  const tasks = await launchTwice("keyed-task");
+  const flows = await launchTwice("keyed-flow");
+  finish.open();
+  await Promise.all([...tasks, ...flows].map((launched) => launched.result));
+  expect(new Set(tasks.map((launched) => launched.id)).size).toBe(1);
+  expect(new Set(flows.map((launched) => launched.id)).size).toBe(1);
+  expect(engine.executions.list().map((run) => [run.name, run.status])).toEqual(
+    [
+      ["keyed-task", "complete"],
+      ["keyed-flow", "complete"],
+    ]
+  );
+  expect(
+    (await engine.runs()).filter((run) => run.id === flows[0]?.id)
+  ).toHaveLength(1);
+});
+
+it("follows a keyed run another engine launched to its end when launched again with the key", async () => {
+  const state = join(fixture.root, "state");
+  const finish = gate();
+  const ran: string[] = [];
+  const owner = fixture.engine({ state });
+  owner.task({
+    name: "keyed",
     run: async () => {
-      started.push("first");
-      await finish.promise;
+      ran.push("owner");
+      await finish.opened;
     },
   });
-  launcher.task({
-    name: "waiting",
-    run: (input) => {
-      started.push(String((input as { n: number }).n));
-    },
-  });
-  const first = await launcher.launch("first", {}, {});
-  first.result.catch(() => undefined);
-  const second = await launcher.launch("waiting", { n: 2 }, {});
-  const third = await launcher.launch("waiting", { n: 3 }, {});
-  second.result.catch(() => undefined);
-  third.result.catch(() => undefined);
-  const successor = { pid: thisProcess().pid + 1, started: null };
-  const end = async () => {
-    finish.resolve();
-    await first.result;
-  };
-  return {
-    end,
-    executions,
-    first,
-    launcher,
-    second,
-    started,
-    store,
-    successor,
-    third,
-  };
-}
-
-async function settledYet(promise: Promise<unknown>): Promise<string> {
-  const pending = Symbol("pending");
-  const settled = await Promise.race([
-    promise.then(
-      () => "resolved",
-      () => "rejected"
-    ),
-    new Promise<symbol>((resolve) => setImmediate(() => resolve(pending))),
-  ]);
-  return settled === pending ? "pending" : String(settled);
-}
-
-describe("an engine that has begun to retire", () => {
-  it("refuses a launch that reaches it while it hands its queue over, and one after, as moving to the next engine", async () => {
-    const queued = await queuedBehindOne();
-    queued.store.holding = true;
-    const handing = queued.launcher.handOver(queued.successor);
-    await queued.store.entered.promise;
-    const during = queued.launcher.launch("waiting", { n: 4 }, {});
-    queued.executions.release(queued.first.id);
-    queued.store.gate.resolve();
-    await expect(during).rejects.toMatchObject({
-      name: "EngineRetiringError",
-    });
-    await handing;
-    const after = queued.launcher.launch("waiting", { n: 5 }, {});
-    await expect(after).rejects.toMatchObject({ name: "EngineRetiringError" });
-    await queued.end();
-    expect(queued.started).toEqual(["first"]);
-    expect(queued.executions.waiting()).toEqual([]);
-    expect(
-      queued.executions
-        .list()
-        .map((run) => (run.input as { n?: number } | undefined)?.n)
-    ).not.toContain(4);
-  });
-
-  it("hands over without waiting on a launch admitted before it began whose start is still being written", async () => {
-    const store = new GatedStore();
-    const { executions, launcher } = launcherOver(store);
-    await executions.load();
-    launcher.task({ name: "quick", run: () => undefined });
-    store.skip = 1;
-    store.holding = true;
-    const launching = launcher.launch("quick", {}, {});
-    await store.entered.promise;
-    const handing = launcher.handOver({
-      pid: thisProcess().pid + 1,
-      started: null,
-    });
-    setTimeout(() => store.gate.resolve(), 20);
-    expect(await handing).toEqual([]);
-    await (await launching).result;
-  });
-
-  it("keeps a run whose hand-over failed queued and unstarted, and hands it over on the next try", async () => {
-    const lines: string[] = [];
-    const queued = await queuedBehindOne(lines);
-    queued.store.holding = true;
-    const handing = queued.launcher.handOver(queued.successor);
-    await queued.store.entered.promise;
-    queued.store.counting = true;
-    queued.store.failing = (index) => index === 0;
-    queued.executions.release(queued.first.id);
-    queued.store.gate.resolve();
-    expect(await handing).toEqual([queued.third.id]);
-    await expect(queued.second.result).rejects.toThrow(
-      "was handed to the next engine generation"
-    );
-    await queued.end();
-    expect(queued.started).toEqual(["first"]);
-    for (const run of [queued.second, queued.third]) {
-      expect(queued.executions.get(run.id)?.owner).toMatchObject({
-        pid: queued.successor.pid,
-      });
-    }
-    expect(
-      lines.some((line) => line.includes("injected handover write failure"))
-    ).toBe(true);
-  });
-
-  it("tells each caller as its run is handed over, and keeps one it cannot hand over queued, unstarted and undrained until it can", async () => {
-    const lines: string[] = [];
-    const queued = await queuedBehindOne(lines);
-    queued.store.holding = true;
-    const late: string[] = [];
-    const handing = queued.launcher.handOver(queued.successor, (id) =>
-      late.push(id)
-    );
-    await queued.store.entered.promise;
-    queued.store.counting = true;
-    queued.store.failing = (index) => index > 0;
-    queued.executions.release(queued.first.id);
-    queued.store.gate.resolve();
-    const handed = await handing;
-
-    expect(queued.started).toEqual(["first"]);
-    expect(handed).toEqual([queued.second.id]);
-    await expect(queued.second.result).rejects.toThrow(
-      "was handed to the next engine generation"
-    );
-    expect(queued.executions.get(queued.third.id)).toMatchObject({
-      status: "queued",
-    });
-    expect(queued.executions.waiting()).toEqual([queued.third.id]);
-    expect(await settledYet(queued.third.result)).toBe("pending");
-    expect(await settledYet(queued.executions.drained())).toBe("pending");
-
-    await vi.waitFor(
-      () =>
-        expect(
-          lines.filter((line) =>
-            line.includes("injected handover write failure")
-          ).length
-        ).toBe(1),
-      { timeout: 5000 }
-    );
-    queued.store.counting = false;
-    await expect(queued.third.result).rejects.toThrow(
-      "was handed to the next engine generation"
-    );
-    expect(late).toEqual([queued.third.id]);
-    expect(queued.executions.waiting()).toEqual([]);
-    expect(queued.executions.get(queued.third.id)?.owner).toMatchObject({
-      pid: queued.successor.pid,
-    });
-    await queued.end();
-    expect(queued.started).toEqual(["first"]);
-    expect(
-      lines.filter((line) => line.includes("injected handover write failure"))
-    ).toHaveLength(1);
-  }, 60_000);
-
-  it("keeps handing over a run it could not hand over while the engine stops, so the stop drains", async () => {
-    const queued = await queuedBehindOne();
-    queued.store.holding = true;
-    const handing = queued.launcher.handOver(queued.successor);
-    await queued.store.entered.promise;
-    queued.store.counting = true;
-    queued.store.failing = (index) => index > 0;
-    queued.executions.release(queued.first.id);
-    queued.store.gate.resolve();
-    expect(await handing).toEqual([queued.second.id]);
-    expect(queued.executions.waiting()).toEqual([queued.third.id]);
-    await queued.launcher.halt(false);
-    queued.store.counting = false;
-    await vi.waitFor(() => expect(queued.executions.waiting()).toEqual([]), {
-      timeout: 5000,
-    });
-    await expect(queued.third.result).rejects.toThrow(
-      "was handed to the next engine generation"
-    );
-    await queued.end();
-    await queued.executions.drained();
-    expect(queued.started).toEqual(["first"]);
-  }, 60_000);
-});
-
-class CurrentStore extends GatedStore {
-  current: ProcessIdentity | undefined;
-
-  override transaction<T>(
-    work: (view: ExecutionView) => Promise<T>
-  ): Promise<T> {
-    return super.transaction((view) =>
-      work(
-        new Proxy(view, {
-          get: (target, key) => {
-            if (key === "successor") {
-              return () => Promise.resolve(this.current);
-            }
-            const value: unknown = Reflect.get(target, key, target);
-            return typeof value === "function" ? value.bind(target) : value;
-          },
-        })
-      )
-    );
-  }
-}
-
-describe("a later pass of a retiring engine's hand-over", () => {
-  it("hands a run to the engine current when the write is made, read in its transaction", async () => {
-    vi.useFakeTimers();
-    try {
-      const store = new CurrentStore();
-      const { executions, launcher } = launcherOver(store);
-      await executions.load();
-      launcher.task({ name: "waiting", run: () => undefined });
-      launcher.task({
-        name: "first",
-        run: () => new Promise(() => undefined),
-      });
-      (await launcher.launch("first", {}, {})).result.catch(() => undefined);
-      const queued = await launcher.launch("waiting", {}, {});
-      queued.result.catch(() => undefined);
-      const retiredFor = { pid: thisProcess().pid + 1, started: null };
-      store.counting = true;
-      store.failing = () => true;
-      await launcher.handOver(retiredFor);
-      store.counting = false;
-      store.current = retiredFor;
-      store.holding = true;
-      const pass = vi.advanceTimersByTimeAsync(1000);
-      await store.entered.promise;
-      const now = { pid: thisProcess().pid + 2, started: null };
-      store.current = now;
-      store.gate.resolve();
-      await pass;
-      expect(executions.get(queued.id)?.owner).toMatchObject({
-        pid: now.pid,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("waits while no engine is current, then hands it to the one that is", async () => {
-    vi.useFakeTimers();
-    try {
-      const store = new CurrentStore();
-      const { executions, launcher } = launcherOver(store);
-      await executions.load();
-      launcher.task({ name: "waiting", run: () => undefined });
-      launcher.task({
-        name: "first",
-        run: () => new Promise(() => undefined),
-      });
-      (await launcher.launch("first", {}, {})).result.catch(() => undefined);
-      const queued = await launcher.launch("waiting", {}, {});
-      queued.result.catch(() => undefined);
-      store.counting = true;
-      store.failing = () => true;
-      await launcher.handOver({ pid: thisProcess().pid + 1, started: null });
-      store.counting = false;
-      store.current = undefined;
-      await vi.advanceTimersByTimeAsync(1000);
-      expect(executions.get(queued.id)?.owner).toMatchObject({
-        pid: thisProcess().pid,
-      });
-      const now = { pid: thisProcess().pid + 2, started: null };
-      store.current = now;
-      await vi.advanceTimersByTimeAsync(2000);
-      expect(executions.get(queued.id)?.owner).toMatchObject({
-        pid: now.pid,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("takes up a run handed to this engine after its first pass, and hands it on", async () => {
-    vi.useFakeTimers();
-    try {
-      const store = new CurrentStore();
-      const { executions, launcher } = launcherOver(store);
-      await executions.load();
-      launcher.task({ name: "waiting", run: () => undefined });
-      const now = { pid: thisProcess().pid + 2, started: null };
-      store.current = now;
-      expect(
-        await launcher.handOver({ pid: thisProcess().pid + 1, started: null })
-      ).toEqual([]);
-      const at = new Date().toISOString();
-      await store.create({
-        correlation: {},
-        id: "rn-handed-late",
-        input: {},
-        kind: "task",
-        name: "waiting",
-        observations: [],
-        owner: thisProcess(),
-        queue: "marbles",
-        revision: 1,
-        sequence: 99,
-        status: "queued",
-        timestamps: { queuedAt: at, updatedAt: at },
-      });
-      await vi.advanceTimersByTimeAsync(2000);
-      expect((await executions.peek("rn-handed-late"))?.owner).toMatchObject({
-        pid: now.pid,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});
-
-it("hands on, at its next pass, a gone process's queued run it took just as it began to retire", async () => {
-  vi.useFakeTimers();
-  try {
-    const store = new GatedStore();
-    const { executions, launcher } = launcherOver(store);
-    await executions.load();
-    const started: string[] = [];
-    launcher.task({
-      name: "waiting",
-      run: () => {
-        started.push("waiting");
-      },
-    });
-    const dead = { pid: exitedPid(), started: null };
-    const at = new Date().toISOString();
-    await store.create({
-      correlation: {},
-      id: "rn-orphaned",
-      input: {},
-      kind: "task",
-      name: "waiting",
-      observations: [],
-      owner: dead,
-      queue: "marbles",
-      revision: 1,
-      sequence: 1,
-      status: "queued",
-      timestamps: { queuedAt: at, updatedAt: at },
-    });
-    store.holding = true;
-    const taking = launcher.takeOrphaned("rn-orphaned", dead);
-    await store.entered.promise;
-    const next = { pid: thisProcess().pid + 1, started: null };
-    expect(await launcher.handOver(next)).toEqual([]);
-    store.gate.resolve();
-    expect(await taking).toEqual({ taken: true });
-    expect(executions.waiting()).toEqual(["rn-orphaned"]);
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(executions.get("rn-orphaned")?.owner).toMatchObject({
-      pid: next.pid,
-    });
-    expect(started).toEqual([]);
-  } finally {
-    vi.useRealTimers();
-  }
-});
-
-describe("handing queued runs over", () => {
-  it("starts none of them here when a slot frees while one is being handed over", async () => {
-    const store = new GatedStore();
-    const { executions, launcher } = launcherOver(store);
-    await executions.load();
-    const started: string[] = [];
-    const finish = Promise.withResolvers<void>();
-    launcher.task({
-      name: "first",
-      run: async () => {
-        started.push("first");
-        await finish.promise;
-      },
-    });
-    launcher.task({
-      name: "waiting",
-      run: (input) => {
-        started.push(String((input as { n: number }).n));
-      },
-    });
-    const first = await launcher.launch("first", {}, {});
-    first.result.catch(() => undefined);
-    const second = await launcher.launch("waiting", { n: 2 }, {});
-    const third = await launcher.launch("waiting", { n: 3 }, {});
-    second.result.catch(() => undefined);
-    third.result.catch(() => undefined);
-    expect(started).toEqual(["first"]);
-
-    const successor = { pid: thisProcess().pid + 1, started: null };
-    store.holding = true;
-    const handing = launcher.handOver(successor);
-    await store.entered.promise;
-    executions.release(first.id);
-    store.gate.resolve();
-    const handed = await handing;
-    finish.resolve();
-    await first.result;
-
-    expect(started).toEqual(["first"]);
-    expect([...handed].sort()).toEqual([second.id, third.id].sort());
-    for (const run of [second, third]) {
-      expect(executions.get(run.id)?.owner).toMatchObject({
-        pid: successor.pid,
-      });
-    }
-  });
-});
-
-describe("a halted launcher's hand-over", () => {
-  it("leaves no pass scheduled once it halts with nothing left to hand over", async () => {
-    vi.useFakeTimers();
-    try {
-      for (const cancel of [true, false]) {
-        const { executions, launcher } = launcherOver(new GatedStore());
-        await executions.load();
-        await launcher.handOver({ pid: thisProcess().pid + 1, started: null });
-        expect(vi.getTimerCount()).toBe(1);
-        await launcher.halt(cancel);
-        expect(vi.getTimerCount()).toBe(0);
-      }
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+  await owner.start();
+  const other = fixture.engine({ state });
+  other.task({ name: "keyed", run: () => ran.push("other") });
+  await other.start();
+  const first = await owner.launch("keyed", {}, { idempotencyKey: "keyed" });
+  const again = await other.launch("keyed", {}, { idempotencyKey: "keyed" });
+  finish.open();
+  await first.result;
+  await expect(again.result).resolves.toBeUndefined();
+  expect(again.id).toBe(first.id);
+  expect(ran).toEqual(["owner"]);
 });

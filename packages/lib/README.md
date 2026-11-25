@@ -11,8 +11,10 @@ Import shared helpers directly from their owning module:
 - `@foundry/lib/pagination`: page limits, page construction, and complete traversal through `collectPages`.
 - `@foundry/lib/mime`: shared MIME constants and text MIME detection.
 - `@foundry/lib/file-classification`: filename classification, `FileClassification`, `FileKind`, `FILE_KINDS`, and `CLASSIFICATION_VERSION`.
+- `@foundry/lib/sqlite`: shared Drizzle SQLite database/transaction types, value-storability guards, batching, upsert helpers, and record fault errors.
+- `@foundry/lib/testing/sqlite`: test helper `createTables` for materializing Drizzle SQLite tables in tests.
 
-These modules have no third-party dependencies or filesystem I/O. Storage contracts and structural validation live in `@foundry/core/storage`.
+These modules have no third-party dependencies or filesystem I/O, except the SQLite helpers which require the optional `drizzle-orm` peer. Storage contracts and structural validation live in `@foundry/core/storage`.
 Configuration requires the optional Zod peer; `@foundry/lib/readable-name` requires the optional `unique-names-generator` peer.
 
 Tests live in `src/test/`, with reusable fixtures in `src/test/helpers/`.

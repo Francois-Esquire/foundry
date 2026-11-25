@@ -1,5 +1,4 @@
 import { isSuspendSignal } from "@foundry/workflows/executable";
-import type { RunExecutionContext } from "@foundry/workflows/orchestrator";
 import type { StepContext, StepSpec } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
 import type { RetryPolicy } from "@foundry/workflows/types";
@@ -16,8 +15,15 @@ import type {
 } from "./definition";
 import { isLockedNode, rootLock } from "./definition";
 import { withinContext } from "./execution-context";
+import type { RunExecution } from "./run-queue";
 import type { Frame, RunScope, RunScopes } from "./run-scope";
-import { current, PAUSE_KIND, raceAbort, workingDirectory } from "./run-scope";
+import {
+  current,
+  PAUSE_KIND,
+  raceAbort,
+  setupCounters,
+  workingDirectory,
+} from "./run-scope";
 import { parseEvery } from "./schedule";
 import { notJson, validate } from "./schema";
 
@@ -107,6 +113,7 @@ async function runBody(
 ): Promise<unknown> {
   const frame = scope.frame(ctx.path);
   await scope.enter(frame);
+  scope.offerResumePrompt(frame);
   const results =
     node.mode === "parallel"
       ? await driveParallel(
@@ -141,8 +148,10 @@ async function runBody(
   const timer = startTimeout(definition, where, frame);
   try {
     attempt = current.run(store, () =>
-      Promise.resolve(
-        definition.fn(buildContext({ bindings, ctx, frame, input, scope }))
+      setupCounters.exit(() =>
+        Promise.resolve(
+          definition.fn(buildContext({ bindings, ctx, frame, input, scope }))
+        )
       )
     );
     output = await raceAbort(frame, attempt);
@@ -161,7 +170,7 @@ async function runBody(
     frame.paused = undefined;
     return await ctx.suspend({
       kind: PAUSE_KIND,
-      name: `marbles.pause:${crypto.randomUUID().slice(0, 8)}`,
+      name: scope.pauseName(frame),
       reason: paused.reason,
       request: {},
     });
@@ -190,7 +199,7 @@ async function runChild(
   bindings: Bindings
 ): Promise<unknown> {
   frame.signal.throwIfAborted();
-  const { occurrence } = scope.claim(frame, "step.run");
+  const { key, occurrence } = scope.claim(frame, "step.run");
   const attempt = (await parent.steps)[parent.path.join(".")]?.attempt ?? 0;
   frame.signal.throwIfAborted();
   const name = `$run-${occurrence}-${attempt}`;
@@ -198,15 +207,12 @@ async function runChild(
   if (existing) {
     return existing.run();
   }
-  const input = (
-    definition.input
-      ? await validate(
-          definition.input,
-          raw ?? {},
-          `${describe(definition, name)} input`
-        )
-      : (raw ?? {})
-  ) as Input;
+  const input =
+    scope.ledger.get<{ readonly input: Input }>(key)?.input ??
+    (await childInput(definition, raw, describe(definition, name)));
+  if (notJson(input) === undefined) {
+    scope.ledger.set(key, { input });
+  }
   const node = stepTree(
     await rootNode(definition, name, input, scope, bindings),
     name
@@ -216,6 +222,18 @@ async function runChild(
     materialize(node, name, scope, bindings, parent.path)
   );
   return child.run();
+}
+
+async function childInput(
+  definition: AnyDefinition,
+  raw: unknown,
+  where: string
+): Promise<Input> {
+  return (
+    definition.input
+      ? await validate(definition.input, raw ?? {}, `${where} input`)
+      : (raw ?? {})
+  ) as Input;
 }
 
 export function timeoutMs(timeout: number | string): number {
@@ -295,7 +313,7 @@ function asRunWork<T>(runId: string, bindings: Bindings, work: () => T): T {
 
 export type DefinitionFactory = (
   input: unknown,
-  execution?: RunExecutionContext
+  execution?: RunExecution
 ) => Promise<Step<unknown, unknown>>;
 
 export function factoryFor(
@@ -308,7 +326,10 @@ export function factoryFor(
     const bound = bindings();
     const runId = execution?.runId ?? crypto.randomUUID();
     return asRunWork(runId, bound, () =>
-      openRun(definition, name, scopes, bound, rawInput, runId)
+      openRun(definition, name, scopes, bound, rawInput, {
+        ...execution,
+        runId,
+      })
     );
   };
 }
@@ -319,7 +340,7 @@ async function openRun(
   scopes: RunScopes,
   bound: Bindings,
   rawInput: unknown,
-  runId: string
+  { resolutions, runId }: RunExecution
 ): Promise<Step<unknown, unknown>> {
   const input = (
     definition.input
@@ -338,7 +359,8 @@ async function openRun(
           scope,
           bound
         )
-      )
+      ),
+    resolutions
   );
 }
 
@@ -359,11 +381,14 @@ async function rootNode(
   if (!isWorkflow(definition)) {
     return rootLock(definition, input);
   }
-  const tree: unknown = await definition.setup({
-    input,
-    log: bindings.setupLog?.({ id: scope.id, workflow: name }) ?? bindings.log,
-    run: { id: scope.id },
-  });
+  const tree: unknown = await setupCounters.run(new Map(), () =>
+    definition.setup({
+      input,
+      log:
+        bindings.setupLog?.({ id: scope.id, workflow: name }) ?? bindings.log,
+      run: { id: scope.id },
+    })
+  );
   if (!isLockedNode(tree)) {
     throw new Error(`"${name}": setup must return a locked node`);
   }

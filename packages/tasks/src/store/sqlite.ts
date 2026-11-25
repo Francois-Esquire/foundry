@@ -1,12 +1,17 @@
 import { ownedWrite } from "@foundry/lib/plain-json";
+import {
+  assertScope,
+  batches,
+  replacing,
+  SQLITE_MAX_PARAMETERS,
+  type SqliteDatabase,
+  type SqliteTransaction,
+  storableText,
+  UNSTORABLE_TEXT,
+} from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
-import { and, eq, getTableColumns, inArray, max, or, sql } from "drizzle-orm";
-import type {
-  BaseSQLiteDatabase,
-  SQLiteColumn,
-  SQLiteTransaction,
-} from "drizzle-orm/sqlite-core";
+import { and, eq, getTableColumns, inArray, max, or } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import type {
   Task,
   TaskDependency,
@@ -17,18 +22,9 @@ import type {
 import type { TaskStore } from "./index";
 import { taskDependencies, tasks } from "./tables";
 
-export type TaskDatabase = BaseSQLiteDatabase<
-  "async",
-  unknown,
-  Record<string, unknown>
->;
+export type TaskDatabase = SqliteDatabase;
 
-export type TaskTransaction = SQLiteTransaction<
-  "async",
-  unknown,
-  Record<string, unknown>,
-  ExtractTablesWithRelations<Record<string, unknown>>
->;
+export type TaskTransaction = SqliteTransaction;
 
 export interface SqliteTaskStoreOptions {
   readonly database: TaskDatabase;
@@ -50,9 +46,7 @@ const dependencyColumns = {
   taskId: taskDependencies.taskId,
 };
 
-const replaceTask = Object.fromEntries(
-  Object.entries(taskColumns).map(([key, column]) => [key, excluded(column)])
-);
+const replaceTask = replacing(taskColumns);
 
 const REENTRY =
   "SqliteTaskStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";
@@ -64,11 +58,7 @@ export class SqliteTaskStore implements TaskStore {
   readonly #turns = new Turns(REENTRY);
 
   constructor(options: SqliteTaskStoreOptions) {
-    if (options.scope.length === 0 || !storable(options.scope)) {
-      throw new RangeError(
-        "scope must be a nonempty string with no U+0000 and no lone surrogate"
-      );
-    }
+    assertScope(options.scope);
     this.#database = options.database;
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;
@@ -85,7 +75,7 @@ export class SqliteTaskStore implements TaskStore {
     if (field !== undefined) {
       return Promise.reject(
         new RangeError(
-          `SqliteTaskStore cannot store ${field}: text holding U+0000 or a lone surrogate (not well-formed UTF-16) does not read back intact from SQLite`
+          `SqliteTaskStore cannot store ${field}: ${UNSTORABLE_TEXT}`
         )
       );
     }
@@ -93,12 +83,13 @@ export class SqliteTaskStore implements TaskStore {
       this.#database.transaction(async (transaction) => {
         await this.#deleteTasks(
           transaction,
-          (owned.deleteTasks ?? []).filter(storable)
+          (owned.deleteTasks ?? []).filter(storableText)
         );
         await this.#deleteDependencies(
           transaction,
           (owned.deleteDependencies ?? []).filter(
-            (edge) => storable(edge.taskId) && storable(edge.dependsOnId)
+            (edge) =>
+              storableText(edge.taskId) && storableText(edge.dependsOnId)
           )
         );
         await this.#putTasks(transaction, owned.putTasks ?? []);
@@ -110,7 +101,7 @@ export class SqliteTaskStore implements TaskStore {
 
   get(id: TaskId): Promise<Task | null> {
     return this.#turns.run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [task] = await this.#database
@@ -159,19 +150,19 @@ export class SqliteTaskStore implements TaskStore {
     transaction: TaskTransaction,
     ids: readonly TaskId[]
   ): Promise<void> {
-    await inOrder(batches(ids, MAX_PARAMETERS - 1), (batch) =>
-      transaction
+    for (const batch of batches(ids, SQLITE_MAX_PARAMETERS - 1)) {
+      await transaction
         .delete(tasks)
-        .where(and(eq(tasks.scope, this.#scope), inArray(tasks.id, batch)))
-    );
+        .where(and(eq(tasks.scope, this.#scope), inArray(tasks.id, batch)));
+    }
   }
 
   async #deleteDependencies(
     transaction: TaskTransaction,
     edges: readonly TaskDependency[]
   ): Promise<void> {
-    await inOrder(batches(edges, MAX_EXPRESSION_DEPTH / 2), (batch) =>
-      transaction
+    for (const batch of batches(edges, MAX_EXPRESSION_DEPTH / 2)) {
+      await transaction
         .delete(taskDependencies)
         .where(
           and(
@@ -185,8 +176,8 @@ export class SqliteTaskStore implements TaskStore {
               )
             )
           )
-        )
-    );
+        );
+    }
   }
 
   async #putTasks(
@@ -200,15 +191,15 @@ export class SqliteTaskStore implements TaskStore {
       position: first + index,
       scope: this.#scope,
     }));
-    await inOrder(batches(rows, MAX_PARAMETERS / columns), (batch) =>
-      transaction
+    for (const batch of batches(rows, SQLITE_MAX_PARAMETERS / columns)) {
+      await transaction
         .insert(tasks)
         .values(batch)
         .onConflictDoUpdate({
           set: replaceTask,
           target: [tasks.scope, tasks.id],
-        })
-    );
+        });
+    }
   }
 
   async #putDependencies(
@@ -222,9 +213,12 @@ export class SqliteTaskStore implements TaskStore {
       position: first + index,
       scope: this.#scope,
     }));
-    await inOrder(batches(rows, MAX_PARAMETERS / columns), (batch) =>
-      transaction.insert(taskDependencies).values(batch).onConflictDoNothing()
-    );
+    for (const batch of batches(rows, SQLITE_MAX_PARAMETERS / columns)) {
+      await transaction
+        .insert(taskDependencies)
+        .values(batch)
+        .onConflictDoNothing();
+    }
   }
 
   async #nextPosition(
@@ -248,10 +242,6 @@ function textFields(columns: Record<string, SQLiteColumn>): string[] {
     .map(([field]) => field);
 }
 
-function storable(text: string): boolean {
-  return text.isWellFormed() && !text.includes("\u0000");
-}
-
 function unstorableField(write: TaskStoreWrite): string | undefined {
   const puts = [
     ["putTasks", write.putTasks ?? [], taskTextFields],
@@ -262,7 +252,7 @@ function unstorableField(write: TaskStoreWrite): string | undefined {
       const values: Readonly<Record<string, unknown>> = record;
       const field = fields.find((name) => {
         const value = values[name];
-        return typeof value === "string" && !storable(value);
+        return typeof value === "string" && !storableText(value);
       });
       if (field !== undefined) {
         return `${list}[${index}].${field}`;
@@ -271,28 +261,4 @@ function unstorableField(write: TaskStoreWrite): string | undefined {
   }
 }
 
-const MAX_PARAMETERS = 32_766;
-
 const MAX_EXPRESSION_DEPTH = 1000;
-
-function batches<T>(items: readonly T[], size: number): T[][] {
-  const length = Math.max(1, Math.floor(size));
-  const result: T[][] = [];
-  for (let start = 0; start < items.length; start += length) {
-    result.push(items.slice(start, start + length));
-  }
-  return result;
-}
-
-async function inOrder<T>(
-  items: readonly T[],
-  run: (item: T) => PromiseLike<unknown>
-): Promise<void> {
-  for (const item of items) {
-    await run(item);
-  }
-}
-
-function excluded(column: SQLiteColumn): SQL {
-  return sql.raw(`excluded."${column.name}"`);
-}

@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import { isJsonValue } from "./json-value";
 import { defineOwnEntry } from "./own-entry";
 
 export const anyNumber = z.union([
@@ -10,8 +9,6 @@ export const anyNumber = z.union([
 ]);
 
 export const anyValue = z.unknown().default(undefined);
-
-export const timestamp = z.number();
 
 export const counter = z.number().int().nonnegative();
 
@@ -59,5 +56,3 @@ function isDictionary(
 export const unknownRecord = recordOf(z.unknown());
 
 export const JSON_VALUE_MESSAGE = "Expected a finite, acyclic JSON value";
-
-export const jsonSafe = z.custom<unknown>(isJsonValue, JSON_VALUE_MESSAGE);

@@ -1,8 +1,8 @@
-import type { RunRecord } from "@foundry/workflows/schema";
 import { expect, it } from "vitest";
 import { runRows } from "~/cli/state/dashboard-tree";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { LiveWork } from "~/lib/step-work";
+import type { RunRecord } from "~/lib/workflow-runs";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 
 const record: RunRecord = {
@@ -91,7 +91,6 @@ function snapshot(
   return dashboardSnapshot([run], {
     definitions: [],
     feed,
-    lastFinish: new Map(),
     live: new Map([[run.id, work]]),
     monitors: new Map(),
     now: 200,

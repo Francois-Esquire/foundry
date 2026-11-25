@@ -8,7 +8,7 @@ launch and inspect Marbles work. The host supplies configured package
 instances, registers definitions, and owns startup and shutdown.
 
 Marbles connects those instances to step contexts, the Feed, approvals,
-and run execution. The [package map](/marbles/foundation/primitives) explains
+and run execution. The [package map](/marbles/concepts/primitives) explains
 what each library provides.
 
 ## Create and run an engine
@@ -79,7 +79,12 @@ const count = await launched.result;
 ```
 
 `run(name, input)` and `execute(definition, input)` wait for the result
-instead. Register a definition with `define` to launch it by name. The
+instead. Register a definition with `define` to launch it by name.
+`launch(name, input, { source })` starts at most one run per name and
+`source`. An authored `enqueue(input, { key })`, `step.enqueue(name, input,
+{ key })`, and `marbles enqueue --key` pass their key as that `source`. This
+entry's `LaunchOptions` is not `@foundry.sh/marbles`' `EnqueueOptions`,
+which holds only `key`. The
 [MCP tools](/marbles/reference/mcp#tools) use `launch` for workflows and one
 registered agent-dispatch step, exposing the handle's `id` as `runId` for both.
 
@@ -126,6 +131,10 @@ The engine owns its registry:
 - `engine.schedule(record)` registers a schedule; it does not start a clock.
 - `engine.monitor({ key, source, trigger, handler })` registers a monitor
   for a host to drive.
+- `engine.definition(name)` returns the named step or workflow the engine
+  registered, or `undefined`. It leaves out monitors, whose handlers are
+  registered as definitions too. `step.enqueue(name)` and
+  `workflow.enqueue(name)` look names up through it.
 - `engine.definitions()` and `engine.monitors()` read it back;
   `await engine.schedules()` reads the schedules with the triggers agents
   created, read afresh, so one another process created or removed is in or
@@ -145,9 +154,10 @@ and defines them.
 | `git` | Chooses the Git runner, such as one that echoes commands. |
 | `worktrees` | Sets the default checkout directory, otherwise `Engine.worktreesFor(state)`. |
 | `dry` | Runs sandbox agent requests in the host process. |
-| `runs` | Keeps workflow Runs, what each run's scope recorded, and which engine owns each. |
+| `queues` | Sets how many runs each queue runs at once, as `{ [DEFAULT_QUEUE]: { concurrency: 4 } }`. Every step and workflow run waits in `DEFAULT_QUEUE` (`"marbles"`). Without it the engine runs one at a time; `concurrency` is a positive integer or `Infinity`. An engine you build does not read the source's [`queue()`](/marbles/reference/api#exports), which sets the CLI's hosted engines, four by default. |
+| `runs` | Keeps workflow Runs and what each run's scope recorded. |
 | `executionStore` | Keeps every run's Execution Run, its observations, and what pruning removed. |
-| `triggers` | Keeps each schedule's and monitor's last tick and each monitor's state. |
+| `triggers` | Keeps each schedule's cursor and occurrences and each monitor's state. |
 | `automationStore` | Keeps the triggers agents create. |
 | `usageStore` | Keeps each agent turn's usage fact. |
 
@@ -162,10 +172,10 @@ workspace's tasks, is described [below](#tasks).
 
 [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
 provides the orchestrator and step execution. Marbles adds run-owned
-sessions, resources, and the saved ledger used when a parked run replays.
-The [durability contract](/marbles/foundation/durability) still applies when
+sessions, resources, and the saved ledger used when a suspended run replays.
+The [durability contract](/marbles/concepts/durability) still applies when
 you embed the engine; the library's broader recovery APIs do not change
-Marbles' adoption rules.
+Marbles' recovery rules.
 
 The example above deliberately keeps everything in memory. Supplying
 `state` enables run persistence, the default persistent trigger store, and
@@ -173,8 +183,8 @@ The example above deliberately keeps everything in memory. Supplying
 provide a persistent session store and artifact store with durable bytes
 separately. Persisting run records alone cannot retain agent transcripts
 or report files. Set `askable: true` only when the host can present and
-answer questions. Define the same named work before `start()` so parked
-runs can be adopted.
+answer questions. Define the same named work before `start()` so suspended
+runs can resume.
 
 ## Tasks
 
@@ -284,7 +294,7 @@ try {
     artifacts: marbles.artifacts,
     askable: false, // true when something in this process can answer `ask`
     prepare(engine) {
-      // Before the engine starts, which is what adopts parked runs.
+      // Before the engine starts, which is what puts suspended runs' questions on the Feed.
       if (engine.state !== undefined) {
         claim = claimProcess(engine.state, { config: source, host: "worker" });
       }
@@ -295,15 +305,15 @@ try {
   });
   const rolled = await host.roll("inventory");
   console.log(rolled.value);
-  await host.run(controller.signal); // tick triggers until interrupted
+  await host.run(controller.signal); // run triggers until interrupted
 } finally {
   await host?.close();
   claim?.release();
 }
 ```
 
-`roll` dispatches one definition or schedule and returns its value with the
-status lines printed meanwhile, as `marbles roll` does. `run` ticks the
+`roll` runs one step, workflow, schedule, or monitor and returns its value with the
+status lines printed meanwhile, as `marbles run` does. `run` runs the
 schedules and monitors, including triggers agents add later, until the
 signal aborts; `runSchedulesUntilStopped(engine, options)` is the same loop
 over a bare engine. `describe`, `snapshot`, `dispatchWorkflow`,
@@ -330,12 +340,12 @@ source is relative to, which is the workspace's root without one. `cwd`
 sets where the workspace's runs start and its commands run, the root when
 omitted. Claim the workspace's state directory
 (`engine.state`, which is `<state>/<workspace-id>`) inside `prepare`, so
-the engine starts only once the claim holds, and two programs hosting the
-same workspace themselves never adopt the same parked runs. The Marbles
-process claims no workspace directory: its engine generations take each
-parked run by a claim on its row in the Marbles database instead, and one
-of them hosting the workspace while your program does is not refused by
-the lock. A live
+the engine starts only once the claim holds, and two programs never host
+the same workspace at once. The Marbles process claims no workspace
+directory: its engine generations share the workspace's runs through the
+Marbles database instead, where any of them can answer a suspended run, and
+one of them hosting the workspace while your program does is not refused
+by the lock. A live
 holder throws `ProcessHeldError`, naming who has it; a lock left by an
 exited process is taken over. Pass `dry: true` to persist nothing.
 `watchSource(configPath, { onChange, signal })` polls the
@@ -381,7 +391,7 @@ another version rather than stop it. Either way, a daemon that keeps its
 artifacts somewhere other than `layout.artifacts` is refused, naming both
 paths; both refusals are a `ProcessMismatchError`, and a daemon that holds
 the claim but does not answer is a `ProcessTimeoutError`. `stopProcess({
-layout })` is what `marbles stop` does: it stops the daemon whatever its
+layout })` is what `marbles daemon stop` does: it stops the daemon whatever its
 version, calls `onStopping` once the daemon has agreed, and resolves with
 that daemon's `hello` once it has exited, or `undefined` when none ran.
 `attach` hosts the source's workspace, records it as `hosted` in the
@@ -410,8 +420,8 @@ gone, with a `Disconnect` saying why: `closed` after `close()`, `stopped`
 when the daemon stopped and released its claim, `died` when its claim
 still names a pid that no longer runs (with the log to read), `hung-up`
 when it is alive and dropped this connection, or `failed` with the socket
-error. `describeDisconnect` turns one into a line; headless `marbles run`
-prints it and exits 1 for anything but a stop. A live run's stream does not cross the socket, so
+error. `describeDisconnect` turns one into a line; `marbles` with its output
+piped prints it and exits 1 for anything but a stop. A live run's stream does not cross the socket, so
 `actions.runs.stream` is absent on a remote connection; read the
 [output journal](/marbles/reference/state#run-output) instead.
 

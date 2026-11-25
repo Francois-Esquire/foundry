@@ -11,19 +11,12 @@ export const nodeObserver: StorageObserver = {
     let stopped = false;
     let subscription: StorageSubscription | undefined;
     let fallback: Promise<void> | undefined;
-    let ready = false;
-    let startupFailure: { error: unknown } | undefined;
     const notify = () => {
       if (!stopped) {
         changed();
       }
     };
     const recover = (error: unknown) => {
-      // biome-ignore lint/suspicious/noUnnecessaryConditions: Provider callbacks can run before or after subscription initialization.
-      if (!ready) {
-        startupFailure = { error };
-        return;
-      }
       if (stopped || fallback) {
         return;
       }
@@ -36,41 +29,21 @@ export const nodeObserver: StorageObserver = {
       })();
     };
     try {
-      const watcher = await import("@parcel/watcher");
-      const handle = await watcher.subscribe(
-        root,
-        (error, events) => {
-          if (error) {
-            recover(error);
-          } else if (events.length > 0) {
-            notify();
-          }
+      const handle = watch(root, { recursive: true }, (_event, filename) => {
+        if (!SKIP.test(filename ?? "")) {
+          notify();
+        }
+      });
+      handle.on("error", recover);
+      subscription = {
+        close() {
+          handle.close();
+          return Promise.resolve();
         },
-        { ignore: ["**/node_modules/**", "**/.git/**"] }
-      );
-      subscription = { close: () => handle.unsubscribe() };
-    } catch {
-      try {
-        const handle = watch(root, { recursive: true }, (_event, filename) => {
-          if (!SKIP.test(filename ?? "")) {
-            notify();
-          }
-        });
-        handle.on("error", recover);
-        subscription = {
-          close() {
-            handle.close();
-            return Promise.resolve();
-          },
-        };
-      } catch (error) {
-        failed(error);
-        subscription = await polling().watch(root, notify, failed);
-      }
-    }
-    ready = true;
-    if (startupFailure) {
-      recover(startupFailure.error);
+      };
+    } catch (error) {
+      failed(error);
+      subscription = await polling().watch(root, notify, failed);
     }
     return {
       async close() {

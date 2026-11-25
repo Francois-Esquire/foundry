@@ -46,7 +46,8 @@ export class ChangeRecorder {
   async record(
     transaction: CommitTransaction,
     source: string,
-    events: readonly Fact[] | undefined
+    events: readonly Fact[] | undefined,
+    cause: string | null = null
   ): Promise<void> {
     if (events === undefined || events.length === 0) {
       return;
@@ -68,7 +69,7 @@ export class ChangeRecorder {
       payload: fact,
       position: last - events.length + index + 1,
       recordedAt,
-      runId: this.#causes.get(fact.id) ?? null,
+      runId: this.#causes.get(fact.id) ?? cause,
       scope: this.scope,
       source,
       type: fact.type,

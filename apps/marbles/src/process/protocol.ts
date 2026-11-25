@@ -1,7 +1,6 @@
-import { RunRecordSchema } from "@foundry/workflows/schema";
 import { z } from "zod";
-
 import type { LiveWork } from "~/lib/step-work";
+import { RunRecordSchema } from "~/lib/workflow-runs";
 import type { WorkspaceState } from "~/model/connection";
 import type { LiveRun } from "~/model/dashboard";
 
@@ -210,17 +209,16 @@ export const GENERATION_NOTIFICATIONS = {
   handed: "handed",
   line: "line",
   read: "read",
-  released: "released",
 } as const;
 
 export const GENERATION_METHODS = {
-  adopt: "adopt",
   host: "host",
   liveWork: "liveWork",
   load: "load",
   retire: "retire",
   start: "start",
   stop: "stop",
+  takeHanded: "takeHanded",
   takeQueued: "takeQueued",
   unhost: "unhost",
 } as const;
@@ -296,7 +294,7 @@ export const readParamsSchema = z.object({
   root: z.string(),
 });
 
-export const releasedParamsSchema = z.object({
+export const handedParamsSchema = z.object({
   id: z.string(),
   runId: z.string(),
 });

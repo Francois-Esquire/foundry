@@ -249,6 +249,15 @@ export class AutomationService {
     return [...this.#registry.schedules.values()];
   }
 
+  async paused(): Promise<readonly Schedule[]> {
+    await this.#refresh();
+    return [...this.#loaded.values()].flatMap(({ error, record }) =>
+      record !== undefined && !record.enabled && error === undefined
+        ? [scheduleOf(record)]
+        : []
+    );
+  }
+
   async create(
     raw: AutomationSpec,
     rawOwner: AutomationOwner

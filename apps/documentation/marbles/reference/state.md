@@ -1,12 +1,12 @@
 ---
 title: State
-description: Disk layout, recovery of parked runs, locks, and the limits of continuity.
+description: Disk layout, recovery of suspended runs, locks, and the limits of continuity.
 ---
 
 ## Persisted state
 
 For the guarantees these records support, start with
-[Durability](/marbles/foundation/durability). Run snapshots use
+[Durability](/marbles/concepts/durability). Run snapshots use
 [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
 session transcripts use [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md),
 and reports and versioned outputs use [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md).
@@ -34,7 +34,7 @@ workspace this machine has run, and says which of them the process hosts.
                           change they committed and which observers completed it;
                           and, by workspace id, its workflow Runs, Execution Runs
                           and their observations, retention gaps, each schedule's
-                          and monitor's last tick, each monitor's state, the
+                          cursor and occurrences, each monitor's state, the
                           triggers agents created, each agent turn's usage, its
                           artifact and sandbox records, its agent grants, the
                           approvals waiting in the feed, its harness activities,
@@ -93,7 +93,8 @@ Output journals are append-only. Lock files are created in place
 read. The persisted `config` field keeps
 its existing spelling and records the authoring folder or single-module path.
 A workspace is recorded in the database when it is attached to the Marbles
-process (`run`, `roll`, `attach`, or the dashboard), which sets
+process (`marbles`, `marbles run`, `marbles enqueue`, or
+`marbles daemon attach`), which sets
 `hosted: true`, and by a program that hosts it itself; `list`, `status`,
 `sessions`, `watch`, a task read, and anything under `--dry-run` leave an
 empty state root empty. Only a process holding `locks/process` at the state
@@ -119,7 +120,7 @@ so failed with SQLite's busy error, opens a fresh connection before it
 runs anything else, because the driver (`@libsql/client` 0.18) leaves the
 failed one unable to commit; the failed operation is not retried, and a
 refused commit is rolled back. `hosted` goes back to `false` when
-`marbles detach` or a client of the process detaches the workspace.
+`marbles daemon detach` or a client of the process detaches the workspace.
 
 ### Tasks
 
@@ -220,7 +221,7 @@ recovery, `marbles sessions` and `status` list a workspace's sessions
 through it. Detaching a workspace keeps them. A `sessions/` directory left
 in a workspace's directory by an earlier Marbles is ignored, not imported,
 and left as it is, like `tasks.json`. Its sessions behave as if their files
-had been removed: they are not listed; a session a parked run or a host
+had been removed: they are not listed; a session a suspended run or a host
 recorded before starts afresh under its id, without its history; a
 deferred approval kept for one is dropped when the engine starts; and usage recovery counts one that a run or a
 usage record still names as an unreadable usage record.
@@ -249,7 +250,7 @@ where each is filed first, about 150 ms for a thousand.
 ### Run output
 
 `output/<runId>.jsonl` is the stream read by
-[`marbles watch <runId>`](/marbles/reference/cli#watch-a-background-run).
+[`marbles watch <runId>`](/marbles/reference/cli#enqueue-and-watch-a-background-run).
 A persisted engine creates a journal for each run, including agent and
 workflow runs launched through [MCP](/marbles/reference/mcp). The MCP
 `runId` is the engine's run ID, not an agent-session ID.
@@ -266,14 +267,15 @@ keeps an incomplete final line until more bytes arrive, and follows new
 output without modifying state. Completed output remains readable after the
 owner exits. If the owner disappears before recording an ending, the watcher
 reads the run's Execution Run from the Marbles database before it calls the
-run lost. A run recorded as parked or queued is waiting to be adopted, and
-one recorded as running under a live owner has been taken over; the watcher
+run lost. A run recorded as suspended or queued is waiting to be resumed or
+started, and one recorded as running under a live owner has been taken
+over; the watcher
 keeps following either one, through the new owner's start record, to its
 ending. A run recorded as completed, failed or cancelled ends the watch with
 that status, once the watcher has read whatever the journal holds by then.
 Otherwise, or without a database, the watcher reports that the run lost its
 owner. A journal that has no readable start record two seconds after the
-watcher opened it is reported as such. The watcher never restarts or adopts
+watcher opened it is reported as such. The watcher never restarts or resumes
 the run.
 
 These journals are output history, not replay checkpoints or a persistent
@@ -316,9 +318,10 @@ no database (a script no host loaded) keeps its artifacts in memory.
 
 Runs, sessions, artifacts and sandbox containers are resources:
 each is kept once, by its kind's store, under the workspace that created it
-(its owner), which it belongs to for good. `marbles share` shows a run,
-session or artifact in another registered workspace as well, a row
-of `marbles_resource_workspaces`; `marbles unshare` removes the row and
+(its owner), which it belongs to for good. `marbles runs share` (likewise `sessions` and
+`artifacts`) shows a run, session or artifact in another registered
+workspace as well, a row of `marbles_resource_workspaces`; `unshare` removes
+the row and
 never the resource. A sandbox container cannot be shared. `status`, the
 resource listings (`runs`, `sessions`, `artifacts`, `sandboxes`)
 and the dashboard read a workspace's view: what it owns and what is shared
@@ -327,9 +330,9 @@ workspaces") every workspace's. Neither shows another workspace's
 resources while that workspace's state directory under the state root is
 a link. On the dashboard this workspace's runs and
 triggers are live, from its engine; another workspace's are read from the
-database at most every two seconds, its triggers from their last tick
-(`marbles_schedule_ticks`) and pending monitor launch
-(`marbles_monitor_states`), and offer no control there. A run or artifact
+database at most every two seconds, its triggers from their schedules, cursors and latest occurrences
+(`scheduling_schedules`, `scheduling_cursors`, `scheduling_occurrences`)
+and pending monitor launch (`marbles_monitor_states`), and offer no control there. A run or artifact
 its store deletes takes its shares with it in the same transaction. Sharing
 or unsharing an artifact records `artifact.shared` or `artifact.unshared`,
 naming the other workspace, in the owner's change log in the share's own
@@ -341,7 +344,7 @@ one shared with it, point at the blob file holding each of its files. Each
 id and owner is percent-encoded as UTF-8, uppercase letters and a bare `.`
 or `..` included, so no two names collide on any file system, none starts
 with `@`, and `decodeURIComponent` gives the name back. A file the database holds inline, or in chunks, has no link.
-`marbles relink` reconciles the directory with the database: it removes
+`marbles artifacts relink` reconciles the directory with the database: it removes
 the links Marbles made (those pointing into the artifact store) that should
 not be there and makes the missing ones; anything else is left and
 reported, and `.marbles/.gitignore` keeps the directory out of git. Before
@@ -387,7 +390,9 @@ loads.
 
 A launch with a `source` looks for a run of the same name and source and
 records a new one in one database transaction, so two engines sharing the
-database start it once.
+database start it once. `.enqueue(input, { key })` on a step or workflow,
+`step.enqueue(name, input, { key })` and `workflow.enqueue(...)`, and
+`marbles enqueue <name> --key <key>` launch with the key as the `source`.
 
 `get`, `list` and `gaps` on `engine.executions` answer from the engine at
 once: what it changed, and what it last read of other processes' runs, at
@@ -401,7 +406,7 @@ settled record for a later prune to retry. Each removal and its scope's
 retention gap are written in one transaction, so two processes pruning at
 once never count one removal twice.
 
-When a workflow's Run parks or resumes, its Execution Run's status is
+When a workflow's Run suspends or resumes, its Execution Run's status is
 written in the Run's own commit. A settle is written by the engine after
 the Run's; a process that exits between the two leaves the record to the
 next start, which settles it as the Run says.
@@ -417,30 +422,22 @@ provenance from their data. CLI harnesses report explicit refusal outcomes.
 Every change to a workflow Run is committed to the Marbles database as it
 is made, with what the run's scope recorded (its ledger, each node's
 literal input, its session) and the engine that owns it. Its Execution Run
-is written as it changes, and a park or a resume lands in the same commit
+is written as it changes, and a suspension or a resume lands in the same commit
 as the Run's own, so the database always says whether a run is waiting or
 working.
 
-When the engine starts it lists the settled Runs as history. Adopting a
-parked Run requires all of these conditions:
-
-- The process can answer questions. An engine generation of the Marbles
-  process always can: the question waits on the Feed for a dashboard. A `--dry-run` host
-  persists nothing and adopts nothing.
-- The definition is still registered.
-- The engine wins the claim on the Run. The claim is one database
-  transaction that reads the Run and its Execution Run and takes the Run's
-  owner: it is won only while the Run is still stored parked, its
-  Execution Run has not settled (a run cancelled after its process exited
-  stays cancelled), and no live engine owns it. A canceller takes the
-  same claim before it settles a run, so a settle lands before an
-  adoption's claim or not at all.
-
-An adopted Run stays this engine's until it settles, the engine stops, or
-it retires, so two engines never both resume one run. A stop gives up the
-claim and leaves the Run parked for the next engine. The run parks again,
-its question stays open on the feed, and the answer replays the body
-against the recorded sessions and artifacts.
+When the engine starts it lists the settled Runs as history, and the
+suspended ones too. A suspended Run belongs to no engine: any engine of
+the workspace can answer its question or resume its pause, and the
+answered Run waits in the queue, owned by none, for a live engine that
+registers its definition and is not retiring. That engine starts it,
+takes over its Execution Run in the same moment, and replays the body
+from the Run's checkpoint and the answers given so far, against the
+recorded sessions and artifacts. The question stays open on the Feed
+across a stop and a restart, and an engine that can answer questions
+puts the questions of every suspended Run it can resume on the Feed when
+it starts. A `--dry-run` host persists nothing and resumes nothing it did
+not start.
 
 The Marbles process hosts every registered workspace in one engine
 generation at a time, and starts the next on a source or installation
@@ -449,38 +446,27 @@ loads every registered workspace up to engines not yet started; one that
 does not load leaves a working generation in place. The refused load keeps
 watching outside files the previous generation read. Restoring one of those
 files can trigger a fresh load even if the failed candidate never read it.
-Then the current generation retires: it
-starts no tick or delivery again, hands each of its queued Execution Runs
-to the next one in the same transaction that checks it is still queued and
-still its own, and gives up the claims of its parked Runs. Then the next
-generation starts, which adopts those parked Runs and lets the queued
-ones in. A queued agent dispatch reopens its saved session when the new
-engine starts the turn. The retired generation finishes its running runs.
-A run that parks during retirement stops accepting answers there and its
-engine tries to release the claim. A failed release leaves the claim held
-and retries with backoff while the engine lives. Retirement can finish
-once the running work is done, with a final bulk release at engine stop.
-The Marbles process routes an answer to the current generation once it
-has adopted the run.
+Then the current generation retires: it dispatches no occurrence and starts
+no delivery again, and its run queue retires in one write that hands each of
+its queued runs, but the queued children of its running ones, to the next
+generation's process and refuses new top-level launches. It starts no queued
+run again but the children of its running ones. The next
+generation starts and runs the queued ones it was handed. A queued agent
+dispatch reopens its saved session when the new engine starts the turn.
+The retired generation finishes its running runs untouched, on the code it
+loaded, and exits without waiting for its suspended ones; an answer to
+one, from either generation, resumes it on the current one.
 
-If an engine fails while adopting a parked run, it removes the local
-adoption state and tries to release the claim so the run can be offered
-again. If that release fails, it retries with backoff. A successful
-adoption of the same run cancels any retry left from the failed attempt.
-
-A Run left queued or running by a process that died is never run again at
-start: nothing picks a run up mid-body. Its Execution Run is reconciled
-with the Run as it is stored, in a transaction of its own, so two starting
-engines never take one over twice: a Run that settled settles the record
-the same way, one left parked keeps the record `suspended` for a process
-that can adopt it, and one left running marks the record `interrupted`.
-A queued Execution Run that never became a Run stays queued, unless the
-host asks to let such runs in again (`recoverQueued`), in their original
-order. A parked Run adopted without an Execution Run, one parked before
-they existed, gets one when it is adopted. Results already committed stay
-in the database, but a step that had not finished is not resumed; `status`
-marks a Run whose owner exited while it ran as orphaned. A new launch does
-not reuse its step results.
+Every run, workflow or host task, is one job of the workspace's
+`@foundry/queue`, from the moment it is launched: queued, running,
+suspended and how it ended are what the queue recorded, and an Execution
+Run adds only what Marbles observed of it (its observations and progress).
+A run left running by a process that died is never run again: an engine
+that starts marks it `interrupted`, and one left queued is taken over and
+run in its original order. Results already committed stay in the
+database, but a step that had not ended is not resumed; `status` marks
+a Run whose owner exited while it ran as orphaned. A new launch does not
+reuse its step results.
 
 A stored record that cannot be read is skipped with a warning and costs
 only that run.
@@ -490,15 +476,21 @@ only that run.
 Local file coordination uses the [Lib file-lock helper](https://github.com/Francois-Esquire/foundry/blob/main/packages/lib/src/file-lock.ts).
 Its PID ownership applies to one host, not a distributed worker pool.
 
-The foreground loop measures an interval schedule's next tick from the
-previous tick's completion, seeded from the recorded `lastFinish` so a restart
-keeps the cadence. Missed interval ticks do not queue. Calendar slots are
-evaluated in machine-local time.
+The foreground loop runs each schedule on its cadence. An interval schedule
+is due one interval after its previous run settled, timed from that run's own
+settle time and kept in the schedule's cursor, so a restart keeps the
+cadence. It has at most one occurrence due at a time, however long the
+process was away. Calendar slots are evaluated in machine-local time; after
+downtime only the latest missed slot is dispatched, and a slot that comes due
+while the previous run is still open is skipped.
 
-A tick claims its trigger in the database before it runs. If another process holds it,
-`roll <key>` prints `skipped: held by <holder>` and exits successfully.
-`roll <definition-name>` takes no claim. Two schedules with different keys
-have different claims even when they target the same workflow.
+Each due occurrence is claimed in the database before it is dispatched, so two
+processes never dispatch the same occurrence twice. Its id is the run's
+idempotency key: a process that stopped after launching the run and before
+recording it does not launch it again. `marbles run <key>` and
+`marbles run <definition-name>` launch the target at once and record no
+occurrence. Two schedules with different keys are claimed separately even when
+they target the same workflow.
 
 ### Lock ownership and repair
 
@@ -531,9 +523,9 @@ remove <path>.break)` when a `.break` is in the way; or `an unknown process
 Monitors are polled on their cadence. A poll compares what it sees with the
 last recorded observation; the handler runs only when something changed, and
 the observation is recorded only after the handler resolves, so a throwing
-handler sees the same change again next tick. A launch the handler asked for
-is recorded as `pending` and handed out on every tick until a start succeeds.
-A target that is no longer registered fails one tick and is dropped; a started
+handler sees the same change again on the next poll. A launch the handler asked for
+is recorded as `pending` and handed out on every poll until a start succeeds.
+A target that is no longer registered fails one poll and is dropped; a started
 run that later fails or is cancelled is not started again.
 
 ## Dry runs
@@ -543,5 +535,5 @@ never touches the Marbles process, and nothing under the state root or the
 artifact store is written, but for the SQLite side files a read of the
 Marbles database may create or update (`marbles.db-shm`, `marbles.db-wal`). Sessions and the feed live in memory, monitor
 observations live in the process, worktrees are cut under the system
-temporary directory, and parked runs are cancelled when the process quits. Step bodies still execute; see
+temporary directory, and suspended runs are cancelled when the process quits. Step bodies still execute; see
 [safety and limits](/marbles/reference/safety).

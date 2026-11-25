@@ -1,50 +1,27 @@
-import { randomUUID } from "node:crypto";
-import type {
-  WorkflowStore,
-  WorkflowStoreWrite,
-} from "@foundry/workflows/store";
-import type { WorkflowTransaction } from "@foundry/workflows/store/sqlite";
-import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
+import type { Job, QueueEvent } from "@foundry/queue";
+import type { QueueStoreService, QueueWrite } from "@foundry/queue/store";
+import type { QueueTransaction } from "@foundry/queue/store/sqlite";
+import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
+import { queueJobs } from "@foundry/queue/store/tables";
 import { and, eq } from "drizzle-orm";
+import { Effect } from "effect";
 import { z } from "zod";
 import { removeShares } from "~/database/associations";
-import { aroundCalls, asBusy } from "~/database/busy";
+import { asBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
-import { followExecution, readExecution } from "~/database/executions";
+import { removeAnnexes } from "~/database/executions";
 import { inList } from "~/database/lists";
 import type { StoreDatabase } from "~/database/open";
-import {
-  CHANGED,
-  claimJudged,
-  heldBy,
-  NO_OWNER,
-  type OwnerColumns,
-  ownedHere,
-  sameOwnerColumns,
-} from "~/database/owner";
 import { marblesWorkflowRuns } from "~/database/tables";
-import { RecordsGate } from "~/lib/events/records";
+import { causingRun, RecordsGate } from "~/lib/events/records";
 import { RUNS, sourceKey } from "~/lib/events/source";
+import { isTask } from "~/lib/execution-record";
 import type { RecordedScope } from "~/lib/run-scope";
-import type {
-  ClaimCondition,
-  RunFollower,
-  RunStore,
-  StoredScope,
-} from "~/lib/run-store";
-import { filedRuns, removalOf } from "~/lib/run-store";
+import type { RunStore, StoredScope } from "~/lib/run-store";
+import { filedRuns, gatedQueueStore, ownedQueueWrite } from "~/lib/run-store";
+import { runEventsOf } from "~/lib/workflow-runs";
 
 const RUNS_KEY = sourceKey(RUNS) ?? "runs";
-
-class RunMovedError extends Error {
-  override readonly name = "RunMovedError";
-
-  constructor(runId: string) {
-    super(
-      `run ${runId} is not held by this engine any more; the engine that holds it changes it`
-    );
-  }
-}
 
 export interface DatabaseRunStoreOptions {
   readonly changes?: ChangeRecorder;
@@ -63,8 +40,6 @@ export class DatabaseRunStore implements RunStore {
   readonly #database: StoreDatabase;
   readonly #scope: string;
   readonly #changes: ChangeRecorder;
-  readonly #owner = randomUUID();
-  readonly #letGo = new Set<string>();
   readonly #gate = new RecordsGate("the run store is closed");
 
   constructor(options: DatabaseRunStoreOptions) {
@@ -73,106 +48,44 @@ export class DatabaseRunStore implements RunStore {
     this.#changes = options.changes ?? new ChangeRecorder(options.scope);
   }
 
-  claim(runId: string, when: ClaimCondition): Promise<boolean> {
-    return this.#call(async () => {
-      const claimed: boolean = await claimJudged<boolean, boolean>(
-        () => this.#ownerOf(this.#database, runId),
-        (seen) => seen !== undefined && this.#heldElsewhere(seen),
-        (seen, held) => this.#claimIn(runId, when, seen, held),
-        false
-      );
-      if (claimed) {
-        this.#letGo.delete(runId);
-      }
-      return claimed;
-    });
-  }
-
-  async #ownerOf(
-    database: StoreDatabase | WorkflowTransaction,
-    runId: string
-  ): Promise<OwnerColumns | undefined> {
-    const [row] = await database
-      .select({
-        ownerId: marblesWorkflowRuns.ownerId,
-        ownerPid: marblesWorkflowRuns.ownerPid,
-        ownerStarted: marblesWorkflowRuns.ownerStarted,
-      })
-      .from(marblesWorkflowRuns)
-      .where(this.#run(runId));
-    return row;
-  }
-
-  #claimIn(
-    runId: string,
-    when: ClaimCondition,
-    seen: OwnerColumns | undefined,
-    held: boolean
-  ): Promise<boolean | typeof CHANGED> {
-    return this.#database.transaction(async (transaction) => {
-      const stored = await new SqliteWorkflowStore({
-        database: transaction,
-        scope: this.#scope,
-      }).getRun(runId);
-      const execution = await readExecution(transaction, this.#scope, runId);
-      if (!when(stored, execution)) {
-        return false;
-      }
-      if (!sameOwnerColumns(await this.#ownerOf(transaction, runId), seen)) {
-        return CHANGED;
-      }
-      if (held) {
-        return false;
-      }
-      await transaction
-        .insert(marblesWorkflowRuns)
-        .values({
-          ledger: {},
-          literals: {},
-          ...this.#owned(),
-          runId,
-          scope: this.#scope,
-        })
-        .onConflictDoUpdate({
-          set: this.#owned(),
-          target: [marblesWorkflowRuns.scope, marblesWorkflowRuns.runId],
-        });
-      return true;
-    });
-  }
-
   close(): Promise<void> {
     return this.#gate.close();
   }
 
   open(
-    recorded: (runId: string) => RecordedScope | undefined,
-    follows?: RunFollower
-  ): Promise<WorkflowStore> {
-    return this.#call(() =>
-      Promise.resolve(
-        aroundCalls(
-          this.#changes.causing(
-            new SqliteWorkflowStore({
-              database: this.#database,
-              onCommit: async (transaction, write) => {
-                await this.#file(transaction, write, recorded);
-                await this.#follow(transaction, write, follows);
-                await this.#changes.record(transaction, RUNS_KEY, write.events);
-                await removeShares(
-                  transaction,
-                  "run",
-                  this.#scope,
-                  write.deleteRuns ?? []
-                );
-              },
-              scope: this.#scope,
-            })
-          ),
-          (call) => this.#call(call)
-        )
-      )
-    );
+    recorded: (runId: string) => RecordedScope | undefined
+  ): Promise<QueueStoreService> {
+    const causes = new WeakMap<QueueWrite, string | null>();
+    const store = makeSqliteQueueStore({
+      database: this.#database,
+      onCommit: async (transaction, write) => {
+        const deleted = write.deleteRuns ?? [];
+        await this.#file(transaction, write, recorded);
+        await this.#changes.record(
+          transaction,
+          RUNS_KEY,
+          runEventsOf(await this.#workflowEvents(transaction, write)),
+          causes.get(write) ?? null
+        );
+        await removeShares(transaction, "run", this.#scope, deleted);
+        await removeAnnexes(transaction, this.#scope, deleted);
+      },
+      scope: this.#scope,
+    });
+    return this.#call(() => {
+      const gated = gatedQueueStore(store, (call) => this.#call(call));
+      return Promise.resolve({
+        ...gated,
+        commit: (write: QueueWrite) => {
+          const cause = causingRun();
+          return Effect.suspend(() => {
+            const owned = ownedQueueWrite(write);
+            causes.set(owned, cause);
+            return gated.commit(owned);
+          });
+        },
+      });
+    });
   }
 
   recorded(runId: string): Promise<StoredScope> {
@@ -184,7 +97,12 @@ export class DatabaseRunStore implements RunStore {
           sessionId: marblesWorkflowRuns.sessionId,
         })
         .from(marblesWorkflowRuns)
-        .where(this.#run(runId));
+        .where(
+          and(
+            eq(marblesWorkflowRuns.scope, this.#scope),
+            eq(marblesWorkflowRuns.runId, runId)
+          )
+        );
       if (row === undefined) {
         return { ledger: {} };
       }
@@ -195,82 +113,20 @@ export class DatabaseRunStore implements RunStore {
     });
   }
 
-  release(runId?: string): Promise<void> {
-    if (runId !== undefined) {
-      this.#letGo.add(runId);
-    }
-    return this.#call(async () => {
-      await this.#database
-        .update(marblesWorkflowRuns)
-        .set(NO_OWNER)
-        .where(
-          and(
-            eq(marblesWorkflowRuns.scope, this.#scope),
-            eq(marblesWorkflowRuns.ownerId, this.#owner),
-            runId === undefined
-              ? undefined
-              : eq(marblesWorkflowRuns.runId, runId)
-          )
-        );
-    });
-  }
-
-  remove(runId: string): Promise<void> {
-    return this.#call(() =>
-      this.#database.transaction(async (transaction) => {
-        const workflows = new SqliteWorkflowStore({
-          database: transaction,
-          scope: this.#scope,
-        });
-        const removal = await removalOf(workflows, runId);
-        await workflows.commit(removal);
-        await transaction.delete(marblesWorkflowRuns).where(this.#run(runId));
-        await removeShares(
-          transaction,
-          "run",
-          this.#scope,
-          removal.deleteRuns ?? []
-        );
-      })
-    );
-  }
-
   async #file(
-    transaction: WorkflowTransaction,
-    write: WorkflowStoreWrite,
+    transaction: QueueTransaction,
+    write: QueueWrite,
     recorded: (runId: string) => RecordedScope | undefined
   ): Promise<void> {
-    for (const { runId, scope, settled } of filedRuns(write, recorded)) {
-      if (this.#letGo.has(runId)) {
-        throw new RunMovedError(runId);
-      }
-      const held = await this.#ownerOf(transaction, runId);
-      if (
-        held !== undefined &&
-        held.ownerId !== null &&
-        held.ownerId !== this.#owner
-      ) {
-        throw new RunMovedError(runId);
-      }
-      const owner = settled ? NO_OWNER : this.#owned();
-      const recording =
-        scope === undefined
-          ? owner
-          : {
-              ledger: { ...scope.ledger },
-              literals: { ...scope.literals },
-              ...owner,
-              sessionId: scope.session.id,
-            };
+    for (const { runId, scope } of filedRuns(write, recorded)) {
+      const recording = {
+        ledger: { ...scope.ledger },
+        literals: { ...scope.literals },
+        sessionId: scope.session.id,
+      };
       await transaction
         .insert(marblesWorkflowRuns)
-        .values({
-          ledger: {},
-          literals: {},
-          ...recording,
-          runId,
-          scope: this.#scope,
-        })
+        .values({ ...recording, runId, scope: this.#scope })
         .onConflictDoUpdate({
           set: recording,
           target: [marblesWorkflowRuns.scope, marblesWorkflowRuns.runId],
@@ -289,85 +145,38 @@ export class DatabaseRunStore implements RunStore {
     }
   }
 
-  async #follow(
-    transaction: WorkflowTransaction,
-    write: WorkflowStoreWrite,
-    follows: RunFollower | undefined
-  ): Promise<void> {
-    for (const run of follows === undefined ? [] : (write.putRuns ?? [])) {
-      const change = follows?.(run.id, run.status);
-      if (change !== undefined) {
-        await followExecution(transaction, this.#scope, run.id, change);
+  async #workflowEvents(
+    transaction: QueueTransaction,
+    write: QueueWrite
+  ): Promise<readonly QueueEvent[]> {
+    const jobs = new Map<string, Job | undefined>(
+      (write.jobs ?? []).map((job) => [job.id, job])
+    );
+    const kept: QueueEvent[] = [];
+    for (const event of write.events ?? []) {
+      if (!("run" in event)) {
+        kept.push(event);
+        continue;
+      }
+      const { jobId } = event.run;
+      if (!jobs.has(jobId)) {
+        const [row] = await transaction
+          .select({ body: queueJobs.body })
+          .from(queueJobs)
+          .where(
+            and(eq(queueJobs.scope, this.#scope), eq(queueJobs.id, jobId))
+          );
+        jobs.set(jobId, row?.body);
+      }
+      const job = jobs.get(jobId);
+      if (job === undefined || !isTask(job)) {
+        kept.push(event);
       }
     }
-  }
-
-  #heldElsewhere(row: {
-    readonly ownerId: string | null;
-    readonly ownerPid: number | null;
-    readonly ownerStarted: string | null;
-  }): boolean {
-    return (
-      row.ownerId !== null &&
-      row.ownerId !== this.#owner &&
-      heldBy(row) !== null
-    );
-  }
-
-  #owned() {
-    return ownedHere(this.#owner);
-  }
-
-  #run(runId: string) {
-    return and(
-      eq(marblesWorkflowRuns.scope, this.#scope),
-      eq(marblesWorkflowRuns.runId, runId)
-    );
+    return kept;
   }
 
   #call<T>(call: () => Promise<T>): Promise<T> {
     return this.#gate.run(() => asBusy(call));
   }
-}
-
-export async function unheldParkedRuns(
-  database: StoreDatabase,
-  scope: string
-): Promise<readonly string[]> {
-  const store = new SqliteWorkflowStore({ database, scope });
-  const parked: string[] = [];
-  let after: number | undefined;
-  do {
-    const page = await asBusy(() =>
-      store.listRuns({
-        limit: 200,
-        status: ["suspended"],
-        ...(after === undefined ? {} : { after }),
-      })
-    );
-    parked.push(...page.items.map((run) => run.id));
-    after = page.next;
-  } while (after !== undefined);
-  if (parked.length === 0) {
-    return [];
-  }
-  const rows = await asBusy(() =>
-    database
-      .select({
-        ownerPid: marblesWorkflowRuns.ownerPid,
-        ownerStarted: marblesWorkflowRuns.ownerStarted,
-        runId: marblesWorkflowRuns.runId,
-      })
-      .from(marblesWorkflowRuns)
-      .where(
-        and(
-          eq(marblesWorkflowRuns.scope, scope),
-          inList(marblesWorkflowRuns.runId, parked)
-        )
-      )
-  );
-  const held = new Set(
-    rows.filter((row) => heldBy(row) !== null).map((row) => row.runId)
-  );
-  return parked.filter((runId) => !held.has(runId));
 }

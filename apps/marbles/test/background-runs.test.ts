@@ -4,15 +4,15 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve as resolvePath } from "node:path";
 import { ModelManager } from "@foundry/models";
-import { isJsonValue } from "@foundry/workflows";
-import { Orchestrator } from "@foundry/workflows/orchestrator";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
+import { RunQueue } from "~/lib/run-queue";
 import type { SessionRef } from "~/lib/types";
+import { isJsonValue } from "~/lib/workflow-runs";
 import type { RunInfo } from "~/model/connection";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { testEngine } from "./helpers/engine";
@@ -323,7 +323,7 @@ it("reports cancellation requested directly through the engine", async () => {
 it("reuses one registered agent step and records serializable dispatch input", async () => {
   const engine = testEngine();
   engines.push(engine);
-  const registrations = vi.spyOn(Orchestrator.prototype, "register");
+  const registrations = vi.spyOn(RunQueue.prototype, "register");
   try {
     const jobs = new BackgroundRuns(engine, new Catalog());
     await engine.start();

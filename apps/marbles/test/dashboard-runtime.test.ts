@@ -9,7 +9,7 @@ import { createEngine } from "~/create";
 import type { Engine } from "~/lib/engine";
 import type * as Harnesses from "~/lib/harnesses";
 import { runSteps } from "~/lib/run-trace";
-import { tick } from "~/lib/schedule";
+import { rollSchedule } from "~/lib/schedule";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { startEngine } from "./helpers/engine";
 
@@ -20,7 +20,6 @@ vi.mock("~/lib/harnesses", async (importOriginal) => ({
 
 const print = () => undefined;
 const options = {
-  lastFinish: new Map<string, number>(),
   root: "/tmp/workspace",
   startedAt: 1000,
   status: "Ready",
@@ -80,7 +79,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
     if (!scheduled) {
       throw new Error("missing fixture schedule");
     }
-    await tick(engine, scheduled, { print });
+    await rollSchedule(engine, scheduled, { print });
     const snapshot = dashboardSnapshot(await engine.runs(), await view(engine));
     expect(snapshot.mode).toBe("live");
     const declaredHere = {
@@ -191,7 +190,7 @@ it("shows a running step and cancels it on shutdown without starting queued work
   }
 });
 
-it("shows a parked step as cancelled and keeps its completed prerequisite", async () => {
+it("shows a suspended step as cancelled and keeps its completed prerequisite", async () => {
   const prepare = step("prepare").do(() => "draft");
   const askForReview = step("ask-review")
     .input(z.object({ draft: z.string() }))
