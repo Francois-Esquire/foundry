@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { Config } from "../config/config";
+import { Config } from "../config/index";
 import { ReactiveStore } from "../config/reactive-store";
 import type { ConfigChangePayload } from "../config/types";
 

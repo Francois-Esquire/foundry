@@ -11,7 +11,7 @@ import {
   CONTAINER_MANAGED_BY_VALUE,
 } from "../container/defaults";
 import { createContainers } from "../node/containers";
-import { createFakeContainerRuntime } from "../testing/fake-container-runtime";
+import { createFakeContainerRuntime } from "../testing/index";
 import {
   CONTAINER_SPEC,
   CONTAINER_STORES,

@@ -4,7 +4,7 @@ import { createContainers } from "../node/containers";
 import { prepareSandboxProcess } from "../node/prepare-process";
 import { ProcessController } from "../node/process-controller";
 import { MemoryContainerStore } from "../store/memory";
-import { createFakeContainerRuntime } from "../testing/fake-container-runtime";
+import { createFakeContainerRuntime } from "../testing/index";
 
 it("exchanges binary input and separate output through the container process facet", async () => {
   const containers = createContainers({

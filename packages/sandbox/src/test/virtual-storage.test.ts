@@ -1,7 +1,7 @@
 import { storageChecks } from "@foundry/core/testing/storage";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createVirtualSandbox } from "../virtual/sandbox";
+import { createVirtualSandbox } from "../virtual/index";
 
 afterEach(() => vi.restoreAllMocks());
 

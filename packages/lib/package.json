@@ -13,9 +13,9 @@
       "default": "./src/async-scope.ts"
     },
     "./config": {
-      "types": "./dist/config/config.d.ts",
-      "import": "./src/config/config.ts",
-      "default": "./src/config/config.ts"
+      "types": "./dist/config/index.d.ts",
+      "import": "./src/config/index.ts",
+      "default": "./src/config/index.ts"
     },
     "./authorization": {
       "types": "./dist/authorization/index.d.ts",

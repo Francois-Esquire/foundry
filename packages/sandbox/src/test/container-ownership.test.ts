@@ -17,8 +17,8 @@ import { createContainers } from "../node/containers";
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { MemoryContainerStore } from "../store/memory";
 import { SqliteContainerStore } from "../store/sqlite";
-import type { FakeContainerRuntime } from "../testing/fake-container-runtime";
-import { createFakeContainerRuntime } from "../testing/fake-container-runtime";
+import type { FakeContainerRuntime } from "../testing/index";
+import { createFakeContainerRuntime } from "../testing/index";
 import {
   CONTAINER_SPEC,
   CONTAINER_STORES,

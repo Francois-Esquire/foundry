@@ -4,7 +4,7 @@ import type { ContainerStore, ContainerStoreWrite } from "../../store/index";
 import { MemoryContainerStore } from "../../store/memory";
 import type { ContainerRow } from "../../store/schema";
 import { SqliteContainerStore } from "../../store/sqlite";
-import { createFakeContainerRuntime } from "../../testing/fake-container-runtime";
+import { createFakeContainerRuntime } from "../../testing/index";
 import { libsqlDatabases } from "./sqlite";
 
 export const CONTAINER_SPEC: ContainerSandboxConstraints = {

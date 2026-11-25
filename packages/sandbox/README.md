@@ -579,7 +579,7 @@ reattaches yet, so the next `open` replaces it).
 createFakeContainerRuntime(options?): FakeContainerRuntime;
 ```
 
-One file, `src/testing/fake-container-runtime.ts`: an in-memory `ContainerRuntime` to put under
+One file, `src/testing/index.ts`: an in-memory `ContainerRuntime` to put under
 `createContainers` in a consumer's tests. It scripts `exec`, records every
 booted instance, and can fail installs, stops and removes.
 

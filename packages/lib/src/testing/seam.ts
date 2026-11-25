@@ -816,3 +816,46 @@ export function assertExportNames(packagesDir: string): void {
     throw new Error(`Export naming violations:\n- ${violations.join("\n- ")}`);
   }
 }
+
+export function auditExportLayout(packagesDir: string): string[] {
+  const root = resolve(packagesDir);
+  const violations: string[] = [];
+  for (const dir of packageDirectories(root)) {
+    const manifest = readManifest(dir);
+    const label = manifest.name ?? relative(root, dir);
+    if (!manifest.exports) {
+      continue;
+    }
+    for (const [subpath, target] of Object.entries(manifest.exports)) {
+      if (subpath.includes("*")) {
+        violations.push(`${label}: wildcard export "${subpath}"`);
+        continue;
+      }
+      const resolved = resolveExportTarget(target);
+      if (resolved === undefined) {
+        violations.push(`${label}: export "${subpath}" has no source target`);
+        continue;
+      }
+      const expected =
+        subpath === "."
+          ? ["./src/index.ts"]
+          : [
+              `./src/${subpath.slice(2)}.ts`,
+              `./src/${subpath.slice(2)}/index.ts`,
+            ];
+      if (!expected.includes(resolved)) {
+        violations.push(
+          `${label}: export "${subpath}" targets "${resolved}", expected ${expected.join(" or ")}`
+        );
+      }
+    }
+  }
+  return violations;
+}
+
+export function assertExportLayout(packagesDir: string): void {
+  const violations = auditExportLayout(packagesDir);
+  if (violations.length > 0) {
+    throw new Error(`Export layout violations:\n- ${violations.join("\n- ")}`);
+  }
+}

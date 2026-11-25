@@ -6,7 +6,7 @@ import {
   createContainerSandbox,
   resolveContainerSpec,
 } from "../node/container-sandbox";
-import { createFakeContainerRuntime } from "../testing/fake-container-runtime";
+import { createFakeContainerRuntime } from "../testing/index";
 
 const PORT_RANGE_ERROR = /1 through 65535/i;
 const DUPLICATE_PORT_ERROR = /must be unique/i;

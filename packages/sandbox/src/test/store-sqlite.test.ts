@@ -10,7 +10,7 @@ import type { ContainerRow } from "../store/schema";
 import { containerRowSchema } from "../store/schema";
 import { SqliteContainerStore } from "../store/sqlite";
 import { sandboxContainers } from "../store/tables";
-import { createFakeContainerRuntime } from "../testing/fake-container-runtime";
+import { createFakeContainerRuntime } from "../testing/index";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 const memory = libsqlDatabases("memory");

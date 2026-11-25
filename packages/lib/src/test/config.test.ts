@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { z } from "zod";
-import { Config } from "../config/config";
+import { Config } from "../config/index";
 import type { ConfigChangePayload } from "../config/types";
 
 const NOT_CONTRIBUTED_PATTERN = /not contributed/;

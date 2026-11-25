@@ -7,8 +7,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { ContainerSandboxConstraints } from "../container/constraints";
 import { createContainers } from "../node/containers";
 import { MemoryContainerStore } from "../store/memory";
-import type { FakeContainerRuntimeOptions } from "../testing/fake-container-runtime";
-import { createFakeContainerRuntime } from "../testing/fake-container-runtime";
+import type { FakeContainerRuntimeOptions } from "../testing/index";
+import { createFakeContainerRuntime } from "../testing/index";
 import {
   runSandboxContract,
   SANDBOX_ARGV_FIXTURE,

@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  assertExportLayout,
   assertExportNames,
   assertPackageTiers,
   assertWebStandardExports,
+  auditExportLayout,
   auditExportNames,
   auditPackageTiers,
   auditWebStandardExports,
@@ -260,6 +262,31 @@ describe("@foundry/lib/testing/seam portableSubpaths", () => {
       "./adapters/node/helper",
       "./live/node",
       "./testing/store",
+    ]);
+  });
+});
+
+describe("@foundry/lib/testing/seam export layout", () => {
+  it("verifies every package under packages/* mirrors its export keys to src paths", () => {
+    expect(() => assertExportLayout(PACKAGES_DIR)).not.toThrow();
+  });
+
+  it("flags non-mirroring export targets and wildcards", () => {
+    const packagesDir = tempPackages();
+    writePackage(packagesDir, "sample", {
+      exports: {
+        ".": { import: "./src/index.ts" },
+        "./*": "./src/*.ts",
+        "./foo": { import: "./src/foo/bar.ts" },
+        "./ok": { import: "./src/ok.ts" },
+        "./ok-dir": { import: "./src/ok-dir/index.ts" },
+      },
+      name: "@foundry/sample",
+    });
+    const violations = auditExportLayout(packagesDir);
+    expect(violations).toEqual([
+      '@foundry/sample: wildcard export "./*"',
+      '@foundry/sample: export "./foo" targets "./src/foo/bar.ts", expected ./src/foo.ts or ./src/foo/index.ts',
     ]);
   });
 });

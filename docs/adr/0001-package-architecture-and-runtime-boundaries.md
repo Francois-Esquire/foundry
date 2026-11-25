@@ -73,6 +73,7 @@ Runtime **seams**, tier rules, and naming rules are enforced by `@foundry/lib/te
 - `assertWebStandardExports(packageDir, portableSubpaths(packageDir))` runs in each package's `base-entry.test.ts`, so a new non-`./node` subpath is audited by default. `@foundry/core` cannot run its own copy without a dependency cycle (`lib` depends on `core`), so `@foundry/lib` audits it.
 - `assertPackageTiers(packagesDir)` fails when a package under `packages/*` is missing from `PACKAGE_TIERS`, when a dependency points to a higher tier (which covers Tools depending on Domains), when a package depends on a workspace package outside `packages/*` (other than `@foundry/tsconfig`), or when the dependency graph has a cycle. Same-tier edges are allowed.
 - `assertExportNames(packagesDir)` fails on exported `*Manager`, `*System` (except `*FileSystem`), and `InMemory*` names outside `test/` and `testing/`.
+- `assertExportLayout(packagesDir)` fails on wildcard exports or any export key `./a/b` whose source target does not mirror `./src/a/b.ts` or `./src/a/b/index.ts` (and `.` → `./src/index.ts`).
 
 Every package migration removes `node:*` imports and unguarded runtime globals from `.` and `./store/memory` without reintroducing them.
 
