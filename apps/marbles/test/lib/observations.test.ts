@@ -264,7 +264,7 @@ it("records a host task's agent turns on its run, correlated to the agent sessio
   engines.push(engine);
   engine.task<string, string>({
     name: "authoring-turn",
-    queue: "module:notes:authoring",
+    pool: "module:notes:authoring",
     run: async (prompt, { agents }) => {
       const session = await agents.session({
         id: "works-coder",
@@ -282,7 +282,7 @@ it("records a host task's agent turns on its run, correlated to the agent sessio
   const run = engine.executions.get(launched.id);
   expect(run).toMatchObject({
     correlation: { agentSessionId: "chat-1", moduleId: "notes" },
-    queue: "module:notes:authoring",
+    pool: "module:notes:authoring",
     status: "complete",
   });
   expect(run?.observations).toEqual([

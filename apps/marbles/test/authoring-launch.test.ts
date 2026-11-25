@@ -631,6 +631,20 @@ describe("an unnamed .launch() on replay", () => {
     expect(seen).toEqual(["run", "setup", "run", "run"]);
   });
 
+  it("claims a locked nested workflow's setup definitions in setup", async () => {
+    const seen: string[] = [];
+    const leaf = step("locked-leaf").do(() => "leaf");
+    const inner = workflow("locked-inner").do(() => {
+      seen.push((identityOf(step().do(() => "x")) ?? "").split(":")[0] ?? "");
+      return leaf();
+    });
+    const outer = workflow("locked-outer", () => inner());
+    const engine = isolated("locked-outer");
+    await engine.start();
+    await expect(engine.execute(outer, {})).resolves.toBe("leaf");
+    expect(seen).toEqual(["setup"]);
+  });
+
   it("numbers each source load's definitions on its own, however loads interleave", async () => {
     const build = (words: typeof library) => words.step().do(() => "loaded");
     const ids = new Map<string, string[]>();

@@ -6,6 +6,7 @@ import type {
   Job,
   JobId,
   Links,
+  PoolStats,
   Suspension as QueuedSuspension,
   QueueEvent,
   RecoverySummary,
@@ -300,6 +301,10 @@ export class RunQueue {
         runId: requireRunId(options.runId),
       })
     );
+  }
+
+  pools(): Promise<readonly PoolStats[]> {
+    return surfacing(this.#client.pools());
   }
 
   configurePool(pool: ConcurrencyPool): Promise<void> {

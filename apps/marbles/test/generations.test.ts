@@ -76,6 +76,7 @@ function moduleText(
     .join("\n");
   return [
     'import { appendFileSync, existsSync } from "node:fs";',
+    "export default { pools: { default: 1 } };",
     'import { observe, schedule, step, tasks } from "@foundry.sh/marbles";',
     `import { z } from ${JSON.stringify(zodPath)};`,
     broken ? 'throw new Error("boom in revision");' : "",
@@ -1099,7 +1100,7 @@ describe("engine generations", () => {
           kind: "task",
           name: "gone-task",
           owner: { pid: exitedPid(), started: null },
-          queue: "marbles",
+          pool: "marbles",
           status: "queued",
           timestamps: { queuedAt: at, updatedAt: at },
         }),

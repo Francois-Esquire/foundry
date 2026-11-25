@@ -153,7 +153,7 @@ describe("an engine that has begun to retire", () => {
   it("runs a child a task active here launches after retirement began", async () => {
     const engine = engineHere();
     const gate = Promise.withResolvers<void>();
-    engine.task({ name: "child", queue: "child", run: () => 42 });
+    engine.task({ name: "child", pool: "child", run: () => 42 });
     engine.task({
       name: "parent",
       run: async () => {
@@ -172,10 +172,10 @@ describe("an engine that has begun to retire", () => {
   it("runs a child of a child, and a child of a workflow step, there too", async () => {
     const engine = engineHere();
     const gate = Promise.withResolvers<void>();
-    engine.task({ name: "grandchild", queue: "g", run: () => 7 });
+    engine.task({ name: "grandchild", pool: "g", run: () => 7 });
     engine.task({
       name: "child",
-      queue: "c",
+      pool: "c",
       run: async () =>
         2 * (await (await engine.launch<number>("grandchild", {})).result),
     });
@@ -202,7 +202,7 @@ describe("an engine that has begun to retire", () => {
     const ran: string[] = [];
     engine.task({
       name: "busy",
-      queue: "shared",
+      pool: "shared",
       run: async () => {
         ran.push("busy");
         await busyGate.promise;
@@ -210,7 +210,7 @@ describe("an engine that has begun to retire", () => {
     });
     engine.task({
       name: "child",
-      queue: "shared",
+      pool: "shared",
       run: () => {
         ran.push("child");
         return 42;
@@ -239,8 +239,8 @@ describe("an engine that has begun to retire", () => {
 
   it("finishes here the fan-out children queued behind a queue while their parent still runs", async () => {
     const engine = testEngine({
+      pools: { fanout: { limit: 1 } },
       print: () => undefined,
-      queues: { fanout: { concurrency: 1 } },
     });
     engines.push(engine);
     const childGate = Promise.withResolvers<void>();
@@ -248,7 +248,7 @@ describe("an engine that has begun to retire", () => {
     const ran: number[] = [];
     engine.task<number, number>({
       name: "child",
-      queue: "fanout",
+      pool: "fanout",
       run: async (n) => {
         ran.push(n);
         await childGate.promise;
@@ -282,7 +282,7 @@ describe("an engine that has begun to retire", () => {
     const ran: string[] = [];
     engine.task({
       name: "busy",
-      queue: "shared",
+      pool: "shared",
       run: async () => {
         ran.push("busy");
         await busyGate.promise;
@@ -290,7 +290,7 @@ describe("an engine that has begun to retire", () => {
     });
     engine.task({
       name: "child",
-      queue: "shared",
+      pool: "shared",
       run: () => {
         ran.push("child");
       },
@@ -329,7 +329,7 @@ describe("an engine that has begun to retire", () => {
   it("refuses a child a cancelled task launches before its body returns, since the run no longer runs", async () => {
     const engine = engineHere();
     const launched = Promise.withResolvers<unknown>();
-    engine.task({ name: "child", queue: "child", run: () => 42 });
+    engine.task({ name: "child", pool: "child", run: () => 42 });
     engine.task({
       name: "parent",
       run: async (_input, context) => {
@@ -378,7 +378,7 @@ describe("an engine that has begun to retire", () => {
     it("runs a child an output schema launches", async () => {
       const engine = engineHere();
       const gate = Promise.withResolvers<void>();
-      engine.task({ name: "child", queue: "child", run: () => 42 });
+      engine.task({ name: "child", pool: "child", run: () => 42 });
       engine.define({
         fn: () => 1,
         kind: "step",
@@ -397,7 +397,7 @@ describe("an engine that has begun to retire", () => {
       const engine = engineHere();
       const gate = Promise.withResolvers<void>();
       const entered = Promise.withResolvers<void>();
-      engine.task({ name: "child", queue: "child", run: () => 42 });
+      engine.task({ name: "child", pool: "child", run: () => 42 });
       const inner = step("inner")
         .input(launching(engine, gate.promise, entered.resolve))
         .do(({ input }) => input);
@@ -420,7 +420,7 @@ describe("an engine that has begun to retire", () => {
       const gate = Promise.withResolvers<void>();
       const entered = Promise.withResolvers<void>();
       const seen = Promise.withResolvers<unknown>();
-      engine.task({ name: "child", queue: "child", run: () => 42 });
+      engine.task({ name: "child", pool: "child", run: () => 42 });
       engine.define({
         fn: () => "done",
         input: {
@@ -460,7 +460,7 @@ describe("an engine that has begun to retire", () => {
       const gate = Promise.withResolvers<void>();
       const entered = Promise.withResolvers<void>();
       const seen = Promise.withResolvers<unknown>();
-      engine.task({ name: "child", queue: "child", run: () => 42 });
+      engine.task({ name: "child", pool: "child", run: () => 42 });
       const leaf = step("leaf").do(() => "done");
       engine.define({
         kind: "workflow",
@@ -492,7 +492,7 @@ describe("an engine that has begun to retire", () => {
       const gate = Promise.withResolvers<void>();
       const launched = Promise.withResolvers<unknown>();
       let attempts = 0;
-      engine.task({ name: "child", queue: "child", run: () => 42 });
+      engine.task({ name: "child", pool: "child", run: () => 42 });
       engine.define({
         config: {
           retry: {
@@ -556,7 +556,7 @@ describe("an engine that has begun to retire", () => {
     });
     await old.start();
     await next.start();
-    const parent = await old.launch("parent", {}, { queue: "parents" });
+    const parent = await old.launch("parent", {}, { pool: "parents" });
     const { ended } = await old.retire(successor());
     gate.resolve();
     expect(await outcome(parent.result)).toBe(42);
@@ -594,7 +594,7 @@ describe("an engine that has begun to retire", () => {
     let ended = false;
     engine.task({
       name: "child",
-      queue: "child",
+      pool: "child",
       run: async () => {
         await childGate.promise;
         return 42;

@@ -28,7 +28,7 @@ afterEach(async () => {
 
 async function host(options: TestEngineOptions) {
   const engine = testEngine({
-    queues: { marbles: { concurrency: 1 } },
+    pools: { default: { limit: 1 } },
     ...options,
   });
   engines.push(engine);

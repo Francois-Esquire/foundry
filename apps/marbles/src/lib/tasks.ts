@@ -21,6 +21,6 @@ export interface TaskContext {
 
 export interface TaskDefinition<I = unknown, O = unknown> {
   readonly name: string;
-  readonly queue?: string;
+  readonly pool?: string;
   run(input: I, context: TaskContext): Promise<O> | O;
 }

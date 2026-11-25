@@ -65,7 +65,7 @@ it("writes a run when it is queued, before it starts, and when it settles", asyn
     kind: "task",
     name: "build",
     owner: thisProcess(),
-    queue: "marbles",
+    pool: "default",
     status: "running",
   });
   expect((await stored(first.id)).input).toBeUndefined();
@@ -90,7 +90,7 @@ it("never changes a settled run: late progress and observations are dropped", as
   let late: TaskContext | undefined;
   engine.task({
     name: "save",
-    queue: "system",
+    pool: "system",
     run: (_input, context: TaskContext) => {
       late = context;
     },
@@ -109,7 +109,7 @@ it("never changes a settled run: late progress and observations are dropped", as
 
   expect(observed).toBe(false);
   expect(engine.executions.get(launched.id)).toEqual(settled);
-  expect(engine.executions.queues()).toEqual([]);
+  expect(await engine.executions.pools()).toEqual([]);
 });
 
 it("returns the run a source already started instead of launching it twice", async () => {

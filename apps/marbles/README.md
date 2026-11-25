@@ -454,3 +454,8 @@ exit gives them back.
 | Host or develop Marbles | [Embedding](https://francois-esquire.github.io/foundry/marbles/reference/engine/) and [Contributing](https://francois-esquire.github.io/foundry/marbles/contributing/) |
 
 For terminal UI development, see the [stories guide](stories/README.md).
+
+Source files configure pools with `export default defineConfig({ pools: { review: 2 }, pool: "review" })`.
+Pool limits are positive integers or `Infinity`. Hosted and script engines use
+limit 4 in `default`; raw engines use 1. Awaiting a launched run holds the
+caller's place; use `.run()` inline or separate pools.

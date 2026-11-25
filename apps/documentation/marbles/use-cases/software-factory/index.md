@@ -14,7 +14,7 @@ The Software Factory takes a task from intake to a reviewed pull request.
 It introduces nothing new. Every piece is a marble from the earlier pages:
 a task backlog, an observer that dispatches ready work, steps that run in
 a worktree, a parallel check, an artifact of evidence, and an approval that
-parks until a person answers.
+suspends until a person answers.
 
 The factory is built from smaller factories. `factory-verify` is a whole
 workflow you can run on its own, and `factory-change` locks it under the
@@ -91,10 +91,10 @@ once, in any one module:
 ```ts
 import { queue } from "@foundry.sh/marbles";
 
-queue({ concurrency: 2 });
+export default defineConfig({ pools: { default: 2 } });
 ```
 
-A delivery parked on its approval does not hold a place in the queue. See
+A delivery suspended on its approval does not hold a place in the queue. See
 [how many runs at once](/marbles/concepts/durability#how-many-runs-at-once).
 
 ## Where to grow it

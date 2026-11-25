@@ -210,7 +210,7 @@ it("disposal reports every cleanup error after trying the remaining resources", 
 it.each(["stop", "dispose"] as const)(
   "a cancelling %s escalates a graceful stop that a retired engine's queued run, never handed over, holds open",
   async (via) => {
-    const engine = testEngine({ queues: { default: { concurrency: 1 } } });
+    const engine = testEngine({ pools: { default: { limit: 1 } } });
     const gate = deferred();
     engine.define({ fn: () => gate.promise, kind: "step", name: "blocking" });
     engine.define({ fn: () => "done", kind: "step", name: "waiting" });

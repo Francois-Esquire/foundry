@@ -28,7 +28,7 @@ async function engineHere(ran: string[]): Promise<Engine> {
   engines.push(engine);
   engine.task({
     name: "save",
-    queue: "system",
+    pool: "system",
     run: () => {
       ran.push("save");
       return 42;

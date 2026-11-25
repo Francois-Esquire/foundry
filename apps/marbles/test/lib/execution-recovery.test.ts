@@ -20,7 +20,7 @@ it("marks what an exited process was running interrupted, and admits its queue a
   const state = join(fixture.root, "state");
   const dead = exitedPid();
   await leftBehind(state, dead, [
-    { id: "rn-program", name: "program", queue: "programs", status: "running" },
+    { id: "rn-program", name: "program", pool: "programs", status: "running" },
     { id: "rn-save-1", input: { n: 1 } },
     { id: "rn-save-2", input: { n: 2 } },
     { id: "rn-save-3", input: { n: 3 } },
@@ -31,13 +31,13 @@ it("marks what an exited process was running interrupted, and admits its queue a
   const engine = engineWith({ state });
   engine.task<{ n: number }, number>({
     name: "save",
-    queue: "system",
+    pool: "system",
     run: ({ n }) => {
       order.push(n);
       return n;
     },
   });
-  engine.task({ name: "program", queue: "programs", run: () => undefined });
+  engine.task({ name: "program", pool: "programs", run: () => undefined });
   await engine.start();
   const later = await engine.launch<number>("save", { n: 4 });
   await later.result;
@@ -92,7 +92,7 @@ it("keeps queued work across a stop and admits it in the next process's order", 
   const resumed: string[] = [];
   second.task<{ label: string }, string>({
     name: "save",
-    queue: "system",
+    pool: "system",
     run: ({ label }) => {
       resumed.push(label);
       return label;
@@ -117,7 +117,7 @@ it("re-admits a gone process's queued workflow under its recorded id", async () 
       input: {},
       kind: "workflow",
       name: "flow",
-      queue: "marbles",
+      pool: "marbles",
     },
   ]);
 
@@ -140,7 +140,7 @@ it("lets one of two engines taking over an exited process's queued run run it", 
   for (const engine of engines) {
     engine.task({
       name: "save",
-      queue: "system",
+      pool: "system",
       run: () => {
         ran.push("save");
       },

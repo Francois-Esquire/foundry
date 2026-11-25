@@ -43,7 +43,7 @@ it("leaves a retiring engine's active task and workflow to it when the next engi
   const old = engineHere();
   old.task({
     name: "long",
-    queue: "tasks",
+    pool: "tasks",
     run: async () => {
       await taskGate.promise;
       return "task done";
@@ -68,7 +68,7 @@ it("leaves a retiring engine's active task and workflow to it when the next engi
   });
 
   const next = engineHere();
-  next.task({ name: "long", queue: "tasks", run: () => "elsewhere" });
+  next.task({ name: "long", pool: "tasks", run: () => "elsewhere" });
   next.define({ fn: () => "elsewhere", kind: "step", name: "flow" });
   await next.start();
   expect((await storedExecution(state, task.id))?.status).toBe("running");

@@ -19,6 +19,7 @@ export interface EngineDefinitionsOptions {
 
 export class EngineDefinitions {
   readonly registry = new Registry();
+  readonly #pools = new Map<string, string>();
   readonly #direct = new Map<string, AnyDefinition>();
   readonly #directNames = new WeakMap<AnyDefinition, string>();
   readonly #extra = new Map<string, (running: QueuedWorkflows) => void>();
@@ -28,12 +29,17 @@ export class EngineDefinitions {
     this.#options = options;
   }
 
-  define(definition: AnyDefinition): void {
+  define(definition: AnyDefinition, pool?: string): void {
     if (definition.name !== undefined) {
       this.#claim(definition.name, { definitions: false, label: "define" });
     }
     this.registry.define(definition);
     if (definition.name !== undefined) {
+      if (pool === undefined) {
+        this.#pools.delete(definition.name);
+      } else {
+        this.#pools.set(definition.name, pool);
+      }
       this.#registerOnQueue(definition.name);
     }
   }
@@ -74,6 +80,17 @@ export class EngineDefinitions {
     for (const register of this.#extra.values()) {
       register(running);
     }
+  }
+
+  poolOf(name: string): string | undefined {
+    return this.#pools.get(name);
+  }
+
+  declaredName(definition: AnyDefinition): string | undefined {
+    return definition.name !== undefined &&
+      this.registry.definitions.get(definition.name) === definition
+      ? definition.name
+      : undefined;
   }
 
   directName(definition: AnyDefinition, running: QueuedWorkflows): string {

@@ -111,8 +111,15 @@ export type {
   Workspaces,
 } from "~/lib/types";
 export { step, workflow } from "./builder";
+export type { MarblesConfig, PoolConfig } from "./config";
+export { defineConfig } from "./config";
 export type { AgentSpec, DefineAgent } from "./instances";
-export type { Runnable, StepDefinition, WorkflowDefinition } from "./lock";
+export type {
+  LaunchOptions,
+  Runnable,
+  StepDefinition,
+  WorkflowDefinition,
+} from "./lock";
 export { models } from "./models";
 export { observe } from "./observe";
 export { agent, artifact, sandbox, skills, workspace } from "./resources";

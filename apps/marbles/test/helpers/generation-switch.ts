@@ -40,6 +40,7 @@ function moduleText(
     .join("\n");
   return [
     'import { appendFileSync, existsSync } from "node:fs";',
+    "export default { pools: { default: 1 } };",
     'import { step } from "@foundry.sh/marbles";',
     `const note = (what) => appendFileSync(${JSON.stringify(fixture.log)}, what + " " + process.pid + "\\n");`,
     holds,
